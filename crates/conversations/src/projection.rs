@@ -1809,6 +1809,41 @@ impl ProjectionFold {
                         severity: "warning".into(),
                         ..Default::default()
                     },
+                    SessionLoadFailureReason::SessionArchived { recovery_command } => {
+                        ConversationSessionNotice {
+                            title: "代理会话已归档".into(),
+                            message: Some(match &recovery_command {
+                                Some(command) => format!("运行 `{command}` 后重新加载。"),
+                                None => "会话已归档。重新加载或新建对话。".into(),
+                            }),
+                            severity: "warning".into(),
+                            action: recovery_command.map(|command| {
+                                agents::conversation::ConversationNoticeAction::CopyCommand {
+                                    command,
+                                    label: "复制恢复命令".into(),
+                                }
+                            }),
+                            ..Default::default()
+                        }
+                    }
+                    SessionLoadFailureReason::SessionBusy => ConversationSessionNotice {
+                        title: "代理会话正被占用".into(),
+                        message: Some(
+                            "关闭占用该会话的窗口后重新加载。不要新建会话，否则会丢掉唯一指针。"
+                                .into(),
+                        ),
+                        severity: "warning".into(),
+                        ..Default::default()
+                    },
+                    SessionLoadFailureReason::SessionUnavailable => ConversationSessionNotice {
+                        title: "代理会话不可用".into(),
+                        message: Some(
+                            "代理侧会话已结束或不存在。可见历史仍在，但 Agent 隐藏上下文已丢失。"
+                                .into(),
+                        ),
+                        severity: "warning".into(),
+                        ..Default::default()
+                    },
                     SessionLoadFailureReason::Other { message } => ConversationSessionNotice {
                         title: "加载代理会话失败".into(),
                         message: Some(format!(

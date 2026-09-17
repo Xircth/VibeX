@@ -471,7 +471,10 @@ fn attention_from_event(
                 Some((DesktopAttentionKind::Warning, Some(message.clone()), None))
             }
             agents::conversation::SessionLoadFailureReason::ResourceNotFound
-            | agents::conversation::SessionLoadFailureReason::Unsupported => {
+            | agents::conversation::SessionLoadFailureReason::Unsupported
+            | agents::conversation::SessionLoadFailureReason::SessionArchived { .. }
+            | agents::conversation::SessionLoadFailureReason::SessionBusy
+            | agents::conversation::SessionLoadFailureReason::SessionUnavailable => {
                 Some((DesktopAttentionKind::Warning, None, None))
             }
         },

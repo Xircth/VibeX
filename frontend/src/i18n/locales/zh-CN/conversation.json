@@ -125,6 +125,7 @@
   },
   "turnErrorCard": {
     "reloadSession": "重新加载会话",
+    "newConversation": "新对话",
     "rebindSession": "重新绑定会话",
     "cancelledTitle": "已取消",
     "resourceNotFoundTitle": "代理会话已过期",

@@ -800,7 +800,10 @@ pub fn classify_turn_error(
         Some("auth_required") => ConversationTurnErrorKind::AuthRequired,
         Some("resource_not_found") => ConversationTurnErrorKind::ResourceNotFound,
         Some("session_resume_unsupported") => ConversationTurnErrorKind::SessionResumeUnsupported,
-        Some("session_load_failed") => ConversationTurnErrorKind::SessionLoadFailed,
+        Some("session_load_failed" | "session_archived" | "session_busy" | "session_unavailable") => {
+            ConversationTurnErrorKind::SessionLoadFailed
+        }
+        Some("acp_session_not_bound") => ConversationTurnErrorKind::Unknown,
         Some("idle_timeout") => ConversationTurnErrorKind::IdleTimeout,
         Some("connection_closed") => ConversationTurnErrorKind::ConnectionClosed,
         Some("prompt_conflict") => ConversationTurnErrorKind::PromptConflict,
@@ -868,7 +871,27 @@ pub enum SessionLoadFailureReason {
     ResourceNotFound,
     AuthenticationRequired { message: String },
     Unsupported,
+    SessionArchived {
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        recovery_command: Option<String>,
+    },
+    SessionBusy,
+    SessionUnavailable,
     Other { message: String },
+}
+
+impl SessionLoadFailureReason {
+    pub fn code(&self) -> &'static str {
+        match self {
+            Self::ResourceNotFound => "resource_not_found",
+            Self::AuthenticationRequired { .. } => "auth_required",
+            Self::Unsupported => "session_resume_unsupported",
+            Self::SessionArchived { .. } => "session_archived",
+            Self::SessionBusy => "session_busy",
+            Self::SessionUnavailable => "session_unavailable",
+            Self::Other { .. } => "session_load_failed",
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
@@ -1214,6 +1237,10 @@ pub enum ConversationNoticeAction {
     },
     OpenUrl {
         url: String,
+        label: String,
+    },
+    CopyCommand {
+        command: String,
         label: String,
     },
 }

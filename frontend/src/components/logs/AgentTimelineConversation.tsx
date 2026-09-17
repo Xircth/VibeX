@@ -59,6 +59,7 @@ import { getComposerSteeringTarget } from '@/components/tasks/follow-up/sessionC
 import { ConversationChildrenSummary } from '@/features/conversation/ConversationChildrenSummary';
 import { PiProjectTrustBanner } from '@/features/conversation/PiProjectTrustBanner';
 import {
+  AGENT_BINDING_LOAD_FAILURE_NOTICE_ROW_ID,
   AGENT_CONNECTION_RECOVERING_NOTICE_ROW_ID,
   AGENT_SESSION_CONNECT_ERROR_NOTICE_ROW_ID,
   sessionNoticeNeedsRebind,
@@ -449,6 +450,7 @@ const AgentTimelineConversation = forwardRef<
   const forkSupported = conversation.forkSessionSupported;
   const conversationStatus = useOptionalConversationStatus();
   const setConversationStatusNotices = conversationStatus?.setNotices;
+  const setSessionBindReady = conversationStatus?.setSessionBindReady;
   const setConversationStatusQuestion = conversationStatus?.setQuestion;
   const setConversationStatusPermissions = conversationStatus?.setPermissions;
   const setConversationChildrenDock = conversationStatus?.setChildrenDock;
@@ -508,6 +510,9 @@ const AgentTimelineConversation = forwardRef<
   useEffect(() => {
     if (conversationError) toast.error(conversationError);
   }, [conversationError]);
+  useEffect(() => {
+    setSessionBindReady?.(conversation.sessionBindReady);
+  }, [conversation.sessionBindReady, setSessionBindReady]);
   // Stable reference (memoized in the hook) for the reset-to-here retry flow.
   const conversationResetAndReload = conversation.resetAndReload;
   // Restore a failed ACP connection without clearing the durable/live timeline.
@@ -1315,6 +1320,18 @@ const AgentTimelineConversation = forwardRef<
         onRebind: sessionNoticeNeedsRebind(notice, row.row_id)
           ? conversationRebindSession
           : undefined,
+        onReload:
+          row.row_id === AGENT_BINDING_LOAD_FAILURE_NOTICE_ROW_ID
+            ? conversationReconnectAndReload
+            : undefined,
+        onNewConversation:
+          row.row_id === AGENT_BINDING_LOAD_FAILURE_NOTICE_ROW_ID
+            ? () =>
+                requestCreateSessionInExecutionArea(
+                  setSearchParams,
+                  searchParams
+                )
+            : undefined,
       });
     };
     if (latestTurnError && latestTurnErrorRow) {

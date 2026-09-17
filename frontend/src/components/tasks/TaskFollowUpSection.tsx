@@ -514,6 +514,7 @@ export function TaskFollowUpSection({
     question: pendingAgentQuestion,
     permissions: pendingPermissions,
     childrenDock,
+    sessionBindReady,
   } = useConversationStatus();
   const executor = effectiveExecutorProfile?.executor ?? null;
   const catalogQuery = useQuery({
@@ -869,6 +870,7 @@ export function TaskFollowUpSection({
         hasExecutor: !!effectiveExecutorProfile?.executor,
         isAwaitingNewSessionConfirmation,
         isNewSessionMode,
+        sessionBindReady,
         message: localMessage,
         conflictMarkdown: conflictResolutionInstructions,
         reviewMarkdown,
@@ -879,6 +881,7 @@ export function TaskFollowUpSection({
       effectiveExecutorProfile?.executor,
       isAwaitingNewSessionConfirmation,
       isNewSessionMode,
+      sessionBindReady,
       localMessage,
       conflictResolutionInstructions,
       reviewMarkdown,

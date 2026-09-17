@@ -307,7 +307,7 @@ pub async fn refresh_open_capability_catalog(
                 working_dir: working_dir.clone(),
                 additional_directories: Vec::new(),
                 session_id,
-                acp_session_id: format!("vibex-capability-probe-{}", session_id),
+                acp_session_id: String::new(),
                 auto_approve_mode: launch.auto_approve_mode,
                 env: launch.env,
                 preferences: Default::default(),

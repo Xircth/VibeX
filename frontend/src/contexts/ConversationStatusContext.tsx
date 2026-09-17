@@ -32,6 +32,8 @@ export type ConversationStatusNotice =
       kind: 'session-notice';
       notice: ConversationSessionNotice;
       onRebind?: () => void | Promise<unknown>;
+      onReload?: () => void | Promise<unknown>;
+      onNewConversation?: () => void | Promise<unknown>;
     };
 
 export type PendingConversationQuestion = {
@@ -55,6 +57,8 @@ type ConversationStatusContextValue = {
   enabled: boolean;
   notices: ConversationStatusNotice[];
   setNotices: (notices: ConversationStatusNotice[]) => void;
+  sessionBindReady: boolean;
+  setSessionBindReady: (ready: boolean) => void;
   question: PendingConversationQuestion | null;
   setQuestion: (question: PendingConversationQuestion | null) => void;
   permissions: PendingConversationPermission[];
@@ -74,6 +78,7 @@ export function ConversationStatusProvider({
   enabled?: boolean;
 }) {
   const [notices, setNotices] = useState<ConversationStatusNotice[]>([]);
+  const [sessionBindReady, setSessionBindReady] = useState(false);
   const [question, setQuestion] = useState<PendingConversationQuestion | null>(
     null
   );
@@ -87,6 +92,8 @@ export function ConversationStatusProvider({
       enabled,
       notices,
       setNotices,
+      sessionBindReady,
+      setSessionBindReady,
       question,
       setQuestion,
       permissions,
@@ -94,7 +101,7 @@ export function ConversationStatusProvider({
       childrenDock,
       setChildrenDock,
     }),
-    [childrenDock, enabled, notices, permissions, question]
+    [childrenDock, enabled, notices, permissions, question, sessionBindReady]
   );
 
   return (

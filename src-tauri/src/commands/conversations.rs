@@ -349,13 +349,31 @@ pub async fn conversation_detail(
 pub async fn conversation_ensure_session_controls(
     state: tauri::State<'_, AppState>,
     conversation_id: String,
+    reload: Option<bool>,
 ) -> Result<AgentSessionControlsSnapshot, AppError> {
     let id = Uuid::parse_str(&conversation_id)
         .map_err(|error| AppError::BadRequest(format!("invalid conversation id: {error}")))?;
     ConversationSessionService::new(state.conversation_context())
-        .ensure_session_controls(id)
+        .ensure_session_controls_with_reload(id, reload.unwrap_or(false))
         .await
         .map_err(Into::into)
+}
+
+#[tauri::command]
+pub async fn conversation_touch(
+    state: tauri::State<'_, AppState>,
+    conversation_id: String,
+) -> Result<serde_json::Value, AppError> {
+    let id = Uuid::parse_str(&conversation_id)
+        .map_err(|error| AppError::BadRequest(format!("invalid conversation id: {error}")))?;
+    ConversationSessionService::new(state.conversation_context())
+        .touch_session(id)
+        .await
+        .map_err(Into::into)?;
+    let idle_timeout_secs = agents::idle_timeout_from_env()
+        .map(|timeout| timeout.as_secs())
+        .unwrap_or(0);
+    Ok(serde_json::json!({ "ok": true, "idleTimeoutSecs": idle_timeout_secs }))
 }
 
 #[tauri::command]

@@ -16,6 +16,7 @@ const CONVERSATION_ID = 'conversation-1';
 const {
   detailMock,
   ensureSessionControlsMock,
+  touchMock,
   eventsSinceMock,
   listenMock,
   listeners,
@@ -25,6 +26,7 @@ const {
     listeners,
     detailMock: vi.fn(),
     ensureSessionControlsMock: vi.fn(),
+    touchMock: vi.fn(),
     eventsSinceMock: vi.fn(),
     listenMock: vi.fn((handler: (batch: ConversationRowOpBatch) => void) => {
       listeners.push(handler);
@@ -37,6 +39,7 @@ vi.mock('./conversationApi', () => ({
   conversationApi: {
     detail: detailMock,
     ensureSessionControls: ensureSessionControlsMock,
+    touch: touchMock,
     eventsSince: eventsSinceMock,
     timelinePage: vi.fn(),
     cancel: vi.fn(),
@@ -160,6 +163,8 @@ describe('useConversationTimeline', () => {
       current_mode: null,
       config_options: [],
     });
+    touchMock.mockReset();
+    touchMock.mockResolvedValue({ ok: true, idleTimeoutSecs: 180 });
     eventsSinceMock.mockReset();
     // The hook backfills rows once on subscribe; default to "nothing changed".
     eventsSinceMock.mockResolvedValue(rowPage([], 0n));
@@ -272,7 +277,7 @@ describe('useConversationTimeline', () => {
     expect(result.current.timeline.at(-1)?.phase).toBe('streaming');
   });
 
-  it('does not launch an agent session when opening imported history', async () => {
+  it('connects with the stored session after imported history detail succeeds', async () => {
     detailMock.mockResolvedValue({
       ...detail(),
       summary: {
@@ -290,7 +295,12 @@ describe('useConversationTimeline', () => {
     );
 
     await waitFor(() => expect(result.current.loading).toBe(false));
-    expect(ensureSessionControlsMock).not.toHaveBeenCalled();
+    await waitFor(() =>
+      expect(ensureSessionControlsMock).toHaveBeenCalledWith(CONVERSATION_ID, {
+        reload: false,
+      })
+    );
+    await waitFor(() => expect(result.current.sessionBindReady).toBe(true));
   });
 
   it('backfills from the loaded sequence instead of dumping the full timeline', async () => {
@@ -317,7 +327,31 @@ describe('useConversationTimeline', () => {
     );
   });
 
-  it('does not launch an agent session when opening a conversation with no turns', async () => {
+  it('does not connect while conversation detail is still loading', async () => {
+    let resolveDetail: (value: DbConversationDetail) => void = () => {};
+    detailMock.mockReturnValue(
+      new Promise<DbConversationDetail>((resolve) => {
+        resolveDetail = resolve;
+      })
+    );
+
+    const { result } = renderHook(() =>
+      useConversationTimeline(CONVERSATION_ID)
+    );
+
+    expect(result.current.loading).toBe(true);
+    expect(ensureSessionControlsMock).not.toHaveBeenCalled();
+
+    resolveDetail(detail());
+    await waitFor(() => expect(result.current.loading).toBe(false));
+    await waitFor(() =>
+      expect(ensureSessionControlsMock).toHaveBeenCalledWith(CONVERSATION_ID, {
+        reload: false,
+      })
+    );
+  });
+
+  it('auto-connects after opening a conversation with no turns', async () => {
     detailMock.mockResolvedValue(detail());
 
     const { result } = renderHook(() =>
@@ -325,7 +359,12 @@ describe('useConversationTimeline', () => {
     );
 
     await waitFor(() => expect(result.current.loading).toBe(false));
-    expect(ensureSessionControlsMock).not.toHaveBeenCalled();
+    await waitFor(() =>
+      expect(ensureSessionControlsMock).toHaveBeenCalledWith(CONVERSATION_ID, {
+        reload: false,
+      })
+    );
+    await waitFor(() => expect(result.current.sessionBindReady).toBe(true));
   });
 
   it('reconnects the agent session before reloading without resetting rows', async () => {
@@ -355,7 +394,9 @@ describe('useConversationTimeline', () => {
       await result.current.reconnectAndReload();
     });
 
-    expect(ensureSessionControlsMock).toHaveBeenCalledWith(CONVERSATION_ID);
+    expect(ensureSessionControlsMock).toHaveBeenCalledWith(CONVERSATION_ID, {
+      reload: true,
+    });
     expect(detailMock).toHaveBeenCalledWith(CONVERSATION_ID);
     expect(result.current.timeline).toHaveLength(1);
   });
@@ -389,7 +430,7 @@ describe('useConversationTimeline', () => {
     expect(result.current.error).toBe('ACP connection failed');
   });
 
-  it('does not launch an agent session for a newly created conversation before its first turn', async () => {
+  it('auto-connects a newly created conversation before its first turn', async () => {
     detailMock.mockResolvedValue({
       ...detail(),
       summary: {
@@ -404,10 +445,15 @@ describe('useConversationTimeline', () => {
     );
 
     await waitFor(() => expect(result.current.loading).toBe(false));
-    expect(ensureSessionControlsMock).not.toHaveBeenCalled();
+    await waitFor(() =>
+      expect(ensureSessionControlsMock).toHaveBeenCalledWith(CONVERSATION_ID, {
+        reload: false,
+      })
+    );
+    await waitFor(() => expect(result.current.sessionBindReady).toBe(true));
   });
 
-  it('keeps projected controls for a zero-message conversation without starting ACP', async () => {
+  it('keeps projected controls for a zero-message conversation while auto-connecting', async () => {
     const projectedFastOption = {
       key: 'fast-mode',
       label: 'Fast mode',
@@ -432,10 +478,14 @@ describe('useConversationTimeline', () => {
     );
 
     await waitFor(() => expect(result.current.loading).toBe(false));
-    expect(ensureSessionControlsMock).not.toHaveBeenCalled();
     expect(result.current.sessionConfigOptions).toEqual([
       expect.objectContaining({ key: 'fast-mode', value: 'off' }),
     ]);
+    await waitFor(() =>
+      expect(ensureSessionControlsMock).toHaveBeenCalledWith(CONVERSATION_ID, {
+        reload: false,
+      })
+    );
   });
 
   it('backfills changed rows on subscribe', async () => {

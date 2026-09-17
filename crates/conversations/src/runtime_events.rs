@@ -164,16 +164,25 @@ impl ConversationAgentEventRecorder {
         attach_cached_plan_usage(&self.pool, conversation_id, &mut event).await;
 
         if let AgentEvent::SessionLinked { acp_session_id, .. } = &envelope.event {
-            persist_session_linked_external_id(&self.pool, conversation_id, acp_session_id).await?;
-            if let Some(binding_id) = latest_binding_id(&self.pool, conversation_id).await? {
-                ConversationAgentBindingRecord::bind_acp_session(
-                    &self.pool,
-                    binding_id,
+            if agents::is_placeholder_acp_session_id(acp_session_id) {
+                tracing::error!(
+                    %conversation_id,
                     acp_session_id,
-                    None,
-                    BindingStatus::Ready,
-                )
-                .await?;
+                    "refusing to persist a placeholder ACP session id via SessionLinked"
+                );
+            } else {
+                persist_session_linked_external_id(&self.pool, conversation_id, acp_session_id)
+                    .await?;
+                if let Some(binding_id) = latest_binding_id(&self.pool, conversation_id).await? {
+                    ConversationAgentBindingRecord::bind_acp_session(
+                        &self.pool,
+                        binding_id,
+                        acp_session_id,
+                        None,
+                        BindingStatus::Ready,
+                    )
+                    .await?;
+                }
             }
         }
 
@@ -1033,7 +1042,8 @@ fn map_agent_event(
         AgentEvent::SessionCreated { .. }
         | AgentEvent::PromptStarted { .. }
         | AgentEvent::ModeChanged { .. }
-        | AgentEvent::ConfigChanged { .. } => None,
+        | AgentEvent::ConfigChanged { .. }
+        | AgentEvent::SessionBindReady { .. } => None,
     }
 }
 
@@ -1683,6 +1693,14 @@ mod tests {
             session.external_session_id.as_deref(),
             Some("acp-live-session-9")
         );
+    }
+
+    #[test]
+    fn session_bind_ready_is_not_persisted_as_a_conversation_event() {
+        let envelope = envelope(AgentEvent::SessionBindReady {
+            acp_session_id: "acp-live-session-9".into(),
+        });
+        assert!(map_agent_event(&envelope, None).is_none());
     }
 
     #[tokio::test]

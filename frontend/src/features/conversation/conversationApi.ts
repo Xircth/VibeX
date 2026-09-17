@@ -177,9 +177,18 @@ export function createConversationApi(transport: BackendTransport) {
     // Materialize or reconnect an Agent session and return its authoritative ACP
     // controls. This never sends a prompt.
     ensureSessionControls: (
-      conversationId: string
+      conversationId: string,
+      options?: { reload?: boolean }
     ): Promise<AgentSessionControlsSnapshot> =>
-      call('conversation_ensure_session_controls', { conversationId }),
+      call('conversation_ensure_session_controls', {
+        conversationId,
+        reload: options?.reload ?? false,
+      }),
+
+    touch: (
+      conversationId: string
+    ): Promise<{ ok: boolean; idleTimeoutSecs: number }> =>
+      call('conversation_touch', { conversationId }),
 
     rebindSession: (
       conversationId: string

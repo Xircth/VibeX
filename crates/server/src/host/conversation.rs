@@ -2,6 +2,7 @@ use std::str::FromStr;
 
 use agents::{
     AgentAvailableCommand, AgentSessionConfigOption, AgentSessionControlsSnapshot, AgentSessionId,
+    idle_timeout_from_env,
     conversation::{
         AcpCapabilitySnapshot, ConversationBundlePayload, ConversationEvent, ConversationRowPage,
         ConversationSessionModes, ConversationTimeline, ConversationTimelineRow, MessageTurn,
@@ -87,6 +88,15 @@ struct ConversationIdArgs {
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
+struct ConversationEnsureSessionControlsArgs {
+    #[serde(alias = "sessionId", alias = "session_id", alias = "conversation_id")]
+    conversation_id: String,
+    #[serde(default)]
+    reload: bool,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
 struct ConversationForkArgs {
     #[serde(alias = "sessionId", alias = "session_id", alias = "conversation_id")]
     conversation_id: String,
@@ -141,14 +151,30 @@ impl ServerApplicationDomains {
         &self,
         args: Value,
     ) -> Result<Value, ApplicationError> {
-        let args: ConversationIdArgs = parse(args)?;
+        let args: ConversationEnsureSessionControlsArgs = parse(args)?;
         let id = parse_uuid(&args.conversation_id)?;
         let snapshot: AgentSessionControlsSnapshot =
             conversations::ConversationSessionService::new(self.conversations.clone())
-                .ensure_session_controls(id)
+                .ensure_session_controls_with_reload(id, args.reload)
                 .await
                 .map_err(|error| ApplicationError::bad_request(error.to_string()))?;
         serialize(snapshot)
+    }
+
+    pub(crate) async fn conversation_touch(
+        &self,
+        args: Value,
+    ) -> Result<Value, ApplicationError> {
+        let args: ConversationIdArgs = parse(args)?;
+        let id = parse_uuid(&args.conversation_id)?;
+        conversations::ConversationSessionService::new(self.conversations.clone())
+            .touch_session(id)
+            .await
+            .map_err(|error| ApplicationError::bad_request(error.to_string()))?;
+        let idle_timeout_secs = agents::idle_timeout_from_env()
+            .map(|timeout| timeout.as_secs())
+            .unwrap_or(0);
+        serialize(json!({ "ok": true, "idleTimeoutSecs": idle_timeout_secs }))
     }
 
     pub(crate) async fn conversation_rebind_session(

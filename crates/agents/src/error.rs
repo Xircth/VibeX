@@ -24,6 +24,8 @@ pub enum AgentError {
     AuthenticationRequired(String),
     #[error("agent session could not be loaded")]
     SessionLoadFailed(crate::SessionLoadFailureReason),
+    #[error("ACP session is not bound on this connection")]
+    AcpSessionNotBound,
     #[error("{0}")]
     PiProjectTrustRequired(String),
     #[error("agent runtime error: {0}")]
@@ -37,12 +39,8 @@ impl AgentError {
     pub fn turn_failure_code(&self) -> Option<&'static str> {
         match self {
             Self::AuthenticationRequired(_) => Some("auth_required"),
-            Self::SessionLoadFailed(reason) => Some(match reason {
-                crate::SessionLoadFailureReason::ResourceNotFound => "resource_not_found",
-                crate::SessionLoadFailureReason::AuthenticationRequired { .. } => "auth_required",
-                crate::SessionLoadFailureReason::Unsupported => "session_resume_unsupported",
-                crate::SessionLoadFailureReason::Other { .. } => "session_load_failed",
-            }),
+            Self::SessionLoadFailed(reason) => Some(reason.code()),
+            Self::AcpSessionNotBound => Some("acp_session_not_bound"),
             Self::PiProjectTrustRequired(_) => Some("pi_project_trust_required"),
             Self::ConnectionClosed(_) => Some("connection_closed"),
             _ => None,
@@ -66,6 +64,14 @@ impl AgentError {
 #[cfg(test)]
 mod tests {
     use super::AgentError;
+
+    #[test]
+    fn unbound_prompt_uses_acp_session_not_bound_code() {
+        assert_eq!(
+            AgentError::AcpSessionNotBound.turn_failure_code(),
+            Some("acp_session_not_bound")
+        );
+    }
 
     #[test]
     fn connection_closed_is_a_turn_failure_code() {

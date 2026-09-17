@@ -125,6 +125,7 @@
   },
   "turnErrorCard": {
     "reloadSession": "Reload session",
+    "newConversation": "New conversation",
     "rebindSession": "Rebind session",
     "cancelledTitle": "Cancelled",
     "resourceNotFoundTitle": "Agent session expired",

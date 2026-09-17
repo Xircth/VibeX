@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useReducer, useRef } from 'react';
+import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'react';
 import { getInvokeErrorMessage, isCanceledError } from '@/lib/errors';
 import type {
   AgentElicitationResponse,
@@ -9,6 +9,7 @@ import type {
   TimelineRow,
 } from 'shared/types';
 import { conversationApi } from './conversationApi';
+import { AGENT_BINDING_LOAD_FAILURE_NOTICE_ROW_ID } from './sessionNoticeNeedsRebind';
 import { listenToConversationEvents } from './events';
 import { subscribeToOptimisticConversationTurns } from './optimisticTurnEvents';
 import {
@@ -72,6 +73,8 @@ export type UseConversationTimelineResult = {
   ) => Promise<void>;
   hasEarlier: boolean;
   loadOlder: () => Promise<void>;
+  /** ACP bind finished. Composer send stays disabled until this is true. */
+  sessionBindReady: boolean;
 };
 
 export function useConversationTimeline(
@@ -143,18 +146,25 @@ export function useConversationTimeline(
     return loadDetail();
   }, [conversationId, loadDetail]);
 
+  const [sessionBindReady, setSessionBindReady] = useState(false);
+
   const reconnectAndReload = useCallback(async (): Promise<void> => {
     if (!conversationId) return;
+    setSessionBindReady(false);
     try {
-      const controls =
-        await conversationApi.ensureSessionControls(conversationId);
+      const controls = await conversationApi.ensureSessionControls(
+        conversationId,
+        { reload: true }
+      );
       dispatch({
         type: 'session_controls_hydrated',
         conversationId,
         controls,
       });
+      setSessionBindReady(true);
       await loadDetail();
     } catch (error: unknown) {
+      setSessionBindReady(false);
       reportLoadError(error);
     }
   }, [conversationId, loadDetail, reportLoadError]);
@@ -180,6 +190,73 @@ export function useConversationTimeline(
   const hasDetail = conversationId
     ? Boolean(state.byConversationId[conversationId]?.detail)
     : false;
+
+  useEffect(() => {
+    setSessionBindReady(false);
+  }, [conversationId]);
+
+  useEffect(() => {
+    if (!conversationId || !hasDetail) return;
+    const entry = stateRef.current.byConversationId[conversationId];
+    const detail = entry?.detail;
+    if (!detail || entry?.error) return;
+    if (!detail.summary.workspace_id || !detail.summary.agent_id) return;
+    const hasUnclearedLoadFailure = (entry.rows ?? []).some(
+      (row) => row.row_id === AGENT_BINDING_LOAD_FAILURE_NOTICE_ROW_ID
+    );
+    if (hasUnclearedLoadFailure) return;
+
+    let cancelled = false;
+    setSessionBindReady(false);
+    void conversationApi
+      .ensureSessionControls(conversationId, { reload: false })
+      .then((controls) => {
+        if (cancelled) return;
+        dispatch({
+          type: 'session_controls_hydrated',
+          conversationId,
+          controls,
+        });
+        setSessionBindReady(true);
+      })
+      .catch((error: unknown) => {
+        if (cancelled) return;
+        setSessionBindReady(false);
+        reportLoadError(error, conversationId);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [conversationId, hasDetail, reportLoadError]);
+
+  useEffect(() => {
+    if (!conversationId || !hasDetail) return;
+    let intervalMs = 30_000;
+    let timer: ReturnType<typeof setInterval> | null = null;
+    const touch = () => {
+      void conversationApi
+        .touch(conversationId)
+        .then((result) => {
+          const idleSecs = result?.idleTimeoutSecs ?? 0;
+          if (idleSecs > 0) {
+            const next = Math.min(30_000, (idleSecs * 1000) / 2);
+            if (next !== intervalMs && next > 0) {
+              intervalMs = next;
+              if (timer) clearInterval(timer);
+              timer = setInterval(touch, intervalMs);
+            }
+          }
+        })
+        .catch(() => {
+          /* keepalive is best-effort */
+        });
+    };
+    touch();
+    timer = setInterval(touch, intervalMs);
+    return () => {
+      if (timer) clearInterval(timer);
+    };
+  }, [conversationId, hasDetail]);
 
   useEffect(() => {
     if (!conversationId || !hasDetail) return;
@@ -422,6 +499,7 @@ export function useConversationTimeline(
       respondQuestion,
       hasEarlier: Boolean(entry?.olderCursor),
       loadOlder,
+      sessionBindReady,
     }),
     [
       entry,
@@ -434,6 +512,7 @@ export function useConversationTimeline(
       respondPermission,
       respondQuestion,
       loadOlder,
+      sessionBindReady,
     ]
   );
 }

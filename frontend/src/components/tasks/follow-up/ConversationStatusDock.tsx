@@ -161,6 +161,26 @@ export function ConversationStatusDock({
                   {notice.notice.action ? (
                     <SessionNoticeActions action={notice.notice.action} />
                   ) : null}
+                  {notice.kind === 'session-notice' && notice.onReload ? (
+                    <button
+                      type="button"
+                      className="composer-status-action"
+                      onClick={() => void notice.onReload?.()}
+                    >
+                      <RefreshCw className="h-3.5 w-3.5" />
+                      {t('turnErrorCard.reloadSession')}
+                    </button>
+                  ) : null}
+                  {notice.kind === 'session-notice' &&
+                  notice.onNewConversation ? (
+                    <button
+                      type="button"
+                      className="composer-status-action"
+                      onClick={() => void notice.onNewConversation?.()}
+                    >
+                      {t('turnErrorCard.newConversation')}
+                    </button>
+                  ) : null}
                   {notice.onRebind &&
                   sessionNoticeNeedsRebind(notice.notice, notice.id) ? (
                     <button

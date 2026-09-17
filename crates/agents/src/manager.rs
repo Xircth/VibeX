@@ -496,6 +496,60 @@ fn classify_session_load_error(error: &acp::Error) -> SessionLoadFailureReason {
     }
 }
 
+/// B-level, load-only fragments. Do not mix with A-level JSON-RPC codes.
+/// Auth is never classified from `"Authentication required"` text.
+fn classify_session_load_failure_fragments(
+    message: &str,
+    failed_sid: &str,
+) -> Option<SessionLoadFailureReason> {
+    if message.contains("is archived") {
+        return Some(SessionLoadFailureReason::SessionArchived {
+            recovery_command: archived_recovery_command(message, failed_sid),
+        });
+    }
+    if message.contains("already has an active writer") {
+        return Some(SessionLoadFailureReason::SessionBusy);
+    }
+    const UNRECOVERABLE: &[&str] = &[
+        "process exited",
+        "session has ended",
+        "Session not found",
+    ];
+    if UNRECOVERABLE.iter().any(|fragment| message.contains(fragment)) {
+        return Some(SessionLoadFailureReason::SessionUnavailable);
+    }
+    None
+}
+
+fn archived_recovery_command(message: &str, failed_sid: &str) -> Option<String> {
+    if let Some(start) = message.find('`')
+        && let Some(end) = message[start + 1..].find('`')
+    {
+        let command = message[start + 1..start + 1 + end].trim();
+        if !command.is_empty() {
+            return Some(command.to_string());
+        }
+    }
+    Some(format!("codex unarchive {failed_sid}"))
+}
+
+fn is_method_not_found_error(error: &acp::Error) -> bool {
+    i32::from(error.code) == -32601 || error.message.contains("Method not found")
+}
+
+fn recovers_load_failure_locally(
+    agent_id: &AgentId,
+    classified: Option<&SessionLoadFailureReason>,
+) -> bool {
+    let Some(reason) = classified else {
+        return false;
+    };
+    if matches!(reason, SessionLoadFailureReason::SessionBusy) {
+        return false;
+    }
+    crate::AgentKind::from_lenient(agent_id.as_str()).is_none()
+}
+
 /// Map a real ACP/JSON-RPC error code to a stable, frontend-facing string so the
 /// error card can distinguish auth / expired-session / cancelled / model issues
 /// from a generic failure. The value mirrors the agent's actual error code.
@@ -692,6 +746,9 @@ struct ManagedAgentConnection {
     cmd_tx: mpsc::Sender<AgentConnectionCommand>,
     capabilities: Arc<RwLock<AcpCapabilitySnapshot>>,
     session_map: Arc<RwLock<HashMap<AgentSessionId, String>>>,
+    last_activity: Arc<Mutex<Instant>>,
+    active_prompt: Arc<Mutex<Option<(AgentSessionId, AgentPromptId)>>>,
+    pending_permissions: Arc<Mutex<HashMap<String, PendingPermission>>>,
     task: tokio::task::JoinHandle<()>,
 }
 
@@ -767,6 +824,9 @@ impl AgentConnectionManager {
         );
         let capabilities = Arc::clone(&runner.capabilities);
         let session_map = Arc::clone(&runner.session_map);
+        let last_activity = Arc::clone(&runner.last_activity);
+        let active_prompt = Arc::clone(&runner.active_prompt);
+        let pending_permissions = Arc::clone(&runner.pending_permissions);
 
         let task = if self.driver_enabled {
             tokio::spawn(async move {
@@ -788,6 +848,9 @@ impl AgentConnectionManager {
                 cmd_tx,
                 capabilities,
                 session_map,
+                last_activity,
+                active_prompt,
+                pending_permissions,
                 task,
             },
         );
@@ -1163,6 +1226,53 @@ impl AgentConnectionManager {
         session_map.read().await.get(&session_id).cloned()
     }
 
+    pub async fn touch(&self, connection_id: AgentConnectionId) -> AgentResult<()> {
+        let last_activity = {
+            let connections = self.connections.lock().await;
+            let connection = connections
+                .get(&connection_id)
+                .ok_or_else(|| AgentError::ConnectionNotFound(connection_id.to_string()))?;
+            if connection.task.is_finished() {
+                return Err(AgentError::ConnectionNotFound(connection_id.to_string()));
+            }
+            Arc::clone(&connection.last_activity)
+        };
+        *last_activity.lock().await = Instant::now();
+        Ok(())
+    }
+
+    /// Disconnect Ready connections that have been idle past `idle_timeout`.
+    /// Skips in-flight turns (including the ADR-0071 cancel window) and pending
+    /// permission prompts.
+    pub async fn sweep_idle(&self, idle_timeout: Duration) -> usize {
+        let mut stale = Vec::new();
+        {
+            let connections = self.connections.lock().await;
+            for (id, connection) in connections.iter() {
+                if connection.task.is_finished() {
+                    continue;
+                }
+                if connection.active_prompt.lock().await.is_some() {
+                    continue;
+                }
+                if !connection.pending_permissions.lock().await.is_empty() {
+                    continue;
+                }
+                if connection.last_activity.lock().await.elapsed() < idle_timeout {
+                    continue;
+                }
+                stale.push(*id);
+            }
+        }
+        let mut disconnected = 0;
+        for connection_id in stale {
+            if self.disconnect(connection_id).await.is_ok() {
+                disconnected += 1;
+            }
+        }
+        disconnected
+    }
+
     #[cfg(test)]
     pub(crate) async fn replace_command_sender(
         &self,
@@ -1183,7 +1293,7 @@ impl AgentConnectionManager {
         connection_id: AgentConnectionId,
         command: AgentConnectionCommand,
     ) -> AgentResult<()> {
-        let cmd_tx = {
+        let (cmd_tx, last_activity) = {
             let mut connections = self.connections.lock().await;
             match connections.get(&connection_id) {
                 None => {
@@ -1195,9 +1305,13 @@ impl AgentConnectionManager {
                         "agent connection command channel closed".into(),
                     ));
                 }
-                Some(connection) => connection.cmd_tx.clone(),
+                Some(connection) => (
+                    connection.cmd_tx.clone(),
+                    Arc::clone(&connection.last_activity),
+                ),
             }
         };
+        *last_activity.lock().await = Instant::now();
 
         if cmd_tx.send(command).await.is_ok() {
             return Ok(());
@@ -1435,11 +1549,22 @@ impl AgentConnectionRunner {
                     preferences: _,
                     result_tx,
                 } => {
-                    let acp_session_id = format!("prepared-{}", session_id.0);
-                    self.session_map
-                        .write()
-                        .await
-                        .insert(session_id, acp_session_id.clone());
+                    let existing = self.session_map.read().await.get(&session_id).cloned();
+                    let acp_session_id = if let Some(existing) = existing
+                        .filter(|id| crate::is_restorable_acp_session_id(id))
+                    {
+                        self.emit_session_bind_ready(session_id, existing.clone());
+                        existing
+                    } else {
+                        let acp_session_id = format!("inmem-{}", session_id.0);
+                        self.session_map
+                            .write()
+                            .await
+                            .insert(session_id, acp_session_id.clone());
+                        self.emit_session_linked(session_id, acp_session_id.clone())
+                            .await;
+                        acp_session_id
+                    };
                     let _ = result_tx.send(Ok((
                         acp_session_id,
                         AgentSessionControlsSnapshot::default(),
@@ -1459,12 +1584,20 @@ impl AgentConnectionRunner {
                     preferences: _,
                     result_tx,
                 } => {
+                    let acp_session_id = if crate::is_restorable_acp_session_id(&external_session_id)
+                    {
+                        external_session_id
+                    } else {
+                        format!("inmem-{}", session_id.0)
+                    };
                     self.session_map
                         .write()
                         .await
-                        .insert(session_id, external_session_id.clone());
+                        .insert(session_id, acp_session_id.clone());
+                    self.emit_session_linked(session_id, acp_session_id.clone())
+                        .await;
                     let controls = AgentSessionControlsSnapshot::default();
-                    let _ = result_tx.send(Ok((external_session_id, controls, None)));
+                    let _ = result_tx.send(Ok((acp_session_id, controls, None)));
                 }
                 AgentConnectionCommand::ForkSession {
                     session_id,
@@ -1491,6 +1624,18 @@ impl AgentConnectionRunner {
                     blocks,
                     ..
                 } => {
+                    let bound = self
+                        .session_map
+                        .read()
+                        .await
+                        .get(&session_id)
+                        .cloned()
+                        .filter(|id| crate::is_restorable_acp_session_id(id));
+                    if bound.is_none() {
+                        self.fail_active_turn(session_id, prompt_id, AgentError::AcpSessionNotBound)
+                            .await;
+                        continue;
+                    }
                     let text = blocks
                         .into_iter()
                         .map(|block| match block {
@@ -2292,16 +2437,19 @@ impl AgentConnectionRunner {
                                 .await
                                 .get(&session_id)
                                 .cloned()
+                                .filter(|id| crate::is_restorable_acp_session_id(id))
                             {
                                 Some(acp_session_id) => acp_session_id,
                                 None => {
+                                    tracing::error!(
+                                        session_id = %session_id.0,
+                                        "ACP prompt reached an unbound connection; session/new is forbidden"
+                                    );
                                     runner
                                         .fail_active_turn(
                                             session_id,
                                             prompt_id,
-                                            AgentError::Runtime(
-                                                "ACP session is not bound on this connection; resume the existing thread instead of calling session/new".into(),
-                                            ),
+                                            AgentError::AcpSessionNotBound,
                                         )
                                         .await;
                                     continue;
@@ -2535,7 +2683,10 @@ impl AgentConnectionRunner {
         session_id: AgentSessionId,
         companion_capabilities: CompanionCapabilities,
     ) -> Result<String, acp::Error> {
-        if let Some(existing) = self.session_map.read().await.get(&session_id).cloned() {
+        if let Some(existing) = self.session_map.read().await.get(&session_id).cloned()
+            && crate::is_restorable_acp_session_id(&existing)
+        {
+            self.emit_session_bind_ready(session_id, existing.clone());
             return Ok(existing);
         }
 
@@ -2558,7 +2709,10 @@ impl AgentConnectionRunner {
     ) -> AgentResult<(String, Option<crate::conversation::SessionRecoveryStrategy>)> {
         let mapped = self.session_map.read().await.get(&session_id).cloned();
         match mapped_resume_action(mapped.as_deref(), &external_session_id) {
-            MappedResume::Reuse(existing) => return Ok((existing, None)),
+            MappedResume::Reuse(existing) => {
+                self.emit_session_bind_ready(session_id, existing.clone());
+                return Ok((existing, None));
+            }
             MappedResume::LoadRequested { unbind_stale } => {
                 if unbind_stale {
                     tracing::warn!(
@@ -2572,6 +2726,7 @@ impl AgentConnectionRunner {
             }
         }
 
+        let mut resume_auth_error: Option<acp::Error> = None;
         if support.resume {
             let mut request = ResumeSessionRequest::new(
                 SessionId::new(external_session_id.clone()),
@@ -2624,16 +2779,23 @@ impl AgentConnectionRunner {
                 }
                 Err(error) => {
                     *self.pending_session_id.lock().await = None;
-                    if !support.load {
-                        let reason = classify_session_load_error(&error);
-                        self.emit_session_load_failed(session_id, reason.clone());
-                        return Err(map_session_restore_error(error));
+                    tracing::warn!(
+                        session_id = %session_id.0,
+                        error = %error,
+                        "session/resume failed; falling through to session/load"
+                    );
+                    if matches!(
+                        classify_session_load_error(&error),
+                        SessionLoadFailureReason::AuthenticationRequired { .. }
+                    ) {
+                        resume_auth_error = Some(error);
                     }
                 }
             }
         }
 
-        if support.load {
+        let attempted_load = support.load;
+        let load_result = if attempted_load {
             let mut request = LoadSessionRequest::new(
                 SessionId::new(external_session_id.clone()),
                 working_dir.to_path_buf(),
@@ -2652,50 +2814,166 @@ impl AgentConnectionRunner {
             );
             *self.pending_session_id.lock().await = Some(session_id);
             self.emit_connection_status(AgentConnectionStatus::Recovering, None, Some(session_id));
-            let load_result = conn.send_request(request).block_task().await;
-            match load_result {
-                Ok(response) => {
-                    self.session_map
-                        .write()
-                        .await
-                        .insert(session_id, external_session_id.clone());
-                    self.emit_session_linked(session_id, external_session_id.clone())
-                        .await;
-                    let (modes, config_options, vendor_config) =
-                        session_controls_with_vendor_fallback(
-                            response.modes,
-                            response.config_options,
-                            response.meta.as_ref(),
-                        );
-                    self.emit_session_controls(
-                        conn,
-                        &external_session_id,
-                        session_id,
-                        modes,
-                        config_options,
-                        vendor_config,
-                        response.meta.as_ref(),
-                    )
+            let result = conn.send_request(request).block_task().await;
+            *self.pending_session_id.lock().await = None;
+            result
+        } else if let Some(error) = resume_auth_error {
+            Err(error)
+        } else {
+            Err(acp::Error::method_not_found())
+        };
+
+        match load_result {
+            Ok(response) => {
+                self.session_map
+                    .write()
+                    .await
+                    .insert(session_id, external_session_id.clone());
+                self.emit_session_linked(session_id, external_session_id.clone())
                     .await;
-                    *self.pending_session_id.lock().await = None;
-                    return Ok((
-                        external_session_id,
-                        Some(crate::conversation::SessionRecoveryStrategy::Loaded),
-                    ));
-                }
-                Err(error) => {
-                    *self.pending_session_id.lock().await = None;
-                    let reason = classify_session_load_error(&error);
-                    self.emit_session_load_failed(session_id, reason.clone());
-                    return Err(map_session_restore_error(error));
-                }
+                let (modes, config_options, vendor_config) = session_controls_with_vendor_fallback(
+                    response.modes,
+                    response.config_options,
+                    response.meta.as_ref(),
+                );
+                self.emit_session_controls(
+                    conn,
+                    &external_session_id,
+                    session_id,
+                    modes,
+                    config_options,
+                    vendor_config,
+                    response.meta.as_ref(),
+                )
+                .await;
+                Ok((
+                    external_session_id,
+                    Some(crate::conversation::SessionRecoveryStrategy::Loaded),
+                ))
+            }
+            Err(error) => {
+                self.resolve_session_load_failure(
+                    conn,
+                    working_dir,
+                    session_id,
+                    &external_session_id,
+                    companion_capabilities,
+                    error,
+                    attempted_load,
+                )
+                .await
             }
         }
+    }
 
-        self.emit_session_load_failed(session_id, SessionLoadFailureReason::Unsupported);
-        Err(AgentError::SessionLoadFailed(
-            SessionLoadFailureReason::Unsupported,
+    async fn resolve_session_load_failure(
+        &self,
+        conn: &ConnectionTo<Agent>,
+        working_dir: &Path,
+        session_id: AgentSessionId,
+        failed_sid: &str,
+        companion_capabilities: CompanionCapabilities,
+        error: acp::Error,
+        attempted_load: bool,
+    ) -> AgentResult<(String, Option<crate::conversation::SessionRecoveryStrategy>)> {
+        let a_level = classify_session_load_error(&error);
+        if let SessionLoadFailureReason::AuthenticationRequired { message } = a_level {
+            return self.stop_connect_for_auth(session_id, message).await;
+        }
+
+        let classified = match &a_level {
+            SessionLoadFailureReason::ResourceNotFound => {
+                Some(SessionLoadFailureReason::ResourceNotFound)
+            }
+            SessionLoadFailureReason::AuthenticationRequired { .. } => None,
+            SessionLoadFailureReason::Unsupported
+            | SessionLoadFailureReason::SessionArchived { .. }
+            | SessionLoadFailureReason::SessionBusy
+            | SessionLoadFailureReason::SessionUnavailable
+            | SessionLoadFailureReason::Other { .. } => {
+                classify_session_load_failure_fragments(&error.to_string(), failed_sid)
+            }
+        };
+        let recovers_locally =
+            recovers_load_failure_locally(&self.snapshot.agent_id, classified.as_ref());
+        tracing::info!(
+            session_id = %session_id.0,
+            failed_sid,
+            code = classified.as_ref().map(|reason| reason.code()).unwrap_or("none"),
+            recovers_locally,
+            attempted_load,
+            "ACP session/load classified"
+        );
+
+        if let Some(reason) = classified
+            .clone()
+            .filter(|_| !recovers_locally)
+            .filter(|reason| {
+                matches!(
+                    reason,
+                    SessionLoadFailureReason::ResourceNotFound
+                        | SessionLoadFailureReason::SessionUnavailable
+                        | SessionLoadFailureReason::SessionArchived { .. }
+                        | SessionLoadFailureReason::SessionBusy
+                )
+            })
+        {
+            self.emit_session_load_failed(session_id, reason.clone());
+            self.emit_connection_status(
+                AgentConnectionStatus::Failed,
+                Some(error.to_string()),
+                Some(session_id),
+            );
+            return Err(AgentError::SessionLoadFailed(reason));
+        }
+
+        let method_not_found = is_method_not_found_error(&error);
+        if attempted_load && classified.is_none() && !method_not_found && !recovers_locally {
+            self.emit(
+                Some(session_id),
+                None,
+                AgentEvent::Error {
+                    error: AgentErrorEvent {
+                        message: format!("Failed to load session, starting new: {error}"),
+                        code: None,
+                        raw: None,
+                    },
+                },
+            );
+        }
+
+        let acp_session_id = self
+            .new_acp_session(conn, working_dir, session_id, companion_capabilities)
+            .await
+            .map_err(|error| map_acp_session_error("ACP session/new after load failed", error))?;
+        Ok((
+            acp_session_id,
+            Some(crate::conversation::SessionRecoveryStrategy::CreatedNewSession),
         ))
+    }
+
+    async fn stop_connect_for_auth(
+        &self,
+        session_id: AgentSessionId,
+        message: String,
+    ) -> AgentResult<(String, Option<crate::conversation::SessionRecoveryStrategy>)> {
+        self.emit_connection_status(
+            AgentConnectionStatus::Failed,
+            Some(message.clone()),
+            Some(session_id),
+        );
+        self.emit(
+            Some(session_id),
+            None,
+            AgentEvent::Error {
+                error: AgentErrorEvent {
+                    message: message.clone(),
+                    code: Some("auth_required".into()),
+                    raw: None,
+                },
+            },
+        );
+        Err(AgentError::AuthenticationRequired(message))
     }
 
     /// Fork the live ACP session for `session_id`, returning the new (forked)
@@ -2772,14 +3050,34 @@ impl AgentConnectionRunner {
     }
 
     async fn emit_session_linked(&self, session_id: AgentSessionId, acp_session_id: String) {
+        if !crate::is_restorable_acp_session_id(&acp_session_id) {
+            tracing::error!(
+                session_id = %session_id.0,
+                acp_session_id,
+                "refusing to persist a placeholder ACP session id"
+            );
+            return;
+        }
         self.emit(
             Some(session_id),
             None,
             AgentEvent::SessionLinked {
-                acp_session_id,
+                acp_session_id: acp_session_id.clone(),
                 agent_id: self.snapshot.agent_id.clone(),
                 capabilities: self.capabilities.read().await.clone(),
             },
+        );
+        self.emit_session_bind_ready(session_id, acp_session_id);
+    }
+
+    fn emit_session_bind_ready(&self, session_id: AgentSessionId, acp_session_id: String) {
+        if !crate::is_restorable_acp_session_id(&acp_session_id) {
+            return;
+        }
+        self.emit(
+            Some(session_id),
+            None,
+            AgentEvent::SessionBindReady { acp_session_id },
         );
     }
 
@@ -7895,6 +8193,65 @@ mod tests {
             classify_session_load_error(&acp::Error::invalid_params()),
             SessionLoadFailureReason::Other { .. }
         ));
+        // Auth is code-only: message text must not classify as auth.
+        assert!(
+            classify_session_load_failure_fragments("Authentication required", "sid").is_none()
+        );
+    }
+
+    #[test]
+    fn session_load_failure_fragments_lock_codeg_arms() {
+        assert!(matches!(
+            classify_session_load_failure_fragments(
+                "session abc is archived. Run `codex unarchive abc`",
+                "abc"
+            ),
+            Some(SessionLoadFailureReason::SessionArchived { recovery_command })
+                if recovery_command.as_deref() == Some("codex unarchive abc")
+        ));
+        assert!(matches!(
+            classify_session_load_failure_fragments(
+                "thread xyz already has an active writer",
+                "xyz"
+            ),
+            Some(SessionLoadFailureReason::SessionBusy)
+        ));
+        assert!(matches!(
+            classify_session_load_failure_fragments(
+                "Claude Code process exited with code 1",
+                "sid"
+            ),
+            Some(SessionLoadFailureReason::SessionUnavailable)
+        ));
+        assert!(matches!(
+            classify_session_load_failure_fragments("session has ended", "sid"),
+            Some(SessionLoadFailureReason::SessionUnavailable)
+        ));
+        assert!(matches!(
+            classify_session_load_failure_fragments("Session not found", "sid"),
+            Some(SessionLoadFailureReason::SessionUnavailable)
+        ));
+        assert!(classify_session_load_failure_fragments("Authentication required", "sid").is_none());
+        assert!(classify_session_load_failure_fragments("Method not found", "sid").is_none());
+    }
+
+    #[test]
+    fn recovers_load_failure_locally_is_custom_and_never_busy() {
+        let custom = AgentId::parse("my-custom-agent").unwrap();
+        let codex = AgentId::parse("codex").unwrap();
+        assert!(recovers_load_failure_locally(
+            &custom,
+            Some(&SessionLoadFailureReason::ResourceNotFound)
+        ));
+        assert!(!recovers_load_failure_locally(
+            &codex,
+            Some(&SessionLoadFailureReason::ResourceNotFound)
+        ));
+        assert!(!recovers_load_failure_locally(
+            &custom,
+            Some(&SessionLoadFailureReason::SessionBusy)
+        ));
+        assert!(!recovers_load_failure_locally(&custom, None));
     }
 
     #[test]

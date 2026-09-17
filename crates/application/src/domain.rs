@@ -233,6 +233,7 @@ domain_commands! {
     ConversationDetail => "conversation_detail" / "conversation.read",
     ConversationEventsSince => "conversation_events_since" / "conversation.read",
     ConversationEnsureSessionControls => "conversation_ensure_session_controls" / "conversation.write",
+    ConversationTouch => "conversation_touch" / "conversation.write",
     SessionList => "get_sessions" / "application.call",
     SessionSummaries => "get_session_summaries" / "application.call",
     SessionGet => "get_session" / "application.call",

@@ -315,11 +315,20 @@ impl AgentRuntime {
         };
         Self::spawn_manager_event_pump(
             state,
-            connection_manager,
+            Arc::clone(&connection_manager),
             event_sink,
             event_tx,
             manager_event_rx,
         );
+        if driver_enabled
+            && let Some(idle_timeout) = crate::idle_sweep::idle_timeout_from_env()
+        {
+            tokio::spawn(crate::idle_sweep::idle_sweep_task(
+                Arc::clone(&connection_manager),
+                idle_timeout,
+                Duration::from_secs(crate::idle_sweep::SWEEP_INTERVAL_SECS),
+            ));
+        }
         runtime
     }
 
@@ -1080,6 +1089,12 @@ impl AgentRuntime {
         &self,
         input: EnsureAgentSessionInput,
     ) -> AgentResult<AgentPreparedSessionSnapshot> {
+        if is_restorable_acp_session_id(&input.acp_session_id) {
+            return Err(AgentError::Runtime(
+                "conversation already has a restorable ACP session; resume instead of session/new"
+                    .into(),
+            ));
+        }
         let already_registered = self
             .state
             .read()
@@ -1804,6 +1819,13 @@ impl AgentRuntime {
     /// the agent never acknowledged unbinds the mapping while leaving the
     /// process around, and the next turn must resume the stored external id
     /// instead of calling `session/new`.
+    pub async fn touch_session(&self, session_id: AgentSessionId) -> AgentResult<()> {
+        let Some(connection_id) = self.live_connection_id(session_id).await else {
+            return Ok(());
+        };
+        self.connection_manager.touch(connection_id).await
+    }
+
     pub async fn has_bound_acp_session(&self, session_id: AgentSessionId) -> bool {
         let connection_id = {
             let state = self.state.read().await;
@@ -2356,10 +2378,19 @@ fn is_connection_loss_during_session_preparation(error: &AgentError) -> bool {
         )
 }
 
-fn is_placeholder_acp_session_id(acp_session_id: &str) -> bool {
-    acp_session_id.starts_with("vibex-new-session-")
-        || acp_session_id.starts_with("prepared-")
-        || acp_session_id.starts_with("pending-")
+/// Host-invented ACP ids that must never be persisted or resumed.
+pub fn is_placeholder_acp_session_id(acp_session_id: &str) -> bool {
+    let id = acp_session_id.trim();
+    id.is_empty()
+        || id.starts_with("vibex-new-session-")
+        || id.starts_with("prepared-")
+        || id.starts_with("pending-")
+}
+
+/// True when `acp_session_id` is an agent-assigned thread id that can be
+/// resumed or loaded. Empty and host placeholders are not restorable.
+pub fn is_restorable_acp_session_id(acp_session_id: &str) -> bool {
+    !is_placeholder_acp_session_id(acp_session_id)
 }
 
 /// Bind this connection to the conversation's existing thread before Prompt.
@@ -2848,8 +2879,38 @@ mod tests {
     fn placeholder_acp_session_ids_skip_resume_during_recovery() {
         assert!(is_placeholder_acp_session_id("vibex-new-session-abc"));
         assert!(is_placeholder_acp_session_id("prepared-xyz"));
+        assert!(is_placeholder_acp_session_id("pending-abc"));
+        assert!(is_placeholder_acp_session_id(""));
         assert!(!is_placeholder_acp_session_id("sess_claude_123"));
         assert!(!is_placeholder_acp_session_id("codex-thread-a"));
+        assert!(!is_placeholder_acp_session_id("inmem-abc"));
+        assert!(is_restorable_acp_session_id("codex-thread-a"));
+        assert!(!is_restorable_acp_session_id("pending-abc"));
+    }
+
+    #[tokio::test]
+    async fn prepare_session_refuses_a_restorable_acp_id() {
+        let runtime = AgentRuntime::new_with_driver(Arc::new(NoopEventSink), false);
+        let error = runtime
+            .prepare_session(EnsureAgentSessionInput {
+                agent_id: AgentId::parse("codex").unwrap(),
+                launch_lock: test_launch_lock(),
+                workspace_id: Uuid::new_v4(),
+                working_dir: PathBuf::from("C:/guard"),
+                additional_directories: Vec::new(),
+                session_id: AgentSessionId::new(),
+                acp_session_id: "codex-thread-existing".into(),
+                auto_approve_mode: AgentAutoApproveMode::Off,
+                env: Default::default(),
+                preferences: Default::default(),
+            })
+            .await
+            .expect_err("Codeg#500");
+        assert!(
+            error
+                .to_string()
+                .contains("resume instead of session/new")
+        );
     }
 
     #[tokio::test]
@@ -3486,7 +3547,7 @@ mod tests {
             .prepare_session(prepare(discarded_id))
             .await
             .unwrap();
-        assert!(discarded.session.acp_session_id.starts_with("prepared-"));
+        assert!(discarded.session.acp_session_id.starts_with("inmem-"));
         runtime
             .discard_prepared_session(discarded_id)
             .await
@@ -3596,7 +3657,7 @@ mod tests {
             .expect("preparation should retry on a fresh ACP connection");
 
         assert_ne!(recovered.session.connection_id, failed_connection_id);
-        assert!(recovered.session.acp_session_id.starts_with("prepared-"));
+        assert!(recovered.session.acp_session_id.starts_with("inmem-"));
         // The dead connection is retired instead of lingering: a conversation owns
         // exactly one connection, so a leftover would be a candidate for adoption.
         assert_eq!(runtime.connection_manager.list_connections().await.len(), 1);

@@ -18,6 +18,23 @@ export function SessionNoticeActions({
   const openLink = useOpenLink();
   const [busy, setBusy] = useState(false);
 
+  if (action.kind === 'copy_command') {
+    return (
+      <button
+        type="button"
+        className="composer-status-action"
+        onClick={() => {
+          void navigator.clipboard
+            .writeText(action.command)
+            .then(() => toast.success(action.label))
+            .catch(() => toast.error(action.command));
+        }}
+      >
+        {action.label}
+      </button>
+    );
+  }
+
   if (action.kind === 'update_agent') {
     return (
       <button

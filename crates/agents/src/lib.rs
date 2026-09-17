@@ -33,6 +33,7 @@ mod grok_subagent;
 mod grok_usage;
 pub mod history;
 pub mod ids;
+pub mod idle_sweep;
 pub mod install_planner;
 pub mod launch_gate;
 pub mod lifecycle;
@@ -172,6 +173,9 @@ pub use ids::{
     AgentConnectionId, AgentElicitationId, AgentPermissionId, AgentPromptId, AgentSessionId,
     AgentTerminalId,
 };
+pub use idle_sweep::{
+    DEFAULT_IDLE_TIMEOUT_SECS, idle_timeout_from_env, touch_interval_from_idle_timeout,
+};
 pub use install_planner::{
     ArtifactTrust, ArtifactVerification, InstallCandidateSource, InstallEnvironment,
     InstallPlanner, InstallPlanningError, InstallPlanningInput, LockedInstallSource,
@@ -256,6 +260,7 @@ pub use registry_client::{
     parse_registry_distributions_json, sanitize_registry_svg,
 };
 pub use runtime::{
+    is_placeholder_acp_session_id, is_restorable_acp_session_id,
     AgentRuntime, CancelAgentPromptInput, ConnectAgentInput, EnsureAgentSessionInput,
     NoopEventSink, RespondAgentElicitationInput, RespondAgentPermissionInput,
     ResumeAgentSessionInput, RuntimeEventSink, RuntimeSnapshot, SendAgentPromptInput,

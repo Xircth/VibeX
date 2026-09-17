@@ -27,6 +27,6 @@ export function sessionNoticeNeedsRebind(
   if (rowId === AGENT_BINDING_REBIND_NOTICE_ROW_ID) return false;
   if (rowId === AGENT_CONNECTION_RECOVERING_NOTICE_ROW_ID) return false;
   if (rowId === AGENT_SESSION_CONNECT_ERROR_NOTICE_ROW_ID) return false;
-  if (rowId === AGENT_BINDING_LOAD_FAILURE_NOTICE_ROW_ID) return true;
+  if (rowId === AGENT_BINDING_LOAD_FAILURE_NOTICE_ROW_ID) return false;
   return notice.severity === 'error';
 }

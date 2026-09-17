@@ -4415,27 +4415,25 @@ mod tests {
         let workspace_id = Uuid::new_v4();
         let local_session_id = AgentSessionId::new();
 
-        let prepared = runtime
-            .prepare_session(EnsureAgentSessionInput {
+        let (session, _strategy) = runtime
+            .resume_session(ResumeAgentSessionInput {
                 agent_id: AgentId::parse("codex").unwrap(),
                 launch_lock: test_launch_lock(),
                 workspace_id,
                 working_dir: PathBuf::from("C:/work"),
                 additional_directories: Vec::new(),
                 session_id: local_session_id,
-                acp_session_id: "external-acp-session".to_string(),
+                external_session_id: "external-acp-session".to_string(),
                 auto_approve_mode: AgentAutoApproveMode::Off,
                 env: HashMap::new(),
                 preferences: Default::default(),
             })
             .await
             .unwrap();
-        let session = prepared.session;
 
         assert_eq!(session.id, local_session_id);
         assert_ne!(session.id.to_string(), session.acp_session_id);
-        // `prepare_session` completes session/new or session/resume, so the
-        // host conversation is bound to the resulting ACP id.
+        assert_eq!(session.acp_session_id, "external-acp-session");
         assert!(runtime.has_bound_acp_session(local_session_id).await);
     }
 

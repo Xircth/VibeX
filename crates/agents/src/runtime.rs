@@ -3562,7 +3562,7 @@ mod tests {
                 agent_id: AgentId::parse("codex").unwrap(),
                 launch_lock: test_launch_lock(),
                 workspace_id,
-                working_dir,
+                working_dir: working_dir.clone(),
                 additional_directories: Vec::new(),
                 session_id: session.id,
                 acp_session_id: session.acp_session_id.clone(),
@@ -3582,10 +3582,25 @@ mod tests {
                 .all(|candidate| candidate.id != connection.id),
             "the previous connection must be reaped after rebind"
         );
+        let (bound, _) = runtime
+            .resume_session(ResumeAgentSessionInput {
+                agent_id: AgentId::parse("codex").unwrap(),
+                launch_lock: test_launch_lock(),
+                workspace_id,
+                working_dir,
+                additional_directories: Vec::new(),
+                session_id: rebound.id,
+                external_session_id: session.acp_session_id.clone(),
+                auto_approve_mode: AgentAutoApproveMode::Off,
+                env: HashMap::new(),
+                preferences: Default::default(),
+            })
+            .await
+            .unwrap();
         let prompt = runtime
             .send_prompt(SendAgentPromptInput {
-                connection_id: rebound.connection_id,
-                session_id: rebound.id,
+                connection_id: bound.connection_id,
+                session_id: bound.id,
                 blocks: vec![AgentContentBlock::Text {
                     text: "after reconnect".to_string(),
                 }],

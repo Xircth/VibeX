@@ -528,11 +528,7 @@ export function TaskFollowUpSection({
       return;
     }
     const executorId = effectiveExecutorProfile?.executor;
-    if (
-      autoCreatedNewSessionRef.current ||
-      !workspaceId ||
-      !executorId
-    ) {
+    if (autoCreatedNewSessionRef.current || !workspaceId || !executorId) {
       return;
     }
     autoCreatedNewSessionRef.current = true;
@@ -550,9 +546,7 @@ export function TaskFollowUpSection({
       })
       .catch((error: unknown) => {
         autoCreatedNewSessionRef.current = false;
-        toast.error(
-          error instanceof Error ? error.message : String(error)
-        );
+        toast.error(error instanceof Error ? error.message : String(error));
       });
   }, [
     effectiveExecutorProfile?.executor,
@@ -1178,103 +1172,105 @@ export function TaskFollowUpSection({
         >
           {hideComposerForLoadFailure ? null : (
             <>
-          {/* Top bar */}
-          {showTopbar && (
-            <SessionComposerTopbar
-              executorProfile={effectiveExecutorProfile}
-              sessionExecutor={session?.executor}
-              showChangedFileSummary={showChangedFileSummary}
-              changedFileCount={fileCount}
-              added={added}
-              deleted={deleted}
-              codexGoalState={codexGoalState}
-              tokenUsageInfo={tokenUsageInfo}
-              todos={todos}
-              showSessionSelector={showSessionSelector}
-              sessions={sessions}
-              selectedSessionId={selectedSessionId}
-              compactSessionLabel={compactSessionLabel}
-              selectedSessionLabel={selectedSessionLabel}
-              onJumpToPreviousUserMessage={onJumpToPreviousUserMessage}
-              onSelectSession={handleSelectSession}
-              onStartNewSession={() => onCreateSessionRequested?.()}
-              onRenameSession={handleRenameSession}
-            />
-          )}
-          <LiveFeedbackNotes
-            notes={liveFeedbackNotes}
-            conversationId={sessionId}
-            onResend={(text) => setLocalMessage(text)}
-          />
-          <AgentMentionProvider
-            transport={configuredBackendTransport}
-            conversationId={sessionId}
-          >
-            <SessionComposerInput
-              value={localMessage}
-              onChange={handleEditorChange}
-              replaceValueRef={composerReplaceValueRef}
-              disabled={!isEditable}
-              messageHistory={userMessageHistory}
-              context={{
-                workspaceId: workspaceIdValue,
-                workspacePath: composerWorkspacePath,
-                repoId: summaryRepoId ?? undefined,
-                repoIds: repos.map((repo) => repo.id),
-                executorProfile: effectiveExecutorProfile,
-                sessionId,
-                availableCommands: liveCommands.commands,
-                commandsLoading: liveCommands.loading,
-                transport: configuredBackendTransport,
-              }}
-              onSubmit={handleComposerSubmit}
-              onAttachImages={handleAttachImages}
-            />
-          </AgentMentionProvider>
+              {/* Top bar */}
+              {showTopbar && (
+                <SessionComposerTopbar
+                  executorProfile={effectiveExecutorProfile}
+                  sessionExecutor={session?.executor}
+                  showChangedFileSummary={showChangedFileSummary}
+                  changedFileCount={fileCount}
+                  added={added}
+                  deleted={deleted}
+                  codexGoalState={codexGoalState}
+                  tokenUsageInfo={tokenUsageInfo}
+                  todos={todos}
+                  showSessionSelector={showSessionSelector}
+                  sessions={sessions}
+                  selectedSessionId={selectedSessionId}
+                  compactSessionLabel={compactSessionLabel}
+                  selectedSessionLabel={selectedSessionLabel}
+                  onJumpToPreviousUserMessage={onJumpToPreviousUserMessage}
+                  onSelectSession={handleSelectSession}
+                  onStartNewSession={() => onCreateSessionRequested?.()}
+                  onRenameSession={handleRenameSession}
+                />
+              )}
+              <LiveFeedbackNotes
+                notes={liveFeedbackNotes}
+                conversationId={sessionId}
+                onResend={(text) => setLocalMessage(text)}
+              />
+              <AgentMentionProvider
+                transport={configuredBackendTransport}
+                conversationId={sessionId}
+              >
+                <SessionComposerInput
+                  value={localMessage}
+                  onChange={handleEditorChange}
+                  replaceValueRef={composerReplaceValueRef}
+                  disabled={!isEditable}
+                  messageHistory={userMessageHistory}
+                  context={{
+                    workspaceId: workspaceIdValue,
+                    workspacePath: composerWorkspacePath,
+                    repoId: summaryRepoId ?? undefined,
+                    repoIds: repos.map((repo) => repo.id),
+                    executorProfile: effectiveExecutorProfile,
+                    sessionId,
+                    availableCommands: liveCommands.commands,
+                    commandsLoading: liveCommands.loading,
+                    transport: configuredBackendTransport,
+                  }}
+                  onSubmit={handleComposerSubmit}
+                  onAttachImages={handleAttachImages}
+                />
+              </AgentMentionProvider>
 
-          <ActionBar
-            profiles={profiles}
-            effectiveExecutorProfile={effectiveExecutorProfile}
-            onChangeExecutorProfile={setSelectedExecutorProfile}
-            showProfileControls={true}
-            sessionModes={displaySessionModes}
-            selectedMode={selectedMode}
-            onSelectMode={handleSelectMode}
-            sessionConfigOptions={displaySessionConfigOptions}
-            selectedConfigValues={selectedConfigValues}
-            onSelectConfigOption={handleSelectConfigOption}
-            isEditable={isEditable}
-            isAttemptRunning={isComposerExecutionRunning}
-            compactContextEnabled={config?.compact_context_enabled ?? false}
-            canCompactContext={canCompactContext}
-            isCompactingContext={isCompactingContext}
-            isStopping={isStopping}
-            isSteering={isSteering}
-            steeringChannel={
-              steeringTarget ? 'native' : liveFeedbackOn ? 'pull' : null
-            }
-            isSendingFollowUp={isSendingFollowUp}
-            canSendFollowUp={canSendFollowUp}
-            isAwaitingNewSessionConfirmation={isAwaitingNewSessionConfirmation}
-            promptEnhancementEnabled={
-              config?.prompt_enhancement_enabled ?? false
-            }
-            isEnhancingPrompt={isEnhancingPrompt}
-            canEnhancePrompt={canEnhancePrompt}
-            sessionId={sessionId}
-            localMessage={localMessage}
-            attachmentCount={attachedImages.length}
-            conflictResolutionInstructions={conflictResolutionInstructions}
-            reviewMarkdown={reviewMarkdown}
-            comments={comments}
-            onCompactContext={handleCompactContext}
-            onSteer={handleSteer}
-            onStopExecution={stopExecution}
-            onSendFollowUp={onSendFollowUp}
-            onEnhancePrompt={handleEnhancePrompt}
-            onClearComments={clearComments}
-            onAttachImages={handleAttachImages}
-          />
+              <ActionBar
+                profiles={profiles}
+                effectiveExecutorProfile={effectiveExecutorProfile}
+                onChangeExecutorProfile={setSelectedExecutorProfile}
+                showProfileControls={true}
+                sessionModes={displaySessionModes}
+                selectedMode={selectedMode}
+                onSelectMode={handleSelectMode}
+                sessionConfigOptions={displaySessionConfigOptions}
+                selectedConfigValues={selectedConfigValues}
+                onSelectConfigOption={handleSelectConfigOption}
+                isEditable={isEditable}
+                isAttemptRunning={isComposerExecutionRunning}
+                compactContextEnabled={config?.compact_context_enabled ?? false}
+                canCompactContext={canCompactContext}
+                isCompactingContext={isCompactingContext}
+                isStopping={isStopping}
+                isSteering={isSteering}
+                steeringChannel={
+                  steeringTarget ? 'native' : liveFeedbackOn ? 'pull' : null
+                }
+                isSendingFollowUp={isSendingFollowUp}
+                canSendFollowUp={canSendFollowUp}
+                isAwaitingNewSessionConfirmation={
+                  isAwaitingNewSessionConfirmation
+                }
+                promptEnhancementEnabled={
+                  config?.prompt_enhancement_enabled ?? false
+                }
+                isEnhancingPrompt={isEnhancingPrompt}
+                canEnhancePrompt={canEnhancePrompt}
+                sessionId={sessionId}
+                localMessage={localMessage}
+                attachmentCount={attachedImages.length}
+                conflictResolutionInstructions={conflictResolutionInstructions}
+                reviewMarkdown={reviewMarkdown}
+                comments={comments}
+                onCompactContext={handleCompactContext}
+                onSteer={handleSteer}
+                onStopExecution={stopExecution}
+                onSendFollowUp={onSendFollowUp}
+                onEnhancePrompt={handleEnhancePrompt}
+                onClearComments={clearComments}
+                onAttachImages={handleAttachImages}
+              />
             </>
           )}
         </SessionComposerFrame>

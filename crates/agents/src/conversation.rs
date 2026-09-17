@@ -800,9 +800,9 @@ pub fn classify_turn_error(
         Some("auth_required") => ConversationTurnErrorKind::AuthRequired,
         Some("resource_not_found") => ConversationTurnErrorKind::ResourceNotFound,
         Some("session_resume_unsupported") => ConversationTurnErrorKind::SessionResumeUnsupported,
-        Some("session_load_failed" | "session_archived" | "session_busy" | "session_unavailable") => {
-            ConversationTurnErrorKind::SessionLoadFailed
-        }
+        Some(
+            "session_load_failed" | "session_archived" | "session_busy" | "session_unavailable",
+        ) => ConversationTurnErrorKind::SessionLoadFailed,
         Some("acp_session_not_bound") => ConversationTurnErrorKind::Unknown,
         Some("idle_timeout") => ConversationTurnErrorKind::IdleTimeout,
         Some("connection_closed") => ConversationTurnErrorKind::ConnectionClosed,
@@ -869,7 +869,9 @@ pub enum SessionRecoveryStrategy {
 #[ts(export)]
 pub enum SessionLoadFailureReason {
     ResourceNotFound,
-    AuthenticationRequired { message: String },
+    AuthenticationRequired {
+        message: String,
+    },
     Unsupported,
     SessionArchived {
         #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -877,7 +879,9 @@ pub enum SessionLoadFailureReason {
     },
     SessionBusy,
     SessionUnavailable,
-    Other { message: String },
+    Other {
+        message: String,
+    },
 }
 
 impl SessionLoadFailureReason {

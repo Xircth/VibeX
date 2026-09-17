@@ -320,9 +320,7 @@ impl AgentRuntime {
             event_tx,
             manager_event_rx,
         );
-        if driver_enabled
-            && let Some(idle_timeout) = crate::idle_sweep::idle_timeout_from_env()
-        {
+        if driver_enabled && let Some(idle_timeout) = crate::idle_sweep::idle_timeout_from_env() {
             tokio::spawn(crate::idle_sweep::idle_sweep_task(
                 Arc::clone(&connection_manager),
                 idle_timeout,
@@ -2986,11 +2984,7 @@ mod tests {
             })
             .await
             .expect_err("Codeg#500");
-        assert!(
-            error
-                .to_string()
-                .contains("resume instead of session/new")
-        );
+        assert!(error.to_string().contains("resume instead of session/new"));
     }
 
     #[tokio::test]

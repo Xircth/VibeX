@@ -4,10 +4,12 @@
  * Unknown / missing capabilities must wait until detail succeeds.
  * Never key this off a hardcoded agent_id.
  */
-export function canSkipInFlightHistoryWait(capabilities?: {
-  resume_session?: boolean | null;
-  load_session?: boolean | null;
-} | null): boolean {
+export function canSkipInFlightHistoryWait(
+  capabilities?: {
+    resume_session?: boolean | null;
+    load_session?: boolean | null;
+  } | null
+): boolean {
   return (
     capabilities?.resume_session === false &&
     capabilities?.load_session === false

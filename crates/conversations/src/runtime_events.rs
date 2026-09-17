@@ -1913,8 +1913,7 @@ mod tests {
 
         let mut connect_event = mapped_record(2, connection_ready_event());
         connect_event.turn_id = None;
-        let connect_normalized =
-            serde_json::to_string(&connect_event.event).expect("serialize");
+        let connect_normalized = serde_json::to_string(&connect_event.event).expect("serialize");
         let skipped_connect = append_mapped_event(&pool, &connect_event, &connect_normalized)
             .await
             .expect("connect-time events without a turn are skippable");

@@ -32,9 +32,8 @@ mod grok_plan;
 mod grok_subagent;
 mod grok_usage;
 pub mod history;
-pub mod ids;
 pub mod idle_sweep;
-mod session_bind_metrics;
+pub mod ids;
 pub mod install_planner;
 pub mod launch_gate;
 pub mod lifecycle;
@@ -56,6 +55,7 @@ pub mod profiles;
 pub mod registry_client;
 pub mod runtime;
 pub mod session;
+mod session_bind_metrics;
 mod session_notice;
 pub use session_notice::{
     AGENT_SESSION_NOTICE_KIND, SESSION_CONNECT_ERROR_KIND, SESSION_RECONNECT_PROGRESS_KIND,
@@ -170,12 +170,12 @@ pub use history::{
     merge_history_sources, normalize_history_path, scan_configured_history,
     scan_configured_history_with_progress,
 };
+pub use idle_sweep::{
+    DEFAULT_IDLE_TIMEOUT_SECS, idle_timeout_from_env, touch_interval_from_idle_timeout,
+};
 pub use ids::{
     AgentConnectionId, AgentElicitationId, AgentPermissionId, AgentPromptId, AgentSessionId,
     AgentTerminalId,
-};
-pub use idle_sweep::{
-    DEFAULT_IDLE_TIMEOUT_SECS, idle_timeout_from_env, touch_interval_from_idle_timeout,
 };
 pub use install_planner::{
     ArtifactTrust, ArtifactVerification, InstallCandidateSource, InstallEnvironment,
@@ -261,11 +261,11 @@ pub use registry_client::{
     parse_registry_distributions_json, sanitize_registry_svg,
 };
 pub use runtime::{
-    is_placeholder_acp_session_id, is_restorable_acp_session_id,
     AgentRuntime, CancelAgentPromptInput, ConnectAgentInput, EnsureAgentSessionInput,
     NoopEventSink, RespondAgentElicitationInput, RespondAgentPermissionInput,
     ResumeAgentSessionInput, RuntimeEventSink, RuntimeSnapshot, SendAgentPromptInput,
-    SteerAgentPromptInput, runtime_event_channel,
+    SteerAgentPromptInput, is_placeholder_acp_session_id, is_restorable_acp_session_id,
+    runtime_event_channel,
 };
 pub use session::{AgentPromptQueue, QueueTransition};
 pub use session_gate::{

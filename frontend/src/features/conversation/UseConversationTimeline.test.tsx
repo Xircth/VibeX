@@ -42,10 +42,12 @@ const {
       return Promise.resolve(() => {});
     }),
     listenToAgentEventsMock: vi.fn(
-      (handler: (envelope: {
-        session_id?: string | null;
-        event: { kind: string; acp_session_id?: string };
-      }) => void) => {
+      (
+        handler: (envelope: {
+          session_id?: string | null;
+          event: { kind: string; acp_session_id?: string };
+        }) => void
+      ) => {
         agentEventListeners.push(handler);
         return Promise.resolve(() => {});
       }

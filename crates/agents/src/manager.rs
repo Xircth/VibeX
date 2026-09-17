@@ -3006,6 +3006,7 @@ impl AgentConnectionRunner {
         }
     }
 
+    #[allow(clippy::too_many_arguments)]
     async fn resolve_session_load_failure(
         &self,
         conn: &ConnectionTo<Agent>,

@@ -439,17 +439,14 @@ const AgentTimelineConversation = forwardRef<
     const el = containerRef.current;
     if (!el) return;
     const update = (intersecting: boolean) => {
-      setSurfaceActive(
-        intersecting && document.visibilityState === 'visible'
-      );
+      setSurfaceActive(intersecting && document.visibilityState === 'visible');
     };
     const observer = new IntersectionObserver(
       ([entry]) => update(entry.isIntersecting),
       { threshold: 0.01 }
     );
     observer.observe(el);
-    const onVisibility = () =>
-      update(el.getClientRects().length > 0);
+    const onVisibility = () => update(el.getClientRects().length > 0);
     document.addEventListener('visibilitychange', onVisibility);
     return () => {
       observer.disconnect();
@@ -1581,7 +1578,9 @@ const AgentTimelineConversation = forwardRef<
                   <div className="mb-2 flex justify-center text-muted-foreground">
                     <div className="flex items-center gap-2 rounded-full border bg-background/90 px-3 py-1.5 text-xs shadow-sm">
                       <Loader2 className="h-4 w-4 animate-spin" />
-                      <span>{t('conversation:statusDock.connectingTitle')}</span>
+                      <span>
+                        {t('conversation:statusDock.connectingTitle')}
+                      </span>
                     </div>
                   </div>
                 ) : null}

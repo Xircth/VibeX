@@ -933,6 +933,9 @@ impl AgentConnectionManager {
         mode_override: Option<String>,
         config_overrides: Vec<AgentSessionConfigOverride>,
     ) -> AgentResult<()> {
+        if !self.has_connection(connection_id).await {
+            return Err(AgentError::ConnectionNotFound(connection_id.to_string()));
+        }
         let bound = self
             .bound_acp_session_id(connection_id, session_id)
             .await

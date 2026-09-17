@@ -972,6 +972,15 @@ impl AgentRuntime {
                 snapshot: snapshot.clone(),
             },
         );
+        let restorable = is_restorable_acp_session_id(&snapshot.acp_session_id);
+        let bound_id = snapshot.acp_session_id.clone();
+        let bound_session = snapshot.id;
+        drop(state);
+        if restorable {
+            self.connection_manager
+                .bind_known_acp_session(connection_id, bound_session, bound_id)
+                .await;
+        }
         Ok(snapshot)
     }
 
@@ -1670,6 +1679,9 @@ impl AgentRuntime {
             return Err(AgentError::Runtime(
                 "prompt must include at least one content block".to_string(),
             ));
+        }
+        if !self.has_bound_acp_session(input.session_id).await {
+            return Err(AgentError::AcpSessionNotBound);
         }
 
         let now = Utc::now();
@@ -2518,6 +2530,40 @@ mod tests {
         assert!(!is_connection_loss_during_session_preparation(
             &AgentError::Runtime("prompt must include at least one content block".into())
         ));
+    }
+
+    #[tokio::test]
+    async fn send_prompt_refuses_an_unbound_session() {
+        let runtime = AgentRuntime::new_with_driver(Arc::new(NoopEventSink), false);
+        let connection = runtime
+            .connect(ConnectAgentInput {
+                agent_id: AgentId::parse("codex").unwrap(),
+                launch_lock: test_launch_lock(),
+                workspace_id: Uuid::new_v4(),
+                working_dir: PathBuf::from("C:/work"),
+                additional_directories: Vec::new(),
+                auto_approve_mode: AgentAutoApproveMode::Off,
+                env: HashMap::new(),
+            })
+            .await
+            .unwrap();
+        let session = runtime
+            .new_session(connection.id, "pending-unbound")
+            .await
+            .unwrap();
+        let error = runtime
+            .send_prompt(SendAgentPromptInput {
+                connection_id: connection.id,
+                session_id: session.id,
+                blocks: vec![AgentContentBlock::Text {
+                    text: "hello".to_string(),
+                }],
+                mode_override: None,
+                config_overrides: Vec::new(),
+            })
+            .await
+            .expect_err("unbound prompt");
+        assert!(matches!(error, AgentError::AcpSessionNotBound));
     }
 
     #[tokio::test]

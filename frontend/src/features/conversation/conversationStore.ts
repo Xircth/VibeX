@@ -200,11 +200,17 @@ export function conversationStoreReducer(
     case 'session_controls_hydrated':
       return updateEntry(state, action.conversationId, (entry) => ({
         ...entry,
-        sessionModes: {
-          current: action.controls.current_mode ?? null,
-          modes: action.controls.modes,
-        },
-        sessionConfigOptions: action.controls.config_options,
+        sessionModes:
+          action.controls.modes.length > 0 || action.controls.current_mode
+            ? {
+                current: action.controls.current_mode ?? null,
+                modes: action.controls.modes,
+              }
+            : entry.sessionModes,
+        sessionConfigOptions:
+          action.controls.config_options.length > 0
+            ? action.controls.config_options
+            : entry.sessionConfigOptions,
         availableCommands:
           action.controls.available_commands ?? entry.availableCommands,
       }));

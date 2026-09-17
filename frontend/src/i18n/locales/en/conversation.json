@@ -275,7 +275,9 @@
     "updateAgent": "Update",
     "updating": "Updating",
     "updateStarted": "Update started",
-    "updateFailed": "Update failed"
+    "updateFailed": "Update failed",
+    "connectingTitle": "Connecting to agent…",
+    "initSessionTitle": "Initializing session…"
   },
   "liveFeedback": {
     "placeholder": "Steer this turn",

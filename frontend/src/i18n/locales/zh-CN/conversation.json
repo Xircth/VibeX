@@ -275,7 +275,9 @@
     "updateAgent": "更新",
     "updating": "正在更新",
     "updateStarted": "已开始更新",
-    "updateFailed": "更新失败"
+    "updateFailed": "更新失败",
+    "connectingTitle": "正在连接代理…",
+    "initSessionTitle": "正在初始化会话…"
   },
   "liveFeedback": {
     "placeholder": "给这一回合纠偏",

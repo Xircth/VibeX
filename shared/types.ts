@@ -1542,7 +1542,7 @@ answer: string,
  */
 content?: JsonValue | null, };
 
-export type ConversationNoticeAction = { "kind": "update_agent", agent_id: AgentId, fallback_url?: string | null, } | { "kind": "open_url", url: string, label: string, };
+export type ConversationNoticeAction = { "kind": "update_agent", agent_id: AgentId, fallback_url?: string | null, } | { "kind": "open_url", url: string, label: string, } | { "kind": "copy_command", command: string, label: string, };
 
 export type ConversationSessionNotice = { title: string, message?: string | null, severity: string, announcement_id?: string | null, action?: ConversationNoticeAction | null, };
 

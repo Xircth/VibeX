@@ -25,6 +25,8 @@ import { useActiveExecutorProfile } from '@/contexts/ActiveExecutorProfileContex
 import { useFollowUpSend } from '@/hooks/useFollowUpSend';
 import { toast } from '@/components/ui/toast';
 import { conversationApi } from '@/features/conversation/conversationApi';
+import { AGENT_BINDING_LOAD_FAILURE_NOTICE_ROW_ID } from '@/features/conversation/sessionNoticeNeedsRebind';
+import { sessionsApi } from '@/lib/api';
 import { listenToConversationEvents } from '@/features/conversation/events';
 import {
   composerSessionControlDisplay,
@@ -516,6 +518,49 @@ export function TaskFollowUpSection({
     childrenDock,
     sessionBindReady,
   } = useConversationStatus();
+  const hideComposerForLoadFailure = conversationStatusNotices.some(
+    (notice) => notice.id === AGENT_BINDING_LOAD_FAILURE_NOTICE_ROW_ID
+  );
+  const autoCreatedNewSessionRef = useRef(false);
+  useEffect(() => {
+    if (!isNewSessionMode) {
+      autoCreatedNewSessionRef.current = false;
+      return;
+    }
+    const executorId = effectiveExecutorProfile?.executor;
+    if (
+      autoCreatedNewSessionRef.current ||
+      !workspaceId ||
+      !executorId
+    ) {
+      return;
+    }
+    autoCreatedNewSessionRef.current = true;
+    void sessionsApi
+      .create({
+        workspace_id: workspaceId,
+        executor: executorId,
+      })
+      .then((created) => {
+        handleSelectSession(created.id);
+        handleFollowUpSessionCreated({
+          sessionId: created.id,
+          workspaceId: created.workspace_id,
+        });
+      })
+      .catch((error: unknown) => {
+        autoCreatedNewSessionRef.current = false;
+        toast.error(
+          error instanceof Error ? error.message : String(error)
+        );
+      });
+  }, [
+    effectiveExecutorProfile?.executor,
+    handleFollowUpSessionCreated,
+    handleSelectSession,
+    isNewSessionMode,
+    workspaceId,
+  ]);
   const executor = effectiveExecutorProfile?.executor ?? null;
   const catalogQuery = useQuery({
     queryKey: sessionControlsQueryKey(executor!, null),
@@ -1131,6 +1176,8 @@ export function TaskFollowUpSection({
           onFocus={handleComposerFocus}
           onBlur={handleComposerBlur}
         >
+          {hideComposerForLoadFailure ? null : (
+            <>
           {/* Top bar */}
           {showTopbar && (
             <SessionComposerTopbar
@@ -1228,6 +1275,8 @@ export function TaskFollowUpSection({
             onClearComments={clearComments}
             onAttachImages={handleAttachImages}
           />
+            </>
+          )}
         </SessionComposerFrame>
       </div>
     </TooltipProvider>

@@ -327,6 +327,18 @@ describe('useConversationTimeline', () => {
     );
   });
 
+  it('does not auto-connect an inactive conversation surface', async () => {
+    detailMock.mockResolvedValue(detail());
+
+    renderHook(() =>
+      useConversationTimeline(CONVERSATION_ID, { active: false })
+    );
+
+    await waitFor(() => expect(detailMock).toHaveBeenCalled());
+    expect(ensureSessionControlsMock).not.toHaveBeenCalled();
+    expect(touchMock).not.toHaveBeenCalled();
+  });
+
   it('does not connect while conversation detail is still loading', async () => {
     let resolveDetail: (value: DbConversationDetail) => void = () => {};
     detailMock.mockReturnValue(

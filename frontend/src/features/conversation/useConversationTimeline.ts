@@ -75,11 +75,15 @@ export type UseConversationTimelineResult = {
   loadOlder: () => Promise<void>;
   /** ACP bind finished. Composer send stays disabled until this is true. */
   sessionBindReady: boolean;
+  /** Bind is in flight for a loaded conversation. */
+  connecting: boolean;
 };
 
 export function useConversationTimeline(
-  conversationId: string | null
+  conversationId: string | null,
+  options?: { active?: boolean }
 ): UseConversationTimelineResult {
+  const isActive = options?.active ?? true;
   const [state, dispatch] = useReducer(
     conversationStoreReducer,
     emptyConversationStoreState
@@ -196,7 +200,7 @@ export function useConversationTimeline(
   }, [conversationId]);
 
   useEffect(() => {
-    if (!conversationId || !hasDetail) return;
+    if (!isActive || !conversationId || !hasDetail) return;
     const entry = stateRef.current.byConversationId[conversationId];
     const detail = entry?.detail;
     if (!detail || entry?.error) return;
@@ -227,10 +231,10 @@ export function useConversationTimeline(
     return () => {
       cancelled = true;
     };
-  }, [conversationId, hasDetail, reportLoadError]);
+  }, [conversationId, hasDetail, isActive, reportLoadError]);
 
   useEffect(() => {
-    if (!conversationId || !hasDetail) return;
+    if (!isActive || !conversationId || !hasDetail) return;
     let intervalMs = 30_000;
     let timer: ReturnType<typeof setInterval> | null = null;
     const touch = () => {
@@ -256,7 +260,7 @@ export function useConversationTimeline(
     return () => {
       if (timer) clearInterval(timer);
     };
-  }, [conversationId, hasDetail]);
+  }, [conversationId, hasDetail, isActive]);
 
   useEffect(() => {
     if (!conversationId || !hasDetail) return;
@@ -500,9 +504,17 @@ export function useConversationTimeline(
       hasEarlier: Boolean(entry?.olderCursor),
       loadOlder,
       sessionBindReady,
+      connecting:
+        Boolean(hasDetail) &&
+        !sessionBindReady &&
+        !entry?.error &&
+        !(entry?.rows ?? []).some(
+          (row) => row.row_id === AGENT_BINDING_LOAD_FAILURE_NOTICE_ROW_ID
+        ),
     }),
     [
       entry,
+      hasDetail,
       sendOptimisticTurn,
       removeOptimisticTurn,
       loadDetail,

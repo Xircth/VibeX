@@ -434,6 +434,28 @@ const AgentTimelineConversation = forwardRef<
     : 'smooth';
   const containerRef = useRef<HTMLDivElement | null>(null);
   const virtualListRef = useRef<HTMLDivElement | null>(null);
+  const [surfaceActive, setSurfaceActive] = useState(true);
+  useEffect(() => {
+    const el = containerRef.current;
+    if (!el) return;
+    const update = (intersecting: boolean) => {
+      setSurfaceActive(
+        intersecting && document.visibilityState === 'visible'
+      );
+    };
+    const observer = new IntersectionObserver(
+      ([entry]) => update(entry.isIntersecting),
+      { threshold: 0.01 }
+    );
+    observer.observe(el);
+    const onVisibility = () =>
+      update(el.getClientRects().length > 0);
+    document.addEventListener('visibilitychange', onVisibility);
+    return () => {
+      observer.disconnect();
+      document.removeEventListener('visibilitychange', onVisibility);
+    };
+  }, []);
   const [scrollMargin, setScrollMargin] = useState(0);
   const [activeIndex, setActiveIndex] = useState<number | null>(null);
   const isAtBottomRef = useRef(true);
@@ -445,7 +467,9 @@ const AgentTimelineConversation = forwardRef<
   // path — otherwise a relative "README.md" can't be opened in a preview tab.
   const { repos } = useAttemptRepo(attempt.id);
   const workspaceRoot = attempt.container_ref ?? repos[0]?.path ?? null;
-  const conversation = useConversationTimeline(sessionId);
+  const conversation = useConversationTimeline(sessionId, {
+    active: surfaceActive,
+  });
   const kanbanSessions = useOptionalKanbanSessionContext();
   const forkSupported = conversation.forkSessionSupported;
   const conversationStatus = useOptionalConversationStatus();
@@ -1553,6 +1577,14 @@ const AgentTimelineConversation = forwardRef<
           >
             <SubagentLifecycleProvider turns={timeline.map((row) => row.turn)}>
               <div className="conv-thread-content min-w-0">
+                {conversation.connecting ? (
+                  <div className="mb-2 flex justify-center text-muted-foreground">
+                    <div className="flex items-center gap-2 rounded-full border bg-background/90 px-3 py-1.5 text-xs shadow-sm">
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                      <span>{t('conversation:statusDock.connectingTitle')}</span>
+                    </div>
+                  </div>
+                ) : null}
                 {attempt.session?.executor === 'workflow' && sessionId ? (
                   <WorkflowRunCard runId={sessionId} />
                 ) : null}

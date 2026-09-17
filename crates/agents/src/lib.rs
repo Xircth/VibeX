@@ -34,6 +34,7 @@ mod grok_usage;
 pub mod history;
 pub mod ids;
 pub mod idle_sweep;
+mod session_bind_metrics;
 pub mod install_planner;
 pub mod launch_gate;
 pub mod lifecycle;

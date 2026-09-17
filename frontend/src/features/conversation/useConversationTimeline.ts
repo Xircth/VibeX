@@ -10,6 +10,7 @@ import type {
 } from 'shared/types';
 import { conversationApi } from './conversationApi';
 import { AGENT_BINDING_LOAD_FAILURE_NOTICE_ROW_ID } from './sessionNoticeNeedsRebind';
+import { canSkipInFlightHistoryWait } from './canSkipInFlightHistoryWait';
 import { listenToConversationEvents } from './events';
 import { subscribeToOptimisticConversationTurns } from './optimisticTurnEvents';
 import {
@@ -200,8 +201,12 @@ export function useConversationTimeline(
   }, [conversationId]);
 
   useEffect(() => {
-    if (!isActive || !conversationId || !hasDetail) return;
+    if (!isActive || !conversationId) return;
     const entry = stateRef.current.byConversationId[conversationId];
+    const skipInFlightWait = canSkipInFlightHistoryWait(
+      entry?.detail?.active_binding?.capabilities
+    );
+    if (!hasDetail && !skipInFlightWait) return;
     const detail = entry?.detail;
     if (!detail || entry?.error) return;
     if (!detail.summary.workspace_id || !detail.summary.agent_id) return;

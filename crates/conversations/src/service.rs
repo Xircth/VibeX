@@ -2473,6 +2473,12 @@ impl ConversationSessionService {
             restore_strategy = strategy;
             snapshot
         } else {
+            if restorable_binding.is_some() {
+                return Err(ConversationServiceError::Conflict(
+                    "conversation already has a restorable ACP session; resume instead of session/new"
+                        .into(),
+                ));
+            }
             let prepared = self
                 .ctx
                 .agent_runtime

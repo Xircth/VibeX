@@ -40,9 +40,7 @@ pub async fn idle_sweep_task(
     loop {
         ticker.tick().await;
         let n = manager.sweep_idle(idle_timeout).await;
-        if n > 0 {
-            tracing::info!(count = n, "ACP idle sweep disconnected connection(s)");
-        }
+        crate::session_bind_metrics::record_idle_sweep_disconnects(n);
     }
 }
 

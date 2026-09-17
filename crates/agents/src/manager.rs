@@ -948,6 +948,7 @@ impl AgentConnectionManager {
             .await
             .filter(|id| crate::is_restorable_acp_session_id(id));
         if bound.is_none() {
+            crate::session_bind_metrics::record_prompt_unbound(session_id.0);
             return Err(AgentError::AcpSessionNotBound);
         }
         self.send_command(
@@ -1368,6 +1369,18 @@ impl AgentConnectionManager {
     }
 
     #[cfg(test)]
+    pub(crate) async fn set_connection_status(
+        &self,
+        connection_id: AgentConnectionId,
+        status: AgentConnectionStatus,
+    ) {
+        let connections = self.connections.lock().await;
+        if let Some(connection) = connections.get(&connection_id) {
+            *connection.status.lock().await = status;
+        }
+    }
+
+    #[cfg(test)]
     pub(crate) async fn replace_command_sender(
         &self,
         connection_id: AgentConnectionId,
@@ -1446,6 +1459,7 @@ struct AgentConnectionRunner {
     /// controls and before the first `SessionModes` / `SessionConfigOptions` event.
     preferred_controls: Arc<RwLock<HashMap<AgentSessionId, crate::SessionControlPreferences>>>,
     status: Arc<Mutex<AgentConnectionStatus>>,
+    handshake_started: Instant,
 }
 
 /// Non-standard wire surface an ACP agent requires for its vendor-advertised
@@ -1583,6 +1597,7 @@ impl AgentConnectionRunner {
             pending_session_id: Arc::new(Mutex::new(None)),
             preferred_controls: Arc::new(RwLock::new(HashMap::new())),
             status: Arc::new(Mutex::new(AgentConnectionStatus::Connecting)),
+            handshake_started: Instant::now(),
         }
     }
 
@@ -2418,10 +2433,7 @@ impl AgentConnectionRunner {
                             ..
                         } = &command
                     {
-                        tracing::error!(
-                            session_id = %session_id.0,
-                            "ACP prompt reached an unbound connection; session/new is forbidden"
-                        );
+                        crate::session_bind_metrics::record_prompt_unbound(session_id.0);
                         runner
                             .fail_active_turn(
                                 *session_id,
@@ -2565,9 +2577,8 @@ impl AgentConnectionRunner {
                             {
                                 Some(acp_session_id) => acp_session_id,
                                 None => {
-                                    tracing::error!(
-                                        session_id = %session_id.0,
-                                        "ACP prompt reached an unbound connection; session/new is forbidden"
+                                    crate::session_bind_metrics::record_prompt_unbound(
+                                        session_id.0,
                                     );
                                     runner
                                         .fail_active_turn(
@@ -2831,6 +2842,18 @@ impl AgentConnectionRunner {
         support: SessionRestoreSupport,
         companion_capabilities: CompanionCapabilities,
     ) -> AgentResult<(String, Option<crate::conversation::SessionRecoveryStrategy>)> {
+        crate::session_bind_metrics::record_connect_start(
+            session_id.0,
+            &self.snapshot.agent_id,
+            true,
+            if support.resume {
+                "resume"
+            } else if support.load {
+                "load"
+            } else {
+                "new"
+            },
+        );
         let mapped = self.session_map.read().await.get(&session_id).cloned();
         match mapped_resume_action(mapped.as_deref(), &external_session_id) {
             MappedResume::Reuse(existing) => {
@@ -2903,10 +2926,9 @@ impl AgentConnectionRunner {
                 }
                 Err(error) => {
                     *self.pending_session_id.lock().await = None;
-                    tracing::warn!(
-                        session_id = %session_id.0,
-                        error = %error,
-                        "session/resume failed; falling through to session/load"
+                    crate::session_bind_metrics::record_resume_fell_through_to_load(
+                        session_id.0,
+                        &error.to_string(),
                     );
                     if matches!(
                         classify_session_load_error(&error),
@@ -3180,6 +3202,11 @@ impl AgentConnectionRunner {
         if !crate::is_restorable_acp_session_id(&acp_session_id) {
             return;
         }
+        crate::session_bind_metrics::record_bind_ready(
+            session_id.0,
+            "bound",
+            self.handshake_started.elapsed().as_millis(),
+        );
         self.emit(
             Some(session_id),
             None,
@@ -8021,6 +8048,35 @@ mod tests {
             merged.get("ALL_PROXY").map(String::as_str),
             Some("socks5://proxy-setting")
         );
+    }
+
+    #[tokio::test]
+    async fn sweep_idle_skips_connecting_connections() {
+        let (event_tx, _event_rx) = manager_event_channel();
+        let manager = AgentConnectionManager::new_with_driver(event_tx, false);
+        let (snapshot, ready_rx) = manager
+            .register_connection(AgentConnectionLaunch {
+                connection_id: AgentConnectionId::new(),
+                agent_id: AgentId::parse("codex").unwrap(),
+                launch_lock: test_launch_lock(AgentId::parse("codex").unwrap()),
+                workspace_id: uuid::Uuid::new_v4(),
+                working_dir: std::env::temp_dir(),
+                additional_directories: Vec::new(),
+                auto_approve_mode: AgentAutoApproveMode::Off,
+                env: HashMap::new(),
+            })
+            .await;
+        ready_rx.await.unwrap().unwrap();
+
+        manager
+            .set_connection_status(snapshot.connection_id, AgentConnectionStatus::Connecting)
+            .await;
+        assert_eq!(manager.sweep_idle(Duration::from_secs(0)).await, 0);
+
+        manager
+            .set_connection_status(snapshot.connection_id, AgentConnectionStatus::Ready)
+            .await;
+        assert_eq!(manager.sweep_idle(Duration::from_secs(0)).await, 1);
     }
 
     #[test]

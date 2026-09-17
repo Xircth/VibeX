@@ -7140,6 +7140,10 @@ mod tests {
             })
             .await;
         ready_rx.await.unwrap().unwrap();
+        let session_id = AgentSessionId::new();
+        manager
+            .bind_known_acp_session(connection_id, session_id, "acp-session".into())
+            .await;
         let (closed_tx, closed_rx) = mpsc::channel(1);
         drop(closed_rx);
         manager
@@ -7153,7 +7157,7 @@ mod tests {
         let err = manager
             .send_prompt(
                 connection_id,
-                AgentSessionId::new(),
+                session_id,
                 AgentPromptId::new(),
                 vec![AgentContentBlock::Text {
                     text: "hello".to_string(),

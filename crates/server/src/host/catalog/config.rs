@@ -350,8 +350,8 @@ pub(super) async fn enhance_prompt(
         return Err(prompt_enhancement_cancelled());
     }
     let events = runtime.subscribe_events();
-    let session = match runtime
-        .ensure_session(EnsureAgentSessionInput {
+    let prepared = match runtime
+        .prepare_session(EnsureAgentSessionInput {
             agent_id: agent_id.clone(),
             launch_lock: launch.launch_lock,
             workspace_id: uuid::Uuid::nil(),
@@ -365,12 +365,13 @@ pub(super) async fn enhance_prompt(
         })
         .await
     {
-        Ok(session) => session,
+        Ok(prepared) => prepared,
         Err(error) => {
             let _ = finish_prompt_enhancement(domains, generation).await;
             return Err(internal_error(error));
         }
     };
+    let session = prepared.session;
     bind_prompt_enhancement_run(domains, generation, session.connection_id, session.id, None).await;
     if cancel.is_cancelled() {
         if let Some(run) = finish_prompt_enhancement(domains, generation).await {

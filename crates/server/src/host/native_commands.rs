@@ -304,16 +304,9 @@ pub async fn dispatch_model_provider_save(
     let home = require_home()?;
     let env = env_for(pool, &agent_id).await?;
     let store_path = provider_store_path();
-    let native_home = native_home_for(&home, &env, &agent_id);
-    let has_binding =
-        model_providers::list_with_native(&store_path, agent_id.clone(), Some(&native_home))
-            .await
-            .map_err(bad)?
-            .bound_provider_id
-            .is_some();
-    if has_binding {
-        sync_model_provider_auth_overlay(pool, &agent_id, true).await?;
-    }
+    // Editing a Provider never changes which one is bound, so it must not touch
+    // the mode: re-asserting Provider routing here would silently undo a mode
+    // the user chose in VibeX. Binding and deleting keep the two in step.
     let view = model_providers::save(&store_path, &home, &env, request)
         .await
         .map_err(bad)?;

@@ -112,14 +112,27 @@ pub enum ProfileManagementActionKind {
     Subscription,
 }
 
+/// One entry point that can run a Profile management action: the executable to
+/// launch and the arguments that belong to that executable.
+///
+/// A program is resolved from the Agent's installation lock or PATH, so an
+/// action lists every distribution that can drive it, most preferred first. An
+/// Adapter-backed Agent's adapter installs the vendor CLI inside itself and
+/// re-exposes it through a passthrough subcommand, so the adapter is a valid
+/// entry point whenever the standalone CLI is absent.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ProfileManagementProgram {
+    pub program: &'static str,
+    pub args: &'static [&'static str],
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ProfileManagementAction {
     pub id: &'static str,
     pub label: &'static str,
     pub description: &'static str,
     pub kind: ProfileManagementActionKind,
-    pub program: Option<&'static str>,
-    pub args: &'static [&'static str],
+    pub programs: &'static [ProfileManagementProgram],
     pub url: Option<&'static str>,
 }
 
@@ -593,22 +606,33 @@ const fn dependency(
     }
 }
 
+// Claude Code and Codex are adapter-backed: the ACP adapter is the component
+// VibeX installs, and it carries the vendor CLI, re-exposed through its own
+// `--cli` / `cli` passthrough. A standalone CLI on the machine still comes
+// first, because that is the installation its user manages directly.
 const CLAUDE_ACTIONS: &[ProfileManagementAction] = &[
     terminal_action(
         "login",
         "登录 Claude",
         "启动 Claude Code 官方账号登录",
         ProfileManagementActionKind::Login,
-        "claude",
-        &["auth", "login"],
+        &[
+            program("claude", &["auth", "login"]),
+            program(
+                "claude-agent-acp",
+                &["--cli", "auth", "login", "--claudeai"],
+            ),
+        ],
     ),
     terminal_action(
         "logout",
         "退出登录",
         "注销 Claude Code 本地账号",
         ProfileManagementActionKind::Logout,
-        "claude",
-        &["auth", "logout"],
+        &[
+            program("claude", &["auth", "logout"]),
+            program("claude-agent-acp", &["--cli", "auth", "logout"]),
+        ],
     ),
     url_action(
         "subscription",
@@ -623,16 +647,20 @@ const CODEX_ACTIONS: &[ProfileManagementAction] = &[
         "登录 ChatGPT",
         "启动 Codex 官方设备码登录",
         ProfileManagementActionKind::Login,
-        "codex",
-        &["login", "--device-auth"],
+        &[
+            program("codex", &["login", "--device-auth"]),
+            program("codex-acp", &["cli", "login", "--device-auth"]),
+        ],
     ),
     terminal_action(
         "logout",
         "退出登录",
         "注销 Codex 本地账号",
         ProfileManagementActionKind::Logout,
-        "codex",
-        &["logout"],
+        &[
+            program("codex", &["logout"]),
+            program("codex-acp", &["cli", "logout"]),
+        ],
     ),
     url_action(
         "subscription",
@@ -647,8 +675,7 @@ const OPENCLAW_ACTIONS: &[ProfileManagementAction] = &[terminal_action(
     "初始化 OpenClaw",
     "运行官方引导并配置 Gateway",
     ProfileManagementActionKind::Setup,
-    "openclaw",
-    &["onboard"],
+    &[program("openclaw", &["onboard"])],
 )];
 const OPENCODE_ACTIONS: &[ProfileManagementAction] = &[
     terminal_action(
@@ -656,16 +683,14 @@ const OPENCODE_ACTIONS: &[ProfileManagementAction] = &[
         "连接 Provider",
         "启动 OpenCode 官方认证流程",
         ProfileManagementActionKind::Login,
-        "opencode",
-        &["auth", "login"],
+        &[program("opencode", &["auth", "login"])],
     ),
     terminal_action(
         "logout",
         "断开 Provider",
         "启动 OpenCode 官方注销流程",
         ProfileManagementActionKind::Logout,
-        "opencode",
-        &["auth", "logout"],
+        &[program("opencode", &["auth", "logout"])],
     ),
 ];
 const CLINE_ACTIONS: &[ProfileManagementAction] = &[terminal_action(
@@ -673,8 +698,7 @@ const CLINE_ACTIONS: &[ProfileManagementAction] = &[terminal_action(
     "登录 Cline",
     "启动 Cline 官方认证流程",
     ProfileManagementActionKind::Login,
-    "cline",
-    &["auth"],
+    &[program("cline", &["auth"])],
 )];
 const HERMES_ACTIONS: &[ProfileManagementAction] = &[
     terminal_action(
@@ -682,16 +706,14 @@ const HERMES_ACTIONS: &[ProfileManagementAction] = &[
         "运行 Hermes Setup",
         "配置 Provider 与凭据",
         ProfileManagementActionKind::Setup,
-        "hermes-acp",
-        &["--setup"],
+        &[program("hermes-acp", &["--setup"])],
     ),
     terminal_action(
         "model",
         "配置模型",
         "打开 Hermes 模型配置流程",
         ProfileManagementActionKind::Setup,
-        "hermes",
-        &["model"],
+        &[program("hermes", &["model"])],
     ),
 ];
 const CODEBUDDY_ACTIONS: &[ProfileManagementAction] = &[terminal_action(
@@ -699,16 +721,14 @@ const CODEBUDDY_ACTIONS: &[ProfileManagementAction] = &[terminal_action(
     "登录 CodeBuddy",
     "启动 CodeBuddy 官方登录",
     ProfileManagementActionKind::Login,
-    "codebuddy",
-    &["login"],
+    &[program("codebuddy", &["login"])],
 )];
 const QODER_ACTIONS: &[ProfileManagementAction] = &[terminal_action(
     "login",
     "登录 Qoder",
     "打开浏览器完成 Qoder 官方账号登录",
     ProfileManagementActionKind::Login,
-    "qodercli",
-    &["login"],
+    &[program("qodercli", &["login"])],
 )];
 const KIMI_ACTIONS: &[ProfileManagementAction] = &[
     terminal_action(
@@ -716,16 +736,14 @@ const KIMI_ACTIONS: &[ProfileManagementAction] = &[
         "登录 Kimi",
         "切换到 Kimi Code 订阅账号并启动设备码登录",
         ProfileManagementActionKind::Login,
-        "kimi",
-        &["acp", "--login"],
+        &[program("kimi", &["acp", "--login"])],
     ),
     terminal_action(
         "logout",
         "退出登录",
         "注销 Kimi Code 本地账号",
         ProfileManagementActionKind::Logout,
-        "kimi",
-        &["logout"],
+        &[program("kimi", &["logout"])],
     ),
 ];
 const PI_ACTIONS: &[ProfileManagementAction] = &[terminal_action(
@@ -733,8 +751,7 @@ const PI_ACTIONS: &[ProfileManagementAction] = &[terminal_action(
     "配置 Pi Provider",
     "启动 Pi，在终端中使用 /login",
     ProfileManagementActionKind::Login,
-    "pi",
-    &[],
+    &[program("pi", &[])],
 )];
 const GROK_ACTIONS: &[ProfileManagementAction] = &[
     terminal_action(
@@ -742,16 +759,14 @@ const GROK_ACTIONS: &[ProfileManagementAction] = &[
         "登录 Grok",
         "使用 SuperGrok / X Premium+ 账号登录",
         ProfileManagementActionKind::Login,
-        "grok",
-        &["login"],
+        &[program("grok", &["login"])],
     ),
     terminal_action(
         "logout",
         "退出登录",
         "注销 Grok 本地账号",
         ProfileManagementActionKind::Logout,
-        "grok",
-        &["logout"],
+        &[program("grok", &["logout"])],
     ),
     url_action(
         "subscription",
@@ -766,16 +781,14 @@ const CURSOR_ACTIONS: &[ProfileManagementAction] = &[
         "登录 Cursor",
         "使用 Cursor 订阅账号登录",
         ProfileManagementActionKind::Login,
-        "cursor-agent",
-        &["login"],
+        &[program("cursor-agent", &["login"])],
     ),
     terminal_action(
         "logout",
         "退出登录",
         "注销 Cursor Agent 本地账号",
         ProfileManagementActionKind::Logout,
-        "cursor-agent",
-        &["logout"],
+        &[program("cursor-agent", &["logout"])],
     ),
     url_action(
         "subscription",
@@ -789,25 +802,26 @@ const DEEPSEEK_HARNESS_ACTIONS: &[ProfileManagementAction] = &[terminal_action(
     "配置 API Key",
     "把 DeepSeek API Key 写入本地凭据",
     ProfileManagementActionKind::Setup,
-    "deepseek-acp",
-    &["--setup"],
+    &[program("deepseek-acp", &["--setup"])],
 )];
+
+const fn program(program: &'static str, args: &'static [&'static str]) -> ProfileManagementProgram {
+    ProfileManagementProgram { program, args }
+}
 
 const fn terminal_action(
     id: &'static str,
     label: &'static str,
     description: &'static str,
     kind: ProfileManagementActionKind,
-    program: &'static str,
-    args: &'static [&'static str],
+    programs: &'static [ProfileManagementProgram],
 ) -> ProfileManagementAction {
     ProfileManagementAction {
         id,
         label,
         description,
         kind,
-        program: Some(program),
-        args,
+        programs,
         url: None,
     }
 }
@@ -823,8 +837,7 @@ const fn url_action(
         label,
         description,
         kind: ProfileManagementActionKind::Subscription,
-        program: None,
-        args: &[],
+        programs: &[],
         url: Some(url),
     }
 }
@@ -1230,16 +1243,14 @@ const MIMO_ACTIONS: &[ProfileManagementAction] = &[
         "登录 MiMo",
         "启动 Xiaomi MiMo 官方账号登录",
         ProfileManagementActionKind::Login,
-        "mimo",
-        &["auth", "login"],
+        &[program("mimo", &["auth", "login"])],
     ),
     terminal_action(
         "logout",
         "退出登录",
         "注销 Xiaomi MiMo 本地账号",
         ProfileManagementActionKind::Logout,
-        "mimo",
-        &["auth", "logout"],
+        &[program("mimo", &["auth", "logout"])],
     ),
     url_action(
         "subscription",

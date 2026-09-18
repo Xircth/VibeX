@@ -295,11 +295,13 @@ export function getDraftScratchHydrationDecision({
   hydratedScratchId,
   scratchId,
   scratchData,
+  localMessage = '',
 }: {
   isScratchLoading: boolean;
   hydratedScratchId: string | undefined;
   scratchId: string | undefined;
   scratchData: DraftFollowUpData | undefined;
+  localMessage?: string;
 }): {
   hydratedScratchId: string | undefined;
   shouldHydrate: boolean;
@@ -311,6 +313,17 @@ export function getDraftScratchHydrationDecision({
   if (isScratchLoading || hydratedScratchId === scratchId) {
     return {
       hydratedScratchId,
+      shouldHydrate: false,
+      message: '',
+      imagePaths: [],
+      modeOverride: null,
+      configOverrides: {},
+    };
+  }
+  // Composer is usable before the draft stream connects. Don't clobber typing.
+  if (localMessage.trim()) {
+    return {
+      hydratedScratchId: scratchId,
       shouldHydrate: false,
       message: '',
       imagePaths: [],

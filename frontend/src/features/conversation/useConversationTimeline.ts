@@ -243,42 +243,63 @@ export function useConversationTimeline(
     if (!hasDetail && !skipInFlightWait) return;
     const detail = entry?.detail;
     if (!detail || entry?.error) return;
-    if (!detail.summary.workspace_id || !detail.summary.agent_id) return;
+    // Workspace is required to spawn. Agent id may still be empty on a brand-new
+    // session that only stored `executor`; ensure_session_controls resolves it.
+    if (!detail.summary.workspace_id) return;
     const hasUnclearedLoadFailure = (entry.rows ?? []).some(
       (row) => row.row_id === AGENT_BINDING_LOAD_FAILURE_NOTICE_ROW_ID
     );
     if (hasUnclearedLoadFailure) return;
 
     const requestedConversationId = conversationId;
-    void conversationApi
-      .ensureSessionControls(requestedConversationId, { reload: false })
-      .then((controls) => {
-        if (
-          disposedRef.current ||
-          previousConversationIdRef.current !== requestedConversationId
-        ) {
-          return;
-        }
-        dispatch({
-          type: 'session_controls_hydrated',
-          conversationId: requestedConversationId,
-          controls,
+    // Bind after the open path is idle so history and the composer are not
+    // queued behind ACP spawn.
+    const startBind = () => {
+      void conversationApi
+        .ensureSessionControls(requestedConversationId, { reload: false })
+        .then((controls) => {
+          if (
+            disposedRef.current ||
+            previousConversationIdRef.current !== requestedConversationId
+          ) {
+            return;
+          }
+          dispatch({
+            type: 'session_controls_hydrated',
+            conversationId: requestedConversationId,
+            controls,
+          });
+          setSessionBindReady(true);
+        })
+        .catch((error: unknown) => {
+          if (
+            disposedRef.current ||
+            previousConversationIdRef.current !== requestedConversationId
+          ) {
+            return;
+          }
+          if (isStaleAgentConnectionError(error)) {
+            return;
+          }
+          setSessionBindReady(false);
+          reportLoadError(error, requestedConversationId);
         });
-        setSessionBindReady(true);
-      })
-      .catch((error: unknown) => {
-        if (
-          disposedRef.current ||
-          previousConversationIdRef.current !== requestedConversationId
-        ) {
-          return;
-        }
-        if (isStaleAgentConnectionError(error)) {
-          return;
-        }
-        setSessionBindReady(false);
-        reportLoadError(error, requestedConversationId);
-      });
+    };
+    const idle = window as Window & {
+      requestIdleCallback?: (
+        callback: () => void,
+        options?: { timeout: number }
+      ) => number;
+      cancelIdleCallback?: (id: number) => void;
+    };
+    if (typeof idle.requestIdleCallback === 'function') {
+      const idleId = idle.requestIdleCallback(startBind, { timeout: 200 });
+      return () => idle.cancelIdleCallback?.(idleId);
+    }
+    const timer = window.setTimeout(startBind, 0);
+    return () => {
+      window.clearTimeout(timer);
+    };
   }, [conversationId, hasDetail, isActive, reportLoadError]);
 
   useEffect(() => {
@@ -554,6 +575,7 @@ export function useConversationTimeline(
       sessionBindReady,
       connecting:
         Boolean(hasDetail) &&
+        Boolean(entry?.detail?.summary.workspace_id) &&
         !sessionBindReady &&
         !entry?.error &&
         !(entry?.rows ?? []).some(

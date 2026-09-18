@@ -277,7 +277,9 @@
     "updateStarted": "已开始更新",
     "updateFailed": "更新失败",
     "connectingTitle": "正在连接代理…",
-    "initSessionTitle": "正在初始化会话…"
+    "initSessionTitle": "正在初始化会话…",
+    "autoPermissionTitle": "已自动批准权限",
+    "autoPermissionDescription": "已自动批准 {{count}} 项权限请求"
   },
   "liveFeedback": {
     "placeholder": "给这一回合纠偏",

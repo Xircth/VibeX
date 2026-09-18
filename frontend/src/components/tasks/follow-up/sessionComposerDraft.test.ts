@@ -537,6 +537,31 @@ describe('session composer draft helpers', () => {
     });
   });
 
+  it('does not clobber text typed before the draft stream connects', () => {
+    expect(
+      getDraftScratchHydrationDecision({
+        isScratchLoading: false,
+        hydratedScratchId: undefined,
+        scratchId: 'session-1',
+        scratchData: {
+          message: 'server draft',
+          images: [],
+          executor_config: { executor: 'codex' as const },
+          queued: false,
+          config_overrides: {},
+        },
+        localMessage: 'already typing',
+      })
+    ).toEqual({
+      hydratedScratchId: 'session-1',
+      shouldHydrate: false,
+      message: '',
+      imagePaths: [],
+      modeOverride: null,
+      configOverrides: {},
+    });
+  });
+
   it('applies scratch executor profiles once per scratch/profile key', () => {
     const profile = {
       executor: 'codex' as const,

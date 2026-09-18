@@ -2452,6 +2452,7 @@ impl ConversationSessionService {
             false,
         );
 
+        let previous_acp_session_id = external_session_id.clone();
         let restored_existing_session = external_session_id.is_some();
         let mut restore_strategy = None;
         let runtime_snapshot = if let Some(external_session_id) = external_session_id {
@@ -2559,7 +2560,12 @@ impl ConversationSessionService {
             } else {
                 agents::SessionRecoveryStrategy::CreatedNewSession
             });
-            self.record_agent_binding_recovered(conversation_id, strategy)
+            let continues_from = match &strategy {
+                agents::SessionRecoveryStrategy::CreatedNewSession => previous_acp_session_id
+                    .filter(|old| *old != runtime_snapshot.acp_session_id),
+                _ => None,
+            };
+            self.record_agent_binding_recovered(conversation_id, strategy, continues_from)
                 .await?;
         }
         Ok(controls)
@@ -2746,6 +2752,7 @@ impl ConversationSessionService {
         self.record_agent_binding_recovered(
             conversation_id,
             agents::SessionRecoveryStrategy::Rebound,
+            None,
         )
         .await?;
 
@@ -2763,6 +2770,7 @@ impl ConversationSessionService {
         self.record_agent_binding_recovered(
             conversation_id,
             agents::SessionRecoveryStrategy::Rebound,
+            None,
         )
         .await?;
         self.ensure_session_controls_locked(conversation_id).await
@@ -2778,16 +2786,6 @@ impl ConversationSessionService {
     ) -> Result<(), ConversationServiceError> {
         self.drop_live_agent_connection(conversation_id).await;
         self.forget_conversation_runtime(conversation_id).await;
-        self.append_event(
-            conversation_id,
-            None,
-            "runtime",
-            ConversationEvent::AgentConnectionStatusChanged {
-                status: agents::conversation::ConversationAgentConnectionStatus::Recovering,
-            },
-            None,
-        )
-        .await?;
 
         let pool = &self.ctx.deployment.db().pool;
         if let Some(binding) =
@@ -2824,12 +2822,16 @@ impl ConversationSessionService {
         &self,
         conversation_id: Uuid,
         strategy: agents::SessionRecoveryStrategy,
+        continues_from: Option<String>,
     ) -> Result<(), ConversationServiceError> {
         self.append_event(
             conversation_id,
             None,
             "runtime",
-            ConversationEvent::AgentBindingRecovered { strategy },
+            ConversationEvent::AgentBindingRecovered {
+                strategy,
+                continues_from,
+            },
             None,
         )
         .await?;

@@ -789,6 +789,25 @@ mod tests {
         );
     }
 
+    #[cfg(windows)]
+    mod windows_resolution {
+        use super::super::find_executable_in_user_bin;
+
+        #[test]
+        fn resolves_user_bin_executable_without_process_path() {
+            let home = tempfile::tempdir().unwrap();
+            let bin = home.path().join(".local/bin");
+            std::fs::create_dir_all(&bin).unwrap();
+            let executable = bin.join("opencode.exe");
+            std::fs::write(&executable, []).unwrap();
+
+            assert_eq!(
+                find_executable_in_user_bin("opencode", home.path()),
+                Some(executable)
+            );
+        }
+    }
+
     #[cfg(unix)]
     mod unix_resolution {
         use std::os::unix::fs::PermissionsExt;

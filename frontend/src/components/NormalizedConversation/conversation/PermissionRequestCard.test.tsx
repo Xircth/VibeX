@@ -129,6 +129,27 @@ describe('PermissionRequestCard', () => {
     expect(onRespond).toHaveBeenCalledWith('perm-1', {
       kind: 'selected',
       option_id: 'allow-similar',
+      persist: true,
+    });
+  });
+
+  it('persists auto-approve even when the agent only offers allow-once', async () => {
+    const user = userEvent.setup();
+    const onRespond = vi.fn();
+    render(
+      <PermissionRequestCard
+        request={fileEditRequest()}
+        onRespond={onRespond}
+      />
+    );
+
+    await user.click(screen.getByRole('button', { name: '展开允许选项' }));
+    await user.click(screen.getByRole('menuitem', { name: '总是允许全部' }));
+
+    expect(onRespond).toHaveBeenCalledWith('perm-1', {
+      kind: 'selected',
+      option_id: 'allow',
+      persist: true,
     });
   });
 

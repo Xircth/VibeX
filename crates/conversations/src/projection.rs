@@ -4,14 +4,18 @@ use std::{
     sync::Arc,
 };
 
-use agents::conversation::{
-    AcpCapabilitySnapshot, ContentBlock, ConversationAgentConnectionStatus,
-    ConversationDelegationResult, ConversationDelegationView, ConversationError,
-    ConversationErrorView, ConversationEvent, ConversationInputEvent, ConversationPermissionView,
-    ConversationRowOp, ConversationSessionNotice, ConversationTerminalView, ConversationTimeline,
-    ConversationTimelineRow, MessageTurn, PlanEntry, SessionLoadFailureReason,
-    SessionRecoveryStrategy, SessionStats, TimelineRow, TimelineTextStream, TurnRole, TurnUsage,
-    cap_preview_bytes, cap_timeline_preview_fields, cap_timeline_row_preview_fields,
+use agents::{
+    AgentPermissionResponse,
+    conversation::{
+        AcpCapabilitySnapshot, ContentBlock, ConversationAgentConnectionStatus,
+        ConversationDelegationResult, ConversationDelegationView, ConversationError,
+        ConversationErrorView, ConversationEvent, ConversationInputEvent,
+        ConversationPermissionView, ConversationRowOp, ConversationSessionNotice,
+        ConversationTerminalView, ConversationTimeline, ConversationTimelineRow, MessageTurn,
+        PlanEntry, SessionLoadFailureReason, SessionRecoveryStrategy, SessionStats, TimelineRow,
+        TimelineTextStream, TurnRole, TurnUsage, cap_preview_bytes, cap_timeline_preview_fields,
+        cap_timeline_row_preview_fields,
+    },
 };
 use db::models::{
     conversation::{ConversationAgentBindingRecord, ConversationRecord},
@@ -38,7 +42,7 @@ use uuid::Uuid;
 
 // v17 attributes streaming deltas to the recorder's turn_id, which is now read from
 // the authoritative active-turn pointer instead of a cache that could go stale.
-pub const CONVERSATION_PROJECTION_VERSION: u32 = 18;
+pub const CONVERSATION_PROJECTION_VERSION: u32 = 19;
 pub const OPEN_TIMELINE_ROW_LIMIT: usize = 80;
 const SNAPSHOT_REFRESH_EVENT_GAP: i64 = 40;
 
@@ -58,6 +62,8 @@ const AGENT_BINDING_LOAD_FAILURE_NOTICE_ROW_ID: &str = "notice:agent-binding-loa
 const AGENT_BINDING_REBIND_NOTICE_ROW_ID: &str = "notice:agent-session-rebound";
 const AGENT_CONNECTION_RECOVERING_NOTICE_ROW_ID: &str = "notice:agent-connection-recovering";
 const AGENT_SESSION_CONNECT_ERROR_NOTICE_ROW_ID: &str = "notice:agent-session-connect-error";
+const AUTO_PERMISSION_NOTICE_ROW_ID: &str = "notice:auto-permission-approved";
+const AUTO_PERMISSION_NOTICE_TITLE: &str = "已自动批准权限";
 const ANNOUNCEMENT_ROW_PREFIX: &str = "notice:announcement:";
 
 pub struct ConversationEventAppender;
@@ -1205,6 +1211,7 @@ struct ProjectionFold {
     /// 消灭双投影). `revision` is the sequence of the latest event that touched the row.
     side_rows: Vec<TimelineRow>,
     last_sequence: i64,
+    auto_permission_approvals: u32,
 }
 
 /// Serializable form of [`ProjectionFold`] (turns kept in order, no map keys → portable JSON).
@@ -1213,6 +1220,8 @@ struct ProjectionSnapshotState {
     turns: Vec<ProjectedTurn>,
     side_rows: Vec<TimelineRow>,
     last_sequence: i64,
+    #[serde(default)]
+    auto_permission_approvals: u32,
 }
 
 impl ProjectionFold {
@@ -1220,6 +1229,7 @@ impl ProjectionFold {
         let mut fold = ProjectionFold {
             last_sequence: state.last_sequence,
             side_rows: state.side_rows,
+            auto_permission_approvals: state.auto_permission_approvals,
             ..ProjectionFold::default()
         };
         for turn in state.turns {
@@ -1239,6 +1249,7 @@ impl ProjectionFold {
             turns,
             side_rows: self.side_rows.clone(),
             last_sequence: self.last_sequence,
+            auto_permission_approvals: self.auto_permission_approvals,
         }
     }
 
@@ -1349,6 +1360,7 @@ impl ProjectionFold {
         let turns = &mut self.turns;
         let turn_order = &mut self.turn_order;
         let side_rows = &mut self.side_rows;
+        let auto_permission_approvals = &mut self.auto_permission_approvals;
         let mut deleted_rows = Vec::new();
 
         match event {
@@ -1583,18 +1595,40 @@ impl ProjectionFold {
                     },
                 ));
             }
-            ConversationEvent::PermissionResponded { permission_id, .. } => {
-                // Fold the response onto the pending permission row so a rebuilt
-                // projection matches the live store (which sets `status: 'responded'`)
-                // — otherwise an answered (or recovery-voided, ADR-0001) permission
-                // reloads as perpetually pending.
-                for entry in side_rows.iter_mut() {
-                    if let ConversationTimelineRow::PermissionRequest { request } = &mut entry.row
-                        && request.permission_id == permission_id
-                    {
-                        request.status = "responded".into();
-                        entry.revision = record.sequence;
-                        break;
+            ConversationEvent::PermissionResponded {
+                permission_id,
+                response,
+            } => {
+                let auto_allow = response.auto
+                    && matches!(response.response, AgentPermissionResponse::Selected { .. });
+                if auto_allow {
+                    remove_side_row(
+                        side_rows,
+                        &mut deleted_rows,
+                        &format!("perm:{permission_id}"),
+                        record.sequence,
+                    );
+                    *auto_permission_approvals = auto_permission_approvals.saturating_add(1);
+                    upsert_stable_notice(
+                        side_rows,
+                        AUTO_PERMISSION_NOTICE_ROW_ID,
+                        record.sequence,
+                        auto_permission_notice(*auto_permission_approvals),
+                    );
+                } else {
+                    // Fold the response onto the pending permission row so a rebuilt
+                    // projection matches the live store (which sets `status: 'responded'`)
+                    // — otherwise an answered (or recovery-voided, ADR-0001) permission
+                    // reloads as perpetually pending.
+                    for entry in side_rows.iter_mut() {
+                        if let ConversationTimelineRow::PermissionRequest { request } =
+                            &mut entry.row
+                            && request.permission_id == permission_id
+                        {
+                            request.status = "responded".into();
+                            entry.revision = record.sequence;
+                            break;
+                        }
                     }
                 }
             }
@@ -1882,9 +1916,9 @@ impl ProjectionFold {
                         AGENT_CONNECTION_RECOVERING_NOTICE_ROW_ID,
                         record.sequence,
                         ConversationSessionNotice {
-                            title: "会话加载异常，正在连接…".into(),
+                            title: "正在连接 Agent…".into(),
                             message: None,
-                            severity: "warning".into(),
+                            severity: "info".into(),
                             ..Default::default()
                         },
                     );
@@ -1913,7 +1947,10 @@ impl ProjectionFold {
                     );
                 }
             },
-            ConversationEvent::AgentBindingRecovered { strategy } => match strategy {
+            ConversationEvent::AgentBindingRecovered {
+                strategy,
+                continues_from,
+            } => match strategy {
                 SessionRecoveryStrategy::Loaded | SessionRecoveryStrategy::Resumed => {
                     if let Some(index) = side_rows
                         .iter()
@@ -1935,16 +1972,20 @@ impl ProjectionFold {
                         row_id: AGENT_BINDING_LOAD_FAILURE_NOTICE_ROW_ID.into(),
                         revision: record.sequence,
                     });
+                    let message = if continues_from.as_ref().is_some_and(|sid| !sid.is_empty()) {
+                        "可见历史已链接到上一线程。后续消息走新的 Agent 线程，不会混入其他会话。"
+                            .into()
+                    } else {
+                        "可见历史仍在，但 Agent 隐藏上下文已丢失。后续消息从新的冷启动会话继续。"
+                            .into()
+                    };
                     side_rows.push(TimelineRow {
                         row_id: AGENT_BINDING_REBIND_NOTICE_ROW_ID.into(),
                         revision: record.sequence,
                         row: ConversationTimelineRow::SessionNotice {
                             notice: ConversationSessionNotice {
                                 title: "Agent 会话已重新绑定".into(),
-                                message: Some(
-                                    "可见历史仍在，但 Agent 隐藏上下文已丢失。后续消息从新的冷启动会话继续。"
-                                        .into(),
-                                ),
+                                message: Some(message),
                                 severity: "warning".into(),
                                 ..Default::default()
                             },
@@ -2133,6 +2174,7 @@ impl ProjectionFold {
             turn_order,
             side_rows,
             last_sequence,
+            auto_permission_approvals: _,
         } = self;
 
         let mut rows = Vec::new();
@@ -2485,6 +2527,15 @@ fn side_row(sequence: i64, row: ConversationTimelineRow) -> TimelineRow {
         row_id: row_id_for(&row, sequence),
         revision: sequence,
         row,
+    }
+}
+
+fn auto_permission_notice(count: u32) -> ConversationSessionNotice {
+    ConversationSessionNotice {
+        title: AUTO_PERMISSION_NOTICE_TITLE.into(),
+        message: Some(format!("已自动批准 {count} 项权限请求")),
+        severity: "info".into(),
+        ..Default::default()
     }
 }
 
@@ -3151,6 +3202,7 @@ mod tests {
             "runtime",
             ConversationEvent::AgentBindingRecovered {
                 strategy: SessionRecoveryStrategy::Loaded,
+                continues_from: None,
             },
             None,
         )
@@ -3481,6 +3533,7 @@ mod tests {
             turns: Vec::new(),
             side_rows: Vec::new(),
             last_sequence: record.sequence,
+            auto_permission_approvals: 0,
         })
         .expect("serialize v3 snapshot");
         ConversationProjectionSnapshotRecord::upsert(
@@ -4494,7 +4547,7 @@ mod tests {
             })
             .collect();
         assert_eq!(notices.len(), 1);
-        assert_eq!(notices[0].severity, "warning");
+        assert_eq!(notices[0].severity, "info");
         assert!(notices[0].title.contains("正在连接"));
 
         let cancelled = ConversationEvent::TurnCancelled { reason: None };
@@ -5022,6 +5075,97 @@ mod tests {
         assert_eq!(status.as_deref(), Some("responded"));
     }
 
+    #[tokio::test]
+    async fn auto_allowed_permissions_fold_into_a_count_notice() {
+        let pool = setup_pool().await;
+        let (conversation_id, turn_id) = seed_turn(&pool).await;
+
+        append_event(
+            &pool,
+            conversation_id,
+            Some(turn_id),
+            "acp",
+            ConversationEvent::PermissionRequested {
+                request: ConversationPermissionRequest {
+                    permission_id: "perm-auto-1".into(),
+                    request: AgentPermissionRequest {
+                        id: AgentPermissionId::new(),
+                        session_id: AgentSessionId::new(),
+                        title: "Edit file".into(),
+                        details: None,
+                        options: vec![AgentPermissionOption {
+                            id: "allow".into(),
+                            label: "Allow".into(),
+                            kind: AgentPermissionOptionKind::AllowOnce,
+                            description: None,
+                        }],
+                    },
+                },
+            },
+            None,
+        )
+        .await;
+        append_event(
+            &pool,
+            conversation_id,
+            Some(turn_id),
+            "runtime",
+            ConversationEvent::PermissionResponded {
+                permission_id: "perm-auto-1".into(),
+                response: ConversationPermissionResponse {
+                    response: AgentPermissionResponse::selected("allow"),
+                    auto: true,
+                },
+            },
+            None,
+        )
+        .await;
+        append_event(
+            &pool,
+            conversation_id,
+            Some(turn_id),
+            "runtime",
+            ConversationEvent::PermissionResponded {
+                permission_id: "perm-auto-2".into(),
+                response: ConversationPermissionResponse {
+                    response: AgentPermissionResponse::selected("allow"),
+                    auto: true,
+                },
+            },
+            None,
+        )
+        .await;
+
+        let timeline = ConversationProjector::project(&pool, conversation_id)
+            .await
+            .expect("timeline");
+        let permission_cards = timeline
+            .rows
+            .iter()
+            .filter(|row| matches!(row.row, ConversationTimelineRow::PermissionRequest { .. }))
+            .count();
+        assert_eq!(permission_cards, 0);
+        let notice = timeline.rows.iter().find_map(|row| match &row.row {
+            ConversationTimelineRow::SessionNotice { notice }
+                if notice.title == "已自动批准权限" =>
+            {
+                Some(notice)
+            }
+            _ => None,
+        });
+        let notice = notice.expect("auto-permission notice");
+        assert_eq!(notice.severity, "info");
+        assert_eq!(notice.message.as_deref(), Some("已自动批准 2 项权限请求"));
+        assert_eq!(
+            timeline
+                .rows
+                .iter()
+                .find(|row| row.row_id == "notice:auto-permission-approved")
+                .map(|row| row.row_id.as_str()),
+            Some("notice:auto-permission-approved")
+        );
+    }
+
     #[test]
     fn conversation_projection_fixtures_are_present_and_parse() {
         let fixtures = [
@@ -5496,9 +5640,7 @@ mod tests {
             ConversationEvent::PermissionResponded {
                 permission_id: "permission-1".into(),
                 response: ConversationPermissionResponse {
-                    response: AgentPermissionResponse::Selected {
-                        option_id: "allow".into(),
-                    },
+                    response: AgentPermissionResponse::selected("allow"),
                     auto: false,
                 },
             },

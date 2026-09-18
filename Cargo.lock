@@ -8354,7 +8354,6 @@ dependencies = [
  "which 8.0.2",
  "windows 0.61.3",
  "workflows",
- "xattr",
  "zip 2.4.2",
 ]
 

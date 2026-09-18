@@ -8,8 +8,8 @@ use std::{
 use agents::{
     AgentAutoApproveMode, AgentContentBlock, AgentEvent, AgentEventEnvelope, AgentId,
     AgentPromptId, AgentPromptStatus, AgentRuntime, AgentSessionId, CancelAgentPromptInput,
-    ConnectAgentInput, RespondAgentPermissionInput, ResumeAgentSessionInput, RuntimeEventSink,
-    SendAgentPromptInput, SessionLaunchLock,
+    ConnectAgentInput, EnsureAgentSessionInput, RespondAgentPermissionInput,
+    ResumeAgentSessionInput, RuntimeEventSink, SendAgentPromptInput, SessionLaunchLock,
 };
 use tokio::sync::mpsc;
 use uuid::Uuid;
@@ -55,26 +55,26 @@ async fn run_agent_fixture_gate(
 ) {
     let workspace_id = Uuid::new_v4();
     let working_dir = PathBuf::from(format!("fixture-workspace/{agent_id}"));
-    let connection = runtime
-        .connect(ConnectAgentInput {
+    let prepared = runtime
+        .prepare_session(EnsureAgentSessionInput {
             agent_id: agent_id.clone(),
             launch_lock: fixture_launch_lock(agent_id.clone()),
             workspace_id,
             working_dir: working_dir.clone(),
             additional_directories: Vec::new(),
+            session_id: AgentSessionId::new(),
+            acp_session_id: String::new(),
             auto_approve_mode: AgentAutoApproveMode::Off,
             env: HashMap::new(),
+            preferences: Default::default(),
         })
         .await
         .unwrap();
-    let session = runtime
-        .new_session(connection.id, format!("{agent_id}-new-session"))
-        .await
-        .unwrap();
+    let session = prepared.session;
 
     let prompt = runtime
         .send_prompt(SendAgentPromptInput {
-            connection_id: connection.id,
+            connection_id: session.connection_id,
             session_id: session.id,
             blocks: vec![AgentContentBlock::Text {
                 text: FULL_GATE_FIXTURE_PROMPT.to_string(),
@@ -89,7 +89,7 @@ async fn run_agent_fixture_gate(
     let mut events = Vec::new();
     let permission_event = wait_for_event(
         rx,
-        connection.id,
+        session.connection_id,
         &mut events,
         |event| matches!(event, AgentEvent::PermissionRequested { .. }),
         "permission request",
@@ -111,18 +111,16 @@ async fn run_agent_fixture_gate(
 
     runtime
         .respond_permission(RespondAgentPermissionInput {
-            connection_id: connection.id,
+            connection_id: session.connection_id,
             permission_id,
-            response: agents::AgentPermissionResponse::Selected {
-                option_id: "allow-once".to_string(),
-            },
+            response: agents::AgentPermissionResponse::selected("allow-once"),
         })
         .await
         .unwrap();
 
     wait_for_event(
         rx,
-        connection.id,
+        session.connection_id,
         &mut events,
         |event| {
             matches!(
@@ -193,7 +191,7 @@ async fn run_agent_fixture_gate(
 
     let interrupt_prompt = runtime
         .send_prompt(SendAgentPromptInput {
-            connection_id: connection.id,
+            connection_id: session.connection_id,
             session_id: session.id,
             blocks: vec![AgentContentBlock::Text {
                 text: "interrupt me".to_string(),
@@ -203,12 +201,25 @@ async fn run_agent_fixture_gate(
         })
         .await
         .unwrap();
-    wait_for_message(rx, connection.id, interrupt_prompt.id, "interrupt me").await;
-    cancel_and_wait(runtime, rx, connection.id, session.id, interrupt_prompt.id).await;
+    wait_for_message(
+        rx,
+        session.connection_id,
+        interrupt_prompt.id,
+        "interrupt me",
+    )
+    .await;
+    cancel_and_wait(
+        runtime,
+        rx,
+        session.connection_id,
+        session.id,
+        interrupt_prompt.id,
+    )
+    .await;
 
     let retry_prompt = runtime
         .send_prompt(SendAgentPromptInput {
-            connection_id: connection.id,
+            connection_id: session.connection_id,
             session_id: session.id,
             blocks: vec![AgentContentBlock::Text {
                 text: "retry after interrupt".to_string(),
@@ -218,8 +229,21 @@ async fn run_agent_fixture_gate(
         })
         .await
         .unwrap();
-    wait_for_message(rx, connection.id, retry_prompt.id, "retry after interrupt").await;
-    cancel_and_wait(runtime, rx, connection.id, session.id, retry_prompt.id).await;
+    wait_for_message(
+        rx,
+        session.connection_id,
+        retry_prompt.id,
+        "retry after interrupt",
+    )
+    .await;
+    cancel_and_wait(
+        runtime,
+        rx,
+        session.connection_id,
+        session.id,
+        retry_prompt.id,
+    )
+    .await;
 }
 
 async fn wait_for_message(

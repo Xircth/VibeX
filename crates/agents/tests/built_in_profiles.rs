@@ -307,7 +307,7 @@ fn qoder_launches_as_an_acp_server_under_both_bin_names() {
         qoder.registry_binding.as_ref().unwrap().registry_id,
         "qoder"
     );
-    assert_eq!(qoder.management_actions[0].args, &["login"]);
+    assert_eq!(qoder.management_actions[0].programs[0].args, &["login"]);
     assert!(
         qoder
             .settings_features
@@ -348,7 +348,7 @@ fn mimo_code_management_profile_is_not_a_permanent_member() {
         mimo.settings_features
             .contains(&AgentSettingsFeature::OpenCodePlugins)
     );
-    assert_eq!(mimo.management_actions[0].args, &["auth", "login"]);
+    assert_eq!(mimo.management_actions[0].programs[0].args, &["auth", "login"]);
 }
 
 #[test]
@@ -410,8 +410,30 @@ fn built_in_profiles_are_declarative_and_bind_explicitly() {
     for id in ["claude_code", "codex", "kimi_code", "grok", "cursor"] {
         let profile = catalog.profile(&AgentId::parse(id).unwrap()).unwrap();
         assert!(profile.management_actions.iter().any(|action| {
-            action.kind == ProfileManagementActionKind::Login && action.program.is_some()
+            action.kind == ProfileManagementActionKind::Login && !action.programs.is_empty()
         }));
+    }
+
+    // Adapter-backed Agents install the adapter alone; the adapter carries the
+    // vendor CLI and is therefore a declared login entry point, or an installed
+    // Agent would report its account actions as unavailable.
+    for (id, adapter) in [
+        ("claude_code", "claude-agent-acp"),
+        ("codex", "codex-acp"),
+    ] {
+        let profile = catalog.profile(&AgentId::parse(id).unwrap()).unwrap();
+        let login = profile
+            .management_actions
+            .iter()
+            .find(|action| action.kind == ProfileManagementActionKind::Login)
+            .unwrap();
+        assert!(
+            login
+                .programs
+                .iter()
+                .any(|entry| entry.program == adapter),
+            "{id} login must be drivable by `{adapter}`"
+        );
     }
 
     for id in ["claude_code", "codex"] {
@@ -509,8 +531,8 @@ fn codeg_account_action_matrix_is_complete() {
             "{agent_id} account actions"
         );
         assert!(profile.management_actions.iter().all(|action| {
-            (action.program.is_some() && action.url.is_none())
-                || (action.program.is_none() && action.url.is_some())
+            (!action.programs.is_empty() && action.url.is_none())
+                || (action.programs.is_empty() && action.url.is_some())
         }));
     }
 }

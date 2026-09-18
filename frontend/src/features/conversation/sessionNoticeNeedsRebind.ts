@@ -12,6 +12,8 @@ export const AGENT_CONNECTION_RECOVERING_NOTICE_ROW_ID =
 /** Mirrors `AGENT_SESSION_CONNECT_ERROR_NOTICE_ROW_ID` in conversations projection. */
 export const AGENT_SESSION_CONNECT_ERROR_NOTICE_ROW_ID =
   'notice:agent-session-connect-error';
+/** Mirrors `AUTO_PERMISSION_NOTICE_ROW_ID` in conversations projection. */
+export const AUTO_PERMISSION_NOTICE_ROW_ID = 'notice:auto-permission-approved';
 
 /**
  * Rebind is only for notices that mean the Agent session cannot continue.
@@ -28,5 +30,6 @@ export function sessionNoticeNeedsRebind(
   if (rowId === AGENT_CONNECTION_RECOVERING_NOTICE_ROW_ID) return false;
   if (rowId === AGENT_SESSION_CONNECT_ERROR_NOTICE_ROW_ID) return false;
   if (rowId === AGENT_BINDING_LOAD_FAILURE_NOTICE_ROW_ID) return false;
+  if (rowId === AUTO_PERMISSION_NOTICE_ROW_ID) return false;
   return notice.severity === 'error';
 }

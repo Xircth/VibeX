@@ -1264,7 +1264,7 @@ export type AgentPermissionOption = { id: string, label: string, kind: AgentPerm
 
 export type AgentPermissionRequest = { id: AgentPermissionId, session_id: AgentSessionId, title: string, details?: JsonValue | null, options: Array<AgentPermissionOption>, };
 
-export type AgentPermissionResponse = { "kind": "selected", option_id: string, } | { "kind": "cancelled" };
+export type AgentPermissionResponse = { "kind": "selected", option_id: string, persist?: boolean, } | { "kind": "cancelled" };
 
 export type AgentPlan = { entries: Array<AgentPlanEntry>, };
 

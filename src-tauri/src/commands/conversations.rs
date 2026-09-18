@@ -244,14 +244,36 @@ pub async fn conversation_detail_core(
     pool: &SqlitePool,
     id: Uuid,
 ) -> Result<Option<DbConversationDetail>, AppError> {
-    let Some(summary) = DbConversationSummary::find_by_id(pool, id).await? else {
+    let (
+        summary,
+        open,
+        active_binding,
+        current_turn,
+        session_modes,
+        session_config_options,
+        available_commands,
+    ) = tokio::try_join!(
+        async {
+            DbConversationSummary::find_by_id(pool, id)
+                .await
+                .map_err(AppError::from)
+        },
+        async {
+            ConversationProjector::project_open(pool, id, OPEN_TIMELINE_ROW_LIMIT)
+                .await
+                .map_err(AppError::from)
+        },
+        active_binding_for_conversation(pool, id),
+        current_turn_for_conversation(pool, id),
+        latest_session_modes(pool, id),
+        latest_session_config_options(pool, id),
+        latest_available_commands(pool, id),
+    )?;
+    let Some(summary) = summary else {
         return Ok(None);
     };
-    let open = ConversationProjector::project_open(pool, id, OPEN_TIMELINE_ROW_LIMIT).await?;
     let timeline = open.timeline;
     let session_stats = open.session_stats;
-    let active_binding = active_binding_for_conversation(pool, id).await?;
-    let current_turn = current_turn_for_conversation(pool, id).await?;
     let in_flight_user_turn_id = current_turn.as_ref().and_then(|turn| {
         matches!(
             turn.status.as_str(),
@@ -259,9 +281,6 @@ pub async fn conversation_detail_core(
         )
         .then(|| turn.id.to_string())
     });
-    let session_modes = latest_session_modes(pool, id).await?;
-    let session_config_options = latest_session_config_options(pool, id).await?;
-    let available_commands = latest_available_commands(pool, id).await?;
     Ok(Some(DbConversationDetail {
         summary,
         turns: Vec::new(),

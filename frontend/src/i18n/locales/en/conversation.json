@@ -277,7 +277,9 @@
     "updateStarted": "Update started",
     "updateFailed": "Update failed",
     "connectingTitle": "Connecting to agent…",
-    "initSessionTitle": "Initializing session…"
+    "initSessionTitle": "Initializing session…",
+    "autoPermissionTitle": "Permissions auto-approved",
+    "autoPermissionDescription": "Automatically approved {{count}} permission request(s)"
   },
   "liveFeedback": {
     "placeholder": "Steer this turn",

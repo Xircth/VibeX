@@ -404,6 +404,28 @@ describe('useConversationTimeline', () => {
     await waitFor(() => expect(result.current.sessionBindReady).toBe(true));
   });
 
+  it('auto-connects a new session that has a workspace but no agent_id yet', async () => {
+    detailMock.mockResolvedValue({
+      ...detail(),
+      summary: {
+        ...detail().summary,
+        agent_id: null,
+      },
+    });
+
+    const { result } = renderHook(() =>
+      useConversationTimeline(CONVERSATION_ID)
+    );
+
+    await waitFor(() => expect(result.current.loading).toBe(false));
+    await waitFor(() =>
+      expect(ensureSessionControlsMock).toHaveBeenCalledWith(CONVERSATION_ID, {
+        reload: false,
+      })
+    );
+    await waitFor(() => expect(result.current.sessionBindReady).toBe(true));
+  });
+
   it('reconnects the agent session before reloading without resetting rows', async () => {
     detailMock.mockResolvedValue({
       ...detail(),

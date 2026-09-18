@@ -143,6 +143,30 @@ const serializeSequenceForIpc = (sequence: bigint | number): number => {
   return Number(sequence);
 };
 
+const conversationDetailInflight = new Map<
+  string,
+  Promise<DbConversationDetail | null>
+>();
+
+function fetchConversationDetail(
+  call: <T>(command: string, args?: Record<string, unknown>) => Promise<T>,
+  conversationId: string
+): Promise<DbConversationDetail | null> {
+  const existing = conversationDetailInflight.get(conversationId);
+  if (existing) {
+    return existing;
+  }
+  const pending = call<DbConversationDetail | null>('conversation_detail', {
+    conversationId,
+  }).finally(() => {
+    if (conversationDetailInflight.get(conversationId) === pending) {
+      conversationDetailInflight.delete(conversationId);
+    }
+  });
+  conversationDetailInflight.set(conversationId, pending);
+  return pending;
+}
+
 export function createConversationApi(transport: BackendTransport) {
   const call = <T>(
     command: string,
@@ -172,7 +196,10 @@ export function createConversationApi(transport: BackendTransport) {
       }),
     // Conversation detail (metadata + projected timeline) from the durable event log.
     detail: (conversationId: string): Promise<DbConversationDetail | null> =>
-      call('conversation_detail', { conversationId }),
+      fetchConversationDetail(call, conversationId),
+    prefetchDetail: (conversationId: string): void => {
+      void fetchConversationDetail(call, conversationId).catch(() => undefined);
+    },
 
     // Materialize or reconnect an Agent session and return its authoritative ACP
     // controls. This never sends a prompt.

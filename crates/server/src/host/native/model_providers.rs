@@ -3266,6 +3266,87 @@ async fn apply_kimi(kimi_home: &Path, provider: &StoredProvider) -> Result<(), s
     seed_kimi_gate_credential(&kimi_home.join("credentials/kimi-code.json")).await
 }
 
+/// Whether applying a provider gives this agent a synthetic local gate, i.e.
+/// whether an official account action has to strip one first. Keep in step with
+/// the gate-writing arms of [`apply_provider`].
+pub fn has_synthetic_gate(agent_id: &AgentId) -> bool {
+    agent_id.as_str() == "kimi_code"
+}
+
+/// The mutations that put Kimi back on the vendor's own endpoint for the
+/// duration of an official login: the synthetic provider, the model that points
+/// at it and the local gate credential all have to go, or the CLI signs in
+/// against VibeX. Returned rather than applied so the caller can restore them
+/// when the login terminal never starts.
+pub async fn prepare_kimi_vibex_configuration_cleanup(
+    home: &Path,
+    environment: &HashMap<String, String>,
+) -> Result<Vec<NativeFileMutation>, super::NativeError> {
+    let kimi_home = resolve_native_home(home, environment, "KIMI_CODE_HOME", ".kimi-code");
+    let filesystem = TokioNativeFileSystem;
+    let mut mutations = Vec::with_capacity(2);
+
+    let config_path = kimi_home.join("config.toml");
+    let config_original = filesystem.read(&config_path).await?;
+    if let Some(source) = config_original.as_deref() {
+        let text = std::str::from_utf8(source)
+            .map_err(|error| format!("{} 不是 UTF-8：{error}", config_path.display()))?;
+        let mut document: toml::Value = toml::from_str(text)
+            .map_err(|error| format!("{} 无效：{error}", config_path.display()))?;
+        let root = document
+            .as_table_mut()
+            .ok_or_else(|| format!("{} 顶层必须是表", config_path.display()))?;
+        // A round trip through `toml::Value` drops comments and reflows the
+        // file, so a config that never mentioned the gate is left byte-exact.
+        let mut changed = root.get("default_model").and_then(toml::Value::as_str) == Some("vibex");
+        if changed {
+            root.remove("default_model");
+        }
+        if let Some(providers) = root
+            .get_mut("providers")
+            .and_then(toml::Value::as_table_mut)
+        {
+            changed |= providers.remove("vibex").is_some();
+        }
+        if let Some(models) = root.get_mut("models").and_then(toml::Value::as_table_mut) {
+            changed |= models.remove("vibex").is_some();
+        }
+        if changed {
+            let serialized = toml::to_string_pretty(&document)
+                .map_err(|error| format!("序列化 {} 失败：{error}", config_path.display()))?;
+            mutations.push(NativeFileMutation {
+                path: config_path,
+                expected: config_original,
+                replacement: Some(format!("{serialized}\n").into_bytes()),
+                sensitive: false,
+            });
+        }
+    }
+
+    let credential_path = kimi_home.join("credentials/kimi-code.json");
+    let credential_original = filesystem.read(&credential_path).await?;
+    if let Some(source) = credential_original.as_deref() {
+        let value: Value = serde_json::from_slice(source)
+            .map_err(|error| format!("{} 无效：{error}", credential_path.display()))?;
+        if kimi_credential_is_synthetic(&value) {
+            mutations.push(NativeFileMutation {
+                path: credential_path,
+                expected: credential_original,
+                replacement: None,
+                sensitive: true,
+            });
+        }
+    }
+    Ok(mutations)
+}
+
+/// Whether a Kimi credential document is the local gate this app wrote rather
+/// than a token the vendor CLI obtained from a real login.
+pub fn kimi_credential_is_synthetic(value: &Value) -> bool {
+    value.get("_vibex_synthetic").and_then(Value::as_bool) == Some(true)
+        || value.get("access_token").and_then(Value::as_str) == Some("vibex-local-gate")
+}
+
 async fn seed_kimi_gate_credential(path: &Path) -> Result<(), super::NativeError> {
     if let Some(parent) = path.parent() {
         tokio::fs::create_dir_all(parent)
@@ -3276,7 +3357,7 @@ async fn seed_kimi_gate_credential(path: &Path) -> Result<(), super::NativeError
     let original = filesystem.read(path).await?;
     if let Some(bytes) = original.as_deref().filter(|bytes| !bytes.is_empty())
         && let Ok(existing) = serde_json::from_slice::<Value>(bytes)
-        && existing.get("_vibex_synthetic") != Some(&Value::Bool(true))
+        && !kimi_credential_is_synthetic(&existing)
         && existing
             .get("access_token")
             .and_then(Value::as_str)
@@ -6357,5 +6438,104 @@ context_window = 200000
         assert_eq!(model["reasoning"], true);
         assert_eq!(model["thinkingLevelMap"]["off"], "none");
         assert_eq!(model["thinkingLevel"], "medium");
+    }
+
+    async fn write_kimi_gate_config(kimi_home: &Path) {
+        tokio::fs::create_dir_all(kimi_home.join("credentials"))
+            .await
+            .unwrap();
+        tokio::fs::write(
+            kimi_home.join("config.toml"),
+            "default_model = \"vibex\"\n\n[providers.vibex]\ntype = \"openai\"\nbase_url = \"https://gateway.example/v1\"\napi_key = \"sk-gate\"\n\n[models.vibex]\nprovider = \"vibex\"\nmodel = \"gateway/model\"\n",
+        )
+        .await
+        .unwrap();
+        tokio::fs::write(
+            kimi_home.join("credentials/kimi-code.json"),
+            br#"{"access_token":"vibex-local-gate","_vibex_synthetic":true}"#,
+        )
+        .await
+        .unwrap();
+    }
+
+    #[tokio::test]
+    async fn kimi_login_cleanup_removes_the_gate_provider_and_its_credential() {
+        let temp = tempfile::tempdir().unwrap();
+        let home = temp.path().join("home");
+        let kimi_home = home.join(".kimi-code");
+        write_kimi_gate_config(&kimi_home).await;
+
+        let mutations = prepare_kimi_vibex_configuration_cleanup(&home, &HashMap::new())
+            .await
+            .unwrap();
+        assert_eq!(mutations.len(), 2);
+        apply_projection_mutations(&mutations).await.unwrap();
+
+        let config = tokio::fs::read_to_string(kimi_home.join("config.toml"))
+            .await
+            .unwrap();
+        assert!(
+            !config.contains("vibex"),
+            "an official login would still reach the gate: {config}"
+        );
+        assert!(!kimi_home.join("credentials/kimi-code.json").exists());
+    }
+
+    #[tokio::test]
+    async fn kimi_login_cleanup_leaves_a_signed_in_agent_untouched() {
+        let temp = tempfile::tempdir().unwrap();
+        let home = temp.path().join("home");
+        let kimi_home = home.join(".kimi-code");
+        tokio::fs::create_dir_all(kimi_home.join("credentials"))
+            .await
+            .unwrap();
+        let config = "# hand written\n[providers.moonshot]\napi_key = \"sk-live\"\n";
+        tokio::fs::write(kimi_home.join("config.toml"), config)
+            .await
+            .unwrap();
+        tokio::fs::write(
+            kimi_home.join("credentials/kimi-code.json"),
+            br#"{"access_token":"real-token"}"#,
+        )
+        .await
+        .unwrap();
+
+        let mutations = prepare_kimi_vibex_configuration_cleanup(&home, &HashMap::new())
+            .await
+            .unwrap();
+        apply_projection_mutations(&mutations).await.unwrap();
+
+        assert!(mutations.is_empty(), "unexpected mutations: {mutations:?}");
+        assert_eq!(
+            tokio::fs::read_to_string(kimi_home.join("config.toml"))
+                .await
+                .unwrap(),
+            config
+        );
+        assert!(kimi_home.join("credentials/kimi-code.json").exists());
+    }
+
+    #[tokio::test]
+    async fn kimi_login_cleanup_ignores_a_missing_native_home() {
+        let temp = tempfile::tempdir().unwrap();
+
+        let mutations = prepare_kimi_vibex_configuration_cleanup(temp.path(), &HashMap::new())
+            .await
+            .unwrap();
+
+        assert!(mutations.is_empty(), "unexpected mutations: {mutations:?}");
+    }
+
+    #[test]
+    fn the_gate_credential_is_recognized_with_or_without_its_marker() {
+        assert!(kimi_credential_is_synthetic(
+            &serde_json::json!({"_vibex_synthetic": true})
+        ));
+        assert!(kimi_credential_is_synthetic(
+            &serde_json::json!({"access_token": "vibex-local-gate"})
+        ));
+        assert!(!kimi_credential_is_synthetic(
+            &serde_json::json!({"access_token": "sk-live"})
+        ));
     }
 }

@@ -662,7 +662,7 @@ describe('AgentAuthModeControl', () => {
       screen.queryByRole('button', { name: '退出 Claude Code' })
     ).not.toBeInTheDocument();
     expect(
-      screen.queryByText('请先安装或修复此 Agent。')
+      screen.queryByText('请重新安装或修复此 Agent。')
     ).not.toBeInTheDocument();
     expect(
       screen.queryByText('当前没有可退出的账号会话。')
@@ -787,6 +787,45 @@ describe('AgentAuthModeControl', () => {
       'aria-selected',
       'false'
     );
+  });
+
+  it('hides the missing-command notice behind the inline Codex device login', async () => {
+    vi.spyOn(agentManagementApi, 'authMode').mockResolvedValue({
+      agent_id: 'codex',
+      mode: 'chatgpt_subscription',
+      credential_env: 'OPENAI_API_KEY',
+      credential_present: false,
+      modes: ['chatgpt_subscription', 'api_key', 'model_provider'],
+      options: codexOptions,
+    });
+
+    render(
+      <AgentAuthModeControl
+        actions={{
+          agent_id: 'codex',
+          actions: [
+            {
+              ...claudeActions.actions[0],
+              id: 'login',
+              label: '登录 ChatGPT',
+              kind: 'login' as const,
+              available: false,
+              unavailable_reason:
+                '未找到 `codex` / `codex-acp`；请重新安装或修复此 Agent。',
+            },
+          ],
+        }}
+        agentId="codex"
+        onRunAction={vi.fn()}
+      />
+    );
+
+    expect(await screen.findByRole('tab', { name: '官方订阅' })).toBeVisible();
+    // The inline device login replaces the unavailable CLI login, so the
+    // notice must not claim a command is missing.
+    expect(
+      screen.queryByText(/请重新安装或修复此 Agent/)
+    ).not.toBeInTheDocument();
   });
 
   it('treats a bound Grok provider as the saved auth mode, not a draft tab', async () => {

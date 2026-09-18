@@ -2330,7 +2330,7 @@
       }
     },
     "actionDescription": "Opens the official Agent flow using the saved runtime and Home configuration.",
-    "actionUnavailable": "Install or repair this Agent before running this action.",
+    "actionUnavailable": "Reinstall or repair this Agent before running this action.",
     "preflightDetailPass": "{{label}} is available and meets this Agent's requirement.",
     "preflightDetailWarning": "{{label}} is optional; related capabilities may be unavailable until it is configured.",
     "preflightDetailRepairable": "{{label}} is required before this Agent can start. Use Install or Repair to restore it.",

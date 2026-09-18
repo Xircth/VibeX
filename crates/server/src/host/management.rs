@@ -9,14 +9,14 @@ use std::{
 
 use agents::{
     AgentId, AgentUpdateCheckInput, BuiltInProfile, BuiltInProfileCatalog, NativeConfigProvider,
-    NativeConfigSnapshot, NativeFileSystem, NpmRegistryHttpFetcher, ObservedUserComponent,
-    ProfileComponent, ProfileManagementActionKind, RegistryCacheFreshness, TokioNativeFileSystem,
-    apply_built_in_auth_mode_policy, apply_codex_auth_mode, apply_component_versions,
-    auth_mode_credential_env, auth_mode_kind, authentication_from_account_command,
-    built_in_auth_mode_policy, compose_agent_update_check, native_uses_custom_endpoint,
-    official_api_url, plan_runtime_acp_compatibility_warning, project_codex_auth_mode,
-    resolve_account_label, resolve_built_in_auth_mode, resolve_observed_authentication,
-    version_at_least,
+    NativeConfigSnapshot, NativeFileMutation, NativeFileSystem, NpmRegistryHttpFetcher,
+    ObservedUserComponent, ProfileComponent, ProfileManagementActionKind, RegistryCacheFreshness,
+    TokioNativeFileSystem, apply_built_in_auth_mode_policy, apply_codex_auth_mode,
+    apply_component_versions, auth_mode_credential_env, auth_mode_kind,
+    authentication_from_account_command, built_in_auth_mode_policy, compose_agent_update_check,
+    native_uses_custom_endpoint, official_api_url, plan_runtime_acp_compatibility_warning,
+    project_codex_auth_mode, resolve_account_label, resolve_built_in_auth_mode,
+    resolve_observed_authentication, version_at_least,
 };
 use api_types::{
     AgentAccountFlowStatus, AgentAccountFlowView, AgentAuthModeKind, AgentAuthModeOptionView,
@@ -42,8 +42,8 @@ use sqlx::SqlitePool;
 use super::{
     account_flow,
     native::{
-        dsh_configuration, expand_agent_home_path, model_providers, opencode_providers,
-        provider_store_path,
+        apply_native_file_mutations, dsh_configuration, expand_agent_home_path, model_providers,
+        opencode_providers, provider_store_path,
     },
 };
 use crate::domains::{internal_error, parse, serialize};
@@ -787,12 +787,8 @@ pub async fn actions(
     let environment = read_agent_environment(pool, &agent_id).await?;
     let mut actions = Vec::with_capacity(profile.management_actions.len());
     for action in profile.management_actions {
-        let program = match action.program {
-            Some(program) => {
-                resolve_management_program(pool, &agent_id, program, &environment).await
-            }
-            None => None,
-        };
+        let program =
+            resolve_management_action_program(pool, &agent_id, action, &environment).await;
         let available = action.url.is_some() || program.is_some();
         let translation_prefix = format!(
             "agents.managementAction.{}.{}",
@@ -809,8 +805,8 @@ pub async fn actions(
             available,
             unavailable_reason: (!available).then(|| {
                 format!(
-                    "未找到 `{}`；请先安装或修复此 Agent。",
-                    action.program.unwrap_or("命令")
+                    "未找到 {}；请重新安装或修复此 Agent。",
+                    management_program_names(action)
                 )
             }),
             url: action.url.map(str::to_string),
@@ -841,43 +837,43 @@ pub async fn run_action(
             .await
             .map_err(internal_error)?;
     } else {
-        let program_name = action
-            .program
-            .ok_or_else(|| ApplicationError::bad_request("账号管理动作缺少内置命令"))?;
         let environment = read_agent_environment(pool, &agent_id).await?;
-        let program = resolve_management_program(pool, &agent_id, program_name, &environment)
+        let program = resolve_management_action_program(pool, &agent_id, action, &environment)
             .await
             .ok_or_else(|| {
                 ApplicationError::bad_request(format!(
-                    "未找到 `{program_name}`；请先安装或修复此 Agent。"
+                    "未找到 {}；请重新安装或修复此 Agent。",
+                    management_program_names(action)
                 ))
             })?;
-        let command = std::iter::once(program.display().to_string())
-            .chain(action.args.iter().map(|argument| (*argument).to_string()))
+        let command = std::iter::once(program.path.display().to_string())
+            .chain(program.args)
             .map(|part| shell_quote_management_part(&part))
             .collect::<Vec<_>>()
             .join(" ");
-        let command = management_command_with_environment(&command, &environment);
         let watches_account = matches!(
             action.kind,
             ProfileManagementActionKind::Login | ProfileManagementActionKind::Logout
         );
-        let command = if watches_account {
-            let result_path = account_flow::account_flow_result_path(&agent_id);
-            let _ = tokio::fs::remove_file(&result_path).await;
+        let result_path =
+            watches_account.then(|| account_flow::account_flow_result_path(&agent_id));
+        if let Some(result_path) = &result_path {
+            let _ = tokio::fs::remove_file(result_path).await;
             account_flow::register_account_flow(
                 &agent_id,
                 action.id,
                 action.kind,
                 result_path.clone(),
             );
-            account_flow::wrap_account_flow_command(&command, &result_path)
-        } else {
-            command
-        };
-        spawn_agent_management_terminal(&command)
-            .await
-            .map_err(internal_error)?;
+        }
+        launch_watched_management_action(
+            &agent_id,
+            action.id,
+            &environment,
+            &command,
+            result_path.as_deref(),
+        )
+        .await?;
     }
 
     Ok(AgentManagementActionReceipt {
@@ -978,10 +974,50 @@ pub async fn auth_mode_set(
             )));
         }
     }
+    // Leaving Provider routing has to take the Provider's projection back out of
+    // the Agent's own config. The mode alone changes nothing the CLI reads: as
+    // long as the projection is in place, the Agent keeps routing to the
+    // Provider and the chosen mode never takes effect. The Provider itself stays
+    // saved and can be bound again.
+    if mode != "model_provider" {
+        let home =
+            dirs::home_dir().ok_or_else(|| ApplicationError::internal("home directory missing"))?;
+        release_provider_projection(&home, &provider_store_path(), &agent_id, &env).await?;
+    }
     apply_built_in_auth_mode_policy(&agent_id, &mut env);
     persist_agent_environment(pool, &agent_id, &env).await?;
     let _ = persist_observed_authentication(pool, &agent_id).await;
     with_account_label(project_auth_mode_view(pool, agent_id, &env).await?).await
+}
+
+/// Restores the Agent's own configuration from the projection backup taken when
+/// the Provider was bound, then drops the binding.
+///
+/// Unbinding is what removes the projection — `forget_binding` would drop the
+/// binding but leave the Agent still pointed at the Provider.
+async fn release_provider_projection(
+    home: &Path,
+    store_path: &Path,
+    agent_id: &AgentId,
+    env: &HashMap<String, String>,
+) -> Result<(), ApplicationError> {
+    let native_home = model_providers::provider_native_home(home, env, agent_id);
+    let providers =
+        match model_providers::list_with_native(store_path, agent_id.clone(), Some(&native_home))
+            .await
+        {
+            Ok(view) => view,
+            // An Agent without reusable Providers never had a projection to undo.
+            Err(error) if error.contains("不支持可复用 Model Provider") => return Ok(()),
+            Err(error) => return Err(ApplicationError::internal(error.to_string())),
+        };
+    if providers.bound_provider_id.is_none() {
+        return Ok(());
+    }
+    model_providers::bind(store_path, home, env, agent_id.clone(), None)
+        .await
+        .map_err(|error| ApplicationError::internal(error.to_string()))?;
+    Ok(())
 }
 
 pub async fn discovery_progress(
@@ -1300,6 +1336,9 @@ async fn set_codex_auth_mode(
     if mode != "model_provider" {
         let home =
             dirs::home_dir().ok_or_else(|| ApplicationError::internal("home directory missing"))?;
+        // Same as the generic path: Codex reads its config file, not this mode,
+        // so leaving Provider routing means undoing the Provider's projection.
+        release_provider_projection(&home, &provider_store_path(), &agent_id, &env).await?;
         let codex_home = resolve_agent_home(&home, &env, "CODEX_HOME", ".codex");
         let auth_path = codex_home.join("auth.json");
         let mut document = read_json_object_or_empty(&auth_path).await?;
@@ -1748,6 +1787,55 @@ async fn installed_components(
         .collect())
 }
 
+/// A Profile management entry point resolved to a real executable on this
+/// machine: the arguments that belong to it and the path to launch.
+pub(crate) struct ResolvedManagementProgram {
+    pub args: Vec<String>,
+    pub path: PathBuf,
+}
+
+/// Resolves the first declared entry point of `action` that exists on this
+/// machine.
+///
+/// One action can be driven by several distributions of the same capability —
+/// a standalone vendor CLI and the ACP Adapter that carries it — and each
+/// distribution takes its own arguments, so the entry point that resolves also
+/// decides the argument list.
+pub(crate) async fn resolve_management_action_program(
+    pool: &SqlitePool,
+    agent_id: &AgentId,
+    action: &agents::ProfileManagementAction,
+    environment: &HashMap<String, String>,
+) -> Option<ResolvedManagementProgram> {
+    for entry in action.programs {
+        let Some(path) =
+            resolve_management_program(pool, agent_id, entry.program, environment).await
+        else {
+            continue;
+        };
+        return Some(ResolvedManagementProgram {
+            args: entry
+                .args
+                .iter()
+                .map(|argument| (*argument).to_string())
+                .collect(),
+            path,
+        });
+    }
+    None
+}
+
+/// Names every declared entry point of an action, for a message that says what
+/// was searched instead of blaming the Agent's installation.
+fn management_program_names(action: &agents::ProfileManagementAction) -> String {
+    action
+        .programs
+        .iter()
+        .map(|entry| format!("`{}`", entry.program))
+        .collect::<Vec<_>>()
+        .join(" / ")
+}
+
 pub(crate) async fn resolve_management_program(
     pool: &SqlitePool,
     agent_id: &AgentId,
@@ -1800,10 +1888,9 @@ pub(crate) async fn resolve_management_program(
     utils::shell::resolve_executable_path(program).await
 }
 
-fn management_command_with_environment(
-    command: &str,
-    environment: &HashMap<String, String>,
-) -> String {
+/// Environment statements that put an agent's account-relevant variables in
+/// scope for a management action, in this platform's assignment syntax.
+fn management_environment_assignments(environment: &HashMap<String, String>) -> Vec<String> {
     let mut variables = environment
         .iter()
         .filter(|(key, value)| {
@@ -1818,21 +1905,16 @@ fn management_command_with_environment(
         })
         .collect::<Vec<_>>();
     variables.sort_by_key(|(key, _)| *key);
-    if variables.is_empty() {
-        return command.to_string();
-    }
     #[cfg(not(windows))]
     {
-        let prefix = variables
+        variables
             .into_iter()
             .map(|(key, value)| format!("{key}={}", shell_quote_management_part(value)))
-            .collect::<Vec<_>>()
-            .join(" ");
-        format!("{prefix} {command}")
+            .collect()
     }
     #[cfg(windows)]
     {
-        let prefix = variables
+        variables
             .into_iter()
             .map(|(key, value)| {
                 let escaped = value
@@ -1844,9 +1926,7 @@ fn management_command_with_environment(
                     .replace('>', "^>");
                 format!("set \"{key}={escaped}\"")
             })
-            .collect::<Vec<_>>()
-            .join(" && ");
-        format!("{prefix} && {command}")
+            .collect()
     }
 }
 
@@ -1871,6 +1951,102 @@ fn shell_quote_management_part(value: &str) -> String {
     return format!("\"{}\"", value.replace('"', "\\\""));
     #[cfg(not(windows))]
     return format!("'{}'", value.replace('\'', "'\\''"));
+}
+
+/// Prepare and spawn the terminal for one action, and drop the account flow
+/// registration again when the launch fails.
+///
+/// The registration happens before the launch so a fast action cannot finish
+/// unobserved, which means every failure between the two — a launcher script
+/// that cannot be written, a cleanup that cannot be prepared, a terminal that
+/// cannot be started — would otherwise leave authentication management polling
+/// an exit code that never arrives.
+async fn launch_watched_management_action(
+    agent_id: &AgentId,
+    action_id: &str,
+    environment: &HashMap<String, String>,
+    command: &str,
+    result_path: Option<&Path>,
+) -> Result<(), ApplicationError> {
+    let launched = async {
+        let command = account_flow::prepare_management_launch(
+            agent_id,
+            action_id,
+            command,
+            &management_environment_assignments(environment),
+            result_path,
+        )
+        .await
+        .map_err(internal_error)?;
+        launch_management_terminal(agent_id, action_id, environment, &command).await
+    }
+    .await;
+    if launched.is_err() && result_path.is_some() {
+        account_flow::cancel_account_flow(agent_id);
+    }
+    launched
+}
+
+/// Launch one management action, holding the Kimi provider cleanup across the
+/// launch.
+///
+/// Kimi's official login has to reach the vendor's own endpoint, but VibeX
+/// points the CLI at a local gate while a stored provider is applied, so the
+/// synthetic provider and its credential are stripped for the duration of the
+/// launch — and put back if the terminal never starts.
+async fn launch_management_terminal(
+    agent_id: &AgentId,
+    action_id: &str,
+    environment: &HashMap<String, String>,
+    command: &str,
+) -> Result<(), ApplicationError> {
+    if !model_providers::has_synthetic_gate(agent_id) || action_id != "login" {
+        return spawn_agent_management_terminal(command)
+            .await
+            .map_err(internal_error);
+    }
+    let home =
+        dirs::home_dir().ok_or_else(|| ApplicationError::internal("home directory missing"))?;
+    let mutations = model_providers::prepare_kimi_vibex_configuration_cleanup(&home, environment)
+        .await
+        .map_err(internal_error)?;
+    apply_config_transition_then(mutations, || spawn_agent_management_terminal(command)).await
+}
+
+/// Apply the mutations, run the launch, and restore the previous bytes when the
+/// launch fails: an account action that never opened must not leave the agent
+/// sitting on a configuration it no longer has.
+async fn apply_config_transition_then<F, Fut>(
+    mutations: Vec<NativeFileMutation>,
+    operation: F,
+) -> Result<(), ApplicationError>
+where
+    F: FnOnce() -> Fut,
+    Fut: std::future::Future<Output = std::io::Result<()>>,
+{
+    if !mutations.is_empty() {
+        apply_native_file_mutations(&mutations)
+            .await
+            .map_err(internal_error)?;
+    }
+    if let Err(operation_error) = operation().await {
+        let rollback = mutations
+            .iter()
+            .map(|mutation| NativeFileMutation {
+                path: mutation.path.clone(),
+                expected: mutation.replacement.clone(),
+                replacement: mutation.expected.clone(),
+                sensitive: mutation.sensitive,
+            })
+            .collect::<Vec<_>>();
+        return match apply_native_file_mutations(&rollback).await {
+            Ok(()) => Err(internal_error(operation_error)),
+            Err(rollback_error) => Err(internal_error(format!(
+                "{operation_error}；恢复原配置失败：{rollback_error}"
+            ))),
+        };
+    }
+    Ok(())
 }
 
 async fn spawn_agent_management_terminal(command: &str) -> std::io::Result<()> {
@@ -2590,12 +2766,102 @@ mod tests {
             &home,
             &store_path,
             AgentId::parse("claude_code").unwrap(),
-            &HashMap::from([("CLAUDE_AUTH_MODE".to_string(), "official_api".to_string())]),
+            &HashMap::new(),
         )
         .await
         .unwrap();
         assert_eq!(view.mode, "model_provider");
         assert!(view.credential_present);
+    }
+
+    /// The endpoint above is the configuration this machine has, not a choice
+    /// the user made in VibeX. Picking a mode has to outrank it — otherwise the
+    /// subscription modes can be selected but never take effect.
+    #[tokio::test]
+    async fn claude_custom_endpoint_defers_to_a_mode_chosen_in_vibex() {
+        let temp = tempfile::tempdir().unwrap();
+        let home = temp.path().join("home");
+        let claude_home = home.join(".claude");
+        let store_path = temp.path().join("data/agent-model-providers.json");
+        tokio::fs::create_dir_all(&claude_home).await.unwrap();
+        tokio::fs::write(
+            claude_home.join("settings.json"),
+            br#"{"env":{"ANTHROPIC_BASE_URL":"https://api.deepseek.com","ANTHROPIC_AUTH_TOKEN":"sk-gateway","ANTHROPIC_MODEL":"deepseek-chat"}}"#,
+        )
+        .await
+        .unwrap();
+
+        let view = project_auth_mode_view_at(
+            &home,
+            &store_path,
+            AgentId::parse("claude_code").unwrap(),
+            &HashMap::from([("CLAUDE_AUTH_MODE".to_string(), "official_api".to_string())]),
+        )
+        .await
+        .unwrap();
+        assert_eq!(view.mode, "official_api");
+    }
+
+    /// Choosing a mode is not enough on its own: the CLI reads the Provider
+    /// projection VibeX wrote into the Agent's own config, so leaving Provider
+    /// routing has to take that projection back out.
+    #[tokio::test]
+    async fn leaving_provider_routing_restores_the_agents_own_config() {
+        let temp = tempfile::tempdir().unwrap();
+        let home = temp.path().join("home");
+        let grok_home = home.join(".grok");
+        let store_path = temp.path().join("data/agent-model-providers.json");
+        tokio::fs::create_dir_all(&grok_home).await.unwrap();
+        let native_config = "[models]\ndefault = \"grok-4.6\"\n";
+        tokio::fs::write(grok_home.join("config.toml"), native_config)
+            .await
+            .unwrap();
+
+        let agent_id = AgentId::parse("grok").unwrap();
+        let environment = HashMap::new();
+        let saved = model_providers::save(
+            &store_path,
+            &home,
+            &environment,
+            api_types::AgentModelProviderSaveRequest {
+                id: None,
+                name: "Gateway".to_string(),
+                agent_id: agent_id.clone(),
+                api_url: "https://gateway.example/v1".to_string(),
+                api_key: Some("gateway-secret".to_string()),
+                model: "grok-4.6".to_string(),
+            },
+        )
+        .await
+        .unwrap();
+        model_providers::bind(
+            &store_path,
+            &home,
+            &environment,
+            agent_id.clone(),
+            Some(saved.providers[0].id.clone()),
+        )
+        .await
+        .unwrap();
+        let projected = tokio::fs::read_to_string(grok_home.join("config.toml"))
+            .await
+            .unwrap();
+        assert!(projected.contains("[model.vibex]"));
+
+        release_provider_projection(&home, &store_path, &agent_id, &environment)
+            .await
+            .unwrap();
+
+        let restored = tokio::fs::read_to_string(grok_home.join("config.toml"))
+            .await
+            .unwrap();
+        assert_eq!(restored, native_config);
+        let providers = model_providers::list_with_native(&store_path, agent_id, Some(&grok_home))
+            .await
+            .unwrap();
+        assert!(providers.bound_provider_id.is_none());
+        // Leaving Provider routing keeps the Provider saved, ready to bind again.
+        assert_eq!(providers.providers.len(), 1);
     }
 
     #[tokio::test]
@@ -2783,5 +3049,245 @@ mod tests {
             "unexpected kimi mode {}",
             view.mode
         );
+    }
+
+    async fn lock_pool(agent_id: &str, components: &[(&str, &Path)]) -> sqlx::SqlitePool {
+        let pool = sqlx::SqlitePool::connect(":memory:").await.unwrap();
+        sqlx::query(
+            "CREATE TABLE agent_installation (agent_id TEXT PRIMARY KEY, current_lock_id TEXT)",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+        sqlx::query(
+            "CREATE TABLE agent_install_component (
+                 lock_id TEXT NOT NULL,
+                 component_kind TEXT NOT NULL,
+                 absolute_path TEXT NOT NULL
+               )",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+        sqlx::query("INSERT INTO agent_installation VALUES (?, 'lock-1')")
+            .bind(agent_id)
+            .execute(&pool)
+            .await
+            .unwrap();
+        for (kind, path) in components {
+            sqlx::query("INSERT INTO agent_install_component VALUES ('lock-1', ?, ?)")
+                .bind(*kind)
+                .bind(path.display().to_string())
+                .execute(&pool)
+                .await
+                .unwrap();
+        }
+        pool
+    }
+
+    /// Synthetic names keep PATH out of the picture: the only way either entry
+    /// point can resolve is through the installation lock.
+    fn two_entry_action() -> agents::ProfileManagementAction {
+        agents::ProfileManagementAction {
+            id: "login",
+            label: "登录",
+            description: "登录",
+            kind: ProfileManagementActionKind::Login,
+            programs: &[
+                agents::ProfileManagementProgram {
+                    program: "vibex-test-agent-cli",
+                    args: &["cli-login"],
+                },
+                agents::ProfileManagementProgram {
+                    program: "vibex-test-agent-acp",
+                    args: &["--cli", "adapter-login"],
+                },
+            ],
+            url: None,
+        }
+    }
+
+    /// An Adapter-backed Agent installs the adapter, not the vendor CLI, so an
+    /// action whose standalone entry point is absent must fall through to the
+    /// adapter — and must use the adapter's own arguments.
+    #[tokio::test]
+    async fn management_action_falls_back_to_the_adapter_entry_point() {
+        let temp = tempfile::tempdir().unwrap();
+        let adapter = temp.path().join("vibex-test-agent-acp.cmd");
+        std::fs::write(&adapter, []).unwrap();
+        let pool = lock_pool("vibex_test_agent", &[("acp_adapter", &adapter)]).await;
+        let agent_id = AgentId::parse("vibex_test_agent").unwrap();
+
+        let resolved = resolve_management_action_program(
+            &pool,
+            &agent_id,
+            &two_entry_action(),
+            &HashMap::new(),
+        )
+        .await
+        .expect("the adapter entry point resolves");
+
+        assert_eq!(resolved.path, adapter);
+        assert_eq!(resolved.args, vec!["--cli", "adapter-login"]);
+    }
+
+    /// The standalone CLI is the installation its user manages directly, so it
+    /// wins over the adapter when both are present.
+    #[tokio::test]
+    async fn management_action_prefers_the_standalone_cli_entry_point() {
+        let temp = tempfile::tempdir().unwrap();
+        let cli = temp.path().join("vibex-test-agent-cli.cmd");
+        std::fs::write(&cli, []).unwrap();
+        let pool = lock_pool("vibex_test_agent", &[("agent_runtime", &cli)]).await;
+        let agent_id = AgentId::parse("vibex_test_agent").unwrap();
+
+        let resolved = resolve_management_action_program(
+            &pool,
+            &agent_id,
+            &two_entry_action(),
+            &HashMap::new(),
+        )
+        .await
+        .expect("the standalone entry point resolves");
+
+        assert_eq!(resolved.path, cli);
+        assert_eq!(resolved.args, vec!["cli-login"]);
+    }
+
+    fn replacement_mutation(
+        path: &Path,
+        expected: &[u8],
+        replacement: &[u8],
+    ) -> NativeFileMutation {
+        NativeFileMutation {
+            path: path.to_path_buf(),
+            expected: Some(expected.to_vec()),
+            replacement: Some(replacement.to_vec()),
+            sensitive: false,
+        }
+    }
+
+    #[tokio::test]
+    async fn a_failed_launch_takes_the_configuration_transition_back() {
+        let temp = tempfile::tempdir().unwrap();
+        let path = temp.path().join("config.toml");
+        let original = b"default_model = \"vibex\"\n".to_vec();
+        tokio::fs::write(&path, &original).await.unwrap();
+
+        let error = apply_config_transition_then(
+            vec![replacement_mutation(
+                &path,
+                &original,
+                b"default_model = \"kimi\"\n",
+            )],
+            || async {
+                Err(std::io::Error::new(
+                    std::io::ErrorKind::NotFound,
+                    "no terminal emulator",
+                ))
+            },
+        )
+        .await
+        .unwrap_err();
+
+        assert!(error.envelope().message.contains("no terminal emulator"));
+        assert_eq!(tokio::fs::read(&path).await.unwrap(), original);
+    }
+
+    #[tokio::test]
+    async fn a_failed_launch_recreates_a_credential_the_transition_removed() {
+        let temp = tempfile::tempdir().unwrap();
+        let path = temp.path().join("kimi-code.json");
+        let original = br#"{"access_token":"vibex-local-gate"}"#.to_vec();
+        tokio::fs::write(&path, &original).await.unwrap();
+
+        apply_config_transition_then(
+            vec![NativeFileMutation {
+                path: path.clone(),
+                expected: Some(original.clone()),
+                replacement: None,
+                sensitive: true,
+            }],
+            || async { Err(std::io::Error::other("no terminal emulator")) },
+        )
+        .await
+        .unwrap_err();
+
+        assert_eq!(tokio::fs::read(&path).await.unwrap(), original);
+    }
+
+    /// The registration lands before the launch, so a launch that fails has to
+    /// take it back — otherwise authentication management polls one agent
+    /// forever for an exit code no terminal will ever write.
+    #[tokio::test]
+    async fn a_failed_launch_cancels_the_registered_account_flow() {
+        let temp = tempfile::tempdir().unwrap();
+        let kimi_home = temp.path().join("kimi");
+        tokio::fs::create_dir_all(&kimi_home).await.unwrap();
+        // Unparsable TOML fails the login cleanup before any terminal starts,
+        // which is the failure this test needs without opening a window.
+        tokio::fs::write(kimi_home.join("config.toml"), "= not toml =")
+            .await
+            .unwrap();
+        let agent_id = AgentId::parse("kimi_code").unwrap();
+        let environment = HashMap::from([(
+            "KIMI_CODE_HOME".to_string(),
+            kimi_home.display().to_string(),
+        )]);
+        let result_path = temp.path().join("flow.exit");
+        account_flow::register_account_flow(
+            &agent_id,
+            "login",
+            ProfileManagementActionKind::Login,
+            result_path.clone(),
+        );
+
+        launch_watched_management_action(
+            &agent_id,
+            "login",
+            &environment,
+            "kimi acp --login",
+            Some(&result_path),
+        )
+        .await
+        .unwrap_err();
+
+        assert!(account_flow::peek_account_flow(&agent_id).is_none());
+    }
+
+    #[tokio::test]
+    async fn a_transition_that_launches_stays_applied() {
+        let temp = tempfile::tempdir().unwrap();
+        let path = temp.path().join("config.toml");
+        let original = b"default_model = \"vibex\"\n".to_vec();
+        tokio::fs::write(&path, &original).await.unwrap();
+
+        apply_config_transition_then(
+            vec![replacement_mutation(&path, &original, b"")],
+            || async { Ok(()) },
+        )
+        .await
+        .unwrap();
+
+        assert!(tokio::fs::read(&path).await.unwrap().is_empty());
+    }
+
+    #[test]
+    fn management_terminal_receives_saved_home_but_never_saved_secrets() {
+        let environment = HashMap::from([
+            ("CODEX_HOME".to_string(), "/tmp/codex home".to_string()),
+            (
+                "OPENAI_BASE_URL".to_string(),
+                "https://example.test".to_string(),
+            ),
+            ("OPENAI_API_KEY".to_string(), "sk-secret".to_string()),
+        ]);
+
+        let assignments = management_environment_assignments(&environment).join(" ");
+
+        assert!(assignments.contains("CODEX_HOME"));
+        assert!(assignments.contains("OPENAI_BASE_URL"));
+        assert!(!assignments.contains("OPENAI_API_KEY"));
+        assert!(!assignments.contains("sk-secret"));
     }
 }

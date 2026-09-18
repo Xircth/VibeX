@@ -40,6 +40,7 @@ import {
 import { attemptsApi, sessionsApi } from '@/lib/api';
 import { buildSessionConversationKey } from '@/lib/conversationKeys';
 import { getKanbanSessionDetailQueryState } from './kanbanSessionConversationQuery';
+import { conversationApi } from '@/features/conversation/conversationApi';
 
 type SessionRecord = Session & {
   task_id?: string | null;
@@ -86,6 +87,11 @@ type ConversationPlacementContextValue = {
     target: HTMLElement,
     props: KanbanSessionConversationSurfaceProps
   ) => () => void;
+  claimVisibleSlot: (
+    key: string,
+    slotId: string,
+    target: HTMLElement
+  ) => void;
   updateSlotProps: (
     key: string,
     props: KanbanSessionConversationSurfaceProps
@@ -124,19 +130,27 @@ export function shouldActivateConversationSlot({
   slotId,
   isNewSlot,
   target,
+  activeTarget,
 }: {
   activeSlotId: string | null;
   slotId: string;
   isNewSlot: boolean;
   target: HTMLElement;
+  activeTarget?: HTMLElement | null;
 }): boolean {
   if (activeSlotId === slotId) {
     return true;
   }
-  if (!isNewSlot) {
+  if (!isConversationSlotVisible(target)) {
     return false;
   }
-  return isConversationSlotVisible(target);
+  if (!activeSlotId) {
+    return true;
+  }
+  if (activeTarget && !isConversationSlotVisible(activeTarget)) {
+    return true;
+  }
+  return isNewSlot;
 }
 
 function nextConversationSlot(
@@ -215,6 +229,9 @@ export function KanbanSessionConversationPlacementProvider({
           slotId,
           isNewSlot,
           target,
+          activeTarget: record.activeSlotId
+            ? record.slots.get(record.activeSlotId)
+            : null,
         })
       ) {
         record.activeSlotId = slotId;
@@ -269,6 +286,36 @@ export function KanbanSessionConversationPlacementProvider({
     [bumpVersion]
   );
 
+  const claimVisibleSlot = useCallback<
+    ConversationPlacementContextValue['claimVisibleSlot']
+  >(
+    (key, slotId, target) => {
+      const record = recordsRef.current.get(key);
+      if (!record || !isConversationSlotVisible(target)) {
+        return;
+      }
+      if (record.activeSlotId === slotId) {
+        if (record.container.parentElement !== target) {
+          target.appendChild(record.container);
+          bumpVersion();
+        }
+        return;
+      }
+      const activeTarget = record.activeSlotId
+        ? record.slots.get(record.activeSlotId)
+        : undefined;
+      if (activeTarget && isConversationSlotVisible(activeTarget)) {
+        return;
+      }
+      record.activeSlotId = slotId;
+      if (record.container.parentElement !== target) {
+        target.appendChild(record.container);
+      }
+      bumpVersion();
+    },
+    [bumpVersion]
+  );
+
   const updateSlotProps = useCallback<
     ConversationPlacementContextValue['updateSlotProps']
   >(
@@ -301,9 +348,10 @@ export function KanbanSessionConversationPlacementProvider({
   const contextValue = useMemo(
     () => ({
       mountSlot,
+      claimVisibleSlot,
       updateSlotProps,
     }),
-    [mountSlot, updateSlotProps]
+    [claimVisibleSlot, mountSlot, updateSlotProps]
   );
   const records = Array.from(recordsRef.current.values());
 
@@ -514,14 +562,24 @@ function KanbanSessionConversationSurface({
     sessionState.sessions.find((session) => session.id === sessionId)
       ?.isRunning ?? false;
   useMarkSessionViewed(sessionId, isRunning, markViewed);
-  const { data: workspace, isLoading: isWorkspaceLoading } =
-    useQuery<Workspace>({
-      queryKey: ['taskAttempt', workspaceId],
-      queryFn: () => attemptsApi.get(workspaceId),
-      enabled: !!workspaceId,
-      placeholderData: (previousData) =>
-        previousData?.id === workspaceId ? previousData : undefined,
-    });
+  const {
+    data: workspace,
+    isLoading: isWorkspaceLoading,
+    isError: isWorkspaceError,
+  } = useQuery<Workspace>({
+    queryKey: ['taskAttempt', workspaceId],
+    queryFn: () => attemptsApi.get(workspaceId),
+    enabled: !!workspaceId,
+    placeholderData: (previousData) =>
+      previousData?.id === workspaceId ? previousData : undefined,
+  });
+  useEffect(() => {
+    if (!sessionId) return;
+    conversationApi.prefetchDetail(sessionId);
+  }, [sessionId]);
+  const listSession = sessionId
+    ? sessionState.sessions.find((item) => item.id === sessionId)
+    : undefined;
   const sessionDetailQuery = getKanbanSessionDetailQueryState(sessionId);
   const {
     data: session,
@@ -543,22 +601,40 @@ function KanbanSessionConversationSurface({
       previousData?.id === sessionId ? previousData : undefined,
   });
 
+  const resolvedSession = session ?? listSession ?? undefined;
   const isBootstrappingWorkspace = !workspace && isWorkspaceLoading;
   const isBootstrappingSession =
-    !!sessionId && !session && isSessionPending && !isSessionError;
+    !!sessionId && !resolvedSession && isSessionPending && !isSessionError;
 
-  if (isBootstrappingWorkspace || isBootstrappingSession || !workspace) {
+  if (isBootstrappingWorkspace || isBootstrappingSession) {
     return (
-      <div className={`relative ${className ?? ''}`}>
-        <div className="tahoe-popover pointer-events-none absolute right-3 top-3 z-10 flex items-center gap-1.5 rounded-full px-2 py-1 text-[11px] text-muted-foreground">
-          <Loader2 className="h-3.5 w-3.5 animate-spin" />
+      <div
+        className={`flex h-full min-h-0 items-center justify-center ${className ?? ''}`}
+      >
+        <div className="flex items-center gap-2 text-sm text-muted-foreground">
+          <Loader2 className="h-4 w-4 animate-spin" />
           <span>{t('sessionConversationView.loadingSession')}</span>
         </div>
       </div>
     );
   }
 
-  const resolvedSession = session ?? undefined;
+  if (!workspace) {
+    return (
+      <div
+        className={`flex h-full min-h-0 items-center justify-center px-6 text-center text-sm text-muted-foreground ${className ?? ''}`}
+      >
+        {isWorkspaceError
+          ? t('sessionConversationView.workspaceLoadFailed', {
+              defaultValue: '无法加载工作区，请再选一次会话。',
+            })
+          : t('sessionConversationView.workspaceMissing', {
+              defaultValue: '没有可显示的会话内容。',
+            })}
+      </div>
+    );
+  }
+
   const taskId = resolvedSession?.task_id ?? workspace.task_id;
   const canInteractWithoutResolvedSession = interactive && !sessionId;
   const requestedSessionMissing = !!sessionId && isSessionError;
@@ -666,12 +742,26 @@ export function KanbanSessionConversationView(
       return;
     }
 
-    return placement.mountSlot(
+    const target = slotRef.current;
+    const unmount = placement.mountSlot(
       placementKey,
       slotId,
-      slotRef.current,
+      target,
       surfacePropsRef.current
     );
+    const observer = new IntersectionObserver(
+      ([entry]) => {
+        if (entry.isIntersecting) {
+          placement.claimVisibleSlot(placementKey, slotId, target);
+        }
+      },
+      { threshold: 0.01 }
+    );
+    observer.observe(target);
+    return () => {
+      observer.disconnect();
+      unmount();
+    };
   }, [placement, placementKey, slotId]);
 
   useLayoutEffect(() => {

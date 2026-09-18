@@ -142,10 +142,37 @@ jobs:
 
       - name: Attach Server archive to GitHub Release
         if: ${{ env.RELEASE_TAG != '' }}
-        uses: softprops/action-gh-release@v2
-        with:
-          tag_name: ${{ env.RELEASE_TAG }}
-          files: |
-            dist/${{ env.SERVER_ARCHIVE }}
-            dist/${{ env.SERVER_ARCHIVE }}.sha256
-          fail_on_unmatched_files: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_REPOSITORY: ${{ github.repository }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if ! gh release view "$RELEASE_TAG" --repo "$RELEASE_REPOSITORY" >/dev/null 2>&1; then
+            notes_path="docs/release/${RELEASE_TAG#v}.md"
+            if [ -f "$notes_path" ]; then
+              gh release create "$RELEASE_TAG" \
+                --repo "$RELEASE_REPOSITORY" \
+                --title "$RELEASE_TAG" \
+                --notes-file "$notes_path"
+            else
+              gh release create "$RELEASE_TAG" \
+                --repo "$RELEASE_REPOSITORY" \
+                --title "$RELEASE_TAG" \
+                --generate-notes
+            fi
+          fi
+          for file in "dist/${SERVER_ARCHIVE}" "dist/${SERVER_ARCHIVE}.sha256"; do
+            name="$(basename "$file")"
+            attempt=1
+            until gh release upload "$RELEASE_TAG" "$file" --repo "$RELEASE_REPOSITORY" --clobber; do
+              if [ "$attempt" -ge 8 ]; then
+                echo "failed to upload $name after $attempt attempts"
+                exit 1
+              fi
+              echo "retry $attempt for $name"
+              attempt=$((attempt + 1))
+              sleep $((attempt * 15))
+            done
+            echo "uploaded $name"
+          done

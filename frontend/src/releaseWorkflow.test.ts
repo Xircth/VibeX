@@ -126,9 +126,21 @@ describe('release workflow contract', () => {
     expect(workflow).toContain(
       "RELEASE_TAG: ${{ github.event_name == 'push' && github.ref_name || inputs.release_tag }}"
     );
-    expect(workflow).toContain('tag_name: ${{ env.RELEASE_TAG }}');
+    expect(workflow).toContain('gh release create "$RELEASE_TAG"');
+    expect(workflow).toContain(
+      'gh release upload "$RELEASE_TAG" "$file" --clobber'
+    );
+    expect(workflow).toContain('gh release edit "$RELEASE_TAG" --latest');
+    expect(workflow).not.toContain('tag_name: ${{ env.RELEASE_TAG }}');
     expect(workflow).not.toContain('RELEASE_TAG: ${{ inputs.release_tag }}');
     expect(workflow).not.toMatch(/\bzip\s+-/);
+
+    const serverWorkflow = read('.github/workflows/host-family-release.yml');
+    expect(serverWorkflow).toMatch(/push:\s+tags:\s+- ['"]v\*['"]/);
+    expect(serverWorkflow).toContain(
+      'gh release upload "$RELEASE_TAG" "$file" --repo "$RELEASE_REPOSITORY" --clobber'
+    );
+    expect(serverWorkflow).not.toContain('softprops/action-gh-release');
   });
 
   it('keeps SQLite-only SQLx dependencies free of cross-target TLS providers', () => {

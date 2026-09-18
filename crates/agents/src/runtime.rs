@@ -970,16 +970,25 @@ impl AgentRuntime {
                 snapshot: snapshot.clone(),
             },
         );
-        let restorable = is_restorable_acp_session_id(&snapshot.acp_session_id);
-        let bound_id = snapshot.acp_session_id.clone();
-        let bound_session = snapshot.id;
-        drop(state);
-        if restorable {
-            self.connection_manager
-                .bind_known_acp_session(connection_id, bound_session, bound_id)
-                .await;
-        }
         Ok(snapshot)
+    }
+
+    /// Record a live ACP mapping after the agent process actually created or
+    /// restored the session. Must not be used to inject a persisted id onto a
+    /// freshly spawned process — that skips `session/resume` and yields
+    /// `unknown session id` on the next prompt.
+    #[cfg(test)]
+    pub(crate) async fn bind_live_acp_session(
+        &self,
+        session_id: AgentSessionId,
+        acp_session_id: String,
+    ) {
+        let Some(connection_id) = self.live_connection_id(session_id).await else {
+            return;
+        };
+        self.connection_manager
+            .bind_known_acp_session(connection_id, session_id, acp_session_id)
+            .await;
     }
 
     pub async fn ensure_session(
@@ -1151,11 +1160,18 @@ impl AgentRuntime {
             .sessions
             .get_mut(&session.id)
             .ok_or_else(|| AgentError::SessionNotFound(session.id.to_string()))?;
-        stored.snapshot.acp_session_id = acp_session_id;
+        stored.snapshot.acp_session_id = acp_session_id.clone();
         stored.snapshot.updated_at = Utc::now();
         stored.controls = controls.clone();
+        let snapshot = stored.snapshot.clone();
+        drop(state);
+        if is_restorable_acp_session_id(&acp_session_id) {
+            self.connection_manager
+                .bind_known_acp_session(snapshot.connection_id, snapshot.id, acp_session_id)
+                .await;
+        }
         Ok(AgentPreparedSessionSnapshot {
-            session: stored.snapshot.clone(),
+            session: snapshot,
             controls,
             stale_default_ids: None,
         })
@@ -1880,7 +1896,7 @@ impl AgentRuntime {
         self.connection_manager
             .bound_acp_session_id(connection_id, session_id)
             .await
-            .is_some()
+            .is_some_and(|id| is_restorable_acp_session_id(&id))
     }
 
     /// True only when this conversation still has a Ready ACP process that can
@@ -2526,6 +2542,27 @@ mod tests {
         }
     }
 
+    async fn prepare_bound_session(
+        runtime: &AgentRuntime,
+    ) -> (AgentConnectionId, AgentSessionSnapshot) {
+        let prepared = runtime
+            .prepare_session(EnsureAgentSessionInput {
+                agent_id: AgentId::parse("codex").unwrap(),
+                launch_lock: test_launch_lock(),
+                workspace_id: Uuid::new_v4(),
+                working_dir: PathBuf::from("C:/work"),
+                additional_directories: Vec::new(),
+                session_id: AgentSessionId::new(),
+                acp_session_id: String::new(),
+                auto_approve_mode: AgentAutoApproveMode::Off,
+                env: HashMap::new(),
+                preferences: Default::default(),
+            })
+            .await
+            .unwrap();
+        (prepared.session.connection_id, prepared.session)
+    }
+
     #[tokio::test]
     async fn durable_event_channel_preserves_a_burst_larger_than_live_broadcast_capacity() {
         let (sink, mut receiver) = runtime_event_channel();
@@ -2565,6 +2602,39 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn prepare_session_then_send_prompt_does_not_need_a_prior_binding() {
+        let runtime = AgentRuntime::new_with_driver(Arc::new(NoopEventSink), false);
+        let prepared = runtime
+            .prepare_session(EnsureAgentSessionInput {
+                agent_id: AgentId::parse("codex").unwrap(),
+                launch_lock: test_launch_lock(),
+                workspace_id: Uuid::new_v4(),
+                working_dir: PathBuf::from("C:/oneshot"),
+                additional_directories: Vec::new(),
+                session_id: AgentSessionId::new(),
+                acp_session_id: String::new(),
+                auto_approve_mode: AgentAutoApproveMode::Off,
+                env: HashMap::new(),
+                preferences: Default::default(),
+            })
+            .await
+            .unwrap();
+        let prompt = runtime
+            .send_prompt(SendAgentPromptInput {
+                connection_id: prepared.session.connection_id,
+                session_id: prepared.session.id,
+                blocks: vec![AgentContentBlock::Text {
+                    text: "enhance this".to_string(),
+                }],
+                mode_override: None,
+                config_overrides: Vec::new(),
+            })
+            .await
+            .expect("oneshot prompt enhancement must bind during prepare_session");
+        assert!(matches!(prompt.status, AgentPromptStatus::Running));
+    }
+
+    #[tokio::test]
     async fn send_prompt_refuses_an_unbound_session() {
         let runtime = AgentRuntime::new_with_driver(Arc::new(NoopEventSink), false);
         let connection = runtime
@@ -2599,6 +2669,74 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn persisted_acp_id_on_a_fresh_connection_is_not_bound_until_resume() {
+        let runtime = AgentRuntime::new_with_driver(Arc::new(NoopEventSink), false);
+        let workspace_id = Uuid::new_v4();
+        let connection = runtime
+            .connect(ConnectAgentInput {
+                agent_id: AgentId::parse("codex").unwrap(),
+                launch_lock: test_launch_lock(),
+                workspace_id,
+                working_dir: PathBuf::from("C:/work"),
+                additional_directories: Vec::new(),
+                auto_approve_mode: AgentAutoApproveMode::Off,
+                env: HashMap::new(),
+            })
+            .await
+            .unwrap();
+        let session = runtime
+            .new_session(connection.id, "persisted-acp-sid")
+            .await
+            .unwrap();
+        assert!(
+            !runtime.has_bound_acp_session(session.id).await,
+            "storing a restorable sid must not skip session/resume on a new process"
+        );
+        let error = runtime
+            .send_prompt(SendAgentPromptInput {
+                connection_id: connection.id,
+                session_id: session.id,
+                blocks: vec![AgentContentBlock::Text {
+                    text: "hello".to_string(),
+                }],
+                mode_override: None,
+                config_overrides: Vec::new(),
+            })
+            .await
+            .expect_err("prompt before resume");
+        assert!(matches!(error, AgentError::AcpSessionNotBound));
+
+        runtime
+            .resume_session(ResumeAgentSessionInput {
+                agent_id: AgentId::parse("codex").unwrap(),
+                launch_lock: test_launch_lock(),
+                workspace_id,
+                working_dir: PathBuf::from("C:/work"),
+                additional_directories: Vec::new(),
+                session_id: session.id,
+                external_session_id: "persisted-acp-sid".into(),
+                auto_approve_mode: AgentAutoApproveMode::Off,
+                env: HashMap::new(),
+                preferences: Default::default(),
+            })
+            .await
+            .unwrap();
+        assert!(runtime.has_bound_acp_session(session.id).await);
+        runtime
+            .send_prompt(SendAgentPromptInput {
+                connection_id: connection.id,
+                session_id: session.id,
+                blocks: vec![AgentContentBlock::Text {
+                    text: "hello".to_string(),
+                }],
+                mode_override: None,
+                config_overrides: Vec::new(),
+            })
+            .await
+            .unwrap();
+    }
+
+    #[tokio::test]
     async fn runtime_creates_connection_session_prompt() {
         let sink = Arc::new(RecordingSink {
             events: Mutex::new(Vec::new()),
@@ -2621,6 +2759,9 @@ mod tests {
             .new_session(connection.id, "acp-session")
             .await
             .unwrap();
+        runtime
+            .bind_live_acp_session(session.id, session.acp_session_id.clone())
+            .await;
         let prompt = runtime
             .send_prompt(SendAgentPromptInput {
                 connection_id: connection.id,
@@ -2714,6 +2855,9 @@ mod tests {
             .new_session(connection.id, "acp-session")
             .await
             .unwrap();
+        runtime
+            .bind_live_acp_session(session.id, session.acp_session_id.clone())
+            .await;
         let first = runtime
             .send_prompt(SendAgentPromptInput {
                 connection_id: connection.id,
@@ -2848,6 +2992,9 @@ mod tests {
             .new_session(connection.id, "acp-session")
             .await
             .unwrap();
+        runtime
+            .bind_live_acp_session(session.id, session.acp_session_id.clone())
+            .await;
         let request = AgentPermissionRequest {
             id: AgentPermissionId::new(),
             session_id: session.id,
@@ -3295,6 +3442,9 @@ mod tests {
             .new_session(connection.id, "acp-session")
             .await
             .unwrap();
+        runtime
+            .bind_live_acp_session(session.id, session.acp_session_id.clone())
+            .await;
         let active_prompt = runtime
             .send_prompt(SendAgentPromptInput {
                 connection_id: connection.id,
@@ -3409,6 +3559,9 @@ mod tests {
             .new_session(connection.id, "acp-session")
             .await
             .unwrap();
+        runtime
+            .bind_live_acp_session(session.id, session.acp_session_id.clone())
+            .await;
         let active_prompt = runtime
             .send_prompt(SendAgentPromptInput {
                 connection_id: connection.id,
@@ -3555,6 +3708,9 @@ mod tests {
             .new_session(connection.id, "acp-session")
             .await
             .unwrap();
+        runtime
+            .bind_live_acp_session(session.id, session.acp_session_id.clone())
+            .await;
 
         runtime.disconnect(connection.id).await.unwrap();
         let rebound = runtime
@@ -3913,6 +4069,9 @@ mod tests {
             })
             .await
             .unwrap();
+        runtime
+            .bind_live_acp_session(active_session.id, active_session.acp_session_id.clone())
+            .await;
 
         // Hold the connection command stream open without completing the prompt,
         // matching a real ACP turn that is still in progress. Keep the previous
@@ -3968,7 +4127,7 @@ mod tests {
         working_dir: &str,
         acp_session_id: &str,
     ) -> AgentSessionSnapshot {
-        runtime
+        let session = runtime
             .ensure_session(EnsureAgentSessionInput {
                 agent_id: AgentId::parse("codex").unwrap(),
                 launch_lock: test_launch_lock(),
@@ -3982,7 +4141,11 @@ mod tests {
                 preferences: Default::default(),
             })
             .await
-            .unwrap()
+            .unwrap();
+        runtime
+            .bind_live_acp_session(session.id, acp_session_id.to_string())
+            .await;
+        session
     }
 
     async fn prompt_text(
@@ -4630,6 +4793,9 @@ mod tests {
             .new_session(connection.id, "acp-session")
             .await
             .unwrap();
+        runtime
+            .bind_live_acp_session(session.id, session.acp_session_id.clone())
+            .await;
         let prompt = runtime
             .send_prompt(SendAgentPromptInput {
                 connection_id: connection.id,
@@ -4689,25 +4855,17 @@ mod tests {
         AgentSessionSnapshot,
         AgentPromptSnapshot,
     ) {
+        let (connection_id, session) = prepare_bound_session(runtime).await;
         let connection = runtime
-            .connect(ConnectAgentInput {
-                agent_id: AgentId::parse("codex").unwrap(),
-                launch_lock: test_launch_lock(),
-                workspace_id: Uuid::new_v4(),
-                working_dir: PathBuf::from("C:/work"),
-                additional_directories: Vec::new(),
-                auto_approve_mode: AgentAutoApproveMode::Off,
-                env: HashMap::new(),
-            })
+            .snapshot()
             .await
-            .unwrap();
-        let session = runtime
-            .new_session(connection.id, "acp-session")
-            .await
-            .unwrap();
+            .connections
+            .into_iter()
+            .find(|candidate| candidate.id == connection_id)
+            .expect("prepared connection");
         let prompt = runtime
             .send_prompt(SendAgentPromptInput {
-                connection_id: connection.id,
+                connection_id,
                 session_id: session.id,
                 blocks: vec![AgentContentBlock::Text {
                     text: text.to_string(),

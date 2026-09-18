@@ -1433,7 +1433,7 @@ struct AgentConnectionRunner {
     capabilities: Arc<RwLock<AcpCapabilitySnapshot>>,
     pending_permissions: Arc<Mutex<HashMap<String, PendingPermission>>>,
     pending_elicitations: Arc<Mutex<HashMap<String, PendingElicitation>>>,
-    auto_approve_mode: AgentAutoApproveMode,
+    auto_approve_mode: Arc<Mutex<AgentAutoApproveMode>>,
     delegation_injector: Option<Arc<dyn DelegationInjector>>,
     // Per-session streaming-text accumulator shared with the ACP client bridge so
     // redundant full-message snapshots can be dropped (see `dedup_stream_text`).
@@ -1492,6 +1492,7 @@ struct SessionControlState {
 struct PendingPermission {
     permission_id: AgentPermissionId,
     session_id: AgentSessionId,
+    options: Vec<AgentPermissionOption>,
     tx: oneshot::Sender<AgentPermissionResponse>,
 }
 
@@ -1571,7 +1572,7 @@ impl AgentConnectionRunner {
         event_tx: mpsc::UnboundedSender<AgentConnectionManagerEvent>,
         delegation_injector: Option<Arc<dyn DelegationInjector>>,
     ) -> Self {
-        let auto_approve_mode = snapshot.auto_approve_mode;
+        let auto_approve_mode = Arc::new(Mutex::new(snapshot.auto_approve_mode));
         Self {
             snapshot,
             event_tx,
@@ -1945,17 +1946,9 @@ impl AgentConnectionRunner {
                 },
             ],
         };
-        self.emit(
-            Some(session_id),
-            None,
-            AgentEvent::PermissionRequested {
-                request: request.clone(),
-            },
-        );
-
+        let configured = *self.auto_approve_mode.lock().await;
         let auto_approve_mode =
-            effective_auto_approve_mode(self.auto_approve_mode, &self.session_controls, session_id)
-                .await;
+            effective_auto_approve_mode(configured, &self.session_controls, session_id).await;
         if let Some(response) = decide_auto_permission_response(auto_approve_mode, &request) {
             self.emit(
                 Some(session_id),
@@ -1970,12 +1963,21 @@ impl AgentConnectionRunner {
             return;
         }
 
+        self.emit(
+            Some(session_id),
+            None,
+            AgentEvent::PermissionRequested {
+                request: request.clone(),
+            },
+        );
+
         let (tx, rx) = oneshot::channel();
         self.pending_permissions.lock().await.insert(
             permission_id.to_string(),
             PendingPermission {
                 permission_id,
                 session_id,
+                options: request.options.clone(),
                 tx,
             },
         );
@@ -2258,7 +2260,7 @@ impl AgentConnectionRunner {
             Arc::clone(&self.session_controls),
             Arc::clone(&self.pending_permissions),
             Arc::clone(&self.pending_elicitations),
-            self.auto_approve_mode,
+            Arc::clone(&self.auto_approve_mode),
             Arc::clone(&self.stream_dedup),
             Arc::clone(&self.last_activity),
             Arc::clone(&self.grok_subagent),
@@ -2871,7 +2873,9 @@ impl AgentConnectionRunner {
         }
 
         let mut resume_auth_error: Option<acp::Error> = None;
-        if support.resume {
+        {
+            // Always attempt resume for a known sid, even when the agent did
+            // not advertise it. Mid-conversation session/new is forbidden.
             let mut request = ResumeSessionRequest::new(
                 SessionId::new(external_session_id.clone()),
                 working_dir.to_path_buf(),
@@ -2937,7 +2941,10 @@ impl AgentConnectionRunner {
             }
         }
 
-        let attempted_load = support.load;
+        // Always try load after resume misses. Some agents implement load
+        // without advertising it; falling through to session/new would stitch a
+        // cold thread into this conversation.
+        let attempted_load = true;
         let load_result = if attempted_load {
             let mut request = LoadSessionRequest::new(
                 SessionId::new(external_session_id.clone()),
@@ -3067,6 +3074,9 @@ impl AgentConnectionRunner {
             SessionLoadFailureAction::SilentNew => {}
         }
 
+        // Last-resort session/new on THIS conversation's connection only.
+        // The previous sid is not passed to the agent (that would mix threads);
+        // the Conversation event log records continues_from for UI continuity.
         let acp_session_id = self
             .new_acp_session(conn, working_dir, session_id, companion_capabilities)
             .await
@@ -3840,6 +3850,15 @@ impl AgentConnectionRunner {
                             );
                         }
                         Err(error) => {
+                            if let Some(usage) =
+                                crate::usage_from_error_data(error.data.as_ref())
+                            {
+                                self.emit(
+                                    Some(session_id),
+                                    Some(prompt_id),
+                                    AgentEvent::Usage { usage },
+                                );
+                            }
                             self.emit(
                                 Some(session_id),
                                 Some(prompt_id),
@@ -4199,6 +4218,7 @@ impl AgentConnectionRunner {
     ) {
         let pending = self.pending_permissions.lock().await.remove(permission_id);
         if let Some(pending) = pending {
+            let persist = response.should_persist_auto_approve(&pending.options);
             let _ = pending.tx.send(response.clone());
             self.emit(
                 Some(pending.session_id),
@@ -4209,6 +4229,9 @@ impl AgentConnectionRunner {
                     auto: false,
                 },
             );
+            if persist {
+                self.persist_connection_auto_approve().await;
+            }
         } else {
             self.emit(
                 None,
@@ -4218,6 +4241,36 @@ impl AgentConnectionRunner {
                         "kind": "unknown_permission_response",
                         "permission_id": permission_id,
                     }),
+                },
+            );
+        }
+    }
+
+    async fn persist_connection_auto_approve(&self) {
+        *self.auto_approve_mode.lock().await = AgentAutoApproveMode::Yolo;
+        let remaining = {
+            let mut pending = self.pending_permissions.lock().await;
+            pending.drain().map(|(_, entry)| entry).collect::<Vec<_>>()
+        };
+        let mode = *self.auto_approve_mode.lock().await;
+        for pending in remaining {
+            let request = AgentPermissionRequest {
+                id: pending.permission_id,
+                session_id: pending.session_id,
+                title: String::new(),
+                details: None,
+                options: pending.options.clone(),
+            };
+            let response = decide_auto_permission_response(mode, &request)
+                .unwrap_or(AgentPermissionResponse::Cancelled);
+            let _ = pending.tx.send(response.clone());
+            self.emit(
+                Some(pending.session_id),
+                None,
+                AgentEvent::PermissionResponded {
+                    permission_id: pending.permission_id,
+                    response,
+                    auto: true,
                 },
             );
         }
@@ -4417,7 +4470,7 @@ impl AgentConnectionRunner {
                 session_id = ?session_id,
                 ?status,
                 message = status_message.as_deref().unwrap_or(""),
-                "ACP session reconnecting (UI notice: 会话加载异常，正在连接…)"
+                "ACP session reconnecting (UI notice: 正在连接 Agent…)"
             );
         }
         let now = Utc::now();
@@ -4501,7 +4554,7 @@ struct AcpClientBridge {
     session_controls: Arc<RwLock<HashMap<AgentSessionId, SessionControlState>>>,
     pending_permissions: Arc<Mutex<HashMap<String, PendingPermission>>>,
     pending_elicitations: Arc<Mutex<HashMap<String, PendingElicitation>>>,
-    auto_approve_mode: AgentAutoApproveMode,
+    auto_approve_mode: Arc<Mutex<AgentAutoApproveMode>>,
     // Shared with the owning `AgentConnectionRunner` so a turn boundary can reset
     // it; keyed by ACP session id.
     stream_dedup: Arc<Mutex<HashMap<String, StreamDedupState>>>,
@@ -4525,7 +4578,7 @@ impl AcpClientBridge {
         session_controls: Arc<RwLock<HashMap<AgentSessionId, SessionControlState>>>,
         pending_permissions: Arc<Mutex<HashMap<String, PendingPermission>>>,
         pending_elicitations: Arc<Mutex<HashMap<String, PendingElicitation>>>,
-        auto_approve_mode: AgentAutoApproveMode,
+        auto_approve_mode: Arc<Mutex<AgentAutoApproveMode>>,
         stream_dedup: Arc<Mutex<HashMap<String, StreamDedupState>>>,
         last_activity: Arc<Mutex<Instant>>,
         grok_subagent: Arc<Mutex<GrokSubagentTracker>>,
@@ -4688,21 +4741,9 @@ impl AcpClientBridge {
                 .collect(),
         };
 
-        send_manager_event(
-            &self.event_tx,
-            AgentConnectionManagerEvent {
-                connection_id: self.connection_id,
-                session_id: Some(session_id),
-                prompt_id: None,
-                event: AgentEvent::PermissionRequested {
-                    request: request.clone(),
-                },
-            },
-        );
-
+        let configured = *self.auto_approve_mode.lock().await;
         let auto_approve_mode =
-            effective_auto_approve_mode(self.auto_approve_mode, &self.session_controls, session_id)
-                .await;
+            effective_auto_approve_mode(configured, &self.session_controls, session_id).await;
         if let Some(response) = decide_auto_permission_response(auto_approve_mode, &request) {
             send_manager_event(
                 &self.event_tx,
@@ -4728,7 +4769,47 @@ impl AcpClientBridge {
             PendingPermission {
                 permission_id,
                 session_id,
+                options: request.options.clone(),
                 tx,
+            },
+        );
+
+        let configured = *self.auto_approve_mode.lock().await;
+        if let Some(response) = decide_auto_permission_response(configured, &request)
+            && let Some(pending) = self
+                .pending_permissions
+                .lock()
+                .await
+                .remove(&permission_id.to_string())
+        {
+            let _ = pending.tx.send(response.clone());
+            send_manager_event(
+                &self.event_tx,
+                AgentConnectionManagerEvent {
+                    connection_id: self.connection_id,
+                    session_id: Some(session_id),
+                    prompt_id: None,
+                    event: AgentEvent::PermissionResponded {
+                        permission_id,
+                        response: response.clone(),
+                        auto: true,
+                    },
+                },
+            );
+            return Ok(RequestPermissionResponse::new(permission_response_outcome(
+                response,
+            )));
+        }
+
+        send_manager_event(
+            &self.event_tx,
+            AgentConnectionManagerEvent {
+                connection_id: self.connection_id,
+                session_id: Some(session_id),
+                prompt_id: None,
+                event: AgentEvent::PermissionRequested {
+                    request: request.clone(),
+                },
             },
         );
 
@@ -6590,7 +6671,7 @@ fn agent_permission_option_kind(kind: PermissionOptionKind) -> AgentPermissionOp
 
 fn permission_response_outcome(response: AgentPermissionResponse) -> RequestPermissionOutcome {
     match response {
-        AgentPermissionResponse::Selected { option_id } => {
+        AgentPermissionResponse::Selected { option_id, .. } => {
             RequestPermissionOutcome::Selected(SelectedPermissionOutcome::new(option_id))
         }
         AgentPermissionResponse::Cancelled => RequestPermissionOutcome::Cancelled,
@@ -8521,6 +8602,8 @@ mod tests {
             ),
             SessionLoadFailureAction::SilentNew
         );
+        // Restoring a known sid maps SilentNew/ToastThenNew to a load-failed
+        // banner. session/new is only for conversations that never had a thread.
     }
 
     #[test]

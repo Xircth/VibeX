@@ -62,6 +62,7 @@ import {
   AGENT_BINDING_LOAD_FAILURE_NOTICE_ROW_ID,
   AGENT_CONNECTION_RECOVERING_NOTICE_ROW_ID,
   AGENT_SESSION_CONNECT_ERROR_NOTICE_ROW_ID,
+  AUTO_PERMISSION_NOTICE_ROW_ID,
   sessionNoticeNeedsRebind,
 } from '@/features/conversation/sessionNoticeNeedsRebind';
 import { sendAgentRuntimeTurn } from '@/features/agents/sendAgentRuntimeTurn';
@@ -438,15 +439,32 @@ const AgentTimelineConversation = forwardRef<
   useEffect(() => {
     const el = containerRef.current;
     if (!el) return;
+    let seenVisible = false;
     const update = (intersecting: boolean) => {
-      setSurfaceActive(intersecting && document.visibilityState === 'visible');
+      if (intersecting) {
+        seenVisible = true;
+        setSurfaceActive(document.visibilityState === 'visible');
+        return;
+      }
+      // Ignore the first 0-size miss so a layout pass doesn't disable connect.
+      if (seenVisible) {
+        setSurfaceActive(false);
+      }
     };
     const observer = new IntersectionObserver(
       ([entry]) => update(entry.isIntersecting),
-      { threshold: 0.01 }
+      { threshold: 0 }
     );
     observer.observe(el);
-    const onVisibility = () => update(el.getClientRects().length > 0);
+    const onVisibility = () => {
+      if (document.visibilityState !== 'visible') {
+        setSurfaceActive(false);
+        return;
+      }
+      if (seenVisible || el.getClientRects().length > 0) {
+        setSurfaceActive(true);
+      }
+    };
     document.addEventListener('visibilitychange', onVisibility);
     return () => {
       observer.disconnect();
@@ -670,6 +688,9 @@ const AgentTimelineConversation = forwardRef<
   );
   const connectErrorNoticeRow = sessionNoticeRows.find(
     (entry) => entry.row_id === AGENT_SESSION_CONNECT_ERROR_NOTICE_ROW_ID
+  );
+  const autoPermissionNoticeRow = sessionNoticeRows.find(
+    (entry) => entry.row_id === AUTO_PERMISSION_NOTICE_ROW_ID
   );
   const latestSessionNoticeRow = sessionNoticeRows.at(-1);
   const hasReconnectNotice = Boolean(reconnectNoticeRow);
@@ -1294,6 +1315,9 @@ const AgentTimelineConversation = forwardRef<
           ordinal,
         });
         await conversationResetAndReload();
+        await conversationApi.ensureSessionControls(session.id, {
+          reload: false,
+        });
 
         // Resend with the composer's live profile (model/variant/reasoning) instead
         // of a bare `{ executor, variant: null }`, which the backend would resolve
@@ -1367,6 +1391,7 @@ const AgentTimelineConversation = forwardRef<
       pushSessionNotice(connectErrorNoticeRow);
     }
     pushSessionNotice(reconnectNoticeRow);
+    pushSessionNotice(autoPermissionNoticeRow);
     if (latestInterruptedRow) {
       notices.push({
         id: latestInterruptedRow.key,
@@ -1380,12 +1405,14 @@ const AgentTimelineConversation = forwardRef<
     }
     if (
       latestSessionNoticeRow?.row_id !== reconnectNoticeRow?.row_id &&
-      latestSessionNoticeRow?.row_id !== connectErrorNoticeRow?.row_id
+      latestSessionNoticeRow?.row_id !== connectErrorNoticeRow?.row_id &&
+      latestSessionNoticeRow?.row_id !== autoPermissionNoticeRow?.row_id
     ) {
       pushSessionNotice(latestSessionNoticeRow);
     }
     return notices;
   }, [
+    autoPermissionNoticeRow,
     connectErrorNoticeRow,
     conversationReconnectAndReload,
     conversationRebindSession,

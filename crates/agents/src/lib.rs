@@ -138,7 +138,7 @@ pub use distribution::current_platform;
 pub use elicitation::{AgentElicitationRequest, AgentElicitationResponse};
 pub use end_turn_usage::{
     model_id_from_config_options, model_id_from_meta, prompt_usage_from_value,
-    usage_from_session_notification_params, usage_from_session_update,
+    usage_from_error_data, usage_from_session_notification_params, usage_from_session_update,
 };
 pub use error::{AgentError, AgentResult};
 pub use events::{
@@ -250,8 +250,8 @@ pub use profiles::{
     NativeConfigFormat, NativeConfigSurface, ProfileBinaryArtifact, ProfileBinaryEntry,
     ProfileComponent, ProfileDependency, ProfileExternalCandidate, ProfileIcon,
     ProfileInstallSource, ProfileManagementAction, ProfileManagementActionKind,
-    ProfileRegistryBinding, ProfileTopology, RegistryEntryIdentity, acp_launch_args,
-    adapter_bundles_runtime, bundled_adapter_runtime_env_keys,
+    ProfileManagementProgram, ProfileRegistryBinding, ProfileTopology, RegistryEntryIdentity,
+    acp_launch_args, adapter_bundles_runtime, bundled_adapter_runtime_env_keys,
 };
 pub use registry_client::{
     OfficialRegistryHttpFetcher, REGISTRY_CONNECT_TIMEOUT, REGISTRY_ICON_FETCH_BUDGET,

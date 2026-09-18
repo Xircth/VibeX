@@ -1020,6 +1020,11 @@ pub enum ConversationEvent {
     },
     AgentBindingRecovered {
         strategy: SessionRecoveryStrategy,
+        /// Previous Agent ACP id when this recovery minted a new thread in the
+        /// same Conversation (Codeg `continues_from`). UI history stays one
+        /// chain; the live binding is the new id.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        continues_from: Option<String>,
     },
     AgentBindingRecoveryFailed {
         reason: String,

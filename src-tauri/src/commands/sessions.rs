@@ -97,6 +97,10 @@ fn prepared_session_agent_id(executor: Option<&str>) -> Result<agents::AgentId, 
     })
 }
 
+fn session_agent_id_from_executor(executor: Option<&str>) -> Option<agents::AgentId> {
+    prepared_session_agent_id(executor).ok()
+}
+
 const PROJECT_ROOT_TASK_TITLE: &str = "Project Root Workspace";
 const NEW_SESSION_WORKSPACE_TITLE: &str = "New Session Workspace";
 
@@ -605,11 +609,12 @@ pub async fn create_session(
             .ok_or_else(|| AppError::NotFound(format!("Task {} not found", task_id)))?;
     }
 
+    let agent_id = session_agent_id_from_executor(executor.as_deref());
     let session = Session::create(
         pool,
         &CreateSession {
             executor,
-            agent_id: None,
+            agent_id,
             task_id,
             name,
             initial_prompt,
@@ -635,11 +640,12 @@ pub async fn create_project_root_session(
     let pool = &state.deployment.db().pool;
     let workspace = ensure_project_root_workspace(state.inner(), project_id, None).await?;
 
+    let agent_id = session_agent_id_from_executor(executor.as_deref());
     let session = Session::create(
         pool,
         &CreateSession {
             executor,
-            agent_id: None,
+            agent_id,
             task_id: Some(workspace.task_id),
             name,
             initial_prompt: None,
@@ -774,10 +780,11 @@ pub async fn create_project_session(
     let mut session = Session::create(
         pool,
         &CreateSession {
-            executor: payload.executor,
+            executor: payload.executor.clone(),
             agent_id: prepared_identity
                 .as_ref()
-                .map(|(agent_id, _)| agent_id.clone()),
+                .map(|(agent_id, _)| agent_id.clone())
+                .or_else(|| session_agent_id_from_executor(payload.executor.as_deref())),
             task_id: Some(workspace.task_id),
             name: payload.name,
             initial_prompt: payload.initial_prompt,
@@ -822,6 +829,18 @@ mod tests {
     fn prepared_sessions_reject_missing_or_invalid_agent_ids() {
         assert!(prepared_session_agent_id(None).is_err());
         assert!(prepared_session_agent_id(Some("Registry Agent")).is_err());
+    }
+
+    #[test]
+    fn new_sessions_persist_agent_id_from_executor() {
+        assert_eq!(
+            super::session_agent_id_from_executor(Some("grok"))
+                .as_ref()
+                .map(|id| id.as_str()),
+            Some("grok")
+        );
+        assert!(super::session_agent_id_from_executor(None).is_none());
+        assert!(super::session_agent_id_from_executor(Some("")).is_none());
     }
 }
 

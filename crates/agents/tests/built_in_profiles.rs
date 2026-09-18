@@ -348,7 +348,10 @@ fn mimo_code_management_profile_is_not_a_permanent_member() {
         mimo.settings_features
             .contains(&AgentSettingsFeature::OpenCodePlugins)
     );
-    assert_eq!(mimo.management_actions[0].programs[0].args, &["auth", "login"]);
+    assert_eq!(
+        mimo.management_actions[0].programs[0].args,
+        &["auth", "login"]
+    );
 }
 
 #[test]
@@ -417,10 +420,7 @@ fn built_in_profiles_are_declarative_and_bind_explicitly() {
     // Adapter-backed Agents install the adapter alone; the adapter carries the
     // vendor CLI and is therefore a declared login entry point, or an installed
     // Agent would report its account actions as unavailable.
-    for (id, adapter) in [
-        ("claude_code", "claude-agent-acp"),
-        ("codex", "codex-acp"),
-    ] {
+    for (id, adapter) in [("claude_code", "claude-agent-acp"), ("codex", "codex-acp")] {
         let profile = catalog.profile(&AgentId::parse(id).unwrap()).unwrap();
         let login = profile
             .management_actions
@@ -428,10 +428,7 @@ fn built_in_profiles_are_declarative_and_bind_explicitly() {
             .find(|action| action.kind == ProfileManagementActionKind::Login)
             .unwrap();
         assert!(
-            login
-                .programs
-                .iter()
-                .any(|entry| entry.program == adapter),
+            login.programs.iter().any(|entry| entry.program == adapter),
             "{id} login must be drivable by `{adapter}`"
         );
     }

@@ -87,11 +87,7 @@ type ConversationPlacementContextValue = {
     target: HTMLElement,
     props: KanbanSessionConversationSurfaceProps
   ) => () => void;
-  claimVisibleSlot: (
-    key: string,
-    slotId: string,
-    target: HTMLElement
-  ) => void;
+  claimVisibleSlot: (key: string, slotId: string, target: HTMLElement) => void;
   updateSlotProps: (
     key: string,
     props: KanbanSessionConversationSurfaceProps

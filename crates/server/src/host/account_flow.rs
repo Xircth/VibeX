@@ -54,10 +54,10 @@ pub async fn prepare_management_launch(
         } else {
             format!("{} {command}", assignments.join(" "))
         };
-        match result_path {
+        Ok(match result_path {
             Some(result_path) => wrap_exit_code_capture(&command, result_path),
             None => command,
-        }
+        })
     }
     #[cfg(windows)]
     {

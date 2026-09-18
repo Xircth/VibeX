@@ -2561,8 +2561,9 @@ impl ConversationSessionService {
                 agents::SessionRecoveryStrategy::CreatedNewSession
             });
             let continues_from = match &strategy {
-                agents::SessionRecoveryStrategy::CreatedNewSession => previous_acp_session_id
-                    .filter(|old| *old != runtime_snapshot.acp_session_id),
+                agents::SessionRecoveryStrategy::CreatedNewSession => {
+                    previous_acp_session_id.filter(|old| *old != runtime_snapshot.acp_session_id)
+                }
                 _ => None,
             };
             self.record_agent_binding_recovered(conversation_id, strategy, continues_from)

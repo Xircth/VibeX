@@ -49,14 +49,14 @@ pub async fn prepare_management_launch(
 ) -> std::io::Result<String> {
     #[cfg(not(windows))]
     {
-        let command = if assignments.is_empty() {
-            command.to_string()
-        } else {
-            format!("{} {command}", assignments.join(" "))
+        let wrapped = match result_path {
+            Some(result_path) => wrap_exit_code_capture(command, result_path),
+            None => command.to_string(),
         };
-        Ok(match result_path {
-            Some(result_path) => wrap_exit_code_capture(&command, result_path),
-            None => command,
+        Ok(if assignments.is_empty() {
+            wrapped
+        } else {
+            format!("{} {wrapped}", assignments.join(" "))
         })
     }
     #[cfg(windows)]

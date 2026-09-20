@@ -1150,6 +1150,7 @@ export function KanbanSessionHub({
             createPanel={
               isCreatePopoverOpen ? (
                 <CanvasCreateSessionPanel
+                  isGitProject={projectRepos.length > 0}
                   createMode={createMode}
                   onCreateModeChange={setCreateMode}
                   workspaceBranchOptions={workspaceBranchOptions}

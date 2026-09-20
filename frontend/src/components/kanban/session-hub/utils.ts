@@ -332,6 +332,10 @@ export function getCanCreateKanbanSession({
     return false;
   }
 
+  if (projectRepoCount === 0) {
+    return true;
+  }
+
   if (mode === 'existing_workspace') {
     return Boolean(selectedWorkspaceOption);
   }

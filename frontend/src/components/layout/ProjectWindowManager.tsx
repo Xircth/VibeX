@@ -339,7 +339,14 @@ function ProjectActivityTracker({
     }
 
     previousSnapshotSignatureRef.current = nextSignature;
-    ensureProjectOpen(projectId);
+    if (
+      snapshot.isLoading ||
+      snapshot.hasRunning ||
+      snapshot.hasSessions ||
+      snapshot.hasError
+    ) {
+      ensureProjectOpen(projectId);
+    }
     setProjectSnapshot(projectId, snapshot);
   }, [ensureProjectOpen, projectId, setProjectSnapshot, snapshot]);
 
@@ -402,7 +409,11 @@ export function ProjectWindowManager() {
   ]);
 
   useEffect(() => {
-    if (!shouldManageProjectWindows || isProjectsLoading) {
+    if (
+      !shouldManageProjectWindows ||
+      isProjectsLoading ||
+      projects.length === 0
+    ) {
       return;
     }
 

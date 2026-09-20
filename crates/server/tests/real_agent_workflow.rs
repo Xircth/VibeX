@@ -72,7 +72,7 @@ async fn real_agent_completes_a_headless_workflow_through_conversation_control()
         pool,
         &CreateProject {
             name: "real-agent-release-gate".to_string(),
-            repositories: Vec::new(),
+            ..Default::default()
         },
         project_id,
     )

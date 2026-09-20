@@ -4,6 +4,7 @@ use api_types::AgentId;
 use db::models::{
     conversation_turn::ConversationTurnRecord,
     execution_process::ExecutionProcess,
+    project::Project,
     project_repo::ProjectRepo,
     repo::{Repo, RepoError},
     scratch::Scratch,
@@ -354,10 +355,17 @@ async fn ensure_project_root_workspace(
     let pool = &state.deployment.db().pool;
 
     let repos = ProjectRepo::find_repos_for_project(pool, project_id).await?;
-    let primary_repo = repos
-        .into_iter()
-        .next()
-        .ok_or_else(|| AppError::BadRequest("Project has no repositories".to_string()))?;
+    let Some(primary_repo) = repos.into_iter().next() else {
+        let project = Project::find_by_id(pool, project_id)
+            .await?
+            .ok_or_else(|| AppError::NotFound(format!("Project {project_id} not found")))?;
+        if project.root_path.is_empty() {
+            return Err(AppError::BadRequest(
+                "Project has no folder path".to_string(),
+            ));
+        }
+        return ensure_directory_root_workspace_tauri(state, project).await;
+    };
 
     let current_branch = state
         .deployment
@@ -495,6 +503,73 @@ fn map_workspace_git_error(error: impl std::fmt::Display) -> AppError {
     } else {
         AppError::Internal(message)
     }
+}
+
+async fn ensure_directory_root_workspace_tauri(
+    state: &AppState,
+    project: Project,
+) -> Result<Workspace, AppError> {
+    let pool = &state.deployment.db().pool;
+    if let Some(existing) = Workspace::find_by_project_id_with_status(pool, project.id)
+        .await?
+        .into_iter()
+        .map(|workspace| workspace.workspace)
+        .find(|workspace| !workspace.use_worktree)
+    {
+        if existing.container_ref.as_deref() != Some(project.root_path.as_str()) {
+            Workspace::update_container_ref(pool, existing.id, &project.root_path).await?;
+        }
+        return Workspace::find_by_id(pool, existing.id)
+            .await?
+            .ok_or_else(|| AppError::NotFound(format!("Workspace {} not found", existing.id)));
+    }
+    let owner_task = if let Some(task) = Task::find_by_project_id_with_attempt_status(pool, project.id)
+        .await?
+        .into_iter()
+        .map(|task| task.task)
+        .next()
+    {
+        task
+    } else {
+        Task::create(
+            pool,
+            &CreateTask {
+                project_id: project.id,
+                title: format!("Project Root Workspace ({})", project.name),
+                description: Some("Auto-created to support sessions in this folder.".to_string()),
+                status: Some(TaskStatus::Todo),
+                parent_workspace_id: None,
+                image_ids: None,
+            },
+            Uuid::new_v4(),
+        )
+        .await?
+    };
+    let workspace = Workspace::create(
+        pool,
+        &CreateWorkspace {
+            project_id: project.id,
+            parent_workspace_id: None,
+            branch: String::new(),
+            container_ref: Some(project.root_path.clone()),
+            use_worktree: false,
+            agent_working_dir: Some(project.root_path.clone()),
+        },
+        Uuid::new_v4(),
+        owner_task.id,
+    )
+    .await?;
+    Workspace::update(
+        pool,
+        workspace.id,
+        Some(false),
+        None,
+        Some(project.name.as_str()),
+    )
+    .await?;
+    Workspace::find_by_id(pool, workspace.id)
+        .await?
+        .ok_or_else(|| AppError::NotFound(format!("Workspace {} not found", workspace.id)))
 }
 
 // --- Commands ---

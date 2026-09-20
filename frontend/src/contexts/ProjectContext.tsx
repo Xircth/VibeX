@@ -32,9 +32,6 @@ export function ProjectProvider({ children }: ProjectProviderProps) {
   const setCurrentLayoutProject = useLayoutStore(
     (state) => state.setCurrentProject
   );
-  const currentLayoutProject = useLayoutStore(
-    (state) => state.currentProjectKey
-  );
 
   // Extract projectId from current route path
   const projectId = useMemo(() => {
@@ -66,19 +63,29 @@ export function ProjectProvider({ children }: ProjectProviderProps) {
     }
   }, [project]);
 
-  // A project's Dockview must never mount against the previous project's
-  // persisted snapshot. Besides flashing the wrong geometry, Dockview's
-  // delayed layout event can otherwise write that geometry into the new
-  // project after the scope changes.
+  // Swap the persisted Dockview snapshot before paint. Chrome such as the
+  // status bar must stay mounted; only ProjectLayoutScope waits on this key.
   useLayoutEffect(() => {
     setCurrentLayoutProject(layoutProjectKey);
   }, [layoutProjectKey, setCurrentLayoutProject]);
 
   return (
-    <ProjectContext.Provider value={value}>
-      {currentLayoutProject === layoutProjectKey ? children : null}
-    </ProjectContext.Provider>
+    <ProjectContext.Provider value={value}>{children}</ProjectContext.Provider>
   );
+}
+
+export function ProjectLayoutScope({ children }: { children: ReactNode }) {
+  const { projectId } = useProject();
+  const layoutProjectKey = getProjectScopeKey(projectId);
+  const currentLayoutProject = useLayoutStore(
+    (state) => state.currentProjectKey
+  );
+
+  if (currentLayoutProject !== layoutProjectKey) {
+    return null;
+  }
+
+  return children;
 }
 
 export function useProject(): ProjectContextValue {

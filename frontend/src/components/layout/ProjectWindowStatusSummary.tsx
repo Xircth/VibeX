@@ -49,19 +49,18 @@ export function ProjectWindowStatusSummary() {
     return candidateProjectIds
       .map((projectId) => {
         const project = projectsById[projectId];
-        const snapshot = projectSnapshots[projectId];
-        if (!project || !snapshot) {
+        if (!project) {
           return null;
         }
 
+        const snapshot = projectSnapshots[projectId];
         return {
           projectId,
           projectName: project.name,
-          visualState: deriveProjectVisualState(
-            snapshot,
-            projectAlerts[projectId]
-          ),
-          recentSessions: snapshot.recentSessions,
+          visualState: snapshot
+            ? deriveProjectVisualState(snapshot, projectAlerts[projectId])
+            : 'idle',
+          recentSessions: snapshot?.recentSessions ?? [],
         };
       })
       .filter((item): item is NonNullable<typeof item> => Boolean(item));

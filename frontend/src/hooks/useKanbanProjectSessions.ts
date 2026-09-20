@@ -161,6 +161,13 @@ function combineSessionSummaryQueries(
   };
 }
 
+export function isProjectSessionListLoading(
+  workspacesLoading: boolean,
+  sessionSummariesLoading: boolean
+) {
+  return !workspacesLoading && sessionSummariesLoading;
+}
+
 export function useKanbanProjectSessions(projectId: string | undefined) {
   const queryClient = useQueryClient();
   const { t } = useTranslation(['app', 'common']);
@@ -374,6 +381,12 @@ export function useKanbanProjectSessions(projectId: string | undefined) {
     sessionsById,
     workspaces,
     workspacesWithStatus,
-    isLoading: isWorkspacesLoading || isSessionSummariesLoading,
+    // Workspace-stream subscribe is not "project is running". Treating it as
+    // loading puts a spinner on every newly tracked project, including idle
+    // git children that were only imported into the tree.
+    isLoading: isProjectSessionListLoading(
+      isWorkspacesLoading,
+      isSessionSummariesLoading
+    ),
   };
 }

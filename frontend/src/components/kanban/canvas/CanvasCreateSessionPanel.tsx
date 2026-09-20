@@ -32,6 +32,7 @@ interface CanvasCreateSessionPanelProps {
   onSessionControlsPresetChange?: (
     preset: SessionControlsPreset | null
   ) => void;
+  isGitProject?: boolean;
 }
 
 export function CanvasCreateSessionPanel({
@@ -54,6 +55,7 @@ export function CanvasCreateSessionPanel({
   onSubmit,
   onClose,
   onSessionControlsPresetChange,
+  isGitProject = true,
 }: CanvasCreateSessionPanelProps) {
   const { t } = useTranslation(['tasks', 'common']);
 
@@ -84,6 +86,7 @@ export function CanvasCreateSessionPanel({
           onRepoBranchChange={onRepoBranchChange}
           isLoadingBranches={isLoadingRepoBranches}
           onSessionControlsPresetChange={onSessionControlsPresetChange}
+          isGitProject={isGitProject}
           canSubmit={canCreateSession}
           isSubmitting={isCreatePending}
           errorMessage={

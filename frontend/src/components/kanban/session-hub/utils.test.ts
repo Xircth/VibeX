@@ -327,6 +327,29 @@ describe('session hub data helpers', () => {
     });
   });
 
+  it('creates a directory session when the project has no Git repositories', () => {
+    expect(
+      getCreateProjectSessionRequest({
+        projectId: 'project-1',
+        mode: 'existing_workspace',
+        workspaceValue: '',
+        workspaceBranchOptions: [],
+        sessionName: 'Folder session',
+        executorProfile: executorProfile('codex' as const),
+        repoInputs: undefined,
+        projectRepoCount: 0,
+      })
+    ).toEqual({
+      project_id: 'project-1',
+      workspace_id: null,
+      branch: null,
+      executor: 'codex' as const,
+      name: 'Folder session',
+      create_workspace: false,
+      repos: undefined,
+    });
+  });
+
   it('validates create request requirements before building payloads', () => {
     expect(() =>
       getCreateProjectSessionRequest({

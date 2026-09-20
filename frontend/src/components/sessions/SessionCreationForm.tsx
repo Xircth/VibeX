@@ -115,6 +115,7 @@ interface SessionCreationFormProps {
   dropdownSide?: 'top' | 'bottom';
   title?: string;
   gitInitIncomplete?: boolean;
+  isGitProject?: boolean;
 }
 
 export function SessionCreationForm({
@@ -145,6 +146,7 @@ export function SessionCreationForm({
   onRemoteSessionImported,
   title,
   gitInitIncomplete = false,
+  isGitProject = true,
 }: SessionCreationFormProps) {
   const { t } = useTranslation(['tasks', 'common']);
   const [includeUncommitted, setIncludeUncommitted] = useState(false);
@@ -543,71 +545,75 @@ export function SessionCreationForm({
         </div>
       ) : null}
 
-      <div className="space-y-2">
-        <Label>{t('sessionCreation.creationMethod')}</Label>
-        <div className="grid grid-cols-2 gap-2">
-          <Button
-            type="button"
-            variant={mode === 'existing_workspace' ? 'default' : 'outline'}
-            disabled={!canUseExistingWorkspace || isSubmitting}
-            onClick={() => onModeChange('existing_workspace')}
-            className="h-8 text-xs"
-          >
-            {t('sessionCreation.existingWorkspace')}
-          </Button>
-          <Button
-            type="button"
-            variant={mode === 'new_workspace' ? 'default' : 'outline'}
-            disabled={isSubmitting}
-            onClick={() => onModeChange('new_workspace')}
-            className="h-8 text-xs"
-          >
-            {t('sessionCreation.newWorkspace')}
-          </Button>
-        </div>
-      </div>
-
-      {mode === 'existing_workspace' ? (
-        <div className="space-y-2">
-          <Label htmlFor="session-create-workspace">
-            {t('sessionCreation.workspaceBranch')}
-          </Label>
-          <WorkspaceSelector
-            options={workspaceBranchOptions}
-            value={selectedWorkspaceValue}
-            onChange={onSelectedWorkspaceValueChange}
-            disabled={isSubmitting || !canUseExistingWorkspace}
-            className="text-sm"
-            dropdownSide={dropdownSide}
-          />
-          {workspaceCheckoutHint ? (
-            <div className="rounded-md border border-[hsl(var(--warning)/0.3)] bg-[hsl(var(--warning)/0.1)] px-2.5 py-2 text-[10px] leading-4 text-[hsl(var(--warning))]">
-              <p>{workspaceCheckoutHint}</p>
+      {isGitProject ? (
+        <>
+          <div className="flex flex-col gap-2">
+            <Label>{t('sessionCreation.creationMethod')}</Label>
+            <div className="grid grid-cols-2 gap-2">
+              <Button
+                type="button"
+                variant={mode === 'existing_workspace' ? 'default' : 'outline'}
+                disabled={!canUseExistingWorkspace || isSubmitting}
+                onClick={() => onModeChange('existing_workspace')}
+                className="h-8 text-xs"
+              >
+                {t('sessionCreation.existingWorkspace')}
+              </Button>
+              <Button
+                type="button"
+                variant={mode === 'new_workspace' ? 'default' : 'outline'}
+                disabled={isSubmitting}
+                onClick={() => onModeChange('new_workspace')}
+                className="h-8 text-xs"
+              >
+                {t('sessionCreation.newWorkspace')}
+              </Button>
             </div>
-          ) : null}
-        </div>
-      ) : (
-        <div className="space-y-2 rounded-lg border border-border/60 bg-muted/20 p-3">
-          <div className="text-[11px] text-muted-foreground">
-            {t('sessionCreation.newWorkspaceHint')}
           </div>
-          <RepoBranchSelector
-            configs={repoBranchConfigs}
-            onBranchChange={onRepoBranchChange}
-            isLoading={isLoadingBranches}
-            className="space-y-2"
-            dropdownSide={dropdownSide}
-          />
-          <label className="flex items-center gap-2 pt-1 text-[11px] text-foreground">
-            <Checkbox
-              checked={includeUncommitted}
-              onCheckedChange={setIncludeUncommitted}
-              disabled={isSubmitting}
-            />
-            {t('sessionCreation.includeUncommitted')}
-          </label>
-        </div>
-      )}
+
+          {mode === 'existing_workspace' ? (
+            <div className="flex flex-col gap-2">
+              <Label htmlFor="session-create-workspace">
+                {t('sessionCreation.workspaceBranch')}
+              </Label>
+              <WorkspaceSelector
+                options={workspaceBranchOptions}
+                value={selectedWorkspaceValue}
+                onChange={onSelectedWorkspaceValueChange}
+                disabled={isSubmitting || !canUseExistingWorkspace}
+                className="text-sm"
+                dropdownSide={dropdownSide}
+              />
+              {workspaceCheckoutHint ? (
+                <div className="rounded-md border border-[hsl(var(--warning)/0.3)] bg-[hsl(var(--warning)/0.1)] px-2.5 py-2 text-[10px] leading-4 text-[hsl(var(--warning))]">
+                  <p>{workspaceCheckoutHint}</p>
+                </div>
+              ) : null}
+            </div>
+          ) : (
+            <div className="flex flex-col gap-2 rounded-lg border border-border/60 bg-muted/20 p-3">
+              <div className="text-[11px] text-muted-foreground">
+                {t('sessionCreation.newWorkspaceHint')}
+              </div>
+              <RepoBranchSelector
+                configs={repoBranchConfigs}
+                onBranchChange={onRepoBranchChange}
+                isLoading={isLoadingBranches}
+                className="space-y-2"
+                dropdownSide={dropdownSide}
+              />
+              <label className="flex items-center gap-2 pt-1 text-[11px] text-foreground">
+                <Checkbox
+                  checked={includeUncommitted}
+                  onCheckedChange={setIncludeUncommitted}
+                  disabled={isSubmitting}
+                />
+                {t('sessionCreation.includeUncommitted')}
+              </label>
+            </div>
+          )}
+        </>
+      ) : null}
 
       <div className="space-y-2">
         <Label>{t('sessionCreation.sessionNameLabel')}</Label>

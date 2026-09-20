@@ -5,6 +5,10 @@
 export type Project = {
   id: string;
   name: string;
+  root_path: string;
+  parent_project_id: string | null;
+  hidden: boolean;
+  is_git: boolean;
   default_agent_working_dir: string | null;
   default_main_branch: string | null;
   created_at: Date;
@@ -13,7 +17,21 @@ export type Project = {
 
 export type CreateProject = {
   name: string;
+  root_path?: string;
+  parent_project_id?: string | null;
   repositories: Array<CreateProjectRepo>;
+};
+
+export type ProjectImportChild = {
+  name: string;
+  path: string;
+  existing_project_id: string | null;
+};
+
+export type ProjectImportPreview = {
+  path: string;
+  is_git: boolean;
+  children: Array<ProjectImportChild>;
 };
 
 export type UpdateProject = {

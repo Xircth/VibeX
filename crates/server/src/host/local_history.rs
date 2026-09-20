@@ -266,7 +266,7 @@ mod tests {
             &pool,
             &CreateProject {
                 name: "VibeX".into(),
-                repositories: Vec::new(),
+                ..Default::default()
             },
             project_id,
         )
@@ -317,7 +317,7 @@ mod tests {
             &pool,
             &CreateProject {
                 name: "VibeX".into(),
-                repositories: Vec::new(),
+                ..Default::default()
             },
             project_id,
         )
@@ -399,7 +399,7 @@ mod tests {
             &pool,
             &CreateProject {
                 name: "VibeX".into(),
-                repositories: Vec::new(),
+                ..Default::default()
             },
             project_id,
         )

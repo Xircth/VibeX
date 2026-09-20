@@ -13,8 +13,17 @@ import { resetKanbanCanvasListVisible } from '@/lib/kanbanCanvasListVisible';
 import { useLayoutStore } from '@/stores/useLayoutStore';
 import { KanbanLayoutToggles, WorkspaceBranchControls } from './Toolbar';
 
+const projectMocks = vi.hoisted(() => ({ isGit: true }));
+
 vi.mock('@/components/layout/WorktreeSelector', () => ({
   WorktreeSelector: () => <button type="button">Select workspace</button>,
+}));
+
+vi.mock('@/contexts/ProjectContext', () => ({
+  useProject: () => ({
+    projectId: 'project-1',
+    project: { id: 'project-1', name: 'Demo', is_git: projectMocks.isGit },
+  }),
 }));
 
 vi.mock('@/contexts/KanbanSessionContext', () => ({
@@ -47,6 +56,10 @@ vi.mock('@/hooks/useWorkspaceBranchStatus', () => ({
 }));
 
 describe('BranchStatusBadge', () => {
+  beforeEach(() => {
+    projectMocks.isGit = true;
+  });
+
   it('matches the neighboring workspace selector geometry and spacing', () => {
     render(
       <TooltipProvider>
@@ -130,6 +143,7 @@ describe('KanbanLayoutToggles', () => {
 
 describe('WorkspaceBranchControls canvas list toggle', () => {
   beforeEach(() => {
+    projectMocks.isGit = true;
     resetKanbanBoardStyle();
     resetKanbanCanvasListVisible();
   });
@@ -197,6 +211,22 @@ describe('WorkspaceBranchControls canvas list toggle', () => {
     expect(
       screen.queryByRole('button', { name: '隐藏会话列表' })
     ).not.toBeInTheDocument();
+  });
+
+  it('hides workspace and branch controls on a non-git project', () => {
+    projectMocks.isGit = false;
+
+    render(
+      <TooltipProvider>
+        <WorkspaceBranchControls
+          isWorkspaceTab={true}
+          workspaceId="workspace-1"
+        />
+      </TooltipProvider>
+    );
+
+    expect(screen.queryByText('Select workspace')).not.toBeInTheDocument();
+    expect(screen.queryByText('main')).not.toBeInTheDocument();
   });
 });
 

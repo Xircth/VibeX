@@ -25,14 +25,36 @@ export function WorktreeProvider({ children }: { children: ReactNode }) {
   const { projectId } = useProject();
   const projectKey = getProjectScopeKey(projectId);
   const routeWorktreeId = useMemo(() => workspaceId ?? null, [workspaceId]);
-  const [activeWorktreeId, setWorktreeId] = useState<string | null>(
-    () => routeWorktreeId
-  );
-  const [activeTaskId, setTaskId] = useState<string | null>(null);
+  const [worktreeState, setWorktreeState] = useState({
+    projectKey,
+    activeWorktreeId: routeWorktreeId,
+    activeTaskId: null as string | null,
+  });
+
+  let currentWorktreeState = worktreeState;
+  if (worktreeState.projectKey !== projectKey) {
+    currentWorktreeState = {
+      projectKey,
+      activeWorktreeId: routeWorktreeId,
+      activeTaskId: null,
+    };
+    setWorktreeState(currentWorktreeState);
+  }
+
+  const activeWorktreeId = currentWorktreeState.activeWorktreeId;
+  const activeTaskId = currentWorktreeState.activeTaskId;
 
   useEffect(() => {
-    setWorktreeId(routeWorktreeId);
-    setTaskId(null);
+    setWorktreeState((current) =>
+      current.projectKey === projectKey &&
+      current.activeWorktreeId === routeWorktreeId
+        ? current
+        : {
+            projectKey,
+            activeWorktreeId: routeWorktreeId,
+            activeTaskId: null,
+          }
+    );
   }, [projectKey, routeWorktreeId]);
 
   useEffect(() => {
@@ -44,8 +66,11 @@ export function WorktreeProvider({ children }: { children: ReactNode }) {
 
   const setActiveWorktree = useCallback(
     (worktreeId: string | null, taskId: string | null) => {
-      setWorktreeId(worktreeId);
-      setTaskId(taskId);
+      setWorktreeState((current) => ({
+        ...current,
+        activeWorktreeId: worktreeId,
+        activeTaskId: taskId,
+      }));
     },
     []
   );

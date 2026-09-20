@@ -2,7 +2,10 @@ import { render, screen } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import type { SerializedDockview } from 'dockview';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { ProjectProvider } from '@/contexts/ProjectContext';
+import {
+  ProjectLayoutScope,
+  ProjectProvider,
+} from '@/contexts/ProjectContext';
 import { useLayoutStore } from '@/stores/useLayoutStore';
 
 vi.mock('@/hooks/useProjects', () => ({
@@ -44,17 +47,21 @@ describe('ProjectProvider layout scope', () => {
     useLayoutStore.getState().setSerializedLayout({} as SerializedDockview);
   });
 
-  it('does not mount project children with the previous project layout', async () => {
+  it('keeps chrome mounted while the dockview scope waits for the new project layout', async () => {
     const observations: LayoutObservation[] = [];
 
     render(
       <MemoryRouter initialEntries={['/local-projects/new-project/sessions']}>
         <ProjectProvider>
-          <LayoutScopeProbe observations={observations} />
+          <div data-testid="status-chrome">status</div>
+          <ProjectLayoutScope>
+            <LayoutScopeProbe observations={observations} />
+          </ProjectLayoutScope>
         </ProjectProvider>
       </MemoryRouter>
     );
 
+    expect(screen.getByTestId('status-chrome')).toHaveTextContent('status');
     expect(await screen.findByTestId('layout-project-key')).toHaveTextContent(
       'new-project'
     );

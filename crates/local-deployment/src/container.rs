@@ -1003,6 +1003,11 @@ impl ContainerService for LocalContainerService {
         let workspace_repos =
             WorkspaceRepo::find_by_workspace_id(&self.db.pool, workspace.id).await?;
         if workspace_repos.is_empty() {
+            if !workspace.use_worktree {
+                if let Some(container_ref) = workspace.container_ref.clone() {
+                    return Ok(container_ref);
+                }
+            }
             return Err(ContainerError::Other(anyhow!(
                 "Workspace has no repositories configured"
             )));
@@ -1118,6 +1123,18 @@ impl ContainerService for LocalContainerService {
             WorkspaceRepo::find_repos_for_workspace(&self.db.pool, workspace.id).await?;
 
         if repositories.is_empty() {
+            if !workspace.use_worktree {
+                if let Some(container_ref) = workspace.container_ref.clone() {
+                    let workspace_dir = PathBuf::from(&container_ref);
+                    if !workspace_dir.exists() {
+                        return Err(ContainerError::Other(anyhow!(
+                            "Folder path does not exist: {}",
+                            workspace_dir.display()
+                        )));
+                    }
+                    return Ok(container_ref);
+                }
+            }
             return Err(ContainerError::Other(anyhow!(
                 "Workspace has no repositories configured"
             )));
@@ -2773,6 +2790,47 @@ mod tests {
 
         assert!(workspace.use_worktree);
         assert_eq!(workspace.container_ref, None);
+    }
+
+    #[tokio::test]
+    async fn ensure_container_exists_reuses_directory_root_without_repos() {
+        let pool = workspace_path_test_pool().await;
+        let folder = TempDir::new().unwrap();
+        let workspace = sample_workspace(
+            Some(&folder.path().to_string_lossy()),
+            false,
+            Some(&folder.path().to_string_lossy()),
+        );
+        sqlx::query(
+            r#"
+            INSERT INTO workspaces (
+                id, project_id, task_id, parent_workspace_id, container_ref,
+                branch, use_worktree, agent_working_dir, setup_completed_at,
+                archived, pinned, name
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            "#,
+        )
+        .bind(workspace.id)
+        .bind(workspace.project_id)
+        .bind(workspace.task_id)
+        .bind(workspace.parent_workspace_id)
+        .bind(&workspace.container_ref)
+        .bind(&workspace.branch)
+        .bind(workspace.use_worktree)
+        .bind(&workspace.agent_working_dir)
+        .bind(workspace.setup_completed_at)
+        .bind(workspace.archived)
+        .bind(workspace.pinned)
+        .bind(&workspace.name)
+        .execute(&pool)
+        .await
+        .unwrap();
+        let container = test_container(pool);
+
+        let container_ref = container.ensure_container_exists(&workspace).await.unwrap();
+
+        assert_eq!(container_ref, folder.path().to_string_lossy());
     }
 
     #[tokio::test]

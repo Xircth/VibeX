@@ -497,6 +497,7 @@ export function KanbanSessionHub({
     useKanbanSessionMutations({
       projectId,
       primaryRepoId: primaryRepo?.id,
+      projectRepoCount: project?.is_git ? projectRepos.length : 0,
       workspaceBranchOptions,
       getWorkspaceRepoInputs,
       placeCreatedSession,
@@ -646,7 +647,7 @@ export function KanbanSessionHub({
     isPending: createSessionMutation.isPending,
     mode: createMode,
     selectedWorkspaceOption,
-    projectRepoCount: projectRepos.length,
+    projectRepoCount: project?.is_git ? projectRepos.length : 0,
     repoBranchConfigs,
   });
 
@@ -1150,6 +1151,7 @@ export function KanbanSessionHub({
             createPanel={
               isCreatePopoverOpen ? (
                 <CanvasCreateSessionPanel
+                  isGitProject={Boolean(project?.is_git)}
                   createMode={createMode}
                   onCreateModeChange={setCreateMode}
                   workspaceBranchOptions={workspaceBranchOptions}

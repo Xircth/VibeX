@@ -16,6 +16,8 @@ import {
   PROJECT_DELETE_CONFIRM_STYLE,
 } from '@/lib/projectDeleteUi';
 import { toast } from '@/components/ui/toast';
+import { initProjectGitWithPrompt } from '@/lib/initProjectGit';
+import { useTranslation } from 'react-i18next';
 import {
   AlertCircle,
   ArrowLeft,
@@ -33,6 +35,7 @@ interface ProjectDetailProps {
 }
 
 export function ProjectDetail({ projectId, onBack }: ProjectDetailProps) {
+  const { t } = useTranslation(['panels', 'common']);
   const navigate = useNavigateWithSearch();
   const openSettings = useOpenSettings();
   const { projectsById, isLoading, error: projectsError } = useProjects();
@@ -42,12 +45,10 @@ export function ProjectDetail({ projectId, onBack }: ProjectDetailProps) {
     if (!project) return;
 
     const result = await ConfirmDialog.show({
-      title: `Delete "${project.name}"?`,
-      message:
-        'This removes the project and its local VibeX data. Project files and Git worktrees are not deleted.',
-      confirmText: 'Delete',
-      cancelText: 'Cancel',
-      variant: 'destructive',
+      title: t('projectRail.deleteConfirmTitle', { name: project.name }),
+      message: t('projectRail.deleteConfirmMessage'),
+      confirmText: t('projectRail.removeAction'),
+      cancelText: t('common:cancel'),
       contentClassName: PROJECT_DELETE_CONFIRM_CLASSNAME,
       contentStyle: PROJECT_DELETE_CONFIRM_STYLE,
     });
@@ -55,11 +56,11 @@ export function ProjectDetail({ projectId, onBack }: ProjectDetailProps) {
 
     try {
       await projectsApi.delete(projectId);
-      toast.success('Project deleted');
+      toast.success(t('projectRail.deleteSuccess', { name: project.name }));
       onBack();
     } catch (error) {
       console.error('Failed to delete project:', error);
-      toast.error('Failed to delete project');
+      toast.error(t('projectRail.deleteFailed'));
     }
   };
 
@@ -127,13 +128,21 @@ export function ProjectDetail({ projectId, onBack }: ProjectDetailProps) {
             <CheckSquare className="mr-2 h-4 w-4" />
             View Sessions
           </Button>
+          {!project.is_git ? (
+            <Button
+              variant="outline"
+              onClick={() => void initProjectGitWithPrompt(project)}
+            >
+              {t('projectRail.initGit')}
+            </Button>
+          ) : null}
           <Button variant="outline" onClick={handleEditClick}>
             <Edit className="mr-2 h-4 w-4" />
             Edit
           </Button>
-          <Button variant="destructive" onClick={handleDelete}>
+          <Button variant="outline" onClick={handleDelete}>
             <Trash2 className="mr-2 h-4 w-4" />
-            Delete
+            {t('projectRail.removeAction')}
           </Button>
         </div>
       </div>

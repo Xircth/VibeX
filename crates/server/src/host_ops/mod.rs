@@ -44,6 +44,11 @@ impl ServerApplicationDomains {
             DomainCommand::ProjectSearchFiles => self.search_project_files(args).await,
             DomainCommand::ProjectAddRepository => self.add_project_repository(args).await,
             DomainCommand::ProjectDeleteRepository => self.delete_project_repository(args).await,
+            DomainCommand::ProjectPreviewImport => self.preview_project_import(args).await,
+            DomainCommand::ProjectHide => self.hide_project(args).await,
+            DomainCommand::ProjectSetParent => self.set_project_parent(args).await,
+            DomainCommand::ProjectInitGit => self.init_project_git(args).await,
+            DomainCommand::ProjectGitChildren => self.get_project_git_children(args).await,
             DomainCommand::RepoList => {
                 serialize(Repo::list_all(&self.pool).await.map_err(internal_error)?)
             }
@@ -547,6 +552,72 @@ impl ServerApplicationDomains {
         serialize(project)
     }
 
+    async fn preview_project_import(&self, args: Value) -> Result<Value, ApplicationError> {
+        let args: PathArgs = parse(args)?;
+        serialize(
+            self.deployment
+                .project()
+                .preview_import(&self.pool, self.deployment.repo(), &args.path)
+                .await
+                .map_err(|error| ApplicationError::bad_request(error.to_string()))?,
+        )
+    }
+
+    async fn hide_project(&self, args: Value) -> Result<Value, ApplicationError> {
+        let args: IdArgs = parse(args)?;
+        serialize(
+            self.deployment
+                .project()
+                .hide_project(&self.pool, args.id)
+                .await
+                .map_err(|error| ApplicationError::bad_request(error.to_string()))?,
+        )
+    }
+
+    async fn set_project_parent(&self, args: Value) -> Result<Value, ApplicationError> {
+        #[derive(Deserialize)]
+        #[serde(rename_all = "camelCase")]
+        struct SetParentArgs {
+            id: Uuid,
+            parent_project_id: Option<Uuid>,
+        }
+        let args: SetParentArgs = parse(args)?;
+        serialize(
+            self.deployment
+                .project()
+                .set_project_parent(&self.pool, args.id, args.parent_project_id)
+                .await
+                .map_err(|error| ApplicationError::bad_request(error.to_string()))?,
+        )
+    }
+
+    async fn init_project_git(&self, args: Value) -> Result<Value, ApplicationError> {
+        let args: IdArgs = parse(args)?;
+        serialize(
+            self.deployment
+                .project()
+                .init_project_git(
+                    &self.pool,
+                    self.deployment.repo(),
+                    self.deployment.git(),
+                    args.id,
+                )
+                .await
+                .map_err(|error| ApplicationError::bad_request(error.to_string()))?,
+        )
+    }
+
+    async fn get_project_git_children(&self, args: Value) -> Result<Value, ApplicationError> {
+        let args: IdArgs = parse(args)?;
+        serialize(
+            self.deployment
+                .project()
+                .git_children(&self.pool, args.id)
+                .await
+                .map_err(|error| ApplicationError::bad_request(error.to_string()))?,
+        )
+    }
+
     async fn create_project(&self, args: Value) -> Result<Value, ApplicationError> {
         let args: PayloadArgs<HostCreateProject> = parse(args)?;
         if let Some(init) = args.payload.init {
@@ -554,9 +625,11 @@ impl ServerApplicationDomains {
                 .create_project_from_new_folder(args.payload.name, init)
                 .await;
         }
-        if args.payload.repositories.is_empty() {
+        if args.payload.repositories.is_empty()
+            && args.payload.root_path.as_deref().unwrap_or("").is_empty()
+        {
             return Err(ApplicationError::bad_request(
-                "repositories are required unless init is provided",
+                "root_path or repositories are required unless init is provided",
             ));
         }
         serialize(
@@ -567,6 +640,8 @@ impl ServerApplicationDomains {
                     self.deployment.repo(),
                     CreateProject {
                         name: args.payload.name,
+                        root_path: args.payload.root_path.unwrap_or_default(),
+                        parent_project_id: args.payload.parent_project_id,
                         repositories: args.payload.repositories,
                     },
                 )
@@ -607,6 +682,8 @@ impl ServerApplicationDomains {
                 self.deployment.repo(),
                 CreateProject {
                     name: name.clone(),
+                    root_path: repo.path.to_string_lossy().into_owned(),
+                    parent_project_id: None,
                     repositories: vec![CreateProjectRepo {
                         display_name: name,
                         git_repo_path: repo.path.to_string_lossy().into_owned(),
@@ -668,12 +745,36 @@ impl ServerApplicationDomains {
         if args.q.trim().is_empty() {
             return Err(ApplicationError::bad_request("query cannot be empty"));
         }
-        let repositories = self
+        let mut repositories = self
             .deployment
             .project()
             .get_repositories(&self.pool, args.id)
             .await
             .map_err(internal_error)?;
+        if repositories.is_empty() {
+            let project = Project::find_by_id(&self.pool, args.id)
+                .await
+                .map_err(internal_error)?
+                .ok_or_else(|| ApplicationError::not_found(format!("project {}", args.id)))?;
+            if !project.root_path.is_empty() {
+                repositories.push(Repo {
+                    id: args.id,
+                    path: std::path::PathBuf::from(&project.root_path),
+                    name: project.name.clone(),
+                    display_name: project.name,
+                    setup_script: None,
+                    cleanup_script: None,
+                    archive_script: None,
+                    copy_files: None,
+                    parallel_setup_script: false,
+                    dev_server_script: None,
+                    default_target_branch: None,
+                    default_working_dir: None,
+                    created_at: project.created_at,
+                    updated_at: project.updated_at,
+                });
+            }
+        }
         let mode = match args.mode.as_deref() {
             Some("settings") => services::services::file_search::SearchMode::Settings,
             _ => services::services::file_search::SearchMode::TaskForm,
@@ -1384,6 +1485,9 @@ impl ServerApplicationDomains {
         let repos = ProjectRepo::find_repos_for_project(&self.pool, project_id)
             .await
             .map_err(internal_error)?;
+        if repos.is_empty() {
+            return self.ensure_directory_root_workspace(project_id).await;
+        }
         let primary = repos
             .into_iter()
             .next()
@@ -1524,6 +1628,93 @@ impl ServerApplicationDomains {
             .ensure_container_exists(&workspace)
             .await;
         Ok(workspace)
+    }
+
+    async fn ensure_directory_root_workspace(
+        &self,
+        project_id: Uuid,
+    ) -> Result<Workspace, ApplicationError> {
+        let project = Project::find_by_id(&self.pool, project_id)
+            .await
+            .map_err(internal_error)?
+            .ok_or_else(|| ApplicationError::not_found(format!("project {project_id}")))?;
+        if project.root_path.is_empty() {
+            return Err(ApplicationError::bad_request(
+                "Project has no folder path",
+            ));
+        }
+        if let Some(existing) = Workspace::find_by_project_id_with_status(&self.pool, project_id)
+            .await
+            .map_err(internal_error)?
+            .into_iter()
+            .map(|workspace| workspace.workspace)
+            .find(|workspace| !workspace.use_worktree)
+        {
+            if existing.container_ref.as_deref() != Some(project.root_path.as_str()) {
+                Workspace::update_container_ref(&self.pool, existing.id, &project.root_path)
+                    .await
+                    .map_err(internal_error)?;
+            }
+            return Workspace::find_by_id(&self.pool, existing.id)
+                .await
+                .map_err(internal_error)?
+                .ok_or_else(|| ApplicationError::not_found(format!("workspace {}", existing.id)));
+        }
+        let owner_task = if let Some(task) =
+            Task::find_by_project_id_with_attempt_status(&self.pool, project_id)
+                .await
+                .map_err(internal_error)?
+                .into_iter()
+                .map(|task| task.task)
+                .next()
+        {
+            task
+        } else {
+            Task::create(
+                &self.pool,
+                &CreateTask {
+                    project_id,
+                    title: format!("Project Root Workspace ({})", project.name),
+                    description: Some(
+                        "Auto-created to support sessions in this folder.".to_string(),
+                    ),
+                    status: Some(TaskStatus::Todo),
+                    parent_workspace_id: None,
+                    image_ids: None,
+                },
+                Uuid::new_v4(),
+            )
+            .await
+            .map_err(internal_error)?
+        };
+        let workspace = Workspace::create(
+            &self.pool,
+            &CreateWorkspace {
+                project_id,
+                parent_workspace_id: None,
+                branch: String::new(),
+                container_ref: Some(project.root_path.clone()),
+                use_worktree: false,
+                agent_working_dir: Some(project.root_path.clone()),
+            },
+            Uuid::new_v4(),
+            owner_task.id,
+        )
+        .await
+        .map_err(internal_error)?;
+        Workspace::update(
+            &self.pool,
+            workspace.id,
+            Some(false),
+            None,
+            Some(project.name.as_str()),
+        )
+        .await
+        .map_err(internal_error)?;
+        Workspace::find_by_id(&self.pool, workspace.id)
+            .await
+            .map_err(internal_error)?
+            .ok_or_else(|| ApplicationError::not_found(format!("workspace {}", workspace.id)))
     }
 
     async fn create_worktree_workspace_for_project_session(
@@ -2119,6 +2310,10 @@ struct HostCreateProject {
     name: String,
     #[serde(default)]
     repositories: Vec<CreateProjectRepo>,
+    #[serde(default)]
+    root_path: Option<String>,
+    #[serde(default)]
+    parent_project_id: Option<Uuid>,
     #[serde(default)]
     init: Option<HostCreateProjectInit>,
 }

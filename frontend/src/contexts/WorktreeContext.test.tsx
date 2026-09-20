@@ -1,6 +1,12 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { render, screen, waitFor } from '@testing-library/react';
-import { MemoryRouter, Route, Routes } from 'react-router-dom';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import {
+  MemoryRouter,
+  Outlet,
+  Route,
+  Routes,
+  useNavigate,
+} from 'react-router-dom';
 import { ProjectProvider } from '@/contexts/ProjectContext';
 import { WorktreeProvider, useWorktree } from '@/contexts/WorktreeContext';
 import { useProjectViewStateStore } from '@/stores/useProjectViewStateStore';
@@ -104,5 +110,53 @@ describe('WorktreeProvider', () => {
       expect(screen.getByTestId('active-worktree').textContent).toBe('none');
       expect(screen.getByTestId('active-task').textContent).toBe('none');
     });
+  });
+
+  it('drops the previous project worktree on the same render as the project change', () => {
+    function SwitchProjectButton() {
+      const navigate = useNavigate();
+      return (
+        <button
+          type="button"
+          onClick={() => navigate('/local-projects/project-2/sessions')}
+        >
+          switch
+        </button>
+      );
+    }
+
+    render(
+      <MemoryRouter
+        initialEntries={['/local-projects/project-1/workspaces/route-worktree']}
+      >
+        <Routes>
+          <Route
+            element={
+              <ProjectProvider>
+                <WorktreeProvider>
+                  <WorktreeProbe />
+                  <SwitchProjectButton />
+                  <Outlet />
+                </WorktreeProvider>
+              </ProjectProvider>
+            }
+          >
+            <Route path="/local-projects/:projectId/sessions" element={null} />
+            <Route
+              path="/local-projects/:projectId/workspaces/:workspaceId"
+              element={null}
+            />
+          </Route>
+        </Routes>
+      </MemoryRouter>
+    );
+
+    expect(screen.getByTestId('active-worktree').textContent).toBe(
+      'route-worktree'
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: 'switch' }));
+
+    expect(screen.getByTestId('active-worktree').textContent).toBe('none');
   });
 });

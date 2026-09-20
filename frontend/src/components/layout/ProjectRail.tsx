@@ -1,6 +1,13 @@
-import { useEffect, useMemo, useRef, useState, type RefObject } from 'react';
+import {
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  type RefObject,
+} from 'react';
 import { useTranslation } from 'react-i18next';
-import { FolderOpen, Plus, Trash2, X } from 'lucide-react';
+import { FolderOpen, GitBranch, Plus, Trash2, X } from 'lucide-react';
 import { HostGlass } from '@/components/ui/host-glass';
 import { ProjectFormDialog } from '@/components/dialogs/projects/ProjectFormDialog';
 import { ConfirmDialog } from '@/components/dialogs/shared/ConfirmDialog';
@@ -9,6 +16,7 @@ import { useProject } from '@/contexts/ProjectContext';
 import { paths } from '@/lib/paths';
 import { cn } from '@/lib/utils';
 import { projectsApi } from '@/lib/api';
+import { initProjectGitWithPrompt } from '@/lib/initProjectGit';
 import { useProjectSwitcher } from '@/hooks/useProjectSwitcher';
 import { useWindowProjectsStore } from '@/stores/useWindowProjectsStore';
 import { toast } from '@/components/ui/toast';
@@ -21,12 +29,19 @@ import {
 import {
   buildProjectRailOrderedIds,
   capProjectRailVisibleCount,
+  projectRailPanelHeight,
 } from '@/components/layout/projectRailProjects';
+import {
+  clampProjectRailPosition,
+  defaultProjectRailPosition,
+  PROJECT_RAIL_WIDTH,
+  readViewportSize,
+  type ProjectRailPosition,
+} from '@/components/layout/projectRailPosition';
 import {
   PROJECT_DELETE_CONFIRM_CLASSNAME,
   PROJECT_DELETE_CONFIRM_STYLE,
 } from '@/lib/projectDeleteUi';
-import { ProjectRailProjectBadge } from '@/components/layout/ProjectRailProjectBadge';
 import { useMediaQuery } from '@/hooks/useMediaQuery';
 
 const STATIC_GLASS_POINTER = { x: 0, y: 0 };
@@ -55,25 +70,35 @@ export function ProjectRail({
   const setRailVisible = useWindowProjectsStore(
     (state) => state.setRailVisible
   );
+  const storedRailPosition = useWindowProjectsStore(
+    (state) => state.railPosition
+  );
+  const setRailPosition = useWindowProjectsStore(
+    (state) => state.setRailPosition
+  );
   const [hoveredProjectState, setHoveredProjectState] = useState<{
     projectId: string;
     top: number;
     left: number;
   } | null>(null);
   const railRef = useRef<HTMLDivElement | null>(null);
-  const projectListRef = useRef<HTMLDivElement | null>(null);
-  const dragStateRef = useRef<{
-    pointerId: number;
-    startY: number;
-    startScrollTop: number;
-    didDrag: boolean;
-  } | null>(null);
   const hoverTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const glassStageRef = useRef<HTMLDivElement | null>(null);
   const prefersReducedMotion = useMediaQuery(
     '(prefers-reduced-motion: reduce)'
   );
-  const [isDragging, setIsDragging] = useState(false);
+  const [isMovingRail, setIsMovingRail] = useState(false);
+  const [viewport, setViewport] = useState(readViewportSize);
+  const [dragPosition, setDragPosition] = useState<ProjectRailPosition | null>(
+    null
+  );
+  const moveStateRef = useRef<{
+    pointerId: number;
+    originX: number;
+    originY: number;
+    startClientX: number;
+    startClientY: number;
+  } | null>(null);
   const orderedProjectIds = useMemo(
     () =>
       buildProjectRailOrderedIds({
@@ -85,26 +110,60 @@ export function ProjectRail({
     [openProjectIds, projectId, projectSnapshots, projects]
   );
   const projectRailItemCount = capProjectRailVisibleCount(projects.length);
-  const projectRailHeight = 273 + Math.max(0, projectRailItemCount - 4) * 36;
+  const projectRailHeight = projectRailPanelHeight(projectRailItemCount);
+  const railPosition = useMemo(() => {
+    const fallback = defaultProjectRailPosition(
+      PROJECT_RAIL_WIDTH,
+      projectRailHeight,
+      viewport.width,
+      viewport.height
+    );
+    const base = dragPosition ?? storedRailPosition ?? fallback;
+    return clampProjectRailPosition(
+      base.x,
+      base.y,
+      PROJECT_RAIL_WIDTH,
+      projectRailHeight,
+      viewport.width,
+      viewport.height
+    );
+  }, [
+    dragPosition,
+    projectRailHeight,
+    storedRailPosition,
+    viewport.height,
+    viewport.width,
+  ]);
 
   const visibleProjects = useMemo(() => {
     const byId = new Map(projects.map((project) => [project.id, project]));
-
-    return orderedProjectIds
-      .map((id) => {
-        const project = byId.get(id);
-        if (project) {
-          return {
-            id: project.id,
-            name: project.name,
-          };
-        }
-
-        return null;
-      })
-      .filter((project): project is { id: string; name: string } =>
+    const visible = orderedProjectIds
+      .map((id) => byId.get(id))
+      .filter((project): project is (typeof projects)[number] =>
         Boolean(project)
       );
+    const byParent = new Map<string | null, typeof visible>();
+    for (const project of visible) {
+      const parent = project.parent_project_id ?? null;
+      const list = byParent.get(parent) ?? [];
+      list.push(project);
+      byParent.set(parent, list);
+    }
+    const nested: Array<(typeof visible)[number] & { depth: number }> = [];
+    const walk = (parentId: string | null, depth: number) => {
+      for (const project of byParent.get(parentId) ?? []) {
+        nested.push({ ...project, depth });
+        walk(project.id, depth + 1);
+      }
+    };
+    walk(null, 0);
+    const seen = new Set(nested.map((project) => project.id));
+    for (const project of visible) {
+      if (!seen.has(project.id)) {
+        nested.push({ ...project, depth: 0 });
+      }
+    }
+    return nested;
   }, [orderedProjectIds, projects]);
 
   useEffect(() => {
@@ -143,6 +202,94 @@ export function ProjectRail({
     };
   }, []);
 
+  useLayoutEffect(() => {
+    const syncViewport = () => {
+      setViewport(readViewportSize());
+    };
+    syncViewport();
+    window.addEventListener('resize', syncViewport);
+    return () => window.removeEventListener('resize', syncViewport);
+  }, []);
+
+  useEffect(() => {
+    if (!isMovingRail) {
+      return;
+    }
+
+    const onPointerMove = (event: PointerEvent) => {
+      const move = moveStateRef.current;
+      if (!move || move.pointerId !== event.pointerId) {
+        return;
+      }
+
+      setDragPosition(
+        clampProjectRailPosition(
+          move.originX + event.clientX - move.startClientX,
+          move.originY + event.clientY - move.startClientY,
+          PROJECT_RAIL_WIDTH,
+          projectRailHeight,
+          window.innerWidth,
+          window.innerHeight
+        )
+      );
+    };
+
+    const onPointerUp = (event: PointerEvent) => {
+      const move = moveStateRef.current;
+      if (!move || move.pointerId !== event.pointerId) {
+        return;
+      }
+
+      const next = clampProjectRailPosition(
+        move.originX + event.clientX - move.startClientX,
+        move.originY + event.clientY - move.startClientY,
+        PROJECT_RAIL_WIDTH,
+        projectRailHeight,
+        window.innerWidth,
+        window.innerHeight
+      );
+      setRailPosition(next);
+      setDragPosition(null);
+      moveStateRef.current = null;
+      setIsMovingRail(false);
+    };
+
+    window.addEventListener('pointermove', onPointerMove);
+    window.addEventListener('pointerup', onPointerUp);
+    window.addEventListener('pointercancel', onPointerUp);
+    return () => {
+      window.removeEventListener('pointermove', onPointerMove);
+      window.removeEventListener('pointerup', onPointerUp);
+      window.removeEventListener('pointercancel', onPointerUp);
+    };
+  }, [isMovingRail, projectRailHeight, setRailPosition]);
+
+  useEffect(() => {
+    if (!storedRailPosition) {
+      return;
+    }
+    const next = clampProjectRailPosition(
+      storedRailPosition.x,
+      storedRailPosition.y,
+      PROJECT_RAIL_WIDTH,
+      projectRailHeight,
+      viewport.width,
+      viewport.height
+    );
+    if (
+      next.x !== storedRailPosition.x ||
+      next.y !== storedRailPosition.y
+    ) {
+      setRailPosition(next);
+    }
+  }, [
+    projectRailHeight,
+    setRailPosition,
+    storedRailPosition,
+    viewport.height,
+    viewport.width,
+  ]);
+
   const handleCreateProject = async () => {
     const result = await ProjectFormDialog.show({});
     if (result?.status === 'saved' && result.project) {
@@ -169,69 +316,28 @@ export function ProjectRail({
     setRailVisible(false);
   };
 
-  const handleProjectListPointerDown = (
+  const handleMovePointerDown = (
     event: React.PointerEvent<HTMLDivElement>
   ) => {
-    const target = event.target as HTMLElement | null;
-    if (target?.closest('button')) {
-      dragStateRef.current = null;
+    if (event.button !== 0) {
+      return;
+    }
+    if ((event.target as HTMLElement | null)?.closest('button')) {
       return;
     }
 
-    const container = projectListRef.current;
-    if (!container) {
-      return;
-    }
-
-    dragStateRef.current = {
+    moveStateRef.current = {
       pointerId: event.pointerId,
-      startY: event.clientY,
-      startScrollTop: container.scrollTop,
-      didDrag: false,
+      originX: railPosition.x,
+      originY: railPosition.y,
+      startClientX: event.clientX,
+      startClientY: event.clientY,
     };
-    setIsDragging(true);
-    container.setPointerCapture(event.pointerId);
-  };
-
-  const handleProjectListPointerMove = (
-    event: React.PointerEvent<HTMLDivElement>
-  ) => {
-    const container = projectListRef.current;
-    const dragState = dragStateRef.current;
-    if (!container || !dragState || dragState.pointerId !== event.pointerId) {
-      return;
-    }
-
-    const deltaY = event.clientY - dragState.startY;
-    if (Math.abs(deltaY) > 4) {
-      dragState.didDrag = true;
-    }
-
-    container.scrollTop = dragState.startScrollTop - deltaY;
-  };
-
-  const endProjectListDrag = (event: React.PointerEvent<HTMLDivElement>) => {
-    const container = projectListRef.current;
-    const dragState = dragStateRef.current;
-    if (!container || !dragState || dragState.pointerId !== event.pointerId) {
-      return;
-    }
-
-    if (container.hasPointerCapture(event.pointerId)) {
-      container.releasePointerCapture(event.pointerId);
-    }
-
-    window.setTimeout(() => {
-      if (dragStateRef.current?.pointerId === event.pointerId) {
-        dragStateRef.current = null;
-      }
-    }, 0);
-    setIsDragging(false);
+    setIsMovingRail(true);
   };
 
   const handleProjectClick = (nextProjectId: string) => {
-    if (dragStateRef.current?.didDrag) {
-      dragStateRef.current = null;
+    if (isMovingRail) {
       return;
     }
 
@@ -244,16 +350,16 @@ export function ProjectRail({
   ) => {
     if (hoverTimerRef.current) {
       clearTimeout(hoverTimerRef.current);
+      hoverTimerRef.current = null;
     }
 
     const rect = event.currentTarget.getBoundingClientRect();
-    hoverTimerRef.current = setTimeout(() => {
-      setHoveredProjectState({
-        projectId: nextProjectId,
-        top: rect.top + rect.height / 2,
-        left: rect.right + 12,
-      });
-    }, 500);
+    const popoverWidth = 288;
+    setHoveredProjectState({
+      projectId: nextProjectId,
+      top: rect.top + rect.height / 2,
+      left: Math.min(rect.right + 12, window.innerWidth - popoverWidth - 8),
+    });
   };
 
   const handleProjectMouseLeave = (nextProjectId: string) => {
@@ -277,9 +383,8 @@ export function ProjectRail({
     const result = await ConfirmDialog.show({
       title: t('projectRail.deleteConfirmTitle', { name: targetProject.name }),
       message: t('projectRail.deleteConfirmMessage'),
-      confirmText: t('common:delete'),
+      confirmText: t('projectRail.removeAction'),
       cancelText: t('common:cancel'),
-      variant: 'destructive',
       contentClassName: PROJECT_DELETE_CONFIRM_CLASSNAME,
       contentStyle: PROJECT_DELETE_CONFIRM_STYLE,
     });
@@ -306,11 +411,49 @@ export function ProjectRail({
   const shell = (
     <div
       ref={railRef}
-      className="project-rail-shell project-rail-shell--inline"
+      className={cn(
+        'project-rail-shell project-rail-shell--inline',
+        isMovingRail && 'is-moving'
+      )}
+      onPointerDown={handleMovePointerDown}
     >
+      <div className="project-rail-header">
+        <span className="project-rail-title">{t('projectRail.title')}</span>
+        <div className="project-rail-actions">
+          <button
+            type="button"
+            className="project-rail-action-button"
+            onClick={handleCreateProject}
+            aria-label={t('projectRail.createProjectAria')}
+            title={t('projectRail.createProjectAria')}
+          >
+            <Plus aria-hidden="true" />
+          </button>
+
+          <button
+            type="button"
+            className="project-rail-action-button"
+            onClick={handleOpenProject}
+            aria-label={t('projectRail.openProjectAria')}
+            title={t('projectRail.openProjectAria')}
+          >
+            <FolderOpen aria-hidden="true" />
+          </button>
+
+          <button
+            type="button"
+            className="project-rail-action-button"
+            onClick={handleCloseRail}
+            aria-label={t('projectRail.closeRailAria')}
+            title={t('projectRail.closeRailAria')}
+          >
+            <X aria-hidden="true" />
+          </button>
+        </div>
+      </div>
+
       <div
-        ref={projectListRef}
-        className={cn('project-rail-projects', isDragging && 'is-dragging')}
+        className="project-rail-projects"
         onContextMenu={(event) => {
           openSurfaceMenu(event, [
             {
@@ -329,10 +472,7 @@ export function ProjectRail({
             },
           ]);
         }}
-        onPointerDown={handleProjectListPointerDown}
-        onPointerMove={handleProjectListPointerMove}
-        onPointerUp={endProjectListDrag}
-        onPointerCancel={endProjectListDrag}
+
       >
         {visibleProjects.map((project) => {
           const isActive = project.id === projectId;
@@ -347,6 +487,36 @@ export function ProjectRail({
             <div
               key={project.id}
               className="project-rail-project-slot group"
+              style={{ paddingLeft: `${project.depth * 14}px` }}
+              draggable
+              onDragStart={(event) => {
+                event.dataTransfer.setData('text/project-id', project.id);
+                event.dataTransfer.effectAllowed = 'move';
+              }}
+              onDragOver={(event) => {
+                const sourceId = event.dataTransfer.types.includes(
+                  'text/project-id'
+                );
+                if (!sourceId) return;
+                event.preventDefault();
+              }}
+              onDrop={(event) => {
+                event.preventDefault();
+                const sourceId = event.dataTransfer.getData('text/project-id');
+                if (!sourceId || sourceId === project.id) return;
+                const source = visibleProjects.find(
+                  (item) => item.id === sourceId
+                );
+                const parentPath = project.root_path;
+                const childPath = source?.root_path;
+                if (!parentPath || !childPath) return;
+                const parent = parentPath.replace(/\\/g, '/').replace(/\/$/, '');
+                const child = childPath.replace(/\\/g, '/').replace(/\/$/, '');
+                if (!child.startsWith(`${parent}/`)) return;
+                void projectsApi.setParent(sourceId, project.id).catch(() => {
+                  toast.error(t('projectRail.deleteFailed'));
+                });
+              }}
               onMouseEnter={(event) =>
                 handleProjectMouseEnter(project.id, event)
               }
@@ -356,7 +526,6 @@ export function ProjectRail({
                 type="button"
                 onPointerDown={(event) => {
                   event.stopPropagation();
-                  dragStateRef.current = null;
                 }}
                 onClick={() => handleProjectClick(project.id)}
                 onContextMenu={(event) => {
@@ -367,10 +536,21 @@ export function ProjectRail({
                       label: t('common:contextMenu.open'),
                       onSelect: () => handleProjectClick(project.id),
                     },
+                    ...(!project.is_git
+                      ? [
+                          {
+                            id: 'init-git',
+                            label: t('projectRail.initGit'),
+                            onSelect: () => {
+                              void initProjectGitWithPrompt(project);
+                            },
+                          },
+                        ]
+                      : []),
                     {
                       id: 'delete',
-                      label: t('common:delete'),
-                      danger: true,
+                      label: t('projectRail.removeAction'),
+                      danger: false,
                       onSelect: () => {
                         void handleDeleteProject({
                           id: project.id,
@@ -380,16 +560,26 @@ export function ProjectRail({
                     },
                   ]);
                 }}
-                title={`${project.name}: ${meta.label}`}
+                aria-label={`${project.name}: ${meta.label}`}
                 className={cn(
                   'project-rail-project-button',
                   isActive && 'is-active'
                 )}
               >
-                <ProjectRailProjectBadge
-                  name={project.name || t('projectRail.placeholderProjectName')}
-                  active={isActive}
-                />
+                {project.is_git ? (
+                  <GitBranch
+                    className="project-rail-project-icon"
+                    aria-hidden="true"
+                  />
+                ) : (
+                  <FolderOpen
+                    className="project-rail-project-icon"
+                    aria-hidden="true"
+                  />
+                )}
+                <span className="project-rail-project-name">
+                  {project.name}
+                </span>
                 {visualState === 'loading' ? (
                   <span className="project-rail-status-dot-shell">
                     <span className="project-rail-status-spinner" />
@@ -410,7 +600,6 @@ export function ProjectRail({
                 className="project-rail-delete-button"
                 onPointerDown={(event) => {
                   event.stopPropagation();
-                  dragStateRef.current = null;
                 }}
                 onClick={(event) =>
                   void handleDeleteProject(
@@ -428,10 +617,10 @@ export function ProjectRail({
                 <Trash2 aria-hidden="true" />
               </button>
 
-              {isHovered && snapshot ? (
+              {isHovered ? (
                 <ProjectRecentSessionsPopover
                   projectName={project.name}
-                  recentSessions={snapshot.recentSessions}
+                  recentSessions={snapshot?.recentSessions ?? []}
                   align="right"
                   style={{
                     top: hoveredProjectState?.top,
@@ -449,45 +638,18 @@ export function ProjectRail({
           </div>
         ) : null}
       </div>
-
-      <div className="project-rail-divider" role="separator" />
-
-      <div className="project-rail-actions">
-        <button
-          type="button"
-          className="project-rail-action-button"
-          onClick={handleCreateProject}
-          aria-label={t('projectRail.createProjectAria')}
-          title={t('projectRail.createProjectAria')}
-        >
-          <Plus aria-hidden="true" />
-        </button>
-
-        <button
-          type="button"
-          className="project-rail-action-button"
-          onClick={handleOpenProject}
-          aria-label={t('projectRail.openProjectAria')}
-          title={t('projectRail.openProjectAria')}
-        >
-          <FolderOpen aria-hidden="true" />
-        </button>
-
-        <button
-          type="button"
-          className="project-rail-action-button"
-          onClick={handleCloseRail}
-          aria-label={t('projectRail.closeRailAria')}
-          title={t('projectRail.closeRailAria')}
-        >
-          <X aria-hidden="true" />
-        </button>
-      </div>
     </div>
   );
 
   return (
-    <div className="project-rail-inline-host">
+    <div
+      className="project-rail-inline-host"
+      style={{
+        position: 'fixed',
+        left: railPosition.x,
+        top: railPosition.y,
+      }}
+    >
       <div
         ref={glassStageRef}
         className="project-rail-inline-stage"

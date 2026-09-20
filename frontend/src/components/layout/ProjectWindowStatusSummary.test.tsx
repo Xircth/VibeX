@@ -142,6 +142,23 @@ describe('ProjectWindowStatusSummary', () => {
     expect(useWindowProjectsStore.getState().railVisible).toBe(false);
   });
 
+  it('keeps open projects visible before their activity snapshot arrives', () => {
+    useWindowProjectsStore.setState({
+      railVisible: false,
+      openProjectIds: ['project-alpha', 'project-beta'],
+      projectSnapshots: {},
+    });
+
+    render(<ProjectWindowStatusSummary />);
+
+    expect(
+      screen.getByRole('button', { name: 'openProject:Alpha' })
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole('button', { name: 'openProject:Beta' })
+    ).toBeInTheDocument();
+  });
+
   it('does not switch when the clicked project is already current', () => {
     render(<ProjectWindowStatusSummary />);
 

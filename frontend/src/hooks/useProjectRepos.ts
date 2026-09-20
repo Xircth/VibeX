@@ -13,5 +13,8 @@ export function useProjectRepos(projectId?: string, opts?: Options) {
     queryKey: ['projectRepositories', projectId],
     queryFn: () => projectsApi.getRepositories(projectId!),
     enabled,
+    staleTime: 30_000,
+    placeholderData: (previousData, previousQuery) =>
+      previousQuery?.queryKey[1] === projectId ? previousData : undefined,
   });
 }

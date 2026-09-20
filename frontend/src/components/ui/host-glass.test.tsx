@@ -24,6 +24,10 @@ describe('HostGlass', () => {
     );
     expect(screen.getByText('toolbar')).toBeInTheDocument();
     expect(screen.queryByTestId('liquid-glass')).not.toBeInTheDocument();
+    expect(document.querySelector('.chrome')).toHaveAttribute(
+      'data-host-chrome',
+      'solid'
+    );
   });
 
   it('fills the stage on Windows instead of keeping the LiquidGlass 50% contract', () => {

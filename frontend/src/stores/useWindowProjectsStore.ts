@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import { normalizeProjectRoute } from '@/lib/paths';
+import type { ProjectRailPosition } from '@/components/layout/projectRailPosition';
 
 export type ProjectActivityVisualState =
   | 'idle'
@@ -51,12 +52,14 @@ interface ProjectFocusRequest {
 
 interface WindowProjectsState {
   railVisible: boolean;
+  railPosition: ProjectRailPosition | null;
   openProjectIds: string[];
   lastRouteByProject: Record<string, string>;
   projectSnapshots: Record<string, ProjectActivitySnapshot>;
   projectAlerts: Record<string, ProjectActivityAlert | undefined>;
   focusRequests: Record<string, ProjectFocusRequest | undefined>;
   setRailVisible: (visible: boolean) => void;
+  setRailPosition: (position: ProjectRailPosition) => void;
   toggleRailVisible: () => void;
   ensureProjectOpen: (projectId: string) => void;
   rememberProjectRoute: (projectId: string, route: string) => void;
@@ -77,6 +80,7 @@ interface WindowProjectsState {
 
 type PersistedWindowProjectsState = {
   railVisible?: boolean;
+  railPosition?: ProjectRailPosition | null;
   openProjectIds?: string[];
   lastRouteByProject?: Record<string, string>;
   projectSnapshots?: Record<string, ProjectActivitySnapshot>;
@@ -161,6 +165,7 @@ export const useWindowProjectsStore = create<WindowProjectsState>()(
   persist(
     (set, get) => ({
       railVisible: false,
+      railPosition: null,
       openProjectIds: [],
       lastRouteByProject: {},
       projectSnapshots: {},
@@ -169,6 +174,13 @@ export const useWindowProjectsStore = create<WindowProjectsState>()(
       setRailVisible: (visible) =>
         set((state) =>
           state.railVisible === visible ? state : { railVisible: visible }
+        ),
+      setRailPosition: (position) =>
+        set((state) =>
+          state.railPosition?.x === position.x &&
+          state.railPosition?.y === position.y
+            ? state
+            : { railPosition: position }
         ),
       toggleRailVisible: () =>
         set((state) => ({ railVisible: !state.railVisible })),
@@ -196,9 +208,15 @@ export const useWindowProjectsStore = create<WindowProjectsState>()(
         ),
       setProjectSnapshot: (projectId, snapshot) =>
         set((state) => {
-          const nextOpenProjectIds = state.openProjectIds.includes(projectId)
-            ? state.openProjectIds
-            : [projectId, ...state.openProjectIds].slice(0, 8);
+          const hasActivity =
+            snapshot.isLoading ||
+            snapshot.hasRunning ||
+            snapshot.hasSessions ||
+            snapshot.hasError;
+          const nextOpenProjectIds =
+            state.openProjectIds.includes(projectId) || !hasActivity
+              ? state.openProjectIds
+              : [projectId, ...state.openProjectIds].slice(0, 8);
           const sameOrder = arraysEqual(
             state.openProjectIds,
             nextOpenProjectIds
@@ -271,6 +289,14 @@ export const useWindowProjectsStore = create<WindowProjectsState>()(
         }),
       pruneProjectState: (validProjectIds) =>
         set((state) => {
+          if (
+            validProjectIds.length === 0 &&
+            (state.openProjectIds.length > 0 ||
+              Object.keys(state.projectSnapshots).length > 0)
+          ) {
+            return state;
+          }
+
           const validProjectIdSet = new Set(validProjectIds);
           const nextOpenProjectIds = state.openProjectIds.filter((projectId) =>
             validProjectIdSet.has(projectId)
@@ -317,6 +343,7 @@ export const useWindowProjectsStore = create<WindowProjectsState>()(
       resetProjectWindowState: () =>
         set({
           railVisible: false,
+          railPosition: null,
           openProjectIds: [],
           lastRouteByProject: {},
           projectSnapshots: {},
@@ -349,7 +376,7 @@ export const useWindowProjectsStore = create<WindowProjectsState>()(
     }),
     {
       name: 'vibex-window-projects',
-      version: 4,
+      version: 6,
       migrate: (persistedState: unknown) => {
         const state = (persistedState ?? {}) as PersistedWindowProjectsState;
         const normalizedLastRouteByProject = Object.fromEntries(
@@ -360,6 +387,7 @@ export const useWindowProjectsStore = create<WindowProjectsState>()(
 
         return {
           railVisible: false,
+          railPosition: null,
           openProjectIds: state.openProjectIds ?? [],
           lastRouteByProject: normalizedLastRouteByProject,
           projectSnapshots: state.projectSnapshots ?? {},
@@ -368,6 +396,7 @@ export const useWindowProjectsStore = create<WindowProjectsState>()(
         };
       },
       partialize: (state) => ({
+        railPosition: state.railPosition,
         openProjectIds: state.openProjectIds,
         lastRouteByProject: state.lastRouteByProject,
         // runningCount reflects live in-flight sessions, which never survive an
@@ -376,7 +405,7 @@ export const useWindowProjectsStore = create<WindowProjectsState>()(
         projectSnapshots: Object.fromEntries(
           Object.entries(state.projectSnapshots).map(([id, snapshot]) => [
             id,
-            { ...snapshot, runningCount: 0 },
+            { ...snapshot, isLoading: false, hasRunning: false, runningCount: 0 },
           ])
         ),
         projectAlerts: state.projectAlerts,

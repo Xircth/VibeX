@@ -816,7 +816,7 @@ pub trait ContainerService: Send + Sync {
     ) -> Result<ExecutionProcess, ContainerError> {
         let repositories =
             WorkspaceRepo::find_repos_for_workspace(&self.db().pool, workspace.id).await?;
-        if repositories.is_empty() {
+        if repositories.is_empty() && workspace.use_worktree {
             return Err(ContainerError::Other(anyhow!(
                 "Workspace has no repositories configured"
             )));

@@ -31,6 +31,7 @@ import { usePluginHostContributions } from '@/hooks/usePluginHostContributions';
 import { parsePluginSurfaceId } from '@/lib/hostSurfaceIds';
 import { RightPanelSidebar } from '@/components/layout/RightPanelSidebar';
 import { StatusBar } from '@/components/layout/StatusBar';
+import { ProjectLayoutScope } from '@/contexts/ProjectContext';
 import {
   EDITOR_GROUP_PREFIX,
   GROUP_IDS,
@@ -1307,6 +1308,7 @@ export function IDELayout({
           </div>
         )}
 
+        <ProjectLayoutScope>
         <div className="flex min-h-0 flex-1">
           {effectiveActiveTab === 'workspace' ? (
             <WorkspaceActivityRail
@@ -1389,6 +1391,7 @@ export function IDELayout({
             <RightPanelSidebar />
           ) : null}
         </div>
+        </ProjectLayoutScope>
 
         {rightPanelContent && sessionContentHost
           ? createPortal(rightPanelContent, sessionContentHost)

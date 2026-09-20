@@ -29,6 +29,10 @@ vi.mock('@/lib/api', () => ({
 const project: Project = {
   id: 'project-1',
   name: 'VibeX',
+  root_path: '/repo/VibeX',
+  parent_project_id: null,
+  hidden: false,
+  is_git: true,
   default_agent_working_dir: null,
   default_main_branch: null,
   created_at: new Date('2026-05-26T00:00:00Z'),
@@ -55,6 +59,6 @@ describe('ProjectCard', () => {
     expect(await screen.findByText('查看详情')).toBeInTheDocument();
     expect(screen.getByText('在 IDE 中打开')).toBeInTheDocument();
     expect(screen.getByText('编辑')).toBeInTheDocument();
-    expect(screen.getByText('删除')).toBeInTheDocument();
+    expect(screen.getByText('移除')).toBeInTheDocument();
   });
 });

@@ -171,6 +171,31 @@ impl Project {
             .await
     }
 
+    pub async fn find_git_children(
+        pool: &SqlitePool,
+        parent_id: Uuid,
+    ) -> Result<Vec<Self>, sqlx::Error> {
+        sqlx::query_as::<_, Project>(&format!(
+            "{PROJECT_SELECT}
+             WHERE parent_project_id = ?
+               AND hidden = 0
+               AND EXISTS(SELECT 1 FROM project_repos pr WHERE pr.project_id = projects.id)
+             ORDER BY name COLLATE NOCASE"
+        ))
+        .bind(parent_id)
+        .fetch_all(pool)
+        .await
+    }
+
+    pub async fn has_multi_repo_project(pool: &SqlitePool) -> Result<bool, sqlx::Error> {
+        let found: Option<i64> = sqlx::query_scalar(
+            "SELECT 1 FROM project_repos GROUP BY project_id HAVING COUNT(*) > 1 LIMIT 1",
+        )
+        .fetch_optional(pool)
+        .await?;
+        Ok(found.is_some())
+    }
+
     pub async fn find_visible_by_root_path(
         pool: &SqlitePool,
         root_path: &str,

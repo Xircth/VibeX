@@ -28,6 +28,7 @@ import { useLocalDesktopHost } from '@/lib/desktopShell';
 import { useNavigateWithSearch, useProjectRepos } from '@/hooks';
 import { ConfirmDialog } from '@/components/dialogs/shared/ConfirmDialog';
 import { projectsApi } from '@/lib/api';
+import { initProjectGitWithPrompt } from '@/lib/initProjectGit';
 import {
   PROJECT_DELETE_CONFIRM_CLASSNAME,
   PROJECT_DELETE_CONFIRM_STYLE,
@@ -40,7 +41,7 @@ type Props = {
 };
 
 function ProjectCard({ project, isFocused, setError, onEdit }: Props) {
-  const { t } = useTranslation(['app', 'common']);
+  const { t } = useTranslation(['app', 'panels', 'common']);
   const navigate = useNavigateWithSearch();
   const ref = useRef<HTMLDivElement>(null);
   const handleOpenInEditor = useOpenProjectInEditor(project);
@@ -57,12 +58,10 @@ function ProjectCard({ project, isFocused, setError, onEdit }: Props) {
 
   const handleDelete = async (id: string, name: string) => {
     const result = await ConfirmDialog.show({
-      title: `Delete "${name}"?`,
-      message:
-        'This removes the project and its local VibeX data. Project files and Git worktrees are not deleted.',
-      confirmText: 'Delete',
-      cancelText: 'Cancel',
-      variant: 'destructive',
+      title: t('projectRail.deleteConfirmTitle', { ns: 'panels', name }),
+      message: t('projectRail.deleteConfirmMessage', { ns: 'panels' }),
+      confirmText: t('projectRail.removeAction', { ns: 'panels' }),
+      cancelText: t('common:cancel'),
       contentClassName: PROJECT_DELETE_CONFIRM_CLASSNAME,
       contentStyle: PROJECT_DELETE_CONFIRM_STYLE,
     });
@@ -73,11 +72,11 @@ function ProjectCard({ project, isFocused, setError, onEdit }: Props) {
 
     try {
       await projectsApi.delete(id);
-      toast.success('Project deleted');
+      toast.success(t('projectRail.deleteSuccess', { ns: 'panels', name }));
     } catch (error) {
       console.error('Failed to delete project:', error);
-      setError('Failed to delete project');
-      toast.error('Failed to delete project');
+      setError(t('projectRail.deleteFailed', { ns: 'panels' }));
+      toast.error(t('projectRail.deleteFailed', { ns: 'panels' }));
     }
   };
 
@@ -136,15 +135,24 @@ function ProjectCard({ project, isFocused, setError, onEdit }: Props) {
                   <Edit className="mr-2 h-4 w-4" />
                   {t('projectCard.edit')}
                 </DropdownMenuItem>
+                {!project.is_git ? (
+                  <DropdownMenuItem
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      void initProjectGitWithPrompt(project);
+                    }}
+                  >
+                    {t('projectRail.initGit', { ns: 'panels' })}
+                  </DropdownMenuItem>
+                ) : null}
                 <DropdownMenuItem
                   onClick={(e) => {
                     e.stopPropagation();
                     handleDelete(project.id, project.name);
                   }}
-                  className="text-destructive"
                 >
                   <Trash2 className="mr-2 h-4 w-4" />
-                  {t('common:delete')}
+                  {t('projectRail.removeAction', { ns: 'panels' })}
                 </DropdownMenuItem>
               </DropdownMenuContent>
             </DropdownMenu>

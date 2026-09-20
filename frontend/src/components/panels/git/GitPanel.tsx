@@ -93,24 +93,29 @@ export function GitPanel() {
   );
 
   // When no workspace is active, fall back to the project's first repo
-  const { data: projectRepos = [] } = useProjectRepos(projectId, {
+  const projectReposQuery = useProjectRepos(projectId, {
     enabled: !!projectId,
   });
+  const projectRepos = projectReposQuery.data ?? [];
+  const parentHasNoGitRepo =
+    projectReposQuery.isSuccess && projectRepos.length === 0;
   const { data: gitChildren = [] } = useQuery({
     queryKey: ['project-git-children', projectId],
     queryFn: () => projectsApi.gitChildren(projectId!),
-    enabled: !!projectId && projectRepos.length === 0,
+    enabled: Boolean(projectId) && parentHasNoGitRepo,
+    staleTime: 30_000,
   });
   const [gitChildId, setGitChildId] = useState<string | null>(null);
   const selectedGitChildId = gitChildId ?? gitChildren[0]?.id ?? null;
   const { data: childRepos = [] } = useProjectRepos(selectedGitChildId, {
-    enabled: projectRepos.length === 0 && !!selectedGitChildId,
+    enabled: parentHasNoGitRepo && !!selectedGitChildId,
   });
-  const fallbackRepoId =
-    projectRepos[0]?.id ?? childRepos[0]?.id ?? null;
+  const fallbackRepoId = parentHasNoGitRepo
+    ? (childRepos[0]?.id ?? null)
+    : (selectedRepoId ?? projectRepos[0]?.id ?? null);
 
-  const workspaceId = effectiveWorkspaceId;
-  const repoId = selectedRepoId ?? fallbackRepoId;
+  const workspaceId = parentHasNoGitRepo ? null : effectiveWorkspaceId;
+  const repoId = fallbackRepoId;
   const conflictStatus = branchStatus?.find((repo) => repo.repo_id === repoId);
   const conflictOp = conflictStatus?.conflict_op ?? null;
   const conflictedFiles = conflictStatus?.conflicted_files ?? [];
@@ -209,6 +214,9 @@ export function GitPanel() {
     revertAll();
   }, [revertAll]);
 
+  if (parentHasNoGitRepo && gitChildren.length > 0 && !repoId) {
+    return <LoadingState />;
+  }
   if (!repoId && gitChildren.length === 0) return <EmptyState />;
   if (statusLoading && !displayedBranchName) return <LoadingState />;
 
@@ -248,7 +256,7 @@ export function GitPanel() {
     >
       {/* Header bar */}
       <div className="flex items-center gap-1 px-2 py-1 border-b border-border/30 shrink-0">
-        {projectRepos.length === 0 && gitChildren.length > 0 ? (
+        {parentHasNoGitRepo && gitChildren.length > 0 ? (
           <Select
             value={selectedGitChildId ?? ''}
             onValueChange={setGitChildId}

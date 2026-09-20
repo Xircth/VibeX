@@ -497,6 +497,7 @@ export function KanbanSessionHub({
     useKanbanSessionMutations({
       projectId,
       primaryRepoId: primaryRepo?.id,
+      projectRepoCount: projectRepos.length,
       workspaceBranchOptions,
       getWorkspaceRepoInputs,
       placeCreatedSession,

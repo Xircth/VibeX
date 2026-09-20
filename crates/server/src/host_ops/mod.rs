@@ -745,12 +745,36 @@ impl ServerApplicationDomains {
         if args.q.trim().is_empty() {
             return Err(ApplicationError::bad_request("query cannot be empty"));
         }
-        let repositories = self
+        let mut repositories = self
             .deployment
             .project()
             .get_repositories(&self.pool, args.id)
             .await
             .map_err(internal_error)?;
+        if repositories.is_empty() {
+            let project = Project::find_by_id(&self.pool, args.id)
+                .await
+                .map_err(internal_error)?
+                .ok_or_else(|| ApplicationError::not_found(format!("project {}", args.id)))?;
+            if !project.root_path.is_empty() {
+                repositories.push(Repo {
+                    id: args.id,
+                    path: std::path::PathBuf::from(&project.root_path),
+                    name: project.name.clone(),
+                    display_name: project.name,
+                    setup_script: None,
+                    cleanup_script: None,
+                    archive_script: None,
+                    copy_files: None,
+                    parallel_setup_script: false,
+                    dev_server_script: None,
+                    default_target_branch: None,
+                    default_working_dir: None,
+                    created_at: project.created_at,
+                    updated_at: project.updated_at,
+                });
+            }
+        }
         let mode = match args.mode.as_deref() {
             Some("settings") => services::services::file_search::SearchMode::Settings,
             _ => services::services::file_search::SearchMode::TaskForm,

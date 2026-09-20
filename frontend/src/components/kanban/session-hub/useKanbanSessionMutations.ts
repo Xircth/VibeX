@@ -31,6 +31,7 @@ export interface RenameKanbanSessionMutationInput {
 export function useKanbanSessionMutations({
   projectId,
   primaryRepoId,
+  projectRepoCount = primaryRepoId ? 1 : 0,
   workspaceBranchOptions,
   getWorkspaceRepoInputs,
   placeCreatedSession,
@@ -40,6 +41,7 @@ export function useKanbanSessionMutations({
 }: {
   projectId: string | null | undefined;
   primaryRepoId: string | null | undefined;
+  projectRepoCount?: number;
   workspaceBranchOptions: WorkspaceBranchOption[];
   getWorkspaceRepoInputs: () => Array<{
     repo_id: string;
@@ -75,6 +77,7 @@ export function useKanbanSessionMutations({
           repoInputs:
             mode === 'new_workspace' ? getWorkspaceRepoInputs() : undefined,
           includeUncommitted,
+          projectRepoCount,
         }),
       });
 

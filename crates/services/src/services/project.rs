@@ -54,6 +54,8 @@ pub enum ProjectServiceError {
     NotSubpath,
     #[error("Parent project not found")]
     ParentNotFound,
+    #[error("A project is one folder. Import extra Git folders as separate projects.")]
+    MultiRepoRetired,
 }
 
 pub type Result<T> = std::result::Result<T, ProjectServiceError>;
@@ -220,49 +222,12 @@ impl ProjectService {
 
     pub async fn add_repository(
         &self,
-        pool: &SqlitePool,
-        repo_service: &RepoService,
-        project_id: Uuid,
-        payload: &CreateProjectRepo,
+        _pool: &SqlitePool,
+        _repo_service: &RepoService,
+        _project_id: Uuid,
+        _payload: &CreateProjectRepo,
     ) -> Result<Repo> {
-        tracing::debug!(
-            "Adding repository '{}' to project {} (path: {})",
-            payload.display_name,
-            project_id,
-            payload.git_repo_path
-        );
-
-        let path = repo_service.normalize_path(&payload.git_repo_path)?;
-        let repo_path = repo_service.resolve_git_repo_path(&path)?;
-        let normalized_repo_path = normalize_windows_extended_path_prefix(&repo_path)
-            .to_string_lossy()
-            .to_string();
-
-        let repository = ProjectRepo::add_repo_to_project(
-            pool,
-            project_id,
-            &normalized_repo_path,
-            &payload.display_name,
-        )
-        .await
-        .map_err(|e| match e {
-            db::models::project_repo::ProjectRepoError::AlreadyExists => {
-                ProjectServiceError::DuplicateGitRepoPath
-            }
-            db::models::project_repo::ProjectRepoError::Database(e) => {
-                ProjectServiceError::Database(e)
-            }
-            _ => ProjectServiceError::RepositoryNotFound,
-        })?;
-
-        tracing::info!(
-            "Added repository {} to project {} (path: {})",
-            repository.id,
-            project_id,
-            repository.path.display()
-        );
-
-        Ok(repository)
+        Err(ProjectServiceError::MultiRepoRetired)
     }
 
     pub async fn delete_repository(
@@ -474,11 +439,7 @@ impl ProjectService {
         pool: &SqlitePool,
         project_id: Uuid,
     ) -> Result<Vec<Project>> {
-        let projects = Project::find_all(pool).await?;
-        Ok(projects
-            .into_iter()
-            .filter(|project| project.parent_project_id == Some(project_id) && project.is_git)
-            .collect())
+        Ok(Project::find_git_children(pool, project_id).await?)
     }
 
     pub async fn migrate_multi_repo_projects(
@@ -486,28 +447,81 @@ impl ProjectService {
         pool: &SqlitePool,
         repo_service: &RepoService,
     ) -> Result<()> {
-        let projects = Project::find_all_including_hidden(pool).await?;
+        if !Project::has_multi_repo_project(pool).await? {
+            return Ok(());
+        }
 
+        let projects = Project::find_all_including_hidden(pool).await?;
         for project in projects {
             let repos = ProjectRepo::find_repos_for_project(pool, project.id).await?;
             if repos.len() <= 1 {
                 continue;
             }
             let paths: Vec<PathBuf> = repos.iter().map(|repo| repo.path.clone()).collect();
-            if let Some(container) = containing_path(&paths) {
+            if let Some(container) = containing_repo_path(&paths) {
+                let container_repo = repos
+                    .iter()
+                    .find(|repo| repo.path == container)
+                    .expect("container path is one of the repos");
                 let parent = self
                     .create_project(
                         pool,
                         repo_service,
                         CreateProject {
-                            name: folder_name(&container),
+                            name: container_repo.display_name.clone(),
                             root_path: container.to_string_lossy().into_owned(),
+                            parent_project_id: None,
+                            repositories: vec![CreateProjectRepo {
+                                display_name: container_repo.display_name.clone(),
+                                git_repo_path: container.to_string_lossy().into_owned(),
+                            }],
+                        },
+                    )
+                    .await?;
+                for repo in &repos {
+                    if repo.path == container {
+                        continue;
+                    }
+                    let _ = self
+                        .create_project(
+                            pool,
+                            repo_service,
+                            CreateProject {
+                                name: repo.display_name.clone(),
+                                root_path: repo.path.to_string_lossy().into_owned(),
+                                parent_project_id: Some(parent.id),
+                                repositories: vec![CreateProjectRepo {
+                                    display_name: repo.display_name.clone(),
+                                    git_repo_path: repo.path.to_string_lossy().into_owned(),
+                                }],
+                            },
+                        )
+                        .await;
+                    sqlx::query(
+                        "DELETE FROM project_repos WHERE project_id = ? AND repo_id = ?",
+                    )
+                    .bind(project.id)
+                    .bind(repo.id)
+                    .execute(pool)
+                    .await?;
+                }
+                continue;
+            }
+
+            if let Some(common) = common_parent_dir(&paths) {
+                let parent = self
+                    .create_project(
+                        pool,
+                        repo_service,
+                        CreateProject {
+                            name: folder_name(&common),
+                            root_path: common.to_string_lossy().into_owned(),
                             parent_project_id: None,
                             repositories: vec![],
                         },
                     )
                     .await?;
-                for repo in repos {
+                for repo in &repos {
                     let child = self
                         .create_project(
                             pool,
@@ -517,35 +531,26 @@ impl ProjectService {
                                 root_path: repo.path.to_string_lossy().into_owned(),
                                 parent_project_id: Some(parent.id),
                                 repositories: vec![CreateProjectRepo {
-                                    display_name: repo.display_name,
+                                    display_name: repo.display_name.clone(),
                                     git_repo_path: repo.path.to_string_lossy().into_owned(),
                                 }],
                             },
                         )
                         .await?;
                     if child.id != project.id {
-                        sqlx::query("DELETE FROM project_repos WHERE project_id = ? AND repo_id = ?")
-                            .bind(project.id)
-                            .bind(repo.id)
-                            .execute(pool)
-                            .await?;
-                    }
-                }
-                if project.root_path.is_empty() {
-                    sqlx::query("UPDATE projects SET hidden = 1 WHERE id = ?")
+                        sqlx::query(
+                            "DELETE FROM project_repos WHERE project_id = ? AND repo_id = ?",
+                        )
                         .bind(project.id)
+                        .bind(repo.id)
                         .execute(pool)
                         .await?;
+                    }
                 }
+                self.keep_only_root_repo(pool, project.id).await?;
                 continue;
             }
 
-            let primary = &repos[0];
-            sqlx::query("UPDATE projects SET root_path = ? WHERE id = ?")
-                .bind(primary.path.to_string_lossy().as_ref())
-                .bind(project.id)
-                .execute(pool)
-                .await?;
             for repo in repos.iter().skip(1) {
                 let _ = self
                     .create_project(
@@ -564,6 +569,23 @@ impl ProjectService {
                     .await;
                 sqlx::query("DELETE FROM project_repos WHERE project_id = ? AND repo_id = ?")
                     .bind(project.id)
+                    .bind(repo.id)
+                    .execute(pool)
+                    .await?;
+            }
+        }
+        Ok(())
+    }
+
+    async fn keep_only_root_repo(&self, pool: &SqlitePool, project_id: Uuid) -> Result<()> {
+        let Some(project) = Project::find_by_id(pool, project_id).await? else {
+            return Ok(());
+        };
+        let repos = ProjectRepo::find_repos_for_project(pool, project_id).await?;
+        for repo in repos {
+            if repo.path.to_string_lossy() != project.root_path {
+                sqlx::query("DELETE FROM project_repos WHERE project_id = ? AND repo_id = ?")
+                    .bind(project_id)
                     .bind(repo.id)
                     .execute(pool)
                     .await?;
@@ -632,21 +654,33 @@ fn folder_name(path: &Path) -> String {
         .unwrap_or_else(|| path.to_string_lossy().into_owned())
 }
 
-fn containing_path(paths: &[PathBuf]) -> Option<PathBuf> {
-    if paths.is_empty() {
-        return None;
-    }
-    let mut common = paths[0].clone();
-    if let Some(parent) = common.parent() {
-        common = parent.to_path_buf();
-    }
+fn containing_repo_path(paths: &[PathBuf]) -> Option<PathBuf> {
+    paths.iter().find_map(|candidate| {
+        let contains_all = paths.iter().all(|path| {
+            path == candidate || path.starts_with(candidate) && path != candidate
+        });
+        contains_all.then(|| candidate.clone())
+    })
+}
+
+fn common_parent_dir(paths: &[PathBuf]) -> Option<PathBuf> {
+    let mut common = paths.first()?.parent()?.to_path_buf();
     for path in paths.iter().skip(1) {
         while !path.starts_with(&common) {
             common = common.parent()?.to_path_buf();
         }
     }
-    if common.as_os_str().is_empty() {
+    if is_filesystem_root(&common) {
         return None;
     }
     Some(normalize_windows_extended_path_prefix(common))
+}
+
+fn is_filesystem_root(path: &Path) -> bool {
+    path.parent().is_none()
+        || path
+            .components()
+            .filter(|component| matches!(component, std::path::Component::Normal(_)))
+            .count()
+            < 2
 }

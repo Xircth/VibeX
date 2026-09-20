@@ -27,6 +27,7 @@ import {
   PROJECT_DELETE_CONFIRM_STYLE,
 } from '@/lib/projectDeleteUi';
 import { toast } from '@/components/ui/toast';
+import { initProjectGitWithPrompt } from '@/lib/initProjectGit';
 import { useAppContextMenu } from '@/components/context-menu';
 
 function WelcomeSection({
@@ -146,6 +147,7 @@ function flattenProjectTree<
 type ProjectContextMenuState = {
   projectId: string;
   projectName: string;
+  isGit: boolean;
   x: number;
   y: number;
 };
@@ -292,13 +294,14 @@ export function WelcomePage() {
 
   const handleProjectContextMenu = useCallback(
     (
-      project: { id: string; name: string },
+      project: { id: string; name: string; is_git?: boolean },
       event: React.MouseEvent<HTMLButtonElement>
     ) => {
       event.preventDefault();
       setContextMenu({
         projectId: project.id,
         projectName: project.name,
+        isGit: Boolean(project.is_git),
         x: event.clientX,
         y: event.clientY,
       });
@@ -333,7 +336,6 @@ export function WelcomePage() {
       message: t('welcomePage.deleteProjectConfirmMessage'),
       confirmText: t('welcomePage.confirmDelete'),
       cancelText: t('common:cancel'),
-      variant: 'destructive',
       contentClassName: PROJECT_DELETE_CONFIRM_CLASSNAME,
       contentStyle: PROJECT_DELETE_CONFIRM_STYLE,
     });
@@ -495,13 +497,30 @@ export function WelcomePage() {
           >
             {t('welcomePage.open')}
           </button>
+          {!contextMenu.isGit ? (
+            <button
+              type="button"
+              className="flex w-full items-center rounded-lg px-3 py-2 text-left text-sm text-foreground transition-colors hover:bg-muted/70"
+              onClick={() => {
+                const target = contextMenu;
+                setContextMenu(null);
+                void initProjectGitWithPrompt({
+                  id: target.projectId,
+                  name: target.projectName,
+                  is_git: target.isGit,
+                });
+              }}
+            >
+              {t('welcomePage.initGit')}
+            </button>
+          ) : null}
           <button
             type="button"
-            className="flex w-full items-center rounded-lg px-3 py-2 text-left text-sm text-destructive transition-colors hover:bg-destructive/10 disabled:cursor-not-allowed disabled:opacity-60"
+            className="flex w-full items-center rounded-lg px-3 py-2 text-left text-sm text-foreground transition-colors hover:bg-muted/70 disabled:cursor-not-allowed disabled:opacity-60"
             onClick={() => void handleDeleteFromContextMenu()}
             disabled={isDeletingProject}
           >
-            {t('common:delete')}
+            {t('welcomePage.confirmDelete')}
           </button>
         </div>
       ) : null}

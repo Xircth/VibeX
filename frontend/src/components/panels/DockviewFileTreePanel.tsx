@@ -7,6 +7,7 @@ import { usePanelActions } from '@/hooks/usePanelActions';
 import { pickHostDirectory } from '@/lib/hostFs';
 import { useProject } from '@/contexts/ProjectContext';
 import { useProjectRepos } from '@/hooks/useProjectRepos';
+import { useProjects } from '@/hooks/useProjects';
 import { useWorktree } from '@/contexts/WorktreeContext';
 import { useAttempt } from '@/hooks/useAttempt';
 import { useAttemptRepo } from '@/hooks/useAttemptRepo';
@@ -67,6 +68,11 @@ function DockviewFileTreePanel(_props: IDockviewPanelProps) {
   const { openFilePreview } = usePanelActions();
   const { projectId } = useProject();
   const { data: repos } = useProjectRepos(projectId);
+  const { projectsById } = useProjects();
+  const projectFolderPath =
+    (projectId && projectsById[projectId]?.root_path?.trim()) ||
+    repos?.[0]?.path ||
+    null;
 
   // Active workspace context
   const { activeWorktreeId } = useWorktree();
@@ -143,8 +149,8 @@ function DockviewFileTreePanel(_props: IDockviewPanelProps) {
       }
     } else if (!activeWorktreeId && prevWorktreeIdRef.current !== null) {
       prevWorktreeIdRef.current = null;
-      if (repos && repos.length > 0) {
-        setRootPath(repos[0].path);
+      if (projectFolderPath) {
+        setRootPath(projectFolderPath);
       }
     }
   }, [
@@ -157,6 +163,7 @@ function DockviewFileTreePanel(_props: IDockviewPanelProps) {
     setRootPath,
     setSelectedFilePath,
     workspace?.project_id,
+    projectFolderPath,
   ]);
 
   useEffect(() => {
@@ -180,7 +187,7 @@ function DockviewFileTreePanel(_props: IDockviewPanelProps) {
   }, [projectId, setDiffFilePath, setRootPath, setSelectedFilePath]);
 
   useEffect(() => {
-    if (activeWorktreeId || !projectId || !repos || repos.length === 0) {
+    if (activeWorktreeId || !projectId || !projectFolderPath) {
       return;
     }
 
@@ -188,7 +195,7 @@ function DockviewFileTreePanel(_props: IDockviewPanelProps) {
       return;
     }
 
-    const nextRootPath = repos[0].path;
+    const nextRootPath = projectFolderPath;
     setRootPath(nextRootPath);
     setSelectedFilePath(null);
     setDiffFilePath(null);
@@ -196,18 +203,17 @@ function DockviewFileTreePanel(_props: IDockviewPanelProps) {
   }, [
     activeWorktreeId,
     projectId,
-    repos,
+    projectFolderPath,
     setDiffFilePath,
     setRootPath,
     setSelectedFilePath,
   ]);
 
-  // Auto-set rootPath from project repos when no workspace is active and no rootPath set
   useEffect(() => {
-    if (!rootPath && !activeWorktreeId && repos && repos.length > 0) {
-      setRootPath(repos[0].path);
+    if (!rootPath && !activeWorktreeId && projectFolderPath) {
+      setRootPath(projectFolderPath);
     }
-  }, [rootPath, activeWorktreeId, repos, setRootPath]);
+  }, [rootPath, activeWorktreeId, projectFolderPath, setRootPath]);
 
   // Load root directory children
   const loadRootChildren = useCallback(async () => {

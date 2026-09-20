@@ -9,6 +9,7 @@ import { useProject } from '@/contexts/ProjectContext';
 import { paths } from '@/lib/paths';
 import { cn } from '@/lib/utils';
 import { projectsApi } from '@/lib/api';
+import { initProjectGitWithPrompt } from '@/lib/initProjectGit';
 import { useProjectSwitcher } from '@/hooks/useProjectSwitcher';
 import { useWindowProjectsStore } from '@/stores/useWindowProjectsStore';
 import { toast } from '@/components/ui/toast';
@@ -407,10 +408,21 @@ export function ProjectRail({
                       label: t('common:contextMenu.open'),
                       onSelect: () => handleProjectClick(project.id),
                     },
+                    ...(!project.is_git
+                      ? [
+                          {
+                            id: 'init-git',
+                            label: t('projectRail.initGit'),
+                            onSelect: () => {
+                              void initProjectGitWithPrompt(project);
+                            },
+                          },
+                        ]
+                      : []),
                     {
                       id: 'delete',
-                      label: t('common:delete'),
-                      danger: true,
+                      label: t('projectRail.removeAction'),
+                      danger: false,
                       onSelect: () => {
                         void handleDeleteProject({
                           id: project.id,

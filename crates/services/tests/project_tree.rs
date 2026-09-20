@@ -146,3 +146,132 @@ async fn hide_releases_direct_children_and_keeps_grandchildren() {
     let c = visible.iter().find(|project| project.name == "C").unwrap();
     assert_eq!(c.parent_project_id, Some(project_b.id));
 }
+
+#[tokio::test]
+async fn migrate_splits_sibling_repos_under_shared_parent() {
+    let root = TempDir::new().unwrap();
+    let parent = root.path().join("mono");
+    let api = parent.join("api");
+    let web = parent.join("web");
+    fs::create_dir_all(&api).unwrap();
+    fs::create_dir_all(&web).unwrap();
+    GitService::new()
+        .initialize_repo_with_main_branch(&api)
+        .unwrap();
+    GitService::new()
+        .initialize_repo_with_main_branch(&web)
+        .unwrap();
+
+    let pool = pool().await;
+    let service = ProjectService::new();
+    let repo = RepoService::new();
+    service
+        .create_project(
+            &pool,
+            &repo,
+            CreateProject {
+                name: "legacy-multi".into(),
+                repositories: vec![
+                    db::models::project_repo::CreateProjectRepo {
+                        display_name: "api".into(),
+                        git_repo_path: api.to_string_lossy().into_owned(),
+                    },
+                    db::models::project_repo::CreateProjectRepo {
+                        display_name: "web".into(),
+                        git_repo_path: web.to_string_lossy().into_owned(),
+                    },
+                ],
+                ..Default::default()
+            },
+        )
+        .await
+        .unwrap();
+
+    service
+        .migrate_multi_repo_projects(&pool, &repo)
+        .await
+        .unwrap();
+    service
+        .migrate_multi_repo_projects(&pool, &repo)
+        .await
+        .unwrap();
+
+    let visible = db::models::project::Project::find_all(&pool).await.unwrap();
+    let folder = visible
+        .iter()
+        .find(|project| !project.is_git)
+        .expect("shared parent folder");
+    let children: Vec<_> = visible
+        .iter()
+        .filter(|project| project.parent_project_id == Some(folder.id))
+        .collect();
+    assert_eq!(children.len(), 2);
+    assert!(children.iter().all(|project| project.is_git));
+    assert!(!db::models::project::Project::has_multi_repo_project(&pool)
+        .await
+        .unwrap());
+}
+
+#[tokio::test]
+async fn migrate_keeps_containing_repo_as_parent() {
+    let root = TempDir::new().unwrap();
+    let outer = root.path().join("outer");
+    let inner = outer.join("inner");
+    fs::create_dir_all(&inner).unwrap();
+    GitService::new()
+        .initialize_repo_with_main_branch(&outer)
+        .unwrap();
+    GitService::new()
+        .initialize_repo_with_main_branch(&inner)
+        .unwrap();
+
+    let pool = pool().await;
+    let service = ProjectService::new();
+    let repo = RepoService::new();
+    let original = service
+        .create_project(
+            &pool,
+            &repo,
+            CreateProject {
+                name: "outer".into(),
+                repositories: vec![
+                    db::models::project_repo::CreateProjectRepo {
+                        display_name: "outer".into(),
+                        git_repo_path: outer.to_string_lossy().into_owned(),
+                    },
+                    db::models::project_repo::CreateProjectRepo {
+                        display_name: "inner".into(),
+                        git_repo_path: inner.to_string_lossy().into_owned(),
+                    },
+                ],
+                ..Default::default()
+            },
+        )
+        .await
+        .unwrap();
+
+    service
+        .migrate_multi_repo_projects(&pool, &repo)
+        .await
+        .unwrap();
+
+    let visible = db::models::project::Project::find_all(&pool).await.unwrap();
+    let parent = visible
+        .iter()
+        .find(|project| project.id == original.id)
+        .unwrap();
+    assert!(parent.is_git);
+    assert!(parent.parent_project_id.is_none());
+    let inner_project = visible
+        .iter()
+        .find(|project| project.name == "inner")
+        .unwrap();
+    assert_eq!(inner_project.parent_project_id, Some(parent.id));
+    assert_eq!(
+        db::models::project_repo::ProjectRepo::find_repos_for_project(&pool, parent.id)
+            .await
+            .unwrap()
+            .len(),
+        1
+    );
+}

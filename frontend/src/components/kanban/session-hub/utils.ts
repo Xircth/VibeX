@@ -356,6 +356,7 @@ export function getCreateProjectSessionRequest({
   workspaceBranchOptions,
   repoInputs,
   includeUncommitted,
+  projectRepoCount = 1,
 }: {
   projectId: string | null | undefined;
   workspaceValue: string;
@@ -365,13 +366,26 @@ export function getCreateProjectSessionRequest({
   workspaceBranchOptions: WorkspaceBranchOption[];
   repoInputs?: Array<{ repo_id: string; target_branch: string }>;
   includeUncommitted?: boolean;
+  projectRepoCount?: number;
 }): CreateProjectSessionRequest {
-  if (mode === 'existing_workspace' && !workspaceValue) {
-    throw new Error('Workspace is required');
-  }
-
   if (!projectId) {
     throw new Error('Project is required');
+  }
+
+  if (projectRepoCount === 0) {
+    return {
+      project_id: projectId,
+      workspace_id: null,
+      branch: null,
+      executor: executorProfile?.executor ?? undefined,
+      name: sessionName.trim() || null,
+      create_workspace: false,
+      repos: undefined,
+    };
+  }
+
+  if (mode === 'existing_workspace' && !workspaceValue) {
+    throw new Error('Workspace is required');
   }
 
   const selectedWorkspaceOption =

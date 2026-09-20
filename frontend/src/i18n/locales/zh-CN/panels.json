@@ -281,9 +281,11 @@
     "statusErrorUnread": "会话执行报错需查看",
     "statusError": "会话报错已查看",
     "statusIdle": "暂无会话",
-    "recentSessions": "最近会话"
+    "recentSessions": "最近会话",
+    "noRecentSessions": "暂无最近会话"
   },
   "projectRail": {
+    "title": "项目栏",
     "placeholderProjectName": "项目",
     "deleteConfirmTitle": "从列表移除“{{name}}”？",
     "deleteConfirmMessage": "项目会从列表和项目栏消失，磁盘上的文件不会删除。会话会保留，之后用同一文件夹即可恢复。子项目会变成独立项目。",

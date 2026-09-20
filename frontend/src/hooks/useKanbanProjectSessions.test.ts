@@ -63,6 +63,7 @@ vi.mock('react-i18next', () => ({
 import {
   buildDefaultSessionName,
   fallbackSessionNamesByCreationOrder,
+  isProjectSessionListLoading,
   useKanbanProjectSessions,
 } from './useKanbanProjectSessions';
 
@@ -222,5 +223,17 @@ describe('useKanbanProjectSessions', () => {
       )
     ).toHaveLength(sessionCacheWritesAfterLoad);
     expect(sessionCacheWritesAfterLoad).toBe(1);
+  });
+});
+
+describe('isProjectSessionListLoading', () => {
+  it('does not treat workspace-stream subscribe as project activity', () => {
+    expect(isProjectSessionListLoading(true, false)).toBe(false);
+    expect(isProjectSessionListLoading(true, true)).toBe(false);
+  });
+
+  it('is loading only after workspaces are ready and session summaries are fetching', () => {
+    expect(isProjectSessionListLoading(false, true)).toBe(true);
+    expect(isProjectSessionListLoading(false, false)).toBe(false);
   });
 });

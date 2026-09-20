@@ -184,7 +184,7 @@ export function RightPanelContent() {
     lastActiveWorkspaceId,
   } = useKanbanSessionContext();
   const { activeWorktreeId, setActiveWorktree } = useWorktree();
-  const { projectId } = useProject();
+  const { projectId, project } = useProject();
   const { profiles, config } = useUserSystem();
   const effectiveProjectId = projectId ?? routeProjectId;
   const showRightSession = !!visibleRightSession;
@@ -199,7 +199,7 @@ export function RightPanelContent() {
     activeWorktreeId ?? visibleRightSession?.workspaceId ?? workspaceId;
   const queryClient = useQueryClient();
   const { data: repos = [] } = useProjectRepos(effectiveProjectId);
-  const isGitProject = repos.length > 0;
+  const isGitProject = Boolean(project?.is_git);
   const primaryRepo = repos[0];
   const { data: primaryRepoBranches = [] } = useRepoBranches(primaryRepo?.id, {
     enabled: Boolean(primaryRepo?.id),

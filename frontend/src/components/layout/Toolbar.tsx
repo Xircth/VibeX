@@ -417,8 +417,10 @@ export function WorkspaceBranchControls({
   isWorkspaceTab: boolean;
   workspaceId?: string;
 }) {
+  const { project } = useProject();
   const boardStyle = useKanbanBoardStyle();
   const showCanvasListToggle = !isWorkspaceTab && boardStyle === 'canvas';
+  const isGitProject = Boolean(project?.is_git);
 
   return (
     <div
@@ -427,8 +429,10 @@ export function WorkspaceBranchControls({
       aria-label="Workspace and target branches"
     >
       {showCanvasListToggle ? <CanvasSessionListToggleButton /> : null}
-      {isWorkspaceTab ? <WorktreeSelector /> : null}
-      {workspaceId ? <BranchStatusBadge workspaceId={workspaceId} /> : null}
+      {isWorkspaceTab && isGitProject ? <WorktreeSelector /> : null}
+      {workspaceId && isGitProject ? (
+        <BranchStatusBadge workspaceId={workspaceId} />
+      ) : null}
     </div>
   );
 }

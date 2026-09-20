@@ -7,7 +7,6 @@ import { usePanelActions } from '@/hooks/usePanelActions';
 import { pickHostDirectory } from '@/lib/hostFs';
 import { useProject } from '@/contexts/ProjectContext';
 import { useProjectRepos } from '@/hooks/useProjectRepos';
-import { useProjects } from '@/hooks/useProjects';
 import { useWorktree } from '@/contexts/WorktreeContext';
 import { useAttempt } from '@/hooks/useAttempt';
 import { useAttemptRepo } from '@/hooks/useAttemptRepo';
@@ -66,13 +65,10 @@ function DockviewFileTreePanel(_props: IDockviewPanelProps) {
     setDiffFilePath,
   } = useFileTreeStore();
   const { openFilePreview } = usePanelActions();
-  const { projectId } = useProject();
+  const { projectId, project } = useProject();
   const { data: repos } = useProjectRepos(projectId);
-  const { projectsById } = useProjects();
   const projectFolderPath =
-    (projectId && projectsById[projectId]?.root_path?.trim()) ||
-    repos?.[0]?.path ||
-    null;
+    project?.root_path?.trim() || repos?.[0]?.path?.trim() || null;
 
   // Active workspace context
   const { activeWorktreeId } = useWorktree();
@@ -103,8 +99,10 @@ function DockviewFileTreePanel(_props: IDockviewPanelProps) {
   const workspaceContainerRef = workspace?.container_ref ?? null;
   const workspaceUsesWorktree = workspace?.use_worktree ?? false;
   const workspaceAgentWorkingDir = workspace?.agent_working_dir ?? null;
+  const workspaceBelongsToCurrentProject =
+    Boolean(projectId) && workspace?.project_id === projectId;
   const workspaceRootCandidates = useMemo(() => {
-    if (!activeWorktreeId) {
+    if (!activeWorktreeId || !workspaceBelongsToCurrentProject) {
       return [];
     }
     return deriveWorkspaceRootPathCandidates(
@@ -118,6 +116,7 @@ function DockviewFileTreePanel(_props: IDockviewPanelProps) {
   }, [
     activeWorktreeId,
     workspaceAgentWorkingDir,
+    workspaceBelongsToCurrentProject,
     workspaceContainerRef,
     workspaceRepos,
     workspaceUsesWorktree,
@@ -127,11 +126,7 @@ function DockviewFileTreePanel(_props: IDockviewPanelProps) {
     [workspaceRootCandidates]
   );
 
-  // Switch rootPath to workspace worktree path when workspace changes
   useEffect(() => {
-    const workspaceBelongsToCurrentProject =
-      !projectId || workspace?.project_id === projectId;
-
     if (activeWorktreeId) {
       if (!workspaceBelongsToCurrentProject) {
         return;
@@ -155,15 +150,13 @@ function DockviewFileTreePanel(_props: IDockviewPanelProps) {
     }
   }, [
     activeWorktreeId,
-    projectId,
+    projectFolderPath,
     resolvedWorkspaceRootPath,
-    repos,
     rootPath,
     setDiffFilePath,
     setRootPath,
     setSelectedFilePath,
-    workspace?.project_id,
-    projectFolderPath,
+    workspaceBelongsToCurrentProject,
   ]);
 
   useEffect(() => {
@@ -187,7 +180,11 @@ function DockviewFileTreePanel(_props: IDockviewPanelProps) {
   }, [projectId, setDiffFilePath, setRootPath, setSelectedFilePath]);
 
   useEffect(() => {
-    if (activeWorktreeId || !projectId || !projectFolderPath) {
+    if (
+      (activeWorktreeId && workspaceBelongsToCurrentProject) ||
+      !projectId ||
+      !projectFolderPath
+    ) {
       return;
     }
 
@@ -195,18 +192,18 @@ function DockviewFileTreePanel(_props: IDockviewPanelProps) {
       return;
     }
 
-    const nextRootPath = projectFolderPath;
-    setRootPath(nextRootPath);
+    setRootPath(projectFolderPath);
     setSelectedFilePath(null);
     setDiffFilePath(null);
     pendingProjectRootSyncRef.current = undefined;
   }, [
     activeWorktreeId,
-    projectId,
     projectFolderPath,
+    projectId,
     setDiffFilePath,
     setRootPath,
     setSelectedFilePath,
+    workspaceBelongsToCurrentProject,
   ]);
 
   useEffect(() => {
@@ -217,14 +214,22 @@ function DockviewFileTreePanel(_props: IDockviewPanelProps) {
 
   // Load root directory children
   const loadRootChildren = useCallback(async () => {
-    if (!rootPath) return;
+    const allowedRoots = new Set(
+      [projectFolderPath, ...workspaceRootCandidates].filter(
+        (candidate): candidate is string => Boolean(candidate)
+      )
+    );
+    const loadRoot =
+      (rootPath && allowedRoots.has(rootPath) ? rootPath : null) ||
+      projectFolderPath;
+    if (!loadRoot) return;
     const requestId = loadRequestIdRef.current + 1;
     loadRequestIdRef.current = requestId;
     setIsLoading(true);
 
     const candidatePaths = Array.from(
       new Set(
-        [rootPath, ...workspaceRootCandidates].filter(
+        [loadRoot, ...workspaceRootCandidates].filter(
           (candidate): candidate is string => Boolean(candidate)
         )
       )
@@ -232,7 +237,7 @@ function DockviewFileTreePanel(_props: IDockviewPanelProps) {
 
     try {
       let resolvedResponse: DirectoryChildrenResponse | null = null;
-      let resolvedRootPath = rootPath;
+      let resolvedRootPath = loadRoot;
 
       for (const candidatePath of candidatePaths) {
         try {
@@ -263,7 +268,7 @@ function DockviewFileTreePanel(_props: IDockviewPanelProps) {
         return;
       }
 
-      if (resolvedRootPath !== rootPath) {
+      if (resolvedRootPath !== rootPath && allowedRoots.has(resolvedRootPath)) {
         setRootPath(resolvedRootPath);
       }
 
@@ -286,7 +291,7 @@ function DockviewFileTreePanel(_props: IDockviewPanelProps) {
         setIsLoading(false);
       }
     }
-  }, [rootPath, setRootPath, workspaceRootCandidates]);
+  }, [projectFolderPath, rootPath, setRootPath, workspaceRootCandidates]);
 
   const refreshFileTree = useCallback(async () => {
     await loadRootChildren();

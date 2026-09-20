@@ -74,7 +74,9 @@ export function useProjects(): UseProjectsResult {
   return {
     projects: projectsData ?? [],
     projectsById,
-    isLoading: remote ? remoteProjects.isLoading : !isInitialized && !error,
+    isLoading: remote
+      ? remoteProjects.isLoading
+      : !error && (data === undefined || !isInitialized),
     isConnected: remote ? remoteProjects.isSuccess : isConnected,
     error: errorObj,
   };

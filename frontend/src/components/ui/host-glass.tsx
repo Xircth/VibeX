@@ -55,7 +55,11 @@ export function HostGlass({
 }: HostGlassProps) {
   if (usesSolidHostChrome()) {
     return (
-      <div className={className} style={solidHostChromeStyle(style)}>
+      <div
+        className={className}
+        data-host-chrome="solid"
+        style={solidHostChromeStyle(style)}
+      >
         {children}
       </div>
     );

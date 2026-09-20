@@ -99,13 +99,18 @@ export function GitPanel() {
   const projectRepos = projectReposQuery.data ?? [];
   const parentHasNoGitRepo =
     projectReposQuery.isSuccess && projectRepos.length === 0;
-  const { data: gitChildren = [] } = useQuery({
+  const { data: gitChildren = [], isLoading: gitChildrenLoading } = useQuery({
     queryKey: ['project-git-children', projectId],
     queryFn: () => projectsApi.gitChildren(projectId!),
     enabled: Boolean(projectId) && parentHasNoGitRepo,
     staleTime: 30_000,
+    placeholderData: (previousData, previousQuery) =>
+      previousQuery?.queryKey[1] === projectId ? previousData : undefined,
   });
   const [gitChildId, setGitChildId] = useState<string | null>(null);
+  useEffect(() => {
+    setGitChildId(null);
+  }, [projectId]);
   const selectedGitChildId = gitChildId ?? gitChildren[0]?.id ?? null;
   const { data: childRepos = [] } = useProjectRepos(selectedGitChildId, {
     enabled: parentHasNoGitRepo && !!selectedGitChildId,
@@ -214,11 +219,40 @@ export function GitPanel() {
     revertAll();
   }, [revertAll]);
 
-  if (parentHasNoGitRepo && gitChildren.length > 0 && !repoId) {
+  if (parentHasNoGitRepo && gitChildrenLoading && gitChildren.length === 0) {
     return <LoadingState />;
   }
+  if (parentHasNoGitRepo && gitChildren.length > 0 && !repoId) {
+    return (
+      <div
+        className="h-full w-full flex flex-col bg-background overflow-hidden"
+        data-panel="git"
+      >
+        <div className="flex items-center gap-1 px-2 py-1 border-b border-border/30 shrink-0">
+          <Select
+            value={selectedGitChildId ?? ''}
+            onValueChange={setGitChildId}
+          >
+            <SelectTrigger className="h-7 w-[140px] text-xs">
+              <SelectValue placeholder="Git 仓库" />
+            </SelectTrigger>
+            <SelectContent>
+              {gitChildren.map((child) => (
+                <SelectItem key={child.id} value={child.id}>
+                  {child.name}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+        <LoadingState />
+      </div>
+    );
+  }
   if (!repoId && gitChildren.length === 0) return <EmptyState />;
-  if (statusLoading && !displayedBranchName) return <LoadingState />;
+  if (statusLoading && !displayedBranchName && gitChildren.length === 0) {
+    return <LoadingState />;
+  }
 
   return (
     <div

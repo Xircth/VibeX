@@ -520,7 +520,7 @@ const ProjectFormDialogImpl = NiceModal.create<ProjectFormDialogProps>(
                       className={
                         selectedFolderIsGitRepo
                           ? 'text-sm text-[hsl(var(--success))]'
-                          : 'text-sm text-[hsl(var(--warning))]'
+                          : 'text-xs text-[hsl(var(--warning))]'
                       }
                     >
                       {selectedFolderIsGitRepo
@@ -569,8 +569,16 @@ const ProjectFormDialogImpl = NiceModal.create<ProjectFormDialogProps>(
                               return (
                                 <label
                                   key={child.path}
-                                  className="flex items-start gap-2 rounded-md px-2 py-1.5 text-sm hover:bg-muted/60"
+                                  className="flex items-center gap-2 rounded-md px-2 py-1.5 text-sm hover:bg-muted/60"
                                 >
+                                  <span className="min-w-0 flex-1">
+                                    <span className="block truncate font-medium">
+                                      {child.name}
+                                    </span>
+                                    <span className="block truncate font-mono text-xs text-muted-foreground">
+                                      {child.path}
+                                    </span>
+                                  </span>
                                   <Checkbox
                                     checked={checked}
                                     onCheckedChange={(value) => {
@@ -584,14 +592,6 @@ const ProjectFormDialogImpl = NiceModal.create<ProjectFormDialogProps>(
                                     }}
                                     disabled={isBusy}
                                   />
-                                  <span className="min-w-0">
-                                    <span className="block truncate font-medium">
-                                      {child.name}
-                                    </span>
-                                    <span className="block truncate font-mono text-xs text-muted-foreground">
-                                      {child.path}
-                                    </span>
-                                  </span>
                                 </label>
                               );
                             })}

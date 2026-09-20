@@ -281,9 +281,11 @@
     "statusErrorUnread": "Session error needs review",
     "statusError": "Session error reviewed",
     "statusIdle": "No sessions",
-    "recentSessions": "Recent sessions"
+    "recentSessions": "Recent sessions",
+    "noRecentSessions": "No recent sessions"
   },
   "projectRail": {
+    "title": "Projects",
     "placeholderProjectName": "Project",
     "deleteConfirmTitle": "Remove \"{{name}}\" from the list?",
     "deleteConfirmMessage": "The project leaves the list and project bar. Files on disk stay. Sessions stay, and opening the same folder restores it. Child projects become top-level.",

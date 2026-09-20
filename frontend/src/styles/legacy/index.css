@@ -3312,12 +3312,12 @@
   }
 
   .project-rail-inline-stage {
-    --project-rail-glass: hsl(210 28% 98% / 0.3);
-    --project-rail-glass-edge: hsl(0 0% 100% / 0.74);
+    --project-rail-glass: hsl(210 28% 98% / 0.36);
+    --project-rail-glass-edge: hsl(218 16% 42% / 0.38);
     --project-rail-glass-shadow: hsl(220 24% 14% / 0.2);
     --project-rail-control: hsl(0 0% 100% / 0.94);
-    --project-rail-control-hover: #ffffff;
-    --project-rail-control-border: hsl(218 18% 82% / 0.9);
+    --project-rail-control-hover: hsl(218 20% 92% / 0.72);
+    --project-rail-control-border: hsl(218 16% 42% / 0.28);
     --project-rail-control-shadow: hsl(220 20% 18% / 0.14);
     --project-rail-ink: #1d2433;
     --project-rail-muted: #6d7480;
@@ -3326,12 +3326,12 @@
   }
 
   .dark .project-rail-inline-stage {
-    --project-rail-glass: hsl(210 16% 16% / 0.52);
-    --project-rail-glass-edge: hsl(210 30% 80% / 0.14);
+    --project-rail-glass: hsl(210 16% 16% / 0.4);
+    --project-rail-glass-edge: hsl(210 30% 80% / 0.28);
     --project-rail-glass-shadow: hsl(210 40% 2% / 0.45);
     --project-rail-control: hsl(210 16% 18% / 0.96);
-    --project-rail-control-hover: #242936;
-    --project-rail-control-border: hsl(210 30% 80% / 0.16);
+    --project-rail-control-hover: hsl(210 20% 100% / 0.1);
+    --project-rail-control-border: hsl(210 30% 80% / 0.22);
     --project-rail-control-shadow: hsl(210 40% 2% / 0.34);
     --project-rail-ink: #e7ebef;
     --project-rail-muted: #8b949e;
@@ -3342,10 +3342,7 @@
   .project-rail-inline-host {
     position: fixed;
     z-index: 40;
-    top: 50%;
-    left: 12px;
     pointer-events: none;
-    transform: translateY(-50%);
   }
 
   .project-rail-inline-stage {
@@ -3359,7 +3356,18 @@
 
   .project-rail-liquid-glass {
     isolation: isolate;
-    background: transparent !important;
+  }
+
+  .project-rail-liquid-glass[data-host-chrome='solid'] {
+    overflow: hidden;
+    border: 1px solid var(--project-rail-glass-edge);
+    border-radius: 16px;
+    background: var(--project-rail-glass);
+    box-shadow:
+      inset 0 1px 0 hsl(0 0% 100% / 0.45),
+      0 12px 30px var(--project-rail-glass-shadow);
+    backdrop-filter: blur(20px) saturate(140%);
+    -webkit-backdrop-filter: blur(20px) saturate(140%);
   }
 
   .project-rail-liquid-glass .glass {
@@ -3404,7 +3412,7 @@
     --project-rail-divider-margin: 8px auto 10px;
     box-sizing: border-box;
     display: grid;
-    grid-template-rows: minmax(0, 1fr) auto auto;
+    grid-template-rows: auto minmax(0, 1fr);
     min-width: 0;
     min-height: 0;
     overflow: hidden;
@@ -3435,11 +3443,46 @@
     --project-rail-divider-margin: 6px auto 7px;
     width: 100%;
     height: 100%;
-    padding: 7px 6px 6px;
+    padding: 8px 8px 8px;
     border: 0;
     border-radius: var(--radius);
     background: transparent;
     box-shadow: none;
+    cursor: grab;
+    user-select: none;
+    touch-action: none;
+  }
+
+  .project-rail-shell--inline.is-moving,
+  .project-rail-header.is-moving {
+    cursor: grabbing;
+  }
+
+  .project-rail-header {
+    display: flex;
+    min-width: 0;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    padding: 0 2px 6px;
+    cursor: grab;
+  }
+
+  .project-rail-header .project-rail-action-button,
+  .project-rail-project-button {
+    cursor: pointer;
+    touch-action: auto;
+    user-select: none;
+  }
+
+  .project-rail-title {
+    min-width: 0;
+    overflow: hidden;
+    font-size: 12px;
+    font-weight: 700;
+    line-height: 1.2;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
 
   .project-rail-projects {
@@ -3452,12 +3495,17 @@
     padding: 2px 0 5px;
     overflow-x: hidden;
     overflow-y: auto;
-    scrollbar-width: none;
+    scrollbar-width: thin;
     cursor: grab;
   }
 
   .project-rail-projects::-webkit-scrollbar {
-    display: none;
+    width: 6px;
+  }
+
+  .project-rail-projects::-webkit-scrollbar-thumb {
+    border-radius: 999px;
+    background: var(--project-rail-divider);
   }
 
   .project-rail-projects.is-dragging {
@@ -3490,18 +3538,44 @@
 
   .project-rail-project-button {
     display: flex;
+    box-sizing: border-box;
     width: 100%;
     min-height: var(--project-rail-project-size);
     align-items: center;
     gap: 8px;
-    padding: 0 6px;
+    padding: 0 8px;
+    border: 1px solid var(--project-rail-control-border);
     border-radius: var(--radius);
     background: transparent;
+    transition:
+      background 140ms ease-out,
+      border-color 140ms ease-out,
+      color 140ms ease-out;
+  }
+
+  .project-rail-project-button:hover {
+    background: var(--project-rail-control-hover);
   }
 
   .project-rail-project-button.is-active {
+    border-color: transparent;
     background: hsl(var(--primary));
     color: hsl(var(--primary-foreground));
+  }
+
+  .project-rail-project-button.is-active:hover {
+    background: hsl(var(--primary));
+  }
+
+  .project-rail-project-icon {
+    width: 14px;
+    height: 14px;
+    flex: 0 0 auto;
+    color: var(--project-rail-muted);
+  }
+
+  .project-rail-project-button.is-active .project-rail-project-icon {
+    color: inherit;
   }
 
   .project-rail-project-name {
@@ -3516,100 +3590,39 @@
     line-height: 1.2;
   }
 
-  .project-rail-project-badge,
   .project-rail-action-button {
     box-sizing: border-box;
-    border: 1px solid var(--project-rail-control-border);
-    background: var(--project-rail-control);
-    box-shadow:
-      inset 0 1px 0 var(--project-rail-glass-edge),
-      0 3px 10px var(--project-rail-control-shadow);
+    border: 0;
+    background: transparent;
+    box-shadow: none;
+    color: var(--project-rail-muted);
   }
 
-  .project-rail-project-badge {
-    position: relative;
-    display: grid;
-    width: var(--project-rail-project-size);
-    height: var(--project-rail-project-size);
-    place-items: center;
-    overflow: hidden;
-    border-radius: var(--radius);
-    transition:
-      background 140ms ease-out,
-      border-color 140ms ease-out,
-      box-shadow 140ms ease-out;
-  }
-
-  .project-rail-project-badge__shine {
-    position: absolute;
-    inset: 0;
-    background: linear-gradient(
-      145deg,
-      var(--project-rail-glass-edge),
-      transparent 44%
-    );
-    pointer-events: none;
-  }
-
-  .dark .project-rail-project-badge__shine {
-    opacity: 0.16;
-  }
-
-  .project-rail-project-badge__monogram {
-    position: relative;
-    max-width: calc(var(--project-rail-project-size) - 8px);
-    overflow: hidden;
+  .project-rail-action-button:hover {
     color: var(--project-rail-ink);
-    font-size: var(--project-rail-monogram-size);
-    font-weight: 720;
-    line-height: 1;
-    letter-spacing: -0.035em;
-    text-overflow: clip;
-    white-space: nowrap;
   }
 
-  .project-rail-project-button:hover,
-  .project-rail-action-button:hover {
-    transform: translateY(-1px);
-  }
-
-  .project-rail-project-button:hover .project-rail-project-badge,
-  .project-rail-action-button:hover {
-    background: var(--project-rail-control-hover);
-  }
-
-  .project-rail-project-button:active,
-  .project-rail-action-button:active {
-    transform: scale(0.96);
+  .project-rail-project-button:active {
     transition-duration: 80ms;
   }
 
-  .project-rail-project-button:focus-visible .project-rail-project-badge,
-  .project-rail-action-button:focus-visible {
+  .project-rail-project-button:focus-visible {
     box-shadow:
       0 0 0 2px var(--project-rail-accent),
       0 4px 12px var(--project-rail-control-shadow);
   }
 
-  .project-rail-project-badge--active {
-    border-color: color-mix(
-      in srgb,
-      var(--project-rail-accent) 62%,
-      var(--project-rail-control-border)
-    );
-    box-shadow:
-      0 0 0 2px color-mix(in srgb, var(--project-rail-accent) 36%, transparent),
-      0 4px 12px var(--project-rail-control-shadow);
+  .project-rail-action-button:focus-visible {
+    box-shadow: 0 0 0 2px var(--project-rail-accent);
   }
 
   .project-rail-status-dot,
   .project-rail-status-dot-shell {
-    position: absolute;
-    right: var(--project-rail-status-offset);
-    bottom: var(--project-rail-status-offset);
+    position: relative;
     box-sizing: border-box;
     width: var(--project-rail-status-size);
     height: var(--project-rail-status-size);
+    flex: 0 0 auto;
     border: var(--project-rail-status-border) solid var(--project-rail-control);
     border-radius: 999px;
   }
@@ -3695,14 +3708,14 @@
     flex-direction: row;
     align-items: center;
     justify-content: flex-end;
-    gap: var(--project-rail-action-gap);
+    gap: 2px;
   }
 
   .project-rail-action-button {
-    width: var(--project-rail-action-size);
-    height: var(--project-rail-action-size);
-    flex: 0 0 var(--project-rail-action-size);
-    border-radius: var(--radius);
+    width: 22px;
+    height: 22px;
+    flex: 0 0 22px;
+    border-radius: 6px;
   }
 
   .project-rail-action-button svg {
@@ -6067,7 +6080,6 @@
     animation-iteration-count: 1 !important;
   }
 
-  :where(.legacy-design) .project-rail-action-button:hover,
   :where(.legacy-design) .project-rail-project-button:hover,
   :where(.legacy-design) .session-hub-card,
   :where(.legacy-design) .session-hub-card:hover {
@@ -7270,6 +7282,12 @@ html.host-windows :where(.legacy-design) .vu-toast-surface {
     background: var(--surface-glass-solid) !important;
   }
 
+  :where(.legacy-design) .project-rail-liquid-glass[data-host-chrome='solid'] {
+    backdrop-filter: none !important;
+    -webkit-backdrop-filter: none !important;
+    background: var(--project-rail-glass);
+  }
+
   :where(.legacy-design) .settings-action-bar__glass .glass {
     background: var(--surface-glass-solid) !important;
   }
@@ -7362,6 +7380,15 @@ html.host-windows :where(.legacy-design) .vu-toast-surface {
   .branch-info-liquid-glass
   .glass {
   background: var(--surface-glass-solid) !important;
+}
+
+:where(.legacy-design.reduced-transparency)
+  .project-rail-liquid-glass[data-host-chrome='solid'],
+:where(.app.reduced-transparency .legacy-design)
+  .project-rail-liquid-glass[data-host-chrome='solid'] {
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+  background: var(--project-rail-glass);
 }
 
 :where(.legacy-design.reduced-transparency) .settings-action-bar__glass .glass,

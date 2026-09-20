@@ -63,11 +63,13 @@ export function buildOnboardingAgentOptions(
       const sessionInstalled =
         Boolean(registry?.installed) ||
         COMPLETE_INSTALLATION_STATES.has(lifecycle);
-      // Availability matches CodeG: the ACP launch command is present
-      // (`acp_version` or a completed install). A vendor CLI alone is not.
-      const runtimeInstalled = Boolean(
-        managed?.acp_version || sessionInstalled
-      );
+      // Session launch still requires an ACP command (ADR-0010). First-run
+      // selection treats a discovered vendor CLI as present so Windows users
+      // who already installed `claude` / `codex` / `pi` are auto-enabled;
+      // continuing setup still writes the ACP adapter when it is missing.
+      const acpReady = Boolean(managed?.acp_version || sessionInstalled);
+      const cliDetected = Boolean(managed?.local_runtime?.path);
+      const runtimeInstalled = acpReady || cliDetected;
 
       return {
         agentId,
@@ -83,7 +85,7 @@ export function buildOnboardingAgentOptions(
         platformSupported: registry?.platform_supported ?? true,
         runtimeInstalled,
         lifecycle,
-        needsInstallation: !runtimeInstalled,
+        needsInstallation: !acpReady,
       };
     })
     .filter((agent) => agent.platformSupported)

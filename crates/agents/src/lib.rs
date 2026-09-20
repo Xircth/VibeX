@@ -103,7 +103,7 @@ pub use cli_exposure::{
     export_managed_node_to_user_environment, publish_managed_runtime_cli,
     publish_user_toolchain_commands, published_cli_shim_agent, published_cli_shim_target,
     remove_managed_runtime_cli, remove_orphaned_cli_shims, resolve_user_runtime_command,
-    switch_managed_runtime_cli,
+    resolve_user_runtime_commands, switch_managed_runtime_cli,
 };
 pub use codex_auth::{
     CODEX_AUTH_MODES, CodexAuthModeProjection, apply_codex_auth_mode, project_codex_auth_mode,

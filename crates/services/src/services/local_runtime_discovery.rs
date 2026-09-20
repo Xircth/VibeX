@@ -159,40 +159,84 @@ async fn probe_user_runtime_candidate(
     executable: &str,
     version_args: &[&str],
 ) -> anyhow::Result<LocalRuntimeEvidence> {
-    let executable = agents::resolve_user_runtime_command(executable)
-        .await
-        .ok_or_else(|| {
-            anyhow::anyhow!("no user-installed Runtime `{executable}` was found on PATH")
-        })?;
-    probe_resolved_candidate(executable, version_args).await
+    let candidates = agents::resolve_user_runtime_commands(executable).await;
+    if candidates.is_empty() {
+        anyhow::bail!("no user-installed Runtime `{executable}` was found on PATH");
+    }
+    probe_resolved_candidates(candidates, version_args).await
 }
 
 async fn probe_candidate(
     executable: &str,
     version_args: &[&str],
 ) -> anyhow::Result<LocalRuntimeEvidence> {
-    let executable = utils::shell::resolve_executable_path(executable)
-        .await
-        .ok_or_else(|| anyhow::anyhow!("external candidate `{executable}` was not found"))?;
-    probe_resolved_candidate(executable, version_args).await
+    let candidates = utils::shell::resolve_executable_paths(executable).await;
+    if candidates.is_empty() {
+        anyhow::bail!("external candidate `{executable}` was not found");
+    }
+    probe_resolved_candidates(candidates, version_args).await
 }
 
-async fn probe_resolved_candidate(
-    executable: std::path::PathBuf,
+async fn probe_resolved_candidates(
+    candidates: Vec<std::path::PathBuf>,
     version_args: &[&str],
 ) -> anyhow::Result<LocalRuntimeEvidence> {
+    let mut first_path = None;
+    for executable in candidates {
+        let Ok(executable) = canonicalize_spawnable(executable).await else {
+            continue;
+        };
+        if first_path.is_none() {
+            first_path = Some(executable.clone());
+        }
+        if version_args.is_empty() {
+            return Ok(LocalRuntimeEvidence {
+                path: executable,
+                version: Some("1.0.0".to_string()),
+            });
+        }
+        match probe_version(&executable, version_args).await {
+            Ok(version) => {
+                return Ok(LocalRuntimeEvidence {
+                    path: executable,
+                    version,
+                });
+            }
+            Err(error) => {
+                tracing::debug!(
+                    path = %executable.display(),
+                    %error,
+                    "external Runtime version probe failed; trying the next PATH hit"
+                );
+            }
+        }
+    }
+    let path = first_path
+        .ok_or_else(|| anyhow::anyhow!("external candidate is not an absolute executable file"))?;
+    Ok(LocalRuntimeEvidence {
+        path,
+        version: None,
+    })
+}
+
+async fn canonicalize_spawnable(
+    executable: std::path::PathBuf,
+) -> anyhow::Result<std::path::PathBuf> {
+    let executable = utils::process::prefer_windows_spawnable_executable(&executable)
+        .ok_or_else(|| anyhow::anyhow!("external candidate is not spawnable"))?;
     let executable =
         utils::process::prefer_direct_spawn_executable(tokio::fs::canonicalize(executable).await?);
     if !executable.is_absolute() || !tokio::fs::metadata(&executable).await?.is_file() {
         anyhow::bail!("external candidate is not an absolute executable file");
     }
-    if version_args.is_empty() {
-        return Ok(LocalRuntimeEvidence {
-            path: executable,
-            version: Some("1.0.0".to_string()),
-        });
-    }
-    let mut command = utils::process::new_hidden_tokio_command(&executable, version_args);
+    Ok(executable)
+}
+
+async fn probe_version(
+    executable: &std::path::Path,
+    version_args: &[&str],
+) -> anyhow::Result<Option<String>> {
+    let mut command = utils::process::new_hidden_tokio_command(executable, version_args);
     command.kill_on_drop(true);
     let output = tokio::time::timeout(LOCAL_RUNTIME_VERSION_TIMEOUT, command.output())
         .await
@@ -202,9 +246,72 @@ async fn probe_resolved_candidate(
     }
     let stdout = String::from_utf8_lossy(&output.stdout).trim().to_string();
     let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
-    let version = [stdout, stderr].into_iter().find(|value| !value.is_empty());
-    Ok(LocalRuntimeEvidence {
-        path: executable,
-        version,
-    })
+    Ok([stdout, stderr].into_iter().find(|value| !value.is_empty()))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{canonicalize_spawnable, probe_resolved_candidates};
+
+    #[tokio::test]
+    async fn keeps_a_spawnable_path_when_version_probe_fails() {
+        let dir = tempfile::tempdir().unwrap();
+
+        #[cfg(windows)]
+        let script = {
+            let script = dir.path().join("codex.cmd");
+            std::fs::write(&script, "@echo off\r\nexit /b 1\r\n").unwrap();
+            script
+        };
+        #[cfg(not(windows))]
+        let script = {
+            use std::os::unix::fs::PermissionsExt;
+            let script = dir.path().join("codex");
+            std::fs::write(&script, "#!/bin/sh\nexit 1\n").unwrap();
+            let mut permissions = std::fs::metadata(&script).unwrap().permissions();
+            permissions.set_mode(0o755);
+            std::fs::set_permissions(&script, permissions).unwrap();
+            script
+        };
+
+        let evidence = probe_resolved_candidates(vec![script.clone()], &["--version"])
+            .await
+            .expect("a present CLI is still evidence when --version fails");
+        let expected = canonicalize_spawnable(script).await.unwrap();
+        assert_eq!(evidence.path, expected);
+        assert!(evidence.version.is_none());
+    }
+
+    #[tokio::test]
+    async fn skips_an_unrunnable_hit_for_a_later_working_cli() {
+        let dir = tempfile::tempdir().unwrap();
+        let broken = dir.path().join("Microsoft").join("WindowsApps");
+        std::fs::create_dir_all(&broken).unwrap();
+        let alias = broken.join("claude.exe");
+        std::fs::write(&alias, b"").unwrap();
+
+        #[cfg(windows)]
+        let working = {
+            let script = dir.path().join("claude.cmd");
+            std::fs::write(&script, "@echo off\r\necho 2.1.220\r\n").unwrap();
+            script
+        };
+        #[cfg(not(windows))]
+        let working = {
+            use std::os::unix::fs::PermissionsExt;
+            let script = dir.path().join("claude");
+            std::fs::write(&script, "#!/bin/sh\nprintf '2.1.220'\n").unwrap();
+            let mut permissions = std::fs::metadata(&script).unwrap().permissions();
+            permissions.set_mode(0o755);
+            std::fs::set_permissions(&script, permissions).unwrap();
+            script
+        };
+
+        let evidence = probe_resolved_candidates(vec![alias, working.clone()], &["--version"])
+            .await
+            .expect("later PATH hit should be used");
+        let expected = canonicalize_spawnable(working).await.unwrap();
+        assert_eq!(evidence.path, expected);
+        assert_eq!(evidence.version.as_deref(), Some("2.1.220"));
+    }
 }

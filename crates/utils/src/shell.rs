@@ -51,24 +51,38 @@ pub async fn get_interactive_shell() -> PathBuf {
 /// 2. The current process PATH via `which`.
 /// 3. A platform-specific refresh of PATH (login shell on Unix, PowerShell on Windows),
 ///    after which we re-run the `which` lookup and update the process PATH for future calls.
+///
+/// On Windows, WindowsApps aliases and `.ps1` shims are skipped in favour of a
+/// later `.exe` / `.cmd` that `CreateProcess` or `cmd.exe` can run.
 pub async fn resolve_executable_path(executable: &str) -> Option<PathBuf> {
+    resolve_executable_paths(executable)
+        .await
+        .into_iter()
+        .next()
+}
+
+/// Every spawnable PATH hit for `executable`, WindowsApps aliases excluded.
+pub async fn resolve_executable_paths(executable: &str) -> Vec<PathBuf> {
     if executable.trim().is_empty() {
-        return None;
+        return Vec::new();
     }
 
     let path = Path::new(executable);
-    if path.is_absolute() && path.is_file() {
-        return Some(path.to_path_buf());
+    if path.is_absolute() {
+        if let Some(spawnable) = crate::process::prefer_windows_spawnable_executable(path) {
+            return vec![spawnable];
+        }
+        return path
+            .is_file()
+            .then(|| vec![path.to_path_buf()])
+            .unwrap_or_default();
     }
 
-    if let Some(found) = which(executable).await {
-        return Some(found);
-    }
-
-    if let Some(home) = dirs::home_dir()
-        && let Some(found) = find_executable_in_user_bin(executable, &home)
+    let mut found = which_all_spawnable(executable).await;
+    if found.is_empty()
+        && let Some(home) = dirs::home_dir()
     {
-        return Some(found);
+        found = find_executables_in_user_bin(executable, &home);
     }
 
     // A desktop process is commonly launched with a smaller PATH than an
@@ -76,13 +90,11 @@ pub async fn resolve_executable_path(executable: &str) -> Option<PathBuf> {
     // paying for several login-shell subprocesses for every missing command
     // during startup inventory (one per Agent/runtime used to make a clean
     // install noticeably slow).
-    if refresh_process_path().await
-        && let Some(found) = which(executable).await
-    {
-        return Some(found);
+    if found.is_empty() && refresh_process_path().await {
+        found = which_all_spawnable(executable).await;
     }
 
-    None
+    found
 }
 
 pub fn resolve_executable_path_blocking(executable: &str) -> Option<PathBuf> {
@@ -198,12 +210,16 @@ pub async fn refresh_process_path_after_install() -> bool {
     refresh_path().await
 }
 
-async fn which(executable: &str) -> Option<PathBuf> {
+async fn which_all_spawnable(executable: &str) -> Vec<PathBuf> {
     let executable = executable.to_string();
-    tokio::task::spawn_blocking(move || which::which(executable))
-        .await
-        .ok()
-        .and_then(|result| result.ok())
+    tokio::task::spawn_blocking(move || {
+        let Ok(iter) = which::which_all(&executable) else {
+            return Vec::new();
+        };
+        crate::process::spawnable_commands(iter)
+    })
+    .await
+    .unwrap_or_default()
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -246,6 +262,8 @@ fn user_bin_directories(
             push(app_data.join("npm"));
             push(local_app_data.join("pnpm"));
             push(home.join(".local/bin"));
+            push(home.join(".claude/local"));
+            push(local_app_data.join("Programs").join("claude-code"));
         }
         UserBinPlatform::Unix => {
             push(home.join(".local/bin"));
@@ -300,15 +318,20 @@ fn toolchain_bin_directories(
                 .unwrap_or_else(|| home.join("AppData").join("Roaming").join("nvm"));
             push_version_dirs(&nvm_home, &mut push, |name| name.starts_with('v'), false);
 
-            let fnm_dir = read_env("FNM_DIR")
-                .map(PathBuf::from)
-                .or_else(|| {
-                    read_env("APPDATA")
-                        .map(PathBuf::from)
-                        .map(|app_data| app_data.join("fnm"))
-                })
-                .unwrap_or_else(|| home.join(".fnm"));
-            push_fnm_installations(&fnm_dir, &mut push);
+            let mut fnm_dirs = Vec::new();
+            if let Some(fnm_dir) = read_env("FNM_DIR") {
+                fnm_dirs.push(PathBuf::from(fnm_dir));
+            }
+            if let Some(local_app_data) = read_env("LOCALAPPDATA") {
+                fnm_dirs.push(PathBuf::from(local_app_data).join("fnm"));
+            }
+            if let Some(app_data) = read_env("APPDATA") {
+                fnm_dirs.push(PathBuf::from(app_data).join("fnm"));
+            }
+            fnm_dirs.push(home.join(".fnm"));
+            for fnm_dir in fnm_dirs {
+                push_fnm_installations(&fnm_dir, &mut push);
+            }
 
             let scoop = read_env("SCOOP")
                 .map(PathBuf::from)
@@ -436,17 +459,28 @@ fn find_node_bin_dir(
         .find(|directory| directory.join(node).is_file())
 }
 
+#[cfg(test)]
 fn find_executable_in_user_bin(executable: &str, home: &Path) -> Option<PathBuf> {
+    find_executables_in_user_bin(executable, home)
+        .into_iter()
+        .next()
+}
+
+fn find_executables_in_user_bin(executable: &str, home: &Path) -> Vec<PathBuf> {
     let platform = if cfg!(windows) {
         UserBinPlatform::Windows
     } else {
         UserBinPlatform::Unix
     };
-    let search_path = join_paths(discovery_bin_directories(platform, home, |name| {
+    let Ok(search_path) = join_paths(discovery_bin_directories(platform, home, |name| {
         std::env::var_os(name)
-    }))
-    .ok()?;
-    which::which_in(executable, Some(search_path), home).ok()
+    })) else {
+        return Vec::new();
+    };
+    let Ok(iter) = which::which_in_all(executable, Some(search_path), home) else {
+        return Vec::new();
+    };
+    crate::process::spawnable_commands(iter)
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -702,6 +736,10 @@ mod tests {
                 Path::new(r"C:\Users\developer\AppData\Roaming").join("npm"),
                 Path::new(r"C:\Users\developer\AppData\Local").join("pnpm"),
                 home.join(".local/bin"),
+                home.join(".claude/local"),
+                Path::new(r"C:\Users\developer\AppData\Local")
+                    .join("Programs")
+                    .join("claude-code"),
                 home.join(".bun/bin"),
                 home.join(".cargo/bin"),
                 home.join(".volta/bin"),
@@ -799,7 +837,7 @@ mod tests {
             let bin = home.path().join(".local/bin");
             std::fs::create_dir_all(&bin).unwrap();
             let executable = bin.join("opencode.exe");
-            std::fs::write(&executable, []).unwrap();
+            std::fs::write(&executable, b"MZ").unwrap();
 
             assert_eq!(
                 find_executable_in_user_bin("opencode", home.path()),

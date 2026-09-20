@@ -505,35 +505,62 @@ fn read_published_shim(path: &Path) -> Option<(AgentId, Vec<u8>)> {
 /// keeps that distinction: `None` means the user has no Runtime of their own,
 /// not that the command is missing.
 pub async fn resolve_user_runtime_command(command: &str) -> Option<PathBuf> {
+    resolve_user_runtime_commands(command)
+        .await
+        .into_iter()
+        .next()
+}
+
+/// Every user-owned Runtime on PATH, skipping VibeX shims and WindowsApps aliases.
+pub async fn resolve_user_runtime_commands(command: &str) -> Vec<PathBuf> {
     let command = command.trim();
     if command.is_empty() {
-        return None;
+        return Vec::new();
     }
+    let mut found = Vec::new();
+    let mut push = |path: PathBuf| {
+        if !found.iter().any(|existing| existing == &path) {
+            found.push(path);
+        }
+    };
     // The standard resolver also searches the well-known user bin directories
     // and can repair a desktop-launched PATH from the login shell, which widens
     // what the PATH scan below can see.
-    let resolved = workspace_utils::shell::resolve_executable_path(command).await;
-    if let Some(resolved) = resolved.as_deref()
-        && published_cli_shim_agent(resolved).is_none()
-    {
-        return Some(resolved.to_path_buf());
+    for resolved in workspace_utils::shell::resolve_executable_paths(command).await {
+        if published_cli_shim_agent(&resolved).is_none() {
+            push(resolved);
+        }
     }
-    // Either nothing resolved or the hit was VibeX's own shim; keep walking PATH
-    // for a genuine user copy that the shim shadowed.
-    let cwd = std::env::current_dir().ok()?;
-    let search_path = std::env::var_os("PATH");
-    first_user_runtime_in(command, search_path.as_deref(), &cwd)
+    if let Ok(cwd) = std::env::current_dir() {
+        let search_path = std::env::var_os("PATH");
+        for candidate in user_runtimes_in(command, search_path.as_deref(), &cwd) {
+            push(candidate);
+        }
+    }
+    found
 }
 
 /// The first `command` on `search_path` that is not a shim VibeX published.
+#[cfg(test)]
 fn first_user_runtime_in(
     command: &str,
     search_path: Option<&OsStr>,
     cwd: &Path,
 ) -> Option<PathBuf> {
-    which::which_in_all(command, search_path, cwd)
-        .ok()?
-        .find(|candidate| candidate.is_file() && published_cli_shim_agent(candidate).is_none())
+    user_runtimes_in(command, search_path, cwd)
+        .into_iter()
+        .next()
+}
+
+fn user_runtimes_in(command: &str, search_path: Option<&OsStr>, cwd: &Path) -> Vec<PathBuf> {
+    let Ok(iter) = which::which_in_all(command, search_path, cwd) else {
+        return Vec::new();
+    };
+    workspace_utils::process::spawnable_commands(
+        iter.filter(|candidate| {
+            candidate.is_file() && published_cli_shim_agent(candidate).is_none()
+        }),
+    )
 }
 
 /// The Runtime a published shim runs, read back from the shim itself.
@@ -1749,6 +1776,38 @@ mod tests {
             Some(PathBuf::from("/opt/it's/pi"))
         );
         assert_eq!(shim_runtime_target(b"#!/bin/sh\necho hello\n"), None);
+    }
+
+    #[test]
+    fn user_runtime_resolution_skips_windowsapps_aliases() {
+        let temp = tempfile::tempdir().unwrap();
+        let apps = temp.path().join("Microsoft").join("WindowsApps");
+        let real = temp.path().join("npm");
+        fs::create_dir_all(&apps).unwrap();
+        fs::create_dir_all(&real).unwrap();
+        fs::write(apps.join("claude.exe"), b"").unwrap();
+        fs::write(apps.join("claude"), b"").unwrap();
+        let cmd = real.join("claude.cmd");
+        let unix = real.join("claude");
+        fs::write(&cmd, b"@echo off\r\n").unwrap();
+        fs::write(&unix, b"#!/bin/sh\n").unwrap();
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let mut permissions = fs::metadata(&unix).unwrap().permissions();
+            permissions.set_mode(0o755);
+            fs::set_permissions(&unix, permissions).unwrap();
+        }
+
+        let search_path = std::env::join_paths([&apps, &real]).unwrap();
+        let resolved = first_user_runtime_in("claude", Some(&search_path), temp.path())
+            .expect("real CLI behind a WindowsApps stub");
+        assert!(
+            resolved.starts_with(&real),
+            "resolved {} should live under {}",
+            resolved.display(),
+            real.display()
+        );
     }
 
     #[cfg(unix)]

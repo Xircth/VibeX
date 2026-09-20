@@ -5,7 +5,10 @@ const path = require('node:path');
 const test = require('node:test');
 
 const {
+  copySidecar,
+  isBuiltSidecar,
   resolveSidecarBinDir,
+  resolveSidecarSource,
   sidecarBinsExist,
 } = require('./stage-host-sidecars');
 
@@ -46,7 +49,7 @@ test('sidecar layout prefers VIBEX_BUILD_TARGET and the active cargo profile', (
   );
 });
 
-test('sidecar rebuild is skipped only when both Host binaries exist', () => {
+test('sidecar rebuild is skipped only when both Host binaries are non-empty', () => {
   const repo = fs.mkdtempSync(path.join(os.tmpdir(), 'vibex-sidecars-'));
   const env = {
     CARGO_TARGET_DIR: path.join(repo, 'target'),
@@ -60,25 +63,65 @@ test('sidecar rebuild is skipped only when both Host binaries exist', () => {
   );
   fs.mkdirSync(binDir, { recursive: true });
 
-  assert.equal(
-    sidecarBinsExist({
-      repo,
-      env,
-      hostTriple: 'x86_64-unknown-linux-gnu',
-      platform: 'linux',
-    }),
-    false
-  );
+  const probe = {
+    repo,
+    env,
+    hostTriple: 'x86_64-unknown-linux-gnu',
+    platform: 'linux',
+  };
+
+  assert.equal(sidecarBinsExist(probe), false);
 
   fs.writeFileSync(path.join(binDir, 'vibex-mcp'), '');
   fs.writeFileSync(path.join(binDir, 'vibex-workflow-mcp'), '');
+  assert.equal(sidecarBinsExist(probe), false);
+  assert.equal(isBuiltSidecar(path.join(binDir, 'vibex-mcp')), false);
+
+  fs.writeFileSync(path.join(binDir, 'vibex-mcp'), 'mcp-bin');
+  fs.writeFileSync(path.join(binDir, 'vibex-workflow-mcp'), 'workflow-bin');
+  assert.equal(sidecarBinsExist(probe), true);
+});
+
+test('sidecar lookup accepts a native cargo profile binary when the triple dir is empty', () => {
+  const repo = fs.mkdtempSync(path.join(os.tmpdir(), 'vibex-sidecars-native-'));
+  const env = {
+    CARGO_TARGET_DIR: path.join(repo, 'target'),
+    VIBEX_BUILD_TARGET: 'x86_64-pc-windows-msvc',
+    CARGO_PROFILE: 'debug',
+  };
+  const { binDir, nativeBinDir } = resolveSidecarBinDir({
+    repo,
+    env,
+    hostTriple: 'x86_64-pc-windows-msvc',
+  });
+  fs.mkdirSync(binDir, { recursive: true });
+  fs.mkdirSync(nativeBinDir, { recursive: true });
+  fs.writeFileSync(path.join(binDir, 'vibex-mcp.exe'), '');
+  fs.writeFileSync(path.join(binDir, 'vibex-workflow-mcp.exe'), '');
+  fs.writeFileSync(path.join(nativeBinDir, 'vibex-mcp.exe'), 'mcp-bin');
+  fs.writeFileSync(path.join(nativeBinDir, 'vibex-workflow-mcp.exe'), 'workflow-bin');
+
   assert.equal(
     sidecarBinsExist({
       repo,
       env,
-      hostTriple: 'x86_64-unknown-linux-gnu',
-      platform: 'linux',
+      hostTriple: 'x86_64-pc-windows-msvc',
+      platform: 'win32',
     }),
     true
+  );
+  assert.equal(
+    resolveSidecarSource('vibex-mcp', binDir, nativeBinDir, 'win32'),
+    path.join(nativeBinDir, 'vibex-mcp.exe')
+  );
+});
+
+test('copySidecar refuses to stage an empty placeholder', () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'vibex-sidecars-copy-'));
+  const empty = path.join(root, 'vibex-mcp');
+  fs.writeFileSync(empty, '');
+  assert.throws(
+    () => copySidecar('vibex-mcp', empty, path.join(root, 'out'), 'x86_64-unknown-linux-gnu'),
+    /empty sidecar/
   );
 });

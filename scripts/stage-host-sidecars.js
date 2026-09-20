@@ -37,7 +37,21 @@ function resolveSidecarBinDir({
     triple,
     profile,
     binDir: path.join(targetDir, triple, profile),
+    nativeBinDir: path.join(targetDir, profile),
   };
+}
+
+function sidecarFileName(name, platform = process.platform) {
+  return platform === "win32" ? `${name}.exe` : name;
+}
+
+function isBuiltSidecar(filePath) {
+  try {
+    const stat = fs.statSync(filePath);
+    return stat.isFile() && stat.size > 0;
+  } catch {
+    return false;
+  }
 }
 
 function sidecarBinsExist({
@@ -46,36 +60,62 @@ function sidecarBinsExist({
   hostTriple,
   platform = process.platform,
 } = {}) {
-  const { binDir } = resolveSidecarBinDir({ repo, env, hostTriple });
-  const ext = platform === "win32" ? ".exe" : "";
-  return (
-    fs.existsSync(path.join(binDir, `vibex-mcp${ext}`)) &&
-    fs.existsSync(path.join(binDir, `vibex-workflow-mcp${ext}`))
-  );
+  const { binDir, nativeBinDir } = resolveSidecarBinDir({
+    repo,
+    env,
+    hostTriple,
+  });
+  return ["vibex-mcp", "vibex-workflow-mcp"].every((name) => {
+    const file = sidecarFileName(name, platform);
+    return (
+      isBuiltSidecar(path.join(binDir, file)) ||
+      isBuiltSidecar(path.join(nativeBinDir, file))
+    );
+  });
 }
 
-function copySidecar(name, source, destinationDir, triple) {
-  const ext = process.platform === "win32" ? ".exe" : "";
-  const from = `${source}${ext}`;
-  if (!fs.existsSync(from)) {
-    throw new Error(`missing sidecar ${from}`);
+function resolveSidecarSource(name, binDir, nativeBinDir, platform = process.platform) {
+  const file = sidecarFileName(name, platform);
+  const triplePath = path.join(binDir, file);
+  if (isBuiltSidecar(triplePath)) {
+    return triplePath;
   }
+  const nativePath = path.join(nativeBinDir, file);
+  if (isBuiltSidecar(nativePath)) {
+    return nativePath;
+  }
+  throw new Error(`missing or empty sidecar ${triplePath}`);
+}
+
+function copySidecar(name, sourcePath, destinationDir, triple) {
+  if (!isBuiltSidecar(sourcePath)) {
+    throw new Error(`missing or empty sidecar ${sourcePath}`);
+  }
+  const ext = process.platform === "win32" ? ".exe" : "";
   fs.mkdirSync(destinationDir, { recursive: true });
   const to = path.join(destinationDir, `${name}-${triple}${ext}`);
-  fs.copyFileSync(from, to);
+  fs.copyFileSync(sourcePath, to);
   if (process.platform !== "win32") {
     fs.chmodSync(to, 0o755);
+  }
+  if (!isBuiltSidecar(to)) {
+    throw new Error(`staged sidecar is empty: ${to}`);
   }
 }
 
 function main(env = process.env) {
   const repo = path.resolve(__dirname, "..");
-  const { triple, binDir } = resolveSidecarBinDir({ repo, env });
+  const { triple, binDir, nativeBinDir } = resolveSidecarBinDir({ repo, env });
   const sidecarDir = path.join(repo, "src-tauri", "binaries");
-  copySidecar("vibex-mcp", path.join(binDir, "vibex-mcp"), sidecarDir, triple);
+  copySidecar(
+    "vibex-mcp",
+    resolveSidecarSource("vibex-mcp", binDir, nativeBinDir),
+    sidecarDir,
+    triple,
+  );
   copySidecar(
     "vibex-workflow-mcp",
-    path.join(binDir, "vibex-workflow-mcp"),
+    resolveSidecarSource("vibex-workflow-mcp", binDir, nativeBinDir),
     sidecarDir,
     triple,
   );
@@ -87,7 +127,10 @@ if (require.main === module) {
 
 module.exports = {
   main,
+  copySidecar,
+  isBuiltSidecar,
   resolveSidecarBinDir,
+  resolveSidecarSource,
   resolveTargetTriple,
   sidecarBinsExist,
 };

@@ -454,13 +454,11 @@ describe('FirstRunExperience', () => {
       rows.map((row) =>
         within(row).getByRole('checkbox').getAttribute('aria-label')
       )
-    ).toEqual(['启用 Claude Code', '启用 OpenCode', '启用 Codex', '启用 Pi']);
+    ).toEqual(['启用 Claude Code', '启用 Codex', '启用 OpenCode', '启用 Pi']);
     expect(
       screen.getByRole('checkbox', { name: '启用 Claude Code' })
     ).toBeChecked();
-    expect(
-      screen.getByRole('checkbox', { name: '启用 Codex' })
-    ).not.toBeChecked();
+    expect(screen.getByRole('checkbox', { name: '启用 Codex' })).toBeChecked();
     expect(
       screen.getByRole('checkbox', { name: '启用 OpenCode' })
     ).toBeChecked();

@@ -134,7 +134,7 @@ describe('onboarding Agent model', () => {
     });
   });
 
-  it('does not treat a vendor CLI as installed without an ACP adapter', () => {
+  it('treats a discovered vendor CLI as present and still installs the ACP adapter', () => {
     const options = buildOnboardingAgentOptions(
       [
         managed({
@@ -156,7 +156,7 @@ describe('onboarding Agent model', () => {
     ]);
     expect(options[0]).toMatchObject({
       agentId: 'claude_code',
-      runtimeInstalled: false,
+      runtimeInstalled: true,
       needsInstallation: true,
     });
     expect(options[1]).toMatchObject({

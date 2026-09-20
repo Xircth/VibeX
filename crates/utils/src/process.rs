@@ -61,7 +61,104 @@ pub fn prefer_direct_spawn_executable(path: impl AsRef<Path>) -> PathBuf {
         return path;
     }
     let exe = path.with_extension("exe");
-    if exe.is_file() { exe } else { path }
+    if exe.is_file() && !is_windows_app_execution_alias(&exe) {
+        exe
+    } else {
+        path
+    }
+}
+
+/// Windows App Execution Aliases live under `Microsoft\WindowsApps` as 0-byte
+/// stubs. `which` treats any file with an extension as executable, so these
+/// win PATH lookup and then `--version` fails.
+pub fn is_windows_app_execution_alias(path: &Path) -> bool {
+    let mut saw_microsoft = false;
+    for component in path.components() {
+        let name = component.as_os_str();
+        if saw_microsoft && name.eq_ignore_ascii_case("WindowsApps") {
+            return true;
+        }
+        saw_microsoft = name.eq_ignore_ascii_case("Microsoft");
+    }
+    false
+}
+
+fn windows_extension_lower(path: &Path) -> Option<String> {
+    path.extension()
+        .and_then(|ext| ext.to_str())
+        .map(|ext| ext.to_ascii_lowercase())
+}
+
+/// `CreateProcess` can run PE binaries; VibeX wraps `.cmd` / `.bat` with
+/// `cmd.exe`. PowerShell scripts, extensionless npm shims, and WindowsApps
+/// aliases are not launchable this way.
+pub fn is_windows_spawnable_command(path: &Path) -> bool {
+    if is_windows_app_execution_alias(path) {
+        return false;
+    }
+    match windows_extension_lower(path).as_deref() {
+        Some("exe" | "com") => path
+            .metadata()
+            .map(|meta| meta.is_file() && meta.len() > 0)
+            .unwrap_or(false),
+        Some("cmd" | "bat") => path.is_file(),
+        None if !cfg!(windows) => path.is_file(),
+        _ => false,
+    }
+}
+
+fn sibling_windows_spawnable_command(path: &Path) -> Option<PathBuf> {
+    let dir = path.parent()?;
+    let stem = path.file_stem()?.to_str()?;
+    for ext in ["exe", "cmd", "bat"] {
+        let candidate = dir.join(format!("{stem}.{ext}"));
+        if is_windows_spawnable_command(&candidate) {
+            return Some(prefer_direct_spawn_executable(candidate));
+        }
+    }
+    None
+}
+
+/// Skip WindowsApps aliases and PowerShell shims; prefer a sibling `.exe` /
+/// `.cmd` / `.bat` that `CreateProcess` or `cmd.exe` can actually run.
+pub fn prefer_windows_spawnable_executable(path: impl AsRef<Path>) -> Option<PathBuf> {
+    let path = crate::path::normalize_windows_extended_path_prefix(path);
+    if is_windows_app_execution_alias(&path) {
+        return None;
+    }
+    let preferred = prefer_direct_spawn_executable(&path);
+    if is_windows_spawnable_command(&preferred) {
+        return Some(preferred);
+    }
+    sibling_windows_spawnable_command(&path)
+}
+
+/// First PATH hit that is actually spawnable. Walks every `which` candidate so
+/// a WindowsApps stub or `.ps1` shim cannot hide a later `.cmd` / `.exe`.
+pub fn first_spawnable_command(candidates: impl IntoIterator<Item = PathBuf>) -> Option<PathBuf> {
+    let mut seen = Vec::<PathBuf>::new();
+    for candidate in candidates {
+        let Some(spawnable) = prefer_windows_spawnable_executable(&candidate) else {
+            continue;
+        };
+        if !seen.iter().any(|existing| existing == &spawnable) {
+            seen.push(spawnable);
+        }
+    }
+    seen.into_iter().next()
+}
+
+pub fn spawnable_commands(candidates: impl IntoIterator<Item = PathBuf>) -> Vec<PathBuf> {
+    let mut found = Vec::new();
+    for candidate in candidates {
+        let Some(spawnable) = prefer_windows_spawnable_executable(&candidate) else {
+            continue;
+        };
+        if !found.iter().any(|existing| existing == &spawnable) {
+            found.push(spawnable);
+        }
+    }
+    found
 }
 
 /// Path an ACP adapter can pass to Node `child_process.spawn` without shell.
@@ -82,22 +179,30 @@ pub fn node_spawnable_runtime_path(path: impl AsRef<Path>) -> Option<PathBuf> {
 /// (let `CreateProcess` handle those), or when nothing matches on PATH.
 #[cfg(windows)]
 fn resolve_windows_program(program: &Path) -> Option<PathBuf> {
-    if program.components().count() != 1 || program.extension().is_some() {
+    if program.components().count() != 1 {
         return None;
     }
+    if let Some(spawnable) = prefer_windows_spawnable_executable(program)
+        && spawnable != program
+    {
+        return Some(spawnable);
+    }
+    if program.extension().is_some() {
+        return prefer_windows_spawnable_executable(program);
+    }
     let name = program.as_os_str().to_string_lossy().to_string();
-    let pathext = std::env::var("PATHEXT").unwrap_or_else(|_| ".COM;.EXE;.BAT;.CMD".to_string());
-    let exts: Vec<String> = pathext
-        .split(';')
-        .map(|ext| ext.trim().to_string())
-        .filter(|ext| !ext.is_empty())
-        .collect();
     let paths = std::env::var_os("PATH")?;
+    // PATHEXT often lists `.PS1` before or after `.CMD`. Prefer forms
+    // CreateProcess / cmd.exe can actually run.
+    const PREFERRED_EXTS: &[&str] = &[".EXE", ".CMD", ".BAT", ".COM"];
     for dir in std::env::split_paths(&paths) {
-        for ext in &exts {
+        if is_windows_app_execution_alias(&dir) {
+            continue;
+        }
+        for ext in PREFERRED_EXTS {
             let candidate = dir.join(format!("{name}{ext}"));
-            if candidate.is_file() {
-                return Some(candidate);
+            if let Some(spawnable) = prefer_windows_spawnable_executable(&candidate) {
+                return Some(spawnable);
             }
         }
     }
@@ -117,7 +222,8 @@ pub fn new_hidden_tokio_command(
         // `std::fs::canonicalize` returns verbatim (`\\?\`) paths on Windows.
         // `CreateProcess` accepts those paths, but cmd.exe does not reliably
         // resolve them when invoking npm's .cmd/.bat shims.
-        let program = prefer_direct_spawn_executable(dunce::simplified(program));
+        let simplified = prefer_direct_spawn_executable(dunce::simplified(program));
+        let program = prefer_windows_spawnable_executable(&simplified).unwrap_or(simplified);
         if is_windows_batch_script(&program) {
             let mut command = tokio::process::Command::new("cmd.exe");
             configure_tokio_command_no_window(&mut command);
@@ -162,7 +268,8 @@ pub fn new_hidden_std_command(
 
     #[cfg(windows)]
     {
-        let program = prefer_direct_spawn_executable(dunce::simplified(program));
+        let simplified = prefer_direct_spawn_executable(dunce::simplified(program));
+        let program = prefer_windows_spawnable_executable(&simplified).unwrap_or(simplified);
         if is_windows_batch_script(&program) {
             let mut command = std::process::Command::new("cmd.exe");
             configure_std_command_no_window(&mut command);
@@ -346,7 +453,9 @@ mod spawnable_runtime_path_tests {
     };
 
     use super::{
-        is_windows_batch_script, node_spawnable_runtime_path, prefer_direct_spawn_executable,
+        first_spawnable_command, is_windows_app_execution_alias, is_windows_batch_script,
+        is_windows_spawnable_command, node_spawnable_runtime_path, prefer_direct_spawn_executable,
+        prefer_windows_spawnable_executable, spawnable_commands,
     };
 
     fn write_empty(path: &Path) {
@@ -398,6 +507,47 @@ mod spawnable_runtime_path_tests {
             node_spawnable_runtime_path(&exe).as_deref(),
             Some(exe.as_path())
         );
+    }
+
+    #[test]
+    fn skips_windowsapps_aliases_and_prefers_a_later_cmd() {
+        let dir = tempfile::tempdir().unwrap();
+        let apps = dir.path().join("Microsoft").join("WindowsApps");
+        let npm = dir.path().join("npm");
+        fs::create_dir_all(&apps).unwrap();
+        fs::create_dir_all(&npm).unwrap();
+        let alias = apps.join("claude.exe");
+        let cmd = npm.join("claude.cmd");
+        write_empty(&alias);
+        fs::write(&cmd, b"@echo off\r\n").unwrap();
+
+        assert!(is_windows_app_execution_alias(&alias));
+        assert!(!is_windows_spawnable_command(&alias));
+        assert_eq!(prefer_windows_spawnable_executable(&alias), None);
+        assert_eq!(
+            prefer_windows_spawnable_executable(&cmd).as_deref(),
+            Some(cmd.as_path())
+        );
+        assert_eq!(
+            first_spawnable_command([alias, cmd.clone()]).as_deref(),
+            Some(cmd.as_path())
+        );
+    }
+
+    #[test]
+    fn prefers_a_sibling_cmd_over_a_powershell_shim() {
+        let dir = tempfile::tempdir().unwrap();
+        let ps1 = dir.path().join("codex.ps1");
+        let cmd = dir.path().join("codex.cmd");
+        fs::write(&ps1, b"").unwrap();
+        fs::write(&cmd, b"@echo off\r\n").unwrap();
+
+        assert!(!is_windows_spawnable_command(&ps1));
+        assert_eq!(
+            prefer_windows_spawnable_executable(&ps1).as_deref(),
+            Some(cmd.as_path())
+        );
+        assert_eq!(spawnable_commands([ps1]).as_slice(), [cmd]);
     }
 
     #[test]

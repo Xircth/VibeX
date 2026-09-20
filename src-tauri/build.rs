@@ -8,6 +8,10 @@ fn main() {
     #[cfg(target_os = "macos")]
     prepare_macos_cef_bundle_inputs();
 
+    // Tauri `externalBin` requires these paths at `tauri_build` time, which
+    // runs before `beforeBundleCommand`. Empty files are compile-time
+    // placeholders only; `scripts/stage-host-sidecars.js` must replace them
+    // with real cargo artifacts and must not treat a zero-byte file as built.
     prepare_host_sidecar_stubs();
 
     tauri_build::build();

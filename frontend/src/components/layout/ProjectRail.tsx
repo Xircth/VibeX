@@ -89,22 +89,33 @@ export function ProjectRail({
 
   const visibleProjects = useMemo(() => {
     const byId = new Map(projects.map((project) => [project.id, project]));
-
-    return orderedProjectIds
-      .map((id) => {
-        const project = byId.get(id);
-        if (project) {
-          return {
-            id: project.id,
-            name: project.name,
-          };
-        }
-
-        return null;
-      })
-      .filter((project): project is { id: string; name: string } =>
+    const visible = orderedProjectIds
+      .map((id) => byId.get(id))
+      .filter((project): project is (typeof projects)[number] =>
         Boolean(project)
       );
+    const byParent = new Map<string | null, typeof visible>();
+    for (const project of visible) {
+      const parent = project.parent_project_id ?? null;
+      const list = byParent.get(parent) ?? [];
+      list.push(project);
+      byParent.set(parent, list);
+    }
+    const nested: Array<(typeof visible)[number] & { depth: number }> = [];
+    const walk = (parentId: string | null, depth: number) => {
+      for (const project of byParent.get(parentId) ?? []) {
+        nested.push({ ...project, depth });
+        walk(project.id, depth + 1);
+      }
+    };
+    walk(null, 0);
+    const seen = new Set(nested.map((project) => project.id));
+    for (const project of visible) {
+      if (!seen.has(project.id)) {
+        nested.push({ ...project, depth: 0 });
+      }
+    }
+    return nested;
   }, [orderedProjectIds, projects]);
 
   useEffect(() => {
@@ -277,9 +288,8 @@ export function ProjectRail({
     const result = await ConfirmDialog.show({
       title: t('projectRail.deleteConfirmTitle', { name: targetProject.name }),
       message: t('projectRail.deleteConfirmMessage'),
-      confirmText: t('common:delete'),
+      confirmText: t('projectRail.removeAction'),
       cancelText: t('common:cancel'),
-      variant: 'destructive',
       contentClassName: PROJECT_DELETE_CONFIRM_CLASSNAME,
       contentStyle: PROJECT_DELETE_CONFIRM_STYLE,
     });
@@ -347,6 +357,36 @@ export function ProjectRail({
             <div
               key={project.id}
               className="project-rail-project-slot group"
+              style={{ paddingLeft: `${project.depth * 14}px` }}
+              draggable
+              onDragStart={(event) => {
+                event.dataTransfer.setData('text/project-id', project.id);
+                event.dataTransfer.effectAllowed = 'move';
+              }}
+              onDragOver={(event) => {
+                const sourceId = event.dataTransfer.types.includes(
+                  'text/project-id'
+                );
+                if (!sourceId) return;
+                event.preventDefault();
+              }}
+              onDrop={(event) => {
+                event.preventDefault();
+                const sourceId = event.dataTransfer.getData('text/project-id');
+                if (!sourceId || sourceId === project.id) return;
+                const source = visibleProjects.find(
+                  (item) => item.id === sourceId
+                );
+                const parentPath = project.root_path;
+                const childPath = source?.root_path;
+                if (!parentPath || !childPath) return;
+                const parent = parentPath.replace(/\\/g, '/').replace(/\/$/, '');
+                const child = childPath.replace(/\\/g, '/').replace(/\/$/, '');
+                if (!child.startsWith(`${parent}/`)) return;
+                void projectsApi.setParent(sourceId, project.id).catch(() => {
+                  toast.error(t('projectRail.deleteFailed'));
+                });
+              }}
               onMouseEnter={(event) =>
                 handleProjectMouseEnter(project.id, event)
               }
@@ -390,6 +430,9 @@ export function ProjectRail({
                   name={project.name || t('projectRail.placeholderProjectName')}
                   active={isActive}
                 />
+                <span className="project-rail-project-name">
+                  {project.name}
+                </span>
                 {visualState === 'loading' ? (
                   <span className="project-rail-status-dot-shell">
                     <span className="project-rail-status-spinner" />

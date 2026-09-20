@@ -20,7 +20,11 @@ import {
 } from '@/components/ui/dialog';
 import { Label } from '@/components/ui/label';
 import { useProjectMutations } from '@/hooks/useProjectMutations';
-import { repoApi } from '@/lib/api';
+import { projectsApi, repoApi } from '@/lib/api';
+import { ConfirmDialog } from '@/components/dialogs/shared/ConfirmDialog';
+import { ScrollArea } from '@/components/ui/scroll-area';
+import { Skeleton } from '@/components/ui/skeleton';
+import type { ProjectImportPreview } from '@/lib/api/projects';
 import { defineModal } from '@/lib/modals';
 import { joinLocalPath, normalizeDisplayPath } from '@/utils/displayPath';
 
@@ -168,6 +172,11 @@ const ProjectFormDialogImpl = NiceModal.create<ProjectFormDialogProps>(
     const [isPickingFolder, setIsPickingFolder] = useState(false);
     const [isSubmitting, setIsSubmitting] = useState(false);
     const [error, setError] = useState('');
+    const [initGitRepo, setInitGitRepo] = useState(false);
+    const [importPreview, setImportPreview] =
+      useState<ProjectImportPreview | null>(null);
+    const [isScanningChildren, setIsScanningChildren] = useState(false);
+    const [selectedChildPaths, setSelectedChildPaths] = useState<string[]>([]);
 
     const hasAutoOpenedFolderRef = useRef(false);
     const folderName = toFolderName(projectName);
@@ -190,6 +199,9 @@ const ProjectFormDialogImpl = NiceModal.create<ProjectFormDialogProps>(
       setParentFolderPath('');
       setSelectedFolderPath('');
       setSelectedFolderIsGitRepo(null);
+      setInitGitRepo(false);
+      setImportPreview(null);
+      setSelectedChildPaths([]);
       setIncludeReadme(true);
       setIncludeGitignore(true);
       setIncludeLicense(false);
@@ -204,6 +216,17 @@ const ProjectFormDialogImpl = NiceModal.create<ProjectFormDialogProps>(
       setSelectedFolderPath(normalizedSelected);
       setSelectedFolderIsGitRepo(isGitRepo);
       setProjectName(getPathName(normalizedSelected));
+      setInitGitRepo(false);
+      setSelectedChildPaths([]);
+      setIsScanningChildren(true);
+      try {
+        const preview = await projectsApi.previewImport(normalizedSelected);
+        setImportPreview(preview);
+      } catch {
+        setImportPreview(null);
+      } finally {
+        setIsScanningChildren(false);
+      }
     }, []);
 
     const handlePickFolder = useCallback(async () => {
@@ -356,21 +379,65 @@ const ProjectFormDialogImpl = NiceModal.create<ProjectFormDialogProps>(
         return;
       }
 
+      const shouldInitGit =
+        initGitRepo && selectedFolderIsGitRepo === false;
+      if (shouldInitGit && (importPreview?.children.length ?? 0) > 0) {
+        const confirmed = await ConfirmDialog.show({
+          title: t('projectForm.nestedGitConfirmTitle'),
+          message: t('projectForm.nestedGitConfirmMessage'),
+          confirmText: t('projectForm.nestedGitConfirmAction'),
+          cancelText: t('common:cancel'),
+        });
+        if (confirmed !== 'confirmed') {
+          return;
+        }
+      }
+
       setError('');
       setIsSubmitting(true);
 
       try {
-        const repo = selectedFolderIsGitRepo
-          ? await repoApi.register({
-              path: selectedFolderPath,
-              display_name: finalProjectName,
-            })
-          : await repoApi.initAtPath({
-              path: selectedFolderPath,
-              display_name: finalProjectName,
-            });
+        if (shouldInitGit) {
+          await repoApi.initAtPath({
+            path: selectedFolderPath,
+            display_name: finalProjectName,
+          });
+        }
 
-        const project = await createProjectRecord(finalProjectName, repo.path);
+        const repositories =
+          selectedFolderIsGitRepo || shouldInitGit
+            ? [
+                {
+                  display_name: finalProjectName,
+                  git_repo_path: selectedFolderPath,
+                },
+              ]
+            : [];
+
+        const project = await createProject.mutateAsync({
+          name: finalProjectName,
+          rootPath: selectedFolderPath,
+          repositories,
+        });
+
+        for (const childPath of selectedChildPaths) {
+          const child = importPreview?.children.find(
+            (entry) => entry.path === childPath
+          );
+          if (!child) continue;
+          await createProject.mutateAsync({
+            name: child.name,
+            rootPath: child.path,
+            parentProjectId: project.id,
+            repositories: [
+              {
+                display_name: child.name,
+                git_repo_path: child.path,
+              },
+            ],
+          });
+        }
+
         modal.resolve({ status: 'saved', project } as ProjectFormDialogResult);
         modal.hide();
       } catch (err) {
@@ -396,9 +463,7 @@ const ProjectFormDialogImpl = NiceModal.create<ProjectFormDialogProps>(
       ? !!selectedFolderPath
       : !!projectName.trim() && !!parentFolderPath && !!folderName;
     const submitLabel = isOpenExistingFolderMode
-      ? selectedFolderPath && selectedFolderIsGitRepo === false
-        ? t('projectForm.submitInitGitAndOpen')
-        : t('projectForm.submitOpenFolder')
+      ? t('projectForm.submitOpenFolder')
       : t('projectForm.submitCreate');
 
     const handleOpenChange = (openState: boolean) => {
@@ -450,17 +515,94 @@ const ProjectFormDialogImpl = NiceModal.create<ProjectFormDialogProps>(
                   />
                 </div>
                 {selectedFolderPath && selectedFolderIsGitRepo !== null ? (
-                  <p
-                    className={
-                      selectedFolderIsGitRepo
-                        ? 'text-sm text-[hsl(var(--success))]'
-                        : 'text-sm text-[hsl(var(--warning))]'
-                    }
-                  >
-                    {selectedFolderIsGitRepo
-                      ? t('projectForm.recognizedGitRepo')
-                      : t('projectForm.notGitRepoHint')}
-                  </p>
+                  <div className="flex flex-col gap-3">
+                    <p
+                      className={
+                        selectedFolderIsGitRepo
+                          ? 'text-sm text-[hsl(var(--success))]'
+                          : 'text-sm text-[hsl(var(--warning))]'
+                      }
+                    >
+                      {selectedFolderIsGitRepo
+                        ? t('projectForm.recognizedGitRepo')
+                        : t('projectForm.notGitRepoHint')}
+                    </p>
+                    {selectedFolderIsGitRepo === false ? (
+                      <label className="flex items-center gap-2 text-sm">
+                        <Checkbox
+                          checked={initGitRepo}
+                          onCheckedChange={(checked) =>
+                            setInitGitRepo(checked === true)
+                          }
+                          disabled={isBusy}
+                        />
+                        {t('projectForm.initGitOptional')}
+                      </label>
+                    ) : null}
+                    {initGitRepo &&
+                    (importPreview?.children.length ?? 0) > 0 ? (
+                      <Alert>
+                        <AlertCircle className="h-4 w-4" />
+                        <AlertDescription>
+                          {t('projectForm.nestedGitWarning')}
+                        </AlertDescription>
+                      </Alert>
+                    ) : null}
+                    {isScanningChildren ? (
+                      <div className="flex flex-col gap-2">
+                        <Skeleton className="h-8 w-full" />
+                        <Skeleton className="h-8 w-full" />
+                      </div>
+                    ) : null}
+                    {importPreview && importPreview.children.length > 0 ? (
+                      <div className="flex flex-col gap-2">
+                        <p className="text-sm font-medium">
+                          {t('projectForm.discoveredGitRepos', {
+                            count: importPreview.children.length,
+                          })}
+                        </p>
+                        <ScrollArea className="max-h-40 rounded-lg border border-border">
+                          <div className="flex flex-col gap-1 p-2">
+                            {importPreview.children.map((child) => {
+                              const checked =
+                                selectedChildPaths.includes(child.path);
+                              return (
+                                <label
+                                  key={child.path}
+                                  className="flex items-start gap-2 rounded-md px-2 py-1.5 text-sm hover:bg-muted/60"
+                                >
+                                  <Checkbox
+                                    checked={checked}
+                                    onCheckedChange={(value) => {
+                                      setSelectedChildPaths((current) =>
+                                        value === true
+                                          ? [...current, child.path]
+                                          : current.filter(
+                                              (path) => path !== child.path
+                                            )
+                                      );
+                                    }}
+                                    disabled={isBusy}
+                                  />
+                                  <span className="min-w-0">
+                                    <span className="block truncate font-medium">
+                                      {child.name}
+                                    </span>
+                                    <span className="block truncate font-mono text-xs text-muted-foreground">
+                                      {child.path}
+                                    </span>
+                                  </span>
+                                </label>
+                              );
+                            })}
+                          </div>
+                        </ScrollArea>
+                        <p className="text-xs text-muted-foreground">
+                          {t('projectForm.discoveredGitReposHint')}
+                        </p>
+                      </div>
+                    ) : null}
+                  </div>
                 ) : null}
               </div>
             ) : (

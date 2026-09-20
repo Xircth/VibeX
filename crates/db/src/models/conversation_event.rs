@@ -604,7 +604,7 @@ mod tests {
             &pool,
             &CreateProject {
                 name: "Test Project".to_string(),
-                repositories: Vec::new(),
+                ..Default::default()
             },
             project_id,
         )

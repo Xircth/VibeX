@@ -76,34 +76,71 @@ function WelcomeAction({
 
 function RecentProjectItem({
   project,
+  depth,
   onClick,
   onContextMenu,
 }: {
-  project: { id: string; name: string };
+  project: {
+    id: string;
+    name: string;
+    root_path?: string;
+    is_git?: boolean;
+  };
+  depth: number;
   onClick: () => void;
   onContextMenu: (event: React.MouseEvent<HTMLButtonElement>) => void;
 }) {
   const { t } = useTranslation(['app', 'common']);
   const { data: repos } = useProjectRepos(project.id);
-  const repoPath = repos?.[0]?.path ?? '';
+  const repoPath = project.root_path || repos?.[0]?.path || '';
+  const Icon = project.is_git ? GitBranch : FolderOpen;
 
   return (
     <button
       onClick={onClick}
       onContextMenu={onContextMenu}
       className="group flex w-full items-center gap-3 rounded px-2 py-1.5 text-left text-sm transition-colors hover:bg-muted/60"
+      style={{ paddingLeft: `${8 + depth * 12}px` }}
       title={t('welcomePage.recentProjectTooltip')}
     >
+      <Icon className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
       <span className="truncate font-medium text-foreground transition-colors">
         {project.name}
       </span>
       {repoPath ? (
-        <span className="flex-1 truncate text-right text-xs text-muted-foreground">
+        <span className="flex-1 truncate text-right font-mono text-xs text-muted-foreground">
           {repoPath}
         </span>
       ) : null}
     </button>
   );
+}
+
+function flattenProjectTree<
+  T extends { id: string; parent_project_id?: string | null },
+>(projects: T[]): Array<{ project: T; depth: number }> {
+  const byParent = new Map<string | null, T[]>();
+  for (const project of projects) {
+    const parent = project.parent_project_id ?? null;
+    const list = byParent.get(parent) ?? [];
+    list.push(project);
+    byParent.set(parent, list);
+  }
+  const result: Array<{ project: T; depth: number }> = [];
+  const walk = (parentId: string | null, depth: number) => {
+    for (const project of byParent.get(parentId) ?? []) {
+      result.push({ project, depth });
+      walk(project.id, depth + 1);
+    }
+  };
+  walk(null, 0);
+  const seen = new Set(result.map((entry) => entry.project.id));
+  for (const project of projects) {
+    if (!seen.has(project.id)) {
+      result.push({ project, depth: 0 });
+    }
+  }
+  return result;
 }
 
 type ProjectContextMenuState = {
@@ -429,10 +466,11 @@ export function WelcomePage() {
               {t('welcomePage.noProjects')}
             </div>
           ) : (
-            projects.map((project) => (
+            flattenProjectTree(projects).map(({ project, depth }) => (
               <RecentProjectItem
                 key={project.id}
                 project={project}
+                depth={depth}
                 onClick={() => handleProjectClick(project.id)}
                 onContextMenu={(event) => {
                   event.stopPropagation();

@@ -79,6 +79,7 @@ function CreateSessionOverlay({
   setRepoBranch,
   isLoadingRepoBranches,
   gitInitIncomplete,
+  isGitProject,
   canCreateSession,
   isCreatePending,
   createError,
@@ -100,6 +101,7 @@ function CreateSessionOverlay({
   setRepoBranch: ReturnType<typeof useRepoBranchSelection>['setRepoBranch'];
   isLoadingRepoBranches: boolean;
   gitInitIncomplete: boolean;
+  isGitProject: boolean;
   canCreateSession: boolean;
   isCreatePending: boolean;
   createError: unknown;
@@ -123,6 +125,7 @@ function CreateSessionOverlay({
         <SessionCreationForm
           title={t('rightPanelContent.newSession')}
           gitInitIncomplete={gitInitIncomplete}
+          isGitProject={isGitProject}
           mode={createMode}
           onModeChange={setCreateMode}
           workspaceBranchOptions={workspaceBranchOptions}
@@ -196,6 +199,7 @@ export function RightPanelContent() {
     activeWorktreeId ?? visibleRightSession?.workspaceId ?? workspaceId;
   const queryClient = useQueryClient();
   const { data: repos = [] } = useProjectRepos(effectiveProjectId);
+  const isGitProject = repos.length > 0;
   const primaryRepo = repos[0];
   const { data: primaryRepoBranches = [] } = useRepoBranches(primaryRepo?.id, {
     enabled: Boolean(primaryRepo?.id),
@@ -376,11 +380,13 @@ export function RightPanelContent() {
 
   const canCreateSession =
     !!selectedExecutorProfile?.executor &&
-    (createMode === 'existing_workspace'
-      ? !!selectedWorkspaceOption
-      : repos.length > 0 &&
-        repoBranchConfigs.length > 0 &&
-        repoBranchConfigs.every((repoConfig) => !!repoConfig.targetBranch));
+    (isGitProject
+      ? createMode === 'existing_workspace'
+        ? !!selectedWorkspaceOption
+        : repos.length > 0 &&
+          repoBranchConfigs.length > 0 &&
+          repoBranchConfigs.every((repoConfig) => !!repoConfig.targetBranch)
+      : true);
 
   // Latest ACP control preset picked in the create form; stored on the draft
   // scratch so the first send applies it (ref: no re-render needed on pick).
@@ -392,10 +398,11 @@ export function RightPanelContent() {
         throw new Error('Project is required');
       }
 
-      const workspaceSelection =
-        createMode === 'existing_workspace'
+      const workspaceSelection = isGitProject
+        ? createMode === 'existing_workspace'
           ? resolveWorkspaceBranchSelection(selectedWorkspaceOption)
-          : { workspaceId: null, branch: null };
+          : { workspaceId: null, branch: null }
+        : { workspaceId: null, branch: null };
 
       return sessionsApi.createProject({
         project_id: effectiveProjectId,
@@ -403,13 +410,15 @@ export function RightPanelContent() {
         branch: workspaceSelection.branch,
         executor: selectedExecutorProfile?.executor ?? undefined,
         name: createSessionName.trim() || null,
-        create_workspace: createMode === 'new_workspace',
+        create_workspace: isGitProject && createMode === 'new_workspace',
         include_uncommitted:
-          createMode === 'new_workspace'
+          isGitProject && createMode === 'new_workspace'
             ? Boolean(input?.includeUncommitted)
             : undefined,
         repos:
-          createMode === 'new_workspace' ? getWorkspaceRepoInputs() : undefined,
+          isGitProject && createMode === 'new_workspace'
+            ? getWorkspaceRepoInputs()
+            : undefined,
       });
     },
     onSuccess: async (newSession) => {
@@ -582,6 +591,7 @@ export function RightPanelContent() {
     setRepoBranch,
     isLoadingRepoBranches,
     gitInitIncomplete: isGitInitIncomplete,
+    isGitProject,
     canCreateSession,
     isCreatePending: createSessionMutation.isPending,
     createError: createSessionMutation.error,
@@ -603,7 +613,7 @@ export function RightPanelContent() {
     <RightPanelSessionCreationProvider value={{ openCreateSessionOverlay }}>
       <div className="h-full flex overflow-hidden bg-transparent">
         <div className="relative flex-1 min-w-0 flex flex-col overflow-hidden">
-          <BranchInfoHeader />
+          {isGitProject ? <BranchInfoHeader /> : null}
           <div className="right-panel-conversation-region relative flex-1 min-h-0 overflow-hidden">
             {isWorkspaceRoute && workspaceId ? (
               <div className="h-full min-h-0 overflow-hidden">

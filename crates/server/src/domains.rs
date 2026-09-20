@@ -1485,6 +1485,11 @@ impl ServerApplicationDomains {
     }
 
     async fn project_list(&self) -> Result<Value, ApplicationError> {
+        let _ = self
+            .deployment
+            .project()
+            .migrate_multi_repo_projects(&self.pool, self.deployment.repo())
+            .await;
         serialize(
             Project::find_all(&self.pool)
                 .await

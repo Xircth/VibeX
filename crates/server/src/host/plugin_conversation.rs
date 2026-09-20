@@ -203,6 +203,8 @@ impl HostPluginConversationHost {
             &self.pool,
             &CreateProject {
                 name: format!("plugin:{plugin_id}"),
+                root_path: root_str.clone(),
+                parent_project_id: None,
                 repositories: Vec::new(),
             },
             project_id,

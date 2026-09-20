@@ -3350,7 +3350,7 @@
 
   .project-rail-inline-stage {
     position: relative;
-    width: 54px;
+    width: 220px;
     max-height: calc(100vh - 32px);
     min-height: 0;
     color: var(--project-rail-ink);
@@ -3467,9 +3467,9 @@
 
   .project-rail-project-slot {
     position: relative;
-    width: var(--project-rail-project-size);
-    height: var(--project-rail-project-size);
-    flex: 0 0 var(--project-rail-project-size);
+    width: 100%;
+    min-height: var(--project-rail-project-size);
+    flex: 0 0 auto;
   }
 
   .project-rail-project-button,
@@ -3489,10 +3489,31 @@
   }
 
   .project-rail-project-button {
-    width: var(--project-rail-project-size);
-    height: var(--project-rail-project-size);
+    display: flex;
+    width: 100%;
+    min-height: var(--project-rail-project-size);
+    align-items: center;
+    gap: 8px;
+    padding: 0 6px;
     border-radius: var(--radius);
     background: transparent;
+  }
+
+  .project-rail-project-button.is-active {
+    background: hsl(var(--primary));
+    color: hsl(var(--primary-foreground));
+  }
+
+  .project-rail-project-name {
+    min-width: 0;
+    flex: 1;
+    overflow: hidden;
+    text-align: left;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: 12px;
+    font-weight: 600;
+    line-height: 1.2;
   }
 
   .project-rail-project-badge,
@@ -3671,8 +3692,9 @@
 
   .project-rail-actions {
     display: flex;
-    flex-direction: column;
+    flex-direction: row;
     align-items: center;
+    justify-content: flex-end;
     gap: var(--project-rail-action-gap);
   }
 

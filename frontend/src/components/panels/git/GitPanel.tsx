@@ -41,7 +41,15 @@ import { useAttemptConflicts } from '@/hooks/useAttemptConflicts';
 import { usePanelActions } from '@/hooks/usePanelActions';
 import { useGitDiffNavigationStore } from '@/stores/useGitDiffNavigationStore';
 import { useAppContextMenu } from '@/components/context-menu';
-import { attemptsApi } from '@/lib/api';
+import { attemptsApi, projectsApi } from '@/lib/api';
+import { useQuery } from '@tanstack/react-query';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 import { useQueryClient } from '@tanstack/react-query';
 
 function EmptyState() {
@@ -49,8 +57,8 @@ function EmptyState() {
     <div className="h-full w-full flex items-center justify-center text-muted-foreground text-sm">
       <div className="text-center space-y-2">
         <GitBranch className="h-8 w-8 opacity-40 mx-auto" />
-        <p className="font-medium">Git Manager</p>
-        <p className="text-xs">Select a workspace to view Git status</p>
+        <p className="font-medium">Git</p>
+        <p className="text-xs">这个文件夹不是 Git 仓库。</p>
       </div>
     </div>
   );
@@ -86,9 +94,20 @@ export function GitPanel() {
 
   // When no workspace is active, fall back to the project's first repo
   const { data: projectRepos = [] } = useProjectRepos(projectId, {
-    enabled: !effectiveWorkspaceId && !!projectId,
+    enabled: !!projectId,
   });
-  const fallbackRepoId = projectRepos[0]?.id ?? null;
+  const { data: gitChildren = [] } = useQuery({
+    queryKey: ['project-git-children', projectId],
+    queryFn: () => projectsApi.gitChildren(projectId!),
+    enabled: !!projectId && projectRepos.length === 0,
+  });
+  const [gitChildId, setGitChildId] = useState<string | null>(null);
+  const selectedGitChildId = gitChildId ?? gitChildren[0]?.id ?? null;
+  const { data: childRepos = [] } = useProjectRepos(selectedGitChildId, {
+    enabled: projectRepos.length === 0 && !!selectedGitChildId,
+  });
+  const fallbackRepoId =
+    projectRepos[0]?.id ?? childRepos[0]?.id ?? null;
 
   const workspaceId = effectiveWorkspaceId;
   const repoId = selectedRepoId ?? fallbackRepoId;
@@ -190,7 +209,7 @@ export function GitPanel() {
     revertAll();
   }, [revertAll]);
 
-  if (!workspaceId && !repoId) return <EmptyState />;
+  if (!repoId && gitChildren.length === 0) return <EmptyState />;
   if (statusLoading && !displayedBranchName) return <LoadingState />;
 
   return (
@@ -229,12 +248,30 @@ export function GitPanel() {
     >
       {/* Header bar */}
       <div className="flex items-center gap-1 px-2 py-1 border-b border-border/30 shrink-0">
-        <div className="flex items-center gap-1 text-xs text-foreground mr-1">
-          <GitBranch className="h-3 w-3 text-muted-foreground" />
-          <span className="font-mono font-medium truncate max-w-[120px]">
-            {displayedBranchName}
-          </span>
-        </div>
+        {projectRepos.length === 0 && gitChildren.length > 0 ? (
+          <Select
+            value={selectedGitChildId ?? ''}
+            onValueChange={setGitChildId}
+          >
+            <SelectTrigger className="h-7 w-[140px] text-xs">
+              <SelectValue placeholder="Git 仓库" />
+            </SelectTrigger>
+            <SelectContent>
+              {gitChildren.map((child) => (
+                <SelectItem key={child.id} value={child.id}>
+                  {child.name}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        ) : (
+          <div className="flex items-center gap-1 text-xs text-foreground mr-1">
+            <GitBranch className="h-3 w-3 text-muted-foreground" />
+            <span className="font-mono font-medium truncate max-w-[120px]">
+              {displayedBranchName}
+            </span>
+          </div>
+        )}
 
         {(totalAdditions > 0 || totalDeletions > 0) && (
           <span className="text-[10px] font-mono shrink-0">

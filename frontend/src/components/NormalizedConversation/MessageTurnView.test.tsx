@@ -16,12 +16,14 @@ const {
   openFilePreviewMock,
   openImagePreviewMock,
   useImageMetadataMock,
+  hostFileSrcMock,
 } = vi.hoisted(() => ({
   markdownMock: vi.fn(({ value }: { value: string }) => <div>{value}</div>),
   userMarkdownMock: vi.fn(({ value }: { value: string }) => <div>{value}</div>),
   openFilePreviewMock: vi.fn(),
   openImagePreviewMock: vi.fn(),
   useImageMetadataMock: vi.fn(),
+  hostFileSrcMock: vi.fn(),
 }));
 
 function toolUseBlock(index: number, toolName: string, input: unknown) {
@@ -55,6 +57,14 @@ vi.mock('@/hooks/useOpenImagePreview', () => ({
 vi.mock('@/hooks/useImageMetadata', () => ({
   useImageMetadata: useImageMetadataMock,
 }));
+
+vi.mock('@/lib/hostAsset', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/lib/hostAsset')>();
+  return {
+    ...actual,
+    hostFileSrc: (...args: unknown[]) => hostFileSrcMock(...args),
+  };
+});
 
 const hideThinkingMock = vi.hoisted(() => ({ value: true }));
 
@@ -100,6 +110,8 @@ describe('MessageTurnView', () => {
       data: null,
       isLoading: false,
     });
+    hostFileSrcMock.mockReset();
+    hostFileSrcMock.mockResolvedValue('blob:image/png');
   });
 
   it('renders a user turn with the Astryx user-message semantics', () => {
@@ -139,15 +151,15 @@ describe('MessageTurnView', () => {
     );
   });
 
-  it('renders user-turn image attachments above the message bubble', () => {
+  it('renders user-turn image attachments above the message bubble', async () => {
     useImageMetadataMock.mockReturnValue({
       data: {
         exists: true,
         file_name: 'screen.png',
-        path: '.vibe-images/screen.png',
+        path: 'C:\\Users\\me\\proj\\.vibe-images\\screen.png',
         size_bytes: 123n,
         format: 'png',
-        proxy_url: 'asset://screen.png',
+        proxy_url: 'C:\\Users\\me\\proj\\.vibe-images\\screen.png',
       },
       isLoading: false,
     });
@@ -170,15 +182,21 @@ describe('MessageTurnView', () => {
             timestamp: '2026-06-14T00:00:00.000Z',
           } as never
         }
-        attempt={{ id: 'attempt-1', container_ref: null } as never}
+        attempt={
+          {
+            id: 'attempt-1',
+            container_ref: 'C:\\Users\\me\\proj',
+          } as never
+        }
         task={null}
       />
     );
 
     expect(screen.getByTestId('user-message-attachments')).toBeInTheDocument();
-    expect(screen.getByRole('img', { name: 'screen.png' })).toHaveAttribute(
-      'src',
-      'asset://screen.png'
+    const thumbnail = await screen.findByRole('img', { name: 'screen.png' });
+    expect(thumbnail).toHaveAttribute('src', 'blob:image/png');
+    expect(hostFileSrcMock).toHaveBeenCalledWith(
+      'C:\\Users\\me\\proj\\.vibe-images\\screen.png'
     );
     expect(screen.getByTestId('user-message-bubble')).toHaveTextContent(
       'Please inspect this.'
@@ -190,12 +208,65 @@ describe('MessageTurnView', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'Preview image' }));
     expect(openImagePreviewMock).toHaveBeenCalledWith({
-      imageUrl: 'asset://screen.png',
+      imageUrl: 'blob:image/png',
       altText: 'screen.png',
       fileName: 'screen.png',
       format: 'png',
       sizeBytes: 123n,
     });
+  });
+
+  it('does not load the host image-cache path when a workspace copy is available', async () => {
+    useImageMetadataMock.mockReturnValue({
+      data: {
+        exists: true,
+        file_name: 'screen.png',
+        path: 'C:\\Users\\me\\AppData\\VibeX\\images\\screen.png',
+        size_bytes: 123n,
+        format: 'png',
+        proxy_url: 'C:\\Users\\me\\AppData\\VibeX\\images\\screen.png',
+      },
+      isLoading: false,
+    });
+
+    render(
+      <MessageTurnView
+        turn={
+          {
+            id: 'turn-1:user',
+            role: 'user',
+            blocks: [
+              { type: 'text', text: 'Please inspect this.' },
+              {
+                type: 'image',
+                data: '',
+                mime_type: 'image/png',
+                uri: '.vibe-images/screen.png',
+              },
+            ],
+            timestamp: '2026-06-14T00:00:00.000Z',
+          } as never
+        }
+        attempt={
+          {
+            id: 'attempt-1',
+            container_ref: 'C:\\Users\\me\\proj',
+          } as never
+        }
+        task={null}
+      />
+    );
+
+    expect(await screen.findByRole('img', { name: 'screen.png' })).toHaveAttribute(
+      'src',
+      'blob:image/png'
+    );
+    expect(hostFileSrcMock).toHaveBeenCalledWith(
+      'C:\\Users\\me\\proj\\.vibe-images\\screen.png'
+    );
+    expect(hostFileSrcMock).not.toHaveBeenCalledWith(
+      'C:\\Users\\me\\AppData\\VibeX\\images\\screen.png'
+    );
   });
 
   it('renders document attachments as file cards instead of image placeholders', () => {
@@ -247,15 +318,15 @@ describe('MessageTurnView', () => {
     );
   });
 
-  it('renders an image-only user turn without an empty text bubble', () => {
+  it('renders an image-only user turn without an empty text bubble', async () => {
     useImageMetadataMock.mockReturnValue({
       data: {
         exists: true,
         file_name: 'shot.png',
-        path: '.vibe-images/shot.png',
+        path: 'C:\\Users\\me\\proj\\.vibe-images\\shot.png',
         size_bytes: 10n,
         format: 'png',
-        proxy_url: 'asset://shot.png',
+        proxy_url: 'C:\\Users\\me\\proj\\.vibe-images\\shot.png',
       },
       isLoading: false,
     });
@@ -277,12 +348,19 @@ describe('MessageTurnView', () => {
             timestamp: '2026-06-14T00:00:00.000Z',
           } as never
         }
-        attempt={{ id: 'attempt-1', container_ref: null } as never}
+        attempt={
+          {
+            id: 'attempt-1',
+            container_ref: 'C:\\Users\\me\\proj',
+          } as never
+        }
         task={null}
       />
     );
 
-    expect(screen.getByRole('img', { name: 'shot.png' })).toBeInTheDocument();
+    expect(
+      await screen.findByRole('img', { name: 'shot.png' })
+    ).toHaveAttribute('src', 'blob:image/png');
     expect(screen.queryByTestId('user-message-bubble')).not.toBeInTheDocument();
     expect(userMarkdownMock).not.toHaveBeenCalled();
   });

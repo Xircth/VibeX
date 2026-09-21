@@ -1,9 +1,101 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import type { ContentBlock } from 'shared/types';
 import {
+  isAbsoluteLocalPath,
+  loadUserMessageImageSrc,
+  resolveUserMessageImageFilesystemPath,
+  userMessageImageFilesystemCandidates,
   splitDisplayContentImages,
   splitUserTurnContent,
 } from './userMessageImages';
+
+describe('resolveUserMessageImageFilesystemPath', () => {
+  it('prefers the workspace copy over the image-cache metadata path', () => {
+    expect(
+      resolveUserMessageImageFilesystemPath({
+        imagePath: '.vibe-images/screen.png',
+        metadataPath: 'C:\\Users\\me\\AppData\\VibeX\\images\\screen.png',
+        metadataProxyUrl: 'C:\\Users\\me\\AppData\\VibeX\\images\\screen.png',
+        workspacePath: 'C:\\Users\\me\\proj',
+      })
+    ).toBe('C:\\Users\\me\\proj\\.vibe-images\\screen.png');
+  });
+
+  it('lists workspace then cache paths so a sandbox miss can fall back', () => {
+    expect(
+      userMessageImageFilesystemCandidates({
+        imagePath: '.vibe-images/screen.png',
+        metadataPath: 'C:\\Users\\me\\AppData\\VibeX\\images\\screen.png',
+        workspacePath: 'C:\\Users\\me\\proj',
+      })
+    ).toEqual([
+      'C:\\Users\\me\\proj\\.vibe-images\\screen.png',
+      'C:\\Users\\me\\AppData\\VibeX\\images\\screen.png',
+    ]);
+  });
+
+  it('uses an absolute metadata path when no workspace is available', () => {
+    expect(
+      resolveUserMessageImageFilesystemPath({
+        imagePath: '.vibe-images/screen.png',
+        metadataPath: 'C:\\Users\\me\\proj\\.vibe-images\\screen.png',
+        metadataProxyUrl: 'C:\\Users\\me\\proj\\.vibe-images\\screen.png',
+      })
+    ).toBe('C:\\Users\\me\\proj\\.vibe-images\\screen.png');
+  });
+
+  it('joins a workspace folder with a vibe-images uri when metadata is missing', () => {
+    expect(
+      resolveUserMessageImageFilesystemPath({
+        imagePath: '.vibe-images/screen.png',
+        workspacePath: 'C:\\Users\\me\\proj',
+      })
+    ).toBe('C:\\Users\\me\\proj\\.vibe-images\\screen.png');
+  });
+
+  it('joins posix workspace folders with forward slashes', () => {
+    expect(
+      resolveUserMessageImageFilesystemPath({
+        imagePath: '.vibe-images/screen.png',
+        workspacePath: '/Users/me/proj',
+      })
+    ).toBe('/Users/me/proj/.vibe-images/screen.png');
+  });
+
+  it('loads the first filesystem path that hostFileSrc can read', async () => {
+    const load = vi.fn(async (path: string) => {
+      if (path.includes('.vibe-images')) {
+        throw new Error('path is outside every registered repository or workspace');
+      }
+      return 'blob:image/png';
+    });
+
+    await expect(
+      loadUserMessageImageSrc(
+        [
+          'C:\\Users\\me\\proj\\.vibe-images\\screen.png',
+          'C:\\Users\\me\\AppData\\VibeX\\images\\screen.png',
+        ],
+        load
+      )
+    ).resolves.toEqual({
+      path: 'C:\\Users\\me\\AppData\\VibeX\\images\\screen.png',
+      url: 'blob:image/png',
+    });
+    expect(load).toHaveBeenCalledTimes(2);
+  });
+
+  it('ignores asset and data URLs that cannot be read as files', () => {
+    expect(
+      resolveUserMessageImageFilesystemPath({
+        imagePath: '.vibe-images/screen.png',
+        metadataProxyUrl: 'asset://screen.png',
+      })
+    ).toBeUndefined();
+    expect(isAbsoluteLocalPath('.vibe-images/screen.png')).toBe(false);
+    expect(isAbsoluteLocalPath('C:/Users/me/shot.png')).toBe(true);
+  });
+});
 
 describe('splitDisplayContentImages', () => {
   it('lifts vibe image markdown out of the user message body', () => {

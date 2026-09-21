@@ -119,11 +119,10 @@ async function createHostFileBlobUrl(path: string): Promise<string> {
     result.mime_type ||
     mimeForMediaExtension(fileExtension(path)) ||
     'application/octet-stream';
-  const url = URL.createObjectURL(
+  // Do not insert into `blobUrls` here. A refs:0 entry lets an unmounting
+  // caller revoke the blob before hostFileSrc claims it, which is the
+  // blank-thumbnail / dead-click path on user messages.
+  return URL.createObjectURL(
     new Blob([bytesToArrayBuffer(decodeBase64Bytes(encoded))], { type: mime })
   );
-  if (!blobUrls.has(path)) {
-    blobUrls.set(path, { url, refs: 0 });
-  }
-  return blobUrls.get(path)?.url ?? url;
 }

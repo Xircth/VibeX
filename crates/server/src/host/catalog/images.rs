@@ -1,4 +1,4 @@
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use application::ApplicationError;
 use base64::{Engine, engine::general_purpose::STANDARD as BASE64};
@@ -93,6 +93,18 @@ fn decode_image(payload: &UploadImageRequest) -> Result<Vec<u8>, ApplicationErro
     BASE64
         .decode(payload.data_base64.as_bytes())
         .map_err(|error| ApplicationError::bad_request(format!("Invalid image payload: {error}")))
+}
+
+fn prefer_workspace_copy(
+    mut metadata: ImageMetadataResponse,
+    candidate: &Path,
+) -> ImageMetadataResponse {
+    if candidate.is_file() {
+        let path = candidate.to_string_lossy().to_string();
+        metadata.path = Some(path.clone());
+        metadata.proxy_url = Some(path);
+    }
+    metadata
 }
 
 fn metadata_for(
@@ -275,15 +287,15 @@ pub(super) async fn workspace_metadata(
     let image = Image::find_by_file_path(&domains.pool, &file_name)
         .await
         .map_err(internal_error)?;
-    let metadata = metadata_for(domains.deployment.image(), image);
+    let mut metadata = metadata_for(domains.deployment.image(), image);
     if !metadata.exists {
         return serialize(metadata);
     }
     if let Some(container_ref) = &workspace.container_ref {
         let candidate = PathBuf::from(container_ref)
-            .join(".vibe-images")
+            .join(utils::path::VIBE_IMAGES_DIR)
             .join(&file_name);
-        if !candidate.exists() {
+        if !candidate.is_file() {
             let _ = WorkspaceRepo::find_repos_for_workspace(&domains.pool, workspace.id).await;
             domains
                 .deployment
@@ -296,6 +308,10 @@ pub(super) async fn workspace_metadata(
                 .await
                 .map_err(internal_error)?;
         }
+        // Thumbnails load via ReadBinaryAsset, which only sandboxes repos and
+        // workspace folders. The host image cache is outside that sandbox, so
+        // the workspace copy must win when it exists.
+        metadata = prefer_workspace_copy(metadata, &candidate);
     }
     serialize(metadata)
 }
@@ -371,6 +387,48 @@ mod tests {
             args.workspace_id.unwrap().to_string(),
             "11111111-1111-1111-1111-111111111111"
         );
+    }
+
+    #[test]
+    fn prefer_workspace_copy_uses_the_existing_worktree_file() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let candidate = dir.path().join(".vibe-images").join("shot.png");
+        std::fs::create_dir_all(candidate.parent().expect("parent")).expect("mkdir");
+        std::fs::write(&candidate, b"png").expect("write");
+
+        let preferred = prefer_workspace_copy(
+            ImageMetadataResponse {
+                exists: true,
+                file_name: Some("shot.png".into()),
+                path: Some("/cache/shot.png".into()),
+                size_bytes: Some(3),
+                format: Some("png".into()),
+                proxy_url: Some("/cache/shot.png".into()),
+                updated_at: None,
+            },
+            &candidate,
+        );
+        let expected = candidate.to_string_lossy().to_string();
+        assert_eq!(preferred.path.as_deref(), Some(expected.as_str()));
+        assert_eq!(preferred.proxy_url.as_deref(), Some(expected.as_str()));
+    }
+
+    #[test]
+    fn prefer_workspace_copy_keeps_cache_when_worktree_file_is_missing() {
+        let preferred = prefer_workspace_copy(
+            ImageMetadataResponse {
+                exists: true,
+                file_name: Some("shot.png".into()),
+                path: Some("/cache/shot.png".into()),
+                size_bytes: Some(3),
+                format: Some("png".into()),
+                proxy_url: Some("/cache/shot.png".into()),
+                updated_at: None,
+            },
+            Path::new("/no/such/.vibe-images/shot.png"),
+        );
+        assert_eq!(preferred.path.as_deref(), Some("/cache/shot.png"));
+        assert_eq!(preferred.proxy_url.as_deref(), Some("/cache/shot.png"));
     }
 
     #[test]

@@ -1931,6 +1931,21 @@ impl ServerApplicationDomains {
         Ok(path)
     }
 
+    /// ReadBinaryAsset may load Host-cached conversation images. Those files
+    /// live under `{host_data_dir}/images`, which is not a repo or workspace.
+    pub(crate) async fn sandbox_existing_binary_asset(
+        &self,
+        path: &str,
+    ) -> Result<PathBuf, ApplicationError> {
+        match self.sandbox_existing_file(path).await {
+            Ok(existing) => Ok(existing),
+            Err(error) => match existing_host_image_cache_file(path).await {
+                Some(existing) => Ok(existing),
+                None => Err(error),
+            },
+        }
+    }
+
     async fn sandbox_existing_path(&self, path: &str) -> Result<PathBuf, ApplicationError> {
         let requested = tokio::fs::canonicalize(sanitize_absolute(path)?)
             .await
@@ -2136,6 +2151,22 @@ fn restrict_file(path: &Path) {
     }
     #[cfg(not(unix))]
     let _ = path;
+}
+
+fn host_image_cache_dir() -> PathBuf {
+    utils::assets::host_data_dir().join("images")
+}
+
+fn path_is_host_image_cache_file(requested: &Path, cache_root: &Path) -> bool {
+    requested.is_file() && requested.starts_with(cache_root)
+}
+
+async fn existing_host_image_cache_file(path: &str) -> Option<PathBuf> {
+    let requested = tokio::fs::canonicalize(sanitize_absolute(path).ok()?)
+        .await
+        .ok()?;
+    let cache = tokio::fs::canonicalize(host_image_cache_dir()).await.ok()?;
+    path_is_host_image_cache_file(&requested, &cache).then_some(requested)
 }
 
 pub(crate) fn sanitize_absolute(path: &str) -> Result<PathBuf, ApplicationError> {
@@ -2680,6 +2711,20 @@ mod tests {
     fn trash_item_payload_accepts_host_camel_case_path() {
         let parsed: PathArgs = parse(json!({ "path": "/tmp/gone.txt" })).expect("path");
         assert_eq!(parsed.path, "/tmp/gone.txt");
+    }
+
+    #[test]
+    fn binary_assets_may_read_files_inside_the_host_image_cache() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let cache = dir.path().join("images");
+        std::fs::create_dir_all(&cache).expect("mkdir");
+        let file = cache.join("shot.png");
+        std::fs::write(&file, b"png").expect("write");
+        assert!(path_is_host_image_cache_file(&file, &cache));
+        assert!(!path_is_host_image_cache_file(
+            &dir.path().join("other.png"),
+            &cache
+        ));
     }
 
     #[tokio::test]

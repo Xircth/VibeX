@@ -1,4 +1,6 @@
 import type { ContentBlock } from 'shared/types';
+import { isBrowserDisplayUrl } from '@/lib/hostAsset';
+import { joinLocalPath } from '@/utils/displayPath';
 import {
   attachmentPreviewKind,
   type AttachmentPreviewKind,
@@ -14,6 +16,104 @@ export type UserMessageImage = {
   sourceUrl?: string | null;
   kind: AttachmentPreviewKind;
 };
+
+export function isAbsoluteLocalPath(path: string): boolean {
+  const value = path.trim();
+  if (!value) return false;
+  if (value.startsWith('/') || value.startsWith('\\\\')) return true;
+  return /^[a-zA-Z]:[\\/]/.test(value);
+}
+
+export function vibeImageFileName(imagePath: string): string | undefined {
+  const normalized = imagePath.replaceAll('\\', '/').trim();
+  if (!normalized.startsWith('.vibe-images/')) return undefined;
+  const fileName = normalized.slice('.vibe-images/'.length);
+  return fileName || undefined;
+}
+
+export function resolveWorkspaceVibeImagePath(
+  workspacePath: string | null | undefined,
+  imagePath: string
+): string | undefined {
+  const fileName = vibeImageFileName(imagePath);
+  if (!fileName || !workspacePath?.trim()) return undefined;
+  return joinLocalPath(joinLocalPath(workspacePath, '.vibe-images'), fileName);
+}
+
+export function resolveUserMessageImageFilesystemPath({
+  imagePath,
+  metadataPath,
+  metadataProxyUrl,
+  workspacePath,
+}: {
+  imagePath: string;
+  metadataPath?: string | null;
+  metadataProxyUrl?: string | null;
+  workspacePath?: string | null;
+}): string | undefined {
+  // The workspace copy is inside the host file sandbox. The image cache
+  // directory is not, so metadata's cache path must not win or thumbnails 404.
+  const workspaceCopy = resolveWorkspaceVibeImagePath(workspacePath, imagePath);
+  if (workspaceCopy) return workspaceCopy;
+
+  for (const candidate of [metadataPath, metadataProxyUrl, imagePath]) {
+    if (!candidate) continue;
+    if (candidate.startsWith('data:') || isBrowserDisplayUrl(candidate)) {
+      continue;
+    }
+    if (isAbsoluteLocalPath(candidate)) {
+      return candidate;
+    }
+  }
+
+  return undefined;
+}
+
+export function userMessageImageFilesystemCandidates({
+  imagePath,
+  metadataPath,
+  metadataProxyUrl,
+  workspacePath,
+}: {
+  imagePath: string;
+  metadataPath?: string | null;
+  metadataProxyUrl?: string | null;
+  workspacePath?: string | null;
+}): string[] {
+  const seen = new Set<string>();
+  const paths: string[] = [];
+  const push = (value: string | undefined) => {
+    if (!value || seen.has(value)) return;
+    seen.add(value);
+    paths.push(value);
+  };
+
+  push(resolveWorkspaceVibeImagePath(workspacePath, imagePath));
+  for (const candidate of [metadataPath, metadataProxyUrl, imagePath]) {
+    if (!candidate) continue;
+    if (candidate.startsWith('data:') || isBrowserDisplayUrl(candidate)) {
+      continue;
+    }
+    if (isAbsoluteLocalPath(candidate)) {
+      push(candidate);
+    }
+  }
+  return paths;
+}
+
+export async function loadUserMessageImageSrc(
+  paths: string[],
+  load: (path: string) => Promise<string>
+): Promise<{ path: string; url: string } | null> {
+  for (const path of paths) {
+    try {
+      return { path, url: await load(path) };
+    } catch (error) {
+      console.warn('Failed to load user message image:', error);
+    }
+  }
+  return null;
+}
 
 function fileNameFromPath(path: string): string {
   const normalized = path.replaceAll('\\', '/');

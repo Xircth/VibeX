@@ -171,15 +171,15 @@ describe('UserMessage', () => {
     ).toHaveAttribute('title', elementContext);
   });
 
-  it('renders vibe image attachments as inline thumbnails and opens preview', () => {
+  it('renders vibe image attachments as inline thumbnails and opens preview', async () => {
     imageMocks.useImageMetadata.mockReturnValue({
       data: {
         exists: true,
         file_name: 'screen.png',
-        path: '.vibe-images/screen.png',
+        path: 'C:\\Users\\me\\proj\\.vibe-images\\screen.png',
         size_bytes: 123n,
         format: 'png',
-        proxy_url: 'asset://screen.png',
+        proxy_url: 'C:\\Users\\me\\proj\\.vibe-images\\screen.png',
       },
       isLoading: false,
     });
@@ -187,27 +187,172 @@ describe('UserMessage', () => {
     render(
       <UserMessage
         content={'Please inspect this.\n![screen](.vibe-images/screen.png)'}
-        taskAttempt={{ id: 'attempt-1' } as never}
+        taskAttempt={
+          {
+            id: 'attempt-1',
+            container_ref: 'C:\\Users\\me\\proj',
+          } as never
+        }
       />
     );
 
     expect(screen.getByRole('document')).toHaveTextContent(
       'Please inspect this.'
     );
-    expect(screen.getByRole('img', { name: 'screen' })).toHaveAttribute(
-      'src',
-      'asset://screen.png'
+    const thumbnail = await screen.findByRole('img', { name: 'screen' });
+    expect(thumbnail).toHaveAttribute('src', 'blob:image/png');
+    expect(imageMocks.hostFileSrc).toHaveBeenCalledWith(
+      'C:\\Users\\me\\proj\\.vibe-images\\screen.png'
     );
 
     fireEvent.click(screen.getByRole('button', { name: 'Preview image' }));
 
     expect(imageMocks.showPreview).toHaveBeenCalledWith({
-      imageUrl: 'asset://screen.png',
+      imageUrl: 'blob:image/png',
       altText: 'screen',
       fileName: 'screen.png',
       format: 'png',
       sizeBytes: 123n,
     });
+  });
+
+  it('loads the thumbnail from the workspace folder when metadata is missing', async () => {
+    imageMocks.useImageMetadata.mockReturnValue({
+      data: null,
+      isLoading: false,
+    });
+
+    render(
+      <UserMessage
+        content={'Please inspect this.\n![screen](.vibe-images/screen.png)'}
+        taskAttempt={
+          {
+            id: 'attempt-1',
+            container_ref: 'C:\\Users\\me\\proj',
+          } as never
+        }
+      />
+    );
+
+    expect(await screen.findByRole('img', { name: 'screen' })).toHaveAttribute(
+      'src',
+      'blob:image/png'
+    );
+    expect(imageMocks.hostFileSrc).toHaveBeenCalledWith(
+      'C:\\Users\\me\\proj\\.vibe-images\\screen.png'
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: 'Preview image' }));
+    expect(imageMocks.showPreview).toHaveBeenCalledWith(
+      expect.objectContaining({ imageUrl: 'blob:image/png' })
+    );
+  });
+
+  it('does not read the file until image metadata finishes copying it', () => {
+    imageMocks.useImageMetadata.mockReturnValue({
+      data: null,
+      isLoading: true,
+    });
+
+    render(
+      <UserMessage
+        content={'Please inspect this.\n![screen](.vibe-images/screen.png)'}
+        taskAttempt={
+          {
+            id: 'attempt-1',
+            container_ref: 'C:\\Users\\me\\proj',
+          } as never
+        }
+      />
+    );
+
+    expect(screen.getByTestId('user-message-image-attachments')).toBeInTheDocument();
+    expect(screen.queryByRole('img')).not.toBeInTheDocument();
+    expect(imageMocks.hostFileSrc).not.toHaveBeenCalled();
+  });
+
+  it('loads the workspace copy rather than the unsandboxed image cache path', async () => {
+    imageMocks.useImageMetadata.mockReturnValue({
+      data: {
+        exists: true,
+        file_name: 'screen.png',
+        path: 'C:\\Users\\me\\AppData\\VibeX\\images\\screen.png',
+        size_bytes: 123n,
+        format: 'png',
+        proxy_url: 'C:\\Users\\me\\AppData\\VibeX\\images\\screen.png',
+      },
+      isLoading: false,
+    });
+
+    render(
+      <UserMessage
+        content={'Please inspect this.\n![screen](.vibe-images/screen.png)'}
+        taskAttempt={
+          {
+            id: 'attempt-1',
+            container_ref: 'C:\\Users\\me\\proj',
+          } as never
+        }
+      />
+    );
+
+    expect(await screen.findByRole('img', { name: 'screen' })).toHaveAttribute(
+      'src',
+      'blob:image/png'
+    );
+    expect(imageMocks.hostFileSrc).toHaveBeenCalledWith(
+      'C:\\Users\\me\\proj\\.vibe-images\\screen.png'
+    );
+    expect(imageMocks.hostFileSrc).not.toHaveBeenCalledWith(
+      'C:\\Users\\me\\AppData\\VibeX\\images\\screen.png'
+    );
+  });
+
+  it('falls back to the cache path when the workspace copy cannot be read', async () => {
+    imageMocks.hostFileSrc.mockImplementation(async (path: string) => {
+      if (String(path).includes('.vibe-images')) {
+        throw new Error(
+          'path is outside every registered repository or workspace'
+        );
+      }
+      return 'blob:image/png';
+    });
+    imageMocks.useImageMetadata.mockReturnValue({
+      data: {
+        exists: true,
+        file_name: 'screen.png',
+        path: 'C:\\Users\\me\\AppData\\VibeX\\images\\screen.png',
+        size_bytes: 123n,
+        format: 'png',
+        proxy_url: 'C:\\Users\\me\\AppData\\VibeX\\images\\screen.png',
+      },
+      isLoading: false,
+    });
+
+    render(
+      <UserMessage
+        content={'Please inspect this.\n![screen](.vibe-images/screen.png)'}
+        taskAttempt={
+          {
+            id: 'attempt-1',
+            container_ref: 'C:\\Users\\me\\proj',
+          } as never
+        }
+      />
+    );
+
+    expect(await screen.findByRole('img', { name: 'screen' })).toHaveAttribute(
+      'src',
+      'blob:image/png'
+    );
+    expect(imageMocks.hostFileSrc).toHaveBeenNthCalledWith(
+      1,
+      'C:\\Users\\me\\proj\\.vibe-images\\screen.png'
+    );
+    expect(imageMocks.hostFileSrc).toHaveBeenNthCalledWith(
+      2,
+      'C:\\Users\\me\\AppData\\VibeX\\images\\screen.png'
+    );
   });
 
   it('revokes data-URL blob object URLs when the attachment unmounts', () => {

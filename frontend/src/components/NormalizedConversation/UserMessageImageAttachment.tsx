@@ -1,28 +1,33 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Image as ImageIcon, Loader2 } from 'lucide-react';
 import { useOpenAttachmentPreview } from '@/hooks/useOpenAttachmentPreview';
 import { useImageMetadata } from '@/hooks/useImageMetadata';
 import {
   blobSrcFromDataUrl,
   hostFileSrc,
-  isBrowserDisplayUrl,
   isDirectBrowserDisplayUrl,
   releaseHostFileSrc,
 } from '@/lib/hostAsset';
 import { cn } from '@/lib/utils';
 import { AttachmentFileCard } from './attachments/AttachmentFileCard';
 import { useDelayedHover } from './attachments/useDelayedHover';
-import type { UserMessageImage } from './userMessageImages';
+import {
+  loadUserMessageImageSrc,
+  userMessageImageFilesystemCandidates,
+  type UserMessageImage,
+} from './userMessageImages';
 
 function UserMessageImageAttachment({
   image,
   taskAttemptId,
+  workspacePath,
   expanded = true,
   onMouseEnter,
   onMouseLeave,
 }: {
   image: UserMessageImage;
   taskAttemptId?: string;
+  workspacePath?: string | null;
   expanded?: boolean;
   onMouseEnter?: () => void;
   onMouseLeave?: () => void;
@@ -43,12 +48,16 @@ function UserMessageImageAttachment({
   const imageUrl = directImageUrl ?? resolvedImageUrl ?? undefined;
   const label = image.altText || metadata?.file_name || 'Image';
   const resolvedImagePath = metadata?.path ?? image.path;
-  const filesystemAssetPath =
-    directImageUrl || rawImageUrl?.startsWith('data:')
-      ? undefined
-      : rawImageUrl && !isBrowserDisplayUrl(rawImageUrl)
-        ? rawImageUrl
-        : resolvedImagePath;
+  const filesystemAssetPaths = useMemo(
+    () =>
+      userMessageImageFilesystemCandidates({
+        imagePath: image.path,
+        metadataPath: metadata?.path,
+        metadataProxyUrl: metadata?.proxy_url,
+        workspacePath,
+      }),
+    [image.path, metadata?.path, metadata?.proxy_url, workspacePath]
+  );
 
   useEffect(() => {
     setImageLoadFailed(false);
@@ -65,32 +74,57 @@ function UserMessageImageAttachment({
       };
     }
 
-    if (isLoading || !filesystemAssetPath) {
+    if (image.sourceUrl?.startsWith('data:')) {
+      const blobUrl = blobSrcFromDataUrl(image.sourceUrl);
+      setResolvedImageUrl(blobUrl ?? image.sourceUrl);
+      return () => {
+        if (blobUrl) URL.revokeObjectURL(blobUrl);
+      };
+    }
+
+    // Wait for metadata: that call copies the cache file into the workspace
+    // `.vibe-images` folder. Reading before the copy lands 404s the thumbnail.
+    if (isLoading) {
       setResolvedImageUrl(null);
       return;
     }
 
+    if (filesystemAssetPaths.length === 0) {
+      setResolvedImageUrl(null);
+      setImageLoadFailed(true);
+      return;
+    }
+
     let cancelled = false;
-    hostFileSrc(filesystemAssetPath)
-      .then((url) => {
+    let acquiredPath: string | null = null;
+    void loadUserMessageImageSrc(filesystemAssetPaths, hostFileSrc).then(
+      (loaded) => {
         if (cancelled) {
-          releaseHostFileSrc(filesystemAssetPath);
+          if (loaded) releaseHostFileSrc(loaded.path);
           return;
         }
-        setResolvedImageUrl(url);
-      })
-      .catch((error: unknown) => {
-        console.warn('Failed to load user message image:', error);
-        if (!cancelled) {
+        if (!loaded) {
           setImageLoadFailed(true);
+          return;
         }
-      });
+        acquiredPath = loaded.path;
+        setResolvedImageUrl(loaded.url);
+      }
+    );
 
     return () => {
       cancelled = true;
-      releaseHostFileSrc(filesystemAssetPath);
+      if (acquiredPath) {
+        releaseHostFileSrc(acquiredPath);
+      }
     };
-  }, [directImageUrl, filesystemAssetPath, isLoading, rawImageUrl]);
+  }, [
+    directImageUrl,
+    filesystemAssetPaths,
+    image.sourceUrl,
+    isLoading,
+    rawImageUrl,
+  ]);
 
   const handleImageError = useCallback(() => {
     setImageLoadFailed(true);
@@ -122,7 +156,7 @@ function UserMessageImageAttachment({
     <button
       type="button"
       className={cn(
-        'attachment-image-thumb flex items-center justify-center outline-none transition hover:opacity-90 focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background disabled:cursor-default'
+        'attachment-image-thumb relative flex items-center justify-center outline-none transition hover:opacity-90 focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background disabled:cursor-default'
       )}
       data-expanded={expanded ? 'true' : 'false'}
       onClick={handlePreview}
@@ -138,14 +172,14 @@ function UserMessageImageAttachment({
             muted
             playsInline
             preload="metadata"
-            className="h-full w-full object-cover"
+            className="absolute inset-0 h-full w-full object-cover"
             onError={handleImageError}
           />
         ) : (
           <img
             src={imageUrl}
             alt={label}
-            className="h-full w-full object-cover"
+            className="absolute inset-0 h-full w-full object-cover"
             onError={handleImageError}
           />
         )
@@ -233,9 +267,11 @@ function FileAttachmentRow({
 function ImageAttachmentRow({
   images,
   taskAttemptId,
+  workspacePath,
 }: {
   images: UserMessageImage[];
   taskAttemptId?: string;
+  workspacePath?: string | null;
 }) {
   const stacked = images.length >= 4;
   const hover = useDelayedHover();
@@ -254,6 +290,7 @@ function ImageAttachmentRow({
           key={image.id}
           image={image}
           taskAttemptId={taskAttemptId}
+          workspacePath={workspacePath}
           expanded={!stacked || hover.activeId === image.id}
           onMouseEnter={stacked ? () => hover.enter(image.id) : undefined}
           onMouseLeave={stacked ? hover.leave : undefined}
@@ -267,10 +304,12 @@ export function UserMessageAttachments({
   images,
   files = [],
   taskAttemptId,
+  workspacePath,
 }: {
   images: UserMessageImage[];
   files?: UserMessageImage[];
   taskAttemptId?: string;
+  workspacePath?: string | null;
 }) {
   if (images.length === 0 && files.length === 0) return null;
 
@@ -283,7 +322,11 @@ export function UserMessageAttachments({
         <FileAttachmentRow files={files} taskAttemptId={taskAttemptId} />
       ) : null}
       {images.length > 0 ? (
-        <ImageAttachmentRow images={images} taskAttemptId={taskAttemptId} />
+        <ImageAttachmentRow
+          images={images}
+          taskAttemptId={taskAttemptId}
+          workspacePath={workspacePath}
+        />
       ) : null}
     </div>
   );

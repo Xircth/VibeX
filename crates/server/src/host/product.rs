@@ -820,7 +820,7 @@ impl ServerApplicationDomains {
             }
             DomainCommand::ReadBinaryAsset => {
                 let args: PathArgs = parse(args)?;
-                let path = self.sandbox_existing_file(&args.path).await?;
+                let path = self.sandbox_existing_binary_asset(&args.path).await?;
                 let bytes = tokio::fs::read(&path).await.map_err(internal_error)?;
                 let encoded = BASE64.encode(bytes);
                 Ok(json!({

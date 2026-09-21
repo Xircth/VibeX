@@ -476,6 +476,7 @@
 }
 
 .attachment-image-thumb {
+  position: relative;
   height: 80px;
   width: 80px;
   flex: 0 0 auto;
@@ -484,6 +485,15 @@
   border-radius: var(--radius);
   background: hsl(var(--background) / 0.3);
   transition: width 180ms var(--ease-out, cubic-bezier(0.22, 1, 0.36, 1));
+}
+
+.attachment-image-thumb img,
+.attachment-image-thumb video {
+  position: absolute;
+  inset: 0;
+  height: 100%;
+  width: 100%;
+  object-fit: cover;
 }
 
 .attachment-image-stack .attachment-image-thumb {

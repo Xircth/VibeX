@@ -536,6 +536,7 @@ export const MessageTurnView = memo(function MessageTurnView({
             images={images}
             files={files}
             taskAttemptId={attempt.id}
+            workspacePath={resolvedWorkspacePath}
           />
           {hasText || onRetry || onEditRetry ? (
             <div className="conv-user-bubble-wrap">

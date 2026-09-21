@@ -184,6 +184,7 @@ const UserMessage = ({
             images={displayImages}
             files={displayFiles}
             taskAttemptId={taskAttempt?.id}
+            workspacePath={taskAttempt?.container_ref}
           />
 
           {hasTextBubble && (

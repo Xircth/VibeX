@@ -113,6 +113,33 @@ describe('hostFileSrc', () => {
     releaseHostFileSrc('/tmp/parallel.png');
     expect(revokeObjectURL).toHaveBeenCalledOnce();
   });
+
+  it('keeps the in-flight blob live until the awaiting caller retains it', async () => {
+    let resolveAsset:
+      | ((value: { data_base64: string; mime_type: string }) => void)
+      | undefined;
+    backendCall.mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          resolveAsset = resolve;
+        })
+    );
+
+    const pending = hostFileSrc('/tmp/inflight.png');
+    // Unmount before the asset returns. A refs:0 cache entry would revoke here.
+    releaseHostFileSrc('/tmp/inflight.png');
+    resolveAsset?.({
+      data_base64: btoa('png-bytes'),
+      mime_type: 'image/png',
+    });
+
+    const url = await pending;
+    expect(url).toMatch(/^blob:image\/png:/);
+    expect(revokeObjectURL).not.toHaveBeenCalled();
+
+    releaseHostFileSrc('/tmp/inflight.png');
+    expect(revokeObjectURL).toHaveBeenCalledWith(url);
+  });
 });
 
 describe('isBrowserDisplayUrl', () => {

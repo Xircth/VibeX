@@ -172,9 +172,39 @@ pub struct WorktreeEntry {
     pub branch: Option<String>,
 }
 
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum UntrackedFiles {
+    No,
+    Normal,
+    All,
+}
+
+impl UntrackedFiles {
+    fn as_git_arg(self) -> &'static str {
+        match self {
+            Self::No => "--untracked-files=no",
+            Self::Normal => "--untracked-files=normal",
+            Self::All => "--untracked-files=all",
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
 pub struct StatusDiffOptions {
     pub path_filter: Option<Vec<String>>, // pathspecs to limit diff
+    /// When false, skip untracked files. Freshly initialized Windows folders
+    /// can contain thousands of untracked paths; enumerating them with
+    /// `--untracked-files=all` takes minutes and blocks conversation send.
+    pub include_untracked: bool,
+}
+
+impl Default for StatusDiffOptions {
+    fn default() -> Self {
+        Self {
+            path_filter: None,
+            include_untracked: true,
+        }
+    }
 }
 
 impl GitCli {
@@ -420,7 +450,14 @@ impl GitCli {
 
         // Stage changed and untracked files explicitly, which is faster than `git add -A` for large repos.
         // Use raw paths from `get_worktree_status` to avoid lossy UTF-8 conversions for odd filenames.
-        let status = self.get_worktree_status(worktree_path)?;
+        let status = self.get_worktree_status_with(
+            worktree_path,
+            if opts.include_untracked {
+                UntrackedFiles::Normal
+            } else {
+                UntrackedFiles::No
+            },
+        )?;
         let mut paths_to_add: Vec<Vec<u8>> = Vec::new();
         for entry in status.entries {
             paths_to_add.push(entry.path);
@@ -464,14 +501,24 @@ impl GitCli {
 
     /// Return `git status --porcelain` parsed into a structured summary
     pub fn get_worktree_status(&self, worktree_path: &Path) -> Result<WorktreeStatus, GitCliError> {
+        self.get_worktree_status_with(worktree_path, UntrackedFiles::Normal)
+    }
+
+    pub fn get_worktree_status_with(
+        &self,
+        worktree_path: &Path,
+        untracked: UntrackedFiles,
+    ) -> Result<WorktreeStatus, GitCliError> {
         // Using -z for NUL-separated output which correctly handles paths with special chars.
         // Format: XY<space>PATH<NUL>[ORIGPATH<NUL>] where ORIGPATH only present for R/C.
+        // `normal` lists untracked dirs as a single entry instead of walking every
+        // file (`all`), which is the Windows-visible multi-minute hang after git init.
         let args = Self::apply_default_excludes(vec![
             "--no-optional-locks",
             "status",
             "--porcelain",
             "-z",
-            "--untracked-files=all",
+            untracked.as_git_arg(),
         ]);
         let out = self.git_impl(worktree_path, args, None, None)?;
         let mut entries = Vec::new();

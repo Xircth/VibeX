@@ -128,11 +128,11 @@
     "toggleSessionMonitor": "Toggle session monitor",
     "toggleSessionExecution": "Toggle session execution",
     "resetKanbanLayout": "Reset Kanban layout",
-    "homeOrRecentProjects": "Go home or open a recent project",
+    "homeOrRecentProjects": "Go home or open an imported project",
     "backToHome": "Back to home",
     "newAppWindow": "New app window",
-    "recentProjects": "Recent projects",
-    "noRecentProjects": "No recent projects"
+    "recentProjects": "Imported projects",
+    "noRecentProjects": "No imported projects"
   },
   "branchInfo": {
     "notInWorktree": "Not currently in a Worktree. Please switch the target branch manually.",

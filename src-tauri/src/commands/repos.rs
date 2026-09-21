@@ -77,7 +77,9 @@ pub async fn check_git_repo_path(
     state: tauri::State<'_, AppState>,
     path: String,
 ) -> Result<bool, AppError> {
-    let is_git_repo = state.deployment.repo().is_git_repo_path(&path)?;
+    let repo_service = state.deployment.repo().clone();
+    let is_git_repo =
+        crate::error::spawn_blocking_result(move || repo_service.is_git_repo_path(&path)).await?;
     Ok(is_git_repo)
 }
 
@@ -226,7 +228,10 @@ pub async fn get_repo_branches(
         .repo()
         .get_by_id(&state.deployment.db().pool, repo_id)
         .await?;
-    let branches = state.deployment.git().get_all_branches(&repo.path)?;
+    let git = state.deployment.git().clone();
+    let repo_path = repo.path.clone();
+    let branches =
+        crate::error::spawn_blocking_result(move || git.get_all_branches(&repo_path)).await?;
     Ok(branches)
 }
 

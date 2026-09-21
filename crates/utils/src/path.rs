@@ -140,6 +140,18 @@ pub fn normalize_windows_extended_path_prefix<P: AsRef<Path>>(path: P) -> PathBu
     path.to_path_buf()
 }
 
+pub fn is_user_home_directory(path: &Path) -> bool {
+    let Some(home) = dirs::home_dir() else {
+        return false;
+    };
+    let left = normalize_windows_extended_path_prefix(path);
+    let right = normalize_windows_extended_path_prefix(&home);
+    left == right
+        || left
+            .to_string_lossy()
+            .eq_ignore_ascii_case(&right.to_string_lossy())
+}
+
 pub fn get_vibex_temp_dir() -> std::path::PathBuf {
     let dir_name = if cfg!(debug_assertions) {
         "vibex-dev"

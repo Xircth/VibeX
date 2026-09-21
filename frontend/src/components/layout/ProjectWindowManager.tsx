@@ -285,10 +285,8 @@ function ProjectActivityTracker({
   isActive: boolean;
 }) {
   const { t } = useTranslation(['panels', 'common']);
-  const { sessions, isLoading } = useKanbanProjectSessions(projectId);
-  const ensureProjectOpen = useWindowProjectsStore(
-    (state) => state.ensureProjectOpen
-  );
+  const { sessions, isLoading, sessionsResolved } =
+    useKanbanProjectSessions(projectId);
   const setProjectSnapshot = useWindowProjectsStore(
     (state) => state.setProjectSnapshot
   );
@@ -333,22 +331,24 @@ function ProjectActivityTracker({
   }, [isLoading, sessions, t]);
 
   useEffect(() => {
-    const nextSignature = JSON.stringify(snapshot);
+    const nextSignature = `${sessionsResolved ? '1' : '0'}:${JSON.stringify(snapshot)}`;
     if (previousSnapshotSignatureRef.current === nextSignature) {
       return;
     }
 
     previousSnapshotSignatureRef.current = nextSignature;
     if (
-      snapshot.isLoading ||
-      snapshot.hasRunning ||
-      snapshot.hasSessions ||
-      snapshot.hasError
+      !sessionsResolved &&
+      snapshot.recentSessions.length === 0
     ) {
-      ensureProjectOpen(projectId);
+      const previous =
+        useWindowProjectsStore.getState().projectSnapshots[projectId];
+      if (previous?.recentSessions.length) {
+        return;
+      }
     }
     setProjectSnapshot(projectId, snapshot);
-  }, [ensureProjectOpen, projectId, setProjectSnapshot, snapshot]);
+  }, [projectId, sessionsResolved, setProjectSnapshot, snapshot]);
 
   useEffect(() => {
     if (isActive && projectAlert?.unread) {

@@ -47,6 +47,24 @@ async fn creates_non_git_project_without_initializing_git() {
 }
 
 #[tokio::test]
+async fn ensure_home_project_is_idempotent_non_git_folder() {
+    let pool = pool().await;
+    let first = ProjectService::new()
+        .ensure_home_project(&pool, &RepoService::new())
+        .await
+        .unwrap();
+    let second = ProjectService::new()
+        .ensure_home_project(&pool, &RepoService::new())
+        .await
+        .unwrap();
+
+    assert_eq!(first.id, second.id);
+    assert!(!first.is_git);
+    assert!(first.is_home);
+    assert!(!first.root_path.is_empty());
+}
+
+#[tokio::test]
 async fn preview_import_lists_only_direct_git_children() {
     let root = TempDir::new().unwrap();
     let parent = root.path().join("mono");
@@ -63,11 +81,7 @@ async fn preview_import_lists_only_direct_git_children() {
 
     let pool = pool().await;
     let preview = ProjectService::new()
-        .preview_import(
-            &pool,
-            &RepoService::new(),
-            parent.to_str().unwrap(),
-        )
+        .preview_import(&pool, &RepoService::new(), parent.to_str().unwrap())
         .await
         .unwrap();
 
@@ -207,9 +221,11 @@ async fn migrate_splits_sibling_repos_under_shared_parent() {
         .collect();
     assert_eq!(children.len(), 2);
     assert!(children.iter().all(|project| project.is_git));
-    assert!(!db::models::project::Project::has_multi_repo_project(&pool)
-        .await
-        .unwrap());
+    assert!(
+        !db::models::project::Project::has_multi_repo_project(&pool)
+            .await
+            .unwrap()
+    );
 }
 
 #[tokio::test]

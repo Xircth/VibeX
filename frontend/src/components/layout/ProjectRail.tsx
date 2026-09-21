@@ -27,7 +27,7 @@ import {
   resolveProjectVisualStateMeta,
 } from '@/components/layout/ProjectActivityUi';
 import {
-  buildProjectRailOrderedIds,
+  buildProjectRailTree,
   capProjectRailVisibleCount,
   projectRailPanelHeight,
 } from '@/components/layout/projectRailProjects';
@@ -35,6 +35,7 @@ import {
   clampProjectRailPosition,
   defaultProjectRailPosition,
   PROJECT_RAIL_WIDTH,
+  projectRailHoverPopoverPosition,
   readViewportSize,
   type ProjectRailPosition,
 } from '@/components/layout/projectRailPosition';
@@ -43,6 +44,7 @@ import {
   PROJECT_DELETE_CONFIRM_STYLE,
 } from '@/lib/projectDeleteUi';
 import { useMediaQuery } from '@/hooks/useMediaQuery';
+import { importedProjectName } from '@/lib/importedProject';
 
 const STATIC_GLASS_POINTER = { x: 0, y: 0 };
 
@@ -51,15 +53,12 @@ export function ProjectRail({
 }: {
   mouseContainerRef?: RefObject<HTMLElement | null>;
 }) {
-  const { t } = useTranslation(['panels', 'common']);
+  const { t } = useTranslation(['panels', 'common', 'app']);
   const { openSurfaceMenu } = useAppContextMenu();
   const { projects, isLoading: isProjectsLoading } = useProjects();
   const { projectId } = useProject();
   const switchProject = useProjectSwitcher();
   const railVisible = useWindowProjectsStore((state) => state.railVisible);
-  const openProjectIds = useWindowProjectsStore(
-    (state) => state.openProjectIds
-  );
   const projectSnapshots = useWindowProjectsStore(
     (state) => state.projectSnapshots
   );
@@ -99,16 +98,6 @@ export function ProjectRail({
     startClientX: number;
     startClientY: number;
   } | null>(null);
-  const orderedProjectIds = useMemo(
-    () =>
-      buildProjectRailOrderedIds({
-        openProjectIds,
-        currentProjectId: projectId,
-        projectSnapshotIds: Object.keys(projectSnapshots),
-        projectIds: projects.map((project) => project.id),
-      }),
-    [openProjectIds, projectId, projectSnapshots, projects]
-  );
   const projectRailItemCount = capProjectRailVisibleCount(projects.length);
   const projectRailHeight = projectRailPanelHeight(projectRailItemCount);
   const railPosition = useMemo(() => {
@@ -135,36 +124,10 @@ export function ProjectRail({
     viewport.width,
   ]);
 
-  const visibleProjects = useMemo(() => {
-    const byId = new Map(projects.map((project) => [project.id, project]));
-    const visible = orderedProjectIds
-      .map((id) => byId.get(id))
-      .filter((project): project is (typeof projects)[number] =>
-        Boolean(project)
-      );
-    const byParent = new Map<string | null, typeof visible>();
-    for (const project of visible) {
-      const parent = project.parent_project_id ?? null;
-      const list = byParent.get(parent) ?? [];
-      list.push(project);
-      byParent.set(parent, list);
-    }
-    const nested: Array<(typeof visible)[number] & { depth: number }> = [];
-    const walk = (parentId: string | null, depth: number) => {
-      for (const project of byParent.get(parentId) ?? []) {
-        nested.push({ ...project, depth });
-        walk(project.id, depth + 1);
-      }
-    };
-    walk(null, 0);
-    const seen = new Set(nested.map((project) => project.id));
-    for (const project of visible) {
-      if (!seen.has(project.id)) {
-        nested.push({ ...project, depth: 0 });
-      }
-    }
-    return nested;
-  }, [orderedProjectIds, projects]);
+  const visibleProjects = useMemo(
+    () => buildProjectRailTree(projects),
+    [projects]
+  );
 
   useEffect(() => {
     if (!railVisible) {
@@ -353,24 +316,36 @@ export function ProjectRail({
       hoverTimerRef.current = null;
     }
 
-    const rect = event.currentTarget.getBoundingClientRect();
-    const popoverWidth = 288;
-    setHoveredProjectState({
+    const itemRect = event.currentTarget.getBoundingClientRect();
+    const railRect = railRef.current?.getBoundingClientRect();
+    const next = {
       projectId: nextProjectId,
-      top: rect.top + rect.height / 2,
-      left: Math.min(rect.right + 12, window.innerWidth - popoverWidth - 8),
-    });
+      ...projectRailHoverPopoverPosition(
+        itemRect,
+        railRect,
+        readViewportSize()
+      ),
+    };
+    setHoveredProjectState((current) =>
+      current?.projectId === next.projectId &&
+      current.top === next.top &&
+      current.left === next.left
+        ? current
+        : next
+    );
   };
 
   const handleProjectMouseLeave = (nextProjectId: string) => {
     if (hoverTimerRef.current) {
       clearTimeout(hoverTimerRef.current);
-      hoverTimerRef.current = null;
     }
 
-    setHoveredProjectState((current) =>
-      current?.projectId === nextProjectId ? null : current
-    );
+    hoverTimerRef.current = setTimeout(() => {
+      setHoveredProjectState((current) =>
+        current?.projectId === nextProjectId ? null : current
+      );
+      hoverTimerRef.current = null;
+    }, 160);
   };
 
   const handleDeleteProject = async (
@@ -403,6 +378,12 @@ export function ProjectRail({
       toast.error(t('projectRail.deleteFailed'));
     }
   };
+
+  const hoveredProject = hoveredProjectState
+    ? visibleProjects.find(
+        (project) => project.id === hoveredProjectState.projectId
+      )
+    : undefined;
 
   if (!railVisible) {
     return null;
@@ -481,8 +462,6 @@ export function ProjectRail({
             ? deriveProjectVisualState(snapshot, projectAlerts[project.id])
             : 'idle';
           const meta = resolveProjectVisualStateMeta(visualState);
-          const isHovered = hoveredProjectState?.projectId === project.id;
-
           return (
             <div
               key={project.id}
@@ -536,7 +515,7 @@ export function ProjectRail({
                       label: t('common:contextMenu.open'),
                       onSelect: () => handleProjectClick(project.id),
                     },
-                    ...(!project.is_git
+                    ...(!project.is_git && !project.is_home
                       ? [
                           {
                             id: 'init-git',
@@ -547,20 +526,26 @@ export function ProjectRail({
                           },
                         ]
                       : []),
-                    {
-                      id: 'delete',
-                      label: t('projectRail.removeAction'),
-                      danger: false,
-                      onSelect: () => {
-                        void handleDeleteProject({
-                          id: project.id,
-                          name: project.name,
-                        });
-                      },
-                    },
+                    ...(!project.is_home
+                      ? [
+                          {
+                            id: 'delete',
+                            label: t('projectRail.removeAction'),
+                            danger: false,
+                            onSelect: () => {
+                              void handleDeleteProject({
+                                id: project.id,
+                                name: importedProjectName(project, (key) =>
+                                  t(key, { ns: 'app' })
+                                ),
+                              });
+                            },
+                          },
+                        ]
+                      : []),
                   ]);
                 }}
-                aria-label={`${project.name}: ${meta.label}`}
+                aria-label={`${importedProjectName(project, (key) => t(key, { ns: 'app' }))}: ${meta.label}`}
                 className={cn(
                   'project-rail-project-button',
                   isActive && 'is-active'
@@ -578,7 +563,9 @@ export function ProjectRail({
                   />
                 )}
                 <span className="project-rail-project-name">
-                  {project.name}
+                  {importedProjectName(project, (key) =>
+                    t(key, { ns: 'app' })
+                  )}
                 </span>
                 {visualState === 'loading' ? (
                   <span className="project-rail-status-dot-shell">
@@ -595,6 +582,7 @@ export function ProjectRail({
                 )}
               </button>
 
+              {project.is_home ? null : (
               <button
                 type="button"
                 className="project-rail-delete-button"
@@ -616,19 +604,8 @@ export function ProjectRail({
               >
                 <Trash2 aria-hidden="true" />
               </button>
+              )}
 
-              {isHovered ? (
-                <ProjectRecentSessionsPopover
-                  projectName={project.name}
-                  recentSessions={snapshot?.recentSessions ?? []}
-                  align="right"
-                  style={{
-                    top: hoveredProjectState?.top,
-                    left: hoveredProjectState?.left,
-                    transform: 'translateY(-50%)',
-                  }}
-                />
-              ) : null}
             </div>
           );
         })}
@@ -642,6 +619,7 @@ export function ProjectRail({
   );
 
   return (
+    <>
     <div
       className="project-rail-inline-host"
       style={{
@@ -682,5 +660,21 @@ export function ProjectRail({
         </HostGlass>
       </div>
     </div>
+    {hoveredProject && hoveredProjectState ? (
+      <ProjectRecentSessionsPopover
+        projectName={importedProjectName(hoveredProject, (key) =>
+          t(key, { ns: 'app' })
+        )}
+        recentSessions={
+          projectSnapshots[hoveredProject.id]?.recentSessions ?? []
+        }
+        align="right"
+        style={{
+          top: hoveredProjectState.top,
+          left: hoveredProjectState.left,
+        }}
+      />
+    ) : null}
+    </>
   );
 }

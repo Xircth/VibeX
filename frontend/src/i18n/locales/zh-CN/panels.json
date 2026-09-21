@@ -128,11 +128,11 @@
     "toggleSessionMonitor": "显示/隐藏会话监控区",
     "toggleSessionExecution": "显示/隐藏会话执行区",
     "resetKanbanLayout": "重置看板布局",
-    "homeOrRecentProjects": "返回首页或打开最近项目",
+    "homeOrRecentProjects": "返回首页或打开已导入项目",
     "backToHome": "回到首页",
     "newAppWindow": "新建应用窗口",
-    "recentProjects": "最近项目",
-    "noRecentProjects": "暂无最近项目"
+    "recentProjects": "已导入项目",
+    "noRecentProjects": "暂无已导入项目"
   },
   "branchInfo": {
     "notInWorktree": "当前未处于 Worktree 中，请手动切换目标分支。",

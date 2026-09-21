@@ -700,7 +700,7 @@ describe('KanbanSessionConversationView', () => {
     expect(screen.getByText(/加载/)).toBeInTheDocument();
   });
 
-  it('does not mount the interactive shell while session details are still loading', () => {
+  it('keeps the composer mounted while session details are still loading', () => {
     useWorkspaceSessionsMock.mockReturnValue({
       sessions: [],
       selectedSession: undefined,
@@ -741,9 +741,8 @@ describe('KanbanSessionConversationView', () => {
       </MemoryRouter>
     );
 
-    expect(screen.queryByTestId('virtualized-list')).not.toBeInTheDocument();
-    expect(screen.queryByTestId('follow-up-section')).not.toBeInTheDocument();
-    expect(screen.getByText(/加载/)).toBeInTheDocument();
+    expect(screen.getByTestId('follow-up-section')).toBeInTheDocument();
+    expect(screen.queryByText(/加载/)).not.toBeInTheDocument();
   });
 
   it('does not fabricate a conversation when the requested session was deleted', async () => {

@@ -182,7 +182,7 @@
     "submitCreate": "创建项目",
     "titleExisting": "选择文件夹",
     "titleNew": "创建新项目",
-    "descriptionExisting": "打开工程根目录。不必是 Git 仓库。",
+    "descriptionExisting": "选择项目根目录，不必是Git仓库",
     "descriptionNew": "创建新项目会在指定位置新建文件夹，并自动完成 Git 初始化。",
     "folderLabel": "项目文件夹",
     "chooseFolder": "选择文件夹",

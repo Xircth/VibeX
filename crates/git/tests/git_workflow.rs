@@ -110,14 +110,10 @@ fn initialize_repo_without_user_creates_initial_commit() {
     let head = s.get_head_info(&repo_path).unwrap();
     assert_eq!(head.branch, "main");
     assert!(!head.oid.is_empty());
-    // Verify author is set: either global identity (if configured) or fallback
+    // Bootstrap commit uses the local VibeX identity, not a global gitconfig lookup.
     let (name, email) = get_head_author(&repo_path);
-    if has_global_git_identity() {
-        assert!(name.is_some() && email.is_some());
-    } else {
-        assert_eq!(name.as_deref(), Some("VibeX"));
-        assert_eq!(email.as_deref(), Some("noreply@vibex.com"));
-    }
+    assert_eq!(name.as_deref(), Some("VibeX"));
+    assert_eq!(email.as_deref(), Some("noreply@vibex.com"));
 }
 
 #[test]

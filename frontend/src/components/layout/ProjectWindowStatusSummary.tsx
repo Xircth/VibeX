@@ -12,11 +12,11 @@ import {
   resolveProjectVisualStateMeta,
 } from '@/components/layout/ProjectActivityUi';
 import { ProjectRailToggleButton } from '@/components/layout/ProjectRailToggleButton';
-
-const BOTTOM_STATUS_LIMIT = 6;
+import { importedProjectName } from '@/lib/importedProject';
+import { selectBottomStatusProjectIds } from '@/components/layout/projectRailProjects';
 
 export function ProjectWindowStatusSummary() {
-  const { t } = useTranslation('statusbar');
+  const { t } = useTranslation(['statusbar', 'app']);
   const { projectId: currentProjectId, project } = useProject();
   const { projectsById } = useProjects();
   const switchProject = useProjectSwitcher();
@@ -35,16 +35,11 @@ export function ProjectWindowStatusSummary() {
   } | null>(null);
 
   const statusItems = useMemo(() => {
-    const existingProjectIds = new Set(Object.keys(projectsById));
-    const candidateProjectIds = Array.from(
-      new Set([
-        ...Object.keys(projectSnapshots),
-        ...openProjectIds,
-        ...(currentProjectId ? [currentProjectId] : []),
-      ])
-    )
-      .filter((projectId) => existingProjectIds.has(projectId))
-      .slice(0, BOTTOM_STATUS_LIMIT);
+    const candidateProjectIds = selectBottomStatusProjectIds({
+      openProjectIds,
+      currentProjectId,
+      existingProjectIds: Object.keys(projectsById),
+    });
 
     return candidateProjectIds
       .map((projectId) => {
@@ -56,7 +51,9 @@ export function ProjectWindowStatusSummary() {
         const snapshot = projectSnapshots[projectId];
         return {
           projectId,
-          projectName: project.name,
+          projectName: importedProjectName(project, (key) =>
+            t(key, { ns: 'app' })
+          ),
           visualState: snapshot
             ? deriveProjectVisualState(snapshot, projectAlerts[projectId])
             : 'idle',
@@ -70,6 +67,7 @@ export function ProjectWindowStatusSummary() {
     projectAlerts,
     projectSnapshots,
     projectsById,
+    t,
   ]);
 
   const handleProjectClick = (projectId: string) => {
@@ -107,7 +105,9 @@ export function ProjectWindowStatusSummary() {
       <ProjectRailToggleButton variant="capsule" />
       {railVisible ? (
         project ? (
-          <span className="truncate opacity-90">{project.name}</span>
+          <span className="truncate opacity-90">
+            {importedProjectName(project, (key) => t(key, { ns: 'app' }))}
+          </span>
         ) : null
       ) : (
         statusItems.map((item) => {
@@ -121,7 +121,6 @@ export function ProjectWindowStatusSummary() {
                 type="button"
                 aria-current={isCurrent ? 'page' : undefined}
                 aria-label={t('openProject', { name: item.projectName })}
-                title={`${item.projectName}: ${meta.label}`}
                 onClick={() => handleProjectClick(item.projectId)}
                 onMouseEnter={(event) =>
                   handleProjectMouseEnter(item.projectId, event)

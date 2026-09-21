@@ -369,6 +369,7 @@ function KanbanSessionConversationContent({
   attempt,
   taskId,
   interactive,
+  requestedSessionLoading = false,
   sessionState,
   showSessionSelector,
   onSessionCreated,
@@ -379,6 +380,7 @@ function KanbanSessionConversationContent({
   attempt: WorkspaceWithSession;
   taskId: string | null;
   interactive: boolean;
+  requestedSessionLoading?: boolean;
   sessionState: UseWorkspaceSessionsResult;
   showSessionSelector: boolean;
   onSessionCreated?: (session: {
@@ -436,6 +438,7 @@ function KanbanSessionConversationContent({
   const shouldShowNewSessionPrompt =
     interactive &&
     !activeSession &&
+    !requestedSessionLoading &&
     sessionState.sessions.length === 0 &&
     !sessionState.isNewSessionMode;
 
@@ -488,20 +491,22 @@ function KanbanSessionConversationContent({
                   </div>
                 ) : null}
                 {interactive && !shouldShowNewSessionPrompt ? (
-                  <TaskFollowUpSection
-                    taskId={taskId}
-                    session={activeSession}
-                    workspace={activeAttempt}
-                    workspaceId={attempt.id}
-                    sessionState={sessionState}
-                    showSessionSelector={showSessionSelector}
-                    onSessionCreated={onSessionCreated}
-                    onSessionSelected={onSessionSelected}
-                    onCreateSessionRequested={onCreateSessionRequested}
-                    onJumpToPreviousUserMessage={() =>
-                      logsRef.current?.scrollToPreviousUserMessage()
-                    }
-                  />
+                  <div className="shrink-0">
+                    <TaskFollowUpSection
+                      taskId={taskId}
+                      session={activeSession}
+                      workspace={activeAttempt}
+                      workspaceId={attempt.id}
+                      sessionState={sessionState}
+                      showSessionSelector={showSessionSelector}
+                      onSessionCreated={onSessionCreated}
+                      onSessionSelected={onSessionSelected}
+                      onCreateSessionRequested={onCreateSessionRequested}
+                      onJumpToPreviousUserMessage={() =>
+                        logsRef.current?.scrollToPreviousUserMessage()
+                      }
+                    />
+                  </div>
                 ) : null}
               </div>
             </ActiveExecutorProfileProvider>
@@ -599,10 +604,8 @@ function KanbanSessionConversationSurface({
 
   const resolvedSession = session ?? listSession ?? undefined;
   const isBootstrappingWorkspace = !workspace && isWorkspaceLoading;
-  const isBootstrappingSession =
-    !!sessionId && !resolvedSession && isSessionPending && !isSessionError;
 
-  if (isBootstrappingWorkspace || isBootstrappingSession) {
+  if (isBootstrappingWorkspace) {
     return (
       <div
         className={`flex h-full min-h-0 items-center justify-center ${className ?? ''}`}
@@ -634,11 +637,14 @@ function KanbanSessionConversationSurface({
   const taskId = resolvedSession?.task_id ?? workspace.task_id;
   const canInteractWithoutResolvedSession = interactive && !sessionId;
   const requestedSessionMissing = !!sessionId && isSessionError;
+  const requestedSessionLoading =
+    !!sessionId && isSessionPending && !isSessionError;
   const shouldRenderInteractiveShell =
     interactive &&
     (canInteractWithoutResolvedSession ||
       !!resolvedSession ||
-      requestedSessionMissing);
+      requestedSessionMissing ||
+      requestedSessionLoading);
 
   return (
     <ImagePreviewPresentationProvider value={imagePreviewPresentation}>
@@ -651,6 +657,7 @@ function KanbanSessionConversationSurface({
             attempt={createWorkspaceWithSession(workspace, resolvedSession)}
             taskId={taskId}
             interactive={shouldRenderInteractiveShell}
+            requestedSessionLoading={requestedSessionLoading}
             sessionState={sessionState}
             showSessionSelector={showSessionSelector}
             onSessionCreated={onSessionCreated}

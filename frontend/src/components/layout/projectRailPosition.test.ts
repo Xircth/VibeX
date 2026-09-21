@@ -5,6 +5,7 @@ import {
   defaultProjectRailPosition,
   PROJECT_RAIL_DEFAULT_LEFT,
   PROJECT_RAIL_EDGE_MARGIN,
+  projectRailHoverPopoverPosition,
 } from './projectRailPosition';
 
 describe('clampProjectRailPosition', () => {
@@ -43,5 +44,27 @@ describe('defaultProjectRailPosition', () => {
       x: PROJECT_RAIL_DEFAULT_LEFT,
       y: (800 - 280) / 2,
     });
+  });
+});
+
+describe('projectRailHoverPopoverPosition', () => {
+  it('places the popover to the right of the rail without overlapping it', () => {
+    expect(
+      projectRailHoverPopoverPosition(
+        { top: 120, bottom: 150, left: 12, right: 232 },
+        { left: 12, right: 232 },
+        { width: 1280, height: 800 }
+      )
+    ).toEqual({ top: 120, left: 240 });
+  });
+
+  it('places the popover to the left when the rail is near the right edge', () => {
+    expect(
+      projectRailHoverPopoverPosition(
+        { top: 120, bottom: 150, left: 1000, right: 1220 },
+        { left: 1000, right: 1220 },
+        { width: 1280, height: 800 }
+      ).left
+    ).toBe(1000 - 288 - 8);
   });
 });

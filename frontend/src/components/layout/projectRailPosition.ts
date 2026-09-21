@@ -50,6 +50,27 @@ export function defaultProjectRailPosition(
   );
 }
 
+export function projectRailHoverPopoverPosition(
+  item: { top: number; bottom: number; left: number; right: number },
+  rail: { left: number; right: number } | null | undefined,
+  viewport: { width: number; height: number },
+  popoverWidth = 288,
+  popoverHeight = 160,
+  gap = 8
+): { top: number; left: number } {
+  const railBox = rail ?? item;
+  const fitsRight =
+    railBox.right + gap + popoverWidth <= viewport.width - gap;
+  const left = fitsRight
+    ? railBox.right + gap
+    : Math.max(gap, railBox.left - popoverWidth - gap);
+  const top = Math.min(
+    Math.max(gap, item.top),
+    Math.max(gap, viewport.height - popoverHeight - gap)
+  );
+  return { top, left };
+}
+
 export function readViewportSize(): { width: number; height: number } {
   if (typeof window === 'undefined') {
     return { width: 1280, height: 800 };

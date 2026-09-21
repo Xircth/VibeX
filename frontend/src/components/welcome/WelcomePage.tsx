@@ -28,6 +28,10 @@ import {
 } from '@/lib/projectDeleteUi';
 import { toast } from '@/components/ui/toast';
 import { initProjectGitWithPrompt } from '@/lib/initProjectGit';
+import {
+  importedProjectName,
+  orderImportedProjects,
+} from '@/lib/importedProject';
 import { useAppContextMenu } from '@/components/context-menu';
 
 function WelcomeSection({
@@ -86,6 +90,7 @@ function RecentProjectItem({
     name: string;
     root_path?: string;
     is_git?: boolean;
+    is_home?: boolean;
   };
   depth: number;
   onClick: () => void;
@@ -106,7 +111,7 @@ function RecentProjectItem({
     >
       <Icon className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
       <span className="truncate font-medium text-foreground transition-colors">
-        {project.name}
+        {importedProjectName(project, t)}
       </span>
       {repoPath ? (
         <span className="flex-1 truncate text-right font-mono text-xs text-muted-foreground">
@@ -148,6 +153,7 @@ type ProjectContextMenuState = {
   projectId: string;
   projectName: string;
   isGit: boolean;
+  isHome: boolean;
   x: number;
   y: number;
 };
@@ -294,19 +300,25 @@ export function WelcomePage() {
 
   const handleProjectContextMenu = useCallback(
     (
-      project: { id: string; name: string; is_git?: boolean },
+      project: {
+        id: string;
+        name: string;
+        is_git?: boolean;
+        is_home?: boolean;
+      },
       event: React.MouseEvent<HTMLButtonElement>
     ) => {
       event.preventDefault();
       setContextMenu({
         projectId: project.id,
-        projectName: project.name,
+        projectName: importedProjectName(project, t),
         isGit: Boolean(project.is_git),
+        isHome: Boolean(project.is_home),
         x: event.clientX,
         y: event.clientY,
       });
     },
-    []
+    [t]
   );
 
   const handleOpenFromContextMenu = useCallback(() => {
@@ -468,18 +480,20 @@ export function WelcomePage() {
               {t('welcomePage.noProjects')}
             </div>
           ) : (
-            flattenProjectTree(projects).map(({ project, depth }) => (
-              <RecentProjectItem
-                key={project.id}
-                project={project}
-                depth={depth}
-                onClick={() => handleProjectClick(project.id)}
-                onContextMenu={(event) => {
-                  event.stopPropagation();
-                  handleProjectContextMenu(project, event);
-                }}
-              />
-            ))
+            flattenProjectTree(orderImportedProjects(projects)).map(
+              ({ project, depth }) => (
+                <RecentProjectItem
+                  key={project.id}
+                  project={project}
+                  depth={depth}
+                  onClick={() => handleProjectClick(project.id)}
+                  onContextMenu={(event) => {
+                    event.stopPropagation();
+                    handleProjectContextMenu(project, event);
+                  }}
+                />
+              )
+            )
           )}
         </WelcomeSection>
       </div>
@@ -497,7 +511,7 @@ export function WelcomePage() {
           >
             {t('welcomePage.open')}
           </button>
-          {!contextMenu.isGit ? (
+          {!contextMenu.isGit && !contextMenu.isHome ? (
             <button
               type="button"
               className="flex w-full items-center rounded-lg px-3 py-2 text-left text-sm text-foreground transition-colors hover:bg-muted/70"
@@ -514,14 +528,16 @@ export function WelcomePage() {
               {t('welcomePage.initGit')}
             </button>
           ) : null}
-          <button
-            type="button"
-            className="flex w-full items-center rounded-lg px-3 py-2 text-left text-sm text-foreground transition-colors hover:bg-muted/70 disabled:cursor-not-allowed disabled:opacity-60"
-            onClick={() => void handleDeleteFromContextMenu()}
-            disabled={isDeletingProject}
-          >
-            {t('welcomePage.confirmDelete')}
-          </button>
+          {contextMenu.isHome ? null : (
+            <button
+              type="button"
+              className="flex w-full items-center rounded-lg px-3 py-2 text-left text-sm text-foreground transition-colors hover:bg-muted/70 disabled:cursor-not-allowed disabled:opacity-60"
+              onClick={() => void handleDeleteFromContextMenu()}
+              disabled={isDeletingProject}
+            >
+              {t('welcomePage.confirmDelete')}
+            </button>
+          )}
         </div>
       ) : null}
     </div>

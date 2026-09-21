@@ -158,7 +158,28 @@ impl ProjectService {
         }
         project.is_git = !normalized_repos.is_empty();
 
+        project.is_home = utils::path::is_user_home_directory(Path::new(&project.root_path));
         Ok(project)
+    }
+
+    pub async fn ensure_home_project(
+        &self,
+        pool: &SqlitePool,
+        repo_service: &RepoService,
+    ) -> Result<Project> {
+        let home = dirs::home_dir()
+            .ok_or_else(|| ProjectServiceError::PathNotFound(PathBuf::from("~")))?;
+        self.create_project(
+            pool,
+            repo_service,
+            CreateProject {
+                name: "Global".into(),
+                root_path: home.to_string_lossy().into_owned(),
+                parent_project_id: None,
+                repositories: vec![],
+            },
+        )
+        .await
     }
 
     async fn reuse_existing_project(
@@ -193,9 +214,7 @@ impl ProjectService {
             if ProjectRepo::find_repos_for_project(pool, project.id)
                 .await?
                 .iter()
-                .any(|existing| {
-                    existing.path.to_string_lossy() == repo.git_repo_path.as_str()
-                })
+                .any(|existing| existing.path.to_string_lossy() == repo.git_repo_path.as_str())
             {
                 continue;
             }
@@ -421,12 +440,8 @@ impl ProjectService {
             .await?;
         let repos = ProjectRepo::find_repos_for_project(pool, project.id).await?;
         if repos.is_empty() {
-            let repo = Repo::find_or_create(
-                pool,
-                Path::new(&project.root_path),
-                &project.name,
-            )
-            .await?;
+            let repo =
+                Repo::find_or_create(pool, Path::new(&project.root_path), &project.name).await?;
             ProjectRepo::create(pool, project.id, repo.id).await?;
         }
         Ok(Project::find_by_id(pool, project.id)
@@ -434,11 +449,7 @@ impl ProjectService {
             .ok_or(ProjectError::ProjectNotFound)?)
     }
 
-    pub async fn git_children(
-        &self,
-        pool: &SqlitePool,
-        project_id: Uuid,
-    ) -> Result<Vec<Project>> {
+    pub async fn git_children(&self, pool: &SqlitePool, project_id: Uuid) -> Result<Vec<Project>> {
         Ok(Project::find_git_children(pool, project_id).await?)
     }
 
@@ -497,13 +508,11 @@ impl ProjectService {
                             },
                         )
                         .await;
-                    sqlx::query(
-                        "DELETE FROM project_repos WHERE project_id = ? AND repo_id = ?",
-                    )
-                    .bind(project.id)
-                    .bind(repo.id)
-                    .execute(pool)
-                    .await?;
+                    sqlx::query("DELETE FROM project_repos WHERE project_id = ? AND repo_id = ?")
+                        .bind(project.id)
+                        .bind(repo.id)
+                        .execute(pool)
+                        .await?;
                 }
                 continue;
             }
@@ -656,9 +665,9 @@ fn folder_name(path: &Path) -> String {
 
 fn containing_repo_path(paths: &[PathBuf]) -> Option<PathBuf> {
     paths.iter().find_map(|candidate| {
-        let contains_all = paths.iter().all(|path| {
-            path == candidate || path.starts_with(candidate) && path != candidate
-        });
+        let contains_all = paths
+            .iter()
+            .all(|path| path == candidate || path.starts_with(candidate) && path != candidate);
         contains_all.then(|| candidate.clone())
     })
 }

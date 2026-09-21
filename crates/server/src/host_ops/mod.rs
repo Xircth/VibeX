@@ -1639,9 +1639,7 @@ impl ServerApplicationDomains {
             .map_err(internal_error)?
             .ok_or_else(|| ApplicationError::not_found(format!("project {project_id}")))?;
         if project.root_path.is_empty() {
-            return Err(ApplicationError::bad_request(
-                "Project has no folder path",
-            ));
+            return Err(ApplicationError::bad_request("Project has no folder path"));
         }
         if let Some(existing) = Workspace::find_by_project_id_with_status(&self.pool, project_id)
             .await

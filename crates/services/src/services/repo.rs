@@ -214,7 +214,13 @@ impl RepoService {
             }
         }
 
-        git.initialize_repo_with_main_branch(&repo_path)?;
+        let git = git.clone();
+        let init_path = repo_path.clone();
+        tokio::task::spawn_blocking(move || git.initialize_repo_with_main_branch(&init_path))
+            .await
+            .map_err(|error| {
+                RepoError::Git(GitServiceError::InvalidRepository(error.to_string()))
+            })??;
 
         let repo_path = self.resolve_git_repo_path(&repo_path)?;
         let repo = RepoModel::find_or_create(pool, &repo_path, folder_name).await?;
@@ -236,7 +242,13 @@ impl RepoService {
             return Err(RepoError::PathNotDirectory(normalized_path));
         }
 
-        git.initialize_repo_with_main_branch(&normalized_path)?;
+        let git = git.clone();
+        let init_path = normalized_path.clone();
+        tokio::task::spawn_blocking(move || git.initialize_repo_with_main_branch(&init_path))
+            .await
+            .map_err(|error| {
+                RepoError::Git(GitServiceError::InvalidRepository(error.to_string()))
+            })??;
 
         let default_name = normalized_path
             .file_name()

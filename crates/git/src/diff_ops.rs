@@ -19,6 +19,25 @@ impl GitService {
         target: DiffTarget,
         path_filter: Option<&[&str]>,
     ) -> Result<Vec<Diff>, GitServiceError> {
+        self.get_diffs_with_untracked(target, path_filter, true)
+    }
+
+    /// Worktree diffs used by checkpoint preview. Untracked files are omitted so
+    /// a freshly initialized folder does not trigger a minutes-long `git status`.
+    pub fn get_tracked_diffs(
+        &self,
+        target: DiffTarget,
+        path_filter: Option<&[&str]>,
+    ) -> Result<Vec<Diff>, GitServiceError> {
+        self.get_diffs_with_untracked(target, path_filter, false)
+    }
+
+    fn get_diffs_with_untracked(
+        &self,
+        target: DiffTarget,
+        path_filter: Option<&[&str]>,
+        include_untracked: bool,
+    ) -> Result<Vec<Diff>, GitServiceError> {
         match target {
             DiffTarget::Worktree {
                 worktree_path,
@@ -37,6 +56,7 @@ impl GitService {
                 let git = GitCli::new();
                 let cli_opts = StatusDiffOptions {
                     path_filter: path_filter.map(|fs| fs.iter().map(|s| s.to_string()).collect()),
+                    include_untracked,
                 };
                 let entries = git
                     .diff_status(worktree_path, base_commit, cli_opts)

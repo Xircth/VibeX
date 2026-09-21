@@ -593,7 +593,16 @@
     font-weight: 600;
   }
 
+  .legacy-design .session-composer-editor {
+    min-height: 3.25rem;
+  }
+
   .legacy-design .session-composer-editor > [contenteditable='true'] {
+    min-height: 3.25rem;
+    overflow-y: auto;
+  }
+
+  .legacy-design .session-composer-editor > [contenteditable='false'] {
     min-height: 3.25rem;
     overflow-y: auto;
   }

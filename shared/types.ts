@@ -13,6 +13,7 @@ export type Project = {
   default_main_branch: string | null;
   created_at: Date;
   updated_at: Date;
+  is_home: boolean;
 };
 
 export type CreateProject = {

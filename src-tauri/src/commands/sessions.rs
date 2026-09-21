@@ -523,11 +523,12 @@ async fn ensure_directory_root_workspace_tauri(
             .await?
             .ok_or_else(|| AppError::NotFound(format!("Workspace {} not found", existing.id)));
     }
-    let owner_task = if let Some(task) = Task::find_by_project_id_with_attempt_status(pool, project.id)
-        .await?
-        .into_iter()
-        .map(|task| task.task)
-        .next()
+    let owner_task = if let Some(task) =
+        Task::find_by_project_id_with_attempt_status(pool, project.id)
+            .await?
+            .into_iter()
+            .map(|task| task.task)
+            .next()
     {
         task
     } else {

@@ -135,7 +135,9 @@ impl EventService {
             LogMsg::JsonPatch(serde_json::from_value(patch).unwrap())
         }
 
-        // Get initial snapshot of projects
+        let _ = crate::services::project::ProjectService::new()
+            .ensure_home_project(&self.db.pool, &crate::services::repo::RepoService::new())
+            .await;
         let projects = Project::find_all(&self.db.pool).await?;
         let initial_msg = build_projects_snapshot(projects);
 

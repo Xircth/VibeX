@@ -1490,6 +1490,11 @@ impl ServerApplicationDomains {
             .project()
             .migrate_multi_repo_projects(&self.pool, self.deployment.repo())
             .await;
+        let _ = self
+            .deployment
+            .project()
+            .ensure_home_project(&self.pool, self.deployment.repo())
+            .await;
         serialize(
             Project::find_all(&self.pool)
                 .await

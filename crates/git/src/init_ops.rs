@@ -54,23 +54,41 @@ impl GitService {
     }
 
     /// Signature for the empty bootstrap commit only. Does not write gitconfig.
+    ///
+    /// Reads only the repo-local config. `repo.signature()` / `git config --get`
+    /// walk the global/system search path, which on Windows GUI processes can
+    /// stall for minutes on an unreachable `HOMEDRIVE` network home.
     fn signature_for_initial_commit<'a>(
         &self,
         repo: &'a Repository,
     ) -> Result<git2::Signature<'a>, GitServiceError> {
-        match self.configured_signature(repo) {
-            Ok(signature) => Ok(signature),
-            Err(GitServiceError::CommitIdentityNotConfigured) => {
-                git2::Signature::now(BOOTSTRAP_COMMIT_NAME, BOOTSTRAP_COMMIT_EMAIL)
-                    .map_err(GitServiceError::from)
-            }
-            Err(error) => Err(error),
+        if let Some((name, email)) = Self::local_repo_identity(repo)
+            && let Ok(signature) = git2::Signature::now(&name, &email)
+        {
+            return Ok(signature);
+        }
+        git2::Signature::now(BOOTSTRAP_COMMIT_NAME, BOOTSTRAP_COMMIT_EMAIL)
+            .map_err(GitServiceError::from)
+    }
+
+    fn local_repo_identity(repo: &Repository) -> Option<(String, String)> {
+        let config = git2::Config::open(&repo.path().join("config")).ok()?;
+        let name = config.get_string("user.name").ok()?;
+        let email = config.get_string("user.email").ok()?;
+        let name = name.trim();
+        let email = email.trim();
+        if name.is_empty() || email.is_empty() {
+            None
+        } else {
+            Some((name.to_string(), email.to_string()))
         }
     }
 
     fn init_git_directory(repo_path: &Path) -> Result<Repository, GitServiceError> {
         let mut opts = git2::RepositoryInitOptions::new();
-        opts.initial_head("main").mkdir(true);
+        opts.initial_head("main")
+            .mkdir(true)
+            .external_template(false);
         match Repository::init_opts(repo_path, &opts) {
             Ok(repo) => Ok(repo),
             Err(error) => {
@@ -247,6 +265,27 @@ mod tests {
             .target()
             .unwrap();
         assert_eq!(first_commit, second_commit);
+    }
+
+    #[test]
+    fn initialize_repo_stays_fast_when_the_folder_already_has_files() {
+        let td = TempDir::new().unwrap();
+        let repo_path = td.path().join("busy");
+        std::fs::create_dir_all(repo_path.join("src")).unwrap();
+        for index in 0..200 {
+            std::fs::write(repo_path.join(format!("src/file-{index}.txt")), "seed\n").unwrap();
+        }
+        let started = std::time::Instant::now();
+        GitService::new()
+            .initialize_repo_with_main_branch(&repo_path)
+            .unwrap();
+        assert!(
+            started.elapsed() < std::time::Duration::from_secs(5),
+            "git init must not scan existing files; took {:?}",
+            started.elapsed()
+        );
+        let repo = Repository::open(&repo_path).unwrap();
+        assert_eq!(repo.head().unwrap().name(), Some("refs/heads/main"));
     }
 
     #[test]

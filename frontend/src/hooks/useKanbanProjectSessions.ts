@@ -376,11 +376,15 @@ export function useKanbanProjectSessions(projectId: string | undefined) {
     [sessions]
   );
 
+  const sessionsResolved =
+    !isWorkspacesLoading && !isSessionSummariesLoading;
+
   return {
     sessions,
     sessionsById,
     workspaces,
     workspacesWithStatus,
+    sessionsResolved,
     // Workspace-stream subscribe is not "project is running". Treating it as
     // loading puts a spinner on every newly tracked project, including idle
     // git children that were only imported into the tree.

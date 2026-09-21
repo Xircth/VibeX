@@ -1059,7 +1059,7 @@ export function TaskFollowUpSection({
     <TooltipProvider delayDuration={200}>
       <div
         className={cn(
-          'flex min-h-0 flex-col overflow-visible',
+          'flex shrink-0 flex-col overflow-visible',
           isRetryActive && 'opacity-50'
         )}
       >

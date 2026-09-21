@@ -16,7 +16,7 @@ impl GitService {
     ) -> Result<DetailedGitStatus, GitServiceError> {
         let git = GitCli::new();
         let status = git
-            .get_worktree_status(worktree_path)
+            .get_worktree_status_with(worktree_path, crate::UntrackedFiles::All)
             .map_err(|e| GitServiceError::InvalidRepository(format!("git status failed: {e}")))?;
         let branch_name = git.get_current_branch(worktree_path).unwrap_or_default();
         let repo = self.open_repo(worktree_path)?;
@@ -142,7 +142,7 @@ impl GitService {
     ) -> Result<Vec<GitFileDiffEntry>, GitServiceError> {
         let git = GitCli::new();
         let status = git
-            .get_worktree_status(worktree_path)
+            .get_worktree_status_with(worktree_path, crate::UntrackedFiles::All)
             .map_err(|e| GitServiceError::InvalidRepository(format!("git status failed: {e}")))?;
 
         let mut diffs = Vec::new();

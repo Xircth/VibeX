@@ -494,8 +494,25 @@ const ProjectFormDialogImpl = NiceModal.create<ProjectFormDialogProps>(
 
           <div className="space-y-4">
             {isOpenExistingFolderMode ? (
-              <div className="space-y-2">
-                <Label>{t('projectForm.folderLabel')}</Label>
+              <div className="flex flex-col gap-2">
+                <div className="flex min-w-0 items-center gap-2">
+                  <Label className="shrink-0">
+                    {t('projectForm.folderLabel')}
+                  </Label>
+                  {selectedFolderPath && selectedFolderIsGitRepo !== null ? (
+                    <p
+                      className={
+                        selectedFolderIsGitRepo
+                          ? 'min-w-0 text-xs text-[hsl(var(--success))]'
+                          : 'min-w-0 text-xs text-[hsl(var(--warning))]'
+                      }
+                    >
+                      {selectedFolderIsGitRepo
+                        ? t('projectForm.recognizedGitRepo')
+                        : t('projectForm.notGitRepoHint')}
+                    </p>
+                  ) : null}
+                </div>
                 <div className="flex items-center gap-2">
                   <Button
                     type="button"
@@ -516,17 +533,6 @@ const ProjectFormDialogImpl = NiceModal.create<ProjectFormDialogProps>(
                 </div>
                 {selectedFolderPath && selectedFolderIsGitRepo !== null ? (
                   <div className="flex flex-col gap-3">
-                    <p
-                      className={
-                        selectedFolderIsGitRepo
-                          ? 'text-sm text-[hsl(var(--success))]'
-                          : 'text-xs text-[hsl(var(--warning))]'
-                      }
-                    >
-                      {selectedFolderIsGitRepo
-                        ? t('projectForm.recognizedGitRepo')
-                        : t('projectForm.notGitRepoHint')}
-                    </p>
                     {selectedFolderIsGitRepo === false ? (
                       <label className="flex items-center gap-2 text-sm">
                         <Checkbox

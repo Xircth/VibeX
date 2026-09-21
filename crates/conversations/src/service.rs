@@ -3576,7 +3576,7 @@ async fn collect_checkpoint_file_changes<D: Deployment + ?Sized>(
             continue;
         };
         let base_commit = Commit::new(oid);
-        let diffs = match deployment.container().git().get_diffs(
+        let diffs = match deployment.container().git().get_tracked_diffs(
             DiffTarget::Worktree {
                 worktree_path: &repo_path,
                 base_commit: &base_commit,
@@ -3791,7 +3791,7 @@ async fn record_conversation_checkpoint(
                         deployment
                             .container()
                             .git()
-                            .get_diffs(
+                            .get_tracked_diffs(
                                 DiffTarget::Worktree {
                                     worktree_path: &repo_path,
                                     base_commit: &base_commit,

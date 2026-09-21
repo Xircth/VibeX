@@ -15,7 +15,7 @@ mod worktree_ops;
 
 use std::sync::Once;
 
-pub use cli::{GitCli, GitCliError, StatusEntry, WorktreeStatus};
+pub use cli::{GitCli, GitCliError, StatusEntry, UntrackedFiles, WorktreeStatus};
 pub use types::*;
 pub use utils::path::ALWAYS_SKIP_DIRS;
 pub use validation::is_valid_branch_prefix;

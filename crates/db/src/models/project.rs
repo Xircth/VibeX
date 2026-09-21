@@ -33,6 +33,9 @@ pub struct Project {
     pub created_at: DateTime<Utc>,
     #[ts(type = "Date")]
     pub updated_at: DateTime<Utc>,
+    #[serde(default)]
+    #[sqlx(skip)]
+    pub is_home: bool,
 }
 
 #[derive(Debug, Clone, Default, Deserialize, TS)]
@@ -99,23 +102,28 @@ const PROJECT_SELECT: &str = r#"
 "#;
 
 impl Project {
+    pub fn with_home_flag(mut self) -> Self {
+        self.is_home = utils::path::is_user_home_directory(std::path::Path::new(&self.root_path));
+        self
+    }
+
+    fn with_home_flags(projects: Vec<Self>) -> Vec<Self> {
+        projects.into_iter().map(Self::with_home_flag).collect()
+    }
+
     pub async fn count(pool: &SqlitePool) -> Result<i64, sqlx::Error> {
-        let total: i64 =
-            sqlx::query_scalar("SELECT COUNT(*) FROM projects WHERE hidden = 0")
-                .fetch_one(pool)
-                .await?;
+        let total: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM projects WHERE hidden = 0")
+            .fetch_one(pool)
+            .await?;
         let hidden = plugin_scratch_project_ids(pool).await?.len() as i64;
         Ok((total - hidden).max(0))
     }
 
-    pub async fn find_all_including_hidden(
-        pool: &SqlitePool,
-    ) -> Result<Vec<Self>, sqlx::Error> {
-        sqlx::query_as::<_, Project>(&format!(
-            "{PROJECT_SELECT} ORDER BY created_at DESC"
-        ))
-        .fetch_all(pool)
-        .await
+    pub async fn find_all_including_hidden(pool: &SqlitePool) -> Result<Vec<Self>, sqlx::Error> {
+        sqlx::query_as::<_, Project>(&format!("{PROJECT_SELECT} ORDER BY created_at DESC"))
+            .fetch_all(pool)
+            .await
+            .map(Self::with_home_flags)
     }
 
     pub async fn find_all(pool: &SqlitePool) -> Result<Vec<Self>, sqlx::Error> {
@@ -124,7 +132,9 @@ impl Project {
         ))
         .fetch_all(pool)
         .await?;
-        exclude_plugin_scratch_projects(pool, projects).await
+        Ok(Self::with_home_flags(
+            exclude_plugin_scratch_projects(pool, projects).await?,
+        ))
     }
 
     pub async fn find_most_active(pool: &SqlitePool, limit: i32) -> Result<Vec<Self>, sqlx::Error> {
@@ -158,10 +168,13 @@ impl Project {
     }
 
     pub async fn find_by_id(pool: &SqlitePool, id: Uuid) -> Result<Option<Self>, sqlx::Error> {
-        sqlx::query_as::<_, Project>(&format!("{PROJECT_SELECT} WHERE id = ?"))
-            .bind(id)
-            .fetch_optional(pool)
-            .await
+        Ok(
+            sqlx::query_as::<_, Project>(&format!("{PROJECT_SELECT} WHERE id = ?"))
+                .bind(id)
+                .fetch_optional(pool)
+                .await?
+                .map(Self::with_home_flag),
+        )
     }
 
     pub async fn find_by_rowid(pool: &SqlitePool, rowid: i64) -> Result<Option<Self>, sqlx::Error> {

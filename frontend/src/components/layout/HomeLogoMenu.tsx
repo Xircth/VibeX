@@ -15,22 +15,28 @@ import { paths } from '@/lib/paths';
 import { useProjects } from '@/hooks/useProjects';
 import { useProjectSwitcher } from '@/hooks/useProjectSwitcher';
 import { useTauriClient } from '@/lib/desktopShell';
+import {
+  importedProjectName,
+  orderImportedProjects,
+} from '@/lib/importedProject';
 
 const RECENT_PROJECT_MENU_LIMIT = 6;
 
 export function HomeLogoMenu({ align }: { align: 'start' | 'end' }) {
-  const { t } = useTranslation(['panels', 'common']);
+  const { t } = useTranslation(['panels', 'common', 'app']);
   const navigate = useNavigate();
   const { projects } = useProjects();
   const switchProject = useProjectSwitcher();
   const tauriClient = useTauriClient();
   const recentProjects = useMemo(
     () =>
-      projects.slice(0, RECENT_PROJECT_MENU_LIMIT).map((project) => ({
-        id: project.id,
-        name: project.name,
-      })),
-    [projects]
+      orderImportedProjects(projects)
+        .slice(0, RECENT_PROJECT_MENU_LIMIT)
+        .map((project) => ({
+          id: project.id,
+          name: importedProjectName(project, (key) => t(key, { ns: 'app' })),
+        })),
+    [projects, t]
   );
 
   const onOpenHome = useCallback(() => {

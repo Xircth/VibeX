@@ -189,7 +189,7 @@ export const useWindowProjectsStore = create<WindowProjectsState>()(
           const nextOpenProjectIds = [
             projectId,
             ...state.openProjectIds.filter((id) => id !== projectId),
-          ].slice(0, 8);
+          ].slice(0, 6);
 
           return arraysEqual(state.openProjectIds, nextOpenProjectIds)
             ? state
@@ -208,66 +208,38 @@ export const useWindowProjectsStore = create<WindowProjectsState>()(
         ),
       setProjectSnapshot: (projectId, snapshot) =>
         set((state) => {
-          const hasActivity =
-            snapshot.isLoading ||
-            snapshot.hasRunning ||
-            snapshot.hasSessions ||
-            snapshot.hasError;
-          const nextOpenProjectIds =
-            state.openProjectIds.includes(projectId) || !hasActivity
-              ? state.openProjectIds
-              : [projectId, ...state.openProjectIds].slice(0, 8);
-          const sameOrder = arraysEqual(
-            state.openProjectIds,
-            nextOpenProjectIds
-          );
           const sameSnapshot = isSameSnapshot(
             state.projectSnapshots[projectId],
             snapshot
           );
 
-          if (sameOrder && sameSnapshot) {
+          if (sameSnapshot) {
             return state;
           }
 
           return {
-            openProjectIds: nextOpenProjectIds,
-            projectSnapshots: sameSnapshot
-              ? state.projectSnapshots
-              : {
-                  ...state.projectSnapshots,
-                  [projectId]: snapshot,
-                },
+            projectSnapshots: {
+              ...state.projectSnapshots,
+              [projectId]: snapshot,
+            },
           };
         }),
       setProjectAlert: (alert) =>
         set((state) => {
-          const nextOpenProjectIds = state.openProjectIds.includes(
-            alert.projectId
-          )
-            ? state.openProjectIds
-            : [alert.projectId, ...state.openProjectIds].slice(0, 8);
-          const sameOrder = arraysEqual(
-            state.openProjectIds,
-            nextOpenProjectIds
-          );
           const sameAlert = isSameAlert(
             state.projectAlerts[alert.projectId],
             alert
           );
 
-          if (sameOrder && sameAlert) {
+          if (sameAlert) {
             return state;
           }
 
           return {
-            openProjectIds: nextOpenProjectIds,
-            projectAlerts: sameAlert
-              ? state.projectAlerts
-              : {
-                  ...state.projectAlerts,
-                  [alert.projectId]: alert,
-                },
+            projectAlerts: {
+              ...state.projectAlerts,
+              [alert.projectId]: alert,
+            },
           };
         }),
       markProjectAlertRead: (projectId) =>

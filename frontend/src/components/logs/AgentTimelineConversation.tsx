@@ -71,6 +71,7 @@ import {
   ResendCheckpointDialog,
   shouldConfirmResendCheckpoint,
 } from '@/components/dialogs';
+import { loadResendCheckpointPreview } from './resendCheckpointPreview';
 import { getErrorMessage } from '@/lib/modals';
 import { toast } from '@/components/ui/toast';
 import { TurnStats } from '@/components/conversation-thread/TurnStats';
@@ -1269,11 +1270,14 @@ const AgentTimelineConversation = forwardRef<
       let rollbackFiles: ConversationFileChange[] = [];
       let previewUnavailable = false;
       try {
-        const preview = await conversationApi.previewCheckpointFileChanges({
-          conversationId: session.id,
-          ordinal,
-        });
+        const preview = await loadResendCheckpointPreview(() =>
+          conversationApi.previewCheckpointFileChanges({
+            conversationId: session.id,
+            ordinal,
+          })
+        );
         rollbackFiles = preview.files;
+        previewUnavailable = preview.previewUnavailable;
       } catch (error) {
         previewUnavailable = true;
         console.warn('checkpoint preview unavailable', error);
@@ -1281,9 +1285,10 @@ const AgentTimelineConversation = forwardRef<
 
       let restoreFiles = false;
       if (
+        !previewUnavailable &&
         shouldConfirmResendCheckpoint({
           files: rollbackFiles,
-          previewUnavailable,
+          previewUnavailable: false,
         })
       ) {
         const choice = await ResendCheckpointDialog.show({

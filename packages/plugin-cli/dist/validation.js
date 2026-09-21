@@ -307,19 +307,25 @@ async function validateIntegrations(root, value, diagnostics) {
                 if (isObject(resource) && "managedRuntime" in resource) {
                     const managed = resource.managedRuntime;
                     const hostFamily = isObject(managed) && managed.kind === "hostFamilyBinary";
+                    const workerHttp = isObject(managed) && managed.kind === "workerHttp";
                     const packaged = isObject(managed) &&
                         typeof managed.entrypoint === "string" &&
                         (await safePath(root, managed.entrypoint));
+                    const workerHttpOk = workerHttp &&
+                        typeof managed.handler === "string" &&
+                        managed.handler.length > 0 &&
+                        managed.entrypoint === undefined;
                     if (!isObject(managed) ||
                         managed.protocolRevision !== "2026-07-28" ||
                         (managed.defaultBinding !== undefined &&
                             managed.defaultBinding !== "all-compatible-agents") ||
-                        (!hostFamily && !packaged) ||
+                        (!hostFamily && !packaged && !workerHttpOk) ||
                         (hostFamily && typeof managed.binaryId !== "string") ||
+                        (workerHttp && !workerHttpOk) ||
                         (managed.source !== undefined &&
                             (typeof managed.source !== "string" ||
                                 !(await safePath(root, managed.source))))) {
-                        diagnostics.push(error("managed_mcp_invalid", "Managed MCP requires hostFamilyBinary or a package entrypoint, protocolRevision 2026-07-28, and an optional all-compatible-agents default binding"));
+                        diagnostics.push(error("managed_mcp_invalid", "Managed MCP requires hostFamilyBinary, workerHttp handler, or a package entrypoint, protocolRevision 2026-07-28, and an optional all-compatible-agents default binding"));
                     }
                 }
             }

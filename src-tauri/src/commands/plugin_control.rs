@@ -3433,6 +3433,44 @@ fn materialize_host_family_binary_mcp(
     )))
 }
 
+async fn materialize_worker_http_mcp(
+    state: &AppState,
+    plugin: &plugins::InstalledPlugin,
+    server_id: &str,
+    managed: &serde_json::Map<String, serde_json::Value>,
+) -> Result<Option<serde_json::Value>, AppError> {
+    if managed.get("entrypoint").is_some() {
+        return Err(AppError::BadRequest(format!(
+            "managed MCP `{server_id}` workerHttp must not set entrypoint"
+        )));
+    }
+    let handler = managed
+        .get("handler")
+        .and_then(serde_json::Value::as_str)
+        .filter(|value| !value.is_empty())
+        .ok_or_else(|| {
+            AppError::BadRequest(format!(
+                "managed MCP `{server_id}` workerHttp requires managedRuntime.handler"
+            ))
+        })?;
+    let lease = state
+        .plugin_control_plane
+        .activation_lease(plugin.id())
+        .await
+        .ok_or_else(|| {
+            AppError::BadRequest(format!(
+                "managed MCP `{server_id}` workerHttp requires an active Worker"
+            ))
+        })?;
+    let endpoint = lease
+        .invoke_with_timeout(handler, serde_json::Value::Null, Duration::from_secs(30))
+        .await
+        .map_err(|error| AppError::Internal(error.to_string()))?;
+    plugins::worker_http_mcp_spec_from_endpoint(&endpoint)
+        .map(Some)
+        .map_err(AppError::BadRequest)
+}
+
 async fn materialize_plugin_mcp_spec(
     state: &AppState,
     plugin: &plugins::InstalledPlugin,
@@ -3447,6 +3485,9 @@ async fn materialize_plugin_mcp_spec(
     };
     if is_host_family_binary_mcp(&spec) {
         return materialize_host_family_binary_mcp(state, server_id, &spec);
+    }
+    if managed.get("kind").and_then(serde_json::Value::as_str) == Some("workerHttp") {
+        return materialize_worker_http_mcp(state, plugin, server_id, managed).await;
     }
     let entrypoint = managed
         .get("entrypoint")

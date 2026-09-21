@@ -177,6 +177,7 @@ impl crate::CapabilityBroker for HostCapabilityBroker {
         matches!(
             capability,
             "runtime.execute"
+                | "runtime.lock"
                 | "artifact.preview"
                 | "artifact"
                 | "storage"
@@ -205,6 +206,10 @@ impl crate::CapabilityBroker for HostCapabilityBroker {
         match capability {
             "runtime.execute" => {
                 self.execute_runtime(plugin_id, generation, operation, input)
+                    .await
+            }
+            "runtime.lock" => {
+                self.get_runtime_lock(plugin_id, generation, operation, input)
                     .await
             }
             "artifact.preview" => self.open_preview(plugin_id, generation, input).await,
@@ -238,6 +243,37 @@ impl crate::CapabilityBroker for HostCapabilityBroker {
 }
 
 impl HostCapabilityBroker {
+    async fn get_runtime_lock(
+        &self,
+        plugin_id: &str,
+        generation: u64,
+        operation: &str,
+        input: Value,
+    ) -> Result<Value, crate::WorkerHostError> {
+        if operation != "get" {
+            return Err(broker_error(
+                "runtime_lock_operation_invalid",
+                "runtime.lock only supports get",
+            ));
+        }
+        let runtime_id = input
+            .get("runtimeId")
+            .and_then(Value::as_str)
+            .ok_or_else(|| broker_error("runtime_identity_missing", "runtimeId is required"))?;
+        let runtime = self
+            .plugins
+            .runtime_for_generation(plugin_id, generation, runtime_id)
+            .await
+            .map_err(|error| broker_error("runtime_lock_failed", error))?
+            .ok_or_else(|| broker_error("runtime_not_locked", "Runtime lock is missing"))?;
+        Ok(json!({
+            "executablePath": runtime.executable_path,
+            "version": runtime.version,
+            "target": runtime.target,
+            "contentDigest": runtime.content_digest,
+        }))
+    }
+
     async fn execute_runtime(
         &self,
         plugin_id: &str,

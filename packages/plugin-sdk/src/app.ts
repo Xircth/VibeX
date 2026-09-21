@@ -39,6 +39,8 @@ export interface PluginAppEnvironment {
   bridge: VibeXAppBridge;
   root: HTMLElement;
   signal: AbortSignal;
+  /** Contribution slot that mounted this document, when the Host provided one. */
+  slot?: string;
 }
 
 export interface PluginAppDefinition {

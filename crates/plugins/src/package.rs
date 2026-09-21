@@ -3231,7 +3231,7 @@ fn validate_v4_contract(contract: V4Contract<'_>) -> Result<(), PluginError> {
             }
         }
     }
-    const CAPABILITIES: &[&str] = &["runtime.execute", "artifact.preview"];
+    const CAPABILITIES: &[&str] = &["runtime.execute", "runtime.lock", "artifact.preview"];
     if let Some(permission) = permissions
         .iter()
         .find(|permission| !CAPABILITIES.contains(&permission.capability.as_str()))
@@ -3495,6 +3495,7 @@ fn validate_v4_contribution(kind: &str, declaration: &Value) -> Result<(), Plugi
             "kindVersion",
             "kind",
             "version",
+            "command",
             "entrypoint",
             "distributions",
             "probe",
@@ -3552,11 +3553,24 @@ fn validate_v4_contribution(kind: &str, declaration: &Value) -> Result<(), Plugi
         }
         "runtimes" => {
             if let Some(probe) = declaration.get("probe") {
-                validate_v4_object_keys(
-                    probe,
-                    "Runtime probe",
-                    &["argv", "timeoutSeconds", "versionPattern"],
-                )?;
+                if probe.as_array().is_some() {
+                    if probe
+                        .as_array()
+                        .into_iter()
+                        .flatten()
+                        .any(|item| !item.is_string())
+                    {
+                        return Err(PluginError::invalid_manifest(
+                            "v4 Runtime probe array must contain strings",
+                        ));
+                    }
+                } else {
+                    validate_v4_object_keys(
+                        probe,
+                        "Runtime probe",
+                        &["argv", "timeoutSeconds", "versionPattern"],
+                    )?;
+                }
             }
             if let Some(distributions) = declaration.get("distributions").and_then(Value::as_object)
             {

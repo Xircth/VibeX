@@ -74,7 +74,12 @@ export interface ManagedMcpRuntimeResource {
     managedRuntime: {
         /** Authoring source bundled by the Plugin CLI into `entrypoint`. */
         source?: string;
-        entrypoint: string;
+        /** STDIO entrypoint. Forbidden when `kind` is `workerHttp`. */
+        entrypoint?: string;
+        kind?: "hostFamilyBinary" | "workerHttp";
+        /** Worker handler that returns `{ url, headers }` for `kind: workerHttp`. */
+        handler?: string;
+        binaryId?: string;
         protocolRevision: "2026-07-28";
         defaultBinding?: "all-compatible-agents";
     };

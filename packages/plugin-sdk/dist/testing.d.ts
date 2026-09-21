@@ -37,6 +37,7 @@ export declare function createAppHarness(definition: PluginAppDefinition, option
     pluginId?: string;
     generation?: number;
     invoke?: (handler: string, input: JsonValue) => Promise<JsonValue>;
+    slot?: string;
     artifact?: {
         name: string;
         content: string;

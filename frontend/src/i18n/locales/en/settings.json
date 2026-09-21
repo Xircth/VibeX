@@ -826,6 +826,25 @@
         "readme": "# Remote SSH\n\nInstall VibeX Server on a machine you can SSH into, add it to Remote connection, and attach the app to that Host.\n\nUninstalling keeps saved SSH Hosts by default.",
         "config": {}
       },
+      "openConnector": {
+        "name": "Open Connector",
+        "summary": "Connect third-party apps and give later sessions the tools to use them.",
+        "readme": "# Open Connector\n\nEnabling it adds a top-level Open Connector tab with the local connector console. The first enable downloads a 150–175 MiB official runtime. Credentials stay in the local vault, not plugin config.\n\nAgent tools appear only in sessions opened or rebound after enable. Disabling stops the local gateway and withdraws the tools; a session already running may keep old tool names until it ends.\n\nUninstall keeps the vault by default. Clear data from plugin settings to wipe connections. The first download needs a network.",
+        "config": {
+          "catalogLazySchemas": {
+            "title": "Load tool catalog lazily",
+            "description": "Keeps memory lower. Turn off to load the full catalog at start."
+          },
+          "allowPrivateNetwork": {
+            "title": "Allow private network access",
+            "description": "Lets the connector reach localhost or LAN addresses."
+          },
+          "trustedHosts": {
+            "title": "Extra trusted hosts",
+            "description": "Comma-separated hostnames. Fill this only when you need it."
+          }
+        }
+      },
       "science": {
         "name": "Scientific Research",
         "summary": "146 research Skills in 10 domains. Only the 13 general methods inject by default; turn other domains on in plugin settings.",

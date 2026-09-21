@@ -31,6 +31,7 @@ mod resolver;
 mod runtime;
 mod service;
 mod worker_host;
+mod worker_http;
 
 pub use activation::{ActivationLease, ActivationManager, PreparedActivation};
 pub use app_surface::{
@@ -149,4 +150,7 @@ pub use worker_host::{
     CapabilityBroker, CapabilityGrant, DenyCapabilityBroker, PluginCrash, PluginLogLine,
     ScopedCapabilityBroker, WorkerActivation, WorkerHost, WorkerHostError, recent_plugin_crashes,
     recent_plugin_logs, record_plugin_crash, record_plugin_log, subscribe_worker_crashes,
+};
+pub use worker_http::{
+    validate_loopback_mcp_url, worker_http_handler, worker_http_mcp_spec_from_endpoint,
 };

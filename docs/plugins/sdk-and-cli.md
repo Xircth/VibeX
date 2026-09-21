@@ -59,7 +59,7 @@ dispose 写入唯一状态，持久状态应在正常操作中事务提交。
 
 ### 2.3 Host API clients
 
-长期 Host API namespace 包括下列 clients。当前 SDK 已实现 `runtime.execute` 与
+长期 Host API namespace 包括下列 clients。当前 SDK 已实现 `runtime.execute`、`runtime.lock` 与
 `artifact.preview`；其余名称是设计保留，不是已经可调用的兼容承诺：
 
 - `context.storage.settings/kv/database`

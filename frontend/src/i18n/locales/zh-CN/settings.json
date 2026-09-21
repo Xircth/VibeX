@@ -826,6 +826,25 @@
         "readme": "# Remote SSH\n\n在能 SSH 登录的服务器上安装 VibeX Server，经隧道加入远程连接列表并把应用接到该 Host。\n\n卸载后已保存的 SSH Host 默认保留。",
         "config": {}
       },
+      "openConnector": {
+        "name": "Open Connector",
+        "summary": "连接第三方应用，把工具交给之后新建或重新绑定的会话。",
+        "readme": "# Open Connector\n\n启用后会出现顶级 Tab「Open Connector」，内嵌本机连接器控制台。首次启用会下载约 150–175 MiB 的官方运行时。凭据留在本机保险库，不会写入插件配置。\n\nAgent 工具只进入启用之后新建或重新绑定的会话。关掉插件会停掉本机网关并收回工具；已有会话可能仍看到旧工具直到结束。\n\n卸载默认保留保险库。要清空连接，先在插件配置里清除数据。离线无法完成首次下载。",
+        "config": {
+          "catalogLazySchemas": {
+            "title": "延迟加载工具目录",
+            "description": "降低内存。关闭后会在启动时载入完整目录。"
+          },
+          "allowPrivateNetwork": {
+            "title": "允许访问私有网络",
+            "description": "允许连接器访问本机或局域网地址。"
+          },
+          "trustedHosts": {
+            "title": "额外信任的主机",
+            "description": "逗号分隔的主机名。仅在你明确需要时填写。"
+          }
+        }
+      },
       "science": {
         "name": "科学研究",
         "summary": "146 项科研技能，按 10 个领域分组。默认只注入「通用科研方法」13 项，其余领域在插件配置中按需开启。",

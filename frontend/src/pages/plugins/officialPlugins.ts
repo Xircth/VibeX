@@ -18,6 +18,7 @@ export const OFFICIAL_PLUGIN_I18N_KEY = {
   'vibex.provider-switch': 'providerSwitch',
   'vibex.remote-ssh': 'remoteSsh',
   'vibex.science': 'science',
+  'vibex.open-connector': 'openConnector',
 } as const;
 
 export type OfficialPluginId = keyof typeof OFFICIAL_PLUGIN_I18N_KEY;

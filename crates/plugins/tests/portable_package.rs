@@ -450,6 +450,74 @@ fn developer_link_executes_an_immutable_content_addressed_candidate() {
 }
 
 #[test]
+fn v4_runtime_distributions_use_node_style_targets() {
+    let root = tempfile::tempdir().unwrap();
+    let host_target = if cfg!(target_os = "macos") {
+        if cfg!(target_arch = "aarch64") {
+            "darwin-arm64"
+        } else {
+            "darwin-x64"
+        }
+    } else if cfg!(target_os = "windows") {
+        if cfg!(target_arch = "aarch64") {
+            "win32-arm64"
+        } else {
+            "win32-x64"
+        }
+    } else if cfg!(target_arch = "aarch64") {
+        "linux-arm64"
+    } else {
+        "linux-x64"
+    };
+    let manifest = format!(
+        r#"{{
+          "manifestVersion":4,"apiVersion":"1.0",
+          "id":"dev.vibex.sidecar","publisher":"dev.vibex","name":"Sidecar","version":"1.0.0",
+          "engines":{{"vibex":">=0.1.3 <1.0.0","pluginSdk":"^1.0.0"}},
+          "contributes":{{"runtimes":[{{
+            "id":"tool","kindVersion":1,"command":"tool.exe","probe":["migrate"],
+            "distributions":{{
+              "{host_target}":{{"url":"https://example.test/tool","sha256":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}}
+            }}
+          }}]}}
+        }}"#
+    );
+    write(&root.path().join(".vibex-plugin/plugin.json"), &manifest);
+
+    let package = PluginPackage::inspect(root.path(), PluginSourceKind::Snapshot).unwrap();
+    assert_eq!(package.runtimes.len(), 1);
+    assert_eq!(package.runtimes[0].command, "tool.exe");
+    assert_eq!(package.runtimes[0].probe, vec!["migrate".to_owned()]);
+    assert!(
+        !package
+            .warnings
+            .iter()
+            .any(|warning| warning.code == "runtime_unsupported")
+    );
+
+    write(
+        &root.path().join(".vibex-plugin/plugin.json"),
+        r#"{
+          "manifestVersion":4,"apiVersion":"1.0",
+          "id":"dev.vibex.sidecar","publisher":"dev.vibex","name":"Sidecar","version":"1.0.0",
+          "engines":{"vibex":">=0.1.3 <1.0.0","pluginSdk":"^1.0.0"},
+          "contributes":{"runtimes":[{
+            "id":"tool","kindVersion":1,"command":"tool.exe","probe":["migrate"],
+            "distributions":{
+              "x86_64-pc-windows-msvc":{"url":"https://example.test/tool","sha256":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}
+            }
+          }]}
+        }"#,
+    );
+    let rustc_only = PluginPackage::inspect(root.path(), PluginSourceKind::Snapshot);
+    let error = rustc_only.expect_err("rustc-triple-only runtimes must not lock");
+    assert!(
+        error.to_string().contains("unsupported Runtime contribution"),
+        "{error}"
+    );
+}
+
+#[test]
 fn portable_package_auto_discovers_skills_and_preserves_unknown_fields() {
     let root = tempfile::tempdir().expect("package root");
     write(

@@ -1,3 +1,5 @@
+import { useEffect, useRef } from 'react';
+
 type Environment = {
   invoke: (
     handler: string,
@@ -74,6 +76,16 @@ export function mount(root: HTMLElement, environment?: Environment) {
   };
 }
 
-export default function OpenConnectorConsole() {
-  return <div style={{ height: '100%' }} />;
+export default function OpenConnectorConsole({
+  environment,
+}: {
+  environment?: Environment;
+}) {
+  const rootRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const node = rootRef.current;
+    if (!node) return;
+    return mount(node, environment);
+  }, [environment]);
+  return <div ref={rootRef} style={{ height: '100%', minHeight: 0 }} />;
 }

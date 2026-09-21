@@ -214,9 +214,11 @@ function PluginRemoteViewBody({
   if (remote && isHttpRemoteEntry(remote.entry)) {
     if (remoteState === 'failed') {
       return (
-        <PluginSurfacePlaceholder
-          reason="failed"
-          onRecover={() => setRetry((current) => current + 1)}
+        <AppSurfaceHost
+          descriptor={surface}
+          enabled
+          transport={transport}
+          variant={slot === 'app.tab' || slot === 'app.kanban.view' ? 'editor' : 'panel'}
         />
       );
     }

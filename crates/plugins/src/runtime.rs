@@ -761,6 +761,7 @@ async fn probe_executable_with_timeout(
 ) -> Result<String, String> {
     let mut command = Command::new(executable);
     command.args(args).kill_on_drop(true).env_clear();
+    utils::process::configure_tokio_command_no_window(&mut command);
     for (key, value) in probe_process_environment() {
         command.env(key, value);
     }

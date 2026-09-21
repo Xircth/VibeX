@@ -175,7 +175,7 @@ export function createSidecar(environment) {
       env,
       windowsHide: true,
       shell: false,
-      stdio: ['ignore', 'pipe', 'pipe'],
+      stdio: ['ignore', 'ignore', 'pipe'],
     });
     pid = child.pid;
     child.stderr?.setEncoding('utf8');

@@ -600,6 +600,7 @@ fn hosted_worker_command(
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .kill_on_drop(true);
+    utils::process::configure_tokio_command_no_window(&mut command);
     command
 }
 

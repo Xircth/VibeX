@@ -17,9 +17,9 @@ import {
   PopoverTrigger,
 } from '@/components/ui/popover';
 import { Switch } from '@/components/ui/switch';
+import { openSettingsSurface } from '@/lib/api/settingsWindow';
 import { createPluginControlApi } from '@/lib/api/plugins';
 import type {
-  PluginMcpHeadline,
   PluginMcpPluginStatus,
   PluginMcpStatusReport,
 } from '@/lib/api/plugins';
@@ -37,16 +37,29 @@ const EMPTY_REPORT: PluginMcpStatusReport = {
   plugins: [],
 };
 
-function headlineTone(state: PluginMcpHeadline | 'unknown') {
-  switch (state) {
+function connectionDot(connection: PluginMcpPluginStatus['connection']) {
+  switch (connection) {
     case 'running':
-      return 'text-success';
-    case 'partial':
-      return 'text-warning';
+      return 'bg-[hsl(var(--success))]';
     case 'unavailable':
-      return 'text-destructive';
+      return 'bg-destructive';
+    case 'stopped':
+      return 'bg-warning';
     default:
-      return 'text-muted-foreground';
+      return 'bg-muted-foreground/40';
+  }
+}
+
+function connectionLabelKey(connection: PluginMcpPluginStatus['connection']) {
+  switch (connection) {
+    case 'running':
+      return 'mcp.state.running';
+    case 'disabled':
+      return 'mcp.state.stopped';
+    case 'unavailable':
+      return 'mcp.state.unavailable';
+    default:
+      return 'mcp.connection.stopped';
   }
 }
 
@@ -121,53 +134,39 @@ export function StatusBarMcp() {
         align="end"
         side="top"
         sideOffset={6}
-        className="w-[22.5rem] p-3"
+        className="flex w-[22.5rem] flex-col gap-2.5 border border-border bg-background p-3 shadow-md backdrop-blur-none"
       >
-        <div className="flex items-start justify-between gap-2">
-          <div className="min-w-0">
-            <div className="text-[0.875rem] font-semibold tracking-[-0.01em] text-foreground">
-              {t('mcp.title')}
-            </div>
-            <p className="mt-1 text-[0.75rem] leading-4 text-muted-foreground">
-              {t(`mcp.hint.${report.state}`)}
-            </p>
+        <div className="flex items-center justify-between gap-2">
+          <div className="min-w-0 text-[0.8125rem] font-semibold tracking-[-0.01em] text-foreground">
+            {t('mcp.title')}
           </div>
-          <div className="flex shrink-0 items-center gap-1 pt-0.5">
-            <span
-              className={cn(
-                'rounded-full px-2 py-0.5 text-[0.75rem] font-medium leading-4',
-                headlineTone(state)
-              )}
-            >
-              {t(`mcp.state.${state}`)}
-            </span>
-            <button
-              type="button"
-              title={t('mcp.refresh')}
-              aria-label={t('mcp.refresh')}
-              className="rounded-sm p-1 text-muted-foreground transition-colors hover:bg-accent/70 hover:text-foreground"
-              onClick={() => void query.refetch()}
-            >
-              <RotateCw
-                className={cn('h-3.5 w-3.5', query.isFetching && 'animate-spin')}
-              />
-            </button>
-          </div>
+          <button
+            type="button"
+            title={t('mcp.refresh')}
+            aria-label={t('mcp.refresh')}
+            className="rounded-sm p-1 text-muted-foreground transition-colors hover:bg-accent/70 hover:text-foreground"
+            onClick={() => void query.refetch()}
+          >
+            <RotateCw
+              className={cn('h-3.5 w-3.5', query.isFetching && 'animate-spin')}
+            />
+          </button>
         </div>
+        <p className="text-[0.75rem] leading-4 text-muted-foreground">
+          {query.isError
+            ? t('mcp.loadFailed', {
+                message: getInvokeErrorMessage(query.error),
+              })
+            : t('mcp.hint.default')}
+        </p>
 
-        {query.isError ? (
-          <p className="mt-3 text-[0.75rem] text-destructive">
-            {t('mcp.loadFailed', {
-              message: getInvokeErrorMessage(query.error),
-            })}
-          </p>
-        ) : report.plugins.length === 0 ? (
-          <p className="mt-3 text-[0.75rem] text-muted-foreground">
+        {query.isError ? null : report.plugins.length === 0 ? (
+          <p className="text-[0.75rem] text-muted-foreground">
             {t('mcp.hint.empty')}
           </p>
         ) : (
-          <div className="settings-surface mt-3 overflow-hidden p-1">
-            {report.plugins.map((plugin) => {
+          <div className="overflow-hidden rounded-lg border border-border bg-background">
+            {report.plugins.map((plugin, index) => {
               const isOpen = expanded === plugin.pluginId;
               const toolCount = plugin.servers.reduce(
                 (sum, server) => sum + server.tools.length,
@@ -175,36 +174,56 @@ export function StatusBarMcp() {
               );
               const checked = pending[plugin.pluginId] ?? plugin.enabled;
               return (
-                <div key={plugin.pluginId}>
-                  <div className="flex items-center gap-1.5 rounded-[12px] px-1.5 py-1.5">
+                <div
+                  key={plugin.pluginId}
+                  className={cn(
+                    index > 0 && 'border-t border-border'
+                  )}
+                >
+                  <div className="flex items-center gap-2 px-2 py-1.5">
                     <button
                       type="button"
                       aria-expanded={isOpen}
                       aria-label={plugin.name}
-                      className="flex min-w-0 flex-1 items-center gap-1.5 text-left"
+                      className="flex min-w-0 flex-1 items-center gap-2 text-left"
                       onClick={() =>
                         setExpanded((current) =>
                           current === plugin.pluginId ? null : plugin.pluginId
                         )
                       }
                     >
+                      <span className="flex size-7 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">
+                        <Puzzle className="size-3.5" />
+                      </span>
+                      <span className="min-w-0 flex-1">
+                        <span className="block truncate text-[0.75rem] font-medium text-foreground">
+                          {plugin.name}
+                        </span>
+                        <span className="mt-0.5 flex items-center gap-1.5 text-[0.6875rem] text-muted-foreground">
+                          <span>
+                            {t('mcp.mcpCount', { count: plugin.mcpCount })}
+                          </span>
+                          <span
+                            className="inline-flex items-center gap-1"
+                            data-testid={`mcp-plugin-status-${plugin.pluginId}`}
+                          >
+                            <span
+                              aria-hidden="true"
+                              className={cn(
+                                'size-1.5 rounded-full',
+                                connectionDot(plugin.connection)
+                              )}
+                            />
+                            {t(connectionLabelKey(plugin.connection))}
+                          </span>
+                        </span>
+                      </span>
                       <ChevronRight
                         className={cn(
                           'h-3.5 w-3.5 shrink-0 text-muted-foreground transition-transform',
                           isOpen && 'rotate-90'
                         )}
                       />
-                      <Puzzle className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-                      <span className="min-w-0 flex-1">
-                        <span className="block truncate text-[0.75rem] font-medium text-foreground">
-                          {plugin.name}
-                        </span>
-                        <span className="mt-0.5 flex items-center gap-1.5 text-[0.625rem] text-muted-foreground">
-                          <span>{t('mcp.mcpCount', { count: plugin.mcpCount })}</span>
-                          <span className="opacity-40">·</span>
-                          <span>{t(`mcp.connection.${plugin.connection}`)}</span>
-                        </span>
-                      </span>
                     </button>
                     <Switch
                       checked={checked}
@@ -218,14 +237,14 @@ export function StatusBarMcp() {
                     />
                   </div>
                   {isOpen ? (
-                    <div className="mb-1 ml-7 mr-1 space-y-1 pb-1">
+                    <div className="space-y-1 border-t border-border bg-muted/20 px-2 py-1.5">
                       {plugin.description ? (
-                        <p className="text-[0.625rem] leading-4 text-muted-foreground">
+                        <p className="text-[0.6875rem] leading-4 text-muted-foreground">
                           {plugin.description}
                         </p>
                       ) : null}
                       {toolCount === 0 ? (
-                        <p className="text-[0.625rem] text-muted-foreground">
+                        <p className="text-[0.6875rem] text-muted-foreground">
                           {t('mcp.noTools')}
                         </p>
                       ) : (
@@ -233,14 +252,14 @@ export function StatusBarMcp() {
                           server.tools.map((tool) => (
                             <div
                               key={`${server.id}:${tool.name}`}
-                              className="rounded-[10px] px-2 py-1.5"
+                              className="px-1 py-1"
                             >
                               <div className="truncate text-[0.75rem] text-foreground">
                                 {t(`mcp.tools.${tool.name}`, {
                                   defaultValue: tool.name,
                                 })}
                               </div>
-                              <div className="mt-0.5 truncate font-mono text-[0.625rem] text-muted-foreground">
+                              <div className="mt-0.5 truncate font-mono text-[0.6875rem] text-muted-foreground">
                                 {tool.name}
                               </div>
                             </div>
@@ -296,7 +315,7 @@ export function StatusBarMcp() {
           className="mt-3 inline-flex h-8 w-full items-center justify-center gap-1.5 rounded-[14px] border border-border bg-[var(--surface-control)] text-[0.75rem] font-medium text-foreground transition-colors hover:bg-accent/70"
           onClick={() => {
             setOpen(false);
-            navigate('/plugins');
+            openSettingsSurface(navigate, '/plugins');
           }}
         >
           <Settings2 className="h-3.5 w-3.5" />

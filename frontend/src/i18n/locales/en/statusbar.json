@@ -31,6 +31,7 @@
   "mcp": {
     "title": "MCP services",
     "hint": {
+      "default": "Agents started here can use MCP tools from enabled plugins.",
       "empty": "No plugin declares MCP. Enable an MCP plugin and it will appear here.",
       "running": "Enabled plugin MCP is available to agents started from this window.",
       "partial": "Some plugin MCP is enabled. Expand a row to see its tools.",

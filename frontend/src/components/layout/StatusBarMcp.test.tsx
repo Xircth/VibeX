@@ -26,6 +26,11 @@ vi.mock('@/lib/transport', () => ({
   useBackendTransport: () => ({}),
 }));
 
+const openSettingsSurface = vi.hoisted(() => vi.fn());
+vi.mock('@/lib/api/settingsWindow', () => ({
+  openSettingsSurface: (...args: unknown[]) => openSettingsSurface(...args),
+}));
+
 import { StatusBarMcp } from './StatusBarMcp';
 
 function report(
@@ -76,6 +81,7 @@ describe('StatusBarMcp', () => {
   beforeEach(() => {
     mcpStatus.mockReset();
     setEnabled.mockReset();
+    openSettingsSurface.mockReset();
     mcpStatus.mockResolvedValue(report());
     setEnabled.mockResolvedValue({});
   });
@@ -93,6 +99,12 @@ describe('StatusBarMcp', () => {
 
     expect(await screen.findByText('多智能体协同')).toBeInTheDocument();
     expect(screen.getByText(/1 个 MCP/)).toBeInTheDocument();
+    expect(
+      screen.getByTestId('mcp-plugin-status-vibex.multi-agent')
+    ).toHaveTextContent('运行中');
+    expect(
+      screen.queryByRole('status', { name: /运行中/ })
+    ).not.toBeInTheDocument();
     expect(screen.queryByText('delegate_to_agent')).not.toBeInTheDocument();
 
     fireEvent.click(screen.getByRole('button', { name: '多智能体协同' }));
@@ -126,5 +138,37 @@ describe('StatusBarMcp', () => {
     expect(
       await screen.findByRole('switch', { name: '多智能体协同' })
     ).toBeDisabled();
+  });
+
+  it('shows an independent status light for each plugin', async () => {
+    mcpStatus.mockResolvedValue(
+      report({
+        plugins: [
+          report().plugins[0],
+          {
+            ...report().plugins[0],
+            pluginId: 'vibex.session-enhance',
+            name: '会话增强',
+            enabled: false,
+            connection: 'disabled',
+          },
+        ],
+      })
+    );
+    mount();
+    fireEvent.click(await screen.findByRole('button', { name: /MCP 服务/ }));
+    expect(
+      await screen.findByTestId('mcp-plugin-status-vibex.multi-agent')
+    ).toHaveTextContent('运行中');
+    expect(
+      screen.getByTestId('mcp-plugin-status-vibex.session-enhance')
+    ).toHaveTextContent('已停止');
+  });
+
+  it('opens plugins in the dedicated settings window', async () => {
+    mount();
+    fireEvent.click(await screen.findByRole('button', { name: /MCP 服务/ }));
+    fireEvent.click(await screen.findByRole('button', { name: /打开插件/ }));
+    expect(openSettingsSurface).toHaveBeenCalledWith(expect.any(Function), '/plugins');
   });
 });

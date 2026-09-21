@@ -31,6 +31,7 @@
   "mcp": {
     "title": "MCP 服务",
     "hint": {
+      "default": "从这里启动的 Agent 可以使用已启用插件提供的 MCP 工具。",
       "empty": "没有插件声明 MCP。在插件页启用带 MCP 的插件后会出现在这里。",
       "running": "已启用的插件 MCP 可供从这里启动的 Agent 使用。",
       "partial": "部分插件 MCP 已启用。展开一项可查看它提供的工具。",

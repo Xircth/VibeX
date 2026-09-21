@@ -1,14 +1,15 @@
 //! `ConnectionSpawner` over `AgentRuntime` + the `Session` model.
 //!
-//! `spawn` establishes a child agent connection; `send_prompt_linked` creates
-//! the linked child `sessions` row, registers it for the resolver, and sends the
-//! delegation task as the child's first prompt. The child's `external_session_id`
-//! + `agent_type` are auto-bound later by the runtime's `SessionLinked` event.
+//! `spawn` establishes a child agent connection (ACP initialize Ready only).
+//! `send_prompt_linked` binds `session/new` on that same connection, then sends
+//! the delegation task as the child's first prompt. The child's
+//! `external_session_id` is persisted later by the runtime's `SessionLinked`
+//! event.
 
 use std::{collections::HashMap, path::PathBuf, sync::Arc};
 
 use agents::{
-    AgentId,
+    AgentId, AgentSessionConfigOverride, SessionControlPreferences,
     events::AgentContentBlock,
     ids::{AgentConnectionId, AgentSessionId},
     runtime::{AgentRuntime, CancelAgentPromptInput, ConnectAgentInput, SendAgentPromptInput},
@@ -107,8 +108,20 @@ impl ConnectionSpawner for RuntimeSpawner {
         );
         let child_id = child_session_id;
         let session_id = AgentSessionId::from(child_id);
-        self.runtime
-            .new_session_with_id(conn, session_id, child_id.to_string())
+        let preferences = SessionControlPreferences {
+            mode: link.preferred_mode_id.clone(),
+            config: link
+                .preferred_config_values
+                .iter()
+                .map(|(key, value)| AgentSessionConfigOverride {
+                    key: key.clone(),
+                    value: value.clone(),
+                })
+                .collect(),
+        };
+        let prepared = self
+            .runtime
+            .prepare_session_on_connection(conn, session_id, preferences)
             .await
             .map_err(|error| SpawnerError::SendPromptAfterLink {
                 child_session_id: child_id,
@@ -121,14 +134,14 @@ impl ConnectionSpawner for RuntimeSpawner {
         if let Err(error) = self
             .runtime
             .send_prompt(SendAgentPromptInput {
-                connection_id: conn,
+                connection_id: prepared.session.connection_id,
                 session_id,
                 blocks: vec![AgentContentBlock::Text { text: task }],
                 mode_override: link.preferred_mode_id,
                 config_overrides: link
                     .preferred_config_values
                     .into_iter()
-                    .map(|(key, value)| agents::AgentSessionConfigOverride { key, value })
+                    .map(|(key, value)| AgentSessionConfigOverride { key, value })
                     .collect(),
             })
             .await

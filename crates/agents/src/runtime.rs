@@ -1177,6 +1177,54 @@ impl AgentRuntime {
         })
     }
 
+    /// Bind ACP `session/new` on a connection that is already initialize-Ready.
+    ///
+    /// Delegation `spawn` only `connect`s so the broker can cancel during setup.
+    /// `connect` does not bind a session (ADR-0081); Prompt then fails with
+    /// `AcpSessionNotBound`. Passing the child conversation UUID as the ACP id is
+    /// also not a bind — that id is restorable, so `prepare_session` would refuse
+    /// it. This method registers an empty ACP id on `connection_id` and prepares
+    /// on that live process instead of spawning a second one.
+    pub async fn prepare_session_on_connection(
+        &self,
+        connection_id: AgentConnectionId,
+        session_id: AgentSessionId,
+        preferences: crate::SessionControlPreferences,
+    ) -> AgentResult<AgentPreparedSessionSnapshot> {
+        let (agent_id, workspace_id, working_dir, launch_lock, auto_approve_mode, env) = {
+            let state = self.state.read().await;
+            let connection = state
+                .connections
+                .get(&connection_id)
+                .ok_or_else(|| AgentError::ConnectionNotFound(connection_id.to_string()))?;
+            (
+                connection.snapshot.agent_id.clone(),
+                connection.snapshot.workspace_id,
+                PathBuf::from(&connection.snapshot.working_dir),
+                connection.launch.launch_lock.clone(),
+                connection.launch.auto_approve_mode,
+                connection.launch.env.clone(),
+            )
+        };
+        if !self.state.read().await.sessions.contains_key(&session_id) {
+            self.new_session_with_id(connection_id, session_id, String::new())
+                .await?;
+        }
+        self.prepare_session(EnsureAgentSessionInput {
+            agent_id,
+            launch_lock,
+            workspace_id,
+            working_dir,
+            additional_directories: Vec::new(),
+            session_id,
+            acp_session_id: String::new(),
+            auto_approve_mode,
+            env,
+            preferences,
+        })
+        .await
+    }
+
     async fn fail_prompt_after_send(
         &self,
         connection_id: AgentConnectionId,
@@ -2666,6 +2714,93 @@ mod tests {
             .await
             .expect_err("unbound prompt");
         assert!(matches!(error, AgentError::AcpSessionNotBound));
+    }
+
+    #[tokio::test]
+    async fn registering_a_child_uuid_as_acp_id_does_not_bind_the_spawned_connection() {
+        let runtime = AgentRuntime::new_with_driver(Arc::new(NoopEventSink), false);
+        let connection = runtime
+            .connect(ConnectAgentInput {
+                agent_id: AgentId::parse("codex").unwrap(),
+                launch_lock: test_launch_lock(),
+                workspace_id: Uuid::new_v4(),
+                working_dir: PathBuf::from("C:/work"),
+                additional_directories: Vec::new(),
+                auto_approve_mode: AgentAutoApproveMode::Off,
+                env: HashMap::new(),
+            })
+            .await
+            .unwrap();
+        let child_id = Uuid::new_v4();
+        let session_id = AgentSessionId::from(child_id);
+        runtime
+            .new_session_with_id(connection.id, session_id, child_id.to_string())
+            .await
+            .unwrap();
+        let error = runtime
+            .send_prompt(SendAgentPromptInput {
+                connection_id: connection.id,
+                session_id,
+                blocks: vec![AgentContentBlock::Text {
+                    text: "delegate this".to_string(),
+                }],
+                mode_override: None,
+                config_overrides: Vec::new(),
+            })
+            .await
+            .expect_err("delegation must not treat a conversation UUID as a bound ACP session");
+        assert!(matches!(error, AgentError::AcpSessionNotBound));
+        assert!(!runtime.has_bound_acp_session(session_id).await);
+    }
+
+    #[tokio::test]
+    async fn prepare_on_spawned_connection_binds_without_a_second_process() {
+        let runtime = AgentRuntime::new_with_driver(Arc::new(NoopEventSink), false);
+        let connection = runtime
+            .connect(ConnectAgentInput {
+                agent_id: AgentId::parse("claude_code").unwrap(),
+                launch_lock: SessionLaunchLock {
+                    agent_id: AgentId::parse("claude_code").unwrap(),
+                    absolute_acp_program: PathBuf::from("/tmp/vibex-test-acp"),
+                    args: Vec::new(),
+                    env: BTreeMap::new(),
+                    runtime_version: "test-runtime".to_string(),
+                    acp_version: "test-acp".to_string(),
+                },
+                workspace_id: Uuid::new_v4(),
+                working_dir: PathBuf::from("C:/delegate"),
+                additional_directories: Vec::new(),
+                auto_approve_mode: AgentAutoApproveMode::Off,
+                env: HashMap::new(),
+            })
+            .await
+            .unwrap();
+        let session_id = AgentSessionId::from(Uuid::new_v4());
+        let prepared = runtime
+            .prepare_session_on_connection(connection.id, session_id, Default::default())
+            .await
+            .expect("spawned connection must accept session/new");
+        assert_eq!(prepared.session.connection_id, connection.id);
+        assert_eq!(prepared.session.id, session_id);
+        assert!(runtime.has_bound_acp_session(session_id).await);
+        let prompt = runtime
+            .send_prompt(SendAgentPromptInput {
+                connection_id: connection.id,
+                session_id,
+                blocks: vec![AgentContentBlock::Text {
+                    text: "delegate this".to_string(),
+                }],
+                mode_override: None,
+                config_overrides: Vec::new(),
+            })
+            .await
+            .expect("prompt after prepare_session_on_connection");
+        assert!(matches!(prompt.status, AgentPromptStatus::Running));
+        assert_eq!(
+            runtime.snapshot().await.connections.len(),
+            1,
+            "prepare must reuse the spawned connection"
+        );
     }
 
     #[tokio::test]

@@ -2,7 +2,8 @@ use std::{collections::HashMap, path::PathBuf, sync::Arc};
 
 use agents::{
     AgentConnectionStatus, AgentContentBlock, AgentEvent, AgentId, AgentRuntime,
-    CompanionInjection, CompanionInjectionContext, DelegationInjector, InjectedMcpServer,
+    AgentSessionConfigOverride, CompanionInjection, CompanionInjectionContext, DelegationInjector,
+    InjectedMcpServer, SessionControlPreferences,
     events::DelegationResultSummary,
     ids::{AgentConnectionId, AgentSessionId},
     runtime::{CancelAgentPromptInput, ConnectAgentInput, SendAgentPromptInput},
@@ -17,10 +18,9 @@ use delegation::{
     AssistantReplyAccumulator, ChildStatusLookup, ChildStatusRecord, ConnectionSpawner,
     DelegationBroker, DelegationCompletedEvent, DelegationConfig, DelegationError,
     DelegationEventEmitter, DelegationLink, DelegationListener, DelegationMetaWriter,
-    DelegationService,
-    DelegationOutcome, DelegationStartedEvent, DepthLookup, InMemoryCompanionFeatures,
-    ParentSessionLookup, SpawnerError, TaskStatus, TokenEntry, TokenPermissions, TokenRegistry,
-    outcome_from_turn,
+    DelegationOutcome, DelegationService, DelegationStartedEvent, DepthLookup,
+    InMemoryCompanionFeatures, ParentSessionLookup, SpawnerError, TaskStatus, TokenEntry,
+    TokenPermissions, TokenRegistry, outcome_from_turn,
 };
 use plugins::OfficialMcpRuntime;
 use sqlx::SqlitePool;
@@ -231,8 +231,20 @@ impl ConnectionSpawner for RuntimeSpawner {
             .ok_or_else(|| SpawnerError::Other("invalid child connection".to_string()))?;
         let child_id = child_session_id;
         let session_id = AgentSessionId::from(child_id);
-        self.runtime
-            .new_session_with_id(connection_id, session_id, child_id.to_string())
+        let preferences = SessionControlPreferences {
+            mode: link.preferred_mode_id.clone(),
+            config: link
+                .preferred_config_values
+                .iter()
+                .map(|(key, value)| AgentSessionConfigOverride {
+                    key: key.clone(),
+                    value: value.clone(),
+                })
+                .collect(),
+        };
+        let prepared = self
+            .runtime
+            .prepare_session_on_connection(connection_id, session_id, preferences)
             .await
             .map_err(|error| SpawnerError::SendPromptAfterLink {
                 child_session_id: child_id,
@@ -245,11 +257,15 @@ impl ConnectionSpawner for RuntimeSpawner {
         if let Err(error) = self
             .runtime
             .send_prompt(SendAgentPromptInput {
-                connection_id,
+                connection_id: prepared.session.connection_id,
                 session_id,
                 blocks: vec![AgentContentBlock::Text { text: task }],
-                mode_override: None,
-                config_overrides: Vec::new(),
+                mode_override: link.preferred_mode_id,
+                config_overrides: link
+                    .preferred_config_values
+                    .into_iter()
+                    .map(|(key, value)| AgentSessionConfigOverride { key, value })
+                    .collect(),
             })
             .await
         {
@@ -670,8 +686,6 @@ fn process_socket_path() -> PathBuf {
         Uuid::new_v4()
     ))
 }
-
-
 
 #[cfg(test)]
 mod official_mcp_tests {

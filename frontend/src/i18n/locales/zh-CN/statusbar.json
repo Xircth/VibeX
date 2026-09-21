@@ -52,6 +52,7 @@
     "mcpCount": "{{count}} 个 MCP",
     "toolCount": "{{count}} 个工具",
     "noTools": "Agent 连接后才会列出工具。",
+    "viewDescription": "查看描述",
     "connection": {
       "running": "已连接",
       "disabled": "未启用",

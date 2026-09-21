@@ -110,6 +110,21 @@ describe('StatusBarMcp', () => {
     fireEvent.click(screen.getByRole('button', { name: '多智能体协同' }));
     expect(await screen.findByText('委派给其他 Agent')).toBeInTheDocument();
     expect(screen.getByText('delegate_to_agent')).toBeInTheDocument();
+    expect(
+      screen.queryByText('把任务交给另一个 Agent。')
+    ).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: '查看描述' }));
+    expect(
+      await screen.findByText('把任务交给另一个 Agent。')
+    ).toBeInTheDocument();
+  });
+
+  it('does not show the global MCP hint', async () => {
+    mount();
+    fireEvent.click(await screen.findByRole('button', { name: /MCP 服务/ }));
+    expect(
+      screen.queryByText('从这里启动的 Agent 可以使用已启用插件提供的 MCP 工具。')
+    ).not.toBeInTheDocument();
   });
 
   it('toggles the plugin MCP service', async () => {

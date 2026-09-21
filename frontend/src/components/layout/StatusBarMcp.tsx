@@ -71,6 +71,7 @@ export function StatusBarMcp() {
   const queryClient = useQueryClient();
   const [open, setOpen] = useState(false);
   const [expanded, setExpanded] = useState<string | null>(null);
+  const [descriptionOpen, setDescriptionOpen] = useState<string | null>(null);
   const [pending, setPending] = useState<Record<string, boolean>>({});
   const [actionError, setActionError] = useState<string | null>(null);
   const [starting, setStarting] = useState(false);
@@ -152,13 +153,13 @@ export function StatusBarMcp() {
             />
           </button>
         </div>
-        <p className="text-[0.75rem] leading-4 text-muted-foreground">
-          {query.isError
-            ? t('mcp.loadFailed', {
-                message: getInvokeErrorMessage(query.error),
-              })
-            : t('mcp.hint.default')}
-        </p>
+        {query.isError ? (
+          <p className="text-[0.75rem] text-destructive">
+            {t('mcp.loadFailed', {
+              message: getInvokeErrorMessage(query.error),
+            })}
+          </p>
+        ) : null}
 
         {query.isError ? null : report.plugins.length === 0 ? (
           <p className="text-[0.75rem] text-muted-foreground">
@@ -186,11 +187,14 @@ export function StatusBarMcp() {
                       aria-expanded={isOpen}
                       aria-label={plugin.name}
                       className="flex min-w-0 flex-1 items-center gap-2 text-left"
-                      onClick={() =>
+                      onClick={() => {
                         setExpanded((current) =>
                           current === plugin.pluginId ? null : plugin.pluginId
-                        )
-                      }
+                        );
+                        setDescriptionOpen((current) =>
+                          current === plugin.pluginId ? null : current
+                        );
+                      }}
                     >
                       <span className="flex size-7 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">
                         <Puzzle className="size-3.5" />
@@ -237,11 +241,29 @@ export function StatusBarMcp() {
                     />
                   </div>
                   {isOpen ? (
-                    <div className="space-y-1 border-t border-border bg-muted/20 px-2 py-1.5">
+                    <div className="space-y-1.5 border-t border-border bg-background px-2 py-1.5">
                       {plugin.description ? (
-                        <p className="text-[0.6875rem] leading-4 text-muted-foreground">
-                          {plugin.description}
-                        </p>
+                        <div>
+                          <button
+                            type="button"
+                            className="text-[0.6875rem] text-muted-foreground underline-offset-2 hover:text-foreground hover:underline"
+                            aria-expanded={descriptionOpen === plugin.pluginId}
+                            onClick={() =>
+                              setDescriptionOpen((current) =>
+                                current === plugin.pluginId
+                                  ? null
+                                  : plugin.pluginId
+                              )
+                            }
+                          >
+                            {t('mcp.viewDescription')}
+                          </button>
+                          {descriptionOpen === plugin.pluginId ? (
+                            <div className="mt-1 rounded-md border border-border bg-background px-2 py-1.5 text-[0.6875rem] leading-4 text-muted-foreground">
+                              {plugin.description}
+                            </div>
+                          ) : null}
+                        </div>
                       ) : null}
                       {toolCount === 0 ? (
                         <p className="text-[0.6875rem] text-muted-foreground">
@@ -252,16 +274,16 @@ export function StatusBarMcp() {
                           server.tools.map((tool) => (
                             <div
                               key={`${server.id}:${tool.name}`}
-                              className="px-1 py-1"
+                              className="flex items-center gap-2 px-1 py-1"
                             >
-                              <div className="truncate text-[0.75rem] text-foreground">
+                              <div className="min-w-0 flex-1 truncate text-[0.75rem] text-foreground">
                                 {t(`mcp.tools.${tool.name}`, {
                                   defaultValue: tool.name,
                                 })}
                               </div>
-                              <div className="mt-0.5 truncate font-mono text-[0.6875rem] text-muted-foreground">
+                              <span className="max-w-[9.5rem] shrink-0 truncate rounded-full border border-border bg-background px-2 py-0.5 font-mono text-[0.625rem] text-muted-foreground">
                                 {tool.name}
-                              </div>
+                              </span>
                             </div>
                           ))
                         )

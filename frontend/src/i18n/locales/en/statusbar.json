@@ -52,6 +52,7 @@
     "mcpCount": "{{count}} MCP",
     "toolCount": "{{count}} tools",
     "noTools": "Tools appear after an agent connects.",
+    "viewDescription": "View description",
     "connection": {
       "running": "Connected",
       "disabled": "Off",

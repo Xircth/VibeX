@@ -46,10 +46,15 @@ const item: PluginContributionCatalogItem = {
 
 describe('PluginRemoteView', () => {
   it('falls back to the packaged app surface when the HTTP remote fails', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockRejectedValue(new Error('offline'))
+    );
     render(<PluginRemoteView item={item} slot="app.tab" />);
     expect(await screen.findByTestId('app-surface-fallback')).toBeInTheDocument();
     expect(
       screen.queryByTestId('plugin-surface-placeholder')
     ).not.toBeInTheDocument();
+    vi.unstubAllGlobals();
   });
 });

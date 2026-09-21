@@ -57,11 +57,6 @@ export async function startPluginRemoteDev(options: {
   const remote = options.remotes[0];
   const port = await freePort();
   const entry = `http://127.0.0.1:${port}/remoteEntry.js`;
-  await writeDevRemote(root, {
-    name: remote.name,
-    entry,
-    module: remote.module,
-  });
   const server = await startFederationDevServer({
     root,
     remotes: options.remotes,
@@ -80,6 +75,11 @@ export async function startPluginRemoteDev(options: {
   );
   try {
     await waitForHttp(entry, options.signal);
+    await writeDevRemote(root, {
+      name: remote.name,
+      entry,
+      module: remote.module,
+    });
   } catch (error) {
     await close();
     options.onError?.(error);
@@ -105,7 +105,7 @@ async function waitForHttp(url: string, signal: AbortSignal) {
   while (Date.now() < deadline && !signal.aborted) {
     try {
       const response = await fetch(url, { signal });
-      if (response.ok || response.status === 404) return;
+      if (response.ok) return;
     } catch {
       await new Promise((resolveWait) => setTimeout(resolveWait, 200));
     }

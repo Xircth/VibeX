@@ -23,6 +23,18 @@ import {
 
 const transport = createBackendAppSurfaceTransport(configuredBackendTransport);
 
+async function remoteEntryAvailable(entry: string): Promise<boolean> {
+  try {
+    const response = await fetch(entry, {
+      method: 'GET',
+      signal: AbortSignal.timeout(1500),
+    });
+    return response.ok;
+  } catch {
+    return false;
+  }
+}
+
 function opaqueToken(): string {
   const bytes = new Uint8Array(24);
   globalThis.crypto.getRandomValues(bytes);
@@ -122,7 +134,11 @@ function PluginRemoteViewBody({
     let revoke: (() => void) | undefined;
     setRemoteState('loading');
     const clientToken = opaqueToken();
-    void loadPluginRemote(remote)
+    void remoteEntryAvailable(remote.entry)
+      .then((available) => {
+        if (!available) throw new Error('plugin_remote_unavailable');
+        return loadPluginRemote(remote);
+      })
       .then(async (module) => {
         if (disposed) return;
         let sequence = 0;

@@ -1,4 +1,9 @@
-use std::sync::RwLock;
+use std::{
+    io::{Read, Write},
+    net::{SocketAddr, TcpStream},
+    sync::RwLock,
+    time::Duration,
+};
 
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
@@ -652,6 +657,9 @@ fn overlay_dev_remote(
             .map(str::to_owned)
             .or_else(|| authored.as_ref().map(|item| item.name.clone()))?;
         let entry = value.get("entry").and_then(Value::as_str)?.to_owned();
+        if !loopback_dev_remote_is_live(&entry) {
+            return None;
+        }
         let module = value
             .get("module")
             .and_then(Value::as_str)
@@ -669,6 +677,42 @@ fn overlay_dev_remote(
             })
         })
     })
+}
+
+fn loopback_dev_remote_is_live(entry: &str) -> bool {
+    let Ok(url) = url::Url::parse(entry) else {
+        return false;
+    };
+    if url.scheme() != "http" {
+        return false;
+    }
+    let Some(host) = url.host_str() else {
+        return false;
+    };
+    if host != "127.0.0.1" && !host.eq_ignore_ascii_case("localhost") {
+        return true;
+    }
+    let Some(port) = url.port_or_known_default() else {
+        return false;
+    };
+    let timeout = Duration::from_millis(200);
+    let Ok(mut stream) = TcpStream::connect_timeout(
+        &SocketAddr::from(([127, 0, 0, 1], port)),
+        timeout,
+    ) else {
+        return false;
+    };
+    let _ = stream.set_read_timeout(Some(timeout));
+    let _ = stream.set_write_timeout(Some(timeout));
+    let path = if url.path().is_empty() { "/" } else { url.path() };
+    let request = format!("GET {path} HTTP/1.0\r\nHost: {host}:{port}\r\nConnection: close\r\n\r\n");
+    if stream.write_all(request.as_bytes()).is_err() {
+        return false;
+    }
+    let mut buf = [0u8; 32];
+    let n = stream.read(&mut buf).unwrap_or(0);
+    let head = std::str::from_utf8(&buf[..n]).unwrap_or("");
+    head.starts_with("HTTP/1.0 200") || head.starts_with("HTTP/1.1 200")
 }
 
 pub(crate) fn descriptors_for_package(
@@ -697,4 +741,39 @@ pub(crate) fn descriptors_for_package(
             .then_with(|| left.id.cmp(&right.id))
     });
     descriptors
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::io::{Read, Write};
+    use std::net::TcpListener;
+    use std::thread;
+
+    fn serve_once(status: &'static str) -> String {
+        let listener = TcpListener::bind("127.0.0.1:0").expect("bind");
+        let port = listener.local_addr().expect("addr").port();
+        thread::spawn(move || {
+            let Ok((mut stream, _)) = listener.accept() else {
+                return;
+            };
+            let mut buf = [0u8; 256];
+            let _ = stream.read(&mut buf);
+            let _ = stream.write_all(
+                format!("{status}\r\nContent-Length: 0\r\nConnection: close\r\n\r\n").as_bytes(),
+            );
+        });
+        format!("http://127.0.0.1:{port}/remoteEntry.js")
+    }
+
+    #[test]
+    fn live_loopback_dev_remote_requires_http_200() {
+        let live = serve_once("HTTP/1.1 200 OK");
+        assert!(loopback_dev_remote_is_live(&live));
+        let missing = serve_once("HTTP/1.1 404 Not Found");
+        assert!(!loopback_dev_remote_is_live(&missing));
+        assert!(!loopback_dev_remote_is_live(
+            "http://127.0.0.1:9/remoteEntry.js"
+        ));
+    }
 }

@@ -401,12 +401,13 @@ export function AppSurfaceHost({
           hostContext,
         });
       })
-      .catch(() => {
+      .catch((error) => {
         if (!active) return;
         if (sessionToken) {
           revoke(sessionToken, 'invalid_surface_document');
         }
-        setFailure(t('plugins.surfaceLoadFailed'));
+        const detail = hostErrorMessage(error).trim();
+        setFailure(detail || t('plugins.surfaceLoadFailed'));
       })
       .finally(() => {
         if (active) setLoading(false);

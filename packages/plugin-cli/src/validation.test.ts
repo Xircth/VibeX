@@ -15,6 +15,56 @@ describe('validatePlugin product package', () => {
     expect(result.manifest?.readme).toBe('README.md');
   });
 
+  it('accepts workerHttp managed MCP without an entrypoint', async () => {
+    const root = await fixture({
+      integrations: [
+        {
+          id: 'test',
+          kind: 'content.skill',
+          resource: 'contents/skills/test',
+        },
+        {
+          id: 'sidecar',
+          kind: 'content.mcp',
+          resource: 'contents/mcps/sidecar.json',
+        },
+      ],
+    });
+    await mkdir(join(root, 'contents/mcps'), { recursive: true });
+    await writeFile(
+      join(root, 'contents/mcps/sidecar.json'),
+      JSON.stringify({
+        managedRuntime: {
+          kind: 'workerHttp',
+          handler: 'mcp.endpoint',
+          protocolRevision: '2026-07-28',
+          defaultBinding: 'all-compatible-agents',
+        },
+      })
+    );
+    await writeFile(
+      join(root, '.vibex-plugin/content.index.json'),
+      JSON.stringify({
+        schemaVersion: 1,
+        items: [
+          {
+            path: 'contents/skills/test/SKILL.md',
+            kind: 'skill',
+            title: 'Test skill',
+          },
+          {
+            path: 'contents/mcps/sidecar.json',
+            kind: 'mcp',
+            title: 'Sidecar',
+          },
+        ],
+      })
+    );
+
+    const result = await validatePlugin(root);
+    expect(result.valid).toBe(true);
+  });
+
   it('rejects a README without an independent one-line summary tag', async () => {
     const root = await fixture();
     await writeFile(

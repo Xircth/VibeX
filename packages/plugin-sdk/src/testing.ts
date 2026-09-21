@@ -136,6 +136,7 @@ export async function createAppHarness(
     pluginId?: string;
     generation?: number;
     invoke?: (handler: string, input: JsonValue) => Promise<JsonValue>;
+    slot?: string;
     artifact?: {
       name: string;
       content: string;
@@ -201,6 +202,7 @@ export async function createAppHarness(
     bridge,
     root: options.root,
     signal: controller.signal,
+    slot: options.slot,
   });
 
   const revoke = () => {

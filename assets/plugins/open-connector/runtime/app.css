@@ -1,0 +1,11 @@
+:root { color-scheme: light dark; font: 13px system-ui, sans-serif; }
+html, body, #app { height: 100%; margin: 0; }
+.surface { box-sizing: border-box; height: 100%; padding: 16px; background: transparent; }
+h1 { margin: 0 0 8px; font-size: 15px; font-weight: 600; }
+p { margin: 8px 0 0; opacity: 0.75; }
+.rows { display: grid; grid-template-columns: 7rem 1fr; gap: 6px 12px; margin: 12px 0 0; }
+.rows dt { opacity: 0.7; }
+.rows dd { margin: 0; word-break: break-all; }
+.actions { display: flex; gap: 8px; margin-top: 16px; }
+button { font: inherit; padding: 6px 10px; }
+iframe { background: transparent; }

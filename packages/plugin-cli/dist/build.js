@@ -56,7 +56,7 @@ export async function buildPlugin(root) {
             },
             ready: () => { void surface.request('surface.ready'); },
           });
-          const dispose = await definition.mount({ root, bridge, signal: controller.signal });
+          const dispose = await definition.mount({ root, bridge, signal: controller.signal, slot: typeof bootstrap.slot === 'string' ? bootstrap.slot : undefined });
           addEventListener('pagehide', () => {
             controller.abort();
             if (typeof dispose === 'function') void dispose();

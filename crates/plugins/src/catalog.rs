@@ -33,6 +33,7 @@ const BUNDLED_TOPIC_CATEGORIES: &[(&str, &str)] = &[
     ("vibex.provider-switch", "other"),
     ("vibex.remote-ssh", "other"),
     ("vibex.science", "other"),
+    ("vibex.open-connector", "other"),
 ];
 
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]

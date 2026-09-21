@@ -58,6 +58,14 @@
     },
     {
       "publisher": "vibex",
+      "pluginId": "vibex.open-connector",
+      "version": "1.0.0",
+      "summary": "把 Open Connector 作为本机连接器网关接入会话：连接第三方应用、保管凭据、向 Agent 提供 MCP 工具。",
+      "packageDigest": "builtin:vibex.open-connector",
+      "archive": "builtin://vibex.open-connector"
+    },
+    {
+      "publisher": "vibex",
       "pluginId": "vibex.science",
       "version": "1.0.0",
       "summary": "146 项科研技能，按 10 个领域分组。默认只注入「通用科研方法」13 项，其余领域在插件配置中按需开启。",

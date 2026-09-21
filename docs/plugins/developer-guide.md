@@ -318,6 +318,7 @@ catalog 里的名字是契约。当前 Host 实现参差不齐，按代码说话
 
 已经能当功能用的
 
+- `runtime.lock` 的 `get` `{ runtimeId }`，返回 Host 已锁定的 `{ executablePath, version, target, contentDigest }`。不 spawn。任意 sidecar Worker 用这个路径拉起二进制。
 - `artifact.preview` 的 `open` / `close`，打开要先拿到 Host 发的短命 handle（约 30 秒）
 - `storage.kv` 的 `get` / `put` / `delete` / `list`，按插件 ID 隔离，进程内存储
 - `storage.settings.get` / `put` 读写该插件的 `config.json`

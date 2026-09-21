@@ -1,6 +1,7 @@
 use std::{
     collections::{BTreeMap, BTreeSet},
     path::Path,
+    time::Duration,
 };
 
 use agents::skills::{self, PluginSkillProjectionStatus};
@@ -653,6 +654,40 @@ async fn configure_plugin_mcp(
     errors
 }
 
+async fn materialize_worker_http_mcp(
+    control_plane: &plugins::PluginControlPlane,
+    plugin: &InstalledPlugin,
+    server_id: &str,
+    managed: &serde_json::Map<String, Value>,
+) -> Result<Option<Value>, ApplicationError> {
+    if managed.get("entrypoint").is_some() {
+        return Err(ApplicationError::bad_request(format!(
+            "managed MCP `{server_id}` workerHttp must not set entrypoint"
+        )));
+    }
+    let handler = managed
+        .get("handler")
+        .and_then(Value::as_str)
+        .filter(|value| !value.is_empty())
+        .ok_or_else(|| {
+            ApplicationError::bad_request(format!(
+                "managed MCP `{server_id}` workerHttp requires managedRuntime.handler"
+            ))
+        })?;
+    let lease = control_plane.activation_lease(plugin.id()).await.ok_or_else(|| {
+        ApplicationError::bad_request(format!(
+            "managed MCP `{server_id}` workerHttp requires an active Worker"
+        ))
+    })?;
+    let endpoint = lease
+        .invoke_with_timeout(handler, Value::Null, Duration::from_secs(30))
+        .await
+        .map_err(|error| ApplicationError::internal(error.to_string()))?;
+    plugins::worker_http_mcp_spec_from_endpoint(&endpoint)
+        .map(Some)
+        .map_err(ApplicationError::bad_request)
+}
+
 async fn materialize_plugin_mcp_spec(
     control_plane: &plugins::PluginControlPlane,
     worker_runtime: &plugins::PluginWorkerRuntimeProvider,
@@ -670,6 +705,9 @@ async fn materialize_plugin_mcp_spec(
         == Some("hostFamilyBinary")
     {
         return materialize_host_family_binary_mcp(control_plane, server_id, &spec);
+    }
+    if managed.get("kind").and_then(Value::as_str) == Some("workerHttp") {
+        return materialize_worker_http_mcp(control_plane, plugin, server_id, managed).await;
     }
     let entrypoint = managed
         .get("entrypoint")

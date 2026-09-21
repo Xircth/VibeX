@@ -121,6 +121,7 @@ export async function createAppHarness(definition, options) {
         bridge,
         root: options.root,
         signal: controller.signal,
+        slot: options.slot,
     });
     const revoke = () => {
         if (revoked)

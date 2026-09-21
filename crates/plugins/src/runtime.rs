@@ -685,6 +685,44 @@ pub fn inherited_runtime_environment() -> BTreeMap<String, String> {
     std::env::vars().collect()
 }
 
+/// Environment for Host Runtime probes: OS launch essentials only.
+///
+/// Probe children must not inherit caller secrets such as `OOMOL_CONNECT_*` or
+/// `DATABASE_URL`. A `migrate` probe that saw a Postgres URL would touch a
+/// remote database during plugin enable.
+pub fn probe_process_environment() -> BTreeMap<String, String> {
+    const ALLOWED: &[&str] = &[
+        "PATH",
+        "PATHEXT",
+        "SYSTEMROOT",
+        "WINDIR",
+        "SYSTEMDRIVE",
+        "COMSPEC",
+        "HOME",
+        "USERPROFILE",
+        "HOMEDRIVE",
+        "HOMEPATH",
+        "TMP",
+        "TEMP",
+        "TMPDIR",
+        "LANG",
+        "LC_ALL",
+        "LC_CTYPE",
+        "USER",
+        "LOGNAME",
+        "SHELL",
+        "DYLD_FALLBACK_LIBRARY_PATH",
+        "LD_LIBRARY_PATH",
+    ];
+    std::env::vars()
+        .filter(|(key, _)| {
+            ALLOWED
+                .iter()
+                .any(|allowed| allowed.eq_ignore_ascii_case(key))
+        })
+        .collect()
+}
+
 async fn probe_executable(executable: &Path, args: &[String]) -> Result<String, String> {
     probe_executable_with_timeout(executable, args, Duration::from_secs(15)).await
 }
@@ -695,7 +733,10 @@ async fn probe_executable_with_timeout(
     timeout: Duration,
 ) -> Result<String, String> {
     let mut command = Command::new(executable);
-    command.args(args).kill_on_drop(true);
+    command.args(args).kill_on_drop(true).env_clear();
+    for (key, value) in probe_process_environment() {
+        command.env(key, value);
+    }
     let output = tokio::time::timeout(timeout, command.output())
         .await
         .map_err(|_| {
@@ -1011,6 +1052,36 @@ mod tests {
                 "managed Plugin Worker storage must not inherit App-bundle quarantine"
             );
         }
+    }
+
+    #[test]
+    fn probe_environment_omits_connector_and_database_secrets() {
+        let snapshot: Vec<(String, String)> = std::env::vars().collect();
+        unsafe {
+            std::env::set_var("OOMOL_CONNECT_DATABASE_URL", "postgres://example");
+            std::env::set_var("DATABASE_URL", "postgres://example");
+            std::env::set_var("OOMOL_CONNECT_RUNTIME_TOKEN", "secret");
+        }
+        let env = probe_process_environment();
+        unsafe {
+            std::env::remove_var("OOMOL_CONNECT_DATABASE_URL");
+            std::env::remove_var("DATABASE_URL");
+            std::env::remove_var("OOMOL_CONNECT_RUNTIME_TOKEN");
+            for (key, value) in snapshot {
+                if std::env::var_os(&key).is_none() {
+                    std::env::set_var(key, value);
+                }
+            }
+        }
+        assert!(
+            env.keys()
+                .all(|key| !key.to_ascii_uppercase().starts_with("OOMOL_CONNECT_"))
+        );
+        assert!(!env.keys().any(|key| key.eq_ignore_ascii_case("DATABASE_URL")));
+        assert!(
+            env.keys()
+                .any(|key| key.eq_ignore_ascii_case("PATH") || key.eq_ignore_ascii_case("HOME") || key.eq_ignore_ascii_case("USERPROFILE") || key.eq_ignore_ascii_case("SYSTEMROOT"))
+        );
     }
 
     #[test]

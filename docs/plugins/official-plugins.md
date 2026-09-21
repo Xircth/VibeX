@@ -193,6 +193,16 @@ Skill 要求 Agent 先定位本机契约：VibeX 源码树用 `node packages/plu
 
 卸载后隧道关闭，插件配置清除。已保存的 SSH Host 默认保留，要忘掉服务器请在「设置 → 远程连接」里删除。
 
+## Open Connector
+
+身份 `vibex.open-connector`，版本 `1.0.0`，产品名 Open Connector。简介是连接第三方应用，把工具交给之后新建或重新绑定的会话。源码在 `assets/plugins/open-connector`。
+
+启用后出现中央 Tab「Open Connector」，内嵌本机 Open Connector 控制台。Worker 用 Host 锁定的官方单文件二进制在回环口拉起网关。首次启用按 GitHub Release `v1.6.3` 下载约 150–175 MiB，离线会失败。凭据在 `plugin-state/vibex.open-connector/`，不写入 `config.json`。
+
+Agent 看到五件 HTTP MCP 工具：`list_apps`、`list_connections`、`search_actions`、`get_action_guide`、`execute_action`。只注入启用之后新建或重新绑定的会话。状态栏只显示是否在运行，不会跳到 Tab。
+
+授权弹窗应留在本应用里。若被系统浏览器打开，完成后要回到控制台刷新连接。卸载默认不清保险库；在插件配置里清除数据。
+
 ## 科学研究
 
 身份 `vibex.science`，版本 `1.0.0`，产品名「科学研究」。简介是 146 项科研技能，按 10 个领域分组；默认只注入「通用科研方法」13 项。源码是 git 子仓库 `assets/plugins/science`（`https://github.com/Xircth/vibex-plugin-science`）。

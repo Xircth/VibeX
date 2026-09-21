@@ -17,6 +17,7 @@ use delegation::{
     AssistantReplyAccumulator, ChildStatusLookup, ChildStatusRecord, ConnectionSpawner,
     DelegationBroker, DelegationCompletedEvent, DelegationConfig, DelegationError,
     DelegationEventEmitter, DelegationLink, DelegationListener, DelegationMetaWriter,
+    DelegationService,
     DelegationOutcome, DelegationStartedEvent, DepthLookup, InMemoryCompanionFeatures,
     ParentSessionLookup, SpawnerError, TaskStatus, TokenEntry, TokenPermissions, TokenRegistry,
     outcome_from_turn,
@@ -33,6 +34,7 @@ type ResolverMap = Arc<Mutex<HashMap<Uuid, (String, AgentId)>>>;
 
 pub(crate) struct HeadlessDelegationRuntime {
     tasks: Vec<JoinHandle<()>>,
+    service: Arc<DelegationService>,
 }
 
 impl HeadlessDelegationRuntime {
@@ -94,10 +96,14 @@ impl HeadlessDelegationRuntime {
             )
             .await;
         });
+        let service = DelegationService::new(listener.clone(), listen_path);
+        DelegationService::install(service.clone());
+        let start_service = service.clone();
         let listener_task = tokio::spawn(async move {
-            if let Err(error) = listener.run(listen_path).await {
-                tracing::warn!(%error, "headless delegation listener stopped");
+            if let Err(error) = start_service.start().await {
+                tracing::warn!(%error, "headless delegation listener failed to start");
             }
+            std::future::pending::<()>().await;
         });
         let resolver_task = spawn_resolver(broker.clone(), runtime.clone(), map);
         let teardown_task =
@@ -106,6 +112,7 @@ impl HeadlessDelegationRuntime {
         (
             Self {
                 tasks: vec![listener_task, resolver_task, teardown_task],
+                service,
             },
             features,
             broker,
@@ -115,6 +122,7 @@ impl HeadlessDelegationRuntime {
 
 impl Drop for HeadlessDelegationRuntime {
     fn drop(&mut self) {
+        self.service.abort();
         for task in &self.tasks {
             task.abort();
         }
@@ -460,31 +468,52 @@ impl DelegationInjector for HeadlessDelegationInjector {
             };
         }
         let mut servers = Vec::new();
+        let mut missing_binary = false;
         for binding in self.official_mcp.bindings() {
             match binding.product.as_str() {
-                "delegation" => servers.push(self.product_server(
+                "delegation" => match self.product_server(
                     context,
                     "vibex-delegation-mcp",
+                    "vibex-mcp",
                     "delegation",
                     true,
-                )),
-                "session" => servers.push(self.product_server(
+                ) {
+                    Some(server) => servers.push(server),
+                    None => missing_binary = true,
+                },
+                "session" => match self.product_server(
                     context,
                     "vibex-session-mcp",
+                    "vibex-mcp",
                     "feedback,ask,sessions,session-control",
                     false,
-                )),
-                "workflow" => servers.push(InjectedMcpServer {
-                    name: "vibex-workflow-mcp".to_string(),
-                    command: locate_named_sibling("vibex-workflow-mcp"),
-                    args: Vec::new(),
-                }),
+                ) {
+                    Some(server) => servers.push(server),
+                    None => missing_binary = true,
+                },
+                "workflow" => match self.product_server(
+                    context,
+                    "vibex-workflow-mcp",
+                    "vibex-workflow-mcp",
+                    "",
+                    false,
+                ) {
+                    Some(mut server) => {
+                        server.args.clear();
+                        servers.push(server);
+                    }
+                    None => missing_binary = true,
+                },
                 _ => {}
             }
         }
         if servers.is_empty() {
             return agents::CompanionInjectionList::Unsupported {
-                code: "official_product_mcp_disabled",
+                code: if missing_binary {
+                    "companion_binary_missing"
+                } else {
+                    "official_product_mcp_disabled"
+                },
             };
         }
         agents::CompanionInjectionList::Injected(servers)
@@ -496,9 +525,11 @@ impl HeadlessDelegationInjector {
         &self,
         context: CompanionInjectionContext<'_>,
         name: &str,
+        binary_id: &str,
         features: &str,
         delegation: bool,
-    ) -> InjectedMcpServer {
+    ) -> Option<InjectedMcpServer> {
+        let command = utils::host_bin::locate_runnable_host_family_binary(binary_id)?;
         let token = Uuid::new_v4().to_string();
         self.tokens.register_with_permissions(
             token.clone(),
@@ -526,12 +557,14 @@ impl HeadlessDelegationInjector {
             features.to_string(),
             "--conversation-id".to_string(),
             context.parent_conversation_id.to_string(),
+            "--parent-pid".to_string(),
+            std::process::id().to_string(),
         ];
-        InjectedMcpServer {
+        Some(InjectedMcpServer {
             name: name.to_string(),
-            command: locate_companion(),
+            command,
             args,
-        }
+        })
     }
 }
 
@@ -638,13 +671,7 @@ fn process_socket_path() -> PathBuf {
     ))
 }
 
-fn locate_companion() -> PathBuf {
-    utils::host_bin::locate_host_family_binary("vibex-mcp")
-}
 
-fn locate_named_sibling(base: &str) -> PathBuf {
-    utils::host_bin::locate_host_family_binary(base)
-}
 
 #[cfg(test)]
 mod official_mcp_tests {

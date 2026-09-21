@@ -17,6 +17,7 @@ vi.mock('@/lib/api/plugins', async () => {
     createPluginControlApi: () => ({
       mcpStatus: () => mcpStatus(),
       setEnabled: (id: string, enabled: boolean) => setEnabled(id, enabled),
+      ensureMcpRunning: () => Promise.resolve({ listening: true }),
     }),
   };
 });
@@ -32,6 +33,7 @@ function report(
 ): PluginMcpStatusReport {
   return {
     state: 'running',
+    listening: true,
     plugins: [
       {
         pluginId: 'vibex.multi-agent',

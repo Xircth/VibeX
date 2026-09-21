@@ -58,6 +58,8 @@
       "stopped": "Disconnected"
     },
     "openPlugins": "Open plugins",
+    "startService": "Start service",
+    "starting": "Starting…",
     "tools": {
       "delegate_to_agent": "Delegate to another agent",
       "get_delegation_status": "Check delegation status",

@@ -187,6 +187,7 @@ export interface PluginMcpPluginStatus {
 
 export interface PluginMcpStatusReport {
   state: PluginMcpHeadline;
+  listening: boolean;
   plugins: PluginMcpPluginStatus[];
 }
 
@@ -469,6 +470,8 @@ export function createPluginControlApi(transport: BackendTransport) {
       ) as Promise<OfficialProductMcpState>,
     mcpStatus: () =>
       transport.call('plugin_mcp_status') as Promise<PluginMcpStatusReport>,
+    ensureMcpRunning: () =>
+      transport.call('plugin_mcp_ensure_running') as Promise<{ listening: boolean }>,
     diagnostics: (pluginId: string) =>
       transport.call('plugin_control_diagnostics', {
         pluginId,

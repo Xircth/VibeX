@@ -19,6 +19,7 @@ pub(crate) struct VibexDelegationInjector {
     pub tokens: Arc<TokenRegistry>,
     pub socket_path: PathBuf,
     pub official_mcp: Arc<plugins::OfficialMcpRuntime>,
+    pub locate_binary: fn(&str) -> Option<PathBuf>,
 }
 
 impl DelegationInjector for VibexDelegationInjector {
@@ -47,24 +48,30 @@ impl DelegationInjector for VibexDelegationInjector {
         }
 
         let mut servers = Vec::new();
+        let mut missing_binary = false;
         for binding in self.official_mcp.bindings() {
             match binding.product.as_str() {
-                "delegation" => servers.push(self.product_server(
+                "delegation" => match self.product_server(
                     context,
                     "vibex-delegation-mcp",
+                    "vibex-mcp",
                     "delegation",
                     TokenPermissions {
                         delegation: true,
                         ..TokenPermissions::default()
                     },
-                )),
+                ) {
+                    Some(server) => servers.push(server),
+                    None => missing_binary = true,
+                },
                 "session" => {
                     let bits = binding.features;
                     let features = plugins::session_feature_arg(bits);
                     if !features.is_empty() {
-                        servers.push(self.product_server(
+                        match self.product_server(
                             context,
                             "vibex-session-mcp",
+                            "vibex-mcp",
                             &features,
                             TokenPermissions {
                                 feedback: bits & SESSION_FEAT_FEEDBACK != 0,
@@ -73,21 +80,36 @@ impl DelegationInjector for VibexDelegationInjector {
                                 session_control: bits & SESSION_FEAT_SESSION_CONTROL != 0,
                                 ..TokenPermissions::default()
                             },
-                        ));
+                        ) {
+                            Some(server) => servers.push(server),
+                            None => missing_binary = true,
+                        }
                     }
                 }
-                "workflow" => servers.push(InjectedMcpServer {
-                    name: "vibex-workflow-mcp".to_string(),
-                    command: locate_named_sibling("vibex-workflow-mcp"),
-                    args: Vec::new(),
-                }),
+                "workflow" => match self.product_server(
+                    context,
+                    "vibex-workflow-mcp",
+                    "vibex-workflow-mcp",
+                    "",
+                    TokenPermissions::default(),
+                ) {
+                    Some(mut server) => {
+                        server.args.clear();
+                        servers.push(server);
+                    }
+                    None => missing_binary = true,
+                },
                 _ => {}
             }
         }
 
         if servers.is_empty() {
             return CompanionInjectionList::Unsupported {
-                code: "official_product_mcp_disabled",
+                code: if missing_binary {
+                    "companion_binary_missing"
+                } else {
+                    "official_product_mcp_disabled"
+                },
             };
         }
         CompanionInjectionList::Injected(servers)
@@ -136,9 +158,11 @@ impl VibexDelegationInjector {
         &self,
         context: CompanionInjectionContext<'_>,
         name: &str,
+        binary_id: &str,
         features: &str,
         permissions: TokenPermissions,
-    ) -> InjectedMcpServer {
+    ) -> Option<InjectedMcpServer> {
+        let command = (self.locate_binary)(binary_id)?;
         let token = Uuid::new_v4().to_string();
         self.tokens.register_with_permissions(
             token.clone(),
@@ -149,9 +173,9 @@ impl VibexDelegationInjector {
             },
             permissions,
         );
-        InjectedMcpServer {
+        Some(InjectedMcpServer {
             name: name.to_string(),
-            command: locate_vibex_mcp_binary(),
+            command,
             args: {
                 let mut args = vec![
                     "--parent-connection-id".to_string(),
@@ -164,6 +188,8 @@ impl VibexDelegationInjector {
                     features.to_string(),
                     "--conversation-id".to_string(),
                     context.parent_conversation_id.to_string(),
+                    "--parent-pid".to_string(),
+                    std::process::id().to_string(),
                 ];
                 if let Some(url) = self.official_mcp.http_base() {
                     args.push("--server-url".to_string());
@@ -186,16 +212,12 @@ impl VibexDelegationInjector {
                 }
                 args
             },
-        }
+        })
     }
 }
 
-pub(crate) fn locate_vibex_mcp_binary() -> PathBuf {
-    utils::host_bin::locate_host_family_binary("vibex-mcp")
-}
-
-fn locate_named_sibling(base: &str) -> PathBuf {
-    utils::host_bin::locate_host_family_binary(base)
+fn test_locate(_base: &str) -> Option<PathBuf> {
+    Some(PathBuf::from("/opt/vibex-mcp"))
 }
 
 #[cfg(test)]
@@ -246,6 +268,7 @@ mod tests {
                 ("delegation", SESSION_FEAT_ALL),
                 ("session", SESSION_FEAT_ALL),
             ]),
+            locate_binary: test_locate,
         };
         let agent = AgentId::parse("vendor.capable-agent").unwrap();
         let CompanionInjectionList::Injected(servers) =
@@ -271,6 +294,7 @@ mod tests {
             tokens,
             socket_path: PathBuf::from("/tmp/vibex-delegation-test.sock"),
             official_mcp,
+            locate_binary: test_locate,
         };
         let agent = AgentId::parse("vendor.capable-agent").unwrap();
         let CompanionInjectionList::Injected(servers) =
@@ -294,6 +318,7 @@ mod tests {
             tokens: Arc::new(TokenRegistry::new()),
             socket_path: PathBuf::from("/tmp/vibex-delegation-test.sock"),
             official_mcp: Arc::new(OfficialMcpRuntime::default()),
+            locate_binary: test_locate,
         };
         let agent = AgentId::parse("vendor.capable-agent").unwrap();
         assert_eq!(
@@ -310,6 +335,7 @@ mod tests {
             tokens: Arc::new(TokenRegistry::new()),
             socket_path: PathBuf::from("/tmp/vibex-delegation-test.sock"),
             official_mcp: gate(&[("delegation", SESSION_FEAT_ALL)]),
+            locate_binary: test_locate,
         };
         let agent = AgentId::parse("grok").unwrap();
         let CompanionInjectionList::Injected(servers) =
@@ -326,6 +352,7 @@ mod tests {
             tokens: Arc::new(TokenRegistry::new()),
             socket_path: PathBuf::from("/tmp/vibex-delegation-test.sock"),
             official_mcp: gate(&[("delegation", SESSION_FEAT_ALL)]),
+            locate_binary: test_locate,
         };
         let agent = AgentId::parse("claude_code").unwrap();
         assert_eq!(
@@ -334,5 +361,46 @@ mod tests {
                 code: "delegation_parent_unsupported"
             }
         );
+    }
+
+    #[test]
+    fn missing_sidecar_does_not_inject_a_basename() {
+        let injector = VibexDelegationInjector {
+            tokens: Arc::new(TokenRegistry::new()),
+            socket_path: PathBuf::from("/tmp/vibex-delegation-test.sock"),
+            official_mcp: gate(&[("delegation", SESSION_FEAT_ALL)]),
+            locate_binary: |_| None,
+        };
+        let agent = AgentId::parse("vendor.capable-agent").unwrap();
+        assert_eq!(
+            injector.injected_stdio_servers(context(&agent, true)),
+            CompanionInjectionList::Unsupported {
+                code: "companion_binary_missing"
+            }
+        );
+    }
+
+    #[test]
+    fn injected_stdio_passes_parent_pid() {
+        let injector = VibexDelegationInjector {
+            tokens: Arc::new(TokenRegistry::new()),
+            socket_path: PathBuf::from("/tmp/vibex-delegation-test.sock"),
+            official_mcp: gate(&[("delegation", SESSION_FEAT_ALL)]),
+            locate_binary: test_locate,
+        };
+        let agent = AgentId::parse("vendor.capable-agent").unwrap();
+        let CompanionInjectionList::Injected(servers) =
+            injector.injected_stdio_servers(context(&agent, true))
+        else {
+            panic!("expected injection");
+        };
+        let pid = std::process::id().to_string();
+        assert!(
+            servers[0]
+                .args
+                .windows(2)
+                .any(|window| window == ["--parent-pid", pid.as_str()])
+        );
+        assert!(servers[0].command.is_absolute() || servers[0].command.starts_with("/opt/"));
     }
 }

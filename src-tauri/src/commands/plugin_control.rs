@@ -3362,7 +3362,13 @@ fn materialize_host_family_binary_mcp(
                 "managed MCP `{server_id}` hostFamilyBinary requires managedRuntime.binaryId"
             ))
         })?;
-    let command = utils::host_bin::locate_host_family_binary(binary_id);
+    let Some(command) = utils::host_bin::locate_runnable_host_family_binary(binary_id) else {
+        tracing::warn!(
+            binary_id,
+            "skipping host-family MCP projection; sidecar is missing or empty"
+        );
+        return Ok(None);
+    };
     if product == "workflow" {
         return Ok(Some(plugins::host_family_stdio_spec(
             &command.to_string_lossy(),

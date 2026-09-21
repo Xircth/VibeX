@@ -12,7 +12,7 @@ use agents::{
     unwrap_grok_use_tool,
 };
 use delegation::{
-    DelegationBroker, DelegationConfig, DelegationListener, DelegationMatchKey,
+    DelegationBroker, DelegationConfig, DelegationListener, DelegationMatchKey, DelegationService,
     InMemoryCompanionFeatures, TokenRegistry, default_socket_path,
 };
 use sqlx::SqlitePool;
@@ -88,6 +88,7 @@ pub(crate) fn build_delegation(
             tokens: tokens.clone(),
             socket_path: socket_path.clone(),
             official_mcp,
+            locate_binary: utils::host_bin::locate_runnable_host_family_binary,
         },
     ));
 
@@ -99,11 +100,11 @@ pub(crate) fn build_delegation(
         }),
         runtime_features,
     ));
-    let listen_path = socket_path.clone();
-    let listen_listener = listener.clone();
+    let service = DelegationService::new(listener.clone(), socket_path.clone());
+    DelegationService::install(service.clone());
     tauri::async_runtime::spawn(async move {
-        if let Err(err) = listen_listener.run(listen_path).await {
-            tracing::warn!("delegation listener stopped: {err}");
+        if let Err(err) = service.start().await {
+            tracing::warn!("delegation listener failed to start: {err}");
         }
     });
 

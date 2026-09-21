@@ -10,29 +10,38 @@ use std::{
 /// Order: `VIBEX_MCP_BIN` / `VIBEX_WORKFLOW_MCP_BIN` → current-exe directory
 /// and ancestors (including `debug`/`release`/`binaries`) → `CARGO_TARGET_DIR`
 /// → `PATH`. Empty files are never returned.
+///
+/// When nothing runnable exists this still returns the basename so log lines
+/// have a name. Injection and native projection must use
+/// [`locate_runnable_host_family_binary`] instead — a basename is not a command.
 pub fn locate_host_family_binary(base: &str) -> PathBuf {
+    locate_runnable_host_family_binary(base)
+        .unwrap_or_else(|| PathBuf::from(binary_file_name(base)))
+}
+
+/// Like [`locate_host_family_binary`], but `None` when no non-empty file exists.
+pub fn locate_runnable_host_family_binary(base: &str) -> Option<PathBuf> {
     let file_name = binary_file_name(base);
     if let Some(path) = env_override(base).filter(|path| is_runnable(path)) {
-        return path;
+        return Some(path);
     }
     if let Ok(exe) = std::env::current_exe()
         && let Some(found) = search_from(&exe, base, &file_name)
     {
-        return found;
+        return Some(found);
     }
     if let Ok(target) = std::env::var("CARGO_TARGET_DIR") {
         let dir = PathBuf::from(target);
         for profile in ["debug", "release"] {
             let candidate = dir.join(profile).join(&file_name);
             if is_runnable(&candidate) {
-                return candidate;
+                return Some(candidate);
             }
         }
     }
     which::which(&file_name)
         .ok()
         .filter(|path| is_runnable(path))
-        .unwrap_or_else(|| PathBuf::from(file_name))
 }
 
 fn env_override(base: &str) -> Option<PathBuf> {
@@ -126,6 +135,17 @@ mod tests {
 
         let found = search_from(&macos.join("vibex"), "vibex-mcp", "vibex-mcp").unwrap();
         assert_eq!(found, real);
+    }
+
+    #[test]
+    fn runnable_locator_does_not_return_a_path_basename() {
+        assert!(locate_runnable_host_family_binary("vibex-mcp-missing-binary").is_none());
+        let fallback = locate_host_family_binary("vibex-mcp-missing-binary");
+        assert_eq!(
+            fallback.file_name().and_then(|name| name.to_str()),
+            Some(binary_file_name("vibex-mcp-missing-binary").as_str())
+        );
+        assert!(!fallback.is_absolute() || !is_runnable(&fallback));
     }
 
     #[test]

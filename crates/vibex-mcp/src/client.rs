@@ -91,7 +91,8 @@ async fn open_pipe(
         match ClientOptions::new().open(socket_path) {
             Ok(client) => return Ok(client),
             Err(err)
-                if err.raw_os_error() == Some(ERROR_PIPE_BUSY)
+                if (err.raw_os_error() == Some(ERROR_PIPE_BUSY)
+                    || err.kind() == std::io::ErrorKind::NotFound)
                     && std::time::Instant::now() < deadline =>
             {
                 tokio::time::sleep(RETRY_DELAY).await;

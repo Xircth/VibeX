@@ -31,7 +31,11 @@ import { pluginCatalogQueryKey } from '@/pages/plugins/pluginQueries';
 const POLL_MS = 60_000;
 export const pluginMcpStatusQueryKey = ['plugin-mcp-status'] as const;
 
-const EMPTY_REPORT: PluginMcpStatusReport = { state: 'empty', plugins: [] };
+const EMPTY_REPORT: PluginMcpStatusReport = {
+  state: 'empty',
+  listening: false,
+  plugins: [],
+};
 
 function headlineTone(state: PluginMcpHeadline | 'unknown') {
   switch (state) {
@@ -56,6 +60,7 @@ export function StatusBarMcp() {
   const [expanded, setExpanded] = useState<string | null>(null);
   const [pending, setPending] = useState<Record<string, boolean>>({});
   const [actionError, setActionError] = useState<string | null>(null);
+  const [starting, setStarting] = useState(false);
 
   const query = useQuery({
     queryKey: pluginMcpStatusQueryKey,
@@ -252,6 +257,38 @@ export function StatusBarMcp() {
 
         {actionError ? (
           <p className="mt-2 text-[0.75rem] text-destructive">{actionError}</p>
+        ) : null}
+
+        {report.plugins.length > 0 &&
+        !report.listening &&
+        report.state !== 'unavailable' ? (
+          <button
+            type="button"
+            className="mt-3 inline-flex h-8 w-full items-center justify-center gap-1.5 rounded-[14px] bg-primary text-[0.75rem] font-medium text-primary-foreground transition-opacity hover:opacity-90 disabled:opacity-50"
+            disabled={starting}
+            onClick={() => {
+              setStarting(true);
+              setActionError(null);
+              void api
+                .ensureMcpRunning()
+                .then(() =>
+                  queryClient.invalidateQueries({
+                    queryKey: pluginMcpStatusQueryKey,
+                  })
+                )
+                .catch((error) => {
+                  setActionError(
+                    t('mcp.actionFailed', {
+                      message: getInvokeErrorMessage(error),
+                    })
+                  );
+                })
+                .finally(() => setStarting(false));
+            }}
+          >
+            <Plug className="h-3.5 w-3.5" />
+            {starting ? t('mcp.starting') : t('mcp.startService')}
+          </button>
         ) : null}
 
         <button

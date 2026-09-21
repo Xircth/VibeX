@@ -45,6 +45,8 @@ it onto `vibex-mcp.exe`.
 
 ## Remaining work
 
+Shipped on branch `feat/mcp-hardening`.
+
 ### P0 — Injection must not lie
 
 1. **Runnable locator.** Add `locate_runnable_host_family_binary(base) -> Option<PathBuf>`

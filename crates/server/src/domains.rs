@@ -140,6 +140,7 @@ impl ServerApplicationDomains {
             DomainCommand::PluginControlCatalog => self.plugin_control_catalog().await,
             DomainCommand::OfficialProductMcpState => self.official_product_mcp_state().await,
             DomainCommand::PluginMcpStatus => self.plugin_mcp_status().await,
+            DomainCommand::PluginMcpEnsureRunning => self.plugin_mcp_ensure_running().await,
             DomainCommand::PluginProductDetail => self.plugin_product_detail(args).await,
             DomainCommand::PluginSaveConfig => self.plugin_save_config(args).await,
             DomainCommand::PluginContributionCatalog => self.plugin_contribution_catalog().await,
@@ -518,12 +519,30 @@ impl ServerApplicationDomains {
     async fn plugin_mcp_status(&self) -> Result<Value, ApplicationError> {
         let control_plane = self.plugin_control_plane().await?;
         let plugins = control_plane.catalog().await.map_err(internal_error)?;
-        serialize(plugins::plugin_mcp_status_report(&plugins, |binary_id| {
-            let path = utils::host_bin::locate_host_family_binary(binary_id);
-            path.is_absolute()
-                && std::fs::metadata(&path)
-                    .is_ok_and(|meta| meta.is_file() && meta.len() > 0)
-        }))
+        let mut report = plugins::plugin_mcp_status_report(&plugins, |binary_id| {
+            utils::host_bin::locate_runnable_host_family_binary(binary_id).is_some()
+        });
+        if let Some(service) = delegation::DelegationService::current() {
+            report.listening = service.is_listening().await;
+            if !report.listening
+                && report.plugins.iter().any(|plugin| plugin.enabled)
+                && report.state != plugins::PluginMcpHeadline::Unavailable
+            {
+                report.state = plugins::PluginMcpHeadline::Stopped;
+            }
+        }
+        serialize(report)
+    }
+
+    async fn plugin_mcp_ensure_running(&self) -> Result<Value, ApplicationError> {
+        let service = delegation::DelegationService::current().ok_or_else(|| {
+            ApplicationError::internal("delegation broker is not installed in this process")
+        })?;
+        service
+            .ensure_running()
+            .await
+            .map_err(ApplicationError::internal)?;
+        Ok(json!({ "listening": service.is_listening().await }))
     }
 
     async fn plugin_control_catalog(&self) -> Result<Value, ApplicationError> {

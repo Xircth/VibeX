@@ -68,6 +68,13 @@ fn product_plugin_inventory_and_file_opener_are_remote_read_contracts() {
         "plugin.write"
     );
     assert_eq!(
+        "plugin_mcp_ensure_running"
+            .parse::<DomainCommand>()
+            .expect("broker rebind command")
+            .required_scope(),
+        "plugin.write"
+    );
+    assert_eq!(
         "plugin_control_grant_permissions"
             .parse::<DomainCommand>()
             .expect("permission write command")

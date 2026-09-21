@@ -299,6 +299,8 @@ pub fn host_family_stdio_spec(
         features.to_string(),
         "--product".to_string(),
         product.to_string(),
+        "--parent-pid".to_string(),
+        std::process::id().to_string(),
     ];
     if let Some(url) = http_base.filter(|value| !value.is_empty()) {
         args.push("--server-url".to_string());
@@ -363,6 +365,7 @@ pub struct PluginMcpPluginStatus {
 #[serde(rename_all = "camelCase")]
 pub struct PluginMcpStatusReport {
     pub state: PluginMcpHeadline,
+    pub listening: bool,
     pub plugins: Vec<PluginMcpPluginStatus>,
 }
 
@@ -459,6 +462,7 @@ pub fn plugin_mcp_status_report(
 
     PluginMcpStatusReport {
         state,
+        listening: false,
         plugins: rows,
     }
 }
@@ -688,19 +692,10 @@ mod tests {
             .iter()
             .filter_map(Value::as_str)
             .collect::<Vec<_>>();
-        assert_eq!(
-            args,
-            [
-                "--features",
-                "delegation",
-                "--product",
-                "delegation",
-                "--server-url",
-                "http://127.0.0.1:9",
-                "--server-token",
-                "plugin-token"
-            ]
-        );
+        assert_eq!(args[0..4], ["--features", "delegation", "--product", "delegation"]);
+        assert!(args.contains(&"--parent-pid"));
+        assert!(args.contains(&"--server-url"));
+        assert!(args.contains(&"--server-token"));
         assert!(!args.contains(&"--conversation-id"));
         assert_eq!(
             spec["startup_timeout_sec"],

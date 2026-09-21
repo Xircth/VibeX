@@ -39,6 +39,9 @@ pub enum BrokerMessage {
     SessionCancel(BrokerSessionCancelRequest),
     /// `wait_for_session` — wait for a scoped Conversation to advance or settle.
     SessionWait(BrokerSessionWaitRequest),
+    /// Untokened liveness probe. The listener answers `{ "ok": true }` without
+    /// touching the broker so a status-bar ping measures the socket only.
+    Ping,
 }
 
 /// `delegate_to_agent` call. `parent_connection_id` is the runtime-internal ACP

@@ -92,6 +92,7 @@ impl DelegationListener {
     /// Dispatch one already-authenticated-or-token-bearing broker message.
     pub async fn handle_message(&self, message: BrokerMessage) -> BrokerResponse {
         match message {
+            BrokerMessage::Ping => BrokerResponse::Payload(json!({ "ok": true })),
             BrokerMessage::Call(req) => {
                 let report = self.process_call(req).await;
                 BrokerResponse::Task(to_wire_report(report))
@@ -355,7 +356,10 @@ impl DelegationListener {
                         }
                     });
                 }
-                Err(err) => tracing::warn!("delegation listener accept error: {err}"),
+                Err(err) => {
+                    tracing::warn!("delegation listener accept error: {err}");
+                    tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+                }
             }
         }
     }
@@ -548,6 +552,13 @@ mod tests {
         listener.serve_one(&mut server).await.unwrap();
         let response: BrokerResponse = read_frame(&mut client).await.unwrap();
         response.into_outcome()
+    }
+
+    #[tokio::test]
+    async fn ping_answers_without_a_token() {
+        let (listener, _) = listener(None);
+        let outcome = round_trip(&listener, BrokerMessage::Ping).await;
+        assert_eq!(outcome["ok"], true);
     }
 
     fn call(token: &str, parent_conn: &str) -> BrokerMessage {

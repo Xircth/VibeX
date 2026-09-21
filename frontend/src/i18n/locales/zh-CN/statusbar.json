@@ -58,6 +58,8 @@
       "stopped": "未连接"
     },
     "openPlugins": "打开插件",
+    "startService": "启动服务",
+    "starting": "正在启动…",
     "tools": {
       "delegate_to_agent": "委派给其他 Agent",
       "get_delegation_status": "查询委派状态",

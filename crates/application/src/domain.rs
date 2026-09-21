@@ -135,6 +135,7 @@ domain_commands! {
     PluginControlCatalog => "plugin_control_catalog" / "plugin.read",
     OfficialProductMcpState => "official_product_mcp_state" / "plugin.read",
     PluginMcpStatus => "plugin_mcp_status" / "plugin.read",
+    PluginMcpEnsureRunning => "plugin_mcp_ensure_running" / "plugin.write",
     PluginProductDetail => "plugin_product_detail" / "plugin.read",
     PluginSaveConfig => "plugin_save_config" / "plugin.write",
     PluginContributionCatalog => "plugin_contribution_catalog" / "plugin.read",

@@ -58,7 +58,11 @@ const ImagePreviewDialogImpl = NiceModal.create<ImagePreviewDialogProps>(
                 />
               </>
             ) : (
-              <ZoomableImagePreview src={imageUrl} alt={altText} />
+              <ZoomableImagePreview
+                src={imageUrl}
+                alt={altText}
+                chromeDefaultVisible={false}
+              />
             )}
           </div>
         </DialogContent>

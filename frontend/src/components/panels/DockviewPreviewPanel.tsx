@@ -161,6 +161,7 @@ function WorkspaceImagePreviewShell({
       <ZoomableImagePreview
         src={src}
         alt={alt}
+        chromeDefaultVisible
         className="h-full min-h-0 w-full"
         viewportClassName="border border-border bg-background"
       />

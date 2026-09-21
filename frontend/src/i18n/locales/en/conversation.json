@@ -310,6 +310,8 @@
     "actualSizeAria": "View image at actual size",
     "fit": "Fit",
     "fitAria": "Fit image to view",
+    "hideChrome": "Hide toolbars",
+    "showChrome": "Show toolbars",
     "toolView": "Move",
     "toolRect": "Rectangle",
     "toolEllipse": "Ellipse",

@@ -331,4 +331,54 @@ describe('ZoomableImagePreview', () => {
     });
     expect(getCurrentDraggedAnnotatedImage()?.type).toBe('image/png');
   });
+
+  it('stows zoom tools and removes the other chrome', async () => {
+    render(
+      <ZoomableImagePreview src="asset://localhost/chrome.png" alt="chrome" />
+    );
+
+    expect(screen.getByText('Wheel to zoom')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Rectangle' })).toBeInTheDocument();
+    expect(screen.getByTestId('image-preview-zoom-dock')).toHaveAttribute(
+      'data-stowed',
+      'false'
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: 'Hide toolbars' }));
+
+    expect(screen.queryByText('Wheel to zoom')).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Rectangle' })).not.toBeInTheDocument();
+    expect(screen.getByTestId('image-preview-zoom-dock')).toHaveAttribute(
+      'data-stowed',
+      'true'
+    );
+    expect(screen.getByRole('button', { name: 'Show toolbars' })).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Show toolbars' }));
+
+    expect(screen.getByText('Wheel to zoom')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Rectangle' })).toBeInTheDocument();
+    expect(screen.getByTestId('image-preview-zoom-dock')).toHaveAttribute(
+      'data-stowed',
+      'false'
+    );
+  });
+
+  it('starts with chrome stowed in overlay previewers', () => {
+    render(
+      <ZoomableImagePreview
+        src="asset://localhost/overlay.png"
+        alt="overlay"
+        chromeDefaultVisible={false}
+      />
+    );
+
+    expect(screen.queryByText('Wheel to zoom')).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Rectangle' })).not.toBeInTheDocument();
+    expect(screen.getByTestId('image-preview-zoom-dock')).toHaveAttribute(
+      'data-stowed',
+      'true'
+    );
+    expect(screen.getByRole('button', { name: 'Show toolbars' })).toBeInTheDocument();
+  });
 });

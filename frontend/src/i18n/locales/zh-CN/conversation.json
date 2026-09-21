@@ -310,6 +310,8 @@
     "actualSizeAria": "按实际大小查看",
     "fit": "适应",
     "fitAria": "适应窗口",
+    "hideChrome": "隐藏工具栏",
+    "showChrome": "显示工具栏",
     "toolView": "移动",
     "toolRect": "方框",
     "toolEllipse": "圆框",

@@ -126,6 +126,7 @@ export function FilePreviewPopover({
                 src={imageSrc}
                 alt={path}
                 annotate={false}
+                chromeDefaultVisible={false}
                 className="h-[360px] w-full"
               />
             </div>

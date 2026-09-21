@@ -9,6 +9,8 @@ import {
 import { createPortal } from 'react-dom';
 import { useTranslation } from 'react-i18next';
 import {
+  ChevronsLeft,
+  ChevronsRight,
   Circle,
   Maximize2,
   Minus,
@@ -22,6 +24,7 @@ import {
   Undo2,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import './zoomableImagePreview.css';
 import {
   actualSizeScale,
   applyViewScale,
@@ -109,6 +112,8 @@ type ZoomableImagePreviewProps = {
   className?: string;
   viewportClassName?: string;
   annotate?: boolean;
+  /** Overlay / dialog previewers start with chrome stowed. Workspace tabs do not. */
+  chromeDefaultVisible?: boolean;
 };
 
 function readElementSize(element: HTMLElement): Size {
@@ -134,6 +139,7 @@ export function ZoomableImagePreview({
   className,
   viewportClassName,
   annotate = true,
+  chromeDefaultVisible = true,
 }: ZoomableImagePreviewProps) {
   const { t } = useTranslation('conversation');
   const viewportRef = useRef<HTMLDivElement | null>(null);
@@ -169,6 +175,7 @@ export function ZoomableImagePreview({
     x: number;
     y: number;
   } | null>(null);
+  const [chromeVisible, setChromeVisible] = useState(chromeDefaultVisible);
 
   const fittedSize = useMemo(
     () => getContainedSize(naturalSize, viewportSize),
@@ -260,6 +267,7 @@ export function ZoomableImagePreview({
     setEditingTextId(null);
     setDraggingAnnotationId(null);
     setTool('view');
+    setChromeVisible(chromeDefaultVisible);
     dragStateRef.current = null;
     sessionRef.current = null;
     clearLongPress();
@@ -270,7 +278,7 @@ export function ZoomableImagePreview({
     if (image?.complete) {
       syncNaturalSize(image);
     }
-  }, [src]);
+  }, [chromeDefaultVisible, src]);
 
   useEffect(() => {
     return () => {
@@ -794,55 +802,85 @@ export function ZoomableImagePreview({
 
   return (
     <div className={cn('relative h-full min-h-0 w-full', className)}>
-      <div className="absolute right-3 top-3 z-10 flex items-center gap-1 rounded-lg border border-border/70 bg-background/90 p-1 shadow-sm backdrop-blur">
-        <button
-          type="button"
-          className="inline-flex h-8 w-8 items-center justify-center rounded-md text-muted-foreground transition hover:bg-muted hover:text-foreground disabled:opacity-40"
-          onClick={() => applyScale(scale - SCALE_STEP)}
-          disabled={scale <= MIN_SCALE}
-          aria-label={t('imagePreview.zoomOut')}
-          title={t('imagePreview.zoomOut')}
+      <div className="absolute right-3 top-3 z-10">
+        <div
+          className="image-preview-chrome image-preview-zoom-dock"
+          data-testid="image-preview-zoom-dock"
+          data-stowed={chromeVisible ? 'false' : 'true'}
         >
-          <Minus className="h-4 w-4" />
-        </button>
-        <span className="min-w-[3.5rem] select-none text-center text-[11px] font-medium text-foreground/80">
-          {zoomPercent}%
-        </span>
-        <button
-          type="button"
-          className="inline-flex h-8 w-8 items-center justify-center rounded-md text-muted-foreground transition hover:bg-muted hover:text-foreground disabled:opacity-40"
-          onClick={() => applyScale(scale + SCALE_STEP)}
-          disabled={scale >= MAX_SCALE}
-          aria-label={t('imagePreview.zoomIn')}
-          title={t('imagePreview.zoomIn')}
-        >
-          <Plus className="h-4 w-4" />
-        </button>
-        <button
-          type="button"
-          className="inline-flex h-8 items-center justify-center rounded-md px-2 text-[11px] font-medium text-muted-foreground transition hover:bg-muted hover:text-foreground"
-          onClick={() => applyScale(oneToOneScale)}
-          aria-label={t('imagePreview.actualSizeAria')}
-          title={t('imagePreview.actualSize')}
-        >
-          <Maximize2 className="mr-1 h-3.5 w-3.5" />
-          {t('imagePreview.actualSize')}
-        </button>
-        <button
-          type="button"
-          className="inline-flex h-8 items-center justify-center rounded-md px-2 text-[11px] font-medium text-muted-foreground transition hover:bg-muted hover:text-foreground"
-          onClick={resetView}
-          aria-label={t('imagePreview.fitAria')}
-          title={t('imagePreview.fit')}
-        >
-          <Undo2 className="mr-1 h-3.5 w-3.5" />
-          {t('imagePreview.fit')}
-        </button>
+          <div className="image-preview-zoom-tools pr-1">
+            <button
+              type="button"
+              className="inline-flex h-8 w-8 items-center justify-center rounded-[var(--radius)] text-muted-foreground transition hover:bg-muted hover:text-foreground disabled:opacity-40"
+              onClick={() => applyScale(scale - SCALE_STEP)}
+              disabled={scale <= MIN_SCALE}
+              aria-label={t('imagePreview.zoomOut')}
+              title={t('imagePreview.zoomOut')}
+            >
+              <Minus className="h-4 w-4" />
+            </button>
+            <span className="min-w-[3.5rem] select-none text-center text-[11px] font-medium text-foreground/80">
+              {zoomPercent}%
+            </span>
+            <button
+              type="button"
+              className="inline-flex h-8 w-8 items-center justify-center rounded-[var(--radius)] text-muted-foreground transition hover:bg-muted hover:text-foreground disabled:opacity-40"
+              onClick={() => applyScale(scale + SCALE_STEP)}
+              disabled={scale >= MAX_SCALE}
+              aria-label={t('imagePreview.zoomIn')}
+              title={t('imagePreview.zoomIn')}
+            >
+              <Plus className="h-4 w-4" />
+            </button>
+            <button
+              type="button"
+              className="inline-flex h-8 items-center justify-center rounded-[var(--radius)] px-2 text-[11px] font-medium text-muted-foreground transition hover:bg-muted hover:text-foreground"
+              onClick={() => applyScale(oneToOneScale)}
+              aria-label={t('imagePreview.actualSizeAria')}
+              title={t('imagePreview.actualSize')}
+            >
+              <Maximize2 className="mr-1 h-3.5 w-3.5" />
+              {t('imagePreview.actualSize')}
+            </button>
+            <button
+              type="button"
+              className="inline-flex h-8 items-center justify-center rounded-[var(--radius)] px-2 text-[11px] font-medium text-muted-foreground transition hover:bg-muted hover:text-foreground"
+              onClick={resetView}
+              aria-label={t('imagePreview.fitAria')}
+              title={t('imagePreview.fit')}
+            >
+              <Undo2 className="mr-1 h-3.5 w-3.5" />
+              {t('imagePreview.fit')}
+            </button>
+          </div>
+          <button
+            type="button"
+            className="image-preview-chrome-toggle inline-flex h-8 w-8 items-center justify-center rounded-[var(--radius)] text-muted-foreground transition hover:bg-muted hover:text-foreground"
+            onClick={() => setChromeVisible((visible) => !visible)}
+            aria-expanded={chromeVisible}
+            aria-label={
+              chromeVisible
+                ? t('imagePreview.hideChrome')
+                : t('imagePreview.showChrome')
+            }
+            title={
+              chromeVisible
+                ? t('imagePreview.hideChrome')
+                : t('imagePreview.showChrome')
+            }
+          >
+            {chromeVisible ? (
+              <ChevronsRight className="h-4 w-4" />
+            ) : (
+              <ChevronsLeft className="h-4 w-4" />
+            )}
+          </button>
+        </div>
       </div>
 
-      {annotate ? (
+      {annotate && chromeVisible ? (
         <div className="absolute left-3 top-3 z-10 flex max-w-[calc(100%-9rem)] flex-col gap-1">
-          <div className="flex items-center gap-1 rounded-lg border border-border/70 bg-background/90 p-1 shadow-sm backdrop-blur">
+          <div className="image-preview-chrome flex items-center gap-1 p-1">
             <ToolButton
               label={t('imagePreview.toolView')}
               active={tool === 'view'}
@@ -896,7 +934,7 @@ export function ZoomableImagePreview({
             ) : null}
           </div>
           {showStyleControls ? (
-            <div className="flex items-center gap-2 rounded-lg border border-border/70 bg-background/90 px-2 py-1 shadow-sm backdrop-blur">
+            <div className="image-preview-chrome flex items-center gap-2 px-2 py-1">
               <label className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
                 <span className="sr-only">{t('imagePreview.color')}</span>
                 <input
@@ -1151,26 +1189,28 @@ export function ZoomableImagePreview({
         </div>
       </div>
 
-      <div className="pointer-events-none absolute bottom-3 left-3 z-10 flex items-center gap-2 rounded-lg border border-border/60 bg-background/85 px-2.5 py-1.5 text-[11px] text-muted-foreground shadow-sm backdrop-blur">
-        <ScanSearch className="h-3.5 w-3.5" />
-        <span>{t('imagePreview.wheelToZoom')}</span>
-        <span className="text-muted-foreground/50">/</span>
-        <span className={cn(canPan ? 'text-foreground/80' : '')}>
-          {t('imagePreview.dragToPan')}
-        </span>
-        {canPan ? (
-          <>
-            <span className="text-muted-foreground/50">/</span>
-            <Move className="h-3.5 w-3.5" />
-          </>
-        ) : null}
-        {annotate ? (
-          <>
-            <span className="text-muted-foreground/50">/</span>
-            <span>{t('imagePreview.holdToInsert')}</span>
-          </>
-        ) : null}
-      </div>
+      {chromeVisible ? (
+        <div className="image-preview-chrome pointer-events-none absolute bottom-3 left-3 z-10 flex items-center gap-2 px-2.5 py-1.5 text-[11px] text-muted-foreground">
+          <ScanSearch className="h-3.5 w-3.5" />
+          <span>{t('imagePreview.wheelToZoom')}</span>
+          <span className="text-muted-foreground/50">/</span>
+          <span className={cn(canPan ? 'text-foreground/80' : '')}>
+            {t('imagePreview.dragToPan')}
+          </span>
+          {canPan ? (
+            <>
+              <span className="text-muted-foreground/50">/</span>
+              <Move className="h-3.5 w-3.5" />
+            </>
+          ) : null}
+          {annotate ? (
+            <>
+              <span className="text-muted-foreground/50">/</span>
+              <span>{t('imagePreview.holdToInsert')}</span>
+            </>
+          ) : null}
+        </div>
+      ) : null}
 
       {ghost
         ? createPortal(

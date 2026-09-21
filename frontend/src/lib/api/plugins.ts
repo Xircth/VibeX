@@ -156,6 +156,40 @@ export interface OfficialProductMcpState {
   sessionControl: boolean;
 }
 
+export type PluginMcpHeadline =
+  | 'empty'
+  | 'running'
+  | 'partial'
+  | 'stopped'
+  | 'unavailable';
+
+export interface PluginMcpToolStatus {
+  name: string;
+  group: string;
+}
+
+export interface PluginMcpServerStatus {
+  id: string;
+  product?: string | null;
+  tools: PluginMcpToolStatus[];
+}
+
+export interface PluginMcpPluginStatus {
+  pluginId: string;
+  name: string;
+  description?: string | null;
+  enabled: boolean;
+  enableSupported: boolean;
+  mcpCount: number;
+  connection: 'running' | 'disabled' | 'unavailable' | 'stopped';
+  servers: PluginMcpServerStatus[];
+}
+
+export interface PluginMcpStatusReport {
+  state: PluginMcpHeadline;
+  plugins: PluginMcpPluginStatus[];
+}
+
 /** One abnormal Worker exit the Host kept as evidence. */
 export interface PluginCrash {
   message: string;
@@ -433,6 +467,8 @@ export function createPluginControlApi(transport: BackendTransport) {
       transport.call(
         'official_product_mcp_state'
       ) as Promise<OfficialProductMcpState>,
+    mcpStatus: () =>
+      transport.call('plugin_mcp_status') as Promise<PluginMcpStatusReport>,
     diagnostics: (pluginId: string) =>
       transport.call('plugin_control_diagnostics', {
         pluginId,

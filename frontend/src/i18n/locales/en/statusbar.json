@@ -27,5 +27,46 @@
     "minutesAgo": "{{count}} min ago",
     "hoursAgo": "{{count}} h ago",
     "daysAgo": "{{count}} d ago"
+  },
+  "mcp": {
+    "title": "MCP services",
+    "hint": {
+      "empty": "No plugin declares MCP. Enable an MCP plugin and it will appear here.",
+      "running": "Enabled plugin MCP is available to agents started from this window.",
+      "partial": "Some plugin MCP is enabled. Expand a row to see its tools.",
+      "stopped": "Plugin MCP is off. Turn a switch on to inject it into new agent sessions.",
+      "unavailable": "The Host cannot find a runnable MCP binary. Reinstall VibeX or check the sidecar."
+    },
+    "state": {
+      "empty": "None",
+      "running": "Running",
+      "partial": "Partial",
+      "stopped": "Stopped",
+      "unavailable": "Unavailable",
+      "unknown": "Unknown"
+    },
+    "loadFailed": "Could not read status: {{message}}",
+    "actionFailed": "Update failed: {{message}}",
+    "refresh": "Refresh",
+    "mcpCount": "{{count}} MCP",
+    "toolCount": "{{count}} tools",
+    "noTools": "Tools appear after an agent connects.",
+    "connection": {
+      "running": "Connected",
+      "disabled": "Off",
+      "unavailable": "Binary missing",
+      "stopped": "Disconnected"
+    },
+    "openPlugins": "Open plugins",
+    "tools": {
+      "delegate_to_agent": "Delegate to another agent",
+      "get_delegation_status": "Check delegation status",
+      "cancel_delegation": "Cancel a delegation",
+      "check_user_feedback": "Read live feedback",
+      "ask_user_question": "Ask the user a question",
+      "get_session_info": "Look up a session",
+      "send_session_input": "Send session input",
+      "cancel_session_turn": "Cancel a session turn"
+    }
   }
 }

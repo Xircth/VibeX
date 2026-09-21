@@ -27,5 +27,46 @@
     "minutesAgo": "{{count}} 分钟前",
     "hoursAgo": "{{count}} 小时前",
     "daysAgo": "{{count}} 天前"
+  },
+  "mcp": {
+    "title": "MCP 服务",
+    "hint": {
+      "empty": "没有插件声明 MCP。在插件页启用带 MCP 的插件后会出现在这里。",
+      "running": "已启用的插件 MCP 可供从这里启动的 Agent 使用。",
+      "partial": "部分插件 MCP 已启用。展开一项可查看它提供的工具。",
+      "stopped": "插件 MCP 均未启用。打开开关即可注入到新的 Agent 会话。",
+      "unavailable": "Host 找不到可用的 MCP 二进制。重装 VibeX 或检查 sidecar。"
+    },
+    "state": {
+      "empty": "无服务",
+      "running": "运行中",
+      "partial": "部分启用",
+      "stopped": "已停止",
+      "unavailable": "不可用",
+      "unknown": "未知"
+    },
+    "loadFailed": "无法读取状态：{{message}}",
+    "actionFailed": "未能更新：{{message}}",
+    "refresh": "刷新",
+    "mcpCount": "{{count}} 个 MCP",
+    "toolCount": "{{count}} 个工具",
+    "noTools": "Agent 连接后才会列出工具。",
+    "connection": {
+      "running": "已连接",
+      "disabled": "未启用",
+      "unavailable": "二进制缺失",
+      "stopped": "未连接"
+    },
+    "openPlugins": "打开插件",
+    "tools": {
+      "delegate_to_agent": "委派给其他 Agent",
+      "get_delegation_status": "查询委派状态",
+      "cancel_delegation": "取消委派",
+      "check_user_feedback": "读取实时反馈",
+      "ask_user_question": "向用户提问",
+      "get_session_info": "获取会话信息",
+      "send_session_input": "向会话发送输入",
+      "cancel_session_turn": "取消会话回合"
+    }
   }
 }

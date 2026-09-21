@@ -88,10 +88,12 @@ pub use native::{
 };
 pub use official_mcp::{
     DELEGATION_MCP_NAME, HOST_FAMILY_MCP_STARTUP_TIMEOUT_SEC, OfficialMcpBinding,
-    OfficialMcpRuntime, OfficialProductMcpState, PLUGIN_DEV_MCP_NAME, SESSION_FEAT_ALL,
-    SESSION_FEAT_ASK, SESSION_FEAT_FEEDBACK, SESSION_FEAT_SESSION_CONTROL, SESSION_FEAT_SESSIONS,
-    SESSION_MCP_NAME, WORKFLOW_MCP_NAME, binding_has_delegation_mcp, host_family_product,
-    host_family_stdio_spec, official_product_mcp_name, projected_mcp_server_id,
+    OfficialMcpRuntime, OfficialProductMcpState, PLUGIN_DEV_MCP_NAME, PluginMcpHeadline,
+    PluginMcpPluginStatus, PluginMcpServerStatus, PluginMcpStatusReport, PluginMcpToolStatus,
+    SESSION_FEAT_ALL, SESSION_FEAT_ASK, SESSION_FEAT_FEEDBACK, SESSION_FEAT_SESSION_CONTROL,
+    SESSION_FEAT_SESSIONS, SESSION_MCP_NAME, WORKFLOW_MCP_NAME, advertised_mcp_tools,
+    binding_has_delegation_mcp, host_family_product, host_family_stdio_spec,
+    official_product_mcp_name, plugin_mcp_status_report, projected_mcp_server_id,
     session_feature_arg, session_features_from_config,
 };
 pub use package::{

@@ -2,6 +2,7 @@ import { useUserSystem } from '@/components/ConfigProvider';
 import { APP_NAME } from '@/lib/branding';
 import { ProjectWindowStatusSummary } from '@/components/layout/ProjectWindowStatusSummary';
 import { AttentionInboxBadge } from '@/components/layout/AttentionInboxBadge';
+import { StatusBarMcp } from '@/components/layout/StatusBarMcp';
 import { AutomationFailureBadge } from '@/components/layout/AutomationFailureBadge';
 import { BackgroundTaskCountBadge } from '@/components/layout/BackgroundTaskCountBadge';
 import { UpdateAvailableBadge } from '@/components/layout/UpdateAvailableBadge';
@@ -27,6 +28,7 @@ export function StatusBar() {
       <div className="flex items-center gap-2">
         <PluginStatusItems />
         <AttentionInboxBadge />
+        <StatusBarMcp />
         <BackgroundTaskCountBadge />
         <UpdateAvailableBadge />
         <AutomationFailureBadge />

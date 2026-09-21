@@ -48,6 +48,7 @@ fn coding_loop_commands_share_the_workstation_application_scope() {
 fn product_plugin_inventory_and_file_opener_are_remote_read_contracts() {
     for name in [
         "plugin_control_catalog",
+        "plugin_mcp_status",
         "plugin_contribution_catalog",
         "plugin_resolve_file_opener",
         "plugin_marketplace_catalog",

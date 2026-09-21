@@ -316,6 +316,218 @@ pub fn host_family_stdio_spec(
     })
 }
 
+/// Headline for the status-bar MCP popover.
+#[derive(Clone, Copy, Debug, Eq, PartialEq, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub enum PluginMcpHeadline {
+    Empty,
+    Running,
+    Partial,
+    Stopped,
+    Unavailable,
+}
+
+/// One advertised tool inside a plugin MCP server.
+#[derive(Clone, Debug, Eq, PartialEq, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PluginMcpToolStatus {
+    pub name: String,
+    pub group: String,
+}
+
+/// One MCP server declared by a plugin.
+#[derive(Clone, Debug, Eq, PartialEq, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PluginMcpServerStatus {
+    pub id: String,
+    pub product: Option<String>,
+    pub tools: Vec<PluginMcpToolStatus>,
+}
+
+/// Plugin row in the status-bar MCP popover.
+#[derive(Clone, Debug, Eq, PartialEq, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PluginMcpPluginStatus {
+    pub plugin_id: String,
+    pub name: String,
+    pub description: Option<String>,
+    pub enabled: bool,
+    pub enable_supported: bool,
+    pub mcp_count: u32,
+    pub connection: String,
+    pub servers: Vec<PluginMcpServerStatus>,
+}
+
+/// Snapshot consumed by the Host status-bar MCP indicator.
+#[derive(Clone, Debug, Eq, PartialEq, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PluginMcpStatusReport {
+    pub state: PluginMcpHeadline,
+    pub plugins: Vec<PluginMcpPluginStatus>,
+}
+
+/// Tools an official product MCP advertises for the given feature bits.
+pub fn advertised_mcp_tools(product: &str, features: u8) -> Vec<PluginMcpToolStatus> {
+    let tool = |name: &str, group: &str| PluginMcpToolStatus {
+        name: name.to_owned(),
+        group: group.to_owned(),
+    };
+    match product {
+        "delegation" => vec![
+            tool("delegate_to_agent", "delegation"),
+            tool("get_delegation_status", "delegation"),
+            tool("cancel_delegation", "delegation"),
+        ],
+        "session" => {
+            let mut tools = Vec::new();
+            if features & SESSION_FEAT_FEEDBACK != 0 {
+                tools.push(tool("check_user_feedback", "feedback"));
+            }
+            if features & SESSION_FEAT_ASK != 0 {
+                tools.push(tool("ask_user_question", "ask"));
+            }
+            if features & SESSION_FEAT_SESSIONS != 0 {
+                tools.push(tool("get_session_info", "sessions"));
+            }
+            if features & SESSION_FEAT_SESSION_CONTROL != 0 {
+                tools.push(tool("send_session_input", "sessionControl"));
+                tools.push(tool("cancel_session_turn", "sessionControl"));
+            }
+            tools
+        }
+        "workflow" => [
+            "workflow_source_read",
+            "workflow_source_write",
+            "workflow_validate",
+            "workflow_publish",
+            "workflow_catalog",
+            "workflow_start",
+            "workflow_run_inspect",
+            "workflow_debug_source",
+            "workflow_debug_from_step",
+            "workflow_pause_run",
+            "workflow_resume_run",
+            "workflow_cancel_run",
+            "workflow_pause_step",
+            "workflow_continue_step",
+            "workflow_accept_candidate",
+            "workflow_review_step",
+            "workflow_decide_approval",
+        ]
+        .into_iter()
+        .map(|name| tool(name, "workflow"))
+        .collect(),
+        _ => Vec::new(),
+    }
+}
+
+/// Build the status-bar snapshot from installed plugins.
+///
+/// `binary_runnable` answers whether a Host-family binary id is a real
+/// executable (non-empty). Missing binaries mark the plugin unavailable.
+pub fn plugin_mcp_status_report(
+    plugins: &[InstalledPlugin],
+    binary_runnable: impl Fn(&str) -> bool,
+) -> PluginMcpStatusReport {
+    let mut rows = plugins
+        .iter()
+        .filter_map(|plugin| plugin_mcp_row(plugin, &binary_runnable))
+        .collect::<Vec<_>>();
+    rows.sort_by(|left, right| {
+        left.name
+            .to_lowercase()
+            .cmp(&right.name.to_lowercase())
+            .then_with(|| left.plugin_id.cmp(&right.plugin_id))
+    });
+
+    let state = if rows.is_empty() {
+        PluginMcpHeadline::Empty
+    } else if rows.iter().any(|row| row.connection == "unavailable") {
+        PluginMcpHeadline::Unavailable
+    } else if rows.iter().all(|row| row.connection == "disabled") {
+        PluginMcpHeadline::Stopped
+    } else if rows
+        .iter()
+        .filter(|row| row.enabled)
+        .all(|row| row.connection == "running")
+        && rows.iter().any(|row| row.enabled)
+    {
+        PluginMcpHeadline::Running
+    } else {
+        PluginMcpHeadline::Partial
+    };
+
+    PluginMcpStatusReport {
+        state,
+        plugins: rows,
+    }
+}
+
+fn plugin_mcp_row(
+    plugin: &InstalledPlugin,
+    binary_runnable: &impl Fn(&str) -> bool,
+) -> Option<PluginMcpPluginStatus> {
+    let servers_value = plugin.mcp.get("mcpServers").unwrap_or(&plugin.mcp);
+    let object = servers_value.as_object()?;
+    if object.is_empty() {
+        return None;
+    }
+    let config = live_plugin_config(plugin);
+    let mut servers = Vec::new();
+    let mut needs_binary: Option<String> = None;
+    for (id, spec) in object {
+        let product = host_family_product(spec).map(str::to_owned);
+        if let Some(product) = product.as_deref() {
+            let binary_id = spec
+                .get("managedRuntime")
+                .and_then(|value| value.get("binaryId"))
+                .and_then(Value::as_str)
+                .unwrap_or("vibex-mcp");
+            needs_binary = Some(binary_id.to_owned());
+            let features = if product == "session" {
+                session_features_from_config(&config)
+            } else {
+                SESSION_FEAT_ALL
+            };
+            servers.push(PluginMcpServerStatus {
+                id: official_product_mcp_name(spec)
+                    .unwrap_or(id.as_str())
+                    .to_owned(),
+                product: Some(product.to_owned()),
+                tools: advertised_mcp_tools(product, features),
+            });
+        } else {
+            servers.push(PluginMcpServerStatus {
+                id: id.clone(),
+                product: None,
+                tools: Vec::new(),
+            });
+        }
+    }
+    servers.sort_by(|left, right| left.id.cmp(&right.id));
+    let enabled = plugin.activation == PluginActivation::Enabled;
+    let connection = if !enabled {
+        "disabled"
+    } else if needs_binary
+        .as_deref()
+        .is_some_and(|binary_id| !binary_runnable(binary_id))
+    {
+        "unavailable"
+    } else {
+        "running"
+    };
+    Some(PluginMcpPluginStatus {
+        plugin_id: plugin.id().to_owned(),
+        name: plugin.name.clone(),
+        description: plugin.description.clone(),
+        enabled,
+        enable_supported: true,
+        mcp_count: servers.len() as u32,
+        connection: connection.to_owned(),
+        servers,
+    })
+}
+
 fn live_plugin_config(plugin: &InstalledPlugin) -> Value {
     std::fs::read_to_string(plugin.source.path.join("config.json"))
         .ok()
@@ -523,5 +735,71 @@ mod tests {
         let first = runtime.delegation_token().expect("token");
         runtime.sync_from_plugins(&[package]);
         assert_eq!(runtime.delegation_token().as_deref(), Some(first.as_str()));
+    }
+
+    #[test]
+    fn status_report_groups_tools_by_plugin_and_skips_empty_binaries() {
+        let enabled = plugin(
+            "acme.delegation",
+            json!({
+                "vibex-delegation-mcp": {
+                    "managedRuntime": {
+                        "kind": "hostFamilyBinary",
+                        "binaryId": "vibex-mcp",
+                        "product": "delegation"
+                    }
+                }
+            }),
+            json!({}),
+        );
+        let mut disabled = plugin(
+            "acme.session",
+            json!({
+                "session": {
+                    "managedRuntime": {
+                        "kind": "hostFamilyBinary",
+                        "binaryId": "vibex-mcp",
+                        "product": "session"
+                    }
+                }
+            }),
+            json!({ "question": false }),
+        );
+        disabled.activation = PluginActivation::Disabled;
+
+        let report = plugin_mcp_status_report(&[enabled, disabled], |binary| binary != "vibex-mcp");
+        assert_eq!(report.state, PluginMcpHeadline::Unavailable);
+        assert_eq!(report.plugins.len(), 2);
+        assert_eq!(report.plugins[0].plugin_id, "acme.delegation");
+        assert_eq!(report.plugins[0].connection, "unavailable");
+        assert_eq!(report.plugins[0].mcp_count, 1);
+        assert_eq!(report.plugins[0].servers[0].tools.len(), 3);
+        assert_eq!(report.plugins[1].connection, "disabled");
+        assert!(
+            report.plugins[1]
+                .servers
+                .iter()
+                .flat_map(|server| &server.tools)
+                .all(|tool| tool.name != "ask_user_question")
+        );
+
+        let running = plugin_mcp_status_report(
+            std::slice::from_ref(&plugin(
+                "acme.delegation",
+                json!({
+                    "vibex-delegation-mcp": {
+                        "managedRuntime": {
+                            "kind": "hostFamilyBinary",
+                            "binaryId": "vibex-mcp",
+                            "product": "delegation"
+                        }
+                    }
+                }),
+                json!({}),
+            )),
+            |_| true,
+        );
+        assert_eq!(running.state, PluginMcpHeadline::Running);
+        assert_eq!(running.plugins[0].connection, "running");
     }
 }

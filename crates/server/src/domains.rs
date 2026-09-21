@@ -139,6 +139,7 @@ impl ServerApplicationDomains {
             DomainCommand::PluginActionCatalog => self.plugin_catalog().await,
             DomainCommand::PluginControlCatalog => self.plugin_control_catalog().await,
             DomainCommand::OfficialProductMcpState => self.official_product_mcp_state().await,
+            DomainCommand::PluginMcpStatus => self.plugin_mcp_status().await,
             DomainCommand::PluginProductDetail => self.plugin_product_detail(args).await,
             DomainCommand::PluginSaveConfig => self.plugin_save_config(args).await,
             DomainCommand::PluginContributionCatalog => self.plugin_contribution_catalog().await,
@@ -511,6 +512,17 @@ impl ServerApplicationDomains {
             "ask": state.ask,
             "sessions": state.sessions,
             "sessionControl": state.session_control,
+        }))
+    }
+
+    async fn plugin_mcp_status(&self) -> Result<Value, ApplicationError> {
+        let control_plane = self.plugin_control_plane().await?;
+        let plugins = control_plane.catalog().await.map_err(internal_error)?;
+        serialize(plugins::plugin_mcp_status_report(&plugins, |binary_id| {
+            let path = utils::host_bin::locate_host_family_binary(binary_id);
+            path.is_absolute()
+                && std::fs::metadata(&path)
+                    .is_ok_and(|meta| meta.is_file() && meta.len() > 0)
         }))
     }
 

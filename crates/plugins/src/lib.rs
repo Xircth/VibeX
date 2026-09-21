@@ -47,9 +47,11 @@ pub use catalog::{
     fetch_catalog, fetch_listing, fetch_versions, filter_catalog_page, fold_official_listings,
     github_latest_tag, is_authoring_sample_plugin_id, is_newer_version, listing_from_package,
     listing_identity, listing_is_authoring_sample, listing_is_retired, listing_matches_query,
-    marketplace_archive_suffix, marketplace_listing_url, marketplace_origin,
-    merge_offline_official, origin_kind, origin_owner_name, prepare_marketplace_page,
-    source_allows_remote_update, successor_plugin_id,
+    marketplace_plugin_ids, marketplace_plugin_slug, official_github_archive_urls,
+    package_matches_marketplace,
+    listings_from_official_index, marketplace_archive_suffix, marketplace_listing_url,
+    marketplace_origin, merge_bundled_official_index, merge_offline_official, origin_kind,
+    origin_owner_name, prepare_marketplace_page, source_allows_remote_update, successor_plugin_id,
 };
 pub use contribution::{
     ContributionCatalog, ContributionDescriptor, ContributionKind, ResolvedFileOpener,

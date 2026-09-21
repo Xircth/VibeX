@@ -268,6 +268,29 @@ pub fn materialize_builtin_plugins(
     Ok(by_id.into_values().collect())
 }
 
+/// Bundled official marketplace index. Used when remote official listings are
+/// incomplete or a plugin package was not materialized (empty git submodule).
+pub fn bundled_official_index_json() -> Option<Vec<u8>> {
+    BuiltinPluginAssets::get("index/official.v1.json").map(|file| file.data.into_owned())
+}
+
+/// Dev checkout of `assets/plugins/<slug>` when the git submodule is present.
+pub fn checked_out_official_plugin_dir(slug: &str) -> Option<PathBuf> {
+    let slug = slug.trim();
+    if slug.is_empty()
+        || slug.contains(['/', '\\', '.'])
+        || is_authoring_sample_plugin_dir(slug)
+    {
+        return None;
+    }
+    let dir = PathBuf::from(PROJECT_ROOT)
+        .join("../../assets/plugins")
+        .join(slug);
+    dir.join(".vibex-plugin/plugin.json")
+        .is_file()
+        .then_some(dir)
+}
+
 fn embedded_builtin_directories() -> Vec<String> {
     let mut directories = BTreeSet::new();
     for path in BuiltinPluginAssets::iter() {
@@ -504,6 +527,17 @@ mod tests {
         );
         assert!(
             super::BuiltinPluginAssets::get("provider-switch/catalogs/claude_code.json").is_some()
+        );
+    }
+
+    #[test]
+    fn embeds_the_bundled_official_marketplace_index() {
+        assert!(super::BuiltinPluginAssets::get("index/official.v1.json").is_some());
+        let json = super::bundled_official_index_json().expect("official index");
+        assert!(
+            std::str::from_utf8(&json)
+                .unwrap_or("")
+                .contains("vibex.multi-agent")
         );
     }
 

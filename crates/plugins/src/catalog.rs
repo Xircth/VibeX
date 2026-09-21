@@ -160,7 +160,7 @@ pub fn listing_from_package(package: &PluginPackage, offline: bool) -> CatalogLi
         .publisher
         .clone()
         .unwrap_or_else(|| "vibex".to_owned());
-    let plugin_name = package.id.as_str().to_owned();
+    let plugin_name = marketplace_plugin_slug(&owner, package.id.as_str());
     let opens = package
         .app
         .file_openers
@@ -200,6 +200,73 @@ pub fn listing_from_package(package: &PluginPackage, offline: bool) -> CatalogLi
         opens,
         show_tree: None,
     }
+}
+
+/// Marketplace URL slug: `vibex.multi-agent` + owner `vibex` → `multi-agent`.
+pub fn marketplace_plugin_slug(owner: &str, plugin_id: &str) -> String {
+    let id = plugin_id.trim();
+    let owner = owner.trim();
+    if owner.is_empty() {
+        return id.to_string();
+    }
+    let prefix = format!("{owner}.");
+    if id.len() > prefix.len() && id[..prefix.len()].eq_ignore_ascii_case(&prefix) {
+        id[prefix.len()..].to_string()
+    } else {
+        id.to_string()
+    }
+}
+
+/// Names to try when talking to the remote marketplace or matching a local package.
+pub fn marketplace_plugin_ids(owner: &str, plugin_name: &str) -> Vec<String> {
+    let raw = plugin_name.trim();
+    let owner = owner.trim();
+    let slug = marketplace_plugin_slug(owner, raw);
+    let mut ids = Vec::new();
+    let mut push = |value: String| {
+        if value.is_empty() {
+            return;
+        }
+        if !ids
+            .iter()
+            .any(|existing: &String| existing.eq_ignore_ascii_case(&value))
+        {
+            ids.push(value);
+        }
+    };
+    push(slug.clone());
+    push(raw.to_string());
+    if !owner.is_empty() {
+        push(format!("{owner}.{slug}"));
+    }
+    ids
+}
+
+pub fn package_matches_marketplace(package_id: &str, owner: &str, plugin_name: &str) -> bool {
+    marketplace_plugin_ids(owner, plugin_name).iter().any(|candidate| {
+        plugin_ids_match(package_id, candidate) || plugin_ids_match(candidate, package_id)
+    })
+}
+
+/// GitHub tarball URLs for Host-official plugins that are not on the remote
+/// marketplace API and may be missing from the local rust-embed (empty submodule).
+pub fn official_github_archive_urls(owner: &str, plugin_name: &str) -> Vec<String> {
+    if !owner.eq_ignore_ascii_case("vibex") {
+        return Vec::new();
+    }
+    let slug = marketplace_plugin_slug(owner, plugin_name);
+    if slug.is_empty()
+        || slug.contains('/')
+        || is_authoring_sample_plugin_id(&slug)
+        || is_authoring_sample_plugin_id(&format!("vibex.{slug}"))
+    {
+        return Vec::new();
+    }
+    let repo = format!("Xircth/vibex-plugin-{slug}");
+    vec![
+        format!("https://codeload.github.com/{repo}/tar.gz/refs/heads/main"),
+        format!("https://codeload.github.com/{repo}/tar.gz/main"),
+    ]
 }
 
 pub fn plugin_ids_match(id: &str, canonical: &str) -> bool {
@@ -318,10 +385,19 @@ pub fn listing_is_retired(listing: &CatalogListing) -> bool {
 }
 
 pub fn canonical_listing_id(listing: &CatalogListing) -> String {
-    successor_plugin_id(listing_package_id(listing))
+    let raw = listing_package_id(listing);
+    let qualified = if raw.contains('.') {
+        raw.to_string()
+    } else if !listing.owner.trim().is_empty() {
+        format!("{}.{}", listing.owner.trim(), raw)
+    } else {
+        raw.to_string()
+    };
+    successor_plugin_id(&qualified)
+        .or_else(|| successor_plugin_id(raw))
         .or_else(|| successor_plugin_id(&listing.plugin_name))
         .map(str::to_string)
-        .unwrap_or_else(|| canonical_plugin_id(listing_package_id(listing)))
+        .unwrap_or_else(|| canonical_plugin_id(&qualified))
 }
 
 pub fn collapse_replaced_official(listings: Vec<CatalogListing>) -> Vec<CatalogListing> {
@@ -358,6 +434,69 @@ pub fn merge_offline_official(
             .ok()
             .map(|package| listing_from_package(&package, true))
     });
+    page.official = fold_official_listings(std::mem::take(&mut page.official), extra);
+    prepare_marketplace_page(page);
+}
+
+/// Listings from the Host-bundled `official.v1.json`. These appear even when a
+/// package was not materialized (empty submodule / incomplete rust-embed).
+pub fn listings_from_official_index(json: &[u8]) -> Vec<CatalogListing> {
+    let Ok(index) = serde_json::from_slice::<crate::MarketplaceIndex>(json) else {
+        return Vec::new();
+    };
+    index
+        .listings
+        .into_iter()
+        .filter_map(listing_from_index_record)
+        .collect()
+}
+
+fn listing_from_index_record(item: crate::MarketplaceListing) -> Option<CatalogListing> {
+    if is_authoring_sample_plugin_id(&item.plugin_id) {
+        return None;
+    }
+    let qualified = item.plugin_id.trim();
+    if qualified.is_empty() {
+        return None;
+    }
+    let owner = nonempty(&item.publisher).unwrap_or_else(|| "vibex".to_owned());
+    let plugin_name = marketplace_plugin_slug(&owner, qualified);
+    Some(CatalogListing {
+        owner: owner.clone(),
+        plugin_name: plugin_name.clone(),
+        tag: item.version.clone(),
+        version: item.version.clone(),
+        display_name: qualified.to_owned(),
+        summary: item.summary,
+        category: bundled_topic_category(qualified)
+            .or_else(|| bundled_topic_category(&plugin_name))
+            .unwrap_or("other")
+            .to_owned(),
+        source_kind: "official".to_owned(),
+        homepage: nonempty(&item.archive).or_else(|| {
+            Some(marketplace_listing_url(&owner, &plugin_name))
+        }),
+        repo: None,
+        package_digest: nonempty(&item.package_digest),
+        download_url: nonempty(&item.archive).filter(|url| {
+            !url.starts_with("builtin://") && !url.starts_with("offline://")
+        }),
+        sha256: None,
+        offline_plugin_id: Some(qualified.to_owned()),
+        has_worker: false,
+        has_app: false,
+        has_mcp: false,
+        opens: Vec::new(),
+        readme: None,
+        show_tree: None,
+    })
+}
+
+pub fn merge_bundled_official_index(page: &mut CatalogPage, json: Option<&[u8]>) {
+    let Some(json) = json.filter(|bytes| !bytes.is_empty()) else {
+        return;
+    };
+    let extra = listings_from_official_index(json);
     page.official = fold_official_listings(std::mem::take(&mut page.official), extra);
     prepare_marketplace_page(page);
 }
@@ -423,7 +562,20 @@ pub async fn fetch_versions(
 }
 
 pub async fn fetch_listing(owner: &str, plugin_name: &str) -> Result<CatalogListing, PluginError> {
-    reject_authoring_sample(owner, plugin_name)?;
+    let mut last = None;
+    for name in marketplace_plugin_ids(owner, plugin_name) {
+        if reject_authoring_sample(owner, &name).is_err() {
+            continue;
+        }
+        match fetch_listing_named(owner, &name).await {
+            Ok(listing) => return Ok(listing),
+            Err(error) => last = Some(error),
+        }
+    }
+    Err(last.unwrap_or_else(|| PluginError::not_found(&format!("{owner}/{plugin_name}"))))
+}
+
+async fn fetch_listing_named(owner: &str, plugin_name: &str) -> Result<CatalogListing, PluginError> {
     let origin = marketplace_origin();
     let client = marketplace_client(8)?;
     let v1 = format!("{origin}/api/marketplace/v1/listing/{owner}/{plugin_name}");
@@ -437,8 +589,8 @@ pub async fn fetch_listing(owner: &str, plugin_name: &str) -> Result<CatalogList
         .await?
         .into_iter()
         .find(|item| {
-            item.owner == owner
-                && item.plugin_name == plugin_name
+            item.owner.eq_ignore_ascii_case(owner)
+                && package_matches_marketplace(&item.plugin_name, owner, plugin_name)
                 && !listing_is_authoring_sample(item)
         })
         .ok_or_else(|| PluginError::not_found(&format!("{owner}/{plugin_name}")))
@@ -469,7 +621,24 @@ pub async fn fetch_artifact(
     plugin_name: &str,
     tag: Option<&str>,
 ) -> Result<CatalogListing, PluginError> {
-    reject_authoring_sample(owner, plugin_name)?;
+    let mut last = None;
+    for name in marketplace_plugin_ids(owner, plugin_name) {
+        if reject_authoring_sample(owner, &name).is_err() {
+            continue;
+        }
+        match fetch_artifact_named(owner, &name, tag).await {
+            Ok(listing) => return Ok(listing),
+            Err(error) => last = Some(error),
+        }
+    }
+    Err(last.unwrap_or_else(|| PluginError::not_found(&format!("{owner}/{plugin_name}"))))
+}
+
+async fn fetch_artifact_named(
+    owner: &str,
+    plugin_name: &str,
+    tag: Option<&str>,
+) -> Result<CatalogListing, PluginError> {
     let origin = marketplace_origin();
     let client = marketplace_client(15)?;
     let mut v1 = format!("{origin}/api/marketplace/v1/artifact/{owner}/{plugin_name}");
@@ -1211,6 +1380,72 @@ mod tests {
         assert!(is_authoring_sample_plugin_id("vibex.host-surface"));
         assert!(is_authoring_sample_plugin_id("provider-import"));
         assert!(!is_authoring_sample_plugin_id("vibex.office"));
+    }
+
+    #[test]
+    fn bundled_official_index_fills_gaps_left_by_a_short_remote_catalog() {
+        let json = include_bytes!("../../../assets/plugins/index/official.v1.json");
+        let extra = listings_from_official_index(json);
+        assert!(extra.iter().any(|listing| {
+            listing.owner == "vibex"
+                && listing.plugin_name == "multi-agent"
+                && listing.offline_plugin_id.as_deref() == Some("vibex.multi-agent")
+        }));
+        let mut page = CatalogPage {
+            official: vec![listing("vibex.office", "办公套件", "Office files")],
+            ..CatalogPage::default()
+        };
+        merge_bundled_official_index(&mut page, Some(json));
+        let names = page
+            .official
+            .iter()
+            .map(|listing| listing.plugin_name.as_str())
+            .collect::<Vec<_>>();
+        assert!(names.contains(&"office") || names.contains(&"vibex.office"));
+        assert!(names.contains(&"multi-agent") || names.contains(&"vibex.multi-agent"));
+        assert!(names.contains(&"session-enhance") || names.contains(&"vibex.session-enhance"));
+        assert!(names.contains(&"workflow-creator") || names.contains(&"vibex.workflow-creator"));
+        assert!(names.len() >= 8);
+    }
+
+    #[test]
+    fn marketplace_slug_strips_owner_prefix_for_install_urls() {
+        assert_eq!(
+            marketplace_plugin_slug("vibex", "vibex.multi-agent"),
+            "multi-agent"
+        );
+        assert_eq!(
+            marketplace_plugin_ids("vibex", "vibex.multi-agent"),
+            vec!["multi-agent".to_string(), "vibex.multi-agent".to_string()]
+        );
+        assert!(package_matches_marketplace(
+            "vibex.multi-agent",
+            "vibex",
+            "multi-agent"
+        ));
+        assert!(package_matches_marketplace(
+            "vibex.multi-agent",
+            "vibex",
+            "vibex.multi-agent"
+        ));
+        let urls = official_github_archive_urls("vibex", "vibex.multi-agent");
+        assert!(
+            urls.iter()
+                .any(|url| url.contains("Xircth/vibex-plugin-multi-agent"))
+        );
+        assert!(official_github_archive_urls("acme", "notes").is_empty());
+    }
+
+    #[test]
+    fn canonical_listing_id_collapses_owner_and_qualified_plugin_name() {
+        let short = listing("office", "办公套件", "Office files");
+        let qualified = listing("vibex.office", "办公套件", "Office files");
+        assert_eq!(
+            canonical_listing_id(&short),
+            canonical_listing_id(&qualified)
+        );
+        let folded = fold_official_listings(vec![short, qualified], None);
+        assert_eq!(folded.len(), 1);
     }
 
     #[test]

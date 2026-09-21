@@ -77,6 +77,18 @@ describe('settingsWindowApi', () => {
     expect(source).not.toContain("navigate('/settings/system')");
   });
 
+  it('keeps the MCP status bar from replacing the main window with plugins', () => {
+    const source = readFileSync(
+      resolve(
+        dirname(fileURLToPath(import.meta.url)),
+        '../../components/layout/StatusBarMcp.tsx'
+      ),
+      'utf8'
+    );
+    expect(source).toContain("openSettingsSurface(navigate, '/plugins')");
+    expect(source).not.toContain("navigate('/plugins')");
+  });
+
   it('opens a specific Settings page in a dedicated window on the desktop', () => {
     const navigate = vi.fn();
     openSettingsSurface(navigate, '/settings/system');

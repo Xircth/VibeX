@@ -33,7 +33,11 @@ async fn resolve_window_title(caller: &str, base: String) -> String {
 
 fn settings_window_path(path: Option<&str>) -> String {
     let trimmed = path.unwrap_or("/settings").trim();
-    if trimmed == "/settings" || trimmed.starts_with("/settings/") {
+    if trimmed == "/settings"
+        || trimmed.starts_with("/settings/")
+        || trimmed == "/plugins"
+        || trimmed.starts_with("/plugins/")
+    {
         trimmed.to_string()
     } else {
         "/settings".to_string()
@@ -151,6 +155,11 @@ mod tests {
         assert_eq!(
             settings_window_path(Some(" /settings/system ")),
             "/settings/system"
+        );
+        assert_eq!(settings_window_path(Some("/plugins")), "/plugins");
+        assert_eq!(
+            settings_window_path(Some("/plugins/vibex.office")),
+            "/plugins/vibex.office"
         );
         assert_eq!(settings_window_path(Some("/local-projects")), "/settings");
         assert_eq!(

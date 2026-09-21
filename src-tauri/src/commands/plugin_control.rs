@@ -747,6 +747,10 @@ pub async fn plugin_marketplace_catalog(
         page.official = plugins::collapse_replaced_official(page.official);
         plugins::prepare_marketplace_page(&mut page);
     }
+    plugins::merge_bundled_official_index(
+        &mut page,
+        utils::assets::bundled_official_index_json().as_deref(),
+    );
     plugins::filter_catalog_page(&mut page, query.as_deref());
     Ok(page)
 }
@@ -853,39 +857,65 @@ pub async fn plugin_marketplace_install(
         .await;
     }
     let data_root = utils::assets::asset_dir();
-    let roots = utils::assets::materialize_builtin_plugins(&data_root)
-        .map_err(|error| AppError::Internal(error.to_string()))?;
-    let root = roots
-        .into_iter()
-        .find(|root| {
-            plugins::PluginPackage::inspect(root, plugins::PluginSourceKind::Marketplace)
-                .ok()
-                .is_some_and(|package| {
-                    package.id.as_str() == plugin_name
-                        || package.id.as_str() == format!("{owner}.{plugin_name}")
-                })
-        })
-        .ok_or_else(|| AppError::NotFound(format!("{owner}/{plugin_name}")))?;
-    plugin_control_import(
-        app,
-        state,
-        root.to_string_lossy().into_owned(),
-        false,
-        conflict_decision,
-        None,
-        Vec::new(),
-        Some(plugins::marketplace_listing_url(&owner, &plugin_name)),
-        tag.or(Some(
-            plugins::PluginPackage::inspect(&root, plugins::PluginSourceKind::Marketplace)
-                .ok()
-                .map(|package| package.version)
-                .unwrap_or_default(),
-        )),
-        None,
-        Some(true),
-        None,
-    )
-    .await
+    let roots = utils::assets::materialize_builtin_plugins(&data_root).unwrap_or_default();
+    let slug = plugins::marketplace_plugin_slug(&owner, &plugin_name);
+    let local = roots.into_iter().chain(
+        utils::assets::checked_out_official_plugin_dir(&slug)
+            .into_iter()
+            .collect::<Vec<_>>(),
+    );
+    if let Some(root) = local.into_iter().find(|root| {
+        plugins::PluginPackage::inspect(root, plugins::PluginSourceKind::Marketplace)
+            .ok()
+            .is_some_and(|package| {
+                plugins::package_matches_marketplace(package.id.as_str(), &owner, &plugin_name)
+            })
+    }) {
+        return plugin_control_import(
+            app,
+            state,
+            root.to_string_lossy().into_owned(),
+            false,
+            conflict_decision,
+            None,
+            Vec::new(),
+            Some(plugins::marketplace_listing_url(&owner, &plugin_name)),
+            tag.or(Some(
+                plugins::PluginPackage::inspect(&root, plugins::PluginSourceKind::Marketplace)
+                    .ok()
+                    .map(|package| package.version)
+                    .unwrap_or_default(),
+            )),
+            None,
+            Some(true),
+            None,
+        )
+        .await;
+    }
+    let mut last_error = AppError::NotFound(format!("{owner}/{plugin_name}"));
+    for url in plugins::official_github_archive_urls(&owner, &plugin_name) {
+        match download_marketplace_archive(&url).await {
+            Ok(archive) => {
+                return plugin_control_import(
+                    app,
+                    state,
+                    archive.to_string_lossy().into_owned(),
+                    false,
+                    conflict_decision,
+                    None,
+                    Vec::new(),
+                    Some(plugins::marketplace_listing_url(&owner, &plugin_name)),
+                    tag,
+                    None,
+                    Some(true),
+                    None,
+                )
+                .await;
+            }
+            Err(error) => last_error = error,
+        }
+    }
+    Err(last_error)
 }
 
 #[tauri::command]
@@ -999,6 +1029,7 @@ async fn download_marketplace_archive(url: &str) -> Result<std::path::PathBuf, A
         .map_err(|error| AppError::Internal(error.to_string()))?;
     let response = client
         .get(url)
+        .header("user-agent", "VibeX")
         .send()
         .await
         .map_err(|error| AppError::Internal(error.to_string()))?;

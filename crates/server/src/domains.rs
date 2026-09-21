@@ -1024,6 +1024,10 @@ impl ServerApplicationDomains {
             page.official = plugins::collapse_replaced_official(page.official);
             plugins::prepare_marketplace_page(&mut page);
         }
+        plugins::merge_bundled_official_index(
+            &mut page,
+            utils::assets::bundled_official_index_json().as_deref(),
+        );
         plugins::filter_catalog_page(&mut page, args.query.as_deref());
         serde_json::to_value(page).map_err(|error| ApplicationError::internal(error.to_string()))
     }
@@ -1122,36 +1126,57 @@ impl ServerApplicationDomains {
                 }))
                 .await;
         }
-        let roots = utils::assets::materialize_builtin_plugins(&self.runtime_root)
-            .map_err(|error| ApplicationError::internal(error.to_string()))?;
-        let root = roots
-            .into_iter()
-            .find(|root| {
-                plugins::PluginPackage::inspect(root, plugins::PluginSourceKind::Marketplace)
-                    .ok()
-                    .is_some_and(|package| {
-                        package.id.as_str() == args.plugin_name
-                            || package.id.as_str() == format!("{}.{}", args.owner, args.plugin_name)
-                    })
-            })
-            .ok_or_else(|| {
-                ApplicationError::not_found(format!("{}/{}", args.owner, args.plugin_name))
-            })?;
-        let mut package =
-            plugins::PluginPackage::inspect(&root, plugins::PluginSourceKind::Marketplace)
+        let roots = utils::assets::materialize_builtin_plugins(&self.runtime_root).unwrap_or_default();
+        let slug = plugins::marketplace_plugin_slug(&args.owner, &args.plugin_name);
+        let local = roots.into_iter().chain(
+            utils::assets::checked_out_official_plugin_dir(&slug).into_iter(),
+        );
+        if let Some(root) = local.into_iter().find(|root| {
+            plugins::PluginPackage::inspect(root, plugins::PluginSourceKind::Marketplace)
+                .ok()
+                .is_some_and(|package| {
+                    plugins::package_matches_marketplace(
+                        package.id.as_str(),
+                        &args.owner,
+                        &args.plugin_name,
+                    )
+                })
+        }) {
+            let mut package =
+                plugins::PluginPackage::inspect(&root, plugins::PluginSourceKind::Marketplace)
+                    .map_err(plugin_error)?;
+            package.source.origin = Some(plugins::marketplace_listing_url(
+                &args.owner,
+                &args.plugin_name,
+            ));
+            package.source.git_ref = args.tag.or(Some(package.version.clone()));
+            package.source.locked = true;
+            let imported = self
+                .plugin_control_plane
+                .import(package, decision)
+                .await
                 .map_err(plugin_error)?;
-        package.source.origin = Some(plugins::marketplace_listing_url(
-            &args.owner,
-            &args.plugin_name,
-        ));
-        package.source.git_ref = args.tag.or(Some(package.version.clone()));
-        package.source.locked = true;
-        let imported = self
-            .plugin_control_plane
-            .import(package, decision)
-            .await
-            .map_err(plugin_error)?;
-        Ok(plugin_control_item(&imported.plugin))
+            return Ok(plugin_control_item(&imported.plugin));
+        }
+        let mut last_error = ApplicationError::not_found(format!("{}/{}", args.owner, args.plugin_name));
+        for url in plugins::official_github_archive_urls(&args.owner, &args.plugin_name) {
+            match download_marketplace_archive(&url).await {
+                Ok(archive) => {
+                    return self
+                        .plugin_control_import(json!({
+                            "path": archive.to_string_lossy(),
+                            "developerLink": false,
+                            "conflictDecision": args.conflict.unwrap_or_else(|| "reject".into()),
+                            "origin": plugins::marketplace_listing_url(&args.owner, &args.plugin_name),
+                            "gitRef": args.tag,
+                            "locked": true,
+                        }))
+                        .await;
+                }
+                Err(error) => last_error = error,
+            }
+        }
+        Err(last_error)
     }
 
     async fn plugin_check_updates(&self) -> Result<Value, ApplicationError> {
@@ -2584,6 +2609,7 @@ async fn download_marketplace_archive(url: &str) -> Result<std::path::PathBuf, A
         .map_err(|error| ApplicationError::internal(error.to_string()))?;
     let response = client
         .get(url)
+        .header("user-agent", "VibeX")
         .send()
         .await
         .map_err(|error| ApplicationError::internal(error.to_string()))?;

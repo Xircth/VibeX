@@ -411,6 +411,30 @@ impl ContentAddressedRuntimeHost {
             .map_err(|error| error.to_string())? = Some(target);
         Ok(())
     }
+
+    async fn reuse_verified_binary(
+        &self,
+        command: &str,
+        sha256: Option<&str>,
+    ) -> Result<bool, String> {
+        validate_global_command(command)?;
+        let Some(expected) = sha256 else {
+            return Ok(false);
+        };
+        let target = self.artifact_directory().join(command);
+        let Ok(bytes) = tokio::fs::read(&target).await else {
+            return Ok(false);
+        };
+        let actual = format!("{:x}", Sha256::digest(&bytes));
+        if !actual.eq_ignore_ascii_case(expected) {
+            return Ok(false);
+        }
+        *self
+            .staged_entrypoint
+            .lock()
+            .map_err(|error| error.to_string())? = Some(target);
+        Ok(true)
+    }
 }
 
 #[cfg(target_os = "macos")]
@@ -517,6 +541,9 @@ impl GlobalRuntimeHost for ContentAddressedRuntimeHost {
         url: &str,
         sha256: Option<&str>,
     ) -> Result<(), String> {
+        if self.reuse_verified_binary(command, sha256).await? {
+            return Ok(());
+        }
         let bytes = download_and_verify(url, sha256).await?;
         self.publish(command, &bytes).await
     }
@@ -757,7 +784,9 @@ async fn probe_executable_with_timeout(
 const MAX_ARCHIVE_EXECUTABLE_BYTES: u64 = 256 * 1024 * 1024;
 
 async fn download_and_verify(url: &str, expected_sha256: Option<&str>) -> Result<Vec<u8>, String> {
-    let downloader = HttpDownloader::new(Duration::from_secs(15), Duration::from_secs(120));
+    // Plugin Runtime binaries (Open Connector is ~190 MiB) cannot finish
+    // from GitHub Releases inside the previous 120s request budget.
+    let downloader = HttpDownloader::new(Duration::from_secs(15), Duration::from_secs(600));
     let bytes = downloader
         .fetch(url)
         .await
@@ -926,6 +955,33 @@ mod tests {
         assert_ne!(first_path, second_path);
         assert_eq!(tokio::fs::read(first_path).await.unwrap(), b"version-one");
         assert_eq!(tokio::fs::read(second_path).await.unwrap(), b"version-two");
+    }
+
+    #[tokio::test]
+    async fn verified_binary_reuse_skips_unreachable_download() {
+        let root = tempfile::tempdir().unwrap();
+        let bytes = b"verified-runtime";
+        let digest = format!("{:x}", Sha256::digest(bytes));
+        let host = ContentAddressedRuntimeHost::new(
+            root.path().to_path_buf(),
+            &contribution("1.0.0", &digest),
+        )
+        .unwrap();
+        host.publish("shared", bytes).await.unwrap();
+
+        host.install_binary(
+            "shared-cli",
+            "shared",
+            "https://127.0.0.1/missing-runtime",
+            Some(&digest),
+        )
+        .await
+        .expect("checksum-verified bytes must be reused without downloading");
+
+        assert_eq!(
+            host.resolve("shared").await.unwrap(),
+            host.artifact_directory().join("shared")
+        );
     }
 
     #[tokio::test]

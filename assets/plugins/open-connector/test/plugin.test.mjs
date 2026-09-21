@@ -14,7 +14,7 @@ test('registers sidecar handlers and returns without waiting on health', async (
             code: 'runtime_not_locked',
           });
         }
-        if (capability === 'storage.settings.get') return {};
+        if (capability === 'storage' && operation === 'settings.get') return {};
         return null;
       },
     },

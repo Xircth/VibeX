@@ -128,7 +128,7 @@ export function createSidecar(environment) {
   }
 
   async function settings() {
-    const stored = await environment.host.call('storage.settings.get', {});
+    const stored = await environment.host.call('storage', 'settings.get', {});
     const value = stored && typeof stored === 'object' ? stored : {};
     return {
       catalogLazySchemas: value.catalogLazySchemas !== false,

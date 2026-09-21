@@ -105,6 +105,7 @@ impl Downloader for HttpDownloader {
                 .collect::<Vec<_>>();
             let client = reqwest::Client::builder()
                 .https_only(true)
+                .user_agent(DOWNLOAD_USER_AGENT)
                 .redirect(reqwest::redirect::Policy::none())
                 .connect_timeout(self.connect_timeout)
                 .timeout(self.request_timeout)
@@ -133,9 +134,15 @@ impl Downloader for HttpDownloader {
             redirect_count += 1;
         };
 
-        response = response
-            .error_for_status()
-            .map_err(|_| PortError::new("HTTPS download returned an error status"))?;
+        response = match response.error_for_status() {
+            Ok(response) => response,
+            Err(error) => {
+                return Err(PortError::new(match error.status() {
+                    Some(status) => format!("HTTPS download returned HTTP {}", status.as_u16()),
+                    None => "HTTPS download returned an error status".to_owned(),
+                }));
+            }
+        };
         if response
             .content_length()
             .is_some_and(|length| length > self.max_bytes as u64)
@@ -156,6 +163,8 @@ impl Downloader for HttpDownloader {
         Ok(bytes)
     }
 }
+
+const DOWNLOAD_USER_AGENT: &str = "VibeX";
 
 fn validate_redirect_target(
     initial_host: &str,
@@ -460,4 +469,23 @@ async fn atomic_write(path: &Path, bytes: &[u8]) -> Result<(), PortError> {
 
 fn port_error(error: impl std::fmt::Display) -> PortError {
     PortError::new(error.to_string())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn github_azure_sas_query_round_trips_through_url() {
+        let location = concat!(
+            "https://release-assets.githubusercontent.com/github-production-release-asset/1/abc",
+            "?sp=r&sig=ab%2Bcd%3D&rscd=attachment%3B+filename%3Dapp.exe&se=2026-09-21T15%3A53%3A30Z"
+        );
+        let parsed = Url::parse(location).expect("SAS Location must parse");
+        assert_eq!(
+            parsed.as_str(),
+            location,
+            "Url serialization must keep Azure SAS percent-encoding"
+        );
+    }
 }

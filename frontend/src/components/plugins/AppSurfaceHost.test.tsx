@@ -389,6 +389,41 @@ describe('AppSurfaceHost lifecycle boundary', () => {
     expect(transport.invoke).not.toHaveBeenCalled();
   });
 
+  it('forwards worker methods when a structure surface has no published allowlist', async () => {
+    const transport = createTransport();
+    const bootstrapMessenger = vi.fn();
+    renderHost(transport, {
+      bootstrapMessenger,
+      descriptor: {
+        ...descriptor,
+        slot: 'app.tab',
+        allowedMethods: [],
+      },
+    });
+    await screen.findByTitle('Project health');
+    await waitFor(() => expect(bootstrapMessenger).toHaveBeenCalled());
+    const pluginPort = bootstrapMessenger.mock.calls[0][2] as TestPort;
+
+    await act(async () =>
+      pluginPort.postMessage({
+        protocol: 'vibex.app-surface/1',
+        type: 'request',
+        token: authorityToken,
+        sequence: 1,
+        requestId: 'status-1',
+        method: 'runtime.status',
+        params: null,
+      })
+    );
+
+    await waitFor(() =>
+      expect(transport.invoke).toHaveBeenCalledWith(
+        expect.objectContaining({ method: 'runtime.status' })
+      )
+    );
+    expect(transport.revoke).not.toHaveBeenCalled();
+  });
+
   it('dispatches one declared request and revokes a replayed sequence', async () => {
     const transport = createTransport();
     const bootstrapMessenger = vi.fn();

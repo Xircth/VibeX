@@ -443,6 +443,8 @@ pub struct AppTabContribution {
     #[serde(default)]
     pub icon: Option<String>,
     pub handler: String,
+    #[serde(default)]
+    pub allowed_methods: Vec<String>,
     #[serde(default = "default_tab_hides_bottom_dock")]
     pub hides_bottom_dock: bool,
     #[serde(default)]
@@ -2298,7 +2300,7 @@ fn parse_v4_ui_contributions(
                         &item.title,
                         APP_TAB_SLOT,
                         &item.handler,
-                        Vec::new(),
+                        item.allowed_methods.clone(),
                         None,
                     ));
                     contributions.tabs.push(item);
@@ -2613,6 +2615,7 @@ fn parse_tab_contribution(integration: &Map<String, Value>) -> Option<AppTabCont
         title: contribution_text(integration, "title")?,
         icon: contribution_icon(integration).ok()?,
         handler: surface_handler(integration)?,
+        allowed_methods: contribution_allowed_methods(integration).unwrap_or_default(),
         hides_bottom_dock: parse_hides_bottom_dock(integration, true).ok()?,
         remote: parse_remote(integration).ok()?,
     })

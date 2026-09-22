@@ -537,7 +537,7 @@ fn plugin_templates(plugin: &InstalledPlugin) -> Vec<ContributionTemplate> {
             &tab.handler,
             tab.hides_bottom_dock,
             tab.remote.as_ref(),
-            json!({}),
+            json!({ "allowedMethods": tab.allowed_methods }),
         ),
     }));
     templates.extend(

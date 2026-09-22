@@ -209,7 +209,16 @@ impl PluginAppSurfaceHost {
             .activation_lease(&identity.plugin_id)
             .await
             .ok_or_else(|| conflict("App surface Worker is not active"))?;
-        if allowed_methods.is_empty() && structure_slot.is_some() {
+        if allowed_methods.is_empty()
+            && (structure_slot.is_some()
+                || matches!(
+                    slot,
+                    crate::APP_TAB_SLOT
+                        | crate::APP_PANEL_SLOT
+                        | crate::KANBAN_VIEW_SLOT
+                        | crate::SETTINGS_PAGE_SLOT
+                ))
+        {
             allowed_methods = lease.activation().handlers.clone();
         }
         for required in std::iter::once(handler).chain(allowed_methods.iter().map(String::as_str)) {

@@ -51,6 +51,15 @@
       "title": "Open Connector",
       "icon": "plug",
       "handler": "surface.createSession",
+      "allowedMethods": [
+        "surface.createSession",
+        "runtime.status",
+        "runtime.statusText",
+        "runtime.restart",
+        "runtime.health",
+        "runtime.wipeData",
+        "mcp.endpoint"
+      ],
       "hidesBottomDock": true,
       "remote": {
         "name": "open_connector",

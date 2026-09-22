@@ -190,6 +190,22 @@ async fn a_structure_tab_opens_through_the_shared_host() {
         .await
         .expect("app.tab must open a Worker session");
     assert!(document.html.contains("isolated surface"));
+    let result = host
+        .invoke(AppSurfaceInvocation {
+            identity: AppSurfaceIdentity {
+                plugin_id: "tests.surface".to_owned(),
+                surface_id: "console".to_owned(),
+                generation: tab.generation,
+                token: document.token,
+            },
+            request_id: "status-1".to_owned(),
+            sequence: 1,
+            method: "surface.createSession".to_owned(),
+            params: json!(null),
+        })
+        .await
+        .expect("structure tab session must accept Worker handlers");
+    assert_eq!(result["handler"], "surface.createSession");
 }
 
 #[tokio::test]

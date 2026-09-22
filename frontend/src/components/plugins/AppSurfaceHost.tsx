@@ -469,7 +469,10 @@ export function AppSurfaceHost({
   const handleFrameLoad = useCallback(() => {
     if (!mounted || !frameRef.current?.contentWindow) return;
     loadCountRef.current += 1;
-    if (loadCountRef.current > 1 || portRef.current) {
+    if (portRef.current) {
+      return;
+    }
+    if (loadCountRef.current > 1) {
       failClosed(t('plugins.surfaceProtocolViolation'));
       return;
     }
@@ -522,6 +525,7 @@ export function AppSurfaceHost({
       if (
         !LOCAL_METHODS.has(method) &&
         !artifactMethod &&
+        descriptor.allowedMethods.length > 0 &&
         !descriptor.allowedMethods.includes(method)
       ) {
         pendingRequestIdsRef.current.delete(requestId);

@@ -46,6 +46,7 @@ type VirtualItemPosition = {
 
 const BOTTOM_SCROLL_THRESHOLD_PX = 48;
 export const CONVERSATION_OPEN_SETTLE_PASSES = 12;
+export const ESTIMATED_CONVERSATION_ROW_HEIGHT = 128;
 
 export function findViewportAnchorVirtualIndex(
   virtualItems: VirtualItemPosition[],
@@ -104,6 +105,88 @@ export function getVirtualRowTranslateY(
   scrollMargin: number
 ): string {
   return `translateY(${start - scrollMargin}px)`;
+}
+
+type OffsetNode = {
+  offsetTop: number;
+  offsetParent: unknown;
+};
+
+function isOffsetNode(value: unknown): value is OffsetNode {
+  return !!value && typeof value === 'object' && 'offsetTop' in value;
+}
+
+function accumulatedOffsetTop(element: OffsetNode): number {
+  let top = 0;
+  let node: OffsetNode | null = element;
+  while (node) {
+    top += node.offsetTop;
+    node = isOffsetNode(node.offsetParent) ? node.offsetParent : null;
+  }
+  return top;
+}
+
+/**
+ * Offset of the virtual list from the scroll container, in layout pixels.
+ *
+ * Must not use `getBoundingClientRect` or `scrollTop`. Canvas zoom scales
+ * bounding rects, and adding `scrollTop` makes the margin track the scroll
+ * position — both empty the stream and send piano-key jumps to the wrong row.
+ */
+export function measureScrollMargin(
+  list: OffsetNode,
+  container: OffsetNode
+): number {
+  return Math.max(
+    0,
+    accumulatedOffsetTop(list) - accumulatedOffsetTop(container)
+  );
+}
+
+export function unscaledElementRect(element: {
+  clientWidth: number;
+  clientHeight: number;
+}): { width: number; height: number } {
+  return { width: element.clientWidth, height: element.clientHeight };
+}
+
+export function observeUnscaledElementRect(
+  instance: { scrollElement: Element | null },
+  cb: (rect: { width: number; height: number }) => void
+): () => void {
+  const element = instance.scrollElement;
+  if (!(element instanceof HTMLElement)) return () => undefined;
+  const fire = () => cb(unscaledElementRect(element));
+  fire();
+  const observer = new ResizeObserver(fire);
+  observer.observe(element);
+  return () => observer.disconnect();
+}
+
+export function measureUnscaledBlockHeight(
+  element: HTMLElement,
+  _entry?: ResizeObserverEntry,
+  instance?: { measurementsCache?: Array<{ size: number } | undefined> }
+): number {
+  const height = element.offsetHeight;
+  if (height > 0) return height;
+  const index = Number(element.getAttribute('data-index'));
+  const previous = Number.isFinite(index)
+    ? instance?.measurementsCache?.[index]?.size
+    : undefined;
+  return previous && previous > 0
+    ? previous
+    : ESTIMATED_CONVERSATION_ROW_HEIGHT;
+}
+
+export function scheduleMeasuredScrollToIndex(
+  scrollToIndex: (index: number) => void,
+  index: number,
+  schedule: (callback: () => void) => void = (callback) =>
+    requestAnimationFrame(callback)
+): void {
+  scrollToIndex(index);
+  schedule(() => scrollToIndex(index));
 }
 
 export function isConversationNearBottom(

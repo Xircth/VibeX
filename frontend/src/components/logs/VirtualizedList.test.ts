@@ -7,6 +7,11 @@ import {
   getDistanceFromConversationBottom,
   getVirtualRowTranslateY,
   isConversationNearBottom,
+  measureScrollMargin,
+  measureUnscaledBlockHeight,
+  scheduleMeasuredScrollToIndex,
+  unscaledElementRect,
+  ESTIMATED_CONVERSATION_ROW_HEIGHT,
   pendingAgentPermissionsFromEvents,
   pendingAgentPermissionsForSession,
 } from './VirtualizedList';
@@ -99,6 +104,62 @@ describe('conversation bottom distance', () => {
 
   it('offsets virtual rows by the measured scroll margin', () => {
     expect(getVirtualRowTranslateY(512, 96)).toBe('translateY(416px)');
+  });
+});
+
+describe('conversation virtualizer layout coordinates', () => {
+  it('measures the list offset without mixing canvas zoom or scrollTop', () => {
+    const canvas = { offsetTop: 80, offsetParent: null };
+    const container = { offsetTop: 20, offsetParent: canvas };
+    const list = { offsetTop: 32, offsetParent: canvas };
+
+    expect(measureScrollMargin(list, container)).toBe(12);
+  });
+
+  it('stays stable when the transcript is scrolled far from the top', () => {
+    const canvas = { offsetTop: 80, offsetParent: null };
+    const container = { offsetTop: 20, offsetParent: canvas };
+    const list = { offsetTop: 32, offsetParent: canvas };
+
+    expect(measureScrollMargin(list, container)).toBe(12);
+  });
+
+  it('reads the scroll viewport in layout pixels, not scaled bounding rects', () => {
+    expect(
+      unscaledElementRect({ clientWidth: 480, clientHeight: 640 })
+    ).toEqual({ width: 480, height: 640 });
+  });
+
+  it('does not collapse a row that has not laid out yet', () => {
+    const element = document.createElement('div');
+    element.setAttribute('data-index', '4');
+    expect(
+      measureUnscaledBlockHeight(element, undefined, {
+        measurementsCache: [
+          undefined,
+          undefined,
+          undefined,
+          undefined,
+          { size: 720 },
+        ],
+      })
+    ).toBe(720);
+    expect(measureUnscaledBlockHeight(element)).toBe(
+      ESTIMATED_CONVERSATION_ROW_HEIGHT
+    );
+  });
+
+  it('scrolls to a nav target twice so dynamic heights can be measured', () => {
+    const calls: number[] = [];
+    const scheduled: Array<() => void> = [];
+    scheduleMeasuredScrollToIndex(
+      (index) => calls.push(index),
+      9,
+      (callback) => scheduled.push(callback)
+    );
+    expect(calls).toEqual([9]);
+    scheduled.forEach((callback) => callback());
+    expect(calls).toEqual([9, 9]);
   });
 });
 

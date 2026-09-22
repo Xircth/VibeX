@@ -108,15 +108,19 @@ import { composerMessageHistoryFromTurns } from '@/components/tasks/follow-up/se
 import { useLayoutStore } from '@/stores/useLayoutStore';
 import {
   CONVERSATION_OPEN_SETTLE_PASSES,
+  ESTIMATED_CONVERSATION_ROW_HEIGHT,
   conversationOpenPinState,
   findPreviousUserMessageVirtualIndex,
   findViewportAnchorVirtualIndex,
   getVirtualRowTranslateY,
   isConversationNearBottom,
+  measureScrollMargin,
+  measureUnscaledBlockHeight,
+  observeUnscaledElementRect,
+  scheduleMeasuredScrollToIndex,
   type VirtualizedListRef,
 } from './VirtualizedList';
 
-const ESTIMATED_ROW_HEIGHT = 128;
 const OVERSCAN = 10;
 
 function timelineItemAsMessage(
@@ -821,16 +825,32 @@ const AgentTimelineConversation = forwardRef<
   const rowVirtualizer = useVirtualizer<HTMLDivElement, HTMLDivElement>({
     count: timelineItems.length,
     getScrollElement: () => containerRef.current,
-    estimateSize: () => ESTIMATED_ROW_HEIGHT,
+    estimateSize: () => ESTIMATED_CONVERSATION_ROW_HEIGHT,
     getItemKey: (index) =>
       timelineItems[index]?.kind === 'message'
         ? timelineItems[index].item.key
         : (timelineItems[index]?.row.row_id ?? index),
     overscan: OVERSCAN,
     scrollMargin,
+    observeElementRect: observeUnscaledElementRect,
+    measureElement: measureUnscaledBlockHeight,
   });
   const virtualRows = rowVirtualizer.getVirtualItems();
   const totalSize = rowVirtualizer.getTotalSize();
+
+  const jumpToVirtualIndex = useCallback(
+    (index: number, align: 'start' | 'center' | 'end' | 'auto' = 'start') => {
+      if (index < 0 || index >= timelineItems.length) return;
+      const jump = () => {
+        rowVirtualizer.scrollToIndex(index, {
+          align,
+          behavior: 'auto',
+        });
+      };
+      scheduleMeasuredScrollToIndex(jump, index);
+    },
+    [rowVirtualizer, timelineItems.length]
+  );
 
   useEffect(() => {
     if (
@@ -866,12 +886,9 @@ const AgentTimelineConversation = forwardRef<
         (item) => item.kind === 'message' && item.item.key === key
       );
       if (virtualIndex < 0) return;
-      rowVirtualizer.scrollToIndex(virtualIndex, {
-        align: 'center',
-        behavior: scrollBehavior,
-      });
+      jumpToVirtualIndex(virtualIndex, 'center');
     },
-    [findMatches, rowVirtualizer, scrollBehavior, timeline, timelineItems]
+    [findMatches, jumpToVirtualIndex, timeline, timelineItems]
   );
 
   const goToFindMatch = useCallback(
@@ -959,34 +976,32 @@ const AgentTimelineConversation = forwardRef<
     (index: number) => {
       if (index < 0 || index >= timelineItems.length) return;
       detachFromBottom();
-      // Nav-dot jumps pin the target user message to the top of the panel.
-      rowVirtualizer.scrollToIndex(index, {
-        align: 'start',
-        behavior: scrollBehavior,
-      });
+      jumpToVirtualIndex(index, 'start');
       setActiveIndex(index);
     },
-    [detachFromBottom, rowVirtualizer, scrollBehavior, timelineItems.length]
+    [detachFromBottom, jumpToVirtualIndex, timelineItems.length]
   );
 
   const updateScrollMargin = useCallback(() => {
     const container = containerRef.current;
     const list = virtualListRef.current;
     if (!container || !list) return;
-    const next = Math.max(
-      0,
-      list.getBoundingClientRect().top -
-        container.getBoundingClientRect().top +
-        container.scrollTop
-    );
+    const next = measureScrollMargin(list, container);
     setScrollMargin((current) =>
       Math.abs(current - next) > 1 ? next : current
     );
   }, []);
 
   useLayoutEffect(() => {
+    const container = containerRef.current;
+    const list = virtualListRef.current;
+    if (!container || !list) return;
     updateScrollMargin();
-  }, [sideRows.length, timelineItems.length, updateScrollMargin]);
+    const observer = new ResizeObserver(() => updateScrollMargin());
+    observer.observe(container);
+    observer.observe(list);
+    return () => observer.disconnect();
+  }, [sideRows.length, updateScrollMargin]);
 
   useLayoutEffect(() => {
     updateActiveIndex();
@@ -1025,10 +1040,7 @@ const AgentTimelineConversation = forwardRef<
         if ((options?.behavior ?? scrollBehavior) === 'smooth') {
           detachFromBottom();
         }
-        rowVirtualizer.scrollToIndex(index, {
-          align: options?.align ?? 'center',
-          behavior: options?.behavior ?? scrollBehavior,
-        });
+        jumpToVirtualIndex(index, options?.align ?? 'center');
       },
       scrollToPreviousUserMessage() {
         const container = containerRef.current;
@@ -1044,14 +1056,12 @@ const AgentTimelineConversation = forwardRef<
         );
         if (target === null) return;
         detachFromBottom();
-        rowVirtualizer.scrollToIndex(target, {
-          align: 'center',
-          behavior: scrollBehavior,
-        });
+        jumpToVirtualIndex(target, 'center');
       },
     }),
     [
       detachFromBottom,
+      jumpToVirtualIndex,
       rowVirtualizer,
       scrollBehavior,
       scrollToBottom,
@@ -1109,10 +1119,7 @@ const AgentTimelineConversation = forwardRef<
           ? null
           : () => {
               detachFromBottom();
-              rowVirtualizer.scrollToIndex(jumpTarget, {
-                align: 'center',
-                behavior: scrollBehavior,
-              });
+              jumpToVirtualIndex(jumpTarget, 'center');
             };
       const copyText = assistantCopyText(row.turn);
       const vibexTurnId = vibexTurnIdFromTimelineRowId(row.turn.id);
@@ -1156,9 +1163,8 @@ const AgentTimelineConversation = forwardRef<
       handleForkFromTurn,
       hasReconnectNotice,
       isTurnInFlight,
+      jumpToVirtualIndex,
       liveStats,
-      rowVirtualizer,
-      scrollBehavior,
       userMessageIndexes,
     ]
   );

@@ -511,7 +511,7 @@ describe('session composer submit helpers', () => {
         savedRevision: 2,
         serverRevision: 3,
       }).shouldDeleteScratch
-    ).toBe(false);
+    ).toBe(true);
 
     expect(
       getAfterSendCleanup({

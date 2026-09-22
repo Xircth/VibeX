@@ -250,8 +250,6 @@ export function restoreComposerAttachmentsAfterSendFailure({
 export function getAfterSendCleanup({
   attachments,
   scratchId,
-  savedRevision,
-  serverRevision,
 }: {
   attachments: SessionComposerImageAttachment[];
   scratchId: string | undefined;
@@ -265,16 +263,14 @@ export function getAfterSendCleanup({
   shouldDeleteScratch: boolean;
 } {
   const clearedImages = clearComposerImageAttachments(attachments);
-  const remoteDraftIsNewer =
-    savedRevision != null &&
-    serverRevision != null &&
-    serverRevision > savedRevision;
 
   return {
     message: '',
     attachments: clearedImages.attachments,
     imagesToRevoke: clearedImages.imagesToRevoke,
     hydratedScratchId: scratchId,
-    shouldDeleteScratch: Boolean(scratchId) && !remoteDraftIsNewer,
+    // Always drop the scratch. A newer server revision is almost always this
+    // send's in-flight save; keeping it restores the sent text after remount.
+    shouldDeleteScratch: Boolean(scratchId),
   };
 }

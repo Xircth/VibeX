@@ -2,7 +2,13 @@
 
 #[cfg(unix)]
 use std::process::Command;
-use std::sync::OnceLock;
+use std::{
+    net::{SocketAddr, TcpStream},
+    sync::OnceLock,
+    time::Duration,
+};
+
+const PROXY_PROBE_TIMEOUT: Duration = Duration::from_millis(200);
 
 static INHERITED_PROXY: OnceLock<Option<String>> = OnceLock::new();
 
@@ -120,7 +126,21 @@ fn detect_windows_proxy() -> Option<DetectedProxy> {
     let enabled: u32 = key.get_value("ProxyEnable").unwrap_or(0);
     let server: String = key.get_value("ProxyServer").unwrap_or_default();
     let pac: String = key.get_value("AutoConfigURL").unwrap_or_default();
-    parse_windows_proxy(enabled != 0, &server, &pac)
+    if enabled != 0 {
+        return parse_windows_proxy(true, &server, &pac);
+    }
+    // TUN-mode Clash/Mihomo leaves ProxyEnable=0 while ProxyServer still
+    // names the mixed port. GUI-spawned Agent children skip the TUN and
+    // need HTTP_PROXY to reach that port.
+    if let Some(url) = dormant_loopback_proxy_url(&server)
+        && proxy_url_is_reachable(&url)
+    {
+        return Some(DetectedProxy {
+            url,
+            source: ProxySource::System,
+        });
+    }
+    parse_windows_proxy(false, "", &pac)
 }
 
 #[cfg(all(unix, not(target_os = "macos")))]
@@ -235,6 +255,35 @@ pub fn parse_windows_proxy(enabled: bool, server: &str, pac: &str) -> Option<Det
     })
 }
 
+/// `ProxyServer` value that is a loopback mixed port, even when WinINET
+/// `ProxyEnable` is off (Clash/Mihomo TUN mode).
+pub fn dormant_loopback_proxy_url(server: &str) -> Option<String> {
+    let url = parse_windows_proxy_server(server)?;
+    is_loopback_proxy_url(&url).then_some(url)
+}
+
+pub fn is_loopback_proxy_url(url: &str) -> bool {
+    proxy_socket_addr(url).is_some_and(|addr| addr.ip().is_loopback())
+}
+
+pub fn proxy_url_is_reachable(url: &str) -> bool {
+    let Some(addr) = proxy_socket_addr(url) else {
+        return false;
+    };
+    TcpStream::connect_timeout(&addr, PROXY_PROBE_TIMEOUT).is_ok()
+}
+
+fn proxy_socket_addr(url: &str) -> Option<SocketAddr> {
+    let rest = url
+        .strip_prefix("http://")
+        .or_else(|| url.strip_prefix("https://"))
+        .or_else(|| url.strip_prefix("socks5://"))
+        .or_else(|| url.strip_prefix("socks://"))
+        .unwrap_or(url);
+    let hostport = rest.split('/').next().unwrap_or(rest);
+    hostport.parse().ok()
+}
+
 pub fn parse_windows_proxy_server(server: &str) -> Option<String> {
     let server = server.trim();
     if server.is_empty() {
@@ -317,7 +366,10 @@ fn ensure_proxy_scheme(value: &str, default_scheme: &str) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{ProxySource, parse_scutil_proxy, parse_windows_proxy, parse_windows_proxy_server};
+    use super::{
+        ProxySource, dormant_loopback_proxy_url, parse_scutil_proxy, parse_windows_proxy,
+        parse_windows_proxy_server, proxy_url_is_reachable,
+    };
 
     const SCUTIL_HTTP: &str = r#"
 <dictionary> {
@@ -403,5 +455,29 @@ mod tests {
             .expect("pac from autoconfig");
         assert_eq!(detected.source, ProxySource::Pac);
         assert_eq!(detected.url, "http://wpad.example/proxy.pac");
+    }
+
+    #[test]
+    fn dormant_loopback_proxy_url_accepts_local_mixed_port() {
+        assert_eq!(
+            dormant_loopback_proxy_url("127.0.0.1:7897").as_deref(),
+            Some("http://127.0.0.1:7897")
+        );
+        assert_eq!(
+            dormant_loopback_proxy_url("http=127.0.0.1:7890;https=127.0.0.1:7897").as_deref(),
+            Some("http://127.0.0.1:7897")
+        );
+        assert_eq!(dormant_loopback_proxy_url("10.0.0.8:8080"), None);
+        assert_eq!(dormant_loopback_proxy_url("proxy.corp.example:8080"), None);
+    }
+
+    #[test]
+    fn proxy_url_is_reachable_against_a_local_listener() {
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let addr = listener.local_addr().unwrap();
+        let url = format!("http://{addr}");
+        assert!(proxy_url_is_reachable(&url));
+        drop(listener);
+        assert!(!proxy_url_is_reachable(&url));
     }
 }

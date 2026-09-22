@@ -1,10 +1,15 @@
 import { fireEvent, render, screen } from '@testing-library/react';
+import type { ReactElement } from 'react';
 import { describe, expect, it } from 'vitest';
 import { TodoListButton } from './TodoListButton';
 
+function renderInComposer(ui: ReactElement) {
+  return render(<div className="session-composer-body">{ui}</div>);
+}
+
 describe('TodoListButton', () => {
   it('renders an empty-state popover without a count badge', () => {
-    render(<TodoListButton todos={[]} />);
+    renderInComposer(<TodoListButton todos={[]} />);
 
     const button = screen.getByRole('button', { name: '任务列表' });
     expect(button).toHaveClass('opacity-50');
@@ -16,7 +21,7 @@ describe('TodoListButton', () => {
   });
 
   it('opens the conversation plan card in the popover', () => {
-    render(
+    renderInComposer(
       <TodoListButton
         todos={[
           { content: 'Ship cleanup', status: 'completed' },
@@ -42,5 +47,19 @@ describe('TodoListButton', () => {
     expect(screen.getByText('02')).toBeInTheDocument();
     expect(screen.getByText('Ship cleanup')).toBeInTheDocument();
     expect(screen.getByText('Review plan')).toBeInTheDocument();
+  });
+
+  it('opens the list above the composer instead of from the trigger', () => {
+    renderInComposer(
+      <TodoListButton
+        todos={[{ content: 'Ship cleanup', status: 'completed' }]}
+      />
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: '任务列表' }));
+
+    const popover = document.querySelector('.composer-todo-popover');
+    expect(popover).toHaveAttribute('data-side', 'top');
+    expect(popover).toHaveAttribute('data-align', 'center');
   });
 });

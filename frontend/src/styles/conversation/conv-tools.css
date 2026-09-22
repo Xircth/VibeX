@@ -20,7 +20,8 @@
 }
 
 .composer-todo-popover.tahoe-popover {
-  width: min(22rem, calc(100vw - 24px));
+  width: min(22rem, var(--radix-popper-anchor-width, calc(100vw - 24px)));
+  max-width: var(--radix-popper-anchor-width, calc(100vw - 24px));
   max-height: min(24rem, 70vh);
   padding: 0;
   overflow: hidden;

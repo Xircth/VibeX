@@ -1,14 +1,19 @@
 import { CheckSquare } from 'lucide-react';
+import { useCallback, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
   Popover,
+  PopoverAnchor,
   PopoverContent,
   PopoverTrigger,
 } from '@/components/ui/popover';
 import { ConversationPlanCard } from '@/components/NormalizedConversation/ConversationPlanCard';
 import { toConversationPlanItem } from '@/components/NormalizedConversation/conversationPlan';
 import { cn } from '@/lib/utils';
-import { getComposerTodoListState } from './sessionComposerTodos';
+import {
+  getComposerTodoListState,
+  resolveComposerTodoAnchor,
+} from './sessionComposerTodos';
 
 interface TodoItem {
   content: string;
@@ -18,11 +23,23 @@ interface TodoItem {
 export function TodoListButton({ todos }: { todos: TodoItem[] }) {
   const { t } = useTranslation(['tasks', 'common']);
   const todoListState = getComposerTodoListState(todos.length);
+  const composerAnchorRef = useRef<HTMLElement | null>(null);
+  const [anchorToComposer, setAnchorToComposer] = useState(false);
+
+  const bindTrigger = useCallback((node: HTMLButtonElement | null) => {
+    const composer = resolveComposerTodoAnchor(node);
+    composerAnchorRef.current = composer;
+    setAnchorToComposer(Boolean(composer));
+  }, []);
 
   return (
     <Popover>
+      {anchorToComposer ? (
+        <PopoverAnchor virtualRef={composerAnchorRef} />
+      ) : null}
       <PopoverTrigger asChild>
         <button
+          ref={bindTrigger}
           type="button"
           title={t('todoListButton.title')}
           aria-label={t('todoListButton.title')}
@@ -40,8 +57,9 @@ export function TodoListButton({ todos }: { todos: TodoItem[] }) {
         </button>
       </PopoverTrigger>
       <PopoverContent
-        align="end"
+        align="center"
         side="top"
+        avoidCollisions={false}
         className="composer-todo-popover"
       >
         {todoListState.isEmpty ? (

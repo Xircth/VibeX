@@ -36,6 +36,12 @@ describe('composer todo popover', () => {
     const streamCard = declarationsFor('.conv-plan-card');
 
     expect(popover.border?.value).toBe('1px solid var(--border-strong)');
+    expect(popover.width?.value).toBe(
+      'min(22rem, var(--radix-popper-anchor-width, calc(100vw - 24px)))'
+    );
+    expect(popover['max-width']?.value).toBe(
+      'var(--radix-popper-anchor-width, calc(100vw - 24px))'
+    );
     expect(popover.overflow?.value).toBe('hidden');
     expect(list.overflow?.value).toBe('auto');
     expect(list['scrollbar-width']?.value).toBe('none');

@@ -163,6 +163,35 @@ export function buildAppSurfaceDocument({
       document.documentElement.dir = context.direction === 'rtl' ? 'rtl' : 'ltr';
       document.documentElement.dataset.theme = context.theme || 'light';
       document.documentElement.style.colorScheme = context.theme === 'dark' ? 'dark' : 'light';
+      try {
+        const root = parent.document.documentElement;
+        const styles = parent.getComputedStyle(root);
+        const ui = styles.getPropertyValue('--font-ui').trim();
+        const mono = styles.getPropertyValue('--font-mono').trim();
+        if (ui) document.documentElement.style.setProperty('--font-ui', ui);
+        if (mono) document.documentElement.style.setProperty('--font-mono', mono);
+        if (!document.getElementById('vibex-host-fonts')) {
+          const faces = [];
+          for (const sheet of parent.document.styleSheets) {
+            let rules;
+            try { rules = sheet.cssRules; } catch { continue; }
+            if (!rules) continue;
+            for (const rule of rules) {
+              if (rule.constructor && rule.constructor.name === 'CSSFontFaceRule') {
+                faces.push(rule.cssText);
+              }
+            }
+          }
+          if (faces.length) {
+            const style = document.createElement('style');
+            style.id = 'vibex-host-fonts';
+            style.textContent = faces.join('\\n');
+            document.head.append(style);
+          }
+        }
+      } catch {
+        /* srcDoc tests and opaque frames cannot read Host font faces. */
+      }
       dispatchEvent(new CustomEvent('vibexsurfacecontext', { detail: context }));
     };
     addEventListener('message', (event) => {

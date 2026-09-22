@@ -27,6 +27,17 @@ function declarationsFor(
   return declarations;
 }
 
+describe('composer todo popover', () => {
+  it('lets the plan card own the popover frame', () => {
+    const rules = declarationsFor('.composer-todo-popover.tahoe-popover');
+
+    expect(rules.padding?.value).toBe('0');
+    expect(rules.border?.value).toBe('0');
+    expect(rules.background?.value).toBe('transparent');
+    expect(rules['box-shadow']?.value).toBe('none');
+  });
+});
+
 describe('conversation tool-call typography', () => {
   it('matches message-stream font, size, weight, and line-height', () => {
     const rules = declarationsFor('.astryx-chat-tool-calls');

@@ -5,11 +5,10 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from '@/components/ui/popover';
+import { ConversationPlanCard } from '@/components/NormalizedConversation/ConversationPlanCard';
+import { toConversationPlanItem } from '@/components/NormalizedConversation/conversationPlan';
 import { cn } from '@/lib/utils';
-import {
-  getComposerTodoItemView,
-  getComposerTodoListState,
-} from './sessionComposerTodos';
+import { getComposerTodoListState } from './sessionComposerTodos';
 
 interface TodoItem {
   content: string;
@@ -40,38 +39,23 @@ export function TodoListButton({ todos }: { todos: TodoItem[] }) {
           ) : null}
         </button>
       </PopoverTrigger>
-      <PopoverContent align="end" side="top" className="w-72 p-2">
+      <PopoverContent
+        align="end"
+        side="top"
+        className="composer-todo-popover"
+      >
         {todoListState.isEmpty ? (
-          <div className="py-2 text-center text-xs text-muted-foreground">
+          <div className="conv-plan-card px-3 py-2 text-center text-xs text-muted-foreground">
             {t('todoListButton.empty')}
           </div>
         ) : (
-          <>
-            <div className="mb-1.5 text-xs font-medium">
-              {t('todoListButton.titleWithCount', { count: todos.length })}
-            </div>
-            <ul className="max-h-48 space-y-1 overflow-auto">
-              {todos.map((todo, index) => {
-                const todoItemView = getComposerTodoItemView(todo.status);
-
-                return (
-                  <li key={index} className="flex items-start gap-1.5 text-xs">
-                    <span
-                      className={cn(
-                        'mt-0.5 shrink-0',
-                        todoItemView.markerClassName
-                      )}
-                    >
-                      {todoItemView.marker}
-                    </span>
-                    <span className={todoItemView.contentClassName}>
-                      {todo.content}
-                    </span>
-                  </li>
-                );
-              })}
-            </ul>
-          </>
+          <div className="max-h-[min(24rem,70vh)] overflow-auto">
+            <ConversationPlanCard
+              items={todos.map(toConversationPlanItem)}
+              expansionKey="composer-todo-list"
+              defaultExpanded
+            />
+          </div>
         )}
       </PopoverContent>
     </Popover>

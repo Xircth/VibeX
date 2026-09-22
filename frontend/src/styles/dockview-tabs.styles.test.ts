@@ -35,6 +35,9 @@ describe('workspace tab strip chrome', () => {
     const active = declarationsFor(
       "[class*='dockview-theme-ayu'] .dv-tabs-container:not(.dv-vertical) > .dv-tab.dv-active-tab .workspace-tab-surface"
     );
+    const ears = declarationsFor(
+      "[class*='dockview-theme-ayu'] .dv-tabs-container:not(.dv-vertical) > .dv-tab.dv-active-tab .workspace-tab-surface::before, [class*='dockview-theme-ayu'] .dv-tabs-container:not(.dv-vertical) > .dv-tab.dv-active-tab .workspace-tab-surface::after"
+    );
     const leftEar = declarationsFor(
       "[class*='dockview-theme-ayu'] .dv-tabs-container:not(.dv-vertical) > .dv-tab.dv-active-tab .workspace-tab-surface::before"
     );
@@ -43,16 +46,30 @@ describe('workspace tab strip chrome', () => {
     );
 
     expect(strip['border-bottom']?.value).toBe('0');
-    expect(tabs.padding?.value).toBe('4px 10px 0');
+    expect(tabs.padding?.value).toBe('4px 4px 0 2px');
     expect(active['border-radius']?.value).toBe(
       'var(--radius) var(--radius) 0 0'
     );
     expect(active['background-color']?.value).toBe(
       'var(--dv-connected-chrome)'
     );
+    expect(ears.width?.value).toBe('var(--dv-tab-curve)');
     expect(leftEar.background?.value).toContain('radial-gradient');
     expect(leftEar.background?.value).toContain('circle at 0 0');
     expect(rightEar.background?.value).toContain('circle at 100% 0');
+  });
+
+  it('keeps inactive hover pills inset from the panel seam', () => {
+    const idle = declarationsFor(
+      "[class*='dockview-theme-ayu'] .dv-tabs-container:not(.dv-vertical) > .dv-tab.dv-inactive-tab .workspace-tab-surface"
+    );
+    const tab = declarationsFor(
+      "[class*='dockview-theme-ayu'] .dv-tabs-container:not(.dv-vertical) > .dv-tab"
+    );
+
+    expect(idle.margin?.value).toBe('3px 0 6px');
+    expect(idle['min-height']?.value).toBe('22px');
+    expect(tab.padding?.value).toBe('0 var(--dv-tab-curve)');
   });
 
   it('hides the native tab-strip scrollbar so overlay tracks cannot cover titles', () => {

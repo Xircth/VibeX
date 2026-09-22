@@ -58,6 +58,7 @@
   );
 
   --dv-connected-chrome: var(--surface-dialog);
+  --dv-tab-curve: calc(var(--radius) * 0.5);
   --dv-activegroup-visiblepanel-tab-background-color: var(--dv-connected-chrome);
   --dv-activegroup-hiddenpanel-tab-background-color: transparent;
   --dv-inactivegroup-visiblepanel-tab-background-color: transparent;
@@ -198,6 +199,7 @@
   );
 
   --dv-connected-chrome: var(--surface-dialog);
+  --dv-tab-curve: calc(var(--radius) * 0.5);
   --dv-activegroup-visiblepanel-tab-background-color: var(--dv-connected-chrome);
   --dv-activegroup-hiddenpanel-tab-background-color: var(--dv-theme-surface);
   --dv-inactivegroup-visiblepanel-tab-background-color: var(--dv-theme-surface);
@@ -346,7 +348,7 @@
 [class*='dockview-theme-ayu'] .dv-tabs-container:not(.dv-vertical) {
   align-items: stretch;
   gap: 0;
-  padding: 4px 10px 0;
+  padding: 4px 4px 0 2px;
 }
 
 [class*='dockview-theme-ayu'] .dv-tabs-container:not(.dv-vertical) > .dv-tab {
@@ -355,7 +357,7 @@
   height: auto;
   min-height: 28px;
   margin: 0;
-  padding: 0 var(--radius);
+  padding: 0 var(--dv-tab-curve);
   border: 0;
   background-color: transparent !important;
   border-radius: 0;
@@ -465,7 +467,8 @@
   .dv-tabs-container:not(.dv-vertical)
   > .dv-tab.dv-inactive-tab
   .workspace-tab-surface {
-  margin-block: 2px;
+  min-height: 22px;
+  margin: 3px 0 6px;
   background-color: transparent;
 }
 
@@ -498,8 +501,8 @@
   content: '';
   position: absolute;
   bottom: 0;
-  width: var(--radius);
-  height: var(--radius);
+  width: var(--dv-tab-curve);
+  height: var(--dv-tab-curve);
   pointer-events: none;
 }
 
@@ -507,11 +510,11 @@
   .dv-tabs-container:not(.dv-vertical)
   > .dv-tab.dv-active-tab
   .workspace-tab-surface::before {
-  left: calc(-1 * var(--radius));
+  left: calc(-1 * var(--dv-tab-curve));
   background: radial-gradient(
     circle at 0 0,
-    transparent var(--radius),
-    var(--dv-connected-chrome) var(--radius)
+    transparent var(--dv-tab-curve),
+    var(--dv-connected-chrome) var(--dv-tab-curve)
   );
 }
 
@@ -519,11 +522,11 @@
   .dv-tabs-container:not(.dv-vertical)
   > .dv-tab.dv-active-tab
   .workspace-tab-surface::after {
-  right: calc(-1 * var(--radius));
+  right: calc(-1 * var(--dv-tab-curve));
   background: radial-gradient(
     circle at 100% 0,
-    transparent var(--radius),
-    var(--dv-connected-chrome) var(--radius)
+    transparent var(--dv-tab-curve),
+    var(--dv-connected-chrome) var(--dv-tab-curve)
   );
 }
 

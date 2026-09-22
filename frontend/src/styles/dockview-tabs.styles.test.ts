@@ -59,16 +59,24 @@ describe('workspace tab strip chrome', () => {
     expect(rightEar.background?.value).toContain('circle at 100% 0');
   });
 
-  it('keeps inactive hover pills inset from the panel seam', () => {
+  it('keeps inactive hover pills white and clear of the panel seam', () => {
+    const strip = declarationsFor(
+      "[class*='dockview-theme-ayu'] .dv-groupview > .dv-tabs-and-actions-container"
+    );
     const idle = declarationsFor(
       "[class*='dockview-theme-ayu'] .dv-tabs-container:not(.dv-vertical) > .dv-tab.dv-inactive-tab .workspace-tab-surface"
+    );
+    const hover = declarationsFor(
+      "[class*='dockview-theme-ayu'] .dv-tabs-container:not(.dv-vertical) > .dv-tab.dv-inactive-tab:hover .workspace-tab-surface"
     );
     const tab = declarationsFor(
       "[class*='dockview-theme-ayu'] .dv-tabs-container:not(.dv-vertical) > .dv-tab"
     );
 
-    expect(idle.margin?.value).toBe('3px 0 6px');
-    expect(idle['min-height']?.value).toBe('22px');
+    expect(strip['z-index']?.value).toBe('1');
+    expect(idle.height?.value).toBe('24px');
+    expect(idle.margin?.value).toBe('2px 0 0');
+    expect(hover['background-color']?.value).toBe('var(--dv-connected-chrome)');
     expect(tab.padding?.value).toBe('0 var(--dv-tab-curve)');
   });
 

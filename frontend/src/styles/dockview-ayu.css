@@ -262,8 +262,11 @@
   background-color: var(--dv-theme-surface) !important;
 }
 
-/* Selected tab joins the panel body. No hairline under the strip. */
+/* Selected tab joins the panel body. Keep the strip above the panel so
+   inactive hover pills are not painted under the content edge. */
 [class*='dockview-theme-ayu'] .dv-groupview > .dv-tabs-and-actions-container {
+  position: relative;
+  z-index: 1;
   overflow: visible;
   border-bottom: 0;
 }
@@ -450,6 +453,12 @@
   color: var(--dv-theme-muted) !important;
 }
 
+[class*='dockview-theme-ayu']
+  .dv-tabs-container:not(.dv-vertical)
+  > .dv-tab.dv-inactive-tab {
+  align-items: flex-start;
+}
+
 [class*='dockview-theme-ayu'] .dv-tab.dv-active-tab {
   z-index: 1;
   background-color: transparent !important;
@@ -467,8 +476,9 @@
   .dv-tabs-container:not(.dv-vertical)
   > .dv-tab.dv-inactive-tab
   .workspace-tab-surface {
-  min-height: 22px;
-  margin: 3px 0 6px;
+  height: 24px;
+  min-height: 24px;
+  margin: 2px 0 0;
   background-color: transparent;
 }
 
@@ -476,7 +486,7 @@
   .dv-tabs-container:not(.dv-vertical)
   > .dv-tab.dv-inactive-tab:hover
   .workspace-tab-surface {
-  background-color: var(--dv-tab-state-background);
+  background-color: var(--dv-connected-chrome);
 }
 
 [class*='dockview-theme-ayu']

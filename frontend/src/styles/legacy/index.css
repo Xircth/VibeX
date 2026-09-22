@@ -731,7 +731,13 @@
   }
 
   /* Astryx TextInput / TextArea own the control frame. Product descendant
-     input rules must not add a second border, padding, height, or focus ring. */
+     input rules must not add a second border, padding, height, or focus ring.
+     Horizontal inset lives on the pressable frame so the caret cannot sit on
+     the hairline. */
+  .legacy-design :is(.astryx-text-input, .astryx-textarea) [data-pressable-container] {
+    padding-inline: 10px;
+  }
+
   .legacy-design :is(.astryx-text-input, .astryx-textarea) :is(input, textarea) {
     border: 0 !important;
     border-radius: 0 !important;
@@ -744,6 +750,14 @@
     padding: 0 !important;
     margin: 0 !important;
     text-indent: 0 !important;
+  }
+
+  .legacy-design
+    .settings-page
+    :is(.astryx-text-input, .astryx-textarea)
+    :is(input, textarea) {
+    font-size: 0.75rem !important;
+    line-height: 1.25 !important;
   }
 
   .legacy-design .browser-toolbar-over-page {
@@ -2181,7 +2195,15 @@
 
   .settings-page
     input:not([type='checkbox']):not([type='radio']):not(
-      :where(.astryx-text-input *, .astryx-textarea *)
+      :where(
+        .astryx-text-input *,
+        .astryx-textarea *,
+        .settings-search-field *,
+        .plugin-search-control *,
+        .agent-registry-search *,
+        .agent-auth-mode-secret *,
+        .product-plugin-search *
+      )
     ),
   .settings-page textarea:not(:where(.astryx-text-input *, .astryx-textarea *)),
   .settings-page button[role='combobox'],
@@ -2194,7 +2216,33 @@
 
   .settings-page
     input:not([type='checkbox']):not([type='radio']):not(
-      :where(.astryx-text-input *, .astryx-textarea *)
+      :where(
+        .astryx-text-input *,
+        .astryx-textarea *,
+        .settings-search-field *,
+        .plugin-search-control *,
+        .agent-registry-search *,
+        .agent-auth-mode-secret *,
+        .product-plugin-search *
+      )
+    ),
+  .settings-page textarea:not(:where(.astryx-text-input *, .astryx-textarea *)) {
+    padding-inline: 10px;
+    font-size: 0.75rem;
+    line-height: 1.25;
+  }
+
+  .settings-page
+    input:not([type='checkbox']):not([type='radio']):not(
+      :where(
+        .astryx-text-input *,
+        .astryx-textarea *,
+        .settings-search-field *,
+        .plugin-search-control *,
+        .agent-registry-search *,
+        .agent-auth-mode-secret *,
+        .product-plugin-search *
+      )
     ),
   .settings-page button[role='combobox'],
   .settings-page
@@ -2214,11 +2262,27 @@
 
   .settings-page
     input:not([type='checkbox']):not([type='radio']):not(
-      :where(.astryx-text-input *, .astryx-textarea *)
+      :where(
+        .astryx-text-input *,
+        .astryx-textarea *,
+        .settings-search-field *,
+        .plugin-search-control *,
+        .agent-registry-search *,
+        .agent-auth-mode-secret *,
+        .product-plugin-search *
+      )
     ):focus,
   .settings-page
     input:not([type='checkbox']):not([type='radio']):not(
-      :where(.astryx-text-input *, .astryx-textarea *)
+      :where(
+        .astryx-text-input *,
+        .astryx-textarea *,
+        .settings-search-field *,
+        .plugin-search-control *,
+        .agent-registry-search *,
+        .agent-auth-mode-secret *,
+        .product-plugin-search *
+      )
     ):focus-visible,
   .settings-page
     textarea:not(:where(.astryx-text-input *, .astryx-textarea *)):focus,

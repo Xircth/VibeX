@@ -536,7 +536,8 @@ fn plugin_mcp_row(
     plugin: &InstalledPlugin,
     binary_runnable: &impl Fn(&str) -> bool,
 ) -> Option<PluginMcpPluginStatus> {
-    let servers_value = plugin.mcp.get("mcpServers").unwrap_or(&plugin.mcp);
+    let live_mcp = live_plugin_mcp(plugin);
+    let servers_value = live_mcp.get("mcpServers").unwrap_or(&live_mcp);
     let object = servers_value.as_object()?;
     if object.is_empty() {
         return None;
@@ -595,6 +596,14 @@ fn plugin_mcp_row(
         connection: connection.to_owned(),
         servers,
     })
+}
+
+fn live_plugin_mcp(plugin: &InstalledPlugin) -> Value {
+    crate::PluginPackage::inspect(&plugin.source.path, plugin.source.kind)
+        .ok()
+        .map(|package| package.mcp)
+        .filter(|mcp| mcp.is_object())
+        .unwrap_or_else(|| plugin.mcp.clone())
 }
 
 fn live_plugin_config(plugin: &InstalledPlugin) -> Value {
@@ -909,6 +918,34 @@ mod tests {
                 .map(|tool| tool.name.as_str())
                 .collect::<Vec<_>>(),
             ["list_apps", "search_actions"]
+        );
+    }
+
+    #[test]
+    fn open_connector_package_status_lists_tools() {
+        let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("../../assets/plugins/open-connector");
+        let package = crate::PluginPackage::inspect(&root, crate::PluginSourceKind::DeveloperLink)
+            .expect("inspect Open Connector");
+        assert!(
+            package.mcp.to_string().contains("list_apps"),
+            "inspected MCP must keep declared tools: {}",
+            package.mcp
+        );
+        let plugin = InstalledPlugin {
+            package,
+            activation: PluginActivation::Enabled,
+            package_digest: "sha256:test".into(),
+        };
+        let report = plugin_mcp_status_report(std::slice::from_ref(&plugin), |_| true);
+        let names = report.plugins[0]
+            .servers
+            .iter()
+            .flat_map(|server| server.tools.iter().map(|tool| tool.name.as_str()))
+            .collect::<Vec<_>>();
+        assert!(
+            names.contains(&"list_apps") && names.contains(&"execute_action"),
+            "{names:?}"
         );
     }
 }

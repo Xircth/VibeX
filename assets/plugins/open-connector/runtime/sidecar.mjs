@@ -116,6 +116,7 @@ export function createSidecar(environment) {
   const runtimeFile = path.join(dir, 'runtime.json');
   const keyFile = path.join(secretsDir, 'encryption.key');
   const tokenFile = path.join(secretsDir, 'runtime.token');
+  const mcpTokenFile = path.join(secretsDir, 'mcp.token');
   let child = null;
   let starting = null;
   let state = 'stopped';
@@ -147,6 +148,48 @@ export function createSidecar(environment) {
       await writeSecret(keyFile, encryptionKey);
     }
     return { token, encryptionKey };
+  }
+
+  async function ensureIssuedRuntimeToken(base) {
+    const saved = await readSecret(mcpTokenFile);
+    let listed = [];
+    try {
+      const response = await fetch(`${base}/api/runtime-tokens`, {
+        signal: AbortSignal.timeout(3000),
+      });
+      if (response.ok) {
+        listed = await response.json();
+      }
+    } catch {
+      listed = [];
+    }
+    if (saved.startsWith('oct_') && Array.isArray(listed) && listed.length > 0) {
+      token = saved;
+      return saved;
+    }
+    const response = await fetch(`${base}/api/runtime-tokens`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        name: 'VibeX',
+        allowedActions: ['*'],
+        blockedActions: [],
+        allowedProxies: ['*'],
+        allowedConnections: [],
+      }),
+      signal: AbortSignal.timeout(5000),
+    });
+    if (!response.ok) {
+      throw new Error(`runtime token ${response.status}`);
+    }
+    const body = await response.json();
+    const issued = String(body?.token || '');
+    if (!issued.startsWith('oct_')) {
+      throw new Error('runtime token was not issued');
+    }
+    await writeSecret(mcpTokenFile, issued);
+    token = issued;
+    return issued;
   }
 
   async function settings() {
@@ -215,6 +258,13 @@ export function createSidecar(environment) {
       JSON.stringify({ origin, port, pid, startedAt: Date.now() }),
     );
     await waitForHealth(origin, HEALTH_WAIT_MS, controller.signal);
+    try {
+      await ensureIssuedRuntimeToken(origin);
+    } catch (error) {
+      environment.log.warn(
+        redact(error instanceof Error ? error.message : String(error)),
+      );
+    }
     state = 'running';
     lastError = undefined;
     return snapshot();

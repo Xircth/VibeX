@@ -1339,10 +1339,25 @@ impl ServerApplicationDomains {
         &self,
         args: Value,
     ) -> Result<Value, ApplicationError> {
-        self.app_surfaces
-            .invoke(parse(args)?)
+        let request: plugins::AppSurfaceInvocation = parse(args)?;
+        let plugin_id = request.identity.plugin_id.clone();
+        let method = request.method.clone();
+        let value = self
+            .app_surfaces
+            .invoke(request)
             .await
-            .map_err(app_surface_error)
+            .map_err(app_surface_error)?;
+        if method == "runtime.restart" {
+            if let Ok(Some(plugin)) = self
+                .plugin_control_plane()
+                .await?
+                .plugin(&plugin_id)
+                .await
+            {
+                let _ = self.apply_default_plugin_mcp_projections(&plugin).await;
+            }
+        }
+        Ok(value)
     }
 
     async fn plugin_invoke_contribution(&self, args: Value) -> Result<Value, ApplicationError> {
@@ -1373,7 +1388,18 @@ impl ServerApplicationDomains {
             }
             None => lease.invoke(handler, args.input).await,
         };
-        result.map_err(|error| ApplicationError::internal(error.to_string()))
+        let value = result.map_err(|error| ApplicationError::internal(error.to_string()))?;
+        if handler == "runtime.restart" {
+            if let Ok(Some(plugin)) = self
+                .plugin_control_plane()
+                .await?
+                .plugin(plugin_id)
+                .await
+            {
+                let _ = self.apply_default_plugin_mcp_projections(&plugin).await;
+            }
+        }
+        Ok(value)
     }
 
     async fn plugin_surface_revoke(&self, args: Value) -> Result<Value, ApplicationError> {

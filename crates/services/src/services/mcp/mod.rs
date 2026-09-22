@@ -1933,9 +1933,10 @@ fn canonical_to_grok_entry(spec: &Value) -> Result<toml::Value, McpError> {
             }
         }
         "http" | "sse" => {
-            if typ == "sse" {
-                table.insert("type".to_string(), toml::Value::String("sse".to_string()));
-            }
+            table.insert(
+                "type".to_string(),
+                toml::Value::String(if typ == "sse" { "sse" } else { "http" }.to_string()),
+            );
             let url = obj
                 .get("url")
                 .and_then(Value::as_str)
@@ -4474,6 +4475,33 @@ mod tests {
             fs::read_to_string(&path)
                 .expect("read preserved Grok")
                 .contains("theme = \"dark\"")
+        );
+    }
+
+    #[test]
+    fn grok_http_writes_streamable_http_type_and_headers() {
+        let entry = canonical_to_grok_entry(&json!({
+            "type": "http",
+            "url": "http://127.0.0.1:9/mcp",
+            "headers": { "Authorization": "Bearer oct_test" }
+        }))
+        .expect("grok http");
+        let table = entry.as_table().expect("table");
+        assert_eq!(
+            table.get("type").and_then(toml::Value::as_str),
+            Some("http")
+        );
+        assert_eq!(
+            table.get("url").and_then(toml::Value::as_str),
+            Some("http://127.0.0.1:9/mcp")
+        );
+        assert_eq!(
+            table
+                .get("headers")
+                .and_then(toml::Value::as_table)
+                .and_then(|headers| headers.get("Authorization"))
+                .and_then(toml::Value::as_str),
+            Some("Bearer oct_test")
         );
     }
 

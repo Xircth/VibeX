@@ -4,5 +4,12 @@
     "handler": "mcp.endpoint",
     "protocolRevision": "2026-07-28",
     "defaultBinding": "all-compatible-agents"
-  }
+  },
+  "tools": [
+    { "name": "list_apps", "group": "open-connector" },
+    { "name": "list_connections", "group": "open-connector" },
+    { "name": "search_actions", "group": "open-connector" },
+    { "name": "get_action_guide", "group": "open-connector" },
+    { "name": "execute_action", "group": "open-connector" }
+  ]
 }

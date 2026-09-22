@@ -70,7 +70,12 @@
       "ask_user_question": "向用户提问",
       "get_session_info": "获取会话信息",
       "send_session_input": "向会话发送输入",
-      "cancel_session_turn": "取消会话回合"
+      "cancel_session_turn": "取消会话回合",
+      "list_apps": "列出应用",
+      "list_connections": "列出连接",
+      "search_actions": "搜索操作",
+      "get_action_guide": "查看操作说明",
+      "execute_action": "执行操作"
     }
   }
 }

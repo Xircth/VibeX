@@ -70,7 +70,12 @@
       "ask_user_question": "Ask the user a question",
       "get_session_info": "Look up a session",
       "send_session_input": "Send session input",
-      "cancel_session_turn": "Cancel a session turn"
+      "cancel_session_turn": "Cancel a session turn",
+      "list_apps": "List apps",
+      "list_connections": "List connections",
+      "search_actions": "Search actions",
+      "get_action_guide": "Get action guide",
+      "execute_action": "Execute action"
     }
   }
 }

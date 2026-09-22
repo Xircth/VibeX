@@ -454,6 +454,41 @@ pub fn advertised_mcp_tools(product: &str, features: u8) -> Vec<PluginMcpToolSta
     }
 }
 
+fn advertised_tools_from_spec(spec: &Value) -> Vec<PluginMcpToolStatus> {
+    let Some(tools) = spec.get("tools").and_then(Value::as_array) else {
+        return Vec::new();
+    };
+    tools
+        .iter()
+        .filter_map(|tool| {
+            if let Some(name) = tool.as_str() {
+                let name = name.trim();
+                if name.is_empty() {
+                    return None;
+                }
+                return Some(PluginMcpToolStatus {
+                    name: name.to_owned(),
+                    group: "mcp".to_owned(),
+                });
+            }
+            let name = tool.get("name").and_then(Value::as_str)?.trim();
+            if name.is_empty() {
+                return None;
+            }
+            let group = tool
+                .get("group")
+                .and_then(Value::as_str)
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .unwrap_or("mcp");
+            Some(PluginMcpToolStatus {
+                name: name.to_owned(),
+                group: group.to_owned(),
+            })
+        })
+        .collect()
+}
+
 /// Build the status-bar snapshot from installed plugins.
 ///
 /// `binary_runnable` answers whether a Host-family binary id is a real
@@ -532,9 +567,9 @@ fn plugin_mcp_row(
             });
         } else {
             servers.push(PluginMcpServerStatus {
-                id: id.clone(),
+                id: projected_mcp_server_id(plugin.id(), id, spec),
                 product: None,
-                tools: Vec::new(),
+                tools: advertised_tools_from_spec(spec),
             });
         }
     }
@@ -843,5 +878,37 @@ mod tests {
         );
         assert_eq!(running.state, PluginMcpHeadline::Running);
         assert_eq!(running.plugins[0].connection, "running");
+    }
+
+    #[test]
+    fn worker_http_status_lists_declared_tools() {
+        let report = plugin_mcp_status_report(
+            std::slice::from_ref(&plugin(
+                "acme.connector",
+                json!({
+                    "mcp": {
+                        "managedRuntime": {
+                            "kind": "workerHttp",
+                            "handler": "mcp.endpoint"
+                        },
+                        "tools": [
+                            { "name": "list_apps", "group": "open-connector" },
+                            "search_actions"
+                        ]
+                    }
+                }),
+                json!({}),
+            )),
+            |_| true,
+        );
+        assert_eq!(report.plugins[0].servers[0].id, "acme-connector-mcp");
+        assert_eq!(
+            report.plugins[0].servers[0]
+                .tools
+                .iter()
+                .map(|tool| tool.name.as_str())
+                .collect::<Vec<_>>(),
+            ["list_apps", "search_actions"]
+        );
     }
 }

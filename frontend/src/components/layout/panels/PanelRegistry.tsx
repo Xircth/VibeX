@@ -18,7 +18,6 @@ import {
   FolderTree,
   GitBranch,
   GitMerge,
-  Globe2,
   House,
   Image as ImageIcon,
   List,
@@ -151,9 +150,6 @@ const PANEL_COMPONENT_MAP: Record<PanelId, React.FC<IDockviewPanelProps>> = {
   [PANEL_IDS.PREVIEW]: lazyPanel(
     () => import('@/components/panels/DockviewPreviewPanel')
   ),
-  [PANEL_IDS.WEB_PREVIEW]: lazyPanel(
-    () => import('@/components/panels/DockviewWebPreviewPanel')
-  ),
   [PANEL_IDS.DIFFS]: lazyPanel(
     () => import('@/components/panels/DockviewDiffsReviewPanel')
   ),
@@ -195,8 +191,6 @@ export const PLUGIN_PANEL_COMPONENT = 'plugin-panel';
 
 export const panelComponents: Record<string, React.FC<IDockviewPanelProps>> = {
   ...PANEL_COMPONENT_MAP,
-  // Serialized layouts from before the Web Preview rename still resolve.
-  'dev-preview': PANEL_COMPONENT_MAP[PANEL_IDS.WEB_PREVIEW],
   [PLUGIN_PANEL_COMPONENT]: lazyPanel(
     () => import('@/components/layout/panels/PluginDockviewPanel')
   ),
@@ -246,7 +240,7 @@ function WorkspaceTabIcon({
     setFailedFaviconUrl(null);
   }, [faviconUrl]);
   const usableFavicon =
-    component === PANEL_IDS.WEB_PREVIEW &&
+    component === PLUGIN_PANEL_COMPONENT &&
     faviconUrl !== null &&
     failedFaviconUrl !== faviconUrl;
 
@@ -315,9 +309,7 @@ function WorkspaceTabIcon({
   }
 
   const [Icon, iconKind] =
-    component === PANEL_IDS.WEB_PREVIEW
-      ? ([Globe2, 'browser'] as const)
-      : (PANEL_TAB_ICONS[component as PanelId] ?? ([File, 'file'] as const));
+    PANEL_TAB_ICONS[component as PanelId] ?? ([File, 'file'] as const);
 
   return (
     <Icon
@@ -476,11 +468,6 @@ export function usePanelMeta(): PanelMeta[] {
     },
     { id: PANEL_IDS.KANBAN, title: 'Kanban', defaultPosition: 'center' },
     { id: PANEL_IDS.PREVIEW, title: 'Preview', defaultPosition: 'center' },
-    {
-      id: PANEL_IDS.WEB_PREVIEW,
-      title: 'Web Preview',
-      defaultPosition: 'center',
-    },
     { id: PANEL_IDS.DIFFS, title: 'Diffs', defaultPosition: 'center' },
     { id: PANEL_IDS.MERGE, title: 'Merge', defaultPosition: 'center' },
     { id: PANEL_IDS.TERMINAL, title: 'Terminal', defaultPosition: 'bottom' },

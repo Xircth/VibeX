@@ -17,6 +17,7 @@ const en = i18n.getFixedT('en', 'settings');
 
 describe('official plugin presentation', () => {
   it('localizes official plugin names in the active locale', () => {
+    expect(officialPluginName('vibex.browser', 'fallback', t)).toBe('浏览器');
     expect(officialPluginName('vibex.office', 'fallback', t)).toBe('办公套件');
     expect(officialPluginName('vibex.workflow-creator', 'fallback', t)).toBe(
       'DAG 工作流编辑器'
@@ -47,6 +48,7 @@ describe('official plugin presentation', () => {
     );
     expect(officialPluginName('vibex.science', 'fallback', t)).toBe('科学研究');
     expect(officialPluginName('third.party', 'Drawio', t)).toBe('Drawio');
+    expect(officialPluginName('vibex.browser', 'fallback', en)).toBe('Browser');
     expect(officialPluginName('vibex.office', 'fallback', en)).toBe(
       'VibeX Office'
     );

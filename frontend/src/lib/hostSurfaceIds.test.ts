@@ -17,6 +17,14 @@ describe('hostSurfaceIds', () => {
       pluginId: 'vibex.host-surface',
       contributionId: 'sample-tab',
     });
+    expect(pluginSurfaceId('vibex.browser', 'browser', 2)).toBe(
+      'plugin:vibex.browser/browser:2'
+    );
+    expect(parsePluginSurfaceId('plugin:vibex.browser/browser:2')).toEqual({
+      pluginId: 'vibex.browser',
+      contributionId: 'browser',
+      instance: '2',
+    });
   });
 
   it('falls back to workspace when a plugin tab disappears', () => {

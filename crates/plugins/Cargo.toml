@@ -5,6 +5,7 @@ edition = "2024"
 
 [dependencies]
 async-trait = { workspace = true }
+axum = { workspace = true }
 dirs = { workspace = true }
 flate2 = "1"
 serde = { workspace = true }
@@ -24,6 +25,7 @@ tool-runtime = { path = "../tool-runtime" }
 url = { workspace = true }
 utils = { path = "../utils" }
 uuid = { workspace = true }
+browser-host = { path = "../browser-host" }
 zip = { version = "4", default-features = false, features = ["deflate"] }
 
 [target.'cfg(target_os = "macos")'.dependencies]

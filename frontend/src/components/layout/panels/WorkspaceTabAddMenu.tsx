@@ -1,7 +1,6 @@
 import type { IDockviewHeaderActionsProps } from 'dockview-react';
 import {
   FileDiff,
-  Globe2,
   Plus,
   Puzzle,
   SquareTerminal,
@@ -16,14 +15,13 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { usePanelActionsContext } from '@/contexts/PanelActionsContext';
 import { useWorkspaceOverlay } from '@/contexts/WorkspaceOverlayContext';
-import { useBackendCapabilities, useBackendTransport } from '@/lib/transport';
 import { isEditorGroup } from '@/utils/dockviewGroupPolicy';
 import {
   contributionMetadata,
   usePluginHostContributions,
 } from '@/hooks/usePluginHostContributions';
 import { contributionIconComponent } from '@/components/plugins/contributionIcon';
-import { pluginSurfaceId } from '@/lib/hostSurfaceIds';
+
 
 export function WorkspaceTabAddMenu({
   api,
@@ -33,16 +31,11 @@ export function WorkspaceTabAddMenu({
   const {
     openDiffPreview,
     openNotes,
-    openWebPreview,
     openTerminalEditorTab,
     openPluginPanel,
   } = usePanelActionsContext();
   const pluginPanels = usePluginHostContributions('app_panel');
   const { setTabCreationMenuOpen } = useWorkspaceOverlay();
-  const transport = useBackendTransport();
-  const { supports } = useBackendCapabilities();
-  const canOpenWebPreview =
-    transport.environment === 'desktop' || supports('desktop.tauri');
 
   if (!isEditorGroup(group)) return null;
 
@@ -68,14 +61,6 @@ export function WorkspaceTabAddMenu({
         sideOffset={4}
         className="workspace-tab-add-menu w-44"
       >
-        {canOpenWebPreview ? (
-          <DropdownMenuItem
-            onSelect={() => runInThisGroup(() => openWebPreview())}
-          >
-            <Globe2 />
-            {t('tabCreation.browser')}
-          </DropdownMenuItem>
-        ) : null}
         <DropdownMenuItem onSelect={() => runInThisGroup(openDiffPreview)}>
           <FileDiff />
           {t('tabCreation.review')}
@@ -100,11 +85,13 @@ export function WorkspaceTabAddMenu({
               onSelect={() =>
                 runInThisGroup(() =>
                   openPluginPanel({
-                    panelId: pluginSurfaceId(item.pluginId, item.id),
                     title: item.label,
                     pluginId: item.pluginId,
                     contributionId: item.id,
                     icon,
+                    multiInstance: metadata.multiInstance === true,
+                    instance:
+                      metadata.multiInstance === true ? 'new' : 'focus',
                   })
                 )
               }

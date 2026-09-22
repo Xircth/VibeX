@@ -19,7 +19,6 @@ import {
   type PluginProductDetail,
 } from '@/lib/api/plugins';
 import { useBackendCapabilities, useBackendTransport } from '@/lib/transport';
-import { SettingsActionBar } from '@/pages/settings/SettingsUi';
 import {
   AgentDefaultsField,
   isAgentDefaultsSchema,
@@ -279,16 +278,14 @@ export function PluginConfigForm({
   const { supports } = useBackendCapabilities();
   const [draft, setDraft] = useState(detail.config);
   const [saving, setSaving] = useState(false);
-  const dirty = JSON.stringify(draft) !== JSON.stringify(detail.config);
 
   useEffect(() => setDraft(detail.config), [detail]);
 
-  const save = async () => {
+  const persist = async (next: Record<string, unknown>) => {
     setSaving(true);
     try {
-      const updated = await api.saveConfig(pluginId, draft);
+      const updated = await api.saveConfig(pluginId, next);
       onSaved(updated);
-      toast.success(t('plugins.configSaved'));
     } catch (error) {
       toast.error(t('plugins.configSaveFailed'), {
         description: errorMessage(error),
@@ -296,6 +293,12 @@ export function PluginConfigForm({
     } finally {
       setSaving(false);
     }
+  };
+
+  const updateField = (key: string, value: unknown) => {
+    const next = { ...draft, [key]: value };
+    setDraft(next);
+    void persist(next);
   };
 
   const properties = schemaProperties(detail.configSchema);
@@ -306,10 +309,8 @@ export function PluginConfigForm({
   return (
     <form
       className="product-plugin-config-shell"
-      onSubmit={(event) => {
-        event.preventDefault();
-        void save();
-      }}
+      aria-busy={saving}
+      onSubmit={(event) => event.preventDefault()}
     >
       <div className="product-plugin-config settings-card">
         {properties.map(([key, schema]) => (
@@ -319,20 +320,11 @@ export function PluginConfigForm({
             name={key}
             schema={schema}
             value={draft[key]}
-            disabled={!supports('plugin.write')}
-            onChange={(value) =>
-              setDraft((current) => ({ ...current, [key]: value }))
-            }
+            disabled={!supports('plugin.write') || saving}
+            onChange={(value) => updateField(key, value)}
           />
         ))}
       </div>
-      <SettingsActionBar
-        dirty={dirty}
-        saving={saving}
-        disabled={!supports('plugin.write')}
-        onDiscard={() => setDraft(detail.config)}
-        onSave={() => void save()}
-      />
     </form>
   );
 }

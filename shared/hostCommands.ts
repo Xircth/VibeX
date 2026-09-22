@@ -545,10 +545,6 @@ export const DESKTOP_SHELL_COMMANDS = [
   'backup_cancel',
   'backup_inspect',
   'backup_restore_stage',
-  'browser_apply_intent',
-  'browser_close_tab',
-  'browser_create_tab',
-  'browser_get_tab',
   'cancel_create_host_tunnel',
   'check_existing_host_tunnel',
   'confirm_create_host_tunnel',
@@ -1147,6 +1143,7 @@ export const HOST_EVENT_CHANNELS = [
   { prefix: 'terminal-output', durability: 'best_effort', scope: 'application.call' },
   { prefix: 'terminal-exit', durability: 'best_effort', scope: 'application.call' },
   { prefix: 'plugin-contributions-changed', durability: 'invalidation', scope: 'plugin.read' },
+  { prefix: 'plugin-conversation-draft-insert', durability: 'best_effort', scope: 'conversation.read' },
   { prefix: 'provider-bind-confirm', durability: 'best_effort', scope: 'plugin.write' },
 ] as const;
 

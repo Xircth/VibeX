@@ -2,6 +2,14 @@
   "listings": [
     {
       "publisher": "vibex",
+      "pluginId": "vibex.browser",
+      "version": "1.0.0",
+      "summary": "Built-in browser tabs with saved cookies, page handoff, and optional agent tools.",
+      "packageDigest": "builtin:vibex.browser",
+      "archive": "builtin://vibex.browser"
+    },
+    {
+      "publisher": "vibex",
       "pluginId": "vibex.office",
       "version": "3.0.0",
       "summary": "在 VibeX 中创建、编辑、分析和预览 DOCX、XLSX 与 PPTX 文件。",

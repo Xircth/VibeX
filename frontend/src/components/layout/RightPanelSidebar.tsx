@@ -1,4 +1,3 @@
-import { useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
   Terminal,
@@ -6,25 +5,28 @@ import {
   GitCompareArrows,
   Loader2,
   StickyNote,
-  Globe,
+  Puzzle,
   ScanSearch,
 } from 'lucide-react';
 import { usePanelActionsContext } from '@/contexts/PanelActionsContext';
+import {
+  contributionMetadata,
+  usePluginHostContributions,
+} from '@/hooks/usePluginHostContributions';
+import { contributionIconComponent } from '@/components/plugins/contributionIcon';
 import { useWorktree } from '@/contexts/WorktreeContext';
 import { useKanbanSessionContext } from '@/contexts/KanbanSessionContext';
 import { ExecutionProcessesProvider } from '@/contexts/ExecutionProcessesContext';
 import { ViewProcessesDialog } from '@/components/dialogs/tasks/ViewProcessesDialog';
 import { useTaskAttemptWithSession } from '@/hooks/useTaskAttempt';
-import { useDevServer } from '@/hooks/useDevServer';
+
 import {
   Tooltip,
   TooltipContent,
   TooltipProvider,
   TooltipTrigger,
 } from '@/components/ui/tooltip';
-import { PANEL_IDS } from '@/stores/useLayoutStore';
 import { useTauriInspector } from '@/hooks/useTauriInspector';
-import { useBackendTransport } from '@/lib/transport';
 
 function RightPanelSidebarContent({
   workspaceId,
@@ -34,39 +36,18 @@ function RightPanelSidebarContent({
   sessionId?: string;
 }) {
   const { t } = useTranslation(['panels', 'common']);
-  const transport = useBackendTransport();
-  const showEmbeddedBrowser = transport.environment !== 'web';
-  const { openNewTerminal, openDiffPreview, openNotes, openOrFocusPanel } =
-    usePanelActionsContext();
-  const { runningDevServers, devServerProcesses } = useDevServer(workspaceId);
+  const {
+    openNewTerminal,
+    openDiffPreview,
+    openNotes,
+    openPluginPanel,
+  } = usePanelActionsContext();
+  const railSections = usePluginHostContributions('app_rail_section');
   const {
     activate: activateTauriInspector,
     isActivating: isTauriInspectorActivating,
     status: tauriInspectorStatus,
   } = useTauriInspector(workspaceId);
-
-  const handleOpenPreview = useCallback(() => {
-    openOrFocusPanel(PANEL_IDS.WEB_PREVIEW, 'Web Preview');
-  }, [openOrFocusPanel]);
-
-  const hasRunningDevServer = runningDevServers.length > 0;
-  const hasFailedDevServer = devServerProcesses.some(
-    (process) =>
-      process.status === 'failed' ||
-      (process.status === 'completed' &&
-        process.exit_code !== null &&
-        process.exit_code !== 0n)
-  );
-  const networkButtonClass = hasRunningDevServer
-    ? 'bg-[hsl(var(--primary)/0.1)] text-primary hover:bg-[hsl(var(--primary)/0.14)] hover:text-primary'
-    : hasFailedDevServer
-      ? 'text-destructive hover:text-destructive hover:bg-destructive/10 bg-destructive/10'
-      : 'text-muted-foreground hover:text-foreground hover:bg-accent';
-  const networkTooltipLabel = hasRunningDevServer
-    ? t('rightPanelSidebar.devServerRunningTooltip')
-    : hasFailedDevServer
-      ? t('rightPanelSidebar.devServerFailedTooltip')
-      : t('rightPanelSidebar.openNetworkPreview');
 
   const buttons = [
     {
@@ -119,20 +100,48 @@ function RightPanelSidebarContent({
 
         <div className="my-1 h-px w-5 bg-border" />
 
-        {showEmbeddedBrowser && workspaceId && (
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <button
-                onClick={handleOpenPreview}
-                className={`workspace-side-rail-button flex h-7 w-7 items-center justify-center ${networkButtonClass}`}
-                aria-label={networkTooltipLabel}
-              >
-                <Globe className="h-3.5 w-3.5" />
-              </button>
-            </TooltipTrigger>
-            <TooltipContent side="left">{networkTooltipLabel}</TooltipContent>
-          </Tooltip>
-        )}
+        {railSections.map((item) => {
+          const metadata = contributionMetadata(item);
+          const icon =
+            typeof metadata.icon === 'string' ? metadata.icon : null;
+          const Icon = contributionIconComponent(icon, Puzzle);
+          const opens =
+            metadata.opens &&
+            typeof metadata.opens === 'object' &&
+            !Array.isArray(metadata.opens)
+              ? (metadata.opens as {
+                  kind?: string;
+                  id?: string;
+                  instance?: string;
+                })
+              : null;
+          const contributionId =
+            typeof opens?.id === 'string' ? opens.id : item.id;
+          return (
+            <Tooltip key={`${item.pluginId}:${item.id}`}>
+              <TooltipTrigger asChild>
+                <button
+                  onClick={() =>
+                    openPluginPanel({
+                      title: item.label,
+                      pluginId: item.pluginId,
+                      contributionId,
+                      icon,
+                      multiInstance: true,
+                      instance:
+                        opens?.instance === 'new' ? 'new' : 'focus',
+                    })
+                  }
+                  className="workspace-side-rail-button flex h-7 w-7 items-center justify-center"
+                  aria-label={item.label}
+                >
+                  <Icon className="h-3.5 w-3.5" />
+                </button>
+              </TooltipTrigger>
+              <TooltipContent side="left">{item.label}</TooltipContent>
+            </Tooltip>
+          );
+        })}
 
         {workspaceId && (
           <Tooltip>

@@ -2,14 +2,7 @@
   "bundle": {
     "macOS": {
       "minimumSystemVersion": "12.0",
-      "entitlements": "entitlements.macos.plist",
-      "frameworks": [
-        "../target/cef-runtime/macos/app/vibex.app/Contents/Frameworks/Chromium Embedded Framework.framework"
-      ],
-      "files": {
-        "Resources/cef-runtime-manifest.json": "../target/cef-runtime/macos/cef-runtime-manifest.json",
-        "Frameworks": "../target/cef-runtime/macos/framework-links"
-      }
+      "entitlements": "entitlements.macos.plist"
     }
   }
 }

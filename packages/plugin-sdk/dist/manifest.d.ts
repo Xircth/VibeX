@@ -277,6 +277,21 @@ export interface PanelIntegrationManifest extends IntegrationBase {
     defaultPosition?: "left" | "center";
     hidesBottomDock?: boolean;
     remote?: RemoteModuleManifest;
+    /** Each open request creates a new Dockview tab. */
+    multiInstance?: boolean;
+    /** Host-owned native chrome, e.g. host-browser. */
+    engine?: string;
+    allowedMethods?: string[];
+}
+export interface RailSectionIntegrationManifest extends IntegrationBase {
+    kind: "app.rail.section";
+    title: string;
+    icon?: ContributionIcon;
+    opens: {
+        kind: "app.panel";
+        id: string;
+        instance?: "focus" | "new";
+    };
 }
 export interface TabIntegrationManifest extends IntegrationBase {
     kind: "app.tab";
@@ -323,7 +338,7 @@ export interface RemoteProvisionerIntegrationManifest extends IntegrationBase {
     /** 5–600. Default 120. Used by the plugin's repair handler. */
     timeoutSeconds?: number;
 }
-export type IntegrationManifest = SkillIntegrationManifest | McpIntegrationManifest | HookIntegrationManifest | WorkflowIntegrationManifest | FileOpenerIntegrationManifest | PreviewIntegrationManifest | AppSurfaceIntegrationManifest | CommandIntegrationManifest | ToolbarIntegrationManifest | StatusIntegrationManifest | ComposerSlashIntegrationManifest | TimelineCardIntegrationManifest | SettingsSectionIntegrationManifest | HostServiceIntegrationManifest | ProviderImportSourceIntegrationManifest | ProviderCatalogIntegrationManifest | PanelIntegrationManifest | TabIntegrationManifest | KanbanViewIntegrationManifest | SettingsPageIntegrationManifest | ComposerActionIntegrationManifest | RemoteProvisionerIntegrationManifest;
+export type IntegrationManifest = SkillIntegrationManifest | McpIntegrationManifest | HookIntegrationManifest | WorkflowIntegrationManifest | FileOpenerIntegrationManifest | PreviewIntegrationManifest | AppSurfaceIntegrationManifest | CommandIntegrationManifest | ToolbarIntegrationManifest | StatusIntegrationManifest | ComposerSlashIntegrationManifest | TimelineCardIntegrationManifest | SettingsSectionIntegrationManifest | HostServiceIntegrationManifest | ProviderImportSourceIntegrationManifest | ProviderCatalogIntegrationManifest | PanelIntegrationManifest | TabIntegrationManifest | KanbanViewIntegrationManifest | SettingsPageIntegrationManifest | ComposerActionIntegrationManifest | RemoteProvisionerIntegrationManifest | RailSectionIntegrationManifest;
 export declare const pluginManifestSchema: {
     readonly $schema: "https://json-schema.org/draft/2020-12/schema";
     readonly $id: "https://schemas.vibex.dev/plugin/v4/plugin.schema.json";
@@ -504,7 +519,7 @@ export declare const pluginManifestSchema: {
                         readonly pattern: "^[a-z][a-z0-9]*(?:[.-][a-z0-9]+)*$";
                     };
                     readonly kind: {
-                        readonly enum: readonly ["content.skill", "content.mcp", "content.hook", "workflow.binding", "file.opener", "artifact.preview", "app.surface", "app.command", "app.toolbar", "app.status", "app.composer.slash", "app.timeline.card", "app.settings.section", "host.service", "provider.model.importSource", "provider.model.catalog", "app.panel", "app.tab", "app.kanban.view", "app.settings.page", "app.composer.action", "provider.remote.provisioner"];
+                        readonly enum: readonly ["content.skill", "content.mcp", "content.hook", "workflow.binding", "file.opener", "artifact.preview", "app.surface", "app.command", "app.toolbar", "app.status", "app.composer.slash", "app.timeline.card", "app.settings.section", "host.service", "provider.model.importSource", "provider.model.catalog", "app.panel", "app.tab", "app.kanban.view", "app.settings.page", "app.composer.action", "app.rail.section", "provider.remote.provisioner"];
                     };
                     readonly resource: {
                         readonly type: "string";

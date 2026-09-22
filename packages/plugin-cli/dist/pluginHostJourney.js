@@ -14,6 +14,7 @@ export const STRUCTURE_KINDS = [
     "app.kanban.view",
     "app.settings.page",
     "app.composer.action",
+    "app.rail.section",
 ];
 /** Static provider catalog templates. Host journey also asserts list/empty. */
 export const CATALOG_KINDS = ["provider.model.catalog"];
@@ -36,6 +37,7 @@ export const MANIFEST_KIND_TO_CATALOG = {
     "app.kanban.view": "kanban_view",
     "app.settings.page": "settings_page",
     "app.composer.action": "composer_action",
+    "app.rail.section": "app_rail_section",
     "provider.remote.provisioner": "remote_provisioner",
     "provider.model.catalog": "provider_model_catalog",
 };

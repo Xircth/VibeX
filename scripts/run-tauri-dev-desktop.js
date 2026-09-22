@@ -199,12 +199,6 @@ function writeGeneratedTauriDevConfig(ports) {
   fs.writeFileSync(generatedConfigPath, `${JSON.stringify(config, null, 2)}\n`);
 }
 
-function hasRunnerArg(args) {
-  return args.some(
-    (arg) => arg === '--runner' || arg === '-r' || arg.startsWith('--runner=')
-  );
-}
-
 function describeTauriDevExit(code, signal, ports) {
   if (code === 0) {
     return;
@@ -228,13 +222,6 @@ async function runTauriDesktopDev() {
   terminateStaleDesktopProcess();
 
   const userArgs = process.argv.slice(2);
-  const runnerArgs =
-    process.platform === 'darwin' && !hasRunnerArg(userArgs)
-      ? [
-          '--runner',
-          path.join(process.cwd(), 'scripts', 'run-tauri-dev-macos.js'),
-        ]
-      : [];
 
   const child = runCommand(
     'pnpm',
@@ -244,7 +231,6 @@ async function runTauriDesktopDev() {
       'dev',
       '-c',
       GENERATED_TAURI_DEV_CONFIG.replace(/\\/g, '/'),
-      ...runnerArgs,
       ...userArgs,
     ],
     {

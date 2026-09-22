@@ -2,11 +2,8 @@
   "bundle": {
     "linux": {
       "deb": {
-        "depends": ["xwayland"]
+        "depends": []
       }
-    },
-    "resources": {
-      "../target/cef-runtime/linux/": ""
     }
   }
 }

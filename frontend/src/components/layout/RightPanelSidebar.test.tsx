@@ -28,7 +28,7 @@ vi.mock('@/contexts/PanelActionsContext', () => ({
     openDiffPreview: vi.fn(),
     openNotes: vi.fn(),
     openOrFocusPanel: vi.fn(),
-    openWebPreview: vi.fn(),
+    openPluginPanel: vi.fn(),
   }),
 }));
 
@@ -96,8 +96,7 @@ describe('RightPanelSidebar', () => {
     ).not.toBeInTheDocument();
   });
 
-  it('shows the network preview button on a remote desktop client', async () => {
-    transportEnvironment.current = 'remote-desktop';
+  it('does not hard-code a browser rail button without a plugin contribution', async () => {
     const queryClient = new QueryClient({
       defaultOptions: { queries: { retry: false } },
     });
@@ -112,30 +111,14 @@ describe('RightPanelSidebar', () => {
     });
 
     expect(
-      screen.getByRole('button', { name: '打开网络预览' })
-    ).toBeInTheDocument();
-  });
-
-  it('shows the network preview button on the desktop client', async () => {
-    const queryClient = new QueryClient({
-      defaultOptions: { queries: { retry: false } },
-    });
-
-    render(
-      <QueryClientProvider client={queryClient}>
-        <RightPanelSidebar />
-      </QueryClientProvider>
-    );
-    await act(async () => {
-      await Promise.resolve();
-    });
-
+      screen.queryByRole('button', { name: '打开网络预览' })
+    ).not.toBeInTheDocument();
     expect(
-      screen.getByRole('button', { name: '打开网络预览' })
+      screen.getByRole('button', { name: '打开终端' })
     ).toBeInTheDocument();
   });
 
-  it('hides the network preview button on WebUI', async () => {
+  it('hides plugin-only rail buttons on WebUI', async () => {
     transportEnvironment.current = 'web';
     const queryClient = new QueryClient({
       defaultOptions: { queries: { retry: false } },

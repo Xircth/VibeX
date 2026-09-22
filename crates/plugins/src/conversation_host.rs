@@ -130,6 +130,17 @@ pub trait PluginConversationHost: Send + Sync {
         plugin_id: &str,
         conversation_id: &str,
     ) -> Result<(), PluginConversationError>;
+
+    /// Insert a structured token into a Conversation draft. Does not submit a
+    /// Turn. Omit `conversation_id` to target the Host's foreground session.
+    async fn insert_draft(
+        &self,
+        plugin_id: &str,
+        request: PluginConversationDraftInsert,
+    ) -> Result<PluginConversationDraftReceipt, PluginConversationError> {
+        let _ = (plugin_id, request);
+        Err(unavailable())
+    }
 }
 
 #[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
@@ -143,6 +154,32 @@ pub struct PluginConversationCreate {
     pub title: Option<String>,
     #[serde(default)]
     pub prompt: Option<String>,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PluginConversationDraftToken {
+    pub kind: String,
+    pub label: String,
+    pub markdown: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub html_preview: Option<String>,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PluginConversationDraftInsert {
+    #[serde(default)]
+    pub conversation_id: Option<String>,
+    pub token: PluginConversationDraftToken,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PluginConversationDraftReceipt {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub conversation_id: Option<String>,
+    pub inserted: bool,
 }
 
 #[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]

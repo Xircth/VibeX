@@ -2,21 +2,35 @@ export const PLUGIN_SURFACE_PREFIX = 'plugin:';
 
 export function pluginSurfaceId(
   pluginId: string,
-  contributionId: string
+  contributionId: string,
+  instance?: string | number
 ): string {
-  return `${PLUGIN_SURFACE_PREFIX}${pluginId}/${contributionId}`;
+  const base = `${PLUGIN_SURFACE_PREFIX}${pluginId}/${contributionId}`;
+  return instance == null || instance === '' ? base : `${base}:${instance}`;
 }
 
-export function parsePluginSurfaceId(
-  value: string
-): { pluginId: string; contributionId: string } | null {
+export function parsePluginSurfaceId(value: string): {
+  pluginId: string;
+  contributionId: string;
+  instance?: string;
+} | null {
   if (!value.startsWith(PLUGIN_SURFACE_PREFIX)) return null;
   const body = value.slice(PLUGIN_SURFACE_PREFIX.length);
   const separator = body.indexOf('/');
   if (separator <= 0 || separator === body.length - 1) return null;
+  const pluginId = body.slice(0, separator);
+  const rest = body.slice(separator + 1);
+  const instanceSep = rest.lastIndexOf(':');
+  if (instanceSep > 0 && /^\d+$/.test(rest.slice(instanceSep + 1))) {
+    return {
+      pluginId,
+      contributionId: rest.slice(0, instanceSep),
+      instance: rest.slice(instanceSep + 1),
+    };
+  }
   return {
-    pluginId: body.slice(0, separator),
-    contributionId: body.slice(separator + 1),
+    pluginId,
+    contributionId: rest,
   };
 }
 

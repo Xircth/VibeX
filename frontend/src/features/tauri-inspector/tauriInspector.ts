@@ -1,4 +1,4 @@
-import type { OpenInEditorPayload } from '@/features/browser/inspectTypes';
+import type { OpenInEditorPayload } from '@/lib/inspectTypes';
 
 export type TauriInspectorStatus = {
   is_tauri: boolean;

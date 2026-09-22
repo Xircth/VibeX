@@ -25,13 +25,10 @@ test('desktop release version has one value across frontend, Tauri, and Cargo', 
   const cargoVersion = read('src-tauri/Cargo.toml').match(
     /^version\s*=\s*"([^"]+)"/m
   )?.[1];
-  const cefStager = read('crates/browser-cef/src/bin/stage_cef_runtime.rs');
 
   assert.equal(tauriVersion, frontendVersion);
   assert.equal(tauriVersionSource, '../package.json');
   assert.equal(cargoVersion, frontendVersion);
-  assert.match(cefStager, /package\.json/);
-  assert.doesNotMatch(cefStager, /Version::new\(0,\s*1,\s*0\)/);
 });
 
 test('main window stays hidden until the desktop shell is ready to paint', () => {
@@ -42,17 +39,17 @@ test('main window stays hidden until the desktop shell is ready to paint', () =>
 
 test('installed desktop identity stays distinct from the development instance', () => {
   const config = readJson('src-tauri/tauri.conf.json');
-  const cefStager = read('crates/browser-cef/src/bin/stage_cef_runtime.rs');
-  const macosRunner = read('scripts/run-tauri-dev-macos.js');
-  const packagingStager = read('scripts/stage-cef-runtime.js');
+  const desktopDev = read('scripts/run-tauri-dev-desktop.js');
 
   assert.equal(config.identifier, 'com.vibex.app');
   assert.equal(config.productName, 'VibeX');
   assert.deepEqual(config.plugins['deep-link'].desktop.schemes, ['vibex']);
-  assert.match(cefStager, /com\.vibex\.app\.dev/);
-  assert.match(cefStager, /--dev-bundle/);
-  assert.match(macosRunner, /--dev-bundle/);
-  assert.doesNotMatch(packagingStager, /--dev-bundle/);
+  assert.match(desktopDev, /com\.vibex\.app\.dev/);
+  assert.match(desktopDev, /VibeX Dev/);
+  assert.equal(
+    fs.existsSync(path.join(repoRoot, 'scripts', 'run-tauri-dev-macos.js')),
+    false
+  );
 });
 
 test('Windows installer is self-contained for WebView2', () => {
@@ -75,10 +72,11 @@ test('macOS bundle declares its minimum supported system version', () => {
   );
 });
 
-test('Linux Debian package declares the XWayland runtime required by CEF', () => {
+test('Linux Debian package does not require XWayland for a CEF child window', () => {
   const config = readJson('src-tauri/tauri.linux.conf.json');
+  const depends = config.bundle?.linux?.deb?.depends ?? [];
 
-  assert.ok(config.bundle?.linux?.deb?.depends?.includes('xwayland'));
+  assert.equal(depends.includes('xwayland'), false);
 });
 
 test('desktop release builds every supported OS and CPU architecture', () => {
@@ -187,11 +185,11 @@ test('desktop release runs platform-native startup smoke tests', () => {
   }
 });
 
-test('desktop release compiles frontend once and reuses Rust and CEF caches', () => {
+test('desktop release compiles frontend once and reuses Rust caches without CEF', () => {
   const workflow = read('.github/workflows/desktop-release.yml');
   const tauriConfig = read('src-tauri/tauri.conf.json');
   const desktopBuild = read('scripts/run-tauri-build.js');
-  const stager = read('scripts/stage-cef-runtime.js');
+  const beforeBundle = read('scripts/tauri-before-bundle.js');
 
   assert.match(workflow, /name: Build frontend/);
   assert.match(workflow, /probe-runners:/);
@@ -207,11 +205,8 @@ test('desktop release compiles frontend once and reuses Rust and CEF caches', ()
   assert.match(workflow, /Disable sccache on Windows/);
   assert.match(workflow, /if: runner\.os != 'Windows'/);
   assert.match(workflow, /cache-targets:\s*false/);
-  assert.match(
-    workflow,
-    /CEF_PATH:\s*\$\{\{\s*github\.workspace\s*\}\}\/\.cef/
-  );
-  assert.match(workflow, /name: Cache CEF downloads/);
+  assert.doesNotMatch(workflow, /CEF_PATH/);
+  assert.doesNotMatch(workflow, /Cache CEF downloads/);
   assert.doesNotMatch(workflow, /macos-15-intel/);
   assert.doesNotMatch(workflow, /x86_64-apple-darwin/);
   assert.match(
@@ -219,12 +214,11 @@ test('desktop release compiles frontend once and reuses Rust and CEF caches', ()
     /artifact_name: macos-arm64[\s\S]*runner: macos-15$/m
   );
   assert.doesNotMatch(workflow, /cache-all-crates:\s*true/);
-  assert.match(stager, /isCefRuntimeStaged/);
-  assert.match(stager, /already staged/);
+  assert.match(beforeBundle, /sidecarBinsExist/);
+  assert.doesNotMatch(beforeBundle, /stage-cef-runtime/);
 
   assert.match(tauriConfig, /scripts\/tauri-before-build\.js/);
   assert.match(tauriConfig, /scripts\/tauri-before-bundle\.js/);
-  assert.match(desktopBuild, /--bin/);
-  assert.match(desktopBuild, /vibex_cef_helper/);
-  assert.doesNotMatch(stager, /["']run["']/);
+  assert.doesNotMatch(desktopBuild, /vibex_cef_helper/);
+  assert.doesNotMatch(desktopBuild, /CEF_PATH/);
 });

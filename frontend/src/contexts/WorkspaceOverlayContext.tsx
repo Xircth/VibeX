@@ -8,14 +8,14 @@ import {
   useRef,
   type ReactNode,
 } from 'react';
-import type { OverlayRect } from '@/features/browser/nativeSurfaceOverlay';
+import type { OverlayRect } from '@/lib/nativeSurfaceOverlay';
 
 export type { OverlayRect };
 
 export interface NativeSurfaceOcclusion {
   /** Hide the entire native surface (tab context menu, explicit holds). */
   hide: boolean;
-  /** Popover rectangles that should hide CEF so HTML can stack above the page. */
+  /** Popover rectangles that should hide the native page so HTML can stack above it. */
   rects: OverlayRect[];
 }
 
@@ -25,7 +25,7 @@ type NativeSurfaceOcclusionListener = (
 
 interface WorkspaceOverlayContextValue {
   setTabCreationMenuOpen: (open: boolean) => void;
-  /** Hide native CEF surfaces while an HTML overlay (select, menu) is open. */
+  /** Hide native browser surfaces while an HTML overlay (select, menu) is open. */
   setHtmlOverlayOpen: (open: boolean) => void;
   setHtmlOverlayRect: (id: string, rect: OverlayRect | null) => void;
   subscribeNativeSurfaceOcclusion: (
@@ -182,7 +182,7 @@ export function useWorkspaceOverlay(): WorkspaceOverlayContextValue {
   return useContext(WorkspaceOverlayContext);
 }
 
-/** Hide native CEF under this overlay so the popover can paint above the page. */
+/** Publish this overlay's rectangle so a native page can step aside where they overlap. */
 export function NativeSurfaceOcclusionHold() {
   const { setHtmlOverlayRect } = useWorkspaceOverlay();
   const id = useId();

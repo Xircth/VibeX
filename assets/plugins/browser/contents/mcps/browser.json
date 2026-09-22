@@ -1,0 +1,6 @@
+{
+  "name": "vibex-browser",
+  "transport": "stdio",
+  "command": "node",
+  "args": ["runtime/mcp-server.mjs"]
+}

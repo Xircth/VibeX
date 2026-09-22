@@ -595,7 +595,7 @@ function createStructuredToken({
     label: atReferenceChipLabel(key),
     value,
     raw,
-    title: value,
+    title: kind === 'element' ? undefined : value,
   };
 }
 

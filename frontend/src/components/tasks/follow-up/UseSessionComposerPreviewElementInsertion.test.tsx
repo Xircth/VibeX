@@ -5,7 +5,7 @@ import {
   ClickedElementsProvider,
   useClickedElements,
 } from '@/contexts/ClickedElementsProvider';
-import type { OpenInEditorPayload } from '@/features/browser/inspectTypes';
+import type { OpenInEditorPayload } from '@/lib/inspectTypes';
 import {
   getSessionComposerStructuredTokenSegments,
   serializeSessionComposerBackendMessage,

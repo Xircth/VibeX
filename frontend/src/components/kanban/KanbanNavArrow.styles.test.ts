@@ -21,6 +21,12 @@ function restDeclarations(selector: string) {
 }
 
 describe('kanban page nav arrows', () => {
+  it('clips the carousel so PageDown cannot reveal the next page', () => {
+    const shell = restDeclarations('.kanban-shell');
+    expect(shell.get('overflow')).toBe('clip');
+    expect(shell.get('overscroll-behavior')).toBe('none');
+  });
+
   it('keeps a bare icon with no pill or semicircle chrome', () => {
     const arrow = restDeclarations('.kanban-nav-arrow');
 

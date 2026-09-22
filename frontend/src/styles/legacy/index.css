@@ -3764,6 +3764,8 @@
 
   .kanban-shell {
     background: var(--surface-page-solid);
+    overflow: clip;
+    overscroll-behavior: none;
   }
 
   .kanban-overlay,

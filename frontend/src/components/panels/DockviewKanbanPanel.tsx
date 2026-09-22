@@ -2,7 +2,9 @@ import {
   Component,
   useCallback,
   useEffect,
+  useLayoutEffect,
   useMemo,
+  useRef,
   useState,
   type ReactNode,
 } from 'react';
@@ -34,6 +36,11 @@ import { ConfirmDialog } from '@/components/dialogs/shared/ConfirmDialog';
 import { TooltipProvider } from '@/components/ui/tooltip';
 import { useKanbanViews } from '@/hooks/useKanbanViews';
 import { useKanbanBoardStyle } from '@/lib/kanbanBoardStyle';
+import {
+  pinKanbanCarouselScroll,
+  shouldPinKanbanCarouselKey,
+  shouldSuppressKanbanCarouselPageKey,
+} from '@/lib/kanbanCarouselScroll';
 import {
   adjacentKanbanViewId,
   kanbanCarouselTranslateX,
@@ -121,6 +128,7 @@ export function KanbanBoard() {
 
   const showLeftArrow = currentIndex > 0;
   const showRightArrow = currentIndex < views.length - 1;
+  const carouselShellRef = useRef<HTMLDivElement | null>(null);
 
   const handleLeftArrowClick = () => {
     setActiveViewId(adjacentKanbanViewId(views, currentViewId, -1));
@@ -129,6 +137,10 @@ export function KanbanBoard() {
   const handleRightArrowClick = () => {
     setActiveViewId(adjacentKanbanViewId(views, currentViewId, 1));
   };
+
+  useLayoutEffect(() => {
+    pinKanbanCarouselScroll(carouselShellRef.current);
+  }, [currentViewId]);
 
   const getLeftArrowLabel = () => {
     const previous = views[currentIndex - 1];
@@ -147,7 +159,17 @@ export function KanbanBoard() {
       {!hideSessionSlot && outerSessionSide === 'left' && (
         <KanbanSessionSlot side="left" active={outerSessionActive} />
       )}
-      <div className="kanban-shell relative h-full min-w-0 flex-1 overflow-hidden">
+      <div
+        ref={carouselShellRef}
+        className="kanban-shell relative h-full min-w-0 flex-1"
+        onScroll={() => pinKanbanCarouselScroll(carouselShellRef.current)}
+        onKeyDownCapture={(event) => {
+          if (!shouldPinKanbanCarouselKey(event.key)) return;
+          if (!shouldSuppressKanbanCarouselPageKey(event.target)) return;
+          event.preventDefault();
+          pinKanbanCarouselScroll(event.currentTarget);
+        }}
+      >
         <div
           className="flex h-full transition-transform duration-300 ease-out"
           style={{

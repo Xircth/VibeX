@@ -100,7 +100,8 @@ describe('AgentModelProviderManager catalog picker', () => {
     );
 
     await user.click(await screen.findByRole('button', { name: '新建供应商' }));
-    await user.click(await screen.findByRole('button', { name: 'OpenRouter' }));
+    await user.click(await screen.findByRole('combobox', { name: '选择预置' }));
+    await user.click(await screen.findByRole('option', { name: 'OpenRouter' }));
 
     expect(screen.getByLabelText('Provider 名称')).toHaveValue('OpenRouter');
     expect(screen.getByLabelText('Provider API URL')).toHaveValue(

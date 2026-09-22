@@ -221,7 +221,9 @@ export function AgentModelProviderManager({
   };
 
   const applyCatalogTemplate = (template: ProviderCatalogTemplateView) => {
-    setName(template.name);
+    setName(
+      template.name.trim() || template.display_name?.trim() || template.id
+    );
     setApiUrl(template.api_url?.trim() || '');
     setApiKey('');
     setModel(template.model ?? '');

@@ -2029,6 +2029,7 @@
     "providerEdit": "编辑 Provider",
     "providerNew": "新建 Provider",
     "providerCatalogCustom": "自定义",
+    "providerCatalogChoose": "选择预置",
     "providerCatalogSearch": "搜索预置",
     "providerCatalogEmpty": "没有匹配的预置。",
     "providerCatalogWebsite": "网站",

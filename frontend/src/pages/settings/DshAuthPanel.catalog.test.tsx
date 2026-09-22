@@ -123,8 +123,10 @@ describe('DshAuthPanel catalog picker', () => {
 
     await user.click(await screen.findByRole('tab', { name: '供应商' }));
     await user.click(screen.getByRole('button', { name: '新建供应商' }));
-    expect(await screen.findByRole('button', { name: '自定义' })).toBeVisible();
-    await user.click(await screen.findByRole('button', { name: 'OpenRouter' }));
+    const picker = await screen.findByRole('combobox', { name: '选择预置' });
+    expect(picker).toHaveTextContent('自定义');
+    await user.click(picker);
+    await user.click(await screen.findByRole('option', { name: 'OpenRouter' }));
 
     expect(screen.getByLabelText('显示名称')).toHaveValue('OpenRouter');
     expect(screen.getByLabelText('备注')).toHaveValue(

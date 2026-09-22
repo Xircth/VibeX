@@ -2032,6 +2032,7 @@
     "providerEdit": "Edit Provider",
     "providerNew": "New Provider",
     "providerCatalogCustom": "Custom",
+    "providerCatalogChoose": "Choose a preset",
     "providerCatalogSearch": "Search presets",
     "providerCatalogEmpty": "No matching presets.",
     "providerCatalogWebsite": "Website",

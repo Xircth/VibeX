@@ -91,6 +91,107 @@ for await (const line of createInterface({ input: process.stdin, crlfDelay: Infi
     .unwrap();
 }
 
+fn write_tab_package(root: &std::path::Path) {
+    write_package(root);
+    std::fs::write(
+        root.join("README.md"),
+        "---\nsummary: Tab surface fixture.\n---\n# Tab\n",
+    )
+    .unwrap();
+    std::fs::write(root.join("config.json"), "{}").unwrap();
+    std::fs::create_dir_all(root.join("contents")).unwrap();
+    std::fs::write(
+        root.join(".vibex-plugin/content.index.json"),
+        r#"{"schemaVersion":1,"items":[]}"#,
+    )
+    .unwrap();
+    let manifest_path = root.join(".vibex-plugin/plugin.json");
+    let mut manifest: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(&manifest_path).unwrap()).unwrap();
+    manifest["readme"] = json!("README.md");
+    manifest["content"] = json!({
+        "root": "contents",
+        "index": ".vibex-plugin/content.index.json"
+    });
+    manifest["config"] = json!({ "schema": { "type": "object", "additionalProperties": false } });
+    manifest["contributes"] = json!({});
+    manifest["integrations"] = json!([{
+        "id": "console",
+        "kind": "app.tab",
+        "title": "Console",
+        "handler": "surface.createSession"
+    }]);
+    std::fs::write(
+        manifest_path,
+        serde_json::to_vec_pretty(&manifest).unwrap(),
+    )
+    .unwrap();
+    std::fs::write(
+        root.join("worker.mjs"),
+        r#"import { createInterface } from 'node:readline';
+const handlers = ['surface.createSession'];
+for await (const line of createInterface({ input: process.stdin, crlfDelay: Infinity })) {
+  const request = JSON.parse(line);
+  if (request.method === 'initialize') {
+    console.log(JSON.stringify({ id: request.id, ok: true, result: { protocolVersion: '1.1', sdkVersion: '1.0.0', registrations: handlers, requestedFeatures: [] } }));
+  } else if (request.method === 'activate') {
+    console.log(JSON.stringify({ id: request.id, ok: true, result: { handlers } }));
+  } else if (request.method === 'dispose') {
+    console.log(JSON.stringify({ id: request.id, ok: true, result: null }));
+  } else {
+    console.log(JSON.stringify({
+      id: request.id,
+      ok: true,
+      result: { handler: request.params.handler, input: request.params.input }
+    }));
+  }
+}"#,
+    )
+    .unwrap();
+}
+
+#[tokio::test]
+async fn a_structure_tab_opens_through_the_shared_host() {
+    let Some(node) = node_executable() else {
+        return;
+    };
+    let root = tempfile::tempdir().unwrap();
+    write_tab_package(root.path());
+    let package = PluginPackage::inspect(root.path(), PluginSourceKind::DeveloperLink).unwrap();
+    let control = Arc::new(PluginControlPlane::new(Arc::new(
+        InMemoryPluginRegistry::default(),
+    )));
+    control
+        .import(package, ConflictDecision::Reject)
+        .await
+        .unwrap();
+    control
+        .activate_and_enable(&node, "tests.surface", &[], Arc::new(DenyCapabilityBroker))
+        .await
+        .unwrap();
+
+    let catalog = control.contributions().await.unwrap();
+    let tab = catalog
+        .items
+        .iter()
+        .find(|item| item.id == "console")
+        .expect("tab contribution");
+    let host = PluginAppSurfaceHost::new(control);
+    let document = host
+        .open(AppSurfaceOpenRequest {
+            identity: AppSurfaceIdentity {
+                plugin_id: "tests.surface".to_owned(),
+                surface_id: "console".to_owned(),
+                generation: tab.generation,
+                token: "0123456789abcdef0123456789abcdef".to_owned(),
+            },
+            artifact_path: None,
+        })
+        .await
+        .expect("app.tab must open a Worker session");
+    assert!(document.html.contains("isolated surface"));
+}
+
 #[tokio::test]
 async fn published_surface_opens_invokes_and_revokes_through_the_shared_host() {
     let Some(node) = node_executable() else {

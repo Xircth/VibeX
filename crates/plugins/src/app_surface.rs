@@ -176,15 +176,7 @@ impl PluginAppSurfaceHost {
         // session so federation remotes can invoke the same handlers.
         let app_entrypoint_ok =
             metadata.get("appEntrypoint").and_then(Value::as_str) == Some("app");
-        if structure_slot.is_none()
-            && (!matches!(
-                slot,
-                "plugin.detail.panel"
-                    | "artifact.editor"
-                    | crate::TIMELINE_CARD_SLOT
-                    | crate::SETTINGS_SECTION_SLOT
-            ) || !app_entrypoint_ok)
-        {
+        if structure_slot.is_none() && (!slot_is_openable(slot) || !app_entrypoint_ok) {
             return Err(bad_request("App surface targets an unsupported Host slot"));
         }
         let artifact = match (slot, artifact_path) {
@@ -421,6 +413,20 @@ fn structure_or_app_surface(kind: crate::ContributionKind) -> bool {
             | crate::ContributionKind::AppPanel
             | crate::ContributionKind::KanbanView
             | crate::ContributionKind::SettingsPage
+    )
+}
+
+fn slot_is_openable(slot: &str) -> bool {
+    matches!(
+        slot,
+        "plugin.detail.panel"
+            | "artifact.editor"
+            | crate::TIMELINE_CARD_SLOT
+            | crate::SETTINGS_SECTION_SLOT
+            | crate::APP_TAB_SLOT
+            | crate::APP_PANEL_SLOT
+            | crate::KANBAN_VIEW_SLOT
+            | crate::SETTINGS_PAGE_SLOT
     )
 }
 

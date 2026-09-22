@@ -46,31 +46,32 @@ iframe {
   max-width: 52rem;
   padding: 4px 0 8px;
 }
-.oc-config h2 {
-  margin: 0 0 12px;
-  color: var(--oc-strong);
-  font-size: 0.875rem;
-  font-weight: 600;
-  letter-spacing: -0.01em;
-}
 .oc-card {
   overflow: hidden;
   border: 1px solid var(--oc-line);
   border-radius: var(--oc-radius);
   background: var(--oc-card);
 }
+.oc-card h2 {
+  margin: 0;
+  padding: 14px 16px 8px;
+  color: var(--oc-strong);
+  font-size: 0.875rem;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
 .oc-row {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;
-  gap: 16px 24px;
-  min-height: 44px;
-  padding: 12px 16px;
+  gap: 4px 16px;
+  min-height: 0;
+  padding: 5px 16px;
 }
 .oc-row--stack {
   grid-template-columns: minmax(0, 1fr);
   align-items: start;
-  gap: 6px;
+  gap: 2px;
 }
 .oc-copy {
   display: grid;
@@ -146,10 +147,18 @@ iframe {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+.oc-footer {
+  display: flex;
+  align-items: flex-end;
+  justify-content: flex-end;
+  gap: 12px;
+  padding: 12px 16px 14px;
+}
 .oc-bar {
   display: flex;
+  flex: 0 0 auto;
   gap: 8px;
-  margin-top: 16px;
+  margin: 0;
 }
 .oc-btn,
 .oc-ghost {
@@ -188,8 +197,9 @@ iframe {
   outline-offset: 2px;
 }
 .oc-hint {
-  max-width: 65ch;
-  margin: 10px 0 0;
+  flex: 1 1 auto;
+  max-width: none;
+  margin: 0 auto 0 0;
   color: var(--oc-muted);
   font-size: 0.75rem;
   line-height: 1.4;

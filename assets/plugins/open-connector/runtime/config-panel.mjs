@@ -31,8 +31,8 @@ export async function mountConfigPanel(root, invoke) {
     const error = String(status?.lastError || '').trim();
     root.innerHTML = `
       <section class="oc-config">
-        <h2>本机连接器</h2>
         <div class="oc-card">
+          <h2>本机连接器</h2>
           <div class="oc-row">
             <div class="oc-copy">
               <strong>状态</strong>
@@ -63,12 +63,14 @@ export async function mountConfigPanel(root, invoke) {
             </div>
             <span class="${error ? 'oc-error' : 'oc-quiet'}">${escapeText(error || '无')}</span>
           </div>
+          <div class="oc-footer">
+            <p class="oc-hint">清除数据会删除本机连接和密钥，且不可恢复。</p>
+            <div class="oc-bar">
+              <button type="button" class="oc-btn" data-action="restart">重启</button>
+              <button type="button" class="oc-btn oc-btn--danger" data-action="wipe">清除数据</button>
+            </div>
+          </div>
         </div>
-        <div class="oc-bar">
-          <button type="button" class="oc-btn" data-action="restart">重启</button>
-          <button type="button" class="oc-btn oc-btn--danger" data-action="wipe">清除数据</button>
-        </div>
-        <p class="oc-hint">清除数据会删除本机连接和密钥，且不可恢复。</p>
       </section>
     `;
   };

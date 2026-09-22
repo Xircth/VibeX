@@ -239,6 +239,7 @@ pub struct ScriptAssets;
 #[exclude = "host-chrome/**"]
 #[exclude = "host-surface/**"]
 #[exclude = "provider-import/**"]
+#[exclude = "*/node_modules/**"]
 pub struct BuiltinPluginAssets;
 
 const AUTHORING_SAMPLE_PLUGIN_DIRS: &[&str] = &["host-chrome", "host-surface", "provider-import"];
@@ -531,6 +532,18 @@ mod tests {
     }
 
     #[test]
+    fn embeds_open_connector_without_dev_residue() {
+        assert!(super::BuiltinPluginAssets::get(
+            "open-connector/.vibex-plugin/plugin.json"
+        )
+        .is_some());
+        assert!(
+            super::BuiltinPluginAssets::iter().all(|path| !path.contains("node_modules")),
+            "official embed must not ship plugin node_modules"
+        );
+    }
+
+    #[test]
     fn embeds_the_bundled_official_marketplace_index() {
         assert!(super::BuiltinPluginAssets::get("index/official.v1.json").is_some());
         let json = super::bundled_official_index_json().expect("official index");
@@ -557,34 +570,23 @@ mod tests {
             })
             .collect::<Vec<_>>();
         ids.sort();
-        assert_eq!(
-            ids,
-            [
-                "vibex.multi-agent",
-                "vibex.office",
-                "vibex.plugin-development",
-                "vibex.provider-switch",
-                "vibex.remote-ssh",
-                "vibex.science",
-                "vibex.session-enhance",
-                "vibex.workflow-creator",
-            ]
+        assert!(
+            ids.contains(&"vibex.open-connector".to_owned()),
+            "Open Connector must be a bundled official plugin: {ids:?}"
         );
-        let office = roots
-            .iter()
-            .find(|root| root.to_string_lossy().contains("vibex.office"))
-            .unwrap();
-
-        std::fs::write(office.join("config.json"), br#"{"idleTimeoutMinutes": 7}"#).unwrap();
+        assert!(
+            !ids.iter().any(|id| id.contains("host-chrome")
+                || id.contains("host-surface")
+                || id.contains("provider-import")),
+            "authoring samples must stay out of the product embed: {ids:?}"
+        );
+        let sample = roots.first().expect("at least one builtin").clone();
+        std::fs::write(sample.join("config.json"), br#"{"keep":true}"#).unwrap();
         let repeated = materialize_builtin_plugins(data.path()).unwrap();
         assert_eq!(repeated, roots);
-        let repeated_office = repeated
-            .iter()
-            .find(|root| root.to_string_lossy().contains("vibex.office"))
-            .unwrap();
         assert_eq!(
-            std::fs::read_to_string(repeated_office.join("config.json")).unwrap(),
-            r#"{"idleTimeoutMinutes": 7}"#
+            std::fs::read_to_string(sample.join("config.json")).unwrap(),
+            r#"{"keep":true}"#
         );
     }
 

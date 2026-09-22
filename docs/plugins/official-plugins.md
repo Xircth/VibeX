@@ -1,12 +1,12 @@
 # VibeX 官方插件介绍
 
-我对照的是 Host 0.1.3 和官网市场官方分类里的产品包。它们挂在 `assets/plugins/`：`office`、`session-enhance`、`multi-agent`、`workflow-creator`、`plugin-development`、`remote-ssh`、`science`。检出 VibeX 时用 `git clone --recurse-submodules`，或之后 `git submodule update --init --recursive`。它们不再随 Host 预装进 catalog；从市场官方分类安装后默认禁用，可以卸载。
+我对照的是 Host 0.1.3 和官网市场官方分类里的产品包。它们挂在 `assets/plugins/`：`office`、`session-enhance`、`multi-agent`、`workflow-creator`、`plugin-development`、`remote-ssh`、`open-connector`、`science`。检出 VibeX 时用 `git clone --recurse-submodules`，或之后 `git submodule update --init --recursive`。它们不再随 Host 预装进 catalog；从市场官方分类安装后默认禁用，可以卸载。
 
 它们的发布者都是 `vibex`。引擎要求 `vibex >=0.1.3 <1.0.0`，SDK 要求 `^1.0.0`。磁盘上有包，不等于已经注入 Agent。目录里标成「VibeX 内置」或「已随 Host 安装」，默认关掉。你只需要启用，不要再从货架装一遍。
 
 详情页能关，不能当第三方快照卸掉。关掉以后，这一代对外投影按反序拆掉。已经开着的会话通常不会热拆 STDIO MCP，新开会话才干净。
 
-这些包彼此独立。Office 不依赖会话增强，会话增强也不依赖多智能体。Workflow Creator 自己带编辑页和 MCP。插件开发包只管本机写插件这件事。Remote SSH 只管把本机接到一台 SSH 上的 Host。科学研究只管按领域注入科研技能。
+这些包彼此独立。Office 不依赖会话增强，会话增强也不依赖多智能体。Workflow Creator 自己带编辑页和 MCP。插件开发包只管本机写插件这件事。Remote SSH 只管把本机接到一台 SSH 上的 Host。Open Connector 管本机连接器网关和 MCP 工具。科学研究只管按领域注入科研技能。
 
 ## VibeX Office
 
@@ -199,7 +199,7 @@ Skill 要求 Agent 先定位本机契约：VibeX 源码树用 `node packages/plu
 
 启用后出现中央 Tab「Open Connector」，内嵌本机 Open Connector 控制台。Worker 用 Host 锁定的官方单文件二进制在回环口拉起网关。首次启用按 GitHub Release `v1.6.3` 下载约 150–175 MiB，离线会失败。凭据在 `plugin-state/vibex.open-connector/`，不写入 `config.json`。
 
-Agent 看到五件 HTTP MCP 工具：`list_apps`、`list_connections`、`search_actions`、`get_action_guide`、`execute_action`。只注入启用之后新建或重新绑定的会话。状态栏只显示是否在运行，不会跳到 Tab。
+Agent 看到五件 HTTP MCP 工具：`list_apps`、`list_connections`、`search_actions`、`get_action_guide`、`execute_action`。只注入启用之后新建或重新绑定的会话。状态栏列出这五件工具；点状态栏不会跳到 Tab。
 
 授权弹窗应留在本应用里。若被系统浏览器打开，完成后要回到控制台刷新连接。卸载默认不清保险库；在插件配置里清除数据。
 

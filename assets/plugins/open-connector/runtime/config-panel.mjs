@@ -27,31 +27,44 @@ function stateTone(state) {
 export async function mountConfigPanel(root, invoke) {
   const render = (status) => {
     const origin = String(status?.origin || '').trim();
+    const dataDir = String(status?.dataDir || '').trim();
     const error = String(status?.lastError || '').trim();
     root.innerHTML = `
       <section class="oc-config">
+        <h2>本机连接器</h2>
         <div class="oc-card">
           <div class="oc-row">
-            <span class="oc-label">状态</span>
-            <span class="oc-pill oc-pill--${stateTone(status?.state)}">${escapeText(stateLabel(status?.state))}</span>
-          </div>
-          <div class="oc-row">
-            <span class="oc-label">本机地址</span>
-            <span class="oc-value">
-              <span class="oc-mono" data-origin>${escapeText(origin || '—')}</span>
-              ${origin ? `<button type="button" class="oc-text-btn" data-action="copy">复制</button>` : ''}
+            <div class="oc-copy">
+              <strong>状态</strong>
+            </div>
+            <span class="oc-status" data-tone="${stateTone(status?.state)}">
+              <span class="oc-lamp" aria-hidden="true"></span>
+              ${escapeText(stateLabel(status?.state))}
             </span>
           </div>
           <div class="oc-row">
-            <span class="oc-label">数据目录</span>
-            <span class="oc-mono oc-path">${escapeText(status?.dataDir || '—')}</span>
+            <div class="oc-copy">
+              <strong>本机地址</strong>
+            </div>
+            <div class="oc-control">
+              <code class="oc-field" data-origin>${escapeText(origin || '—')}</code>
+              ${origin ? `<button type="button" class="oc-ghost" data-action="copy">复制</button>` : ''}
+            </div>
+          </div>
+          <div class="oc-row oc-row--stack">
+            <div class="oc-copy">
+              <strong>数据目录</strong>
+              <small class="oc-path">${escapeText(dataDir || '—')}</small>
+            </div>
           </div>
           <div class="oc-row">
-            <span class="oc-label">最近错误</span>
-            <span class="${error ? 'oc-error' : 'oc-muted'}">${escapeText(error || '无')}</span>
+            <div class="oc-copy">
+              <strong>最近错误</strong>
+            </div>
+            <span class="${error ? 'oc-error' : 'oc-quiet'}">${escapeText(error || '无')}</span>
           </div>
         </div>
-        <div class="oc-actions">
+        <div class="oc-bar">
           <button type="button" class="oc-btn" data-action="restart">重启</button>
           <button type="button" class="oc-btn oc-btn--danger" data-action="wipe">清除数据</button>
         </div>

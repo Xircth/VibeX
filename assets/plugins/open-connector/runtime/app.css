@@ -1,5 +1,25 @@
 :root {
   color-scheme: light dark;
+  --oc-text: #46505b;
+  --oc-strong: #1d2530;
+  --oc-muted: #727b85;
+  --oc-line: #0b16281a;
+  --oc-card: #ffffff;
+  --oc-fill: #0f172a0f;
+  --oc-fill-hover: #0f172a14;
+  --oc-ok: #86b300;
+  --oc-warn: #f2ae49;
+  --oc-bad: #f51818;
+  --oc-radius: 14px;
+}
+html[data-theme='dark'] {
+  --oc-text: #c5cdd6;
+  --oc-strong: #e7ebef;
+  --oc-muted: #8b95a1;
+  --oc-line: #ffffff1a;
+  --oc-card: #242936;
+  --oc-fill: #ffffff0f;
+  --oc-fill-hover: #ffffff14;
 }
 html,
 body,
@@ -8,8 +28,8 @@ body,
   margin: 0;
 }
 body {
-  font: 400 0.875rem/1.43 system-ui, sans-serif;
-  color: CanvasText;
+  font: 400 0.875rem/1.43 ui-sans-serif, system-ui, sans-serif;
+  color: var(--oc-text);
   background: transparent;
 }
 iframe {
@@ -18,140 +38,162 @@ iframe {
 .surface {
   box-sizing: border-box;
   height: 100%;
-  padding: 16px;
+  padding: 4px 0 16px;
   background: transparent;
 }
 .oc-config {
   box-sizing: border-box;
-  min-height: 100%;
+  max-width: 52rem;
   padding: 4px 0 8px;
 }
+.oc-config h2 {
+  margin: 0 0 12px;
+  color: var(--oc-strong);
+  font-size: 0.875rem;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
 .oc-card {
-  border: 1px solid color-mix(in srgb, CanvasText 10%, transparent);
-  border-radius: 14px;
-  background: Canvas;
+  overflow: hidden;
+  border: 1px solid var(--oc-line);
+  border-radius: var(--oc-radius);
+  background: var(--oc-card);
 }
 .oc-row {
-  display: flex;
-  align-items: flex-start;
-  gap: 16px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 16px 24px;
+  min-height: 44px;
   padding: 12px 16px;
 }
-.oc-row + .oc-row {
-  padding-top: 0;
+.oc-row--stack {
+  grid-template-columns: minmax(0, 1fr);
+  align-items: start;
+  gap: 6px;
 }
-.oc-label {
-  flex: 0 0 4.5rem;
-  padding-top: 2px;
-  font-size: 0.75rem;
-  font-weight: 500;
-  line-height: 1.33;
-  color: color-mix(in srgb, CanvasText 62%, Canvas);
-}
-.oc-value {
-  display: flex;
+.oc-copy {
+  display: grid;
+  gap: 4px;
   min-width: 0;
-  flex: 1;
-  align-items: center;
-  gap: 8px;
 }
-.oc-mono,
-.oc-path,
-.oc-error,
-.oc-muted {
-  min-width: 0;
-  flex: 1;
-  word-break: break-all;
+.oc-copy strong {
+  color: var(--oc-strong);
+  font-size: 0.875rem;
+  font-weight: 600;
 }
-.oc-mono,
 .oc-path {
+  color: var(--oc-muted);
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   font-size: 0.75rem;
-  line-height: 1.45;
+  font-weight: 400;
+  line-height: 1.4;
+  word-break: break-all;
 }
-.oc-muted {
-  color: color-mix(in srgb, CanvasText 62%, Canvas);
+.oc-quiet {
+  color: var(--oc-muted);
+  font-size: 0.875rem;
 }
 .oc-error {
-  color: #f51818;
+  color: var(--oc-bad);
+  font-size: 0.875rem;
+  text-align: right;
 }
-.oc-pill {
+.oc-status {
   display: inline-flex;
   align-items: center;
-  height: 22px;
-  padding: 0 8px;
-  border-radius: 999px;
-  font-size: 0.75rem;
+  gap: 8px;
+  color: var(--oc-strong);
+  font-size: 0.875rem;
   font-weight: 500;
+  white-space: nowrap;
 }
-.oc-pill--ok {
-  background: color-mix(in srgb, #86b300 22%, Canvas);
-  color: color-mix(in srgb, #4d6a00 80%, CanvasText);
+.oc-lamp {
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+  background: var(--oc-muted);
 }
-.oc-pill--busy {
-  background: color-mix(in srgb, #f2ae49 22%, Canvas);
-  color: color-mix(in srgb, #8a5a00 80%, CanvasText);
+.oc-status[data-tone='ok'] .oc-lamp {
+  background: var(--oc-ok);
 }
-.oc-pill--bad {
-  background: color-mix(in srgb, #f51818 16%, Canvas);
-  color: #f51818;
+.oc-status[data-tone='busy'] .oc-lamp {
+  background: var(--oc-warn);
 }
-.oc-pill--idle {
-  background: color-mix(in srgb, CanvasText 8%, Canvas);
-  color: color-mix(in srgb, CanvasText 72%, Canvas);
+.oc-status[data-tone='bad'] .oc-lamp {
+  background: var(--oc-bad);
 }
-.oc-actions {
+.oc-control {
+  display: flex;
+  min-width: 0;
+  max-width: 28rem;
+  align-items: center;
+  gap: 8px;
+  justify-self: end;
+}
+.oc-field {
+  display: block;
+  min-width: 0;
+  max-width: 22rem;
+  overflow: hidden;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--oc-strong);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 0.75rem;
+  line-height: 1.4;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.oc-bar {
   display: flex;
   gap: 8px;
   margin-top: 16px;
 }
 .oc-btn,
-.oc-text-btn {
-  font: 500 0.75rem/1 system-ui, sans-serif;
-  color: CanvasText;
+.oc-ghost {
+  appearance: none;
+  font: 500 0.75rem/1 ui-sans-serif, system-ui, sans-serif;
   cursor: pointer;
 }
 .oc-btn {
   height: 32px;
   padding: 0 12px;
-  border: 1px solid color-mix(in srgb, CanvasText 14%, transparent);
-  border-radius: 14px;
-  background: color-mix(in srgb, CanvasText 6%, Canvas);
+  border: 1px solid var(--oc-line);
+  border-radius: var(--oc-radius);
+  background: var(--oc-fill);
+  color: var(--oc-strong);
 }
 .oc-btn:hover {
-  background: color-mix(in srgb, CanvasText 10%, Canvas);
-}
-.oc-btn:focus-visible,
-.oc-text-btn:focus-visible {
-  outline: 2px solid CanvasText;
-  outline-offset: 2px;
+  background: var(--oc-fill-hover);
 }
 .oc-btn--danger {
-  color: #f51818;
+  color: var(--oc-bad);
 }
-.oc-text-btn {
-  flex: 0 0 auto;
-  height: 22px;
-  padding: 0;
+.oc-ghost {
+  height: 32px;
+  padding: 0 4px;
   border: 0;
   background: transparent;
-  color: color-mix(in srgb, CanvasText 72%, Canvas);
+  color: var(--oc-muted);
+  white-space: nowrap;
 }
-.oc-text-btn:hover {
-  color: CanvasText;
+.oc-ghost:hover {
+  color: var(--oc-strong);
+}
+.oc-btn:focus-visible,
+.oc-ghost:focus-visible {
+  outline: 2px solid var(--oc-strong);
+  outline-offset: 2px;
 }
 .oc-hint {
   max-width: 65ch;
   margin: 10px 0 0;
+  color: var(--oc-muted);
   font-size: 0.75rem;
-  line-height: 1.33;
-  color: color-mix(in srgb, CanvasText 62%, Canvas);
+  line-height: 1.4;
 }
-h1 {
-  margin: 0 0 8px;
-  font-size: 0.875rem;
-  font-weight: 600;
-}
-p {
-  margin: 8px 0 0;
+::selection {
+  background: color-mix(in srgb, var(--oc-strong) 18%, transparent);
 }

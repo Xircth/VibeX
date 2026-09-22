@@ -41,7 +41,7 @@ export function mount(root: HTMLElement, environment?: Environment) {
       if (cancelled) return;
       if (status?.state === 'running' && status.origin) {
         const frame = document.createElement('iframe');
-        frame.title = 'Open Connector';
+        frame.setAttribute('aria-label', 'Open Connector');
         frame.src = `${String(status.origin).replace(/\/$/, '')}/`;
         frame.style.cssText =
           'border:0;width:100%;height:100%;background:transparent;display:block;';

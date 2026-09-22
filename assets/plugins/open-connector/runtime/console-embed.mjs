@@ -25,7 +25,7 @@ export async function mountConsoleEmbed(root, invoke) {
       if (status?.state === 'running' && status.origin) {
         root.innerHTML = '';
         const frame = document.createElement('iframe');
-        frame.title = 'Open Connector';
+        frame.setAttribute('aria-label', 'Open Connector');
         frame.src = `${String(status.origin).replace(/\/$/, '')}/`;
         frame.setAttribute(
           'style',

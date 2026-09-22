@@ -625,7 +625,7 @@ export function AppSurfaceHost({
           }}
           referrerPolicy="no-referrer"
           srcDoc={mounted.document}
-          title={descriptor.label}
+          aria-label={descriptor.label}
           onLoad={handleFrameLoad}
         />
       ) : null}

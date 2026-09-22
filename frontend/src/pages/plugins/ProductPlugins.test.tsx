@@ -172,6 +172,26 @@ describe('product plugin experience', () => {
     expect(await screen.findByText('VibeX Office')).toBeVisible();
   });
 
+  it('does not show managed runtimes on the installed plugin list', async () => {
+    renderRoute(
+      '/plugins',
+      vi.fn().mockResolvedValue({
+        plugins: [plugin],
+        runtimes: [
+          {
+            id: 'open-connector',
+            version:
+              '{"level":30,"msg":"SQLite migrations are applied automatically when the local runtime database opens."}',
+            referencedPlugins: ['vibex.open-connector'],
+          },
+        ],
+      })
+    );
+    expect(await screen.findByText('VibeX Office')).toBeVisible();
+    expect(screen.queryByText('托管 Runtime')).not.toBeInTheDocument();
+    expect(screen.queryByText(/SQLite migrations/)).not.toBeInTheDocument();
+  });
+
   it('reports catalog failures through a localized toast', async () => {
     renderRoute('/plugins', vi.fn().mockRejectedValue(new Error('offline')));
 

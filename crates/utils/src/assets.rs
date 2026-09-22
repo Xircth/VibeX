@@ -589,6 +589,25 @@ mod tests {
     }
 
     #[test]
+    fn packaged_host_data_dir_is_not_the_debug_tree() {
+        let dir = super::default_host_data_dir();
+        let text = dir.to_string_lossy();
+        assert!(
+            !text.contains("dev_assets"),
+            "release Host data must use ProjectDirs, got {text}"
+        );
+        if cfg!(debug_assertions) {
+            let debug_dir = super::asset_dir();
+            assert!(
+                debug_dir.to_string_lossy().contains("dev_assets"),
+                "debug Desktop still uses the repo dev_assets tree"
+            );
+        } else {
+            assert_eq!(super::asset_dir(), dir);
+        }
+    }
+
+    #[test]
     fn keeps_already_materialized_packages_when_scanning_the_host_data_directory() {
         let data = tempfile::tempdir().unwrap();
         let extra = data

@@ -1,11 +1,157 @@
-:root { color-scheme: light dark; font: 13px system-ui, sans-serif; }
-html, body, #app { height: 100%; margin: 0; }
-.surface { box-sizing: border-box; height: 100%; padding: 16px; background: transparent; }
-h1 { margin: 0 0 8px; font-size: 15px; font-weight: 600; }
-p { margin: 8px 0 0; opacity: 0.75; }
-.rows { display: grid; grid-template-columns: 7rem 1fr; gap: 6px 12px; margin: 12px 0 0; }
-.rows dt { opacity: 0.7; }
-.rows dd { margin: 0; word-break: break-all; }
-.actions { display: flex; gap: 8px; margin-top: 16px; }
-button { font: inherit; padding: 6px 10px; }
-iframe { background: transparent; }
+:root {
+  color-scheme: light dark;
+}
+html,
+body,
+#app {
+  height: 100%;
+  margin: 0;
+}
+body {
+  font: 400 0.875rem/1.43 system-ui, sans-serif;
+  color: CanvasText;
+  background: transparent;
+}
+iframe {
+  background: transparent;
+}
+.surface {
+  box-sizing: border-box;
+  height: 100%;
+  padding: 16px;
+  background: transparent;
+}
+.oc-config {
+  box-sizing: border-box;
+  min-height: 100%;
+  padding: 4px 0 8px;
+}
+.oc-card {
+  border: 1px solid color-mix(in srgb, CanvasText 10%, transparent);
+  border-radius: 14px;
+  background: Canvas;
+}
+.oc-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 16px;
+  padding: 12px 16px;
+}
+.oc-row + .oc-row {
+  padding-top: 0;
+}
+.oc-label {
+  flex: 0 0 4.5rem;
+  padding-top: 2px;
+  font-size: 0.75rem;
+  font-weight: 500;
+  line-height: 1.33;
+  color: color-mix(in srgb, CanvasText 62%, Canvas);
+}
+.oc-value {
+  display: flex;
+  min-width: 0;
+  flex: 1;
+  align-items: center;
+  gap: 8px;
+}
+.oc-mono,
+.oc-path,
+.oc-error,
+.oc-muted {
+  min-width: 0;
+  flex: 1;
+  word-break: break-all;
+}
+.oc-mono,
+.oc-path {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 0.75rem;
+  line-height: 1.45;
+}
+.oc-muted {
+  color: color-mix(in srgb, CanvasText 62%, Canvas);
+}
+.oc-error {
+  color: #f51818;
+}
+.oc-pill {
+  display: inline-flex;
+  align-items: center;
+  height: 22px;
+  padding: 0 8px;
+  border-radius: 999px;
+  font-size: 0.75rem;
+  font-weight: 500;
+}
+.oc-pill--ok {
+  background: color-mix(in srgb, #86b300 22%, Canvas);
+  color: color-mix(in srgb, #4d6a00 80%, CanvasText);
+}
+.oc-pill--busy {
+  background: color-mix(in srgb, #f2ae49 22%, Canvas);
+  color: color-mix(in srgb, #8a5a00 80%, CanvasText);
+}
+.oc-pill--bad {
+  background: color-mix(in srgb, #f51818 16%, Canvas);
+  color: #f51818;
+}
+.oc-pill--idle {
+  background: color-mix(in srgb, CanvasText 8%, Canvas);
+  color: color-mix(in srgb, CanvasText 72%, Canvas);
+}
+.oc-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 16px;
+}
+.oc-btn,
+.oc-text-btn {
+  font: 500 0.75rem/1 system-ui, sans-serif;
+  color: CanvasText;
+  cursor: pointer;
+}
+.oc-btn {
+  height: 32px;
+  padding: 0 12px;
+  border: 1px solid color-mix(in srgb, CanvasText 14%, transparent);
+  border-radius: 14px;
+  background: color-mix(in srgb, CanvasText 6%, Canvas);
+}
+.oc-btn:hover {
+  background: color-mix(in srgb, CanvasText 10%, Canvas);
+}
+.oc-btn:focus-visible,
+.oc-text-btn:focus-visible {
+  outline: 2px solid CanvasText;
+  outline-offset: 2px;
+}
+.oc-btn--danger {
+  color: #f51818;
+}
+.oc-text-btn {
+  flex: 0 0 auto;
+  height: 22px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: color-mix(in srgb, CanvasText 72%, Canvas);
+}
+.oc-text-btn:hover {
+  color: CanvasText;
+}
+.oc-hint {
+  max-width: 65ch;
+  margin: 10px 0 0;
+  font-size: 0.75rem;
+  line-height: 1.33;
+  color: color-mix(in srgb, CanvasText 62%, Canvas);
+}
+h1 {
+  margin: 0 0 8px;
+  font-size: 0.875rem;
+  font-weight: 600;
+}
+p {
+  margin: 8px 0 0;
+}

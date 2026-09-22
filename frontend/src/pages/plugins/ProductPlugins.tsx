@@ -114,8 +114,7 @@ export function PluginCatalogPage() {
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const { supports } = useBackendCapabilities();
-  const { api, plugins, runtimes, setPlugins, loading, refresh } =
-    usePluginControl();
+  const { api, plugins, setPlugins, loading, refresh } = usePluginControl();
   const canInstall = supports('plugin.write');
   const [query, setQuery] = useState('');
   const [busyId, setBusyId] = useState<string | null>(null);
@@ -648,59 +647,6 @@ export function PluginCatalogPage() {
                 </Button>
               )}
             </div>
-          ) : null}
-          {!loading && runtimes.length > 0 ? (
-            <section
-              className="product-plugin-runtimes settings-surface"
-              aria-label={t('plugins.runtimeInventoryTitle')}
-            >
-              <header className="product-plugin-runtimes-header">
-                <h2>{t('plugins.runtimeInventoryTitle')}</h2>
-                {canInstall ? (
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    onClick={() => {
-                      void api
-                        .gcRuntimes()
-                        .then((result) => {
-                          toast.success(
-                            t('plugins.runtimeReclaimed', {
-                              count: result.reclaimed.length,
-                            })
-                          );
-                          return refresh(false);
-                        })
-                        .catch((error) =>
-                          toast.error(t('plugins.runtimeGcFailed'), {
-                            description: errorMessage(error),
-                          })
-                        );
-                    }}
-                  >
-                    {t('plugins.reclaimRuntimes')}
-                  </Button>
-                ) : null}
-              </header>
-              {runtimes.map((runtime) => (
-                <div
-                  className="product-plugin-runtime-row"
-                  key={`${runtime.id}:${runtime.version}:${runtime.contentDigest ?? ''}`}
-                >
-                  <strong>
-                    {runtime.id} {runtime.version}
-                  </strong>
-                  <span>
-                    {runtime.referencedPlugins.length
-                      ? t('plugins.runtimeReferencedBy', {
-                          plugins: runtime.referencedPlugins.join(', '),
-                        })
-                      : t('plugins.runtimeUnreferenced')}
-                  </span>
-                </div>
-              ))}
-            </section>
           ) : null}
         </section>
       )}

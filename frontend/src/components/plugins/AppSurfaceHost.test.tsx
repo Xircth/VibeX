@@ -84,6 +84,20 @@ function createTransport(): AppSurfaceHostTransport & {
   };
 }
 
+async function findSurfaceFrame(name: string) {
+  const region = await screen.findByRole('region', { name });
+  const frame = region.querySelector('iframe.plugin-app-surface-frame');
+  if (!(frame instanceof HTMLIFrameElement)) {
+    throw new Error(`missing surface frame for ${name}`);
+  }
+  return frame;
+}
+
+function querySurfaceFrame(name: string) {
+  const region = screen.queryByRole('region', { name });
+  return region?.querySelector('iframe.plugin-app-surface-frame') ?? null;
+}
+
 function renderHost(
   transport: AppSurfaceHostTransport,
   props: Partial<React.ComponentProps<typeof AppSurfaceHost>> = {}
@@ -183,7 +197,7 @@ describe('AppSurfaceHost lifecycle boundary', () => {
 
     renderHost(transport);
 
-    const iframe = await screen.findByTitle('Project health');
+    const iframe = await findSurfaceFrame('Project health');
     expect(iframe.getAttribute('srcdoc')).toContain(
       'https://example.com/remote.js'
     );
@@ -195,7 +209,7 @@ describe('AppSurfaceHost lifecycle boundary', () => {
     const bootstrapMessenger = vi.fn();
     renderHost(transport, { bootstrapMessenger });
 
-    const iframe = await screen.findByTitle('Project health');
+    const iframe = await findSurfaceFrame('Project health');
     expect(iframe).not.toHaveAttribute('sandbox');
     expect(iframe).toHaveAttribute('referrerpolicy', 'no-referrer');
     expect(iframe).not.toHaveAttribute('allow');
@@ -247,7 +261,7 @@ describe('AppSurfaceHost lifecycle boundary', () => {
       bootstrapMessenger,
     });
 
-    const iframe = await screen.findByTitle('Drawio editor');
+    const iframe = await findSurfaceFrame('Drawio editor');
     expect(transport.load).toHaveBeenCalledWith(
       expect.objectContaining({
         artifactPath: '/workspace/architecture.drawio',
@@ -314,7 +328,7 @@ describe('AppSurfaceHost lifecycle boundary', () => {
     const transport = createTransport();
     const bootstrapMessenger = vi.fn();
     renderHost(transport, { bootstrapMessenger });
-    await screen.findByTitle('Project health');
+    await findSurfaceFrame('Project health');
     await waitFor(() => expect(bootstrapMessenger).toHaveBeenCalled());
     const pluginPort = bootstrapMessenger.mock.calls[0][2] as TestPort;
 
@@ -337,14 +351,14 @@ describe('AppSurfaceHost lifecycle boundary', () => {
     expect(transport.revoke).toHaveBeenCalledWith(
       expect.objectContaining({ token: authorityToken, generation: 4 })
     );
-    expect(screen.queryByTitle('Project health')).not.toBeInTheDocument();
+    expect(querySurfaceFrame('Project health')).toBeNull();
   });
 
   it('revokes non-JSON payloads before they reach the broker', async () => {
     const transport = createTransport();
     const bootstrapMessenger = vi.fn();
     renderHost(transport, { bootstrapMessenger });
-    await screen.findByTitle('Project health');
+    await findSurfaceFrame('Project health');
     await waitFor(() => expect(bootstrapMessenger).toHaveBeenCalled());
     const pluginPort = bootstrapMessenger.mock.calls[0][2] as TestPort;
 
@@ -362,14 +376,14 @@ describe('AppSurfaceHost lifecycle boundary', () => {
 
     await waitFor(() => expect(transport.revoke).toHaveBeenCalled());
     expect(transport.invoke).not.toHaveBeenCalled();
-    expect(screen.queryByTitle('Project health')).not.toBeInTheDocument();
+    expect(querySurfaceFrame('Project health')).toBeNull();
   });
 
   it('revokes undeclared methods before they reach the broker', async () => {
     const transport = createTransport();
     const bootstrapMessenger = vi.fn();
     renderHost(transport, { bootstrapMessenger });
-    await screen.findByTitle('Project health');
+    await findSurfaceFrame('Project health');
     await waitFor(() => expect(bootstrapMessenger).toHaveBeenCalled());
     const pluginPort = bootstrapMessenger.mock.calls[0][2] as TestPort;
 
@@ -400,7 +414,7 @@ describe('AppSurfaceHost lifecycle boundary', () => {
         allowedMethods: [],
       },
     });
-    await screen.findByTitle('Project health');
+    await findSurfaceFrame('Project health');
     await waitFor(() => expect(bootstrapMessenger).toHaveBeenCalled());
     const pluginPort = bootstrapMessenger.mock.calls[0][2] as TestPort;
 
@@ -428,7 +442,7 @@ describe('AppSurfaceHost lifecycle boundary', () => {
     const transport = createTransport();
     const bootstrapMessenger = vi.fn();
     renderHost(transport, { bootstrapMessenger });
-    await screen.findByTitle('Project health');
+    await findSurfaceFrame('Project health');
     await waitFor(() => expect(bootstrapMessenger).toHaveBeenCalled());
     const pluginPort = bootstrapMessenger.mock.calls[0][2] as TestPort;
     const request = {
@@ -459,13 +473,13 @@ describe('AppSurfaceHost lifecycle boundary', () => {
         expect.objectContaining({ reason: 'protocol_violation' })
       )
     );
-    expect(screen.queryByTitle('Project health')).not.toBeInTheDocument();
+    expect(querySurfaceFrame('Project health')).toBeNull();
   });
 
   it('revokes and unmounts on generation replacement and disable', async () => {
     const transport = createTransport();
     const view = renderHost(transport);
-    expect(await screen.findByTitle('Project health')).toBeInTheDocument();
+    expect(await findSurfaceFrame('Project health')).toBeInTheDocument();
 
     view.rerender(
       <AppSurfaceHost
@@ -484,7 +498,7 @@ describe('AppSurfaceHost lifecycle boundary', () => {
         expect.objectContaining({ token: authorityToken, generation: 4 })
       )
     );
-    expect(await screen.findByTitle('Project health')).toBeInTheDocument();
+    expect(await findSurfaceFrame('Project health')).toBeInTheDocument();
 
     view.rerender(
       <AppSurfaceHost
@@ -494,14 +508,14 @@ describe('AppSurfaceHost lifecycle boundary', () => {
       />
     );
 
-    expect(screen.queryByTitle('Project health')).not.toBeInTheDocument();
+    expect(querySurfaceFrame('Project health')).toBeNull();
     expect(screen.getByText(/已停用|disabled/i)).toBeVisible();
   });
 
   it('does not reopen or revoke when a parent renders an equivalent descriptor', async () => {
     const transport = createTransport();
     const view = renderHost(transport);
-    await screen.findByTitle('Project health');
+    await findSurfaceFrame('Project health');
 
     view.rerender(
       <AppSurfaceHost
@@ -526,7 +540,7 @@ describe('AppSurfaceHost lifecycle boundary', () => {
     const transport = createTransport();
     const bootstrapMessenger = vi.fn();
     renderHost(transport, { bootstrapMessenger });
-    const iframe = await screen.findByTitle('Project health');
+    const iframe = await findSurfaceFrame('Project health');
     await waitFor(() => expect(bootstrapMessenger).toHaveBeenCalled());
     const pluginPort = bootstrapMessenger.mock.calls[0][2] as TestPort;
     iframe.focus();
@@ -555,7 +569,7 @@ describe('AppSurfaceHost lifecycle boundary', () => {
     );
     const bootstrapMessenger = vi.fn();
     renderHost(transport, { bootstrapMessenger });
-    await screen.findByTitle('Project health');
+    await findSurfaceFrame('Project health');
     await waitFor(() => expect(bootstrapMessenger).toHaveBeenCalled());
     const pluginPort = bootstrapMessenger.mock.calls[0][2] as TestPort;
     const replies: unknown[] = [];

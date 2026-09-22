@@ -121,15 +121,6 @@ function pluginEcosystem(plugin: PluginControlItem): PluginEcosystem {
   return 'vibex';
 }
 
-function runtimeIdentity(runtime: PluginRuntimeInventoryItem) {
-  return [
-    runtime.id,
-    runtime.version,
-    runtime.target ?? 'target-unavailable',
-    runtime.contentDigest ?? 'digest-unavailable',
-  ].join(':');
-}
-
 function runtimeLockIsReady(
   contribution: PluginControlItem['runtimes'][number],
   installed: PluginRuntimeInventoryItem
@@ -1667,56 +1658,6 @@ export function PluginsSettings({
           )}
         </div>
       </SettingsSection>
-
-      {effectiveTab === 'vibex' && catalog?.runtimes.length ? (
-        <SettingsSection
-          icon={TerminalSquare}
-          title={t('plugins.runtimeInventoryTitle')}
-          description={t('plugins.runtimeInventoryDescription')}
-        >
-          <div className="plugin-runtime-inventory">
-            {catalog.runtimes.map((runtime) => (
-              <article key={runtimeIdentity(runtime)}>
-                <div>
-                  <strong>{runtime.id}</strong>
-                  <span>{runtime.version}</span>
-                  <span>{runtime.installer}</span>
-                </div>
-                <small>
-                  {t('plugins.runtimeTarget', {
-                    target:
-                      runtime.target ?? t('plugins.runtimeEvidenceUnavailable'),
-                  })}
-                </small>
-                <code>
-                  {runtime.contentDigest ??
-                    t('plugins.runtimeEvidenceUnavailable')}
-                </code>
-                <small>
-                  {t('plugins.runtimeOwnership', {
-                    ownership:
-                      runtime.ownership ??
-                      t('plugins.runtimeEvidenceUnavailable'),
-                  })}
-                </small>
-                <code title={runtime.executablePath}>
-                  {runtime.executablePath}
-                </code>
-                <small>
-                  {t('plugins.runtimeProbe', {
-                    probe: runtime.probe.join(' '),
-                  })}
-                </small>
-                <small>
-                  {t('plugins.runtimeReferences', {
-                    plugins: runtime.referencedPlugins.join(', ') || '—',
-                  })}
-                </small>
-              </article>
-            ))}
-          </div>
-        </SettingsSection>
-      ) : null}
 
       <Dialog
         open={importChooserOpen}

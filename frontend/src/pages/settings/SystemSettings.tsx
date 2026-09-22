@@ -15,7 +15,6 @@ import { useTranslation } from 'react-i18next';
 import { type Config } from 'shared/types';
 import { useUserSystem } from '@/components/ConfigProvider';
 import { TextInput } from '@astryxdesign/core/TextInput';
-import { astryxTextInputSurfaceStyle } from '@/components/ui/astryx-text-input';
 import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
 import {
@@ -631,7 +630,6 @@ export function SystemSettings() {
                   }
                   width="100%"
                   className="[&_input]:text-sm"
-                  style={astryxTextInputSurfaceStyle}
                 />
                 <p className="settings-row__description">
                   {t('system.proxyProtocolHint')}
@@ -718,7 +716,6 @@ export function SystemSettings() {
                       isDisabled={backupBusy}
                       width="100%"
                       className="[&_input]:text-sm"
-                      style={astryxTextInputSurfaceStyle}
                     />
                     <Button
                       className="shrink-0"
@@ -743,7 +740,6 @@ export function SystemSettings() {
                     isDisabled={backupBusy}
                     width="100%"
                     className="[&_input]:text-sm"
-                    style={astryxTextInputSurfaceStyle}
                   />
                 </div>
 
@@ -759,7 +755,6 @@ export function SystemSettings() {
                       isDisabled={restoreBusy}
                       width="100%"
                       className="[&_input]:text-sm"
-                      style={astryxTextInputSurfaceStyle}
                     />
                     <Button
                       variant="outline"
@@ -797,7 +792,6 @@ export function SystemSettings() {
                     isDisabled={restoreBusy}
                     width="100%"
                     className="[&_input]:text-sm"
-                    style={astryxTextInputSurfaceStyle}
                   />
                 </div>
 

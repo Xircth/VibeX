@@ -34,9 +34,11 @@ describe('capsule hover tooltip', () => {
 
     expect(rules['border-radius']?.value).toBe('999px');
     expect(rules.padding?.value).toBe('5px 12px');
-    expect(rules.background?.value).toBe('var(--surface-popover)');
+    expect(rules.background?.value).toBe('var(--surface-dialog)');
+    expect(rules.border?.value).toBe('1px solid var(--border-strong)');
     expect(rules.color?.value).toBe('var(--text-strong)');
     expect(rules['box-shadow']?.value).toBe('var(--shadow-popover)');
+    expect(rules['backdrop-filter']?.value).toBe('none');
     expect(rules['font-family']?.value).toBe('var(--font-ui)');
   });
 
@@ -46,15 +48,19 @@ describe('capsule hover tooltip', () => {
     expect(rules['--radius-container']?.value).toBe('999px');
     expect(rules['border-radius']?.value).toBe('999px');
     expect(rules['border-radius']?.important).toBe(true);
-    expect(rules.background?.value).toBe('var(--surface-popover)');
+    expect(rules.background?.value).toBe('var(--surface-dialog)');
     expect(rules.background?.important).toBe(true);
+    expect(rules.border?.value).toBe('1px solid var(--border-strong)');
     expect(rules.color?.value).toBe('var(--text-strong)');
     expect(rules.color?.important).toBe(true);
     expect(rules['box-shadow']?.value).toBe('var(--shadow-popover)');
+    expect(rules['backdrop-filter']?.value).toBe('none');
+    expect(rules['backdrop-filter']?.important).toBe(true);
   });
 
   it('applies the capsule class to the shared Radix tooltip', () => {
     expect(TOOLTIP_SOURCE).toContain('app-hover-tooltip');
+    expect(TOOLTIP_SOURCE).toContain('data-app-owned-tooltip');
     expect(TOOLTIP_SOURCE).not.toContain('rounded-md');
   });
 });

@@ -28,7 +28,6 @@ import {
   Trash2,
 } from 'lucide-react';
 import { TextInput } from '@astryxdesign/core/TextInput';
-import { astryxTextInputSurfaceStyle } from '@/components/ui/astryx-text-input';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
@@ -945,7 +944,6 @@ export function McpSettings() {
                           width="100%"
                           size="sm"
                           className="[&_input]:text-xs"
-                          style={astryxTextInputSurfaceStyle}
                         />
                       )}
                       {field.description ? (
@@ -1568,7 +1566,6 @@ function DraftEditor({
           width="100%"
           size="sm"
           className="[&_input]:text-xs"
-          style={astryxTextInputSurfaceStyle}
         />
       </div>
 

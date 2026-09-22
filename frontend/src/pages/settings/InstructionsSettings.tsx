@@ -22,7 +22,6 @@ import { AgentTypeIcon } from '@/components/agents/AgentTypeIcon';
 import { ConfirmDialog } from '@/components/dialogs/shared/ConfirmDialog';
 import { Badge } from '@/components/ui/badge';
 import { TextInput } from '@astryxdesign/core/TextInput';
-import { astryxTextInputSurfaceStyle } from '@/components/ui/astryx-text-input';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Input } from '@/components/ui/input';
@@ -611,7 +610,6 @@ export function InstructionsSettings() {
                     placeholder="review_changes"
                     width="100%"
                     className="[&_input]:text-sm"
-                    style={astryxTextInputSurfaceStyle}
                   />
                 </div>
 

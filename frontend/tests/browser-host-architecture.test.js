@@ -127,7 +127,11 @@ test('frontend shell opens the host-browser plugin panel instead of WEB_PREVIEW'
   assert.match(picker, /report\(describe\(element\)\)/);
   assert.match(picker, /__vibexPickQueue/);
   const styles = readRepoFile('frontend/src/styles/legacy/index.css');
-  assert.match(styles, /\.astryx-text-input \{[\s\S]*padding: 0 12px/);
+  assert.match(
+    styles,
+    /\.legacy-design :is\(\.astryx-text-input, \.astryx-textarea\) :is\(input, textarea\)/
+  );
+  assert.doesNotMatch(styles, /\.astryx-text-input \{[\s\S]*padding: 0 12px/);
   assert.match(native, /WebviewWindowBuilder/);
   assert.match(native, /target_os = "linux"/);
 

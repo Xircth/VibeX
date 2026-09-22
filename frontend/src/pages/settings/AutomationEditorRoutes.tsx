@@ -13,7 +13,6 @@ import type {
 } from 'shared/types';
 
 import { TextInput } from '@astryxdesign/core/TextInput';
-import { astryxTextInputSurfaceStyle } from '@/components/ui/astryx-text-input';
 import { Button } from '@/components/ui/button';
 import {
   Dialog,
@@ -1134,7 +1133,6 @@ function WorkflowAutomationEditor({
           onChange={setSourcePath}
           width="100%"
           className="[&_input]:font-mono [&_input]:text-[11px]"
-          style={astryxTextInputSurfaceStyle}
         />
       </div>
 
@@ -1332,7 +1330,6 @@ function WorkflowAutomationEditor({
               onChange={setTimezone}
               width="100%"
               className="[&_input]:text-sm"
-              style={astryxTextInputSurfaceStyle}
             />
           </div>
         </>
@@ -1525,7 +1522,6 @@ function WorkflowAutomationEditor({
               onChange={setPublishVersion}
               width="100%"
               className="[&_input]:font-mono [&_input]:text-sm"
-              style={astryxTextInputSurfaceStyle}
             />
           </div>
         </DialogContent>

@@ -11,7 +11,6 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import { TextInput } from '@astryxdesign/core/TextInput';
-import { astryxTextInputSurfaceStyle } from '@/components/ui/astryx-text-input';
 import { Button } from '@/components/ui/button';
 import { defineModal, getErrorMessage } from '@/lib/modals';
 import { repoApi } from '@/lib/api/repos';
@@ -113,7 +112,6 @@ const CloneRepoDialogImpl = NiceModal.create<Record<string, never>>(() => {
               isDisabled={cloning}
               width="100%"
               className="[&_input]:text-sm"
-              style={astryxTextInputSurfaceStyle}
             />
           </div>
 
@@ -131,7 +129,6 @@ const CloneRepoDialogImpl = NiceModal.create<Record<string, never>>(() => {
                 isDisabled={cloning}
                 width="100%"
                 className="[&_input]:text-sm"
-                style={astryxTextInputSurfaceStyle}
               />
               <Button
                 variant="outline"

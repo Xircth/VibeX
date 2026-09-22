@@ -15,7 +15,6 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import { TextInput } from '@astryxdesign/core/TextInput';
-import { astryxTextInputSurfaceStyle } from '@/components/ui/astryx-text-input';
 import { Textarea } from '@/components/ui/textarea';
 import { agentManagementErrorMessage } from '@/features/agent-management';
 import {
@@ -292,7 +291,6 @@ export function AgentSkillsManager({
               width="100%"
               size="sm"
               className="min-w-64 flex-1 [&_input]:font-mono [&_input]:text-xs"
-              style={astryxTextInputSurfaceStyle}
             />
           ) : null}
         </div>
@@ -362,7 +360,6 @@ export function AgentSkillsManager({
                   width="100%"
                   size="sm"
                   className="[&_input]:font-mono [&_input]:text-xs"
-                  style={astryxTextInputSurfaceStyle}
                 />
                 <Textarea
                   aria-label={t('settings:agents.skillsContent')}

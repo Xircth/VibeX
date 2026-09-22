@@ -4,7 +4,6 @@ import { toast } from '@/components/ui/toast';
 import { Archive, ChevronDown, ChevronRight } from 'lucide-react';
 
 import { TextInput } from '@astryxdesign/core/TextInput';
-import { astryxTextInputSurfaceStyle } from '@/components/ui/astryx-text-input';
 import { Button } from '@/components/ui/button';
 import { attemptsApi } from '@/lib/api/attempts';
 import type { StashEntry } from 'shared/types';
@@ -108,7 +107,6 @@ export function GitStashSection({
               width="100%"
               size="sm"
               className="[&_input]:text-xs"
-              style={astryxTextInputSurfaceStyle}
             />
             <Button
               size="sm"

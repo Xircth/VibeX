@@ -12,7 +12,6 @@ import { useTranslation } from 'react-i18next';
 
 import { ConfirmDialog } from '@/components/dialogs/shared/ConfirmDialog';
 import { TextInput } from '@astryxdesign/core/TextInput';
-import { astryxTextInputSurfaceStyle } from '@/components/ui/astryx-text-input';
 import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
 import {
@@ -602,7 +601,6 @@ export function RemoteClientSettings() {
                     placeholder={t('webService.manualOriginPlaceholder')}
                     width="100%"
                     className="mt-1 [&_input]:font-mono [&_input]:text-sm"
-                    style={astryxTextInputSurfaceStyle}
                   />
                 </div>
                 <div>
@@ -615,7 +613,6 @@ export function RemoteClientSettings() {
                     placeholder={t('webService.clientCodePlaceholder')}
                     width="100%"
                     className="mt-1 [&_input]:font-mono [&_input]:text-sm"
-                    style={astryxTextInputSurfaceStyle}
                   />
                 </div>
                 <Button
@@ -694,7 +691,6 @@ export function RemoteClientSettings() {
                         placeholder={t('webService.clientCodePlaceholder')}
                         width="100%"
                         className="[&_input]:font-mono [&_input]:text-sm"
-                        style={astryxTextInputSurfaceStyle}
                       />
                       <Button
                         size="sm"
@@ -819,7 +815,6 @@ export function RemoteClientSettings() {
                           placeholder={t('webService.clientCodePlaceholder')}
                           width="100%"
                           className="[&_input]:font-mono [&_input]:text-sm"
-                          style={astryxTextInputSurfaceStyle}
                         />
                       ) : null}
                       <div className="flex flex-wrap justify-end gap-2">

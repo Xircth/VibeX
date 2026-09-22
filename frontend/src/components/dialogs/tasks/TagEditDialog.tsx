@@ -1,6 +1,5 @@
 import { useState, useEffect } from 'react';
 import { TextInput } from '@astryxdesign/core/TextInput';
-import { astryxTextInputSurfaceStyle } from '@/components/ui/astryx-text-input';
 import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
@@ -138,7 +137,6 @@ const TagEditDialogImpl = NiceModal.create<TagEditDialogProps>(({ tag }) => {
               hasAutoFocus
               width="100%"
               className="[&_input]:text-sm"
-              style={astryxTextInputSurfaceStyle}
               status={
                 tagNameError
                   ? { type: 'error', message: tagNameError }

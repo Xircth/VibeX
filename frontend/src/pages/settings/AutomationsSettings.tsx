@@ -28,7 +28,6 @@ import { SessionControlsFields } from '@/components/sessions/SessionControlsFiel
 import { SessionComposerInput } from '@/components/tasks/follow-up/SessionComposerInput';
 import RepoBranchSelector from '@/components/tasks/RepoBranchSelector';
 import { TextInput } from '@astryxdesign/core/TextInput';
-import { astryxTextInputSurfaceStyle } from '@/components/ui/astryx-text-input';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -868,7 +867,6 @@ export function AutomationsSettings({
                       placeholder={t('automations.namePlaceholder')}
                       width="100%"
                       className="[&_input]:text-sm"
-                      style={astryxTextInputSurfaceStyle}
                     />
                   </div>
                   <div className="space-y-1.5">
@@ -990,7 +988,6 @@ export function AutomationsSettings({
                           placeholder="Area/City"
                           width="100%"
                           className="[&_input]:text-sm"
-                          style={astryxTextInputSurfaceStyle}
                         />
                       </div>
                       <div className="flex flex-wrap items-center gap-2">

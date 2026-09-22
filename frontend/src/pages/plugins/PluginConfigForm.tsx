@@ -3,7 +3,6 @@ import { useTranslation } from 'react-i18next';
 
 import { ConfirmDialog } from '@/components/dialogs/shared/ConfirmDialog';
 import { TextInput } from '@astryxdesign/core/TextInput';
-import { astryxTextInputSurfaceStyle } from '@/components/ui/astryx-text-input';
 import { Input } from '@/components/ui/input';
 import {
   Select,
@@ -256,7 +255,6 @@ function SchemaField({
           onChange={onChange}
           width="100%"
           className="product-plugin-config-control [&_input]:text-sm"
-          style={astryxTextInputSurfaceStyle}
         />
       )}
     </div>

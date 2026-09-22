@@ -20,7 +20,6 @@ import { AgentSessionConfigPicker } from '@/components/settings/AgentSessionConf
 import { useUserSystem } from '@/components/ConfigProvider';
 import { AstryxSelect } from '@/components/ui/astryx-select';
 import { TextInput } from '@astryxdesign/core/TextInput';
-import { astryxTextInputSurfaceStyle } from '@/components/ui/astryx-text-input';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -435,7 +434,6 @@ export function VersionControlSettings() {
                   placeholder={t('versionControl.customGitPathPlaceholder')}
                   width="100%"
                   className="[&_input]:text-sm"
-                  style={astryxTextInputSurfaceStyle}
                 />
                 <div className="flex shrink-0 gap-2">
                   <Button
@@ -719,7 +717,6 @@ export function VersionControlSettings() {
                   isDisabled={githubInstalling}
                   width="100%"
                   className="[&_input]:text-sm"
-                  style={astryxTextInputSurfaceStyle}
                 />
                 <div className="flex shrink-0 gap-2">
                   <Button

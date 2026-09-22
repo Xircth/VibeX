@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   findTitledElement,
+  isOwnedAppTooltip,
   positionHoverTooltip,
   restoreNativeTitle,
   suppressNativeTitle,
@@ -40,6 +41,19 @@ describe('native title tooltip helpers', () => {
     expect(button.hasAttribute('data-app-title')).toBe(false);
 
     button.remove();
+  });
+
+  it('detects Radix-owned tooltip triggers', () => {
+    const owned = document.createElement('button');
+    owned.setAttribute('data-app-owned-tooltip', '');
+    const child = document.createElement('span');
+    owned.append(child);
+    document.body.append(owned);
+
+    expect(isOwnedAppTooltip(owned)).toBe(true);
+    expect(isOwnedAppTooltip(child)).toBe(true);
+
+    owned.remove();
   });
 
   it('keeps the capsule inside the viewport and flips above when needed', () => {

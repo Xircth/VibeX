@@ -14,7 +14,6 @@ import type { DshProviderModelView, DshProvidersView } from 'shared/types';
 import { ConfirmDialog } from '@/components/dialogs/shared/ConfirmDialog';
 import { TextInput } from '@astryxdesign/core/TextInput';
 import { AstryxSelect } from '@/components/ui/astryx-select';
-import { astryxTextInputSurfaceStyle } from '@/components/ui/astryx-text-input';
 import { Button } from '@/components/ui/button';
 
 import { toast } from '@/components/ui/toast';
@@ -495,7 +494,6 @@ export function DshAuthPanel({
                       onChange={() => undefined}
                       width="100%"
                       className="[&_input]:text-sm"
-                      style={astryxTextInputSurfaceStyle}
                     />
                   </label>
                   <label className="agent-auth-mode-field">
@@ -519,7 +517,6 @@ export function DshAuthPanel({
                       }
                       width="100%"
                       className="[&_input]:text-sm"
-                      style={astryxTextInputSurfaceStyle}
                     />
                   </label>
                   <div className="dsh-auth-model-row">
@@ -552,7 +549,6 @@ export function DshAuthPanel({
                           }
                           width="100%"
                           className="[&_input]:text-sm"
-                          style={astryxTextInputSurfaceStyle}
                         />
                       )}
                     </label>
@@ -645,7 +641,6 @@ export function DshAuthPanel({
                       }
                       width="100%"
                       className="[&_input]:text-sm"
-                      style={astryxTextInputSurfaceStyle}
                     />
                   </label>
                   <label className="agent-auth-mode-field">
@@ -663,7 +658,6 @@ export function DshAuthPanel({
                       }
                       width="100%"
                       className="[&_input]:text-sm"
-                      style={astryxTextInputSurfaceStyle}
                     />
                   </label>
                   <label className="agent-auth-mode-field">
@@ -681,7 +675,6 @@ export function DshAuthPanel({
                       }
                       width="100%"
                       className="[&_input]:text-sm"
-                      style={astryxTextInputSurfaceStyle}
                     />
                   </label>
                   {endpointCandidates.length > 1 ? (
@@ -721,7 +714,6 @@ export function DshAuthPanel({
                       }
                       width="100%"
                       className="[&_input]:text-sm"
-                      style={astryxTextInputSurfaceStyle}
                     />
                   </label>
                   <div className="dsh-auth-model-row">
@@ -754,7 +746,6 @@ export function DshAuthPanel({
                           }
                           width="100%"
                           className="[&_input]:text-sm"
-                          style={astryxTextInputSurfaceStyle}
                         />
                       )}
                     </label>

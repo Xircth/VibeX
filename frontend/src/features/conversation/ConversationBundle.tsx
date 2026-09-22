@@ -3,7 +3,6 @@ import { useTranslation } from 'react-i18next';
 import { Download, Upload } from 'lucide-react';
 import { toast } from '@/components/ui/toast';
 import { TextInput } from '@astryxdesign/core/TextInput';
-import { astryxTextInputSurfaceStyle } from '@/components/ui/astryx-text-input';
 import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
@@ -91,7 +90,6 @@ export function ConversationBundlePanel() {
             isDisabled={busy}
             width="100%"
             className="[&_input]:text-sm"
-            style={astryxTextInputSurfaceStyle}
           />
           <div className="flex flex-col gap-2 sm:flex-row">
             <TextInput
@@ -103,7 +101,6 @@ export function ConversationBundlePanel() {
               isDisabled={busy}
               width="100%"
               className="[&_input]:text-sm"
-              style={astryxTextInputSurfaceStyle}
             />
             <Button
               className="shrink-0"
@@ -130,7 +127,6 @@ export function ConversationBundlePanel() {
               isDisabled={busy}
               width="100%"
               className="[&_input]:text-sm"
-              style={astryxTextInputSurfaceStyle}
             />
             <Button
               variant="outline"

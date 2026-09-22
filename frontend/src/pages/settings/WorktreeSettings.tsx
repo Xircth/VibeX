@@ -7,7 +7,6 @@ import { useUserSystem } from '@/components/ConfigProvider';
 import { FolderPickerDialog } from '@/components/dialogs/shared/FolderPickerDialog';
 import { toast } from '@/components/ui/toast';
 import { TextInput } from '@astryxdesign/core/TextInput';
-import { astryxTextInputSurfaceStyle } from '@/components/ui/astryx-text-input';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -275,7 +274,6 @@ export function WorktreeSettings() {
                   placeholder={t('versionControl.workspaceDirPlaceholder')}
                   width="100%"
                   className="[&_input]:text-sm"
-                  style={astryxTextInputSurfaceStyle}
                 />
                 <Button
                   variant="outline"
@@ -306,7 +304,6 @@ export function WorktreeSettings() {
                 placeholder="vibex"
                 width="100%"
                 className="[&_input]:text-sm"
-                style={astryxTextInputSurfaceStyle}
                 status={
                   worktreeDirty && worktreeBranchPrefixError
                     ? { type: 'error' }

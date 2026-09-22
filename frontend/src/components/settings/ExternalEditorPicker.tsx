@@ -5,7 +5,6 @@ import { EditorType, type EditorConfig } from 'shared/types';
 
 import { IdeIcon } from '@/components/ide/IdeIcon';
 import { TextInput } from '@astryxdesign/core/TextInput';
-import { astryxTextInputSurfaceStyle } from '@/components/ui/astryx-text-input';
 import { Label } from '@/components/ui/label';
 import {
   Select,
@@ -212,7 +211,6 @@ export function ExternalEditorPicker({
             }
             width="100%"
             className="[&_input]:text-sm"
-            style={astryxTextInputSurfaceStyle}
           />
         </div>
       ) : null}

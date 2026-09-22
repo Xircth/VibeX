@@ -7,7 +7,6 @@ import { TextInput } from '@astryxdesign/core/TextInput';
 import { Check, ChevronDown, History, LoaderCircle } from 'lucide-react';
 import type { ExecutorConfigs, ExecutorProfileId } from 'shared/types';
 import type { RepoBranchConfig } from '@/hooks';
-import { astryxTextInputSurfaceStyle } from '@/components/ui/astryx-text-input';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Label } from '@/components/ui/label';
@@ -626,7 +625,6 @@ export function SessionCreationForm({
           width="100%"
           size="lg"
           className="[&_input]:text-sm"
-          style={astryxTextInputSurfaceStyle}
         />
       </div>
 

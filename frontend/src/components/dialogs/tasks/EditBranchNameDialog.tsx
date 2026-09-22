@@ -9,7 +9,6 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import { TextInput } from '@astryxdesign/core/TextInput';
-import { astryxTextInputSurfaceStyle } from '@/components/ui/astryx-text-input';
 import { Button } from '@/components/ui/button';
 import NiceModal, { useModal } from '@ebay/nice-modal-react';
 import { defineModal, getErrorMessage } from '@/lib/modals';
@@ -118,7 +117,6 @@ const EditBranchNameDialogImpl = NiceModal.create<EditBranchNameDialogProps>(
                 hasAutoFocus
                 width="100%"
                 className="[&_input]:text-sm"
-                style={astryxTextInputSurfaceStyle}
                 status={error ? { type: 'error', message: error } : undefined}
               />
             </div>

@@ -1,7 +1,6 @@
 import { Loader2 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { TextInput } from '@astryxdesign/core/TextInput';
-import { astryxTextInputSurfaceStyle } from '@/components/ui/astryx-text-input';
 
 export function VersionControlSetup({
   userName,
@@ -37,7 +36,6 @@ export function VersionControlSetup({
             isDisabled={fieldsDisabled}
             width="100%"
             className="[&_input]:text-sm"
-            style={astryxTextInputSurfaceStyle}
           />
         </label>
         <label className="onboarding-version-control-field">
@@ -51,7 +49,6 @@ export function VersionControlSetup({
             isDisabled={fieldsDisabled}
             width="100%"
             className="[&_input]:text-sm"
-            style={astryxTextInputSurfaceStyle}
           />
         </label>
       </div>

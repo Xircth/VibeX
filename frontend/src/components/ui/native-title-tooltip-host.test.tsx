@@ -20,7 +20,7 @@ describe('NativeTitleTooltipHost', () => {
     vi.useRealTimers();
   });
 
-  it('shows a capsule tooltip for native title hover and restores the attribute', () => {
+  it('shows a capsule tooltip for native title hover and keeps the native title suppressed', () => {
     render(
       <div>
         <NativeTitleTooltipHost />
@@ -52,7 +52,29 @@ describe('NativeTitleTooltipHost', () => {
     });
 
     expect(screen.queryByRole('tooltip')).not.toBeInTheDocument();
-    expect(trigger).toHaveAttribute('title', '最近项目');
+    expect(trigger).not.toHaveAttribute('title');
+    expect(trigger).toHaveAttribute('data-app-title', '最近项目');
+  });
+
+  it('does not show a second tooltip for Radix-owned hover targets', () => {
+    render(
+      <div>
+        <NativeTitleTooltipHost />
+        <button type="button" data-app-owned-tooltip="" title="Settings">
+          Settings
+        </button>
+      </div>
+    );
+
+    const trigger = screen.getByRole('button', { name: 'Settings' });
+    fireEvent.pointerOver(trigger, { pointerType: 'mouse' });
+    act(() => {
+      vi.advanceTimersByTime(NATIVE_TITLE_SHOW_DELAY_MS);
+    });
+
+    expect(screen.queryByRole('tooltip')).not.toBeInTheDocument();
+    expect(trigger).not.toHaveAttribute('title');
+    expect(trigger).toHaveAttribute('data-app-title', 'Settings');
   });
 
   it('hides when the pointer leaves the window', () => {
@@ -74,7 +96,8 @@ describe('NativeTitleTooltipHost', () => {
 
     fireEvent.pointerLeave(document.documentElement);
     expect(screen.queryByRole('tooltip')).not.toBeInTheDocument();
-    expect(trigger).toHaveAttribute('title', '最近项目');
+    expect(trigger).not.toHaveAttribute('title');
+    expect(trigger).toHaveAttribute('data-app-title', '最近项目');
   });
 
   it('does not open on touch pointers', () => {

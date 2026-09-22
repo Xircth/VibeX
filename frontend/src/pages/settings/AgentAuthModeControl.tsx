@@ -30,7 +30,6 @@ import type {
 
 import { ConfirmDialog } from '@/components/dialogs/shared/ConfirmDialog';
 import { TextInput } from '@astryxdesign/core/TextInput';
-import { astryxTextInputSurfaceStyle } from '@/components/ui/astryx-text-input';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { toast } from '@/components/ui/toast';
@@ -430,7 +429,6 @@ export function AgentAuthModeControl({
                   onChange={() => undefined}
                   width="100%"
                   className="[&_input]:text-sm"
-                  style={astryxTextInputSurfaceStyle}
                 />
               </label>
             ) : null}

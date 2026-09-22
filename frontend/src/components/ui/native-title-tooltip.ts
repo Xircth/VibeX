@@ -1,5 +1,6 @@
 export const NATIVE_TITLE_ATTR = 'title';
 export const STORED_TITLE_ATTR = 'data-app-title';
+export const OWNED_TOOLTIP_ATTR = 'data-app-owned-tooltip';
 export const NATIVE_TITLE_TOOLTIP_CLASS = 'app-hover-tooltip';
 export const NATIVE_TITLE_SHOW_DELAY_MS = 280;
 export const NATIVE_TITLE_GAP_PX = 6;
@@ -34,6 +35,10 @@ export function findTitledElement(target: EventTarget | null): Element | null {
   }
   if (!readElementTitle(element)) return null;
   return element;
+}
+
+export function isOwnedAppTooltip(element: Element): boolean {
+  return Boolean(element.closest(`[${OWNED_TOOLTIP_ATTR}]`));
 }
 
 export function suppressNativeTitle(element: Element): string {

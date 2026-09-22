@@ -3,7 +3,6 @@ import { useTranslation } from 'react-i18next';
 import NiceModal, { useModal } from '@ebay/nice-modal-react';
 import { TextArea } from '@astryxdesign/core/TextArea';
 import { TextInput } from '@astryxdesign/core/TextInput';
-import { astryxTextInputSurfaceStyle } from '@/components/ui/astryx-text-input';
 import { pickHostDirectory } from '@/lib/hostFs';
 import { AlertCircle, FolderOpen, GitBranch, Loader2 } from 'lucide-react';
 import type { CreateProject, Project } from 'shared/types';
@@ -65,7 +64,6 @@ function ProjectPathPreview({
         width="100%"
         aria-readonly="true"
         className="[&_input]:cursor-default [&_input]:truncate [&_input]:font-mono [&_input]:text-xs [&_input]:text-muted-foreground"
-        style={astryxTextInputSurfaceStyle}
       />
     </div>
   );
@@ -625,7 +623,6 @@ const ProjectFormDialogImpl = NiceModal.create<ProjectFormDialogProps>(
                     hasAutoFocus
                     width="100%"
                     className="[&_input]:text-sm"
-                    style={astryxTextInputSurfaceStyle}
                   />
                 </div>
 
@@ -641,7 +638,6 @@ const ProjectFormDialogImpl = NiceModal.create<ProjectFormDialogProps>(
                     isDisabled={isBusy}
                     width="100%"
                     className="project-form-description-field [&_textarea]:resize-none [&_textarea]:text-sm"
-                    style={astryxTextInputSurfaceStyle}
                   />
                 </div>
 

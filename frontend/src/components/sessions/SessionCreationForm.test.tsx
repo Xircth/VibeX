@@ -269,7 +269,7 @@ describe('SessionCreationForm agent capability catalog controls', () => {
 
     expect(field).toBeTruthy();
     expect(field).toHaveClass('[&_input]:text-sm');
-    expect(field).toHaveStyle({
+    expect(field).not.toHaveStyle({
       backgroundColor: 'var(--surface-control)',
     });
     expect(input).toHaveAttribute(

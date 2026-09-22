@@ -74,9 +74,10 @@ describe('shared raised controls', () => {
   it('keeps shared inputs on the canonical control radius', () => {
     render(<Input aria-label="Credential" />);
 
-    expect(screen.getByLabelText('Credential').className).toContain(
-      'rounded-lg'
-    );
+    const className = screen.getByLabelText('Credential').className;
+    expect(className).toContain('rounded-lg');
+    expect(className).not.toContain('ring-2');
+    expect(className).toContain('inset_0_0_0_2px');
   });
 
   it('gives select triggers the same raised surface', () => {

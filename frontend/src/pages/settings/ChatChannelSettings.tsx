@@ -13,7 +13,6 @@ import { useTranslation } from 'react-i18next';
 import { toast } from '@/components/ui/toast';
 
 import { TextInput } from '@astryxdesign/core/TextInput';
-import { astryxTextInputSurfaceStyle } from '@/components/ui/astryx-text-input';
 import { Button } from '@/components/ui/button';
 import {
   Dialog,
@@ -1082,7 +1081,6 @@ export function ChatChannelSettings() {
                   placeholder="/vibex"
                   width="100%"
                   className="[&_input]:text-sm"
-                  style={astryxTextInputSurfaceStyle}
                 />
               </div>
               <Button
@@ -1249,7 +1247,6 @@ export function ChatChannelSettings() {
                 placeholder="https://example.com/hooks/vibex"
                 width="100%"
                 className="[&_input]:text-sm"
-                style={astryxTextInputSurfaceStyle}
               />
               <Button
                 size="sm"
@@ -1335,7 +1332,6 @@ export function ChatChannelSettings() {
                 placeholder={t('chatChannels.namePlaceholder')}
                 width="100%"
                 className="[&_input]:text-sm"
-                style={astryxTextInputSurfaceStyle}
               />
             </div>
             <div className="space-y-1.5">
@@ -1369,7 +1365,6 @@ export function ChatChannelSettings() {
                 placeholder={t('chatChannels.telegramChatPlaceholder')}
                 width="100%"
                 className="[&_input]:text-sm"
-                style={astryxTextInputSurfaceStyle}
               />
               <div className="flex items-center justify-between pt-1">
                 <Label className="text-xs">
@@ -1419,7 +1414,6 @@ export function ChatChannelSettings() {
                   placeholder="cli_xxxxxxxx"
                   width="100%"
                   className="[&_input]:text-sm"
-                  style={astryxTextInputSurfaceStyle}
                 />
               </div>
               <div className="space-y-1.5">
@@ -1434,7 +1428,6 @@ export function ChatChannelSettings() {
                   placeholder="oc_xxxxxxxx"
                   width="100%"
                   className="[&_input]:text-sm"
-                  style={astryxTextInputSurfaceStyle}
                 />
               </div>
             </div>
@@ -1454,7 +1447,6 @@ export function ChatChannelSettings() {
                   placeholder="http://127.0.0.1:3000"
                   width="100%"
                   className="[&_input]:text-sm"
-                  style={astryxTextInputSurfaceStyle}
                 />
               </div>
               <div className="space-y-1.5">
@@ -1467,7 +1459,6 @@ export function ChatChannelSettings() {
                   placeholder={t('chatChannels.qqWsPlaceholder')}
                   width="100%"
                   className="[&_input]:text-sm"
-                  style={astryxTextInputSurfaceStyle}
                 />
               </div>
               <div className="grid grid-cols-[160px_minmax(0,1fr)] gap-3">
@@ -1512,7 +1503,6 @@ export function ChatChannelSettings() {
                     placeholder={t('chatChannels.qqTargetPlaceholder')}
                     width="100%"
                     className="[&_input]:text-sm"
-                    style={astryxTextInputSurfaceStyle}
                   />
                 </div>
               </div>
@@ -1554,7 +1544,6 @@ export function ChatChannelSettings() {
                 placeholder="https://example.com/webhook"
                 width="100%"
                 className="[&_input]:text-sm"
-                style={astryxTextInputSurfaceStyle}
               />
             </div>
           ) : null}
@@ -1606,7 +1595,6 @@ export function ChatChannelSettings() {
                 }
                 width="100%"
                 className="[&_input]:text-sm"
-                style={astryxTextInputSurfaceStyle}
               />
               {editingChannel?.has_token ? (
                 <Button

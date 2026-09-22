@@ -10,7 +10,6 @@ import { useTranslation } from 'react-i18next';
 
 import { Logo } from '@/components/Logo';
 import { TextInput } from '@astryxdesign/core/TextInput';
-import { astryxTextInputSurfaceStyle } from '@/components/ui/astryx-text-input';
 import { Button } from '@/components/ui/button';
 import { BackendTransportProvider, WebTransport } from '@/lib/transport';
 import {
@@ -118,7 +117,6 @@ export function WebTransportBootstrap({ children }: { children: ReactNode }) {
               placeholder="http://127.0.0.1:17891"
               width="100%"
               className="[&_input]:font-mono [&_input]:text-sm"
-              style={astryxTextInputSurfaceStyle}
             />
             {hostDiffers ? (
               <span className="web-connect__hint">
@@ -139,7 +137,6 @@ export function WebTransportBootstrap({ children }: { children: ReactNode }) {
                 hasAutoFocus
                 width="100%"
                 className="[&_input]:font-mono [&_input]:text-sm"
-                style={astryxTextInputSurfaceStyle}
               />
               <Button
                 type="button"

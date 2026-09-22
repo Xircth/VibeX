@@ -1,7 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { TextInput } from '@astryxdesign/core/TextInput';
-import { astryxTextInputSurfaceStyle } from '@/components/ui/astryx-text-input';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import {
@@ -186,7 +185,6 @@ const FolderPickerDialogImpl = NiceModal.create<FolderPickerDialogProps>(
                     placeholder="/path/to/your/project"
                     width="100%"
                     className="min-w-0 flex-1 [&_input]:text-sm"
-                    style={astryxTextInputSurfaceStyle}
                   />
                   <Button
                     onClick={handleManualPathSubmit}

@@ -17,7 +17,6 @@ import { isTauriClient } from '@/lib/desktopShell';
 import { useBackendTransport } from '@/lib/transport';
 
 import { TextInput } from '@astryxdesign/core/TextInput';
-import { astryxTextInputSurfaceStyle } from '@/components/ui/astryx-text-input';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -614,7 +613,6 @@ export function WebServiceSettings({
                     placeholder={t('webService.tokenPlaceholder')}
                     width="100%"
                     className="[&_input]:font-mono [&_input]:text-sm"
-                    style={astryxTextInputSurfaceStyle}
                   />
                   <Button
                     variant="outline"

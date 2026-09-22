@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom';
 import { usePortalContainer } from '@/contexts/PortalContainerContext';
 import {
   findTitledElement,
+  isOwnedAppTooltip,
   NATIVE_TITLE_SHOW_DELAY_MS,
   NATIVE_TITLE_TOOLTIP_CLASS,
   positionHoverTooltip,
@@ -28,6 +29,7 @@ export function NativeTitleTooltipHost() {
     let showTimer: number | null = null;
     let active: Element | null = null;
     let observer: MutationObserver | null = null;
+    const suppressed = new Set<Element>();
 
     const clearShowTimer = () => {
       if (showTimer != null) {
@@ -36,19 +38,16 @@ export function NativeTitleTooltipHost() {
       }
     };
 
-    const release = (element: Element | null) => {
-      if (!element) return;
-      observer?.disconnect();
-      observer = null;
-      restoreNativeTitle(element);
+    const suppress = (element: Element) => {
+      suppressNativeTitle(element);
+      suppressed.add(element);
     };
 
     const hide = () => {
       clearShowTimer();
-      if (active) {
-        release(active);
-        active = null;
-      }
+      observer?.disconnect();
+      observer = null;
+      active = null;
       setTooltip(null);
     };
 
@@ -74,6 +73,7 @@ export function NativeTitleTooltipHost() {
       observer?.disconnect();
       observer = new MutationObserver(() => {
         if (!element.hasAttribute('title')) return;
+        suppress(element);
         const text = suppressNativeTitle(element);
         if (!text) {
           hide();
@@ -88,6 +88,7 @@ export function NativeTitleTooltipHost() {
     };
 
     const show = (element: Element) => {
+      suppress(element);
       const text = suppressNativeTitle(element);
       if (!text) {
         hide();
@@ -104,14 +105,15 @@ export function NativeTitleTooltipHost() {
       const next = findTitledElement(event.target);
       const from = findTitledElement(event.relatedTarget);
       if (next === from) return;
-      if (!next) {
+      if (next) suppress(next);
+      if (!next || isOwnedAppTooltip(next)) {
         hide();
         return;
       }
       if (next === active) return;
       hide();
       active = next;
-      suppressNativeTitle(next);
+      suppress(next);
       showTimer = window.setTimeout(() => {
         showTimer = null;
         if (active === next) show(next);
@@ -132,6 +134,10 @@ export function NativeTitleTooltipHost() {
 
     return () => {
       hide();
+      for (const element of suppressed) {
+        restoreNativeTitle(element);
+      }
+      suppressed.clear();
       document.removeEventListener('pointerover', onPointerOver, true);
       document.removeEventListener('pointerdown', onPointerDown, true);
       document.removeEventListener('keydown', onKeyDown, true);

@@ -16,7 +16,6 @@ import type {
 
 import { TextInput } from '@astryxdesign/core/TextInput';
 import { AstryxSelect } from '@/components/ui/astryx-select';
-import { astryxTextInputSurfaceStyle } from '@/components/ui/astryx-text-input';
 import { Button } from '@/components/ui/button';
 import { Switch } from '@/components/ui/switch';
 import { Textarea } from '@/components/ui/textarea';
@@ -174,7 +173,6 @@ export function UserAgentDefinitionEditor({
             onChange={setAgentId}
             width="100%"
             className="[&_input]:text-sm"
-            style={astryxTextInputSurfaceStyle}
           />
         </Field>
         <Field label={t('settings:agents.displayName')}>
@@ -187,7 +185,6 @@ export function UserAgentDefinitionEditor({
             onChange={setDisplayName}
             width="100%"
             className="[&_input]:text-sm"
-            style={astryxTextInputSurfaceStyle}
           />
         </Field>
         <Field label={t('settings:agents.version')}>
@@ -200,7 +197,6 @@ export function UserAgentDefinitionEditor({
             onChange={setVersion}
             width="100%"
             className="[&_input]:text-sm"
-            style={astryxTextInputSurfaceStyle}
           />
         </Field>
         <Field label={t('settings:agents.installMethod')}>
@@ -227,7 +223,6 @@ export function UserAgentDefinitionEditor({
           onChange={setDescription}
           width="100%"
           className="[&_input]:text-sm"
-          style={astryxTextInputSurfaceStyle}
         />
       </Field>
 
@@ -266,7 +261,6 @@ export function UserAgentDefinitionEditor({
                 onChange={setArchiveUrl}
                 width="100%"
                 className="[&_input]:text-sm"
-                style={astryxTextInputSurfaceStyle}
               />
             </Field>
             <Field label={t('settings:agents.archiveCommand')}>
@@ -279,7 +273,6 @@ export function UserAgentDefinitionEditor({
                 onChange={setCommand}
                 width="100%"
                 className="[&_input]:text-sm"
-                style={astryxTextInputSurfaceStyle}
               />
             </Field>
             <Field label={t('settings:agents.sha256Optional')}>
@@ -291,7 +284,6 @@ export function UserAgentDefinitionEditor({
                 onChange={setSha256}
                 width="100%"
                 className="[&_input]:text-sm"
-                style={astryxTextInputSurfaceStyle}
               />
             </Field>
           </div>
@@ -310,7 +302,6 @@ export function UserAgentDefinitionEditor({
               onChange={setPackageName}
               width="100%"
               className="[&_input]:text-sm"
-              style={astryxTextInputSurfaceStyle}
             />
           </Field>
         )}
@@ -366,7 +357,6 @@ export function UserAgentDefinitionEditor({
               }
               width="100%"
               className="[&_input]:text-sm"
-              style={astryxTextInputSurfaceStyle}
             />
             <TextInput
               label={t('settings:agents.environmentValueAria', {
@@ -384,7 +374,6 @@ export function UserAgentDefinitionEditor({
               }
               width="100%"
               className="[&_input]:text-sm"
-              style={astryxTextInputSurfaceStyle}
             />
             <Button
               aria-label={t('settings:agents.environmentDeleteAria', {
@@ -432,7 +421,6 @@ export function UserAgentDefinitionEditor({
             onChange={setSkillsDirectory}
             width="100%"
             className="[&_input]:font-mono [&_input]:text-xs"
-            style={astryxTextInputSurfaceStyle}
           />
         </Field>
       </fieldset>

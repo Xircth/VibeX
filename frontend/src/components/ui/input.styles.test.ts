@@ -9,6 +9,19 @@ const stylesheet = readFileSync(
 );
 
 describe('text control caret clearance', () => {
+  it('lets Astryx TextInput own its frame instead of restyling the wrapper', () => {
+    parse(stylesheet).walkRules((rule) => {
+      const selector = rule.selector.replace(/\s+/g, ' ');
+      if (!selector.includes('.astryx-text-input')) return;
+      if (selector.includes('input') || selector.includes('textarea')) return;
+
+      rule.walkDecls((declaration) => {
+        expect(declaration.prop).not.toBe('padding');
+        expect(declaration.prop).not.toBe('overflow');
+      });
+    });
+  });
+
   it('does not globally indent every native text control', () => {
     parse(stylesheet).walkRules((rule) => {
       const selector = rule.selector.replace(/\s+/g, ' ');

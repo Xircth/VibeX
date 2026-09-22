@@ -730,28 +730,20 @@
     color: inherit;
   }
 
-  /* The .astryx-text-input wrapper is the pressable frame. Keep horizontal
-     inset on that frame so the value does not sit on the rounded edge. */
-  .legacy-design .astryx-text-input {
-    overflow: hidden;
-    padding: 0 12px !important;
-    box-sizing: border-box;
-  }
-
-  .legacy-design .astryx-text-input [data-pressable-container] {
+  /* Astryx TextInput / TextArea own the control frame. Product descendant
+     input rules must not add a second border, padding, height, or focus ring. */
+  .legacy-design :is(.astryx-text-input, .astryx-textarea) :is(input, textarea) {
+    border: 0 !important;
     border-radius: 0 !important;
     background: transparent !important;
     box-shadow: none !important;
+    outline: none !important;
+    height: auto !important;
+    min-height: 0 !important;
+    max-height: none !important;
     padding: 0 !important;
-  }
-
-  .legacy-design .astryx-text-input input {
-    border-radius: 0 !important;
-    background: transparent !important;
-    box-shadow: none !important;
-    padding: 0 !important;
-    min-height: 0;
-    height: 100%;
+    margin: 0 !important;
+    text-indent: 0 !important;
   }
 
   .legacy-design .browser-toolbar-over-page {
@@ -2187,8 +2179,11 @@
     color: hsl(var(--primary));
   }
 
-  .settings-page input:not([type='checkbox']):not([type='radio']),
-  .settings-page textarea,
+  .settings-page
+    input:not([type='checkbox']):not([type='radio']):not(
+      :where(.astryx-text-input *, .astryx-textarea *)
+    ),
+  .settings-page textarea:not(:where(.astryx-text-input *, .astryx-textarea *)),
   .settings-page button[role='combobox'],
   .settings-page .settings-card kbd {
     border-width: 1px;
@@ -2197,7 +2192,10 @@
     box-shadow: var(--shadow-inset);
   }
 
-  .settings-page input:not([type='checkbox']):not([type='radio']),
+  .settings-page
+    input:not([type='checkbox']):not([type='radio']):not(
+      :where(.astryx-text-input *, .astryx-textarea *)
+    ),
   .settings-page button[role='combobox'],
   .settings-page
     :where(
@@ -2214,17 +2212,25 @@
     padding-bottom: 0.25rem;
   }
 
-  .settings-page input:not([type='checkbox']):not([type='radio']):focus,
-  .settings-page input:not([type='checkbox']):not([type='radio']):focus-visible,
-  .settings-page textarea:focus,
-  .settings-page textarea:focus-visible,
+  .settings-page
+    input:not([type='checkbox']):not([type='radio']):not(
+      :where(.astryx-text-input *, .astryx-textarea *)
+    ):focus,
+  .settings-page
+    input:not([type='checkbox']):not([type='radio']):not(
+      :where(.astryx-text-input *, .astryx-textarea *)
+    ):focus-visible,
+  .settings-page
+    textarea:not(:where(.astryx-text-input *, .astryx-textarea *)):focus,
+  .settings-page
+    textarea:not(:where(.astryx-text-input *, .astryx-textarea *)):focus-visible,
   .settings-page button[role='combobox']:focus,
   .settings-page button[role='combobox']:focus-visible {
     outline: none !important;
-    border-color: var(--border-strong);
+    border-color: hsl(var(--primary));
     --tw-ring-offset-shadow: 0 0 transparent !important;
     --tw-ring-shadow: 0 0 transparent !important;
-    box-shadow: 0 0 0 2px hsl(var(--primary) / 0.12) !important;
+    box-shadow: inset 0 0 0 2px hsl(var(--primary) / 0.22) !important;
   }
 
   .settings-page button[role='switch'] {
@@ -2376,18 +2382,18 @@
     -webkit-backdrop-filter: blur(20px) saturate(1.28);
   }
 
-  /* Capsule hover tooltip: replaces the OS title chrome (Windows black rectangle). */
+  /* Capsule hover tooltip: opaque dialog surface, visible hairline, no glass. */
   .app-hover-tooltip {
     max-width: min(22rem, calc(100vw - 16px));
     padding: 5px 12px;
     overflow: hidden;
-    border: 1px solid var(--border-glass);
+    border: 1px solid var(--border-strong);
     border-radius: 999px;
-    background: var(--surface-popover);
+    background: var(--surface-dialog);
     color: var(--text-strong);
     box-shadow: var(--shadow-popover);
-    backdrop-filter: blur(20px) saturate(1.28);
-    -webkit-backdrop-filter: blur(20px) saturate(1.28);
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
     font-family: var(--font-ui);
     font-optical-sizing: auto;
     font-size: 12px;
@@ -2403,13 +2409,13 @@
     --radius-container: 999px;
     max-width: min(22rem, calc(100vw - 16px));
     overflow: hidden;
-    border: 1px solid var(--border-glass) !important;
+    border: 1px solid var(--border-strong) !important;
     border-radius: 999px !important;
-    background: var(--surface-popover) !important;
+    background: var(--surface-dialog) !important;
     color: var(--text-strong) !important;
     box-shadow: var(--shadow-popover) !important;
-    backdrop-filter: blur(20px) saturate(1.28);
-    -webkit-backdrop-filter: blur(20px) saturate(1.28);
+    backdrop-filter: none !important;
+    -webkit-backdrop-filter: none !important;
     font-family: var(--font-ui) !important;
     font-optical-sizing: auto;
     font-size: 12px !important;
@@ -2532,8 +2538,8 @@
 
   .astryx-select-trigger:focus-visible,
   .astryx-select-trigger.is-open {
-    border-color: hsl(var(--primary) / 0.5);
-    box-shadow: 0 0 0 2px hsl(var(--primary) / 0.12);
+    border-color: hsl(var(--primary));
+    box-shadow: inset 0 0 0 2px hsl(var(--primary) / 0.22);
   }
 
   .astryx-select-trigger[aria-disabled='true'] {
@@ -5557,8 +5563,8 @@
 
   .settings-search-input:focus,
   .settings-search-input:focus-visible {
-    border-color: hsl(var(--primary) / 0.45);
-    box-shadow: 0 0 0 3px hsl(var(--primary) / 0.12);
+    border-color: hsl(var(--primary));
+    box-shadow: inset 0 0 0 2px hsl(var(--primary) / 0.22);
   }
 
   .settings-search-input::-webkit-search-cancel-button,
@@ -6408,8 +6414,8 @@
 .settings-page .agent-model-provider-binding select:focus-visible,
 .settings-page .agent-model-provider-form-grid input:focus-visible,
 .settings-page .agent-model-provider-form-grid textarea:focus-visible {
-  border-color: hsl(var(--primary) / 0.5);
-  box-shadow: 0 0 0 2px hsl(var(--primary) / 0.12);
+  border-color: hsl(var(--primary));
+  box-shadow: inset 0 0 0 2px hsl(var(--primary) / 0.22);
 }
 
 .settings-page .agent-model-provider-secret {
@@ -6758,8 +6764,8 @@
 }
 
 .agent-model-provider-catalog-search-field input:focus-visible {
-  border-color: hsl(var(--primary) / 0.5);
-  box-shadow: 0 0 0 2px hsl(var(--primary) / 0.12);
+  border-color: hsl(var(--primary));
+  box-shadow: inset 0 0 0 2px hsl(var(--primary) / 0.22);
 }
 
 .agent-model-provider-catalog-sort[aria-pressed='true'] {
@@ -6949,8 +6955,8 @@
 .settings-page .pi-custom-provider-fields input:focus-visible,
 .settings-page .pi-custom-provider-fields select:focus-visible,
 .settings-page .pi-runtime-fields input:focus-visible {
-  border-color: hsl(var(--primary) / 0.5);
-  box-shadow: 0 0 0 2px hsl(var(--primary) / 0.12);
+  border-color: hsl(var(--primary));
+  box-shadow: inset 0 0 0 2px hsl(var(--primary) / 0.22);
 }
 
 .settings-page .pi-custom-provider-fields {
@@ -8751,8 +8757,8 @@ html.host-windows :where(.legacy-design) .vu-toast-surface {
 }
 
 .settings-page .agent-provider-search input:focus-visible {
-  border-color: hsl(var(--primary) / 0.6);
-  box-shadow: 0 0 0 2px hsl(var(--primary) / 0.12);
+  border-color: hsl(var(--primary));
+  box-shadow: inset 0 0 0 2px hsl(var(--primary) / 0.22);
 }
 
 .settings-page .agent-provider-catalog-list {
@@ -9028,8 +9034,8 @@ html.host-windows :where(.legacy-design) .vu-toast-surface {
 .settings-page .agent-provider-field input:focus-visible,
 .settings-page .agent-provider-field select:focus-visible,
 .settings-page .agent-provider-field textarea:focus-visible {
-  border-color: hsl(var(--primary) / 0.6);
-  box-shadow: 0 0 0 2px hsl(var(--primary) / 0.12);
+  border-color: hsl(var(--primary));
+  box-shadow: inset 0 0 0 2px hsl(var(--primary) / 0.22);
 }
 
 .settings-page .agent-provider-form-footer {
@@ -9458,8 +9464,8 @@ html.host-windows :where(.legacy-design) .vu-toast-surface {
 }
 
 .settings-page .agent-custom-version-body input:focus-visible {
-  border-color: hsl(var(--primary) / 0.6);
-  box-shadow: 0 0 0 2px hsl(var(--primary) / 0.12);
+  border-color: hsl(var(--primary));
+  box-shadow: inset 0 0 0 2px hsl(var(--primary) / 0.22);
 }
 
 .settings-page .agent-custom-version > p {
@@ -9687,8 +9693,8 @@ html.host-windows :where(.legacy-design) .vu-toast-surface {
 }
 
 .settings-page .agent-registry-search:focus-within {
-  border-color: hsl(var(--primary) / 0.5);
-  box-shadow: 0 0 0 2px hsl(var(--primary) / 0.12);
+  border-color: hsl(var(--primary));
+  box-shadow: inset 0 0 0 2px hsl(var(--primary) / 0.22);
 }
 
 .settings-page .agent-registry-search input.agent-registry-search-input {
@@ -9850,8 +9856,8 @@ html.host-windows :where(.legacy-design) .vu-toast-surface {
 }
 
 .settings-page .agent-model-catalog-actions select:focus-visible {
-  border-color: hsl(var(--primary) / 0.5);
-  box-shadow: 0 0 0 2px hsl(var(--primary) / 0.12);
+  border-color: hsl(var(--primary));
+  box-shadow: inset 0 0 0 2px hsl(var(--primary) / 0.22);
 }
 
 .settings-page .agent-model-catalog-status,
@@ -10356,8 +10362,8 @@ html.host-windows :where(.legacy-design) .vu-toast-surface {
 .settings-page .codex-custom-models select:focus-visible,
 .settings-page .codex-custom-models textarea:focus-visible,
 .settings-page .codex-default-model select:focus-visible {
-  border-color: hsl(var(--primary) / 0.5);
-  box-shadow: 0 0 0 2px hsl(var(--primary) / 0.12);
+  border-color: hsl(var(--primary));
+  box-shadow: inset 0 0 0 2px hsl(var(--primary) / 0.22);
 }
 
 .settings-page .codex-custom-model-test {
@@ -10628,8 +10634,8 @@ html.host-windows :where(.legacy-design) .vu-toast-surface {
 .settings-page .agent-config-field-control > input:focus-visible,
 .settings-page .agent-config-field-control > select:focus-visible,
 .settings-page .agent-config-field-control > textarea:focus-visible {
-  border-color: hsl(var(--primary) / 0.5);
-  box-shadow: 0 0 0 2px hsl(var(--primary) / 0.12);
+  border-color: hsl(var(--primary));
+  box-shadow: inset 0 0 0 2px hsl(var(--primary) / 0.22);
 }
 
 .settings-page .agent-config-field-control > input::placeholder {
@@ -11049,8 +11055,8 @@ html.host-windows :where(.legacy-design) .vu-toast-surface {
 
 .settings-page .plugin-search-control > input:focus,
 .settings-page .plugin-search-control > input:focus-visible {
-  border-color: hsl(var(--primary) / 0.45) !important;
-  box-shadow: 0 0 0 3px hsl(var(--primary) / 0.12) !important;
+  border-color: hsl(var(--primary)) !important;
+  box-shadow: inset 0 0 0 2px hsl(var(--primary) / 0.22) !important;
 }
 
 .settings-page .plugin-search-control > input::placeholder {
@@ -12301,8 +12307,8 @@ html.host-windows :where(.legacy-design) .vu-toast-surface {
 }
 
 .settings-page .plugin-cli-command-field textarea:focus-visible {
-  border-color: hsl(var(--primary) / 0.5);
-  box-shadow: 0 0 0 2px hsl(var(--primary) / 0.18);
+  border-color: hsl(var(--primary));
+  box-shadow: inset 0 0 0 2px hsl(var(--primary) / 0.22);
 }
 
 .settings-page .plugin-cli-command-field textarea::placeholder {

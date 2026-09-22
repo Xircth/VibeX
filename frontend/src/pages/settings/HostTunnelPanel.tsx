@@ -4,7 +4,6 @@ import { useTranslation } from 'react-i18next';
 import { ConfirmDialog } from '@/components/dialogs/shared/ConfirmDialog';
 import { toast } from '@/components/ui/toast';
 import { TextInput } from '@astryxdesign/core/TextInput';
-import { astryxTextInputSurfaceStyle } from '@/components/ui/astryx-text-input';
 import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
@@ -304,7 +303,6 @@ export function HostTunnelPanel({
                     onChange={setAddress}
                     width="100%"
                     className="[&_input]:text-sm"
-                    style={astryxTextInputSurfaceStyle}
                   />
                   <Button
                     type="button"
@@ -340,7 +338,6 @@ export function HostTunnelPanel({
                     onChange={setAddress}
                     width="100%"
                     className="[&_input]:text-sm"
-                    style={astryxTextInputSurfaceStyle}
                   />
                   <Button
                     type="button"
@@ -375,7 +372,6 @@ export function HostTunnelPanel({
                       }}
                       width="100%"
                       className="settings-command-line [&_input]:font-mono [&_input]:text-xs"
-                      style={astryxTextInputSurfaceStyle}
                     />
                     <Button
                       type="button"

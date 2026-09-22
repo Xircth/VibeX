@@ -80,11 +80,11 @@ describe('ProjectFormDialog', () => {
 
     expect(dialogSurface).toHaveClass('welcome-project-form-surface');
     expect(nameField).toHaveClass('[&_input]:text-sm');
-    expect(nameField).toHaveStyle({
+    expect(nameField).not.toHaveStyle({
       backgroundColor: 'var(--surface-control)',
     });
     expect(locationField).toHaveAttribute('data-size', 'sm');
-    expect(locationField).toHaveStyle({
+    expect(locationField).not.toHaveStyle({
       backgroundColor: 'var(--surface-control)',
     });
     expect(locationPreview).toHaveAttribute('readonly');
@@ -127,7 +127,7 @@ describe('ProjectFormDialog', () => {
 
     expect(dialogSurface).toHaveClass('welcome-project-form-surface');
     expect(folderField).toHaveAttribute('data-size', 'sm');
-    expect(folderField).toHaveStyle({
+    expect(folderField).not.toHaveStyle({
       backgroundColor: 'var(--surface-control)',
     });
     expect(folderPreview).toHaveAttribute('readonly');

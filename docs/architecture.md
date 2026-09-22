@@ -45,7 +45,7 @@
 | Agent 协议 | `agent-client-protocol` 1.2.0（`unstable` + `unstable_session_fork`）。新能力按 ACP v2 语义设计，运行时经版本协商保留 v1（ADR-0035） |
 | 序列化 | serde / serde_json；`ts-rs` 生成 TypeScript |
 | TLS | 进程启动时装一次 rustls `aws_lc_rs` provider（reqwest 为 no-provider 构建） |
-| 浏览器预览 | `crates/browser-cef` + `crates/browser-runtime`（CEF 150）；远程走 preview proxy，不在客户端再跑一套 runtime |
+| 浏览器预览 | `crates/browser-host`（系统 WebView）+ 官方插件 `vibex.browser`；远程无原生标签 |
 
 ### 生成类型（禁止手改）
 
@@ -100,7 +100,7 @@ React 应用。主窗路由在 `MainAppRoutes.tsx`：项目列表、IDE 工作�
 - `server::HostRuntime`（与无头 Server 同一接缝）
 - PTY、delegation、remote desktop registry、本机控制台状态
 
-`src-tauri/src/lib.rs` 的 `invoke_handler!` **不再**注册全部产品命令。活接缝是 `commands::conversations::application_call` → `state.host.commands.execute_name`。仍直接 `invoke` 的是桌面壳：窗口/托盘/Toast、原生对话框与外部编辑器/终端/文件管理器、CEF 浏览器、备份、本机控制台（监听、隧道、配对、设备撤销）、远程档案、插件 dev server、Inspector。
+`src-tauri/src/lib.rs` 的 `invoke_handler!` **不再**注册全部产品命令。活接缝是 `commands::conversations::application_call` → `state.host.commands.execute_name`。仍直接 `invoke` 的是桌面壳：窗口/托盘/Toast、原生对话框与外部编辑器/终端/文件管理器、备份、本机控制台（监听、隧道、配对、设备撤销）、远程档案、插件 dev server、Inspector。原生浏览器标签走 `crates/browser-host` 与 `host.call browser.*`，产品面是官方插件 `vibex.browser`。
 
 `src-tauri/src/conversation_service.rs` 只剩壳适配：`AppConversationHost` / `AppConversationEventPublisher`。Turn 生命周期在 `crates/conversations::ConversationSessionService`。
 
@@ -259,7 +259,7 @@ PTY 不能放进 object-safe trait（向上依赖），所以桌面 `AppState.pt
 | 路径 | 职责 |
 | --- | --- |
 | `frontend/` | React UI、Vitest、Playwright WebUI |
-| `src-tauri/` | 桌面壳、窗口、托盘、CEF helper、`generate_types` |
+| `src-tauri/` | 桌面壳、窗口、托盘、`generate_types` |
 | `crates/` | Host 领域与基础设施 |
 | `shared/` | 生成的 TS 类型与 Host 命令表 |
 | `packages/` | `@vibex/plugin-sdk`、`plugin-cli`、plugin-contract |
@@ -291,7 +291,7 @@ PTY 不能放进 object-safe trait（向上依赖），所以桌面 `AppState.pt
 | `git` | git 操作 |
 | `executors` | **不再跑 Agent**。脚本 `ScriptRequest`、`default_profiles.json` 配置 schema、`NormalizedEntry` 日志形状 |
 | `artifacts` / `tool-runtime` | Artifact 记录与声明式工具运行时锁 |
-| `browser-cef` / `browser-runtime` | 本机 CEF 预览 |
+| `browser-host` | 本机系统 WebView 标签、grant / eval、`host.call browser.*` |
 | `utils` | 数据目录、进程、网络、msg_store（脚本日志，非 Agent） |
 | `review` | 独立代码审查 CLI（`main.rs`） |
 

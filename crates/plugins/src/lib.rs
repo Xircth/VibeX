@@ -10,6 +10,7 @@ mod contribution;
 mod control_plane;
 mod conversation_host;
 mod error;
+mod host_call;
 mod host_capability_broker;
 mod host_service;
 mod isolated;
@@ -64,13 +65,18 @@ pub use control_plane::{
     candidate_capability_grants,
 };
 pub use conversation_host::{
-    PluginConversationCancelInput, PluginConversationCreate, PluginConversationEnqueue,
+    PluginConversationCancelInput, PluginConversationCreate, PluginConversationDraftInsert,
+    PluginConversationDraftReceipt, PluginConversationDraftToken, PluginConversationEnqueue,
     PluginConversationError, PluginConversationErrorCode, PluginConversationEventPage,
     PluginConversationHost, PluginConversationInputReceipt, PluginConversationPermission,
     PluginConversationQuestion, PluginConversationSteer, PluginConversationSummary,
     PluginConversationTurn, PluginConversationView, UnavailablePluginConversationHost,
 };
 pub use error::PluginError;
+pub use host_call::{
+    HOST_CALL_PLUGIN_ID_ENV, HOST_CALL_TOKEN_ENV, HOST_CALL_URL_ENV, PluginHostCall,
+    PluginHostCallContext, attach_host_call_env,
+};
 pub use host_capability_broker::HostCapabilityBroker;
 pub use language_runtimes::{
     LanguageRuntimeLock, PLUGIN_WORKER_CPYTHON_VERSION, plugin_worker_cpython_lock,
@@ -102,8 +108,8 @@ pub use official_mcp::{
 pub use package::{
     APP_PANEL_SLOT, APP_TAB_SLOT, AppCommandContribution, AppComposerActionContribution,
     AppComposerSlashContribution, AppKanbanViewContribution, AppPanelContribution,
-    AppSettingsPageContribution, AppSettingsSectionContribution, AppStatusContribution,
-    AppSurfaceContribution, AppTabContribution, AppTimelineCardContribution,
+    AppRailSectionContribution, AppSettingsPageContribution, AppSettingsSectionContribution,
+    AppStatusContribution, AppSurfaceContribution, AppTabContribution, AppTimelineCardContribution,
     AppToolbarContribution, CONTRIBUTION_ICONS, CapabilityRequest, FileOpenerContribution,
     FileOpenerTarget, HostServiceContribution, InvocationDefinition, InvocationKind,
     KANBAN_VIEW_SLOT, PackageAppContributions, PackageFormat, PackageSkill, PackageWarning,

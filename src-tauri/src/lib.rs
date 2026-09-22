@@ -1,21 +1,13 @@
-use std::{
-    cell::RefCell,
-    path::PathBuf,
-    sync::{Arc, mpsc::Receiver},
-    time::Duration,
-};
+use std::time::Duration;
 
-use browser_cef::{
-    CefBootstrap, CefRuntimeConfig, CefSession, NativeBrowserParent, PumpScheduler,
-    command_channel_with_waker,
-};
-use browser_runtime::BrowserRuntime;
 use tauri::{Emitter, Manager, image::Image};
 
 mod app_chrome;
 mod app_icon;
 mod app_windows;
-mod cef_pump;
+#[allow(dead_code)]
+mod browser_eval;
+mod browser_native;
 pub mod commands;
 pub mod conversation_bundle;
 pub mod conversation_service;
@@ -27,7 +19,6 @@ mod events;
 mod host_bus;
 mod host_client;
 mod host_windows;
-pub mod linux_display;
 mod logging;
 mod managed_artifacts;
 mod oneshot_agent;
@@ -44,7 +35,7 @@ mod state;
 mod tray;
 mod workflow_mcp_gateway;
 mod workspace_paths;
-use cef_pump::{CefPumpController, CefPumpWork};
+
 use state::AppState;
 
 const APP_ICON_LIGHT_DEFAULT_BYTES: &[u8] =
@@ -55,261 +46,6 @@ const APP_ICON_LIGHT_LITE_BYTES: &[u8] =
     include_bytes!("../../frontend/src/assets/app-logo-light-lite.png");
 const APP_ICON_DARK_LITE_BYTES: &[u8] =
     include_bytes!("../../frontend/src/assets/app-logo-dark-lite.png");
-const BROWSER_EVENT: &str = "browser://event";
-const CEF_COMMAND_CAPACITY: usize = 512;
-static CEF_PUMP: CefPumpController = CefPumpController::new();
-
-struct PendingCefHost {
-    bootstrap: Option<CefBootstrap>,
-    config: CefRuntimeConfig,
-    parent: NativeBrowserParent,
-    scheduler: PumpScheduler,
-    subprocess: Option<PathBuf>,
-    commands: Receiver<browser_runtime::BrowserEngineCommand>,
-    runtime: Arc<BrowserRuntime>,
-}
-
-enum CefHost {
-    Pending(PendingCefHost),
-    Ready(CefSession),
-    Failed(String),
-}
-
-thread_local! {
-    static CEF_HOST: RefCell<Option<CefHost>> = const { RefCell::new(None) };
-}
-
-pub(crate) fn pump_cef_session() {
-    CEF_HOST.with(|slot| {
-        let Ok(mut slot) = slot.try_borrow_mut() else {
-            // Nested call from CefDoMessageLoopWork. Leave the coalesced
-            // delay=0 request queued; the outer pump's follow-up post
-            // will drain it after the native message loop runs.
-            return;
-        };
-        CEF_PUMP.begin_pump();
-        let Some(host) = slot.take() else {
-            return;
-        };
-        *slot = Some(match host {
-            CefHost::Pending(pending) => {
-                let runtime = pending.runtime.clone();
-                match pending.into_session() {
-                    Ok(mut session) => {
-                        session.pump();
-                        CefHost::Ready(session)
-                    }
-                    Err(error) => {
-                        tracing::error!(%error, "failed to start Chromium browser runtime");
-                        let _ = runtime.fail_all_tabs("browser_engine_error", &error);
-                        CefHost::Failed(error)
-                    }
-                }
-            }
-            CefHost::Ready(mut session) => {
-                session.pump();
-                CefHost::Ready(session)
-            }
-            CefHost::Failed(message) => CefHost::Failed(message),
-        });
-    });
-}
-
-impl PendingCefHost {
-    fn into_session(mut self) -> Result<CefSession, String> {
-        let bootstrap = self
-            .bootstrap
-            .take()
-            .ok_or_else(|| "Chromium bootstrap is missing".to_string())?;
-        bootstrap
-            .initialize(
-                self.config,
-                self.scheduler,
-                self.subprocess.as_deref(),
-                self.commands,
-                self.runtime,
-                self.parent,
-            )
-            .map_err(|error| error.to_string())
-    }
-}
-
-fn shutdown_cef_session() {
-    CEF_HOST.with(|slot| {
-        if let Some(CefHost::Ready(session)) = slot.borrow_mut().take() {
-            session.shutdown();
-        }
-    });
-}
-
-#[cfg(target_os = "macos")]
-pub(crate) fn native_browser_parent(
-    window: &tauri::WebviewWindow,
-) -> Result<NativeBrowserParent, String> {
-    let raw = window.ns_view().map_err(|error| error.to_string())? as usize;
-    // SAFETY: Tauri owns this NSView for the lifetime of the main window and
-    // setup runs on the UI thread before CEF creates any child view.
-    unsafe { NativeBrowserParent::from_raw(raw) }.map_err(|error| error.to_string())
-}
-
-#[cfg(target_os = "windows")]
-pub(crate) fn native_browser_parent(
-    window: &tauri::WebviewWindow,
-) -> Result<NativeBrowserParent, String> {
-    let raw = window.hwnd().map_err(|error| error.to_string())?.0 as usize;
-    // SAFETY: Tauri owns this HWND for the lifetime of the main window.
-    unsafe { NativeBrowserParent::from_raw(raw) }.map_err(|error| error.to_string())
-}
-
-#[cfg(target_os = "linux")]
-pub(crate) fn native_browser_parent(
-    window: &tauri::WebviewWindow,
-) -> Result<NativeBrowserParent, String> {
-    use raw_window_handle::{HasWindowHandle, RawWindowHandle};
-
-    let raw = match window
-        .window_handle()
-        .map_err(|error| error.to_string())?
-        .as_raw()
-    {
-        RawWindowHandle::Xlib(handle) => handle.window as usize,
-        RawWindowHandle::Xcb(handle) => usize::try_from(handle.window.get())
-            .map_err(|_| "XCB window handle does not fit in usize".to_string())?,
-        _ => return Err(linux_display::XWAYLAND_REQUIRED_MESSAGE.to_string()),
-    };
-    // SAFETY: Tauri owns this X11 window for the lifetime of the main window.
-    unsafe { NativeBrowserParent::from_raw(raw) }.map_err(|error| error.to_string())
-}
-
-fn cef_subprocess_path_from(resource_dir: Option<&std::path::Path>) -> Option<PathBuf> {
-    let executable = std::env::current_exe().ok()?;
-    let directory = executable.parent()?;
-    #[cfg(target_os = "macos")]
-    {
-        let bundled = directory.join("../Frameworks/vibex Helper.app/Contents/MacOS/vibex Helper");
-        if bundled.is_file() {
-            return Some(bundled);
-        }
-        let staged = directory.join(
-            "../Frameworks/Chromium Embedded Framework.framework/Helpers/vibex Helper.app/Contents/MacOS/vibex Helper",
-        );
-        if staged.is_file() {
-            return Some(staged);
-        }
-        let development_helper = directory.join("vibex_cef_helper");
-        if development_helper.is_file() {
-            return Some(development_helper);
-        }
-        if let Some(resource_dir) = resource_dir {
-            let helper = resource_dir.join("vibex_cef_helper");
-            if helper.is_file() {
-                return Some(helper);
-            }
-        }
-        Some(executable)
-    }
-    #[cfg(target_os = "windows")]
-    {
-        let helper_name = "vibex_cef_helper.exe";
-        let helper = directory.join(helper_name);
-        if helper.is_file() {
-            return Some(helper);
-        }
-        if let Some(resource_dir) = resource_dir {
-            let helper = resource_dir.join(helper_name);
-            if helper.is_file() {
-                return Some(helper);
-            }
-        }
-        Some(executable)
-    }
-    #[cfg(not(any(target_os = "macos", target_os = "windows")))]
-    {
-        let helper_name = "vibex_cef_helper";
-        let helper = directory.join(helper_name);
-        if helper.is_file() {
-            return Some(helper);
-        }
-        if let Some(resource_dir) = resource_dir {
-            let helper = resource_dir.join(helper_name);
-            if helper.is_file() {
-                return Some(helper);
-            }
-        }
-        Some(executable)
-    }
-}
-
-fn setup_browser_runtime(
-    app: &mut tauri::App,
-    bootstrap: CefBootstrap,
-) -> Result<(), Box<dyn std::error::Error>> {
-    let main_window = app
-        .get_webview_window("main")
-        .ok_or("main window is unavailable for CEF")?;
-    let parent = native_browser_parent(&main_window)?;
-    let app_data_dir = app.path().app_data_dir()?;
-    let resource_dir = app.path().resource_dir()?;
-    let subprocess = cef_subprocess_path_from(Some(&resource_dir));
-    let nested_resources = resource_dir.join("cef");
-    let runtime_resources = if nested_resources.join("icudtl.dat").is_file() {
-        Some(nested_resources)
-    } else if resource_dir.join("icudtl.dat").is_file() {
-        Some(resource_dir)
-    } else {
-        None
-    };
-    let runtime_config = match runtime_resources {
-        Some(runtime_resources) => {
-            CefRuntimeConfig::new(app_data_dir).with_runtime_resources(runtime_resources)
-        }
-        None => CefRuntimeConfig::new(app_data_dir),
-    };
-    let app_handle = app.handle().clone();
-    let scheduler: PumpScheduler = Arc::new(move |delay_ms| {
-        schedule_cef_pump(&app_handle, delay_ms);
-    });
-    let wake_scheduler = scheduler.clone();
-    let (engine, commands) =
-        command_channel_with_waker(CEF_COMMAND_CAPACITY, Arc::new(move || wake_scheduler(0)));
-    let runtime = Arc::new(BrowserRuntime::new(engine));
-
-    let mut browser_events = runtime.subscribe();
-    let browser_event_app = app.handle().clone();
-    tauri::async_runtime::spawn(async move {
-        loop {
-            match browser_events.recv().await {
-                Ok(event) => {
-                    let _ = browser_event_app.emit(BROWSER_EVENT, event);
-                }
-                Err(tokio::sync::broadcast::error::RecvError::Lagged(skipped)) => {
-                    tracing::warn!(skipped, "browser event consumer lagged");
-                }
-                Err(tokio::sync::broadcast::error::RecvError::Closed) => break,
-            }
-        }
-    });
-    app.manage(commands::browser::BrowserCommandState {
-        runtime: runtime.clone(),
-    });
-    CEF_HOST.with(|stored| {
-        *stored.borrow_mut() = Some(CefHost::Pending(PendingCefHost {
-            bootstrap: Some(bootstrap),
-            config: runtime_config,
-            parent,
-            scheduler,
-            subprocess,
-            commands,
-            runtime,
-        }));
-    });
-    // Do not CefInitialize during setup. WebView2's first-run user-data
-    // creation already owns this HWND; initializing Chromium here freezes
-    // the window before onboarding. The first pump still runs on the UI
-    // thread via schedule_cef_pump → run_on_main_thread.
-    Ok(())
-}
-
 const MAIN_WINDOW_REVEAL_FALLBACK: Duration = Duration::from_secs(8);
 const MAIN_WINDOW_REVEAL_POLL: Duration = Duration::from_millis(100);
 
@@ -331,8 +67,6 @@ fn prepare_main_window(app: &tauri::App) {
     });
 }
 
-/// Show the main window if the frontend never paints (JS failure, hung webview).
-/// The window starts hidden so setup `block_on` cannot ghost a visible HWND.
 fn schedule_main_window_reveal(app: &tauri::App) {
     let Some(window) = app.get_webview_window("main") else {
         return;
@@ -351,47 +85,6 @@ fn schedule_main_window_reveal(app: &tauri::App) {
         tracing::warn!("main window was still hidden after startup; showing as a fallback");
         let _ = window.show();
     });
-}
-
-fn schedule_cef_pump(app_handle: &tauri::AppHandle, delay_ms: i64) {
-    match CEF_PUMP.schedule(delay_ms) {
-        None => {}
-        Some(CefPumpWork::Immediate) => {
-            // Tauri's `run_on_main_thread` executes the task inline when it is
-            // already on the UI thread (`send_user_message`). CEF calls
-            // OnScheduleMessagePumpWork(0) from inside CefDoMessageLoopWork, so
-            // posting that way re-enters the pump, `try_borrow_mut` fails, and
-            // the page freezes. Hop to a worker first so the pump is Posted
-            // onto the native loop instead of running nested. The pump itself
-            // still runs on the thread that called CefInitialize.
-            let app_handle = app_handle.clone();
-            tauri::async_runtime::spawn(async move {
-                if let Err(error) = app_handle.run_on_main_thread(pump_cef_session) {
-                    CEF_PUMP.begin_pump();
-                    tracing::error!(%error, "failed to queue the Chromium message pump");
-                }
-            });
-        }
-        Some(CefPumpWork::Delayed {
-            delay_ms,
-            generation,
-        }) => {
-            let app_handle = app_handle.clone();
-            tauri::async_runtime::spawn(async move {
-                tokio::time::sleep(Duration::from_millis(delay_ms)).await;
-                if !CEF_PUMP.delayed_is_current(generation) {
-                    return;
-                }
-                schedule_cef_pump(&app_handle, 0);
-            });
-        }
-    }
-}
-
-fn setup_unavailable_browser_runtime(app: &mut tauri::App, message: String) {
-    tracing::error!(error = %message, "Chromium browser runtime is unavailable");
-    let runtime = Arc::new(commands::browser::unavailable_runtime(message));
-    app.manage(commands::browser::BrowserCommandState { runtime });
 }
 
 fn install_rustls_crypto_provider() {
@@ -457,7 +150,7 @@ async fn exit_app(app: tauri::AppHandle) -> Result<(), String> {
     Ok(())
 }
 
-pub fn run(cef_bootstrap: Result<CefBootstrap, String>) {
+pub fn run() {
     windows_webview2::install_process_arguments();
     // Install the file+stderr tracing subscriber first so startup is logged. The
     // guard flushes the non-blocking writer on drop; we drop it from RunEvent::Exit
@@ -501,14 +194,6 @@ pub fn run(cef_bootstrap: Result<CefBootstrap, String>) {
         // from tauri.conf.json is macOS-only; leaving it on Windows until
         // AppState finishes makes the first launch unresponsive.
         prepare_main_window(app);
-        match cef_bootstrap {
-            Ok(bootstrap) => {
-                if let Err(error) = setup_browser_runtime(app, bootstrap) {
-                    setup_unavailable_browser_runtime(app, error.to_string());
-                }
-            }
-            Err(error) => setup_unavailable_browser_runtime(app, error),
-        }
         // Apply the saved system-proxy setting to process env FIRST, before any
         // reqwest client is built or any ACP agent is spawned — otherwise the
         // proxy never reaches them (agents inherit it via merged_agent_env) and
@@ -764,10 +449,6 @@ pub fn run(cef_bootstrap: Result<CefBootstrap, String>) {
         health_check,
         exit_app,
         set_app_icon,
-        commands::browser::browser_create_tab,
-        commands::browser::browser_apply_intent,
-        commands::browser::browser_close_tab,
-        commands::browser::browser_get_tab,
         commands::projects::open_project_in_editor,
         commands::workspaces::open_workspace_in_editor,
         commands::tauri_inspector::get_tauri_inspector_status,
@@ -859,7 +540,6 @@ pub fn run(cef_bootstrap: Result<CefBootstrap, String>) {
         }
         // Flush the non-blocking log writer on exit before the process leaves.
         if let tauri::RunEvent::Exit = event {
-            shutdown_cef_session();
             log_guard.take();
         }
     });
@@ -898,43 +578,5 @@ mod tests {
         install_rustls_crypto_provider();
 
         assert!(rustls::crypto::CryptoProvider::get_default().is_some());
-    }
-
-    #[test]
-    fn cef_pump_does_not_clear_coalescing_before_owning_the_session() {
-        let source = include_str!("lib.rs");
-        let start = source
-            .find("pub(crate) fn pump_cef_session")
-            .expect("pump_cef_session");
-        let body = source[start..]
-            .split("fn into_session")
-            .next()
-            .expect("pump body");
-        let borrow = body.find("try_borrow_mut").expect("try_borrow_mut");
-        let begin = body.find("begin_pump").expect("begin_pump");
-        assert!(
-            borrow < begin,
-            "clearing the coalescing flag before the session borrow drops nested delay=0 work"
-        );
-    }
-
-    #[test]
-    fn cef_immediate_pump_is_posted_instead_of_run_inline() {
-        let source = include_str!("lib.rs");
-        let start = source
-            .find("fn schedule_cef_pump")
-            .expect("schedule_cef_pump");
-        let body = source[start..]
-            .split("fn setup_unavailable_browser_runtime")
-            .next()
-            .expect("schedule body");
-        assert!(
-            body.contains("async_runtime::spawn"),
-            "immediate pumps must hop off the UI thread so Tauri posts them"
-        );
-        assert!(
-            body.contains("run_on_main_thread(pump_cef_session)"),
-            "the pump itself must still run on the CefInitialize thread"
-        );
     }
 }

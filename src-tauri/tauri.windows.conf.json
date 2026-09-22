@@ -4,9 +4,6 @@
       "webviewInstallMode": {
         "type": "offlineInstaller"
       }
-    },
-    "resources": {
-      "../target/cef-runtime/windows/": ""
     }
   }
 }

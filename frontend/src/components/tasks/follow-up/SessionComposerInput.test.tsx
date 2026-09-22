@@ -15,6 +15,7 @@ import { describe, expect, it, vi } from 'vitest';
 import {
   SessionComposerAttachmentDrawer,
   SessionComposerInput,
+  elementTooltipTop,
 } from './SessionComposerInput';
 import {
   formatQuoteToken,
@@ -1053,6 +1054,23 @@ describe('SessionComposerInput (Astryx)', () => {
       expect(token?.previousElementSibling).toBeNull();
       expect(token?.previousSibling?.textContent ?? '').not.toMatch(/^\n/);
     });
+  });
+
+  it('places the element card below the chip when the browser page is above it', () => {
+    const browser = { left: 0, top: 0, right: 800, bottom: 420 };
+    const top = elementTooltipTop({
+      anchorTop: 460,
+      anchorBottom: 484,
+      height: 140,
+      gap: 7,
+      margin: 8,
+      viewportHeight: 800,
+      left: 40,
+      width: 280,
+      blocked: [browser],
+    });
+    expect(top).toBe(491);
+    expect(top).toBeGreaterThan(browser.bottom);
   });
 
   it('shows Web Preview element details when its token is hovered', async () => {

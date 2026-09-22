@@ -722,6 +722,30 @@
     "sourceInstalled": "Installed",
     "versionTitle": "Version",
     "official": {
+      "browser": {
+        "name": "Browser",
+        "summary": "Built-in browser tabs with saved cookies, page handoff, and optional agent tools.",
+        "readme": "# Browser\n\nOpen web pages next to your files. Share a tab before an agent can read or act on it. Running page JavaScript always asks first.\n\n## Use\n\nOpen a Browser tab from the right rail or the + menu. Type an address and press Return. Cookies stay in this app's browser profile.\n\nShare a tab as Read or Read and act before an agent can use it. Select element inserts a page token into Composer; send the turn to hand it to the agent.\n\n## Configuration\n\nChanges apply immediately.\n\n- Agent tools: list, read, and act on shared tabs.\n- Run page JavaScript: each snippet is shown before it runs.\n- Default share level: applied to new tabs.\n\n## Troubleshooting\n\nIf a page will not open, check the address and that this plugin is enabled. If agent tools are missing, turn Agent tools on and start a new session.",
+        "config": {
+          "toolsEnabled": {
+            "title": "Agent tools",
+            "description": "Let agents list, read, and act on shared tabs."
+          },
+          "evalEnabled": {
+            "title": "Run page JavaScript",
+            "description": "Allow agents to run JavaScript after you confirm each snippet."
+          },
+          "defaultGrant": {
+            "title": "Default share level",
+            "description": "Applied when a new tab is opened.",
+            "enum": {
+              "none": "Not shared",
+              "read": "Read",
+              "control": "Read and act"
+            }
+          }
+        }
+      },
       "office": {
         "name": "VibeX Office",
         "summary": "Create, edit, analyze, and preview DOCX, XLSX, and PPTX files in VibeX.",
@@ -1658,7 +1682,7 @@
     "linkOpenBehavior": "Open links in",
     "linkOpenBehaviorHint": "Where links clicked in conversations open.",
     "linkOpenExternal": "Default browser",
-    "linkOpenBuiltin": "Built-in Web Preview",
+    "linkOpenBuiltin": "Browser plugin",
     "crashReportsTitle": "Crash reports",
     "crashReportsDescription": "Local-first crash diagnostics (opt-in)",
     "crashReportsToggle": "Prompt about unhandled crash reports on startup",
@@ -2051,6 +2075,7 @@
     "providerEdit": "Edit Provider",
     "providerNew": "New Provider",
     "providerCatalogCustom": "Custom",
+    "providerCatalogChoose": "Choose a preset",
     "providerCatalogSearch": "Search presets",
     "providerCatalogEmpty": "No matching presets.",
     "providerCatalogWebsite": "Website",

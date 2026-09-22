@@ -11,6 +11,25 @@ import {
   type PanelActions,
 } from './PanelActionsContext';
 
+vi.mock('@/hooks/usePluginHostContributions', () => ({
+  usePluginHostContributions: () => [
+    {
+      pluginId: 'example.browser',
+      id: 'browser',
+      label: 'Browser',
+      kind: 'app_panel',
+      generation: 1,
+      metadata: {
+        engine: 'host-browser',
+        icon: 'globe',
+        multiInstance: true,
+      },
+    },
+  ],
+  contributionMetadata: (item: { metadata?: Record<string, unknown> }) =>
+    item.metadata ?? {},
+}));
+
 function renderWithQueryClient(ui: ReactNode): RenderResult {
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false } },
@@ -51,7 +70,7 @@ function createDockviewApi() {
   return api as unknown as DockviewApi;
 }
 
-describe('PanelActionsContext Web Preview', () => {
+describe('PanelActionsContext host-browser plugin', () => {
   it('creates a fresh blank browser panel when no URL is provided', () => {
     let actions: PanelActions | undefined;
     function Probe() {
@@ -71,10 +90,13 @@ describe('PanelActionsContext Web Preview', () => {
 
     expect(dockviewApi.addPanel).toHaveBeenCalledWith(
       expect.objectContaining({
-        component: PANEL_IDS.WEB_PREVIEW,
+        id: 'plugin:example.browser/browser:1',
+        component: 'plugin-panel',
         params: {
+          pluginId: 'example.browser',
+          contributionId: 'browser',
+          icon: 'globe',
           requestedUrl: null,
-          requestedUrlNonce: 1,
         },
       })
     );
@@ -101,22 +123,26 @@ describe('PanelActionsContext Web Preview', () => {
     expect(dockviewApi.addPanel).toHaveBeenNthCalledWith(
       1,
       expect.objectContaining({
-        id: `${PANEL_IDS.WEB_PREVIEW}:1`,
-        component: PANEL_IDS.WEB_PREVIEW,
+        id: 'plugin:example.browser/browser:1',
+        component: 'plugin-panel',
         params: {
+          pluginId: 'example.browser',
+          contributionId: 'browser',
+          icon: 'globe',
           requestedUrl: 'https://one.test',
-          requestedUrlNonce: 1,
         },
       })
     );
     expect(dockviewApi.addPanel).toHaveBeenNthCalledWith(
       2,
       expect.objectContaining({
-        id: `${PANEL_IDS.WEB_PREVIEW}:2`,
-        component: PANEL_IDS.WEB_PREVIEW,
+        id: 'plugin:example.browser/browser:2',
+        component: 'plugin-panel',
         params: {
+          pluginId: 'example.browser',
+          contributionId: 'browser',
+          icon: 'globe',
           requestedUrl: 'https://two.test',
-          requestedUrlNonce: 2,
         },
       })
     );

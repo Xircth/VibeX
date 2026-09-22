@@ -17,6 +17,7 @@ export const STRUCTURE_KINDS = [
   "app.kanban.view",
   "app.settings.page",
   "app.composer.action",
+  "app.rail.section",
 ] as const;
 
 export type StructureKind = (typeof STRUCTURE_KINDS)[number];
@@ -49,6 +50,7 @@ export const MANIFEST_KIND_TO_CATALOG: Record<string, string> = {
   "app.kanban.view": "kanban_view",
   "app.settings.page": "settings_page",
   "app.composer.action": "composer_action",
+  "app.rail.section": "app_rail_section",
   "provider.remote.provisioner": "remote_provisioner",
   "provider.model.catalog": "provider_model_catalog",
 };

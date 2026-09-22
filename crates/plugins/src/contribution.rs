@@ -37,6 +37,7 @@ pub enum ContributionKind {
     SettingsPage,
     ComposerAction,
     RemoteProvisioner,
+    AppRailSection,
 }
 
 impl ContributionKind {
@@ -68,6 +69,7 @@ impl ContributionKind {
             Self::SettingsPage => "settings_page",
             Self::ComposerAction => "composer_action",
             Self::RemoteProvisioner => "remote_provisioner",
+            Self::AppRailSection => "app_rail_section",
         }
     }
 }
@@ -522,7 +524,11 @@ fn plugin_templates(plugin: &InstalledPlugin) -> Vec<ContributionTemplate> {
             &panel.handler,
             panel.hides_bottom_dock,
             panel.remote.as_ref(),
-            json!({ "defaultPosition": panel.default_position }),
+            json!({
+                "defaultPosition": panel.default_position,
+                "multiInstance": panel.multi_instance,
+                "engine": panel.engine,
+            }),
         ),
     }));
     templates.extend(plugin.app.tabs.iter().map(|tab| ContributionTemplate {
@@ -597,6 +603,27 @@ fn plugin_templates(plugin: &InstalledPlugin) -> Vec<ContributionTemplate> {
                     "icon": action.icon,
                     "handler": action.handler,
                     "prompt": action.prompt,
+                }),
+            }),
+    );
+    templates.extend(
+        plugin
+            .app
+            .rail_sections
+            .iter()
+            .map(|section| ContributionTemplate {
+                plugin_id: plugin_id.clone(),
+                id: section.id.clone(),
+                kind: ContributionKind::AppRailSection,
+                label: section.title.clone(),
+                metadata: json!({
+                    "title": section.title,
+                    "icon": section.icon,
+                    "opens": {
+                        "kind": section.opens_kind,
+                        "id": section.opens_id,
+                        "instance": section.opens_instance,
+                    },
                 }),
             }),
     );

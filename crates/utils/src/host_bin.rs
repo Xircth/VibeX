@@ -124,7 +124,7 @@ mod tests {
         let root = tempfile::tempdir().unwrap();
         let macos = root
             .path()
-            .join("cef-runtime/macos/app/vibex.app/Contents/MacOS");
+            .join("bundle/macos/app/vibex.app/Contents/MacOS");
         fs::create_dir_all(&macos).unwrap();
         fs::write(macos.join("vibex"), b"app").unwrap();
         fs::write(macos.join("vibex-mcp"), []).unwrap();

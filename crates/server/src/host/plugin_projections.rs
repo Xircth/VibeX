@@ -159,6 +159,9 @@ impl ServerApplicationDomains {
     pub(crate) async fn remove_plugin_projections(
         plugin: &InstalledPlugin,
     ) -> Result<(), ApplicationError> {
+        if let Some(host_call) = plugins::PluginHostCall::process_instance() {
+            host_call.revoke_plugin(plugin.id());
+        }
         if !plugin.skills.is_empty() {
             let skill_ids = plugin
                 .skills
@@ -420,6 +423,7 @@ impl ServerApplicationDomains {
             &self.pool,
             &self.plugin_control_plane,
             &self.worker_runtime,
+            &self.host_call,
             plugin,
             all_agents,
             desired,
@@ -538,6 +542,7 @@ async fn configure_plugin_mcp(
     pool: &SqlitePool,
     control_plane: &plugins::PluginControlPlane,
     worker_runtime: &plugins::PluginWorkerRuntimeProvider,
+    host_call: &plugins::PluginHostCall,
     plugin: &InstalledPlugin,
     all_agents: bool,
     desired: &BTreeSet<String>,
@@ -583,6 +588,7 @@ async fn configure_plugin_mcp(
         let materialized = match materialize_plugin_mcp_spec(
             control_plane,
             worker_runtime,
+            host_call,
             plugin,
             &server_id,
             spec,
@@ -696,19 +702,20 @@ async fn materialize_worker_http_mcp(
 async fn materialize_plugin_mcp_spec(
     control_plane: &plugins::PluginControlPlane,
     worker_runtime: &plugins::PluginWorkerRuntimeProvider,
+    host_call: &plugins::PluginHostCall,
     plugin: &InstalledPlugin,
     server_id: &str,
     spec: Value,
 ) -> Result<Option<Value>, ApplicationError> {
-    let Some(managed) = spec.get("managedRuntime").and_then(Value::as_object) else {
-        return Ok(Some(spec));
-    };
-    if spec
+    let host_family = spec
         .get("managedRuntime")
         .and_then(|value| value.get("kind"))
         .and_then(Value::as_str)
-        == Some("hostFamilyBinary")
-    {
+        == Some("hostFamilyBinary");
+    let Some(managed) = spec.get("managedRuntime").and_then(Value::as_object) else {
+        return inject_plugin_host_call(control_plane, host_call, plugin, spec).await;
+    };
+    if host_family {
         return materialize_host_family_binary_mcp(control_plane, server_id, &spec);
     }
     if managed.get("kind").and_then(Value::as_str) == Some("workerHttp") {
@@ -754,6 +761,11 @@ async fn materialize_plugin_mcp_spec(
         .flatten()
         .filter_map(Value::as_str)
         .collect::<Vec<_>>();
+    let protocol_revision = managed
+        .get("protocolRevision")
+        .and_then(Value::as_str)
+        .unwrap_or("2026-07-28")
+        .to_owned();
     let token = json!({
         "typ": "vibex.plugin-mcp",
         "plugin_id": plugin.id(),
@@ -761,18 +773,33 @@ async fn materialize_plugin_mcp_spec(
         "scopes": scopes,
     })
     .to_string();
-    Ok(Some(json!({
+    let materialized = json!({
         "type": "stdio",
         "command": node.to_string_lossy(),
         "args": [entrypoint.to_string_lossy()],
         "env": {
             "VIBEX_PLUGIN_MCP_TOKEN": token,
-            "VIBEX_MCP_PROTOCOL_REVISION": managed
-                .get("protocolRevision")
-                .and_then(Value::as_str)
-                .unwrap_or("2026-07-28")
+            "VIBEX_MCP_PROTOCOL_REVISION": protocol_revision
         }
-    })))
+    });
+    inject_plugin_host_call(control_plane, host_call, plugin, materialized).await
+}
+
+async fn inject_plugin_host_call(
+    control_plane: &plugins::PluginControlPlane,
+    host_call: &plugins::PluginHostCall,
+    plugin: &InstalledPlugin,
+    mut spec: Value,
+) -> Result<Option<Value>, ApplicationError> {
+    let generation = control_plane
+        .active_generation(plugin.id())
+        .await
+        .unwrap_or(0);
+    let ctx = host_call
+        .issue(plugin.id(), generation)
+        .map_err(|error| ApplicationError::internal(error.to_string()))?;
+    plugins::attach_host_call_env(&mut spec, &ctx, Some(plugin.package.content_root()));
+    Ok(Some(spec))
 }
 
 fn materialize_host_family_binary_mcp(
@@ -878,6 +905,30 @@ mod tests {
             plugin_skill_projection_targets(&desired, &installed),
             vec!["codex".to_owned()]
         );
+    }
+
+    #[test]
+    fn static_plugin_mcp_specs_receive_host_call_env_without_official_ids() {
+        let mut spec = json!({
+            "type": "stdio",
+            "command": "node",
+            "args": ["runtime/mcp-server.mjs"]
+        });
+        plugins::attach_host_call_env(
+            &mut spec,
+            &plugins::PluginHostCallContext {
+                url: "http://127.0.0.1:9/host-call".into(),
+                token: "tok".into(),
+                plugin_id: "example.tools".into(),
+            },
+            Some(std::path::Path::new("/tmp/example.tools")),
+        );
+        assert_eq!(
+            spec["env"][plugins::HOST_CALL_URL_ENV],
+            "http://127.0.0.1:9/host-call"
+        );
+        assert_eq!(spec["cwd"], "/tmp/example.tools");
+        assert!(!spec.to_string().contains("vibex.browser"));
     }
 
     #[test]

@@ -151,11 +151,12 @@ Worker 走协议 1.1（initialize 再 activate）。App 走协议 1.0。
 | `host.service` | 后台周期调用 Worker handler，`intervalSeconds` 最小 5 |
 | `provider.model.importSource` | 模型供应商导入来源，出现在设置的「导入」菜单里 |
 | `provider.model.catalog` | 供应商新建表单的无密钥预置模板。静态 `resource` JSON，禁止 `handler` 与密钥字段 |
-| `app.panel` | 工作区 Dockview 面板 |
+| `app.panel` | 工作区 Dockview 面板。`multiInstance: true` 时每次打开新标签 |
 | `app.tab` | 中央顶级 Tab |
 | `app.kanban.view` | 看板 Tab 里的一页视图 |
 | `app.composer.action` | Composer `@` 面板的动作 |
 | `app.settings.page` | **预览。** 设置侧栏整页；稳定面认定在 Batch 3 |
+| `app.rail.section` | 右侧栏图标。`opens` 指向一个 `app.panel`（`instance`: `focus` 或 `new`） |
 
 `depends/` 里的 Runtime 要在 manifest 的 `dependencies` 里显式引用。目录在不等于已经有执行权。锁的身份是 `id + version + target + digest`。
 

@@ -92,13 +92,16 @@ impl AppState {
         let remote_profile_host = std::sync::Arc::new(
             crate::plugin_remote_profiles::TauriRemoteProfileHost::new(app_handle.clone()),
         );
-        let plugin_conversation_host =
-            std::sync::Arc::new(server::HostPluginConversationHost::new(
+        let plugin_conversation_host = std::sync::Arc::new(
+            server::HostPluginConversationHost::new(
                 pool.clone(),
                 utils::assets::host_data_dir()
                     .join("scratch")
                     .join("plugins"),
-            ));
+            )
+            .with_events(events.clone()),
+        );
+        let browser_service = crate::browser_native::desktop_browser_service(app_handle.clone());
         let plugin_capability_broker = std::sync::Arc::new(
             plugins::HostCapabilityBroker::with_hosts_and_prompts(
                 plugin_control_plane.clone(),
@@ -107,8 +110,15 @@ impl AppState {
                 remote_profile_host,
                 bind_prompts,
             )
-            .with_conversation_host(plugin_conversation_host.clone()),
+            .with_conversation_host(plugin_conversation_host.clone())
+            .with_browser_host(browser_service),
         );
+        let plugin_host_call = plugins::PluginHostCall::new(
+            plugin_capability_broker.clone() as std::sync::Arc<dyn plugins::CapabilityBroker>
+        );
+        if let Err(error) = plugin_host_call.clone().bind_loopback().await {
+            tracing::warn!(%error, "plugin host.call loopback is unavailable");
+        }
         plugin_control_plane
             .install_bundled_official_plugins(&utils::assets::asset_dir(), None)
             .await
@@ -204,6 +214,7 @@ impl AppState {
             companion_memory: Some(delegation.features.clone()),
             preview_host: plugin_preview_host.clone(),
             capability_broker: plugin_capability_broker.clone(),
+            host_call: plugin_host_call,
             app_surfaces: plugin_app_surfaces.clone(),
             preview_proxy: preview_proxy.clone(),
             automation: server::HeadlessAutomationRuntime::new(

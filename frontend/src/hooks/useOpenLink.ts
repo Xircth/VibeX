@@ -14,9 +14,9 @@ export async function openInSystemBrowser(url: string): Promise<void> {
 
 /**
  * Returns a click handler that opens external links according to the user's
- * configured link_open_behavior: the system default browser, or the built-in
- * Web Preview panel. Falls back to the system browser when no panel context
- * (or config) is available.
+ * configured link_open_behavior: the system default browser, or the enabled
+ * browser plugin panel. Falls back to the system browser when no panel
+ * context (or config) is available.
  */
 export function useOpenLink(): (url: string) => void {
   const userSystem = useOptionalUserSystem();

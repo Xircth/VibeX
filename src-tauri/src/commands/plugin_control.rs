@@ -2709,6 +2709,9 @@ async fn uninstall_portable_plugin(
 }
 
 async fn remove_plugin_projections(plugin: &plugins::InstalledPlugin) -> Result<(), AppError> {
+    if let Some(host_call) = plugins::PluginHostCall::process_instance() {
+        host_call.revoke_plugin(plugin.id());
+    }
     let skill_ids = plugin
         .skills
         .iter()

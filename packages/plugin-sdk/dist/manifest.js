@@ -195,6 +195,7 @@ export const pluginManifestSchema = {
                             "app.kanban.view",
                             "app.settings.page",
                             "app.composer.action",
+                            "app.rail.section",
                             "provider.remote.provisioner",
                         ],
                     },

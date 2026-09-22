@@ -6,10 +6,11 @@ use std::sync::{Arc, Mutex};
 use async_trait::async_trait;
 use plugins::{
     CapabilityBroker, HostCapabilityBroker, PluginControlPlane, PluginConversationCreate,
-    PluginConversationEnqueue, PluginConversationError, PluginConversationErrorCode,
-    PluginConversationEventPage, PluginConversationHost, PluginConversationInputReceipt,
-    PluginConversationSummary, PluginConversationTurn, PluginConversationView, PluginPreviewHost,
-    PluginPreviewHostError, PluginPreviewRequest, PluginPreviewSession, SqlitePluginRegistry,
+    PluginConversationDraftInsert, PluginConversationDraftReceipt, PluginConversationEnqueue,
+    PluginConversationError, PluginConversationErrorCode, PluginConversationEventPage,
+    PluginConversationHost, PluginConversationInputReceipt, PluginConversationSummary,
+    PluginConversationTurn, PluginConversationView, PluginPreviewHost, PluginPreviewHostError,
+    PluginPreviewRequest, PluginPreviewSession, SqlitePluginRegistry,
 };
 use serde_json::{Value, json};
 
@@ -46,6 +47,7 @@ struct RecordingConversationHost {
     created: Mutex<Vec<PluginConversationCreate>>,
     enqueued: Mutex<Vec<PluginConversationEnqueue>>,
     cancelled: Mutex<Vec<String>>,
+    drafts: Mutex<Vec<PluginConversationDraftInsert>>,
 }
 
 #[async_trait]
@@ -127,6 +129,25 @@ impl PluginConversationHost for RecordingConversationHost {
         _conversation_id: &str,
     ) -> Result<(), PluginConversationError> {
         Ok(())
+    }
+
+    async fn insert_draft(
+        &self,
+        _plugin_id: &str,
+        request: PluginConversationDraftInsert,
+    ) -> Result<PluginConversationDraftReceipt, PluginConversationError> {
+        if self.deny_scope {
+            return Err(PluginConversationError::new(
+                PluginConversationErrorCode::ScopeDenied,
+                "No conversation is bound to this plugin",
+            ));
+        }
+        let conversation_id = request.conversation_id.clone();
+        self.drafts.lock().unwrap().push(request);
+        Ok(PluginConversationDraftReceipt {
+            conversation_id,
+            inserted: true,
+        })
     }
 }
 
@@ -328,4 +349,36 @@ async fn unavailable_host_uses_the_catalog_deny_code() {
     .await
     .expect_err("unavailable");
     assert_eq!(error.code(), "conversation_unavailable");
+}
+
+#[tokio::test]
+async fn draft_insert_does_not_enqueue_a_turn() {
+    let host = Arc::new(RecordingConversationHost::default());
+    let broker = broker(host.clone()).await;
+    let missing = call(
+        &broker,
+        "draft.insert",
+        json!({
+            "token": { "kind": "page-element", "label": "", "markdown": "" }
+        }),
+    )
+    .await
+    .expect_err("token required");
+    assert_eq!(missing.code(), "conversation_invalid");
+    let receipt = call(
+        &broker,
+        "draft.insert",
+        json!({
+            "token": {
+                "kind": "page-element",
+                "label": "button.primary",
+                "markdown": "From preview click:\n\n```html\n<button>Save</button>\n```"
+            }
+        }),
+    )
+    .await
+    .expect("insert");
+    assert_eq!(receipt["inserted"], json!(true));
+    assert!(host.enqueued.lock().unwrap().is_empty());
+    assert_eq!(host.drafts.lock().unwrap().len(), 1);
 }

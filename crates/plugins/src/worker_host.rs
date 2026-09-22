@@ -55,6 +55,10 @@ impl WorkerHostError {
         self.code
     }
 
+    pub fn message(&self) -> &str {
+        &self.message
+    }
+
     pub(crate) fn new(code: &'static str, message: impl Into<String>) -> Self {
         Self {
             code,

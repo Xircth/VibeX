@@ -22,6 +22,7 @@ pub const AUTHORING_SAMPLE_PLUGIN_IDS: &[&str] = &[
 
 /// Topic categories for Host-bundled packages. "official" is the vibex owner, not a topic.
 const BUNDLED_TOPIC_CATEGORIES: &[(&str, &str)] = &[
+    ("vibex.browser", "productivity"),
     ("vibex.office", "productivity"),
     ("vibex.session-enhance", "productivity"),
     ("vibex.multi-agent", "agent"),

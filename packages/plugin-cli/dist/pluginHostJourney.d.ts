@@ -2,12 +2,12 @@
 export declare const CHROME_KINDS: readonly ["app.command", "app.toolbar", "app.status", "app.composer.slash", "app.timeline.card", "app.settings.section"];
 export type ChromeKind = (typeof CHROME_KINDS)[number];
 /** Structure surfaces Batch 2 added. settings.page is preview, not a stable surface. */
-export declare const STRUCTURE_KINDS: readonly ["app.panel", "app.tab", "app.kanban.view", "app.settings.page", "app.composer.action"];
+export declare const STRUCTURE_KINDS: readonly ["app.panel", "app.tab", "app.kanban.view", "app.settings.page", "app.composer.action", "app.rail.section"];
 export type StructureKind = (typeof STRUCTURE_KINDS)[number];
 /** Static provider catalog templates. Host journey also asserts list/empty. */
 export declare const CATALOG_KINDS: readonly ["provider.model.catalog"];
 export type CatalogKind = (typeof CATALOG_KINDS)[number];
-declare const HOST_JOURNEY_KINDS: readonly ["app.command", "app.toolbar", "app.status", "app.composer.slash", "app.timeline.card", "app.settings.section", "app.panel", "app.tab", "app.kanban.view", "app.settings.page", "app.composer.action", "provider.model.catalog"];
+declare const HOST_JOURNEY_KINDS: readonly ["app.command", "app.toolbar", "app.status", "app.composer.slash", "app.timeline.card", "app.settings.section", "app.panel", "app.tab", "app.kanban.view", "app.settings.page", "app.composer.action", "app.rail.section", "provider.model.catalog"];
 export type HostJourneyKind = (typeof HOST_JOURNEY_KINDS)[number];
 /** Manifest `app.*` kinds vs Host catalog snake_case keys. */
 export declare const MANIFEST_KIND_TO_CATALOG: Record<string, string>;

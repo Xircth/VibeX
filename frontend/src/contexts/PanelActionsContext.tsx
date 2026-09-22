@@ -184,12 +184,15 @@ export interface PanelActions {
   openLogs: () => void;
   openNotes: () => void;
   openPluginPanel: (options: {
-    panelId: string;
+    panelId?: string;
     title: string;
     pluginId: string;
     contributionId: string;
     icon?: string | null;
     activate?: boolean;
+    multiInstance?: boolean;
+    instance?: 'new' | 'focus';
+    requestedUrl?: string | null;
   }) => void;
   setDockviewApi: (api: DockviewApi | null) => void;
 }
@@ -205,7 +208,6 @@ export function PanelActionsProvider({ children }: { children: ReactNode }) {
     dispose: () => void;
   } | null>(null);
   const diffPreviewPanelQueueRef = useRef<string[]>([]);
-  const webPreviewRequestNonceRef = useRef(0);
   const clearCommitDiff = useCommitDiffStore((state) => state.clearCommitDiff);
   const clearGitDiffTargetPath = useGitDiffNavigationStore(
     (state) => state.clearTargetPath
@@ -382,7 +384,7 @@ export function PanelActionsProvider({ children }: { children: ReactNode }) {
         ...options,
         renderer:
           options.component === PANEL_IDS.PREVIEW ||
-          options.component === PANEL_IDS.WEB_PREVIEW ||
+          options.component === 'plugin-panel' ||
           options.component === PANEL_IDS.TERMINAL
             ? 'onlyWhenVisible'
             : options.renderer,
@@ -502,35 +504,6 @@ export function PanelActionsProvider({ children }: { children: ReactNode }) {
       panel?.api.setActive();
     },
     [addPanelToActiveEditorGroup]
-  );
-
-  const openWebPreview = useCallback(
-    (url?: string | null) => {
-      if (!canOpenWebPreview) return;
-      const dockviewApi = apiRef.current;
-      if (!dockviewApi) return;
-
-      let panelId: string;
-      do {
-        webPreviewRequestNonceRef.current += 1;
-        panelId = `${PANEL_IDS.WEB_PREVIEW}:${webPreviewRequestNonceRef.current}`;
-      } while (dockviewApi.getPanel(panelId));
-
-      const params = {
-        requestedUrl: url?.trim() || null,
-        requestedUrlNonce: webPreviewRequestNonceRef.current,
-      };
-
-      const panel = addPanelToActiveEditorGroup({
-        id: panelId,
-        component: PANEL_IDS.WEB_PREVIEW,
-        title: 'Web Preview',
-        params,
-      });
-
-      panel?.api.setActive();
-    },
-    [addPanelToActiveEditorGroup, canOpenWebPreview]
   );
 
   const syncDiffPreviewPanelQueue = useCallback(() => {
@@ -1316,42 +1289,83 @@ export function PanelActionsProvider({ children }: { children: ReactNode }) {
 
   const openPluginPanel = useCallback(
     (options: {
-      panelId: string;
+      panelId?: string;
       title: string;
       pluginId: string;
       contributionId: string;
       icon?: string | null;
       activate?: boolean;
+      multiInstance?: boolean;
+      instance?: 'new' | 'focus';
+      requestedUrl?: string | null;
     }) => {
       const dockviewApi = apiRef.current;
       if (!dockviewApi) return;
       const activate = options.activate !== false;
-      const existing = dockviewApi.getPanel(options.panelId);
+      const prefix = pluginSurfaceId(options.pluginId, options.contributionId);
+      const mode = options.instance ?? (options.multiInstance ? 'new' : 'focus');
+      let panelId = options.panelId;
+      if (!panelId) {
+        if (options.multiInstance && mode === 'new') {
+          let next = 1;
+          while (dockviewApi.getPanel(`${prefix}:${next}`)) next += 1;
+          panelId = `${prefix}:${next}`;
+        } else if (options.multiInstance && mode === 'focus') {
+          const matches = dockviewApi.panels.filter(
+            (panel) =>
+              panel.id === prefix || panel.id.startsWith(`${prefix}:`)
+          );
+          panelId = matches[matches.length - 1]?.id ?? `${prefix}:1`;
+        } else {
+          panelId = prefix;
+        }
+      }
+      const params = {
+        pluginId: options.pluginId,
+        contributionId: options.contributionId,
+        icon: options.icon ?? null,
+        requestedUrl: options.requestedUrl ?? null,
+      };
+      const existing = dockviewApi.getPanel(panelId);
       if (existing) {
         existing.api.setTitle(options.title);
-        existing.api.updateParameters({
-          pluginId: options.pluginId,
-          contributionId: options.contributionId,
-          icon: options.icon ?? null,
-        });
+        existing.api.updateParameters(params);
         existing.group.api.setVisible(true);
         if (activate) existing.api.setActive();
         return;
       }
       const panel = addPanelToActiveEditorGroup({
-        id: options.panelId,
+        id: panelId,
         component: 'plugin-panel',
         title: options.title,
-        params: {
-          pluginId: options.pluginId,
-          contributionId: options.contributionId,
-          icon: options.icon ?? null,
-        },
+        params,
         inactive: !activate,
       });
       if (activate) panel?.api.setActive();
     },
     [addPanelToActiveEditorGroup]
+  );
+
+  const openWebPreview = useCallback(
+    (url?: string | null) => {
+      if (!canOpenWebPreview) return;
+      const browserPanel = pluginPanels.find(
+        (item) => contributionMetadata(item).engine === 'host-browser'
+      );
+      if (!browserPanel) return;
+      const metadata = contributionMetadata(browserPanel);
+      const icon = typeof metadata.icon === 'string' ? metadata.icon : null;
+      openPluginPanel({
+        title: browserPanel.label,
+        pluginId: browserPanel.pluginId,
+        contributionId: browserPanel.id,
+        icon,
+        multiInstance: true,
+        instance: 'new',
+        requestedUrl: url?.trim() || null,
+      });
+    },
+    [canOpenWebPreview, openPluginPanel, pluginPanels]
   );
 
   useEffect(() => {
@@ -1364,6 +1378,8 @@ export function PanelActionsProvider({ children }: { children: ReactNode }) {
       if (!liveIds.has(id)) offeredPluginPanelsRef.current.delete(id);
     }
     for (const item of pluginPanels) {
+      const metadata = contributionMetadata(item);
+      if (metadata.multiInstance === true) continue;
       const panelId = pluginSurfaceId(item.pluginId, item.id);
       const existing = Boolean(dockviewApi.getPanel(panelId));
       const offered = offeredPluginPanelsRef.current.has(panelId);
@@ -1371,7 +1387,6 @@ export function PanelActionsProvider({ children }: { children: ReactNode }) {
         if (existing) offeredPluginPanelsRef.current.add(panelId);
         continue;
       }
-      const metadata = contributionMetadata(item);
       const icon = typeof metadata.icon === 'string' ? metadata.icon : null;
       offeredPluginPanelsRef.current.add(panelId);
       openPluginPanel({

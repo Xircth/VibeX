@@ -59,6 +59,7 @@ const INTEGRATION_KINDS = new Set([
   "app.kanban.view",
   "app.settings.page",
   "app.composer.action",
+  "app.rail.section",
   "provider.remote.provisioner",
 ]);
 const CAPABILITIES = new Set(["runtime.execute", "artifact.preview"]);
@@ -703,6 +704,7 @@ function validateHostChrome(
     case "app.panel": {
       requireText("title");
       requireSurfaceEntry();
+      requireStringArray("allowedMethods");
       const position = integration.defaultPosition;
       if (
         position !== undefined &&
@@ -713,7 +715,52 @@ function validateHostChrome(
           error("app_panel_invalid", "app.panel defaultPosition must be left or center"),
         );
       }
+      if (
+        "multiInstance" in integration &&
+        integration.multiInstance !== undefined &&
+        typeof integration.multiInstance !== "boolean"
+      ) {
+        diagnostics.push(
+          error("app_panel_invalid", "app.panel multiInstance must be a boolean"),
+        );
+      }
       validateRemote(integration, diagnostics, kind);
+      break;
+    }
+    case "app.rail.section": {
+      requireText("title");
+      const opens = integration.opens;
+      if (!isObject(opens)) {
+        diagnostics.push(
+          error("app_rail_section_invalid", "app.rail.section requires opens"),
+        );
+        break;
+      }
+      if (opens.kind !== "app.panel") {
+        diagnostics.push(
+          error(
+            "app_rail_section_invalid",
+            "app.rail.section opens.kind must be app.panel",
+          ),
+        );
+      }
+      if (typeof opens.id !== "string" || !opens.id.trim()) {
+        diagnostics.push(
+          error("app_rail_section_invalid", "app.rail.section opens.id is required"),
+        );
+      }
+      if (
+        opens.instance !== undefined &&
+        opens.instance !== "focus" &&
+        opens.instance !== "new"
+      ) {
+        diagnostics.push(
+          error(
+            "app_rail_section_invalid",
+            "app.rail.section opens.instance must be focus or new",
+          ),
+        );
+      }
       break;
     }
     case "app.tab":

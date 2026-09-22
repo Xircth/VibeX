@@ -722,6 +722,30 @@
     "sourceInstalled": "已安装",
     "versionTitle": "版本",
     "official": {
+      "browser": {
+        "name": "浏览器",
+        "summary": "内置浏览器标签，可保存 Cookie、把页面交给智能体，并按需提供工具。",
+        "readme": "# 浏览器\n\n在文件旁边打开网页。先共享标签，智能体才能读取或操作。在页面上运行 JavaScript 每次都会先询问。\n\n## 使用\n\n从右侧栏或「+」菜单打开浏览器标签。输入地址后按回车。Cookie 保存在本应用的浏览器配置里。\n\n把标签设为「可读」或「可读可操作」后，智能体才能使用。点选元素会把页面标记插入 Composer，发送这一轮才会交给智能体。\n\n## 配置\n\n修改立即生效。\n\n- 智能体工具：列出、读取并操作已共享的标签。\n- 运行页面 JavaScript：每段代码运行前都会先给你确认。\n- 默认共享级别：应用到新打开的标签。\n\n## 排障\n\n页面打不开时，检查地址并确认本插件已启用。智能体没有工具时，打开「智能体工具」并新开会话。",
+        "config": {
+          "toolsEnabled": {
+            "title": "智能体工具",
+            "description": "允许智能体列出、读取并操作已共享的标签。"
+          },
+          "evalEnabled": {
+            "title": "运行页面 JavaScript",
+            "description": "允许智能体在你确认每段代码后运行 JavaScript。"
+          },
+          "defaultGrant": {
+            "title": "默认共享级别",
+            "description": "打开新标签时使用。",
+            "enum": {
+              "none": "未共享",
+              "read": "可读",
+              "control": "可读可操作"
+            }
+          }
+        }
+      },
       "office": {
         "name": "办公套件",
         "summary": "在 VibeX 中创建、编辑、分析和预览 DOCX、XLSX 与 PPTX 文件。",
@@ -1658,7 +1682,7 @@
     "linkOpenBehavior": "链接打开方式",
     "linkOpenBehaviorHint": "会话中点击链接时的打开位置。",
     "linkOpenExternal": "默认浏览器",
-    "linkOpenBuiltin": "内置浏览器（Web Preview）",
+    "linkOpenBuiltin": "浏览器插件",
     "crashReportsTitle": "崩溃报告",
     "crashReportsDescription": "本地优先的崩溃诊断（opt-in）",
     "crashReportsToggle": "启动时提示未处理的崩溃报告",
@@ -2048,6 +2072,7 @@
     "providerEdit": "编辑 Provider",
     "providerNew": "新建 Provider",
     "providerCatalogCustom": "自定义",
+    "providerCatalogChoose": "选择预置",
     "providerCatalogSearch": "搜索预置",
     "providerCatalogEmpty": "没有匹配的预置。",
     "providerCatalogWebsite": "网站",

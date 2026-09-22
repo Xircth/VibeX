@@ -9,6 +9,7 @@ import {
 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { cn } from '@/lib/utils';
+import '@/styles/conversation.css';
 import { useExpandable } from '@/stores/useExpandableStore';
 import {
   formatPlanStepIndex,

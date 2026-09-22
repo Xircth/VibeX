@@ -15,7 +15,7 @@ describe('TodoListButton', () => {
     expect(screen.getByText('暂无任务')).toBeInTheDocument();
   });
 
-  it('renders todo count and status presentation in the popover', () => {
+  it('opens the conversation plan card in the popover', () => {
     render(
       <TodoListButton
         todos={[
@@ -30,12 +30,14 @@ describe('TodoListButton', () => {
 
     fireEvent.click(button);
 
-    expect(screen.getByText('任务列表 (2)')).toBeInTheDocument();
+    expect(screen.getByTestId('conversation-plan-card')).toBeInTheDocument();
+    expect(
+      screen.getByRole('button', { name: '收起计划' })
+    ).toBeInTheDocument();
+    expect(screen.getByText('1 / 2 已完成')).toBeInTheDocument();
+    expect(screen.getByText('01')).toBeInTheDocument();
+    expect(screen.getByText('02')).toBeInTheDocument();
     expect(screen.getByText('Ship cleanup')).toBeInTheDocument();
     expect(screen.getByText('Review plan')).toBeInTheDocument();
-    expect(screen.getByText('\u2713')).toHaveClass(
-      'text-[hsl(var(--success))]'
-    );
-    expect(screen.getByText('\u25CF')).toHaveClass('text-primary');
   });
 });

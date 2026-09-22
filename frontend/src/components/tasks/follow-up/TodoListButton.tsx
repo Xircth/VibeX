@@ -45,11 +45,16 @@ export function TodoListButton({ todos }: { todos: TodoItem[] }) {
         className="composer-todo-popover"
       >
         {todoListState.isEmpty ? (
-          <div className="conv-plan-card px-3 py-2 text-center text-xs text-muted-foreground">
+          <div className="px-3 py-2 text-center text-xs text-muted-foreground">
             {t('todoListButton.empty')}
           </div>
         ) : (
-          <div className="max-h-[min(24rem,70vh)] overflow-auto">
+          <div
+            className="composer-todo-list"
+            tabIndex={0}
+            role="region"
+            aria-label={t('todoListButton.title')}
+          >
             <ConversationPlanCard
               items={todos.map(toConversationPlanItem)}
               expansionKey="composer-todo-list"

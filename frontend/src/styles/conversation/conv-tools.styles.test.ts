@@ -28,13 +28,22 @@ function declarationsFor(
 }
 
 describe('composer todo popover', () => {
-  it('lets the plan card own the popover frame', () => {
-    const rules = declarationsFor('.composer-todo-popover.tahoe-popover');
+  it('draws a bordered frame and hides the list scrollbar', () => {
+    const popover = declarationsFor('.composer-todo-popover.tahoe-popover');
+    const list = declarationsFor('.composer-todo-list');
+    const webkit = declarationsFor('.composer-todo-list::-webkit-scrollbar');
+    const nestedCard = declarationsFor('.composer-todo-popover .conv-plan-card');
+    const streamCard = declarationsFor('.conv-plan-card');
 
-    expect(rules.padding?.value).toBe('0');
-    expect(rules.border?.value).toBe('0');
-    expect(rules.background?.value).toBe('transparent');
-    expect(rules['box-shadow']?.value).toBe('none');
+    expect(popover.border?.value).toBe('1px solid var(--border-strong)');
+    expect(popover.overflow?.value).toBe('hidden');
+    expect(list.overflow?.value).toBe('auto');
+    expect(list['scrollbar-width']?.value).toBe('none');
+    expect(webkit.display?.value).toBe('none');
+    expect(nestedCard.border?.value).toBe('0');
+    expect(streamCard.border?.value).toBe(
+      '1px solid var(--conv-border-subtle)'
+    );
   });
 });
 

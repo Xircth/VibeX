@@ -31,6 +31,9 @@ describe('TodoListButton', () => {
     fireEvent.click(button);
 
     expect(screen.getByTestId('conversation-plan-card')).toBeInTheDocument();
+    const list = screen.getByRole('region', { name: '任务列表' });
+    expect(list).toHaveClass('composer-todo-list');
+    expect(list).toHaveAttribute('tabindex', '0');
     expect(
       screen.getByRole('button', { name: '收起计划' })
     ).toBeInTheDocument();

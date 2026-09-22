@@ -21,12 +21,32 @@
 
 .composer-todo-popover.tahoe-popover {
   width: min(22rem, calc(100vw - 24px));
+  max-height: min(24rem, 70vh);
   padding: 0;
-  border: 0;
-  background: transparent;
+  overflow: hidden;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius);
+  background: var(--conv-surface-card, var(--surface-dialog));
   box-shadow: none;
   backdrop-filter: none;
   -webkit-backdrop-filter: none;
+}
+
+.composer-todo-list {
+  max-height: min(24rem, 70vh);
+  overflow: auto;
+  scrollbar-width: none;
+}
+
+.composer-todo-list::-webkit-scrollbar {
+  display: none;
+  width: 0;
+  height: 0;
+}
+
+.composer-todo-popover .conv-plan-card {
+  border: 0;
+  background: transparent;
 }
 
 .conv-plan-card.is-collapsed {

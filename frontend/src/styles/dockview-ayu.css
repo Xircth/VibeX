@@ -57,7 +57,8 @@
     transparent
   );
 
-  --dv-activegroup-visiblepanel-tab-background-color: var(--dv-theme-bg);
+  --dv-connected-chrome: var(--surface-dialog);
+  --dv-activegroup-visiblepanel-tab-background-color: var(--dv-connected-chrome);
   --dv-activegroup-hiddenpanel-tab-background-color: transparent;
   --dv-inactivegroup-visiblepanel-tab-background-color: transparent;
   --dv-inactivegroup-hiddenpanel-tab-background-color: transparent;
@@ -137,7 +138,7 @@
 }
 
 [class*='dockview-theme-ayu'] .dv-content-container {
-  background-color: var(--dv-theme-bg) !important;
+  background-color: var(--dv-connected-chrome, var(--dv-theme-bg)) !important;
 }
 
 [class*='dockview-theme-ayu'] .dv-groupview {
@@ -196,7 +197,8 @@
     transparent
   );
 
-  --dv-activegroup-visiblepanel-tab-background-color: var(--dv-theme-bg);
+  --dv-connected-chrome: var(--surface-dialog);
+  --dv-activegroup-visiblepanel-tab-background-color: var(--dv-connected-chrome);
   --dv-activegroup-hiddenpanel-tab-background-color: var(--dv-theme-surface);
   --dv-inactivegroup-visiblepanel-tab-background-color: var(--dv-theme-surface);
   --dv-inactivegroup-hiddenpanel-tab-background-color: var(--dv-theme-surface);
@@ -232,7 +234,7 @@
 }
 
 .dark [class*='dockview-theme-ayu'] .dv-content-container {
-  background-color: var(--dv-theme-bg) !important;
+  background-color: var(--dv-connected-chrome, var(--dv-theme-bg)) !important;
 }
 
 .dark [class*='dockview-theme-ayu'] .dv-groupview {
@@ -258,9 +260,10 @@
   background-color: var(--dv-theme-surface) !important;
 }
 
-/* Tab strip polish + remove header/right-divider seam */
+/* Selected tab joins the panel body. No hairline under the strip. */
 [class*='dockview-theme-ayu'] .dv-groupview > .dv-tabs-and-actions-container {
-  border-bottom: 1px solid var(--dv-paneview-header-border-color);
+  overflow: visible;
+  border-bottom: 0;
 }
 
 [class*='dockview-theme-ayu'] .dv-tabs-and-actions-container > .dv-scrollable {
@@ -280,7 +283,7 @@
   display: inline-flex;
   width: 28px;
   height: 28px;
-  margin: 4px;
+  margin: 4px 4px 4px 2px;
   align-items: center;
   justify-content: center;
   border: 0;
@@ -341,25 +344,31 @@
 
 /* Dockview 5.1 omits .dv-horizontal for the default horizontal direction. */
 [class*='dockview-theme-ayu'] .dv-tabs-container:not(.dv-vertical) {
-  gap: 1px;
-  padding: 4px;
+  align-items: stretch;
+  gap: 0;
+  padding: 4px 10px 0;
 }
 
 [class*='dockview-theme-ayu'] .dv-tabs-container:not(.dv-vertical) > .dv-tab {
   display: flex;
-  align-items: center;
-  height: 28px;
+  align-items: stretch;
+  height: auto;
+  min-height: 28px;
   margin: 0;
-  padding: 0;
+  padding: 0 var(--radius);
   border: 0;
   background-color: transparent !important;
-  border-radius: var(--radius);
+  border-radius: 0;
   color: var(--dv-theme-muted) !important;
 }
 
 [class*='dockview-theme-ayu'] .workspace-tab-surface {
+  display: flex;
+  align-items: center;
   gap: 4px;
   box-sizing: border-box;
+  width: 100%;
+  min-height: 28px;
   padding: 0 4px 0 8px;
   border-radius: var(--radius);
   transition:
@@ -434,11 +443,13 @@
 }
 
 [class*='dockview-theme-ayu'] .dv-tab.dv-inactive-tab {
+  z-index: 0;
   background-color: transparent !important;
   color: var(--dv-theme-muted) !important;
 }
 
 [class*='dockview-theme-ayu'] .dv-tab.dv-active-tab {
+  z-index: 1;
   background-color: transparent !important;
   color: var(--dv-theme-text) !important;
 }
@@ -450,9 +461,70 @@
   background-color: transparent !important;
 }
 
-[class*='dockview-theme-ayu'] .dv-tab.dv-active-tab .workspace-tab-surface,
-[class*='dockview-theme-ayu'] .workspace-tab-surface:hover {
-  background-color: var(--dv-tab-state-background) !important;
+[class*='dockview-theme-ayu']
+  .dv-tabs-container:not(.dv-vertical)
+  > .dv-tab.dv-inactive-tab
+  .workspace-tab-surface {
+  margin-block: 2px;
+  background-color: transparent;
+}
+
+[class*='dockview-theme-ayu']
+  .dv-tabs-container:not(.dv-vertical)
+  > .dv-tab.dv-inactive-tab:hover
+  .workspace-tab-surface {
+  background-color: var(--dv-tab-state-background);
+}
+
+[class*='dockview-theme-ayu']
+  .dv-tabs-container:not(.dv-vertical)
+  > .dv-tab.dv-active-tab
+  .workspace-tab-surface {
+  position: relative;
+  z-index: 1;
+  height: 100%;
+  border-radius: var(--radius) var(--radius) 0 0;
+  background-color: var(--dv-connected-chrome) !important;
+}
+
+[class*='dockview-theme-ayu']
+  .dv-tabs-container:not(.dv-vertical)
+  > .dv-tab.dv-active-tab
+  .workspace-tab-surface::before,
+[class*='dockview-theme-ayu']
+  .dv-tabs-container:not(.dv-vertical)
+  > .dv-tab.dv-active-tab
+  .workspace-tab-surface::after {
+  content: '';
+  position: absolute;
+  bottom: 0;
+  width: var(--radius);
+  height: var(--radius);
+  pointer-events: none;
+}
+
+[class*='dockview-theme-ayu']
+  .dv-tabs-container:not(.dv-vertical)
+  > .dv-tab.dv-active-tab
+  .workspace-tab-surface::before {
+  left: calc(-1 * var(--radius));
+  background: radial-gradient(
+    circle at 0 0,
+    transparent var(--radius),
+    var(--dv-connected-chrome) var(--radius)
+  );
+}
+
+[class*='dockview-theme-ayu']
+  .dv-tabs-container:not(.dv-vertical)
+  > .dv-tab.dv-active-tab
+  .workspace-tab-surface::after {
+  right: calc(-1 * var(--radius));
+  background: radial-gradient(
+    circle at 100% 0,
+    transparent var(--radius),
+    var(--dv-connected-chrome) var(--radius)
+  );
 }
 
 [class*='dockview-theme-ayu'] .dv-default-tab-content {
@@ -468,7 +540,7 @@
   [class*='dockview-theme-ayu']
   .dv-groupview
   > .dv-tabs-and-actions-container {
-  border-bottom: 1px solid var(--dv-theme-border);
+  border-bottom: 0;
 }
 
 .dark

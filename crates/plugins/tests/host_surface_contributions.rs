@@ -134,6 +134,24 @@ fn the_contract_lists_every_structure_kind() {
 }
 
 #[test]
+fn panel_allowed_methods_are_copied_onto_the_synthesized_surface() {
+    let package = product_package(
+        r#"[
+          {"id":"browser","kind":"app.panel","title":"Browser","icon":"globe","handler":"surface.createSession","defaultPosition":"center","engine":"host-browser","allowedMethods":["browser.dispatch"]}
+        ]"#,
+    );
+    let panel = package.app.panels.first().expect("panel");
+    assert_eq!(panel.allowed_methods, vec!["browser.dispatch".to_owned()]);
+    let surface = package
+        .app
+        .surfaces
+        .iter()
+        .find(|surface| surface.id == "browser")
+        .expect("surface");
+    assert_eq!(surface.allowed_methods, vec!["browser.dispatch".to_owned()]);
+}
+
+#[test]
 fn a_panel_with_a_bad_position_is_dropped() {
     let package = product_package(
         r#"[

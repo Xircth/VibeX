@@ -11,9 +11,6 @@ export const PANEL_IDS = {
   KANBAN: 'kanban',
   FILE_TREE: 'file-tree',
   PREVIEW: 'preview',
-  // Web Preview (built-in browser / dev-server preview). Renamed from
-  // 'dev-preview'; persisted layouts are migrated in this store's `migrate`.
-  WEB_PREVIEW: 'web-preview',
   DIFFS: 'diffs',
   TERMINAL: 'terminal',
   AI_CHAT: 'ai-chat',
@@ -195,23 +192,31 @@ function getCurrentSnapshot(state: LayoutState): LayoutSnapshot {
   };
 }
 
-/**
- * v22 rename: the Web Preview panel id changed from 'dev-preview' to
- * 'web-preview'. Serialized dockview layouts reference the id in several
- * places (panels map keys, panel ids, contentComponent, group views /
- * activeView), so rewrite every exact "dev-preview" string value. Quoted
- * matching keeps longer strings (titles, file paths) untouched.
- */
-function renameWebPreviewPanelId(
+function isRetiredWebPreviewId(value: string): boolean {
+  return (
+    value === 'web-preview' ||
+    value === 'dev-preview' ||
+    value.startsWith('web-preview:') ||
+    value.startsWith('dev-preview:')
+  );
+}
+
+function dropRetiredWebPreviewPanels(
   layout: SerializedDockview | null
 ): SerializedDockview | null {
   if (!layout) return layout;
   try {
-    const json = JSON.stringify(layout);
-    if (!json.includes('"dev-preview"')) return layout;
-    return JSON.parse(
-      json.replaceAll('"dev-preview"', '"web-preview"')
-    ) as SerializedDockview;
+    const next = structuredClone(layout) as SerializedDockview & {
+      panels?: Record<string, { contentComponent?: string }>;
+    };
+    if (!next.panels) return next;
+    for (const id of Object.keys(next.panels)) {
+      const component = next.panels[id]?.contentComponent ?? '';
+      if (isRetiredWebPreviewId(id) || isRetiredWebPreviewId(component)) {
+        delete next.panels[id];
+      }
+    }
+    return next;
   } catch {
     return layout;
   }
@@ -269,8 +274,7 @@ export function migratePersistedLayoutState(
     if (version < 21) {
       accumulator[projectKey].serializedLayout = null;
     } else if (version < 22) {
-      // v22: Web Preview panel id renamed from 'dev-preview'.
-      accumulator[projectKey].serializedLayout = renameWebPreviewPanelId(
+      accumulator[projectKey].serializedLayout = dropRetiredWebPreviewPanels(
         accumulator[projectKey].serializedLayout
       );
     }
@@ -282,6 +286,11 @@ export function migratePersistedLayoutState(
     // v24: Dockview now owns A/C zone minimum-width constraints.
     if (version < 24) {
       accumulator[projectKey].serializedLayout = null;
+    }
+    if (version < 28) {
+      accumulator[projectKey].serializedLayout = dropRetiredWebPreviewPanels(
+        accumulator[projectKey].serializedLayout
+      );
     }
     return accumulator;
   }, {});
@@ -617,7 +626,7 @@ export const useLayoutStore = create<LayoutState>()(
     }),
     {
       name: 'vibex-ide-layout',
-      version: 27,
+      version: 28,
       migrate: migratePersistedLayoutState,
       partialize: (state) => ({
         currentProjectKey: state.currentProjectKey,

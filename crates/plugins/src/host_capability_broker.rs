@@ -25,6 +25,7 @@ pub struct HostCapabilityBroker {
     remote_profiles: Arc<dyn crate::RemoteProfileHost>,
     bind_prompts: Arc<crate::ProviderBindPrompts>,
     conversations: Arc<dyn crate::PluginConversationHost>,
+    browser: Arc<browser_host::BrowserService>,
     artifacts: Mutex<HashMap<String, ArtifactAuthorization>>,
     preview_leases: Arc<Mutex<HashMap<String, crate::ActivationLease>>>,
 }
@@ -83,9 +84,15 @@ impl HostCapabilityBroker {
             remote_profiles,
             bind_prompts,
             conversations: Arc::new(crate::UnavailablePluginConversationHost),
+            browser: Arc::new(browser_host::BrowserService::unavailable()),
             artifacts: Mutex::new(HashMap::new()),
             preview_leases: Arc::new(Mutex::new(HashMap::new())),
         }
+    }
+
+    pub fn with_browser_host(mut self, browser: Arc<browser_host::BrowserService>) -> Self {
+        self.browser = browser;
+        self
     }
 
     pub fn with_conversation_host(
@@ -187,6 +194,7 @@ impl crate::CapabilityBroker for HostCapabilityBroker {
                 | "events"
                 | "agent"
                 | "conversation"
+                | "browser"
                 | "app"
                 | "plugin.self"
                 | "provider.presets"
@@ -214,6 +222,9 @@ impl crate::CapabilityBroker for HostCapabilityBroker {
             }
             "remote" => self.call_remote(plugin_id, operation, input).await,
             "conversation" => self.call_conversation(plugin_id, operation, input).await,
+            "browser" => browser_host::dispatch(&self.browser, plugin_id, operation, input)
+                .await
+                .map_err(|error| broker_error(error.code(), error.message())),
             "artifact" if operation == "readText" || operation == "writeText" => Err(broker_error(
                 "artifact_not_found",
                 "Artifact text is only available on an editor surface session",
@@ -727,6 +738,31 @@ impl HostCapabilityBroker {
                     .await
                     .map_err(conversation_error)?;
                 Ok(json!({ "archived": true }))
+            }
+            "draft.insert" => {
+                let request: crate::PluginConversationDraftInsert =
+                    serde_json::from_value(input)
+                        .map_err(|error| broker_error("conversation_invalid", error))?;
+                if request.token.label.trim().is_empty() || request.token.markdown.trim().is_empty()
+                {
+                    return Err(broker_error(
+                        "conversation_invalid",
+                        "token.label and token.markdown are required",
+                    ));
+                }
+                let receipt = self
+                    .conversations
+                    .insert_draft(plugin_id, request)
+                    .await
+                    .map_err(conversation_error)?;
+                self.audit(
+                    plugin_id,
+                    "conversation_draft_inserted",
+                    json!({ "conversationId": receipt.conversation_id }),
+                )
+                .await;
+                serde_json::to_value(receipt)
+                    .map_err(|error| broker_error("conversation_invalid", error))
             }
             "events.since" => {
                 let conversation_id = required_id(&input, "conversationId")?;

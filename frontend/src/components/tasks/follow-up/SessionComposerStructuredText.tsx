@@ -36,10 +36,12 @@ export const SESSION_COMPOSER_TOKEN_VARIANTS: Record<
 export function getSessionComposerTokenChipTitle(
   token: SessionComposerStructuredToken
 ): string | undefined {
+  if (token.kind === 'element' || token.kind === 'quote') {
+    return undefined;
+  }
   if (
     token.kind === 'agent_mention' ||
     token.kind === 'file' ||
-    token.kind === 'element' ||
     token.kind === 'plugin_action' ||
     token.kind === 'conversation' ||
     token.kind === 'commit' ||
@@ -103,6 +105,7 @@ export function SessionComposerTokenChip({
   const hideTimerRef = useRef<number | null>(null);
   const [quotePreviewOpen, setQuotePreviewOpen] = useState(false);
   const isQuote = token.kind === 'quote';
+  const showsPreview = isQuote || token.kind === 'element';
 
   const showQuotePreview = () => {
     if (hideTimerRef.current != null) {
@@ -135,21 +138,23 @@ export function SessionComposerTokenChip({
         data-token-kind={token.kind}
         data-variant={SESSION_COMPOSER_TOKEN_VARIANTS[token.kind]}
         data-structured-token-atomic="true"
-        tabIndex={isQuote ? 0 : elementProps.tabIndex}
+        tabIndex={showsPreview ? 0 : elementProps.tabIndex}
         onMouseDown={(event) => event.preventDefault()}
-        onPointerEnter={isQuote ? showQuotePreview : undefined}
-        onPointerLeave={isQuote ? hideQuotePreview : undefined}
-        onFocus={isQuote ? showQuotePreview : undefined}
-        onBlur={isQuote ? hideQuotePreview : undefined}
-        title={isQuote ? undefined : getSessionComposerTokenChipTitle(token)}
+        onPointerEnter={showsPreview ? showQuotePreview : undefined}
+        onPointerLeave={showsPreview ? hideQuotePreview : undefined}
+        onFocus={showsPreview ? showQuotePreview : undefined}
+        onBlur={showsPreview ? hideQuotePreview : undefined}
+        title={
+          showsPreview ? undefined : getSessionComposerTokenChipTitle(token)
+        }
       >
         <SessionComposerTokenIcon token={token} className="h-3 w-3 shrink-0" />
         <span className="truncate font-medium">{token.label}</span>
       </span>
-      {isQuote && quotePreviewOpen && chipRef.current ? (
+      {showsPreview && quotePreviewOpen && chipRef.current ? (
         <QuoteTokenPreview
           anchor={chipRef.current}
-          text={token.value}
+          text={isQuote ? token.value : token.label}
           onPointerEnter={showQuotePreview}
           onPointerLeave={hideQuotePreview}
         />

@@ -68,14 +68,12 @@ same inputs there.
 - Windows bundles target x64 and ARM64, use the GUI PE subsystem, and include
   the offline WebView2 installer. Background commands use hidden-process
   creation flags and must not open a console window.
-- Linux bundles target x64 and ARM64 on an Ubuntu 22.04 baseline. Windowed CEF
-  requires X11/XWayland; Debian packages declare `xwayland` as a dependency.
-  AppImage users on pure Wayland systems must install and enable XWayland.
+- Linux bundles target x64 and ARM64 on an Ubuntu 22.04 baseline. The built-in
+  browser uses the system WebView (WebKitGTK), not a bundled Chromium child.
 
 The workflow smoke-starts the native executable on every matrix target. The
 Windows smoke test additionally verifies the PE GUI subsystem and rejects a
-visible console descendant. Linux is started through XWayland, matching the CEF
-parent-window requirement.
+visible console descendant. Linux is started under xvfb.
 
 ## Local macOS signing
 
@@ -96,8 +94,7 @@ Required keys:
 - `APPLE_API_KEY_PATH` — path to the downloaded `.p8` private key
 - `APPLE_TEAM_ID` — 10-character Team ID
 
-`pnpm run dev` re-signs the CEF development bundle with that identity and
-does not notarize. `pnpm run tauri:build` uses the same identity for Developer
+`pnpm run dev` uses the development identity and does not notarize. `pnpm run tauri:build` uses the same identity for Developer
 ID signing, then uploads with `notarytool submit` and polls `notarytool info`
 for up to two hours, retrying runner network drops. The `.dmg` is built with
 `hdiutil`. Tauri's unbounded `--wait` and `bundle_dmg.sh` path are not used.

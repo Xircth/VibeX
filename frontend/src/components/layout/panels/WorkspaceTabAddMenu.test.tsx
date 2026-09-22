@@ -7,14 +7,12 @@ import { WorkspaceTabAddMenu } from './WorkspaceTabAddMenu';
 const {
   openDiffPreview,
   openNotes,
-  openWebPreview,
   openTerminalEditorTab,
   openPluginPanel,
   usePluginHostContributions,
 } = vi.hoisted(() => ({
   openDiffPreview: vi.fn(),
   openNotes: vi.fn(),
-  openWebPreview: vi.fn(),
   openTerminalEditorTab: vi.fn(),
   openPluginPanel: vi.fn(),
   usePluginHostContributions: vi.fn((): unknown[] => []),
@@ -24,7 +22,6 @@ vi.mock('@/contexts/PanelActionsContext', () => ({
   usePanelActionsContext: () => ({
     openDiffPreview,
     openNotes,
-    openWebPreview,
     openTerminalEditorTab,
     openPluginPanel,
   }),
@@ -57,7 +54,7 @@ describe('WorkspaceTabAddMenu', () => {
     usePluginHostContributions.mockReturnValue([]);
   });
 
-  it('offers browser, review, note, and terminal from the editor tab strip', () => {
+  it('offers review, note, and terminal from the editor tab strip', () => {
     const props = headerProps();
     const setTabCreationMenuOpen = vi.fn();
 
@@ -79,17 +76,16 @@ describe('WorkspaceTabAddMenu', () => {
       ctrlKey: false,
     });
 
-    expect(screen.getAllByRole('menuitem')).toHaveLength(4);
-    expect(screen.getByRole('menuitem', { name: '浏览器' })).toBeVisible();
+    expect(screen.getAllByRole('menuitem')).toHaveLength(3);
+    expect(screen.queryByRole('menuitem', { name: '浏览器' })).not.toBeInTheDocument();
     expect(screen.getByRole('menuitem', { name: '审阅' })).toBeVisible();
     expect(screen.getByRole('menuitem', { name: '笔记' })).toBeVisible();
     expect(screen.getByRole('menuitem', { name: '终端' })).toBeVisible();
 
-    fireEvent.click(screen.getByRole('menuitem', { name: '浏览器' }));
+    fireEvent.click(screen.getByRole('menuitem', { name: '审阅' }));
 
     expect(props.api.setActive).toHaveBeenCalledOnce();
-    expect(openWebPreview).toHaveBeenCalledWith();
-    expect(openDiffPreview).not.toHaveBeenCalled();
+    expect(openDiffPreview).toHaveBeenCalledOnce();
     expect(openNotes).not.toHaveBeenCalled();
     expect(openTerminalEditorTab).not.toHaveBeenCalled();
   });
@@ -116,7 +112,7 @@ describe('WorkspaceTabAddMenu', () => {
       ctrlKey: false,
     });
 
-    expect(screen.getByRole('menuitem', { name: '浏览器' })).toBeVisible();
+    expect(screen.getByRole('menuitem', { name: '审阅' })).toBeVisible();
     expect(setTabCreationMenuOpen).toHaveBeenCalledWith(true);
   });
 
@@ -174,11 +170,12 @@ describe('WorkspaceTabAddMenu', () => {
     fireEvent.click(screen.getByRole('menuitem', { name: '示例面板' }));
 
     expect(openPluginPanel).toHaveBeenCalledWith({
-      panelId: 'plugin:vibex.host-surface/sample-panel',
       title: '示例面板',
       pluginId: 'vibex.host-surface',
       contributionId: 'sample-panel',
       icon: 'bookmark',
+      multiInstance: false,
+      instance: 'focus',
     });
   });
 

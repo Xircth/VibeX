@@ -239,7 +239,8 @@ export type PluginContributionKind =
   | 'kanban_view'
   | 'settings_page'
   | 'composer_action'
-  | 'remote_provisioner';
+  | 'remote_provisioner'
+  | 'app_rail_section';
 
 export interface PluginContributionCatalogItem {
   pluginId: string;

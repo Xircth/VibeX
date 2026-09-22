@@ -33,6 +33,11 @@ describe('quote token hover preview', () => {
     expect(sharedHover.size).toBe(0);
     expect(
       declarationsFor(
+        '.legacy-design .session-composer-editor [data-preview-element-token]:is(:hover, :focus-visible)'
+      ).size
+    ).toBe(0);
+    expect(
+      declarationsFor(
         '.legacy-design .session-composer-editor [data-quote-token]'
       ).get('cursor')
     ).toBe('help');

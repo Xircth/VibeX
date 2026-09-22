@@ -137,7 +137,7 @@ DeepSeek Harness 架构对标，以及产品所有者补充要求（2026-09-04�
 | 右侧栏区块 | `app.rail.section` | 新增 | Batch 4 |
 | 用量数据源 | `provider.usage`（Provider seam） | 新增 | Batch 4 |
 | 编辑器 opener | `provider.editor.opener` | 新增 | Batch 4 |
-| 浏览器运行时 | CEF 按需 Runtime resource + Web Preview 官方插件面板 | 新增 | Batch 5 |
+| 浏览器运行时 | Host 系统 WebView（`crates/browser-host`）+ 官方插件 `vibex.browser` | 新增 | Batch 5 |
 | 派生开发 | `vibex-plugin fork`（源码派生 + `derivedFrom` 溯源元数据 + 新身份打包） | 新增 | Batch 6 |
 | git 面板 API 族 | `host.call: git.*`（status / branch / log / stage / commit） | 评估项，Batch 4 后立项 | 未排期 |
 
@@ -245,10 +245,10 @@ Registry 注册）、**消费者**（现有 UI / 命令面）。冲突解析确�
 - **`app.composer.action`（提示词变换）**：Composer 提交前动作贡献，输入草稿 +
   会话上下文引用，输出替换草稿；内置提示词优化迁为官方插件（复用
   `host.service` + broker `agent.invoke`）。
-- **浏览器运行时**：CEF 从随发行物分发改为内容寻址 Runtime resource（复用
-  Runtime lock / probe / 引用计数），首次打开 Web Preview 时按需下载并验证
-  digest；`BrowserRuntime` trait 不变。Web Preview 面板迁为官方插件的
-  `app.panel` 贡献。修订 ADR-0007 的分发结论，不修订其 CEF 技术选型。
+- **浏览器运行时**：Host 以系统 WebView 提供 `host.call browser.*`（`crates/browser-host`）。
+  官方插件 `vibex.browser` 贡献 `app.panel`（`engine: host-browser`）、
+  `app.rail.section`、`app.settings.page` 与 `content.mcp`。ADR-0007 的 CEF
+  技术选型已 superseded。
 
 ### 8. 官方能力插件的分发与默认启用（两阶段）
 
@@ -380,7 +380,7 @@ Lumino（与 dockview 同位竞争）、extism / wasmtime（与 Full Trust 冲�
 | `crates/plugins`（manifest / package.rs / contribution.rs / app_surface.rs / host_capability_broker.rs） | 新贡献 kind 与校验；slot 白名单扩展；`ContributionKind` 增补；broker 新 `host.call` 族；能力等价插件白名单、自动安装与官方快照来源锁；`derivedFrom` 元数据 |
 | `crates/services`（config/editor、prompt_enhancement、usage 相关） | Provider trait 定义；内置实现降为默认 provider；`EditorType` 收敛；提示词优化服务随迁出删除 |
 | `crates/agents/src/plan_usage.rs` | 探测逻辑迁入内置 usage provider |
-| `crates/browser-runtime` / `crates/browser-cef` / 打包脚本 | CEF 按需 Runtime resource；发行物剔除 CEF 全量捆绑 |
+| `crates/browser-host` / 官方插件 `assets/plugins/browser` | Host 系统 WebView provider；发行物不含 CEF |
 | `src-tauri/src/commands`（agent_management/model_providers.rs、plugins、web_service） | 供应商预设 IPC 面向 broker 开放；面板贡献 DTO；启动时能力等价插件迁移安装；`generate-types` 同步 |
 | `frontend/src/components/layout/panels/PanelRegistry.tsx`、`IDELayout.tsx`、`StatusBar.tsx`、`Toolbar.tsx`、`RightPanelSidebar.tsx` 及中央 Tab 栏组件 | 合成注册表；面板占位；状态栏溢出菜单；中央 Tab 栏合成（工作区固定 + 看板容器条件存在 + `app.tab` 插件 Tab）；看板 Tab 改为 kanban view 容器（聚合、箭头切换、视图记忆、无视图时移除）；force-hide 终端特判改由面板/视图声明 |
 | `frontend/src/components/kanban/`（`KanbanSessionHub`、`SessionCanvasView`、`*Usage*` 等）、Notes / Web Preview 相关组件 | 四个看板视图与 Notes / Web Preview 迁出为官方插件后删除原实现（maiden「不留残留」） |
@@ -527,24 +527,18 @@ opener 插件出现在全部「用编辑器打开」入口；`EditorType::Custom
    看板计量视图，原 `KanbanUsageDashboard` / `PlanUsageDashboard` 硬编码实现
    删除；进能力等价白名单（默认启用）。至此宿主不再内置任何看板视图实现，
    禁用/卸载全部四个看板插件即可整体去掉看板 Tab。
-2. CEF 改为内容寻址 Runtime resource：下载、digest 验证、lock、probe、引用
-   计数复用现有 Runtime 机制；发行物剔除 CEF 捆绑。
-3. **官方浏览器插件**（Web Preview）：`app.panel`（工作区内预览）+ `app.tab`
-   （独立浏览器顶级 Tab——`app.tab` 的首个官方消费者，随之进稳定面）+
-   browser runtime 依赖声明；`BrowserRuntime` trait 与 `crates/browser-cef`
-   保留为宿主 provider 实现；进能力等价白名单。旧布局中的 `web-preview` 面板
-   落占位并提示启用/安装。
+2. 拆除 CEF：发行物不再捆绑 Chromium Embedded Framework 或 `vibex_cef_helper`。
+3. **官方浏览器插件** `vibex.browser`：`app.panel`（`engine: host-browser`，
+   `multiInstance`）+ `app.rail.section` + `app.settings.page` + `content.mcp`；
+   Host provider 在 `crates/browser-host`。旧布局中的 `web-preview` 面板在启动时丢弃。
 4. 评估（立项不实现）：chat channel 桥（Telegram / 企微 / iLink）下沉方案。
 
 **前端设计要求：** 计量看板插件沿用现有计量视觉语言（`planUsageFormat` 格式、
-诚实缺失）；CEF 首次下载有进度与失败重试 UI（复用 Runtime 安装样式），下载
-确认对话框披露体积与来源；浏览器面板 chrome 维持 ADR-0007 预留布局原则。
+诚实缺失）；浏览器面板 chrome 使用 Host 系统 WebView，不内嵌 iframe。
 
-**验收：** 新装发行物体积显著下降（记录前后数值）；升级用户看板计量视图与
-Web Preview 功能连续（默认启用迁移，箭头切换可达计量视图）；禁用浏览器插件后应用无浏览器功能残留入口；
-安装→首次打开触发 CEF 下载→digest 校验→页面可浏览全旅程通过；离线下载失败
-给出可诊断错误；卸载后 CEF Runtime 引用归零可回收；两个插件过无特权 CI 检查；
-浏览器顶级 Tab 与工作区 / 看板 Tab 并列可用（`app.tab` 稳定面四项完成）；
+**验收：** 新装发行物不含 CEF / `vibex_cef_helper`；升级用户看板计量视图连续
+（默认启用迁移，箭头切换可达计量视图）；禁用浏览器插件后应用无浏览器功能残留入口；
+打开插件面板即可浏览；两个插件过无特权 CI 检查；
 禁用/卸载全部四个看板插件后看板 Tab 从中央 Tab 栏消失且激活态回落工作区，
 重新启用任一视图即恢复。
 

@@ -11,7 +11,7 @@ import type {
   OpenInEditorPayload,
   ComponentInfo,
   SelectedComponent,
-} from '@/features/browser/inspectTypes';
+} from '@/lib/inspectTypes';
 import type { Workspace } from 'shared/types';
 import { genId } from '@/utils/id';
 

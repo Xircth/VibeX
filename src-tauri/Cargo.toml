@@ -14,6 +14,7 @@ tauri-build = { version = "2", features = [] }
 tauri-plugin-redline = "=0.1.0"
 tauri-plugin-vibex-inspector = { path = "../.vibex/tauri-plugin-vibex-inspector" }
 tauri = { version = "2", features = ["image-png", "tray-icon", "macos-private-api", "protocol-asset"] }
+tauri-runtime-wry = { version = "2", default-features = false }
 tauri-plugin-shell = "2"
 tauri-plugin-fs = "2"
 tauri-plugin-dialog = "2"
@@ -27,7 +28,7 @@ thiserror = { workspace = true }
 axum = { workspace = true }
 reqwest = { workspace = true }
 sqlx = { version = "0.8.6", features = ["runtime-tokio", "sqlite"] }
-uuid = { workspace = true }
+uuid = { workspace = true, features = ["v5"] }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
 tracing-appender = { workspace = true }
@@ -63,8 +64,7 @@ tauri-plugin-deep-link = "2"
 url = "2"
 
 # Reuse existing workspace crates
-browser-cef = { path = "../crates/browser-cef", features = ["cef-host"] }
-browser-runtime = { path = "../crates/browser-runtime" }
+browser-host = { path = "../crates/browser-host" }
 artifacts = { path = "../crates/artifacts" }
 automation = { path = "../crates/automation" }
 workflows = { path = "../crates/workflows" }
@@ -96,17 +96,35 @@ muda = "0.17"
 objc2 = "0.6.4"
 objc2-app-kit = { version = "0.3.2", default-features = false, features = [
     "NSApplication",
+    "NSBitmapImageRep",
     "NSButton",
     "NSControl",
+    "NSImage",
     "NSMenu",
     "NSResponder",
     "NSView",
     "NSWindow",
 ] }
 objc2-foundation = { version = "0.3.2", default-features = false, features = [
+    "NSDictionary",
     "NSGeometry",
     "NSThread",
+    "NSString",
+    "NSError",
+    "NSUUID",
+    "NSURL",
+    "NSValue",
 ] }
+objc2-web-kit = { version = "0.3.2", default-features = false, features = [
+    "WKWebView",
+    "WKWebViewConfiguration",
+    "WKWebsiteDataStore",
+    "WKContentWorld",
+    "WKFrameInfo",
+    "WKSnapshotConfiguration",
+    "block2",
+] }
+block2 = "0.6"
 
 [target.'cfg(target_os = "windows")'.dependencies]
 windows = { version = "0.61", features = [
@@ -116,6 +134,11 @@ windows = { version = "0.61", features = [
     "Win32_UI_Shell_Common",
     "Win32_UI_WindowsAndMessaging",
 ] }
+webview2-com = "0.38"
+
+[target.'cfg(target_os = "linux")'.dependencies]
+webkit2gtk = "2.0"
+gio = "0.18"
 
 [dev-dependencies]
 tempfile = { workspace = true }

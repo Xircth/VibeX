@@ -21,10 +21,9 @@ test('sidecar cargo build uses the same release target as the desktop binary', (
   );
 });
 
-test('before-bundle skips CEF and sidecar cargo rebuilds when outputs exist', () => {
-  assert.match(bundleSource, /isCefRuntimeStaged/);
+test('before-bundle skips sidecar cargo rebuilds when outputs exist', () => {
+  assert.doesNotMatch(bundleSource, /isCefRuntimeStaged|stage-cef-runtime/);
   assert.match(bundleSource, /sidecarBinsExist/);
-  assert.match(bundleSource, /skipping before-bundle rebuild/);
   assert.match(bundleSource, /skipping cargo rebuild/);
 });
 

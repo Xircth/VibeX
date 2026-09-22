@@ -526,6 +526,7 @@ mod tests {
         assert_eq!(
             ids,
             [
+                "vibex.browser",
                 "vibex.multi-agent",
                 "vibex.office",
                 "vibex.plugin-development",

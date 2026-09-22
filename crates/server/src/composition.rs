@@ -238,10 +238,13 @@ impl HeadlessServer {
         let remote_profile_host = Arc::new(
             crate::host::remote_profiles::FileRemoteProfileHost::load(&config.data_dir),
         );
-        let conversation_host = Arc::new(crate::HostPluginConversationHost::new(
-            pool.clone(),
-            config.data_dir.join("scratch").join("plugins"),
-        ));
+        let conversation_host = Arc::new(
+            crate::HostPluginConversationHost::new(
+                pool.clone(),
+                config.data_dir.join("scratch").join("plugins"),
+            )
+            .with_events(events.clone()),
+        );
         let capability_broker = Arc::new(
             plugins::HostCapabilityBroker::with_hosts_and_prompts(
                 plugin_control_plane.clone(),
@@ -252,6 +255,12 @@ impl HeadlessServer {
             )
             .with_conversation_host(conversation_host.clone()),
         );
+        let host_call = plugins::PluginHostCall::new(
+            capability_broker.clone() as Arc<dyn plugins::CapabilityBroker>
+        );
+        if let Err(error) = host_call.clone().bind_loopback().await {
+            tracing::warn!(%error, "plugin host.call loopback is unavailable");
+        }
         let worker_runtime = Arc::new(plugins::PluginWorkerRuntimeProvider::new(
             config.data_dir.clone(),
         ));
@@ -378,6 +387,7 @@ impl HeadlessServer {
             companion_memory: Some(companion_memory),
             preview_host,
             capability_broker,
+            host_call,
             app_surfaces,
             preview_proxy: preview_proxy.clone(),
             automation: automation_runtime.clone(),

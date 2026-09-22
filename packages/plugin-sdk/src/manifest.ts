@@ -349,6 +349,22 @@ export interface PanelIntegrationManifest extends IntegrationBase {
   defaultPosition?: "left" | "center";
   hidesBottomDock?: boolean;
   remote?: RemoteModuleManifest;
+  /** Each open request creates a new Dockview tab. */
+  multiInstance?: boolean;
+  /** Host-owned native chrome, e.g. host-browser. */
+  engine?: string;
+  allowedMethods?: string[];
+}
+
+export interface RailSectionIntegrationManifest extends IntegrationBase {
+  kind: "app.rail.section";
+  title: string;
+  icon?: ContributionIcon;
+  opens: {
+    kind: "app.panel";
+    id: string;
+    instance?: "focus" | "new";
+  };
 }
 
 export interface TabIntegrationManifest extends IntegrationBase {
@@ -423,7 +439,8 @@ export type IntegrationManifest =
   | KanbanViewIntegrationManifest
   | SettingsPageIntegrationManifest
   | ComposerActionIntegrationManifest
-  | RemoteProvisionerIntegrationManifest;
+  | RemoteProvisionerIntegrationManifest
+  | RailSectionIntegrationManifest;
 
 const relativePath = {
   type: "string",
@@ -577,6 +594,7 @@ export const pluginManifestSchema = {
               "app.kanban.view",
               "app.settings.page",
               "app.composer.action",
+              "app.rail.section",
               "provider.remote.provisioner",
             ],
           },

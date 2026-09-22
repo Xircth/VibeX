@@ -197,6 +197,8 @@ pub struct PackageAppContributions {
     pub composer_actions: Vec<AppComposerActionContribution>,
     #[serde(default)]
     pub remote_provisioners: Vec<RemoteProvisionerContribution>,
+    #[serde(default)]
+    pub rail_sections: Vec<AppRailSectionContribution>,
 }
 
 impl PackageAppContributions {
@@ -219,6 +221,7 @@ impl PackageAppContributions {
             && self.settings_pages.is_empty()
             && self.composer_actions.is_empty()
             && self.remote_provisioners.is_empty()
+            && self.rail_sections.is_empty()
     }
 }
 
@@ -432,6 +435,33 @@ pub struct AppPanelContribution {
     pub hides_bottom_dock: bool,
     #[serde(default)]
     pub remote: Option<RemoteModuleRef>,
+    /// When true, each open request mints a new Dockview panel instance.
+    #[serde(default)]
+    pub multi_instance: bool,
+    /// Host-owned native engine chrome, e.g. `host-browser`.
+    #[serde(default)]
+    pub engine: Option<String>,
+    /// Extra Worker handlers the panel chrome may invoke.
+    #[serde(default)]
+    pub allowed_methods: Vec<String>,
+}
+
+/// Right activity-rail item that opens a contributed panel.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AppRailSectionContribution {
+    pub id: String,
+    pub title: String,
+    #[serde(default)]
+    pub icon: Option<String>,
+    pub opens_kind: String,
+    pub opens_id: String,
+    #[serde(default = "default_rail_instance")]
+    pub opens_instance: String,
+}
+
+fn default_rail_instance() -> String {
+    "focus".to_owned()
 }
 
 /// Top-level Host tab that replaces the workspace/kanban content area.
@@ -1532,6 +1562,7 @@ fn normalize_product_manifest(root: &Path, manifest: &mut Value) -> Result<(), P
             | "app.kanban.view"
             | "app.settings.page"
             | "app.composer.action"
+            | "app.rail.section"
             | "provider.remote.provisioner" => {}
             other => {
                 return Err(PluginError::invalid_manifest(format!(
@@ -2285,7 +2316,7 @@ fn parse_v4_ui_contributions(
                         &item.title,
                         APP_PANEL_SLOT,
                         &item.handler,
-                        Vec::new(),
+                        item.allowed_methods.clone(),
                         None,
                     ));
                     contributions.panels.push(item);
@@ -2335,6 +2366,9 @@ fn parse_v4_ui_contributions(
                 .is_some(),
             "provider.remote.provisioner" => parse_remote_provisioner_contribution(integration)
                 .map(|item| contributions.remote_provisioners.push(item))
+                .is_some(),
+            "app.rail.section" => parse_rail_section_contribution(integration)
+                .map(|item| contributions.rail_sections.push(item))
                 .is_some(),
             // Accepted by the manifest schema but wired to nothing: no package
             // field, no contribution, no consumer. Say so at inspect time
@@ -2604,6 +2638,44 @@ fn parse_panel_contribution(integration: &Map<String, Value>) -> Option<AppPanel
         default_position,
         hides_bottom_dock: parse_hides_bottom_dock(integration, false).ok()?,
         remote: parse_remote(integration).ok()?,
+        multi_instance: match integration.get("multiInstance") {
+            None | Some(Value::Null) => false,
+            Some(Value::Bool(value)) => *value,
+            Some(_) => return None,
+        },
+        engine: contribution_text(integration, "engine"),
+        allowed_methods: contribution_allowed_methods(integration)?,
+    })
+}
+
+fn parse_rail_section_contribution(
+    integration: &Map<String, Value>,
+) -> Option<AppRailSectionContribution> {
+    let opens = integration.get("opens").and_then(Value::as_object)?;
+    let opens_kind = opens.get("kind").and_then(Value::as_str)?.to_owned();
+    if opens_kind != "app.panel" {
+        return None;
+    }
+    let opens_id = opens.get("id").and_then(Value::as_str)?.to_owned();
+    if opens_id.is_empty() {
+        return None;
+    }
+    let opens_instance = match opens.get("instance").and_then(Value::as_str) {
+        None => default_rail_instance(),
+        Some("focus" | "new") => opens
+            .get("instance")
+            .and_then(Value::as_str)
+            .unwrap_or("focus")
+            .to_owned(),
+        Some(_) => return None,
+    };
+    Some(AppRailSectionContribution {
+        id: contribution_id(integration)?,
+        title: contribution_text(integration, "title")?,
+        icon: contribution_icon(integration).ok()?,
+        opens_kind,
+        opens_id,
+        opens_instance,
     })
 }
 

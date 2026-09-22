@@ -1,0 +1,13 @@
+{
+  "name": "vibex.browser",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "validate": "node ../../../packages/plugin-cli/dist/cli.js validate",
+    "test": "node ../../../packages/plugin-cli/dist/cli.js test"
+  },
+  "dependencies": {
+    "@vibex/plugin-sdk": "^1.0.0"
+  }
+}

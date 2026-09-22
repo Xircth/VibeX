@@ -22,7 +22,7 @@ vi.mock('@/components/panels/DockviewFileTreePanel', () => ({
 vi.mock('@/components/panels/DockviewPreviewPanel', () => ({
   default: () => null,
 }));
-vi.mock('@/components/panels/DockviewWebPreviewPanel', () => ({
+vi.mock('@/components/layout/panels/PluginDockviewPanel', () => ({
   default: () => null,
 }));
 vi.mock('@/components/panels/DockviewDiffsReviewPanel', () => ({
@@ -188,22 +188,25 @@ describe('WorkspaceDockviewTab', () => {
     );
   });
 
-  it('uses a browser fallback icon and reacts to favicon parameter updates', () => {
+  it('uses a plugin icon and reacts to favicon parameter updates', () => {
     const model = tabProps({
-      component: PANEL_IDS.WEB_PREVIEW,
-      params: { faviconUrl: null },
-      title: 'Web Preview',
+      component: 'plugin-panel',
+      params: { icon: 'globe', faviconUrl: null },
+      title: 'Browser',
     });
 
     render(<WorkspaceDockviewTab {...model.props} />);
 
     expect(screen.getByTestId('workspace-tab-icon')).toHaveAttribute(
       'data-tab-icon',
-      'browser'
+      'plugin'
     );
 
     act(() => {
-      model.updateParams({ faviconUrl: 'https://example.test/favicon.ico' });
+      model.updateParams({
+        icon: 'globe',
+        faviconUrl: 'https://example.test/favicon.ico',
+      });
     });
 
     expect(screen.getByTestId('workspace-tab-favicon')).toHaveAttribute(
@@ -215,7 +218,7 @@ describe('WorkspaceDockviewTab', () => {
 
     expect(screen.getByTestId('workspace-tab-icon')).toHaveAttribute(
       'data-tab-icon',
-      'browser'
+      'plugin'
     );
   });
 

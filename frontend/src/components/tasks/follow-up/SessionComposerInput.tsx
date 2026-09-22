@@ -545,6 +545,64 @@ function getStructuredHoverToken(
   return token?.kind === 'element' || token?.kind === 'quote' ? token : null;
 }
 
+function rectsOverlap(
+  left: number,
+  top: number,
+  width: number,
+  height: number,
+  rect: Pick<DOMRect, 'left' | 'top' | 'right' | 'bottom'>
+): boolean {
+  return (
+    left < rect.right &&
+    left + width > rect.left &&
+    top < rect.bottom &&
+    top + height > rect.top
+  );
+}
+
+/** Keep the card in the composer. Opening upward runs into the native page. */
+export function elementTooltipTop({
+  anchorTop,
+  anchorBottom,
+  height,
+  gap,
+  margin,
+  viewportHeight,
+  left,
+  width,
+  blocked,
+}: {
+  anchorTop: number;
+  anchorBottom: number;
+  height: number;
+  gap: number;
+  margin: number;
+  viewportHeight: number;
+  left: number;
+  width: number;
+  blocked: Array<Pick<DOMRect, 'left' | 'top' | 'right' | 'bottom'>>;
+}): number {
+  const above = anchorTop - height - gap;
+  const below = anchorBottom + gap;
+  const fits = (top: number) =>
+    top >= margin &&
+    top + height <= viewportHeight - margin &&
+    !blocked.some((rect) => rectsOverlap(left, top, width, height, rect));
+  if (fits(below)) return below;
+  if (fits(above)) return above;
+  return Math.min(below, Math.max(margin, viewportHeight - height - margin));
+}
+
+function nativeBrowserSurfaces(): DOMRect[] {
+  return Array.from(
+    document.querySelectorAll<HTMLElement>(
+      '[data-testid="host-browser-surface"]'
+    )
+  )
+    .map((element) => element.getBoundingClientRect())
+    .filter((rect) => rect.width > 2 && rect.height > 2);
+}
+
 function PreviewElementTokenTooltip({
   anchor,
   id,
@@ -585,14 +643,17 @@ function PreviewElementTokenTooltip({
         Math.max(margin, centeredLeft),
         Math.max(margin, viewportWidth - width - margin)
       );
-      const preferredTop = anchorRect.top - height - gap;
-      const top =
-        preferredTop >= margin
-          ? preferredTop
-          : Math.min(
-              anchorRect.bottom + gap,
-              Math.max(margin, viewportHeight - height - margin)
-            );
+      const top = elementTooltipTop({
+        anchorTop: anchorRect.top,
+        anchorBottom: anchorRect.bottom,
+        height,
+        gap,
+        margin,
+        viewportHeight,
+        left,
+        width,
+        blocked: nativeBrowserSurfaces(),
+      });
 
       setPosition({ left, top, visibility: 'visible' });
     };
@@ -614,7 +675,7 @@ function PreviewElementTokenTooltip({
       ref={tooltipRef}
       id={id}
       role="tooltip"
-      className="pointer-events-none fixed z-50 w-[min(22rem,calc(100vw-1rem))] rounded-lg bg-[var(--surface-glass-solid)] p-3 text-xs text-foreground shadow-[var(--shadow-card)] ring-1 ring-[var(--border-strong)]"
+      className="pointer-events-none fixed z-[2147483646] w-[min(22rem,calc(100vw-1rem))] rounded-lg bg-transparent p-3 text-xs text-foreground shadow-none"
       style={position}
     >
       <div className="flex min-w-0 items-center gap-2">
@@ -755,7 +816,9 @@ function decorateStructuredTokenElement(
   token: SessionComposerStructuredToken
 ) {
   element.dataset.tokenKind = token.kind;
-  if (token.title) {
+  if (token.kind === 'element') {
+    element.removeAttribute('title');
+  } else if (token.title) {
     element.title = token.title;
   } else {
     element.removeAttribute('title');
@@ -1046,6 +1109,20 @@ export function SessionComposerInput({
       );
     }
   }, [agentMentions.candidates, agentMentions.capability, value]);
+
+  useEffect(() => {
+    const anchor = activeHoverToken?.anchor;
+    if (!anchor) return undefined;
+    if (!anchor.isConnected) {
+      setActiveHoverToken(null);
+      return undefined;
+    }
+    const observer = new MutationObserver(() => {
+      if (!anchor.isConnected) setActiveHoverToken(null);
+    });
+    observer.observe(document.body, { childList: true, subtree: true });
+    return () => observer.disconnect();
+  }, [activeHoverToken]);
 
   useEffect(() => {
     const anchor = activeHoverToken?.anchor;

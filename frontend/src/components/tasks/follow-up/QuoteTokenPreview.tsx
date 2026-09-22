@@ -77,7 +77,7 @@ export function QuoteTokenPreview({
       ref={tooltipRef}
       id={id}
       role="tooltip"
-      className="quote-token-preview fixed z-50 w-[min(22rem,calc(100vw-1rem))] max-h-48 overflow-y-auto overscroll-contain rounded-lg p-3 text-xs leading-5 text-foreground"
+      className="quote-token-preview fixed z-[2147483646] w-[min(22rem,calc(100vw-1rem))] max-h-48 overflow-y-auto overscroll-contain rounded-lg p-3 text-xs leading-5 text-foreground"
       style={position}
       onPointerEnter={onPointerEnter}
       onPointerLeave={onPointerLeave}

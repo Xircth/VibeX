@@ -175,6 +175,11 @@ pub const HOST_EVENT_CHANNELS: &[HostEventChannel] = &[
         required_scope: "plugin.read",
     },
     HostEventChannel {
+        prefix: "plugin-conversation-draft-insert",
+        durability: EventDurability::BestEffort,
+        required_scope: "conversation.read",
+    },
+    HostEventChannel {
         prefix: "provider-bind-confirm",
         durability: EventDurability::BestEffort,
         required_scope: "plugin.write",

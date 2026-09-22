@@ -19,7 +19,6 @@ import { useLogStream } from '@/hooks/useLogStream';
 import { useAgentCommandOutputStore } from '@/stores/useAgentCommandOutputStore';
 import { useUserSystem } from '@/components/ConfigProvider';
 import { usePanelActionsContext } from '@/contexts/PanelActionsContext';
-import { PANEL_IDS } from '@/stores/useLayoutStore';
 import { backendCall } from '@/lib/backendTransport';
 import { desktopShellCall } from '@/lib/desktopShell';
 import {
@@ -56,7 +55,7 @@ function DockviewTerminalPanel(props: IDockviewPanelProps) {
     workspaceId?: string;
   }>();
   const { config, environment } = useUserSystem();
-  const { openOrFocusPanel } = usePanelActionsContext();
+  const { openWebPreview } = usePanelActionsContext();
   const workspaceId =
     getTerminalWorkspaceKey(activeWorktreeId ?? routeWorkspaceId ?? null) ||
     undefined;
@@ -105,9 +104,9 @@ function DockviewTerminalPanel(props: IDockviewPanelProps) {
     (url: string) => {
       const normalizedUrl = detectDevserverUrl(url)?.url ?? url;
       setOverrideUrl(normalizedUrl);
-      openOrFocusPanel(PANEL_IDS.WEB_PREVIEW, 'Web Preview');
+      openWebPreview(normalizedUrl);
     },
-    [openOrFocusPanel, setOverrideUrl]
+    [openWebPreview, setOverrideUrl]
   );
 
   const [selectedShell, setSelectedShell] =

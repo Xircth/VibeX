@@ -52,7 +52,13 @@ function renderForm(
 ) {
   const transport: BackendTransport = {
     environment: 'desktop',
-    call: vi.fn(),
+    call: vi.fn(async (_command, args) => ({
+      ...detail,
+      config:
+        args && typeof args === 'object' && 'config' in args
+          ? (args as { config: Record<string, unknown> }).config
+          : detail.config,
+    })),
     capabilities: vi.fn().mockResolvedValue({
       server_version: 'desktop',
       protocol_version: '1.0',
@@ -119,6 +125,65 @@ describe('PluginConfigForm', () => {
     expect(
       screen.getByRole('switch', { name: '文献检索与信息获取' })
     ).toHaveAttribute('data-state', 'unchecked');
+  });
+
+  it('saves a boolean change immediately without a save bar', async () => {
+    const user = userEvent.setup();
+    const onSaved = vi.fn();
+    const transport: BackendTransport = {
+      environment: 'desktop',
+      call: vi.fn().mockResolvedValue({
+        summary: 'Office',
+        readme: '# Office',
+        contents: [],
+        config: { preview: true },
+        configSchema: {
+          type: 'object',
+          properties: {
+            preview: { type: 'boolean', title: 'Document preview' },
+          },
+        },
+      }),
+      capabilities: vi.fn().mockResolvedValue({
+        server_version: 'desktop',
+        protocol_version: '1.0',
+        minimum_client_version: '0.1.0',
+        capabilities: ['plugin.read', 'plugin.write'],
+      }),
+    };
+    render(
+      <BackendTransportProvider transport={transport}>
+        <PluginConfigForm
+          pluginId="vibex.office"
+          detail={{
+            summary: 'Office',
+            readme: '# Office',
+            contents: [],
+            config: { preview: false },
+            configSchema: {
+              type: 'object',
+              properties: {
+                preview: { type: 'boolean', title: 'Document preview' },
+              },
+            },
+          }}
+          onSaved={onSaved}
+        />
+      </BackendTransportProvider>
+    );
+
+    await user.click(screen.getByRole('switch', { name: 'Document preview' }));
+
+    await waitFor(() => {
+      expect(transport.call).toHaveBeenCalledWith('plugin_save_config', {
+        pluginId: 'vibex.office',
+        config: { preview: true },
+      });
+    });
+    expect(
+      screen.queryByRole('button', { name: /save|保存/i })
+    ).not.toBeInTheDocument();
+    expect(onSaved).toHaveBeenCalled();
   });
 
   it('does not ask when toggling a boolean that is not a skill pack', async () => {

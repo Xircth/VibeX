@@ -7,6 +7,7 @@ export const PLUGIN_DEVELOPMENT_DOCS_URL =
   'https://vibex.xforver.xin/docs/developers';
 
 export const OFFICIAL_PLUGIN_I18N_KEY = {
+  'vibex.browser': 'browser',
   'vibex.office': 'office',
   'vibex.workflow-creator': 'workflowCreator',
   'vibex.session-enhance': 'sessionEnhance',

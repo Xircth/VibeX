@@ -22,21 +22,25 @@ use db::models::{
     workspace_repo::{CreateWorkspaceRepo, WorkspaceRepo},
 };
 use plugins::{
-    PluginConversationCancelInput, PluginConversationCreate, PluginConversationEnqueue,
-    PluginConversationError, PluginConversationErrorCode, PluginConversationEventPage,
-    PluginConversationHost, PluginConversationInputReceipt, PluginConversationPermission,
-    PluginConversationQuestion, PluginConversationSteer, PluginConversationSummary,
-    PluginConversationTurn, PluginConversationView,
+    PluginConversationCancelInput, PluginConversationCreate, PluginConversationDraftInsert,
+    PluginConversationDraftReceipt, PluginConversationEnqueue, PluginConversationError,
+    PluginConversationErrorCode, PluginConversationEventPage, PluginConversationHost,
+    PluginConversationInputReceipt, PluginConversationPermission, PluginConversationQuestion,
+    PluginConversationSteer, PluginConversationSummary, PluginConversationTurn,
+    PluginConversationView,
 };
 use remote_protocol::ErrorCode;
 use serde_json::json;
 use sqlx::SqlitePool;
 use uuid::Uuid;
 
+use crate::host::events::HostEventBus;
+
 pub struct HostPluginConversationHost {
     pool: SqlitePool,
     scratch_root: PathBuf,
     core: OnceLock<Arc<ApplicationCore<SqliteConversationRepository>>>,
+    events: Option<Arc<HostEventBus>>,
 }
 
 impl HostPluginConversationHost {
@@ -45,7 +49,13 @@ impl HostPluginConversationHost {
             pool,
             scratch_root,
             core: OnceLock::new(),
+            events: None,
         }
+    }
+
+    pub fn with_events(mut self, events: Arc<HostEventBus>) -> Self {
+        self.events = Some(events);
+        self
     }
 
     pub fn attach_core(&self, core: Arc<ApplicationCore<SqliteConversationRepository>>) {
@@ -625,6 +635,40 @@ impl PluginConversationHost for HostPluginConversationHost {
             ));
         }
         self.bind(plugin_id, conversation_id).await
+    }
+
+    async fn insert_draft(
+        &self,
+        plugin_id: &str,
+        request: PluginConversationDraftInsert,
+    ) -> Result<PluginConversationDraftReceipt, PluginConversationError> {
+        let conversation_id = match request
+            .conversation_id
+            .as_deref()
+            .map(str::trim)
+            .filter(|id| !id.is_empty())
+        {
+            Some(id) => {
+                let uuid = parse_uuid(id, "conversationId")?;
+                self.require_bound(plugin_id, uuid).await?;
+                Some(id.to_owned())
+            }
+            None => None,
+        };
+        if let Some(events) = &self.events {
+            events.emit(
+                "plugin-conversation-draft-insert",
+                json!({
+                    "pluginId": plugin_id,
+                    "conversationId": conversation_id,
+                    "token": request.token,
+                }),
+            );
+        }
+        Ok(PluginConversationDraftReceipt {
+            conversation_id,
+            inserted: true,
+        })
     }
 }
 

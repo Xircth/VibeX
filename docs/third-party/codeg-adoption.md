@@ -1,5 +1,20 @@
 # Codeg Adoption
 
+## Built-in browser (v0.31.0)
+
+- Repository: https://github.com/xintaofei/codeg
+- Pinned commit: `aace536fe9e38575a8973ed83435199ecc2700c6` (tag v0.31.0)
+- License: Apache License 2.0
+- Upstream files adapted into `crates/browser-host`:
+  - `src-tauri/src/browser/policy.rs`
+  - `src-tauri/src/browser/eval.rs`
+  - `src-tauri/src/browser/confirm.rs`
+  - `src/browser-injected/eval-render.js`
+  - `src/browser-injected/picker.js`
+  - `src-tauri/src/browser/js/agent.bundle.js`
+- VibeX targets: `crates/browser-host`, official plugin `assets/plugins/browser` (`vibex.browser`), Host chrome `frontend/src/features/host-browser/HostBrowserPanel.tsx`.
+- Paths and env renamed (`VIBEX_POLICY_FILE`, `vibex` data dirs). Grant, eval consent, and scheme allow-lists keep Codeg semantics.
+
 ## Source
 
 - Project: Codeg

@@ -10,8 +10,7 @@ fi
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 workspace="$(cd "$script_dir/.." && pwd)"
 executable_dir="$(cd "$(dirname "$executable")" && pwd)"
-cef_runtime="$workspace/target/cef-runtime/linux"
-export LD_LIBRARY_PATH="${cef_runtime}:${executable_dir}:${workspace}/target/release${LD_LIBRARY_PATH:+:${LD_LIBRARY_PATH}}"
+export LD_LIBRARY_PATH="${executable_dir}:${workspace}/target/release${LD_LIBRARY_PATH:+:${LD_LIBRARY_PATH}}"
 
 log_file="${RUNNER_TEMP:-/tmp}/vibex-linux-startup.log"
 set +e
@@ -21,7 +20,7 @@ set -e
 
 if [[ "$exit_code" -ne 124 && "$exit_code" -ne 143 ]]; then
   cat "$log_file"
-  echo "VibeX exited during the Linux XWayland startup smoke test (code $exit_code)." >&2
+  echo "VibeX exited during the Linux desktop startup smoke test (code $exit_code)." >&2
   exit 1
 fi
 

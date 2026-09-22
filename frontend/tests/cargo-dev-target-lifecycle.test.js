@@ -74,7 +74,7 @@ require('node:fs').writeFileSync(
   }
 });
 
-test('显式重置 Cargo debug 产物时保留 CEF runtime', () => {
+test('显式重置 Cargo debug 产物时保留 target 下的兄弟目录', () => {
   const { resetCargoDebugTarget } = require(
     path.join(repoRoot, 'scripts', 'cargo-dev-target.js')
   );
@@ -88,24 +88,22 @@ test('显式重置 Cargo debug 产物时保留 CEF runtime', () => {
     'deps',
     'old-artifact'
   );
-  const liveCefRuntime = path.join(
+  const liveSibling = path.join(
     workspaceRoot,
     'target',
-    'cef-runtime',
-    'macos',
-    'app',
+    'release',
     'vibex'
   );
 
   try {
     fs.mkdirSync(path.dirname(oldDebugArtifact), { recursive: true });
-    fs.mkdirSync(path.dirname(liveCefRuntime), { recursive: true });
+    fs.mkdirSync(path.dirname(liveSibling), { recursive: true });
     fs.writeFileSync(oldDebugArtifact, 'old build');
-    fs.writeFileSync(liveCefRuntime, 'live runtime');
+    fs.writeFileSync(liveSibling, 'live binary');
 
     assert.equal(resetCargoDebugTarget(workspaceRoot), true);
     assert.equal(fs.existsSync(oldDebugArtifact), false);
-    assert.equal(fs.existsSync(liveCefRuntime), true);
+    assert.equal(fs.existsSync(liveSibling), true);
     assert.equal(resetCargoDebugTarget(workspaceRoot), false);
   } finally {
     fs.rmSync(workspaceRoot, { force: true, recursive: true });

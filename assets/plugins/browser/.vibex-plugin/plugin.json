@@ -1,0 +1,89 @@
+{
+  "$schema": "https://schemas.vibex.dev/plugin/v4/plugin.schema.json",
+  "manifestVersion": 4,
+  "apiVersion": "1.0",
+  "id": "vibex.browser",
+  "publisher": "vibex",
+  "version": "1.0.0",
+  "name": "Browser",
+  "readme": "README.md",
+  "engines": {
+    "vibex": ">=0.1.3 <1.0.0",
+    "pluginSdk": "^1.0.0"
+  },
+  "content": {
+    "root": "contents",
+    "index": ".vibex-plugin/content.index.json"
+  },
+  "config": {
+    "schema": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "toolsEnabled": {
+          "type": "boolean",
+          "title": "Agent tools",
+          "description": "Let agents list, read, and act on shared tabs."
+        },
+        "evalEnabled": {
+          "type": "boolean",
+          "title": "Run page JavaScript",
+          "description": "Allow agents to run JavaScript after you confirm each snippet."
+        },
+        "defaultGrant": {
+          "type": "string",
+          "title": "Default share level",
+          "description": "Applied when a new tab is opened.",
+          "enum": ["none", "read", "control"]
+        }
+      }
+    }
+  },
+  "entrypoints": {
+    "worker": {
+      "path": "dist/worker.mjs",
+      "runtime": "node",
+      "protocol": "1.1"
+    },
+    "app": {
+      "root": "dist/app",
+      "document": "index.html",
+      "protocol": "1.0"
+    }
+  },
+  "integrations": [
+    {
+      "id": "browser",
+      "kind": "app.panel",
+      "title": "Browser",
+      "icon": "globe",
+      "handler": "surface.createSession",
+      "defaultPosition": "center",
+      "multiInstance": true,
+      "engine": "host-browser",
+      "allowedMethods": ["browser.dispatch"]
+    },
+    {
+      "id": "open",
+      "kind": "app.rail.section",
+      "title": "Browser",
+      "icon": "globe",
+      "opens": { "kind": "app.panel", "id": "browser", "instance": "focus" }
+    },
+    {
+      "id": "settings",
+      "kind": "app.settings.page",
+      "title": "Browser",
+      "icon": "globe",
+      "handler": "surface.createSession"
+    },
+    {
+      "id": "browser-tools",
+      "kind": "content.mcp",
+      "resource": "contents/mcps/browser.json"
+    }
+  ],
+  "interface": {
+    "icon": "assets/icon.svg"
+  }
+}

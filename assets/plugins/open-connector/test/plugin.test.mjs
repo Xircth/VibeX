@@ -3,7 +3,12 @@ import test from 'node:test';
 
 import { createWorkerHarness } from '@vibex/plugin-sdk/testing';
 
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import os from 'node:os';
+import path from 'node:path';
+
 import worker from '../runtime/worker.mjs';
+import { readSecret, writeSecret } from '../runtime/sidecar.mjs';
 
 test('registers sidecar handlers and returns without waiting on health', async () => {
   const harness = await createWorkerHarness(worker, {
@@ -37,4 +42,19 @@ test('registers sidecar handlers and returns without waiting on health', async (
   const text = await harness.invoke('runtime.statusText');
   assert.equal(typeof text.text, 'string');
   await harness.dispose();
+});
+
+test('persists bootstrap runtime token as the env value, not a file path', async () => {
+  const dir = await mkdtemp(path.join(os.tmpdir(), 'oc-secrets-'));
+  try {
+    const file = path.join(dir, 'runtime.token');
+    const token = 'a'.repeat(64);
+    await writeSecret(file, token);
+    assert.equal(await readSecret(file), token);
+    assert.equal((await readFile(file, 'utf8')).trim(), token);
+    await writeFile(file, `"${token}"`, 'utf8');
+    assert.equal(await readSecret(file), token);
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
 });

@@ -47,6 +47,30 @@ async function readJson(file, fallback) {
   }
 }
 
+async function readSecret(file) {
+  try {
+    const raw = (await readFile(file, 'utf8')).trim();
+    if (!raw) return '';
+    if (raw.startsWith('"') || raw.startsWith('{')) {
+      try {
+        const parsed = JSON.parse(raw);
+        return typeof parsed === 'string' ? parsed : raw;
+      } catch {
+        return raw;
+      }
+    }
+    return raw;
+  } catch {
+    return '';
+  }
+}
+
+async function writeSecret(file, value) {
+  await writeFile(file, value, { encoding: 'utf8', mode: 0o600 });
+}
+
+export { readSecret, writeSecret };
+
 async function reservePort(preferred) {
   const tryPort = (port) =>
     new Promise((resolve, reject) => {
@@ -112,19 +136,17 @@ export function createSidecar(environment) {
 
   async function ensureSecrets() {
     await mkdir(secretsDir, { recursive: true });
-    token = String((await readJson(tokenFile, null)) || '');
+    token = await readSecret(tokenFile);
     if (!token) {
       token = randomBytes(32).toString('hex');
-      await writeFile(tokenFile, token, { encoding: 'utf8', mode: 0o600 });
+      await writeSecret(tokenFile, token);
     }
-    try {
-      await readFile(keyFile);
-    } catch {
-      await writeFile(keyFile, randomBytes(32).toString('hex'), {
-        encoding: 'utf8',
-        mode: 0o600,
-      });
+    let encryptionKey = await readSecret(keyFile);
+    if (!encryptionKey) {
+      encryptionKey = randomBytes(32).toString('hex');
+      await writeSecret(keyFile, encryptionKey);
     }
+    return { token, encryptionKey };
   }
 
   async function settings() {
@@ -146,7 +168,7 @@ export function createSidecar(environment) {
       runtimeId: RUNTIME_ID,
     });
     await mkdir(dir, { recursive: true });
-    await ensureSecrets();
+    const secrets = await ensureSecrets();
     const executablePath = lock?.executablePath;
     if (typeof executablePath !== 'string' || !executablePath) {
       throw new Error('runtime.lock did not return executablePath');
@@ -163,8 +185,8 @@ export function createSidecar(environment) {
     env.PORT = String(port);
     env.OOMOL_CONNECT_ORIGIN = origin;
     env.OOMOL_CONNECT_DATA_DIR = dir;
-    env.OOMOL_CONNECT_ENCRYPTION_KEY = keyFile;
-    env.OOMOL_CONNECT_RUNTIME_TOKEN = tokenFile;
+    env.OOMOL_CONNECT_ENCRYPTION_KEY = secrets.encryptionKey;
+    env.OOMOL_CONNECT_RUNTIME_TOKEN = secrets.token;
     env.OOMOL_CONNECT_CATALOG_LAZY_SCHEMAS = cfg.catalogLazySchemas ? 'true' : 'false';
     env.OOMOL_CONNECT_ALLOW_PRIVATE_NETWORK = cfg.allowPrivateNetwork ? 'true' : 'false';
     if (cfg.trustedHosts.trim()) {
@@ -244,7 +266,9 @@ export function createSidecar(environment) {
     },
     async health() {
       const before = origin;
-      if (state === 'stopped') return { ok: false, originChanged: false };
+      if (state === 'stopped' || !origin) {
+        return { ok: false, originChanged: false };
+      }
       try {
         await waitForHealth(origin, 2000, controller.signal);
         state = 'running';

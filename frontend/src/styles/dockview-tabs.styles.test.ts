@@ -25,6 +25,36 @@ function declarationsFor(
 }
 
 describe('workspace tab strip chrome', () => {
+  it('joins the selected tab to the panel body with side curves', () => {
+    const strip = declarationsFor(
+      "[class*='dockview-theme-ayu'] .dv-groupview > .dv-tabs-and-actions-container"
+    );
+    const tabs = declarationsFor(
+      "[class*='dockview-theme-ayu'] .dv-tabs-container:not(.dv-vertical)"
+    );
+    const active = declarationsFor(
+      "[class*='dockview-theme-ayu'] .dv-tabs-container:not(.dv-vertical) > .dv-tab.dv-active-tab .workspace-tab-surface"
+    );
+    const leftEar = declarationsFor(
+      "[class*='dockview-theme-ayu'] .dv-tabs-container:not(.dv-vertical) > .dv-tab.dv-active-tab .workspace-tab-surface::before"
+    );
+    const rightEar = declarationsFor(
+      "[class*='dockview-theme-ayu'] .dv-tabs-container:not(.dv-vertical) > .dv-tab.dv-active-tab .workspace-tab-surface::after"
+    );
+
+    expect(strip['border-bottom']?.value).toBe('0');
+    expect(tabs.padding?.value).toBe('4px 10px 0');
+    expect(active['border-radius']?.value).toBe(
+      'var(--radius) var(--radius) 0 0'
+    );
+    expect(active['background-color']?.value).toBe(
+      'var(--dv-connected-chrome)'
+    );
+    expect(leftEar.background?.value).toContain('radial-gradient');
+    expect(leftEar.background?.value).toContain('circle at 0 0');
+    expect(rightEar.background?.value).toContain('circle at 100% 0');
+  });
+
   it('hides the native tab-strip scrollbar so overlay tracks cannot cover titles', () => {
     const rules = declarationsFor(
       "[class*='dockview-theme-ayu'] .dv-scrollable > .dv-tabs-container"

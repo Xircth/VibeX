@@ -6190,7 +6190,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn delegated_child_projects_the_task_as_a_user_turn() {
+    async fn delegated_child_identity_is_linked_before_the_first_turn() {
         let pool = setup_pool().await;
         let (parent_conversation_id, _) = seed_turn(&pool).await;
         let child_conversation_id = Uuid::new_v4();
@@ -6209,6 +6209,22 @@ mod tests {
         .await
         .expect("persist delegated child");
 
+        let child = Session::find_by_id(&pool, child_conversation_id)
+            .await
+            .expect("load child")
+            .expect("child row");
+        assert_eq!(child.parent_session_id, Some(parent_conversation_id));
+        assert_eq!(child.initial_prompt.as_deref(), Some("Review the diff"));
+        let active_turn_id: Option<Uuid> =
+            sqlx::query_scalar("SELECT active_turn_id FROM sessions WHERE id = ?")
+                .bind(child_conversation_id)
+                .fetch_one(&pool)
+                .await
+                .expect("load active turn");
+        assert!(
+            active_turn_id.is_none(),
+            "identity must not pre-commit an in-flight Turn"
+        );
         let timeline = ConversationProjector::project(&pool, child_conversation_id)
             .await
             .expect("project child");
@@ -6218,17 +6234,10 @@ mod tests {
             }
             _ => None,
         });
-        let user = user.expect("user task message");
+        let user = user.expect("initial prompt is visible before the first turn");
         assert!(user.blocks.iter().any(
             |block| matches!(block, ContentBlock::Text { text } if text == "Review the diff")
         ));
-        let active_turn_id: Option<Uuid> =
-            sqlx::query_scalar("SELECT active_turn_id FROM sessions WHERE id = ?")
-                .bind(child_conversation_id)
-                .fetch_one(&pool)
-                .await
-                .expect("load active turn");
-        assert!(active_turn_id.is_some());
     }
 
     #[tokio::test]

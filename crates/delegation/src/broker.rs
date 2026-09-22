@@ -657,6 +657,7 @@ impl DelegationBroker {
                 &req.parent_connection_id,
                 req.agent_type.clone(),
                 req.working_dir.clone(),
+                child_session_id,
             )
             .await
         {

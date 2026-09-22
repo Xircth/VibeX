@@ -725,9 +725,12 @@ pub async fn create_workflow_conversation(
     Ok(input.id)
 }
 
-/// Create the durable one-shot child Conversation before launching its first
-/// turn. The link is committed in the same insert as the child identity so
-/// projection rebuild and DB fallback never observe an unlinked child.
+/// Create the durable child Conversation identity and parent link before the
+/// conversation control plane binds ACP and starts the first turn.
+///
+/// Do not commit an in-flight Turn here. `ensure_session_controls` treats a
+/// pending Turn with no live process as dead, and Prompt must go through
+/// `start_turn` like every other write entry (ADR-0081).
 pub async fn create_delegated_conversation(
     pool: &SqlitePool,
     input: CreateDelegatedConversation,
@@ -755,17 +758,6 @@ pub async fn create_delegated_conversation(
     };
     let normalized_json = serde_json::to_string(&relation)?;
     let relation_key = format!("conversation-relation-delegation:{}", input.id);
-    let turn_id = Uuid::new_v4();
-    let conversation_blocks = vec![ConversationInputBlock::Text {
-        text: input.prompt.clone(),
-    }];
-    let conversation_blocks_json = serde_json::to_string(&conversation_blocks)?;
-    let created_event = ConversationEvent::UserTurnCreated {
-        blocks: conversation_blocks,
-        workflow_refs: Vec::new(),
-    };
-    let created_json = serde_json::to_string(&created_event)?;
-    let created_key = format!("turn:{turn_id}:created");
     let session = CreateSession {
         executor: None,
         agent_id: Some(input.agent_id),
@@ -788,36 +780,6 @@ pub async fn create_delegated_conversation(
         )
         .await
         .map_err(|error| ConversationServiceError::Internal(error.to_string()))?;
-        ConversationTurnRecord::create_pending_on_connection(
-            &mut conn,
-            turn_id,
-            CreateConversationTurn {
-                conversation_id: input.id,
-                prompt_id: None,
-                text_preview: Some(&input.prompt),
-                input_blocks_json: &conversation_blocks_json,
-            },
-        )
-        .await?;
-        ConversationRecord::update_active_turn_on_connection(&mut conn, input.id, Some(turn_id))
-            .await?;
-        ConversationEventAppender::append_and_apply(
-            &mut conn,
-            AppendConversationEvent {
-                id: Uuid::new_v4(),
-                conversation_id: input.id,
-                turn_id: Some(turn_id),
-                binding_id: None,
-                connection_id: None,
-                prompt_id: None,
-                source: "user",
-                event_kind: "user_turn_created",
-                normalized_json: &created_json,
-                raw_json: None,
-                idempotency_key: Some(&created_key),
-            },
-        )
-        .await?;
         ConversationEventAppender::append_and_apply(
             &mut conn,
             AppendConversationEvent {
@@ -1632,7 +1594,9 @@ impl ConversationSessionService {
             .agent_runtime
             .has_bound_acp_session(runtime_session_id)
             .await
-            && let Err(error) = self.ensure_session_controls_locked(conversation_id).await
+            && let Err(error) = self
+                .ensure_session_controls_locked(conversation_id, None)
+                .await
         {
             inputs
                 .release_claim(conversation_id, input_id, claim_token)
@@ -2339,7 +2303,64 @@ impl ConversationSessionService {
         if reload {
             self.drop_live_agent_connection(conversation_id).await;
         }
-        self.ensure_session_controls_locked(conversation_id).await
+        self.ensure_session_controls_locked(conversation_id, None)
+            .await
+    }
+
+    /// Bind ACP for an existing conversation, optionally using a subdirectory
+    /// already validated against the parent working root.
+    pub async fn ensure_session_controls_with_working_dir(
+        &self,
+        conversation_id: Uuid,
+        working_dir: Option<PathBuf>,
+    ) -> Result<AgentSessionControlsSnapshot, ConversationServiceError> {
+        let turn_lock = self.turn_lock(conversation_id).await;
+        let _turn_guard = turn_lock.lock().await;
+        self.ensure_session_controls_locked(conversation_id, working_dir)
+            .await
+    }
+
+    /// First prompt of a delegated child: same persist + bind + send path as a
+    /// user turn on that conversation.
+    pub async fn start_delegated_turn(
+        &self,
+        conversation_id: Uuid,
+        task: String,
+        mode_override: Option<String>,
+        config_overrides: Vec<AgentSessionConfigOverride>,
+    ) -> Result<(ConversationTurnSnapshot, AgentPromptSnapshot), ConversationServiceError> {
+        let pool = &self.ctx.deployment.db().pool;
+        let session = Session::find_by_id(pool, conversation_id)
+            .await?
+            .ok_or_else(|| {
+                ConversationServiceError::NotFound(format!(
+                    "Conversation session {conversation_id} was not found"
+                ))
+            })?;
+        let agent_id = session.agent_id.clone().ok_or_else(|| {
+            ConversationServiceError::BadRequest(format!(
+                "Conversation {conversation_id} has no supported coding agent"
+            ))
+        })?;
+        self.start_turn_under_lock(
+            ConversationStartTurnInput {
+                agent_id,
+                workspace_id: session.workspace_id,
+                conversation_id,
+                executor_profile_id: None,
+                text: task,
+                display_text: None,
+                images: Vec::new(),
+                mode_override,
+                config_overrides,
+                workflow_refs: Vec::new(),
+                file_refs: Vec::new(),
+                queued_input_claim: None,
+                operation_id: None,
+            },
+            crate::commit_reminder::USER_ORIGIN,
+        )
+        .await
     }
 
     pub async fn touch_session(
@@ -2356,6 +2377,7 @@ impl ConversationSessionService {
     async fn ensure_session_controls_locked(
         &self,
         conversation_id: Uuid,
+        working_dir_override: Option<PathBuf>,
     ) -> Result<AgentSessionControlsSnapshot, ConversationServiceError> {
         self.interrupt_orphaned_turn(conversation_id).await?;
         let runtime_session_id = AgentSessionId(conversation_id);
@@ -2416,10 +2438,13 @@ impl ConversationSessionService {
             .ensure_container_exists(&workspace)
             .await?;
         let repos = WorkspaceRepo::find_repos_for_workspace(pool, workspace.id).await?;
-        let working_dir = self
-            .ctx
-            .host
-            .resolve_working_dir(&workspace, &container_ref, &repos)
+        let working_dir = working_dir_override
+            .map(|path| path.to_string_lossy().into_owned())
+            .or_else(|| {
+                self.ctx
+                    .host
+                    .resolve_working_dir(&workspace, &container_ref, &repos)
+            })
             .unwrap_or_else(|| container_ref.clone());
         let additional_directories = self.ctx.host.resolve_additional_directories(
             &workspace,
@@ -2774,7 +2799,8 @@ impl ConversationSessionService {
             None,
         )
         .await?;
-        self.ensure_session_controls_locked(conversation_id).await
+        self.ensure_session_controls_locked(conversation_id, None)
+            .await
     }
 
     /// Drop the live Agent connection and point the binding at a fresh placeholder

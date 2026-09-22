@@ -40,14 +40,15 @@ impl SpawnerError {
 /// Spawns and drives child ACP sessions for a `delegate_to_agent` call.
 #[async_trait]
 pub trait ConnectionSpawner: Send + Sync {
-    /// Spawn a fresh child ACP connection of `agent_type` in `working_dir`,
-    /// inheriting the parent connection's workspace. Returns the child's VibeX
-    /// connection id (used later for cancel/disconnect) — NOT the ACP session id.
+    /// Bind the child conversation's ACP session (initialize + session/new).
+    /// Returns the child's VibeX connection id (used later for cancel/disconnect)
+    /// — NOT the ACP session id.
     async fn spawn(
         &self,
         parent_connection_id: &str,
         agent_type: AgentId,
         working_dir: Option<String>,
+        child_session_id: Uuid,
     ) -> Result<String, SpawnerError>;
 
     /// Persist the child conversation before the agent process is ready so the
@@ -59,9 +60,8 @@ pub trait ConnectionSpawner: Send + Sync {
         link: &DelegationLink,
     ) -> Result<Uuid, SpawnerError>;
 
-    /// Create the child `sessions` row (linked to its parent via `link`), send
-    /// the delegation `task` as its first prompt, and return the child
-    /// `sessions.id`.
+    /// Send the delegation `task` as the child's first conversation turn, and
+    /// return the child `sessions.id`.
     async fn send_prompt_linked(
         &self,
         child_connection_id: &str,
@@ -94,6 +94,7 @@ mod tests {
                 "parent-conn",
                 AgentId::parse("codex").unwrap(),
                 Some("/tmp".to_string()),
+                Uuid::from_u128(0xC417D),
             )
             .await
             .expect("spawn");
@@ -111,7 +112,12 @@ mod tests {
         let mut spawner = MockSpawner::new();
         spawner.spawn_error = Some("boom".to_string());
         let err = spawner
-            .spawn("parent-conn", AgentId::parse("claude_code").unwrap(), None)
+            .spawn(
+                "parent-conn",
+                AgentId::parse("claude_code").unwrap(),
+                None,
+                Uuid::from_u128(1),
+            )
             .await
             .expect_err("should fail");
         assert!(matches!(err, SpawnerError::Spawn(_)));

@@ -49,6 +49,7 @@ pub(crate) fn build_delegation(
     let spawner = Arc::new(RuntimeSpawner {
         runtime: runtime.clone(),
         pool: pool.clone(),
+        context: conversation_context.clone(),
         map: map.clone(),
     });
     let feature_pool = pool.clone();

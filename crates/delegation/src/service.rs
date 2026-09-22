@@ -10,8 +10,7 @@ use std::{
     time::Duration,
 };
 
-use tokio::sync::Mutex;
-use tokio::task::JoinHandle;
+use tokio::{sync::Mutex, task::JoinHandle};
 
 use crate::listener::DelegationListener;
 

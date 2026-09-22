@@ -81,6 +81,7 @@ impl ConnectionSpawner for MockSpawner {
         parent_connection_id: &str,
         agent_type: AgentId,
         working_dir: Option<String>,
+        _child_session_id: Uuid,
     ) -> Result<String, SpawnerError> {
         self.spawn_reached_gate.notify_one();
         if let Some(gate) = &self.spawn_release_gate {

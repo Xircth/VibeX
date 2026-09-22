@@ -17,9 +17,9 @@ pub mod depth;
 pub mod event_emitter;
 pub mod host_features;
 pub mod listener;
-pub mod service;
 pub mod lookups;
 pub mod meta_writer;
+pub mod service;
 pub mod spawner;
 pub mod steering;
 pub mod stop_reason;
@@ -34,9 +34,9 @@ pub use broker::{DelegationBroker, StatusWait};
 pub use event_emitter::{DelegationCompletedEvent, DelegationEventEmitter, DelegationStartedEvent};
 pub use host_features::HostCompanionFeatures;
 pub use listener::{DelegationListener, default_socket_path};
-pub use service::DelegationService;
 pub use lookups::{ChildStatusLookup, ChildStatusRecord, DepthLookup, ParentSessionLookup};
 pub use meta_writer::DelegationMetaWriter;
+pub use service::DelegationService;
 pub use spawner::{ConnectionSpawner, SpawnerError};
 pub use steering::{
     CompanionFeaturePort, FeedbackError, FeedbackNote, FeedbackStatus, InMemoryCompanionFeatures,

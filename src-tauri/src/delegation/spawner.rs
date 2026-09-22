@@ -1,21 +1,22 @@
-//! `ConnectionSpawner` over `AgentRuntime` + the `Session` model.
+//! `ConnectionSpawner` over the conversation control plane.
 //!
-//! `spawn` establishes a child agent connection (ACP initialize Ready only).
-//! `send_prompt_linked` binds `session/new` on that same connection, then sends
-//! the delegation task as the child's first prompt. The child's
-//! `external_session_id` is persisted later by the runtime's `SessionLinked`
-//! event.
+//! Child identity is persisted first. `spawn` then binds ACP through
+//! `ensure_session_controls`; `send_prompt_linked` starts the first turn
+//! through `start_turn`. Cancel uses the same `cancel_turn` path as a
+//! user-owned conversation.
 
 use std::{collections::HashMap, path::PathBuf, sync::Arc};
 
 use agents::{
-    AgentId, AgentSessionConfigOverride, SessionControlPreferences,
-    events::AgentContentBlock,
+    AgentId, AgentSessionConfigOverride,
     ids::{AgentConnectionId, AgentSessionId},
-    runtime::{AgentRuntime, CancelAgentPromptInput, ConnectAgentInput, SendAgentPromptInput},
+    runtime::AgentRuntime,
 };
 use async_trait::async_trait;
-use conversations::{CreateDelegatedConversation, create_delegated_conversation};
+use conversations::{
+    ConversationContext, ConversationSessionService, CreateDelegatedConversation,
+    create_delegated_conversation,
+};
 use delegation::{ConnectionSpawner, DelegationLink, SpawnerError};
 use sqlx::SqlitePool;
 use tokio::sync::Mutex;
@@ -28,6 +29,7 @@ pub(crate) type ResolverMap = Arc<Mutex<HashMap<Uuid, (String, AgentId)>>>;
 pub(crate) struct RuntimeSpawner {
     pub runtime: Arc<AgentRuntime>,
     pub pool: SqlitePool,
+    pub context: ConversationContext,
     pub map: ResolverMap,
 }
 
@@ -36,39 +38,33 @@ impl ConnectionSpawner for RuntimeSpawner {
     async fn spawn(
         &self,
         parent_connection_id: &str,
-        agent_type: AgentId,
+        _agent_type: AgentId,
         working_dir: Option<String>,
+        child_session_id: Uuid,
     ) -> Result<String, SpawnerError> {
         let parent = AgentConnectionId::from(
             Uuid::parse_str(parent_connection_id)
                 .map_err(|e| SpawnerError::Spawn(e.to_string()))?,
         );
         let snapshot = self.runtime.snapshot().await;
-        let parent_conn = snapshot
-            .connections
-            .iter()
-            .find(|conn| conn.id == parent)
-            .ok_or_else(|| SpawnerError::Spawn("parent connection not found".to_string()))?;
-        let working_dir = working_dir
-            .map(PathBuf::from)
-            .unwrap_or_else(|| PathBuf::from(&parent_conn.working_dir));
-        let launch = conversations::resolve_agent_runtime_launch_settings(&self.pool, &agent_type)
+        if !snapshot.connections.iter().any(|conn| conn.id == parent) {
+            return Err(SpawnerError::Spawn(
+                "parent connection not found".to_string(),
+            ));
+        }
+        let service = ConversationSessionService::new(self.context.clone());
+        service
+            .ensure_session_controls_with_working_dir(
+                child_session_id,
+                working_dir.map(PathBuf::from),
+            )
             .await
             .map_err(|e| SpawnerError::Spawn(e.to_string()))?;
-        let child = self
-            .runtime
-            .connect(ConnectAgentInput {
-                agent_id: agent_type,
-                launch_lock: launch.launch_lock,
-                workspace_id: parent_conn.workspace_id,
-                working_dir,
-                additional_directories: Vec::new(),
-                auto_approve_mode: launch.auto_approve_mode,
-                env: launch.env,
-            })
+        self.runtime
+            .live_connection_id(AgentSessionId::from(child_session_id))
             .await
-            .map_err(|e| SpawnerError::Spawn(e.to_string()))?;
-        Ok(child.id.0.to_string())
+            .map(|id| id.to_string())
+            .ok_or_else(|| SpawnerError::Spawn("child ACP session is not bound".to_string()))
     }
 
     async fn create_child_conversation(
@@ -98,52 +94,24 @@ impl ConnectionSpawner for RuntimeSpawner {
 
     async fn send_prompt_linked(
         &self,
-        child_connection_id: &str,
+        _child_connection_id: &str,
         child_session_id: Uuid,
         task: String,
         link: DelegationLink,
     ) -> Result<Uuid, SpawnerError> {
-        let conn = AgentConnectionId::from(
-            Uuid::parse_str(child_connection_id).map_err(|e| SpawnerError::Other(e.to_string()))?,
-        );
         let child_id = child_session_id;
-        let session_id = AgentSessionId::from(child_id);
-        let preferences = SessionControlPreferences {
-            mode: link.preferred_mode_id.clone(),
-            config: link
-                .preferred_config_values
-                .iter()
-                .map(|(key, value)| AgentSessionConfigOverride {
-                    key: key.clone(),
-                    value: value.clone(),
-                })
-                .collect(),
-        };
-        let prepared = self
-            .runtime
-            .prepare_session_on_connection(conn, session_id, preferences)
-            .await
-            .map_err(|error| SpawnerError::SendPromptAfterLink {
-                child_session_id: child_id,
-                message: error.to_string(),
-            })?;
-        self.map
-            .lock()
-            .await
-            .insert(child_id, (link.delegation_call_id.clone(), link.agent_type));
-        if let Err(error) = self
-            .runtime
-            .send_prompt(SendAgentPromptInput {
-                connection_id: prepared.session.connection_id,
-                session_id,
-                blocks: vec![AgentContentBlock::Text { text: task }],
-                mode_override: link.preferred_mode_id,
-                config_overrides: link
-                    .preferred_config_values
-                    .into_iter()
-                    .map(|(key, value)| AgentSessionConfigOverride { key, value })
-                    .collect(),
-            })
+        let config_overrides = link
+            .preferred_config_values
+            .into_iter()
+            .map(|(key, value)| AgentSessionConfigOverride { key, value })
+            .collect();
+        self.map.lock().await.insert(
+            child_id,
+            (link.delegation_call_id.clone(), link.agent_type.clone()),
+        );
+        let service = ConversationSessionService::new(self.context.clone());
+        if let Err(error) = service
+            .start_delegated_turn(child_id, task, link.preferred_mode_id, config_overrides)
             .await
         {
             self.map.lock().await.remove(&child_id);
@@ -160,16 +128,10 @@ impl ConnectionSpawner for RuntimeSpawner {
             Uuid::parse_str(child_connection_id).map_err(|e| SpawnerError::Other(e.to_string()))?,
         );
         let snapshot = self.runtime.snapshot().await;
-        if let Some(session) = snapshot.sessions.iter().find(|s| s.connection_id == conn)
-            && let Some(prompt_id) = session.active_prompt_id
-        {
-            let _ = self
-                .runtime
-                .cancel_prompt(CancelAgentPromptInput {
-                    connection_id: conn,
-                    session_id: session.id,
-                    prompt_id,
-                })
+        if let Some(session) = snapshot.sessions.iter().find(|s| s.connection_id == conn) {
+            let service = ConversationSessionService::new(self.context.clone());
+            let _ = service
+                .cancel_turn(session.id.0, Some("canceled by MCP client".to_string()))
                 .await;
         }
         Ok(())

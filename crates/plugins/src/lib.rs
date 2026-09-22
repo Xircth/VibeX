@@ -97,7 +97,7 @@ pub use official_mcp::{
     SESSION_FEAT_SESSIONS, SESSION_MCP_NAME, WORKFLOW_MCP_NAME, advertised_mcp_tools,
     binding_has_delegation_mcp, host_family_product, host_family_stdio_spec,
     official_product_mcp_name, plugin_mcp_status_report, projected_mcp_server_id,
-    session_feature_arg, session_features_from_config,
+    legacy_projected_mcp_server_id, session_feature_arg, session_features_from_config,
 };
 pub use package::{
     APP_PANEL_SLOT, APP_TAB_SLOT, AppCommandContribution, AppComposerActionContribution,

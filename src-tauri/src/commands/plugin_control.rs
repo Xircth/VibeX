@@ -3286,6 +3286,11 @@ async fn configure_plugin_mcp(
     let mut errors = Vec::new();
     for (server_id, spec) in servers {
         let projected_id = plugins::projected_mcp_server_id(plugin.id(), &server_id, &spec);
+        let legacy_id =
+            plugins::legacy_projected_mcp_server_id(plugin.id(), &server_id, &spec);
+        if legacy_id != projected_id {
+            let _ = services::services::mcp::uninstall_server(legacy_id).await;
+        }
         let materialized = match materialize_plugin_mcp_spec(state, plugin, &server_id, spec).await
         {
             Ok(spec) => spec,

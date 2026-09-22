@@ -256,10 +256,40 @@ pub fn official_product_mcp_name(spec: &Value) -> Option<&'static str> {
 
 /// Native-config identity written by the MCP manager. Official product MCPs keep
 /// their ADR names so Grok `server__tool` titles and uninstall match injection.
+///
+/// Grok session admission requires each MCP name segment to match
+/// `[A-Za-z_][A-Za-z0-9_-]*`. Plugin ids contain `.`, so dotted names such as
+/// `vibex.open-connector.mcp` handshake but then have every tool skipped.
 pub fn projected_mcp_server_id(plugin_id: &str, server_id: &str, spec: &Value) -> String {
+    sanitize_mcp_server_id(&raw_projected_mcp_server_id(plugin_id, server_id, spec))
+}
+
+/// Pre-sanitize identity previously written into Agent native files.
+pub fn legacy_projected_mcp_server_id(plugin_id: &str, server_id: &str, spec: &Value) -> String {
+    raw_projected_mcp_server_id(plugin_id, server_id, spec)
+}
+
+fn raw_projected_mcp_server_id(plugin_id: &str, server_id: &str, spec: &Value) -> String {
     official_product_mcp_name(spec)
         .map(str::to_string)
         .unwrap_or_else(|| format!("{plugin_id}.{server_id}"))
+}
+
+fn sanitize_mcp_server_id(id: &str) -> String {
+    let mut out = String::with_capacity(id.len());
+    for (index, character) in id.chars().enumerate() {
+        let allowed = character.is_ascii_alphanumeric() || character == '_' || character == '-';
+        let mapped = if allowed { character } else { '-' };
+        if index == 0 && !mapped.is_ascii_alphabetic() && mapped != '_' {
+            out.push('_');
+            if mapped != '-' {
+                out.push(mapped);
+            }
+        } else {
+            out.push(mapped);
+        }
+    }
+    out
 }
 
 /// `--features` value consumed by `vibex-mcp`.
@@ -671,7 +701,21 @@ mod tests {
                 "search",
                 &json!({ "command": "npx", "args": ["demo-mcp"] })
             ),
-            "acme.tools.search"
+            "acme-tools-search"
+        );
+        assert_eq!(
+            projected_mcp_server_id(
+                "vibex.open-connector",
+                "mcp",
+                &json!({
+                    "managedRuntime": { "kind": "workerHttp", "handler": "mcp.endpoint" }
+                })
+            ),
+            "vibex-open-connector-mcp"
+        );
+        assert_eq!(
+            legacy_projected_mcp_server_id("vibex.open-connector", "mcp", &json!({})),
+            "vibex.open-connector.mcp"
         );
     }
 
@@ -692,7 +736,10 @@ mod tests {
             .iter()
             .filter_map(Value::as_str)
             .collect::<Vec<_>>();
-        assert_eq!(args[0..4], ["--features", "delegation", "--product", "delegation"]);
+        assert_eq!(
+            args[0..4],
+            ["--features", "delegation", "--product", "delegation"]
+        );
         assert!(args.contains(&"--parent-pid"));
         assert!(args.contains(&"--server-url"));
         assert!(args.contains(&"--server-token"));

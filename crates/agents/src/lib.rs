@@ -32,6 +32,7 @@ mod grok_plan;
 mod grok_subagent;
 mod grok_usage;
 pub mod history;
+pub mod idle_sweep;
 pub mod ids;
 pub mod install_planner;
 pub mod launch_gate;
@@ -54,6 +55,7 @@ pub mod profiles;
 pub mod registry_client;
 pub mod runtime;
 pub mod session;
+mod session_bind_metrics;
 mod session_notice;
 pub use session_notice::{
     AGENT_SESSION_NOTICE_KIND, SESSION_CONNECT_ERROR_KIND, SESSION_RECONNECT_PROGRESS_KIND,
@@ -136,7 +138,7 @@ pub use distribution::current_platform;
 pub use elicitation::{AgentElicitationRequest, AgentElicitationResponse};
 pub use end_turn_usage::{
     model_id_from_config_options, model_id_from_meta, prompt_usage_from_value,
-    usage_from_session_notification_params, usage_from_session_update,
+    usage_from_error_data, usage_from_session_notification_params, usage_from_session_update,
 };
 pub use error::{AgentError, AgentResult};
 pub use events::{
@@ -167,6 +169,9 @@ pub use history::{
     import_history_source, load_configured_history_session, match_history_destination,
     merge_history_sources, normalize_history_path, scan_configured_history,
     scan_configured_history_with_progress,
+};
+pub use idle_sweep::{
+    DEFAULT_IDLE_TIMEOUT_SECS, idle_timeout_from_env, touch_interval_from_idle_timeout,
 };
 pub use ids::{
     AgentConnectionId, AgentElicitationId, AgentPermissionId, AgentPromptId, AgentSessionId,
@@ -245,8 +250,8 @@ pub use profiles::{
     NativeConfigFormat, NativeConfigSurface, ProfileBinaryArtifact, ProfileBinaryEntry,
     ProfileComponent, ProfileDependency, ProfileExternalCandidate, ProfileIcon,
     ProfileInstallSource, ProfileManagementAction, ProfileManagementActionKind,
-    ProfileRegistryBinding, ProfileTopology, RegistryEntryIdentity, acp_launch_args,
-    adapter_bundles_runtime, bundled_adapter_runtime_env_keys,
+    ProfileManagementProgram, ProfileRegistryBinding, ProfileTopology, RegistryEntryIdentity,
+    acp_launch_args, adapter_bundles_runtime, bundled_adapter_runtime_env_keys,
 };
 pub use registry_client::{
     OfficialRegistryHttpFetcher, REGISTRY_CONNECT_TIMEOUT, REGISTRY_ICON_FETCH_BUDGET,
@@ -259,7 +264,8 @@ pub use runtime::{
     AgentRuntime, CancelAgentPromptInput, ConnectAgentInput, EnsureAgentSessionInput,
     NoopEventSink, RespondAgentElicitationInput, RespondAgentPermissionInput,
     ResumeAgentSessionInput, RuntimeEventSink, RuntimeSnapshot, SendAgentPromptInput,
-    SteerAgentPromptInput, runtime_event_channel,
+    SteerAgentPromptInput, is_placeholder_acp_session_id, is_restorable_acp_session_id,
+    runtime_event_channel,
 };
 pub use session::{AgentPromptQueue, QueueTransition};
 pub use session_gate::{

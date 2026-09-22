@@ -133,20 +133,14 @@ function terminateStaleDesktopProcess() {
     'vibex.exe'
   );
 
-  const powershellScript = `
-$target = [System.IO.Path]::GetFullPath($env:VIBEX_STALE_EXE_PATH)
-$processes = Get-Process -Name 'vibex' -ErrorAction SilentlyContinue | Where-Object {
-  try {
-    $_.Path -and ([System.IO.Path]::GetFullPath($_.Path) -ieq $target)
-  } catch {
-    $false
-  }
-}
-foreach ($process in $processes) {
-  Stop-Process -Id $process.Id -Force -ErrorAction SilentlyContinue
-}
-exit 0
-`;
+  // One line: multiline -Command scripts are truncated or ignored by
+  // CreateProcess, which left a running debug exe locking vibex.exe.
+  const powershellScript =
+    "$target = [System.IO.Path]::GetFullPath($env:VIBEX_STALE_EXE_PATH); " +
+    "Get-CimInstance Win32_Process -Filter \"Name = 'vibex.exe'\" | " +
+    'Where-Object { $_.ExecutablePath -and ([System.IO.Path]::GetFullPath($_.ExecutablePath) -ieq $target) } | ' +
+    'ForEach-Object { taskkill.exe /F /PID $_.ProcessId /T | Out-Null; ' +
+    'Wait-Process -Id $_.ProcessId -Timeout 8 -ErrorAction SilentlyContinue }';
 
   const result = spawnSync(
     'powershell.exe',
@@ -157,7 +151,7 @@ exit 0
         VIBEX_STALE_EXE_PATH: executablePath,
       },
       stdio: 'inherit',
-      timeout: 10000,
+      timeout: 15000,
       windowsHide: true,
     }
   );
@@ -173,6 +167,39 @@ exit 0
   if (result.status !== 0) {
     process.exit(result.status ?? 1);
   }
+
+  waitUntilDebugExeWritable(executablePath);
+}
+
+function waitUntilDebugExeWritable(executablePath) {
+  const deadline = Date.now() + 8000;
+  while (Date.now() <= deadline) {
+    try {
+      fs.closeSync(fs.openSync(executablePath, 'r+'));
+      return;
+    } catch (error) {
+      if (error && error.code === 'ENOENT') {
+        return;
+      }
+      if (
+        !error ||
+        (error.code !== 'EBUSY' &&
+          error.code !== 'EPERM' &&
+          error.code !== 'EACCES')
+      ) {
+        return;
+      }
+      spawnSync(process.env.ComSpec || 'cmd.exe', ['/d', '/s', '/c', 'ping 127.0.0.1 -n 2 >nul'], {
+        windowsHide: true,
+        timeout: 3000,
+      });
+    }
+  }
+
+  console.error(
+    `Debug executable is still locked: ${executablePath}. Close the running VibeX Dev window and retry.`
+  );
+  process.exit(1);
 }
 
 function writeGeneratedTauriDevConfig(ports) {

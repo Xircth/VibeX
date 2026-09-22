@@ -125,6 +125,7 @@
   },
   "turnErrorCard": {
     "reloadSession": "重新加载会话",
+    "newConversation": "新对话",
     "rebindSession": "重新绑定会话",
     "cancelledTitle": "已取消",
     "resourceNotFoundTitle": "代理会话已过期",
@@ -274,7 +275,11 @@
     "updateAgent": "更新",
     "updating": "正在更新",
     "updateStarted": "已开始更新",
-    "updateFailed": "更新失败"
+    "updateFailed": "更新失败",
+    "connectingTitle": "正在连接代理…",
+    "initSessionTitle": "正在初始化会话…",
+    "autoPermissionTitle": "已自动批准权限",
+    "autoPermissionDescription": "已自动批准 {{count}} 项权限请求"
   },
   "liveFeedback": {
     "placeholder": "给这一回合纠偏",

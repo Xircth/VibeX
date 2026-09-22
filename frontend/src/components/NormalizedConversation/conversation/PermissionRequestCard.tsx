@@ -69,14 +69,15 @@ export function PermissionRequestCard({
     { scope: 'session', label: t('permissionRequestCard.allowSession') },
     { scope: 'always', label: t('permissionRequestCard.allowAlways') },
   ];
-  const respondWithOption = (option: AgentPermissionOption) =>
+  const respondWithOption = (option: AgentPermissionOption, persist = false) =>
     onRespond(request.permission_id, {
       kind: 'selected',
       option_id: option.id,
+      ...(persist ? { persist: true } : {}),
     });
   const respondWithScope = (scope: PermissionAllowScope) => {
     const option = resolvePermissionAllowOption(options, scope);
-    if (option) respondWithOption(option);
+    if (option) respondWithOption(option, scope !== 'once');
   };
 
   return (

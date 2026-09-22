@@ -18,11 +18,23 @@ vi.mock('react-i18next', () => ({
 }));
 
 vi.mock('@/contexts/ProjectContext', () => ({
-  useProject: () => ({ projectId: mocks.currentProjectId }),
+  useProject: () => ({
+    projectId: mocks.currentProjectId,
+    project:
+      mocks.currentProjectId === 'project-alpha'
+        ? { id: 'project-alpha', name: 'Alpha' }
+        : mocks.currentProjectId === 'project-beta'
+          ? { id: 'project-beta', name: 'Beta' }
+          : undefined,
+  }),
 }));
 
 vi.mock('@/hooks/useProjects', () => ({
   useProjects: () => ({
+    projects: [
+      { id: 'project-alpha', name: 'Alpha' },
+      { id: 'project-beta', name: 'Beta' },
+    ],
     projectsById: {
       'project-alpha': { id: 'project-alpha', name: 'Alpha' },
       'project-beta': { id: 'project-beta', name: 'Beta' },
@@ -85,6 +97,29 @@ describe('ProjectWindowStatusSummary', () => {
         }),
       },
     });
+  });
+
+  it('places a project-count capsule first so the rail can be toggled from the status area', () => {
+    render(<ProjectWindowStatusSummary />);
+
+    const buttons = screen.getAllByRole('button');
+    expect(buttons[0]).toHaveAttribute('data-project-rail-toggle', 'true');
+    expect(buttons[0]).toHaveTextContent('2');
+    expect(buttons[0]).toHaveClass('rounded-full');
+  });
+
+  it('keeps the rail toggle visible while the project rail is open', () => {
+    useWindowProjectsStore.setState({ railVisible: true });
+    render(<ProjectWindowStatusSummary />);
+
+    expect(screen.getByRole('button', { pressed: true })).toHaveAttribute(
+      'data-project-rail-toggle',
+      'true'
+    );
+    expect(screen.getByText('Alpha')).toBeInTheDocument();
+    expect(
+      screen.queryByRole('button', { name: 'openProject:Beta' })
+    ).not.toBeInTheDocument();
   });
 
   it('opens a hovered project session status popover', () => {

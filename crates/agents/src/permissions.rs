@@ -69,8 +69,51 @@ pub struct AgentPermissionRequest {
 #[serde(tag = "kind", rename_all = "snake_case")]
 #[ts(export)]
 pub enum AgentPermissionResponse {
-    Selected { option_id: String },
+    Selected {
+        option_id: String,
+        /// Host-side: auto-approve remaining permission requests on this connection.
+        /// Not part of the ACP option itself; stripped before the agent sees the outcome.
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        persist: bool,
+    },
     Cancelled,
+}
+
+impl AgentPermissionResponse {
+    pub fn selected(option_id: impl Into<String>) -> Self {
+        Self::Selected {
+            option_id: option_id.into(),
+            persist: false,
+        }
+    }
+
+    pub fn selected_persist(option_id: impl Into<String>) -> Self {
+        Self::Selected {
+            option_id: option_id.into(),
+            persist: true,
+        }
+    }
+
+    /// "始终允许" / ACP `allow_always` both mean: answer this request and YOLO the rest.
+    pub fn should_persist_auto_approve(&self, options: &[AgentPermissionOption]) -> bool {
+        match self {
+            Self::Selected { option_id, persist } => {
+                *persist
+                    || options.iter().any(|option| {
+                        option.id == *option_id
+                            && option.kind == AgentPermissionOptionKind::AllowAlways
+                    })
+            }
+            Self::Cancelled => false,
+        }
+    }
+
+    pub fn option_id(&self) -> Option<&str> {
+        match self {
+            Self::Selected { option_id, .. } => Some(option_id.as_str()),
+            Self::Cancelled => None,
+        }
+    }
 }
 
 /// A human's explicit approval intent, expressed out-of-band (e.g. an IM
@@ -94,9 +137,7 @@ pub fn decide_remote_permission_response(
     intent: RemotePermissionIntent,
     options: &[AgentPermissionOption],
 ) -> Option<AgentPermissionResponse> {
-    let select = |option: &AgentPermissionOption| AgentPermissionResponse::Selected {
-        option_id: option.id.clone(),
-    };
+    let select = |option: &AgentPermissionOption| AgentPermissionResponse::selected(&option.id);
     match intent {
         RemotePermissionIntent::ApproveOnce => options
             .iter()
@@ -107,7 +148,7 @@ pub fn decide_remote_permission_response(
             .iter()
             .find(|option| option.kind == AgentPermissionOptionKind::AllowAlways)
             .or_else(|| options.iter().find(|option| option.kind.is_allow()))
-            .map(select),
+            .map(|option| AgentPermissionResponse::selected_persist(&option.id)),
         RemotePermissionIntent::Deny => Some(
             options
                 .iter()
@@ -134,16 +175,12 @@ pub fn decide_auto_permission_response(
             .iter()
             .find(|option| option.kind == AgentPermissionOptionKind::AllowAlways)
             .or_else(|| request.options.iter().find(|option| option.kind.is_allow()))
-            .map(|option| AgentPermissionResponse::Selected {
-                option_id: option.id.clone(),
-            }),
+            .map(|option| AgentPermissionResponse::selected(&option.id)),
         AgentAutoApproveMode::Yolo => request
             .options
             .iter()
             .find(|option| option.kind.is_allow())
-            .map(|option| AgentPermissionResponse::Selected {
-                option_id: option.id.clone(),
-            }),
+            .map(|option| AgentPermissionResponse::selected(&option.id)),
     }
 }
 
@@ -191,9 +228,7 @@ mod tests {
 
         assert_eq!(
             decide_auto_permission_response(AgentAutoApproveMode::Yolo, &request),
-            Some(AgentPermissionResponse::Selected {
-                option_id: "allow-once".to_string()
-            })
+            Some(AgentPermissionResponse::selected("allow-once"))
         );
     }
 
@@ -206,9 +241,7 @@ mod tests {
 
         assert_eq!(
             decide_auto_permission_response(AgentAutoApproveMode::AllowAlways, &request),
-            Some(AgentPermissionResponse::Selected {
-                option_id: "allow-always".to_string()
-            })
+            Some(AgentPermissionResponse::selected("allow-always"))
         );
     }
 
@@ -239,9 +272,7 @@ mod tests {
                 RemotePermissionIntent::ApproveOnce,
                 &request.options
             ),
-            Some(AgentPermissionResponse::Selected {
-                option_id: "allow-once".to_string()
-            })
+            Some(AgentPermissionResponse::selected("allow-once"))
         );
     }
 
@@ -256,9 +287,7 @@ mod tests {
                 RemotePermissionIntent::ApproveAlways,
                 &request.options
             ),
-            Some(AgentPermissionResponse::Selected {
-                option_id: "allow-always".to_string()
-            })
+            Some(AgentPermissionResponse::selected_persist("allow-always"))
         );
     }
 
@@ -273,9 +302,7 @@ mod tests {
                 RemotePermissionIntent::ApproveOnce,
                 &request.options
             ),
-            Some(AgentPermissionResponse::Selected {
-                option_id: "only-always".to_string()
-            })
+            Some(AgentPermissionResponse::selected("only-always"))
         );
     }
 
@@ -288,9 +315,7 @@ mod tests {
         ]);
         assert_eq!(
             decide_remote_permission_response(RemotePermissionIntent::Deny, &request.options),
-            Some(AgentPermissionResponse::Selected {
-                option_id: "reject-once".to_string()
-            })
+            Some(AgentPermissionResponse::selected("reject-once"))
         );
     }
 
@@ -321,5 +346,24 @@ mod tests {
             ),
             None
         );
+    }
+
+    #[test]
+    fn persist_flag_or_allow_always_option_upgrades_the_connection() {
+        let options = vec![
+            option("allow-once", AgentPermissionOptionKind::AllowOnce),
+            option("allow-always", AgentPermissionOptionKind::AllowAlways),
+        ];
+        assert!(
+            AgentPermissionResponse::selected("allow-always").should_persist_auto_approve(&options)
+        );
+        assert!(
+            AgentPermissionResponse::selected_persist("allow-once")
+                .should_persist_auto_approve(&options)
+        );
+        assert!(
+            !AgentPermissionResponse::selected("allow-once").should_persist_auto_approve(&options)
+        );
+        assert!(!AgentPermissionResponse::Cancelled.should_persist_auto_approve(&options));
     }
 }

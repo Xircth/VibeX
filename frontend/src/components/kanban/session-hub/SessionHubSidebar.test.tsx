@@ -4,7 +4,11 @@ import userEvent from '@testing-library/user-event';
 import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { SessionHubSidebar } from './SessionHubSidebar';
-import { SESSION_LIST_NOTICE_DURATION_MS } from './utils';
+import {
+  SESSION_LIST_NOTICE_DURATION_MS,
+  SESSION_STATUS_LABELS,
+  SESSION_STATUS_ORDER,
+} from './utils';
 
 vi.mock('@dnd-kit/core', () => ({
   DndContext: ({ children }: { children: React.ReactNode }) => (
@@ -76,6 +80,13 @@ vi.mock('@/components/workspace-session-list/WorkspaceSessionList', () => ({
       ))}
     </div>
   ),
+}));
+
+vi.mock('@/features/conversation/conversationApi', () => ({
+  conversationApi: {
+    search: vi.fn().mockResolvedValue([]),
+    fork: vi.fn(),
+  },
 }));
 
 vi.mock('@/components/ui/scroll-area', () => ({
@@ -219,6 +230,20 @@ describe('SessionHubSidebar', () => {
     listView.current = 'status';
   });
 
+  it('keeps the canvas compact header as a single action row without a title', async () => {
+    const { container } = render(<Harness compactHeader />);
+
+    expect(screen.queryByText('会话列表')).not.toBeInTheDocument();
+    expect(
+      screen.getByRole('button', { name: '搜索会话' })
+    ).toBeInTheDocument();
+    expect(container.querySelector('.session-hub-sidebar-header')).toBeNull();
+    expect(container.querySelector('.session-hub-sidebar-actions')).toBeNull();
+    expect(
+      container.querySelector('.flex.w-full.items-center.justify-start.gap-1')
+    ).not.toBeNull();
+  });
+
   it('requests a new session from the canvas compact header', async () => {
     const user = userEvent.setup();
     const onCreateSessionRequested = vi.fn();
@@ -247,12 +272,37 @@ describe('SessionHubSidebar', () => {
 
     expect(screen.getByText('会话列表')).toBeInTheDocument();
     expect(screen.getByText('会话列表').className).not.toMatch(/truncate/);
+    expect(container.querySelector('.session-hub-sidebar-header')).toHaveClass(
+      'flex-nowrap'
+    );
     expect(
-      container.querySelector('.flex.items-center.justify-between')
-    ).not.toBeNull();
+      container.querySelector('.session-hub-sidebar-header')
+    ).not.toHaveClass('flex-col');
+    expect(container.querySelector('.session-hub-sidebar-header')).toHaveClass(
+      'justify-between'
+    );
+    expect(
+      container.querySelector('.session-hub-sidebar-actions')
+    ).not.toHaveClass('flex-wrap');
+    expect(
+      screen.getByRole('button', { name: '搜索会话' })
+    ).toBeInTheDocument();
     await user.click(screen.getByRole('button', { name: '新增会话' }));
     expect(onCreateSessionRequested).toHaveBeenCalledTimes(1);
     expect(screen.queryByText('新建会话')).not.toBeInTheDocument();
+  });
+
+  it('keeps the four status groups visible when there are no sessions', () => {
+    render(<Harness />);
+
+    for (const status of SESSION_STATUS_ORDER) {
+      expect(
+        screen.getByText(SESSION_STATUS_LABELS[status])
+      ).toBeInTheDocument();
+    }
+    expect(
+      screen.queryByText('暂无会话，点击上方“新增”即可创建。')
+    ).not.toBeInTheDocument();
   });
 
   it('searches session names from the far-left action and keeps cards', () => {

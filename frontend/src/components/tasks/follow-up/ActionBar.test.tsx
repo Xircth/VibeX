@@ -12,7 +12,6 @@ function renderActionBar(props: Partial<Parameters<typeof ActionBar>[0]> = {}) {
       showProfileControls={false}
       isEditable={true}
       isAttemptRunning={false}
-      isQueueLoading={false}
       compactContextEnabled={false}
       canCompactContext={false}
       isCompactingContext={false}
@@ -29,7 +28,6 @@ function renderActionBar(props: Partial<Parameters<typeof ActionBar>[0]> = {}) {
       reviewMarkdown={null}
       comments={[]}
       onCompactContext={vi.fn()}
-      onQueueMessage={vi.fn()}
       onStopExecution={vi.fn()}
       onSendFollowUp={vi.fn()}
       onEnhancePrompt={vi.fn()}
@@ -101,48 +99,18 @@ describe('ActionBar', () => {
     ).toBeInTheDocument();
   });
 
-  it('uses context and attachments as queueable content while running', () => {
-    const queueCases = [
-      { conflictResolutionInstructions: 'conflicts', reviewMarkdown: null },
-      { conflictResolutionInstructions: null, reviewMarkdown: 'review' },
-      {
-        conflictResolutionInstructions: null,
-        reviewMarkdown: null,
-        attachmentCount: 1,
-      },
-    ];
-
-    queueCases.forEach((queueCase) => {
-      const onQueueMessage = vi.fn();
-      const { unmount } = renderActionBar({
-        isAttemptRunning: true,
-        localMessage: '   ',
-        canSendFollowUp: false,
-        onQueueMessage,
-        ...queueCase,
-      });
-
-      fireEvent.click(screen.getByRole('button', { name: '\u961f\u5217' }));
-
-      expect(onQueueMessage).toHaveBeenCalledTimes(1);
-      unmount();
-    });
-  });
-
-  it('disables queueing when a running attempt has no content', () => {
-    const onQueueMessage = vi.fn();
+  it('does not show a queue action while a turn is running', () => {
     renderActionBar({
       isAttemptRunning: true,
-      localMessage: '   ',
+      localMessage: 'Ship it',
       canSendFollowUp: false,
-      onQueueMessage,
     });
 
-    const queueButton = screen.getByRole('button', { name: '\u961f\u5217' });
-    expect(queueButton).toBeDisabled();
-
-    fireEvent.click(queueButton);
-
-    expect(onQueueMessage).not.toHaveBeenCalled();
+    expect(
+      screen.queryByRole('button', { name: '\u961f\u5217' })
+    ).not.toBeInTheDocument();
+    expect(
+      screen.getByRole('button', { name: '\u505c\u6b62' })
+    ).toBeInTheDocument();
   });
 });

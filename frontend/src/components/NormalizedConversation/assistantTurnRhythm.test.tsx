@@ -89,4 +89,21 @@ describe('user message action rail', () => {
     expect(getComputedStyle(button as Element).width).toBe('20px');
     expect(getComputedStyle(button as Element).height).toBe('20px');
   });
+
+  it('keeps the action rail reachable after leaving the bubble', () => {
+    const css = readFileSync(
+      resolve(process.cwd(), 'src/styles/conversation/conv-messages.css'),
+      'utf8'
+    );
+
+    expect(css).toMatch(/\.conv-user-bubble-wrap::after\s*\{[^}]*top:\s*100%/u);
+    expect(css).toMatch(
+      /\.conv-user-bubble-wrap:hover::after\s*\{[^}]*pointer-events:\s*auto/u
+    );
+    expect(css).toMatch(
+      /\.conv-user-actions:hover,\s*\n\s*\.conv-user-actions:focus-within/u
+    );
+    expect(css).toMatch(/pointer-events 0s linear 220ms/u);
+    expect(css).toMatch(/visibility 0s linear 220ms/u);
+  });
 });

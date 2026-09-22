@@ -1,6 +1,8 @@
 use std::{
     collections::{HashMap, VecDeque},
+    future::Future,
     path::{Path, PathBuf},
+    process::ExitStatus,
     sync::{
         Arc, OnceLock,
         atomic::{AtomicBool, Ordering},
@@ -220,6 +222,116 @@ const CANCEL_ACKNOWLEDGEMENT_TIMEOUT: Duration = Duration::from_secs(10);
 const DISCONNECT_JOIN_TIMEOUT: Duration = Duration::from_secs(1);
 const AUTH_STATUS_TIMEOUT_SECS: u64 = 5;
 const MAX_CONTENT_META_BYTES: usize = 16 * 1024;
+const CONNECTION_CLOSED_TURN_MESSAGE: &str = "Agent connection closed before the turn completed.";
+/// Stdout EOF is only a death hint. Codeg never kills a Prompting connection on
+/// a pipe stall; wait this long for the child or protocol loop to settle first.
+const STDOUT_EOF_EXIT_GRACE: Duration = Duration::from_millis(750);
+
+/// How the ACP child/stdio watch ended relative to the protocol loop.
+#[derive(Debug)]
+enum AcpProcessStop<T, E> {
+    Connection(Result<T, E>),
+    ChildExited(std::io::Result<ExitStatus>),
+    StdoutClosed,
+}
+
+/// Drive the ACP connection until it returns, the child exits, or stdout EOF.
+///
+/// `agent-client-protocol` treats a clean stdin/stdout EOF as success and does
+/// not fail outstanding `session/prompt` futures. When the child has actually
+/// exited, that death must win over a quiet `Ok(())` or the turn stays at
+/// "生成中". Stdout EOF alone is not proof of death — a duplex write error or
+/// a brief pipe stall would otherwise kill a still-Prompting agent, which is
+/// the opposite of Codeg (Codeg never kills a Prompting connection).
+async fn wait_for_acp_or_process_death<T, E>(
+    acp: impl Future<Output = Result<T, E>>,
+    child_exited: impl Future<Output = std::io::Result<ExitStatus>>,
+    stdout_closed: impl Future<Output = ()>,
+) -> AcpProcessStop<T, E> {
+    tokio::pin!(acp);
+    tokio::pin!(child_exited);
+    tokio::pin!(stdout_closed);
+    tokio::select! {
+        biased;
+        status = &mut child_exited => AcpProcessStop::ChildExited(status),
+        result = &mut acp => AcpProcessStop::Connection(result),
+        () = &mut stdout_closed => {
+            tokio::select! {
+                biased;
+                status = &mut child_exited => AcpProcessStop::ChildExited(status),
+                result = &mut acp => AcpProcessStop::Connection(result),
+                () = tokio::time::sleep(STDOUT_EOF_EXIT_GRACE) => {
+                    AcpProcessStop::StdoutClosed
+                }
+            }
+        }
+    }
+}
+
+/// Map a connection/process stop onto a host error.
+///
+/// A clean `Ok` from the protocol loop is only success when no turn is still
+/// bound. If the child died and ACP reported success on the same EOF, the
+/// in-flight prompt must fail immediately — on every platform.
+fn resolve_acp_process_stop<T, E: std::fmt::Display>(
+    stop: AcpProcessStop<T, E>,
+    prompt_in_flight: bool,
+    stderr: Option<String>,
+) -> AgentResult<T> {
+    match stop {
+        AcpProcessStop::Connection(Ok(_)) if prompt_in_flight => Err(connection_closed_error(
+            "ACP connection ended while a turn was still in progress",
+            stderr,
+        )),
+        AcpProcessStop::Connection(result) => {
+            result.map_err(|error| AgentError::Runtime(format!("ACP connection failed: {error}")))
+        }
+        AcpProcessStop::ChildExited(status) => Err(connection_closed_error(
+            format_child_exit_detail(status),
+            stderr,
+        )),
+        AcpProcessStop::StdoutClosed => Err(connection_closed_error(
+            "ACP agent closed stdout before the connection finished",
+            stderr,
+        )),
+    }
+}
+
+fn connection_closed_error(detail: impl Into<String>, stderr: Option<String>) -> AgentError {
+    let detail = detail.into();
+    AgentError::ConnectionClosed(match stderr.filter(|text| !text.is_empty()) {
+        Some(stderr) => format!("{detail}. Recent stderr: {stderr}"),
+        None => detail,
+    })
+}
+
+fn format_child_exit_detail(status: std::io::Result<ExitStatus>) -> String {
+    match status {
+        Ok(status) => format!("ACP agent process exited ({status})"),
+        Err(error) => format!("failed to wait for ACP agent process: {error}"),
+    }
+}
+
+fn turn_error_event_from_connection_failure(error: &AgentError) -> AgentErrorEvent {
+    if error.is_connection_death() {
+        AgentErrorEvent {
+            message: CONNECTION_CLOSED_TURN_MESSAGE.to_string(),
+            code: Some("connection_closed".to_string()),
+            raw: Some(serde_json::json!({ "detail": error.to_string() })),
+        }
+    } else {
+        AgentErrorEvent {
+            message: error.to_string(),
+            code: Some(
+                error
+                    .turn_failure_code()
+                    .unwrap_or("internal_error")
+                    .to_string(),
+            ),
+            raw: None,
+        }
+    }
+}
 
 fn wire_mcp_offer(capabilities: &AcpCapabilitySnapshot) -> WireMcpOffer {
     WireMcpOffer {
@@ -384,6 +496,117 @@ fn classify_session_load_error(error: &acp::Error) -> SessionLoadFailureReason {
     }
 }
 
+/// B-level, load-only fragments. Do not mix with A-level JSON-RPC codes.
+/// Auth is never classified from `"Authentication required"` text.
+fn classify_session_load_failure_fragments(
+    message: &str,
+    failed_sid: &str,
+) -> Option<SessionLoadFailureReason> {
+    if message.contains("is archived") {
+        return Some(SessionLoadFailureReason::SessionArchived {
+            recovery_command: archived_recovery_command(message, failed_sid),
+        });
+    }
+    if message.contains("already has an active writer") {
+        return Some(SessionLoadFailureReason::SessionBusy);
+    }
+    const UNRECOVERABLE: &[&str] = &["process exited", "session has ended", "Session not found"];
+    if UNRECOVERABLE
+        .iter()
+        .any(|fragment| message.contains(fragment))
+    {
+        return Some(SessionLoadFailureReason::SessionUnavailable);
+    }
+    None
+}
+
+fn archived_recovery_command(message: &str, failed_sid: &str) -> Option<String> {
+    if let Some(start) = message.find('`')
+        && let Some(end) = message[start + 1..].find('`')
+    {
+        let command = message[start + 1..start + 1 + end].trim();
+        if !command.is_empty() {
+            return Some(command.to_string());
+        }
+    }
+    Some(format!("codex unarchive {failed_sid}"))
+}
+
+fn is_method_not_found_error(error: &acp::Error) -> bool {
+    i32::from(error.code) == -32601 || error.message.contains("Method not found")
+}
+
+fn recovers_load_failure_locally(
+    agent_id: &AgentId,
+    classified: Option<&SessionLoadFailureReason>,
+) -> bool {
+    let Some(reason) = classified else {
+        return false;
+    };
+    if matches!(reason, SessionLoadFailureReason::SessionBusy) {
+        return false;
+    }
+    crate::AgentKind::from_lenient(agent_id.as_str()).is_none()
+}
+
+#[derive(Debug, Clone, PartialEq)]
+enum SessionLoadFailureAction {
+    StopForAuth { message: String },
+    Banner(SessionLoadFailureReason),
+    SilentNew,
+    ToastThenNew,
+}
+
+fn classified_load_failure_reason(
+    a_level: &SessionLoadFailureReason,
+    error_message: &str,
+    failed_sid: &str,
+) -> Option<SessionLoadFailureReason> {
+    match a_level {
+        SessionLoadFailureReason::ResourceNotFound => {
+            Some(SessionLoadFailureReason::ResourceNotFound)
+        }
+        SessionLoadFailureReason::AuthenticationRequired { .. } => None,
+        SessionLoadFailureReason::Unsupported
+        | SessionLoadFailureReason::SessionArchived { .. }
+        | SessionLoadFailureReason::SessionBusy
+        | SessionLoadFailureReason::SessionUnavailable
+        | SessionLoadFailureReason::Other { .. } => {
+            classify_session_load_failure_fragments(error_message, failed_sid)
+        }
+    }
+}
+
+fn decide_session_load_failure(
+    agent_id: &AgentId,
+    a_level: &SessionLoadFailureReason,
+    classified: Option<&SessionLoadFailureReason>,
+    attempted_load: bool,
+    method_not_found: bool,
+) -> SessionLoadFailureAction {
+    if let SessionLoadFailureReason::AuthenticationRequired { message } = a_level {
+        return SessionLoadFailureAction::StopForAuth {
+            message: message.clone(),
+        };
+    }
+    let recovers_locally = recovers_load_failure_locally(agent_id, classified);
+    if let Some(reason) = classified.filter(|_| !recovers_locally).filter(|reason| {
+        matches!(
+            reason,
+            SessionLoadFailureReason::ResourceNotFound
+                | SessionLoadFailureReason::SessionUnavailable
+                | SessionLoadFailureReason::SessionArchived { .. }
+                | SessionLoadFailureReason::SessionBusy
+        )
+    }) {
+        return SessionLoadFailureAction::Banner(reason.clone());
+    }
+    if attempted_load && classified.is_none() && !method_not_found && !recovers_locally {
+        return SessionLoadFailureAction::ToastThenNew;
+    }
+    SessionLoadFailureAction::SilentNew
+}
+
 /// Map a real ACP/JSON-RPC error code to a stable, frontend-facing string so the
 /// error card can distinguish auth / expired-session / cancelled / model issues
 /// from a generic failure. The value mirrors the agent's actual error code.
@@ -408,15 +631,6 @@ fn map_acp_session_error(context: &str, error: acp::Error) -> AgentError {
         -32000 => AgentError::AuthenticationRequired(error.to_string()),
         -32002 => AgentError::SessionLoadFailed(SessionLoadFailureReason::ResourceNotFound),
         _ => AgentError::Runtime(format!("{context}: {error}")),
-    }
-}
-
-fn map_session_restore_error(error: acp::Error) -> AgentError {
-    match classify_session_load_error(&error) {
-        SessionLoadFailureReason::AuthenticationRequired { message } => {
-            AgentError::AuthenticationRequired(message)
-        }
-        reason => AgentError::SessionLoadFailed(reason),
     }
 }
 
@@ -580,6 +794,10 @@ struct ManagedAgentConnection {
     cmd_tx: mpsc::Sender<AgentConnectionCommand>,
     capabilities: Arc<RwLock<AcpCapabilitySnapshot>>,
     session_map: Arc<RwLock<HashMap<AgentSessionId, String>>>,
+    last_activity: Arc<Mutex<Instant>>,
+    active_prompt: Arc<Mutex<Option<(AgentSessionId, AgentPromptId)>>>,
+    pending_permissions: Arc<Mutex<HashMap<String, PendingPermission>>>,
+    status: Arc<Mutex<AgentConnectionStatus>>,
     task: tokio::task::JoinHandle<()>,
 }
 
@@ -655,6 +873,10 @@ impl AgentConnectionManager {
         );
         let capabilities = Arc::clone(&runner.capabilities);
         let session_map = Arc::clone(&runner.session_map);
+        let last_activity = Arc::clone(&runner.last_activity);
+        let active_prompt = Arc::clone(&runner.active_prompt);
+        let pending_permissions = Arc::clone(&runner.pending_permissions);
+        let status = Arc::clone(&runner.status);
 
         let task = if self.driver_enabled {
             tokio::spawn(async move {
@@ -663,6 +885,7 @@ impl AgentConnectionManager {
         } else {
             // The in-memory driver has no process to spawn / handshake — it's
             // ready the moment it's registered.
+            *status.lock().await = AgentConnectionStatus::Ready;
             let _ = ready_tx.send(Ok(()));
             tokio::spawn(async move {
                 runner.run_in_memory(cmd_rx).await;
@@ -676,6 +899,10 @@ impl AgentConnectionManager {
                 cmd_tx,
                 capabilities,
                 session_map,
+                last_activity,
+                active_prompt,
+                pending_permissions,
+                status,
                 task,
             },
         );
@@ -706,6 +933,17 @@ impl AgentConnectionManager {
         mode_override: Option<String>,
         config_overrides: Vec<AgentSessionConfigOverride>,
     ) -> AgentResult<()> {
+        if !self.has_connection(connection_id).await {
+            return Err(AgentError::ConnectionNotFound(connection_id.to_string()));
+        }
+        let bound = self
+            .bound_acp_session_id(connection_id, session_id)
+            .await
+            .filter(|id| crate::is_restorable_acp_session_id(id));
+        if bound.is_none() {
+            crate::session_bind_metrics::record_prompt_unbound(session_id.0);
+            return Err(AgentError::AcpSessionNotBound);
+        }
         self.send_command(
             connection_id,
             AgentConnectionCommand::Prompt {
@@ -717,6 +955,28 @@ impl AgentConnectionManager {
             },
         )
         .await
+    }
+
+    pub async fn bind_known_acp_session(
+        &self,
+        connection_id: AgentConnectionId,
+        session_id: AgentSessionId,
+        acp_session_id: String,
+    ) {
+        if !crate::is_restorable_acp_session_id(&acp_session_id) {
+            return;
+        }
+        let session_map = {
+            let connections = self.connections.lock().await;
+            let Some(connection) = connections.get(&connection_id) else {
+                return;
+            };
+            if connection.task.is_finished() {
+                return;
+            }
+            Arc::clone(&connection.session_map)
+        };
+        session_map.write().await.insert(session_id, acp_session_id);
     }
 
     pub async fn cancel_prompt(
@@ -1024,7 +1284,11 @@ impl AgentConnectionManager {
     }
 
     pub async fn has_connection(&self, connection_id: AgentConnectionId) -> bool {
-        self.connections.lock().await.contains_key(&connection_id)
+        self.connections
+            .lock()
+            .await
+            .get(&connection_id)
+            .is_some_and(|connection| !connection.task.is_finished())
     }
 
     /// The ACP session id currently bound to this host conversation, if the
@@ -1038,11 +1302,75 @@ impl AgentConnectionManager {
     ) -> Option<String> {
         let session_map = {
             let connections = self.connections.lock().await;
-            connections
-                .get(&connection_id)
-                .map(|connection| Arc::clone(&connection.session_map))
-        }?;
+            let connection = connections.get(&connection_id)?;
+            if connection.task.is_finished() {
+                return None;
+            }
+            Arc::clone(&connection.session_map)
+        };
         session_map.read().await.get(&session_id).cloned()
+    }
+
+    pub async fn touch(&self, connection_id: AgentConnectionId) -> AgentResult<()> {
+        let last_activity = {
+            let connections = self.connections.lock().await;
+            let connection = connections
+                .get(&connection_id)
+                .ok_or_else(|| AgentError::ConnectionNotFound(connection_id.to_string()))?;
+            if connection.task.is_finished() {
+                return Err(AgentError::ConnectionNotFound(connection_id.to_string()));
+            }
+            Arc::clone(&connection.last_activity)
+        };
+        *last_activity.lock().await = Instant::now();
+        Ok(())
+    }
+
+    /// Disconnect Ready connections that have been idle past `idle_timeout`.
+    /// Skips in-flight turns (including the ADR-0071 cancel window), pending
+    /// permission prompts, and connections that are not Ready.
+    pub async fn sweep_idle(&self, idle_timeout: Duration) -> usize {
+        let mut stale = Vec::new();
+        {
+            let connections = self.connections.lock().await;
+            for (id, connection) in connections.iter() {
+                if connection.task.is_finished() {
+                    continue;
+                }
+                if *connection.status.lock().await != AgentConnectionStatus::Ready {
+                    continue;
+                }
+                if connection.active_prompt.lock().await.is_some() {
+                    continue;
+                }
+                if !connection.pending_permissions.lock().await.is_empty() {
+                    continue;
+                }
+                if connection.last_activity.lock().await.elapsed() < idle_timeout {
+                    continue;
+                }
+                stale.push(*id);
+            }
+        }
+        let mut disconnected = 0;
+        for connection_id in stale {
+            if self.disconnect(connection_id).await.is_ok() {
+                disconnected += 1;
+            }
+        }
+        disconnected
+    }
+
+    #[cfg(test)]
+    pub(crate) async fn set_connection_status(
+        &self,
+        connection_id: AgentConnectionId,
+        status: AgentConnectionStatus,
+    ) {
+        let connections = self.connections.lock().await;
+        if let Some(connection) = connections.get(&connection_id) {
+            *connection.status.lock().await = status;
+        }
     }
 
     #[cfg(test)]
@@ -1065,13 +1393,25 @@ impl AgentConnectionManager {
         connection_id: AgentConnectionId,
         command: AgentConnectionCommand,
     ) -> AgentResult<()> {
-        let cmd_tx = {
-            let connections = self.connections.lock().await;
-            connections
-                .get(&connection_id)
-                .map(|connection| connection.cmd_tx.clone())
-        }
-        .ok_or_else(|| AgentError::ConnectionNotFound(connection_id.to_string()))?;
+        let (cmd_tx, last_activity) = {
+            let mut connections = self.connections.lock().await;
+            match connections.get(&connection_id) {
+                None => {
+                    return Err(AgentError::ConnectionNotFound(connection_id.to_string()));
+                }
+                Some(connection) if connection.task.is_finished() => {
+                    connections.remove(&connection_id);
+                    return Err(AgentError::Runtime(
+                        "agent connection command channel closed".into(),
+                    ));
+                }
+                Some(connection) => (
+                    connection.cmd_tx.clone(),
+                    Arc::clone(&connection.last_activity),
+                ),
+            }
+        };
+        *last_activity.lock().await = Instant::now();
 
         if cmd_tx.send(command).await.is_ok() {
             return Ok(());
@@ -1093,7 +1433,7 @@ struct AgentConnectionRunner {
     capabilities: Arc<RwLock<AcpCapabilitySnapshot>>,
     pending_permissions: Arc<Mutex<HashMap<String, PendingPermission>>>,
     pending_elicitations: Arc<Mutex<HashMap<String, PendingElicitation>>>,
-    auto_approve_mode: AgentAutoApproveMode,
+    auto_approve_mode: Arc<Mutex<AgentAutoApproveMode>>,
     delegation_injector: Option<Arc<dyn DelegationInjector>>,
     // Per-session streaming-text accumulator shared with the ACP client bridge so
     // redundant full-message snapshots can be dropped (see `dedup_stream_text`).
@@ -1111,6 +1451,8 @@ struct AgentConnectionRunner {
     /// CodeG-style connect preferences: applied after the agent advertises
     /// controls and before the first `SessionModes` / `SessionConfigOptions` event.
     preferred_controls: Arc<RwLock<HashMap<AgentSessionId, crate::SessionControlPreferences>>>,
+    status: Arc<Mutex<AgentConnectionStatus>>,
+    handshake_started: Instant,
 }
 
 /// Non-standard wire surface an ACP agent requires for its vendor-advertised
@@ -1150,6 +1492,7 @@ struct SessionControlState {
 struct PendingPermission {
     permission_id: AgentPermissionId,
     session_id: AgentSessionId,
+    options: Vec<AgentPermissionOption>,
     tx: oneshot::Sender<AgentPermissionResponse>,
 }
 
@@ -1229,7 +1572,7 @@ impl AgentConnectionRunner {
         event_tx: mpsc::UnboundedSender<AgentConnectionManagerEvent>,
         delegation_injector: Option<Arc<dyn DelegationInjector>>,
     ) -> Self {
-        let auto_approve_mode = snapshot.auto_approve_mode;
+        let auto_approve_mode = Arc::new(Mutex::new(snapshot.auto_approve_mode));
         Self {
             snapshot,
             event_tx,
@@ -1247,6 +1590,8 @@ impl AgentConnectionRunner {
             grok_mcp: Arc::new(Mutex::new(GrokMcpTracker::default())),
             pending_session_id: Arc::new(Mutex::new(None)),
             preferred_controls: Arc::new(RwLock::new(HashMap::new())),
+            status: Arc::new(Mutex::new(AgentConnectionStatus::Connecting)),
+            handshake_started: Instant::now(),
         }
     }
 
@@ -1274,11 +1619,12 @@ impl AgentConnectionRunner {
         // generic). `take()` makes exactly one of the two fire.
         let ready = Arc::new(Mutex::new(Some(ready_tx)));
         if let Err(error) = self.run_acp(cmd_rx, Arc::clone(&ready)).await {
-            let message = error.to_string();
+            let turn_error = turn_error_event_from_connection_failure(&error);
+            let status_message = turn_error.message.clone();
             if let Some(tx) = ready.lock().await.take() {
                 let _ = tx.send(Err(error));
             }
-            self.emit_connection_status(AgentConnectionStatus::Failed, Some(message.clone()), None);
+            self.emit_connection_status(AgentConnectionStatus::Failed, Some(status_message), None);
             // If a prompt was still in flight when the connection died (the agent
             // crashed, the transport dropped, or prompt setup like session/new
             // failed and propagated out of run_prompt), emit a turn-terminal Error
@@ -1295,13 +1641,7 @@ impl AgentConnectionRunner {
             self.emit(
                 failed_session_id,
                 failed_prompt_id,
-                AgentEvent::Error {
-                    error: AgentErrorEvent {
-                        message,
-                        code: Some("internal_error".to_string()),
-                        raw: None,
-                    },
-                },
+                AgentEvent::Error { error: turn_error },
             );
         }
     }
@@ -1314,11 +1654,22 @@ impl AgentConnectionRunner {
                     preferences: _,
                     result_tx,
                 } => {
-                    let acp_session_id = format!("prepared-{}", session_id.0);
-                    self.session_map
-                        .write()
-                        .await
-                        .insert(session_id, acp_session_id.clone());
+                    let existing = self.session_map.read().await.get(&session_id).cloned();
+                    let acp_session_id = if let Some(existing) =
+                        existing.filter(|id| crate::is_restorable_acp_session_id(id))
+                    {
+                        self.emit_session_bind_ready(session_id, existing.clone());
+                        existing
+                    } else {
+                        let acp_session_id = format!("inmem-{}", session_id.0);
+                        self.session_map
+                            .write()
+                            .await
+                            .insert(session_id, acp_session_id.clone());
+                        self.emit_session_linked(session_id, acp_session_id.clone())
+                            .await;
+                        acp_session_id
+                    };
                     let _ = result_tx.send(Ok((
                         acp_session_id,
                         AgentSessionControlsSnapshot::default(),
@@ -1338,12 +1689,20 @@ impl AgentConnectionRunner {
                     preferences: _,
                     result_tx,
                 } => {
+                    let acp_session_id =
+                        if crate::is_restorable_acp_session_id(&external_session_id) {
+                            external_session_id
+                        } else {
+                            format!("inmem-{}", session_id.0)
+                        };
                     self.session_map
                         .write()
                         .await
-                        .insert(session_id, external_session_id.clone());
+                        .insert(session_id, acp_session_id.clone());
+                    self.emit_session_linked(session_id, acp_session_id.clone())
+                        .await;
                     let controls = AgentSessionControlsSnapshot::default();
-                    let _ = result_tx.send(Ok((external_session_id, controls, None)));
+                    let _ = result_tx.send(Ok((acp_session_id, controls, None)));
                 }
                 AgentConnectionCommand::ForkSession {
                     session_id,
@@ -1370,6 +1729,22 @@ impl AgentConnectionRunner {
                     blocks,
                     ..
                 } => {
+                    let bound = self
+                        .session_map
+                        .read()
+                        .await
+                        .get(&session_id)
+                        .cloned()
+                        .filter(|id| crate::is_restorable_acp_session_id(id));
+                    if bound.is_none() {
+                        self.fail_active_turn(
+                            session_id,
+                            prompt_id,
+                            AgentError::AcpSessionNotBound,
+                        )
+                        .await;
+                        continue;
+                    }
                     let text = blocks
                         .into_iter()
                         .map(|block| match block {
@@ -1571,17 +1946,9 @@ impl AgentConnectionRunner {
                 },
             ],
         };
-        self.emit(
-            Some(session_id),
-            None,
-            AgentEvent::PermissionRequested {
-                request: request.clone(),
-            },
-        );
-
+        let configured = *self.auto_approve_mode.lock().await;
         let auto_approve_mode =
-            effective_auto_approve_mode(self.auto_approve_mode, &self.session_controls, session_id)
-                .await;
+            effective_auto_approve_mode(configured, &self.session_controls, session_id).await;
         if let Some(response) = decide_auto_permission_response(auto_approve_mode, &request) {
             self.emit(
                 Some(session_id),
@@ -1596,12 +1963,21 @@ impl AgentConnectionRunner {
             return;
         }
 
+        self.emit(
+            Some(session_id),
+            None,
+            AgentEvent::PermissionRequested {
+                request: request.clone(),
+            },
+        );
+
         let (tx, rx) = oneshot::channel();
         self.pending_permissions.lock().await.insert(
             permission_id.to_string(),
             PendingPermission {
                 permission_id,
                 session_id,
+                options: request.options.clone(),
                 tx,
             },
         );
@@ -1681,7 +2057,7 @@ impl AgentConnectionRunner {
         }
         if self.snapshot.agent_id.as_str() == "pi" {
             if let Some(message) = crate::pi_trust::launch_preflight(&self.snapshot.env) {
-                return Err(AgentError::Runtime(message));
+                return Err(AgentError::NotInstalled(message));
             }
             let home = self
                 .snapshot
@@ -1815,6 +2191,7 @@ impl AgentConnectionRunner {
         let stderr = child.inner().stderr.take();
 
         let (mut to_acp_writer, acp_incoming_reader) = tokio::io::duplex(64 * 1024);
+        let (stdout_closed_tx, stdout_closed_rx) = oneshot::channel::<()>();
         tokio::spawn(async move {
             let mut stdout_stream = ReaderStream::new(stdout);
             while let Some(result) = stdout_stream.next().await {
@@ -1827,6 +2204,7 @@ impl AgentConnectionRunner {
                     Err(_) => break,
                 }
             }
+            let _ = stdout_closed_tx.send(());
         });
 
         let (acp_out_writer, acp_out_reader) = tokio::io::duplex(64 * 1024);
@@ -1882,7 +2260,7 @@ impl AgentConnectionRunner {
             Arc::clone(&self.session_controls),
             Arc::clone(&self.pending_permissions),
             Arc::clone(&self.pending_elicitations),
-            self.auto_approve_mode,
+            Arc::clone(&self.auto_approve_mode),
             Arc::clone(&self.stream_dedup),
             Arc::clone(&self.last_activity),
             Arc::clone(&self.grok_subagent),
@@ -1899,11 +2277,40 @@ impl AgentConnectionRunner {
         let handshake_timed_out = Arc::new(AtomicBool::new(false));
         let handshake_timed_out_for_connection = Arc::clone(&handshake_timed_out);
 
-        let result = acp::Client
+        let acp_run = acp::Client
             .builder()
             .name("VibeX")
             .on_receive_request(
-                async move |request: AgentRequest, responder, _cx| {
+                async move |request: AgentRequest, responder, cx| {
+                    // `terminal/wait_for_exit` can wait forever (dev servers).
+                    // agent-client-protocol awaits each handler inside the
+                    // dispatch loop, so answering inline freezes session/update
+                    // and session/cancel. Codeg answers this from `cx.spawn`.
+                    if acp_request_must_run_off_dispatch_loop(&request) {
+                        let AgentRequest::WaitForTerminalExitRequest(args) = request else {
+                            return Err(acp::Error::internal_error());
+                        };
+                        let terminal_id = parse_terminal_id(&args.terminal_id)?;
+                        if !agent_terminal_registry().exists(terminal_id.into()).await {
+                            return Err(acp::Error::invalid_params());
+                        }
+                        cx.spawn(async move {
+                            let send = match wait_for_terminal_exit_response(terminal_id).await {
+                                Ok(response) => serde_json::to_value(response)
+                                    .map_err(acp::Error::into_internal_error)
+                                    .and_then(|value| responder.respond(value)),
+                                Err(error) => responder.respond_with_error(error),
+                            };
+                            if let Err(error) = send {
+                                tracing::warn!(
+                                    error = %error,
+                                    "failed to answer terminal/wait_for_exit"
+                                );
+                            }
+                            Ok(())
+                        })?;
+                        return Ok(());
+                    }
                     let response = request_bridge.handle_agent_request(request).await?;
                     let response =
                         serde_json::to_value(response).map_err(acp::Error::into_internal_error)?;
@@ -2005,11 +2412,36 @@ impl AgentConnectionRunner {
                 // Handshake succeeded — the connection is now genuinely reachable.
                 // Signal readiness so `connect` can mark it Ready. A failure before
                 // this point leaves the sender for `run` to forward the real error.
+                // Ready ≠ bind: Prompt is still refused until session/new|resume.
+                *runner.status.lock().await = AgentConnectionStatus::Ready;
                 if let Some(tx) = ready_tx.lock().await.take() {
                     let _ = tx.send(Ok(()));
                 }
 
                 while let Some(command) = cmd_rx.recv().await {
+                    let session_bound = runner
+                        .session_map
+                        .read()
+                        .await
+                        .values()
+                        .any(|id| crate::is_restorable_acp_session_id(id));
+                    if !session_bound
+                        && let AgentConnectionCommand::Prompt {
+                            session_id,
+                            prompt_id,
+                            ..
+                        } = &command
+                    {
+                        crate::session_bind_metrics::record_prompt_unbound(session_id.0);
+                        runner
+                            .fail_active_turn(
+                                *session_id,
+                                *prompt_id,
+                                AgentError::AcpSessionNotBound,
+                            )
+                            .await;
+                        continue;
+                    }
                     match command {
                         AgentConnectionCommand::PrepareSession {
                             session_id,
@@ -2116,6 +2548,10 @@ impl AgentConnectionRunner {
                             mode_override,
                             config_overrides,
                         } => {
+                            // Bind the turn before session/new so a crash during
+                            // prepare still fails this prompt instead of hanging
+                            // the conversation at "生成中".
+                            *runner.active_prompt.lock().await = Some((session_id, prompt_id));
                             runner
                                 .store_preferred_controls(
                                     session_id,
@@ -2125,14 +2561,34 @@ impl AgentConnectionRunner {
                                     },
                                 )
                                 .await;
-                            let acp_session_id = runner
-                                .ensure_acp_session(
-                                    &conn,
-                                    &working_dir,
-                                    session_id,
-                                    companion_capabilities,
-                                )
-                                .await?;
+                            // Prompt must not call session/new. A Conversation
+                            // already owns a thread; the host binds it with
+                            // PrepareSession (first turn) or ResumeSession
+                            // (follow-up). Creating a thread here forks Codex
+                            // into a new session B while VibeX keeps writing A.
+                            let acp_session_id = match runner
+                                .session_map
+                                .read()
+                                .await
+                                .get(&session_id)
+                                .cloned()
+                                .filter(|id| crate::is_restorable_acp_session_id(id))
+                            {
+                                Some(acp_session_id) => acp_session_id,
+                                None => {
+                                    crate::session_bind_metrics::record_prompt_unbound(
+                                        session_id.0,
+                                    );
+                                    runner
+                                        .fail_active_turn(
+                                            session_id,
+                                            prompt_id,
+                                            AgentError::AcpSessionNotBound,
+                                        )
+                                        .await;
+                                    continue;
+                                }
+                            };
                             match runner
                                 .run_prompt(
                                     &conn,
@@ -2146,10 +2602,10 @@ impl AgentConnectionRunner {
                                     },
                                     &mut cmd_rx,
                                 )
-                                .await?
+                                .await
                             {
-                                RunPromptOutcome::Settled => {}
-                                RunPromptOutcome::RetireConnection => {
+                                Ok(RunPromptOutcome::Settled) => {}
+                                Ok(RunPromptOutcome::RetireConnection) => {
                                     // ADR-0071: an agent that does not ack cancel (or
                                     // went silent) must not serve the next turn.
                                     runner.emit_connection_status(
@@ -2162,7 +2618,18 @@ impl AgentConnectionRunner {
                                     );
                                     break;
                                 }
-                                RunPromptOutcome::Closed => break,
+                                Ok(RunPromptOutcome::Closed) => break,
+                                Err(error) => {
+                                    runner
+                                        .fail_active_turn(
+                                            session_id,
+                                            prompt_id,
+                                            AgentError::Runtime(format!(
+                                                "ACP prompt drive failed: {error}"
+                                            )),
+                                        )
+                                        .await;
+                                }
                             }
                         }
                         AgentConnectionCommand::Steer {
@@ -2322,10 +2789,15 @@ impl AgentConnectionRunner {
                 }
 
                 Ok::<(), acp::Error>(())
-            })
-            .await;
+            });
 
-        let _ = kill_process_group(&mut child).await;
+        let stop = wait_for_acp_or_process_death(acp_run, child.wait(), async {
+            let _ = stdout_closed_rx.await;
+        })
+        .await;
+        if !matches!(stop, AcpProcessStop::ChildExited(_)) {
+            let _ = kill_process_group(&mut child).await;
+        }
         if handshake_timed_out.load(Ordering::SeqCst) {
             let stderr = stderr_buffer.lock().await.summary();
             return Err(AgentError::Runtime(format_handshake_timeout_error(
@@ -2333,7 +2805,9 @@ impl AgentConnectionRunner {
                 stderr,
             )));
         }
-        result.map_err(|error| AgentError::Runtime(format!("ACP connection failed: {error}")))
+        let prompt_in_flight = self.active_prompt.lock().await.is_some();
+        let stderr = stderr_buffer.lock().await.summary();
+        resolve_acp_process_stop(stop, prompt_in_flight, stderr)
     }
 
     async fn ensure_acp_session(
@@ -2343,10 +2817,17 @@ impl AgentConnectionRunner {
         session_id: AgentSessionId,
         companion_capabilities: CompanionCapabilities,
     ) -> Result<String, acp::Error> {
-        if let Some(existing) = self.session_map.read().await.get(&session_id).cloned() {
+        if let Some(existing) = self.session_map.read().await.get(&session_id).cloned()
+            && crate::is_restorable_acp_session_id(&existing)
+        {
+            self.emit_session_bind_ready(session_id, existing.clone());
             return Ok(existing);
         }
 
+        // session/new is only for PrepareSession (a conversation that does not
+        // yet own a thread) and for fork, which creates a new Conversation.
+        // Prompt must never reach here: that would stuff a new Codex thread
+        // into an existing VibeX Conversation.
         self.new_acp_session(conn, working_dir, session_id, companion_capabilities)
             .await
     }
@@ -2360,9 +2841,24 @@ impl AgentConnectionRunner {
         support: SessionRestoreSupport,
         companion_capabilities: CompanionCapabilities,
     ) -> AgentResult<(String, Option<crate::conversation::SessionRecoveryStrategy>)> {
+        crate::session_bind_metrics::record_connect_start(
+            session_id.0,
+            &self.snapshot.agent_id,
+            true,
+            if support.resume {
+                "resume"
+            } else if support.load {
+                "load"
+            } else {
+                "new"
+            },
+        );
         let mapped = self.session_map.read().await.get(&session_id).cloned();
         match mapped_resume_action(mapped.as_deref(), &external_session_id) {
-            MappedResume::Reuse(existing) => return Ok((existing, None)),
+            MappedResume::Reuse(existing) => {
+                self.emit_session_bind_ready(session_id, existing.clone());
+                return Ok((existing, None));
+            }
             MappedResume::LoadRequested { unbind_stale } => {
                 if unbind_stale {
                     tracing::warn!(
@@ -2376,7 +2872,10 @@ impl AgentConnectionRunner {
             }
         }
 
-        if support.resume {
+        let mut resume_auth_error: Option<acp::Error> = None;
+        {
+            // Always attempt resume for a known sid, even when the agent did
+            // not advertise it. Mid-conversation session/new is forbidden.
             let mut request = ResumeSessionRequest::new(
                 SessionId::new(external_session_id.clone()),
                 working_dir.to_path_buf(),
@@ -2428,16 +2927,25 @@ impl AgentConnectionRunner {
                 }
                 Err(error) => {
                     *self.pending_session_id.lock().await = None;
-                    if !support.load {
-                        let reason = classify_session_load_error(&error);
-                        self.emit_session_load_failed(session_id, reason.clone());
-                        return Err(map_session_restore_error(error));
+                    crate::session_bind_metrics::record_resume_fell_through_to_load(
+                        session_id.0,
+                        &error.to_string(),
+                    );
+                    if matches!(
+                        classify_session_load_error(&error),
+                        SessionLoadFailureReason::AuthenticationRequired { .. }
+                    ) {
+                        resume_auth_error = Some(error);
                     }
                 }
             }
         }
 
-        if support.load {
+        // Always try load after resume misses. Some agents implement load
+        // without advertising it; falling through to session/new would stitch a
+        // cold thread into this conversation.
+        let attempted_load = true;
+        let load_result = if attempted_load {
             let mut request = LoadSessionRequest::new(
                 SessionId::new(external_session_id.clone()),
                 working_dir.to_path_buf(),
@@ -2456,50 +2964,151 @@ impl AgentConnectionRunner {
             );
             *self.pending_session_id.lock().await = Some(session_id);
             self.emit_connection_status(AgentConnectionStatus::Recovering, None, Some(session_id));
-            let load_result = conn.send_request(request).block_task().await;
-            match load_result {
-                Ok(response) => {
-                    self.session_map
-                        .write()
-                        .await
-                        .insert(session_id, external_session_id.clone());
-                    self.emit_session_linked(session_id, external_session_id.clone())
-                        .await;
-                    let (modes, config_options, vendor_config) =
-                        session_controls_with_vendor_fallback(
-                            response.modes,
-                            response.config_options,
-                            response.meta.as_ref(),
-                        );
-                    self.emit_session_controls(
-                        conn,
-                        &external_session_id,
-                        session_id,
-                        modes,
-                        config_options,
-                        vendor_config,
-                        response.meta.as_ref(),
-                    )
+            let result = conn.send_request(request).block_task().await;
+            *self.pending_session_id.lock().await = None;
+            result
+        } else if let Some(error) = resume_auth_error {
+            Err(error)
+        } else {
+            Err(acp::Error::method_not_found())
+        };
+
+        match load_result {
+            Ok(response) => {
+                self.session_map
+                    .write()
+                    .await
+                    .insert(session_id, external_session_id.clone());
+                self.emit_session_linked(session_id, external_session_id.clone())
                     .await;
-                    *self.pending_session_id.lock().await = None;
-                    return Ok((
-                        external_session_id,
-                        Some(crate::conversation::SessionRecoveryStrategy::Loaded),
-                    ));
-                }
-                Err(error) => {
-                    *self.pending_session_id.lock().await = None;
-                    let reason = classify_session_load_error(&error);
-                    self.emit_session_load_failed(session_id, reason.clone());
-                    return Err(map_session_restore_error(error));
-                }
+                let (modes, config_options, vendor_config) = session_controls_with_vendor_fallback(
+                    response.modes,
+                    response.config_options,
+                    response.meta.as_ref(),
+                );
+                self.emit_session_controls(
+                    conn,
+                    &external_session_id,
+                    session_id,
+                    modes,
+                    config_options,
+                    vendor_config,
+                    response.meta.as_ref(),
+                )
+                .await;
+                Ok((
+                    external_session_id,
+                    Some(crate::conversation::SessionRecoveryStrategy::Loaded),
+                ))
+            }
+            Err(error) => {
+                self.resolve_session_load_failure(
+                    conn,
+                    working_dir,
+                    session_id,
+                    &external_session_id,
+                    companion_capabilities,
+                    error,
+                    attempted_load,
+                )
+                .await
             }
         }
+    }
 
-        self.emit_session_load_failed(session_id, SessionLoadFailureReason::Unsupported);
-        Err(AgentError::SessionLoadFailed(
-            SessionLoadFailureReason::Unsupported,
+    #[allow(clippy::too_many_arguments)]
+    async fn resolve_session_load_failure(
+        &self,
+        conn: &ConnectionTo<Agent>,
+        working_dir: &Path,
+        session_id: AgentSessionId,
+        failed_sid: &str,
+        companion_capabilities: CompanionCapabilities,
+        error: acp::Error,
+        attempted_load: bool,
+    ) -> AgentResult<(String, Option<crate::conversation::SessionRecoveryStrategy>)> {
+        let a_level = classify_session_load_error(&error);
+        let classified = classified_load_failure_reason(&a_level, &error.to_string(), failed_sid);
+        let action = decide_session_load_failure(
+            &self.snapshot.agent_id,
+            &a_level,
+            classified.as_ref(),
+            attempted_load,
+            is_method_not_found_error(&error),
+        );
+        tracing::info!(
+            session_id = %session_id.0,
+            failed_sid,
+            code = classified.as_ref().map(|reason| reason.code()).unwrap_or("none"),
+            ?action,
+            attempted_load,
+            "ACP session/load classified"
+        );
+
+        match action {
+            SessionLoadFailureAction::StopForAuth { message } => {
+                return self.stop_connect_for_auth(session_id, message).await;
+            }
+            SessionLoadFailureAction::Banner(reason) => {
+                self.emit_session_load_failed(session_id, reason.clone());
+                self.emit_connection_status(
+                    AgentConnectionStatus::Failed,
+                    Some(error.to_string()),
+                    Some(session_id),
+                );
+                return Err(AgentError::SessionLoadFailed(reason));
+            }
+            SessionLoadFailureAction::ToastThenNew => {
+                self.emit(
+                    Some(session_id),
+                    None,
+                    AgentEvent::Error {
+                        error: AgentErrorEvent {
+                            message: format!("Failed to load session, starting new: {error}"),
+                            code: None,
+                            raw: None,
+                        },
+                    },
+                );
+            }
+            SessionLoadFailureAction::SilentNew => {}
+        }
+
+        // Last-resort session/new on THIS conversation's connection only.
+        // The previous sid is not passed to the agent (that would mix threads);
+        // the Conversation event log records continues_from for UI continuity.
+        let acp_session_id = self
+            .new_acp_session(conn, working_dir, session_id, companion_capabilities)
+            .await
+            .map_err(|error| map_acp_session_error("ACP session/new after load failed", error))?;
+        Ok((
+            acp_session_id,
+            Some(crate::conversation::SessionRecoveryStrategy::CreatedNewSession),
         ))
+    }
+
+    async fn stop_connect_for_auth(
+        &self,
+        session_id: AgentSessionId,
+        message: String,
+    ) -> AgentResult<(String, Option<crate::conversation::SessionRecoveryStrategy>)> {
+        self.emit_connection_status(
+            AgentConnectionStatus::Failed,
+            Some(message.clone()),
+            Some(session_id),
+        );
+        self.emit(
+            Some(session_id),
+            None,
+            AgentEvent::Error {
+                error: AgentErrorEvent {
+                    message: message.clone(),
+                    code: Some("auth_required".into()),
+                    raw: None,
+                },
+            },
+        );
+        Err(AgentError::AuthenticationRequired(message))
     }
 
     /// Fork the live ACP session for `session_id`, returning the new (forked)
@@ -2576,14 +3185,43 @@ impl AgentConnectionRunner {
     }
 
     async fn emit_session_linked(&self, session_id: AgentSessionId, acp_session_id: String) {
+        if !crate::is_restorable_acp_session_id(&acp_session_id) {
+            tracing::error!(
+                session_id = %session_id.0,
+                acp_session_id,
+                "refusing to persist a placeholder ACP session id"
+            );
+            return;
+        }
         self.emit(
             Some(session_id),
             None,
             AgentEvent::SessionLinked {
-                acp_session_id,
+                acp_session_id: acp_session_id.clone(),
                 agent_id: self.snapshot.agent_id.clone(),
                 capabilities: self.capabilities.read().await.clone(),
             },
+        );
+        self.emit_session_bind_ready(session_id, acp_session_id);
+    }
+
+    fn emit_session_bind_ready(&self, session_id: AgentSessionId, acp_session_id: String) {
+        if !crate::is_restorable_acp_session_id(&acp_session_id) {
+            return;
+        }
+        crate::session_bind_metrics::record_bind_ready(
+            session_id.0,
+            "bound",
+            self.handshake_started.elapsed().as_millis(),
+        );
+        // Resume/load emit Recovering for the UI notice. Bind success must
+        // restore Ready, otherwise session_controls_snapshot treats the live
+        // connection as missing and the composer shows a stale NotFound.
+        self.emit_connection_status(AgentConnectionStatus::Ready, None, Some(session_id));
+        self.emit(
+            Some(session_id),
+            None,
+            AgentEvent::SessionBindReady { acp_session_id },
         );
     }
 
@@ -3149,14 +3787,24 @@ impl AgentConnectionRunner {
         // Start each turn with a clean streaming accumulator so snapshot dedup
         // scopes to this turn and never accretes text across turns.
         self.stream_dedup.lock().await.remove(&acp_session_id);
-        self.apply_session_overrides(
-            conn,
-            &acp_session_id,
-            session_id,
-            mode_override,
-            config_overrides,
-        )
-        .await?;
+        if let Err(error) = self
+            .apply_session_overrides(
+                conn,
+                &acp_session_id,
+                session_id,
+                mode_override,
+                config_overrides,
+            )
+            .await
+        {
+            self.fail_active_turn(
+                session_id,
+                prompt_id,
+                AgentError::Runtime(format!("ACP session overrides failed: {error}")),
+            )
+            .await;
+            return Ok(RunPromptOutcome::Settled);
+        }
         let request = PromptRequest::new(
             SessionId::new(acp_session_id.clone()),
             blocks.into_iter().map(agent_block_to_acp).collect(),
@@ -3202,6 +3850,15 @@ impl AgentConnectionRunner {
                             );
                         }
                         Err(error) => {
+                            if let Some(usage) =
+                                crate::usage_from_error_data(error.data.as_ref())
+                            {
+                                self.emit(
+                                    Some(session_id),
+                                    Some(prompt_id),
+                                    AgentEvent::Usage { usage },
+                                );
+                            }
                             self.emit(
                                 Some(session_id),
                                 Some(prompt_id),
@@ -3470,7 +4127,7 @@ impl AgentConnectionRunner {
                                 Some(prompt_id),
                                 AgentEvent::Error {
                                     error: AgentErrorEvent {
-                                        message: "Agent connection closed before the turn completed.".to_string(),
+                                        message: CONNECTION_CLOSED_TURN_MESSAGE.to_string(),
                                         code: Some("connection_closed".to_string()),
                                         raw: None,
                                     },
@@ -3521,6 +4178,21 @@ impl AgentConnectionRunner {
                                     .into(),
                             )));
                         }
+                        Some(AgentConnectionCommand::PrepareSession { result_tx, .. }) => {
+                            let _ = result_tx.send(Err(AgentError::Runtime(
+                                "cannot prepare a session while a turn is in progress".into(),
+                            )));
+                        }
+                        Some(AgentConnectionCommand::ResumeSession { result_tx, .. }) => {
+                            let _ = result_tx.send(Err(AgentError::Runtime(
+                                "cannot resume a session while a turn is in progress".into(),
+                            )));
+                        }
+                        Some(AgentConnectionCommand::DiscardSession { result_tx, .. }) => {
+                            let _ = result_tx.send(Err(AgentError::Runtime(
+                                "cannot discard a session while a turn is in progress".into(),
+                            )));
+                        }
                         Some(other) => {
                             self.emit(
                                 Some(session_id),
@@ -3546,6 +4218,7 @@ impl AgentConnectionRunner {
     ) {
         let pending = self.pending_permissions.lock().await.remove(permission_id);
         if let Some(pending) = pending {
+            let persist = response.should_persist_auto_approve(&pending.options);
             let _ = pending.tx.send(response.clone());
             self.emit(
                 Some(pending.session_id),
@@ -3556,6 +4229,9 @@ impl AgentConnectionRunner {
                     auto: false,
                 },
             );
+            if persist {
+                self.persist_connection_auto_approve().await;
+            }
         } else {
             self.emit(
                 None,
@@ -3565,6 +4241,36 @@ impl AgentConnectionRunner {
                         "kind": "unknown_permission_response",
                         "permission_id": permission_id,
                     }),
+                },
+            );
+        }
+    }
+
+    async fn persist_connection_auto_approve(&self) {
+        *self.auto_approve_mode.lock().await = AgentAutoApproveMode::Yolo;
+        let remaining = {
+            let mut pending = self.pending_permissions.lock().await;
+            pending.drain().map(|(_, entry)| entry).collect::<Vec<_>>()
+        };
+        let mode = *self.auto_approve_mode.lock().await;
+        for pending in remaining {
+            let request = AgentPermissionRequest {
+                id: pending.permission_id,
+                session_id: pending.session_id,
+                title: String::new(),
+                details: None,
+                options: pending.options.clone(),
+            };
+            let response = decide_auto_permission_response(mode, &request)
+                .unwrap_or(AgentPermissionResponse::Cancelled);
+            let _ = pending.tx.send(response.clone());
+            self.emit(
+                Some(pending.session_id),
+                None,
+                AgentEvent::PermissionResponded {
+                    permission_id: pending.permission_id,
+                    response,
+                    auto: true,
                 },
             );
         }
@@ -3701,14 +4407,26 @@ impl AgentConnectionRunner {
         if let AgentEvent::Error { error } = &event {
             let session = session_id.map(|id| id.to_string());
             let prompt = prompt_id.map(|id| id.to_string());
-            tracing::error!(
-                agent_id = %self.snapshot.agent_id.as_str(),
-                session_id = session.as_deref().unwrap_or("-"),
-                prompt_id = prompt.as_deref().unwrap_or("-"),
-                code = error.code.as_deref().unwrap_or("unknown"),
-                "{}",
-                error.message
-            );
+            let code = error.code.as_deref().unwrap_or("unknown");
+            if code == "agent_not_installed" {
+                tracing::debug!(
+                    agent_id = %self.snapshot.agent_id.as_str(),
+                    session_id = session.as_deref().unwrap_or("-"),
+                    prompt_id = prompt.as_deref().unwrap_or("-"),
+                    code,
+                    "{}",
+                    error.message
+                );
+            } else {
+                tracing::error!(
+                    agent_id = %self.snapshot.agent_id.as_str(),
+                    session_id = session.as_deref().unwrap_or("-"),
+                    prompt_id = prompt.as_deref().unwrap_or("-"),
+                    code,
+                    "{}",
+                    error.message
+                );
+            }
         }
         send_manager_event(
             &self.event_tx,
@@ -3719,6 +4437,22 @@ impl AgentConnectionRunner {
                 event,
             },
         );
+    }
+
+    async fn fail_active_turn(
+        &self,
+        session_id: AgentSessionId,
+        prompt_id: AgentPromptId,
+        error: AgentError,
+    ) {
+        self.emit(
+            Some(session_id),
+            Some(prompt_id),
+            AgentEvent::Error {
+                error: turn_error_event_from_connection_failure(&error),
+            },
+        );
+        *self.active_prompt.lock().await = None;
     }
 
     fn emit_connection_status(
@@ -3736,10 +4470,13 @@ impl AgentConnectionRunner {
                 session_id = ?session_id,
                 ?status,
                 message = status_message.as_deref().unwrap_or(""),
-                "ACP session reconnecting (UI notice: 会话加载异常，正在连接…)"
+                "ACP session reconnecting (UI notice: 正在连接 Agent…)"
             );
         }
         let now = Utc::now();
+        if let Ok(mut current) = self.status.try_lock() {
+            *current = status;
+        }
         self.emit(
             session_id,
             None,
@@ -3817,7 +4554,7 @@ struct AcpClientBridge {
     session_controls: Arc<RwLock<HashMap<AgentSessionId, SessionControlState>>>,
     pending_permissions: Arc<Mutex<HashMap<String, PendingPermission>>>,
     pending_elicitations: Arc<Mutex<HashMap<String, PendingElicitation>>>,
-    auto_approve_mode: AgentAutoApproveMode,
+    auto_approve_mode: Arc<Mutex<AgentAutoApproveMode>>,
     // Shared with the owning `AgentConnectionRunner` so a turn boundary can reset
     // it; keyed by ACP session id.
     stream_dedup: Arc<Mutex<HashMap<String, StreamDedupState>>>,
@@ -3841,7 +4578,7 @@ impl AcpClientBridge {
         session_controls: Arc<RwLock<HashMap<AgentSessionId, SessionControlState>>>,
         pending_permissions: Arc<Mutex<HashMap<String, PendingPermission>>>,
         pending_elicitations: Arc<Mutex<HashMap<String, PendingElicitation>>>,
-        auto_approve_mode: AgentAutoApproveMode,
+        auto_approve_mode: Arc<Mutex<AgentAutoApproveMode>>,
         stream_dedup: Arc<Mutex<HashMap<String, StreamDedupState>>>,
         last_activity: Arc<Mutex<Instant>>,
         grok_subagent: Arc<Mutex<GrokSubagentTracker>>,
@@ -3939,19 +4676,11 @@ impl AcpClientBridge {
                     ReleaseTerminalResponse::new(),
                 ))
             }
-            AgentRequest::WaitForTerminalExitRequest(args) => {
-                let terminal_id = parse_terminal_id(&args.terminal_id)?;
-                let exit = agent_terminal_registry()
-                    .wait_for_exit(terminal_id.into())
-                    .await
-                    .ok_or_else(acp::Error::invalid_params)?;
-                let mut exit_status = agent_client_protocol::schema::v1::TerminalExitStatus::new();
-                if let AgentTerminalExit::Code { code } = exit {
-                    exit_status = exit_status.exit_code(code as u32);
-                }
-                Ok(ClientResponse::WaitForTerminalExitResponse(
-                    WaitForTerminalExitResponse::new(exit_status),
-                ))
+            AgentRequest::WaitForTerminalExitRequest(_) => {
+                // Answered off the dispatch loop in `on_receive_request`.
+                // Reaching here would freeze the ACP connection on a
+                // never-exiting command (dev server / `npm run dev`).
+                Err(acp::Error::method_not_found())
             }
             AgentRequest::KillTerminalRequest(args) => Ok(ClientResponse::KillTerminalResponse(
                 self.kill_terminal(args).await?,
@@ -4012,21 +4741,9 @@ impl AcpClientBridge {
                 .collect(),
         };
 
-        send_manager_event(
-            &self.event_tx,
-            AgentConnectionManagerEvent {
-                connection_id: self.connection_id,
-                session_id: Some(session_id),
-                prompt_id: None,
-                event: AgentEvent::PermissionRequested {
-                    request: request.clone(),
-                },
-            },
-        );
-
+        let configured = *self.auto_approve_mode.lock().await;
         let auto_approve_mode =
-            effective_auto_approve_mode(self.auto_approve_mode, &self.session_controls, session_id)
-                .await;
+            effective_auto_approve_mode(configured, &self.session_controls, session_id).await;
         if let Some(response) = decide_auto_permission_response(auto_approve_mode, &request) {
             send_manager_event(
                 &self.event_tx,
@@ -4052,7 +4769,47 @@ impl AcpClientBridge {
             PendingPermission {
                 permission_id,
                 session_id,
+                options: request.options.clone(),
                 tx,
+            },
+        );
+
+        let configured = *self.auto_approve_mode.lock().await;
+        if let Some(response) = decide_auto_permission_response(configured, &request)
+            && let Some(pending) = self
+                .pending_permissions
+                .lock()
+                .await
+                .remove(&permission_id.to_string())
+        {
+            let _ = pending.tx.send(response.clone());
+            send_manager_event(
+                &self.event_tx,
+                AgentConnectionManagerEvent {
+                    connection_id: self.connection_id,
+                    session_id: Some(session_id),
+                    prompt_id: None,
+                    event: AgentEvent::PermissionResponded {
+                        permission_id,
+                        response: response.clone(),
+                        auto: true,
+                    },
+                },
+            );
+            return Ok(RequestPermissionResponse::new(permission_response_outcome(
+                response,
+            )));
+        }
+
+        send_manager_event(
+            &self.event_tx,
+            AgentConnectionManagerEvent {
+                connection_id: self.connection_id,
+                session_id: Some(session_id),
+                prompt_id: None,
+                event: AgentEvent::PermissionRequested {
+                    request: request.clone(),
+                },
             },
         );
 
@@ -4826,6 +5583,30 @@ fn session_update_is_end_turn_usage(update: &SessionUpdate) -> bool {
 
 fn parse_terminal_id(id: &TerminalId) -> Result<uuid::Uuid, acp::Error> {
     uuid::Uuid::parse_str(id.0.as_ref()).map_err(|_| acp::Error::invalid_params())
+}
+
+async fn wait_for_terminal_exit_response(
+    terminal_id: uuid::Uuid,
+) -> Result<WaitForTerminalExitResponse, acp::Error> {
+    let exit = agent_terminal_registry()
+        .wait_for_exit(terminal_id.into())
+        .await
+        .ok_or_else(acp::Error::invalid_params)?;
+    let mut exit_status = agent_client_protocol::schema::v1::TerminalExitStatus::new();
+    if let AgentTerminalExit::Code { code } = exit {
+        exit_status = exit_status.exit_code(code as u32);
+    }
+    Ok(WaitForTerminalExitResponse::new(exit_status))
+}
+
+/// Requests that must not be answered inside the ACP dispatch loop.
+///
+/// agent-client-protocol waits for each `on_receive_request` handler to
+/// finish before reading the next message. `terminal/wait_for_exit` can
+/// wait forever; answering it inline freezes `session/update` and
+/// `session/cancel`. Codeg answers this from `cx.spawn`.
+fn acp_request_must_run_off_dispatch_loop(request: &AgentRequest) -> bool {
+    matches!(request, AgentRequest::WaitForTerminalExitRequest(_))
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -5890,7 +6671,7 @@ fn agent_permission_option_kind(kind: PermissionOptionKind) -> AgentPermissionOp
 
 fn permission_response_outcome(response: AgentPermissionResponse) -> RequestPermissionOutcome {
     match response {
-        AgentPermissionResponse::Selected { option_id } => {
+        AgentPermissionResponse::Selected { option_id, .. } => {
             RequestPermissionOutcome::Selected(SelectedPermissionOutcome::new(option_id))
         }
         AgentPermissionResponse::Cancelled => RequestPermissionOutcome::Cancelled,
@@ -6440,6 +7221,10 @@ mod tests {
             })
             .await;
         ready_rx.await.unwrap().unwrap();
+        let session_id = AgentSessionId::new();
+        manager
+            .bind_known_acp_session(connection_id, session_id, "acp-session".into())
+            .await;
         let (closed_tx, closed_rx) = mpsc::channel(1);
         drop(closed_rx);
         manager
@@ -6453,7 +7238,7 @@ mod tests {
         let err = manager
             .send_prompt(
                 connection_id,
-                AgentSessionId::new(),
+                session_id,
                 AgentPromptId::new(),
                 vec![AgentContentBlock::Text {
                     text: "hello".to_string(),
@@ -7363,6 +8148,35 @@ mod tests {
         );
     }
 
+    #[tokio::test]
+    async fn sweep_idle_skips_connecting_connections() {
+        let (event_tx, _event_rx) = manager_event_channel();
+        let manager = AgentConnectionManager::new_with_driver(event_tx, false);
+        let (snapshot, ready_rx) = manager
+            .register_connection(AgentConnectionLaunch {
+                connection_id: AgentConnectionId::new(),
+                agent_id: AgentId::parse("codex").unwrap(),
+                launch_lock: test_launch_lock(AgentId::parse("codex").unwrap()),
+                workspace_id: uuid::Uuid::new_v4(),
+                working_dir: std::env::temp_dir(),
+                additional_directories: Vec::new(),
+                auto_approve_mode: AgentAutoApproveMode::Off,
+                env: HashMap::new(),
+            })
+            .await;
+        ready_rx.await.unwrap().unwrap();
+
+        manager
+            .set_connection_status(snapshot.connection_id, AgentConnectionStatus::Connecting)
+            .await;
+        assert_eq!(manager.sweep_idle(Duration::from_secs(0)).await, 0);
+
+        manager
+            .set_connection_status(snapshot.connection_id, AgentConnectionStatus::Ready)
+            .await;
+        assert_eq!(manager.sweep_idle(Duration::from_secs(0)).await, 1);
+    }
+
     #[test]
     fn handshake_timeout_uses_default_for_missing_or_invalid_env() {
         assert_eq!(
@@ -7426,6 +8240,23 @@ mod tests {
         assert!(prompt_idle_watchdog_blocked(true, false, false));
         assert!(prompt_idle_watchdog_blocked(false, true, false));
         assert!(prompt_idle_watchdog_blocked(false, false, true));
+    }
+
+    #[test]
+    fn wait_for_terminal_exit_must_run_off_the_dispatch_loop() {
+        let wait = AgentRequest::WaitForTerminalExitRequest(
+            agent_client_protocol::schema::v1::WaitForTerminalExitRequest::new(
+                SessionId::new("session-1"),
+                TerminalId::new("term-1"),
+            ),
+        );
+        assert!(acp_request_must_run_off_dispatch_loop(&wait));
+        assert!(!acp_request_must_run_off_dispatch_loop(
+            &AgentRequest::KillTerminalRequest(KillTerminalRequest::new(
+                SessionId::new("session-1"),
+                TerminalId::new("term-1"),
+            ))
+        ));
     }
 
     #[test]
@@ -7497,6 +8328,117 @@ mod tests {
         assert!(message.contains("20s"));
     }
 
+    #[tokio::test]
+    async fn process_death_wins_over_simultaneous_acp_success() {
+        let stop = wait_for_acp_or_process_death(
+            async { Ok::<(), ()>(()) },
+            std::future::pending(),
+            async {},
+        )
+        .await;
+        // Stdout EOF no longer outranks a live protocol loop: a pipe stall
+        // must not kill a Prompting connection. The quiet-Ok-while-in-flight
+        // case is still a connection_closed via resolve_acp_process_stop.
+        assert!(matches!(stop, AcpProcessStop::Connection(Ok(()))));
+    }
+
+    #[tokio::test]
+    async fn acp_completion_wins_when_the_process_is_still_alive() {
+        let stop = wait_for_acp_or_process_death(
+            async { Ok::<(), ()>(()) },
+            std::future::pending(),
+            std::future::pending(),
+        )
+        .await;
+        assert!(matches!(stop, AcpProcessStop::Connection(Ok(()))));
+    }
+
+    #[tokio::test]
+    async fn stdout_eof_fails_a_pending_acp_connection() {
+        let stop = tokio::time::timeout(
+            Duration::from_secs(2),
+            wait_for_acp_or_process_death(
+                std::future::pending::<Result<(), ()>>(),
+                std::future::pending(),
+                async {},
+            ),
+        )
+        .await
+        .expect("stdout-EOF grace should settle");
+        assert!(matches!(stop, AcpProcessStop::StdoutClosed));
+    }
+
+    #[tokio::test]
+    async fn stdout_eof_does_not_kill_a_live_protocol_loop() {
+        let (release_tx, release_rx) = tokio::sync::oneshot::channel::<()>();
+        let acp = async {
+            release_rx.await.ok();
+            Ok::<(), ()>(())
+        };
+        let wait = wait_for_acp_or_process_death(acp, std::future::pending(), async {});
+        tokio::pin!(wait);
+        tokio::select! {
+            stop = &mut wait => {
+                panic!("stdout EOF must wait for the protocol loop, got {stop:?}");
+            }
+            _ = tokio::time::sleep(Duration::from_millis(50)) => {}
+        }
+        let _ = release_tx.send(());
+        let stop = wait.await;
+        assert!(matches!(stop, AcpProcessStop::Connection(Ok(()))));
+    }
+
+    #[test]
+    fn acp_success_while_a_turn_is_in_flight_is_connection_closed() {
+        let error =
+            resolve_acp_process_stop(AcpProcessStop::Connection(Ok::<(), &str>(())), true, None)
+                .expect_err("an in-flight turn must not survive a quiet ACP shutdown");
+        assert!(error.is_connection_death());
+        let event = turn_error_event_from_connection_failure(&error);
+        assert_eq!(event.message, CONNECTION_CLOSED_TURN_MESSAGE);
+        assert_eq!(event.code.as_deref(), Some("connection_closed"));
+    }
+
+    #[test]
+    fn acp_success_without_a_turn_is_ok() {
+        resolve_acp_process_stop(AcpProcessStop::Connection(Ok::<(), &str>(())), false, None)
+            .expect("a clean shutdown with no turn must stay success");
+    }
+
+    #[test]
+    fn process_death_turn_error_uses_connection_closed_code() {
+        let error = connection_closed_error(
+            "ACP agent process exited (exit status: 1)",
+            Some("fatal".into()),
+        );
+        let event = turn_error_event_from_connection_failure(&error);
+        assert_eq!(event.message, CONNECTION_CLOSED_TURN_MESSAGE);
+        assert_eq!(event.code.as_deref(), Some("connection_closed"));
+        assert_eq!(
+            event.raw.as_ref().and_then(|raw| raw.get("detail")),
+            Some(&serde_json::json!(
+                "agent connection closed: ACP agent process exited (exit status: 1). Recent stderr: fatal"
+            ))
+        );
+    }
+
+    #[test]
+    fn acp_transport_failure_during_a_turn_is_connection_closed() {
+        let error = AgentError::Runtime("ACP connection failed: broken pipe".into());
+        let event = turn_error_event_from_connection_failure(&error);
+        assert_eq!(event.message, CONNECTION_CLOSED_TURN_MESSAGE);
+        assert_eq!(event.code.as_deref(), Some("connection_closed"));
+    }
+
+    #[test]
+    fn handshake_timeout_stays_an_internal_turn_error() {
+        let error =
+            AgentError::Runtime(format_handshake_timeout_error(Duration::from_secs(5), None));
+        let event = turn_error_event_from_connection_failure(&error);
+        assert!(event.message.contains("ACP handshake timed out"));
+        assert_eq!(event.code.as_deref(), Some("internal_error"));
+    }
+
     #[test]
     fn session_load_errors_classify_by_real_acp_code() {
         // ResourceNotFound (-32002) → expired session.
@@ -7514,6 +8456,154 @@ mod tests {
             classify_session_load_error(&acp::Error::invalid_params()),
             SessionLoadFailureReason::Other { .. }
         ));
+        // Auth is code-only: message text must not classify as auth.
+        assert!(
+            classify_session_load_failure_fragments("Authentication required", "sid").is_none()
+        );
+    }
+
+    #[test]
+    fn session_load_failure_fragments_lock_codeg_arms() {
+        assert!(matches!(
+            classify_session_load_failure_fragments(
+                "session abc is archived. Run `codex unarchive abc`",
+                "abc"
+            ),
+            Some(SessionLoadFailureReason::SessionArchived { recovery_command })
+                if recovery_command.as_deref() == Some("codex unarchive abc")
+        ));
+        assert!(matches!(
+            classify_session_load_failure_fragments(
+                "thread xyz already has an active writer",
+                "xyz"
+            ),
+            Some(SessionLoadFailureReason::SessionBusy)
+        ));
+        assert!(matches!(
+            classify_session_load_failure_fragments(
+                "Claude Code process exited with code 1",
+                "sid"
+            ),
+            Some(SessionLoadFailureReason::SessionUnavailable)
+        ));
+        assert!(matches!(
+            classify_session_load_failure_fragments("session has ended", "sid"),
+            Some(SessionLoadFailureReason::SessionUnavailable)
+        ));
+        assert!(matches!(
+            classify_session_load_failure_fragments("Session not found", "sid"),
+            Some(SessionLoadFailureReason::SessionUnavailable)
+        ));
+        assert!(
+            classify_session_load_failure_fragments("Authentication required", "sid").is_none()
+        );
+        assert!(classify_session_load_failure_fragments("Method not found", "sid").is_none());
+    }
+
+    #[test]
+    fn recovers_load_failure_locally_is_custom_and_never_busy() {
+        let custom = AgentId::parse("my-custom-agent").unwrap();
+        let codex = AgentId::parse("codex").unwrap();
+        assert!(recovers_load_failure_locally(
+            &custom,
+            Some(&SessionLoadFailureReason::ResourceNotFound)
+        ));
+        assert!(!recovers_load_failure_locally(
+            &codex,
+            Some(&SessionLoadFailureReason::ResourceNotFound)
+        ));
+        assert!(!recovers_load_failure_locally(
+            &custom,
+            Some(&SessionLoadFailureReason::SessionBusy)
+        ));
+        assert!(!recovers_load_failure_locally(&custom, None));
+    }
+
+    #[test]
+    fn session_load_failure_decision_table_matches_d3() {
+        let custom = AgentId::parse("my-custom-agent").unwrap();
+        let codex = AgentId::parse("codex").unwrap();
+        let auth = SessionLoadFailureReason::AuthenticationRequired {
+            message: "login".into(),
+        };
+        assert_eq!(
+            decide_session_load_failure(&codex, &auth, None, true, false),
+            SessionLoadFailureAction::StopForAuth {
+                message: "login".into()
+            }
+        );
+        assert_eq!(
+            decide_session_load_failure(
+                &codex,
+                &SessionLoadFailureReason::ResourceNotFound,
+                Some(&SessionLoadFailureReason::ResourceNotFound),
+                true,
+                false
+            ),
+            SessionLoadFailureAction::Banner(SessionLoadFailureReason::ResourceNotFound)
+        );
+        assert_eq!(
+            decide_session_load_failure(
+                &custom,
+                &SessionLoadFailureReason::Other {
+                    message: "gone".into()
+                },
+                Some(&SessionLoadFailureReason::ResourceNotFound),
+                true,
+                false
+            ),
+            SessionLoadFailureAction::SilentNew
+        );
+        assert_eq!(
+            decide_session_load_failure(
+                &custom,
+                &SessionLoadFailureReason::Other {
+                    message: "busy".into()
+                },
+                Some(&SessionLoadFailureReason::SessionBusy),
+                true,
+                false
+            ),
+            SessionLoadFailureAction::Banner(SessionLoadFailureReason::SessionBusy)
+        );
+        assert_eq!(
+            decide_session_load_failure(
+                &codex,
+                &SessionLoadFailureReason::Other {
+                    message: "nope".into()
+                },
+                None,
+                true,
+                false
+            ),
+            SessionLoadFailureAction::ToastThenNew
+        );
+        assert_eq!(
+            decide_session_load_failure(
+                &codex,
+                &SessionLoadFailureReason::Other {
+                    message: "Method not found".into()
+                },
+                None,
+                true,
+                true
+            ),
+            SessionLoadFailureAction::SilentNew
+        );
+        assert_eq!(
+            decide_session_load_failure(
+                &codex,
+                &SessionLoadFailureReason::Other {
+                    message: "no load".into()
+                },
+                None,
+                false,
+                false
+            ),
+            SessionLoadFailureAction::SilentNew
+        );
+        // Restoring a known sid maps SilentNew/ToastThenNew to a load-failed
+        // banner. session/new is only for conversations that never had a thread.
     }
 
     #[test]

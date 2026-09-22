@@ -76,7 +76,7 @@ describe('sessionNoticeNeedsRebind', () => {
         }),
         AGENT_BINDING_LOAD_FAILURE_NOTICE_ROW_ID
       )
-    ).toBe(true);
+    ).toBe(false);
     expect(
       sessionNoticeNeedsRebind(
         notice({

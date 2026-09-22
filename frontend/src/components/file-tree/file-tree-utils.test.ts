@@ -31,6 +31,14 @@ import {
   pruneExpandedFileTreeFolders,
   replaceFileTreeDirectoryListing,
   resolveFileTreeAbsolutePath,
+  collectDirectChildFolderPaths,
+  collectFileTreeExpandAllSeedPaths,
+  completeFileTreeExpandAllPath,
+  createFileTreeExpandAllSession,
+  enqueueFileTreeExpandAllPaths,
+  isDirectChildPath,
+  isFileTreeExpandAllSessionIdle,
+  takeNextFileTreeExpandAllPaths,
   toggleAllFileTreeFolders,
   toggleFileTreeFolder,
 } from './file-tree-utils';
@@ -620,6 +628,76 @@ describe('file tree folder expansion policy', () => {
     expect(Array.from(toggleFileTreeFolder(new Set(['src']), 'src'))).toEqual(
       []
     );
+  });
+});
+
+describe('file tree expand-all queue', () => {
+  it('identifies direct children and expand-all seed folders', () => {
+    expect(isDirectChildPath('', 'src')).toBe(true);
+    expect(isDirectChildPath('', '')).toBe(false);
+    expect(isDirectChildPath('', 'src/lib')).toBe(false);
+    expect(isDirectChildPath('src', 'src/lib')).toBe(true);
+    expect(isDirectChildPath('src', 'src/lib/hooks')).toBe(false);
+
+    expect(
+      collectDirectChildFolderPaths('src', [
+        'src',
+        'src/lib',
+        'src/utils',
+        'src/lib/hooks',
+        'docs',
+      ])
+    ).toEqual(['src/lib', 'src/utils']);
+
+    expect(
+      collectFileTreeExpandAllSeedPaths([
+        'src',
+        'src/lib',
+        'docs',
+        'crates/server',
+      ])
+    ).toEqual(['src', 'docs', 'crates/server']);
+  });
+
+  it('takes a bounded batch and enqueues nested folders after each completion', () => {
+    const session = createFileTreeExpandAllSession(1, [
+      'src',
+      'docs',
+      'crates',
+      'assets',
+      'frontend',
+    ]);
+
+    expect(takeNextFileTreeExpandAllPaths(session, 2)).toEqual(['src', 'docs']);
+    expect(session.inFlight.size).toBe(2);
+    expect(isFileTreeExpandAllSessionIdle(session)).toBe(false);
+
+    completeFileTreeExpandAllPath(session, 'src', ['src/lib', 'src/utils']);
+    expect(session.inFlight.size).toBe(1);
+    expect(takeNextFileTreeExpandAllPaths(session, 2)).toEqual(['crates']);
+    expect(session.inFlight.size).toBe(2);
+
+    enqueueFileTreeExpandAllPaths(session, ['src/lib', 'docs']);
+    completeFileTreeExpandAllPath(session, 'docs', []);
+    completeFileTreeExpandAllPath(session, 'crates', []);
+    expect(takeNextFileTreeExpandAllPaths(session, 2)).toEqual([
+      'assets',
+      'frontend',
+    ]);
+    completeFileTreeExpandAllPath(session, 'assets', []);
+    completeFileTreeExpandAllPath(session, 'frontend', []);
+    expect(takeNextFileTreeExpandAllPaths(session, 2)).toEqual([
+      'src/lib',
+      'src/utils',
+    ]);
+    completeFileTreeExpandAllPath(session, 'src/lib', ['src/lib/hooks']);
+    completeFileTreeExpandAllPath(session, 'src/utils', []);
+    expect(takeNextFileTreeExpandAllPaths(session, 2)).toEqual([
+      'src/lib/hooks',
+    ]);
+    completeFileTreeExpandAllPath(session, 'src/lib/hooks', []);
+    expect(takeNextFileTreeExpandAllPaths(session, 2)).toEqual([]);
+    expect(isFileTreeExpandAllSessionIdle(session)).toBe(true);
   });
 });
 

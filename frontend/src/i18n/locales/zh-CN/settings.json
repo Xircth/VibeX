@@ -2352,7 +2352,7 @@
       }
     },
     "actionDescription": "使用已保存的 Runtime 与 Home 配置启动 Agent 官方流程。",
-    "actionUnavailable": "请先安装或修复此 Agent。",
+    "actionUnavailable": "请重新安装或修复此 Agent。",
     "preflightDetailPass": "{{label}} 可用且满足此 Agent 的要求。",
     "preflightDetailWarning": "{{label}} 为可选项；配置前相关能力可能不可用。",
     "preflightDetailRepairable": "{{label}} 是启动此 Agent 的必需项，请使用安装或修复恢复。",

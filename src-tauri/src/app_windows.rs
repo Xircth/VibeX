@@ -1,6 +1,6 @@
 use std::path::PathBuf;
 
-use crate::{error::AppError, host_windows::webview_profile_directory};
+use crate::error::AppError;
 
 pub const APP_WINDOW_PREFIX: &str = "app-";
 
@@ -12,8 +12,15 @@ pub fn is_app_window(label: &str) -> bool {
     label.starts_with(APP_WINDOW_PREFIX) && label.len() > APP_WINDOW_PREFIX.len()
 }
 
+/// Extra local app windows share `main`'s WebView2 user-data folder.
+///
+/// A second folder needs a second WebView2 environment. Creating that from
+/// the first window's IPC (`WebMessageReceived`) deadlocks on Windows: the
+/// new window stays blank, cannot close, and the caller freezes. Host-bound
+/// windows still use isolated profiles.
 pub fn app_webview_data_directory(window_label: &str) -> Option<PathBuf> {
-    is_app_window(window_label).then(|| webview_profile_directory(window_label))
+    let _ = window_label;
+    None
 }
 
 pub fn open_local_app_window(app: &tauri::AppHandle) -> Result<String, AppError> {
@@ -74,17 +81,21 @@ mod tests {
     }
 
     #[test]
-    fn extra_app_windows_use_isolated_webview_profiles() {
+    fn ipc_open_matches_settings_window_thread_hop() {
+        let app_window = include_str!("commands/app_window.rs");
+        let settings = include_str!("commands/settings_window.rs");
+        assert!(app_window.contains("async fn open_app_window"));
+        assert!(app_window.contains("run_on_main_thread"));
+        assert!(settings.contains("async fn open_settings_window"));
+        assert!(settings.contains("run_on_main_thread"));
+    }
+
+    #[test]
+    fn extra_app_windows_share_the_default_webview_profile() {
         let label = "app-550e8400-e29b-41d4-a716-446655440000";
-        let path = app_webview_data_directory(label).expect("app window profile");
-        assert_eq!(path.file_name().and_then(|name| name.to_str()), Some(label));
-        assert!(
-            path.components()
-                .any(|component| component.as_os_str() == "webview-profiles")
-        );
+        assert!(app_webview_data_directory(label).is_none());
         assert!(app_webview_data_directory("main").is_none());
         assert!(app_webview_data_directory("settings").is_none());
-        assert!(app_webview_data_directory("host-abc").is_none());
         assert!(app_webview_data_directory("app-").is_none());
     }
 }

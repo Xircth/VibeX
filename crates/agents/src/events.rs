@@ -378,11 +378,17 @@ pub enum AgentEvent {
     /// Emitted once when the ACP session is established, so the persistence layer
     /// can bind `external_session_id` + `agent_id` onto the conversation row for
     /// transcript re-parse. The `session_id` of the originating DB row travels on
-    /// the event envelope.
+    /// the event envelope. Persist/projection only — not the send-ready latch.
     SessionLinked {
         acp_session_id: String,
         agent_id: AgentId,
         capabilities: crate::AcpCapabilitySnapshot,
+    },
+    /// Connect-time bind finished (`session/new` / resume / load / fallback-new).
+    /// Send and `start_turn` unlock on this event, including when modes/config
+    /// are empty. Never persist this as a Conversation fact.
+    SessionBindReady {
+        acp_session_id: String,
     },
     PromptStarted {
         snapshot: AgentPromptSnapshot,

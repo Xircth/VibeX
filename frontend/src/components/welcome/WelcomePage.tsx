@@ -26,7 +26,6 @@ import {
   PROJECT_DELETE_CONFIRM_CLASSNAME,
   PROJECT_DELETE_CONFIRM_STYLE,
 } from '@/lib/projectDeleteUi';
-import { ProjectRailToggleButton } from '@/components/layout/ProjectRailToggleButton';
 import { toast } from '@/components/ui/toast';
 import { useAppContextMenu } from '@/components/context-menu';
 
@@ -383,7 +382,6 @@ export function WelcomePage() {
             </div>
           </div>
           <div className="flex items-center gap-1">
-            <ProjectRailToggleButton />
             <Button
               variant="ghost"
               size="icon"

@@ -522,7 +522,7 @@ describe('WebServiceSettings', () => {
     renderSettings();
 
     expect(await screen.findByText('已配对设备')).toBeVisible();
-    expect(screen.getByText('Pixel 9')).toBeVisible();
+    expect(await screen.findByText('Pixel 9')).toBeVisible();
     expect(screen.getByRole('button', { name: '撤销' })).toBeVisible();
   });
 

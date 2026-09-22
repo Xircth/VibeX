@@ -1,3 +1,6 @@
+import { readFileSync } from 'node:fs';
+import { dirname, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import i18n from '@/i18n';
@@ -63,11 +66,40 @@ describe('settingsWindowApi', () => {
     });
   });
 
+  it('keeps the app-update toast from replacing the current desktop window', () => {
+    const source = readFileSync(
+      resolve(dirname(fileURLToPath(import.meta.url)), '../../App.tsx'),
+      'utf8'
+    );
+    expect(source).toContain(
+      "openSettingsSurface(navigate, '/settings/system')"
+    );
+    expect(source).not.toContain("navigate('/settings/system')");
+  });
+
+  it('opens a specific Settings page in a dedicated window on the desktop', () => {
+    const navigate = vi.fn();
+    openSettingsSurface(navigate, '/settings/system');
+    expect(desktopShellCall).toHaveBeenCalledWith('open_settings_window', {
+      title: expect.any(String),
+      path: '/settings/system',
+    });
+    expect(navigate).not.toHaveBeenCalled();
+  });
+
   it('navigates in-place when Settings is not a desktop window', () => {
     isTauriClient.mockReturnValue(false);
     const navigate = vi.fn();
     openSettingsSurface(navigate);
     expect(navigate).toHaveBeenCalledWith('/settings');
+    expect(desktopShellCall).not.toHaveBeenCalled();
+  });
+
+  it('navigates in-place to a specific page on web', () => {
+    isTauriClient.mockReturnValue(false);
+    const navigate = vi.fn();
+    openSettingsSurface(navigate, '/settings/system');
+    expect(navigate).toHaveBeenCalledWith('/settings/system');
     expect(desktopShellCall).not.toHaveBeenCalled();
   });
 });

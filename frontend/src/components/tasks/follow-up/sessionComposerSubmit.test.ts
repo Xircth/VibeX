@@ -237,6 +237,19 @@ describe('session composer submit helpers', () => {
         imageCount: 0,
       })
     ).toBe(false);
+    expect(
+      canSendFollowUp({
+        canType: true,
+        hasExecutor: true,
+        isAwaitingNewSessionConfirmation: false,
+        isNewSessionMode: false,
+        sessionBindReady: false,
+        message: 'continue',
+        conflictMarkdown: null,
+        reviewMarkdown: '',
+        imageCount: 0,
+      })
+    ).toBe(false);
   });
 
   it('applies compact eligibility gates', () => {

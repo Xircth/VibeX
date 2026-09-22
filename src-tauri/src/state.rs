@@ -7,7 +7,7 @@ use agents::{AgentEventEnvelope, AgentRuntime, runtime_event_channel};
 use deployment::Deployment;
 use local_deployment::{LocalDeployment, pty::PtyService};
 pub use services::services::agent_management_runtime::{
-    AgentManagementRuntimeState, LocalRuntimeDiscoveryProgress, LocalRuntimeEvidence,
+    AgentManagementRuntimeState, LocalRuntimeEvidence,
 };
 use tauri::Manager;
 use tokio::sync::{Mutex, mpsc};

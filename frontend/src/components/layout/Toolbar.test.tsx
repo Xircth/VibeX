@@ -13,10 +13,6 @@ import { resetKanbanCanvasListVisible } from '@/lib/kanbanCanvasListVisible';
 import { useLayoutStore } from '@/stores/useLayoutStore';
 import { KanbanLayoutToggles, WorkspaceBranchControls } from './Toolbar';
 
-vi.mock('@/components/layout/ProjectRailToggleButton', () => ({
-  ProjectRailToggleButton: () => <button type="button">Projects</button>,
-}));
-
 vi.mock('@/components/layout/WorktreeSelector', () => ({
   WorktreeSelector: () => <button type="button">Select workspace</button>,
 }));
@@ -205,7 +201,7 @@ describe('WorkspaceBranchControls canvas list toggle', () => {
 });
 
 describe('Toolbar chrome layout', () => {
-  it('centers the workspace tabs on the window and keeps the project rail trailing', () => {
+  it('centers the workspace tabs on the window and keeps layout toggles trailing', () => {
     const source = readFileSync(resolve(__dirname, './Toolbar.tsx'), 'utf8');
     expect(source).toContain(
       'absolute inset-0 z-20 flex items-center justify-center'
@@ -215,10 +211,8 @@ describe('Toolbar chrome layout', () => {
     const trailing = source.slice(source.indexOf('ml-auto'));
     expect(trailing).toContain('<KanbanLayoutToggles');
     expect(trailing).toContain('<WorkspaceLayoutToggles');
-    expect(trailing).toContain('<ProjectRailToggleButton');
-    expect(source.slice(0, source.indexOf('ml-auto'))).not.toMatch(
-      /<ProjectRailToggleButton/
-    );
+    expect(trailing).not.toMatch(/<ProjectRailToggleButton/);
+    expect(source).not.toMatch(/<ProjectRailToggleButton/);
     expect(source.slice(0, source.indexOf('ml-auto'))).not.toMatch(
       /<KanbanLayoutToggles/
     );

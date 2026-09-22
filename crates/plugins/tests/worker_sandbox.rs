@@ -2,7 +2,11 @@ use std::{path::PathBuf, sync::Arc, time::Duration};
 
 use plugins::{DenyCapabilityBroker, PluginPackage, PluginSourceKind, WorkerHost};
 use serde_json::json;
-use tokio::{io::AsyncWriteExt, net::TcpListener, time::timeout};
+use tokio::{
+    io::{AsyncReadExt, AsyncWriteExt},
+    net::TcpListener,
+    time::timeout,
+};
 
 fn node_executable() -> Option<PathBuf> {
     std::env::var_os("PATH").and_then(|path| {
@@ -132,10 +136,13 @@ async fn trusted_worker_can_read_host_files_spawn_children_and_reach_loopback() 
     let address = listener.local_addr().unwrap();
     let response = tokio::spawn(async move {
         let (mut stream, _) = listener.accept().await.unwrap();
+        let mut buf = [0u8; 64];
+        let _ = stream.read(&mut buf).await;
         stream
-            .write_all(b"HTTP/1.1 200 OK\r\ncontent-length: 2\r\n\r\nok")
+            .write_all(b"HTTP/1.1 200 OK\r\ncontent-length: 2\r\nconnection: close\r\n\r\nok")
             .await
             .unwrap();
+        let _ = stream.shutdown().await;
     });
     let network_result = worker
         .invoke(

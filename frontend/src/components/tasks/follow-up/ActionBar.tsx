@@ -30,7 +30,6 @@ interface ActionBarProps {
   isAwaitingNewSessionConfirmation?: boolean;
   isEditable: boolean;
   isAttemptRunning: boolean;
-  isQueueLoading: boolean;
   compactContextEnabled: boolean;
   canCompactContext: boolean;
   isCompactingContext: boolean;
@@ -49,7 +48,6 @@ interface ActionBarProps {
   reviewMarkdown: string | null;
   comments: unknown[];
   onCompactContext: () => void;
-  onQueueMessage: () => void;
   onSteer?: () => void;
   onStopExecution: () => void;
   onSendFollowUp: () => void;
@@ -72,7 +70,6 @@ export function ActionBar({
   isAwaitingNewSessionConfirmation = false,
   isEditable,
   isAttemptRunning,
-  isQueueLoading,
   compactContextEnabled,
   canCompactContext,
   isCompactingContext,
@@ -91,7 +88,6 @@ export function ActionBar({
   reviewMarkdown,
   comments,
   onCompactContext,
-  onQueueMessage,
   onSteer,
   onStopExecution,
   onSendFollowUp,
@@ -155,14 +151,12 @@ export function ActionBar({
 
       {isAttemptRunning ? (
         <ActionBarRunningControls
-          isQueueLoading={isQueueLoading}
           isCompactingContext={isCompactingContext}
           isStopping={isStopping}
           isSteering={isSteering}
           steeringChannel={steeringChannel}
           hasQueueableContent={Boolean(hasQueueableContent)}
           sessionId={sessionId}
-          onQueueMessage={onQueueMessage}
           onSteer={onSteer}
           onStopExecution={onStopExecution}
         />

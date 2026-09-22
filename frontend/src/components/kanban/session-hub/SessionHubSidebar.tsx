@@ -61,6 +61,7 @@ import { useKanbanSessionListView } from '@/lib/kanbanSessionListView';
 import { cn } from '@/lib/utils';
 import { useAppContextMenu } from '@/components/context-menu';
 import { buildSessionListBlankMenu } from '@/components/context-menu/sessionListBlankMenu';
+import { conversationApi } from '@/features/conversation/conversationApi';
 import { exportProjectConversationPack } from '@/lib/exportProjectConversationPack';
 import {
   sessionListTitle,
@@ -171,6 +172,22 @@ function parseStatusDropId(id: unknown): ActiveSessionStatus | null {
   }
 
   return value;
+}
+
+function sessionVisibleInSearch(
+  session: KanbanProjectSessionRecord,
+  query: string,
+  searchHitIds: Set<string> | null
+) {
+  const needle = query.trim();
+  if (!needle) {
+    return true;
+  }
+
+  return (
+    sessionMatchesNameQuery(session, needle) ||
+    Boolean(searchHitIds?.has(session.id))
+  );
 }
 
 function SessionListNotice({
@@ -516,6 +533,7 @@ export function SessionHubSidebar({
   const [searchQuery, setSearchQuery] = useState('');
   const [isSearchExpanded, setIsSearchExpanded] = useState(false);
   const [dismissedNotice, setDismissedNotice] = useState<string | null>(null);
+  const [searchHitIds, setSearchHitIds] = useState<Set<string> | null>(null);
   const noticeMessage = deleteErrorMessage ?? deleteSuccessMessage;
   const noticeVariant = deleteErrorMessage
     ? ('error' as const)
@@ -549,50 +567,42 @@ export function SessionHubSidebar({
   const searching = searchQuery.trim().length > 0;
   const searchedSessions = useMemo(
     () =>
-      searching
-        ? sessions.filter((session) =>
-            sessionMatchesNameQuery(session, searchQuery)
-          )
-        : sessions,
-    [searchQuery, searching, sessions]
+      sessions.filter((session) =>
+        sessionVisibleInSearch(session, searchQuery, searchHitIds)
+      ),
+    [searchHitIds, searchQuery, sessions]
   );
   const searchedArchivedSessions = useMemo(
     () =>
-      searching
-        ? archivedSessions.filter((session) =>
-            sessionMatchesNameQuery(session, searchQuery)
-          )
-        : archivedSessions,
-    [archivedSessions, searchQuery, searching]
+      archivedSessions.filter((session) =>
+        sessionVisibleInSearch(session, searchQuery, searchHitIds)
+      ),
+    [archivedSessions, searchHitIds, searchQuery]
   );
   const searchedWorkspaceListSessions = useMemo(
     () =>
-      searching
-        ? workspaceListSessions.filter((session) =>
-            sessionMatchesNameQuery(session, searchQuery)
-          )
-        : workspaceListSessions,
-    [searchQuery, searching, workspaceListSessions]
+      workspaceListSessions.filter((session) =>
+        sessionVisibleInSearch(session, searchQuery, searchHitIds)
+      ),
+    [searchHitIds, searchQuery, workspaceListSessions]
   );
   const searchedFlatSessions = useMemo(
     () =>
-      searching
-        ? flatSessions.filter((session) =>
-            sessionMatchesNameQuery(session, searchQuery)
-          )
-        : flatSessions,
-    [flatSessions, searchQuery, searching]
+      flatSessions.filter((session) =>
+        sessionVisibleInSearch(session, searchQuery, searchHitIds)
+      ),
+    [flatSessions, searchHitIds, searchQuery]
   );
   const searchedGroupedSessions = useMemo(() => {
     if (!searching) return groupedSessions;
     const next: Record<string, KanbanProjectSessionRecord[]> = {};
     SESSION_STATUS_ORDER.forEach((status) => {
       next[status] = (groupedSessions[status] ?? []).filter((session) =>
-        sessionMatchesNameQuery(session, searchQuery)
+        sessionVisibleInSearch(session, searchQuery, searchHitIds)
       );
     });
     return next;
-  }, [groupedSessions, searchQuery, searching]);
+  }, [groupedSessions, searchHitIds, searchQuery, searching]);
   const activeSessionId =
     currentExecutionPlacement?.sessionId ?? openingSessionId ?? null;
   const sensors = useSensors(
@@ -604,6 +614,35 @@ export function SessionHubSidebar({
   useEffect(() => {
     setDismissedNotice(null);
   }, [deleteErrorMessage, deleteSuccessMessage]);
+
+  useEffect(() => {
+    const trimmed = searchQuery.trim();
+    if (!trimmed) {
+      setSearchHitIds(null);
+      return;
+    }
+
+    let cancelled = false;
+    const timer = window.setTimeout(() => {
+      conversationApi
+        .search(trimmed, null, 80)
+        .then((hits) => {
+          if (!cancelled) {
+            setSearchHitIds(new Set(hits.map((hit) => hit.conversation_id)));
+          }
+        })
+        .catch(() => {
+          if (!cancelled) {
+            setSearchHitIds(new Set());
+          }
+        });
+    }, 200);
+
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
+  }, [searchQuery]);
 
   useEffect(() => {
     if (!noticeMessage || noticeMessage === dismissedNotice) return;
@@ -701,11 +740,12 @@ export function SessionHubSidebar({
       >
         <div className="space-y-2 px-2.5 pb-1 pt-1.5">
           <div
-            className={
+            className={cn(
+              'flex w-full min-w-0 flex-nowrap items-center gap-1 overflow-hidden',
               compactHeader
-                ? 'flex w-full items-center justify-start gap-1'
-                : 'flex items-center justify-between gap-3'
-            }
+                ? 'justify-start'
+                : 'session-hub-sidebar-header justify-between'
+            )}
           >
             {compactHeader || isSearchExpanded || isDeleteMode ? null : (
               <SessionListHeaderTitle
@@ -721,11 +761,12 @@ export function SessionHubSidebar({
               </SessionListHeaderTitle>
             )}
             <div
-              className={
-                compactHeader
-                  ? 'flex w-full items-center justify-start gap-1'
-                  : 'flex min-w-0 flex-1 items-center justify-start gap-1'
-              }
+              className={cn(
+                'flex min-w-0 flex-nowrap items-center gap-1',
+                compactHeader || isSearchExpanded
+                  ? 'w-full flex-1 justify-start'
+                  : 'session-hub-sidebar-actions shrink-0 [&>*]:shrink-0'
+              )}
             >
               {isDeleteMode ? (
                 <SessionListDeleteControl
@@ -1129,10 +1170,6 @@ export function SessionHubSidebar({
                         : t('hubSidebar.archiveEmpty')}
                     </div>
                   )
-                ) : sessions.length === 0 ? (
-                  <div className="session-hub-drop-zone rounded-xl border-dashed px-4 py-6 text-center text-sm text-muted-foreground">
-                    {t('hubSidebar.noSessions')}
-                  </div>
                 ) : isFlatListMode ? (
                   searchedFlatSessions.length > 0 ? (
                     renderSessionList(

@@ -104,6 +104,7 @@ export function canSendFollowUp({
   hasExecutor,
   isAwaitingNewSessionConfirmation,
   isNewSessionMode,
+  sessionBindReady = true,
   message,
   conflictMarkdown,
   reviewMarkdown,
@@ -113,6 +114,7 @@ export function canSendFollowUp({
   hasExecutor: boolean;
   isAwaitingNewSessionConfirmation: boolean;
   isNewSessionMode: boolean;
+  sessionBindReady?: boolean;
   message: string;
   conflictMarkdown: string | null | undefined;
   reviewMarkdown: string | null | undefined;
@@ -121,6 +123,7 @@ export function canSendFollowUp({
   return (
     canType &&
     hasExecutor &&
+    sessionBindReady &&
     !isAwaitingNewSessionConfirmation &&
     !isNewSessionMode &&
     hasFollowUpContent({

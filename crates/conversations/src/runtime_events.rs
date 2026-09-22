@@ -25,7 +25,11 @@ use db::models::{
 };
 use deployment::Deployment;
 use sqlx::SqlitePool;
-use tokio::{sync::mpsc, task::JoinHandle};
+use tokio::{
+    sync::mpsc,
+    task::JoinHandle,
+    time::{self, Duration, MissedTickBehavior},
+};
 use uuid::Uuid;
 
 use crate::{
@@ -160,16 +164,25 @@ impl ConversationAgentEventRecorder {
         attach_cached_plan_usage(&self.pool, conversation_id, &mut event).await;
 
         if let AgentEvent::SessionLinked { acp_session_id, .. } = &envelope.event {
-            persist_session_linked_external_id(&self.pool, conversation_id, acp_session_id).await?;
-            if let Some(binding_id) = latest_binding_id(&self.pool, conversation_id).await? {
-                ConversationAgentBindingRecord::bind_acp_session(
-                    &self.pool,
-                    binding_id,
+            if agents::is_placeholder_acp_session_id(acp_session_id) {
+                tracing::error!(
+                    %conversation_id,
                     acp_session_id,
-                    None,
-                    BindingStatus::Ready,
-                )
-                .await?;
+                    "refusing to persist a placeholder ACP session id via SessionLinked"
+                );
+            } else {
+                persist_session_linked_external_id(&self.pool, conversation_id, acp_session_id)
+                    .await?;
+                if let Some(binding_id) = latest_binding_id(&self.pool, conversation_id).await? {
+                    ConversationAgentBindingRecord::bind_acp_session(
+                        &self.pool,
+                        binding_id,
+                        acp_session_id,
+                        None,
+                        BindingStatus::Ready,
+                    )
+                    .await?;
+                }
             }
         }
 
@@ -350,35 +363,35 @@ async fn append_mapped_event(
     .await
     {
         Ok(record) => Ok(Some(record)),
-        Err(error) if mapped.turn_id.is_some() && is_foreign_key_constraint(&error) => {
-            match ConversationEventAppender::append(
-                pool,
-                append_event_input(mapped, normalized_json, None),
-            )
-            .await
-            {
-                Ok(record) => Ok(Some(record)),
-                Err(retry) if is_foreign_key_constraint(&retry) => {
-                    tracing::warn!(
-                        conversation_id = %mapped.conversation_id,
-                        turn_id = ?mapped.turn_id,
-                        %retry,
-                        "skipped conversation event that could not be persisted"
-                    );
-                    Ok(None)
+        Err(error) if is_foreign_key_constraint(&error) => {
+            if mapped.turn_id.is_some() {
+                match ConversationEventAppender::append(
+                    pool,
+                    append_event_input(mapped, normalized_json, None),
+                )
+                .await
+                {
+                    Ok(record) => return Ok(Some(record)),
+                    Err(retry) if is_foreign_key_constraint(&retry) => {
+                        tracing::debug!(
+                            conversation_id = %mapped.conversation_id,
+                            turn_id = ?mapped.turn_id,
+                            %retry,
+                            "skipped conversation event that could not be persisted"
+                        );
+                        return Ok(None);
+                    }
+                    Err(retry) => return Err(retry),
                 }
-                Err(retry) => Err(retry),
             }
-        }
-        Err(error) => {
-            tracing::warn!(
+            tracing::debug!(
                 conversation_id = %mapped.conversation_id,
-                turn_id = ?mapped.turn_id,
                 %error,
                 "skipped conversation event that could not be persisted"
             );
             Ok(None)
         }
+        Err(error) => Err(error),
     }
 }
 
@@ -644,20 +657,54 @@ pub enum RuntimeEventRecordError {
     Conversation(#[from] ConversationServiceError),
 }
 
+const AGENT_EVENT_STREAM_FLUSH_INTERVAL: Duration = Duration::from_millis(80);
+
 /// Start the durable runtime-event bridge for a host composition root.
 pub fn start_agent_event_persistence(
     context: ConversationContext,
+    receiver: mpsc::Receiver<AgentEventEnvelope>,
+) -> JoinHandle<()> {
+    start_agent_event_persistence_with_observer(context, receiver, |_| {})
+}
+
+/// Same persist loop as [`start_agent_event_persistence`], with an observer for
+/// host-specific live fan-out (desktop/headless `agent-events`).
+pub fn start_agent_event_persistence_with_observer(
+    context: ConversationContext,
     mut receiver: mpsc::Receiver<AgentEventEnvelope>,
+    on_envelope: impl Fn(&AgentEventEnvelope) + Send + 'static,
 ) -> JoinHandle<()> {
     tokio::spawn(async move {
         let mut recorder = ConversationAgentEventRecorder::with_context(context);
-        while let Some(envelope) = receiver.recv().await {
-            if let Err(error) = recorder.record(&envelope).await {
-                tracing::warn!(
-                    sequence = envelope.sequence,
-                    %error,
-                    "failed to persist agent runtime event"
-                );
+        let mut flush_interval = time::interval(AGENT_EVENT_STREAM_FLUSH_INTERVAL);
+        flush_interval.set_missed_tick_behavior(MissedTickBehavior::Skip);
+        loop {
+            tokio::select! {
+                _ = flush_interval.tick() => {
+                    if let Err(error) = recorder.flush_buffered().await {
+                        tracing::warn!(%error, "failed to flush conversation events");
+                    }
+                }
+                received = receiver.recv() => {
+                    match received {
+                        Some(envelope) => {
+                            if let Err(error) = recorder.record_buffered(&envelope).await {
+                                tracing::warn!(
+                                    sequence = envelope.sequence,
+                                    %error,
+                                    "failed to persist agent runtime event"
+                                );
+                            }
+                            on_envelope(&envelope);
+                        }
+                        None => {
+                            if let Err(error) = recorder.flush_buffered().await {
+                                tracing::warn!(%error, "failed to flush conversation events");
+                            }
+                            break;
+                        }
+                    }
+                }
             }
         }
     })
@@ -1003,7 +1050,8 @@ fn map_agent_event(
         AgentEvent::SessionCreated { .. }
         | AgentEvent::PromptStarted { .. }
         | AgentEvent::ModeChanged { .. }
-        | AgentEvent::ConfigChanged { .. } => None,
+        | AgentEvent::ConfigChanged { .. }
+        | AgentEvent::SessionBindReady { .. } => None,
     }
 }
 
@@ -1471,6 +1519,23 @@ mod tests {
     }
 
     #[test]
+    fn connection_closed_errors_fail_the_turn_with_the_connection_closed_code() {
+        let envelope = envelope(AgentEvent::Error {
+            error: agents::events::AgentErrorEvent {
+                message: "Agent connection closed before the turn completed.".into(),
+                code: Some("connection_closed".into()),
+                raw: None,
+            },
+        });
+        assert!(matches!(
+            map_agent_event(&envelope, Some(Uuid::new_v4())),
+            Some(ConversationEvent::TurnFailed {
+                error: agents::conversation::ConversationError { code: Some(code), .. }
+            }) if code == "connection_closed"
+        ));
+    }
+
+    #[test]
     fn completed_prompt_finish_stays_turn_completed() {
         let envelope = envelope(AgentEvent::PromptFinished {
             finished: agents::AgentPromptFinished {
@@ -1636,6 +1701,14 @@ mod tests {
             session.external_session_id.as_deref(),
             Some("acp-live-session-9")
         );
+    }
+
+    #[test]
+    fn session_bind_ready_is_not_persisted_as_a_conversation_event() {
+        let envelope = envelope(AgentEvent::SessionBindReady {
+            acp_session_id: "acp-live-session-9".into(),
+        });
+        assert!(map_agent_event(&envelope, None).is_none());
     }
 
     #[tokio::test]
@@ -1836,6 +1909,17 @@ mod tests {
         assert!(
             skipped.is_none(),
             "events for an unknown conversation must not abort the recorder"
+        );
+
+        let mut connect_event = mapped_record(2, connection_ready_event());
+        connect_event.turn_id = None;
+        let connect_normalized = serde_json::to_string(&connect_event.event).expect("serialize");
+        let skipped_connect = append_mapped_event(&pool, &connect_event, &connect_normalized)
+            .await
+            .expect("connect-time events without a turn are skippable");
+        assert!(
+            skipped_connect.is_none(),
+            "bind/status events for an unknown conversation must not abort the recorder"
         );
     }
 

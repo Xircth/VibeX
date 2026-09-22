@@ -1,6 +1,6 @@
 [package]
 name = "vibex"
-version = "0.2.6"
+version = "0.2.7"
 edition = "2024"
 default-run = "vibex"
 
@@ -91,7 +91,6 @@ tauri-plugin-updater = "2.10.1"
 tauri-plugin-process = "2.3.1"
 
 [target.'cfg(target_os = "macos")'.dependencies]
-xattr = "1.6.1"
 muda = "0.17"
 objc2 = "0.6.4"
 objc2-app-kit = { version = "0.3.2", default-features = false, features = [
@@ -130,8 +129,11 @@ block2 = "0.6"
 windows = { version = "0.61", features = [
     "Win32_Foundation",
     "Win32_System_Com",
+    "Win32_System_Com_StructuredStorage",
+    "Win32_System_Variant",
     "Win32_UI_Shell",
     "Win32_UI_Shell_Common",
+    "Win32_UI_Shell_PropertiesSystem",
     "Win32_UI_WindowsAndMessaging",
 ] }
 webview2-com = "0.38"

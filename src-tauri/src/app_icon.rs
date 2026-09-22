@@ -1,7 +1,10 @@
 use tauri::image::Image;
 
 #[cfg(any(target_os = "windows", test))]
-const WINDOWS_CAPTION_PAD: u32 = 4;
+const WINDOWS_CAPTION_SIZE: u32 = 32;
+// 2px pad on a 32px slot is ~85% glyph fill (was 4px → ~75% / 70-relative).
+#[cfg(any(target_os = "windows", test))]
+const WINDOWS_CAPTION_PAD: u32 = 2;
 
 #[cfg(target_os = "windows")]
 pub(crate) fn windows_caption_icon(bytes: &[u8]) -> Result<Image<'static>, String> {
@@ -10,7 +13,7 @@ pub(crate) fn windows_caption_icon(bytes: &[u8]) -> Result<Image<'static>, Strin
         source.rgba(),
         source.width(),
         source.height(),
-        32,
+        WINDOWS_CAPTION_SIZE,
         WINDOWS_CAPTION_PAD,
     ))
 }
@@ -133,7 +136,7 @@ fn pixel(rgba: &[u8], width: u32, x: u32, y: u32) -> [u8; 4] {
 
 #[cfg(test)]
 mod tests {
-    use super::{WINDOWS_CAPTION_PAD, fit_opaque_content, pixel};
+    use super::{WINDOWS_CAPTION_PAD, WINDOWS_CAPTION_SIZE, fit_opaque_content, pixel};
 
     #[test]
     fn full_bleed_mark_keeps_caption_margin() {
@@ -144,19 +147,43 @@ mod tests {
             px.copy_from_slice(&[220, 40, 40, 255]);
         }
 
-        let icon = fit_opaque_content(&rgba, width, height, 32, WINDOWS_CAPTION_PAD);
-        assert_eq!(icon.width(), 32);
-        assert_eq!(icon.height(), 32);
+        let icon = fit_opaque_content(
+            &rgba,
+            width,
+            height,
+            WINDOWS_CAPTION_SIZE,
+            WINDOWS_CAPTION_PAD,
+        );
+        assert_eq!(icon.width(), WINDOWS_CAPTION_SIZE);
+        assert_eq!(icon.height(), WINDOWS_CAPTION_SIZE);
         let out = icon.rgba();
+        let last = WINDOWS_CAPTION_SIZE - 1;
+        let mid = WINDOWS_CAPTION_SIZE / 2;
 
         for offset in 0..WINDOWS_CAPTION_PAD {
-            assert_eq!(pixel(out, 32, offset, 16)[3], 0, "left pad {offset}");
-            assert_eq!(pixel(out, 32, 31 - offset, 16)[3], 0, "right pad {offset}");
-            assert_eq!(pixel(out, 32, 16, offset)[3], 0, "top pad {offset}");
-            assert_eq!(pixel(out, 32, 16, 31 - offset)[3], 0, "bottom pad {offset}");
+            assert_eq!(
+                pixel(out, WINDOWS_CAPTION_SIZE, offset, mid)[3],
+                0,
+                "left pad {offset}"
+            );
+            assert_eq!(
+                pixel(out, WINDOWS_CAPTION_SIZE, last - offset, mid)[3],
+                0,
+                "right pad {offset}"
+            );
+            assert_eq!(
+                pixel(out, WINDOWS_CAPTION_SIZE, mid, offset)[3],
+                0,
+                "top pad {offset}"
+            );
+            assert_eq!(
+                pixel(out, WINDOWS_CAPTION_SIZE, mid, last - offset)[3],
+                0,
+                "bottom pad {offset}"
+            );
         }
 
-        let center = pixel(out, 32, 16, 16);
+        let center = pixel(out, WINDOWS_CAPTION_SIZE, mid, mid);
         assert_eq!(center[3], 255);
         assert!(center[0] > 200);
     }

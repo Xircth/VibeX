@@ -30,6 +30,7 @@ import {
   Sun,
 } from 'lucide-react';
 
+import { HomeLogoMenu } from '@/components/layout/HomeLogoMenu';
 import { SurfaceLoading } from '@/components/layout/SurfaceLoading';
 import { AppTitleBar } from '@/components/settings/AppTitleBar';
 import { Button } from '@/components/ui/button';
@@ -40,6 +41,7 @@ import {
 } from '@/lib/settingsPreload';
 import { cn } from '@/lib/utils';
 import { useBackendCapabilities } from '@/lib/transport';
+import { logoLeadsWindowChrome } from '@/utils/platform';
 
 import { AgentSettingsLoading } from './AgentSettingsLoading';
 import { SettingsSearch } from './SettingsSearchField';
@@ -152,6 +154,7 @@ export function SettingsLayout() {
   const { t, i18n } = useTranslation('settings');
   const { capabilities, supports } = useBackendCapabilities();
   const isTauri = useTauriClient();
+  const logoLeads = logoLeadsWindowChrome();
   const pluginPages = usePluginHostContributions('settings_page');
   const [searchQuery, setSearchQuery] = useState('');
   const highlightId = searchParams.get('highlight');
@@ -210,7 +213,15 @@ export function SettingsLayout() {
 
   return (
     <div className="settings-page settings-shell fixed inset-0 flex flex-col overflow-hidden text-foreground">
-      {isTauri ? <AppTitleBar /> : null}
+      {isTauri ? (
+        <AppTitleBar
+          left={logoLeads ? <HomeLogoMenu align="start" /> : undefined}
+          center={
+            <span className="text-sm font-medium">{t('windowTitle')}</span>
+          }
+          right={logoLeads ? undefined : <HomeLogoMenu align="end" />}
+        />
+      ) : null}
       <div className="flex min-h-0 flex-1">
         <aside className="settings-sidebar m-3 w-56 shrink-0 overflow-y-auto p-2.5">
           <SettingsSearch

@@ -1,4 +1,11 @@
-import { useCallback, useEffect, useMemo, useReducer, useRef } from 'react';
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useReducer,
+  useRef,
+  useState,
+} from 'react';
 import { getInvokeErrorMessage, isCanceledError } from '@/lib/errors';
 import type {
   AgentElicitationResponse,
@@ -8,7 +15,10 @@ import type {
   MessageTurn,
   TimelineRow,
 } from 'shared/types';
+import { listenToAgentEvents } from '@/features/agents/events';
 import { conversationApi } from './conversationApi';
+import { AGENT_BINDING_LOAD_FAILURE_NOTICE_ROW_ID } from './sessionNoticeNeedsRebind';
+import { canSkipInFlightHistoryWait } from './canSkipInFlightHistoryWait';
 import { listenToConversationEvents } from './events';
 import { subscribeToOptimisticConversationTurns } from './optimisticTurnEvents';
 import {
@@ -34,6 +44,11 @@ function conversationLoadError(error: unknown): string | null {
     return null;
   }
   return getInvokeErrorMessage(error);
+}
+
+function isStaleAgentConnectionError(error: unknown): boolean {
+  const message = getInvokeErrorMessage(error) ?? '';
+  return /agent connection `.+` was not found/i.test(message);
 }
 
 export type UseConversationTimelineResult = {
@@ -72,11 +87,17 @@ export type UseConversationTimelineResult = {
   ) => Promise<void>;
   hasEarlier: boolean;
   loadOlder: () => Promise<void>;
+  /** ACP bind finished. Composer send stays disabled until this is true. */
+  sessionBindReady: boolean;
+  /** Bind is in flight for a loaded conversation. */
+  connecting: boolean;
 };
 
 export function useConversationTimeline(
-  conversationId: string | null
+  conversationId: string | null,
+  options?: { active?: boolean }
 ): UseConversationTimelineResult {
+  const isActive = options?.active ?? true;
   const [state, dispatch] = useReducer(
     conversationStoreReducer,
     emptyConversationStoreState
@@ -143,18 +164,25 @@ export function useConversationTimeline(
     return loadDetail();
   }, [conversationId, loadDetail]);
 
+  const [sessionBindReady, setSessionBindReady] = useState(false);
+
   const reconnectAndReload = useCallback(async (): Promise<void> => {
     if (!conversationId) return;
+    setSessionBindReady(false);
     try {
-      const controls =
-        await conversationApi.ensureSessionControls(conversationId);
+      const controls = await conversationApi.ensureSessionControls(
+        conversationId,
+        { reload: true }
+      );
       dispatch({
         type: 'session_controls_hydrated',
         conversationId,
         controls,
       });
+      setSessionBindReady(true);
       await loadDetail();
     } catch (error: unknown) {
+      setSessionBindReady(false);
       reportLoadError(error);
     }
   }, [conversationId, loadDetail, reportLoadError]);
@@ -180,6 +208,128 @@ export function useConversationTimeline(
   const hasDetail = conversationId
     ? Boolean(state.byConversationId[conversationId]?.detail)
     : false;
+
+  useEffect(() => {
+    setSessionBindReady(false);
+  }, [conversationId]);
+
+  useEffect(() => {
+    if (!conversationId) return;
+    let active = true;
+    let unlisten: (() => void) | undefined;
+    void listenToAgentEvents((envelope) => {
+      if (!active || envelope.session_id !== conversationId) return;
+      if (envelope.event.kind !== 'session_bind_ready') return;
+      setSessionBindReady(true);
+    }).then((unsubscribe) => {
+      if (!active) {
+        unsubscribe();
+        return;
+      }
+      unlisten = unsubscribe;
+    });
+    return () => {
+      active = false;
+      unlisten?.();
+    };
+  }, [conversationId]);
+
+  useEffect(() => {
+    if (!isActive || !conversationId) return;
+    const entry = stateRef.current.byConversationId[conversationId];
+    const skipInFlightWait = canSkipInFlightHistoryWait(
+      entry?.detail?.active_binding?.capabilities
+    );
+    if (!hasDetail && !skipInFlightWait) return;
+    const detail = entry?.detail;
+    if (!detail || entry?.error) return;
+    // Workspace is required to spawn. Agent id may still be empty on a brand-new
+    // session that only stored `executor`; ensure_session_controls resolves it.
+    if (!detail.summary.workspace_id) return;
+    const hasUnclearedLoadFailure = (entry.rows ?? []).some(
+      (row) => row.row_id === AGENT_BINDING_LOAD_FAILURE_NOTICE_ROW_ID
+    );
+    if (hasUnclearedLoadFailure) return;
+
+    const requestedConversationId = conversationId;
+    // Bind after the open path is idle so history and the composer are not
+    // queued behind ACP spawn.
+    const startBind = () => {
+      void conversationApi
+        .ensureSessionControls(requestedConversationId, { reload: false })
+        .then((controls) => {
+          if (
+            disposedRef.current ||
+            previousConversationIdRef.current !== requestedConversationId
+          ) {
+            return;
+          }
+          dispatch({
+            type: 'session_controls_hydrated',
+            conversationId: requestedConversationId,
+            controls,
+          });
+          setSessionBindReady(true);
+        })
+        .catch((error: unknown) => {
+          if (
+            disposedRef.current ||
+            previousConversationIdRef.current !== requestedConversationId
+          ) {
+            return;
+          }
+          if (isStaleAgentConnectionError(error)) {
+            return;
+          }
+          setSessionBindReady(false);
+          reportLoadError(error, requestedConversationId);
+        });
+    };
+    const idle = window as Window & {
+      requestIdleCallback?: (
+        callback: () => void,
+        options?: { timeout: number }
+      ) => number;
+      cancelIdleCallback?: (id: number) => void;
+    };
+    if (typeof idle.requestIdleCallback === 'function') {
+      const idleId = idle.requestIdleCallback(startBind, { timeout: 200 });
+      return () => idle.cancelIdleCallback?.(idleId);
+    }
+    const timer = window.setTimeout(startBind, 0);
+    return () => {
+      window.clearTimeout(timer);
+    };
+  }, [conversationId, hasDetail, isActive, reportLoadError]);
+
+  useEffect(() => {
+    if (!isActive || !conversationId || !hasDetail) return;
+    let intervalMs = 30_000;
+    let timer: ReturnType<typeof setInterval> | null = null;
+    const touch = () => {
+      void conversationApi
+        .touch(conversationId)
+        .then((result) => {
+          const idleSecs = result?.idleTimeoutSecs ?? 0;
+          if (idleSecs > 0) {
+            const next = Math.min(30_000, (idleSecs * 1000) / 2);
+            if (next !== intervalMs && next > 0) {
+              intervalMs = next;
+              if (timer) clearInterval(timer);
+              timer = setInterval(touch, intervalMs);
+            }
+          }
+        })
+        .catch(() => {
+          /* keepalive is best-effort */
+        });
+    };
+    touch();
+    timer = setInterval(touch, intervalMs);
+    return () => {
+      if (timer) clearInterval(timer);
+    };
+  }, [conversationId, hasDetail, isActive]);
 
   useEffect(() => {
     if (!conversationId || !hasDetail) return;
@@ -422,9 +572,19 @@ export function useConversationTimeline(
       respondQuestion,
       hasEarlier: Boolean(entry?.olderCursor),
       loadOlder,
+      sessionBindReady,
+      connecting:
+        Boolean(hasDetail) &&
+        Boolean(entry?.detail?.summary.workspace_id) &&
+        !sessionBindReady &&
+        !entry?.error &&
+        !(entry?.rows ?? []).some(
+          (row) => row.row_id === AGENT_BINDING_LOAD_FAILURE_NOTICE_ROW_ID
+        ),
     }),
     [
       entry,
+      hasDetail,
       sendOptimisticTurn,
       removeOptimisticTurn,
       loadDetail,
@@ -434,6 +594,7 @@ export function useConversationTimeline(
       respondPermission,
       respondQuestion,
       loadOlder,
+      sessionBindReady,
     ]
   );
 }

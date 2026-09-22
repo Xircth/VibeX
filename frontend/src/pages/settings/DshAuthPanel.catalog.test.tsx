@@ -7,6 +7,7 @@ import { agentManagementApi } from '@/features/agent-management';
 import { renderWithQueryClient as render } from '@/test/QueryClientHarness';
 
 import { clearAllAgentSettingsDrafts } from './agentSettingsDraftRetention';
+import { pickAstryxOption } from './agentSettingsTestUtils';
 import { DshAuthPanel } from './DshAuthPanel';
 
 const pluginControl = vi.hoisted(() => ({
@@ -123,10 +124,11 @@ describe('DshAuthPanel catalog picker', () => {
 
     await user.click(await screen.findByRole('tab', { name: '供应商' }));
     await user.click(screen.getByRole('button', { name: '新建供应商' }));
-    const picker = await screen.findByRole('combobox', { name: '选择预置' });
-    expect(picker).toHaveTextContent('自定义');
-    await user.click(picker);
-    await user.click(await screen.findByRole('option', { name: 'OpenRouter' }));
+    await pickAstryxOption(
+      user,
+      await screen.findByRole('combobox', { name: '搜索预置' }),
+      'OpenRouter'
+    );
 
     expect(screen.getByLabelText('显示名称')).toHaveValue('OpenRouter');
     expect(screen.getByLabelText('备注')).toHaveValue(

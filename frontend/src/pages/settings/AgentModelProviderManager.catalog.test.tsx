@@ -5,6 +5,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { agentManagementApi } from '@/features/agent-management';
 import { renderWithQueryClient as render } from '@/test/QueryClientHarness';
 
+import { pickAstryxOption } from './agentSettingsTestUtils';
 import { AgentModelProviderManager } from './AgentModelProviderManager';
 
 vi.mock('@/features/agent-management', () => ({
@@ -100,8 +101,11 @@ describe('AgentModelProviderManager catalog picker', () => {
     );
 
     await user.click(await screen.findByRole('button', { name: '新建供应商' }));
-    await user.click(await screen.findByRole('combobox', { name: '选择预置' }));
-    await user.click(await screen.findByRole('option', { name: 'OpenRouter' }));
+    await pickAstryxOption(
+      user,
+      await screen.findByRole('combobox', { name: '搜索预置' }),
+      'OpenRouter'
+    );
 
     expect(screen.getByLabelText('Provider 名称')).toHaveValue('OpenRouter');
     expect(screen.getByLabelText('Provider API URL')).toHaveValue(

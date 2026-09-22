@@ -215,6 +215,7 @@ impl ServerApplicationDomains {
             DomainCommand::ConversationEnsureSessionControls => {
                 self.conversation_ensure_session_controls(args).await
             }
+            DomainCommand::ConversationTouch => self.conversation_touch(args).await,
             DomainCommand::ConversationTimelinePage => self.conversation_timeline_page(args).await,
             DomainCommand::ConversationRebindSession => {
                 self.conversation_rebind_session(args).await

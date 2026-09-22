@@ -180,7 +180,7 @@ describe('AgentModelProviderManager', () => {
     });
   });
 
-  it('saves Pi reasoning chips and the default thinking level on a new provider', async () => {
+  it('saves Pi reasoning levels and the default thinking level on a new provider', async () => {
     const user = userEvent.setup();
     vi.mocked(agentManagementApi.modelProviders).mockResolvedValue({
       agent_id: 'pi',
@@ -200,6 +200,12 @@ describe('AgentModelProviderManager', () => {
       await screen.findByRole('heading', { name: '模型供应商' })
     ).toBeVisible();
     await user.click(screen.getAllByRole('button', { name: '新建供应商' })[0]);
+    const enable = screen.getByRole('checkbox', { name: '声明推理能力' });
+    expect(enable.closest('label')?.firstElementChild).toBe(enable);
+    expect(
+      screen.queryByRole('button', { name: 'minimal' })
+    ).not.toBeInTheDocument();
+
     await user.type(screen.getByLabelText('Provider 名称'), 'Gateway');
     await user.type(
       screen.getByLabelText('Provider API URL'),
@@ -207,10 +213,15 @@ describe('AgentModelProviderManager', () => {
     );
     await user.type(screen.getByLabelText('Provider API Key'), 'secret');
     await user.type(screen.getByLabelText('Provider 模型'), 'private-model');
-    await user.click(screen.getByRole('checkbox', { name: '声明推理能力' }));
-    await user.click(
-      screen.getByRole('button', { name: 'xhigh', pressed: false })
+    await user.click(enable);
+    expect(screen.getByRole('checkbox', { name: 'off' })).toBeChecked();
+    expect(screen.getByRole('checkbox', { name: 'high' })).toBeChecked();
+    expect(screen.getByRole('checkbox', { name: 'xhigh' })).not.toBeChecked();
+    expect(screen.getByLabelText('off effort')).toHaveAttribute(
+      'placeholder',
+      'none'
     );
+    await user.click(screen.getByRole('checkbox', { name: 'xhigh' }));
     await pickAstryxOption(user, screen.getByLabelText('默认推理强度'), '高');
     await user.click(screen.getByRole('button', { name: '创建 Provider' }));
 
@@ -266,9 +277,7 @@ describe('AgentModelProviderManager', () => {
     expect(
       screen.getByRole('checkbox', { name: '声明推理能力' })
     ).toBeChecked();
-    expect(
-      screen.getByRole('button', { name: 'xhigh', pressed: false })
-    ).toBeInTheDocument();
+    expect(screen.getByRole('checkbox', { name: 'xhigh' })).not.toBeChecked();
     await user.click(screen.getByRole('button', { name: '保存修改' }));
     expect(
       JSON.parse(
@@ -310,21 +319,11 @@ describe('AgentModelProviderManager', () => {
     await user.type(screen.getByLabelText('Provider API Key'), 'secret');
     await user.type(screen.getByLabelText('Provider 模型'), 'private-model');
     await user.click(screen.getByRole('checkbox', { name: '声明推理能力' }));
-    await user.click(
-      screen.getByRole('button', { name: 'high', pressed: true })
-    );
-    await user.click(
-      screen.getByRole('button', { name: 'medium', pressed: true })
-    );
-    await user.click(
-      screen.getByRole('button', { name: 'low', pressed: true })
-    );
-    await user.click(
-      screen.getByRole('button', { name: 'minimal', pressed: true })
-    );
-    await user.click(
-      screen.getByRole('button', { name: 'off', pressed: true })
-    );
+    await user.click(screen.getByRole('checkbox', { name: 'high' }));
+    await user.click(screen.getByRole('checkbox', { name: 'medium' }));
+    await user.click(screen.getByRole('checkbox', { name: 'low' }));
+    await user.click(screen.getByRole('checkbox', { name: 'minimal' }));
+    await user.click(screen.getByRole('checkbox', { name: 'off' }));
     await user.click(screen.getByRole('button', { name: '创建 Provider' }));
 
     expect(agentManagementApi.saveModelProvider).not.toHaveBeenCalled();

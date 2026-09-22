@@ -28,6 +28,9 @@ SQUIRCLE_N = 5.0
 SQUIRCLE_SCALE = 0.80
 # Keep the mark inside the squircle; 0.70 matches typical macOS app-icon padding.
 CONTENT_SCALE = 0.70
+# Windows taskbar/Start icons sit closer to the tile edge than macOS. 0.85 is
+# the same 70→85 fill ratio as other Win32/Fluent app icons on a 32px slot.
+WINDOWS_CONTENT_SCALE = 0.85
 WINDOWS_ICO_SIZES = (16, 20, 24, 32, 40, 48, 64, 128, 256)
 PNG_SIZES = {
     "32x32.png": 32,
@@ -104,7 +107,9 @@ def apply_squircle(
     )
 
 
-def scales_for(size: int) -> tuple[float, float]:
+def scales_for(
+    size: int, content_scale: float = CONTENT_SCALE
+) -> tuple[float, float]:
     # Windows caption icons are 16–24px. DWM clips about 1px, and LANCZOS
     # downscale bleeds another, so small rasters need a larger canvas inset.
     if size <= 16:
@@ -117,12 +122,14 @@ def scales_for(size: int) -> tuple[float, float]:
         squircle = 0.74
     else:
         squircle = SQUIRCLE_SCALE
-    content = squircle * (CONTENT_SCALE / SQUIRCLE_SCALE)
+    content = squircle * (content_scale / SQUIRCLE_SCALE)
     return squircle, content
 
 
-def render_desktop_icon(source: Image.Image, size: int) -> Image.Image:
-    squircle, content = scales_for(size)
+def render_desktop_icon(
+    source: Image.Image, size: int, content_scale: float = CONTENT_SCALE
+) -> Image.Image:
+    squircle, content = scales_for(size, content_scale)
     square = place_content(source, MASTER_SIZE, content)
     return resize(apply_squircle(square, squircle), size)
 
@@ -133,8 +140,12 @@ def resize(image: Image.Image, size: int) -> Image.Image:
 
 def write_pngs(source: Image.Image) -> None:
     ICONS.mkdir(parents=True, exist_ok=True)
-    for name, size in {**PNG_SIZES, **WINDOWS_STORE_PNGS}.items():
+    for name, size in PNG_SIZES.items():
         render_desktop_icon(source, size).save(ICONS / name, format="PNG")
+    for name, size in WINDOWS_STORE_PNGS.items():
+        render_desktop_icon(source, size, WINDOWS_CONTENT_SCALE).save(
+            ICONS / name, format="PNG"
+        )
 
 
 def write_ico_png_frames(frames: list[Image.Image], path: Path) -> None:
@@ -165,7 +176,10 @@ def write_ico_png_frames(frames: list[Image.Image], path: Path) -> None:
 
 
 def write_ico(source: Image.Image) -> None:
-    frames = [render_desktop_icon(source, size) for size in WINDOWS_ICO_SIZES]
+    frames = [
+        render_desktop_icon(source, size, WINDOWS_CONTENT_SCALE)
+        for size in WINDOWS_ICO_SIZES
+    ]
     write_ico_png_frames(frames, ICONS / "icon.ico")
 
 
@@ -188,6 +202,9 @@ def write_iconset(master: Image.Image, iconset: Path) -> None:
 
 
 def write_icns(master: Image.Image) -> None:
+    if sys.platform != "darwin":
+        print("skipping ICNS: iconutil is macOS-only")
+        return
     with tempfile.TemporaryDirectory() as temp:
         iconset = Path(temp) / "AppIcon.iconset"
         write_iconset(master, iconset)

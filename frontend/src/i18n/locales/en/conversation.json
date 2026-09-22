@@ -125,6 +125,7 @@
   },
   "turnErrorCard": {
     "reloadSession": "Reload session",
+    "newConversation": "New conversation",
     "rebindSession": "Rebind session",
     "cancelledTitle": "Cancelled",
     "resourceNotFoundTitle": "Agent session expired",
@@ -274,7 +275,11 @@
     "updateAgent": "Update",
     "updating": "Updating",
     "updateStarted": "Update started",
-    "updateFailed": "Update failed"
+    "updateFailed": "Update failed",
+    "connectingTitle": "Connecting to agent…",
+    "initSessionTitle": "Initializing session…",
+    "autoPermissionTitle": "Permissions auto-approved",
+    "autoPermissionDescription": "Automatically approved {{count}} permission request(s)"
   },
   "liveFeedback": {
     "placeholder": "Steer this turn",

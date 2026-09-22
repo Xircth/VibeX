@@ -1,0 +1,86 @@
+name: Attach desktop release assets
+
+# Re-uploads desktop installers from an existing Build & Release run.
+# Use this when the updater publish job 500s on parallel large-file uploads.
+
+on:
+  workflow_dispatch:
+    inputs:
+      artifact_run_id:
+        description: "Build & Release run id that holds VibeX-* artifacts"
+        required: true
+        type: string
+      release_tag:
+        description: "GitHub Release tag to attach installers to"
+        required: true
+        type: string
+
+permissions:
+  contents: write
+  actions: read
+
+concurrency:
+  group: attach-desktop-release-assets-${{ github.event.inputs.release_tag }}
+  cancel-in-progress: true
+
+jobs:
+  attach:
+    name: Attach desktop assets
+    runs-on: ubuntu-22.04
+    env:
+      RELEASE_TAG: ${{ inputs.release_tag }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Download desktop build artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: VibeX-*
+          path: updater-artifacts
+          run-id: ${{ inputs.artifact_run_id }}
+          github-token: ${{ github.token }}
+
+      - name: Generate updater manifest
+        env:
+          RELEASE_REPOSITORY: ${{ github.repository }}
+        run: |
+          VERSION="$(node -p "require('./package.json').version")"
+          NOTES_FILE="docs/release/${RELEASE_TAG#v}.md"
+          NOTES_ARGS=()
+          if [ -f "$NOTES_FILE" ]; then
+            NOTES_ARGS=(--notes-file "$NOTES_FILE")
+          fi
+          node scripts/generate-updater-manifest.js \
+            --artifacts-dir updater-artifacts \
+            --output-dir updater-release \
+            --repository "$RELEASE_REPOSITORY" \
+            --release-tag "$RELEASE_TAG" \
+            --version "$VERSION" \
+            "${NOTES_ARGS[@]}"
+          ls -lh updater-release
+
+      - name: Upload release files one at a time
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          for file in updater-release/*; do
+            name="$(basename "$file")"
+            attempt=1
+            until gh release upload "$RELEASE_TAG" "$file" --clobber; do
+              if [ "$attempt" -ge 8 ]; then
+                echo "failed to upload $name after $attempt attempts"
+                exit 1
+              fi
+              echo "retry $attempt for $name"
+              attempt=$((attempt + 1))
+              sleep $((attempt * 15))
+            done
+            echo "uploaded $name"
+          done
+
+      - name: Mark desktop release as latest
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release edit "$RELEASE_TAG" --latest

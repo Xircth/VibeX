@@ -11,7 +11,9 @@ use automation::{
     AutomationEngine, EngineError, FileOwnerLock, StartupReconciler, StartupRecoveryReport,
     SystemClock,
 };
-use conversations::{ConversationAgentEventRecorder, ConversationContext, DefaultConversationHost};
+use conversations::{
+    ConversationContext, DefaultConversationHost, start_agent_event_persistence_with_observer,
+};
 use db::models::automation_v2::SqliteAutomationStore;
 use deployment::{Deployment, DeploymentError};
 use local_deployment::LocalDeployment;
@@ -99,7 +101,7 @@ impl HeadlessServer {
         let provisioned = SqliteTokenHashStore::new(pool.clone())
             .provision(config.token)
             .await?;
-        let (agent_event_sink, mut agent_events) = runtime_event_channel();
+        let (agent_event_sink, agent_events) = runtime_event_channel();
         let agent_runtime = Arc::new(AgentRuntime::new(agent_event_sink));
         let plugin_control_plane = Arc::new(PluginControlPlane::new(Arc::new(
             SqlitePluginRegistry::new(pool.clone()),
@@ -123,18 +125,11 @@ impl HeadlessServer {
             ))),
         };
         let agent_event_task = {
-            let context = conversation_context.clone();
             let events = events.clone();
-            tokio::spawn(async move {
-                let mut recorder = ConversationAgentEventRecorder::with_context(context);
-                while let Some(envelope) = agent_events.recv().await {
-                    if let Err(error) = recorder.record(&envelope).await {
-                        tracing::warn!(
-                            sequence = envelope.sequence,
-                            %error,
-                            "failed to persist agent runtime event"
-                        );
-                    }
+            start_agent_event_persistence_with_observer(
+                conversation_context.clone(),
+                agent_events,
+                move |envelope| {
                     if !matches!(
                         envelope.event,
                         agents::AgentEvent::MessageChunk { .. }
@@ -143,10 +138,10 @@ impl HeadlessServer {
                             | agents::AgentEvent::TerminalOutput { .. }
                             | agents::AgentEvent::RawAcpDiagnostic { .. }
                     ) {
-                        events.emit("agent-events", &envelope);
+                        events.emit("agent-events", envelope);
                     }
-                }
-            })
+                },
+            )
         };
         let _terminal_task = {
             let pool = pool.clone();

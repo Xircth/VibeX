@@ -25,6 +25,31 @@ describe('getConversationSessionNoticeCopy', () => {
     ).toEqual({ title: 'Newer record', message: 'Update to view it.' });
   });
 
+  it('localizes auto-approved permission notices with the folded count', () => {
+    const t = (key: string, options?: Record<string, unknown>) => {
+      if (key === 'conversation:statusDock.autoPermissionTitle') {
+        return 'Permissions auto-approved';
+      }
+      if (key === 'conversation:statusDock.autoPermissionDescription') {
+        return `Automatically approved ${options?.count ?? 0} permission requests`;
+      }
+      return translations[key] ?? key;
+    };
+    expect(
+      getConversationSessionNoticeCopy(
+        {
+          title: '已自动批准权限',
+          message: '已自动批准 3 项权限请求',
+          severity: 'info',
+        },
+        t
+      )
+    ).toEqual({
+      title: 'Permissions auto-approved',
+      message: 'Automatically approved 3 permission requests',
+    });
+  });
+
   it('keeps unrelated agent notices unchanged', () => {
     expect(
       getConversationSessionNoticeCopy(

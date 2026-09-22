@@ -30,6 +30,7 @@ export function Logo({
       <img
         src={logo}
         alt={`${APP_NAME} logo`}
+        draggable={false}
         className={`${logoSizeClass[size]} shrink-0 object-contain`}
       />
       {showText ? (

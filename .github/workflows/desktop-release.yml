@@ -515,11 +515,30 @@ jobs:
             "${NOTES_ARGS[@]}"
 
       - name: Upload updater manifest and signed bundles
-        uses: softprops/action-gh-release@v2
-        with:
-          tag_name: ${{ env.RELEASE_TAG }}
-          fail_on_unmatched_files: true
-          files: updater-release/*
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          files=(updater-release/*)
+          if [ "${#files[@]}" -eq 0 ]; then
+            echo "no updater-release files"
+            exit 1
+          fi
+          for file in "${files[@]}"; do
+            name="$(basename "$file")"
+            attempt=1
+            until gh release upload "$RELEASE_TAG" "$file" --clobber; do
+              if [ "$attempt" -ge 8 ]; then
+                echo "failed to upload $name after $attempt attempts"
+                exit 1
+              fi
+              echo "retry $attempt for $name"
+              attempt=$((attempt + 1))
+              sleep $((attempt * 15))
+            done
+            echo "uploaded $name"
+          done
 
       - name: Mark desktop release as latest
         env:

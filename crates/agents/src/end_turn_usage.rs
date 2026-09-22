@@ -38,6 +38,25 @@ pub fn usage_from_session_update(update: &Value) -> Option<AgentUsage> {
     Some(usage)
 }
 
+/// Grok sometimes fails the prompt RPC with `promptUsage` in the error data
+/// instead of a normal `turn_completed` usage payload.
+pub fn usage_from_error_data(data: Option<&Value>) -> Option<AgentUsage> {
+    let data = data?;
+    data.get("promptUsage")
+        .and_then(prompt_usage_from_value)
+        .or_else(|| prompt_usage_from_value(data))
+        .map(|mut usage| {
+            if usage.model.is_none() {
+                usage.model = data
+                    .pointer("/promptUsage/modelUsage")
+                    .and_then(Value::as_object)
+                    .and_then(|models| models.keys().next())
+                    .cloned();
+            }
+            usage
+        })
+}
+
 pub fn usage_from_session_notification_params(params: &Value) -> Option<AgentUsage> {
     params
         .get("update")
@@ -243,6 +262,24 @@ mod tests {
         assert_eq!(usage.input_tokens, Some(10));
         assert_eq!(usage.output_tokens, Some(4));
         assert_eq!(usage.cache_read_tokens, Some(20));
+    }
+
+    #[test]
+    fn grok_internal_error_prompt_usage_is_recovered() {
+        let data = json!({
+            "message": "serialization error: missing field `created_at`",
+            "promptUsage": {
+                "inputTokens": 100,
+                "outputTokens": 20,
+                "cachedReadTokens": 40,
+                "modelUsage": { "grok-4.6-build": { "inputTokens": 100 } }
+            }
+        });
+        let usage = usage_from_error_data(Some(&data)).expect("usage");
+        assert_eq!(usage.input_tokens, Some(60));
+        assert_eq!(usage.output_tokens, Some(20));
+        assert_eq!(usage.cache_read_tokens, Some(40));
+        assert_eq!(usage.model.as_deref(), Some("grok-4.6-build"));
     }
 
     #[test]

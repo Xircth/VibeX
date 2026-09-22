@@ -234,15 +234,21 @@ pub fn resolve_built_in_auth_mode(
     native_custom_endpoint: bool,
     snapshot: Option<&NativeConfigSnapshot>,
 ) -> String {
-    if policy.modes.contains(&"model_provider") && (bound_provider || native_custom_endpoint) {
-        return "model_provider".to_string();
-    }
+    let uses_model_provider =
+        policy.modes.contains(&"model_provider") && (bound_provider || native_custom_endpoint);
+    // A mode the user picked in VibeX outranks what this machine happens to be
+    // configured with. Letting the configuration win instead pins the Agent to
+    // Provider routing, and the subscription modes become unreachable — the
+    // user can select them but never switch to them.
     if let Some(mode) = env
         .get(policy.mode_env)
         .filter(|mode| policy.modes.contains(&mode.as_str()))
-        .filter(|mode| mode.as_str() != "model_provider")
+        .filter(|mode| mode.as_str() != "model_provider" || uses_model_provider)
     {
         return mode.clone();
+    }
+    if uses_model_provider {
+        return "model_provider".to_string();
     }
     if agent_id.as_str() == "claude_code" {
         if snapshot.is_some_and(|snapshot| snapshot.field_present("anthropic_api_key")) {
@@ -541,9 +547,64 @@ pub fn apply_built_in_launch_policy(
             let requested = env.get(PI_COMMAND_ENV).cloned();
             bind_pi_acp_pi_command(env, requested.as_deref());
         }
+        "grok" => apply_grok_native_launch_env(env),
         _ => {}
     }
     apply_built_in_launch_argument_policy(agent_id, env, args);
+}
+
+/// Carry Grok's native `ui.permission_mode` into the launch env so new sessions
+/// honor the settings UI after an auth-mode change (which rewrites env_json
+/// without copying `GROK_PERMISSION_MODE`).
+fn apply_grok_native_launch_env(env: &mut HashMap<String, String>) {
+    if env
+        .get("GROK_PERMISSION_MODE")
+        .map(|value| value.trim())
+        .is_some_and(|value| !value.is_empty())
+    {
+        return;
+    }
+    if let Some(mode) = read_grok_permission_mode(env) {
+        env.insert("GROK_PERMISSION_MODE".to_string(), mode);
+    }
+}
+
+fn grok_config_dir(env: &HashMap<String, String>) -> PathBuf {
+    if let Some(home) = env
+        .get("GROK_HOME")
+        .map(|value| value.trim())
+        .filter(|value| !value.is_empty())
+    {
+        return PathBuf::from(home);
+    }
+    if let Some(home) = std::env::var_os("GROK_HOME") {
+        return PathBuf::from(home);
+    }
+    env.get("HOME")
+        .or_else(|| env.get("USERPROFILE"))
+        .map(|value| value.trim())
+        .filter(|value| !value.is_empty())
+        .map(PathBuf::from)
+        .or_else(dirs::home_dir)
+        .map(|home| home.join(".grok"))
+        .unwrap_or_else(|| PathBuf::from(".grok"))
+}
+
+fn read_grok_permission_mode(env: &HashMap<String, String>) -> Option<String> {
+    let path = grok_config_dir(env).join("config.toml");
+    let text = std::fs::read_to_string(path).ok()?;
+    let value: toml::Value = toml::from_str(&text).ok()?;
+    let mode = value
+        .get("ui")
+        .and_then(|ui| ui.get("permission_mode"))
+        .and_then(toml::Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())?;
+    Some(match mode {
+        "bypassPermissions" => "always-approve".to_string(),
+        "default" => "ask".to_string(),
+        other => other.to_string(),
+    })
 }
 
 /// Point `pi` at the same native files VibeX projected, and export the bound
@@ -640,13 +701,13 @@ fn pi_lookup_names(requested: &str) -> Vec<String> {
     }
     #[cfg(windows)]
     {
-        return vec![
+        vec![
             format!("{requested}.exe"),
             format!("{requested}.com"),
             format!("{requested}.cmd"),
             format!("{requested}.bat"),
             requested.to_string(),
-        ];
+        ]
     }
     #[cfg(not(windows))]
     {
@@ -1235,6 +1296,77 @@ mod tests {
             crate::permissions::AgentAutoApproveMode::Yolo
         );
 
+        let grok_home = tempfile::tempdir().unwrap();
+        std::fs::write(
+            grok_home.path().join("config.toml"),
+            b"[ui]\npermission_mode = \"always-approve\"\n",
+        )
+        .unwrap();
+        let mut grok_from_native = HashMap::from([(
+            "GROK_HOME".to_string(),
+            grok_home.path().to_string_lossy().into_owned(),
+        )]);
+        let mut grok_from_native_args = vec!["agent".to_string(), "stdio".to_string()];
+        apply_built_in_launch_policy(
+            &AgentId::parse("grok").unwrap(),
+            &mut grok_from_native,
+            &mut grok_from_native_args,
+        );
+        assert_eq!(
+            grok_from_native
+                .get("GROK_PERMISSION_MODE")
+                .map(String::as_str),
+            Some("always-approve")
+        );
+        assert_eq!(
+            grok_from_native_args,
+            ["--no-auto-update", "agent", "--always-approve", "stdio"]
+        );
+        assert_eq!(
+            auto_approve_mode_for_launch(&AgentId::parse("grok").unwrap(), &grok_from_native),
+            crate::permissions::AgentAutoApproveMode::Yolo
+        );
+
+        std::fs::write(
+            grok_home.path().join("config.toml"),
+            b"[ui]\npermission_mode = \"bypassPermissions\"\n",
+        )
+        .unwrap();
+        let mut grok_bypass_native = HashMap::from([(
+            "GROK_HOME".to_string(),
+            grok_home.path().to_string_lossy().into_owned(),
+        )]);
+        apply_built_in_launch_policy(
+            &AgentId::parse("grok").unwrap(),
+            &mut grok_bypass_native,
+            &mut Vec::new(),
+        );
+        assert_eq!(
+            grok_bypass_native
+                .get("GROK_PERMISSION_MODE")
+                .map(String::as_str),
+            Some("always-approve")
+        );
+
+        let mut grok_env_wins = HashMap::from([
+            (
+                "GROK_HOME".to_string(),
+                grok_home.path().to_string_lossy().into_owned(),
+            ),
+            ("GROK_PERMISSION_MODE".to_string(), "ask".to_string()),
+        ]);
+        apply_built_in_launch_policy(
+            &AgentId::parse("grok").unwrap(),
+            &mut grok_env_wins,
+            &mut Vec::new(),
+        );
+        assert_eq!(
+            grok_env_wins
+                .get("GROK_PERMISSION_MODE")
+                .map(String::as_str),
+            Some("ask")
+        );
+
         let mut openclaw_args = vec!["acp".to_string()];
         apply_built_in_launch_argument_policy(
             &AgentId::parse("openclaw").unwrap(),
@@ -1253,8 +1385,10 @@ mod tests {
         );
     }
 
+    /// Until the user chooses a mode, whatever this machine is configured with
+    /// decides — a bound Provider and a custom native endpoint both count.
     #[test]
-    fn bound_provider_wins_over_official_api_env_and_credentials() {
+    fn configuration_decides_the_mode_until_the_user_chooses_one() {
         let claude = AgentId::parse("claude_code").unwrap();
         let grok = AgentId::parse("grok").unwrap();
         let kimi = AgentId::parse("kimi_code").unwrap();
@@ -1262,17 +1396,6 @@ mod tests {
         let grok_policy = built_in_auth_mode_policy(&grok).unwrap();
         let kimi_policy = built_in_auth_mode_policy(&kimi).unwrap();
 
-        assert_eq!(
-            resolve_built_in_auth_mode(
-                &claude,
-                claude_policy,
-                &HashMap::from([("CLAUDE_AUTH_MODE".to_string(), "official_api".to_string())]),
-                true,
-                false,
-                None,
-            ),
-            "model_provider"
-        );
         assert_eq!(
             resolve_built_in_auth_mode(&claude, claude_policy, &HashMap::new(), false, true, None,),
             "model_provider"
@@ -1312,5 +1435,61 @@ mod tests {
             &claude,
             "https://api.anthropic.com/v1"
         ));
+    }
+
+    /// Selecting a mode in VibeX has to take effect, or a bound Provider pins
+    /// the Agent away from the subscription modes for good.
+    #[test]
+    fn a_mode_chosen_in_vibex_outranks_a_bound_provider() {
+        let claude = AgentId::parse("claude_code").unwrap();
+        let grok = AgentId::parse("grok").unwrap();
+        let claude_policy = built_in_auth_mode_policy(&claude).unwrap();
+        let grok_policy = built_in_auth_mode_policy(&grok).unwrap();
+
+        for (bound_provider, native_custom_endpoint) in [(true, false), (false, true), (true, true)]
+        {
+            assert_eq!(
+                resolve_built_in_auth_mode(
+                    &claude,
+                    claude_policy,
+                    &HashMap::from([("CLAUDE_AUTH_MODE".to_string(), "official_api".to_string())]),
+                    bound_provider,
+                    native_custom_endpoint,
+                    None,
+                ),
+                "official_api"
+            );
+            assert_eq!(
+                resolve_built_in_auth_mode(
+                    &grok,
+                    grok_policy,
+                    &HashMap::from([("GROK_AUTH_MODE".to_string(), "subscription".to_string())]),
+                    bound_provider,
+                    native_custom_endpoint,
+                    None,
+                ),
+                "subscription"
+            );
+        }
+    }
+
+    /// Choosing Provider routing with no Provider left to route to would strand
+    /// the Agent, so that selection still defers to the credentials on hand.
+    #[test]
+    fn a_stale_model_provider_choice_falls_back_to_credentials() {
+        let grok = AgentId::parse("grok").unwrap();
+        let grok_policy = built_in_auth_mode_policy(&grok).unwrap();
+
+        assert_eq!(
+            resolve_built_in_auth_mode(
+                &grok,
+                grok_policy,
+                &HashMap::from([("GROK_AUTH_MODE".to_string(), "model_provider".to_string())]),
+                false,
+                false,
+                None,
+            ),
+            "subscription"
+        );
     }
 }

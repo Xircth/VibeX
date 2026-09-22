@@ -481,6 +481,23 @@ impl ConversationRecord {
         Ok(())
     }
 
+    pub async fn clear_active_turn_if_on_connection(
+        conn: &mut SqliteConnection,
+        id: Uuid,
+        turn_id: Uuid,
+    ) -> Result<(), sqlx::Error> {
+        sqlx::query(
+            r#"UPDATE sessions
+               SET active_turn_id = NULL, updated_at = datetime('now', 'subsec')
+               WHERE id = ? AND active_turn_id = ?"#,
+        )
+        .bind(id)
+        .bind(turn_id)
+        .execute(&mut *conn)
+        .await?;
+        Ok(())
+    }
+
     pub async fn set_history_times_on_connection(
         conn: &mut SqliteConnection,
         id: Uuid,

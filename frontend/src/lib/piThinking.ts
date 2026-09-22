@@ -9,6 +9,10 @@ export const PI_THINKING_LEVELS = [
 
 export type PiThinkingLevel = (typeof PI_THINKING_LEVELS)[number];
 
+/** Levels offered when a model first declares reasoning. xhigh stays opt-in. */
+export const DEFAULT_ENABLED_PI_THINKING_LEVELS: readonly PiThinkingLevel[] =
+  PI_THINKING_LEVELS.filter((level) => level !== 'xhigh');
+
 export type PiThinkingLevelMap = Partial<
   Record<PiThinkingLevel, string | null>
 >;
@@ -103,4 +107,23 @@ export function piReasoningIssue(
     return 'default-unlisted';
   }
   return null;
+}
+
+export function thinkingLevelMapFromUnknown(
+  value: unknown
+): PiThinkingLevelMap | undefined {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    return undefined;
+  }
+  const map: PiThinkingLevelMap = {};
+  let found = false;
+  for (const [key, mapped] of Object.entries(
+    value as Record<string, unknown>
+  )) {
+    if (!isPiThinkingLevel(key)) continue;
+    found = true;
+    if (mapped === null) map[key] = null;
+    else if (typeof mapped === 'string') map[key] = mapped;
+  }
+  return found ? map : undefined;
 }

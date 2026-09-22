@@ -63,12 +63,29 @@ impl From<agents::AgentError> for AppError {
                     agents::SessionLoadFailureReason::Unsupported => {
                         "该代理无法恢复原会话。确认重新绑定后将冷启动，不会保留 Agent 侧上下文。".to_string()
                     }
+                    agents::SessionLoadFailureReason::SessionArchived { recovery_command } => {
+                        match recovery_command {
+                            Some(command) => format!("代理会话已归档。运行 `{command}` 后重新加载。"),
+                            None => "代理会话已归档。".to_string(),
+                        }
+                    }
+                    agents::SessionLoadFailureReason::SessionBusy => {
+                        "代理会话正被占用。关闭占用该会话的窗口后重新加载。".to_string()
+                    }
+                    agents::SessionLoadFailureReason::SessionUnavailable => {
+                        "代理侧会话已结束或不存在。".to_string()
+                    }
                     agents::SessionLoadFailureReason::Other { message } => message,
                 })
             }
-            agents::AgentError::PiProjectTrustRequired(message) => AppError::BadRequest(message),
+            agents::AgentError::AcpSessionNotBound => AppError::BadRequest(
+                "ACP session is not bound on this connection".to_string(),
+            ),
+            agents::AgentError::PiProjectTrustRequired(message)
+            | agents::AgentError::NotInstalled(message) => AppError::BadRequest(message),
             agents::AgentError::InvalidDistribution(message)
-            | agents::AgentError::Runtime(message) => AppError::Internal(message),
+            | agents::AgentError::Runtime(message)
+            | agents::AgentError::ConnectionClosed(message) => AppError::Internal(message),
         }
     }
 }

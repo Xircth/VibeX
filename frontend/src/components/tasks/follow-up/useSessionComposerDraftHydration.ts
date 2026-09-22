@@ -18,6 +18,7 @@ export function useSessionComposerDraftHydration({
   scratchId,
   isScratchLoading,
   scratchData,
+  localMessage,
   setLocalMessage,
   setAttachedImages,
   setSelectedMode,
@@ -30,6 +31,7 @@ export function useSessionComposerDraftHydration({
   scratchId: string | undefined;
   isScratchLoading: boolean;
   scratchData: DraftFollowUpData | undefined;
+  localMessage?: string;
   setLocalMessage: Dispatch<SetStateAction<string>>;
   setAttachedImages: Dispatch<SetStateAction<SessionComposerImageAttachment[]>>;
   /** Pending ACP session-mode state, seeded from a create-form preset. */
@@ -49,6 +51,7 @@ export function useSessionComposerDraftHydration({
       hydratedScratchId: hydratedScratchIdRef.current,
       scratchId,
       scratchData,
+      localMessage,
     });
     hydratedScratchIdRef.current = hydration.hydratedScratchId;
     if (!hydration.shouldHydrate) return;
@@ -66,6 +69,7 @@ export function useSessionComposerDraftHydration({
     }
   }, [
     isScratchLoading,
+    localMessage,
     scratchData,
     scratchId,
     setAttachedImages,

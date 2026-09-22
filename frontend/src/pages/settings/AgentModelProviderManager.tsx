@@ -48,14 +48,11 @@ import {
 } from '@/features/agent-management';
 import {
   NO_PI_REASONING,
-  PI_THINKING_LEVELS,
-  implicitWireValue,
   piReasoningIssue,
   reasoningFromModel,
   reasoningToMap,
-  toggleThinkingLevel,
+  thinkingLevelMapFromUnknown,
   type PiModelReasoning,
-  type PiThinkingLevel,
 } from '@/lib/piThinking';
 
 import {
@@ -64,6 +61,7 @@ import {
 } from './CodexModelCatalogEditor';
 import { ProviderCatalogPicker } from './ProviderCatalogPicker';
 import type { ProviderCatalogTemplateView } from './providerCatalogTypes';
+import { PiReasoningFields } from './PiReasoningFields';
 import { useProviderCatalogList } from './useProviderCatalogList';
 
 // `model` fields hold a model id and can be picked from the detected catalog;
@@ -1918,12 +1916,6 @@ function PiProviderModelEditor({
     writePiReasoning(payload, next);
     onChange(JSON.stringify(payload));
   };
-  const thinkingOptions = parsed.reasoning.enabled
-    ? parsed.reasoning.levels
-    : (['off'] as const);
-  const thinkingValue = parsed.reasoning.enabled
-    ? parsed.thinkingLevel || 'off'
-    : 'off';
   const defaultUnlisted =
     piReasoningIssue(parsed.reasoning, parsed.thinkingLevel) ===
     'default-unlisted';
@@ -1953,127 +1945,16 @@ function PiProviderModelEditor({
         />
       </label>
       <div className="pi-reasoning-card">
-        <label className="pi-reasoning-enable">
-          <input
-            aria-label={t('agents.piReasoningEnable')}
-            checked={parsed.reasoning.enabled}
-            disabled={disabled}
-            name="pi_reasoning_enabled"
-            type="checkbox"
-            onChange={(event) => {
-              const enabled = event.target.checked;
-              patch({
-                ...parsed,
-                reasoning: {
-                  ...parsed.reasoning,
-                  enabled,
-                  levels:
-                    enabled && parsed.reasoning.levels.length === 0
-                      ? PI_THINKING_LEVELS.filter((level) => level !== 'xhigh')
-                      : parsed.reasoning.levels,
-                },
-                thinkingLevel: enabled
-                  ? parsed.thinkingLevel || 'off'
-                  : parsed.thinkingLevel,
-              });
-            }}
-          />
-          <span>{t('agents.piReasoningEnable')}</span>
-        </label>
-        {parsed.reasoning.enabled ? (
-          <>
-            <div
-              className="pi-thinking-levels"
-              role="group"
-              aria-label={t('agents.piThinkingLevels')}
-            >
-              {PI_THINKING_LEVELS.map((level) => {
-                const active = parsed.reasoning.levels.includes(level);
-                return (
-                  <button
-                    key={level}
-                    type="button"
-                    aria-pressed={active}
-                    className={cn('pi-thinking-chip', active && 'is-active')}
-                    disabled={disabled}
-                    onClick={() =>
-                      patch({
-                        ...parsed,
-                        reasoning: {
-                          ...parsed.reasoning,
-                          levels: toggleThinkingLevel(
-                            parsed.reasoning.levels,
-                            level
-                          ),
-                        },
-                      })
-                    }
-                  >
-                    {level}
-                  </button>
-                );
-              })}
-            </div>
-            {parsed.reasoning.levels.length === 0 ? (
-              <p className="agent-model-provider-error" role="alert">
-                {t('agents.piThinkingLevelsEmpty')}
-              </p>
-            ) : (
-              <details className="pi-wire-values">
-                <summary>{t('agents.piWireValues')}</summary>
-                {parsed.reasoning.levels.map((level) => (
-                  <label key={level}>
-                    {level}
-                    <input
-                      autoComplete="off"
-                      disabled={disabled}
-                      name={`pi_wire_${level}`}
-                      placeholder={implicitWireValue(level)}
-                      spellCheck={false}
-                      value={parsed.reasoning.wireValues[level] ?? ''}
-                      onChange={(event) =>
-                        patch({
-                          ...parsed,
-                          reasoning: {
-                            ...parsed.reasoning,
-                            wireValues: {
-                              ...parsed.reasoning.wireValues,
-                              [level]: event.target.value,
-                            },
-                          },
-                        })
-                      }
-                    />
-                  </label>
-                ))}
-              </details>
-            )}
-          </>
-        ) : null}
-      </div>
-      <label>
-        <span>{t('agents.piThinkingLevel')}</span>
-        <AstryxSelect
-          ariaLabel={t('agents.piThinkingLevel')}
-          disabled={disabled || !parsed.reasoning.enabled}
-          value={thinkingValue}
-          options={[
-            ...thinkingOptions.map((level) => ({
-              value: level,
-              label: t(`agents.piThinking.${level}`),
-            })),
-            ...(defaultUnlisted && parsed.thinkingLevel
-              ? [
-                  {
-                    value: parsed.thinkingLevel,
-                    label: parsed.thinkingLevel,
-                  },
-                ]
-              : []),
-          ]}
-          onChange={(thinkingLevel) => patch({ ...parsed, thinkingLevel })}
+        <PiReasoningFields
+          disabled={disabled}
+          reasoning={parsed.reasoning}
+          thinkingLevel={parsed.thinkingLevel}
+          onReasoningChange={(reasoning) => patch({ ...parsed, reasoning })}
+          onThinkingLevelChange={(thinkingLevel) =>
+            patch({ ...parsed, thinkingLevel })
+          }
         />
-      </label>
+      </div>
       {defaultUnlisted ? (
         <p className="agent-model-provider-error" role="alert">
           {t('agents.piDefaultLevelUnlisted')}
@@ -2100,18 +1981,24 @@ function writePiReasoning(payload: Record<string, unknown>, next: PiModelSpec) {
   if (next.reasoning.enabled) {
     payload.reasoning = true;
     payload.thinkingLevelMap = reasoningToMap(next.reasoning);
+    delete payload.thinking_level_map;
     if (next.thinkingLevel) payload.thinkingLevel = next.thinkingLevel;
     else delete payload.thinkingLevel;
+    delete payload.thinking_level;
     return;
   }
   if (
     Object.hasOwn(next.raw, 'reasoning') ||
     Object.hasOwn(next.raw, 'thinkingLevelMap') ||
-    Object.hasOwn(next.raw, 'thinkingLevel')
+    Object.hasOwn(next.raw, 'thinking_level_map') ||
+    Object.hasOwn(next.raw, 'thinkingLevel') ||
+    Object.hasOwn(next.raw, 'thinking_level')
   ) {
     payload.reasoning = false;
     delete payload.thinkingLevelMap;
+    delete payload.thinking_level_map;
     delete payload.thinkingLevel;
+    delete payload.thinking_level;
   }
 }
 
@@ -2122,9 +2009,14 @@ function parsePiModel(value: string): PiModelSpec {
       api?: unknown;
       reasoning?: unknown;
       thinkingLevel?: unknown;
+      thinking_level?: unknown;
       thinkingLevelMap?: unknown;
+      thinking_level_map?: unknown;
     };
     if (parsed && typeof parsed === 'object') {
+      const map = thinkingLevelMapFromUnknown(
+        parsed.thinkingLevelMap ?? parsed.thinking_level_map
+      );
       return {
         id: typeof parsed.id === 'string' ? parsed.id : '',
         api:
@@ -2134,12 +2026,14 @@ function parsePiModel(value: string): PiModelSpec {
             : 'openai-responses',
         reasoning: reasoningFromModel(
           typeof parsed.reasoning === 'boolean' ? parsed.reasoning : null,
-          parsed.thinkingLevelMap as
-            | Partial<Record<PiThinkingLevel, string | null>>
-            | undefined
+          map
         ),
         thinkingLevel:
-          typeof parsed.thinkingLevel === 'string' ? parsed.thinkingLevel : '',
+          typeof parsed.thinkingLevel === 'string'
+            ? parsed.thinkingLevel
+            : typeof parsed.thinking_level === 'string'
+              ? parsed.thinking_level
+              : '',
         raw: parsed as Record<string, unknown>,
       };
     }

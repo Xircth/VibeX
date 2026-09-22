@@ -3,6 +3,15 @@ import { fireEvent } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 import { useCanvasRightDragPan } from './useCanvasRightDragPan';
 
+function pointer(type: string, init: PointerEventInit) {
+  return new PointerEvent(type, {
+    bubbles: true,
+    cancelable: true,
+    pointerId: 1,
+    ...init,
+  });
+}
+
 function mountSurface() {
   const surface = document.createElement('div');
   const overlay = document.createElement('div');
@@ -195,6 +204,95 @@ describe('useCanvasRightDragPan', () => {
       })
     );
     expect(onMiddleClick).toHaveBeenCalledTimes(1);
+    surface.remove();
+  });
+
+  it('pans after a right-button drag past the slop', () => {
+    const { surface, ref } = mountSurface();
+    const onRightPan = vi.fn();
+    renderHook(() => useCanvasRightDragPan(ref, undefined, onRightPan));
+
+    surface.dispatchEvent(
+      pointer('pointerdown', { button: 2, clientX: 40, clientY: 40 })
+    );
+    window.dispatchEvent(
+      pointer('pointermove', { buttons: 2, clientX: 80, clientY: 52 })
+    );
+
+    expect(onRightPan).toHaveBeenCalled();
+    expect(onRightPan.mock.calls[0]?.[0]).toMatchObject({ x: 40, y: 12 });
+    expect(surface.hasAttribute('data-canvas-panning')).toBe(true);
+
+    window.dispatchEvent(
+      pointer('pointermove', { buttons: 2, clientX: 90, clientY: 52 })
+    );
+    expect(onRightPan.mock.calls.at(-1)?.[0]).toMatchObject({ x: 50, y: 12 });
+    expect(onRightPan.mock.calls[0]?.[0].gestureId).toBe(
+      onRightPan.mock.calls.at(-1)?.[0].gestureId
+    );
+    surface.remove();
+  });
+
+  it('does not pan on a short right-click', () => {
+    const { surface, ref } = mountSurface();
+    const onRightPan = vi.fn();
+    const onMiddleClick = vi.fn();
+    renderHook(() => useCanvasRightDragPan(ref, onMiddleClick, onRightPan));
+
+    const down = pointer('pointerdown', {
+      button: 2,
+      clientX: 40,
+      clientY: 40,
+    });
+    surface.dispatchEvent(down);
+    expect(down.defaultPrevented).toBe(true);
+
+    window.dispatchEvent(
+      pointer('pointermove', { buttons: 2, clientX: 43, clientY: 41 })
+    );
+    window.dispatchEvent(
+      pointer('pointerup', { button: 2, clientX: 43, clientY: 41 })
+    );
+
+    expect(onRightPan).not.toHaveBeenCalled();
+    expect(onMiddleClick).not.toHaveBeenCalled();
+    expect(surface.hasAttribute('data-canvas-panning')).toBe(false);
+    surface.remove();
+  });
+
+  it('does not start a right pan from a nopan node', () => {
+    const { surface, ref } = mountSurface();
+    const onRightPan = vi.fn();
+    const node = document.createElement('div');
+    node.className = 'nopan';
+    surface.appendChild(node);
+    renderHook(() => useCanvasRightDragPan(ref, undefined, onRightPan));
+
+    node.dispatchEvent(
+      pointer('pointerdown', { button: 2, clientX: 40, clientY: 40 })
+    );
+    window.dispatchEvent(
+      pointer('pointermove', { buttons: 2, clientX: 80, clientY: 80 })
+    );
+
+    expect(onRightPan).not.toHaveBeenCalled();
+    surface.remove();
+  });
+
+  it('claims the selection overlay so a right drag can pan', () => {
+    const { surface, overlay, ref } = mountSurface();
+    const onRightPan = vi.fn();
+    renderHook(() => useCanvasRightDragPan(ref, undefined, onRightPan));
+
+    overlay.dispatchEvent(
+      pointer('pointerdown', { button: 2, clientX: 40, clientY: 40 })
+    );
+    window.dispatchEvent(
+      pointer('pointermove', { buttons: 2, clientX: 90, clientY: 40 })
+    );
+
+    expect(onRightPan).toHaveBeenCalledTimes(1);
+    expect(onRightPan.mock.calls[0]?.[0]).toMatchObject({ x: 50, y: 0 });
     surface.remove();
   });
 });

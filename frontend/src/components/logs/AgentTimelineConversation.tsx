@@ -59,8 +59,10 @@ import { getComposerSteeringTarget } from '@/components/tasks/follow-up/sessionC
 import { ConversationChildrenSummary } from '@/features/conversation/ConversationChildrenSummary';
 import { PiProjectTrustBanner } from '@/features/conversation/PiProjectTrustBanner';
 import {
+  AGENT_BINDING_LOAD_FAILURE_NOTICE_ROW_ID,
   AGENT_CONNECTION_RECOVERING_NOTICE_ROW_ID,
   AGENT_SESSION_CONNECT_ERROR_NOTICE_ROW_ID,
+  AUTO_PERMISSION_NOTICE_ROW_ID,
   sessionNoticeNeedsRebind,
 } from '@/features/conversation/sessionNoticeNeedsRebind';
 import { sendAgentRuntimeTurn } from '@/features/agents/sendAgentRuntimeTurn';
@@ -433,6 +435,42 @@ const AgentTimelineConversation = forwardRef<
     : 'smooth';
   const containerRef = useRef<HTMLDivElement | null>(null);
   const virtualListRef = useRef<HTMLDivElement | null>(null);
+  const [surfaceActive, setSurfaceActive] = useState(true);
+  useEffect(() => {
+    const el = containerRef.current;
+    if (!el) return;
+    let seenVisible = false;
+    const update = (intersecting: boolean) => {
+      if (intersecting) {
+        seenVisible = true;
+        setSurfaceActive(document.visibilityState === 'visible');
+        return;
+      }
+      // Ignore the first 0-size miss so a layout pass doesn't disable connect.
+      if (seenVisible) {
+        setSurfaceActive(false);
+      }
+    };
+    const observer = new IntersectionObserver(
+      ([entry]) => update(entry.isIntersecting),
+      { threshold: 0 }
+    );
+    observer.observe(el);
+    const onVisibility = () => {
+      if (document.visibilityState !== 'visible') {
+        setSurfaceActive(false);
+        return;
+      }
+      if (seenVisible || el.getClientRects().length > 0) {
+        setSurfaceActive(true);
+      }
+    };
+    document.addEventListener('visibilitychange', onVisibility);
+    return () => {
+      observer.disconnect();
+      document.removeEventListener('visibilitychange', onVisibility);
+    };
+  }, []);
   const [scrollMargin, setScrollMargin] = useState(0);
   const [activeIndex, setActiveIndex] = useState<number | null>(null);
   const isAtBottomRef = useRef(true);
@@ -444,11 +482,14 @@ const AgentTimelineConversation = forwardRef<
   // path — otherwise a relative "README.md" can't be opened in a preview tab.
   const { repos } = useAttemptRepo(attempt.id);
   const workspaceRoot = attempt.container_ref ?? repos[0]?.path ?? null;
-  const conversation = useConversationTimeline(sessionId);
+  const conversation = useConversationTimeline(sessionId, {
+    active: surfaceActive,
+  });
   const kanbanSessions = useOptionalKanbanSessionContext();
   const forkSupported = conversation.forkSessionSupported;
   const conversationStatus = useOptionalConversationStatus();
   const setConversationStatusNotices = conversationStatus?.setNotices;
+  const setSessionBindReady = conversationStatus?.setSessionBindReady;
   const setConversationStatusQuestion = conversationStatus?.setQuestion;
   const setConversationStatusPermissions = conversationStatus?.setPermissions;
   const setConversationChildrenDock = conversationStatus?.setChildrenDock;
@@ -508,6 +549,9 @@ const AgentTimelineConversation = forwardRef<
   useEffect(() => {
     if (conversationError) toast.error(conversationError);
   }, [conversationError]);
+  useEffect(() => {
+    setSessionBindReady?.(conversation.sessionBindReady);
+  }, [conversation.sessionBindReady, setSessionBindReady]);
   // Stable reference (memoized in the hook) for the reset-to-here retry flow.
   const conversationResetAndReload = conversation.resetAndReload;
   // Restore a failed ACP connection without clearing the durable/live timeline.
@@ -644,6 +688,9 @@ const AgentTimelineConversation = forwardRef<
   );
   const connectErrorNoticeRow = sessionNoticeRows.find(
     (entry) => entry.row_id === AGENT_SESSION_CONNECT_ERROR_NOTICE_ROW_ID
+  );
+  const autoPermissionNoticeRow = sessionNoticeRows.find(
+    (entry) => entry.row_id === AUTO_PERMISSION_NOTICE_ROW_ID
   );
   const latestSessionNoticeRow = sessionNoticeRows.at(-1);
   const hasReconnectNotice = Boolean(reconnectNoticeRow);
@@ -1268,6 +1315,9 @@ const AgentTimelineConversation = forwardRef<
           ordinal,
         });
         await conversationResetAndReload();
+        await conversationApi.ensureSessionControls(session.id, {
+          reload: false,
+        });
 
         // Resend with the composer's live profile (model/variant/reasoning) instead
         // of a bare `{ executor, variant: null }`, which the backend would resolve
@@ -1315,6 +1365,18 @@ const AgentTimelineConversation = forwardRef<
         onRebind: sessionNoticeNeedsRebind(notice, row.row_id)
           ? conversationRebindSession
           : undefined,
+        onReload:
+          row.row_id === AGENT_BINDING_LOAD_FAILURE_NOTICE_ROW_ID
+            ? conversationReconnectAndReload
+            : undefined,
+        onNewConversation:
+          row.row_id === AGENT_BINDING_LOAD_FAILURE_NOTICE_ROW_ID
+            ? () =>
+                requestCreateSessionInExecutionArea(
+                  setSearchParams,
+                  searchParams
+                )
+            : undefined,
       });
     };
     if (latestTurnError && latestTurnErrorRow) {
@@ -1329,6 +1391,7 @@ const AgentTimelineConversation = forwardRef<
       pushSessionNotice(connectErrorNoticeRow);
     }
     pushSessionNotice(reconnectNoticeRow);
+    pushSessionNotice(autoPermissionNoticeRow);
     if (latestInterruptedRow) {
       notices.push({
         id: latestInterruptedRow.key,
@@ -1342,12 +1405,14 @@ const AgentTimelineConversation = forwardRef<
     }
     if (
       latestSessionNoticeRow?.row_id !== reconnectNoticeRow?.row_id &&
-      latestSessionNoticeRow?.row_id !== connectErrorNoticeRow?.row_id
+      latestSessionNoticeRow?.row_id !== connectErrorNoticeRow?.row_id &&
+      latestSessionNoticeRow?.row_id !== autoPermissionNoticeRow?.row_id
     ) {
       pushSessionNotice(latestSessionNoticeRow);
     }
     return notices;
   }, [
+    autoPermissionNoticeRow,
     connectErrorNoticeRow,
     conversationReconnectAndReload,
     conversationRebindSession,
@@ -1357,6 +1422,8 @@ const AgentTimelineConversation = forwardRef<
     latestTurnError,
     latestTurnErrorRow,
     reconnectNoticeRow,
+    searchParams,
+    setSearchParams,
     userOrdinalByKey,
   ]);
 
@@ -1536,6 +1603,16 @@ const AgentTimelineConversation = forwardRef<
           >
             <SubagentLifecycleProvider turns={timeline.map((row) => row.turn)}>
               <div className="conv-thread-content min-w-0">
+                {conversation.connecting ? (
+                  <div className="mb-2 flex justify-center text-muted-foreground">
+                    <div className="flex items-center gap-2 rounded-full border bg-background/90 px-3 py-1.5 text-xs shadow-sm">
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                      <span>
+                        {t('conversation:statusDock.connectingTitle')}
+                      </span>
+                    </div>
+                  </div>
+                ) : null}
                 {attempt.session?.executor === 'workflow' && sessionId ? (
                   <WorkflowRunCard runId={sessionId} />
                 ) : null}

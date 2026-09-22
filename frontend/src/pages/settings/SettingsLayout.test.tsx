@@ -2,7 +2,7 @@ import { act, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { lazy } from 'react';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
-import { describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import i18n from '@/i18n';
 import type { BackendTransport } from '@/lib/backendTransport';
@@ -10,14 +10,36 @@ import { BackendTransportProvider } from '@/lib/transport';
 import { SettingsLayout } from './SettingsLayout';
 
 const syncSettingsWindowTitle = vi.hoisted(() => vi.fn());
+const logoLeadsWindowChrome = vi.hoisted(() => vi.fn(() => true));
 
 vi.mock('./syncSettingsWindowTitle', () => ({
   syncSettingsWindowTitle,
 }));
 
+vi.mock('@/utils/platform', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/utils/platform')>();
+  return {
+    ...actual,
+    logoLeadsWindowChrome,
+  };
+});
+
 vi.mock('@/hooks/usePluginHostContributions', () => ({
   usePluginHostContributions: () => [],
   contributionMetadata: () => ({}),
+}));
+
+vi.mock('@/hooks/useProjects', () => ({
+  useProjects: () => ({
+    projects: [
+      { id: 'p1', name: 'VibeX' },
+      { id: 'p2', name: 'Projects' },
+    ],
+  }),
+}));
+
+vi.mock('@/hooks/useProjectSwitcher', () => ({
+  useProjectSwitcher: () => vi.fn(),
 }));
 
 describe('SettingsLayout capability gating', () => {
@@ -276,6 +298,118 @@ describe('SettingsLayout search', () => {
     await user.click(screen.getByRole('button', { name: '清除' }));
     expect(screen.getByRole('searchbox', { name: '搜索设置' })).toHaveValue('');
     expect(screen.getByRole('navigation')).toBeInTheDocument();
+  });
+});
+
+describe('SettingsLayout chrome', () => {
+  const desktopTransport: BackendTransport = {
+    environment: 'desktop',
+    call: vi.fn(),
+  };
+
+  beforeEach(() => {
+    logoLeadsWindowChrome.mockReturnValue(true);
+  });
+
+  it('centers the settings title and shows the VibeX logo', () => {
+    render(
+      <BackendTransportProvider transport={desktopTransport}>
+        <MemoryRouter initialEntries={['/settings/general']}>
+          <Routes>
+            <Route path="/settings" element={<SettingsLayout />}>
+              <Route path="general" element={<div>General content</div>} />
+            </Route>
+          </Routes>
+        </MemoryRouter>
+      </BackendTransportProvider>
+    );
+
+    const bar = document.querySelector('.settings-titlebar');
+    expect(bar).toHaveClass('h-9');
+    const title = screen.getByText(/^(设置|Settings)$/);
+    expect(title.closest('.settings-titlebar')).toBe(bar);
+    expect(title.parentElement?.parentElement).toHaveClass(
+      'absolute',
+      'left-1/2',
+      '-translate-x-1/2'
+    );
+    expect(
+      screen.getByRole('button', { name: '返回首页或打开最近项目' })
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole('img', { name: /VibeX logo/i })
+    ).toBeInTheDocument();
+  });
+
+  it('places the VibeX logo on the leading edge on Windows and Linux', () => {
+    logoLeadsWindowChrome.mockReturnValue(true);
+    render(
+      <BackendTransportProvider transport={desktopTransport}>
+        <MemoryRouter initialEntries={['/settings/general']}>
+          <Routes>
+            <Route path="/settings" element={<SettingsLayout />}>
+              <Route path="general" element={<div>General content</div>} />
+            </Route>
+          </Routes>
+        </MemoryRouter>
+      </BackendTransportProvider>
+    );
+
+    const bar = document.querySelector('.settings-titlebar');
+    const logo = screen.getByRole('img', { name: /VibeX logo/i });
+    const left = bar?.querySelector('.flex-1');
+    const right = bar?.querySelector('.ml-auto');
+    expect(left).toContainElement(logo);
+    expect(right).toBeNull();
+  });
+
+  it('opens the main-window logo menu from the settings titlebar', async () => {
+    const user = userEvent.setup();
+    render(
+      <BackendTransportProvider transport={desktopTransport}>
+        <MemoryRouter initialEntries={['/settings/general']}>
+          <Routes>
+            <Route path="/settings" element={<SettingsLayout />}>
+              <Route path="general" element={<div>General content</div>} />
+            </Route>
+          </Routes>
+        </MemoryRouter>
+      </BackendTransportProvider>
+    );
+
+    await user.click(
+      screen.getByRole('button', { name: '返回首页或打开最近项目' })
+    );
+    expect(
+      await screen.findByRole('menuitem', { name: '新建应用窗口' })
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole('menuitem', { name: '回到首页' })
+    ).toBeInTheDocument();
+    expect(screen.getByText('最近项目')).toBeInTheDocument();
+    expect(screen.getByRole('menuitem', { name: 'VibeX' })).toBeInTheDocument();
+  });
+
+  it('places the VibeX logo on the trailing edge on macOS', () => {
+    logoLeadsWindowChrome.mockReturnValue(false);
+    render(
+      <BackendTransportProvider transport={desktopTransport}>
+        <MemoryRouter initialEntries={['/settings/general']}>
+          <Routes>
+            <Route path="/settings" element={<SettingsLayout />}>
+              <Route path="general" element={<div>General content</div>} />
+            </Route>
+          </Routes>
+        </MemoryRouter>
+      </BackendTransportProvider>
+    );
+
+    const bar = document.querySelector('.settings-titlebar');
+    const logo = screen.getByRole('img', { name: /VibeX logo/i });
+    const left = bar?.querySelector('.flex-1');
+    const right = bar?.querySelector('.ml-auto');
+    expect(right).toContainElement(logo);
+    expect(left).not.toContainElement(logo);
   });
 });
 

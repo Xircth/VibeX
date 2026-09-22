@@ -92,7 +92,7 @@ export type AgentPermissionRequest = {
 };
 
 export type AgentPermissionResponse =
-  | { kind: 'selected'; option_id: string }
+  | { kind: 'selected'; option_id: string; persist?: boolean }
   | { kind: 'cancelled' };
 
 export type AgentSessionMode = {
@@ -148,6 +148,7 @@ export type AgentEvent =
   // Emitted once when the ACP session id is assigned; consumed by the backend
   // persistence sink to bind external_session_id onto the conversation row.
   | { kind: 'session_linked'; acp_session_id: string; agent_type: AgentType }
+  | { kind: 'session_bind_ready'; acp_session_id: string }
   | { kind: 'prompt_started'; snapshot: AgentPromptSnapshot }
   | { kind: 'message_chunk'; content: AgentContentBlock }
   | { kind: 'thought_chunk'; content: AgentContentBlock }

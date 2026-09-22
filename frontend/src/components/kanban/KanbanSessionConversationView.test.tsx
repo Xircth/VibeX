@@ -8,6 +8,7 @@ import { useImagePreviewPresentation } from '@/contexts/ImagePreviewPresentation
 import {
   KanbanSessionConversationPlacementProvider,
   KanbanSessionConversationView,
+  shouldActivateConversationSlot,
 } from './KanbanSessionConversationView';
 
 const {
@@ -167,6 +168,49 @@ function createSession(id: string, workspaceId: string): Session {
     updated_at: '2026-03-24T00:00:00.000Z',
   };
 }
+
+describe('shouldActivateConversationSlot', () => {
+  function visibleElement() {
+    const element = document.createElement('div');
+    document.body.appendChild(element);
+    return element;
+  }
+
+  function hiddenElement() {
+    const element = document.createElement('div');
+    element.style.display = 'none';
+    document.body.appendChild(element);
+    return element;
+  }
+
+  it('lets a visible slot take over when the active slot is hidden', () => {
+    const target = visibleElement();
+    const activeTarget = hiddenElement();
+    expect(
+      shouldActivateConversationSlot({
+        activeSlotId: 'hidden',
+        slotId: 'visible',
+        isNewSlot: false,
+        target,
+        activeTarget,
+      })
+    ).toBe(true);
+  });
+
+  it('does not steal from another visible slot unless this slot is new', () => {
+    const target = visibleElement();
+    const activeTarget = visibleElement();
+    expect(
+      shouldActivateConversationSlot({
+        activeSlotId: 'canvas',
+        slotId: 'execution',
+        isNewSlot: false,
+        target,
+        activeTarget,
+      })
+    ).toBe(false);
+  });
+});
 
 describe('KanbanSessionConversationView', () => {
   it('carries workspace image-preview presentation through the placement surface', () => {

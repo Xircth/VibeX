@@ -1,3 +1,5 @@
+import fs from 'node:fs';
+import path from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 const show = vi.fn(async () => undefined);
@@ -61,5 +63,24 @@ describe('revealDesktopWindow', () => {
     });
     cancel();
     raf.mockRestore();
+  });
+
+  it('reveals from a dedicated entry before App hydrates', () => {
+    const html = fs.readFileSync(
+      path.resolve(__dirname, '../../index.html'),
+      'utf8'
+    );
+    const entryIndex = html.indexOf('revealDesktopWindowEntry.ts');
+    const appIndex = html.indexOf('main.tsx');
+    expect(entryIndex).toBeGreaterThan(-1);
+    expect(appIndex).toBeGreaterThan(entryIndex);
+  });
+
+  it('is allowed to show the desktop window', () => {
+    const capability = fs.readFileSync(
+      path.resolve(__dirname, '../../../src-tauri/capabilities/default.json'),
+      'utf8'
+    );
+    expect(capability).toContain('core:window:allow-show');
   });
 });

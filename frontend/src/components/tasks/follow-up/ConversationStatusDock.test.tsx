@@ -6,7 +6,6 @@ import {
   within,
 } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { AGENT_BINDING_LOAD_FAILURE_NOTICE_ROW_ID } from '@/features/conversation/sessionNoticeNeedsRebind';
 import { ConversationStatusDock } from './ConversationStatusDock';
 
 describe('ConversationStatusDock', () => {
@@ -544,13 +543,13 @@ describe('ConversationStatusDock', () => {
         dismissalScope="session-1"
         notices={[
           {
-            id: AGENT_BINDING_LOAD_FAILURE_NOTICE_ROW_ID,
+            id: 'notice:agent-session-expired',
             kind: 'session-notice',
             onRebind,
             notice: {
               title: '代理会话已过期',
               message: '确认重新绑定后才能继续。',
-              severity: 'warning',
+              severity: 'error',
             },
           },
         ]}

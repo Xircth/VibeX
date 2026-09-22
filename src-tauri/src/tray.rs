@@ -21,12 +21,16 @@ pub fn show_main_window(app: &AppHandle) {
         let _ = main.unminimize();
         let _ = main.show();
         let _ = main.set_focus();
+        #[cfg(windows)]
+        browser_cef::sync_windows_browser_hosts();
     }
 }
 
 pub fn hide_main_window(app: &AppHandle) {
     if let Some(main) = app.get_webview_window("main") {
         let _ = main.hide();
+        #[cfg(windows)]
+        browser_cef::sync_windows_browser_hosts();
     }
 }
 

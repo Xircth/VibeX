@@ -49,10 +49,19 @@ import {
   buildTree,
   buildFileTreeDeleteConfirmation,
   buildNewFileTreeItemRelativePath,
+  collectDirectChildFolderPaths,
+  collectFileTreeExpandAllSeedPaths,
+  completeFileTreeExpandAllPath,
+  createFileTreeExpandAllSession,
+  enqueueFileTreeExpandAllPaths,
+  FILE_TREE_EXPAND_ALL_CONCURRENCY,
   getAreAllVisibleFileTreeFoldersExpanded,
+  isFileTreeExpandAllSessionIdle,
   normalizeDirectoryChildrenResponse,
   pruneExpandedFileTreeFolders,
   replaceFileTreeDirectoryListing,
+  takeNextFileTreeExpandAllPaths,
+  type FileTreeExpandAllSession,
   type FileTreeLazyListing,
   resolveFileTreeAbsolutePath,
   resolveWorkspaceRootLabel,
@@ -70,6 +79,11 @@ import {
   useFileTreeStore,
   type FileTreeRevealTarget,
 } from '@/stores/useFileTreeStore';
+
+type LoadLazyDirectoryChildrenResult =
+  | { status: 'skipped' }
+  | { status: 'loaded'; directories: string[] }
+  | { status: 'error'; message: string };
 
 export type FileTreePanelProps = {
   workspacePath: string;
@@ -123,7 +137,6 @@ export function FileTreePanel({
     },
     [setExpandedFoldersForRoot, workspacePath]
   );
-  const [rootExpanded, setRootExpanded] = useState(true);
   const [previewPath, setPreviewPath] = useState<string | null>(null);
   const [previewAnchor, setPreviewAnchor] = useState<{
     top: number;
@@ -200,7 +213,14 @@ export function FileTreePanel({
   } | null>(null);
   const loadedLazyDirectoriesRef = useRef<Set<string>>(new Set());
   const loadingLazyDirectoriesRef = useRef<Set<string>>(new Set());
+  const inflightLazyDirectoryLoadsRef = useRef(
+    new Map<string, Promise<LoadLazyDirectoryChildrenResult>>()
+  );
+  const folderPathsRef = useRef<Set<string>>(new Set());
+  const expandAllGenerationRef = useRef(0);
+  const expandAllSessionRef = useRef<FileTreeExpandAllSession | null>(null);
   const previousRefreshTokenRef = useRef(refreshToken);
+  const [isExpandingAll, setIsExpandingAll] = useState(false);
 
   const workspaceRootLabel = useMemo(
     () => resolveWorkspaceRootLabel(workspacePath, workspaceName),
@@ -265,12 +285,13 @@ export function FileTreePanel({
   }, [nodes, gitStatusMap]);
 
   const visibleFolderPaths = folderPaths;
+  folderPathsRef.current = folderPaths;
   const hasFolders = visibleFolderPaths.size > 0;
   const allVisibleExpanded = getAreAllVisibleFileTreeFoldersExpanded(
     visibleFolderPaths,
     expandedFolders
   );
-  const isRootVisibleExpanded = rootExpanded;
+  const showCollapseAll = isExpandingAll || allVisibleExpanded;
 
   useEffect(() => {
     setExpandedFolders((prev) =>
@@ -283,7 +304,7 @@ export function FileTreePanel({
   }, [folderPaths, lazyListing.loadedDirectories, setExpandedFolders]);
 
   useEffect(() => {
-    loadedLazyDirectoriesRef.current = lazyListing.loadedDirectories;
+    loadedLazyDirectoriesRef.current = new Set(lazyListing.loadedDirectories);
   }, [lazyListing.loadedDirectories]);
 
   useEffect(() => {
@@ -316,6 +337,14 @@ export function FileTreePanel({
     suppressClickPathRef.current = null;
     loadedLazyDirectoriesRef.current = new Set();
     loadingLazyDirectoriesRef.current = new Set();
+    inflightLazyDirectoryLoadsRef.current = new Map();
+    expandAllGenerationRef.current += 1;
+    expandAllSessionRef.current = null;
+    setIsExpandingAll(false);
+    return () => {
+      expandAllGenerationRef.current += 1;
+      expandAllSessionRef.current = null;
+    };
   }, [workspacePath]);
 
   const closePreview = useCallback(() => {
@@ -332,53 +361,77 @@ export function FileTreePanel({
   }, []);
 
   const loadLazyDirectoryChildren = useCallback(
-    async (path: string, options?: { force?: boolean }) => {
-      if (
-        !options?.force &&
-        (loadedLazyDirectoriesRef.current.has(path) ||
-          loadingLazyDirectoriesRef.current.has(path))
-      ) {
-        return;
+    async (
+      path: string,
+      options?: { force?: boolean }
+    ): Promise<LoadLazyDirectoryChildrenResult> => {
+      if (!options?.force) {
+        const inflight = inflightLazyDirectoryLoadsRef.current.get(path);
+        if (inflight) {
+          return inflight;
+        }
+        if (loadedLazyDirectoriesRef.current.has(path)) {
+          return { status: 'skipped' };
+        }
       }
-      if (options?.force) {
-        loadedLazyDirectoriesRef.current.delete(path);
-      }
-      setLoadingLazyDirectories((prev) => {
-        const next = new Set(prev);
-        next.add(path);
-        return next;
-      });
-      setLazyDirectoryLoadErrors((prev) => {
-        const next = new Map(prev);
-        next.delete(path);
-        return next;
-      });
-      try {
-        const response = normalizeDirectoryChildrenResponse(
-          await fileTreeApi.listDirectoryChildren(workspacePath, path)
-        );
-        setLazyListing((current) => {
-          const next = replaceFileTreeDirectoryListing({
-            parentPath: path,
-            listing: response,
-            current,
-          });
-          loadedLazyDirectoriesRef.current = next.loadedDirectories;
-          return next;
-        });
-      } catch (error) {
-        const message = error instanceof Error ? error.message : String(error);
+
+      const run = (async (): Promise<LoadLazyDirectoryChildrenResult> => {
+        if (options?.force) {
+          const nextLoaded = new Set(loadedLazyDirectoriesRef.current);
+          nextLoaded.delete(path);
+          loadedLazyDirectoriesRef.current = nextLoaded;
+        }
+
+        const nextLoading = new Set(loadingLazyDirectoriesRef.current);
+        nextLoading.add(path);
+        loadingLazyDirectoriesRef.current = nextLoading;
+        setLoadingLazyDirectories(nextLoading);
+
         setLazyDirectoryLoadErrors((prev) => {
+          if (!prev.has(path)) {
+            return prev;
+          }
           const next = new Map(prev);
-          next.set(path, message);
-          return next;
-        });
-      } finally {
-        setLoadingLazyDirectories((prev) => {
-          const next = new Set(prev);
           next.delete(path);
           return next;
         });
+
+        try {
+          const response = normalizeDirectoryChildrenResponse(
+            await fileTreeApi.listDirectoryChildren(workspacePath, path)
+          );
+          setLazyListing((current) => {
+            const next = replaceFileTreeDirectoryListing({
+              parentPath: path,
+              listing: response,
+              current,
+            });
+            loadedLazyDirectoriesRef.current = new Set(next.loadedDirectories);
+            return next;
+          });
+          return { status: 'loaded', directories: response.directories };
+        } catch (error) {
+          const message =
+            error instanceof Error ? error.message : String(error);
+          setLazyDirectoryLoadErrors((prev) => {
+            const next = new Map(prev);
+            next.set(path, message);
+            return next;
+          });
+          return { status: 'error', message };
+        } finally {
+          const nextLoading = new Set(loadingLazyDirectoriesRef.current);
+          nextLoading.delete(path);
+          loadingLazyDirectoriesRef.current = nextLoading;
+          setLoadingLazyDirectories(nextLoading);
+        }
+      })();
+
+      inflightLazyDirectoryLoadsRef.current.set(path, run);
+      try {
+        return await run;
+      } finally {
+        inflightLazyDirectoryLoadsRef.current.delete(path);
       }
     },
     [setLazyListing, workspacePath]
@@ -429,7 +482,6 @@ export function FileTreePanel({
       return;
     }
 
-    setRootExpanded(true);
     setExpandedFolders((prev) =>
       expandFileTreeFoldersForSelection(
         prev,
@@ -476,21 +528,124 @@ export function FileTreePanel({
     });
   }, []);
 
+  const stopExpandAll = useCallback(() => {
+    expandAllGenerationRef.current += 1;
+    expandAllSessionRef.current = null;
+    setIsExpandingAll(false);
+  }, []);
+
+  const expandFolderPath = useCallback(
+    (path: string) => {
+      setExpandedFolders((prev) => {
+        if (prev.has(path)) {
+          return prev;
+        }
+        const next = new Set(prev);
+        next.add(path);
+        return next;
+      });
+    },
+    [setExpandedFolders]
+  );
+
+  const childFoldersOf = useCallback((path: string) => {
+    return collectDirectChildFolderPaths(path, folderPathsRef.current);
+  }, []);
+
+  const pumpExpandAll = useCallback(() => {
+    const session = expandAllSessionRef.current;
+    if (!session) {
+      return;
+    }
+    const generation = session.generation;
+    const batch = takeNextFileTreeExpandAllPaths(
+      session,
+      FILE_TREE_EXPAND_ALL_CONCURRENCY
+    );
+    if (batch.length === 0) {
+      if (isFileTreeExpandAllSessionIdle(session)) {
+        expandAllSessionRef.current = null;
+        setIsExpandingAll(false);
+      }
+      return;
+    }
+
+    for (const path of batch) {
+      void (async () => {
+        let childDirectories: string[] = [];
+        if (loadedLazyDirectoriesRef.current.has(path)) {
+          expandFolderPath(path);
+          childDirectories = childFoldersOf(path);
+        } else {
+          const result = await loadLazyDirectoryChildren(path);
+          if (expandAllGenerationRef.current !== generation) {
+            return;
+          }
+          if (result.status === 'loaded') {
+            childDirectories = result.directories;
+          } else if (result.status === 'skipped') {
+            childDirectories = childFoldersOf(path);
+          }
+          expandFolderPath(path);
+        }
+
+        if (expandAllGenerationRef.current !== generation) {
+          return;
+        }
+        const currentSession = expandAllSessionRef.current;
+        if (!currentSession || currentSession.generation !== generation) {
+          return;
+        }
+        completeFileTreeExpandAllPath(currentSession, path, childDirectories);
+        pumpExpandAll();
+      })();
+    }
+  }, [childFoldersOf, expandFolderPath, loadLazyDirectoryChildren]);
+
+  const retryLazyDirectory = useCallback(
+    (path: string) => {
+      void (async () => {
+        const result = await loadLazyDirectoryChildren(path, { force: true });
+        const session = expandAllSessionRef.current;
+        if (
+          !session ||
+          result.status !== 'loaded' ||
+          expandAllGenerationRef.current !== session.generation
+        ) {
+          return;
+        }
+        enqueueFileTreeExpandAllPaths(session, result.directories);
+        pumpExpandAll();
+      })();
+    },
+    [loadLazyDirectoryChildren, pumpExpandAll]
+  );
+
   const toggleAllFolders = () => {
     if (!hasFolders) {
       return;
     }
-    const next = toggleAllFileTreeFolders({
-      expandedFolders,
-      visibleFolderPaths,
-      allVisibleExpanded,
-    });
-    setExpandedFolders(next);
-    if (!allVisibleExpanded) {
-      visibleFolderPaths.forEach((path) => {
-        void loadLazyDirectoryChildren(path);
-      });
+    if (showCollapseAll) {
+      stopExpandAll();
+      setExpandedFolders((prev) =>
+        toggleAllFileTreeFolders({
+          expandedFolders: prev,
+          visibleFolderPaths,
+          allVisibleExpanded: true,
+        })
+      );
+      return;
     }
+
+    const generation = expandAllGenerationRef.current + 1;
+    expandAllGenerationRef.current = generation;
+    const session = createFileTreeExpandAllSession(
+      generation,
+      collectFileTreeExpandAllSeedPaths(folderPaths)
+    );
+    expandAllSessionRef.current = session;
+    setIsExpandingAll(true);
+    pumpExpandAll();
   };
 
   const toggleFolder = (path: string) => {
@@ -1453,28 +1608,34 @@ export function FileTreePanel({
               {node.children.map((child) => renderNode(child, depth + 1))}
             </div>
           )}
-        {isLazyFolder && isExpanded && node.children.length === 0 && (
-          <div className="file-tree-children">
-            {newFolderParent === node.path &&
-              renderInlineNewInput('folder', depth + 1)}
-            {newFileParent === node.path &&
-              renderInlineNewInput('file', depth + 1)}
-            {isLazyLoading ? (
-              <div className="file-tree-lazy-state">
-                {t('fileTreeMenu.loading')}
-              </div>
-            ) : lazyLoadError ? (
-              <button
-                type="button"
-                className="file-tree-lazy-retry"
-                onClick={() => void loadLazyDirectoryChildren(node.path)}
-                title={lazyLoadError}
-              >
-                {t('fileTreeMenu.loadFailedRetry')}
-              </button>
-            ) : null}
-          </div>
-        )}
+        {isLazyFolder &&
+          isExpanded &&
+          node.children.length === 0 &&
+          (isLazyLoading ||
+            lazyLoadError ||
+            newFolderParent === node.path ||
+            newFileParent === node.path) && (
+            <div className="file-tree-children">
+              {newFolderParent === node.path &&
+                renderInlineNewInput('folder', depth + 1)}
+              {newFileParent === node.path &&
+                renderInlineNewInput('file', depth + 1)}
+              {isLazyLoading ? (
+                <div className="file-tree-lazy-state">
+                  {t('fileTreeMenu.loading')}
+                </div>
+              ) : lazyLoadError ? (
+                <button
+                  type="button"
+                  className="file-tree-lazy-retry"
+                  onClick={() => retryLazyDirectory(node.path)}
+                  title={lazyLoadError}
+                >
+                  {t('fileTreeMenu.loadFailedRetry')}
+                </button>
+              ) : null}
+            </div>
+          )}
       </div>
     );
   };
@@ -1488,6 +1649,7 @@ export function FileTreePanel({
               type="button"
               className={`file-tree-row is-folder is-root${selectedNodePath === '' ? ' is-selected' : ''}${dropTargetPath === '' ? ' is-drop-target' : ''}`}
               data-file-tree-drop-path=""
+              aria-expanded="true"
               onClick={() => {
                 if (suppressClickPathRef.current === '') {
                   suppressClickPathRef.current = null;
@@ -1495,7 +1657,6 @@ export function FileTreePanel({
                 }
                 setSelectedNodePath('');
                 setSelectedNodeType('folder');
-                setRootExpanded((prev) => !prev);
               }}
               onContextMenu={(event) => {
                 setSelectedNodePath('');
@@ -1513,11 +1674,7 @@ export function FileTreePanel({
                 )
               }
             >
-              <span
-                className={`file-tree-chevron${isRootVisibleExpanded ? ' is-open' : ''}`}
-              >
-                {'>'}
-              </span>
+              <span className="file-tree-spacer" aria-hidden />
               <span className="file-tree-name">{workspaceRootLabel}</span>
             </button>
           </div>
@@ -1560,12 +1717,12 @@ export function FileTreePanel({
               onClick={toggleAllFolders}
               disabled={!hasFolders}
               aria-label={
-                allVisibleExpanded
+                showCollapseAll
                   ? t('fileTreeMenu.collapseAllFolders')
                   : t('fileTreeMenu.expandAllFolders')
               }
               title={
-                allVisibleExpanded
+                showCollapseAll
                   ? t('fileTreeMenu.collapseAllFolders')
                   : t('fileTreeMenu.expandAllFolders')
               }
@@ -1601,7 +1758,7 @@ export function FileTreePanel({
               />
             ))}
           </div>
-        ) : !isRootVisibleExpanded ? null : (
+        ) : (
           <>
             {newFolderParent === '' && renderInlineNewInput('folder', 1)}
             {newFileParent === '' && renderInlineNewInput('file', 1)}
@@ -1667,7 +1824,7 @@ export function FileTreePanel({
                     }}
                   >
                     <span>
-                      {allVisibleExpanded
+                      {showCollapseAll
                         ? t('common:contextMenu.collapseAll')
                         : t('common:contextMenu.expandAll')}
                     </span>

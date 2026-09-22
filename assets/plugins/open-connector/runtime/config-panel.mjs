@@ -24,12 +24,16 @@ function stateTone(state) {
   return 'idle';
 }
 
-function label(text) {
-  return `<span class="oc-copy"><strong>${escapeText(text)}</strong></span>`;
+function copyIcon() {
+  return `<svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true"><rect x="5.5" y="1.75" width="7.5" height="9.5" rx="1.25" fill="none" stroke="currentColor" stroke-width="1.25"/><path d="M3 4.75h6.5v9.5H3a1.25 1.25 0 0 1-1.25-1.25V6A1.25 1.25 0 0 1 3 4.75z" fill="none" stroke="currentColor" stroke-width="1.25"/></svg>`;
 }
 
-function chip(text, tone) {
-  return `<span class="oc-chip oc-chip--${tone}">${escapeText(text)}</span>`;
+function checkIcon() {
+  return `<svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true"><path d="M3.5 8.5 6.5 11.5 12.5 4.5" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
+}
+
+function label(text) {
+  return `<span class="oc-copy"><strong>${escapeText(text)}</strong></span>`;
 }
 
 function statusChip(state) {
@@ -41,9 +45,13 @@ function statusChip(state) {
 
 function field(text, action) {
   const value = String(text || '').trim();
-  return `<div class="oc-control">
-    <code class="oc-field" data-copy="${escapeText(action)}">${escapeText(value || '—')}</code>
-    ${value ? `<button type="button" class="oc-ghost" data-action="${escapeText(action)}">复制</button>` : ''}
+  return `<div class="oc-field">
+    <code data-copy="${escapeText(action)}">${escapeText(value || '—')}</code>
+    ${
+      value
+        ? `<button type="button" class="oc-icon-btn" data-action="${escapeText(action)}" aria-label="复制">${copyIcon()}</button>`
+        : ''
+    }
   </div>`;
 }
 
@@ -55,14 +63,12 @@ export async function mountConfigPanel(root, invoke) {
   const render = (status) => {
     const origin = String(status?.origin || '').trim();
     const dataDir = String(status?.dataDir || '').trim();
-    const error = String(status?.lastError || '').trim();
     root.innerHTML = `
       <section class="oc-config">
         <div class="oc-card">
           ${row('状态', statusChip(status?.state))}
           ${row('本机地址', field(origin, 'copy-origin'))}
           ${row('数据目录', field(dataDir, 'copy-path'))}
-          ${row('最近错误', error ? chip(error, 'bad') : chip('无', 'idle'))}
           <div class="oc-footer">
             <div class="oc-bar">
               <button type="button" class="oc-btn" data-action="restart">重启</button>
@@ -95,15 +101,15 @@ export async function mountConfigPanel(root, invoke) {
       void invoke('runtime.wipeData').then(refresh, refresh);
     }
     if (action === 'copy-origin' || action === 'copy-path') {
+      const button = event.target?.closest?.('[data-action]');
       const value = root
         .querySelector(`[data-copy="${action}"]`)
         ?.textContent?.trim();
-      const button = event.target?.closest?.('[data-action]');
       if (!value || value === '—' || !button) return;
       void navigator.clipboard.writeText(value).then(() => {
-        button.textContent = '已复制';
+        button.innerHTML = checkIcon();
         window.setTimeout(() => {
-          if (button.isConnected) button.textContent = '复制';
+          if (button.isConnected) button.innerHTML = copyIcon();
         }, 1200);
       });
     }

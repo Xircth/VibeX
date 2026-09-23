@@ -69,7 +69,11 @@ describe('dark night scene tokens', () => {
 
   it('paints workspace chrome from one topbar token', () => {
     expect(css).toContain('--surface-sidebar: var(--surface-topbar);');
-    expect(css).toContain('--surface-right-panel: var(--surface-topbar);');
+    expect(css).toContain('--surface-right-panel: hsl(0 0% 100% / 0.82);');
+    expect(css).not.toContain('--surface-right-panel: var(--surface-topbar);');
+    expect(css).not.toContain(
+      '--surface-right-panel: var(--surface-glass-solid);'
+    );
     expect(css).toContain('--surface-glass-solid: hsl(220 24% 96%);');
     expect(css).toMatch(
       /\.workspace-topbar,\s*\.workspace-chrome \{\s*background: var\(--surface-topbar\);/

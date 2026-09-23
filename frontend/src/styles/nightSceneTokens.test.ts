@@ -67,6 +67,15 @@ describe('dark night scene tokens', () => {
     );
   });
 
+  it('paints workspace chrome from one topbar token', () => {
+    expect(css).toContain('--surface-sidebar: var(--surface-topbar);');
+    expect(css).toContain('--surface-right-panel: var(--surface-topbar);');
+    expect(css).toContain('--surface-glass-solid: var(--surface-dialog);');
+    expect(css).toMatch(
+      /\.workspace-topbar,\s*\.workspace-chrome \{\s*background: var\(--surface-topbar\);/
+    );
+  });
+
   it('keeps chrome translucent and content fully opaque', () => {
     expect(dark.get('--surface-shell')).toBe('#0e1319');
     expect(dark.get('--surface-glass')).toMatch(/\/ 0\.55\)/);

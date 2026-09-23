@@ -90,6 +90,7 @@ describe('RightPanelSidebar', () => {
       await Promise.resolve();
     });
 
+    expect(document.querySelector('.workspace-chrome')).toBeTruthy();
     expect(backendCall).not.toHaveBeenCalledWith('plugin_list');
     expect(
       screen.queryByRole('img', { name: 'Understand Anything' })

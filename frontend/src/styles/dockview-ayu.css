@@ -8,17 +8,9 @@
 .dockview-theme-light.dockview-theme-ayu,
 .dockview-theme-ayu.dockview-theme-light,
 .dockview-theme-ayu {
-  --dv-theme-bg: var(--surface-card-strong);
-  --dv-theme-surface: color-mix(
-    in srgb,
-    var(--surface-topbar) 84%,
-    var(--surface-card) 16%
-  );
-  --dv-theme-surface-muted: color-mix(
-    in srgb,
-    var(--surface-sidebar) 80%,
-    var(--surface-card) 20%
-  );
+  --dv-theme-bg: var(--surface-dialog);
+  --dv-theme-surface: var(--surface-topbar);
+  --dv-theme-surface-muted: var(--surface-topbar);
   --dv-theme-border: var(--border-subtle);
   --dv-theme-text: var(--text-strong);
   --dv-theme-muted: var(--text-muted);
@@ -168,17 +160,9 @@
 .dark .dockview-theme-light.dockview-theme-ayu,
 .dark .dockview-theme-ayu.dockview-theme-light,
 .dark .dockview-theme-ayu {
-  --dv-theme-bg: var(--surface-card-strong);
-  --dv-theme-surface: color-mix(
-    in srgb,
-    var(--surface-topbar) 82%,
-    var(--surface-card) 18%
-  );
-  --dv-theme-surface-muted: color-mix(
-    in srgb,
-    var(--surface-sidebar) 82%,
-    var(--surface-card) 18%
-  );
+  --dv-theme-bg: var(--surface-dialog);
+  --dv-theme-surface: var(--surface-topbar);
+  --dv-theme-surface-muted: var(--surface-topbar);
   --dv-theme-border: var(--border-subtle);
   --dv-theme-text: var(--text-strong);
   --dv-theme-muted: var(--text-muted);

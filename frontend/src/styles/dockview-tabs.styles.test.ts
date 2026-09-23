@@ -39,6 +39,13 @@ describe('workspace tab strip chrome', () => {
     expect(dark['--dv-theme-surface']?.value).toBe('var(--surface-topbar)');
     expect(dark['--dv-theme-bg']?.value).toBe('var(--surface-card-strong)');
     expect(dark['--dv-connected-chrome']?.value).toBe('var(--surface-dialog)');
+
+    const stripFill = declarationsFor(
+      "[class*='dockview-theme-ayu'] .dv-tabs-and-actions-container"
+    );
+    expect(stripFill['backdrop-filter']?.value).toBe(
+      'blur(18px) saturate(1.2)'
+    );
   });
 
   it('joins the selected tab to the panel body with side curves', () => {

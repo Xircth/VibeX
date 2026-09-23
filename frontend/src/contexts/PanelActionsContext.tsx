@@ -1079,44 +1079,68 @@ export function PanelActionsProvider({ children }: { children: ReactNode }) {
     finishLeftDockChange();
   }, [finishLeftDockChange]);
 
+  const showOnlyLeftDockPanel = useCallback(
+    (panelId: ActivityRailItemId) => {
+      const dockviewApi = apiRef.current;
+      if (!dockviewApi) return;
+
+      const title = ACTIVITY_RAIL_PANEL_TITLES[panelId];
+      let existing = dockviewApi.getPanel(panelId);
+      const leftGroup = ensureLeftDockGroup();
+      if (!leftGroup) return;
+
+      if (!existing) {
+        dockviewApi.addPanel({
+          id: panelId,
+          component: panelId,
+          title,
+          position: { referenceGroup: leftGroup, direction: 'within' },
+        });
+        existing = dockviewApi.getPanel(panelId);
+      }
+
+      for (const otherId of ACTIVITY_RAIL_ITEMS) {
+        if (otherId === panelId) continue;
+        const other = dockviewApi.getPanel(otherId);
+        if (other) dockviewApi.removePanel(other);
+      }
+
+      const panel = dockviewApi.getPanel(panelId);
+      if (panel) {
+        setColumnVisible(
+          dockviewApi,
+          getLayoutArrangement(),
+          panel.group,
+          true
+        );
+        panel.api.setActive();
+      }
+      finishLeftDockChange();
+    },
+    [ensureLeftDockGroup, finishLeftDockChange]
+  );
+
   const toggleLeftDockPanel = useCallback(
     (panelId: ActivityRailItemId) => {
       const dockviewApi = apiRef.current;
       if (!dockviewApi) return;
 
       const existing = dockviewApi.getPanel(panelId);
-      if (existing?.group.api.isVisible) {
-        dockviewApi.removePanel(existing);
-        const remaining = ACTIVITY_RAIL_ITEMS.some((id) => {
-          const panel = dockviewApi.getPanel(id);
-          return Boolean(panel?.group.api.isVisible);
-        });
-        if (!remaining) {
-          setLeftDockVisible(
-            dockviewApi,
-            getLayoutArrangement(),
-            false
-          );
-        }
+      const othersVisible = ACTIVITY_RAIL_ITEMS.some((id) => {
+        if (id === panelId) return false;
+        const panel = dockviewApi.getPanel(id);
+        return Boolean(panel?.group.api.isVisible);
+      });
+
+      if (existing?.group.api.isVisible && !othersVisible) {
+        setLeftDockVisible(dockviewApi, getLayoutArrangement(), false);
         finishLeftDockChange();
         return;
       }
 
-      if (existing && !existing.group.api.isVisible) {
-        setColumnVisible(
-          dockviewApi,
-          getLayoutArrangement(),
-          existing.group,
-          true
-        );
-        existing.api.setActive();
-        finishLeftDockChange();
-        return;
-      }
-
-      placeLeftDockPanel(panelId, 'bottom');
+      showOnlyLeftDockPanel(panelId);
     },
-    [finishLeftDockChange, placeLeftDockPanel]
+    [finishLeftDockChange, showOnlyLeftDockPanel]
   );
 
   const toggleFileTree = useCallback(() => {
@@ -1137,8 +1161,8 @@ export function PanelActionsProvider({ children }: { children: ReactNode }) {
 
   const showFileTree = useCallback(() => {
     setFileTreeVisible(true);
-    placeLeftDockPanel(PANEL_IDS.FILE_TREE, 'top');
-  }, [placeLeftDockPanel, setFileTreeVisible]);
+    showOnlyLeftDockPanel(PANEL_IDS.FILE_TREE);
+  }, [setFileTreeVisible, showOnlyLeftDockPanel]);
 
   const revealInFileTree = useCallback(
     (path: string, options?: RevealInFileTreeOptions) => {

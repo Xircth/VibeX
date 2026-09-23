@@ -217,7 +217,7 @@
     --surface-shell: hsl(225 18% 94%);
     --surface-topbar: hsl(0 0% 100% / 0.86);
     --surface-sidebar: var(--surface-topbar);
-    --surface-right-panel: var(--surface-topbar);
+    --surface-right-panel: hsl(0 0% 100% / 0.82);
     --surface-composer: hsl(0 0% 100% / 0.92);
     --surface-glass: hsl(0 0% 100% / 0.72);
     --surface-popover: var(--surface-glass);
@@ -334,7 +334,7 @@
     --surface-shell: #0e1319;
     --surface-topbar: hsl(210 18% 16% / 0.55);
     --surface-sidebar: var(--surface-topbar);
-    --surface-right-panel: var(--surface-topbar);
+    --surface-right-panel: hsl(210 18% 15% / 0.55);
     --surface-composer: hsl(210 16% 18% / 0.78);
     --surface-glass: hsl(210 16% 22% / 0.55);
     --surface-glass-solid: #191e2a;
@@ -7308,7 +7308,6 @@ html.host-windows .legacy-design {
   --surface-popover: var(--surface-glass-solid);
   --surface-topbar: var(--surface-glass-solid);
   --surface-sidebar: var(--surface-glass-solid);
-  --surface-right-panel: var(--surface-glass-solid);
 }
 
 html.tauri-desktop[data-host-platform='macos'] .window-chrome {
@@ -7361,7 +7360,6 @@ html.host-windows :where(.legacy-design) .vu-toast-surface {
     --surface-popover: var(--surface-dialog);
     --surface-topbar: var(--surface-glass-solid);
     --surface-sidebar: var(--surface-glass-solid);
-    --surface-right-panel: var(--surface-glass-solid);
   }
 
   .legacy-design.dark,
@@ -7412,7 +7410,6 @@ html.host-windows :where(.legacy-design) .vu-toast-surface {
   --surface-popover: var(--surface-dialog);
   --surface-topbar: var(--surface-glass-solid);
   --surface-sidebar: var(--surface-glass-solid);
-  --surface-right-panel: var(--surface-glass-solid);
 }
 
 .dark :where(.legacy-design.reduced-transparency),

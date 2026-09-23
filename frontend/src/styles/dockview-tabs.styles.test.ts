@@ -49,6 +49,9 @@ describe('workspace tab strip chrome', () => {
   });
 
   it('joins the selected tab to the panel body with side curves', () => {
+    const theme = declarationsFor(
+      '.dockview-theme-light.dockview-theme-ayu, .dockview-theme-ayu.dockview-theme-light, .dockview-theme-ayu'
+    );
     const strip = declarationsFor(
       "[class*='dockview-theme-ayu'] .dv-groupview > .dv-tabs-and-actions-container"
     );
@@ -76,6 +79,8 @@ describe('workspace tab strip chrome', () => {
     expect(active['background-color']?.value).toBe(
       'var(--dv-connected-chrome)'
     );
+    expect(theme['--dv-tab-curve']?.value).toBe('var(--radius)');
+    expect(theme['--dv-tab-gap']?.value).toBe('calc(var(--radius) * 0.5)');
     expect(ears.width?.value).toBe('var(--dv-tab-curve)');
     expect(leftEar.background?.value).toContain('radial-gradient');
     expect(leftEar.background?.value).toContain('circle at 0 0');
@@ -100,7 +105,7 @@ describe('workspace tab strip chrome', () => {
     expect(idle.height?.value).toBe('24px');
     expect(idle.margin?.value).toBe('2px 0 0');
     expect(hover['background-color']?.value).toBe('var(--dv-connected-chrome)');
-    expect(tab.padding?.value).toBe('0 var(--dv-tab-curve)');
+    expect(tab.padding?.value).toBe('0 var(--dv-tab-gap)');
   });
 
   it('hides the native tab-strip scrollbar so overlay tracks cannot cover titles', () => {

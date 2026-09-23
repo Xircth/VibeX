@@ -50,7 +50,8 @@
   );
 
   --dv-connected-chrome: var(--surface-dialog);
-  --dv-tab-curve: calc(var(--radius) * 0.5);
+  --dv-tab-gap: calc(var(--radius) * 0.5);
+  --dv-tab-curve: var(--radius);
   --dv-activegroup-visiblepanel-tab-background-color: var(--dv-connected-chrome);
   --dv-activegroup-hiddenpanel-tab-background-color: transparent;
   --dv-inactivegroup-visiblepanel-tab-background-color: transparent;
@@ -185,7 +186,8 @@
   );
 
   --dv-connected-chrome: var(--surface-dialog);
-  --dv-tab-curve: calc(var(--radius) * 0.5);
+  --dv-tab-gap: calc(var(--radius) * 0.5);
+  --dv-tab-curve: var(--radius);
   --dv-activegroup-visiblepanel-tab-background-color: var(--dv-connected-chrome);
   --dv-activegroup-hiddenpanel-tab-background-color: var(--dv-theme-surface);
   --dv-inactivegroup-visiblepanel-tab-background-color: var(--dv-theme-surface);
@@ -346,7 +348,7 @@
   height: auto;
   min-height: 28px;
   margin: 0;
-  padding: 0 var(--dv-tab-curve);
+  padding: 0 var(--dv-tab-gap);
   border: 0;
   background-color: transparent !important;
   border-radius: 0;

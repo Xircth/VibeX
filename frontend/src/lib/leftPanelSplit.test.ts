@@ -5,7 +5,6 @@ import {
   dropZoneToDirection,
   ghostBoxForZone,
   innerSizeAfterOuterResize,
-  MIN_WIDTH_FOR_SIDE_SPLIT,
   ratioFromSizes,
   resolveLeftPanelDropZone,
   sizesFromRatio,
@@ -32,30 +31,23 @@ describe('left panel split geometry', () => {
     expect(unionBoxes([])).toBeNull();
   });
 
-  it('splits a narrow dock into top and bottom only', () => {
-    expect(panel.width).toBeLessThan(MIN_WIDTH_FOR_SIDE_SPLIT);
-    expect(
-      resolveLeftPanelDropZone({ x: 50, y: 100 }, panel)
-    ).toBe('top');
-    expect(
-      resolveLeftPanelDropZone({ x: 50, y: 500 }, panel)
-    ).toBe('bottom');
+  it('uses the top and bottom thirds for vertical slots', () => {
+    expect(resolveLeftPanelDropZone({ x: 50, y: 100 }, panel)).toBe('top');
+    expect(resolveLeftPanelDropZone({ x: 50, y: 500 }, panel)).toBe('bottom');
     expect(resolveLeftPanelDropZone({ x: 8, y: 100 }, panel)).toBeNull();
   });
 
-  it('uses the middle band for left and right when the dock is wide', () => {
+  it('uses the middle band for left and right even on a narrow dock', () => {
+    expect(resolveLeftPanelDropZone({ x: 60, y: 380 }, panel)).toBe('left');
+    expect(resolveLeftPanelDropZone({ x: 220, y: 380 }, panel)).toBe('right');
+    expect(resolveLeftPanelDropZone({ x: 50, y: 100 }, panel)).toBe('top');
+    expect(resolveLeftPanelDropZone({ x: 50, y: 640 }, panel)).toBe('bottom');
     expect(
       resolveLeftPanelDropZone({ x: 80, y: 380 }, widePanel)
     ).toBe('left');
     expect(
       resolveLeftPanelDropZone({ x: 360, y: 380 }, widePanel)
     ).toBe('right');
-    expect(
-      resolveLeftPanelDropZone({ x: 200, y: 100 }, widePanel)
-    ).toBe('top');
-    expect(
-      resolveLeftPanelDropZone({ x: 200, y: 640 }, widePanel)
-    ).toBe('bottom');
   });
 
   it('maps drop zones onto dockview directions and ghost boxes', () => {

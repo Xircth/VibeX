@@ -215,7 +215,8 @@
     "git": "Git",
     "search": "Search (Ctrl+Shift+F)",
     "activityRailAria": "Workspace panels",
-    "reorderHint": "Drag to reorder"
+    "reorderHint": "Drag to reorder",
+    "unsplitLeftDock": "Unsplit"
   },
   "workspaceSessionList": {
     "title": "Sessions",

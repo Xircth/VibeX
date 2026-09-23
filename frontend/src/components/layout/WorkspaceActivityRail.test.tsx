@@ -27,6 +27,8 @@ vi.mock('@/contexts/PanelActionsContext', () => ({
     toggleSessionList: mocks.toggleSessionList,
     placeLeftDockPanel: vi.fn(),
     measureLeftDock: () => null,
+    isLeftDockSplit: () => false,
+    unsplitLeftDock: vi.fn(),
     isPanelOpen: (panelId: string) => panelId === PANEL_IDS.FILE_TREE,
   }),
 }));
@@ -53,6 +55,9 @@ describe('WorkspaceActivityRail', () => {
         .filter((button) => button.getAttribute('aria-label'))
         .map((button) => button.getAttribute('aria-label'))
     ).toEqual(['文件', 'Git', '搜索 (Ctrl+Shift+F)', '会话列表']);
+    expect(
+      screen.queryByRole('button', { name: '取消分割' })
+    ).not.toBeInTheDocument();
   });
 
   it('opens a panel on click without requiring a drag', () => {

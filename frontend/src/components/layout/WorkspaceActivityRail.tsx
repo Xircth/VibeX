@@ -25,6 +25,7 @@ import {
   GitBranch,
   MessagesSquare,
   Search,
+  Square,
   type LucideIcon,
 } from 'lucide-react';
 
@@ -41,7 +42,6 @@ import { PANEL_IDS } from '@/stores/useLayoutStore';
 import {
   boxContains,
   ghostBoxForZone,
-  MIN_WIDTH_FOR_SIDE_SPLIT,
   resolveLeftPanelDropZone,
   type Box,
   type LeftPanelDropZone,
@@ -71,6 +71,8 @@ export function WorkspaceActivityRail({
     isPanelOpen,
     placeLeftDockPanel,
     measureLeftDock,
+    isLeftDockSplit,
+    unsplitLeftDock,
   } = usePanelActionsContext();
   const persistedOrder = useActivityRailOrder();
   const sensors = useSensors(
@@ -173,11 +175,7 @@ export function WorkspaceActivityRail({
       box &&
       !(railBox && boxContains(railBox, pointer))
     ) {
-      next = resolveLeftPanelDropZone(
-        pointer,
-        box,
-        box.width >= MIN_WIDTH_FOR_SIDE_SPLIT
-      );
+      next = resolveLeftPanelDropZone(pointer, box);
     }
     if (next !== dropZoneRef.current) {
       dropZoneRef.current = next;
@@ -273,6 +271,17 @@ export function WorkspaceActivityRail({
             document.body
           )
         : null}
+      {isLeftDockSplit() ? (
+        <button
+          type="button"
+          onClick={unsplitLeftDock}
+          title={t('ideLayout.unsplitLeftDock')}
+          aria-label={t('ideLayout.unsplitLeftDock')}
+          className="workspace-side-rail-button flex h-7 w-7 items-center justify-center"
+        >
+          <Square className="h-3.5 w-3.5" />
+        </button>
+      ) : null}
       <button
         type="button"
         onClick={onToggleEditorArea}

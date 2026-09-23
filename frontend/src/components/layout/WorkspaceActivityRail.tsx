@@ -25,7 +25,7 @@ import {
   GitBranch,
   MessagesSquare,
   Search,
-  Square,
+  Combine,
   type LucideIcon,
 } from 'lucide-react';
 
@@ -279,7 +279,7 @@ export function WorkspaceActivityRail({
           aria-label={t('ideLayout.unsplitLeftDock')}
           className="workspace-side-rail-button flex h-7 w-7 items-center justify-center"
         >
-          <Square className="h-3.5 w-3.5" />
+          <Combine className="h-3.5 w-3.5" />
         </button>
       ) : null}
       <button

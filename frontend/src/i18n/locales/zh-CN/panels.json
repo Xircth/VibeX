@@ -215,7 +215,8 @@
     "git": "Git",
     "search": "搜索 (Ctrl+Shift+F)",
     "activityRailAria": "工作区面板",
-    "reorderHint": "拖动以调整顺序"
+    "reorderHint": "拖动以调整顺序",
+    "unsplitLeftDock": "取消分割"
   },
   "workspaceSessionList": {
     "title": "会话列表",

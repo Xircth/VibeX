@@ -140,3 +140,41 @@ export function syncLeftDockSplitFromLayout(
 
   return { split, total, first };
 }
+
+export function isLeftDockSplit(api: DockviewApi): boolean {
+  return (
+    listLeftDockGroups(api.groups).filter((group) => group.api.isVisible)
+      .length >= 2
+  );
+}
+
+export function unsplitLeftDockKeepLeading(api: DockviewApi): boolean {
+  const groups = listLeftDockGroups(api.groups).filter(
+    (group) => group.api.isVisible
+  );
+  if (groups.length < 2) return false;
+
+  const items = groups
+    .map((group) => {
+      const box = boxFromElement(group.element);
+      return box ? { group, box } : null;
+    })
+    .filter((item): item is { group: (typeof groups)[number]; box: Box } =>
+      Boolean(item)
+    );
+  if (items.length < 2) return false;
+
+  const split = classifyLeftDockSplit(items.map((item) => item.box));
+  const ordered = items.slice().sort((a, b) =>
+    split === 'row'
+      ? a.box.x - b.box.x || a.box.y - b.box.y
+      : a.box.y - b.box.y || a.box.x - b.box.x
+  );
+
+  for (const item of ordered.slice(1)) {
+    for (const panel of [...item.group.panels]) {
+      api.removePanel(panel);
+    }
+  }
+  return true;
+}

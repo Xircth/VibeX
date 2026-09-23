@@ -1,7 +1,6 @@
 export type LeftPanelDropZone = 'top' | 'bottom' | 'left' | 'right';
 export type LeftSplitDirection = 'above' | 'below' | 'left' | 'right';
 
-export const MIN_WIDTH_FOR_SIDE_SPLIT = 360;
 export const DEFAULT_STACK_RATIO = 0.62;
 export const DEFAULT_ROW_RATIO = 0.5;
 
@@ -47,18 +46,13 @@ export function boxContains(box: Box, point: Point): boolean {
 
 export function resolveLeftPanelDropZone(
   point: Point,
-  box: Box,
-  allowSideSplit = box.width >= MIN_WIDTH_FOR_SIDE_SPLIT
+  box: Box
 ): LeftPanelDropZone | null {
   if (box.width < 1 || box.height < 1 || !boxContains(box, point)) {
     return null;
   }
 
   const relY = (point.y - box.y) / box.height;
-  if (!allowSideSplit) {
-    return relY < 0.5 ? 'top' : 'bottom';
-  }
-
   if (relY < 1 / 3) return 'top';
   if (relY > 2 / 3) return 'bottom';
   const relX = (point.x - box.x) / box.width;

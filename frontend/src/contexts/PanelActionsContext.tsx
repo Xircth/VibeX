@@ -73,8 +73,10 @@ import {
 } from '@/lib/activityRailOrder';
 import {
   applyLeftDockSplitSizes,
+  isLeftDockSplit as readLeftDockSplit,
   measureLeftDockBox,
   syncLeftDockSplitFromLayout,
+  unsplitLeftDockKeepLeading,
 } from '@/lib/leftDockPlacement';
 import {
   dropZoneToDirection,
@@ -204,6 +206,8 @@ export interface PanelActions {
     width: number;
     height: number;
   } | null;
+  isLeftDockSplit: () => boolean;
+  unsplitLeftDock: () => void;
   isPanelOpen: (panelId: string) => boolean;
   focusKanban: () => void;
   openLogs: () => void;
@@ -227,6 +231,7 @@ const PanelActionsContext = createContext<PanelActions | null>(null);
 export function PanelActionsProvider({ children }: { children: ReactNode }) {
   const apiRef = useRef<DockviewApi | null>(null);
   const [dockviewEpoch, setDockviewEpoch] = useState(0);
+  const [leftDockRevision, setLeftDockRevision] = useState(0);
   const offeredPluginPanelsRef = useRef(new Set<string>());
   const pluginPanels = usePluginHostContributions('app_panel');
   const imagePanelRemovalDisposableRef = useRef<{
@@ -987,6 +992,7 @@ export function PanelActionsProvider({ children }: { children: ReactNode }) {
         });
       }
       normalizeEditorGroupIds(dockviewApi);
+      setLeftDockRevision((revision) => revision + 1);
     },
     [normalizeEditorGroupIds]
   );
@@ -1059,6 +1065,19 @@ export function PanelActionsProvider({ children }: { children: ReactNode }) {
     if (!dockviewApi) return null;
     return measureLeftDockBox(dockviewApi);
   }, []);
+
+  const isLeftDockSplit = useCallback(() => {
+    const dockviewApi = apiRef.current;
+    if (!dockviewApi) return false;
+    return readLeftDockSplit(dockviewApi);
+  }, []);
+
+  const unsplitLeftDock = useCallback(() => {
+    const dockviewApi = apiRef.current;
+    if (!dockviewApi) return;
+    if (!unsplitLeftDockKeepLeading(dockviewApi)) return;
+    finishLeftDockChange();
+  }, [finishLeftDockChange]);
 
   const toggleLeftDockPanel = useCallback(
     (panelId: ActivityRailItemId) => {
@@ -1422,7 +1441,9 @@ export function PanelActionsProvider({ children }: { children: ReactNode }) {
   }, [dockviewEpoch, openPluginPanel, pluginPanels]);
 
   const value = useMemo<PanelActions>(
-    () => ({
+    () => {
+      void leftDockRevision;
+      return {
       openOrFocusPanel,
       openFilePreview,
       openImagePreview,
@@ -1448,13 +1469,16 @@ export function PanelActionsProvider({ children }: { children: ReactNode }) {
       toggleSessionList,
       placeLeftDockPanel,
       measureLeftDock,
+      isLeftDockSplit,
+      unsplitLeftDock,
       isPanelOpen,
       focusKanban,
       openLogs,
       openNotes,
       openPluginPanel,
       setDockviewApi,
-    }),
+    };
+    },
     [
       canOpenPanelInNewEditorGroup,
       canSplitActiveEditor,
@@ -1487,6 +1511,9 @@ export function PanelActionsProvider({ children }: { children: ReactNode }) {
       toggleSessionList,
       placeLeftDockPanel,
       measureLeftDock,
+      isLeftDockSplit,
+      unsplitLeftDock,
+      leftDockRevision,
     ]
   );
 

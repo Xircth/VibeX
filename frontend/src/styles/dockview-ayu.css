@@ -8,7 +8,7 @@
 .dockview-theme-light.dockview-theme-ayu,
 .dockview-theme-ayu.dockview-theme-light,
 .dockview-theme-ayu {
-  --dv-theme-bg: var(--surface-dialog);
+  --dv-theme-bg: var(--surface-topbar);
   --dv-theme-surface: var(--surface-topbar);
   --dv-theme-surface-muted: var(--surface-topbar);
   --dv-theme-border: var(--border-subtle);
@@ -49,7 +49,7 @@
     transparent
   );
 
-  --dv-connected-chrome: var(--surface-dialog);
+  --dv-connected-chrome: var(--surface-topbar);
   --dv-tab-curve: calc(var(--radius) * 0.5);
   --dv-activegroup-visiblepanel-tab-background-color: var(--dv-connected-chrome);
   --dv-activegroup-hiddenpanel-tab-background-color: transparent;
@@ -160,7 +160,7 @@
 .dark .dockview-theme-light.dockview-theme-ayu,
 .dark .dockview-theme-ayu.dockview-theme-light,
 .dark .dockview-theme-ayu {
-  --dv-theme-bg: var(--surface-dialog);
+  --dv-theme-bg: var(--surface-topbar);
   --dv-theme-surface: var(--surface-topbar);
   --dv-theme-surface-muted: var(--surface-topbar);
   --dv-theme-border: var(--border-subtle);
@@ -182,7 +182,7 @@
     transparent
   );
 
-  --dv-connected-chrome: var(--surface-dialog);
+  --dv-connected-chrome: var(--surface-topbar);
   --dv-tab-curve: calc(var(--radius) * 0.5);
   --dv-activegroup-visiblepanel-tab-background-color: var(--dv-connected-chrome);
   --dv-activegroup-hiddenpanel-tab-background-color: var(--dv-theme-surface);

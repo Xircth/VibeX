@@ -222,7 +222,7 @@
     --surface-glass: hsl(0 0% 100% / 0.72);
     --surface-popover: var(--surface-glass);
     --surface-dialog: #fafafa;
-    --surface-glass-solid: var(--surface-dialog);
+    --surface-glass-solid: hsl(220 24% 96%);
     --surface-content: hsl(0 0% 100% / 0.96);
     --surface-card: hsl(0 0% 100% / 0.72);
     --surface-card-strong: hsl(0 0% 100% / 0.94);

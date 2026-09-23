@@ -25,6 +25,8 @@ vi.mock('@/contexts/PanelActionsContext', () => ({
     toggleGitPanel: mocks.toggleGitPanel,
     toggleSearchPanel: mocks.toggleSearchPanel,
     toggleSessionList: mocks.toggleSessionList,
+    placeLeftDockPanel: vi.fn(),
+    measureLeftDock: () => null,
     isPanelOpen: (panelId: string) => panelId === PANEL_IDS.FILE_TREE,
   }),
 }));

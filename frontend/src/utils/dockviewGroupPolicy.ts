@@ -45,6 +45,12 @@ export function isLeftGroup(group: DockviewGroupLike): boolean {
   );
 }
 
+export function listLeftDockGroups<T extends DockviewGroupLike>(
+  groups: readonly T[]
+): T[] {
+  return groups.filter((group) => isLeftGroup(group));
+}
+
 export function isBottomGroup(group: DockviewGroupLike): boolean {
   return (
     group.id === GROUP_IDS.BOTTOM ||

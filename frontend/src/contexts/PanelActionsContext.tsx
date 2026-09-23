@@ -58,20 +58,35 @@ import {
   isSessionGroup,
   isSplittableEditorPanel,
   LEFT_PANEL_IDS,
+  listLeftDockGroups,
 } from '@/utils/dockviewGroupPolicy';
 import { getLayoutArrangement, slotOfZone } from '@/lib/layoutArrangement';
 import { useFileTreeStore } from '@/stores/useFileTreeStore';
-import { MIN_LEFT_PANEL_WIDTH } from '@/utils/dockviewWorkspaceConstraints';
 import {
+  applyWorkspaceZoneConstraints,
+  MIN_LEFT_PANEL_WIDTH,
+} from '@/utils/dockviewWorkspaceConstraints';
+import {
+  ACTIVITY_RAIL_ITEMS,
   ACTIVITY_RAIL_PANEL_TITLES,
-  otherActivityRailPanels,
   type ActivityRailItemId,
 } from '@/lib/activityRailOrder';
+import {
+  applyLeftDockSplitSizes,
+  measureLeftDockBox,
+  syncLeftDockSplitFromLayout,
+} from '@/lib/leftDockPlacement';
+import {
+  dropZoneToDirection,
+  isRowSplit,
+  type LeftPanelDropZone,
+} from '@/lib/leftPanelSplit';
 import {
   ensureWelcomeEditorGroup,
   isEditorColumnCrushed,
   restoreFlexibleEditorColumn,
   setColumnVisible,
+  setLeftDockVisible,
 } from '@/utils/dockviewEditorGroup';
 import {
   clearImagePreviewSources,
@@ -179,6 +194,16 @@ export interface PanelActions {
   toggleGitPanel: () => void;
   toggleSearchPanel: () => void;
   toggleSessionList: () => void;
+  placeLeftDockPanel: (
+    panelId: ActivityRailItemId,
+    zone: LeftPanelDropZone
+  ) => void;
+  measureLeftDock: () => {
+    x: number;
+    y: number;
+    width: number;
+    height: number;
+  } | null;
   isPanelOpen: (panelId: string) => boolean;
   focusKanban: () => void;
   openLogs: () => void;
@@ -207,6 +232,13 @@ export function PanelActionsProvider({ children }: { children: ReactNode }) {
   const imagePanelRemovalDisposableRef = useRef<{
     dispose: () => void;
   } | null>(null);
+  const layoutDisposableRef = useRef<{ dispose: () => void } | null>(null);
+  const leftSplitSnapshotRef = useRef<{
+    split: 'stack' | 'row';
+    total: number;
+    first: number;
+  } | null>(null);
+  const applyingLeftSplitRef = useRef(false);
   const diffPreviewPanelQueueRef = useRef<string[]>([]);
   const clearCommitDiff = useCommitDiffStore((state) => state.clearCommitDiff);
   const clearGitDiffTargetPath = useGitDiffNavigationStore(
@@ -225,6 +257,9 @@ export function PanelActionsProvider({ children }: { children: ReactNode }) {
   const setDockviewApi = useCallback((api: DockviewApi | null) => {
     imagePanelRemovalDisposableRef.current?.dispose();
     imagePanelRemovalDisposableRef.current = null;
+    layoutDisposableRef.current?.dispose();
+    layoutDisposableRef.current = null;
+    leftSplitSnapshotRef.current = null;
     apiRef.current = api;
     setDockviewEpoch((epoch) => epoch + 1);
     if (!api) {
@@ -237,12 +272,32 @@ export function PanelActionsProvider({ children }: { children: ReactNode }) {
       releaseImagePreviewSource(panel.id);
       closeRemovedEditorTerminal(panel.id);
     });
+
+    let frame = 0;
+    const syncSplit = () => {
+      frame = 0;
+      applyingLeftSplitRef.current = true;
+      leftSplitSnapshotRef.current = syncLeftDockSplitFromLayout(
+        api,
+        leftSplitSnapshotRef.current
+      );
+      requestAnimationFrame(() => {
+        applyingLeftSplitRef.current = false;
+      });
+    };
+    layoutDisposableRef.current = api.onDidLayoutChange(() => {
+      if (applyingLeftSplitRef.current) return;
+      if (frame) return;
+      frame = requestAnimationFrame(syncSplit);
+    });
   }, []);
 
   useEffect(
     () => () => {
       imagePanelRemovalDisposableRef.current?.dispose();
       imagePanelRemovalDisposableRef.current = null;
+      layoutDisposableRef.current?.dispose();
+      layoutDisposableRef.current = null;
       clearImagePreviewSources();
     },
     []
@@ -277,9 +332,9 @@ export function PanelActionsProvider({ children }: { children: ReactNode }) {
 
   const normalizeEditorGroupIds = useCallback(
     (dockviewApi: DockviewApi) => {
-      const leftGroup = getLeftGroup(dockviewApi);
-      if (leftGroup) {
-        (leftGroup as { id: string }).id = GROUP_IDS.LEFT;
+      const leftGroups = listLeftDockGroups(dockviewApi.groups);
+      if (leftGroups.length === 1) {
+        (leftGroups[0] as { id: string }).id = GROUP_IDS.LEFT;
       }
 
       const bottomGroup = getBottomGroup(dockviewApi);
@@ -323,7 +378,7 @@ export function PanelActionsProvider({ children }: { children: ReactNode }) {
       syncDockviewGroupRegistry(dockviewApi);
       applyLeftGroupHeaderHiding(dockviewApi);
     },
-    [getBottomGroup, getLeftGroup, getRightGroup]
+    [getBottomGroup, getRightGroup]
   );
 
   const recreateWelcomeEditorGroup = useCallback(() => {
@@ -879,126 +934,76 @@ export function PanelActionsProvider({ children }: { children: ReactNode }) {
     dockviewApi.removePanel(panel);
   }, []);
 
-  const switchLeftPanel = useCallback(
-    (
-      targetId: string,
-      targetComponent: string,
-      targetTitle: string,
-      otherPanelIds: string[]
-    ) => {
-      const dockviewApi = apiRef.current;
-      if (!dockviewApi) return;
+  const ensureLeftDockGroup = useCallback(() => {
+    const dockviewApi = apiRef.current;
+    if (!dockviewApi) return null;
 
-      const existing = dockviewApi.getPanel(targetId);
-      if (existing) {
-        const leftGroup = getLeftGroup(dockviewApi);
-        if (leftGroup) {
-          const hasOtherLeftPanels = otherPanelIds.some(
-            (panelId) => !!dockviewApi.getPanel(panelId)
-          );
+    const existingLeftGroup = getLeftGroup(dockviewApi);
+    const savedLeftWidth = existingLeftGroup?.api.isVisible
+      ? existingLeftGroup.api.width
+      : 0;
 
-          if (hasOtherLeftPanels) {
-            existing.api.setActive();
+    let leftGroup = existingLeftGroup ?? null;
+    if (!leftGroup) {
+      const editorHost = recreateWelcomeEditorGroup();
+      const referencePanel = editorHost?.panels[0];
+      if (!referencePanel) return null;
 
-            for (const otherPanelId of otherPanelIds) {
-              const otherPanel = dockviewApi.getPanel(otherPanelId);
-              if (otherPanel) {
-                dockviewApi.removePanel(otherPanel);
-              }
-            }
-
-            setColumnVisible(
-              dockviewApi,
-              getLayoutArrangement(),
-              leftGroup,
-              true
-            );
-            applyLeftGroupHeaderHiding(dockviewApi);
-          } else {
-            setColumnVisible(
-              dockviewApi,
-              getLayoutArrangement(),
-              leftGroup,
-              !leftGroup.api.isVisible
-            );
-          }
-        }
-
-        return;
-      }
-
-      const existingLeftGroup = getLeftGroup(dockviewApi);
-      const savedLeftWidth = existingLeftGroup?.api.isVisible
-        ? existingLeftGroup.api.width
-        : 0;
-
-      let leftGroup = existingLeftGroup ?? null;
-      if (!leftGroup) {
-        const editorHost = recreateWelcomeEditorGroup();
-        const referencePanel = editorHost?.panels[0];
-        if (!referencePanel) return;
-
-        leftGroup = dockviewApi.addGroup({
-          id: GROUP_IDS.LEFT,
-          referencePanel,
-          direction: 'left',
-          hideHeader: true,
-          constraints: { minimumWidth: MIN_LEFT_PANEL_WIDTH },
-          initialWidth: savedLeftWidth > 0 ? savedLeftWidth : 200,
-        });
-
-        if (savedLeftWidth > 0) {
-          try {
-            leftGroup.api.setSize({ width: savedLeftWidth });
-          } catch {
-            // Ignore resize failures during initialization.
-          }
-        }
-      }
-
-      dockviewApi.addPanel({
-        id: targetId,
-        component: targetComponent,
-        title: targetTitle,
-        position: { referenceGroup: GROUP_IDS.LEFT, direction: 'within' },
+      leftGroup = dockviewApi.addGroup({
+        id: GROUP_IDS.LEFT,
+        referencePanel,
+        direction: 'left',
+        hideHeader: true,
+        constraints: { minimumWidth: MIN_LEFT_PANEL_WIDTH },
+        initialWidth: savedLeftWidth > 0 ? savedLeftWidth : 200,
       });
 
-      for (const otherPanelId of otherPanelIds) {
-        const otherPanel = dockviewApi.getPanel(otherPanelId);
-        if (otherPanel) {
-          dockviewApi.removePanel(otherPanel);
+      if (savedLeftWidth > 0) {
+        try {
+          leftGroup.api.setSize({ width: savedLeftWidth });
+        } catch {
+          // Ignore resize failures during initialization.
         }
       }
+    }
 
-      setColumnVisible(dockviewApi, getLayoutArrangement(), leftGroup, true);
+    return leftGroup;
+  }, [getLeftGroup, recreateWelcomeEditorGroup]);
+
+  const finishLeftDockChange = useCallback(
+    (zone?: LeftPanelDropZone) => {
+      const dockviewApi = apiRef.current;
+      if (!dockviewApi) return;
       applyLeftGroupHeaderHiding(dockviewApi);
+      applyWorkspaceZoneConstraints(dockviewApi);
+      if (zone) {
+        applyingLeftSplitRef.current = true;
+        applyLeftDockSplitSizes(
+          dockviewApi,
+          isRowSplit(zone) ? 'row' : 'stack'
+        );
+        requestAnimationFrame(() => {
+          applyingLeftSplitRef.current = false;
+        });
+      }
       normalizeEditorGroupIds(dockviewApi);
     },
-    [getLeftGroup, normalizeEditorGroupIds, recreateWelcomeEditorGroup]
+    [normalizeEditorGroupIds]
   );
 
-  const showLeftPanel = useCallback(
-    (
-      targetId: string,
-      targetComponent: string,
-      targetTitle: string,
-      otherPanelIds: string[]
-    ) => {
+  const placeLeftDockPanel = useCallback(
+    (panelId: ActivityRailItemId, zone: LeftPanelDropZone) => {
       const dockviewApi = apiRef.current;
       if (!dockviewApi) return;
 
-      const existing = dockviewApi.getPanel(targetId);
-      if (existing) {
-        existing.api.setActive();
+      const title = ACTIVITY_RAIL_PANEL_TITLES[panelId];
+      const existing = dockviewApi.getPanel(panelId);
+      const others = ACTIVITY_RAIL_ITEMS.filter((id) => id !== panelId)
+        .map((id) => dockviewApi.getPanel(id))
+        .filter((panel): panel is NonNullable<typeof panel> => Boolean(panel));
 
-        for (const otherPanelId of otherPanelIds) {
-          const otherPanel = dockviewApi.getPanel(otherPanelId);
-          if (otherPanel) {
-            dockviewApi.removePanel(otherPanel);
-          }
-        }
-
-        const leftGroup = getLeftGroup(dockviewApi);
+      if (existing && others.length === 0) {
+        const leftGroup = existing.group;
         if (leftGroup) {
           setColumnVisible(
             dockviewApi,
@@ -1007,71 +1012,92 @@ export function PanelActionsProvider({ children }: { children: ReactNode }) {
             true
           );
         }
-        applyLeftGroupHeaderHiding(dockviewApi);
-        normalizeEditorGroupIds(dockviewApi);
+        finishLeftDockChange();
         return;
       }
 
-      const existingLeftGroup = getLeftGroup(dockviewApi);
-      const savedLeftWidth = existingLeftGroup?.api.isVisible
-        ? existingLeftGroup.api.width
-        : 0;
-
-      let leftGroup = existingLeftGroup ?? null;
-      if (!leftGroup) {
-        const editorHost = recreateWelcomeEditorGroup();
-        const referencePanel = editorHost?.panels[0];
-        if (!referencePanel) return;
-
-        leftGroup = dockviewApi.addGroup({
-          id: GROUP_IDS.LEFT,
-          referencePanel,
-          direction: 'left',
-          hideHeader: true,
-          constraints: { minimumWidth: MIN_LEFT_PANEL_WIDTH },
-          initialWidth: savedLeftWidth > 0 ? savedLeftWidth : 200,
+      if (existing) {
+        existing.api.moveTo({
+          group: others[0].group,
+          position: zone,
         });
-
-        if (savedLeftWidth > 0) {
-          try {
-            leftGroup.api.setSize({ width: savedLeftWidth });
-          } catch {
-            // Ignore resize failures during initialization.
-          }
-        }
+        finishLeftDockChange(zone);
+        return;
       }
 
-      dockviewApi.addPanel({
-        id: targetId,
-        component: targetComponent,
-        title: targetTitle,
-        position: { referenceGroup: GROUP_IDS.LEFT, direction: 'within' },
-      });
+      const leftGroup = ensureLeftDockGroup();
+      if (!leftGroup) return;
 
-      for (const otherPanelId of otherPanelIds) {
-        const otherPanel = dockviewApi.getPanel(otherPanelId);
-        if (otherPanel) {
-          dockviewApi.removePanel(otherPanel);
-        }
+      const reference = others[0];
+      if (!reference) {
+        dockviewApi.addPanel({
+          id: panelId,
+          component: panelId,
+          title,
+          position: { referenceGroup: leftGroup, direction: 'within' },
+        });
+      } else {
+        dockviewApi.addPanel({
+          id: panelId,
+          component: panelId,
+          title,
+          position: {
+            referencePanel: reference,
+            direction: dropZoneToDirection(zone),
+          },
+        });
       }
 
       setColumnVisible(dockviewApi, getLayoutArrangement(), leftGroup, true);
-      applyLeftGroupHeaderHiding(dockviewApi);
-      normalizeEditorGroupIds(dockviewApi);
+      finishLeftDockChange(others.length > 0 ? zone : undefined);
     },
-    [getLeftGroup, normalizeEditorGroupIds, recreateWelcomeEditorGroup]
+    [ensureLeftDockGroup, finishLeftDockChange]
   );
+
+  const measureLeftDock = useCallback(() => {
+    const dockviewApi = apiRef.current;
+    if (!dockviewApi) return null;
+    return measureLeftDockBox(dockviewApi);
+  }, []);
 
   const toggleLeftDockPanel = useCallback(
     (panelId: ActivityRailItemId) => {
-      switchLeftPanel(
-        panelId,
-        panelId,
-        ACTIVITY_RAIL_PANEL_TITLES[panelId],
-        otherActivityRailPanels(panelId)
-      );
+      const dockviewApi = apiRef.current;
+      if (!dockviewApi) return;
+
+      const existing = dockviewApi.getPanel(panelId);
+      if (existing?.group.api.isVisible) {
+        dockviewApi.removePanel(existing);
+        const remaining = ACTIVITY_RAIL_ITEMS.some((id) => {
+          const panel = dockviewApi.getPanel(id);
+          return Boolean(panel?.group.api.isVisible);
+        });
+        if (!remaining) {
+          setLeftDockVisible(
+            dockviewApi,
+            getLayoutArrangement(),
+            false
+          );
+        }
+        finishLeftDockChange();
+        return;
+      }
+
+      if (existing && !existing.group.api.isVisible) {
+        setColumnVisible(
+          dockviewApi,
+          getLayoutArrangement(),
+          existing.group,
+          true
+        );
+        existing.api.setActive();
+        finishLeftDockChange();
+        return;
+      }
+
+      placeLeftDockPanel(panelId, 'bottom');
     },
-    [switchLeftPanel]
+    [finishLeftDockChange, placeLeftDockPanel]
   );
 
   const toggleFileTree = useCallback(() => {
@@ -1092,13 +1118,8 @@ export function PanelActionsProvider({ children }: { children: ReactNode }) {
 
   const showFileTree = useCallback(() => {
     setFileTreeVisible(true);
-    showLeftPanel(
-      PANEL_IDS.FILE_TREE,
-      PANEL_IDS.FILE_TREE,
-      ACTIVITY_RAIL_PANEL_TITLES[PANEL_IDS.FILE_TREE],
-      otherActivityRailPanels(PANEL_IDS.FILE_TREE)
-    );
-  }, [setFileTreeVisible, showLeftPanel]);
+    placeLeftDockPanel(PANEL_IDS.FILE_TREE, 'top');
+  }, [placeLeftDockPanel, setFileTreeVisible]);
 
   const revealInFileTree = useCallback(
     (path: string, options?: RevealInFileTreeOptions) => {
@@ -1263,7 +1284,7 @@ export function PanelActionsProvider({ children }: { children: ReactNode }) {
     if (!panel) return false;
 
     if (LEFT_PANEL_IDS.has(panelId)) {
-      return panel.group.api.isVisible && panel.api.isActive;
+      return panel.group.api.isVisible;
     }
 
     if (BOTTOM_PANEL_IDS.has(panelId)) {
@@ -1425,6 +1446,8 @@ export function PanelActionsProvider({ children }: { children: ReactNode }) {
       toggleGitPanel,
       toggleSearchPanel,
       toggleSessionList,
+      placeLeftDockPanel,
+      measureLeftDock,
       isPanelOpen,
       focusKanban,
       openLogs,
@@ -1462,6 +1485,8 @@ export function PanelActionsProvider({ children }: { children: ReactNode }) {
       toggleGitPanel,
       toggleSearchPanel,
       toggleSessionList,
+      placeLeftDockPanel,
+      measureLeftDock,
     ]
   );
 

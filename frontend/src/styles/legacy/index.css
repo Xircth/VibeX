@@ -3052,6 +3052,19 @@
     user-select: none;
   }
 
+  .left-panel-split-overlay {
+    position: fixed;
+    z-index: 40;
+    pointer-events: none;
+  }
+
+  .left-panel-split-ghost {
+    position: absolute;
+    border: 1px dashed var(--border-strong);
+    background: hsl(var(--primary) / 0.12);
+    border-radius: var(--radius);
+  }
+
   .workspace-activity-rail .workspace-side-rail-button {
     cursor: grab;
     touch-action: none;

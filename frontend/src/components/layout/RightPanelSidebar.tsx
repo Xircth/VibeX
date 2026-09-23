@@ -79,7 +79,7 @@ function RightPanelSidebarContent({
 
   return (
     <TooltipProvider delayDuration={200}>
-      <div className="workspace-divider-left relative flex w-9 shrink-0 flex-col items-center gap-0.5 bg-secondary/30 pt-2">
+      <div className="workspace-chrome workspace-divider-left relative flex w-9 shrink-0 flex-col items-center gap-0.5 pt-2">
         {buttons.map((button) => {
           const Icon = button.icon;
           return (

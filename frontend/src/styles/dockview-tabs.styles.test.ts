@@ -25,6 +25,20 @@ function declarationsFor(
 }
 
 describe('workspace tab strip chrome', () => {
+  it('uses the workspace topbar fill for the tab strip and panel body', () => {
+    const theme = declarationsFor(
+      '.dockview-theme-light.dockview-theme-ayu, .dockview-theme-ayu.dockview-theme-light, .dockview-theme-ayu'
+    );
+    const dark = declarationsFor(
+      '.dark .dockview-theme-light.dockview-theme-ayu, .dark .dockview-theme-ayu.dockview-theme-light, .dark .dockview-theme-ayu'
+    );
+
+    expect(theme['--dv-theme-surface']?.value).toBe('var(--surface-topbar)');
+    expect(theme['--dv-theme-bg']?.value).toBe('var(--surface-dialog)');
+    expect(dark['--dv-theme-surface']?.value).toBe('var(--surface-topbar)');
+    expect(dark['--dv-theme-bg']?.value).toBe('var(--surface-dialog)');
+  });
+
   it('joins the selected tab to the panel body with side curves', () => {
     const strip = declarationsFor(
       "[class*='dockview-theme-ayu'] .dv-groupview > .dv-tabs-and-actions-container"

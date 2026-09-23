@@ -44,6 +44,7 @@ describe('WorkspaceActivityRail', () => {
       <WorkspaceActivityRail isEditorAreaVisible onToggleEditorArea={vi.fn()} />
     );
 
+    expect(screen.getByRole('navigation')).toHaveClass('workspace-chrome');
     expect(
       screen
         .getAllByRole('button')

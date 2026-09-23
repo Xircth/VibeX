@@ -150,7 +150,7 @@ export function WorkspaceActivityRail({
   return (
     <nav
       aria-label={t('ideLayout.activityRailAria')}
-      className="workspace-activity-rail workspace-divider-right relative flex w-9 shrink-0 flex-col items-center gap-0.5 bg-secondary/30 pt-2"
+      className="workspace-activity-rail workspace-chrome workspace-divider-right relative flex w-9 shrink-0 flex-col items-center gap-0.5 pt-2"
     >
       <DndContext
         sensors={sensors}

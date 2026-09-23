@@ -18,27 +18,27 @@ export function applyLeftGroupHeaderHiding(api: DockviewApi): void {
     };
   };
 
-  const leftPanel = ACTIVITY_RAIL_ITEMS.map((panelId) =>
-    api.getPanel(panelId)
-  ).find(Boolean);
+  const groups = new Set(
+    ACTIVITY_RAIL_ITEMS.map((panelId) => api.getPanel(panelId)?.group).filter(
+      (
+        group
+      ): group is NonNullable<(typeof api.groups)[number]> => Boolean(group)
+    )
+  );
 
-  if (!leftPanel) return;
-
-  const group = leftPanel.group;
-  if (!group) return;
-
-  // Use the documented `hidden` setter on the group header model
-  try {
-    const model = (group as GroupWithHeaderModel).model;
-    if (model?.header && typeof model.header.hidden !== 'undefined') {
-      model.header.hidden = true;
+  for (const group of groups) {
+    try {
+      const model = (group as GroupWithHeaderModel).model;
+      if (model?.header && typeof model.header.hidden !== 'undefined') {
+        model.header.hidden = true;
+      }
+    } catch {
+      // Fallback: add a CSS class to the group element
     }
-  } catch {
-    // Fallback: add a CSS class to the group element
-  }
 
-  // CSS class fallback – always apply so the CSS rule can hide the header
-  group.element?.classList.add('dv-header-hidden');
+    group.element?.classList.add('dv-header-hidden');
+    group.element?.setAttribute('data-left-dock', 'true');
+  }
 }
 
 /**

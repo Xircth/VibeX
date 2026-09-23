@@ -61,6 +61,7 @@ import {
   dismissEmptyEditorColumn,
   ensureWelcomeEditorGroup,
   setColumnVisible,
+  setLeftDockVisible,
   setColumnsVisible,
   shouldPersistSessionColumnWidth,
 } from '@/utils/dockviewEditorGroup';
@@ -643,10 +644,7 @@ export function IDELayout({
       }
       bottomGroup.api.setVisible(false);
     }
-    const leftGroup = getLeftGroup(api);
-    if (leftGroup) {
-      setColumnVisible(api, getLayoutArrangement(), leftGroup, false);
-    }
+    setLeftDockVisible(api, getLayoutArrangement(), false);
   }, []);
 
   const ensureWorkspacePanelsVisible = useCallback(
@@ -686,7 +684,7 @@ export function IDELayout({
         });
       }
 
-      setColumnVisible(api, getLayoutArrangement(), leftGroup, true);
+      setLeftDockVisible(api, getLayoutArrangement(), true);
 
       let bottomGroup = getBottomGroup(api);
       const hadBottomGroup = !!bottomGroup;

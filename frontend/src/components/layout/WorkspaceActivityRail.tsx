@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { useTranslation } from 'react-i18next';
 import {
   DndContext,
@@ -7,7 +8,9 @@ import {
   closestCenter,
   useSensor,
   useSensors,
+  type CollisionDetection,
   type DragEndEvent,
+  type DragMoveEvent,
   type DragStartEvent,
 } from '@dnd-kit/core';
 import {
@@ -35,6 +38,15 @@ import {
   useActivityRailOrder,
 } from '@/lib/activityRailOrder';
 import { PANEL_IDS } from '@/stores/useLayoutStore';
+import {
+  boxContains,
+  ghostBoxForZone,
+  MIN_WIDTH_FOR_SIDE_SPLIT,
+  resolveLeftPanelDropZone,
+  type Box,
+  type LeftPanelDropZone,
+  type Point,
+} from '@/lib/leftPanelSplit';
 
 const RAIL_ICONS: Record<ActivityRailItemId, LucideIcon> = {
   [PANEL_IDS.FILE_TREE]: FolderOpen,
@@ -57,6 +69,8 @@ export function WorkspaceActivityRail({
     toggleSearchPanel,
     toggleSessionList,
     isPanelOpen,
+    placeLeftDockPanel,
+    measureLeftDock,
   } = usePanelActionsContext();
   const persistedOrder = useActivityRailOrder();
   const sensors = useSensors(
@@ -64,9 +78,16 @@ export function WorkspaceActivityRail({
   );
   const [order, setOrder] = useState(persistedOrder);
   const [activeId, setActiveId] = useState<ActivityRailItemId | null>(null);
+  const [dropZone, setDropZone] = useState<LeftPanelDropZone | null>(null);
+  const [dockBox, setDockBox] = useState<Box | null>(null);
   const orderRef = useRef(order);
   const originRef = useRef<ActivityRailItemId[] | null>(null);
+  const railRef = useRef<HTMLElement | null>(null);
+  const dropZoneRef = useRef<LeftPanelDropZone | null>(null);
+  const dockBoxRef = useRef<Box | null>(null);
   orderRef.current = order;
+  dropZoneRef.current = dropZone;
+  dockBoxRef.current = dockBox;
   const persistedKey = persistedOrder.join('|');
 
   useEffect(() => {
@@ -102,15 +123,27 @@ export function WorkspaceActivityRail({
     setActivityRailOrder(next);
   }, []);
 
-  const handleDragStart = useCallback(({ active }: DragStartEvent) => {
-    originRef.current = orderRef.current;
-    setActiveId(String(active.id) as ActivityRailItemId);
-  }, []);
+  const handleDragStart = useCallback(
+    ({ active }: DragStartEvent) => {
+      originRef.current = orderRef.current;
+      setActiveId(String(active.id) as ActivityRailItemId);
+      const box = measureLeftDock();
+      dockBoxRef.current = box;
+      setDockBox(box);
+      dropZoneRef.current = null;
+      setDropZone(null);
+    },
+    [measureLeftDock]
+  );
 
   const finishDrag = useCallback((next: ActivityRailItemId[] | null) => {
     const origin = originRef.current;
     originRef.current = null;
     setActiveId(null);
+    dropZoneRef.current = null;
+    setDropZone(null);
+    dockBoxRef.current = null;
+    setDockBox(null);
     if (!next) {
       if (origin) setOrder(origin);
       return;
@@ -121,19 +154,56 @@ export function WorkspaceActivityRail({
     }
   }, []);
 
+  const collisionDetection = useCallback<CollisionDetection>((args) => {
+    const pointer = args.pointerCoordinates;
+    const box = dockBoxRef.current;
+    if (pointer && box && boxContains(box, pointer)) {
+      return [];
+    }
+    return closestCenter(args);
+  }, []);
+
+  const handleDragMove = useCallback((event: DragMoveEvent) => {
+    const pointer = pointerFromDrag(event);
+    const box = dockBoxRef.current;
+    const railBox = boxFromElement(railRef.current);
+    let next: LeftPanelDropZone | null = null;
+    if (
+      pointer &&
+      box &&
+      !(railBox && boxContains(railBox, pointer))
+    ) {
+      next = resolveLeftPanelDropZone(
+        pointer,
+        box,
+        box.width >= MIN_WIDTH_FOR_SIDE_SPLIT
+      );
+    }
+    if (next !== dropZoneRef.current) {
+      dropZoneRef.current = next;
+      setDropZone(next);
+    }
+  }, []);
+
   const handleDragEnd = useCallback(
     ({ active, over }: DragEndEvent) => {
       const origin = originRef.current ?? orderRef.current;
+      const zone = dropZoneRef.current;
+      const panelId = String(active.id) as ActivityRailItemId;
+      if (zone) {
+        finishDrag(origin);
+        placeLeftDockPanel(panelId, zone);
+        return;
+      }
       if (!over) {
         finishDrag(null);
         return;
       }
       finishDrag(
-        moveActivityRailItem(origin, String(active.id), String(over.id)) ??
-          origin
+        moveActivityRailItem(origin, panelId, String(over.id)) ?? origin
       );
     },
-    [finishDrag]
+    [finishDrag, placeLeftDockPanel]
   );
 
   const handleDragCancel = useCallback(() => {
@@ -149,13 +219,15 @@ export function WorkspaceActivityRail({
 
   return (
     <nav
+      ref={railRef}
       aria-label={t('ideLayout.activityRailAria')}
       className="workspace-activity-rail workspace-chrome workspace-divider-right relative flex w-9 shrink-0 flex-col items-center gap-0.5 pt-2"
     >
       <DndContext
         sensors={sensors}
-        collisionDetection={closestCenter}
+        collisionDetection={collisionDetection}
         onDragStart={handleDragStart}
+        onDragMove={handleDragMove}
         onDragEnd={handleDragEnd}
         onDragCancel={handleDragCancel}
       >
@@ -172,7 +244,7 @@ export function WorkspaceActivityRail({
             />
           ))}
         </SortableContext>
-        <DragOverlay>
+        <DragOverlay dropAnimation={null}>
           {activeId ? (
             <ActivityRailMark
               label={labels[activeId]}
@@ -182,6 +254,25 @@ export function WorkspaceActivityRail({
           ) : null}
         </DragOverlay>
       </DndContext>
+      {activeId && dockBox && dropZone
+        ? createPortal(
+            <div
+              className="left-panel-split-overlay"
+              style={{
+                top: dockBox.y,
+                left: dockBox.x,
+                width: dockBox.width,
+                height: dockBox.height,
+              }}
+            >
+              <div
+                className="left-panel-split-ghost"
+                style={ghostStyle(dockBox, dropZone)}
+              />
+            </div>,
+            document.body
+          )
+        : null}
       <button
         type="button"
         onClick={onToggleEditorArea}
@@ -265,6 +356,39 @@ function ActivityRailItem({
       <span className="sr-only">{t('ideLayout.reorderHint')}</span>
     </button>
   );
+}
+
+function pointerFromDrag(
+  event: DragMoveEvent | DragEndEvent
+): Point | null {
+  const start = event.activatorEvent;
+  if (!start || !('clientX' in start)) return null;
+  return {
+    x: start.clientX + event.delta.x,
+    y: start.clientY + event.delta.y,
+  };
+}
+
+function boxFromElement(element: HTMLElement | null): Box | null {
+  if (!element) return null;
+  const rect = element.getBoundingClientRect();
+  if (rect.width < 1 || rect.height < 1) return null;
+  return {
+    x: rect.left,
+    y: rect.top,
+    width: rect.width,
+    height: rect.height,
+  };
+}
+
+function ghostStyle(box: Box, zone: LeftPanelDropZone) {
+  const ghost = ghostBoxForZone(box, zone);
+  return {
+    top: ghost.y - box.y,
+    left: ghost.x - box.x,
+    width: ghost.width,
+    height: ghost.height,
+  };
 }
 
 function ActivityRailMark({

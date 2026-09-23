@@ -7,6 +7,7 @@ import {
   isLeftGroup,
   isPlaceholderPanelId,
   isSplittableEditorPanel,
+  listLeftDockGroups,
 } from './dockviewGroupPolicy';
 import { GROUP_IDS, PANEL_IDS } from '@/stores/useLayoutStore';
 
@@ -45,6 +46,13 @@ describe('dockview group policy', () => {
     expect(isLeftGroup(group('restored-left', [PANEL_IDS.FILE_TREE]))).toBe(
       true
     );
+    expect(
+      listLeftDockGroups([
+        group(GROUP_IDS.LEFT),
+        group('restored-left', [PANEL_IDS.SESSION_LIST]),
+        group('group-editor-1', [PANEL_IDS.WELCOME]),
+      ]).map((item) => item.id)
+    ).toEqual([GROUP_IDS.LEFT, 'restored-left']);
     expect(isBottomGroup(group(GROUP_IDS.BOTTOM))).toBe(true);
     expect(isBottomGroup(group('restored-bottom', [PANEL_IDS.TERMINAL]))).toBe(
       true

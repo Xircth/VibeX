@@ -16,6 +16,7 @@ import {
   isEditorGroup,
   isLeftGroup,
   isSessionGroup,
+  listLeftDockGroups,
   SESSION_PANEL_IDS,
 } from '@/utils/dockviewGroupPolicy';
 import { syncDockviewGroupRegistry } from '@/utils/dockviewHelpers';
@@ -157,6 +158,20 @@ export function setColumnVisible(
   visible: boolean
 ): void {
   setColumnsVisible(api, arrangement, [{ group, visible }]);
+}
+
+export function setLeftDockVisible(
+  api: DockviewApi,
+  arrangement: LayoutArrangement,
+  visible: boolean
+): void {
+  const groups = listLeftDockGroups(api.groups);
+  if (groups.length === 0) return;
+  setColumnsVisible(
+    api,
+    arrangement,
+    groups.map((group) => ({ group, visible }))
+  );
 }
 
 export function setColumnsVisible(

@@ -65,6 +65,7 @@ function createDockviewApi() {
       return panel;
     }),
     onDidRemovePanel: vi.fn(() => ({ dispose: vi.fn() })),
+    onDidLayoutChange: vi.fn(() => ({ dispose: vi.fn() })),
     removePanel: vi.fn(),
   };
   return api as unknown as DockviewApi;

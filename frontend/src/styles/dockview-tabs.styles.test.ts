@@ -25,7 +25,7 @@ function declarationsFor(
 }
 
 describe('workspace tab strip chrome', () => {
-  it('uses the workspace topbar fill for the tab strip and panel body', () => {
+  it('paints the tab strip with topbar chrome and keeps panel bodies on content tokens', () => {
     const theme = declarationsFor(
       '.dockview-theme-light.dockview-theme-ayu, .dockview-theme-ayu.dockview-theme-light, .dockview-theme-ayu'
     );
@@ -34,11 +34,11 @@ describe('workspace tab strip chrome', () => {
     );
 
     expect(theme['--dv-theme-surface']?.value).toBe('var(--surface-topbar)');
-    expect(theme['--dv-theme-bg']?.value).toBe('var(--surface-topbar)');
-    expect(theme['--dv-connected-chrome']?.value).toBe('var(--surface-topbar)');
+    expect(theme['--dv-theme-bg']?.value).toBe('var(--surface-card-strong)');
+    expect(theme['--dv-connected-chrome']?.value).toBe('var(--surface-dialog)');
     expect(dark['--dv-theme-surface']?.value).toBe('var(--surface-topbar)');
-    expect(dark['--dv-theme-bg']?.value).toBe('var(--surface-topbar)');
-    expect(dark['--dv-connected-chrome']?.value).toBe('var(--surface-topbar)');
+    expect(dark['--dv-theme-bg']?.value).toBe('var(--surface-card-strong)');
+    expect(dark['--dv-connected-chrome']?.value).toBe('var(--surface-dialog)');
   });
 
   it('joins the selected tab to the panel body with side curves', () => {

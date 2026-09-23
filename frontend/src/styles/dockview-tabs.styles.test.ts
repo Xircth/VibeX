@@ -34,9 +34,11 @@ describe('workspace tab strip chrome', () => {
     );
 
     expect(theme['--dv-theme-surface']?.value).toBe('var(--surface-topbar)');
-    expect(theme['--dv-theme-bg']?.value).toBe('var(--surface-dialog)');
+    expect(theme['--dv-theme-bg']?.value).toBe('var(--surface-topbar)');
+    expect(theme['--dv-connected-chrome']?.value).toBe('var(--surface-topbar)');
     expect(dark['--dv-theme-surface']?.value).toBe('var(--surface-topbar)');
-    expect(dark['--dv-theme-bg']?.value).toBe('var(--surface-dialog)');
+    expect(dark['--dv-theme-bg']?.value).toBe('var(--surface-topbar)');
+    expect(dark['--dv-connected-chrome']?.value).toBe('var(--surface-topbar)');
   });
 
   it('joins the selected tab to the panel body with side curves', () => {

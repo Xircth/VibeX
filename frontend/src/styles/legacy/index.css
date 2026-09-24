@@ -12827,6 +12827,10 @@ html.host-windows :where(.legacy-design) .vu-toast-surface {
   margin-bottom: 0;
 }
 
+.settings-page .product-plugins-header .chat-channel-heading__actions {
+  gap: 12px;
+}
+
 .settings-page .product-plugin-detail-header h1 {
   margin: 0;
   color: var(--text-primary);
@@ -12835,9 +12839,10 @@ html.host-windows :where(.legacy-design) .vu-toast-surface {
   letter-spacing: -0.02em;
 }
 
-.settings-page .product-plugins-header p {
+.settings-page .product-plugins-header .chat-channel-heading__copy p {
   min-width: 0;
-  margin: 0;
+  margin-top: 2px;
+  max-width: 46ch;
   color: var(--text-secondary);
   font-size: calc(0.875rem - 2px);
   line-height: 1.45;
@@ -12923,23 +12928,62 @@ html.host-windows :where(.legacy-design) .vu-toast-surface {
   background: transparent;
 }
 
-.settings-page .product-plugin-market-list .product-plugin-row {
-  margin: 0;
+.settings-page .product-plugin-market-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+  gap: 12px;
+  align-content: start;
+}
+
+.settings-page .product-plugin-card {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  padding: 12px;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius);
+  background: var(--surface-card-strong);
+}
+
+.settings-page .product-plugin-card:hover {
+  border-color: var(--border-strong);
+  background: color-mix(in srgb, var(--text-primary) 8%, var(--surface-card-strong));
+  box-shadow: var(--shadow-card);
+}
+
+.settings-page .product-plugin-card .product-plugin-open {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 10px;
+  min-width: 0;
+  height: auto;
   padding: 0;
-  min-height: 0;
-  height: auto;
-  align-items: center;
+  border: 0;
+  background: transparent;
+  text-align: left;
 }
 
-.settings-page .product-plugin-market-list .product-plugin-open {
-  height: auto;
-  min-height: 0;
+.settings-page .product-plugin-card .product-plugin-open:focus-visible {
+  border-radius: var(--radius);
+  box-shadow: inset 3px 0 var(--accent);
+}
+
+.settings-page .product-plugin-card-head {
+  display: flex;
+  min-width: 0;
   align-items: flex-start;
-  gap: 0;
-  padding: 18px 0;
+  gap: 12px;
 }
 
-.settings-page .product-plugin-market-list .product-plugin-row-summary {
+.settings-page .product-plugin-card .product-plugin-row-title {
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+}
+
+.settings-page .product-plugin-card .product-plugin-row-summary {
   white-space: normal;
   display: -webkit-box;
   overflow: hidden;
@@ -12947,6 +12991,77 @@ html.host-windows :where(.legacy-design) .vu-toast-surface {
   -webkit-box-orient: vertical;
   -webkit-line-clamp: 2;
   color: var(--text-muted);
+}
+
+.settings-page .product-plugin-card-logo {
+  display: grid;
+  width: 48px;
+  height: 48px;
+  flex: none;
+  place-items: center;
+  overflow: hidden;
+  border: 1px solid var(--border-content);
+  border-radius: var(--radius);
+  background: var(--surface-raised);
+  color: var(--text-secondary);
+}
+
+.settings-page .product-plugin-card-logo > svg {
+  width: 24px;
+  height: 24px;
+}
+
+.settings-page .product-plugin-card-logo[data-official] {
+  color: var(--text-primary);
+}
+
+.settings-page .product-plugin-card-logo img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.settings-page .product-plugin-card-initials {
+  color: var(--text-primary);
+  font-size: 0.875rem;
+  font-weight: 620;
+  line-height: 1;
+}
+
+.settings-page .product-plugin-card .product-plugin-row-actions {
+  margin-top: auto;
+  justify-content: flex-end;
+  width: 100%;
+  padding-left: 0;
+  padding-top: 10px;
+}
+
+.settings-page .product-plugin-market-loading-tab {
+  height: 12px;
+  margin: 12px 0 10px;
+  border-radius: 999px;
+}
+
+.settings-page .product-plugin-card-skeleton {
+  gap: 10px;
+  min-height: 148px;
+  pointer-events: none;
+}
+
+.settings-page .product-plugin-card-skeleton .product-plugin-row-copy {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.settings-page .product-plugin-card-skeleton .product-plugin-card-logo {
+  border-color: transparent;
+}
+
+@media (max-width: 720px) {
+  .settings-page .product-plugin-market-grid {
+    grid-template-columns: 1fr;
+  }
 }
 
 .dialog-surface.product-plugin-trust-dialog {
@@ -13053,14 +13168,6 @@ html.host-windows :where(.legacy-design) .vu-toast-surface {
   color: var(--text-secondary);
   font-size: 13px;
   line-height: 1.45;
-}
-
-.settings-page .product-plugins-intro-row {
-  display: flex;
-  min-width: 0;
-  align-items: center;
-  justify-content: space-between;
-  gap: 16px;
 }
 
 .settings-page .product-plugins-header-actions {
@@ -14083,13 +14190,16 @@ html.host-windows :where(.legacy-design) .vu-toast-surface {
 }
 
 @media (max-width: 720px) {
-  .settings-page .product-plugins-intro-row {
+  .settings-page .product-plugins-header > .chat-channel-heading {
     align-items: stretch;
-    flex-direction: column;
+  }
+
+  .settings-page .product-plugins-header .chat-channel-heading__actions {
+    justify-content: flex-start;
   }
 
   .settings-page .product-plugins-header-actions {
-    justify-content: flex-end;
+    flex: 1 1 12rem;
   }
 
   .settings-page .product-plugin-search {
@@ -14138,7 +14248,8 @@ html.host-windows :where(.legacy-design) .vu-toast-surface {
 @media (prefers-reduced-motion: reduce) {
   .settings-page .product-plugin-row-spinner,
   .settings-page .product-plugin-loading .animate-shimmer,
-  .settings-page .product-plugin-detail-loading .animate-shimmer {
+  .settings-page .product-plugin-detail-loading .animate-shimmer,
+  .settings-page .product-plugin-market .animate-shimmer {
     animation: none;
   }
 }

@@ -101,6 +101,46 @@ function upsertPlugin(
     : [...plugins, replacement];
 }
 
+type PluginActivationApi = {
+  setEnabled: (pluginId: string, enabled: boolean) => Promise<PluginControlItem>;
+  configureAgents: (
+    pluginId: string,
+    allAgents: boolean,
+    agents: string[]
+  ) => Promise<unknown>;
+  configureMcp: (
+    pluginId: string,
+    allAgents: boolean,
+    agents: string[]
+  ) => Promise<unknown>;
+};
+
+async function activateInstalledPlugin(
+  plugin: PluginControlItem,
+  deps: {
+    api: PluginActivationApi;
+    supports: (capability: string) => boolean;
+  }
+): Promise<{ plugin: PluginControlItem; configureError?: unknown }> {
+  if (plugin.enableSupported === false || plugin.enabled) {
+    return { plugin };
+  }
+  const updated = await deps.api.setEnabled(plugin.id, true);
+  try {
+    if (deps.supports('plugin.write')) {
+      if (plugin.skills.length > 0) {
+        await deps.api.configureAgents(plugin.id, true, []);
+      }
+      if ((plugin.mcpCount ?? plugin.mcpServers?.length ?? 0) > 0) {
+        await deps.api.configureMcp(plugin.id, true, []);
+      }
+    }
+    return { plugin: updated };
+  } catch (configureError) {
+    return { plugin: updated, configureError };
+  }
+}
+
 function isVxpPackagePath(path: string) {
   return path.toLocaleLowerCase().endsWith('.vxp');
 }
@@ -129,7 +169,9 @@ export function PluginCatalogPage() {
     });
   };
   const [marketPage, setMarketPage] = useState<CatalogPage | null>(null);
-  const [marketLoading, setMarketLoading] = useState(false);
+  const [marketLoading, setMarketLoading] = useState(
+    () => searchParams.get('tab') === 'marketplace'
+  );
   const [pendingListing, setPendingListing] = useState<CatalogListing | null>(
     null
   );
@@ -222,32 +264,28 @@ export function PluginCatalogPage() {
 
   const applyEnabled = useCallback(
     async (plugin: PluginControlItem, enabled: boolean) => {
+      const name = officialPluginName(plugin.id, plugin.name, t);
       setBusyId(plugin.id);
       try {
-        const updated = await api.setEnabled(plugin.id, enabled);
-        if (enabled && supports('plugin.write')) {
-          if (plugin.skills.length > 0) {
-            await api.configureAgents(plugin.id, true, []);
-          }
-          if ((plugin.mcpCount ?? plugin.mcpServers?.length ?? 0) > 0) {
-            await api.configureMcp(plugin.id, true, []);
-          }
+        if (!enabled) {
+          const updated = await api.setEnabled(plugin.id, false);
+          setPlugins((current) => replacePlugin(current, updated));
+          toast.success(t('plugins.productDisabled', { name }));
+          return;
         }
-        setPlugins((current) => replacePlugin(current, updated));
-        toast.success(
-          t(enabled ? 'plugins.productEnabled' : 'plugins.productDisabled', {
-            name: officialPluginName(plugin.id, plugin.name, t),
-          })
-        );
+        const result = await activateInstalledPlugin(plugin, { api, supports });
+        setPlugins((current) => replacePlugin(current, result.plugin));
+        if (result.configureError) {
+          toast.error(t('plugins.productEnableFailed', { name }), {
+            description: errorMessage(result.configureError),
+          });
+          return;
+        }
+        toast.success(t('plugins.productEnabled', { name }));
       } catch (error) {
-        toast.error(
-          t('plugins.productEnableFailed', {
-            name: officialPluginName(plugin.id, plugin.name, t),
-          }),
-          {
-            description: errorMessage(error),
-          }
-        );
+        toast.error(t('plugins.productEnableFailed', { name }), {
+          description: errorMessage(error),
+        });
       } finally {
         setBusyId(null);
       }
@@ -315,6 +353,11 @@ export function PluginCatalogPage() {
 
   const replacePluginPackage = useCallback(async () => {
     if (!replacement || importingRef.current) return;
+    const name = officialPluginName(
+      replacement.preview.plugin.id,
+      replacement.preview.plugin.name,
+      t
+    );
     importingRef.current = true;
     setImporting(true);
     try {
@@ -331,6 +374,19 @@ export function PluginCatalogPage() {
       setReplacement(null);
       setPlugins((current) => upsertPlugin(current, imported));
       await refresh(false);
+      if (imported.enableSupported !== false && !imported.enabled) {
+        try {
+          const { plugin: activated } = await activateInstalledPlugin(
+            imported,
+            { api, supports }
+          );
+          setPlugins((current) => upsertPlugin(current, activated));
+        } catch (error) {
+          toast.error(t('plugins.productEnableFailed', { name }), {
+            description: errorMessage(error),
+          });
+        }
+      }
     } catch (error) {
       toast.error(t('plugins.productImportFailed'), {
         description: errorMessage(error),
@@ -339,7 +395,7 @@ export function PluginCatalogPage() {
       importingRef.current = false;
       setImporting(false);
     }
-  }, [api, refresh, replacement, setPlugins, t]);
+  }, [api, refresh, replacement, setPlugins, supports, t]);
 
   const confirmMarketplaceInstall = useCallback(async () => {
     if (!pendingListing) return;
@@ -348,6 +404,7 @@ export function PluginCatalogPage() {
     setPendingListing(null);
     setPendingPath(null);
     const id = `${listing.owner}/${listing.pluginName}`;
+    const name = officialListingName(listing, t);
     setInstallingId(id);
     try {
       const already = Boolean(findInstalledPluginForListing(listing, plugins));
@@ -361,11 +418,18 @@ export function PluginCatalogPage() {
           );
       setPlugins((current) => upsertPlugin(current, imported));
       await refresh(false);
-      toast.success(
-        t('plugins.productInstalled', {
-          name: listing.displayName,
-        })
-      );
+      toast.success(t('plugins.productInstalled', { name }));
+      try {
+        const { plugin: activated } = await activateInstalledPlugin(imported, {
+          api,
+          supports,
+        });
+        setPlugins((current) => upsertPlugin(current, activated));
+      } catch (error) {
+        toast.error(t('plugins.productEnableFailed', { name }), {
+          description: errorMessage(error),
+        });
+      }
     } catch (error) {
       toast.error(t('plugins.productImportFailed'), {
         description: errorMessage(error),
@@ -373,7 +437,16 @@ export function PluginCatalogPage() {
     } finally {
       setInstallingId(null);
     }
-  }, [api, pendingListing, pendingPath, plugins, refresh, setPlugins, t]);
+  }, [
+    api,
+    pendingListing,
+    pendingPath,
+    plugins,
+    refresh,
+    setPlugins,
+    supports,
+    t,
+  ]);
 
   const addPlugin = useCallback(async () => {
     try {
@@ -476,37 +549,35 @@ export function PluginCatalogPage() {
               <Puzzle aria-hidden="true" />
               <span>{t('plugins.productTitle')}</span>
             </h2>
+            <p>{t('plugins.productSubtitle')}</p>
           </div>
           <div className="chat-channel-heading__actions">
+            <PluginCatalogActions
+              canAdd={canInstall}
+              adding={importing}
+              search={
+                <label
+                  className="product-plugin-search"
+                  data-control-frame="single"
+                >
+                  <Search aria-hidden="true" />
+                  <input
+                    type="search"
+                    className="product-plugin-search-input"
+                    value={query}
+                    onChange={(event) => setQuery(event.target.value)}
+                    placeholder={t('plugins.productSearchPlaceholder')}
+                    aria-label={t('plugins.productSearchPlaceholder')}
+                  />
+                </label>
+              }
+              onAdd={() => void addPlugin()}
+            />
             <PluginCatalogModeTabs
               value={catalogMode}
               onChange={setCatalogMode}
             />
           </div>
-        </div>
-        <div className="product-plugins-intro-row">
-          <p>{t('plugins.productSubtitle')}</p>
-          <PluginCatalogActions
-            canAdd={canInstall}
-            adding={importing}
-            search={
-              <label
-                className="product-plugin-search"
-                data-control-frame="single"
-              >
-                <Search aria-hidden="true" />
-                <input
-                  type="search"
-                  className="product-plugin-search-input"
-                  value={query}
-                  onChange={(event) => setQuery(event.target.value)}
-                  placeholder={t('plugins.productSearchPlaceholder')}
-                  aria-label={t('plugins.productSearchPlaceholder')}
-                />
-              </label>
-            }
-            onAdd={() => void addPlugin()}
-          />
         </div>
       </header>
 
@@ -1026,6 +1097,7 @@ export function MarketplacePluginDetailPage() {
   const confirmInstall = async () => {
     if (!pendingListing) return;
     const listing = pendingListing;
+    const name = officialListingName(listing, t);
     setPendingListing(null);
     setInstalling(true);
     try {
@@ -1037,12 +1109,19 @@ export function MarketplacePluginDetailPage() {
       );
       setPlugins((current) => upsertPlugin(current, imported));
       await refresh(false);
-      toast.success(
-        t('plugins.productInstalled', {
-          name: officialListingName(listing, t),
-        })
-      );
+      toast.success(t('plugins.productInstalled', { name }));
       navigate(`/plugins/${encodeURIComponent(imported.id)}`);
+      try {
+        const { plugin: activated } = await activateInstalledPlugin(imported, {
+          api,
+          supports,
+        });
+        setPlugins((current) => upsertPlugin(current, activated));
+      } catch (error) {
+        toast.error(t('plugins.productEnableFailed', { name }), {
+          description: errorMessage(error),
+        });
+      }
     } catch (error) {
       toast.error(t('plugins.productImportFailed'), {
         description: errorMessage(error),

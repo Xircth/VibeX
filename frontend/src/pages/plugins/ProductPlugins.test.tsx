@@ -150,6 +150,42 @@ describe('product plugin experience', () => {
     });
   });
 
+  it('shows marketplace card skeletons while the catalog loads', async () => {
+    let resolveMarket: ((value: unknown) => void) | undefined;
+    const call = vi.fn(async (command: string) => {
+      if (command === 'plugin_control_catalog') {
+        return { plugins: [], runtimes: [] };
+      }
+      if (command === 'plugin_check_updates') return [];
+      if (command === 'plugin_marketplace_catalog') {
+        return new Promise((resolve) => {
+          resolveMarket = resolve;
+        });
+      }
+      throw new Error(command);
+    });
+    renderRoute('/plugins?tab=marketplace', call);
+
+    const status = await screen.findByRole('status', {
+      name: /正在加载插件市场|loading marketplace/i,
+    });
+    expect(status.querySelectorAll('.product-plugin-card-skeleton')).toHaveLength(
+      6
+    );
+    expect(status.querySelector('.animate-spin')).toBeNull();
+
+    resolveMarket?.({
+      official: [],
+      community: [],
+      communityLimit: 50,
+      query: '',
+      remote: true,
+    });
+    expect(
+      await screen.findByText(/没有可安装的包|No installable packages/i)
+    ).toBeVisible();
+  });
+
   it('shows a structured plugin list loading state', async () => {
     let resolveCatalog: ((value: unknown) => void) | undefined;
     const call = vi.fn((command: string) => {
@@ -290,25 +326,35 @@ describe('product plugin experience', () => {
         /通过插件扩展平台能力，新建会话后生效|Extend the platform with plugins/i
       )
     ).toBeVisible();
-    expect(
-      screen
-        .getByRole('heading', { name: '插件' })
-        .closest('.chat-channel-heading')
-    ).toBeTruthy();
+    const heading = screen
+      .getByRole('heading', { name: '插件' })
+      .closest('.chat-channel-heading');
+    expect(heading).toBeTruthy();
     expect(
       screen.getByText(
         /通过插件扩展平台能力，新建会话后生效|Extend the platform with plugins/i
       ).parentElement
-    ).toHaveClass('product-plugins-intro-row');
+    ).toHaveClass('chat-channel-heading__copy');
+    const addPlugin = screen.getByRole('button', {
+      name: /添加插件|add plugin/i,
+    });
+    const modeTabs = screen.getByRole('tablist', {
+      name: /插件目录类型|catalog mode/i,
+    });
+    expect(heading).toContainElement(search);
+    expect(heading).toContainElement(addPlugin);
+    expect(heading).toContainElement(modeTabs);
+    expect(
+      addPlugin.compareDocumentPosition(modeTabs) &
+        Node.DOCUMENT_POSITION_FOLLOWING
+    ).toBeTruthy();
     expect(
       screen.getByRole('tab', { name: /已安装|installed/i })
     ).toHaveAttribute('aria-selected', 'true');
     expect(
       screen.getByRole('tab', { name: /插件市场|marketplace/i })
     ).toBeVisible();
-    expect(
-      screen.getByRole('button', { name: /添加插件|add plugin/i })
-    ).toHaveClass('primary-control');
+    expect(addPlugin).toHaveClass('primary-control');
     expect(
       screen.getByRole('region', { name: /插件目录|plugin catalog/i })
     ).toHaveClass('product-plugin-catalog-body');
@@ -336,6 +382,9 @@ describe('product plugin experience', () => {
         return { plugin: drawioPlugin, conflict: null };
       }
       if (command === 'plugin_control_import') return drawioPlugin;
+      if (command === 'plugin_control_set_enabled') {
+        return { ...drawioPlugin, enabled: true };
+      }
       throw new Error(command);
     });
     renderRoute('/plugins', call, [
@@ -361,6 +410,12 @@ describe('product plugin experience', () => {
 
     expect(await screen.findByText('Drawio')).toBeVisible();
     expect(catalogRequests).toBeGreaterThanOrEqual(2);
+    await waitFor(() =>
+      expect(call).toHaveBeenCalledWith('plugin_control_set_enabled', {
+        pluginId: 'drawio',
+        enabled: true,
+      })
+    );
     await act(async () => {
       resolveInitialCatalog?.({ plugins: [plugin], runtimes: [] });
     });
@@ -470,6 +525,9 @@ describe('product plugin experience', () => {
         return { plugin: drawioPlugin, conflict: null };
       }
       if (command === 'plugin_control_import') return drawioPlugin;
+      if (command === 'plugin_control_set_enabled') {
+        return { ...drawioPlugin, enabled: true };
+      }
       throw new Error(command);
     });
     renderRoute('/plugins', call, [
@@ -520,6 +578,10 @@ describe('product plugin experience', () => {
       conflictDecision: 'reject',
       packageKind: 'vibex',
       permissionIds: [],
+    });
+    expect(call).toHaveBeenCalledWith('plugin_control_set_enabled', {
+      pluginId: 'drawio',
+      enabled: true,
     });
   });
 
@@ -713,7 +775,7 @@ describe('product plugin experience', () => {
       screen.getByRole('button', { name: /添加插件|add plugin/i })
     ).toBeVisible();
     expect(await screen.findByText('Notes')).toBeVisible();
-    const notesRow = screen.getByText('Notes').closest('.product-plugin-row');
+    const notesRow = screen.getByText('Notes').closest('.product-plugin-card');
     expect(notesRow).not.toBeNull();
     expect(within(notesRow as HTMLElement).getByText('acme')).toBeVisible();
     expect(within(notesRow as HTMLElement).getByText('v2.0.0')).toBeVisible();
@@ -744,7 +806,7 @@ describe('product plugin experience', () => {
     expect(screen.getByText('办公套件')).toBeVisible();
     const officeRow = screen
       .getByText('办公套件')
-      .closest('.product-plugin-row');
+      .closest('.product-plugin-card');
     expect(officeRow).not.toBeNull();
     expect(within(officeRow as HTMLElement).getByText('vibex')).toBeVisible();
     expect(
@@ -907,6 +969,9 @@ describe('product plugin experience', () => {
         catalogPlugins = [plugin, notesPlugin];
         return notesPlugin;
       }
+      if (command === 'plugin_control_set_enabled') {
+        return { ...notesPlugin, enabled: true };
+      }
       throw new Error(command);
     });
     renderRoute('/plugins?tab=marketplace', call, [
@@ -916,7 +981,7 @@ describe('product plugin experience', () => {
     ]);
 
     const notesRow = (await screen.findByText('Notes')).closest(
-      '.product-plugin-row'
+      '.product-plugin-card'
     ) as HTMLElement;
     fireEvent.click(
       within(notesRow).getByRole('button', { name: /^(安装|Install)$/ })
@@ -927,10 +992,16 @@ describe('product plugin experience', () => {
     );
 
     await waitFor(() => {
-      expect(within(notesRow).getByText(/已安装|Installed/)).toBeVisible();
+      const card = screen.getByText('Notes').closest(
+        '.product-plugin-card'
+      ) as HTMLElement;
+      expect(within(card).getByText(/已安装|Installed/)).toBeVisible();
     });
+    const installedCard = screen
+      .getByText('Notes')
+      .closest('.product-plugin-card') as HTMLElement;
     expect(
-      within(notesRow).queryByRole('button', { name: /^(安装|Install)$/ })
+      within(installedCard).queryByRole('button', { name: /^(安装|Install)$/ })
     ).not.toBeInTheDocument();
     expect(call).toHaveBeenCalledWith('plugin_marketplace_install', {
       owner: 'acme',
@@ -938,6 +1009,180 @@ describe('product plugin experience', () => {
       tag: '2.0.0',
       conflict: 'reject',
     });
+    expect(call).toHaveBeenCalledWith('plugin_control_set_enabled', {
+      pluginId: 'notes',
+      enabled: true,
+    });
+    expect(toastMock.success).toHaveBeenCalledWith('已添加 Notes');
+    expect(toastMock.success).not.toHaveBeenCalledWith(
+      expect.stringMatching(/已启用|enabled/i)
+    );
+  });
+
+  it('keeps a marketplace plugin installed when enable fails', async () => {
+    const notesListing = {
+      owner: 'acme',
+      pluginName: 'notes',
+      tag: '2.0.0',
+      version: '2.0.0',
+      displayName: 'Notes',
+      summary: 'Take notes',
+      category: 'community',
+      sourceKind: 'github',
+    };
+    const notesPlugin = {
+      ...drawioPlugin,
+      id: 'notes',
+      publisher: 'acme',
+      name: 'Notes',
+      description: 'Take notes',
+      sourceKind: 'marketplace',
+      sourceOrigin: 'https://vibex.xforever.xin/marketplace/acme/notes',
+    };
+    let catalogPlugins = [plugin];
+    const call = vi.fn(async (command: string) => {
+      if (command === 'plugin_control_catalog') {
+        return { plugins: catalogPlugins, runtimes: [] };
+      }
+      if (command === 'plugin_check_updates') return [];
+      if (command === 'plugin_marketplace_catalog') {
+        return {
+          official: [],
+          community: [notesListing],
+          communityLimit: 50,
+          query: '',
+          remote: true,
+        };
+      }
+      if (command === 'plugin_marketplace_install') {
+        catalogPlugins = [plugin, notesPlugin];
+        return notesPlugin;
+      }
+      if (command === 'plugin_control_set_enabled') {
+        throw new Error('runtime lock');
+      }
+      throw new Error(command);
+    });
+    renderRoute('/plugins?tab=marketplace', call, [
+      'plugin.read',
+      'plugin.write',
+      'desktop.tauri',
+    ]);
+
+    const notesCard = (await screen.findByText('Notes')).closest(
+      '.product-plugin-card'
+    ) as HTMLElement;
+    fireEvent.click(
+      within(notesCard).getByRole('button', { name: /^(安装|Install)$/ })
+    );
+    fireEvent.click(
+      within(await screen.findByRole('dialog')).getByRole('button', {
+        name: /^(安装|Install)$/,
+      })
+    );
+
+    await waitFor(() =>
+      expect(toastMock.error).toHaveBeenCalledWith(
+        '无法更改 Notes',
+        expect.objectContaining({ description: 'runtime lock' })
+      )
+    );
+    expect(toastMock.success).toHaveBeenCalledWith('已添加 Notes');
+    expect(toastMock.error).not.toHaveBeenCalledWith(
+      '插件添加失败',
+      expect.anything()
+    );
+    const installedCard = screen
+      .getByText('Notes')
+      .closest('.product-plugin-card') as HTMLElement;
+    expect(
+      within(installedCard).getByText(/已安装|Installed/)
+    ).toBeVisible();
+    expect(call).not.toHaveBeenCalledWith(
+      'plugin_uninstall',
+      expect.anything()
+    );
+  });
+
+  it('installs from the marketplace detail page and enables immediately', async () => {
+    const notesListing = {
+      owner: 'acme',
+      pluginName: 'notes',
+      tag: '2.0.0',
+      version: '2.0.0',
+      displayName: 'Notes',
+      summary: 'Take notes',
+      category: 'community',
+      sourceKind: 'github',
+    };
+    const notesPlugin = {
+      ...drawioPlugin,
+      id: 'notes',
+      publisher: 'acme',
+      name: 'Notes',
+      description: 'Take notes',
+      sourceKind: 'marketplace',
+    };
+    let catalogPlugins = [plugin];
+    const call = vi.fn(async (command: string) => {
+      if (command === 'plugin_control_catalog') {
+        return { plugins: catalogPlugins, runtimes: [] };
+      }
+      if (command === 'plugin_marketplace_listing') {
+        return {
+          listing: notesListing,
+          summary: 'Take notes',
+          readme: '# Notes',
+          contents: [],
+        };
+      }
+      if (command === 'plugin_marketplace_install') {
+        catalogPlugins = [plugin, { ...notesPlugin, enabled: true }];
+        return notesPlugin;
+      }
+      if (command === 'plugin_control_set_enabled') {
+        return { ...notesPlugin, enabled: true };
+      }
+      if (command === 'plugin_product_detail') {
+        return {
+          ...detail,
+          summary: 'Take notes',
+          readme: '# Notes',
+          contents: [],
+        };
+      }
+      throw new Error(command);
+    });
+    renderRoute('/plugins/marketplace/acme/notes', call, [
+      'plugin.read',
+      'plugin.write',
+      'desktop.tauri',
+    ]);
+
+    fireEvent.click(
+      await screen.findByRole('button', { name: /^(安装|Install)$/ })
+    );
+    fireEvent.click(
+      within(await screen.findByRole('dialog')).getByRole('button', {
+        name: /^(安装|Install)$/,
+      })
+    );
+
+    await waitFor(() =>
+      expect(call).toHaveBeenCalledWith('plugin_marketplace_install', {
+        owner: 'acme',
+        pluginName: 'notes',
+        tag: '2.0.0',
+        conflict: 'reject',
+      })
+    );
+    expect(call).toHaveBeenCalledWith('plugin_control_set_enabled', {
+      pluginId: 'notes',
+      enabled: true,
+    });
+    expect(
+      await screen.findByRole('tab', { name: /配置|config/i })
+    ).toBeVisible();
   });
 
   it('shows installed status on a marketplace detail page for a catalog plugin', async () => {
@@ -1045,10 +1290,6 @@ describe('product plugin experience', () => {
     await waitFor(() => expect(previewSwitch).toBeEnabled());
     fireEvent.click(previewSwitch);
     fireEvent.change(timeout, { target: { value: '20' } });
-    const save = screen.getByRole('button', { name: /保存|save/i });
-    expect(save).toHaveClass('primary-control');
-    await waitFor(() => expect(save).toBeEnabled());
-    fireEvent.click(save);
 
     await waitFor(() =>
       expect(call).toHaveBeenCalledWith('plugin_save_config', {

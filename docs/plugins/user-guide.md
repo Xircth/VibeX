@@ -10,7 +10,7 @@
 
 VibeX 自己的会话日志、Agent 连接、工作区隔离和窗口布局仍由 Host 负责。插件往这些面上挂能力，不替代它们。
 
-官方包在市场官方分类里，不随 Host 预装进 catalog。磁盘上有官方 MCP 二进制，不等于已经安装插件，更不等于已经注入 Agent。新安装默认禁用。插件能力在新建会话后才生效，已有会话不会热挂。
+官方包在市场官方分类里，不随 Host 预装进 catalog。磁盘上有官方 MCP 二进制，不等于已经安装插件，更不等于已经注入 Agent。在设置里确认 Full Trust 后，插件会立即启用；能力仍在新建会话后生效，已有会话不会热挂。`vibex plugin add --web` / `--profile` 仍默认禁用。
 
 ## 从哪里打开
 
@@ -30,7 +30,7 @@ Agent 自己的原生插件（Codex、Claude Code 那一套）仍在「设置 �
 
 ## 怎么安装
 
-新装进来默认禁用。先装后开，避免半成品直接进 Agent。
+设置里确认 Full Trust 后立即启用。`vibex plugin add --web` / `--profile` 仍默认禁用，避免无确认的 CLI 直接进 Agent。
 
 ### `vibex plugin add`
 
@@ -74,7 +74,7 @@ vibex plugin gc-runtimes
 
 ## 怎么启用
 
-打开详情页上的开关。
+市场 / 本机安装后开关已打开；也可在已安装列表里再关掉。
 
 带 Skill 的包，首次启用默认向当前已安装、支持 Skill 的 Agent 做投影，并给以后新装的 Agent 留意图。带 MCP 的包同样默认面向兼容 Agent。你可以再到 MCP 设置里改个别 Agent。
 

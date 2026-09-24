@@ -25,6 +25,21 @@ function declarationsFor(selector: string) {
   return declarations;
 }
 
+function declarationsForMedia(selector: string, maxWidth: string) {
+  const declarations = new Map<string, string>();
+  parse(stylesheet).walkAtRules('media', (atrule) => {
+    if (!atrule.params.includes(`max-width: ${maxWidth}`)) return;
+    atrule.walkRules((rule) => {
+      const normalizedSelector = rule.selector.replace(/\s+/g, ' ').trim();
+      if (normalizedSelector !== selector) return;
+      rule.walkDecls((declaration) => {
+        declarations.set(declaration.prop, declaration.value);
+      });
+    });
+  });
+  return declarations;
+}
+
 describe('Product Plugin content layout', () => {
   it('keeps Radix scroll content inside each split pane', () => {
     const panes = declarationsFor(
@@ -60,11 +75,16 @@ describe('Product Plugin content layout', () => {
 
   it('places catalog mode tabs on the shared settings heading', () => {
     const heading = declarationsFor('.settings-page .chat-channel-heading');
-    const intro = declarationsFor('.settings-page .product-plugins-intro-row');
+    const subtitle = declarationsFor(
+      '.settings-page .product-plugins-header .chat-channel-heading__copy p'
+    );
+    const pluginActions = declarationsFor(
+      '.settings-page .product-plugins-header .chat-channel-heading__actions'
+    );
     expect(heading.get('align-items')).toBe('flex-start');
     expect(heading.get('justify-content')).toBe('space-between');
-    expect(intro.get('display')).toBe('flex');
-    expect(intro.get('justify-content')).toBe('space-between');
+    expect(subtitle.get('margin-top')).toBe('2px');
+    expect(pluginActions.get('gap')).toBe('12px');
   });
 
   it('keeps the search field itself free of an inner focus rectangle', () => {
@@ -87,12 +107,37 @@ describe('Product Plugin content layout', () => {
     const market = declarationsFor(
       '.settings-page .product-plugin-market-list'
     );
+    const marketRow = declarationsFor(
+      '.settings-page .product-plugin-market-list .product-plugin-row'
+    );
     const marketOpen = declarationsFor(
       '.settings-page .product-plugin-market-list .product-plugin-open'
     );
     const marketSummary = declarationsFor(
       '.settings-page .product-plugin-market-list .product-plugin-row-summary'
     );
+    const grid = declarationsFor('.settings-page .product-plugin-market-grid');
+    const gridNarrow = declarationsForMedia(
+      '.settings-page .product-plugin-market-grid',
+      '720px'
+    );
+    const card = declarationsFor('.settings-page .product-plugin-card');
+    const cardHover = declarationsFor(
+      '.settings-page .product-plugin-card:hover'
+    );
+    const cardHead = declarationsFor(
+      '.settings-page .product-plugin-card-head'
+    );
+    const cardTitle = declarationsFor(
+      '.settings-page .product-plugin-card .product-plugin-row-title'
+    );
+    const cardActions = declarationsFor(
+      '.settings-page .product-plugin-card .product-plugin-row-actions'
+    );
+    const cardSummary = declarationsFor(
+      '.settings-page .product-plugin-card .product-plugin-row-summary'
+    );
+    const logo = declarationsFor('.settings-page .product-plugin-card-logo');
     const row = declarationsFor('.settings-page .product-plugin-row');
     const summary = declarationsFor(
       '.settings-page .product-plugin-row-summary'
@@ -103,10 +148,48 @@ describe('Product Plugin content layout', () => {
     expect(catalog.get('overflow-x')).toBe('hidden');
     expect(catalog.get('overflow-y')).toBe('auto');
     expect(market.get('background')).toBe('transparent');
+    expect(market.get('overflow-y')).toBe('auto');
     expect(market.get('border-radius')).toBeUndefined();
     expect(market.get('padding-inline-end')).toBe('16px');
-    expect(marketOpen.get('padding')).toBe('18px 0');
-    expect(marketSummary.get('color')).toBe('var(--text-muted)');
+    expect(marketRow.size).toBe(0);
+    expect(marketOpen.size).toBe(0);
+    expect(marketSummary.size).toBe(0);
+    expect(grid.get('display')).toBe('grid');
+    expect(grid.get('gap')).toBe('12px');
+    expect(grid.get('grid-template-columns')).toBe(
+      'repeat(auto-fill, minmax(240px, 1fr))'
+    );
+    expect(gridNarrow.get('grid-template-columns')).toBe('1fr');
+    expect(card.get('padding')).toBe('12px');
+    expect(card.get('background')).toBe('var(--surface-card-strong)');
+    expect(card.get('border')).toBe('1px solid var(--border-subtle)');
+    expect(card.get('border-radius')).toBe('var(--radius)');
+    expect(cardHover.get('background')).toBe(
+      'color-mix(in srgb, var(--text-primary) 8%, var(--surface-card-strong))'
+    );
+    expect(cardHover.get('border-color')).toBe('var(--border-strong)');
+    expect(cardHover.get('box-shadow')).toBe('var(--shadow-card)');
+    expect(cardHead.get('display')).toBe('flex');
+    expect(cardHead.get('align-items')).toBe('flex-start');
+    expect(cardTitle.get('flex-direction')).toBe('column');
+    expect(cardActions.get('justify-content')).toBe('flex-end');
+    expect(cardSummary.get('-webkit-line-clamp')).toBe('2');
+    expect(cardSummary.get('white-space')).toBe('normal');
+    const skeleton = declarationsFor(
+      '.settings-page .product-plugin-card-skeleton'
+    );
+    const loadingTab = declarationsFor(
+      '.settings-page .product-plugin-market-loading-tab'
+    );
+    expect(logo.get('width')).toBe('48px');
+    expect(logo.get('height')).toBe('48px');
+    expect(skeleton.get('pointer-events')).toBe('none');
+    expect(skeleton.get('gap')).toBe('10px');
+    expect(loadingTab.get('height')).toBe('12px');
+    expect(loadingTab.get('border-radius')).toBe('999px');
+    expect(logo.get('border')).toBe('1px solid var(--border-content)');
+    expect(logo.get('border-radius')).toBe('var(--radius)');
+    expect(logo.get('background')).toBe('var(--surface-raised)');
     expect(summary.get('color')).toBe('var(--text-muted)');
     expect(row.get('margin')).toBe('0');
     expect(row.get('padding')).toBe('0 12px');

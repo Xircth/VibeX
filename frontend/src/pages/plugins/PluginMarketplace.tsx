@@ -1,10 +1,11 @@
-import { Loader2 } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useNavigate } from 'react-router-dom';
 
 import { Button } from '@/components/ui/button';
+import { Skeleton } from '@/components/ui/skeleton';
 import type { CatalogListing } from '@/lib/api/plugins';
+import { PluginMarketplaceLogo } from './OfficialPluginIcon';
 import { officialListingName, officialListingSummary } from './officialPlugins';
 import {
   flattenMarketplaceListings,
@@ -15,6 +16,15 @@ import {
   marketplaceCategoryTabIds,
   type InstalledPluginIdentity,
 } from './marketplaceListing';
+
+const MARKETPLACE_SKELETON_CARDS = [
+  { title: 'w-28', tag: 'w-12', summary: 'w-full' },
+  { title: 'w-24', tag: 'w-10', summary: 'w-4/5' },
+  { title: 'w-32', tag: 'w-14', summary: 'w-11/12' },
+  { title: 'w-20', tag: 'w-11', summary: 'w-3/4' },
+  { title: 'w-36', tag: 'w-9', summary: 'w-5/6' },
+  { title: 'w-24', tag: 'w-12', summary: 'w-full' },
+] as const;
 
 const MODE_TABS = [
   ['installed', 'plugins.installedTab'],
@@ -125,12 +135,7 @@ export function PluginMarketplaceList({
   );
 
   if (loading) {
-    return (
-      <div className="product-plugin-loading" role="status">
-        <Loader2 aria-hidden="true" className="animate-spin" />
-        <span>{t('plugins.marketplaceLoading')}</span>
-      </div>
-    );
+    return <PluginMarketplaceLoading label={t('plugins.marketplaceLoading')} />;
   }
 
   return (
@@ -170,20 +175,22 @@ export function PluginMarketplaceList({
       </div>
       <div className="product-plugin-market-list">
         {visible.length ? (
-          visible.map((listing) => (
-            <MarketplaceRow
-              key={`${listing.owner}/${listing.pluginName}/${listing.tag}`}
-              listing={listing}
-              installing={
-                installingId === `${listing.owner}/${listing.pluginName}`
-              }
-              installed={plugins.some((plugin) =>
-                listingMatchesPlugin(listing, plugin)
-              )}
-              canInstall={canInstall}
-              onInstall={onInstall}
-            />
-          ))
+          <div className="product-plugin-market-grid">
+            {visible.map((listing) => (
+              <MarketplaceCard
+                key={`${listing.owner}/${listing.pluginName}/${listing.tag}`}
+                listing={listing}
+                installing={
+                  installingId === `${listing.owner}/${listing.pluginName}`
+                }
+                installed={plugins.some((plugin) =>
+                  listingMatchesPlugin(listing, plugin)
+                )}
+                canInstall={canInstall}
+                onInstall={onInstall}
+              />
+            ))}
+          </div>
         ) : (
           <div className="product-plugin-empty">
             <strong>{t('plugins.marketplaceEmpty')}</strong>
@@ -199,7 +206,45 @@ export function PluginMarketplaceList({
   );
 }
 
-function MarketplaceRow({
+function PluginMarketplaceLoading({ label }: { label: string }) {
+  return (
+    <div className="product-plugin-market" role="status" aria-label={label}>
+      <div className="product-plugin-underline-tabs" aria-hidden="true">
+        <Skeleton className="product-plugin-market-loading-tab w-8" />
+        <Skeleton className="product-plugin-market-loading-tab w-12" />
+        <Skeleton className="product-plugin-market-loading-tab w-10" />
+      </div>
+      <div className="product-plugin-market-list">
+        <div className="product-plugin-market-grid">
+          {MARKETPLACE_SKELETON_CARDS.map((card, index) => (
+            <div
+              className="product-plugin-card product-plugin-card-skeleton"
+              key={index}
+            >
+              <div className="product-plugin-card-head">
+                <Skeleton className="product-plugin-card-logo" />
+                <span className="product-plugin-row-copy">
+                  <Skeleton className={`h-3.5 ${card.title}`} />
+                  <span className="product-plugin-row-tags">
+                    <Skeleton className={`h-4 rounded-full ${card.tag}`} />
+                    <Skeleton className="h-4 w-9 rounded-full" />
+                  </span>
+                </span>
+              </div>
+              <Skeleton className={`h-2.5 ${card.summary}`} />
+              <Skeleton className="h-2.5 w-2/3" />
+              <span className="product-plugin-row-actions">
+                <Skeleton className="h-7 w-14 rounded-lg" />
+              </span>
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function MarketplaceCard({
   listing,
   installing,
   installed,
@@ -214,8 +259,9 @@ function MarketplaceRow({
 }) {
   const { t } = useTranslation('settings');
   const navigate = useNavigate();
+  const displayName = officialListingName(listing, t);
   return (
-    <div className="product-plugin-row">
+    <div className="product-plugin-card">
       <button
         type="button"
         className="product-plugin-open"
@@ -225,24 +271,27 @@ function MarketplaceRow({
           )
         }
       >
-        <span className="product-plugin-row-copy">
-          <span className="product-plugin-row-title">
-            <strong>{officialListingName(listing, t)}</strong>
-            <span className="product-plugin-row-tags">
-              <span>{listing.owner}</span>
-              {listingTopicCategory(listing.category) ? (
-                <span>
-                  {t(`plugins.listingCategory.${listing.category}`, {
-                    defaultValue: listing.category,
-                  })}
-                </span>
-              ) : null}
-              <span>v{listing.version}</span>
+        <span className="product-plugin-card-head">
+          <PluginMarketplaceLogo listing={listing} displayName={displayName} />
+          <span className="product-plugin-row-copy">
+            <span className="product-plugin-row-title">
+              <strong>{displayName}</strong>
+              <span className="product-plugin-row-tags">
+                <span>{listing.owner}</span>
+                {listingTopicCategory(listing.category) ? (
+                  <span>
+                    {t(`plugins.listingCategory.${listing.category}`, {
+                      defaultValue: listing.category,
+                    })}
+                  </span>
+                ) : null}
+                <span>v{listing.version}</span>
+              </span>
             </span>
           </span>
-          <span className="product-plugin-row-summary">
-            {officialListingSummary(listing, t)}
-          </span>
+        </span>
+        <span className="product-plugin-row-summary">
+          {officialListingSummary(listing, t)}
         </span>
       </button>
       {installed || canInstall ? (

@@ -99,7 +99,7 @@ describe('settings page alignment', () => {
       '.settings-page .chat-channel-heading__copy p'
     );
     const pluginCopy = declarationsFor(
-      '.settings-page .product-plugins-header p'
+      '.settings-page .product-plugins-header .chat-channel-heading__copy p'
     );
     const sectionTitle = declarationsFor(
       '.settings-page .settings-card__header h3'

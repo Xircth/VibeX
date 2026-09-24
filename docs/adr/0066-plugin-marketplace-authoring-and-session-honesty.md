@@ -7,6 +7,8 @@ decision-makers:
 
 # 插件市场、单路作者工具链与会话生效诚实性
 
+> 已由 Host UI 修订：Settings Full Trust 安装后立即启用；CLI 与 `plugin_marketplace_install` 仍只导入、默认禁用。
+>
 > 已由 [ADR-0069](0069-everything-is-a-plugin-platform.md) 修订三处：六个已挂孔
 > UI slot（command / toolbar / status / composer.slash / timeline.card /
 > settings.section）经其 Batch 1 进入稳定面；能力等价插件白名单允许预装并默认启用

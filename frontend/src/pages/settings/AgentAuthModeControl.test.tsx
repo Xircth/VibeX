@@ -7,7 +7,10 @@ import type { AgentAuthModeKind } from 'shared/types';
 import { ConfirmDialog } from '@/components/dialogs/shared/ConfirmDialog';
 import { agentManagementApi } from '@/features/agent-management';
 
-import { clearAllAgentAuthKindTabs } from './agentAuthKindTab';
+import {
+  clearAllAgentAuthKindTabs,
+  rememberAgentAuthKindTab,
+} from './agentAuthKindTab';
 import { clearAllAgentSettingsDrafts } from './agentSettingsDraftRetention';
 import { pickAuthModeTab } from './agentSettingsTestUtils';
 import { AgentAuthModeControl } from './AgentAuthModeControl';
@@ -217,6 +220,66 @@ describe('AgentAuthModeControl', () => {
     ).toHaveAttribute('aria-selected', 'true');
     expect(screen.getByRole('button', { name: '登录 Grok' })).toBeEnabled();
     expect(ConfirmDialog.show).not.toHaveBeenCalled();
+    expect(save).not.toHaveBeenCalled();
+  });
+
+  it('prompts before official login while a provider is active', async () => {
+    vi.spyOn(agentManagementApi, 'authMode').mockResolvedValue({
+      agent_id: 'grok',
+      mode: 'model_provider',
+      credential_env: 'XAI_API_KEY',
+      credential_present: true,
+      modes: ['subscription', 'api_key', 'custom', 'model_provider'],
+      options: grokProviderOptions,
+    });
+    vi.mocked(ConfirmDialog.show).mockResolvedValue('confirmed');
+    const onRunAction = vi.fn();
+    const user = userEvent.setup();
+
+    render(
+      <AgentAuthModeControl
+        agentId="grok"
+        authentication="not_logged_in"
+        actions={grokActions}
+        onRunAction={onRunAction}
+      />
+    );
+
+    await pickAuthModeTab(user, '官方订阅');
+    await user.click(await screen.findByRole('button', { name: '登录 Grok' }));
+
+    expect(ConfirmDialog.show).toHaveBeenCalledWith(
+      expect.objectContaining({
+        message: '登录账号将会停用当前供应商鉴权，是否继续？',
+      })
+    );
+    expect(onRunAction).toHaveBeenCalledWith('login');
+  });
+
+  it('does not rewrite a live provider mode from a remembered subscription tab', async () => {
+    rememberAgentAuthKindTab('grok', 'subscription');
+    vi.spyOn(agentManagementApi, 'authMode').mockResolvedValue({
+      agent_id: 'grok',
+      mode: 'model_provider',
+      credential_env: 'XAI_API_KEY',
+      credential_present: true,
+      modes: ['subscription', 'api_key', 'custom', 'model_provider'],
+      options: grokProviderOptions,
+    });
+    const save = vi.spyOn(agentManagementApi, 'setAuthMode');
+
+    render(
+      <AgentAuthModeControl
+        agentId="grok"
+        authentication="account"
+        modelProvider={<div data-testid="model-provider">Provider fields</div>}
+      />
+    );
+
+    expect(await screen.findByRole('tab', { name: '供应商' })).toHaveAttribute(
+      'aria-selected',
+      'true'
+    );
     expect(save).not.toHaveBeenCalled();
   });
 
@@ -1353,7 +1416,7 @@ describe('AgentAuthModeControl', () => {
     expect(screen.queryByRole('tabpanel')).not.toBeInTheDocument();
   });
 
-  it('reopens Claude Code on the last tab the user chose, not a bound provider', async () => {
+  it('reopens on the Agent config mode even if a previous tab was remembered', async () => {
     const authView = {
       agent_id: 'claude_code' as const,
       mode: 'official_subscription',
@@ -1395,10 +1458,7 @@ describe('AgentAuthModeControl', () => {
       mode: 'model_provider',
       credential_present: true,
     });
-    vi.spyOn(agentManagementApi, 'setAuthMode').mockResolvedValue({
-      ...authView,
-      mode: 'official_subscription',
-    });
+    const save = vi.spyOn(agentManagementApi, 'setAuthMode');
 
     render(
       <AgentAuthModeControl
@@ -1408,13 +1468,15 @@ describe('AgentAuthModeControl', () => {
       />
     );
 
-    expect(
-      await screen.findByRole('tab', { name: '官方订阅' })
-    ).toHaveAttribute('aria-selected', 'true');
-    expect(screen.getByRole('tab', { name: '供应商' })).toHaveAttribute(
+    expect(await screen.findByRole('tab', { name: '供应商' })).toHaveAttribute(
+      'aria-selected',
+      'true'
+    );
+    expect(screen.getByRole('tab', { name: '官方订阅' })).toHaveAttribute(
       'aria-selected',
       'false'
     );
+    expect(save).not.toHaveBeenCalled();
   });
 
   it('does not reuse one agent tab choice as another agent default', async () => {

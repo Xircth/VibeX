@@ -35,6 +35,7 @@
 - 协议 1.1 initialize→activate；作者只写 `runtime`
 - Office / workflow-creator / session-enhance / multi-agent / plugin-development / science 走公共契约
 - `OfficialMcpRuntime` + `hostFamilyBinary`；`injected_stdio_servers` 一份列表
+- 插件 `content.mcp` 经 `admit_plugin_mcp` 进入 Host MCP 管理器：状态栏用声明的 `tools`，Agent 投影去掉广告字段并补绝对路径 / `cwd` / host.call
 - Composer/Toolbar/Status/Palette/timeline/settings 孔
 - CPython 3.12.11 lock；Worker 按 node/python/native 启动
 - Isolated allowlist 文件 + macOS seatbelt + Linux bwrap/Landlock + seccomp-bpf + Windows AppContainer

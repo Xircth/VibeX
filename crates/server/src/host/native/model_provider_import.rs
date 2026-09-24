@@ -203,7 +203,7 @@ fn fill_codex_settings(settings: &Value, draft: &mut ImportDraft) {
         })
         .unwrap_or_default();
     let table = toml::from_str::<toml::Table>(&config_text).unwrap_or_default();
-    draft.api_url = table
+    let provider = table
         .get("model_providers")
         .and_then(toml::Value::as_table)
         .and_then(|providers| {
@@ -215,7 +215,13 @@ fn fill_codex_settings(settings: &Value, draft: &mut ImportDraft) {
                 .get(active)
                 .or_else(|| providers.values().next())
                 .and_then(toml::Value::as_table)
-        })
+        });
+    if draft.api_key.trim().is_empty() {
+        draft.api_key = provider
+            .map(codex_provider_table_secret)
+            .unwrap_or_default();
+    }
+    draft.api_url = provider
         .and_then(|provider| provider.get("base_url"))
         .and_then(toml::Value::as_str)
         .or_else(|| {
@@ -401,6 +407,20 @@ fn fill_gemini_settings(settings: &Value, draft: &mut ImportDraft) {
     draft.model = json_string(env, &["GEMINI_MODEL"]);
 }
 
+fn codex_provider_table_secret(provider: &toml::Table) -> String {
+    ["api_key", "experimental_bearer_token"]
+        .into_iter()
+        .find_map(|key| {
+            provider
+                .get(key)
+                .and_then(toml::Value::as_str)
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .map(str::to_string)
+        })
+        .unwrap_or_default()
+}
+
 fn json_string(value: &Value, keys: &[&str]) -> String {
     keys.iter()
         .find_map(|key| {
@@ -533,6 +553,25 @@ mod tests {
         assert_eq!(draft.api_url, "https://gateway.example/v1");
         assert_eq!(draft.api_key, "sk-codex");
         assert!(draft.model.contains("gpt-5.4"));
+    }
+
+    #[test]
+    fn extracts_codex_experimental_bearer_token_from_the_provider_table() {
+        let draft = extract_cc_switch_row(
+            &AgentId::parse("codex").unwrap(),
+            CcSwitchRow {
+                id: "gw".into(),
+                name: "BeeAPI".into(),
+                settings_config: serde_json::json!({
+                    "auth": {},
+                    "config": "model_provider = \"custom\"\n[model_providers.custom]\nbase_url = \"https://beeapi.ai/v1\"\nexperimental_bearer_token = \"sk-bee\"\nrequires_openai_auth = false\n"
+                }),
+                meta: serde_json::json!({}),
+            },
+        );
+        assert!(draft.skip_reason.is_none());
+        assert_eq!(draft.api_url, "https://beeapi.ai/v1");
+        assert_eq!(draft.api_key, "sk-bee");
     }
 
     #[test]

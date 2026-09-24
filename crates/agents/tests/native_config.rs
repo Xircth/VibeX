@@ -1368,6 +1368,90 @@ async fn grok_reads_bypass_permissions_as_always_approve() {
 }
 
 #[tokio::test]
+async fn grok_auth_fields_follow_the_active_model_table() {
+    let filesystem = Arc::new(MemoryNativeFileSystem::default());
+    filesystem.files.lock().unwrap().insert(
+        PathBuf::from("/home/user/.grok/config.toml"),
+        br#"
+[models]
+default = "gateway"
+
+[model.gateway]
+name = "Gateway"
+base_url = "https://gateway.example/v1"
+api_key = "sk-gateway"
+model = "grok-4"
+api_backend = "chat_completions"
+
+[model.vibex]
+base_url = "https://stale.example/v1"
+api_key = "sk-stale"
+"#
+        .to_vec(),
+    );
+    let provider = NativeConfigProvider::bundled(filesystem, PathBuf::from("/home/user"));
+    let snapshot = provider
+        .read(&AgentId::parse("grok").unwrap(), false)
+        .await
+        .unwrap();
+    assert_eq!(
+        snapshot.field_text("grok_base_url"),
+        Some("https://gateway.example/v1")
+    );
+    assert!(snapshot.field_present("grok_api_key"));
+    assert_eq!(snapshot.field_text("grok_custom_model_id"), Some("grok-4"));
+    assert_eq!(
+        snapshot.field_text("grok_api_backend"),
+        Some("chat_completions")
+    );
+}
+
+#[tokio::test]
+async fn grok_permission_save_does_not_rewrite_the_active_model() {
+    let filesystem = Arc::new(MemoryNativeFileSystem::default());
+    filesystem.files.lock().unwrap().insert(
+        PathBuf::from("/home/user/.grok/config.toml"),
+        b"[models]\ndefault = \"gateway\"\n\n[model.gateway]\nbase_url = \"https://gateway.example/v1\"\napi_key = \"sk-gateway\"\n".to_vec(),
+    );
+    let provider = NativeConfigProvider::bundled(filesystem.clone(), PathBuf::from("/home/user"));
+    let grok = AgentId::parse("grok").unwrap();
+    let initial = provider.read(&grok, false).await.unwrap();
+    provider
+        .save(
+            &grok,
+            NativeConfigPatch {
+                base_field_revisions: initial
+                    .fields
+                    .iter()
+                    .map(|field| (field.field_id.clone(), field.revision.clone()))
+                    .collect(),
+                values: BTreeMap::from([(
+                    "grok_permission".to_string(),
+                    Some("always-approve".to_string()),
+                )]),
+            },
+            false,
+        )
+        .await
+        .unwrap();
+    let grok_config = String::from_utf8(
+        filesystem.files.lock().unwrap()[&PathBuf::from("/home/user/.grok/config.toml")].clone(),
+    )
+    .unwrap();
+    let grok_config: toml::Value = toml::from_str(&grok_config).unwrap();
+    assert_eq!(
+        grok_config["ui"]["permission_mode"].as_str(),
+        Some("always-approve")
+    );
+    assert_eq!(grok_config["models"]["default"].as_str(), Some("gateway"));
+    assert!(grok_config["model"].get("vibex").is_none());
+    assert_eq!(
+        grok_config["model"]["gateway"]["base_url"].as_str(),
+        Some("https://gateway.example/v1")
+    );
+}
+
+#[tokio::test]
 async fn kimi_managed_model_is_normalized_to_the_native_schema() {
     let filesystem = Arc::new(MemoryNativeFileSystem::default());
     let provider = NativeConfigProvider::bundled(filesystem.clone(), PathBuf::from("/home/user"));

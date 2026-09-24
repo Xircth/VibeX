@@ -29,6 +29,17 @@ export function isBrowserAddressSubmitKey(event: {
   return code === '' || code === 'Enter' || code === 'NumpadEnter';
 }
 
+/** Engine navigations update the address unless the person is mid-edit. */
+export function shouldApplyNavigatedAddress(options: {
+  engineUrl: string;
+  addressFocused: boolean;
+  addressDirty: boolean;
+}): boolean {
+  if (!options.engineUrl.trim()) return false;
+  if (!options.addressFocused) return true;
+  return !options.addressDirty;
+}
+
 /** Turn what a person typed into a URL the tab can open. */
 export function completeBrowserAddress(raw: string): string | null {
   const trimmed = raw.trim();

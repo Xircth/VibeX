@@ -21,7 +21,7 @@ import {
   syncDockviewGroupRegistry,
 } from '@/utils/dockviewHelpers';
 import { preloadMonacoEditor } from '@/lib/monacoPreload';
-import { backendCall } from '@/lib/backendTransport';
+import { backendCall, backendListen } from '@/lib/backendTransport';
 import {
   contributionMetadata,
   usePluginHostContributions,
@@ -31,6 +31,16 @@ import {
   shouldOpenContributedPanel,
 } from '@/lib/hostSurfaceIds';
 import { useBackendTransport } from '@/lib/transport';
+import {
+  findHostBrowserContribution,
+  HOST_BROWSER_CONTRIBUTION_ID,
+  HOST_BROWSER_PLUGIN_ID,
+} from '@/features/host-browser/hostBrowserEngine';
+import { applyBrowserHostEvent } from '@/features/host-browser/browserChromeStore';
+import {
+  ensureBrowserTabOpenBridge,
+  setBrowserTabOpenHandler,
+} from '@/features/host-browser/openBrowserTab';
 import { DEFAULT_TERMINAL_PANEL_HEIGHT } from '@/lib/terminalPreferences';
 import {
   editorTerminalPanelId,
@@ -222,6 +232,7 @@ export interface PanelActions {
     multiInstance?: boolean;
     instance?: 'new' | 'focus';
     requestedUrl?: string | null;
+    nativeTabId?: string | null;
   }) => void;
   setDockviewApi: (api: DockviewApi | null) => void;
 }
@@ -233,7 +244,24 @@ export function PanelActionsProvider({ children }: { children: ReactNode }) {
   const [dockviewEpoch, setDockviewEpoch] = useState(0);
   const [leftDockRevision, setLeftDockRevision] = useState(0);
   const offeredPluginPanelsRef = useRef(new Set<string>());
+  const pendingBrowserOpensRef = useRef<
+    Array<{ url?: string | null; nativeTabId?: string | null }>
+  >([]);
+  const openPluginPanelRef = useRef<
+    ((options: {
+      title: string;
+      pluginId: string;
+      contributionId: string;
+      icon?: string | null;
+      multiInstance?: boolean;
+      instance?: 'new' | 'focus';
+      requestedUrl?: string | null;
+      nativeTabId?: string | null;
+    }) => void) | null
+  >(null);
   const pluginPanels = usePluginHostContributions('app_panel');
+  const pluginPanelsRef = useRef(pluginPanels);
+  pluginPanelsRef.current = pluginPanels;
   const imagePanelRemovalDisposableRef = useRef<{
     dispose: () => void;
   } | null>(null);
@@ -1362,12 +1390,14 @@ export function PanelActionsProvider({ children }: { children: ReactNode }) {
       multiInstance?: boolean;
       instance?: 'new' | 'focus';
       requestedUrl?: string | null;
+      nativeTabId?: string | null;
     }) => {
       const dockviewApi = apiRef.current;
       if (!dockviewApi) return;
       const activate = options.activate !== false;
       const prefix = pluginSurfaceId(options.pluginId, options.contributionId);
-      const mode = options.instance ?? (options.multiInstance ? 'new' : 'focus');
+      const mode =
+        options.instance ?? (options.multiInstance ? 'new' : 'focus');
       let panelId = options.panelId;
       if (!panelId) {
         if (options.multiInstance && mode === 'new') {
@@ -1376,8 +1406,7 @@ export function PanelActionsProvider({ children }: { children: ReactNode }) {
           panelId = `${prefix}:${next}`;
         } else if (options.multiInstance && mode === 'focus') {
           const matches = dockviewApi.panels.filter(
-            (panel) =>
-              panel.id === prefix || panel.id.startsWith(`${prefix}:`)
+            (panel) => panel.id === prefix || panel.id.startsWith(`${prefix}:`)
           );
           panelId = matches[matches.length - 1]?.id ?? `${prefix}:1`;
         } else {
@@ -1389,6 +1418,7 @@ export function PanelActionsProvider({ children }: { children: ReactNode }) {
         contributionId: options.contributionId,
         icon: options.icon ?? null,
         requestedUrl: options.requestedUrl ?? null,
+        nativeTabId: options.nativeTabId ?? null,
       };
       const existing = dockviewApi.getPanel(panelId);
       if (existing) {
@@ -1398,25 +1428,48 @@ export function PanelActionsProvider({ children }: { children: ReactNode }) {
         if (activate) existing.api.setActive();
         return;
       }
-      const panel = addPanelToActiveEditorGroup({
+      let panel = addPanelToActiveEditorGroup({
         id: panelId,
         component: 'plugin-panel',
         title: options.title,
         params,
         inactive: !activate,
       });
+      if (!panel) {
+        try {
+          panel = dockviewApi.addPanel({
+            id: panelId,
+            component: 'plugin-panel',
+            title: options.title,
+            params,
+            renderer: 'onlyWhenVisible',
+          });
+        } catch (error) {
+          console.error('[vibex-browser] failed to add browser tab', error);
+        }
+      }
       if (activate) panel?.api.setActive();
     },
     [addPanelToActiveEditorGroup]
   );
+  openPluginPanelRef.current = openPluginPanel;
 
   const openWebPreview = useCallback(
     (url?: string | null) => {
       if (!canOpenWebPreview) return;
-      const browserPanel = pluginPanels.find(
-        (item) => contributionMetadata(item).engine === 'host-browser'
-      );
-      if (!browserPanel) return;
+      const browserPanel = findHostBrowserContribution(pluginPanels);
+      if (!browserPanel) {
+        openPluginPanel({
+          title: 'Browser',
+          pluginId: HOST_BROWSER_PLUGIN_ID,
+          contributionId: HOST_BROWSER_CONTRIBUTION_ID,
+          icon: 'globe',
+          multiInstance: true,
+          instance: 'new',
+          requestedUrl: url?.trim() || null,
+        });
+        return;
+      }
       const metadata = contributionMetadata(browserPanel);
       const icon = typeof metadata.icon === 'string' ? metadata.icon : null;
       openPluginPanel({
@@ -1463,6 +1516,96 @@ export function PanelActionsProvider({ children }: { children: ReactNode }) {
       });
     }
   }, [dockviewEpoch, openPluginPanel, pluginPanels]);
+
+  useEffect(() => {
+    if (!canOpenWebPreview) return undefined;
+    const openFromEvent = (request: {
+      url?: string | null;
+      nativeTabId?: string | null;
+    }) => {
+      if (!apiRef.current || !openPluginPanelRef.current) {
+        pendingBrowserOpensRef.current.push(request);
+        return;
+      }
+      const nativeTabId = request.nativeTabId ?? null;
+      if (nativeTabId) {
+        const existing = apiRef.current.panels.find((panel) => {
+          const params = panel.params as { nativeTabId?: string | null };
+          return params?.nativeTabId === nativeTabId;
+        });
+        if (existing) {
+          existing.group.api.setVisible(true);
+          existing.api.setActive();
+          return;
+        }
+      }
+      const browser = findHostBrowserContribution(pluginPanelsRef.current);
+      const metadata = browser ? contributionMetadata(browser) : {};
+      openPluginPanelRef.current({
+        title: browser?.label ?? 'Browser',
+        pluginId: browser?.pluginId ?? HOST_BROWSER_PLUGIN_ID,
+        contributionId: browser?.id ?? HOST_BROWSER_CONTRIBUTION_ID,
+        icon: typeof metadata.icon === 'string' ? metadata.icon : 'globe',
+        multiInstance: true,
+        instance: 'new',
+        requestedUrl: request.url ?? null,
+        nativeTabId: request.nativeTabId ?? null,
+      });
+    };
+    setBrowserTabOpenHandler(openFromEvent);
+    ensureBrowserTabOpenBridge();
+    let disposed = false;
+    let stop: (() => void) | undefined;
+    void backendListen<{
+      kind?: string;
+      url?: string;
+      tabId?: string;
+      sourceTabId?: string;
+      reason?: string;
+      action?: string;
+      outcome?: string;
+      at?: number;
+      requestId?: string;
+      origin?: string | null;
+      title?: string | null;
+      code?: string;
+      expiresAt?: number;
+      state?: string;
+      fileName?: string;
+      path?: string | null;
+    }>('plugin.browser', (payload) => {
+      applyBrowserHostEvent(payload);
+    }).then((unlisten) => {
+      if (disposed) unlisten();
+      else stop = unlisten;
+    });
+    return () => {
+      disposed = true;
+      stop?.();
+      setBrowserTabOpenHandler(null);
+    };
+  }, [canOpenWebPreview]);
+
+  useEffect(() => {
+    const open = openPluginPanelRef.current;
+    if (!apiRef.current || !open) return;
+    const queued = pendingBrowserOpensRef.current.splice(0);
+    if (queued.length === 0) return;
+    const browser = findHostBrowserContribution(pluginPanels);
+    const metadata = browser ? contributionMetadata(browser) : {};
+    for (const request of queued) {
+      open({
+        title: browser?.label ?? 'Browser',
+        pluginId: browser?.pluginId ?? HOST_BROWSER_PLUGIN_ID,
+        contributionId: browser?.id ?? HOST_BROWSER_CONTRIBUTION_ID,
+        icon: typeof metadata.icon === 'string' ? metadata.icon : 'globe',
+        multiInstance: true,
+        instance: 'new',
+        requestedUrl: request.url ?? null,
+        nativeTabId: request.nativeTabId ?? null,
+      });
+    }
+  }, [dockviewEpoch, pluginPanels]);
 
   const value = useMemo<PanelActions>(
     () => {

@@ -89,12 +89,16 @@ export function AgentModelProviderManager({
   onDirtyChange,
   onChanged,
   embedded = false,
+  signedIn = false,
+  active = true,
 }: {
   agentId: AgentId;
   disabled: boolean;
   onDirtyChange?: (dirty: boolean) => void;
   onChanged?: () => void | Promise<void>;
   embedded?: boolean;
+  signedIn?: boolean;
+  active?: boolean;
 }) {
   const { t } = useTranslation(['settings', 'common']);
   const [view, setView] = useState<AgentModelProvidersView | null>(null);
@@ -175,6 +179,11 @@ export function AgentModelProviderManager({
     setProbes({});
     resetForm();
   }, [agentId]);
+
+  useEffect(() => {
+    if (!active) return;
+    setLoaded(false);
+  }, [active, agentId]);
 
   const load = useCallback(async () => {
     if (loaded || loading) return;
@@ -541,6 +550,16 @@ export function AgentModelProviderManager({
   };
 
   const bind = async (providerId: string) => {
+    if (signedIn) {
+      const result = await ConfirmDialog.show({
+        title: t('settings:agents.authEnableProviderSignsOutTitle'),
+        message: t('settings:agents.authEnableProviderSignsOutMessage'),
+        confirmText: t('settings:agents.authEnableProviderSignsOutConfirm'),
+        cancelText: t('common:cancel'),
+        variant: 'destructive',
+      });
+      if (result !== 'confirmed') return;
+    }
     setSaving(true);
     setError(null);
     try {

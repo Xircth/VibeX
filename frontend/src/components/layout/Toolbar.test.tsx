@@ -258,5 +258,8 @@ describe('Toolbar chrome layout', () => {
     expect(trailing).toContain('<HomeLogoMenu');
     expect(leading).toContain('align="start"');
     expect(trailing).toContain('align="end"');
+    expect(source).not.toMatch(
+      /<HomeLogoMenu align="start" \/>\s*<ToolbarDivider \/>/
+    );
   });
 });

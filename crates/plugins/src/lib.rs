@@ -20,6 +20,7 @@ mod manifest;
 mod marketplace;
 mod native;
 mod official_mcp;
+mod plugin_mcp;
 mod package;
 mod ports;
 mod preview_host;
@@ -75,7 +76,8 @@ pub use conversation_host::{
 pub use error::PluginError;
 pub use host_call::{
     HOST_CALL_PLUGIN_ID_ENV, HOST_CALL_TOKEN_ENV, HOST_CALL_URL_ENV, PluginHostCall,
-    PluginHostCallContext, attach_host_call_env,
+    PluginHostCallContext, attach_host_call_env, bind_packaged_stdio_paths,
+    prepare_plugin_mcp_projection, spawnable_fs_path, strip_mcp_advertisement_fields,
 };
 pub use host_capability_broker::HostCapabilityBroker;
 pub use language_runtimes::{
@@ -104,6 +106,9 @@ pub use official_mcp::{
     binding_has_delegation_mcp, host_family_product, host_family_stdio_spec,
     official_product_mcp_name, plugin_mcp_status_report, projected_mcp_server_id,
     legacy_projected_mcp_server_id, session_feature_arg, session_features_from_config,
+};
+pub use plugin_mcp::{
+    admit_plugin_mcp, admit_plugin_mcp_servers, PluginMcpAdmission, PluginMcpKind,
 };
 pub use package::{
     APP_PANEL_SLOT, APP_TAB_SLOT, AppCommandContribution, AppComposerActionContribution,

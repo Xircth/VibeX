@@ -3489,7 +3489,22 @@ async fn materialize_plugin_mcp_spec(
         .get("managedRuntime")
         .and_then(serde_json::Value::as_object)
     else {
-        return Ok(Some(spec));
+        let mut spec = spec;
+        plugins::prepare_plugin_mcp_projection(&mut spec, plugin.package.content_root());
+        if spec.get("command").and_then(serde_json::Value::as_str) == Some("node") {
+            let node = state
+                .plugin_worker_runtime
+                .resolve()
+                .await
+                .map_err(plugin_error)?;
+            if let Some(object) = spec.as_object_mut() {
+                object.insert(
+                    "command".to_owned(),
+                    serde_json::Value::String(plugins::spawnable_fs_path(&node)),
+                );
+            }
+        }
+        return inject_plugin_host_call(state, plugin, spec).await;
     };
     if is_host_family_binary_mcp(&spec) {
         return materialize_host_family_binary_mcp(state, server_id, &spec);
@@ -3548,18 +3563,48 @@ async fn materialize_plugin_mcp_spec(
         "scopes": scopes,
     })
     .to_string();
-    Ok(Some(serde_json::json!({
-        "type": "stdio",
-        "command": node.to_string_lossy(),
-        "args": [entrypoint.to_string_lossy()],
-        "env": {
-            "VIBEX_PLUGIN_MCP_TOKEN": token,
-            "VIBEX_MCP_PROTOCOL_REVISION": managed
-                .get("protocolRevision")
-                .and_then(serde_json::Value::as_str)
-                .unwrap_or("2026-07-28")
-        }
-    })))
+    inject_plugin_host_call(
+        state,
+        plugin,
+        serde_json::json!({
+            "type": "stdio",
+            "command": plugins::spawnable_fs_path(&node),
+            "args": [plugins::spawnable_fs_path(&entrypoint)],
+            "env": {
+                "VIBEX_PLUGIN_MCP_TOKEN": token,
+                "VIBEX_MCP_PROTOCOL_REVISION": managed
+                    .get("protocolRevision")
+                    .and_then(serde_json::Value::as_str)
+                    .unwrap_or("2026-07-28")
+            }
+        }),
+    )
+    .await
+}
+
+async fn inject_plugin_host_call(
+    state: &AppState,
+    plugin: &plugins::InstalledPlugin,
+    mut spec: serde_json::Value,
+) -> Result<Option<serde_json::Value>, AppError> {
+    plugins::strip_mcp_advertisement_fields(&mut spec);
+    let Some(host_call) = plugins::PluginHostCall::process_instance() else {
+        tracing::warn!(
+            plugin_id = plugin.id(),
+            "projecting plugin MCP without host.call; loopback is not listening"
+        );
+        return Ok(Some(spec));
+    };
+    let generation = state
+        .plugin_control_plane
+        .active_generation(plugin.id())
+        .await
+        .unwrap_or(0);
+    let ctx = host_call
+        .issue(plugin.id(), generation)
+        .map_err(|error| AppError::Internal(error.to_string()))?;
+    plugins::attach_host_call_env(&mut spec, &ctx, Some(plugin.package.content_root()));
+    Ok(Some(spec))
 }
 
 fn parse_conflict_decision(value: &str) -> Result<plugins::ConflictDecision, AppError> {

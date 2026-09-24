@@ -270,7 +270,7 @@ _Avoid_: 连接, 隧道, 服务器地址（单独拿来当 Host 身份）
 - **Authentication status（认证状态）** — VibeX 对 Agent 当前认证来源的判断：已通过账号登录、已通过 API Key 登录或暂未登录；用户可从设置页显式启动 Built-in Agent Profile 声明的官方登录或注销流程。
 - **Credential ownership（凭据所有权）** — 表明认证凭据由 Agent Runtime 配置或用户外部环境中的哪一方持有。VibeX 可启动官方 Agent 的账号流程，也可编辑 Profile 明确认识的本地凭据字段或 Provider 文档，但不采集终端交互内容、不自动生成凭据，也不删除 Profile 范围外的外部环境凭据。
 - **Inline device authentication（页内设备认证）** — 只为已适配且固定端点的官方设备授权流程提供页内状态机；短期设备码可以穿过 IPC，访问令牌只能由 Rust 后端交换并直接写入 Agent 官方凭据文件，不能进入前端、数据库或诊断日志。当前仅适配 Codex。
-- **Agent authentication mode（Agent 鉴权模式）** — 设置里当前生效的鉴权来源，只能是官方订阅、官方 API 或供应商之一；具体组合由 Built-in Agent Profile 声明，没有的模式不出现。模式保存于 Agent 设置，预检查验证所选模式，启动门在订阅模式下清除继承进程的冲突密钥。见 [ADR-0064](docs/adr/0064-unified-agent-authentication-modes.md)。
+- **Agent authentication mode（Agent 鉴权模式）** — 设置里当前生效的鉴权来源，只能是官方订阅、官方 API 或供应商之一；具体组合由 Built-in Agent Profile 声明，没有的模式不出现。展示以 Agent 原生配置文件为准；VibeX 只在用户显式登录订阅、启用 Provider 或切换 Provider 时写入这些文件。官方订阅与 Provider 互斥。预检查验证所选模式，启动门在订阅模式下清除继承进程的冲突密钥。见 [ADR-0064](docs/adr/0064-unified-agent-authentication-modes.md)。
 - **Official subscription（官方订阅）** — 该 Agent 官方账号与套餐登录；购买与升降级仍在官方页面完成。能可靠读取的额度进入 Kanban 计量统计，不能把本地 Token 估算当成官方配额。
 - **Official API（官方 API）** — 该 Agent 第一方固定端点上的 API Key、官方模型列表与档案声明的模型映射；不能改官方 URL。
 - **OpenCode Provider catalog（OpenCode Provider 目录）** — `models.dev` 的结构化 Provider/模型能力目录；在线响应经 24 小时缓存，离线时使用最后有效缓存或随应用发布的完整快照，不包含用户凭据。它是 OpenCode 官方 API 面的实现载体，同时管理 SDK 包、API 适配器、端点、模型映射与 enabled/disabled 状态。第三方中转与自定义端点仍属供应商鉴权。

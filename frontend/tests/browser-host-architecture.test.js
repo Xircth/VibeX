@@ -61,6 +61,7 @@ test('plugin MCP uses generic host.call injection, not a browser-specific URL', 
 
   assert.match(mcp, /VIBEX_HOST_CALL_URL/);
   assert.match(mcp, /callHost\('browser'/);
+  assert.match(mcp, /await fetch\(url/);
   assert.doesNotMatch(mcp, /VIBEX_BROWSER_DISPATCH/);
   assert.match(projections, /attach_host_call_env/);
   assert.match(projections, /hostFamilyBinary/);
@@ -107,6 +108,9 @@ test('frontend shell opens the host-browser plugin panel instead of WEB_PREVIEW'
     'frontend/src/features/host-browser/HostBrowserPanel.tsx'
   );
   assert.match(hostPanel, /surface.freeze/);
+  assert.match(hostPanel, /dv-connected-chrome/);
+  assert.match(hostPanel, /snapBrowserSurfaceRect/);
+  assert.match(hostPanel, /mx-\[2px\]/);
   const native = readRepoFile('src-tauri/src/browser_native.rs');
   assert.match(native, /tauri_runtime_wry::wry/);
   assert.match(native, /build_as_child/);
@@ -116,6 +120,44 @@ test('frontend shell opens the host-browser plugin panel instead of WEB_PREVIEW'
   assert.match(native, /PageLoadEvent/);
   assert.match(native, /prefer_detached_inspector/);
   assert.match(native, /takeSnapshotWithConfiguration/);
+  assert.match(native, /CapturePreview/);
+  assert.match(native, /CAPTURE_PREVIEW_IMAGE_FORMAT_PNG/);
+  assert.match(native, /FluentOverlay/);
+  assert.match(native, /with_initialization_script/);
+  assert.match(native, /Some\("chrome"\)/);
+  assert.match(native, /tab\.chrome/);
+  assert.match(native, /PAGE_NAV_SCRIPT/);
+  assert.match(native, /Some\("navigate"\)/);
+  assert.match(native, /target === '_blank'/);
+  assert.match(native, /chrome\.webview\.postMessage/);
+  assert.match(native, /vibex:/);
+  assert.match(native, /WebMessageAsJson/);
+  assert.match(native, /pushState/);
+  assert.match(native, /newTab: false/);
+  assert.match(native, /newTab: true/);
+  assert.doesNotMatch(native, /event\.preventDefault/);
+  assert.match(native, /attach_windows_popup_handler/);
+  assert.match(native, /SetHandled\(true\)/);
+  assert.match(native, /remember_popup_url/);
+  assert.match(native, /recv_timeout/);
+  assert.match(native, /auxclick/);
+  assert.match(native, /NewWindowResponse::Create/);
+  assert.match(native, /adopt_tab/);
+  assert.match(native, /WebViewExtWindows/);
+  assert.match(native, /popup.denied/);
+  assert.match(native, /send\('gesture'/);
+  assert.match(native, /with_download_started_handler/);
+  assert.doesNotMatch(native, /window\.open = function/);
+  assert.match(native, /Object\.defineProperty\(window, 'open'/);
+  assert.match(native, /opened-as-tab/);
+  assert.match(native, /kind.: .tab\.open/);
+  assert.match(native, /emit_tab_open_url/);
+  assert.match(native, /fallback_open_or_deny/);
+  assert.match(native, /FREEZE_IN_FLIGHT/);
+  const service = readRepoFile('crates/browser-host/src/service.rs');
+  assert.match(service, /eval\.run/);
+  assert.match(service, /agent\.activity/);
+  assert.match(service, /tab\.find/);
   assert.match(native, /freeze_frame/);
   assert.match(native, /with_user_agent/);
   assert.match(native, /Safari\/605\.1\.15/);
@@ -124,7 +166,7 @@ test('frontend shell opens the host-browser plugin panel instead of WEB_PREVIEW'
   const picker = readRepoFile('crates/browser-host/js/picker.js');
   assert.match(picker, /59,130,246/);
   assert.doesNotMatch(picker, /139,92,246/);
-  assert.match(picker, /report\(describe\(element\)\)/);
+  assert.match(picker, /finish\(describe\(element\), true\)/);
   assert.match(picker, /__vibexPickQueue/);
   const styles = readRepoFile('frontend/src/styles/legacy/index.css');
   assert.match(
@@ -137,7 +179,7 @@ test('frontend shell opens the host-browser plugin panel instead of WEB_PREVIEW'
 
   assert.doesNotMatch(layout, /WEB_PREVIEW/);
   assert.doesNotMatch(registry, /WEB_PREVIEW|DockviewWebPreviewPanel/);
-  assert.match(pluginPanel, /engine === 'host-browser'/);
+  assert.match(pluginPanel, /isHostBrowserEngine/);
   assert.match(pluginPanel, /HostBrowserPanel/);
   assert.match(hostPanel, /plugin_invoke_contribution/);
   assert.match(hostPanel, /browser\.dispatch/);

@@ -210,6 +210,19 @@ describe('shouldActivateConversationSlot', () => {
       })
     ).toBe(false);
   });
+
+  it('attaches a new placement record even when the slot is temporarily hidden', () => {
+    const target = hiddenElement();
+    expect(
+      shouldActivateConversationSlot({
+        activeSlotId: null,
+        slotId: 'execution',
+        isNewSlot: true,
+        target,
+        activeTarget: null,
+      })
+    ).toBe(true);
+  });
 });
 
 describe('KanbanSessionConversationView', () => {
@@ -1223,5 +1236,74 @@ describe('KanbanSessionConversationView', () => {
 
     expect(screen.getByTestId('virtualized-list')).toBe(conversation);
     expect(screen.getByTestId('follow-up-section')).toBeInTheDocument();
+  });
+
+  it('keeps the composer when the execution slot switches to a newly created session', () => {
+    const workspace = createWorkspace('workspace-1');
+    const sessionA = createSession('session-a', workspace.id);
+    const sessionB = createSession('session-b', workspace.id);
+
+    const sessionStateFor = (session: Session) => ({
+      sessions: [sessionA, sessionB],
+      selectedSession: session,
+      selectedSessionId: session.id,
+      selectSession: vi.fn(),
+      selectLatestSession: vi.fn(),
+      isLoading: false,
+      isNewSessionMode: false,
+      isPendingNewSessionMode: false,
+      requestNewSession: vi.fn(),
+      confirmNewSession: vi.fn(),
+      cancelNewSession: vi.fn(),
+      startNewSession: vi.fn(),
+    });
+    useWorkspaceSessionsMock.mockReturnValue(sessionStateFor(sessionA));
+
+    const queryClient = new QueryClient({
+      defaultOptions: {
+        queries: {
+          retry: false,
+        },
+      },
+    });
+    queryClient.setQueryData(['taskAttempt', workspace.id], workspace);
+    queryClient.setQueryData(['session', sessionA.id], sessionA);
+    queryClient.setQueryData(['session', sessionB.id], sessionB);
+
+    function PlacementHarness({ sessionId }: { sessionId: string }) {
+      const session = sessionId === sessionA.id ? sessionA : sessionB;
+      useWorkspaceSessionsMock.mockReturnValue(sessionStateFor(session));
+      return (
+        <MemoryRouter>
+          <QueryClientProvider client={queryClient}>
+            <KanbanSessionConversationPlacementProvider>
+              <div data-testid="execution-slot">
+                <KanbanSessionConversationView
+                  workspaceId={workspace.id}
+                  sessionId={sessionId}
+                  interactive={true}
+                  showSessionSelector={true}
+                />
+              </div>
+            </KanbanSessionConversationPlacementProvider>
+          </QueryClientProvider>
+        </MemoryRouter>
+      );
+    }
+
+    const { rerender } = render(<PlacementHarness sessionId={sessionA.id} />);
+    expect(screen.getByTestId('follow-up-section')).toBeInTheDocument();
+    expect(screen.getByTestId('virtualized-list')).toHaveTextContent(
+      'workspace-1:session-a'
+    );
+
+    rerender(<PlacementHarness sessionId={sessionB.id} />);
+    expect(screen.getByTestId('follow-up-section')).toBeInTheDocument();
+    expect(screen.getByTestId('virtualized-list')).toHaveTextContent(
+      'workspace-1:session-b'
+    );
+    expect(screen.getByTestId('execution-slot')).toContainElement(
+      screen.getByTestId('virtualized-list')
+    );
   });
 });

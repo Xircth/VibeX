@@ -1,3 +1,4 @@
+import { spawn } from "node:child_process";
 import { access, mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -170,11 +171,16 @@ describe("scaffoldPlugin templates", () => {
     const mcp = await manifest(mcpRoot);
     const hello = JSON.parse(
       await readFile(join(mcpRoot, "contents", "mcps", "hello.json"), "utf8"),
-    ) as { managedRuntime: { entrypoint: string } };
+    ) as {
+      managedRuntime: { entrypoint: string };
+      tools: Array<{ name: string; group: string }>;
+    };
     expect(mcp.integrations).toEqual([
       expect.objectContaining({ kind: "content.mcp" }),
     ]);
     expect(hello.managedRuntime.entrypoint).toBe("dist/mcp/hello.mjs");
+    expect(hello.tools).toEqual([{ name: "hello", group: "mcp" }]);
+    await expectMcpInitialize(join(mcpRoot, "runtime", "mcp.mjs"));
 
     const fileTab = await manifest(await scaffold("file-tab"));
     expect(fileTab.integrations.map((item) => item.kind)).toEqual([
@@ -248,4 +254,47 @@ async function manifest(root: string) {
     integrations: Array<{ kind: string }>;
     engines?: { vibex: string; pluginSdk: string };
   };
+}
+
+async function expectMcpInitialize(script: string) {
+  const child = spawn(process.execPath, [script], { stdio: ["pipe", "pipe", "pipe"] });
+  const stdout: Buffer[] = [];
+  child.stdout.on("data", (chunk: Buffer) => stdout.push(chunk));
+  child.stdin.write(
+    `${JSON.stringify({
+      jsonrpc: "2.0",
+      id: 1,
+      method: "initialize",
+      params: {
+        protocolVersion: "2026-07-28",
+        capabilities: {},
+        clientInfo: { name: "vibex-test", version: "0" },
+      },
+    })}\n`,
+  );
+  const reply = await new Promise<Record<string, unknown>>((resolve, reject) => {
+    const timer = setTimeout(() => {
+      reject(new Error(`MCP initialize timed out: ${Buffer.concat(stdout).toString()}`));
+    }, 2000);
+    const check = () => {
+      const line = Buffer.concat(stdout)
+        .toString("utf8")
+        .split("\n")
+        .find((item) => item.trim());
+      if (!line) return;
+      clearTimeout(timer);
+      try {
+        resolve(JSON.parse(line) as Record<string, unknown>);
+      } catch (error) {
+        reject(error);
+      }
+    };
+    child.stdout.on("data", check);
+    check();
+  });
+  child.kill();
+  expect(reply.error).toBeUndefined();
+  expect(reply.id).toBe(1);
+  const result = reply.result as { serverInfo?: { name?: string } };
+  expect(result.serverInfo?.name).toBe("hello");
 }

@@ -1113,7 +1113,7 @@
     // different one, which is the one thing a picker must never do.
     var element = targetOf(event)
     if (!element) return
-    report(describe(element))
+    finish(describe(element), true)
   }
 
   // Every key belongs to the picker while it is armed. Escape ends it; the

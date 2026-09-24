@@ -189,7 +189,10 @@ UI 只读取通过 Host 验证并返回的索引与文档，不在客户端扫�
 `integrations` 是插件内容/代码与 VibeX 内核扩展点的机器映射，不是用户详情页章节：
 
 - `content.skill`：把 `contents/skills/...` 投影给受支持的 Agent；
-- `content.mcp`：把受控 MCP 描述投影给 Agent；
+- `content.mcp`：插件 MCP 的 Host 接入点。资源 JSON 声明启动方式（`hostFamilyBinary` /
+  `workerHttp` / `entrypoint` / 静态 `command`+`args`）和 `tools` 目录；Host MCP 管理器登记后
+  投影给兼容 Agent。`hostFamilyBinary` 的工具目录由 Host 产品目录填充，其它形状由资源
+  `tools` 提供。
 - `workflow.binding`：把 workflow 暴露为命令、动作或自动化入口；
 - `file.opener`：声明文件类型解析，并且精确引用一个 `previewProvider`（只读预览）或
   `editorSurface`（可编辑文件 Tab）；

@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest';
 import {
   completeBrowserAddress,
   isBrowserAddressSubmitKey,
+  shouldApplyNavigatedAddress,
 } from './completeAddress';
 
 describe('isBrowserAddressSubmitKey', () => {
@@ -32,6 +33,28 @@ describe('isBrowserAddressSubmitKey', () => {
     ).toBe(false);
     expect(
       isBrowserAddressSubmitKey({ key: 'Enter', code: 'Enter', keyCode: 229 })
+    ).toBe(false);
+  });
+});
+
+describe('shouldApplyNavigatedAddress', () => {
+  it('applies an engine URL while the field is focused but not being edited', () => {
+    expect(
+      shouldApplyNavigatedAddress({
+        engineUrl: 'https://github.com/xintaofei/codeg',
+        addressFocused: true,
+        addressDirty: false,
+      })
+    ).toBe(true);
+  });
+
+  it('keeps an in-progress edit', () => {
+    expect(
+      shouldApplyNavigatedAddress({
+        engineUrl: 'https://github.com/',
+        addressFocused: true,
+        addressDirty: true,
+      })
     ).toBe(false);
   });
 });

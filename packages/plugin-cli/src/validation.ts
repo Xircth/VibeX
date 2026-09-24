@@ -485,6 +485,19 @@ async function validateIntegrations(
               ),
             );
           }
+          if (!hostFamily) {
+            pushMcpToolsDiagnostic(
+              diagnostics,
+              resource,
+              join(root, integration.resource),
+            );
+          }
+        } else if (isObject(resource)) {
+          pushMcpToolsDiagnostic(
+            diagnostics,
+            resource,
+            join(root, integration.resource),
+          );
         }
       } catch {
         diagnostics.push(
@@ -1254,6 +1267,46 @@ function string(
 
 function isObject(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === "object" && !Array.isArray(value);
+}
+
+function pushMcpToolsDiagnostic(
+  diagnostics: Diagnostic[],
+  resource: Record<string, unknown>,
+  path: string,
+) {
+  const tools = resource.tools;
+  if (!Array.isArray(tools) || tools.length === 0) {
+    diagnostics.push(
+      warning(
+        "mcp_tools_missing",
+        "content.mcp should declare tools so the Host MCP manager can list them before an agent connects",
+        path,
+      ),
+    );
+    return;
+  }
+  for (const tool of tools) {
+    const name =
+      typeof tool === "string"
+        ? tool.trim()
+        : isObject(tool) && typeof tool.name === "string"
+          ? tool.name.trim()
+          : "";
+    if (!name) {
+      diagnostics.push(
+        error(
+          "mcp_tools_invalid",
+          "each content.mcp tools entry must be a name string or { name, group }",
+          path,
+        ),
+      );
+      return;
+    }
+  }
+}
+
+function warning(code: string, text: string, path?: string): Diagnostic {
+  return { code, severity: "warning", message: text, path };
 }
 
 function error(code: string, text: string, path?: string): Diagnostic {

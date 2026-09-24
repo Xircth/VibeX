@@ -4,6 +4,7 @@ import { X } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useHotkeysContext } from 'react-hotkeys-hook';
 import { useKeyExit, useKeySubmit, Scope } from '@/keyboard';
+import { NativeSurfaceOcclusionHold } from '@/contexts/WorkspaceOverlayContext';
 
 const Dialog = React.forwardRef<
   HTMLDivElement,
@@ -109,6 +110,7 @@ const Dialog = React.forwardRef<
 
   return (
     <div className="fixed inset-0 z-[9999] flex items-start justify-center p-4 overflow-y-auto">
+      <NativeSurfaceOcclusionHold />
       <div
         className="dialog-backdrop fixed inset-0"
         aria-hidden="true"

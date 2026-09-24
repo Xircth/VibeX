@@ -26,6 +26,10 @@ import {
 } from './tools/GeneratedImagesBlock';
 import { GoalToolCall, isGoalToolEntry } from './tools/GoalToolCall';
 import { PlanCard, isPlanToolEntry } from './tools/PlanCard';
+import {
+  BrowserToolCard,
+  isBrowserToolEntry,
+} from './tools/BrowserToolCard';
 
 function isNormalizedEntry(
   entry: NormalizedEntry | ProcessStartPayload
@@ -132,6 +136,16 @@ export const ToolCallCard: FC<{
   if (action === 'file_read' || action === 'search' || action === 'web_fetch') {
     return (
       <LookupToolCallCard
+        entry={entry}
+        expansionKey={expansionKey}
+        forceExpanded={forceExpanded}
+      />
+    );
+  }
+
+  if (isNormalizedEntry(entry) && isBrowserToolEntry(entry)) {
+    return (
+      <BrowserToolCard
         entry={entry}
         expansionKey={expansionKey}
         forceExpanded={forceExpanded}

@@ -1316,7 +1316,17 @@ fn canonicalize_spec(spec: &Value, source: &str) -> Result<Value, McpError> {
         }
         if matches!(
             key.as_str(),
-            "type" | "command" | "args" | "env" | "cwd" | "url" | "headers"
+            "type"
+                | "command"
+                | "args"
+                | "env"
+                | "cwd"
+                | "url"
+                | "headers"
+                | "tools"
+                | "name"
+                | "transport"
+                | "managedRuntime"
         ) {
             continue;
         }
@@ -1963,7 +1973,17 @@ fn canonical_to_grok_entry(spec: &Value) -> Result<toml::Value, McpError> {
     for (key, value) in obj {
         if matches!(
             key.as_str(),
-            "type" | "command" | "args" | "env" | "cwd" | "url" | "headers"
+            "type"
+                | "command"
+                | "args"
+                | "env"
+                | "cwd"
+                | "url"
+                | "headers"
+                | "tools"
+                | "name"
+                | "transport"
+                | "managedRuntime"
         ) {
             continue;
         }
@@ -2052,7 +2072,17 @@ fn grok_entry_to_canonical(id: &str, value: &toml::Value) -> Result<Value, McpEr
     for (key, value) in table {
         if !matches!(
             key.as_str(),
-            "type" | "command" | "args" | "env" | "cwd" | "url" | "headers"
+            "type"
+                | "command"
+                | "args"
+                | "env"
+                | "cwd"
+                | "url"
+                | "headers"
+                | "tools"
+                | "name"
+                | "transport"
+                | "managedRuntime"
         ) {
             spec.insert(key.clone(), toml_to_json_value(value));
         }
@@ -4503,6 +4533,32 @@ mod tests {
                 .and_then(toml::Value::as_str),
             Some("Bearer oct_test")
         );
+    }
+
+    #[test]
+    fn grok_stdio_drops_package_advertisement_fields() {
+        let entry = canonical_to_grok_entry(&json!({
+            "type": "stdio",
+            "command": "node",
+            "args": ["runtime/mcp-server.mjs"],
+            "cwd": "/plugins/browser",
+            "name": "vibex-browser",
+            "transport": "stdio",
+            "tools": [{ "name": "browser_list_tabs", "group": "browser" }]
+        }))
+        .expect("grok entry");
+        let table = entry.as_table().expect("table");
+        assert_eq!(
+            table.get("command").and_then(toml::Value::as_str),
+            Some("node")
+        );
+        assert_eq!(
+            table.get("cwd").and_then(toml::Value::as_str),
+            Some("/plugins/browser")
+        );
+        assert!(table.get("tools").is_none());
+        assert!(table.get("name").is_none());
+        assert!(table.get("transport").is_none());
     }
 
     #[test]

@@ -236,19 +236,18 @@ pub fn resolve_built_in_auth_mode(
 ) -> String {
     let uses_model_provider =
         policy.modes.contains(&"model_provider") && (bound_provider || native_custom_endpoint);
-    // A mode the user picked in VibeX outranks what this machine happens to be
-    // configured with. Letting the configuration win instead pins the Agent to
-    // Provider routing, and the subscription modes become unreachable — the
-    // user can select them but never switch to them.
+    // Agent native config is the source of truth. A stale VibeX mode overlay
+    // must not hide a Provider the runtime is already using; switching away
+    // from Provider routing writes the native files first, then this overlay.
+    if uses_model_provider {
+        return "model_provider".to_string();
+    }
     if let Some(mode) = env
         .get(policy.mode_env)
         .filter(|mode| policy.modes.contains(&mode.as_str()))
-        .filter(|mode| mode.as_str() != "model_provider" || uses_model_provider)
+        .filter(|mode| mode.as_str() != "model_provider")
     {
         return mode.clone();
-    }
-    if uses_model_provider {
-        return "model_provider".to_string();
     }
     if agent_id.as_str() == "claude_code" {
         if snapshot.is_some_and(|snapshot| snapshot.field_present("anthropic_api_key")) {
@@ -1437,10 +1436,10 @@ mod tests {
         ));
     }
 
-    /// Selecting a mode in VibeX has to take effect, or a bound Provider pins
-    /// the Agent away from the subscription modes for good.
+    /// A stale VibeX overlay cannot hide the Provider the Agent config is
+    /// already using. Switching to subscription writes the native files first.
     #[test]
-    fn a_mode_chosen_in_vibex_outranks_a_bound_provider() {
+    fn a_bound_provider_outranks_a_stale_vibex_mode() {
         let claude = AgentId::parse("claude_code").unwrap();
         let grok = AgentId::parse("grok").unwrap();
         let claude_policy = built_in_auth_mode_policy(&claude).unwrap();
@@ -1457,7 +1456,7 @@ mod tests {
                     native_custom_endpoint,
                     None,
                 ),
-                "official_api"
+                "model_provider"
             );
             assert_eq!(
                 resolve_built_in_auth_mode(
@@ -1468,7 +1467,7 @@ mod tests {
                     native_custom_endpoint,
                     None,
                 ),
-                "subscription"
+                "model_provider"
             );
         }
     }

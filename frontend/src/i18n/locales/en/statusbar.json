@@ -75,7 +75,15 @@
       "list_connections": "List connections",
       "search_actions": "Search actions",
       "get_action_guide": "Get action guide",
-      "execute_action": "Execute action"
+      "execute_action": "Execute action",
+      "browser_list_tabs": "List tabs",
+      "browser_snapshot": "Read page snapshot",
+      "browser_click": "Click a page element",
+      "browser_type": "Type into a page",
+      "browser_open_tab": "Open a tab",
+      "browser_navigate": "Navigate a tab",
+      "browser_close_tab": "Close a tab",
+      "browser_eval": "Run page JavaScript"
     }
   }
 }

@@ -1,5 +1,6 @@
 import { memo, useCallback, useEffect, useRef } from 'react';
 import { AlertTriangle, X } from 'lucide-react';
+import { NativeSurfaceOcclusionHold } from '@/contexts/WorkspaceOverlayContext';
 
 interface GitDiscardDialogProps {
   open: boolean;
@@ -50,6 +51,7 @@ export const GitDiscardDialog = memo(function GitDiscardDialog({
       role="dialog"
       aria-modal="true"
     >
+      <NativeSurfaceOcclusionHold />
       <div className="modal-surface border border-border rounded-lg shadow-xl w-[340px] max-h-[80vh] flex flex-col animate-in fade-in zoom-in-95 duration-150">
         {/* Header */}
         <div className="flex items-center gap-2 px-4 py-3 border-b border-border/50">

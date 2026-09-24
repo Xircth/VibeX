@@ -694,12 +694,7 @@ export function Toolbar() {
           data-tauri-drag-region
           className="relative z-10 flex h-9 items-center gap-0.5"
         >
-          {logoLeads ? (
-            <>
-              <HomeLogoMenu align="start" />
-              <ToolbarDivider />
-            </>
-          ) : null}
+          {logoLeads ? <HomeLogoMenu align="start" /> : null}
           {hasLeadingControls ? <WindowChromeLeadingRule /> : null}
           <WorkspaceBranchControls
             isWorkspaceTab={isWorkspaceTab}

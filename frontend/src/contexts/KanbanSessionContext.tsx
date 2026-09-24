@@ -302,11 +302,14 @@ export function KanbanSessionProvider({ children }: { children: ReactNode }) {
     (session: KanbanSessionPlacement) => {
       commitLayoutState((current) =>
         placeCreatedSession(current, session, {
-          canUseRightPanel: canUseRightPanelForSessions,
+          // Creating from the composer or overlay means the execution area is
+          // already on screen. Gate on the kanban-zone flag would park the new
+          // session in the monitor while the execution area keeps the old one.
+          canUseRightPanel: true,
         })
       );
     },
-    [canUseRightPanelForSessions, commitLayoutState]
+    [commitLayoutState]
   );
 
   const placeForkedChildInLayout = useCallback(

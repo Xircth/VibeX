@@ -11,12 +11,17 @@ import {
   ArrowLeft,
   ArrowRight,
   Bug,
+  Camera,
+  Check,
   Copy,
   ExternalLink,
+  Monitor,
   MoreVertical,
   MousePointerClick,
   RotateCw,
   Scaling,
+  Smartphone,
+  Tablet,
   X,
 } from 'lucide-react';
 import { toast } from '@/components/ui/toast';
@@ -24,28 +29,79 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuSub,
+  DropdownMenuSubContent,
+  DropdownMenuSubTrigger,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 
-import { useOptionalPanelActionsContext } from '@/contexts/PanelActionsContext';
-import { useWorkspaceOverlay } from '@/contexts/WorkspaceOverlayContext';
+import {
+  NativeSurfaceOcclusionHold,
+  useWorkspaceOverlay,
+} from '@/contexts/WorkspaceOverlayContext';
+import { overlayCoversSurface } from '@/lib/nativeSurfaceOverlay';
+import { requestBrowserTabOpen } from './openBrowserTab';
 import { backendCall, backendListen } from '@/lib/backendTransport';
 import { getInvokeErrorMessage } from '@/lib/errors';
 import { cn } from '@/lib/utils';
 import { open } from '@tauri-apps/plugin-shell';
-import { requestComposerTokenInsert } from '@/lib/composerInsert';
+import {
+  requestComposerImageInsert,
+  requestComposerTokenInsert,
+} from '@/lib/composerInsert';
 import { formatSessionComposerCommand } from '@/components/tasks/follow-up/sessionComposerStructuredTokens';
 import {
   completeBrowserAddress,
   isBrowserAddressSubmitKey,
+  shouldApplyNavigatedAddress,
 } from './completeAddress';
+import {
+  loadBrowserAddressHistory,
+  recordBrowserAddressVisit,
+  saveBrowserAddressHistory,
+  suggestBrowserAddresses,
+  type BrowserAddressHistoryEntry,
+  type BrowserAddressSuggestion,
+} from './addressSuggestions';
+import { fileFromPickedFrame } from './pickHandoff';
+import {
+  BrowserAgentActivityControl,
+  BrowserAgentShareControl,
+} from './BrowserAgentAccess';
+import { BrowserFindBar } from './BrowserFindBar';
+import {
+  BrowserDownloadBar,
+  BrowserNoticeBar,
+} from './BrowserStatusLayer';
+import { clearAgentActivity } from './browserChromeStore';
+import {
+  faviconForPage,
+  prefetchFavicon,
+  rememberCachedFavicon,
+} from './faviconCache';
+import {
+  browserPanelSurfaceKey,
+  forgetBrowserSurface,
+  hiddenBrowserBounds,
+  projectLayoutStillHasBrowserPanel,
+  recallBrowserSurface,
+  rememberBrowserSurface,
+} from './browserPanelLifetime';
+import { useLayoutStore } from '@/stores/useLayoutStore';
+import { snapBrowserSurfaceRect } from './browserSurfaceBounds';
 
 const ICON_BTN =
   'flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-primary/8 hover:text-foreground disabled:pointer-events-none disabled:opacity-40';
 const FIELD_BTN =
   'flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-primary/8 hover:text-foreground disabled:pointer-events-none disabled:opacity-40';
+const CONNECTED_CHROME_BG =
+  'bg-[var(--dv-connected-chrome,var(--surface-dialog))]';
 const ZOOM_PRESETS = [0.3, 0.5, 0.75, 1, 1.25, 1.5] as const;
 const DEFAULT_ZOOM = 0.75;
+const DEVICE_PRESETS = ['desktop', 'tablet', 'phone'] as const;
+type BrowserDevice = (typeof DEVICE_PRESETS)[number];
+const DEFAULT_DEVICE: BrowserDevice = 'desktop';
 
 type SurfaceBounds = {
   x: number;
@@ -72,15 +128,12 @@ function measureSurface(
     };
   }
   const rect = host.getBoundingClientRect();
-  const width = rect.width;
-  const height = rect.height;
-  const laidOut = width >= 2 && height >= 2;
+  const scale = window.devicePixelRatio || 1;
+  const snapped = snapBrowserSurfaceRect(rect, scale);
+  const laidOut = snapped.width >= 2 && snapped.height >= 2;
   return {
-    x: rect.left,
-    y: rect.top,
-    width: Math.max(1, width),
-    height: Math.max(1, height),
-    scale: window.devicePixelRatio || 1,
+    ...snapped,
+    scale,
     visible: panelVisible && laidOut && !occluded,
   };
 }
@@ -96,12 +149,14 @@ function overlayCoversBrowser(
   if (!host || occlusion.rects.length === 0) return false;
   const surface = host.getBoundingClientRect();
   if (surface.width < 2 || surface.height < 2) return false;
-  return occlusion.rects.some(
-    (rect) =>
-      rect.x < surface.right &&
-      rect.x + rect.width > surface.left &&
-      rect.y < surface.bottom &&
-      rect.y + rect.height > surface.top
+  return overlayCoversSurface(
+    {
+      x: surface.left,
+      y: surface.top,
+      width: surface.width,
+      height: surface.height,
+    },
+    occlusion.rects
   );
 }
 
@@ -111,30 +166,46 @@ function boundsKey(bounds: SurfaceBounds): string {
 
 type FreezePayload = { mime?: string | null; data?: string | null };
 
-function decodeFreeze(url: string): Promise<void> {
+/** Longest a hide waits on decode or the next paint. A hide that never
+ *  issues leaves the native page sitting over the overlay that asked for it
+ *  (Codeg `FREEZE_PAINT_TIMEOUT_MS`). */
+const FREEZE_PAINT_TIMEOUT_MS = 100;
+
+function bounded(work: Promise<unknown>): Promise<void> {
   return new Promise((resolve) => {
-    const image = new Image();
-    const finish = () => resolve();
-    const timer = window.setTimeout(finish, 80);
-    image.onload = () => {
+    const timer = window.setTimeout(resolve, FREEZE_PAINT_TIMEOUT_MS);
+    const done = () => {
       window.clearTimeout(timer);
-      if (typeof image.decode === 'function') {
-        void image.decode().then(finish, finish);
-        return;
-      }
-      finish();
+      resolve();
     };
-    image.onerror = () => {
-      window.clearTimeout(timer);
-      finish();
-    };
-    image.src = url;
+    work.then(done, done);
   });
+}
+
+async function decodeFreeze(url: string): Promise<void> {
+  if (typeof Image === 'undefined') return;
+  try {
+    const image = new Image();
+    image.src = url;
+    if (typeof image.decode === 'function') await bounded(image.decode());
+  } catch {
+    /* paint it cold */
+  }
 }
 
 function nextPaint(): Promise<void> {
   return new Promise((resolve) => {
-    requestAnimationFrame(() => requestAnimationFrame(() => resolve()));
+    if (typeof requestAnimationFrame !== 'function') {
+      resolve();
+      return;
+    }
+    const timer = window.setTimeout(resolve, FREEZE_PAINT_TIMEOUT_MS);
+    requestAnimationFrame(() =>
+      requestAnimationFrame(() => {
+        window.clearTimeout(timer);
+        resolve();
+      })
+    );
   });
 }
 
@@ -148,14 +219,7 @@ function provisionalTitle(url: string): string | null {
 }
 
 function faviconFor(url: string): string | null {
-  try {
-    const parsed = new URL(url);
-    if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:')
-      return null;
-    return `${parsed.origin}/favicon.ico`;
-  } catch {
-    return null;
-  }
+  return faviconForPage(url);
 }
 
 function sameSite(left: string, right: string): boolean {
@@ -174,9 +238,8 @@ export function tabStateClearsLoading(
 ): boolean {
   if (payload.loading !== false) return false;
   const url = payload.url?.trim();
-  if (url && (!pendingUrl || sameSite(url, pendingUrl))) return true;
-  const title = payload.title?.trim();
-  return Boolean(title && pendingUrl);
+  if (!url) return false;
+  return !pendingUrl || sameSite(url, pendingUrl);
 }
 
 type BrowserHostEvent = {
@@ -185,6 +248,7 @@ type BrowserHostEvent = {
   sourceTabId?: string;
   url?: string;
   title?: string | null;
+  favicon?: string | null;
   loading?: boolean;
   requestId?: string;
   payload?: {
@@ -195,6 +259,8 @@ type BrowserHostEvent = {
     selector?: string;
     html?: string;
     cancelled?: boolean;
+    rect?: { x: number; y: number; width: number; height: number };
+    viewport?: { width: number; height: number; dpr?: number };
   };
 };
 
@@ -232,16 +298,33 @@ function insertPickedElement(payload: BrowserHostEvent['payload']) {
   });
 }
 
+async function insertPickedElementWithImage(
+  payload: BrowserHostEvent['payload'],
+  capture: () => Promise<FreezePayload | null>
+) {
+  insertPickedElement(payload);
+  await nextPaint();
+  const file = await fileFromPickedFrame(await capture(), {
+    rect: payload?.rect,
+    viewport: payload?.viewport,
+    tag: payload?.tag,
+  });
+  if (file) requestComposerImageInsert(file);
+}
+
 export function HostBrowserPanel({
   pluginId,
   panelVisible,
   requestedUrl,
+  nativeTabId,
   panelApi,
 }: {
   pluginId: string;
   panelVisible: boolean;
   requestedUrl?: string | null;
+  nativeTabId?: string | null;
   panelApi?: {
+    id?: string;
     updateParameters: (params: Record<string, unknown>) => void;
     setTitle?: (title: string) => void;
     onDidDimensionsChange?: (cb: () => void) => { dispose: () => void };
@@ -249,6 +332,7 @@ export function HostBrowserPanel({
       dispose: () => void;
     };
     group?: {
+      element?: HTMLElement;
       api?: {
         onDidDimensionsChange?: (cb: () => void) => { dispose: () => void };
       };
@@ -256,16 +340,19 @@ export function HostBrowserPanel({
   };
 }) {
   const { t } = useTranslation('panels');
-  const panelActions = useOptionalPanelActionsContext();
   const overlay = useWorkspaceOverlay();
   const rootRef = useRef<HTMLDivElement | null>(null);
   const hostRef = useRef<HTMLDivElement | null>(null);
-  const zoomRef = useRef<HTMLButtonElement | null>(null);
   const moreRef = useRef<HTMLButtonElement | null>(null);
   const tabIdRef = useRef<string | null>(null);
   const openedRequestedUrl = useRef(false);
+  const projectKey = useLayoutStore((state) => state.currentProjectKey);
+  const projectKeyRef = useRef(projectKey);
+  projectKeyRef.current = projectKey;
+  const panelId = panelApi?.id ?? '';
   const occludedRef = useRef(false);
   const visibleRef = useRef(panelVisible);
+  const panelVisibleRef = useRef(panelVisible);
   const pickingRef = useRef(false);
   const pendingUrlRef = useRef<string | null>(null);
   const pendingEventsRef = useRef<BrowserHostEvent[]>([]);
@@ -278,14 +365,21 @@ export function HostBrowserPanel({
   const [tab, setTab] = useState<BrowserTab | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [picking, setPicking] = useState(false);
+  const [findOpen, setFindOpen] = useState(false);
+  const [findToken, setFindToken] = useState(0);
+  const [canGoBack, setCanGoBack] = useState(false);
   const [loading, setLoading] = useState(false);
   const [zoom, setZoom] = useState(DEFAULT_ZOOM);
+  const [device, setDevice] = useState<BrowserDevice>(DEFAULT_DEVICE);
   const [frozen, setFrozen] = useState<string | null>(null);
+  const [addressHistory, setAddressHistory] = useState<
+    BrowserAddressHistoryEntry[]
+  >(() => loadBrowserAddressHistory());
+  const [suggestOpen, setSuggestOpen] = useState(false);
+  const [suggestIndex, setSuggestIndex] = useState(0);
+  const addressDirtyRef = useRef(false);
+  const suggestions = suggestBrowserAddresses(address, addressHistory);
   const hideSeqRef = useRef(0);
-  const warmFreezeRef = useRef<{
-    at: number;
-    promise: Promise<FreezePayload | null>;
-  } | null>(null);
 
   const dispatch = useCallback(
     async (operation: string, input: Record<string, unknown> = {}) => {
@@ -298,6 +392,7 @@ export function HostBrowserPanel({
     [pluginId]
   );
   dispatchRef.current = dispatch;
+  panelVisibleRef.current = panelVisible;
   visibleRef.current = panelVisible;
 
   applyEventRef.current = (payload: BrowserHostEvent) => {
@@ -307,19 +402,84 @@ export function HostBrowserPanel({
         pickingRef.current = false;
         return;
       }
-      insertPickedElement(payload.payload);
+      if (!pickingRef.current) return;
+      pickingRef.current = false;
+      setPicking(false);
+      const tabId = tabIdRef.current;
+      void (async () => {
+        if (tabId) {
+          await dispatchRef.current('pick.cancel', { tabId });
+        }
+        await insertPickedElementWithImage(payload.payload, () =>
+          tabId
+            ? (dispatchRef.current('surface.freeze', {
+                tabId,
+              }) as Promise<FreezePayload | null>)
+            : Promise.resolve(null)
+        );
+      })();
       return;
     }
     if (payload.kind === 'tab.state') {
+      if (payload.loading === true) setLoading(true);
       if (tabStateClearsLoading(payload, pendingUrlRef.current)) {
         pendingUrlRef.current = null;
         setLoading(false);
         setError(null);
-        const icon = payload.url ? faviconFor(payload.url) : null;
-        if (icon) panelApi?.updateParameters({ faviconUrl: icon });
+      }
+    }
+    if (payload.kind === 'tab.state' || payload.kind === 'tab.chrome') {
+      if (payload.url) {
+        const icon = payload.favicon?.trim() || faviconFor(payload.url);
+        const hostTitle = provisionalTitle(payload.url);
+        const tabId = tabIdRef.current;
+        if (payload.favicon?.trim()) {
+          rememberCachedFavicon(payload.url, payload.favicon);
+        }
+        prefetchFavicon(icon);
+        panelApi?.updateParameters({
+          ...(icon ? { faviconUrl: icon } : {}),
+          requestedUrl: payload.url,
+          nativeTabId: tabId,
+        });
+        if (hostTitle) {
+          panelApi?.setTitle?.(hostTitle);
+        }
+        if (tabId && panelId) {
+          rememberBrowserSurface(
+            browserPanelSurfaceKey(projectKeyRef.current, panelId),
+            { tabId, url: payload.url }
+          );
+        }
+        if (
+          shouldApplyNavigatedAddress({
+            engineUrl: payload.url,
+            addressFocused: addressFocusedRef.current,
+            addressDirty: addressDirtyRef.current,
+          })
+        ) {
+          setAddress(payload.url);
+          addressDirtyRef.current = false;
+        }
+        if (payload.kind === 'tab.state' && payload.loading === false) {
+          setAddressHistory((current) => {
+            const next = recordBrowserAddressVisit(
+              {
+                url: payload.url || '',
+                title: payload.title,
+                favicon: icon,
+              },
+              current
+            );
+            saveBrowserAddressHistory(next);
+            return next;
+          });
+        }
       }
       const pageTitle = payload.title?.trim();
-      if (pageTitle) panelApi?.setTitle?.(pageTitle);
+      const titleIsStale =
+        Boolean(pendingUrlRef.current) && !payload.url?.trim();
+      if (pageTitle && !titleIsStale) panelApi?.setTitle?.(pageTitle);
     }
     setTab((current) => {
       if (!current || current.tabId !== payload.tabId) return current;
@@ -329,7 +489,6 @@ export function HostBrowserPanel({
         title: payload.title || current.title,
       };
     });
-    if (payload.url && !addressFocusedRef.current) setAddress(payload.url);
   };
 
   const syncBounds = useCallback(async () => {
@@ -372,25 +531,44 @@ export function HostBrowserPanel({
       const label = provisionalTitle(url);
       if (label) panelApi?.setTitle?.(label);
       const icon = faviconFor(url);
+      prefetchFavicon(icon);
       if (icon) panelApi?.updateParameters({ faviconUrl: icon });
       try {
         const bounds = await waitForSurfaceBounds();
         const created = (await dispatch('tab.create', {
           url,
+          grant: 'control',
           ...(bounds ? { bounds } : {}),
         })) as BrowserTab;
         tabIdRef.current = created.tabId;
+        setCanGoBack(false);
         setTab(created);
+        panelApi?.updateParameters({
+          requestedUrl: url,
+          nativeTabId: created.tabId,
+        });
+        if (panelId) {
+          rememberBrowserSurface(
+            browserPanelSurfaceKey(projectKeyRef.current, panelId),
+            { tabId: created.tabId, url }
+          );
+        }
+        setAddress(created.url);
+        addressDirtyRef.current = false;
         const queued = pendingEventsRef.current;
         pendingEventsRef.current = [];
         for (const event of queued) {
           if (event.tabId === created.tabId) applyEventRef.current(event);
         }
-        setAddress(created.url);
         setZoom(DEFAULT_ZOOM);
+        setDevice(DEFAULT_DEVICE);
         void dispatch('tab.zoom', {
           tabId: created.tabId,
           factor: DEFAULT_ZOOM,
+        });
+        void dispatch('tab.device', {
+          tabId: created.tabId,
+          device: DEFAULT_DEVICE,
         });
         await new Promise<void>((resolve) => {
           requestAnimationFrame(() => resolve());
@@ -401,16 +579,16 @@ export function HostBrowserPanel({
         setError(getInvokeErrorMessage(cause));
       }
     },
-    [dispatch, panelApi, syncBounds, waitForSurfaceBounds]
+    [dispatch, panelApi, panelId, syncBounds, waitForSurfaceBounds]
   );
 
   useLayoutEffect(() => {
-    let frame = 0;
-    let inFlight = false;
+    let scheduled = false;
+    let inFlight = 0;
     let queued = false;
     let pushed = '';
 
-    const flush = async () => {
+    const flush = () => {
       const tabId = tabIdRef.current;
       if (!tabId) return;
       const bounds = measureSurface(
@@ -420,29 +598,28 @@ export function HostBrowserPanel({
       );
       const signature = boundsKey(bounds);
       if (signature === pushed && !queued) return;
-      if (inFlight) {
+      if (inFlight >= 2) {
         queued = true;
         return;
       }
       pushed = signature;
       queued = false;
-      inFlight = true;
-      try {
-        await dispatchRef.current('surface.set', { tabId, bounds });
-      } finally {
-        inFlight = false;
+      inFlight += 1;
+      void dispatchRef.current('surface.set', { tabId, bounds }).finally(() => {
+        inFlight = Math.max(0, inFlight - 1);
         if (queued) {
           queued = false;
-          void flush();
+          flush();
         }
-      }
+      });
     };
 
     const schedule = () => {
-      if (frame) return;
-      frame = window.requestAnimationFrame(() => {
-        frame = 0;
-        void flush();
+      if (scheduled) return;
+      scheduled = true;
+      queueMicrotask(() => {
+        scheduled = false;
+        flush();
       });
     };
 
@@ -453,13 +630,15 @@ export function HostBrowserPanel({
     if (host) observer.observe(host);
     const parent = root?.parentElement;
     if (parent) observer.observe(parent);
+    const groupEl = panelApi?.group?.element;
+    if (groupEl) observer.observe(groupEl);
     window.addEventListener('resize', schedule);
     window.visualViewport?.addEventListener('resize', schedule);
     const disposePanel = panelApi?.onDidDimensionsChange?.(schedule);
     const disposeGroup =
       panelApi?.group?.api?.onDidDimensionsChange?.(schedule);
     const disposeVisibility = panelApi?.onDidVisibilityChange?.((event) => {
-      visibleRef.current = event.isVisible;
+      visibleRef.current = event.isVisible && panelVisibleRef.current;
       schedule();
     });
     const poll = window.setInterval(() => {
@@ -468,7 +647,7 @@ export function HostBrowserPanel({
     }, 500);
     schedule();
     return () => {
-      if (frame) window.cancelAnimationFrame(frame);
+      scheduled = false;
       observer.disconnect();
       window.removeEventListener('resize', schedule);
       window.visualViewport?.removeEventListener('resize', schedule);
@@ -479,7 +658,8 @@ export function HostBrowserPanel({
     };
   }, [error, panelApi, tab?.tabId]);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
+    panelVisibleRef.current = panelVisible;
     visibleRef.current = panelVisible;
     void syncBounds();
   }, [panelVisible, syncBounds]);
@@ -507,18 +687,17 @@ export function HostBrowserPanel({
         return;
       }
       void (async () => {
+        // Paint the still UNDER the live native view, then hide. Codeg's
+        // NativeSurfaceHost: the view covers the placeholder until the
+        // frame is on screen, so a hide never flashes blank. A capture
+        // that times out keeps the previous still if there is one.
         const tabId = tabIdRef.current;
         let frame: FreezePayload | null = null;
-        const warm = warmFreezeRef.current;
-        warmFreezeRef.current = null;
         if (tabId) {
           try {
-            frame =
-              warm && Date.now() - warm.at < 800
-                ? await warm.promise
-                : ((await dispatch('surface.freeze', {
-                    tabId,
-                  })) as FreezePayload);
+            frame = (await dispatch('surface.freeze', {
+              tabId,
+            })) as FreezePayload;
           } catch {
             frame = null;
           }
@@ -542,14 +721,15 @@ export function HostBrowserPanel({
     let cancelled = false;
     let unlisten: (() => void) | undefined;
     void backendListen<BrowserHostEvent>('plugin.browser', (payload) => {
-      if (payload.kind === 'tab.open' && payload.url) {
-        panelActions?.openPluginPanel({
-          title: t('browserPanel.title'),
-          pluginId,
-          contributionId: 'browser',
-          multiInstance: true,
-          instance: 'new',
-          requestedUrl: payload.url,
+      if (payload.kind === 'tab.open') {
+        const source = payload.sourceTabId;
+        if (source && tabIdRef.current && source !== tabIdRef.current) {
+          return;
+        }
+        requestBrowserTabOpen({
+          url: payload.url,
+          nativeTabId: payload.tabId,
+          sourceTabId: payload.sourceTabId,
         });
         return;
       }
@@ -557,7 +737,9 @@ export function HostBrowserPanel({
         pendingEventsRef.current.push(payload);
         return;
       }
-      if (payload.tabId !== tabIdRef.current) return;
+      const eventTabId =
+        payload.tabId || (payload as { tab_id?: string }).tab_id;
+      if (eventTabId && eventTabId !== tabIdRef.current) return;
       applyEventRef.current(payload);
     }).then((stop) => {
       if (cancelled) {
@@ -570,31 +752,120 @@ export function HostBrowserPanel({
       cancelled = true;
       unlisten?.();
     };
-  }, [dispatch, panelActions, panelApi, pluginId]);
+  }, []);
 
   useEffect(() => {
     return () => {
       const tabId = tabIdRef.current;
       if (!tabId) return;
+      const layoutState = useLayoutStore.getState();
+      const keep =
+        Boolean(panelId) &&
+        projectLayoutStillHasBrowserPanel(
+          layoutState,
+          projectKeyRef.current,
+          panelId
+        );
+      if (keep) {
+        void dispatch('surface.set', {
+          tabId,
+          bounds: hiddenBrowserBounds(),
+        });
+        window.setTimeout(() => {
+          const later = useLayoutStore.getState();
+          if (
+            projectLayoutStillHasBrowserPanel(
+              later,
+              projectKeyRef.current,
+              panelId
+            )
+          ) {
+            return;
+          }
+          forgetBrowserSurface(
+            browserPanelSurfaceKey(projectKeyRef.current, panelId)
+          );
+          void dispatch('tab.close', { tabId });
+        }, 50);
+        return;
+      }
+      if (panelId) {
+        forgetBrowserSurface(
+          browserPanelSurfaceKey(projectKeyRef.current, panelId)
+        );
+      }
       void dispatch('tab.close', { tabId });
     };
-  }, [dispatch]);
+  }, [dispatch, panelId]);
 
   useEffect(() => {
-    if (openedRequestedUrl.current || tabIdRef.current || !requestedUrl) return;
-    const completed = completeBrowserAddress(requestedUrl);
-    if (!completed) return;
+    if (openedRequestedUrl.current || tabIdRef.current) return;
+    const key = panelId ? browserPanelSurfaceKey(projectKey, panelId) : '';
+    const remembered = key ? recallBrowserSurface(key) : undefined;
+    const existingId = nativeTabId || remembered?.tabId || null;
+    const existingUrl =
+      completeBrowserAddress(requestedUrl || remembered?.url || '') ||
+      remembered?.url ||
+      null;
+    if (existingId) {
+      openedRequestedUrl.current = true;
+      tabIdRef.current = existingId;
+      setTab({
+        tabId: existingId,
+        url: existingUrl || 'about:blank',
+        title: existingUrl
+          ? provisionalTitle(existingUrl) || 'Browser'
+          : 'Browser',
+      });
+      if (existingUrl) setAddress(existingUrl);
+      void (async () => {
+        try {
+          const listed = (await dispatch('tab.list')) as {
+            tabs?: BrowserTab[];
+          };
+          const found = listed.tabs?.find((item) => item.tabId === existingId);
+          if (found) {
+            setTab(found);
+            if (found.url) setAddress(found.url);
+          }
+          const bounds = await waitForSurfaceBounds();
+          await dispatch('surface.set', { tabId: existingId, bounds });
+        } catch {
+          tabIdRef.current = null;
+          if (existingUrl) void openTab(existingUrl);
+        }
+      })();
+      return;
+    }
+    if (!existingUrl) return;
     openedRequestedUrl.current = true;
-    void openTab(completed);
-  }, [openTab, requestedUrl]);
+    void openTab(existingUrl);
+  }, [
+    dispatch,
+    nativeTabId,
+    openTab,
+    panelId,
+    projectKey,
+    requestedUrl,
+    waitForSurfaceBounds,
+  ]);
 
-  const navigate = () => {
-    const url = completeBrowserAddress(address);
+  const chooseSuggestion = (suggestion: BrowserAddressSuggestion) => {
+    setAddress(suggestion.url);
+    setSuggestOpen(false);
+    setSuggestIndex(0);
+    const url = completeBrowserAddress(suggestion.url);
     if (!url) {
       toast.error(t('browserPanel.badAddress'));
       return;
     }
+    goToUrl(url);
+  };
+
+  const goToUrl = (url: string) => {
+    setSuggestOpen(false);
     setError(null);
+    addressDirtyRef.current = false;
     setAddress(url);
     pendingUrlRef.current = url;
     setLoading(true);
@@ -602,6 +873,7 @@ export function HostBrowserPanel({
     const label = provisionalTitle(url);
     if (label) panelApi?.setTitle?.(label);
     const icon = faviconFor(url);
+    prefetchFavicon(icon);
     if (icon) panelApi?.updateParameters({ faviconUrl: icon });
     if (!tabIdRef.current) {
       void openTab(url);
@@ -611,6 +883,8 @@ export function HostBrowserPanel({
       async (next) => {
         setTab(next as BrowserTab);
         setAddress((next as BrowserTab).url);
+        setCanGoBack(true);
+        clearAgentActivity(tabIdRef.current || '');
         await syncBounds();
       },
       (cause: unknown) => {
@@ -618,6 +892,19 @@ export function HostBrowserPanel({
         setError(getInvokeErrorMessage(cause));
       }
     );
+  };
+
+  const navigate = () => {
+    const chosen =
+      suggestOpen && suggestions[suggestIndex]
+        ? suggestions[suggestIndex].url
+        : address;
+    const url = completeBrowserAddress(chosen);
+    if (!url) {
+      toast.error(t('browserPanel.badAddress'));
+      return;
+    }
+    goToUrl(url);
   };
 
   const runTab = (operation: string, input: Record<string, unknown> = {}) => {
@@ -671,7 +958,19 @@ export function HostBrowserPanel({
             setPicking(false);
             return;
           }
-          insertPickedElement(parsed.payload);
+          if (!pickingRef.current) return;
+          pickingRef.current = false;
+          setPicking(false);
+          void (async () => {
+            await dispatch('pick.cancel', { tabId });
+            await insertPickedElementWithImage(
+              parsed.payload,
+              () =>
+                dispatch('surface.freeze', {
+                  tabId,
+                }) as Promise<FreezePayload | null>
+            );
+          })();
         }
       });
     }, 80);
@@ -684,14 +983,38 @@ export function HostBrowserPanel({
         const chrome = (await dispatch('tab.chrome', { tabId })) as {
           favicon?: string;
           title?: string;
+          url?: string;
         };
+        const pageUrl = chrome.url?.trim();
+        if (
+          pageUrl &&
+          shouldApplyNavigatedAddress({
+            engineUrl: pageUrl,
+            addressFocused: addressFocusedRef.current,
+            addressDirty: addressDirtyRef.current,
+          })
+        ) {
+          setAddress(pageUrl);
+          addressDirtyRef.current = false;
+          const hostTitle = provisionalTitle(pageUrl);
+          if (hostTitle && !chrome.title?.trim())
+            panelApi?.setTitle?.(hostTitle);
+          panelApi?.updateParameters({
+            requestedUrl: pageUrl,
+            nativeTabId: tabId,
+            ...(chrome.favicon ? { faviconUrl: chrome.favicon } : {}),
+          });
+        }
         if (chrome.favicon) {
+          prefetchFavicon(chrome.favicon);
+          if (pageUrl) rememberCachedFavicon(pageUrl, chrome.favicon);
           panelApi?.updateParameters({ faviconUrl: chrome.favicon });
         }
         const pageTitle = chrome.title?.trim();
         if (pageTitle) panelApi?.setTitle?.(pageTitle);
+        return Boolean(pageTitle && chrome.favicon);
       } catch {
-        /* the page may not be ready to answer yet */
+        return false;
       }
     },
     [dispatch, panelApi]
@@ -699,63 +1022,58 @@ export function HostBrowserPanel({
 
   useEffect(() => {
     const tabId = tabIdRef.current;
-    if (!tabId || loading) return undefined;
-    void refreshChrome(tabId);
-    return undefined;
-  }, [loading, refreshChrome, tab?.tabId, tab?.url]);
-
-  useEffect(() => {
-    const tabId = tabIdRef.current;
-    if (!loading || !tabId) return undefined;
+    if (!tabId) return undefined;
     let stopped = false;
     let busy = false;
     let timer = 0;
-    const provisional = provisionalTitle(tab?.url || '');
     const pull = () => {
       if (stopped || busy) return;
       busy = true;
-      void dispatch('tab.title', { tabId })
-        .then((result) => {
-          if (stopped) return true;
-          const pageTitle = (result as { title?: string })?.title?.trim();
-          if (!pageTitle) return false;
-          panelApi?.setTitle?.(pageTitle);
-          return pageTitle !== provisional;
-        })
-        .catch(() => false)
-        .then((done) => {
-          busy = false;
-          if (done) {
-            stopped = true;
-            window.clearInterval(timer);
-          }
-        });
+      void refreshChrome(tabId).then((done) => {
+        if (stopped) return;
+        busy = false;
+        if (done) {
+          stopped = true;
+          window.clearInterval(timer);
+        }
+      });
     };
-    timer = window.setInterval(pull, 500);
     pull();
+    timer = window.setInterval(pull, 120);
     return () => {
       stopped = true;
       window.clearInterval(timer);
     };
-  }, [dispatch, loading, panelApi, tab?.tabId, tab?.url]);
+  }, [loading, refreshChrome, tab?.tabId, tab?.url]);
 
-  const warmFreeze = () => {
-    const tabId = tabIdRef.current;
-    if (!tabId || occludedRef.current) return;
-    const warm = warmFreezeRef.current;
-    if (warm && Date.now() - warm.at < 800) return;
-    warmFreezeRef.current = {
-      at: Date.now(),
-      promise: dispatch('surface.freeze', { tabId }).catch(
-        () => null
-      ) as Promise<FreezePayload | null>,
-    };
+  const revealSurface = () => {
+    hideSeqRef.current += 1;
+    occludedRef.current = false;
+    setFrozen(null);
+    void syncBounds();
   };
 
   const applyZoom = (factor: number) => {
     setZoom(factor);
     runTab('tab.zoom', { factor });
   };
+
+  const applyDevice = (next: BrowserDevice) => {
+    setDevice(next);
+    runTab('tab.device', { device: next });
+  };
+
+  const deviceLabel = (value: BrowserDevice) =>
+    t(
+      value === 'phone'
+        ? 'browserPanel.devicePhone'
+        : value === 'tablet'
+          ? 'browserPanel.deviceTablet'
+          : 'browserPanel.deviceDesktop'
+    );
+
+  const DeviceIcon =
+    device === 'phone' ? Smartphone : device === 'tablet' ? Tablet : Monitor;
 
   const currentUrl = tab?.url || address;
 
@@ -775,18 +1093,31 @@ export function HostBrowserPanel({
   return (
     <div
       ref={rootRef}
-      className="flex h-full min-h-0 w-full min-w-0 flex-col bg-transparent"
+      className={cn(
+        'flex h-full min-h-0 w-full min-w-0 flex-col',
+        CONNECTED_CHROME_BG
+      )}
+      onKeyDown={(event) => {
+        if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'f') {
+          event.preventDefault();
+          setFindOpen(true);
+          setFindToken((token) => token + 1);
+        }
+      }}
     >
       <div
         role="toolbar"
-        className="relative flex h-10 max-h-10 min-h-10 shrink-0 items-center gap-1 overflow-visible bg-[var(--dv-theme-surface,var(--surface-topbar))] px-1.5"
+        className={cn(
+          'relative flex h-10 max-h-10 min-h-10 shrink-0 items-center gap-1 overflow-visible px-1.5',
+          CONNECTED_CHROME_BG
+        )}
       >
         <button
           type="button"
           className={ICON_BTN}
           title={t('browserPanel.back')}
           aria-label={t('browserPanel.back')}
-          disabled={!tab}
+          disabled={!tab || !canGoBack}
           onClick={() => runTab('tab.back')}
         >
           <ArrowLeft className="h-4 w-4" />
@@ -811,10 +1142,12 @@ export function HostBrowserPanel({
           disabled={!tab}
           onClick={() => {
             if (loading) {
+              revealSurface();
               runTab('tab.stop');
               setLoading(false);
               return;
             }
+            revealSurface();
             runTab('tab.reload');
           }}
         >
@@ -824,94 +1157,193 @@ export function HostBrowserPanel({
             <RotateCw className="h-4 w-4" />
           )}
         </button>
-        <div
-          className={cn(
-            'mx-1 flex h-7 min-w-0 flex-1 items-center gap-0.5 rounded-full border border-border/60 bg-muted/50 px-0.5 backdrop-blur-sm',
-            'focus-within:border-ring/50 focus-within:ring-2 focus-within:ring-ring/20'
-          )}
-        >
-          <input
-            value={address}
-            onChange={(event) => setAddress(event.target.value)}
-            onFocus={(event) => {
-              addressFocusedRef.current = true;
-              event.currentTarget.select();
-            }}
-            onBlur={() => {
-              addressFocusedRef.current = false;
-            }}
-            onKeyDown={(event) => {
-              if (
-                !isBrowserAddressSubmitKey({
-                  key: event.key,
-                  code: event.code,
-                  shiftKey: event.shiftKey,
-                  altKey: event.altKey,
-                  metaKey: event.metaKey,
-                  ctrlKey: event.ctrlKey,
-                  isComposing: event.nativeEvent.isComposing,
-                  keyCode: event.nativeEvent.keyCode,
-                })
-              ) {
-                return;
-              }
-              event.preventDefault();
-              navigate();
-            }}
-            spellCheck={false}
-            autoComplete="off"
-            placeholder={t('browserPanel.addressPlaceholder')}
-            aria-label={t('browserPanel.address')}
-            className="h-full min-w-0 flex-1 bg-transparent px-1.5 text-xs text-foreground outline-none"
-          />
-          <button
-            type="button"
-            className={FIELD_BTN}
-            title={t('browserPanel.devtools')}
-            aria-label={t('browserPanel.devtools')}
-            disabled={!tab}
-            onClick={() => runTab('tab.devtools')}
-          >
-            <Bug className="h-3.5 w-3.5" />
-          </button>
-          <button
-            type="button"
+        <div className="relative mx-1 min-w-0 flex-1">
+          <div
             className={cn(
-              FIELD_BTN,
-              picking && 'text-[hsl(217,91%,60%)] hover:text-[hsl(217,91%,55%)]'
+              'flex h-7 min-w-0 items-center gap-0.5 rounded-full border border-border/60 bg-muted/50 px-0.5 backdrop-blur-sm',
+              'focus-within:border-ring/50 focus-within:ring-2 focus-within:ring-ring/20'
             )}
-            title={t('browserPanel.pick')}
-            aria-label={t('browserPanel.pick')}
-            aria-pressed={picking}
-            disabled={!tab}
-            onClick={togglePick}
           >
-            <MousePointerClick className="h-3.5 w-3.5" />
-          </button>
-        </div>
-        <DropdownMenu modal={false}>
-          <DropdownMenuTrigger asChild>
+            <input
+              value={address}
+              onChange={(event) => {
+                addressDirtyRef.current = true;
+                setAddress(event.target.value);
+                setSuggestIndex(0);
+                setSuggestOpen(true);
+              }}
+              onFocus={(event) => {
+                addressFocusedRef.current = true;
+                event.currentTarget.select();
+                setSuggestOpen(true);
+              }}
+              onBlur={() => {
+                addressFocusedRef.current = false;
+                addressDirtyRef.current = false;
+                window.setTimeout(() => setSuggestOpen(false), 120);
+              }}
+              onKeyDown={(event) => {
+                if (event.key === 'ArrowDown' && suggestions.length > 0) {
+                  event.preventDefault();
+                  setSuggestOpen(true);
+                  setSuggestIndex((index) => (index + 1) % suggestions.length);
+                  return;
+                }
+                if (event.key === 'ArrowUp' && suggestions.length > 0) {
+                  event.preventDefault();
+                  setSuggestOpen(true);
+                  setSuggestIndex(
+                    (index) =>
+                      (index - 1 + suggestions.length) % suggestions.length
+                  );
+                  return;
+                }
+                if (event.key === 'Escape') {
+                  setSuggestOpen(false);
+                  return;
+                }
+                if (
+                  !isBrowserAddressSubmitKey({
+                    key: event.key,
+                    code: event.code,
+                    shiftKey: event.shiftKey,
+                    altKey: event.altKey,
+                    metaKey: event.metaKey,
+                    ctrlKey: event.ctrlKey,
+                    isComposing: event.nativeEvent.isComposing,
+                    keyCode: event.nativeEvent.keyCode,
+                  })
+                ) {
+                  return;
+                }
+                event.preventDefault();
+                navigate();
+              }}
+              spellCheck={false}
+              autoComplete="off"
+              role="combobox"
+              aria-expanded={suggestOpen && suggestions.length > 0}
+              aria-controls="host-browser-address-suggestions"
+              placeholder={t('browserPanel.addressPlaceholder')}
+              aria-label={t('browserPanel.address')}
+              className="h-full min-w-0 flex-1 bg-transparent px-1.5 text-xs text-foreground outline-none"
+            />
+            <BrowserAgentActivityControl tabId={tab?.tabId ?? null} />
             <button
-              ref={zoomRef}
               type="button"
-              className="flex h-7 shrink-0 items-center justify-center gap-0.5 rounded-full px-1.5 font-mono text-xs text-muted-foreground transition-colors hover:bg-primary/8 hover:text-foreground disabled:pointer-events-none disabled:opacity-40"
-              aria-label={t('browserPanel.zoom')}
-              title={t('browserPanel.zoom')}
+              className={FIELD_BTN}
+              title={t('browserPanel.screenshot')}
+              aria-label={t('browserPanel.screenshot')}
               disabled={!tab}
-              onPointerDown={warmFreeze}
+              onClick={() => {
+                const tabId = tabIdRef.current;
+                if (!tabId) return;
+                void (dispatch('surface.freeze', { tabId }) as Promise<FreezePayload | null>)
+                  .then(async (frame) => {
+                    if (!frame?.mime || !frame.data) return;
+                    const blob = await fetch(
+                      `data:${frame.mime};base64,${frame.data}`
+                    ).then((response) => response.blob());
+                    requestComposerImageInsert(
+                      new File([blob], 'page.jpg', { type: frame.mime })
+                    );
+                  });
+              }}
             >
-              <Scaling className="h-3.5 w-3.5" />
-              {Math.round(zoom * 100)}%
+              <Camera className="h-3.5 w-3.5" />
             </button>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="end" className="z-[20000] min-w-[6.5rem]">
-            {ZOOM_PRESETS.map((factor) => (
-              <DropdownMenuItem key={factor} onSelect={() => applyZoom(factor)}>
-                {Math.round(factor * 100)}%
-              </DropdownMenuItem>
-            ))}
-          </DropdownMenuContent>
-        </DropdownMenu>
+            <button
+              type="button"
+              className={FIELD_BTN}
+              title={t('browserPanel.devtools')}
+              aria-label={t('browserPanel.devtools')}
+              disabled={!tab}
+              onClick={() => runTab('tab.devtools')}
+            >
+              <Bug className="h-3.5 w-3.5" />
+            </button>
+            <button
+              type="button"
+              className={cn(
+                FIELD_BTN,
+                picking &&
+                  'text-[hsl(217,91%,60%)] hover:text-[hsl(217,91%,55%)]'
+              )}
+              title={t('browserPanel.pick')}
+              aria-label={t('browserPanel.pick')}
+              aria-pressed={picking}
+              disabled={!tab}
+              onClick={togglePick}
+            >
+              <MousePointerClick className="h-3.5 w-3.5" />
+            </button>
+          </div>
+          {suggestOpen && suggestions.length > 0 ? (
+            <div className="absolute inset-x-0 top-[calc(100%+6px)] z-[20000] overflow-hidden rounded-[14px] border border-border/60 bg-[var(--surface-dialog)] py-1 shadow-[0_18px_42px_hsl(220_36%_8%_/_0.2)]">
+              <NativeSurfaceOcclusionHold />
+              <ul
+                id="host-browser-address-suggestions"
+                role="listbox"
+                aria-label={t('browserPanel.addressSuggestions')}
+              >
+                {suggestions.map((suggestion, index) => (
+                  <li
+                    key={`${suggestion.kind}:${suggestion.url}`}
+                    role="presentation"
+                  >
+                    <button
+                      type="button"
+                      role="option"
+                      aria-selected={index === suggestIndex}
+                      className={cn(
+                        'flex w-full items-center gap-2 px-3 py-1.5 text-left',
+                        index === suggestIndex
+                          ? 'bg-[var(--surface-control-hover)]'
+                          : 'hover:bg-[var(--surface-control-hover)]'
+                      )}
+                      onMouseDown={(event) => event.preventDefault()}
+                      onMouseEnter={() => setSuggestIndex(index)}
+                      onClick={() => chooseSuggestion(suggestion)}
+                    >
+                      {suggestion.favicon ? (
+                        <img
+                          src={suggestion.favicon}
+                          alt=""
+                          className="h-4 w-4 shrink-0 rounded-[3px] object-contain"
+                          onError={(event) => {
+                            event.currentTarget.style.visibility = 'hidden';
+                          }}
+                        />
+                      ) : (
+                        <span className="h-4 w-4 shrink-0 rounded-[3px] bg-muted" />
+                      )}
+                      <span className="min-w-0 flex-1 truncate text-xs font-medium text-foreground">
+                        {suggestion.title}
+                      </span>
+                      <span className="max-w-[42%] shrink-0 truncate text-[0.625rem] leading-[0.875rem] text-muted-foreground">
+                        {suggestion.url
+                          .replace(/^https?:\/\//, '')
+                          .replace(/\/$/, '')}
+                      </span>
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          ) : null}
+        </div>
+        <BrowserAgentShareControl
+          origin={tab?.origin || tab?.url}
+          grant={tab?.grant}
+          disabled={!tab}
+          onShare={(level) => {
+            const tabId = tabIdRef.current;
+            if (!tabId) return;
+            void dispatch('grant.set', { tabId, level }).then((next) => {
+              setTab(next as BrowserTab);
+            });
+          }}
+        />
         <DropdownMenu modal={false}>
           <DropdownMenuTrigger asChild>
             <button
@@ -921,12 +1353,64 @@ export function HostBrowserPanel({
               title={t('browserPanel.more')}
               aria-label={t('browserPanel.more')}
               disabled={!tab}
-              onPointerDown={warmFreeze}
             >
               <MoreVertical className="h-3.5 w-3.5" />
             </button>
           </DropdownMenuTrigger>
-          <DropdownMenuContent align="end" className="z-[20000] min-w-44">
+          <DropdownMenuContent
+            align="end"
+            side="top"
+            className="z-[20000] min-w-44"
+          >
+            <DropdownMenuSub>
+              <DropdownMenuSubTrigger>
+                <Scaling className="h-3.5 w-3.5" />
+                {t('browserPanel.zoom')}
+              </DropdownMenuSubTrigger>
+              <DropdownMenuSubContent
+                side="left"
+                className="z-[20000] min-w-[7rem]"
+              >
+                {ZOOM_PRESETS.map((factor) => (
+                  <DropdownMenuItem
+                    key={factor}
+                    onSelect={() => applyZoom(factor)}
+                  >
+                    {zoom === factor ? (
+                      <Check className="h-3.5 w-3.5" />
+                    ) : (
+                      <span className="h-3.5 w-3.5" />
+                    )}
+                    {Math.round(factor * 100)}%
+                  </DropdownMenuItem>
+                ))}
+              </DropdownMenuSubContent>
+            </DropdownMenuSub>
+            <DropdownMenuSub>
+              <DropdownMenuSubTrigger>
+                <DeviceIcon className="h-3.5 w-3.5" />
+                {t('browserPanel.device')}
+              </DropdownMenuSubTrigger>
+              <DropdownMenuSubContent
+                side="left"
+                className="z-[20000] min-w-[8rem]"
+              >
+                {DEVICE_PRESETS.map((preset) => (
+                  <DropdownMenuItem
+                    key={preset}
+                    onSelect={() => applyDevice(preset)}
+                  >
+                    {device === preset ? (
+                      <Check className="h-3.5 w-3.5" />
+                    ) : (
+                      <span className="h-3.5 w-3.5" />
+                    )}
+                    {deviceLabel(preset)}
+                  </DropdownMenuItem>
+                ))}
+              </DropdownMenuSubContent>
+            </DropdownMenuSub>
+            <DropdownMenuSeparator />
             <DropdownMenuItem
               onSelect={() => {
                 void navigator.clipboard.writeText(currentUrl).then(() => {
@@ -960,8 +1444,30 @@ export function HostBrowserPanel({
           </div>
         ) : null}
       </div>
+      <BrowserFindBar
+        open={findOpen}
+        focusToken={findToken}
+        onClose={() => setFindOpen(false)}
+        onFind={async (query, forward) => {
+          const tabId = tabIdRef.current;
+          if (!tabId) return true;
+          const result = (await dispatch('tab.find', {
+            tabId,
+            query,
+            forward,
+          })) as { found?: boolean };
+          return result.found !== false;
+        }}
+      />
+      <BrowserNoticeBar tabId={tab?.tabId ?? null} />
+      <BrowserDownloadBar tabId={tab?.tabId ?? null} />
       {error && !tab ? (
-        <div className="flex min-h-0 flex-1 flex-col items-center justify-center gap-3 bg-[var(--dv-theme-surface,var(--surface-topbar))] px-6 text-center">
+        <div
+          className={cn(
+            'flex min-h-0 flex-1 flex-col items-center justify-center gap-3 px-6 text-center',
+            CONNECTED_CHROME_BG
+          )}
+        >
           <p className="text-sm font-medium">{error}</p>
           <p className="max-w-md break-all text-xs text-muted-foreground">
             {currentUrl}
@@ -969,7 +1475,10 @@ export function HostBrowserPanel({
           <button
             type="button"
             className="inline-flex h-7 items-center gap-1.5 rounded-md border border-border px-2.5 text-xs hover:bg-primary/8"
-            onClick={() => runTab('tab.reload')}
+            onClick={() => {
+              revealSurface();
+              runTab('tab.reload');
+            }}
           >
             <RotateCw className="h-3.5 w-3.5" />
             {t('browserPanel.reload')}
@@ -978,7 +1487,13 @@ export function HostBrowserPanel({
       ) : (
         <div
           ref={hostRef}
-          className="relative min-h-0 flex-1 bg-[var(--dv-theme-surface,var(--surface-topbar))]"
+          className={cn(
+            'relative min-h-0 flex-1',
+            // Keep the native child inside the tab: dock sashes sit on the
+            // panel edge (1px line, 4px handle) and a HWND paints over them.
+            'mx-[2px] mb-[2px]',
+            CONNECTED_CHROME_BG
+          )}
           data-testid="host-browser-surface"
         >
           {frozen ? (
@@ -986,7 +1501,7 @@ export function HostBrowserPanel({
               src={frozen}
               alt=""
               draggable={false}
-              className="pointer-events-none absolute inset-0 h-full w-full select-none object-fill"
+              className="pointer-events-none absolute inset-0 h-full w-full select-none object-cover object-left-top"
             />
           ) : null}
         </div>

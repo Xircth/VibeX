@@ -136,7 +136,7 @@ Worker 走协议 1.1（initialize 再 activate）。App 走协议 1.0。
 | kind | 作用 |
 | --- | --- |
 | `content.skill` | 把 `contents/skills/...` 投影给兼容 Agent |
-| `content.mcp` | 托管 MCP，Host 按 session 拉起 |
+| `content.mcp` | 托管 MCP。声明后由 Host MCP 管理器登记、列出工具，并投影给兼容 Agent |
 | `content.hook` | **尚未实现。** 清单能通过校验，但宿主没有 Hook 运行时，声明了也不会触发，inspect 会给出警告 |
 | `workflow.binding` | 把 `contents/workflows/` 暴露给 Composer / Automation |
 | `file.opener` | 按扩展名、媒体类型或文件名后缀打开。只读预览写 `previewProvider`，可编辑页写 `editorSurface` |
@@ -157,6 +157,25 @@ Worker 走协议 1.1（initialize 再 activate）。App 走协议 1.0。
 | `app.composer.action` | Composer `@` 面板的动作 |
 | `app.settings.page` | **预览。** 设置侧栏整页；稳定面认定在 Batch 3 |
 | `app.rail.section` | 右侧栏图标。`opens` 指向一个 `app.panel`（`instance`: `focus` 或 `new`） |
+
+### 插件 MCP（`content.mcp`）
+
+`content.mcp` 是插件 MCP 的 Host 接入点。Host MCP 管理器只认这项 integration 指向的资源 JSON：登记身份、在状态栏列出工具、把可启动的 stdio/HTTP 描述投影给 Agent。插件不要自己改 Agent 的 `config.toml` / `mcp.json`。
+
+声明一份资源，例如 `contents/mcps/hello.json`，并在 `integrations` 里写 `kind: content.mcp`、`resource` 指向它。资源必须是下面四种之一：
+
+| 形状 | 何时用 | Host 怎么接 |
+| --- | --- | --- |
+| `managedRuntime.kind = hostFamilyBinary` | 官方产品 MCP（session / delegation / workflow） | Host 填工具目录，启动家族二进制 |
+| `managedRuntime.kind = workerHttp` | Worker 暴露 loopback HTTP MCP | 启用时问 Worker 要 `{url,headers}` |
+| `managedRuntime.entrypoint` | 包内 STDIO 脚本 | Host 解析 Node、绝对入口、`cwd`、host.call 环境 |
+| `command` + `args` | 已有静态 STDIO | 仍接收；Host 补绝对路径和 `cwd` |
+
+除 `hostFamilyBinary` 外，资源必须带 `tools`：字符串或 `{ "name", "group" }`。状态栏在 Agent 连接前就用这份目录。缺 `tools` 时 CLI 给警告，包仍能安装，但状态栏没有工具名。
+
+STDIO 服务必须回答 MCP `initialize`（协议以 `2026-07-28` 为主，兼容 `2024-11-05` / `2025-03-26` / `2025-11-25`）、`notifications/initialized`、`tools/list`、`tools/call`。行分隔 JSON-RPC 与 `Content-Length` 帧都要能读。`tools/list` 的名字与资源里的 `tools` 一致。
+
+启用插件后，Host 把 MCP 写进兼容 Agent 的原生配置。新开会话才能调用。`vibex-plugin init --template mcp` 会写出带 `tools` 的资源和能完成握手的 `runtime/mcp.mjs`。
 
 `depends/` 里的 Runtime 要在 manifest 的 `dependencies` 里显式引用。目录在不等于已经有执行权。锁的身份是 `id + version + target + digest`。
 

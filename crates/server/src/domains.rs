@@ -1130,11 +1130,12 @@ impl ServerApplicationDomains {
                 }))
                 .await;
         }
-        let roots = utils::assets::materialize_builtin_plugins(&self.runtime_root).unwrap_or_default();
+        let roots =
+            utils::assets::materialize_builtin_plugins(&self.runtime_root).unwrap_or_default();
         let slug = plugins::marketplace_plugin_slug(&args.owner, &args.plugin_name);
-        let local = roots.into_iter().chain(
-            utils::assets::checked_out_official_plugin_dir(&slug).into_iter(),
-        );
+        let local = roots
+            .into_iter()
+            .chain(utils::assets::checked_out_official_plugin_dir(&slug).into_iter());
         if let Some(root) = local.into_iter().find(|root| {
             plugins::PluginPackage::inspect(root, plugins::PluginSourceKind::Marketplace)
                 .ok()
@@ -1162,7 +1163,8 @@ impl ServerApplicationDomains {
                 .map_err(plugin_error)?;
             return Ok(plugin_control_item(&imported.plugin));
         }
-        let mut last_error = ApplicationError::not_found(format!("{}/{}", args.owner, args.plugin_name));
+        let mut last_error =
+            ApplicationError::not_found(format!("{}/{}", args.owner, args.plugin_name));
         for url in plugins::official_github_archive_urls(&args.owner, &args.plugin_name) {
             match download_marketplace_archive(&url).await {
                 Ok(archive) => {
@@ -1352,12 +1354,7 @@ impl ServerApplicationDomains {
             .await
             .map_err(app_surface_error)?;
         if method == "runtime.restart" {
-            if let Ok(Some(plugin)) = self
-                .plugin_control_plane()
-                .await?
-                .plugin(&plugin_id)
-                .await
-            {
+            if let Ok(Some(plugin)) = self.plugin_control_plane().await?.plugin(&plugin_id).await {
                 let _ = self.apply_default_plugin_mcp_projections(&plugin).await;
             }
         }
@@ -1394,12 +1391,7 @@ impl ServerApplicationDomains {
         };
         let value = result.map_err(|error| ApplicationError::internal(error.to_string()))?;
         if handler == "runtime.restart" {
-            if let Ok(Some(plugin)) = self
-                .plugin_control_plane()
-                .await?
-                .plugin(plugin_id)
-                .await
-            {
+            if let Ok(Some(plugin)) = self.plugin_control_plane().await?.plugin(plugin_id).await {
                 let _ = self.apply_default_plugin_mcp_projections(&plugin).await;
             }
         }

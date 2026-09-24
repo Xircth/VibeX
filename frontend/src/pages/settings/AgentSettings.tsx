@@ -1188,6 +1188,10 @@ export function AgentSettings() {
                 agentId={selectedAgent.agent_id}
                 disabled={savingConfig || agentLocked}
                 embedded
+                signedIn={
+                  selectedAgent.authentication === 'account' ||
+                  selectedAgent.authentication === 'multiple_unknown'
+                }
                 onDirtyChange={setModelProviderDirty}
                 onChanged={notifyAuthenticationChanged}
               />

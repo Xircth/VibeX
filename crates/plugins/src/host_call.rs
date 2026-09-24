@@ -141,6 +141,67 @@ impl PluginHostCall {
     }
 }
 
+/// Package-advertisement keys used by the Host status bar. They must not be
+/// written into Agent native MCP files: Grok treats unknown tables such as
+/// `tools` as spawn config and the handshake dies on initialize.
+pub fn strip_mcp_advertisement_fields(spec: &mut Value) {
+    let Some(object) = spec.as_object_mut() else {
+        return;
+    };
+    for key in ["tools", "name", "transport", "managedRuntime"] {
+        object.remove(key);
+    }
+}
+
+/// Point relative stdio args at `package_root` and set `cwd` so `node script.mjs`
+/// does not depend on the Agent's working directory.
+/// Paths written into Agent MCP spawn configs. Windows `canonicalize` yields
+/// `\\?\C:\...`; Node then treats the script as `C:` and exits with EISDIR.
+pub fn spawnable_fs_path(path: &Path) -> String {
+    utils::path::normalize_windows_extended_path_prefix(path)
+        .to_string_lossy()
+        .into_owned()
+}
+
+/// Strip advertisement metadata and resolve package-relative stdio paths so an
+/// admitted plugin MCP can be written into Agent native files.
+pub fn prepare_plugin_mcp_projection(spec: &mut Value, package_root: &Path) {
+    strip_mcp_advertisement_fields(spec);
+    bind_packaged_stdio_paths(spec, package_root);
+}
+
+pub fn bind_packaged_stdio_paths(spec: &mut Value, package_root: &Path) {
+    let Some(object) = spec.as_object_mut() else {
+        return;
+    };
+    if object.get("type").and_then(Value::as_str).is_none() {
+        object.insert("type".to_owned(), json!("stdio"));
+    }
+    if let Some(args) = object.get_mut("args").and_then(Value::as_array_mut) {
+        if let Some(Value::String(first)) = args.first_mut() {
+            let path = Path::new(first.as_str());
+            if !path.is_absolute() {
+                let joined = package_root.join(path);
+                if joined.is_file() {
+                    let resolved = joined.canonicalize().unwrap_or(joined);
+                    *first = spawnable_fs_path(&resolved);
+                }
+            }
+        }
+    }
+    if object
+        .get("cwd")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .is_none_or(str::is_empty)
+    {
+        let cwd = package_root
+            .canonicalize()
+            .unwrap_or_else(|_| package_root.to_path_buf());
+        object.insert("cwd".to_owned(), json!(spawnable_fs_path(&cwd)));
+    }
+}
+
 pub fn attach_host_call_env(spec: &mut Value, ctx: &PluginHostCallContext, cwd: Option<&Path>) {
     let Some(object) = spec.as_object_mut() else {
         return;
@@ -154,7 +215,7 @@ pub fn attach_host_call_env(spec: &mut Value, ctx: &PluginHostCallContext, cwd: 
         map.insert(HOST_CALL_PLUGIN_ID_ENV.to_owned(), json!(ctx.plugin_id));
     }
     if let Some(cwd) = cwd {
-        object.insert("cwd".to_owned(), json!(cwd.to_string_lossy().into_owned()));
+        object.insert("cwd".to_owned(), json!(spawnable_fs_path(cwd)));
     }
 }
 
@@ -288,6 +349,83 @@ mod tests {
         assert_eq!(spec["cwd"], "/plugins/example.tools");
         let encoded = spec.to_string();
         assert!(!encoded.contains("vibex.browser"));
+    }
+
+    #[test]
+    fn advertisement_fields_are_stripped_from_projected_stdio_specs() {
+        let mut spec = json!({
+            "type": "stdio",
+            "command": "node",
+            "args": ["runtime/mcp-server.mjs"],
+            "name": "vibex-browser",
+            "transport": "stdio",
+            "tools": [{ "name": "browser_list_tabs", "group": "browser" }],
+            "managedRuntime": { "entrypoint": "runtime/mcp-server.mjs" }
+        });
+        strip_mcp_advertisement_fields(&mut spec);
+        assert_eq!(spec["command"], "node");
+        assert!(spec.get("tools").is_none());
+        assert!(spec.get("name").is_none());
+        assert!(spec.get("transport").is_none());
+        assert!(spec.get("managedRuntime").is_none());
+    }
+
+    #[test]
+    fn projection_prep_strips_advertisement_and_binds_paths() {
+        let root = tempfile::tempdir().expect("package");
+        let script = root.path().join("runtime");
+        std::fs::create_dir_all(&script).expect("runtime dir");
+        let entry = script.join("mcp-server.mjs");
+        std::fs::write(&entry, "// mcp\n").expect("script");
+        let mut spec = json!({
+            "command": "node",
+            "args": ["runtime/mcp-server.mjs"],
+            "tools": [{ "name": "hello" }],
+            "name": "hello",
+            "transport": "stdio"
+        });
+        prepare_plugin_mcp_projection(&mut spec, root.path());
+        assert!(spec.get("tools").is_none());
+        assert!(spec.get("name").is_none());
+        assert_eq!(
+            spec["args"][0].as_str().expect("arg"),
+            spawnable_fs_path(&entry.canonicalize().expect("script"))
+        );
+    }
+
+    #[test]
+    fn spawnable_paths_drop_windows_verbatim_prefix() {
+        assert_eq!(
+            spawnable_fs_path(Path::new(r"\\?\C:\Users\dev\runtime\mcp-server.mjs")),
+            r"C:\Users\dev\runtime\mcp-server.mjs"
+        );
+        assert_eq!(
+            spawnable_fs_path(Path::new(r"C:\Users\dev\runtime\mcp-server.mjs")),
+            r"C:\Users\dev\runtime\mcp-server.mjs"
+        );
+    }
+
+    #[test]
+    fn packaged_stdio_paths_resolve_the_entrypoint_against_the_package() {
+        let root = tempfile::tempdir().expect("package");
+        let script = root.path().join("runtime");
+        std::fs::create_dir_all(&script).expect("runtime dir");
+        let entry = script.join("mcp-server.mjs");
+        std::fs::write(&entry, "// mcp\n").expect("script");
+        let mut spec = json!({
+            "command": "node",
+            "args": ["runtime/mcp-server.mjs"]
+        });
+        bind_packaged_stdio_paths(&mut spec, root.path());
+        assert_eq!(spec["type"], "stdio");
+        assert_eq!(
+            spec["args"][0].as_str().expect("arg"),
+            spawnable_fs_path(&entry.canonicalize().expect("script"))
+        );
+        assert_eq!(
+            spec["cwd"].as_str().expect("cwd"),
+            spawnable_fs_path(&root.path().canonicalize().expect("cwd"))
+        );
     }
 
     async fn post_host_call(url: &str, token: &str, body: &str) -> (u16, Value) {

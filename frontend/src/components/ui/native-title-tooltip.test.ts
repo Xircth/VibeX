@@ -72,5 +72,12 @@ describe('native title tooltip helpers', () => {
     );
     expect(above.top).toBe(246);
     expect(above.left).toBe(8);
+
+    const toolbar = positionHoverTooltip(
+      { top: 120, left: 200, width: 28, height: 28 },
+      { width: 80, height: 24 },
+      { width: 800, height: 600 }
+    );
+    expect(toolbar.top).toBe(90);
   });
 });

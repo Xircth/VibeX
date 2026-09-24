@@ -137,11 +137,15 @@ export function shouldActivateConversationSlot({
   if (activeSlotId === slotId) {
     return true;
   }
-  if (!isConversationSlotVisible(target)) {
-    return false;
-  }
+  // A new placement record has no active slot yet. Attach immediately so the
+  // conversation is not left in a detached container — switching the execution
+  // area to a newly created session creates a fresh key, and a visibility
+  // check here can fail while the create overlay is still covering the slot.
   if (!activeSlotId) {
     return true;
+  }
+  if (!isConversationSlotVisible(target)) {
+    return false;
   }
   if (activeTarget && !isConversationSlotVisible(activeTarget)) {
     return true;
@@ -263,6 +267,14 @@ export function KanbanSessionConversationPlacementProvider({
         if (currentRecord.slots.size > 0) {
           bumpVersion();
           return;
+        }
+
+        // Detach immediately so a session switch in the same execution slot
+        // does not leave the previous conversation covering the new one.
+        // Keep the record briefly so a same-key slot (canvas / monitor) can
+        // still adopt the tree.
+        if (currentRecord.container.parentElement) {
+          currentRecord.container.remove();
         }
 
         const timer = setTimeout(() => {

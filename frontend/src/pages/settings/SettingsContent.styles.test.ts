@@ -258,6 +258,24 @@ describe('settings page alignment', () => {
     expect(list.get('border-radius')).toBe('var(--radius)');
   });
 
+  it('nests OpenCode catalog and form flush inside the standard provider form', () => {
+    const nested = declarationsMatching(
+      '.agent-model-provider-form .agent-provider-catalog'
+    );
+    expect(nested.get('margin')).toBe('0 0 16px');
+    expect(nested.get('padding-top')).toBe('0');
+    expect(nested.get('border-top')).toBe('0');
+  });
+
+  it('keeps the OpenCode catalog search icon out of the typed text', () => {
+    const field = declarationsFor(
+      '.settings-page .opencode-provider-catalog-search input'
+    );
+    expect(field.get('padding')).toBe('0 12px 0 38px');
+    expect(field.get('appearance')).toBe('none');
+    expect(field.get('-webkit-appearance')).toBe('none');
+  });
+
   it('paints the plugin catalog list as a white settings surface', () => {
     const list = declarationsFor('.settings-page .product-plugin-list');
     const surface = declarationsFor('.settings-surface');

@@ -464,4 +464,21 @@ describe('FileTreePanel lazy directory loading', () => {
     });
     expect(screen.queryByText('加载失败，点击重试')).not.toBeInTheDocument();
   });
+
+  it('does not reserve chevron space beside the root label', () => {
+    renderTree(
+      <FileTreePanel
+        workspacePath="/repo"
+        files={[]}
+        directories={[]}
+        isLoading={false}
+      />
+    );
+
+    const root = document.querySelector('.file-tree-row.is-root');
+    expect(root).toBeTruthy();
+    expect(root?.querySelector('.file-tree-spacer')).toBeNull();
+    expect(root?.querySelector('.file-tree-chevron')).toBeNull();
+    expect(root).toHaveTextContent('repo');
+  });
 });

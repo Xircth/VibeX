@@ -454,7 +454,7 @@ pub fn advertised_mcp_tools(product: &str, features: u8) -> Vec<PluginMcpToolSta
     }
 }
 
-fn advertised_tools_from_spec(spec: &Value) -> Vec<PluginMcpToolStatus> {
+pub(crate) fn advertised_tools_from_spec(spec: &Value) -> Vec<PluginMcpToolStatus> {
     let Some(tools) = spec.get("tools").and_then(Value::as_array) else {
         return Vec::new();
     };
@@ -546,33 +546,20 @@ fn plugin_mcp_row(
     let mut servers = Vec::new();
     let mut needs_binary: Option<String> = None;
     for (id, spec) in object {
-        let product = host_family_product(spec).map(str::to_owned);
-        if let Some(product) = product.as_deref() {
+        let admitted = crate::plugin_mcp::admit_plugin_mcp(plugin.id(), id, spec, &config);
+        if admitted.kind == crate::plugin_mcp::PluginMcpKind::HostFamily {
             let binary_id = spec
                 .get("managedRuntime")
                 .and_then(|value| value.get("binaryId"))
                 .and_then(Value::as_str)
                 .unwrap_or("vibex-mcp");
             needs_binary = Some(binary_id.to_owned());
-            let features = if product == "session" {
-                session_features_from_config(&config)
-            } else {
-                SESSION_FEAT_ALL
-            };
-            servers.push(PluginMcpServerStatus {
-                id: official_product_mcp_name(spec)
-                    .unwrap_or(id.as_str())
-                    .to_owned(),
-                product: Some(product.to_owned()),
-                tools: advertised_mcp_tools(product, features),
-            });
-        } else {
-            servers.push(PluginMcpServerStatus {
-                id: projected_mcp_server_id(plugin.id(), id, spec),
-                product: None,
-                tools: advertised_tools_from_spec(spec),
-            });
         }
+        servers.push(PluginMcpServerStatus {
+            id: admitted.server_id,
+            product: admitted.product,
+            tools: admitted.tools,
+        });
     }
     servers.sort_by(|left, right| left.id.cmp(&right.id));
     let enabled = plugin.activation == PluginActivation::Enabled;
@@ -598,7 +585,7 @@ fn plugin_mcp_row(
     })
 }
 
-fn live_plugin_mcp(plugin: &InstalledPlugin) -> Value {
+pub(crate) fn live_plugin_mcp(plugin: &InstalledPlugin) -> Value {
     crate::PluginPackage::inspect(&plugin.source.path, plugin.source.kind)
         .ok()
         .map(|package| package.mcp)
@@ -606,7 +593,7 @@ fn live_plugin_mcp(plugin: &InstalledPlugin) -> Value {
         .unwrap_or_else(|| plugin.mcp.clone())
 }
 
-fn live_plugin_config(plugin: &InstalledPlugin) -> Value {
+pub(crate) fn live_plugin_config(plugin: &InstalledPlugin) -> Value {
     std::fs::read_to_string(plugin.source.path.join("config.json"))
         .ok()
         .and_then(|text| serde_json::from_str(&text).ok())
@@ -945,6 +932,35 @@ mod tests {
             .collect::<Vec<_>>();
         assert!(
             names.contains(&"list_apps") && names.contains(&"execute_action"),
+            "{names:?}"
+        );
+    }
+
+    #[test]
+    fn browser_package_status_lists_tools() {
+        let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../assets/plugins/browser");
+        let package = crate::PluginPackage::inspect(&root, crate::PluginSourceKind::Builtin)
+            .expect("inspect Browser");
+        assert!(
+            package.mcp.to_string().contains("browser_list_tabs"),
+            "inspected MCP must keep declared tools: {}",
+            package.mcp
+        );
+        let plugin = InstalledPlugin {
+            package,
+            activation: PluginActivation::Enabled,
+            package_digest: "sha256:test".into(),
+        };
+        let report = plugin_mcp_status_report(std::slice::from_ref(&plugin), |_| true);
+        let names = report.plugins[0]
+            .servers
+            .iter()
+            .flat_map(|server| server.tools.iter().map(|tool| tool.name.as_str()))
+            .collect::<Vec<_>>();
+        assert!(
+            names.contains(&"browser_list_tabs")
+                && names.contains(&"browser_snapshot")
+                && names.contains(&"browser_eval"),
             "{names:?}"
         );
     }

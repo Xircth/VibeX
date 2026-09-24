@@ -54,7 +54,8 @@ pub struct NativeCodexState {
     pub base_url: Option<String>,
     /// 顶层 `model` 键，或外部 catalog 的默认 / 首个 slug。
     pub model: Option<String>,
-    /// `auth.json` 的 `OPENAI_API_KEY` 或当前 Provider 表内的 `api_key`。
+    /// `auth.json` 的 `OPENAI_API_KEY`，或当前 Provider 表内的 `api_key` /
+    /// `experimental_bearer_token`。
     pub credential_present: bool,
     /// `auth.json` 中的 `OPENAI_API_KEY` 原文，纳入 VibeX 预设时复用。
     pub auth_api_key: String,
@@ -75,6 +76,25 @@ struct NativePiState {
     providers: Vec<NativePiProvider>,
     active_provider: Option<String>,
 }
+
+/// Grok `config.toml` 的 Provider 状态。`[models] default` 与 `[model.*]` 是
+/// 当前启用项的唯一真相源；VibeX 预设只在 default 指向 `vibex` 时才算启用。
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct NativeGrokProvider {
+    pub id: String,
+    pub name: String,
+    pub api_url: String,
+    pub model: String,
+    pub api_key: String,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct NativeGrokState {
+    pub providers: Vec<NativeGrokProvider>,
+    pub active_provider: Option<String>,
+}
+
+const GROK_DEFAULT_BACKUP_KEY: &str = "models.default";
 
 /// 只有顶层 base_url、没有显式 `[model_providers.xxx]` 表时使用的合成标识。
 const NATIVE_ENDPOINT_PROVIDER_ID: &str = "__vibex_native_endpoint__";
@@ -240,6 +260,17 @@ pub async fn list_with_native(
                 write_store(store_path, &store).await?;
             }
             Ok(project_with_codex_native(&store, agent_id, native.as_ref()))
+        }
+        "grok" => {
+            let native = match native_home {
+                Some(home) => Some(read_native_grok_state(home).await?),
+                None => None,
+            };
+            let mut store = read_store(store_path).await?;
+            if adopt_native_providers(&mut store, &agent_id, &grok_native_drafts(native.as_ref())) {
+                write_store(store_path, &store).await?;
+            }
+            Ok(project_with_grok_native(&store, agent_id, native.as_ref()))
         }
         _ => {
             let drafts = match native_home {
@@ -415,6 +446,11 @@ pub async fn bind(
     } else {
         None
     };
+    let native_grok = if agent_id.as_str() == "grok" {
+        Some(read_native_grok_state(&homes.grok).await?)
+    } else {
+        None
+    };
     if let Some(provider_id) = provider_id
         .as_deref()
         .map(str::trim)
@@ -426,7 +462,36 @@ pub async fn bind(
             .find(|provider| provider.id == provider_id && provider.agent_id == agent_id)
             .cloned()
             .ok_or_else(|| super::NativeError::from("找不到可绑定的 Model Provider"))?;
-        if is_native_codex_channel(&provider, native_codex.as_ref()) {
+        if is_native_grok_channel(&provider, native_grok.as_ref()) {
+            if native_uses_vibex_grok_projection(native_grok.as_ref()) {
+                let backup = store
+                    .projection_backups
+                    .get(agent_id.as_str())
+                    .cloned()
+                    .unwrap_or_else(|| rollback.clone());
+                if let Err(error) = restore_projection(&homes, &agent_id, &backup).await {
+                    restore_projection(&homes, &agent_id, &rollback).await?;
+                    return Err(error);
+                }
+            }
+            if current_binding.is_none()
+                && !store.projection_backups.contains_key(agent_id.as_str())
+            {
+                store
+                    .projection_backups
+                    .insert(agent_id.as_str().to_string(), rollback.clone());
+                write_store(store_path, &store).await?;
+            }
+            if let Err(error) = activate_native_grok_provider(&homes.grok, &provider.id).await {
+                restore_projection(&homes, &agent_id, &rollback).await?;
+                return Err(error);
+            }
+            if let Err(error) = clear_grok_subscription_auth(&homes.grok).await {
+                restore_projection(&homes, &agent_id, &rollback).await?;
+                return Err(error);
+            }
+            store.bindings.remove(agent_id.as_str());
+        } else if is_native_codex_channel(&provider, native_codex.as_ref()) {
             if native_uses_vibex_projection(native_codex.as_ref()) {
                 let backup = store
                     .projection_backups
@@ -460,12 +525,22 @@ pub async fn bind(
                 }
                 return Err(error);
             }
+            if agent_id.as_str() == "grok"
+                && let Err(error) = clear_grok_subscription_auth(&homes.grok).await
+            {
+                restore_projection(&homes, &agent_id, &rollback).await?;
+                return Err(error);
+            }
             store
                 .bindings
                 .insert(agent_id.as_str().to_string(), provider_id.to_string());
         }
     } else {
-        if current_binding.is_none() {
+        let native_grok_active = native_grok
+            .as_ref()
+            .and_then(|state| state.active_provider.as_deref())
+            .is_some_and(|id| !id.is_empty());
+        if current_binding.is_none() && !native_grok_active {
             return projected_view(&store, store_path, &homes, agent_id).await;
         }
         let backup = store
@@ -516,6 +591,11 @@ pub async fn delete(
     } else {
         None
     };
+    let native_grok = if agent_id.as_str() == "grok" {
+        Some(read_native_grok_state(&homes.grok).await?)
+    } else {
+        None
+    };
     let mut store = load_store_with_natives(store_path, &agent_id, &homes).await?;
     let remaining = store
         .providers
@@ -531,6 +611,7 @@ pub async fn delete(
         provider_id,
         native_codex.as_ref(),
         native_pi.as_ref(),
+        native_grok.as_ref(),
     ) {
         return Err("无法删除正在使用的供应商".into());
     }
@@ -545,6 +626,7 @@ pub async fn delete(
     match agent_id.as_str() {
         "codex" => remove_native_codex_provider(&homes.codex, &removed).await?,
         "pi" => remove_native_pi_provider(&homes.pi, &removed).await?,
+        "grok" => remove_native_grok_provider(&homes.grok, &removed).await?,
         _ => {}
     }
     store.providers.remove(index);
@@ -602,7 +684,30 @@ fn project_with_codex_native(
             .map(|provider| (provider.id.as_str(), provider.api_url.as_str())),
         native.base_url.as_deref(),
     );
+    overlay_native_codex_credentials(&mut view, native);
     view
+}
+
+fn overlay_native_codex_credentials(view: &mut AgentModelProvidersView, native: &NativeCodexState) {
+    for provider in &mut view.providers {
+        if provider.credential_present {
+            continue;
+        }
+        let matched = native.providers.iter().find(|item| {
+            item.id == provider.id || (!item.api_url.is_empty() && item.api_url == provider.api_url)
+        });
+        let key = matched
+            .map(|item| item.api_key.as_str())
+            .filter(|key| !key.is_empty())
+            .or_else(|| {
+                (provider.bound && !native.auth_api_key.is_empty())
+                    .then_some(native.auth_api_key.as_str())
+            });
+        if let Some(key) = key {
+            provider.api_key = key.to_string();
+            provider.credential_present = true;
+        }
+    }
 }
 
 fn project_with_pi_native(
@@ -625,6 +730,38 @@ fn project_with_pi_native(
             .iter()
             .map(|provider| (provider.id.as_str(), provider.api_url.as_str())),
         None,
+    );
+    view
+}
+
+fn project_with_grok_native(
+    store: &ProviderStore,
+    agent_id: AgentId,
+    native: Option<&NativeGrokState>,
+) -> AgentModelProvidersView {
+    let mut view = project(store, agent_id);
+    let Some(native) = native else {
+        return view;
+    };
+    // `models.default` is the enabled Provider. The `vibex` table is still a
+    // real endpoint: skipping it left BeeAPI-style configs looking unbound
+    // even while Grok was already routing through that table.
+    let active_id = native.active_provider.as_deref();
+    let active_url = native
+        .providers
+        .iter()
+        .find(|provider| Some(provider.id.as_str()) == active_id)
+        .map(|provider| provider.api_url.as_str())
+        .filter(|url| !url.is_empty());
+    let match_id = active_id.filter(|id| *id != "vibex");
+    apply_native_active_binding(
+        &mut view,
+        match_id,
+        native
+            .providers
+            .iter()
+            .map(|provider| (provider.id.as_str(), provider.api_url.as_str())),
+        active_url,
     );
     view
 }
@@ -711,6 +848,13 @@ async fn projected_view(
             }
             Ok(project_with_pi_native(&store, agent_id, Some(&native)))
         }
+        "grok" => {
+            let native = read_native_grok_state(&homes.grok).await?;
+            if adopt_native_providers(&mut store, &agent_id, &grok_native_drafts(Some(&native))) {
+                write_store(store_path, &store).await?;
+            }
+            Ok(project_with_grok_native(&store, agent_id, Some(&native)))
+        }
         _ => {
             let home = homes.native_list_home(&agent_id);
             let drafts = live_native_drafts(&agent_id, home).await?;
@@ -776,6 +920,27 @@ fn pi_native_drafts(native: Option<&NativePiState>) -> Vec<NativeProviderDraft> 
         .providers
         .iter()
         .filter(|provider| !provider.api_url.is_empty())
+        .map(|provider| NativeProviderDraft {
+            id: provider.id.clone(),
+            name: provider.name.clone(),
+            api_url: provider.api_url.clone(),
+            api_key: provider.api_key.clone(),
+            model: provider.model.clone(),
+        })
+        .collect()
+}
+
+fn grok_native_drafts(native: Option<&NativeGrokState>) -> Vec<NativeProviderDraft> {
+    let Some(native) = native else {
+        return Vec::new();
+    };
+    let grok = AgentId::parse("grok").expect("grok");
+    native
+        .providers
+        .iter()
+        .filter(|provider| {
+            !provider.api_url.is_empty() && !is_official_endpoint(&grok, &provider.api_url)
+        })
         .map(|provider| NativeProviderDraft {
             id: provider.id.clone(),
             name: provider.name.clone(),
@@ -948,6 +1113,14 @@ async fn load_store_with_natives(
             }
             Ok(store)
         }
+        "grok" => {
+            let native = read_native_grok_state(&homes.grok).await?;
+            let mut store = read_store(store_path).await?;
+            if adopt_native_providers(&mut store, agent_id, &grok_native_drafts(Some(&native))) {
+                write_store(store_path, &store).await?;
+            }
+            Ok(store)
+        }
         _ => {
             let native_home = homes.native_list_home(agent_id);
             let drafts = live_native_drafts(agent_id, native_home).await?;
@@ -966,6 +1139,7 @@ fn provider_is_in_use(
     provider_id: &str,
     native_codex: Option<&NativeCodexState>,
     native_pi: Option<&NativePiState>,
+    native_grok: Option<&NativeGrokState>,
 ) -> bool {
     if store.bindings.values().any(|value| value == provider_id) {
         return true;
@@ -992,6 +1166,20 @@ fn provider_is_in_use(
         return true;
     }
     if let Some(native) = native_pi
+        && native_active_matches_provider(
+            native.active_provider.as_deref(),
+            native
+                .providers
+                .iter()
+                .map(|item| (item.id.as_str(), item.api_url.as_str())),
+            None,
+            provider,
+        )
+    {
+        return true;
+    }
+    if let Some(native) = native_grok
+        && !native_uses_vibex_grok_projection(Some(native))
         && native_active_matches_provider(
             native.active_provider.as_deref(),
             native
@@ -1073,13 +1261,7 @@ pub async fn read_native_codex_state(
             let Some(provider) = value.as_table() else {
                 continue;
             };
-            let api_key = provider
-                .get("api_key")
-                .and_then(toml::Value::as_str)
-                .map(str::trim)
-                .filter(|value| !value.is_empty())
-                .unwrap_or_default()
-                .to_string();
+            let api_key = codex_provider_secret(provider);
             state.providers.push(NativeCodexProvider {
                 id: id.clone(),
                 name: provider
@@ -1133,6 +1315,20 @@ pub async fn read_native_codex_state(
     });
     state.credential_present = !state.auth_api_key.is_empty() || table_key;
     Ok(state)
+}
+
+fn codex_provider_secret(provider: &toml::Table) -> String {
+    ["api_key", "experimental_bearer_token"]
+        .into_iter()
+        .find_map(|key| {
+            provider
+                .get(key)
+                .and_then(toml::Value::as_str)
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .map(str::to_string)
+        })
+        .unwrap_or_default()
 }
 
 async fn read_native_pi_state(pi_home: &Path) -> Result<NativePiState, super::NativeError> {
@@ -1273,6 +1469,100 @@ fn is_native_codex_channel(provider: &StoredProvider, native: Option<&NativeCode
         .iter()
         .any(|candidate| candidate.id == provider.id)
         || provider.id == NATIVE_ENDPOINT_PROVIDER_ID
+}
+
+fn native_uses_vibex_grok_projection(native: Option<&NativeGrokState>) -> bool {
+    native.is_some_and(|state| state.active_provider.as_deref() == Some("vibex"))
+}
+
+fn is_native_grok_channel(provider: &StoredProvider, native: Option<&NativeGrokState>) -> bool {
+    let Some(native) = native else {
+        return false;
+    };
+    if is_vibex_grok_table(&provider.id) {
+        return false;
+    }
+    native
+        .providers
+        .iter()
+        .any(|candidate| candidate.id == provider.id && !is_vibex_grok_table(&candidate.id))
+}
+
+async fn activate_native_grok_provider(
+    grok_home: &Path,
+    provider_id: &str,
+) -> Result<(), super::NativeError> {
+    let filesystem = TokioNativeFileSystem;
+    let path = grok_home.join("config.toml");
+    let original = filesystem.read(&path).await?;
+    let mut table = parse_toml_table_bytes(&path, original.as_deref())?;
+    let models = toml_table_entry(&mut table, "models")?;
+    models.insert(
+        "default".to_string(),
+        toml::Value::String(provider_id.to_string()),
+    );
+    write_toml_mutation(&path, original, &table, false).await
+}
+
+async fn remove_native_grok_provider(
+    grok_home: &Path,
+    provider: &StoredProvider,
+) -> Result<(), super::NativeError> {
+    if is_vibex_grok_table(&provider.id) {
+        return Ok(());
+    }
+    let path = grok_home.join("config.toml");
+    let filesystem = TokioNativeFileSystem;
+    let original = filesystem.read(&path).await?;
+    let mut table = parse_toml_table_bytes(&path, original.as_deref())?;
+    let Some(models) = table.get_mut("model").and_then(toml::Value::as_table_mut) else {
+        return Ok(());
+    };
+    let match_id = if models.contains_key(&provider.id) {
+        Some(provider.id.clone())
+    } else if provider.api_url.is_empty() {
+        None
+    } else {
+        models.iter().find_map(|(id, value)| {
+            if is_vibex_grok_table(id) {
+                return None;
+            }
+            value
+                .as_table()
+                .and_then(|entry| entry.get("base_url"))
+                .and_then(toml::Value::as_str)
+                .filter(|url| *url == provider.api_url)
+                .map(|_| id.clone())
+        })
+    };
+    let Some(id) = match_id else {
+        return Ok(());
+    };
+    models.remove(&id);
+    if models.is_empty() {
+        table.remove("model");
+    }
+    write_toml_mutation(&path, original, &table, true).await
+}
+
+async fn clear_grok_subscription_auth(grok_home: &Path) -> Result<(), super::NativeError> {
+    let path = grok_home.join("auth.json");
+    let filesystem = TokioNativeFileSystem;
+    let original = filesystem.read(&path).await?;
+    let Some(bytes) = original.as_deref() else {
+        return Ok(());
+    };
+    let trimmed = std::str::from_utf8(bytes).unwrap_or("").trim();
+    if trimmed.is_empty() || trimmed == "{}" {
+        return Ok(());
+    }
+    apply_projection_mutations(&[NativeFileMutation {
+        path,
+        expected: original,
+        replacement: Some(b"{}\n".to_vec()),
+        sensitive: true,
+    }])
+    .await
 }
 
 async fn activate_native_codex_provider(
@@ -1644,16 +1934,24 @@ async fn native_gemini_draft(
     }))
 }
 
-async fn native_grok_drafts(grok_home: &Path) -> Result<Vec<ImportDraft>, String> {
-    let table = read_toml_table(&grok_home.join("config.toml")).await?;
-    let Some(models) = table.get("model").and_then(toml::Value::as_table) else {
-        return Ok(Vec::new());
+pub async fn read_native_grok_state(
+    grok_home: &Path,
+) -> Result<NativeGrokState, super::NativeError> {
+    let table = match read_toml_table(&grok_home.join("config.toml")).await {
+        Ok(table) => table,
+        Err(_) => return Ok(NativeGrokState::default()),
     };
-    let mut drafts = Vec::new();
-    // VibeX projects a provider that enables several models as one `[model.*]`
-    // table per model, so those tables read back as a single draft. Treating
-    // them as separate providers would auto-adopt each extra model as a
-    // phantom provider of its own on every list.
+    Ok(native_grok_state_from_table(&table))
+}
+
+fn native_grok_state_from_table(table: &toml::Table) -> NativeGrokState {
+    let Some(models) = table.get("model").and_then(toml::Value::as_table) else {
+        return NativeGrokState {
+            active_provider: grok_default_provider(table),
+            ..NativeGrokState::default()
+        };
+    };
+    let mut providers = Vec::new();
     let mut vibex_models: Vec<String> = Vec::new();
     let mut vibex_entry: Option<(&str, &toml::Table)> = None;
     for (id, value) in models {
@@ -1681,7 +1979,6 @@ async fn native_grok_drafts(grok_home: &Path) -> Result<Vec<ImportDraft>, String
             .unwrap_or(id)
             .to_string();
         if is_vibex_grok_table(id) {
-            // `[models] default` names `vibex`, so it leads.
             if id == "vibex" {
                 vibex_models.insert(0, model_id);
                 vibex_entry = Some((id.as_str(), entry));
@@ -1698,8 +1995,8 @@ async fn native_grok_drafts(grok_home: &Path) -> Result<Vec<ImportDraft>, String
         let context = entry
             .get("context_window")
             .and_then(toml::Value::as_integer);
-        drafts.push(ImportDraft {
-            source_id: format!("native:{id}"),
+        providers.push(NativeGrokProvider {
+            id: id.clone(),
             name: entry
                 .get("name")
                 .and_then(toml::Value::as_str)
@@ -1713,7 +2010,6 @@ async fn native_grok_drafts(grok_home: &Path) -> Result<Vec<ImportDraft>, String
                 "context_window": context
             })
             .to_string(),
-            skip_reason: None,
         });
     }
     if let Some((id, entry)) = vibex_entry {
@@ -1731,10 +2027,14 @@ async fn native_grok_drafts(grok_home: &Path) -> Result<Vec<ImportDraft>, String
         if !vibex_models.is_empty() {
             model["models"] = serde_json::json!(vibex_models);
         }
-        drafts.insert(
+        providers.insert(
             0,
-            ImportDraft {
-                source_id: format!("native:{id}"),
+            NativeGrokProvider {
+                id: if id == "vibex" {
+                    "vibex".to_string()
+                } else {
+                    id.to_string()
+                },
                 name: entry
                     .get("name")
                     .and_then(toml::Value::as_str)
@@ -1753,11 +2053,57 @@ async fn native_grok_drafts(grok_home: &Path) -> Result<Vec<ImportDraft>, String
                     .trim()
                     .to_string(),
                 model: model.to_string(),
-                skip_reason: None,
             },
         );
     }
-    Ok(drafts)
+    let default = grok_default_provider(table);
+    let active_provider = default
+        .as_deref()
+        .and_then(|id| {
+            if is_vibex_grok_table(id) {
+                return Some("vibex".to_string());
+            }
+            providers
+                .iter()
+                .any(|provider| provider.id == id)
+                .then(|| id.to_string())
+        })
+        .or_else(|| {
+            let only = providers.first()?;
+            (default.is_none() && providers.len() == 1 && !is_vibex_grok_table(&only.id))
+                .then(|| only.id.clone())
+        });
+    NativeGrokState {
+        providers,
+        active_provider,
+    }
+}
+
+fn grok_default_provider(table: &toml::Table) -> Option<String> {
+    table
+        .get("models")
+        .and_then(toml::Value::as_table)
+        .and_then(|models| models.get("default"))
+        .and_then(toml::Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_string)
+}
+
+async fn native_grok_drafts(grok_home: &Path) -> Result<Vec<ImportDraft>, String> {
+    let state = read_native_grok_state(grok_home).await?;
+    Ok(state
+        .providers
+        .into_iter()
+        .map(|provider| ImportDraft {
+            source_id: format!("native:{}", provider.id),
+            name: provider.name,
+            api_url: provider.api_url,
+            api_key: provider.api_key,
+            model: provider.model,
+            skip_reason: None,
+        })
+        .collect())
 }
 
 async fn native_kimi_draft(kimi_home: &Path) -> Result<Option<ImportDraft>, String> {
@@ -2225,7 +2571,7 @@ async fn capture_projection(
             }
         }
         "grok" => {
-            capture_text_file(&homes.grok.join("config.toml"), "config.toml", &mut backup).await?;
+            capture_grok_toml(&homes.grok.join("config.toml"), &mut backup).await?;
         }
         "kimi_code" => {
             capture_text_file(&homes.kimi.join("config.toml"), "config.toml", &mut backup).await?;
@@ -2306,8 +2652,12 @@ fn empty_projection_backup(agent_id: &AgentId) -> ProviderProjectionBackup {
             .file_values
             .insert(CODEX_SOURCE_FILE.to_string(), None);
     }
+    if agent_id.as_str() == "grok" {
+        backup
+            .toml_values
+            .insert(GROK_DEFAULT_BACKUP_KEY.to_string(), None);
+    }
     for key in match agent_id.as_str() {
-        "grok" => ["config.toml"].as_slice(),
         "kimi_code" => ["config.toml", "credentials/kimi-code.json"].as_slice(),
         "hermes" => ["config.yaml"].as_slice(),
         "openclaw" => ["openclaw.json"].as_slice(),
@@ -2352,6 +2702,96 @@ async fn capture_json_root(
             .insert((*key).to_string(), document.get(*key).cloned());
     }
     Ok(())
+}
+
+async fn capture_grok_toml(
+    path: &Path,
+    backup: &mut ProviderProjectionBackup,
+) -> Result<(), super::NativeError> {
+    let table = match read_toml_table(path).await {
+        Ok(table) => table,
+        Err(_) => {
+            backup
+                .toml_values
+                .insert(GROK_DEFAULT_BACKUP_KEY.to_string(), None);
+            return Ok(());
+        }
+    };
+    backup.toml_values.insert(
+        GROK_DEFAULT_BACKUP_KEY.to_string(),
+        table
+            .get("models")
+            .and_then(toml::Value::as_table)
+            .and_then(|models| models.get("default"))
+            .cloned(),
+    );
+    Ok(())
+}
+
+async fn restore_grok_projection(
+    grok_home: &Path,
+    backup: &ProviderProjectionBackup,
+) -> Result<(), super::NativeError> {
+    let filesystem = TokioNativeFileSystem;
+    let path = grok_home.join("config.toml");
+    let original = filesystem.read(&path).await?;
+    if original.is_none() && !backup.toml_values.contains_key(GROK_DEFAULT_BACKUP_KEY) {
+        return Ok(());
+    }
+    let mut table = parse_toml_table_bytes(&path, original.as_deref())?;
+    if let Some(models) = table.get_mut("model").and_then(toml::Value::as_table_mut) {
+        models.retain(|name, _| !is_vibex_grok_table(name));
+        if models.is_empty() {
+            table.remove("model");
+        }
+    }
+    let custom_ids: HashSet<String> = table
+        .get("model")
+        .and_then(toml::Value::as_table)
+        .map(|models| {
+            models
+                .iter()
+                .filter_map(|(id, value)| {
+                    let url = value
+                        .as_table()?
+                        .get("base_url")
+                        .and_then(toml::Value::as_str)
+                        .map(str::trim)
+                        .filter(|value| !value.is_empty())?;
+                    let grok = AgentId::parse("grok").ok()?;
+                    (!is_official_endpoint(&grok, url)).then(|| id.clone())
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+    let restored_default = backup
+        .toml_values
+        .get(GROK_DEFAULT_BACKUP_KEY)
+        .and_then(Option::as_ref)
+        .and_then(toml::Value::as_str)
+        .map(str::trim)
+        .filter(|value| {
+            !value.is_empty() && !is_vibex_grok_table(value) && !custom_ids.contains(*value)
+        });
+    if let Some(default) = restored_default {
+        let models = toml_table_entry(&mut table, "models")?;
+        models.insert(
+            "default".to_string(),
+            toml::Value::String(default.to_string()),
+        );
+    } else if let Some(models) = table.get_mut("models").and_then(toml::Value::as_table_mut) {
+        let current = models
+            .get("default")
+            .and_then(toml::Value::as_str)
+            .unwrap_or("");
+        if is_vibex_grok_table(current) || custom_ids.contains(current) {
+            models.remove("default");
+        }
+        if models.is_empty() {
+            table.remove("models");
+        }
+    }
+    write_toml_mutation(&path, original, &table, true).await
 }
 
 async fn capture_codex_toml(
@@ -2418,9 +2858,7 @@ async fn restore_projection(
                 restore_antigravity_auth_type(&settings, backup).await
             }
         }
-        "grok" => {
-            restore_text_file(&homes.grok.join("config.toml"), "config.toml", backup, true).await
-        }
+        "grok" => restore_grok_projection(&homes.grok, backup).await,
         "kimi_code" => {
             restore_text_file(&homes.kimi.join("config.toml"), "config.toml", backup, true).await?;
             restore_text_file(
@@ -5188,6 +5626,66 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn native_codex_bearer_token_counts_as_logged_in_without_auth_json() {
+        let temp = tempfile::tempdir().unwrap();
+        let codex_home = temp.path().join("home/.codex");
+        let store_path = temp.path().join("data/agent-model-providers.json");
+        tokio::fs::create_dir_all(store_path.parent().unwrap())
+            .await
+            .unwrap();
+        tokio::fs::create_dir_all(&codex_home).await.unwrap();
+        tokio::fs::write(
+            &store_path,
+            serde_json::json!({
+                "providers": [{
+                    "id": "custom",
+                    "name": "BeeAPI · codex",
+                    "agent_id": "codex",
+                    "api_url": "https://beeapi.ai/v1",
+                    "api_key": "",
+                    "model": "gpt-6-astra"
+                }],
+                "bindings": {}
+            })
+            .to_string(),
+        )
+        .await
+        .unwrap();
+        tokio::fs::write(
+            codex_home.join("config.toml"),
+            r#"
+model = "gpt-6-astra"
+model_provider = "custom"
+
+[model_providers.custom]
+base_url = "https://beeapi.ai/v1"
+experimental_bearer_token = "sk-bee"
+name = "BeeAPI · codex"
+requires_openai_auth = false
+wire_api = "responses"
+"#,
+        )
+        .await
+        .unwrap();
+        let view = list_with_native(
+            &store_path,
+            AgentId::parse("codex").unwrap(),
+            Some(&codex_home),
+        )
+        .await
+        .unwrap();
+        assert_eq!(view.bound_provider_id.as_deref(), Some("custom"));
+        let provider = view
+            .providers
+            .iter()
+            .find(|item| item.id == "custom")
+            .unwrap();
+        assert!(provider.bound);
+        assert!(provider.credential_present);
+        assert_eq!(provider.api_key, "sk-bee");
+    }
+
+    #[tokio::test]
     async fn native_codex_endpoint_without_provider_table_projects_synthetic_entry() {
         let temp = tempfile::tempdir().unwrap();
         let codex_home = temp.path().join("home/.codex");
@@ -6151,6 +6649,307 @@ model = "grok-4"
         assert!(provider.credential_present);
         assert_eq!(provider.api_url, "https://gateway.example/v1");
         assert_eq!(provider.api_key, "sk-grok");
+    }
+
+    #[tokio::test]
+    async fn grok_lists_every_native_provider_and_binds_the_default() {
+        let temp = tempfile::tempdir().unwrap();
+        let grok_home = temp.path().join("home/.grok");
+        let store_path = temp.path().join("data/providers.json");
+        tokio::fs::create_dir_all(&grok_home).await.unwrap();
+        tokio::fs::write(
+            grok_home.join("config.toml"),
+            r#"
+[models]
+default = "gateway"
+
+[model.gateway]
+name = "Gateway"
+base_url = "https://gateway.example/v1"
+api_key = "sk-gateway"
+model = "grok-4"
+
+[model.other]
+name = "Other"
+base_url = "https://other.example/v1"
+api_key = "sk-other"
+model = "grok-4"
+"#,
+        )
+        .await
+        .unwrap();
+        let view = list_with_native(
+            &store_path,
+            AgentId::parse("grok").unwrap(),
+            Some(&grok_home),
+        )
+        .await
+        .unwrap();
+        assert_eq!(view.providers.len(), 2);
+        assert_eq!(view.bound_provider_id.as_deref(), Some("gateway"));
+        let gateway = view
+            .providers
+            .iter()
+            .find(|provider| provider.id == "gateway")
+            .unwrap();
+        assert!(gateway.bound);
+        let other = view
+            .providers
+            .iter()
+            .find(|provider| provider.id == "other")
+            .unwrap();
+        assert!(!other.bound);
+    }
+
+    #[tokio::test]
+    async fn grok_native_default_outranks_a_stale_store_binding() {
+        let temp = tempfile::tempdir().unwrap();
+        let grok_home = temp.path().join("home/.grok");
+        let store_path = temp.path().join("data/providers.json");
+        tokio::fs::create_dir_all(store_path.parent().unwrap())
+            .await
+            .unwrap();
+        tokio::fs::create_dir_all(&grok_home).await.unwrap();
+        tokio::fs::write(
+            &store_path,
+            serde_json::json!({
+                "providers": [{
+                    "id": "stale",
+                    "name": "Stale",
+                    "agent_id": "grok",
+                    "api_url": "https://stale.example/v1",
+                    "api_key": "sk-stale",
+                    "model": "grok-4"
+                }],
+                "bindings": { "grok": "stale" }
+            })
+            .to_string(),
+        )
+        .await
+        .unwrap();
+        tokio::fs::write(
+            grok_home.join("config.toml"),
+            r#"
+[models]
+default = "gateway"
+
+[model.gateway]
+name = "Gateway"
+base_url = "https://gateway.example/v1"
+api_key = "sk-gateway"
+model = "grok-4"
+"#,
+        )
+        .await
+        .unwrap();
+        let view = list_with_native(
+            &store_path,
+            AgentId::parse("grok").unwrap(),
+            Some(&grok_home),
+        )
+        .await
+        .unwrap();
+        assert_eq!(view.bound_provider_id.as_deref(), Some("gateway"));
+        assert!(
+            view.providers
+                .iter()
+                .any(|provider| provider.id == "stale" && !provider.bound)
+        );
+    }
+
+    #[tokio::test]
+    async fn grok_vibex_default_marks_the_live_endpoint_enabled() {
+        let temp = tempfile::tempdir().unwrap();
+        let grok_home = temp.path().join("home/.grok");
+        let store_path = temp.path().join("data/providers.json");
+        tokio::fs::create_dir_all(store_path.parent().unwrap())
+            .await
+            .unwrap();
+        tokio::fs::create_dir_all(&grok_home).await.unwrap();
+        tokio::fs::write(
+            &store_path,
+            serde_json::json!({
+                "providers": [{
+                    "id": "grok-4.6",
+                    "name": "BeeAPI · grok",
+                    "agent_id": "grok",
+                    "api_url": "https://beeapi.ai/v1",
+                    "api_key": "sk-bee",
+                    "model": "{\"id\":\"grok-4.6\"}"
+                }],
+                "bindings": {}
+            })
+            .to_string(),
+        )
+        .await
+        .unwrap();
+        tokio::fs::write(
+            grok_home.join("config.toml"),
+            r#"
+[models]
+default = "vibex"
+
+[model."grok-4.6"]
+name = "BeeAPI · grok"
+base_url = "https://beeapi.ai/v1"
+api_key = "sk-bee"
+model = "grok-4.6"
+
+[model.vibex]
+name = "beeapi"
+base_url = "https://beeapi.ai/v1"
+api_key = "sk-bee"
+model = "grok-4.6"
+"#,
+        )
+        .await
+        .unwrap();
+        let view = list_with_native(
+            &store_path,
+            AgentId::parse("grok").unwrap(),
+            Some(&grok_home),
+        )
+        .await
+        .unwrap();
+        let enabled = view
+            .providers
+            .iter()
+            .find(|provider| provider.bound)
+            .expect("the live BeeAPI endpoint must show as enabled");
+        assert_eq!(enabled.api_url, "https://beeapi.ai/v1");
+        assert_eq!(view.bound_provider_id.as_deref(), Some(enabled.id.as_str()));
+    }
+
+    #[tokio::test]
+    async fn grok_enabling_a_native_provider_only_changes_default() {
+        let temp = tempfile::tempdir().unwrap();
+        let home = temp.path().join("home");
+        let grok_home = home.join(".grok");
+        let store_path = temp.path().join("data/providers.json");
+        tokio::fs::create_dir_all(&grok_home).await.unwrap();
+        tokio::fs::write(
+            grok_home.join("config.toml"),
+            r#"
+[models]
+default = "other"
+
+[model.gateway]
+name = "Gateway"
+base_url = "https://gateway.example/v1"
+api_key = "sk-gateway"
+model = "grok-4"
+
+[model.other]
+name = "Other"
+base_url = "https://other.example/v1"
+api_key = "sk-other"
+model = "grok-4"
+"#,
+        )
+        .await
+        .unwrap();
+        tokio::fs::write(grok_home.join("auth.json"), br#"{"token":"session"}"#)
+            .await
+            .unwrap();
+        let environment = HashMap::from([(
+            "GROK_HOME".to_string(),
+            grok_home.to_string_lossy().to_string(),
+        )]);
+        let agent_id = AgentId::parse("grok").unwrap();
+        list_with_native(&store_path, agent_id.clone(), Some(&grok_home))
+            .await
+            .unwrap();
+        bind(
+            &store_path,
+            &home,
+            &environment,
+            agent_id,
+            Some("gateway".to_string()),
+        )
+        .await
+        .unwrap();
+        let config = read_toml_table(&grok_home.join("config.toml"))
+            .await
+            .unwrap();
+        assert_eq!(config["models"]["default"].as_str(), Some("gateway"));
+        assert!(config["model"].get("gateway").is_some());
+        assert!(config["model"].get("other").is_some());
+        assert!(config["model"].get("vibex").is_none());
+        let auth = tokio::fs::read_to_string(grok_home.join("auth.json"))
+            .await
+            .unwrap();
+        assert_eq!(auth.trim(), "{}");
+    }
+
+    #[tokio::test]
+    async fn grok_unbind_keeps_hand_written_provider_tables() {
+        let temp = tempfile::tempdir().unwrap();
+        let home = temp.path().join("home");
+        let grok_home = home.join(".grok");
+        let store_path = temp.path().join("data/providers.json");
+        tokio::fs::create_dir_all(&grok_home).await.unwrap();
+        tokio::fs::write(
+            grok_home.join("config.toml"),
+            r#"
+[models]
+default = "grok-4.6"
+
+[model.gateway]
+name = "Gateway"
+base_url = "https://gateway.example/v1"
+api_key = "sk-gateway"
+model = "grok-4"
+"#,
+        )
+        .await
+        .unwrap();
+        let environment = HashMap::from([(
+            "GROK_HOME".to_string(),
+            grok_home.to_string_lossy().to_string(),
+        )]);
+        let agent_id = AgentId::parse("grok").unwrap();
+        let created = save(
+            &store_path,
+            &home,
+            &environment,
+            AgentModelProviderSaveRequest {
+                id: None,
+                name: "VibeX Gateway".to_string(),
+                agent_id: agent_id.clone(),
+                api_url: "https://vibex.example/v1".to_string(),
+                api_key: Some("sk-vibex".to_string()),
+                model: "grok-4".to_string(),
+            },
+        )
+        .await
+        .unwrap();
+        bind(
+            &store_path,
+            &home,
+            &environment,
+            agent_id.clone(),
+            Some(created.providers[0].id.clone()),
+        )
+        .await
+        .unwrap();
+        bind(&store_path, &home, &environment, agent_id.clone(), None)
+            .await
+            .unwrap();
+        let config = read_toml_table(&grok_home.join("config.toml"))
+            .await
+            .unwrap();
+        assert_eq!(config["models"]["default"].as_str(), Some("grok-4.6"));
+        assert!(config["model"].get("gateway").is_some());
+        assert!(config["model"].get("vibex").is_none());
+        let view = list_with_native(&store_path, agent_id, Some(&grok_home))
+            .await
+            .unwrap();
+        assert!(view.bound_provider_id.is_none());
+        assert!(
+            view.providers
+                .iter()
+                .any(|provider| provider.id == "gateway")
+        );
     }
 
     /// Bind a grok provider carrying `model`, and hand back the resulting

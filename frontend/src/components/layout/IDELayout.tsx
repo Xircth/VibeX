@@ -48,6 +48,7 @@ import {
 import { useWorktree } from '@/contexts/WorktreeContext';
 import { useAgentLongRunningTerminals } from '@/hooks/useAgentLongRunningTerminals';
 import { WorkspaceOverlayProvider } from '@/contexts/WorkspaceOverlayContext';
+import { BrowserEvalConfirm } from '@/features/host-browser/BrowserEvalConfirm';
 import { KeepAliveSurface } from '@/components/layout/KeepAliveSurface';
 import {
   applyLeftGroupHeaderHiding,
@@ -1297,8 +1298,13 @@ export function IDELayout({
   useWorkspaceShortcuts();
 
   return (
-    <WorkspaceOverlayProvider nativeSurfaceOccluded={tabContextMenu !== null}>
+    <WorkspaceOverlayProvider
+      nativeSurfaceOccluded={
+        tabContextMenu !== null || effectiveActiveTab !== 'workspace'
+      }
+    >
       <div className="workspace-shell relative flex h-full w-full flex-col">
+        <BrowserEvalConfirm />
         <SearchPalette />
         {toolbarContent && (
           <div className="workspace-divider-bottom z-10 shrink-0">

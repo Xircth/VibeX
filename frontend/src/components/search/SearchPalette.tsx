@@ -26,6 +26,7 @@ import { useAppContextMenu } from '@/components/context-menu';
 import { writeClipboardViaBridge } from '@/vscode/bridge';
 import { contributionIconComponent } from '@/components/plugins/contributionIcon';
 import { Command, type LucideIcon } from 'lucide-react';
+import { NativeSurfaceOcclusionHold } from '@/contexts/WorkspaceOverlayContext';
 
 type PaletteResultKind = 'file' | 'directory' | 'conversation' | 'command';
 
@@ -262,6 +263,7 @@ export function SearchPalette() {
       onClick={closeSearchPalette}
       role="presentation"
     >
+      <NativeSurfaceOcclusionHold />
       {/* Backdrop */}
       <div className="dialog-backdrop absolute inset-0" />
 

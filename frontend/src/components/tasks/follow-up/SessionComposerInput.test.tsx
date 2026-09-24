@@ -21,7 +21,10 @@ import {
   formatQuoteToken,
   formatSessionComposerCommand,
 } from './sessionComposerStructuredTokens';
-import { requestComposerTokenInsert } from '@/lib/composerInsert';
+import {
+  requestComposerImageInsert,
+  requestComposerTokenInsert,
+} from '@/lib/composerInsert';
 import type { FileReferencePayload } from '@/utils/fileReferences';
 import { setCurrentDraggedFileReference } from '@/utils/fileReferenceDrag';
 import { tagsApi } from '@/lib/api';
@@ -952,6 +955,25 @@ describe('SessionComposerInput (Astryx)', () => {
     });
     const nextValue = onChange.mock.calls.at(-1)?.[0] as string;
     expect(nextValue).toContain(formatQuoteToken('请你帮我完成这次修改'));
+  });
+
+  it('attaches an image from an external insert request', async () => {
+    const onAttachImages = vi.fn();
+    renderComposerInput({ onAttachImages });
+    await waitFor(() => {
+      expect(getEditor()).toBeInTheDocument();
+    });
+    const file = new File([new Uint8Array([137, 80, 78, 71])], 'button.png', {
+      type: 'image/png',
+    });
+    act(() => {
+      requestComposerImageInsert(file);
+    });
+    await waitFor(() => {
+      expect(onAttachImages).toHaveBeenCalled();
+    });
+    expect(onAttachImages.mock.calls[0][0][0]).toBeInstanceOf(File);
+    expect(onAttachImages.mock.calls[0][0][0].name).toBe('button.png');
   });
 
   it('inserts a targeted quote token only into the matching conversation composer', async () => {

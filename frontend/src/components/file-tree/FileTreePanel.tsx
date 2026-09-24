@@ -1674,7 +1674,6 @@ export function FileTreePanel({
                 )
               }
             >
-              <span className="file-tree-spacer" aria-hidden />
               <span className="file-tree-name">{workspaceRootLabel}</span>
             </button>
           </div>

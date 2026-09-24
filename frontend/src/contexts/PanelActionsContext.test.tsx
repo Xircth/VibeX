@@ -98,6 +98,7 @@ describe('PanelActionsContext host-browser plugin', () => {
           contributionId: 'browser',
           icon: 'globe',
           requestedUrl: null,
+          nativeTabId: null,
         },
       })
     );
@@ -131,6 +132,7 @@ describe('PanelActionsContext host-browser plugin', () => {
           contributionId: 'browser',
           icon: 'globe',
           requestedUrl: 'https://one.test',
+          nativeTabId: null,
         },
       })
     );
@@ -144,6 +146,7 @@ describe('PanelActionsContext host-browser plugin', () => {
           contributionId: 'browser',
           icon: 'globe',
           requestedUrl: 'https://two.test',
+          nativeTabId: null,
         },
       })
     );

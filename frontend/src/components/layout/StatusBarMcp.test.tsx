@@ -93,6 +93,42 @@ describe('StatusBarMcp', () => {
     expect(trigger.className).not.toMatch(/text-(success|destructive|warning)/);
   });
 
+  it('lists declared browser tools without waiting for an agent', async () => {
+    mcpStatus.mockResolvedValue(
+      report({
+        plugins: [
+          {
+            pluginId: 'vibex.browser',
+            name: 'Browser',
+            description: 'Built-in browser tabs.',
+            enabled: true,
+            enableSupported: true,
+            mcpCount: 1,
+            connection: 'running',
+            servers: [
+              {
+                id: 'vibex-browser',
+                product: null,
+                tools: [
+                  { name: 'browser_list_tabs', group: 'browser' },
+                  { name: 'browser_snapshot', group: 'browser' },
+                ],
+              },
+            ],
+          },
+        ],
+      })
+    );
+    mount();
+    fireEvent.click(await screen.findByRole('button', { name: /MCP 服务/ }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Browser' }));
+    expect(await screen.findByText('列出标签页')).toBeInTheDocument();
+    expect(screen.getByText('browser_list_tabs')).toBeInTheDocument();
+    expect(
+      screen.queryByText('Agent 连接后才会列出工具。')
+    ).not.toBeInTheDocument();
+  });
+
   it('lists plugins with MCP counts and expands to tools', async () => {
     mount();
     fireEvent.click(await screen.findByRole('button', { name: /MCP 服务/ }));

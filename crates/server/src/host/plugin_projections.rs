@@ -580,8 +580,7 @@ async fn configure_plugin_mcp(
     let mut errors = Vec::new();
     for (server_id, spec) in servers {
         let projected_id = plugins::projected_mcp_server_id(plugin.id(), &server_id, &spec);
-        let legacy_id =
-            plugins::legacy_projected_mcp_server_id(plugin.id(), &server_id, &spec);
+        let legacy_id = plugins::legacy_projected_mcp_server_id(plugin.id(), &server_id, &spec);
         if legacy_id != projected_id {
             let _ = services::services::mcp::uninstall_server(legacy_id).await;
         }
@@ -685,11 +684,14 @@ async fn materialize_worker_http_mcp(
                 "managed MCP `{server_id}` workerHttp requires managedRuntime.handler"
             ))
         })?;
-    let lease = control_plane.activation_lease(plugin.id()).await.ok_or_else(|| {
-        ApplicationError::bad_request(format!(
-            "managed MCP `{server_id}` workerHttp requires an active Worker"
-        ))
-    })?;
+    let lease = control_plane
+        .activation_lease(plugin.id())
+        .await
+        .ok_or_else(|| {
+            ApplicationError::bad_request(format!(
+                "managed MCP `{server_id}` workerHttp requires an active Worker"
+            ))
+        })?;
     let endpoint = lease
         .invoke_with_timeout(handler, Value::Null, Duration::from_secs(30))
         .await
@@ -713,6 +715,8 @@ async fn materialize_plugin_mcp_spec(
         .and_then(Value::as_str)
         == Some("hostFamilyBinary");
     let Some(managed) = spec.get("managedRuntime").and_then(Value::as_object) else {
+        let mut spec = spec;
+        plugins::prepare_plugin_mcp_projection(&mut spec, plugin.package.content_root());
         return inject_plugin_host_call(control_plane, host_call, plugin, spec).await;
     };
     if host_family {
@@ -775,8 +779,8 @@ async fn materialize_plugin_mcp_spec(
     .to_string();
     let materialized = json!({
         "type": "stdio",
-        "command": node.to_string_lossy(),
-        "args": [entrypoint.to_string_lossy()],
+        "command": plugins::spawnable_fs_path(&node),
+        "args": [plugins::spawnable_fs_path(&entrypoint)],
         "env": {
             "VIBEX_PLUGIN_MCP_TOKEN": token,
             "VIBEX_MCP_PROTOCOL_REVISION": protocol_revision
@@ -798,6 +802,7 @@ async fn inject_plugin_host_call(
     let ctx = host_call
         .issue(plugin.id(), generation)
         .map_err(|error| ApplicationError::internal(error.to_string()))?;
+    plugins::strip_mcp_advertisement_fields(&mut spec);
     plugins::attach_host_call_env(&mut spec, &ctx, Some(plugin.package.content_root()));
     Ok(Some(spec))
 }

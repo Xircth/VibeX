@@ -1,6 +1,7 @@
 import { memo, useCallback, useEffect } from 'react';
 import { X, Columns2, Rows3 } from 'lucide-react';
 import { createPortal } from 'react-dom';
+import { NativeSurfaceOcclusionHold } from '@/contexts/WorkspaceOverlayContext';
 import type { GitFileDiffEntry } from 'shared/types';
 import { DiffBlock, type DiffStyle } from './DiffBlock';
 import { ImageDiffCard } from './ImageDiffCard';
@@ -53,6 +54,7 @@ export const GitDiffModal = memo(function GitDiffModal({
       role="dialog"
       aria-modal="true"
     >
+      <NativeSurfaceOcclusionHold />
       {/* Title bar */}
       <div className="flex items-center gap-2 px-4 py-2 border-b border-border/50 shrink-0">
         <span className={`font-bold text-xs ${st.color}`}>{st.label}</span>

@@ -266,6 +266,8 @@ impl NativeConfigProvider {
                     field_revision(codex_websockets_source(document))
                 } else if field.field_id == "anthropic_api_key" {
                     field_revision(claude_credential_value(document))
+                } else if grok_auth_field_key(field.field_id).is_some() {
+                    field_revision(grok_auth_field_value(document, field.field_id))
                 } else {
                     field_revision(value_at_path(document, field.path))
                 };
@@ -302,10 +304,12 @@ impl NativeConfigProvider {
                         }
                         if field.field_id == "codex_openai_base_url"
                             || field.field_id == "anthropic_api_key"
+                            || grok_auth_field_key(field.field_id).is_some()
                         {
                             // 延迟到 finalize_*_shape：写回位置取决于原始配置
                             // （Codex 活跃表 / 顶层键；Claude AUTH_TOKEN /
-                            // API_KEY），此处保留原始文档以便判断来源。
+                            // API_KEY；Grok 当前 `models.default` 表），此处
+                            // 保留原始文档以便判断来源。
                             continue;
                         }
                         let value = parse_field_value(field, &value)?;
@@ -625,6 +629,9 @@ fn field_snapshot(
         (scalar_string(effective), effective)
     } else if field.field_id == "grok_permission" {
         (scalar_string(raw).map(canonical_grok_permission_mode), raw)
+    } else if grok_auth_field_key(field.field_id).is_some() {
+        let effective = grok_auth_field_value(document, field.field_id);
+        (scalar_string(effective), effective)
     } else {
         (scalar_string(raw), raw)
     };
@@ -912,52 +919,98 @@ fn finalize_claude_shape(
     Ok(())
 }
 
+fn grok_auth_field_key(field_id: &str) -> Option<&'static str> {
+    match field_id {
+        "grok_base_url" => Some("base_url"),
+        "grok_api_key" => Some("api_key"),
+        "grok_custom_model_id" => Some("model"),
+        "grok_api_backend" => Some("api_backend"),
+        "grok_context_window" => Some("context_window"),
+        _ => None,
+    }
+}
+
+fn grok_active_model_id(document: &Value) -> Option<&str> {
+    document
+        .get("models")
+        .and_then(|models| models.get("default"))
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+}
+
+fn grok_auth_field_value<'a>(document: &'a Value, field_id: &str) -> Option<&'a Value> {
+    let key = grok_auth_field_key(field_id)?;
+    if let Some(id) = grok_active_model_id(document)
+        && let Some(value) = document
+            .get("model")
+            .and_then(|models| models.get(id))
+            .and_then(|entry| entry.get(key))
+    {
+        return Some(value);
+    }
+    value_at_path(document, &["model", "vibex", key])
+}
+
+fn grok_write_table_id(document: &Value) -> String {
+    grok_active_model_id(document)
+        .map(str::to_string)
+        .unwrap_or_else(|| "vibex".to_string())
+}
+
 fn finalize_grok_shape(
     document: &mut Value,
     patch: &NativeConfigPatch,
 ) -> Result<(), NativeConfigError> {
-    if !patch.values.keys().any(|field| field.starts_with("grok_")) {
+    let auth_fields: Vec<(String, Option<String>)> = patch
+        .values
+        .iter()
+        .filter(|(field, _)| grok_auth_field_key(field).is_some())
+        .map(|(field, value)| (field.clone(), value.clone()))
+        .collect();
+    if auth_fields.is_empty() {
         return Ok(());
     }
-    for (field, path) in [
-        ("grok_base_url", &["model", "vibex", "base_url"][..]),
-        ("grok_api_key", &["model", "vibex", "api_key"][..]),
-    ] {
-        if value_at_path(document, path)
-            .and_then(Value::as_str)
-            .is_some_and(|value| value.contains(['\n', '\r']))
+    let table_id = grok_write_table_id(document);
+    for (field, value) in &auth_fields {
+        let Some(key) = grok_auth_field_key(field) else {
+            continue;
+        };
+        let path = ["model", table_id.as_str(), key];
+        match value
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
         {
-            return Err(NativeConfigError::Invalid(format!(
-                "{field} must not contain newlines"
-            )));
+            Some(value) => {
+                if matches!(field.as_str(), "grok_base_url" | "grok_api_key")
+                    && value.contains(['\n', '\r'])
+                {
+                    return Err(NativeConfigError::Invalid(format!(
+                        "{field} must not contain newlines"
+                    )));
+                }
+                if *field == "grok_context_window" {
+                    let parsed = value.parse::<i64>().map_err(|_| {
+                        NativeConfigError::Invalid(format!("`{value}` is not an integer"))
+                    })?;
+                    if parsed <= 0 {
+                        remove_value_at_path(document, &path);
+                        continue;
+                    }
+                    set_value_at_path(document, &path, Value::Number(Number::from(parsed)))?;
+                    continue;
+                }
+                set_value_at_path(document, &path, Value::String(value.to_string()))?;
+            }
+            None => remove_value_at_path(document, &path),
         }
     }
-    if value_at_path(document, &["model", "vibex", "context_window"])
+    if let Some(context) = value_at_path(document, &["model", table_id.as_str(), "context_window"])
         .and_then(Value::as_i64)
-        .is_some_and(|value| value <= 0)
+        && context <= 0
     {
-        remove_value_at_path(document, &["model", "vibex", "context_window"]);
-    }
-    let custom_model = value_at_path(document, &["model", "vibex", "model"])
-        .and_then(Value::as_str)
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-        .map(str::to_string);
-    if let Some(custom_model) = custom_model {
-        set_value_at_path(
-            document,
-            &["model", "vibex", "model"],
-            Value::String(custom_model),
-        )?;
-        set_value_at_path(
-            document,
-            &["models", "default"],
-            Value::String("vibex".to_string()),
-        )?;
-    } else if value_at_path(document, &["models", "default"]).and_then(Value::as_str)
-        == Some("vibex")
-    {
-        remove_value_at_path(document, &["models", "default"]);
+        remove_value_at_path(document, &["model", table_id.as_str(), "context_window"]);
     }
     Ok(())
 }

@@ -40,6 +40,14 @@ function emptyPluginCatalog() {
 describe('OpenCodeProviderConnections', () => {
   beforeEach(() => {
     emptyPluginCatalog();
+    vi.stubGlobal(
+      'ResizeObserver',
+      class {
+        observe() {}
+        unobserve() {}
+        disconnect() {}
+      }
+    );
   });
 
   afterEach(() => {
@@ -78,7 +86,11 @@ describe('OpenCodeProviderConnections', () => {
     render(<OpenCodeProviderConnections onChanged={onChanged} />);
 
     expect(await screen.findByText('OpenRouter')).toBeInTheDocument();
-    expect(screen.getByText(/凭据已保存/)).toBeInTheDocument();
+    expect(
+      screen.getByText('https://openrouter.ai/api/v1')
+    ).toBeInTheDocument();
+    expect(screen.queryByLabelText('Provider ID')).not.toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: '新建供应商' }));
     await user.type(screen.getByLabelText('Provider ID'), 'my-provider');
     await user.type(screen.getByLabelText('显示名称'), 'My Provider');
     await pickAstryxOption(
@@ -149,15 +161,15 @@ describe('OpenCodeProviderConnections', () => {
     render(<OpenCodeProviderConnections />);
 
     await user.click(
-      await screen.findByRole('switch', { name: '停用 OpenRouter' })
+      await screen.findByRole('button', { name: '停用 OpenRouter' })
     );
 
     await waitFor(() =>
       expect(setEnabled).toHaveBeenCalledWith('openrouter', false, 'opencode')
     );
     expect(
-      screen.getByRole('switch', { name: '启用 OpenRouter' })
-    ).not.toBeChecked();
+      screen.getByRole('button', { name: '启用 OpenRouter' })
+    ).toBeVisible();
   });
 
   it('prefills a saved provider for explicit editing without exposing its credential', async () => {
@@ -190,6 +202,9 @@ describe('OpenCodeProviderConnections', () => {
       await screen.findByRole('button', { name: '编辑 OpenRouter' })
     );
 
+    expect(
+      screen.queryByText('https://openrouter.ai/api/v1')
+    ).not.toBeInTheDocument();
     expect(screen.getByLabelText('Provider ID')).toHaveValue('openrouter');
     expect(screen.getByLabelText('API URL')).toHaveValue(
       'https://openrouter.ai/api/v1'
@@ -253,10 +268,14 @@ describe('OpenCodeProviderConnections', () => {
 
     render(<OpenCodeProviderConnections />);
 
-    await user.type(
-      await screen.findByRole('searchbox', { name: '搜索 Provider' }),
-      'openrouter'
+    await user.click(
+      (await screen.findAllByRole('button', { name: '新建供应商' }))[0]
     );
+    const search = await screen.findByRole('searchbox', {
+      name: '搜索 Provider',
+    });
+    await user.click(search);
+    await user.type(search, 'openrouter');
     await user.click(screen.getByRole('button', { name: /选择 OpenRouter/ }));
 
     expect(screen.getByLabelText('Provider ID')).toHaveValue('openrouter');
@@ -327,18 +346,40 @@ describe('OpenCodeProviderConnections', () => {
 
     render(<OpenCodeProviderConnections surface="provider" />);
 
-    expect(await screen.findByText('外部导入')).toBeVisible();
     expect(
-      screen.getByRole('button', { name: '从 CC Switch 导入' })
+      await screen.findByRole('heading', { name: '模型供应商' })
     ).toBeVisible();
+    expect(screen.getByRole('button', { name: '从外部导入' })).toBeVisible();
+    await userEvent.click(screen.getByRole('button', { name: '从外部导入' }));
+    expect(
+      screen.getByRole('menuitem', { name: '从 CC Switch 导入' })
+    ).toBeVisible();
+    expect(screen.queryByText('OpenCode Zen')).not.toBeInTheDocument();
+    expect(await screen.findByText('OpenRouter')).toBeVisible();
+    expect(screen.queryByText('models.dev 目录')).not.toBeInTheDocument();
+    expect(screen.queryByLabelText('Provider ID')).not.toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole('button', { name: '新建供应商' }));
     expect(screen.getByText('OpenCode 内置供应商')).toBeVisible();
     expect(screen.queryByText('models.dev 目录')).not.toBeInTheDocument();
     expect(screen.queryByText('离线内置目录')).not.toBeInTheDocument();
-    expect(screen.queryByText('OpenCode Zen')).not.toBeInTheDocument();
-    expect(await screen.findAllByText('OpenRouter')).not.toHaveLength(0);
+    expect(
+      screen.queryByRole('button', { name: /选择 OpenAI/ })
+    ).not.toBeInTheDocument();
+    await userEvent.click(
+      screen.getByRole('searchbox', { name: '搜索 Provider' })
+    );
     expect(
       await screen.findByRole('button', { name: /选择 OpenAI/ })
     ).toBeInTheDocument();
+    expect(
+      screen.getByRole('button', { name: /选择 OpenAI/ }).closest('ul')
+    ).toHaveClass('agent-provider-catalog-list');
+    expect(
+      screen
+        .getByRole('button', { name: /选择 OpenAI/ })
+        .closest('.opencode-provider-catalog-menu')
+    ).toBeTruthy();
     expect(
       await screen.findByRole('button', { name: /选择 OpenRouter/ })
     ).toBeInTheDocument();
@@ -434,6 +475,10 @@ describe('OpenCodeProviderConnections', () => {
 
     render(<OpenCodeProviderConnections surface="provider" />);
 
+    await user.click(
+      (await screen.findAllByRole('button', { name: '新建供应商' }))[0]
+    );
+    await user.click(screen.getByRole('searchbox', { name: '搜索 Provider' }));
     const list = await screen.findByRole('list');
     const items = list.querySelectorAll(':scope > li');
     expect(
@@ -522,7 +567,13 @@ describe('OpenCodeProviderConnections', () => {
 
     render(<OpenCodeProviderConnections surface="official" />);
 
+    await userEvent.click(
+      (await screen.findAllByRole('button', { name: '新建供应商' }))[0]
+    );
     expect(await screen.findByText('models.dev 目录')).toBeVisible();
+    await userEvent.click(
+      screen.getByRole('searchbox', { name: '搜索 Provider' })
+    );
     expect(screen.queryByText('SiliconFlow')).not.toBeInTheDocument();
     expect(pluginControl.providerCatalogList).not.toHaveBeenCalled();
   });

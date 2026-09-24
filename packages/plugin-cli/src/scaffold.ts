@@ -666,9 +666,77 @@ async function writeManagedMcp(root: string) {
       protocolRevision: "2026-07-28",
       defaultBinding: "all-compatible-agents",
     },
+    tools: [{ name: "hello", group: "mcp" }],
   });
-  const server =
-    "process.stdout.write(JSON.stringify({ ready: true }) + '\\n');\n";
+  const server = `#!/usr/bin/env node
+const tools = [{
+  name: 'hello',
+  description: 'Greet from this plugin MCP.',
+  inputSchema: { type: 'object', properties: { name: { type: 'string' } } },
+}];
+function send(message) {
+  process.stdout.write(JSON.stringify(message) + '\\n');
+}
+function handle(message) {
+  if (!message || typeof message !== 'object') return;
+  const { id, method, params } = message;
+  if (method === 'initialize') {
+    const requested = params && params.protocolVersion;
+    const protocolVersion = [
+      '2024-11-05',
+      '2025-03-26',
+      '2025-11-25',
+      '2026-07-28',
+    ].includes(requested)
+      ? requested
+      : '2026-07-28';
+    send({
+      jsonrpc: '2.0',
+      id,
+      result: {
+        protocolVersion,
+        capabilities: { tools: {} },
+        serverInfo: { name: 'hello', version: '1.0.0' },
+      },
+    });
+    return;
+  }
+  if (method === 'notifications/initialized' || method === 'initialized') return;
+  if (method === 'tools/list') {
+    send({ jsonrpc: '2.0', id, result: { tools } });
+    return;
+  }
+  if (method === 'tools/call') {
+    const name = (params && params.arguments && params.arguments.name) || 'world';
+    send({
+      jsonrpc: '2.0',
+      id,
+      result: { content: [{ type: 'text', text: 'hello ' + name }] },
+    });
+    return;
+  }
+  if (id != null) {
+    send({
+      jsonrpc: '2.0',
+      id,
+      error: { code: -32601, message: 'Method not found: ' + String(method || '') },
+    });
+  }
+}
+let buf = Buffer.alloc(0);
+process.stdin.on('data', (chunk) => {
+  buf = Buffer.concat([buf, chunk]);
+  while (true) {
+    const nl = buf.indexOf(0x0a);
+    if (nl < 0) break;
+    const line = buf.subarray(0, nl).toString('utf8').trim();
+    buf = buf.subarray(nl + 1);
+    if (!line) continue;
+    try { handle(JSON.parse(line)); } catch {}
+  }
+});
+process.stdin.resume();
+`;
   await writeFile(join(root, "runtime", "mcp.mjs"), server);
   await writeFile(join(root, "dist", "mcp", "hello.mjs"), server);
 }

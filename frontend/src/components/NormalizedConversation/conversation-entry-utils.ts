@@ -760,6 +760,8 @@ export const getToolSummary = (
                 args.path,
                 args.query,
                 args.url,
+                args.tabId,
+                args.ref,
                 args.description,
               ].find(
                 (value): value is string =>

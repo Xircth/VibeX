@@ -39,10 +39,7 @@ import {
 } from '@/features/agent-management';
 import { cn } from '@/lib/utils';
 
-import {
-  peekAgentAuthKindTab,
-  rememberAgentAuthKindTab,
-} from './agentAuthKindTab';
+import { rememberAgentAuthKindTab } from './agentAuthKindTab';
 import {
   clearAgentSettingsDraft,
   peekAgentSettingsDraft,
@@ -115,11 +112,7 @@ export function AgentAuthModeControl({
       const next = await agentManagementApi.authMode(agentId);
       setView(next);
       const kept = peekAgentSettingsDraft<AuthDraft>(authDraftKey(agentId));
-      const rememberedMode = modeMatchingAuthKind(
-        next,
-        peekAgentAuthKindTab(agentId)
-      );
-      const nextMode = kept?.mode ?? rememberedMode ?? next.mode;
+      const nextMode = kept?.mode ?? next.mode;
       setMode(nextMode);
       if (kept) setApiKey(kept.apiKey);
       const nextKind =
@@ -211,6 +204,25 @@ export function AgentAuthModeControl({
     [agentId, locked, onChanged, t, view?.mode]
   );
   persistModeRef.current = persistMode;
+
+  const handleRunAction = async (actionId: string) => {
+    const action = actions?.actions.find((item) => item.id === actionId);
+    if (
+      action?.kind === 'login' &&
+      view &&
+      kindOfMode(view.mode) === 'provider'
+    ) {
+      const result = await ConfirmDialog.show({
+        title: t('settings:agents.authLoginDisablesProviderTitle'),
+        message: t('settings:agents.authLoginDisablesProviderMessage'),
+        confirmText: t('settings:agents.authLoginDisablesProviderConfirm'),
+        cancelText: t('common:cancel'),
+        variant: 'destructive',
+      });
+      if (result !== 'confirmed') return;
+    }
+    onRunAction?.(actionId);
+  };
 
   useEffect(() => {
     if (!view || saving || loading) return;
@@ -512,7 +524,7 @@ export function AgentAuthModeControl({
                   saved={view.mode === mode}
                   allowUnsignedLogin
                   running={actionRunning}
-                  onRunAction={onRunAction}
+                  onRunAction={handleRunAction}
                 />
               ) : null}
             </div>
@@ -533,7 +545,11 @@ export function AgentAuthModeControl({
                 className="agent-auth-mode-panel"
                 hidden={panel !== 'provider'}
               >
-                {withProviderChanged(modelProvider, () => void load())}
+                {withProviderChanged(
+                  modelProvider,
+                  () => void load(),
+                  panel === 'provider'
+                )}
               </div>
             ) : null}
           </div>
@@ -678,16 +694,21 @@ type AuthenticationPanel = 'account' | 'configuration' | 'provider';
 
 function withProviderChanged(
   node: ReactNode,
-  onChanged: () => void
+  onChanged: () => void,
+  active: boolean
 ): ReactNode {
   if (
-    !isValidElement<{ onChanged?: () => void | Promise<void> }>(node) ||
+    !isValidElement<{
+      onChanged?: () => void | Promise<void>;
+      active?: boolean;
+    }>(node) ||
     typeof node.type === 'string'
   ) {
     return node;
   }
   const previous = node.props.onChanged;
   return cloneElement(node, {
+    active,
     onChanged: async () => {
       await previous?.();
       onChanged();
@@ -732,20 +753,6 @@ function shouldConfirmOfficialSubscriptionSwitch({
     signedIn &&
     nextKind === 'subscription' &&
     (currentKind === 'provider' || currentKind === 'official_api')
-  );
-}
-
-function modeMatchingAuthKind(
-  view: AgentAuthModeView,
-  kind: AgentAuthModeKind | null
-): string | null {
-  if (!kind) return null;
-  const options = view.options.filter((option) => option.kind === kind);
-  if (options.length === 0) return null;
-  return (
-    options.find((option) => option.value === view.mode)?.value ??
-    options[0]?.value ??
-    null
   );
 }
 

@@ -191,6 +191,10 @@ export function RightPanelContent() {
   const rightSessionWorkspaceId = visibleRightSession?.workspaceId ?? '';
   const rightSessionId = visibleRightSession?.sessionId ?? '';
   const isWorkspaceRoute = effectiveActiveTab === 'workspace' && !!workspaceId;
+  const workspaceExecutionWorkspaceId =
+    visibleRightSession?.workspaceId ?? workspaceId;
+  const workspaceExecutionSessionId =
+    visibleRightSession?.sessionId ?? sessionId;
   const bindExecutionConversation = kanbanBindsExecutionConversation(
     activeViewId,
     isWorkspaceRoute ? 'workspace' : 'kanban'
@@ -378,6 +382,13 @@ export function RightPanelContent() {
     [activateExecutionSession, syncWorkspaceRouteSession]
   );
 
+  useEffect(() => {
+    if (!isWorkspaceRoute || !workspaceId || !sessionId) {
+      return;
+    }
+    activateExecutionSession({ sessionId, workspaceId });
+  }, [activateExecutionSession, isWorkspaceRoute, sessionId, workspaceId]);
+
   const canCreateSession =
     !!selectedExecutorProfile?.executor &&
     (isGitProject
@@ -527,8 +538,8 @@ export function RightPanelContent() {
   // placement provider's version bump, loop into "Maximum update depth".
   const workspaceConversationViewProps = useMemo(
     () => ({
-      workspaceId: workspaceId!,
-      sessionId,
+      workspaceId: workspaceExecutionWorkspaceId!,
+      sessionId: workspaceExecutionSessionId,
       interactive: true,
       showSessionSelector: true,
       onSessionCreated: handleCreatedSession,
@@ -539,8 +550,8 @@ export function RightPanelContent() {
       conversationWidthMode: 'workspace' as const,
     }),
     [
-      workspaceId,
-      sessionId,
+      workspaceExecutionWorkspaceId,
+      workspaceExecutionSessionId,
       handleCreatedSession,
       handleSelectedSession,
       openCreateSessionOverlay,
@@ -615,7 +626,7 @@ export function RightPanelContent() {
         <div className="relative flex-1 min-w-0 flex flex-col overflow-hidden">
           {isGitProject ? <BranchInfoHeader /> : null}
           <div className="right-panel-conversation-region relative flex-1 min-h-0 overflow-hidden">
-            {isWorkspaceRoute && workspaceId ? (
+            {isWorkspaceRoute && workspaceExecutionWorkspaceId ? (
               <div className="h-full min-h-0 overflow-hidden">
                 <KanbanSessionConversationView
                   {...workspaceConversationViewProps}

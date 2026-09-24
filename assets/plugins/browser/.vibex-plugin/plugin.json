@@ -71,13 +71,6 @@
       "opens": { "kind": "app.panel", "id": "browser", "instance": "focus" }
     },
     {
-      "id": "settings",
-      "kind": "app.settings.page",
-      "title": "Browser",
-      "icon": "globe",
-      "handler": "surface.createSession"
-    },
-    {
       "id": "browser-tools",
       "kind": "content.mcp",
       "resource": "contents/mcps/browser.json"

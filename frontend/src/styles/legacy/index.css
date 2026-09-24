@@ -2430,6 +2430,37 @@
     }
   }
 
+  /* Browser share chip: read is solid blue; control reuses Fast's
+     blue-violet flow on the label, with a matching hue on the glyph. */
+  .browser-share-grant-read {
+    color: hsl(217 91% 53%);
+  }
+  .dark .browser-share-grant-read {
+    color: hsl(213 94% 72%);
+  }
+  .browser-share-grant-control-icon {
+    color: hsl(252 91% 62%);
+    animation: browser-share-grant-control-icon 2.4s linear infinite;
+  }
+  @keyframes browser-share-grant-control-icon {
+    0%,
+    100% {
+      color: hsl(220 58% 55%);
+    }
+    45% {
+      color: hsl(252 91% 68%);
+    }
+    70% {
+      color: hsl(280 82% 66%);
+    }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .browser-share-grant-control-icon {
+      animation: none;
+      color: hsl(252 91% 62%);
+    }
+  }
+
   .tahoe-glass {
     border: 1px solid var(--border-glass);
     background: var(--surface-glass);
@@ -6376,7 +6407,7 @@
   gap: 2px;
 }
 
-.settings-page .agent-model-provider-enable.is-enabled {
+.settings-page .agent-model-provider-enable.is-enabled:disabled {
   pointer-events: none;
 }
 
@@ -8837,19 +8868,29 @@ html.host-windows :where(.legacy-design) .vu-toast-surface {
 .settings-page .agent-provider-search > svg {
   position: absolute;
   left: 10px;
+  z-index: 1;
   pointer-events: none;
 }
 
 .settings-page .agent-provider-search input {
   width: 100%;
   height: 34px;
+  box-sizing: border-box;
   padding: 0 10px 0 32px;
   border: 1px solid var(--border-content);
   border-radius: var(--radius);
   outline: none;
+  appearance: none;
+  -webkit-appearance: none;
   background: var(--surface-control);
   color: var(--text-strong);
   font-size: 0.75rem;
+}
+
+.settings-page .agent-provider-search input::-webkit-search-decoration,
+.settings-page .agent-provider-search input::-webkit-search-cancel-button {
+  -webkit-appearance: none;
+  appearance: none;
 }
 
 .settings-page .agent-provider-search input:focus-visible {
@@ -9058,6 +9099,153 @@ html.host-windows :where(.legacy-design) .vu-toast-surface {
   margin: 0 16px 16px;
   padding-top: 14px;
   border-top: 1px solid var(--border-subtle);
+}
+
+.settings-page .agent-model-provider-form .agent-provider-catalog,
+.settings-page .agent-model-provider-form .agent-provider-form {
+  margin: 0 0 16px;
+  padding-top: 0;
+  border-top: 0;
+}
+
+.settings-page
+  .agent-provider-catalog
+  .agent-model-provider-catalog-search-field {
+  margin-top: 10px;
+}
+
+.settings-page .opencode-provider-catalog-search {
+  position: relative;
+  display: flex;
+  align-items: center;
+  margin-top: 10px;
+}
+
+.settings-page .opencode-provider-catalog-search > svg {
+  position: absolute;
+  left: 12px;
+  top: 50%;
+  z-index: 1;
+  width: 14px;
+  height: 14px;
+  transform: translateY(-50%);
+  color: var(--text-muted);
+  pointer-events: none;
+}
+
+.settings-page .opencode-provider-catalog-search input {
+  width: 100%;
+  height: 34px;
+  box-sizing: border-box;
+  padding: 0 12px 0 38px !important;
+  border: 1px solid var(--border-content);
+  border-radius: var(--radius);
+  outline: none;
+  appearance: none;
+  -webkit-appearance: none;
+  background: var(--surface-control);
+  color: var(--text-strong);
+  font-size: 0.75rem;
+}
+
+.settings-page .opencode-provider-catalog-search input:focus-visible {
+  border-color: hsl(var(--primary));
+  box-shadow: inset 0 0 0 2px hsl(var(--primary) / 0.22);
+}
+
+.opencode-provider-catalog-menu {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.opencode-provider-catalog-menu .agent-provider-catalog-list {
+  display: grid;
+  flex: 1 1 auto;
+  margin: 0;
+  padding: 0;
+  overflow-y: auto;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  max-height: none;
+}
+
+.opencode-provider-catalog-menu .agent-provider-catalog-list > li {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.opencode-provider-catalog-menu .agent-provider-catalog-list > li:last-child {
+  border-bottom: 0;
+}
+
+.opencode-provider-catalog-menu
+  .agent-provider-catalog-list
+  > li
+  > button:first-child {
+  display: flex;
+  min-width: 0;
+  min-height: 42px;
+  flex: 1;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 7px 10px;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: var(--text-strong);
+  text-align: left;
+}
+
+.opencode-provider-catalog-menu
+  .agent-provider-catalog-list
+  > li
+  > button:first-child:hover {
+  background: var(--surface-hover);
+}
+
+.opencode-provider-catalog-menu .agent-provider-catalog-identity,
+.opencode-provider-catalog-menu .agent-provider-catalog-meta {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 8px;
+}
+
+.opencode-provider-catalog-menu .agent-provider-catalog-identity strong {
+  display: block;
+  overflow: hidden;
+  font-size: 0.75rem;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.opencode-provider-catalog-menu .agent-provider-catalog-identity code,
+.opencode-provider-catalog-menu .agent-provider-catalog-meta span {
+  color: var(--text-muted);
+  font-size: 0.75rem;
+}
+
+.opencode-provider-catalog-menu .agent-provider-catalog-meta em {
+  padding: 2px 6px;
+  border: 1px solid var(--border-content);
+  border-radius: 999px;
+  color: var(--text-muted);
+  font-size: 0.75rem;
+  font-style: normal;
+  font-weight: 600;
+}
+
+.opencode-provider-catalog-menu .agent-provider-catalog-empty {
+  margin: 0;
+  padding: 12px 10px;
+  color: var(--text-muted);
+  font-size: 0.75rem;
 }
 
 .settings-page .agent-provider-form-heading {

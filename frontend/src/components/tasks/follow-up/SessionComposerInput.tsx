@@ -35,8 +35,8 @@ import {
   SESSION_COMPOSER_TOKEN_VARIANTS,
   SessionComposerTokenIcon,
 } from './SessionComposerStructuredText';
-import { ImagePreviewDialog } from '@/components/dialogs/wysiwyg/ImagePreviewDialog';
 import { useImageMetadata } from '@/hooks/useImageMetadata';
+import { useOpenImagePreview } from '@/hooks/useOpenImagePreview';
 import {
   hostFileSrc,
   isBrowserDisplayUrl,
@@ -67,8 +67,10 @@ import {
 } from '@/hooks/usePluginHostContributions';
 import { cn } from '@/lib/utils';
 import {
+  COMPOSER_IMAGE_INSERT_EVENT,
   COMPOSER_INSERT_EVENT,
   shouldAcceptComposerInsert,
+  type ComposerImageInsertDetail,
   type ComposerInsertDetail,
 } from '@/lib/composerInsert';
 import { useOptionalUserSystem } from '@/components/ConfigProvider';
@@ -265,6 +267,7 @@ function SessionComposerImageAttachment({
     image.name || metadata?.file_name || '',
     metadata?.format
   );
+  const openImagePreview = useOpenImagePreview();
 
   useEffect(() => {
     setFallbackImageUrl(null);
@@ -306,14 +309,22 @@ function SessionComposerImageAttachment({
   const handlePreview = useCallback(() => {
     if (previewKind === 'file' || !imageUrl || imageLoadFailed) return;
 
-    ImagePreviewDialog.show({
+    openImagePreview({
       imageUrl,
       altText: label,
       fileName: label,
       format: metadata?.format ?? fileExtension(image.name) ?? undefined,
       sizeBytes: metadata?.size_bytes,
     });
-  }, [imageLoadFailed, imageUrl, image.name, label, metadata, previewKind]);
+  }, [
+    imageLoadFailed,
+    imageUrl,
+    image.name,
+    label,
+    metadata,
+    openImagePreview,
+    previewKind,
+  ]);
 
   const handleRemove = useCallback(
     (event: MouseEvent<HTMLButtonElement>) => {
@@ -1508,6 +1519,32 @@ export function SessionComposerInput({
       window.removeEventListener(COMPOSER_INSERT_EVENT, onInsert);
     };
   }, [acceptExternalInserts, insertStructuredTokenAtCaret, sessionId]);
+
+  useEffect(() => {
+    const onImage = (event: Event) => {
+      const detail = (event as CustomEvent<ComposerImageInsertDetail>).detail;
+      if (
+        !detail?.file ||
+        !shouldAcceptComposerInsert(
+          {
+            text: detail.file.name,
+            conversationId: detail.conversationId,
+          },
+          {
+            conversationId: sessionId,
+            acceptExternalInserts,
+          }
+        )
+      ) {
+        return;
+      }
+      onAttachImages([prepareImageFileForUpload(detail.file)]);
+    };
+    window.addEventListener(COMPOSER_IMAGE_INSERT_EVENT, onImage);
+    return () => {
+      window.removeEventListener(COMPOSER_IMAGE_INSERT_EVENT, onImage);
+    };
+  }, [acceptExternalInserts, onAttachImages, sessionId]);
 
   // P2-4: consume a code selection requested from a file viewer, inserting a
   // `@path:start-end` reference at the caret (or end of input).

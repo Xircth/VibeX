@@ -2774,11 +2774,10 @@ mod tests {
         assert!(view.credential_present);
     }
 
-    /// The endpoint above is the configuration this machine has, not a choice
-    /// the user made in VibeX. Picking a mode has to outrank it — otherwise the
-    /// subscription modes can be selected but never take effect.
+    /// A stale VibeX overlay cannot hide the Provider already written into the
+    /// Agent's own config. Switching modes writes those files first.
     #[tokio::test]
-    async fn claude_custom_endpoint_defers_to_a_mode_chosen_in_vibex() {
+    async fn claude_custom_endpoint_outranks_a_stale_vibex_mode() {
         let temp = tempfile::tempdir().unwrap();
         let home = temp.path().join("home");
         let claude_home = home.join(".claude");
@@ -2799,7 +2798,7 @@ mod tests {
         )
         .await
         .unwrap();
-        assert_eq!(view.mode, "official_api");
+        assert_eq!(view.mode, "model_provider");
     }
 
     /// Choosing a mode is not enough on its own: the CLI reads the Provider
@@ -2855,7 +2854,14 @@ mod tests {
         let restored = tokio::fs::read_to_string(grok_home.join("config.toml"))
             .await
             .unwrap();
-        assert_eq!(restored, native_config);
+        let restored: toml::Value = toml::from_str(&restored).unwrap();
+        assert_eq!(restored["models"]["default"].as_str(), Some("grok-4.6"));
+        assert!(
+            restored
+                .get("model")
+                .and_then(|model| model.get("vibex"))
+                .is_none()
+        );
         let providers = model_providers::list_with_native(&store_path, agent_id, Some(&grok_home))
             .await
             .unwrap();

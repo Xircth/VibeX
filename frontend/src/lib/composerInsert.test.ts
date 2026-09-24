@@ -1,6 +1,8 @@
 import { describe, expect, it, vi } from 'vitest';
 import {
+  COMPOSER_IMAGE_INSERT_EVENT,
   COMPOSER_INSERT_EVENT,
+  requestComposerImageInsert,
   requestComposerInsert,
   requestComposerTokenInsert,
   shouldAcceptComposerInsert,
@@ -77,6 +79,17 @@ describe('composerInsert', () => {
       shouldAcceptComposerInsert(detail, { conversationId: 'conv-b' })
     ).toBe(false);
     expect(shouldAcceptComposerInsert(detail, {})).toBe(false);
+  });
+
+  it('dispatches a picked-element image to the composer', () => {
+    const listener = vi.fn();
+    window.addEventListener(COMPOSER_IMAGE_INSERT_EVENT, listener);
+    const file = new File([new Uint8Array([1, 2, 3])], 'button.png', {
+      type: 'image/png',
+    });
+    expect(requestComposerImageInsert(file)).toBe(true);
+    expect(listener.mock.calls[0][0].detail.file).toBe(file);
+    window.removeEventListener(COMPOSER_IMAGE_INSERT_EVENT, listener);
   });
 
   it('rejects external inserts on composers that do not accept them', () => {

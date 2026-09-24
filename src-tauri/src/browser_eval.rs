@@ -119,13 +119,10 @@ mod macos {
 
 #[cfg(target_os = "windows")]
 mod windows {
-    use std::sync::Mutex;
+    use std::sync::{Arc, Mutex};
 
     use webview2_com::Microsoft::Web::WebView2::Win32::ICoreWebView2;
-    use windows::{
-        Win32::Foundation::S_OK,
-        core::{HSTRING, Interface},
-    };
+    use ::windows::core::{HSTRING, Interface};
 
     use super::*;
 
@@ -134,11 +131,12 @@ mod windows {
         script: String,
         tx: tokio::sync::oneshot::Sender<Result<String, BrowserHostError>>,
     ) {
-        let tx = Mutex::new(Some(tx));
+        let tx = Arc::new(Mutex::new(Some(tx)));
         let result = (|| {
             let controller = platform.controller();
             let webview = unsafe { controller.CoreWebView2() }
                 .map_err(|error| BrowserHostError::new("browser_read_failed", error.to_string()))?;
+            let tx = Arc::clone(&tx);
             let handler = webview2_com::ExecuteScriptCompletedHandler::create(Box::new(
                 move |error_code, result| {
                     let payload = if error_code.is_ok() {
@@ -152,7 +150,7 @@ mod windows {
                     if let Some(tx) = tx.lock().ok().and_then(|mut slot| slot.take()) {
                         let _ = tx.send(payload);
                     }
-                    S_OK
+                    Ok(())
                 },
             ));
             unsafe { webview.ExecuteScript(&HSTRING::from(script), &handler) }

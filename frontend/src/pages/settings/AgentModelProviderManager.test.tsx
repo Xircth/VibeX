@@ -867,6 +867,40 @@ describe('AgentModelProviderManager', () => {
     );
   });
 
+  it('prompts before enabling a provider while the official subscription is signed in', async () => {
+    vi.mocked(ConfirmDialog.show).mockResolvedValue('confirmed');
+    vi.mocked(agentManagementApi.modelProviders).mockResolvedValue({
+      agent_id: 'grok',
+      providers: [{ ...gateway, agent_id: 'grok' }],
+      bound_provider_id: null,
+    });
+    vi.mocked(agentManagementApi.bindModelProvider).mockResolvedValue({
+      agent_id: 'grok',
+      providers: [{ ...gateway, agent_id: 'grok', bound: true }],
+      bound_provider_id: 'provider-1',
+    });
+    const user = userEvent.setup();
+    render(
+      <AgentModelProviderManager
+        agentId="grok"
+        disabled={false}
+        embedded
+        signedIn
+      />
+    );
+
+    await user.click(await screen.findByRole('button', { name: '启用' }));
+    expect(ConfirmDialog.show).toHaveBeenCalledWith(
+      expect.objectContaining({
+        message: '启用该供应商将会退出官方订阅登录态，是否继续？',
+      })
+    );
+    expect(agentManagementApi.bindModelProvider).toHaveBeenCalledWith(
+      'grok',
+      'provider-1'
+    );
+  });
+
   it('keeps delete disabled when only one provider remains', async () => {
     vi.mocked(agentManagementApi.modelProviders).mockResolvedValue({
       agent_id: 'codex',

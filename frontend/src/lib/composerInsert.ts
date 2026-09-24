@@ -47,3 +47,28 @@ export function requestComposerTokenInsert(token: {
   window.dispatchEvent(event);
   return true;
 }
+
+export const COMPOSER_IMAGE_INSERT_EVENT = 'vibex:composer-image-insert';
+
+export type ComposerImageInsertDetail = {
+  file: File;
+  conversationId?: string;
+};
+
+export function requestComposerImageInsert(
+  file: File,
+  conversationId?: string | null
+): boolean {
+  if (!file) return false;
+  const event = new CustomEvent<ComposerImageInsertDetail>(
+    COMPOSER_IMAGE_INSERT_EVENT,
+    {
+      detail: {
+        file,
+        ...(conversationId ? { conversationId } : {}),
+      },
+    }
+  );
+  window.dispatchEvent(event);
+  return true;
+}

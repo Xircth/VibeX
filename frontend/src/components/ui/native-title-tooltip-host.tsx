@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { usePortalContainer } from '@/contexts/PortalContainerContext';
+import { NativeSurfaceOcclusionHold } from '@/contexts/WorkspaceOverlayContext';
 import {
   findTitledElement,
   isOwnedAppTooltip,
@@ -162,6 +163,7 @@ export function NativeTitleTooltipHost() {
         pointerEvents: 'none',
       }}
     >
+      <NativeSurfaceOcclusionHold />
       {tooltip.text}
     </div>
   );

@@ -75,7 +75,15 @@
       "list_connections": "列出连接",
       "search_actions": "搜索操作",
       "get_action_guide": "查看操作说明",
-      "execute_action": "执行操作"
+      "execute_action": "执行操作",
+      "browser_list_tabs": "列出标签页",
+      "browser_snapshot": "读取页面快照",
+      "browser_click": "点击页面元素",
+      "browser_type": "输入文字",
+      "browser_open_tab": "打开新标签页",
+      "browser_navigate": "导航到地址",
+      "browser_close_tab": "关闭标签页",
+      "browser_eval": "运行页面脚本"
     }
   }
 }

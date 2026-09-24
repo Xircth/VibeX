@@ -63,6 +63,66 @@ describe('validatePlugin product package', () => {
 
     const result = await validatePlugin(root);
     expect(result.valid).toBe(true);
+    expect(result.diagnostics).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ code: 'mcp_tools_missing', severity: 'warning' }),
+      ])
+    );
+  });
+
+  it('accepts packaged MCP that declares tools', async () => {
+    const root = await fixture({
+      integrations: [
+        {
+          id: 'test',
+          kind: 'content.skill',
+          resource: 'contents/skills/test',
+        },
+        {
+          id: 'hello',
+          kind: 'content.mcp',
+          resource: 'contents/mcps/hello.json',
+        },
+      ],
+    });
+    await mkdir(join(root, 'contents/mcps'), { recursive: true });
+    await mkdir(join(root, 'dist/mcp'), { recursive: true });
+    await writeFile(join(root, 'dist/mcp/hello.mjs'), 'export {}\n');
+    await writeFile(
+      join(root, 'contents/mcps/hello.json'),
+      JSON.stringify({
+        managedRuntime: {
+          entrypoint: 'dist/mcp/hello.mjs',
+          protocolRevision: '2026-07-28',
+          defaultBinding: 'all-compatible-agents',
+        },
+        tools: [{ name: 'hello', group: 'mcp' }],
+      })
+    );
+    await writeFile(
+      join(root, '.vibex-plugin/content.index.json'),
+      JSON.stringify({
+        schemaVersion: 1,
+        items: [
+          {
+            path: 'contents/skills/test/SKILL.md',
+            kind: 'skill',
+            title: 'Test skill',
+          },
+          {
+            path: 'contents/mcps/hello.json',
+            kind: 'mcp',
+            title: 'Hello',
+          },
+        ],
+      })
+    );
+
+    const result = await validatePlugin(root);
+    expect(result.valid).toBe(true);
+    expect(result.diagnostics.filter((item) => item.code.startsWith('mcp_'))).toEqual(
+      []
+    );
   });
 
   it('rejects a README without an independent one-line summary tag', async () => {

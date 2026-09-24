@@ -2,12 +2,12 @@
 /**
  * MCP stdio server for built-in browser tools.
  * Host injects VIBEX_HOST_CALL_* when projecting this content.mcp.
- * Framing is newline-delimited JSON-RPC (MCP stdio). Tools are advertised
+ * Framing accepts MCP NDJSON and LSP Content-Length. Tools are advertised
  * only while config.json toolsEnabled is true; eval is a separate switch.
  * Grant checks stay in Host BrowserService.
  */
+import { Buffer } from 'node:buffer';
 import { readFileSync } from 'node:fs';
-import { createInterface } from 'node:readline';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -58,6 +58,55 @@ const allTools = [
     },
   },
   {
+    name: 'browser_type',
+    operation: 'act',
+    description: 'Type into a snapshot ref. Requires action permission.',
+    inputSchema: {
+      type: 'object',
+      required: ['tabId', 'ref', 'generation', 'text'],
+      properties: {
+        tabId: { type: 'string' },
+        ref: { type: 'string' },
+        generation: { type: 'string' },
+        text: { type: 'string' },
+        kind: { type: 'string' },
+      },
+    },
+  },
+  {
+    name: 'browser_open_tab',
+    operation: 'tab.create',
+    description: 'Open a new built-in browser tab on an http(s) address.',
+    inputSchema: {
+      type: 'object',
+      required: ['url'],
+      properties: { url: { type: 'string' } },
+    },
+  },
+  {
+    name: 'browser_navigate',
+    operation: 'tab.navigate',
+    description: 'Point an existing shared tab at a new address.',
+    inputSchema: {
+      type: 'object',
+      required: ['tabId', 'url'],
+      properties: {
+        tabId: { type: 'string' },
+        url: { type: 'string' },
+      },
+    },
+  },
+  {
+    name: 'browser_close_tab',
+    operation: 'tab.close',
+    description: 'Close a built-in browser tab.',
+    inputSchema: {
+      type: 'object',
+      required: ['tabId'],
+      properties: { tabId: { type: 'string' } },
+    },
+  },
+  {
     name: 'browser_eval',
     operation: 'eval.run',
     description:
@@ -76,12 +125,15 @@ const allTools = [
 function readConfig() {
   try {
     const raw = JSON.parse(readFileSync(join(pluginRoot, 'config.json'), 'utf8'));
+    const grant = raw.defaultGrant;
     return {
       toolsEnabled: raw.toolsEnabled === true,
       evalEnabled: raw.evalEnabled === true,
+      defaultGrant:
+        grant === 'read' || grant === 'control' ? grant : 'none',
     };
   } catch {
-    return { toolsEnabled: false, evalEnabled: false };
+    return { toolsEnabled: false, evalEnabled: false, defaultGrant: 'none' };
   }
 }
 
@@ -93,8 +145,18 @@ function advertisedTools() {
   );
 }
 
+let framing = 'ndjson';
+let stdinBuf = Buffer.alloc(0);
+
 function send(message) {
-  process.stdout.write(`${JSON.stringify(message)}\n`);
+  const json = JSON.stringify(message);
+  if (framing === 'lsp') {
+    const payload = Buffer.from(json, 'utf8');
+    process.stdout.write(`Content-Length: ${payload.length}\r\n\r\n`);
+    process.stdout.write(payload);
+  } else {
+    process.stdout.write(`${json}\n`);
+  }
 }
 
 function reply(id, result) {
@@ -132,7 +194,7 @@ function negotiateProtocol(requested) {
   if (typeof requested === 'string' && SUPPORTED_PROTOCOLS.includes(requested)) {
     return requested;
   }
-  return '2025-03-26';
+  return '2026-07-28';
 }
 
 function handleMessage(message) {
@@ -177,6 +239,16 @@ function handleMessage(message) {
     if (tool.name === 'browser_click') {
       args.kind = args.kind || 'click';
     }
+    if (tool.name === 'browser_type') {
+      args.kind = 'type';
+    }
+    if (
+      tool.name === 'browser_open_tab' &&
+      args.grant == null &&
+      config.defaultGrant !== 'none'
+    ) {
+      args.grant = config.defaultGrant;
+    }
     callHost('browser', tool.operation, args)
       .then((result) =>
         reply(id, {
@@ -193,15 +265,78 @@ function handleMessage(message) {
   }
 }
 
-const rl = createInterface({ input: process.stdin, crlfDelay: Infinity });
-rl.on('line', (line) => {
-  const trimmed = line.trim();
-  if (!trimmed) return;
-  let message;
-  try {
-    message = JSON.parse(trimmed);
-  } catch {
-    return;
+function consumeNdjson() {
+  while (true) {
+    const newline = stdinBuf.indexOf(0x0a);
+    if (newline < 0) return;
+    const line = stdinBuf
+      .subarray(0, newline)
+      .toString('utf8')
+      .replace(/\r$/, '')
+      .trim();
+    stdinBuf = stdinBuf.subarray(newline + 1);
+    if (!line || /^content-length:/i.test(line)) continue;
+    try {
+      handleMessage(JSON.parse(line));
+    } catch {
+      // Ignore a truncated or non-JSON line; the next frame may complete.
+    }
   }
-  handleMessage(message);
+}
+
+function consumeLsp() {
+  while (true) {
+    const headerEnd = stdinBuf.indexOf('\r\n\r\n');
+    if (headerEnd < 0) return;
+    const header = stdinBuf.subarray(0, headerEnd).toString('utf8');
+    const match = header.match(/content-length:\s*(\d+)/i);
+    if (!match) {
+      stdinBuf = stdinBuf.subarray(headerEnd + 4);
+      continue;
+    }
+    const size = Number(match[1]);
+    const start = headerEnd + 4;
+    if (stdinBuf.length < start + size) return;
+    const body = stdinBuf.subarray(start, start + size).toString('utf8');
+    stdinBuf = stdinBuf.subarray(start + size);
+    try {
+      handleMessage(JSON.parse(body));
+    } catch {
+      // Keep the server up if one frame is malformed.
+    }
+  }
+}
+
+function onStdin(chunk) {
+  stdinBuf = Buffer.concat([stdinBuf, chunk]);
+  if (framing !== 'lsp') {
+    const preview = stdinBuf
+      .toString('utf8', 0, Math.min(stdinBuf.length, 64))
+      .replace(/^\uFEFF/, '')
+      .trimStart();
+    if (/^content-length:/i.test(preview)) {
+      framing = 'lsp';
+    }
+  }
+  if (framing === 'lsp') consumeLsp();
+  else consumeNdjson();
+}
+
+process.stdin.on('data', onStdin);
+process.stdin.on('error', (error) => {
+  try {
+    process.stderr.write(`[vibex-browser] stdin ${error}\n`);
+  } catch {
+    // stderr may already be closed with the parent.
+  }
 });
+process.on('uncaughtException', (error) => {
+  try {
+    process.stderr.write(
+      `[vibex-browser] ${error instanceof Error ? error.stack : String(error)}\n`
+    );
+  } catch {
+    // Keep the MCP process alive for the next request.
+  }
+});
+process.stdin.resume();

@@ -258,8 +258,8 @@ pub fn official_product_mcp_name(spec: &Value) -> Option<&'static str> {
 /// their ADR names so Grok `server__tool` titles and uninstall match injection.
 ///
 /// Grok session admission requires each MCP name segment to match
-/// `[A-Za-z_][A-Za-z0-9_-]*`. Plugin ids contain `.`, so dotted names such as
-/// `vibex.open-connector.mcp` handshake but then have every tool skipped.
+/// `[A-Za-z_][A-Za-z0-9_-]*`. Plugin ids contain `.`, so dotted names
+/// handshake but then have every tool skipped.
 pub fn projected_mcp_server_id(plugin_id: &str, server_id: &str, spec: &Value) -> String {
     sanitize_mcp_server_id(&raw_projected_mcp_server_id(plugin_id, server_id, spec))
 }

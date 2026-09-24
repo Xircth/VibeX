@@ -29,9 +29,11 @@ export function BrowserEvalConfirm() {
   );
 
   const answer = useCallback((requestId: string, allow: boolean) => {
+    const pluginId = pending?.pluginId?.trim();
     setEvalRequest(null);
+    if (!pluginId) return;
     void backendCall('plugin_invoke_contribution', {
-      pluginId: 'vibex.browser',
+      pluginId,
       handler: 'browser.dispatch',
       input: {
         operation: 'eval.decide',
@@ -40,7 +42,7 @@ export function BrowserEvalConfirm() {
     }).catch(() => {
       /* timeout on the host is already a refusal */
     });
-  }, []);
+  }, [pending?.pluginId]);
 
   useEffect(() => {
     if (!pending) return undefined;

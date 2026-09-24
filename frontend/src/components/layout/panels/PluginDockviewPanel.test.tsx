@@ -12,8 +12,14 @@ vi.mock('@/features/host-browser/HostBrowserPanel', () => ({
 }));
 
 vi.mock('@/hooks/usePluginHostContributions', () => ({
-  usePluginHostContributions: () => [],
-  contributionMetadata: () => ({}),
+  usePluginHostContributions: () => [
+    {
+      pluginId: 'example.browser',
+      id: 'browser',
+      metadata: { engine: 'host-browser' },
+    },
+  ],
+  contributionMetadata: () => ({ engine: 'host-browser' }),
 }));
 
 vi.mock('@/components/plugins/PluginRemoteView', () => ({
@@ -25,11 +31,11 @@ import PluginDockviewPanel from './PluginDockviewPanel';
 function panelProps(isVisible = true): IDockviewPanelProps {
   return {
     api: {
-      id: 'plugin:vibex.browser/browser:1',
+      id: 'plugin:example.browser/browser:1',
       isVisible,
       onDidVisibilityChange: () => ({ dispose() {} }),
     },
-    params: { pluginId: 'vibex.browser', contributionId: 'browser' },
+    params: { pluginId: 'example.browser', contributionId: 'browser' },
   } as unknown as IDockviewPanelProps;
 }
 

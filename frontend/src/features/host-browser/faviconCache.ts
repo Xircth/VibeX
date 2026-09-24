@@ -1,4 +1,4 @@
-export const FAVICON_CACHE_KEY = 'vibex.browser.favicon-cache';
+export const FAVICON_CACHE_KEY = 'vibex.host-browser.favicon-cache';
 export const FAVICON_CACHE_LIMIT = 200;
 
 function originOf(url: string): string | null {

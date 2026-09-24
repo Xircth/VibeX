@@ -548,6 +548,42 @@ async fn pi_custom_provider_api_key_counts_as_authenticated() {
 }
 
 #[tokio::test]
+async fn opencode_inline_provider_api_key_is_api_key_login() {
+    let filesystem = Arc::new(MemoryNativeFileSystem::default());
+    let provider = NativeConfigProvider::bundled(filesystem.clone(), PathBuf::from("/home/user"));
+    let opencode = AgentId::parse("opencode").unwrap();
+
+    filesystem.files.lock().unwrap().insert(
+        PathBuf::from("/home/user/.local/share/opencode/auth.json"),
+        b"{}".to_vec(),
+    );
+    filesystem.files.lock().unwrap().insert(
+        PathBuf::from("/home/user/.config/opencode/opencode.json"),
+        br#"{
+          "provider": {
+            "opencodego": {
+              "name": "OpenCode Go",
+              "options": {
+                "baseURL": "https://opencode.ai/zen/go/v1",
+                "apiKey": "sk-go"
+              }
+            }
+          }
+        }"#
+        .to_vec(),
+    );
+
+    assert_eq!(
+        provider
+            .read(&opencode, false)
+            .await
+            .unwrap()
+            .authentication,
+        AgentAuthenticationStatus::ApiKey
+    );
+}
+
+#[tokio::test]
 async fn bundled_profiles_manage_runtime_settings_across_all_declared_files() {
     let filesystem = Arc::new(MemoryNativeFileSystem::default());
     let provider = NativeConfigProvider::bundled(filesystem.clone(), PathBuf::from("/home/user"));

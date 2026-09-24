@@ -51,6 +51,10 @@ vi.mock('@/contexts/WorkspaceOverlayContext', async (importOriginal) => {
         listener({ hide: false, rects: [] });
         return () => {};
       },
+      registerNativeSurfaceHost: () => () => {},
+      ackOverlayReady: () => {},
+      waitForOverlayReady: () => Promise.resolve(),
+      isOverlayReady: () => true,
     }),
   };
 });

@@ -673,49 +673,29 @@ export function HostBrowserPanel({
     return () => window.clearTimeout(timer);
   }, [loading, t]);
 
-  useEffect(() => {
+  useLayoutEffect(() => overlay.registerNativeSurfaceHost(), [overlay]);
+
+  useLayoutEffect(() => {
     return overlay.subscribeNativeSurfaceOcclusion((occlusion) => {
       const hide = overlayCoversBrowser(hostRef.current, occlusion);
-      if (occludedRef.current === hide) return;
+      if (occludedRef.current === hide) {
+        overlay.ackOverlayReady();
+        return;
+      }
       hideSeqRef.current += 1;
       const seq = hideSeqRef.current;
       if (!hide) {
         occludedRef.current = false;
         void syncBounds().finally(() => {
           if (hideSeqRef.current === seq) setFrozen(null);
+          overlay.ackOverlayReady();
         });
         return;
       }
-      void (async () => {
-        // Paint the still UNDER the live native view, then hide. Codeg's
-        // NativeSurfaceHost: the view covers the placeholder until the
-        // frame is on screen, so a hide never flashes blank. A capture
-        // that times out keeps the previous still if there is one.
-        const tabId = tabIdRef.current;
-        let frame: FreezePayload | null = null;
-        if (tabId) {
-          try {
-            frame = (await dispatch('surface.freeze', {
-              tabId,
-            })) as FreezePayload;
-          } catch {
-            frame = null;
-          }
-        }
-        if (hideSeqRef.current !== seq) return;
-        if (frame?.mime && frame.data) {
-          const url = `data:${frame.mime};base64,${frame.data}`;
-          await decodeFreeze(url);
-          if (hideSeqRef.current !== seq) return;
-          setFrozen(url);
-          await nextPaint();
-          if (hideSeqRef.current !== seq) return;
-        }
-        occludedRef.current = true;
-        await syncBounds();
-      })();
+      occludedRef.current = true;
+      void syncBounds().finally(() => overlay.ackOverlayReady());
     });
-  }, [dispatch, overlay, syncBounds]);
+  }, [overlay, syncBounds]);
 
   useEffect(() => {
     let cancelled = false;

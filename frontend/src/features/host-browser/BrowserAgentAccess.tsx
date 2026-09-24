@@ -102,10 +102,7 @@ export function BrowserAgentShareControl({
           type="button"
           className={cn(
             FIELD_PILL,
-            'h-7',
-            acting
-              ? 'hover:bg-foreground/[0.06]'
-              : 'bg-blue-500/10 hover:bg-blue-500/16'
+            'h-7 bg-blue-500/12 hover:bg-blue-500/20'
           )}
           title={t(acting ? 'browserPanel.sharedControl' : 'browserPanel.sharedRead')}
         >

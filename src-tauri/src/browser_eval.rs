@@ -121,8 +121,8 @@ mod macos {
 mod windows {
     use std::sync::{Arc, Mutex};
 
-    use webview2_com::Microsoft::Web::WebView2::Win32::ICoreWebView2;
     use ::windows::core::{HSTRING, Interface};
+    use webview2_com::Microsoft::Web::WebView2::Win32::ICoreWebView2;
 
     use super::*;
 

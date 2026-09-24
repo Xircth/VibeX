@@ -145,6 +145,9 @@ struct TabRecord {
     bounds: BrowserBounds,
     incarnation: u64,
     nav_epoch: u64,
+    /// Standing share for this tab. Origin changes rebind the grant; only
+    /// `grant.set` or a `none` default turns sharing off.
+    share_level: GrantLevel,
 }
 
 pub struct BrowserService {
@@ -202,7 +205,7 @@ impl BrowserService {
         bounds: BrowserBounds,
     ) -> BrowserTab {
         let parsed = Url::parse(&url).ok();
-        let tab = BrowserTab {
+        let mut tab = BrowserTab {
             tab_id: tab_id.clone(),
             url: url.clone(),
             title: parsed
@@ -215,6 +218,8 @@ impl BrowserService {
             grant: None,
             profile_id,
         };
+        let share_level = GrantLevel::Control;
+        Self::apply_grant(&mut tab, share_level);
         let mut tabs = self.tabs.lock().expect("browser tabs");
         if let Some(existing) = tabs.get(&tab_id) {
             return existing.tab.clone();
@@ -226,6 +231,7 @@ impl BrowserService {
                 bounds,
                 incarnation: 1,
                 nav_epoch: 0,
+                share_level,
             },
         );
         tab
@@ -246,10 +252,8 @@ impl BrowserService {
                 return;
             };
             if record.tab.origin.as_deref() != Some(origin.as_str()) {
-                if record.tab.origin.is_some() {
-                    record.tab.grant = None;
-                }
                 record.tab.origin = Some(origin);
+                Self::apply_grant(&mut record.tab, record.share_level);
             }
             record.tab.url = url.to_owned();
             record.nav_epoch = record.nav_epoch.saturating_add(1);
@@ -296,6 +300,7 @@ impl BrowserService {
         let tab_id = Uuid::new_v4().to_string();
         let profile_id = profile_id.unwrap_or("default").to_owned();
         self.native.open(&tab_id, url, &bounds, &profile_id).await?;
+        let share_level = grant.unwrap_or(GrantLevel::Control);
         let mut tab = BrowserTab {
             tab_id: tab_id.clone(),
             url: url.to_owned(),
@@ -305,9 +310,7 @@ impl BrowserService {
             grant: None,
             profile_id,
         };
-        if let Some(level) = grant {
-            Self::apply_grant(&mut tab, level);
-        }
+        Self::apply_grant(&mut tab, share_level);
         self.tabs.lock().expect("browser tabs").insert(
             tab_id,
             TabRecord {
@@ -315,6 +318,7 @@ impl BrowserService {
                 bounds,
                 incarnation: 1,
                 nav_epoch: 0,
+                share_level,
             },
         );
         Ok(tab)
@@ -453,10 +457,10 @@ pub async fn dispatch(
             if let Some(record) = tabs.get_mut(&tab_id) {
                 let next_origin = origin_of(&parsed);
                 if record.tab.origin.as_deref() != next_origin.as_deref() {
-                    record.tab.grant = None;
+                    record.tab.origin = next_origin;
+                    BrowserService::apply_grant(&mut record.tab, record.share_level);
                 }
                 record.tab.url = url;
-                record.tab.origin = next_origin;
                 record.nav_epoch = record.nav_epoch.saturating_add(1);
             }
             drop(tabs);
@@ -599,6 +603,7 @@ pub async fn dispatch(
             let origin = record.tab.origin.clone().ok_or_else(|| {
                 BrowserHostError::new("browser_not_grantable", "this tab has no origin to share")
             })?;
+            record.share_level = level;
             record.tab.grant = if level == GrantLevel::None {
                 None
             } else {
@@ -881,8 +886,14 @@ async fn eval_ask(
             )
         })?;
     let expires_at = now_ms() + crate::confirm::EVAL_CONFIRM_TIMEOUT.as_millis() as i64;
+    let plugin_id = service
+        .occupant
+        .lock()
+        .expect("browser occupant")
+        .clone();
     service.native.notify(json!({
         "kind": "eval.request",
+        "pluginId": plugin_id,
         "requestId": request_id,
         "tabId": tab.tab_id,
         "origin": tab.origin,
@@ -920,8 +931,14 @@ async fn eval_run(
             )
         })?;
     let expires_at = now_ms() + crate::confirm::EVAL_CONFIRM_TIMEOUT.as_millis() as i64;
+    let plugin_id = service
+        .occupant
+        .lock()
+        .expect("browser occupant")
+        .clone();
     service.native.notify(json!({
         "kind": "eval.request",
+        "pluginId": plugin_id,
         "requestId": request_id,
         "tabId": tab.tab_id,
         "origin": tab.origin,
@@ -1102,16 +1119,15 @@ mod tests {
         )
         .await
         .expect("new origin");
-        assert!(other_origin.get("grant").is_none() || other_origin["grant"].is_null());
-        let snap = dispatch(
+        assert_eq!(other_origin["grant"]["level"], "control");
+        dispatch(
             &service,
             "vibex.browser",
             "snapshot",
             json!({ "tabId": tab_id }),
         )
         .await
-        .expect_err("agent still needs a share");
-        assert_eq!(snap.code(), "browser_grant_required");
+        .expect("standing share follows the tab");
     }
 
     #[tokio::test]
@@ -1157,8 +1173,63 @@ mod tests {
         );
         service.commit_url(tab_id, "https://other.test/");
         let other = service.tab(tab_id).expect("tab");
-        assert!(other.grant.is_none());
+        assert_eq!(
+            other.grant.as_ref().map(|grant| grant.level),
+            Some(GrantLevel::Control)
+        );
         assert_eq!(other.origin.as_deref(), Some("https://other.test"));
+        assert_eq!(
+            other.grant.as_ref().map(|grant| grant.origin.as_str()),
+            Some("https://other.test")
+        );
+    }
+
+    #[tokio::test]
+    async fn tab_create_defaults_to_control_share() {
+        let service = BrowserService::new(Arc::new(MemoryNative), true);
+        let tab = dispatch(
+            &service,
+            "vibex.browser",
+            "tab.create",
+            json!({ "url": "https://example.test/" }),
+        )
+        .await
+        .expect("open");
+        assert_eq!(tab["grant"]["level"], "control");
+    }
+
+    #[tokio::test]
+    async fn stopping_share_survives_origin_changes() {
+        let service = BrowserService::new(Arc::new(MemoryNative), true);
+        let tab = dispatch(
+            &service,
+            "vibex.browser",
+            "tab.create",
+            json!({ "url": "https://example.test/", "grant": "control" }),
+        )
+        .await
+        .expect("open");
+        let tab_id = tab["tabId"].as_str().unwrap();
+        dispatch(
+            &service,
+            "vibex.browser",
+            "grant.set",
+            json!({ "tabId": tab_id, "level": "none" }),
+        )
+        .await
+        .expect("stop sharing");
+        service.commit_url(tab_id, "https://other.test/");
+        let other = service.tab(tab_id).expect("tab");
+        assert!(other.grant.is_none());
+        let snap = dispatch(
+            &service,
+            "vibex.browser",
+            "snapshot",
+            json!({ "tabId": tab_id }),
+        )
+        .await
+        .expect_err("stopped share");
+        assert_eq!(snap.code(), "browser_grant_required");
     }
 
     #[test]
@@ -1344,7 +1415,7 @@ mod tests {
             &service,
             "vibex.browser",
             "tab.create",
-            json!({ "url": "https://example.test/" }),
+            json!({ "url": "https://example.test/", "grant": "none" }),
         )
         .await
         .expect("open");

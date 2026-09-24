@@ -42,7 +42,7 @@ use sqlx::SqlitePool;
 use super::{
     account_flow,
     native::{
-        apply_native_file_mutations, dsh_configuration, expand_agent_home_path, model_providers,
+        apply_native_file_mutations, dsh_configuration, model_providers, opencode_document_paths,
         opencode_providers, provider_store_path,
     },
 };
@@ -1251,23 +1251,14 @@ async fn read_opencode_auth_mode(
     let agent_id = AgentId::parse("opencode").map_err(internal_error)?;
     let policy = built_in_auth_mode_policy(&agent_id)
         .ok_or_else(|| ApplicationError::bad_request("此 Agent 没有独立鉴权模式"))?;
-    let (auth_path, config_path) = opencode_paths_at(home, env);
+    let (auth_path, config_path) = opencode_document_paths(home, env);
     let auth = read_json_object_or_empty(&auth_path)
         .await
         .unwrap_or_else(|_| serde_json::json!({}));
     let config = read_json_object_or_empty(&config_path)
         .await
         .unwrap_or_else(|_| serde_json::json!({}));
-    let connections = opencode_providers::project_opencode_provider_connections(&auth, &config);
-    let provider_ready = connections.providers.iter().any(|provider| {
-        provider.enabled
-            && provider.credential_present
-            && auth
-                .get(&provider.provider_id)
-                .and_then(|entry| entry.get("type"))
-                .and_then(Value::as_str)
-                != Some("oauth")
-    });
+    let provider_ready = opencode_providers::opencode_enabled_api_provider_ready(&auth, &config);
     let snapshot = read_native_auth_snapshot(home, env, &agent_id).await;
     let mode = resolve_built_in_auth_mode(
         &agent_id,
@@ -1293,27 +1284,6 @@ async fn read_opencode_auth_mode(
         credential_present,
         account_label: None,
     })
-}
-
-fn opencode_paths_at(home: &Path, env: &HashMap<String, String>) -> (PathBuf, PathBuf) {
-    let data = env
-        .get("XDG_DATA_HOME")
-        .map(String::as_str)
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-        .map(|value| expand_agent_home_path(home, value))
-        .unwrap_or_else(|| home.join(".local").join("share"));
-    let config = env
-        .get("XDG_CONFIG_HOME")
-        .map(String::as_str)
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-        .map(|value| expand_agent_home_path(home, value))
-        .unwrap_or_else(|| home.join(".config"));
-    (
-        data.join("opencode").join("auth.json"),
-        config.join("opencode").join("opencode.json"),
-    )
 }
 
 async fn set_codex_auth_mode(
@@ -1655,6 +1625,9 @@ async fn bound_provider_has_credentials(agent_id: &AgentId, env: &HashMap<String
     let Some(home) = dirs::home_dir() else {
         return false;
     };
+    if agent_id.as_str() == "opencode" && opencode_native_api_provider_ready(&home, env).await {
+        return true;
+    }
     let native_home = model_providers::provider_native_home(&home, env, agent_id);
     let Ok(view) = model_providers::list_with_native(
         &provider_store_path(),
@@ -1669,6 +1642,17 @@ async fn bound_provider_has_credentials(agent_id: &AgentId, env: &HashMap<String
         .iter()
         .find(|provider| Some(&provider.id) == view.bound_provider_id.as_ref())
         .is_some_and(|provider| provider.credential_present)
+}
+
+async fn opencode_native_api_provider_ready(home: &Path, env: &HashMap<String, String>) -> bool {
+    let (auth_path, config_path) = opencode_document_paths(home, env);
+    let auth = read_json_object_or_empty(&auth_path)
+        .await
+        .unwrap_or_else(|_| json!({}));
+    let config = read_json_object_or_empty(&config_path)
+        .await
+        .unwrap_or_else(|_| json!({}));
+    opencode_providers::opencode_enabled_api_provider_ready(&auth, &config)
 }
 
 async fn recorded_authentication(
@@ -2979,6 +2963,47 @@ mod tests {
         tokio::fs::write(
             auth_dir.join("auth.json"),
             br#"{"deepseek":{"type":"api","key":"sk-ds"}}"#,
+        )
+        .await
+        .unwrap();
+
+        let view = project_auth_mode_view_at(
+            &home,
+            &store_path,
+            AgentId::parse("opencode").unwrap(),
+            &HashMap::new(),
+        )
+        .await
+        .unwrap();
+        assert_eq!(view.mode, "model_provider");
+        assert!(view.credential_present);
+    }
+
+    #[tokio::test]
+    async fn opencode_inline_api_key_selects_the_provider_auth_tab() {
+        let temp = tempfile::tempdir().unwrap();
+        let home = temp.path().join("home");
+        let auth_dir = home.join(".local/share/opencode");
+        let config_dir = home.join(".config/opencode");
+        let store_path = temp.path().join("data/agent-model-providers.json");
+        tokio::fs::create_dir_all(&auth_dir).await.unwrap();
+        tokio::fs::create_dir_all(&config_dir).await.unwrap();
+        tokio::fs::write(auth_dir.join("auth.json"), b"{}")
+            .await
+            .unwrap();
+        tokio::fs::write(
+            config_dir.join("opencode.json"),
+            br#"{
+              "provider": {
+                "opencodego": {
+                  "name": "OpenCode Go",
+                  "options": {
+                    "baseURL": "https://opencode.ai/zen/go/v1",
+                    "apiKey": "sk-go"
+                  }
+                }
+              }
+            }"#,
         )
         .await
         .unwrap();

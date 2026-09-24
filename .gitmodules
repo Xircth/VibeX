@@ -16,3 +16,15 @@
 [submodule "assets/plugins/science"]
 	path = assets/plugins/science
 	url = https://github.com/Xircth/vibex-plugin-science.git
+[submodule "assets/plugins/open-connector"]
+	path = assets/plugins/open-connector
+	url = https://github.com/Xircth/vibex-plugin-open-connector.git
+[submodule "assets/plugins/remote-ssh"]
+	path = assets/plugins/remote-ssh
+	url = https://github.com/Xircth/vibex-plugin-remote-ssh.git
+[submodule "assets/plugins/provider-switch"]
+	path = assets/plugins/provider-switch
+	url = https://github.com/Xircth/vibex-plugin-provider-switch.git
+[submodule "assets/plugins/browser"]
+	path = assets/plugins/browser
+	url = https://github.com/Xircth/vibex-plugin-browser.git

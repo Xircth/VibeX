@@ -1,6 +1,6 @@
 import { completeBrowserAddress } from './completeAddress';
 
-export const ADDRESS_HISTORY_KEY = 'vibex.browser.address-history';
+export const ADDRESS_HISTORY_KEY = 'vibex.host-browser.address-history';
 export const ADDRESS_HISTORY_LIMIT = 80;
 export const ADDRESS_SUGGESTION_LIMIT = 8;
 

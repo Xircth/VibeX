@@ -65,6 +65,10 @@ describe('WorkspaceTabAddMenu', () => {
           setHtmlOverlayOpen: vi.fn(),
           setHtmlOverlayRect: vi.fn(),
           subscribeNativeSurfaceOcclusion: () => () => {},
+          registerNativeSurfaceHost: () => () => {},
+          ackOverlayReady: () => {},
+          waitForOverlayReady: () => Promise.resolve(),
+          isOverlayReady: () => true,
         }}
       >
         <WorkspaceTabAddMenu {...props} />
@@ -101,6 +105,10 @@ describe('WorkspaceTabAddMenu', () => {
           setHtmlOverlayOpen: vi.fn(),
           setHtmlOverlayRect: vi.fn(),
           subscribeNativeSurfaceOcclusion: () => () => {},
+          registerNativeSurfaceHost: () => () => {},
+          ackOverlayReady: () => {},
+          waitForOverlayReady: () => Promise.resolve(),
+          isOverlayReady: () => true,
         }}
       >
         <WorkspaceTabAddMenu {...props} />

@@ -158,6 +158,30 @@ pub fn catalog_cache_dir() -> PathBuf {
     dest
 }
 
+pub fn opencode_document_paths(
+    home: &Path,
+    env: &std::collections::HashMap<String, String>,
+) -> (PathBuf, PathBuf) {
+    let data = env
+        .get("XDG_DATA_HOME")
+        .map(String::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(|value| expand_agent_home_path(home, value))
+        .unwrap_or_else(|| home.join(".local").join("share"));
+    let config = env
+        .get("XDG_CONFIG_HOME")
+        .map(String::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(|value| expand_agent_home_path(home, value))
+        .unwrap_or_else(|| home.join(".config"));
+    (
+        data.join("opencode").join("auth.json"),
+        config.join("opencode").join("opencode.json"),
+    )
+}
+
 pub fn resolve_agent_home(
     home: &Path,
     env: &std::collections::HashMap<String, String>,
@@ -203,6 +227,39 @@ mod tests {
         assert_eq!(
             resolve_agent_home(&home, &env, "CODEX_HOME", ".codex"),
             home.join(".codex")
+        );
+    }
+
+    #[test]
+    fn opencode_document_paths_use_xdg_overrides_and_home_fallbacks() {
+        let home = PathBuf::from("/users/demo");
+        let (auth, config) = opencode_document_paths(&home, &std::collections::HashMap::new());
+        assert_eq!(
+            auth,
+            home.join(".local")
+                .join("share")
+                .join("opencode")
+                .join("auth.json")
+        );
+        assert_eq!(
+            config,
+            home.join(".config").join("opencode").join("opencode.json")
+        );
+
+        let env = std::collections::HashMap::from([
+            ("XDG_DATA_HOME".to_string(), "~/agent-data".to_string()),
+            ("XDG_CONFIG_HOME".to_string(), "~\\agent-config".to_string()),
+        ]);
+        let (auth, config) = opencode_document_paths(&home, &env);
+        assert_eq!(
+            auth,
+            home.join("agent-data").join("opencode").join("auth.json")
+        );
+        assert_eq!(
+            config,
+            home.join("agent-config")
+                .join("opencode")
+                .join("opencode.json")
         );
     }
 }

@@ -2,28 +2,26 @@ import { describe, expect, it } from 'vitest';
 
 import {
   findHostBrowserContribution,
-  HOST_BROWSER_CONTRIBUTION_ID,
-  HOST_BROWSER_PLUGIN_ID,
   isHostBrowserEngine,
 } from './hostBrowserEngine';
 
 describe('isHostBrowserEngine', () => {
-  it('matches the host-browser engine even before catalog metadata arrives', () => {
-    expect(isHostBrowserEngine(HOST_BROWSER_PLUGIN_ID)).toBe(true);
-    expect(isHostBrowserEngine(HOST_BROWSER_PLUGIN_ID, {})).toBe(true);
+  it('matches any plugin that declares the host-browser engine', () => {
     expect(
       isHostBrowserEngine('example.browser', { engine: 'host-browser' })
     ).toBe(true);
+    expect(isHostBrowserEngine('example.browser')).toBe(false);
+    expect(isHostBrowserEngine('example.browser', {})).toBe(false);
   });
 
   it('ignores other plugin panels', () => {
-    expect(isHostBrowserEngine('vibex.open-connector')).toBe(false);
-    expect(isHostBrowserEngine('vibex.browser.tools', { engine: 'iframe' })).toBe(
+    expect(isHostBrowserEngine('acme.connector')).toBe(false);
+    expect(isHostBrowserEngine('acme.preview', { engine: 'iframe' })).toBe(
       false
     );
   });
 
-  it('finds the official browser contribution from catalog metadata', () => {
+  it('finds the host-browser contribution from catalog metadata', () => {
     const found = findHostBrowserContribution([
       {
         pluginId: 'example.browser',
@@ -35,10 +33,10 @@ describe('isHostBrowserEngine', () => {
     expect(
       findHostBrowserContribution([
         {
-          pluginId: HOST_BROWSER_PLUGIN_ID,
-          id: HOST_BROWSER_CONTRIBUTION_ID,
+          pluginId: 'acme.other',
+          id: 'browser',
         },
-      ])?.id
-    ).toBe(HOST_BROWSER_CONTRIBUTION_ID);
+      ])
+    ).toBeUndefined();
   });
 });

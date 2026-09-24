@@ -31,6 +31,13 @@ interface WorkspaceOverlayContextValue {
   subscribeNativeSurfaceOcclusion: (
     listener: NativeSurfaceOcclusionListener
   ) => () => void;
+  /** Browser panels that own a native HWND. Menus wait for these to step aside. */
+  registerNativeSurfaceHost: () => () => void;
+  /** Resolve menus waiting to paint above a native page. */
+  ackOverlayReady: () => void;
+  /** Resolves after native hosts have hidden, or immediately when none are mounted. */
+  waitForOverlayReady: () => Promise<void>;
+  isOverlayReady: () => boolean;
 }
 
 const EMPTY_OCCLUSION: NativeSurfaceOcclusion = { hide: false, rects: [] };
@@ -54,6 +61,8 @@ function occlusionEqual(
   });
 }
 
+const OVERLAY_READY_TIMEOUT_MS = 120;
+
 export const WorkspaceOverlayContext =
   createContext<WorkspaceOverlayContextValue>({
     setTabCreationMenuOpen: () => {},
@@ -63,6 +72,10 @@ export const WorkspaceOverlayContext =
       listener(EMPTY_OCCLUSION);
       return () => {};
     },
+    registerNativeSurfaceHost: () => () => {},
+    ackOverlayReady: () => {},
+    waitForOverlayReady: () => Promise.resolve(),
+    isOverlayReady: () => true,
   });
 
 export function WorkspaceOverlayProvider({
@@ -81,6 +94,16 @@ export function WorkspaceOverlayProvider({
     rects: [],
   });
   const listenersRef = useRef(new Set<NativeSurfaceOcclusionListener>());
+  const surfaceHostCountRef = useRef(0);
+  const overlayEpochRef = useRef(0);
+  const ackedEpochRef = useRef(0);
+  const overlayWaitersRef = useRef<Array<() => void>>([]);
+
+  const flushOverlayWaiters = useCallback(() => {
+    const waiters = overlayWaitersRef.current;
+    overlayWaitersRef.current = [];
+    for (const waiter of waiters) waiter();
+  }, []);
 
   const publishOcclusion = useCallback(() => {
     const nextOcclusion: NativeSurfaceOcclusion = {
@@ -93,10 +116,15 @@ export function WorkspaceOverlayProvider({
     if (occlusionEqual(currentOcclusionRef.current, nextOcclusion)) return;
 
     currentOcclusionRef.current = nextOcclusion;
+    overlayEpochRef.current += 1;
     for (const listener of listenersRef.current) {
       listener(nextOcclusion);
     }
-  }, []);
+    if (surfaceHostCountRef.current === 0) {
+      ackedEpochRef.current = overlayEpochRef.current;
+      flushOverlayWaiters();
+    }
+  }, [flushOverlayWaiters]);
 
   const setTabCreationMenuOpen = useCallback(
     (open: boolean) => {
@@ -151,6 +179,41 @@ export function WorkspaceOverlayProvider({
     []
   );
 
+  const registerNativeSurfaceHost = useCallback(() => {
+    surfaceHostCountRef.current += 1;
+    return () => {
+      surfaceHostCountRef.current = Math.max(0, surfaceHostCountRef.current - 1);
+      if (surfaceHostCountRef.current === 0) {
+        ackedEpochRef.current = overlayEpochRef.current;
+        flushOverlayWaiters();
+      }
+    };
+  }, [flushOverlayWaiters]);
+
+  const ackOverlayReady = useCallback(() => {
+    ackedEpochRef.current = overlayEpochRef.current;
+    flushOverlayWaiters();
+  }, [flushOverlayWaiters]);
+
+  const isOverlayReady = useCallback(
+    () =>
+      surfaceHostCountRef.current === 0 ||
+      ackedEpochRef.current === overlayEpochRef.current,
+    []
+  );
+
+  const waitForOverlayReady = useCallback(() => {
+    if (isOverlayReady()) return Promise.resolve();
+    return new Promise<void>((resolve) => {
+      const finish = () => {
+        window.clearTimeout(timer);
+        resolve();
+      };
+      const timer = window.setTimeout(finish, OVERLAY_READY_TIMEOUT_MS);
+      overlayWaitersRef.current.push(finish);
+    });
+  }, [isOverlayReady]);
+
   useLayoutEffect(() => {
     nativeSurfaceOccludedRef.current = nativeSurfaceOccluded;
     publishOcclusion();
@@ -162,12 +225,20 @@ export function WorkspaceOverlayProvider({
       setHtmlOverlayOpen,
       setHtmlOverlayRect,
       subscribeNativeSurfaceOcclusion,
+      registerNativeSurfaceHost,
+      ackOverlayReady,
+      waitForOverlayReady,
+      isOverlayReady,
     }),
     [
       setHtmlOverlayOpen,
       setHtmlOverlayRect,
       setTabCreationMenuOpen,
       subscribeNativeSurfaceOcclusion,
+      registerNativeSurfaceHost,
+      ackOverlayReady,
+      waitForOverlayReady,
+      isOverlayReady,
     ]
   );
 

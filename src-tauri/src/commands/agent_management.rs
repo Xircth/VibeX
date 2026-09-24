@@ -265,7 +265,10 @@ mod tests {
     }
 }
 
-use server::native::{dsh_configuration, model_providers};
+use server::native::{
+    dsh_configuration, model_providers, opencode_document_paths, opencode_providers,
+    read_json_object_or_empty,
+};
 #[path = "agent_management/external_reconcile.rs"]
 mod external_reconcile;
 
@@ -724,6 +727,18 @@ async fn observe_native_authentication(
     {
         let paths = dsh_paths(&home, agent_env);
         if dsh_configuration::any_credential_present(&paths) {
+            return AgentAuthenticationStatus::ApiKey;
+        }
+    }
+    if agent_id.as_str() == "opencode"
+        && let Ok(home) = app.path().home_dir()
+    {
+        let (auth_path, config_path) = opencode_document_paths(&home, agent_env);
+        if let (Ok(auth), Ok(config)) = (
+            read_json_object_or_empty(&auth_path).await,
+            read_json_object_or_empty(&config_path).await,
+        ) && opencode_providers::opencode_enabled_api_provider_ready(&auth, &config)
+        {
             return AgentAuthenticationStatus::ApiKey;
         }
     }

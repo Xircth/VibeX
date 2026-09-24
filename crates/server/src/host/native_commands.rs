@@ -965,6 +965,7 @@ async fn mutate_coding_cli_documents(
     .await
     .map_err(bad)?;
     invalidate("agent-management-snapshot-invalidated");
+    let _ = management::persist_observed_authentication(pool, agent_id).await;
     serialize(opencode_providers::project_opencode_provider_connections(
         &auth, &config,
     ))

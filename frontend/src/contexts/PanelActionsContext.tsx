@@ -31,11 +31,7 @@ import {
   shouldOpenContributedPanel,
 } from '@/lib/hostSurfaceIds';
 import { useBackendTransport } from '@/lib/transport';
-import {
-  findHostBrowserContribution,
-  HOST_BROWSER_CONTRIBUTION_ID,
-  HOST_BROWSER_PLUGIN_ID,
-} from '@/features/host-browser/hostBrowserEngine';
+import { findHostBrowserContribution } from '@/features/host-browser/hostBrowserEngine';
 import { applyBrowserHostEvent } from '@/features/host-browser/browserChromeStore';
 import {
   ensureBrowserTabOpenBridge,
@@ -1458,18 +1454,7 @@ export function PanelActionsProvider({ children }: { children: ReactNode }) {
     (url?: string | null) => {
       if (!canOpenWebPreview) return;
       const browserPanel = findHostBrowserContribution(pluginPanels);
-      if (!browserPanel) {
-        openPluginPanel({
-          title: 'Browser',
-          pluginId: HOST_BROWSER_PLUGIN_ID,
-          contributionId: HOST_BROWSER_CONTRIBUTION_ID,
-          icon: 'globe',
-          multiInstance: true,
-          instance: 'new',
-          requestedUrl: url?.trim() || null,
-        });
-        return;
-      }
+      if (!browserPanel) return;
       const metadata = contributionMetadata(browserPanel);
       const icon = typeof metadata.icon === 'string' ? metadata.icon : null;
       openPluginPanel({
@@ -1540,11 +1525,12 @@ export function PanelActionsProvider({ children }: { children: ReactNode }) {
         }
       }
       const browser = findHostBrowserContribution(pluginPanelsRef.current);
-      const metadata = browser ? contributionMetadata(browser) : {};
+      if (!browser) return;
+      const metadata = contributionMetadata(browser);
       openPluginPanelRef.current({
-        title: browser?.label ?? 'Browser',
-        pluginId: browser?.pluginId ?? HOST_BROWSER_PLUGIN_ID,
-        contributionId: browser?.id ?? HOST_BROWSER_CONTRIBUTION_ID,
+        title: browser.label,
+        pluginId: browser.pluginId,
+        contributionId: browser.id,
         icon: typeof metadata.icon === 'string' ? metadata.icon : 'globe',
         multiInstance: true,
         instance: 'new',
@@ -1592,12 +1578,13 @@ export function PanelActionsProvider({ children }: { children: ReactNode }) {
     const queued = pendingBrowserOpensRef.current.splice(0);
     if (queued.length === 0) return;
     const browser = findHostBrowserContribution(pluginPanels);
-    const metadata = browser ? contributionMetadata(browser) : {};
+    if (!browser) return;
+    const metadata = contributionMetadata(browser);
     for (const request of queued) {
       open({
-        title: browser?.label ?? 'Browser',
-        pluginId: browser?.pluginId ?? HOST_BROWSER_PLUGIN_ID,
-        contributionId: browser?.id ?? HOST_BROWSER_CONTRIBUTION_ID,
+        title: browser.label,
+        pluginId: browser.pluginId,
+        contributionId: browser.id,
         icon: typeof metadata.icon === 'string' ? metadata.icon : 'globe',
         multiInstance: true,
         instance: 'new',

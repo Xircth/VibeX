@@ -21,6 +21,7 @@ export type BrowserDownload = {
 export type EvalRequest = {
   requestId: string;
   tabId: string;
+  pluginId?: string | null;
   origin?: string | null;
   title?: string | null;
   code: string;
@@ -132,6 +133,7 @@ export function applyBrowserHostEvent(
     outcome?: string;
     at?: number;
     requestId?: string;
+    pluginId?: string | null;
     origin?: string | null;
     title?: string | null;
     code?: string;
@@ -171,6 +173,7 @@ export function applyBrowserHostEvent(
     setEvalRequest({
       requestId: payload.requestId,
       tabId: payload.tabId || '',
+      pluginId: payload.pluginId,
       origin: payload.origin,
       title: payload.title,
       code: payload.code,

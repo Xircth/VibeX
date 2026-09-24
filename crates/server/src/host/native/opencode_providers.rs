@@ -20,13 +20,11 @@ pub fn apply_opencode_provider_connection(
         .as_deref()
         .map(str::trim)
         .filter(|key| !key.is_empty());
-    let credential_present = auth.get(&request.provider_id).is_some_and(|entry| {
-        entry
-            .get("key")
-            .and_then(Value::as_str)
-            .is_some_and(|key| !key.trim().is_empty())
-            || entry.get("type").and_then(Value::as_str) == Some("oauth")
-    });
+    let definition = config
+        .get("provider")
+        .and_then(|value| value.get(&request.provider_id));
+    let credential_present = opencode_auth_entry_has_credential(auth.get(&request.provider_id))
+        || opencode_inline_api_key(definition).is_some();
     if submitted_api_key.is_none() && !credential_present {
         return Err("新 Provider 必须提供 API Key".to_string());
     }
@@ -343,13 +341,8 @@ pub fn project_opencode_provider_connections(
             let definition = config
                 .get("provider")
                 .and_then(|value| value.get(&provider_id));
-            let credential_present = auth.get(&provider_id).is_some_and(|entry| {
-                entry
-                    .get("key")
-                    .and_then(Value::as_str)
-                    .is_some_and(|key| !key.trim().is_empty())
-                    || entry.get("type").and_then(Value::as_str) == Some("oauth")
-            });
+            let credential_present = opencode_auth_entry_has_credential(auth.get(&provider_id))
+                || opencode_inline_api_key(definition).is_some();
             let disabled = config
                 .get("disabled_providers")
                 .and_then(Value::as_array)
@@ -409,6 +402,42 @@ pub fn project_opencode_provider_connections(
         })
         .collect();
     OpenCodeProviderConnectionsView { providers }
+}
+
+fn opencode_auth_entry_has_credential(entry: Option<&Value>) -> bool {
+    entry.is_some_and(|entry| {
+        entry
+            .get("key")
+            .and_then(Value::as_str)
+            .is_some_and(|key| !key.trim().is_empty())
+            || entry.get("type").and_then(Value::as_str) == Some("oauth")
+    })
+}
+
+fn opencode_inline_api_key(definition: Option<&Value>) -> Option<&str> {
+    let options = definition?.get("options")?;
+    ["apiKey", "api_key"].into_iter().find_map(|key| {
+        options
+            .get(key)
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+    })
+}
+
+pub fn opencode_enabled_api_provider_ready(auth: &Value, config: &Value) -> bool {
+    project_opencode_provider_connections(auth, config)
+        .providers
+        .iter()
+        .any(|provider| {
+            provider.enabled
+                && provider.credential_present
+                && auth
+                    .get(&provider.provider_id)
+                    .and_then(|entry| entry.get("type"))
+                    .and_then(Value::as_str)
+                    != Some("oauth")
+        })
 }
 
 #[cfg(test)]
@@ -605,6 +634,76 @@ mod tests {
         );
         assert!(config.get("disabled_providers").is_none());
         assert!(project_opencode_provider_connections(&auth, &config).providers[0].enabled);
+    }
+
+    #[test]
+    fn empty_auth_json_still_counts_inline_options_api_key() {
+        let auth = serde_json::json!({});
+        let config = serde_json::json!({
+            "provider": {
+                "opencodego": {
+                    "name": "OpenCode Go",
+                    "options": {
+                        "baseURL": "https://opencode.ai/zen/go/v1",
+                        "apiKey": "sk-go"
+                    }
+                }
+            }
+        });
+        let view = project_opencode_provider_connections(&auth, &config);
+        assert_eq!(view.providers.len(), 1);
+        assert!(view.providers[0].credential_present);
+        assert!(view.providers[0].enabled);
+        assert!(opencode_enabled_api_provider_ready(&auth, &config));
+    }
+
+    #[test]
+    fn oauth_auth_entry_is_not_an_api_provider_login() {
+        let auth = serde_json::json!({
+            "opencode-go": {"type": "oauth"}
+        });
+        let config = serde_json::json!({});
+        let view = project_opencode_provider_connections(&auth, &config);
+        assert!(view.providers[0].credential_present);
+        assert!(!opencode_enabled_api_provider_ready(&auth, &config));
+    }
+
+    #[test]
+    fn apply_accepts_existing_inline_api_key_without_resubmitting() {
+        let mut auth = serde_json::json!({});
+        let mut config = serde_json::json!({
+            "provider": {
+                "opencodego": {
+                    "name": "OpenCode Go",
+                    "options": {
+                        "apiKey": "sk-keep",
+                        "baseURL": "https://opencode.ai/zen/go/v1"
+                    }
+                }
+            }
+        });
+
+        apply_opencode_provider_connection(
+            &mut auth,
+            &mut config,
+            &OpenCodeProviderConnectRequest {
+                provider_id: "opencodego".to_string(),
+                name: "OpenCode Go".to_string(),
+                npm: None,
+                api: None,
+                base_url: Some("https://opencode.ai/zen/go/v1".to_string()),
+                api_key: None,
+                models: Vec::new(),
+                enabled: true,
+            },
+        )
+        .unwrap();
+
+        assert!(auth.get("opencodego").is_none());
+        assert_eq!(
+            config["provider"]["opencodego"]["options"]["apiKey"],
+            "sk-keep"
+        );
     }
 
     #[test]

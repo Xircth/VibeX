@@ -175,7 +175,9 @@ impl NativeConfigProvider {
                     .map_err(|error| NativeConfigError::Invalid(error.to_string()))?,
                 None => empty_document_preview(binding.format).to_string(),
             };
-            if binding_is_secret_vault(binding) && provider_api_key_present(&document) {
+            if (binding_is_secret_vault(binding) && provider_api_key_present(&document))
+                || json_inline_provider_api_key_present(&document)
+            {
                 vault_api_key_present = true;
             }
             fields.extend(
@@ -1578,6 +1580,25 @@ fn provider_api_key_present(document: &Value) -> bool {
                 .is_some_and(|value| !value.trim().is_empty())
         })
     })
+}
+
+fn json_inline_provider_api_key_present(document: &Value) -> bool {
+    document
+        .get("provider")
+        .and_then(Value::as_object)
+        .is_some_and(|providers| {
+            providers.values().any(|definition| {
+                let Some(options) = definition.get("options") else {
+                    return false;
+                };
+                ["apiKey", "api_key"].iter().any(|key| {
+                    options
+                        .get(*key)
+                        .and_then(Value::as_str)
+                        .is_some_and(|value| !value.trim().is_empty())
+                })
+            })
+        })
 }
 
 fn authentication_status(

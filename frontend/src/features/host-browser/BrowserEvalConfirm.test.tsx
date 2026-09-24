@@ -40,6 +40,7 @@ describe('BrowserEvalConfirm', () => {
     setEvalRequest({
       requestId: 'r1',
       tabId: 't1',
+      pluginId: 'example.browser',
       origin: 'https://example.com',
       title: 'Example',
       code: 'return 1',
@@ -54,7 +55,7 @@ describe('BrowserEvalConfirm', () => {
     await user.click(screen.getByRole('button', { name: '允许' }));
 
     expect(backendCall).toHaveBeenCalledWith('plugin_invoke_contribution', {
-      pluginId: 'vibex.browser',
+      pluginId: 'example.browser',
       handler: 'browser.dispatch',
       input: {
         operation: 'eval.decide',

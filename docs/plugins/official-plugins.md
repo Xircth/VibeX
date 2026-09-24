@@ -1,6 +1,6 @@
 # VibeX 官方插件介绍
 
-我对照的是 Host 0.1.3 和官网市场官方分类里的产品包。它们挂在 `assets/plugins/`：`office`、`session-enhance`、`multi-agent`、`workflow-creator`、`plugin-development`、`remote-ssh`、`open-connector`、`science`。检出 VibeX 时用 `git clone --recurse-submodules`，或之后 `git submodule update --init --recursive`。它们不再随 Host 预装进 catalog；从市场官方分类安装后默认禁用，可以卸载。
+我对照的是 Host 0.1.3 和官网市场官方分类里的产品包。它们挂在 `assets/plugins/` 的 git 子模块：`office`、`session-enhance`、`multi-agent`、`workflow-creator`、`plugin-development`、`remote-ssh`、`open-connector`、`science`、`browser`、`provider-switch`。检出 VibeX 时用 `git clone --recurse-submodules`，或之后 `git submodule update --init --recursive`。它们不再随 Host 预装进 catalog；从市场官方分类安装后默认禁用，可以卸载。
 
 它们的发布者都是 `vibex`。引擎要求 `vibex >=0.1.3 <1.0.0`，SDK 要求 `^1.0.0`。磁盘上有包，不等于已经注入 Agent。目录里标成「VibeX 内置」或「已随 Host 安装」，默认关掉。你只需要启用，不要再从货架装一遍。
 

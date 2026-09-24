@@ -359,6 +359,7 @@ export interface CatalogListing {
   opens?: string[];
   readme?: string | null;
   showTree?: boolean | null;
+  icon?: string | null;
 }
 
 export interface CatalogPluginDetail {

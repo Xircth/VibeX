@@ -20,6 +20,8 @@ pub struct MarketplaceListing {
     pub summary: String,
     pub package_digest: String,
     pub archive: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub icon: Option<String>,
 }
 
 #[derive(Clone, Debug, Default, Deserialize, Serialize)]

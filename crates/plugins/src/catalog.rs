@@ -72,6 +72,8 @@ pub struct CatalogListing {
     pub readme: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub show_tree: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub icon: Option<String>,
 }
 
 #[derive(Clone, Debug, Default, Deserialize, Serialize, PartialEq, Eq)]
@@ -201,6 +203,7 @@ pub fn listing_from_package(package: &PluginPackage, offline: bool) -> CatalogLi
             .is_some_and(|object| !object.is_empty()),
         opens,
         show_tree: None,
+        icon: None,
     }
 }
 
@@ -491,6 +494,7 @@ fn listing_from_index_record(item: crate::MarketplaceListing) -> Option<CatalogL
         opens: Vec::new(),
         readme: None,
         show_tree: None,
+        icon: item.icon,
     })
 }
 
@@ -900,6 +904,8 @@ struct PublishedRecord {
     github_branch: Option<String>,
     #[serde(default)]
     show_tree: Option<bool>,
+    #[serde(default)]
+    icon: Option<String>,
 }
 
 impl PublishedRecord {
@@ -956,6 +962,7 @@ impl PublishedRecord {
             show_tree: self.show_tree.or_else(|| {
                 nonempty(&self.source_kind).map(|kind| kind.eq_ignore_ascii_case("github"))
             }),
+            icon: self.icon.and_then(|value| nonempty(&value)),
         })
     }
 }
@@ -1083,6 +1090,7 @@ fn absolutize_listing(request_url: &str, mut listing: CatalogListing) -> Catalog
         listing.homepage = listing
             .homepage
             .map(|value| absolutize_url(&origin, &value));
+        listing.icon = listing.icon.map(|value| absolutize_url(&origin, &value));
     }
     listing
 }
@@ -1211,6 +1219,7 @@ mod tests {
             opens: Vec::new(),
             readme: None,
             show_tree: Some(true),
+            icon: None,
         };
         let office = CatalogListing {
             display_name: "Office".into(),
@@ -1262,6 +1271,7 @@ mod tests {
             opens: Vec::new(),
             readme: None,
             show_tree: None,
+            icon: None,
         }
     }
 

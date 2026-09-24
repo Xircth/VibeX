@@ -724,6 +724,7 @@ pub async fn plugin_marketplace_index(
                 summary: item.summary,
                 package_digest: item.package_digest.unwrap_or_default(),
                 archive: item.download_url.or(item.homepage).unwrap_or_default(),
+                icon: item.icon,
             })
             .collect(),
     })

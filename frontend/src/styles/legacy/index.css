@@ -222,6 +222,7 @@
     --surface-glass: hsl(0 0% 100% / 0.72);
     --surface-popover: var(--surface-glass);
     --surface-dialog: #fafafa;
+    --welcome-canvas: #fafafa;
     --surface-glass-solid: hsl(220 24% 96%);
     --surface-content: hsl(0 0% 100% / 0.96);
     --surface-card: hsl(0 0% 100% / 0.72);
@@ -340,6 +341,7 @@
     --surface-glass-solid: #191e2a;
     --surface-popover: var(--surface-glass);
     --surface-dialog: #242936;
+    --welcome-canvas: var(--surface-dialog);
     --surface-content: #1f2430;
     --surface-card: #1f2430;
     --surface-card-strong: #242936;
@@ -3189,7 +3191,7 @@
     background:
       linear-gradient(var(--welcome-rule) 1px, transparent 1px),
       linear-gradient(90deg, var(--welcome-rule) 1px, transparent 1px),
-      linear-gradient(180deg, var(--surface-content), hsl(var(--background)));
+      var(--welcome-canvas);
     background-size:
       56px 56px,
       56px 56px,

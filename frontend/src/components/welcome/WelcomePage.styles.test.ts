@@ -14,7 +14,8 @@ function declarationsFor(selector: string) {
   const declarations = new Map<string, string>();
 
   parse(stylesheet).walkRules((rule) => {
-    if (rule.selector !== selector) return;
+    const normalizedSelector = rule.selector.replace(/\s+/g, ' ').trim();
+    if (normalizedSelector !== selector) return;
     rule.walkDecls((declaration) => {
       declarations.set(declaration.prop, declaration.value);
     });
@@ -27,6 +28,16 @@ describe('welcome project surfaces', () => {
   it('describes VibeX as a super Agent Coding platform', () => {
     expect(zhCNApp.welcomePage.tagline).toBe('超级 Agent Coding 平台');
     expect(enApp.welcomePage.tagline).toBe('Super Agent Coding Platform');
+  });
+
+  it('paints the workspace Welcome tab canvas as #fafafa', () => {
+    const surface = declarationsFor('.workspace-welcome');
+    const light = declarationsFor('.legacy-design');
+    const dark = declarationsFor('.legacy-design.dark, .dark .legacy-design');
+
+    expect(light.get('--welcome-canvas')).toBe('#fafafa');
+    expect(dark.get('--welcome-canvas')).toBe('var(--surface-dialog)');
+    expect(surface.get('background')).toContain('var(--welcome-canvas)');
   });
 
   it('uses the themed dialog surface on the home page', () => {

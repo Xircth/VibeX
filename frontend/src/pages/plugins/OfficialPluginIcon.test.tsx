@@ -1,10 +1,16 @@
 import { render } from '@testing-library/react';
 import { describe, expect, it } from 'vitest';
 
-import { PluginProductIcon } from './OfficialPluginIcon';
+import { OFFICIAL_GLYPHS, PluginProductIcon } from './OfficialPluginIcon';
 import { OFFICIAL_PLUGIN_I18N_KEY } from './officialPlugins';
 
 describe('PluginProductIcon', () => {
+  it('maps every official i18n key to a glyph', () => {
+    expect(new Set(Object.keys(OFFICIAL_GLYPHS))).toEqual(
+      new Set(Object.values(OFFICIAL_PLUGIN_I18N_KEY))
+    );
+  });
+
   it('renders an svg for every official plugin id', () => {
     for (const pluginId of Object.keys(OFFICIAL_PLUGIN_I18N_KEY)) {
       const { container, unmount } = render(

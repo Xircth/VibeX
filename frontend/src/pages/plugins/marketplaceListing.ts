@@ -115,7 +115,7 @@ export function pluginIdentitiesMatch(left: string, right: string) {
   );
 }
 
-function listingPackageIds(listing: MarketplaceListingIdentity) {
+export function listingPackageIds(listing: MarketplaceListingIdentity) {
   const ids = [listing.offlinePluginId, listing.pluginName];
   const owner = listing.owner.trim();
   const pluginName = listing.pluginName.trim();

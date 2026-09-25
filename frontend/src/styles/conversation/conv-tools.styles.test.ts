@@ -53,6 +53,24 @@ describe('composer todo popover', () => {
   });
 });
 
+describe('composer session popover', () => {
+  it('caps height, scrolls sessions, and pins the new-session action', () => {
+    const popover = declarationsFor('.composer-session-popover.tahoe-popover');
+    const list = declarationsFor('.composer-session-list');
+    const create = declarationsFor('.composer-session-new');
+
+    expect(popover.display?.value).toBe('flex');
+    expect(popover['flex-direction']?.value).toBe('column');
+    expect(popover['max-height']?.value.replace(/\s+/g, ' ').trim()).toBe(
+      'min( 24rem, var(--radix-dropdown-menu-content-available-height, calc(100dvh - 8rem)), calc(100dvh - 8rem) )'
+    );
+    expect(popover.overflow?.value).toBe('hidden');
+    expect(list['min-height']?.value).toBe('0');
+    expect(list.overflow?.value).toBe('auto');
+    expect(create['flex-shrink']?.value).toBe('0');
+  });
+});
+
 describe('conversation tool-call typography', () => {
   it('matches message-stream font, size, weight, and line-height', () => {
     const rules = declarationsFor('.astryx-chat-tool-calls');

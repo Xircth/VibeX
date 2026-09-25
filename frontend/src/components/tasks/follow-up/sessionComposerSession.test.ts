@@ -229,20 +229,19 @@ describe('session composer session helpers', () => {
           {
             id: 's1',
             displayName: 'Alpha Session',
-            continuityLabel: 'main',
           },
         ],
         selectedSessionId: 's1',
         isNewSessionMode: false,
       })
     ).toEqual({
-      selectedSessionLabel: 'Alpha Session \u8def main',
+      selectedSessionLabel: 'Alpha Session',
       compactSessionLabel: 'Alpha Se',
     });
 
     expect(
       getComposerSessionLabels({
-        sessions: [{ id: 's1', displayName: 'Alpha', continuityLabel: 'main' }],
+        sessions: [{ id: 's1', displayName: 'Alpha' }],
         selectedSessionId: 'missing',
         isNewSessionMode: false,
       })
@@ -254,8 +253,8 @@ describe('session composer session helpers', () => {
     expect(
       getComposerSessionLabels({
         sessions: [
-          { id: 's1', displayName: 'Alpha', continuityLabel: 'main' },
-          { id: 's2', displayName: 'Beta', continuityLabel: 'branch' },
+          { id: 's1', displayName: 'Alpha' },
+          { id: 's2', displayName: 'Beta' },
         ],
         selectedSessionId: undefined,
         isNewSessionMode: true,

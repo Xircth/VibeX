@@ -7,12 +7,12 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { cn } from '@/lib/utils';
+import '@/styles/conversation.css';
 
 interface SessionItem {
   id: string;
   displayName: string;
   statusLabel: string;
-  continuityLabel: string;
 }
 
 interface SessionSelectorProps {
@@ -90,9 +90,12 @@ export function SessionSelector({
         align="end"
         sideOffset={1}
         avoidCollisions={false}
-        className="w-72 p-1"
+        className="composer-session-popover"
       >
-        <div className="space-y-1">
+        <div
+          className="composer-session-list space-y-1"
+          data-testid="session-selector-list"
+        >
           {sessions.map((session) => {
             const isEditing = editingSessionId === session.id;
             const isSelected = selectedSessionId === session.id;
@@ -135,13 +138,8 @@ export function SessionSelector({
                     />
                   ) : (
                     <div className="flex min-w-0 items-center justify-between gap-3">
-                      <div className="min-w-0">
-                        <div className="truncate max-w-[180px]">
-                          {session.displayName}
-                        </div>
-                        <div className="text-[10px] text-muted-foreground">
-                          {session.continuityLabel}
-                        </div>
+                      <div className="truncate max-w-[180px]">
+                        {session.displayName}
                       </div>
                       <span className="shrink-0 text-[10px] text-muted-foreground">
                         {session.statusLabel}
@@ -193,11 +191,12 @@ export function SessionSelector({
         </div>
         <button
           type="button"
+          data-testid="session-selector-new"
           onClick={() => {
             setOpen(false);
             onStartNewSession();
           }}
-          className="mt-1 w-full rounded-md px-2 py-1.5 text-left text-sm text-muted-foreground hover:bg-accent hover:text-accent-foreground"
+          className="composer-session-new w-full rounded-md px-2 py-1.5 text-left text-sm text-muted-foreground hover:bg-accent hover:text-accent-foreground"
         >
           {`+ ${NEW_SESSION_LABEL}`}
         </button>

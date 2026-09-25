@@ -50,6 +50,32 @@
   background: transparent;
 }
 
+.composer-session-popover.tahoe-popover {
+  display: flex;
+  width: 18rem;
+  max-height: min(
+    24rem,
+    var(--radix-dropdown-menu-content-available-height, calc(100dvh - 8rem)),
+    calc(100dvh - 8rem)
+  );
+  flex-direction: column;
+  overflow: hidden;
+  padding: 4px;
+}
+
+.composer-session-list {
+  min-height: 0;
+  flex: 1 1 auto;
+  overflow: auto;
+}
+
+.composer-session-new {
+  flex-shrink: 0;
+  margin-top: 4px;
+  border-top: 1px solid var(--border);
+  padding-top: 4px;
+}
+
 .conv-plan-card.is-collapsed {
   width: max-content;
 }

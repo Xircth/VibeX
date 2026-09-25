@@ -5,7 +5,6 @@ const DEFAULT_SESSION_LABEL = '\u4f1a\u8bdd';
 type SessionLabelLike = {
   id: string;
   displayName: string;
-  continuityLabel: string;
 };
 
 export function getComposerWorkspaceId({
@@ -163,9 +162,8 @@ export function getComposerSessionLabels({
   const selectedSessionSummary = sessions.find(
     (session) => session.id === selectedSessionId
   );
-  const selectedSessionLabel = selectedSessionSummary
-    ? `${selectedSessionSummary.displayName} \u8def ${selectedSessionSummary.continuityLabel}`
-    : DEFAULT_SESSION_LABEL;
+  const selectedSessionLabel =
+    selectedSessionSummary?.displayName ?? DEFAULT_SESSION_LABEL;
   const compactSource =
     selectedSessionSummary?.displayName ?? DEFAULT_SESSION_LABEL;
 

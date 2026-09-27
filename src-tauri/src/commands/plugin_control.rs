@@ -3248,6 +3248,11 @@ async fn configure_plugin_mcp(
             Ok(spec) => spec,
             Err(error) => {
                 errors.push(format!("{server_id}: {error}"));
+                if let Err(uninstall_error) =
+                    services::services::mcp::uninstall_server(projected_id.clone()).await
+                {
+                    errors.push(format!("{server_id}: {uninstall_error}"));
+                }
                 continue;
             }
         };

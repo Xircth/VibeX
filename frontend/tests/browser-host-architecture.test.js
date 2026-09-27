@@ -53,6 +53,15 @@ test('desktop browser is browser-host plus the official plugin, not CEF', () => 
 });
 
 test('plugin MCP uses generic host.call injection, not a browser-specific URL', () => {
+  const spec = JSON.parse(
+    readRepoFile('assets/plugins/browser/contents/mcps/browser.json')
+  );
+  assert.equal(spec.managedRuntime.source, 'runtime/mcp-server.mjs');
+  assert.equal(spec.managedRuntime.entrypoint, 'dist/mcp/mcp-server.mjs');
+  assert.equal(
+    exists('assets/plugins/browser/dist/mcp/mcp-server.mjs'),
+    true
+  );
   const mcp = readRepoFile('assets/plugins/browser/runtime/mcp-server.mjs');
   const projections = readRepoFile(
     'crates/server/src/host/plugin_projections.rs'

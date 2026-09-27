@@ -1738,7 +1738,7 @@ impl NativeTabs for TauriNativeTabs {
         let tab_id = tab_id.to_owned();
         self.on_main(move || {
             SURFACES.with(|slot| {
-                #[cfg(not(target_os = "linux"))]
+                #[cfg(all(not(target_os = "linux"), debug_assertions))]
                 {
                     #[cfg(target_os = "macos")]
                     prefer_detached_inspector();
@@ -1749,9 +1749,10 @@ impl NativeTabs for TauriNativeTabs {
                     webview.open_devtools();
                     Ok(())
                 }
-                #[cfg(target_os = "linux")]
+                #[cfg(not(all(not(target_os = "linux"), debug_assertions)))]
                 {
                     let _ = tab_id;
+                    let _ = slot;
                     Ok(())
                 }
             })

@@ -1022,16 +1022,7 @@ impl ServerApplicationDomains {
         let mut page = plugins::fetch_catalog(args.query.as_deref())
             .await
             .unwrap_or_default();
-        if let Ok(roots) = utils::assets::materialize_builtin_plugins(&self.runtime_root) {
-            plugins::merge_offline_official(&mut page, roots);
-        } else {
-            page.official = plugins::collapse_replaced_official(page.official);
-            plugins::prepare_marketplace_page(&mut page);
-        }
-        plugins::merge_bundled_official_index(
-            &mut page,
-            utils::assets::bundled_official_index_json().as_deref(),
-        );
+        plugins::merge_host_official_catalog(&mut page);
         plugins::filter_catalog_page(&mut page, args.query.as_deref());
         serde_json::to_value(page).map_err(|error| ApplicationError::internal(error.to_string()))
     }
@@ -1055,27 +1046,25 @@ impl ServerApplicationDomains {
                 args.owner, args.plugin_name
             )));
         }
-        let mut listing = plugins::fetch_listing(&args.owner, &args.plugin_name)
+        let listing = plugins::fetch_listing(&args.owner, &args.plugin_name)
             .await
-            .ok();
-        if let Ok(roots) = utils::assets::materialize_builtin_plugins(&self.runtime_root) {
-            for root in roots {
-                if let Ok(package) =
-                    plugins::PluginPackage::inspect(&root, plugins::PluginSourceKind::Marketplace)
-                    && (package.id.as_str() == args.plugin_name
-                        || package.id.as_str() == format!("{}.{}", args.owner, args.plugin_name))
-                {
-                    let snapshot = listing
-                        .take()
-                        .unwrap_or_else(|| plugins::listing_from_package(&package, true));
-                    return serde_json::to_value(plugins::detail_from_package(&package, snapshot))
-                        .map_err(|error| ApplicationError::internal(error.to_string()));
-                }
-            }
-        }
-        let listing = listing.ok_or_else(|| {
-            ApplicationError::not_found(format!("{}/{}", args.owner, args.plugin_name))
-        })?;
+            .ok()
+            .or_else(|| {
+                plugins::listings_from_host_official_catalog()
+                    .into_iter()
+                    .find(|item| {
+                        plugins::package_matches_marketplace(
+                            item.offline_plugin_id
+                                .as_deref()
+                                .unwrap_or(&item.plugin_name),
+                            &args.owner,
+                            &args.plugin_name,
+                        )
+                    })
+            })
+            .ok_or_else(|| {
+                ApplicationError::not_found(format!("{}/{}", args.owner, args.plugin_name))
+            })?;
         serde_json::to_value(plugins::CatalogPluginDetail {
             summary: listing.summary.clone(),
             readme: listing.readme.clone().unwrap_or_default(),
@@ -1106,11 +1095,6 @@ impl ServerApplicationDomains {
                 args.owner, args.plugin_name
             )));
         }
-        let decision = match args.conflict.as_deref() {
-            Some("keep") => plugins::ConflictDecision::KeepInstalled,
-            Some("replace") => plugins::ConflictDecision::Replace,
-            _ => plugins::ConflictDecision::Reject,
-        };
         if let Ok(listing) =
             plugins::fetch_artifact(&args.owner, &args.plugin_name, args.tag.as_deref()).await
             && let Some(url) = listing.download_url.clone()
@@ -1129,39 +1113,6 @@ impl ServerApplicationDomains {
                     "showTree": listing.show_tree,
                 }))
                 .await;
-        }
-        let roots =
-            utils::assets::materialize_builtin_plugins(&self.runtime_root).unwrap_or_default();
-        let slug = plugins::marketplace_plugin_slug(&args.owner, &args.plugin_name);
-        let local = roots
-            .into_iter()
-            .chain(utils::assets::checked_out_official_plugin_dir(&slug).into_iter());
-        if let Some(root) = local.into_iter().find(|root| {
-            plugins::PluginPackage::inspect(root, plugins::PluginSourceKind::Marketplace)
-                .ok()
-                .is_some_and(|package| {
-                    plugins::package_matches_marketplace(
-                        package.id.as_str(),
-                        &args.owner,
-                        &args.plugin_name,
-                    )
-                })
-        }) {
-            let mut package =
-                plugins::PluginPackage::inspect(&root, plugins::PluginSourceKind::Marketplace)
-                    .map_err(plugin_error)?;
-            package.source.origin = Some(plugins::marketplace_listing_url(
-                &args.owner,
-                &args.plugin_name,
-            ));
-            package.source.git_ref = args.tag.or(Some(package.version.clone()));
-            package.source.locked = true;
-            let imported = self
-                .plugin_control_plane
-                .import(package, decision)
-                .await
-                .map_err(plugin_error)?;
-            return Ok(plugin_control_item(&imported.plugin));
         }
         let mut last_error =
             ApplicationError::not_found(format!("{}/{}", args.owner, args.plugin_name));

@@ -135,7 +135,7 @@ npx @omnione/vibex
 
 `npx @omnione/vibex` 按平台拉取 `VibeX-${VERSION}-{linux-x86_64,linux-aarch64,darwin-aarch64,windows-x86_64,windows-aarch64}-server.tar.gz`，核对 sidecar 的 `.sha256` 与包内 `SHA256SUMS`，再启动 `vibex-server`，并把 `VIBEX_STATIC_ROOT` 指到包内 `web/`。同一份归档也可以用 `install.sh` / `install.ps1` 安装。
 
-解压后的目录包含 `vibex-server`、`vibex-mcp`、`web/` 与 `plugins/bundled/`。
+解压后的目录包含 `vibex-server`、`vibex-mcp`、`web/` 与 `vibex-plugin.json`。官方插件从 [插件市场](https://vibex.xforever.xin/marketplace/) 安装，或导入 `.vxp`。
 
 | 平台 | 系统基线 | 发行物 |
 | --- | --- | --- |

@@ -1,8 +1,8 @@
 # VibeX 官方插件介绍
 
-我对照的是 Host 0.1.3 和官网市场官方分类里的产品包。它们挂在 `assets/plugins/` 的 git 子模块：`office`、`session-enhance`、`multi-agent`、`workflow-creator`、`plugin-development`、`remote-ssh`、`open-connector`、`science`、`browser`、`provider-switch`。检出 VibeX 时用 `git clone --recurse-submodules`，或之后 `git submodule update --init --recursive`。它们不再随 Host 预装进 catalog；从市场官方分类安装后默认禁用，可以卸载。
+官方产品包不随 VibeX 安装包发行。仓库根目录 `vibex-plugin.json` 列出官方插件身份和源码仓库；Host 从 [官方插件市场](https://vibex.xforever.xin/marketplace/) 拉取，或由用户导入 `.vxp`。本仓库 `assets/plugins/` 仍是开发用 git 子模块，不打进 Desktop / Server 发行物。
 
-它们的发布者都是 `vibex`。引擎要求 `vibex >=0.1.3 <1.0.0`，SDK 要求 `^1.0.0`。磁盘上有包，不等于已经注入 Agent。目录里标成「VibeX 内置」或「已随 Host 安装」，默认关掉。你只需要启用，不要再从货架装一遍。
+发布者都是 `vibex`。引擎要求 `vibex >=0.1.3 <1.0.0`，SDK 要求 `^1.0.0`。装上不等于已经注入 Agent。市场安装后默认禁用，启用后新开会话才会带上 MCP / Skill。
 
 详情页能关，不能当第三方快照卸掉。关掉以后，这一代对外投影按反序拆掉。已经开着的会话通常不会热拆 STDIO MCP，新开会话才干净。
 

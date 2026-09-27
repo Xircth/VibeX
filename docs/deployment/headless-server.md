@@ -7,7 +7,8 @@ services, and Automation Engine used by desktop VibeX. It does not load Tauri.
 ## Distribution status
 
 P0 ships a Host family directory: `vibex-server`, sibling `vibex-mcp`,
-`vibex-workflow-mcp`, production `web/`, and `plugins/bundled/`. Assemble it with:
+`vibex-workflow-mcp`, production `web/`, and `vibex-plugin.json`. Official
+plugin packages are installed from the marketplace or a `.vxp`. Assemble it with:
 
 ```bash
 node scripts/package-host-family.js \

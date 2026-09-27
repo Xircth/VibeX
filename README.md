@@ -135,7 +135,7 @@ npx @omnione/vibex
 
 `npx @omnione/vibex` fetches `VibeX-${VERSION}-{linux-x86_64,linux-aarch64,darwin-aarch64,windows-x86_64,windows-aarch64}-server.tar.gz` for this platform, checks the sidecar `.sha256` and the inner `SHA256SUMS`, starts `vibex-server`, and points `VIBEX_STATIC_ROOT` at the packaged `web/` tree. The same archive can be installed with `install.sh` or `install.ps1`.
 
-The extracted tree contains `vibex-server`, `vibex-mcp`, `web/`, and `plugins/bundled/`.
+The extracted tree contains `vibex-server`, `vibex-mcp`, `web/`, and `vibex-plugin.json`. Official plugins are installed from the [marketplace](https://vibex.xforever.xin/marketplace/) or a `.vxp` package.
 
 | Platform | Baseline | Artifacts |
 | --- | --- | --- |

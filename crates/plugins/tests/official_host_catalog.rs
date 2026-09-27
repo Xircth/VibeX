@@ -50,16 +50,25 @@ async fn installing_the_host_does_not_auto_register_official_plugins() {
     let catalog = plane.catalog().await.unwrap();
     assert!(catalog.is_empty());
     assert!(
-        !utils::assets::materialize_builtin_plugins(data.path())
-            .unwrap()
-            .is_empty()
+        utils::assets::existing_official_plugin_roots(data.path()).is_empty()
     );
+}
+
+fn sample_plugin_root() -> Option<std::path::PathBuf> {
+    let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../assets/plugins/remote-ssh");
+    dir.join(".vibex-plugin/plugin.json")
+        .is_file()
+        .then_some(dir)
 }
 
 #[tokio::test]
 async fn builtin_memberships_become_uninstallable_marketplace_origins() {
-    let data = tempfile::tempdir().unwrap();
-    let roots = utils::assets::materialize_builtin_plugins(data.path()).unwrap();
+    let Some(sample) = sample_plugin_root() else {
+        return;
+    };
+    let _data = tempfile::tempdir().unwrap();
+    let roots = vec![sample];
     let plane = PluginControlPlane::new(Arc::new(SqlitePluginRegistry::new(registry_pool().await)));
     let package = PluginPackage::inspect(&roots[0], PluginSourceKind::Builtin).unwrap();
     plane
@@ -83,19 +92,15 @@ async fn builtin_memberships_become_uninstallable_marketplace_origins() {
 }
 
 #[tokio::test]
-async fn installed_official_plugin_picks_up_a_newer_host_package() {
+async fn installed_official_plugin_picks_up_a_newer_package_on_disk() {
+    let Some(sample) = sample_plugin_root() else {
+        return;
+    };
     let data = tempfile::tempdir().unwrap();
-    let roots = utils::assets::materialize_builtin_plugins(data.path()).unwrap();
-    let remote = roots
-        .iter()
-        .find(|root| {
-            PluginPackage::inspect(root, PluginSourceKind::Builtin)
-                .ok()
-                .is_some_and(|package| package.id.as_str() == "vibex.remote-ssh")
-        })
-        .expect("remote-ssh is bundled");
+    let remote = data.path().join("remote-ssh");
+    copy_dir(&sample, &remote);
     let plane = PluginControlPlane::new(Arc::new(SqlitePluginRegistry::new(registry_pool().await)));
-    let package = PluginPackage::inspect(remote, PluginSourceKind::Marketplace).unwrap();
+    let package = PluginPackage::inspect(&remote, PluginSourceKind::Marketplace).unwrap();
     plane
         .import(package, ConflictDecision::Reject)
         .await
@@ -107,7 +112,7 @@ async fn installed_official_plugin_picks_up_a_newer_host_package() {
     std::fs::write(&worker, source).unwrap();
 
     plane
-        .refresh_installed_bundled_plugins(std::slice::from_ref(remote), None)
+        .refresh_installed_bundled_plugins(std::slice::from_ref(&remote), None)
         .await
         .unwrap();
     let after = plane.plugin("vibex.remote-ssh").await.unwrap().unwrap();
@@ -121,18 +126,14 @@ async fn installed_official_plugin_picks_up_a_newer_host_package() {
 
 #[tokio::test]
 async fn bundled_refresh_does_not_replace_a_developer_link() {
+    let Some(sample) = sample_plugin_root() else {
+        return;
+    };
     let data = tempfile::tempdir().unwrap();
-    let roots = utils::assets::materialize_builtin_plugins(data.path()).unwrap();
-    let remote = roots
-        .iter()
-        .find(|root| {
-            PluginPackage::inspect(root, PluginSourceKind::Builtin)
-                .ok()
-                .is_some_and(|package| package.id.as_str() == "vibex.remote-ssh")
-        })
-        .expect("remote-ssh is bundled");
+    let remote = data.path().join("remote-ssh");
+    copy_dir(&sample, &remote);
     let linked_root = tempfile::tempdir().unwrap();
-    copy_dir(remote, linked_root.path());
+    copy_dir(&remote, linked_root.path());
     let plane = PluginControlPlane::new(Arc::new(SqlitePluginRegistry::new(registry_pool().await)));
     let package =
         PluginPackage::inspect(linked_root.path(), PluginSourceKind::DeveloperLink).unwrap();
@@ -142,7 +143,7 @@ async fn bundled_refresh_does_not_replace_a_developer_link() {
         .unwrap();
     std::fs::write(remote.join("dist/worker.mjs"), "// bundled replacement\n").unwrap();
     plane
-        .refresh_installed_bundled_plugins(std::slice::from_ref(remote), None)
+        .refresh_installed_bundled_plugins(std::slice::from_ref(&remote), None)
         .await
         .unwrap();
     let kept = plane.plugin("vibex.remote-ssh").await.unwrap().unwrap();

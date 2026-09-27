@@ -1,12 +1,10 @@
 use std::{
-    collections::{BTreeMap, BTreeSet},
+    collections::BTreeMap,
     path::{Path, PathBuf},
 };
 
 use directories::ProjectDirs;
 use rust_embed::RustEmbed;
-use sha2::{Digest, Sha256};
-
 const PROJECT_ROOT: &str = env!("CARGO_MANIFEST_DIR");
 
 /// Default Host data directory shared by Desktop release builds and `vibex-server`.
@@ -234,88 +232,15 @@ pub struct SoundAssets;
 #[folder = "../../assets/scripts"]
 pub struct ScriptAssets;
 
-#[derive(RustEmbed)]
-#[folder = "../../assets/plugins"]
-#[exclude = "host-chrome/**"]
-#[exclude = "host-surface/**"]
-#[exclude = "provider-import/**"]
-#[exclude = "*/node_modules/**"]
-pub struct BuiltinPluginAssets;
-
-const AUTHORING_SAMPLE_PLUGIN_DIRS: &[&str] = &["host-chrome", "host-surface", "provider-import"];
-
-fn is_authoring_sample_plugin_dir(directory: &str) -> bool {
-    AUTHORING_SAMPLE_PLUGIN_DIRS.contains(&directory)
+/// Official plugin packages are no longer rust-embedded into the Host.
+/// Older Hosts may still have copies under `builtin-plugins/`; keep those
+/// visible so marketplace updates can replace them.
+pub fn existing_official_plugin_roots(data_root: &Path) -> Vec<PathBuf> {
+    existing_materialized_plugin_roots(data_root)
+        .into_values()
+        .collect()
 }
 
-/// Materializes every bundled VibeX plugin from application-owned bytes.
-/// Builtin product plugins live in git submodules under `assets/plugins/<name>`.
-/// Adding another checked-out package there requires no Host code change or
-/// plugin-id branch.
-pub fn materialize_builtin_plugins(
-    data_root: &std::path::Path,
-) -> std::io::Result<Vec<std::path::PathBuf>> {
-    let directories = embedded_builtin_directories();
-    if directories.is_empty() {
-        tracing::error!("no official plugin manifests were embedded in this Host");
-    }
-    let mut by_id = existing_materialized_plugin_roots(data_root);
-    for directory in &directories {
-        let root = materialize_builtin_plugin(data_root, directory)?;
-        if let Some(plugin_id) = materialized_plugin_id(&root) {
-            by_id.insert(plugin_id, root);
-        }
-    }
-    Ok(by_id.into_values().collect())
-}
-
-/// Bundled official marketplace index. Used when remote official listings are
-/// incomplete or a plugin package was not materialized (empty git submodule).
-pub fn bundled_official_index_json() -> Option<Vec<u8>> {
-    BuiltinPluginAssets::get("index/official.v1.json").map(|file| file.data.into_owned())
-}
-
-/// Dev checkout of `assets/plugins/<slug>` when the git submodule is present.
-pub fn checked_out_official_plugin_dir(slug: &str) -> Option<PathBuf> {
-    let slug = slug.trim();
-    if slug.is_empty()
-        || slug.contains(['/', '\\', '.'])
-        || is_authoring_sample_plugin_dir(slug)
-    {
-        return None;
-    }
-    let dir = PathBuf::from(PROJECT_ROOT)
-        .join("../../assets/plugins")
-        .join(slug);
-    dir.join(".vibex-plugin/plugin.json")
-        .is_file()
-        .then_some(dir)
-}
-
-fn embedded_builtin_directories() -> Vec<String> {
-    let mut directories = BTreeSet::new();
-    for path in BuiltinPluginAssets::iter() {
-        if let Some(directory) = path
-            .strip_suffix("/.vibex-plugin/plugin.json")
-            .filter(|directory| !directory.is_empty() && !directory.contains('/'))
-            .filter(|directory| !is_authoring_sample_plugin_dir(directory))
-        {
-            directories.insert(directory.to_owned());
-        }
-        if let Some(directory) = path.split('/').next()
-            && !directory.is_empty()
-            && directory != "index"
-            && !is_authoring_sample_plugin_dir(directory)
-            && BuiltinPluginAssets::get(&format!("{directory}/.vibex-plugin/plugin.json")).is_some()
-        {
-            directories.insert(directory.to_owned());
-        }
-    }
-    directories.into_iter().collect()
-}
-
-/// Host data may already contain official packages from a previous launch.
-/// Keep those roots importable even if this binary's embed list is empty.
 fn existing_materialized_plugin_roots(data_root: &Path) -> BTreeMap<String, PathBuf> {
     let mut found = BTreeMap::new();
     let root = data_root.join("builtin-plugins");
@@ -359,235 +284,17 @@ fn existing_materialized_plugin_roots(data_root: &Path) -> BTreeMap<String, Path
     found
 }
 
-fn materialized_plugin_id(root: &Path) -> Option<String> {
-    root.parent()?
-        .file_name()
-        .and_then(|name| name.to_str())
-        .map(str::to_owned)
-}
-
-fn materialize_builtin_plugin(
-    data_root: &std::path::Path,
-    directory: &str,
-) -> std::io::Result<std::path::PathBuf> {
-    let manifest_path = format!("{directory}/.vibex-plugin/plugin.json");
-    let manifest = BuiltinPluginAssets::get(&manifest_path)
-        .ok_or_else(|| std::io::Error::other("embedded plugin manifest disappeared"))?;
-    let document: serde_json::Value =
-        serde_json::from_slice(manifest.data.as_ref()).map_err(std::io::Error::other)?;
-    let plugin_id = document
-        .get("id")
-        .and_then(serde_json::Value::as_str)
-        .filter(|id| {
-            !id.is_empty()
-                && id.bytes().all(|byte| {
-                    byte.is_ascii_lowercase()
-                        || byte.is_ascii_digit()
-                        || matches!(byte, b'.' | b'-' | b'_')
-                })
-        })
-        .ok_or_else(|| std::io::Error::other("embedded plugin id is invalid"))?;
-    let mut runtime_assets = builtin_asset_paths(directory);
-    runtime_assets.sort();
-    let mut package_hasher = Sha256::new();
-    for (embedded_path, relative) in &runtime_assets {
-        let embedded = BuiltinPluginAssets::get(embedded_path)
-            .ok_or_else(|| std::io::Error::other("embedded plugin asset disappeared"))?;
-        package_hasher.update(relative.as_bytes());
-        package_hasher.update([0]);
-        package_hasher.update(embedded.metadata.sha256_hash());
-    }
-    let fingerprint = package_hasher
-        .finalize()
-        .iter()
-        .take(12)
-        .map(|byte| format!("{byte:02x}"))
-        .collect::<String>();
-    let destination = data_root
-        .join("builtin-plugins")
-        .join(plugin_id)
-        .join(fingerprint);
-
-    if destination.exists() {
-        verify_embedded_directory(directory, &destination)?;
-        ensure_builtin_config(directory, &destination)?;
-        return Ok(destination);
-    }
-
-    let parent = destination
-        .parent()
-        .ok_or_else(|| std::io::Error::other("builtin plugin destination has no parent"))?;
-    std::fs::create_dir_all(parent)?;
-    let staging = parent.join(format!(".staging-{}", uuid::Uuid::new_v4().simple()));
-    std::fs::create_dir(&staging)?;
-    let materialized = (|| {
-        for (embedded_path, relative) in &runtime_assets {
-            let embedded = BuiltinPluginAssets::get(embedded_path)
-                .ok_or_else(|| std::io::Error::other("embedded plugin asset disappeared"))?;
-            let output = staging.join(relative);
-            if let Some(parent) = output.parent() {
-                std::fs::create_dir_all(parent)?;
-            }
-            std::fs::write(output, embedded.data.as_ref())?;
-        }
-        ensure_builtin_config(directory, &staging)?;
-        match std::fs::rename(&staging, &destination) {
-            Ok(()) => Ok(()),
-            Err(_) if destination.exists() => {
-                std::fs::remove_dir_all(&staging)?;
-                verify_embedded_directory(directory, &destination)
-            }
-            Err(error) => Err(error),
-        }
-    })();
-    if materialized.is_err() && staging.exists() {
-        let _ = std::fs::remove_dir_all(&staging);
-    }
-    materialized?;
-    Ok(destination)
-}
-
-fn builtin_asset_paths(directory: &str) -> Vec<(String, String)> {
-    let prefix = format!("{directory}/");
-    BuiltinPluginAssets::iter()
-        .filter_map(|path| {
-            let embedded_path = path.into_owned();
-            let relative = embedded_path.strip_prefix(&prefix)?.to_owned();
-            is_builtin_runtime_asset(std::path::Path::new(&relative))
-                .then_some((embedded_path, relative))
-        })
-        .collect()
-}
-
-fn ensure_builtin_config(directory: &str, root: &std::path::Path) -> std::io::Result<()> {
-    let path = root.join("config.json");
-    if path.exists() {
-        return Ok(());
-    }
-    let embedded = BuiltinPluginAssets::get(&format!("{directory}/config.json"))
-        .ok_or_else(|| std::io::Error::other("embedded plugin config is missing"))?;
-    std::fs::write(path, embedded.data.as_ref())
-}
-
-fn verify_embedded_directory(directory: &str, root: &std::path::Path) -> std::io::Result<()> {
-    for (embedded_path, relative) in builtin_asset_paths(directory) {
-        let path = root.join(relative);
-        let metadata = std::fs::symlink_metadata(&path)?;
-        if !metadata.file_type().is_file() {
-            return Err(std::io::Error::other(
-                "materialized builtin plugin contains a non-file asset",
-            ));
-        }
-        let embedded = BuiltinPluginAssets::get(&embedded_path)
-            .ok_or_else(|| std::io::Error::other("embedded plugin asset disappeared"))?;
-        if std::fs::read(path)? != embedded.data.as_ref() {
-            return Err(std::io::Error::other(
-                "materialized builtin plugin failed integrity verification",
-            ));
-        }
-    }
-    Ok(())
-}
-
-fn is_builtin_runtime_asset(path: &std::path::Path) -> bool {
-    if path == std::path::Path::new("package.json") || path == std::path::Path::new("README.md") {
-        return true;
-    }
-    matches!(
-        path.components().next(),
-        Some(std::path::Component::Normal(first))
-            if first == ".vibex-plugin"
-                || first == "dist"
-                || first == "contents"
-                || first == "depends"
-                || first == "assets"
-                || first == "catalogs"
-    )
-}
-
 #[cfg(test)]
 mod tests {
     use super::{
-        adopt_legacy_file, copy_missing_files, load_or_create_host_id, materialize_builtin_plugins,
-        tauri_app_data_file_candidates,
+        adopt_legacy_file, copy_missing_files, existing_official_plugin_roots,
+        load_or_create_host_id, tauri_app_data_file_candidates,
     };
 
     #[test]
-    fn does_not_embed_authoring_sample_plugins() {
-        assert!(super::BuiltinPluginAssets::get("host-chrome/.vibex-plugin/plugin.json").is_none());
-        assert!(
-            super::BuiltinPluginAssets::get("host-surface/.vibex-plugin/plugin.json").is_none()
-        );
-        assert!(
-            super::BuiltinPluginAssets::get("provider-import/.vibex-plugin/plugin.json").is_none()
-        );
-        assert!(super::BuiltinPluginAssets::get("office/.vibex-plugin/plugin.json").is_some());
-        assert!(super::BuiltinPluginAssets::get("science/.vibex-plugin/plugin.json").is_some());
-        assert!(
-            super::BuiltinPluginAssets::get("provider-switch/.vibex-plugin/plugin.json").is_some()
-        );
-        assert!(
-            super::BuiltinPluginAssets::get("provider-switch/catalogs/claude_code.json").is_some()
-        );
-    }
-
-    #[test]
-    fn embeds_open_connector_without_dev_residue() {
-        assert!(super::BuiltinPluginAssets::get(
-            "open-connector/.vibex-plugin/plugin.json"
-        )
-        .is_some());
-        assert!(
-            super::BuiltinPluginAssets::iter().all(|path| !path.contains("node_modules")),
-            "official embed must not ship plugin node_modules"
-        );
-    }
-
-    #[test]
-    fn embeds_the_bundled_official_marketplace_index() {
-        assert!(super::BuiltinPluginAssets::get("index/official.v1.json").is_some());
-        let json = super::bundled_official_index_json().expect("official index");
-        assert!(
-            std::str::from_utf8(&json)
-                .unwrap_or("")
-                .contains("vibex.multi-agent")
-        );
-    }
-
-    #[test]
-    fn discovers_builtin_packages_without_plugin_specific_host_code() {
-        let data = tempfile::tempdir().unwrap();
-        let roots = materialize_builtin_plugins(data.path()).unwrap();
-
-        let mut ids = roots
-            .iter()
-            .map(|root| {
-                let manifest: serde_json::Value = serde_json::from_slice(
-                    &std::fs::read(root.join(".vibex-plugin/plugin.json")).unwrap(),
-                )
-                .unwrap();
-                manifest["id"].as_str().unwrap().to_owned()
-            })
-            .collect::<Vec<_>>();
-        ids.sort();
-        assert!(
-            ids.contains(&"vibex.open-connector".to_owned()),
-            "Open Connector must be a bundled official plugin: {ids:?}"
-        );
-        assert!(
-            !ids.iter().any(|id| id.contains("host-chrome")
-                || id.contains("host-surface")
-                || id.contains("provider-import")),
-            "authoring samples must stay out of the product embed: {ids:?}"
-        );
-        let sample = roots.first().expect("at least one builtin").clone();
-        std::fs::write(sample.join("config.json"), br#"{"keep":true}"#).unwrap();
-        let repeated = materialize_builtin_plugins(data.path()).unwrap();
-        assert_eq!(repeated, roots);
-        assert_eq!(
-            std::fs::read_to_string(sample.join("config.json")).unwrap(),
-            r#"{"keep":true}"#
-        );
+    fn host_does_not_embed_plugin_packages() {
+        let src = include_str!("assets.rs");
+        assert!(!src.contains("#[folder = \"../../assets/plugins\"]"));
     }
 
     #[test]
@@ -622,12 +329,8 @@ mod tests {
         )
         .unwrap();
 
-        let roots = materialize_builtin_plugins(data.path()).unwrap();
-        assert!(
-            roots.iter().any(|root| root == &extra),
-            "already materialized packages must stay visible to Host import"
-        );
-        assert_eq!(roots.len(), 9);
+        let roots = existing_official_plugin_roots(data.path());
+        assert_eq!(roots, vec![extra]);
     }
 
     #[test]

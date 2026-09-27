@@ -741,17 +741,7 @@ pub async fn plugin_marketplace_catalog(
             community_limit: plugins::COMMUNITY_PAGE_SIZE,
             ..plugins::CatalogPage::default()
         });
-    let data_root = utils::assets::asset_dir();
-    if let Ok(roots) = utils::assets::materialize_builtin_plugins(&data_root) {
-        plugins::merge_offline_official(&mut page, roots);
-    } else {
-        page.official = plugins::collapse_replaced_official(page.official);
-        plugins::prepare_marketplace_page(&mut page);
-    }
-    plugins::merge_bundled_official_index(
-        &mut page,
-        utils::assets::bundled_official_index_json().as_deref(),
-    );
+    plugins::merge_host_official_catalog(&mut page);
     plugins::filter_catalog_page(&mut page, query.as_deref());
     Ok(page)
 }
@@ -766,26 +756,21 @@ pub async fn plugin_marketplace_listing(
     {
         return Err(AppError::NotFound(format!("{owner}/{plugin_name}")));
     }
-    let mut listing = plugins::fetch_listing(&owner, &plugin_name).await.ok();
-    let data_root = utils::assets::asset_dir();
-    if let Ok(roots) = utils::assets::materialize_builtin_plugins(&data_root) {
-        for root in roots {
-            if let Ok(package) =
-                plugins::PluginPackage::inspect(&root, plugins::PluginSourceKind::Marketplace)
-                && (package.id.as_str() == plugin_name
-                    || package.id.as_str() == format!("{owner}.{plugin_name}")
-                    || listing.as_ref().is_some_and(|item| {
-                        item.offline_plugin_id.as_deref() == Some(package.id.as_str())
-                    }))
-            {
-                let snapshot = listing
-                    .take()
-                    .unwrap_or_else(|| plugins::listing_from_package(&package, true));
-                return Ok(plugins::detail_from_package(&package, snapshot));
-            }
-        }
-    }
-    let listing = listing.ok_or_else(|| AppError::NotFound(format!("{owner}/{plugin_name}")))?;
+    let listing = plugins::fetch_listing(&owner, &plugin_name)
+        .await
+        .ok()
+        .or_else(|| {
+            plugins::listings_from_host_official_catalog()
+                .into_iter()
+                .find(|item| {
+                    plugins::package_matches_marketplace(
+                        item.offline_plugin_id.as_deref().unwrap_or(&item.plugin_name),
+                        &owner,
+                        &plugin_name,
+                    )
+                })
+        })
+        .ok_or_else(|| AppError::NotFound(format!("{owner}/{plugin_name}")))?;
     if listing.show_tree == Some(false) {
         return Ok(plugins::CatalogPluginDetail {
             summary: listing.summary.clone(),
@@ -854,42 +839,6 @@ pub async fn plugin_marketplace_install(
             None,
             Some(true),
             listing.show_tree,
-        )
-        .await;
-    }
-    let data_root = utils::assets::asset_dir();
-    let roots = utils::assets::materialize_builtin_plugins(&data_root).unwrap_or_default();
-    let slug = plugins::marketplace_plugin_slug(&owner, &plugin_name);
-    let local = roots.into_iter().chain(
-        utils::assets::checked_out_official_plugin_dir(&slug)
-            .into_iter()
-            .collect::<Vec<_>>(),
-    );
-    if let Some(root) = local.into_iter().find(|root| {
-        plugins::PluginPackage::inspect(root, plugins::PluginSourceKind::Marketplace)
-            .ok()
-            .is_some_and(|package| {
-                plugins::package_matches_marketplace(package.id.as_str(), &owner, &plugin_name)
-            })
-    }) {
-        return plugin_control_import(
-            app,
-            state,
-            root.to_string_lossy().into_owned(),
-            false,
-            conflict_decision,
-            None,
-            Vec::new(),
-            Some(plugins::marketplace_listing_url(&owner, &plugin_name)),
-            tag.or(Some(
-                plugins::PluginPackage::inspect(&root, plugins::PluginSourceKind::Marketplace)
-                    .ok()
-                    .map(|package| package.version)
-                    .unwrap_or_default(),
-            )),
-            None,
-            Some(true),
-            None,
         )
         .await;
     }

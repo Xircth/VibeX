@@ -6,7 +6,7 @@ const test = require("node:test");
 
 const { packageHostFamily } = require("./package-host-family");
 
-test("packages server, companion, web UI, and bundled plugins with checksums", () => {
+test("packages server, companion, web UI, and official catalog without plugin packages", () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "vibex-host-family-"));
   const server = path.join(root, "vibex-server");
   const mcp = path.join(root, "vibex-mcp");
@@ -16,6 +16,19 @@ test("packages server, companion, web UI, and bundled plugins with checksums", (
   fs.writeFileSync(workflowMcp, "workflow-mcp-bin");
   fs.mkdirSync(path.join(root, "web"));
   fs.writeFileSync(path.join(root, "web", "index.html"), "<html></html>");
+  fs.writeFileSync(
+    path.join(root, "vibex-plugin.json"),
+    JSON.stringify({
+      schemaVersion: 1,
+      marketplace: { origin: "https://vibex.xforever.xin", path: "/marketplace" },
+      official: [
+        {
+          id: "vibex.multi-agent",
+          repository: "https://github.com/Xircth/vibex-plugin-multi-agent",
+        },
+      ],
+    }),
+  );
   const plugin = path.join(root, "plugins", "multi-agent");
   fs.mkdirSync(path.join(plugin, ".vibex-plugin"), { recursive: true });
   fs.writeFileSync(
@@ -50,12 +63,12 @@ test("packages server, companion, web UI, and bundled plugins with checksums", (
     fs.readFileSync(path.join(output, "web", "index.html"), "utf8"),
     "<html></html>",
   );
-  assert.ok(
-    fs.existsSync(
-      path.join(output, "plugins", "bundled", "multi-agent", ".vibex-plugin", "plugin.json"),
-    ),
+  assert.ok(fs.existsSync(path.join(output, "vibex-plugin.json")));
+  assert.equal(fs.existsSync(path.join(output, "plugins", "bundled")), false);
+  assert.equal(
+    fs.existsSync(path.join(output, "plugins", "bundled", "multi-agent")),
+    false,
   );
-  assert.equal(fs.existsSync(path.join(output, "plugins", "bundled", "scratch")), false);
   assert.equal(
     fs.existsSync(path.join(output, "plugins", "bundled", "host-chrome")),
     false,

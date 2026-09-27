@@ -44,7 +44,7 @@
 - doctor：无 grants 字段；`recentCrashes`；`mcpRebindingRequired`
 - `depends.kind=plugin` 启用时校验，不自动拉包
 - Remote：`plugin_install` / `plugin_update` / `plugin_uninstall`
-- Marketplace：`assets/plugins/index/official.v1.json` + `/plugins` 目录 UI
+- Marketplace：`vibex-plugin.json` 官方目录 + 远程 `https://vibex.xforever.xin/marketplace/` + `/plugins` 目录 UI；安装包不内嵌插件包
 - `host.service` supervisor：启用后按 `intervalSeconds`（最小 5s）tick，上一次未完成则跳过
 - Isolated Linux：bwrap + seccomp-bpf，或 Landlock + seccomp-bpf；Windows：AppContainer + Job Object
 - 激活代撤出：禁用/卸载按反序停 host.service、dispose Worker、收回 contribution；依赖插件退出就绪但保留启用意图，依赖恢复后自动重挂

@@ -31,7 +31,11 @@ export const PUBLIC_SDK_PACKAGE = "@vibex/plugin-sdk";
 export const HOST_ID_ALLOWLIST = new Map([
   [
     "crates/plugins/src/catalog.rs",
-    "市场目录元数据：官方分类映射与替换 ID 迁移表（数据面，非行为特判）",
+    "市场目录元数据：替换 ID 迁移表（数据面，非行为特判）",
+  ],
+  [
+    "crates/plugins/src/official_catalog.rs",
+    "读取仓库根 vibex-plugin.json 的官方插件目录（数据面，非行为特判）",
   ],
   [
     "frontend/src/pages/plugins/officialPlugins.ts",

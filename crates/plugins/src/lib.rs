@@ -19,6 +19,7 @@ mod link_watch;
 mod manifest;
 mod marketplace;
 mod native;
+mod official_catalog;
 mod official_mcp;
 mod plugin_mcp;
 mod package;
@@ -72,6 +73,11 @@ pub use conversation_host::{
     PluginConversationHost, PluginConversationInputReceipt, PluginConversationPermission,
     PluginConversationQuestion, PluginConversationSteer, PluginConversationSummary,
     PluginConversationTurn, PluginConversationView, UnavailablePluginConversationHost,
+};
+pub use official_catalog::{
+    listings_from_host_official_catalog, merge_host_official_catalog, official_marketplace_home,
+    official_marketplace_origin, official_plugin_catalog, official_plugin_category,
+    official_plugin_record, OfficialPluginCatalog, OfficialPluginRecord,
 };
 pub use error::PluginError;
 pub use host_call::{

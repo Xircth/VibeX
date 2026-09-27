@@ -54,23 +54,6 @@ function copyDirectory(source, destination) {
   }
 }
 
-const AUTHORING_SAMPLE_PLUGIN_DIRS = new Set([
-  "host-chrome",
-  "host-surface",
-  "provider-import",
-]);
-
-function bundledPluginRoots(pluginsDir) {
-  return fs
-    .readdirSync(pluginsDir, { withFileTypes: true })
-    .filter((entry) => entry.isDirectory())
-    .filter((entry) => !AUTHORING_SAMPLE_PLUGIN_DIRS.has(entry.name))
-    .map((entry) => path.join(pluginsDir, entry.name))
-    .filter((directory) =>
-      fs.existsSync(path.join(directory, ".vibex-plugin", "plugin.json")),
-    );
-}
-
 function sha256File(filePath) {
   const hash = crypto.createHash("sha256");
   hash.update(fs.readFileSync(filePath));
@@ -116,14 +99,13 @@ function packageHostFamily(options) {
   if (fs.existsSync(rustSdk)) {
     copyDirectory(rustSdk, path.join(output, "sdk", "rust"));
   }
-  const officialIndex = path.join(options.plugins, "index", "official.v1.json");
-  if (fs.existsSync(officialIndex)) {
-    copyFile(officialIndex, path.join(output, "plugins", "index", "official.v1.json"));
-  }
-
-  const bundled = path.join(output, "plugins", "bundled");
-  for (const pluginRoot of bundledPluginRoots(options.plugins)) {
-    copyDirectory(pluginRoot, path.join(bundled, path.basename(pluginRoot)));
+  const catalogCandidates = [
+    path.join(repoRoot, "vibex-plugin.json"),
+    path.join(path.dirname(options.plugins), "vibex-plugin.json"),
+  ];
+  const catalog = catalogCandidates.find((candidate) => fs.existsSync(candidate));
+  if (catalog) {
+    copyFile(catalog, path.join(output, "vibex-plugin.json"));
   }
 
   const checksums = [
@@ -166,4 +148,4 @@ if (require.main === module) {
   main();
 }
 
-module.exports = { packageHostFamily, parseArgs, bundledPluginRoots };
+module.exports = { packageHostFamily, parseArgs };

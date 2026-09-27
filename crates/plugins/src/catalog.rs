@@ -20,23 +20,6 @@ pub const AUTHORING_SAMPLE_PLUGIN_IDS: &[&str] = &[
     "vibex.host-surface",
 ];
 
-/// Topic categories for Host-bundled packages. "official" is the vibex owner, not a topic.
-const BUNDLED_TOPIC_CATEGORIES: &[(&str, &str)] = &[
-    ("vibex.browser", "productivity"),
-    ("vibex.office", "productivity"),
-    ("vibex.session-enhance", "productivity"),
-    ("vibex.multi-agent", "agent"),
-    ("vibex.workflow-creator", "workflow"),
-    ("vibex.plugin-development", "other"),
-    ("vibex.host-chrome", "other"),
-    ("vibex.provider-import", "other"),
-    ("vibex.host-surface", "other"),
-    ("vibex.provider-switch", "other"),
-    ("vibex.remote-ssh", "other"),
-    ("vibex.science", "other"),
-    ("vibex.open-connector", "other"),
-];
-
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub struct CatalogListing {
@@ -130,7 +113,7 @@ pub fn marketplace_origin() -> String {
         .ok()
         .map(|value| value.trim_end_matches('/').to_owned())
         .filter(|value| !value.is_empty())
-        .unwrap_or_else(|| DEFAULT_MARKETPLACE_ORIGIN.to_owned())
+        .unwrap_or_else(|| crate::official_catalog::official_marketplace_origin().to_owned())
 }
 
 pub fn marketplace_listing_url(owner: &str, plugin_name: &str) -> String {
@@ -185,7 +168,7 @@ pub fn listing_from_package(package: &PluginPackage, offline: bool) -> CatalogLi
         display_name: package.name.clone(),
         summary: package.summary.clone(),
         category: bundled_topic_category(package.id.as_str())
-            .unwrap_or("productivity")
+            .unwrap_or("other")
             .to_owned(),
         source_kind: if offline { "offline" } else { "official" }.to_owned(),
         homepage: Some(marketplace_listing_url(&owner, &plugin_name)),
@@ -253,25 +236,21 @@ pub fn package_matches_marketplace(package_id: &str, owner: &str, plugin_name: &
     })
 }
 
-/// GitHub tarball URLs for Host-official plugins that are not on the remote
-/// marketplace API and may be missing from the local rust-embed (empty submodule).
+/// GitHub tarball URLs for official plugins listed in `vibex-plugin.json`.
 pub fn official_github_archive_urls(owner: &str, plugin_name: &str) -> Vec<String> {
-    if !owner.eq_ignore_ascii_case("vibex") {
-        return Vec::new();
-    }
-    let slug = marketplace_plugin_slug(owner, plugin_name);
-    if slug.is_empty()
-        || slug.contains('/')
-        || is_authoring_sample_plugin_id(&slug)
-        || is_authoring_sample_plugin_id(&format!("vibex.{slug}"))
+    if is_authoring_sample_plugin_id(plugin_name)
+        || is_authoring_sample_plugin_id(&format!("{owner}.{plugin_name}"))
     {
         return Vec::new();
     }
-    let repo = format!("Xircth/vibex-plugin-{slug}");
-    vec![
-        format!("https://codeload.github.com/{repo}/tar.gz/refs/heads/main"),
-        format!("https://codeload.github.com/{repo}/tar.gz/main"),
-    ]
+    for candidate in marketplace_plugin_ids(owner, plugin_name) {
+        if let Some(plugin) = crate::official_catalog::official_plugin_record(&candidate) {
+            return crate::official_catalog::github_archive_urls_for_repository(
+                &plugin.repository,
+            );
+        }
+    }
+    Vec::new()
 }
 
 pub fn plugin_ids_match(id: &str, canonical: &str) -> bool {
@@ -289,11 +268,9 @@ pub fn is_channel_category(category: &str) -> bool {
 }
 
 pub fn bundled_topic_category(plugin_id: &str) -> Option<&'static str> {
-    let canonical = canonical_plugin_id(plugin_id);
-    BUNDLED_TOPIC_CATEGORIES
-        .iter()
-        .find(|(id, _)| plugin_ids_match(&canonical, id) || plugin_ids_match(plugin_id, id))
-        .map(|(_, topic)| *topic)
+    crate::official_catalog::official_plugin_category(plugin_id).or_else(|| {
+        is_authoring_sample_plugin_id(plugin_id).then_some("other")
+    })
 }
 
 pub fn normalize_listing_category(listing: &mut CatalogListing) {
@@ -541,11 +518,14 @@ pub async fn fetch_catalog(query: Option<&str>) -> Result<CatalogPage, PluginErr
             query: query.unwrap_or_default().to_owned(),
             remote: true,
         };
+        crate::merge_host_official_catalog(&mut page);
         prepare_marketplace_page(&mut page);
         return Ok(page);
     }
     let published = fetch_list(&client, &format!("{origin}/api/marketplace/list")).await?;
-    Ok(page_from_published(published, query))
+    let mut page = page_from_published(published, query);
+    crate::merge_host_official_catalog(&mut page);
+    Ok(page)
 }
 
 pub async fn fetch_versions(
@@ -1395,9 +1375,8 @@ mod tests {
     }
 
     #[test]
-    fn bundled_official_index_fills_gaps_left_by_a_short_remote_catalog() {
-        let json = include_bytes!("../../../assets/plugins/index/official.v1.json");
-        let extra = listings_from_official_index(json);
+    fn host_official_catalog_fills_gaps_left_by_a_short_remote_catalog() {
+        let extra = crate::listings_from_host_official_catalog();
         assert!(extra.iter().any(|listing| {
             listing.owner == "vibex"
                 && listing.plugin_name == "multi-agent"
@@ -1407,7 +1386,7 @@ mod tests {
             official: vec![listing("vibex.office", "办公套件", "Office files")],
             ..CatalogPage::default()
         };
-        merge_bundled_official_index(&mut page, Some(json));
+        crate::merge_host_official_catalog(&mut page);
         let names = page
             .official
             .iter()

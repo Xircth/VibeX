@@ -1362,13 +1362,10 @@ impl PluginControlPlane {
     pub async fn install_bundled_official_plugins(
         &self,
         data_root: &Path,
-        activation: Option<BundledPluginActivation>,
+        _activation: Option<BundledPluginActivation>,
     ) -> Result<Vec<PathBuf>, PluginError> {
-        let roots = utils::assets::materialize_builtin_plugins(data_root)
-            .map_err(|error| PluginError::io("materialize official plugins", error))?;
+        let roots = utils::assets::existing_official_plugin_roots(data_root);
         self.migrate_builtin_memberships(&roots).await?;
-        self.refresh_installed_bundled_plugins(&roots, activation.as_ref())
-            .await?;
         Ok(roots)
     }
 

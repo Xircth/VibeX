@@ -19,6 +19,6 @@ pnpm --filter @vibex/plugin-cli exec node dist/cli.js toolchain | grep -q hostVe
 echo "== protocol fixture =="
 test -f packages/plugin-contract/fixtures/protocol/initialize-activate-ping.jsonl
 test -f packages/plugin-contract/isolated/node.darwin.syscalls
-test -f assets/plugins/index/official.v1.json
+test -f vibex-plugin.json
 
 echo "plugin-platform e2e gate passed"

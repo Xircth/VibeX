@@ -48,24 +48,8 @@ fn it_never_embeds_secrets() {
 }
 
 #[test]
-fn the_host_embed_keeps_catalog_files() {
-    let data = tempfile::tempdir().expect("data");
-    let roots = utils::assets::materialize_builtin_plugins(data.path()).expect("materialize");
-    let root = roots
-        .iter()
-        .find(|root| {
-            PluginPackage::inspect(root, PluginSourceKind::Builtin)
-                .ok()
-                .is_some_and(|package| package.id.as_str() == "vibex.provider-switch")
-        })
-        .expect("ProviderSwitch is bundled");
-    let package =
-        PluginPackage::inspect(root, PluginSourceKind::Builtin).expect("materialized package");
-    assert!(
-        package.warnings.is_empty(),
-        "materialized catalogs must parse: {:?}",
-        package.warnings
-    );
+fn provider_catalogs_live_in_the_plugin_package() {
+    let package = bundled();
     assert!(!package.app.provider_catalogs.is_empty());
 }
 

@@ -371,10 +371,12 @@ function pointerFromDrag(
   event: DragMoveEvent | DragEndEvent
 ): Point | null {
   const start = event.activatorEvent;
-  if (!start || !('clientX' in start)) return null;
+  if (!start || !('clientX' in start) || !('clientY' in start)) return null;
+  const { clientX, clientY } = start as { clientX: unknown; clientY: unknown };
+  if (typeof clientX !== 'number' || typeof clientY !== 'number') return null;
   return {
-    x: start.clientX + event.delta.x,
-    y: start.clientY + event.delta.y,
+    x: clientX + event.delta.x,
+    y: clientY + event.delta.y,
   };
 }
 

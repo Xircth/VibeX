@@ -119,7 +119,6 @@ function PluginRemoteViewBody({
     [metadata.remote]
   );
   const rootRef = useRef<HTMLDivElement | null>(null);
-  const [retry, setRetry] = useState(0);
   const [remoteState, setRemoteState] = useState<
     'idle' | 'loading' | 'ready' | 'failed'
   >(remote && isHttpRemoteEntry(remote.entry) ? 'loading' : 'idle');
@@ -205,7 +204,6 @@ function PluginRemoteViewBody({
     item.pluginId,
     projectId,
     remote,
-    retry,
     slot,
     surfaceId,
     workspaceId,

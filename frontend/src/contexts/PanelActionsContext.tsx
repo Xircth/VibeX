@@ -1064,7 +1064,7 @@ export function PanelActionsProvider({ children }: { children: ReactNode }) {
           id: panelId,
           component: panelId,
           title,
-          position: { referenceGroup: leftGroup, direction: 'within' },
+          position: { referenceGroup: leftGroup.id, direction: 'within' },
         });
       } else {
         dockviewApi.addPanel({
@@ -1118,7 +1118,7 @@ export function PanelActionsProvider({ children }: { children: ReactNode }) {
           id: panelId,
           component: panelId,
           title,
-          position: { referenceGroup: leftGroup, direction: 'within' },
+          position: { referenceGroup: leftGroup.id, direction: 'within' },
         });
         existing = dockviewApi.getPanel(panelId);
       }

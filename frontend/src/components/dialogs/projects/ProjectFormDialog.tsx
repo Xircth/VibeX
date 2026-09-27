@@ -5,7 +5,7 @@ import { TextArea } from '@astryxdesign/core/TextArea';
 import { TextInput } from '@astryxdesign/core/TextInput';
 import { pickHostDirectory } from '@/lib/hostFs';
 import { AlertCircle, FolderOpen, GitBranch, Loader2 } from 'lucide-react';
-import type { CreateProject, Project } from 'shared/types';
+import type { Project } from 'shared/types';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
@@ -297,23 +297,6 @@ const ProjectFormDialogImpl = NiceModal.create<ProjectFormDialogProps>(
     const handleCancel = () => {
       modal.resolve({ status: 'canceled' } as ProjectFormDialogResult);
       modal.hide();
-    };
-
-    const createProjectRecord = async (
-      finalProjectName: string,
-      repoPathForProject: string
-    ) => {
-      const createData: CreateProject = {
-        name: finalProjectName,
-        repositories: [
-          {
-            display_name: finalProjectName,
-            git_repo_path: repoPathForProject,
-          },
-        ],
-      };
-
-      return createProject.mutateAsync(createData);
     };
 
     const handleCreateNewProject = async () => {

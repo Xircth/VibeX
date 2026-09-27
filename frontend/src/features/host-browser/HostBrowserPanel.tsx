@@ -171,28 +171,6 @@ type FreezePayload = { mime?: string | null; data?: string | null };
  *  (Codeg `FREEZE_PAINT_TIMEOUT_MS`). */
 const FREEZE_PAINT_TIMEOUT_MS = 100;
 
-function bounded(work: Promise<unknown>): Promise<void> {
-  return new Promise((resolve) => {
-    const timer = window.setTimeout(resolve, FREEZE_PAINT_TIMEOUT_MS);
-    const done = () => {
-      window.clearTimeout(timer);
-      resolve();
-    };
-    work.then(done, done);
-  });
-}
-
-async function decodeFreeze(url: string): Promise<void> {
-  if (typeof Image === 'undefined') return;
-  try {
-    const image = new Image();
-    image.src = url;
-    if (typeof image.decode === 'function') await bounded(image.decode());
-  } catch {
-    /* paint it cold */
-  }
-}
-
 function nextPaint(): Promise<void> {
   return new Promise((resolve) => {
     if (typeof requestAnimationFrame !== 'function') {
@@ -1348,7 +1326,6 @@ export function HostBrowserPanel({
                 {t('browserPanel.zoom')}
               </DropdownMenuSubTrigger>
               <DropdownMenuSubContent
-                side="left"
                 className="z-[20000] min-w-[7rem]"
               >
                 {ZOOM_PRESETS.map((factor) => (
@@ -1372,7 +1349,6 @@ export function HostBrowserPanel({
                 {t('browserPanel.device')}
               </DropdownMenuSubTrigger>
               <DropdownMenuSubContent
-                side="left"
                 className="z-[20000] min-w-[8rem]"
               >
                 {DEVICE_PRESETS.map((preset) => (

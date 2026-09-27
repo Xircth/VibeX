@@ -32,6 +32,7 @@ const project: Project = {
   root_path: '/repo/VibeX',
   parent_project_id: null,
   hidden: false,
+  is_home: false,
   is_git: true,
   default_agent_working_dir: null,
   default_main_branch: null,

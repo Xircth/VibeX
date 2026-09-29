@@ -1824,7 +1824,10 @@ mod tests {
             CREATE TABLE projects (
                 id BLOB PRIMARY KEY NOT NULL,
                 name TEXT NOT NULL,
-                root_path TEXT,
+                root_path TEXT NOT NULL DEFAULT '',
+                parent_project_id BLOB,
+                hidden INTEGER NOT NULL DEFAULT 0,
+                is_git INTEGER NOT NULL DEFAULT 0,
                 default_agent_working_dir TEXT,
                 default_main_branch TEXT,
                 created_at TEXT NOT NULL DEFAULT (datetime('now', 'subsec')),

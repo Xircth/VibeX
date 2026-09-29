@@ -1102,10 +1102,8 @@ fn page_handlers(
     (
         move |event, url| {
             let loading = matches!(event, PageLoadEvent::Started);
-            if !loading {
-                if let Some(service) = load_service.upgrade() {
-                    service.commit_url(&load_id, &url);
-                }
+            if !loading && let Some(service) = load_service.upgrade() {
+                service.commit_url(&load_id, &url);
             }
             emit_tab_state(&load_app, &load_id, &url, loading);
         },

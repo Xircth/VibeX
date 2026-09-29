@@ -665,9 +665,7 @@ fn folder_name(path: &Path) -> String {
 
 fn containing_repo_path(paths: &[PathBuf]) -> Option<PathBuf> {
     paths.iter().find_map(|candidate| {
-        let contains_all = paths
-            .iter()
-            .all(|path| path == candidate || path.starts_with(candidate) && path != candidate);
+        let contains_all = paths.iter().all(|path| path.starts_with(candidate));
         contains_all.then(|| candidate.clone())
     })
 }

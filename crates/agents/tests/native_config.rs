@@ -557,8 +557,14 @@ async fn opencode_inline_provider_api_key_is_api_key_login() {
         PathBuf::from("/home/user/.local/share/opencode/auth.json"),
         b"{}".to_vec(),
     );
+    let opencode_config = std::env::var("XDG_CONFIG_HOME")
+        .ok()
+        .map(|value| value.trim().to_owned())
+        .filter(|value| !value.is_empty())
+        .map(|xdg| PathBuf::from(xdg).join("opencode").join("opencode.json"))
+        .unwrap_or_else(|| PathBuf::from("/home/user/.config/opencode/opencode.json"));
     filesystem.files.lock().unwrap().insert(
-        PathBuf::from("/home/user/.config/opencode/opencode.json"),
+        opencode_config,
         br#"{
           "provider": {
             "opencodego": {

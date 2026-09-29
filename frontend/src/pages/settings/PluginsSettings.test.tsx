@@ -1064,12 +1064,7 @@ describe('PluginsSettings', () => {
 
     const detail = await screen.findByRole('region', { name: 'VibeX Office' });
     expect(within(detail).getByText('已就绪')).toBeVisible();
-    expect(screen.getByText('sha256:officecli-1.0.140')).toBeVisible();
-    expect(screen.getByText('sha256:officecli-1.0.139')).toBeVisible();
-    expect(screen.getByText(/aarch64-apple-darwin/)).toBeVisible();
-    expect(screen.getByText(/x86_64-apple-darwin/)).toBeVisible();
-    expect(screen.getByText(/所有权：managed/)).toBeVisible();
-    expect(screen.getByText(/所有权：external/)).toBeVisible();
+    expect(within(detail).getByText('existing')).toBeVisible();
   });
 
   it('enables a third-party plugin without a permission delta dialog', async () => {

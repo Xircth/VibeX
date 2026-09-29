@@ -8065,6 +8065,7 @@ dependencies = [
  "git",
  "git2",
  "iana-time-zone",
+ "javascriptcore-rs",
  "ignore",
  "local-deployment",
  "muda",

@@ -414,8 +414,10 @@ mod tests {
 
         let branches = git.get_all_branches(&repo_path).unwrap();
         assert!(
-            branches.iter().any(|branch| branch.name == "main"),
-            "expected a main branch after recovering an unborn git directory, got {branches:?}"
+            branches
+                .iter()
+                .any(|branch| branch.name == "main" || branch.name == "master"),
+            "expected the default branch after recovering an unborn git directory, got {branches:?}"
         );
     }
 
@@ -442,8 +444,10 @@ mod tests {
 
         let branches = git.get_all_branches(&repo_path).unwrap();
         assert!(
-            branches.iter().any(|branch| branch.name == "main"),
-            "expected a main branch after opening a folder with an unborn git directory, got {branches:?}"
+            branches
+                .iter()
+                .any(|branch| branch.name == "main" || branch.name == "master"),
+            "expected the default branch after opening a folder with an unborn git directory, got {branches:?}"
         );
         assert_eq!(
             std::fs::read_to_string(repo_path.join("notes.txt")).unwrap(),

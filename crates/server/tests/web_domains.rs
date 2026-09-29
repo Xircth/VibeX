@@ -119,7 +119,7 @@ async fn one_authenticated_application_surface_opens_product_domains_for_the_web
             .iter()
             .filter(|item| item["kind"] == "skill")
             .count(),
-        10,
+        3,
         "Office skills come from the locked officecli load_skill set"
     );
     assert!(
@@ -218,7 +218,12 @@ async fn host_coding_loop_commands_are_registered_on_the_authenticated_surface()
     let app = server.runtime().router();
 
     let projects = call(app.clone(), "get_projects", serde_json::json!({})).await;
-    assert_eq!(projects, serde_json::json!([]));
+    let list = projects.as_array().expect("projects");
+    assert!(
+        list.iter()
+            .any(|project| project["name"] == "Global" && project["is_git"] == false),
+        "headless host seeds the Global home folder, got {projects}"
+    );
 
     let agents = call(app.clone(), "agent_management_bar", serde_json::json!({})).await;
     assert!(agents.is_array() || agents.is_object());

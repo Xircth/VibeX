@@ -171,6 +171,33 @@ type FreezePayload = { mime?: string | null; data?: string | null };
  *  (Codeg `FREEZE_PAINT_TIMEOUT_MS`). */
 const FREEZE_PAINT_TIMEOUT_MS = 100;
 
+function boundedPaintWork(work: Promise<unknown>): Promise<void> {
+  return new Promise((resolve) => {
+    const timer = window.setTimeout(resolve, FREEZE_PAINT_TIMEOUT_MS);
+    const done = () => {
+      window.clearTimeout(timer);
+      resolve();
+    };
+    work.then(done, done);
+  });
+}
+
+/** Warm `url` off screen so the freeze `<img>` paints in the commit it is
+ *  added in. Best effort: engines without `decode()`, a failed decode, and a
+ *  decode that never settles all paint cold rather than skip the hide. */
+async function decodeOffscreen(url: string): Promise<void> {
+  if (typeof Image === 'undefined') return;
+  try {
+    const image = new Image();
+    image.src = url;
+    if (typeof image.decode === 'function') {
+      await boundedPaintWork(image.decode());
+    }
+  } catch {
+    /* paint it cold */
+  }
+}
+
 function nextPaint(): Promise<void> {
   return new Promise((resolve) => {
     if (typeof requestAnimationFrame !== 'function') {
@@ -365,6 +392,10 @@ export function HostBrowserPanel({
   const [device, setDevice] = useState<BrowserDevice>(DEFAULT_DEVICE);
   const [frozen, setFrozen] = useState<string | null>(null);
   const lastFreezeRef = useRef<string | null>(null);
+  const freezeGenRef = useRef(0);
+  const freezeInFlightRef = useRef<Promise<string | null> | null>(null);
+  const hideTargetRef = useRef<boolean | null>(null);
+  const captureFreezeRef = useRef<() => Promise<string | null>>(async () => null);
   const [addressHistory, setAddressHistory] = useState<
     BrowserAddressHistoryEntry[]
   >(() => loadBrowserAddressHistory());
@@ -373,6 +404,7 @@ export function HostBrowserPanel({
   const addressDirtyRef = useRef(false);
   const suggestions = suggestBrowserAddresses(address, addressHistory);
   const hideSeqRef = useRef(0);
+  const loadingRef = useRef(false);
 
   const dispatch = useCallback(
     async (operation: string, input: Record<string, unknown> = {}) => {
@@ -387,6 +419,7 @@ export function HostBrowserPanel({
   dispatchRef.current = dispatch;
   panelVisibleRef.current = panelVisible;
   visibleRef.current = panelVisible;
+  loadingRef.current = loading;
 
   const stopPicking = () => {
     pickingRef.current = false;
@@ -433,7 +466,11 @@ export function HostBrowserPanel({
       return;
     }
     if (payload.kind === 'tab.state') {
-      if (payload.loading === true) setLoading(true);
+      if (payload.loading === true) {
+        setLoading(true);
+        freezeGenRef.current += 1;
+        lastFreezeRef.current = null;
+      }
       if (tabStateClearsLoading(payload, pendingUrlRef.current)) {
         pendingUrlRef.current = null;
         setLoading(false);
@@ -685,60 +722,112 @@ export function HostBrowserPanel({
     return () => window.clearTimeout(timer);
   }, [loading, t]);
 
+  const captureFreeze = useCallback((): Promise<string | null> => {
+    if (freezeInFlightRef.current) return freezeInFlightRef.current;
+    const tabId = tabIdRef.current;
+    if (!tabId || occludedRef.current) {
+      return Promise.resolve(lastFreezeRef.current);
+    }
+    const gen = freezeGenRef.current;
+    let work: Promise<string | null>;
+    work = (async () => {
+      try {
+        const frame = (await dispatchRef.current('surface.freeze', {
+          tabId,
+        })) as FreezePayload | null;
+        if (freezeGenRef.current !== gen) return lastFreezeRef.current;
+        const src = freezeFrameSrc(frame) ?? lastFreezeRef.current;
+        if (src) {
+          lastFreezeRef.current = src;
+          await decodeOffscreen(src);
+        }
+        return freezeGenRef.current === gen ? src : lastFreezeRef.current;
+      } finally {
+        if (freezeInFlightRef.current === work) {
+          freezeInFlightRef.current = null;
+        }
+      }
+    })();
+    freezeInFlightRef.current = work;
+    return work;
+  }, []);
+  captureFreezeRef.current = captureFreeze;
+
   useLayoutEffect(() => overlay.registerNativeSurfaceHost(), [overlay]);
 
   useLayoutEffect(() => {
     return overlay.subscribeNativeSurfaceOcclusion((occlusion) => {
       const hide = overlayCoversBrowser(hostRef.current, occlusion);
-      if (occludedRef.current === hide) {
+      if (occludedRef.current === hide && hideTargetRef.current == null) {
         overlay.ackOverlayReady();
+        return;
+      }
+      if (hideTargetRef.current === hide) {
         return;
       }
       hideSeqRef.current += 1;
       const seq = hideSeqRef.current;
+      hideTargetRef.current = hide;
       if (!hide) {
         occludedRef.current = false;
-        void syncBounds().finally(() => {
-          if (hideSeqRef.current === seq) setFrozen(null);
+        void (async () => {
+          await syncBounds();
+          if (hideSeqRef.current !== seq) return;
+          await nextPaint();
+          if (hideSeqRef.current !== seq) return;
+          setFrozen(null);
+          hideTargetRef.current = null;
           overlay.ackOverlayReady();
-        });
+        })();
         return;
       }
-      const tabId = tabIdRef.current;
       void (async () => {
-        let src: string | null = lastFreezeRef.current;
-        if (tabId) {
-          const frame = (await dispatchRef.current('surface.freeze', {
-            tabId,
-          })) as FreezePayload | null;
-          src = freezeFrameSrc(frame) ?? lastFreezeRef.current;
+        let src = lastFreezeRef.current;
+        if (freezeInFlightRef.current) {
+          src = (await freezeInFlightRef.current) ?? src;
+        } else if (!src) {
+          src = await captureFreezeRef.current();
         }
-        if (hideSeqRef.current !== seq) {
-          overlay.ackOverlayReady();
-          return;
-        }
+        if (hideSeqRef.current !== seq) return;
         if (src) {
           lastFreezeRef.current = src;
+          await decodeOffscreen(src);
+          if (hideSeqRef.current !== seq) return;
           setFrozen(src);
           await nextPaint();
-          if (hideSeqRef.current !== seq) {
-            overlay.ackOverlayReady();
-            return;
-          }
-        } else if (lastFreezeRef.current) {
-          setFrozen(lastFreezeRef.current);
-          await nextPaint();
-          if (hideSeqRef.current !== seq) {
-            overlay.ackOverlayReady();
-            return;
-          }
+          if (hideSeqRef.current !== seq) return;
         }
         occludedRef.current = true;
         await syncBounds();
+        if (hideSeqRef.current !== seq) return;
+        hideTargetRef.current = null;
         overlay.ackOverlayReady();
       })();
     });
   }, [overlay, syncBounds]);
+
+  useEffect(() => {
+    const prefetch = () => {
+      if (
+        !tabIdRef.current ||
+        occludedRef.current ||
+        !visibleRef.current ||
+        loadingRef.current
+      ) {
+        return;
+      }
+      void captureFreezeRef.current();
+    };
+    window.addEventListener('pointerdown', prefetch, true);
+    return () => window.removeEventListener('pointerdown', prefetch, true);
+  }, []);
+
+  useEffect(() => {
+    if (loading || !tab?.tabId || !panelVisible || occludedRef.current) {
+      return;
+    }
+    void captureFreezeRef.current();
+  }, [loading, panelVisible, tab?.tabId]);
 
   useEffect(() => {
     let cancelled = false;
@@ -892,6 +981,10 @@ export function HostBrowserPanel({
     setAddress(url);
     pendingUrlRef.current = url;
     setLoading(true);
+    freezeGenRef.current += 1;
+    lastFreezeRef.current = null;
+    hideSeqRef.current += 1;
+    hideTargetRef.current = null;
     occludedRef.current = false;
     const label = provisionalTitle(url);
     if (label) panelApi?.setTitle?.(label);
@@ -1053,6 +1146,7 @@ export function HostBrowserPanel({
 
   const revealSurface = () => {
     hideSeqRef.current += 1;
+    hideTargetRef.current = null;
     occludedRef.current = false;
     setFrozen(null);
     void syncBounds();

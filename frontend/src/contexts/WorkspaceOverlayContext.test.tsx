@@ -1,6 +1,7 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { useLayoutEffect, useRef } from 'react';
 import { describe, expect, it, vi } from 'vitest';
+import { OVERLAY_PENDING_ATTR } from '@/lib/floatingLayer';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -213,5 +214,51 @@ describe('WorkspaceOverlayProvider', () => {
         expect.objectContaining({ hide: true })
       )
     );
+  });
+
+  it('holds floating layers pending until every native host acks', async () => {
+    const root = document.createElement('div');
+    root.setAttribute('data-overlay-root', '');
+    document.body.append(root);
+
+    function HostAck() {
+      const overlay = useWorkspaceOverlay();
+      useLayoutEffect(() => overlay.registerNativeSurfaceHost(), [overlay]);
+      return (
+        <button type="button" onClick={() => overlay.ackOverlayReady()}>
+          ack host
+        </button>
+      );
+    }
+
+    try {
+      const { rerender } = render(
+        <WorkspaceOverlayProvider>
+          <HostAck />
+        </WorkspaceOverlayProvider>,
+        { container: root }
+      );
+      rerender(
+        <WorkspaceOverlayProvider>
+          <HostAck />
+          <div data-floating-layer="modal" data-testid="create-project">
+            Create project
+          </div>
+        </WorkspaceOverlayProvider>
+      );
+
+      await waitFor(() =>
+        expect(root.hasAttribute(OVERLAY_PENDING_ATTR)).toBe(true)
+      );
+      expect(
+        document.getElementById('vibex-overlay-pending-style')?.textContent
+      ).toContain('visibility:hidden');
+      fireEvent.click(screen.getByRole('button', { name: 'ack host' }));
+      await waitFor(() =>
+        expect(root.hasAttribute(OVERLAY_PENDING_ATTR)).toBe(false)
+      );
+    } finally {
+      root.remove();
+    }
   });
 });

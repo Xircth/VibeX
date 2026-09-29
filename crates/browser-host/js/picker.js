@@ -6,9 +6,11 @@
 // pick nobody finished.
 //
 // While it is armed it draws a highlight over whatever the pointer is on and,
-// on a click, reports that element to the host as one `pick` message. The
-// press that chooses an element is swallowed in the capture phase, so
-// choosing the page's "Delete" button does not also press it.
+// on a click, reports that element to the host as one `pick` message without
+// disarming. The host's pick button is a toggle: each click is another
+// element until the person turns the picker off. The press that chooses an
+// element is swallowed in the capture phase, so choosing the page's "Delete"
+// button does not also press it.
 //
 // The overlay is the one mark this leaves on the page: a fixed `div` with a
 // CLOSED shadow root holding the highlight, so the page can see that a node
@@ -100,15 +102,15 @@
   ]
 
   var active = false
-  // A pick ends on the FIRST click, and a person who double-clicks has
-  // already sent the second one. For a moment after finishing, presses are
-  // still swallowed and nothing is reported — otherwise the second half of a
-  // double-click lands on the page and presses what was only being pointed
-  // at.
+  // A cancelled pick still drains the gesture so the second half of a
+  // double-click does not land on the page. A successful pick stays armed
+  // and does not drain.
   var DRAIN_MS = 700
   var draining = false
   var drainTimer = null
   var guardTimer = null
+  var cloaked = false
+  var pickSeq = 0
   var token = ""
   var host = null
   var root = null
@@ -472,6 +474,7 @@
     }
     return {
       id: token,
+      seq: ++pickSeq,
       href: clip(String(location.href), MAX_HREF),
       title: clip(String(document.title || ""), MAX_TITLE),
       viewport: {
@@ -755,6 +758,7 @@
    * would otherwise be the chance to notice.
    */
   function guardTick() {
+    if (cloaked) return
     if (!active && !draining) return
     ensureOverlay()
     // Re-enter the top layer every tick, whether or not anything looks wrong.
@@ -884,7 +888,7 @@
 
   function paint() {
     frame = 0
-    if (!active) return
+    if (!active || cloaked) return
     if (!ensureOverlay()) return
     // One hit test a frame, at the middle of the viewport: the full check
     // belongs to the guard, but a pointer that is moving should not have to
@@ -1113,7 +1117,7 @@
     // different one, which is the one thing a picker must never do.
     var element = targetOf(event)
     if (!element) return
-    finish(describe(element), true)
+    report(describe(element))
   }
 
   // Every key belongs to the picker while it is armed. Escape ends it; the
@@ -1162,7 +1166,7 @@
       finish({ id: token, cancelled: true }, true)
       return
     }
-    finish(describe(element), true)
+    report(describe(element))
   }
 
   var LISTENERS = [
@@ -1258,6 +1262,7 @@
       return
     }
     active = false
+    cloaked = false
     current = null
     lostCoverage = 0
     inertStrikes = 0
@@ -1299,13 +1304,13 @@
   }
 
   globalThis.__codegPicker = {
-    // Arm the picker for one element. A second call replaces the first: the
-    // host only ever waits for the pick it asked for last, and an id it does
-    // not recognise is dropped there.
+    // Arm the picker until stop(). A second start replaces the first.
     start: function (id) {
       teardown(false)
       token = String(id || "")
       active = true
+      cloaked = false
+      pickSeq = 0
       lostCoverage = 0
       inertStrikes = 0
       ensureOverlay()
@@ -1350,6 +1355,34 @@
       }
       teardown(false)
       return "stopped"
+    },
+    // Hide the overlay so a page snapshot does not include the highlight,
+    // without ending the pick.
+    cloak: function (hidden) {
+      cloaked = hidden === true
+      if (cloaked) {
+        hideHighlight()
+        if (host) {
+          try {
+            // Stay in the hit-test path so the next click is still a pick.
+            // Opacity is the snapshot: CapturePreview must see the page, not
+            // the highlight, without handing the press back to the document.
+            host.style.setProperty("opacity", "0", "important")
+          } catch {
+            /* the snapshot still goes ahead */
+          }
+        }
+        return "cloaked"
+      }
+      if (active && host) {
+        try {
+          host.style.cssText = baseStyle
+        } catch {
+          /* paint will re-assert */
+        }
+        schedulePaint()
+      }
+      return "shown"
     },
   }
 })()

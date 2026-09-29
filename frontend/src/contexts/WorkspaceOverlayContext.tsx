@@ -61,7 +61,9 @@ function occlusionEqual(
   });
 }
 
-const OVERLAY_READY_TIMEOUT_MS = 120;
+/** Long enough for a freeze-frame capture plus one paint before the menu
+ *  reveals over a still-visible native HWND. */
+const OVERLAY_READY_TIMEOUT_MS = 500;
 
 export const WorkspaceOverlayContext =
   createContext<WorkspaceOverlayContextValue>({

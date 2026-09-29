@@ -16,6 +16,13 @@ export type FrozenPageFrame = {
   data?: string | null;
 };
 
+export function freezeFrameSrc(
+  frame: FrozenPageFrame | null | undefined
+): string | null {
+  if (!frame?.mime || !frame.data) return null;
+  return `data:${frame.mime};base64,${frame.data}`;
+}
+
 export function cropRectToImage(
   rect: PickedRect,
   viewport: PickedViewport,
@@ -48,6 +55,8 @@ export function cropRectToImage(
   return { sx, sy, sw, sh };
 }
 
+const FRAME_DECODE_TIMEOUT_MS = 800;
+
 function loadFrameImage(frame: FrozenPageFrame): Promise<HTMLImageElement> {
   return new Promise((resolve, reject) => {
     if (!frame.mime || !frame.data) {
@@ -55,8 +64,19 @@ function loadFrameImage(frame: FrozenPageFrame): Promise<HTMLImageElement> {
       return;
     }
     const image = new Image();
-    image.onload = () => resolve(image);
-    image.onerror = () => reject(new Error('frame decode failed'));
+    const finish = (error?: Error) => {
+      window.clearTimeout(timer);
+      image.onload = null;
+      image.onerror = null;
+      if (error) reject(error);
+      else resolve(image);
+    };
+    const timer = window.setTimeout(
+      () => finish(new Error('frame decode timeout')),
+      FRAME_DECODE_TIMEOUT_MS
+    );
+    image.onload = () => finish();
+    image.onerror = () => finish(new Error('frame decode failed'));
     image.src = `data:${frame.mime};base64,${frame.data}`;
   });
 }

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { cropRectToImage } from './pickHandoff';
+import { cropRectToImage, freezeFrameSrc } from './pickHandoff';
 
 describe('cropRectToImage', () => {
   it('maps CSS element boxes onto the captured bitmap', () => {
@@ -23,5 +23,15 @@ describe('cropRectToImage', () => {
         600
       )
     ).toEqual({ sx: 700, sy: 500, sw: 100, sh: 100 });
+  });
+});
+
+describe('freezeFrameSrc', () => {
+  it('builds a data URL from a captured frame', () => {
+    expect(freezeFrameSrc({ mime: 'image/png', data: 'abc' })).toBe(
+      'data:image/png;base64,abc'
+    );
+    expect(freezeFrameSrc({ mime: null, data: 'abc' })).toBeNull();
+    expect(freezeFrameSrc(null)).toBeNull();
   });
 });

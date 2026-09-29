@@ -43,7 +43,7 @@ async fn creates_non_git_project_without_initializing_git() {
 
     assert!(!project.is_git);
     assert!(!folder.join(".git").exists());
-    assert_eq!(project.hidden, false);
+    assert!(!project.hidden);
 }
 
 #[tokio::test]

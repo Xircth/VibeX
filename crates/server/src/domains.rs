@@ -1304,10 +1304,10 @@ impl ServerApplicationDomains {
             .invoke(request)
             .await
             .map_err(app_surface_error)?;
-        if method == "runtime.restart" {
-            if let Ok(Some(plugin)) = self.plugin_control_plane().await?.plugin(&plugin_id).await {
-                let _ = self.apply_default_plugin_mcp_projections(&plugin).await;
-            }
+        if method == "runtime.restart"
+            && let Ok(Some(plugin)) = self.plugin_control_plane().await?.plugin(&plugin_id).await
+        {
+            let _ = self.apply_default_plugin_mcp_projections(&plugin).await;
         }
         Ok(value)
     }
@@ -1341,10 +1341,10 @@ impl ServerApplicationDomains {
             None => lease.invoke(handler, args.input).await,
         };
         let value = result.map_err(|error| ApplicationError::internal(error.to_string()))?;
-        if handler == "runtime.restart" {
-            if let Ok(Some(plugin)) = self.plugin_control_plane().await?.plugin(plugin_id).await {
-                let _ = self.apply_default_plugin_mcp_projections(&plugin).await;
-            }
+        if handler == "runtime.restart"
+            && let Ok(Some(plugin)) = self.plugin_control_plane().await?.plugin(plugin_id).await
+        {
+            let _ = self.apply_default_plugin_mcp_projections(&plugin).await;
         }
         Ok(value)
     }

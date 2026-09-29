@@ -1904,6 +1904,17 @@ mod tests {
             )
             "#,
             r#"
+            CREATE TABLE project_repos (
+                id BLOB PRIMARY KEY NOT NULL,
+                project_id BLOB NOT NULL,
+                repo_id BLOB NOT NULL,
+                setup_script TEXT,
+                cleanup_script TEXT,
+                copy_files TEXT,
+                parallel_setup_script INTEGER NOT NULL DEFAULT 0
+            )
+            "#,
+            r#"
             CREATE TABLE coding_agent_turns (
                 id BLOB PRIMARY KEY NOT NULL,
                 execution_process_id BLOB NOT NULL,

@@ -400,7 +400,7 @@ pub async fn create_task_and_start(
             state
                 .deployment
                 .git()
-                .get_current_branch(&repo.path)
+                .resolve_workspace_branch(&repo.path, None)
                 .map_err(|e| AppError::Internal(format!("Failed to resolve current branch: {e}")))?
         };
 

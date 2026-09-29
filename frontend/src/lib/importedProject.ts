@@ -5,6 +5,12 @@ export function importedProjectName(
   return project.is_home ? t('welcomePage.globalProject') : project.name;
 }
 
+export function listedImportedProjects<T extends { hidden?: boolean }>(
+  projects: T[]
+): T[] {
+  return projects.filter((project) => !project.hidden);
+}
+
 export function orderImportedProjects<
   T extends { is_home?: boolean; parent_project_id?: string | null },
 >(projects: T[]): T[] {

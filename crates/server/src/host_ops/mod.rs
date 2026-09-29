@@ -1492,32 +1492,21 @@ impl ServerApplicationDomains {
             .into_iter()
             .next()
             .ok_or_else(|| ApplicationError::bad_request("Project has no repositories"))?;
-        let current_branch = self
+        let desired_branch = self
             .deployment
             .git()
-            .get_current_branch(&primary.path)
-            .map_err(internal_error)?;
-        let desired_branch = branch
-            .map(str::trim)
-            .filter(|value| !value.is_empty())
-            .map(str::to_owned)
-            .unwrap_or_else(|| current_branch.clone());
-        if desired_branch != current_branch {
-            self.deployment
-                .git()
-                .checkout_branch(&primary.path, &desired_branch)
-                .map_err(|error| {
-                    if git_checkout_error_is_local_changes(&error.to_string()) {
-                        ApplicationError::bad_request(format!(
-                            "当前分支{current_branch}中存在未提交更改，无法切换到{desired_branch}分支，请先提交或放弃更改。"
-                        ))
-                    } else {
-                        ApplicationError::internal(format!(
-                            "Failed to checkout project root branch '{desired_branch}': {error}"
-                        ))
-                    }
-                })?;
-        }
+            .checkout_project_root_branch(&primary.path, branch)
+            .map_err(|error| {
+                if git_checkout_error_is_local_changes(&error.to_string()) {
+                    ApplicationError::bad_request(
+                        "当前分支存在未提交更改，无法切换分支，请先提交或放弃更改。".to_string(),
+                    )
+                } else {
+                    ApplicationError::internal(format!(
+                        "Failed to prepare project root branch: {error}"
+                    ))
+                }
+            })?;
         let workspace_repos = vec![CreateWorkspaceRepo {
             repo_id: primary.id,
             target_branch: desired_branch.clone(),
@@ -1790,23 +1779,20 @@ impl ServerApplicationDomains {
         .map_err(internal_error)?;
         let mut workspace_repos = Vec::with_capacity(repos.len());
         for input in repos {
-            let target_branch = if input.target_branch.trim().is_empty() {
-                let repo = Repo::find_by_id(&self.pool, input.repo_id)
-                    .await
-                    .map_err(internal_error)?
-                    .ok_or_else(|| ApplicationError::not_found("repository not found"))?;
-                self.deployment
-                    .git()
-                    .get_current_branch(&repo.path)
-                    .map_err(|error| {
-                        ApplicationError::internal(format!(
-                            "Could not resolve the default branch of repo {}: {error}",
-                            repo.name
-                        ))
-                    })?
-            } else {
-                input.target_branch.clone()
-            };
+            let repo = Repo::find_by_id(&self.pool, input.repo_id)
+                .await
+                .map_err(internal_error)?
+                .ok_or_else(|| ApplicationError::not_found("repository not found"))?;
+            let target_branch = self
+                .deployment
+                .git()
+                .resolve_workspace_branch(&repo.path, Some(input.target_branch.as_str()))
+                .map_err(|error| {
+                    ApplicationError::internal(format!(
+                        "Could not resolve the default branch of repo {}: {error}",
+                        repo.name
+                    ))
+                })?;
             workspace_repos.push(CreateWorkspaceRepo {
                 repo_id: input.repo_id,
                 target_branch,

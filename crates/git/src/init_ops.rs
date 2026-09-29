@@ -154,8 +154,10 @@ impl GitService {
         };
         let tree = repo.find_tree(tree_id)?;
 
+        let branch = Self::symbolic_head_branch(repo).unwrap_or_else(|| "main".to_string());
+        let refname = format!("refs/heads/{branch}");
         let _commit_id = repo.commit(
-            Some("refs/heads/main"),
+            Some(&refname),
             &signature,
             &signature,
             "Initial commit",
@@ -163,7 +165,7 @@ impl GitService {
             &[],
         )?;
 
-        repo.set_head("refs/heads/main")?;
+        repo.set_head(&refname)?;
 
         Ok(())
     }
@@ -194,12 +196,18 @@ mod tests {
 
     use crate::GitService;
 
+    fn init_unborn(path: &std::path::Path, branch: &str) -> Repository {
+        let mut opts = git2::RepositoryInitOptions::new();
+        opts.initial_head(branch).external_template(false);
+        Repository::init_opts(path, &opts).unwrap()
+    }
+
     #[test]
     fn init_identity_configured_signature_creates_main_branch_initial_commit() {
         let td = TempDir::new().unwrap();
         let repo_path = td.path().join("repo");
         let service = GitService::new();
-        let repo = Repository::init(&repo_path).unwrap();
+        let repo = init_unborn(&repo_path, "main");
         {
             let mut config = repo.config().unwrap();
             config.set_str("user.name", "Configured User").unwrap();
@@ -219,7 +227,7 @@ mod tests {
     fn init_identity_ensure_main_branch_creates_empty_repo_commit_once() {
         let td = TempDir::new().unwrap();
         let repo_path = td.path().join("repo");
-        let repo = Repository::init(&repo_path).unwrap();
+        let repo = init_unborn(&repo_path, "main");
         {
             let mut config = repo.config().unwrap();
             config.set_str("user.name", "Configured User").unwrap();
@@ -244,7 +252,7 @@ mod tests {
     fn initialize_repo_completes_unborn_head_without_replacing_existing_commits() {
         let td = TempDir::new().unwrap();
         let unborn_path = td.path().join("unborn");
-        Repository::init(&unborn_path).unwrap();
+        init_unborn(&unborn_path, "main");
         let service = GitService::new();
 
         service

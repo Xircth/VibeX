@@ -3525,7 +3525,7 @@
   .project-rail-liquid-glass[data-host-chrome='solid'] {
     overflow: hidden;
     border: 1px solid var(--project-rail-glass-edge);
-    border-radius: 16px;
+    border-radius: var(--radius);
     background: var(--project-rail-glass);
     box-shadow:
       inset 0 1px 0 hsl(0 0% 100% / 0.45),
@@ -3659,7 +3659,6 @@
     padding: 2px 0 5px;
     overflow-x: hidden;
     overflow-y: auto;
-    scrollbar-width: thin;
     cursor: grab;
   }
 
@@ -3879,7 +3878,7 @@
     width: 22px;
     height: 22px;
     flex: 0 0 22px;
-    border-radius: 6px;
+    border-radius: var(--radius);
   }
 
   .project-rail-action-button svg {

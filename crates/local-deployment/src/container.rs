@@ -1003,10 +1003,10 @@ impl ContainerService for LocalContainerService {
         let workspace_repos =
             WorkspaceRepo::find_by_workspace_id(&self.db.pool, workspace.id).await?;
         if workspace_repos.is_empty() {
-            if !workspace.use_worktree {
-                if let Some(container_ref) = workspace.container_ref.clone() {
-                    return Ok(container_ref);
-                }
+            if !workspace.use_worktree
+                && let Some(container_ref) = workspace.container_ref.clone()
+            {
+                return Ok(container_ref);
             }
             return Err(ContainerError::Other(anyhow!(
                 "Workspace has no repositories configured"
@@ -1123,17 +1123,17 @@ impl ContainerService for LocalContainerService {
             WorkspaceRepo::find_repos_for_workspace(&self.db.pool, workspace.id).await?;
 
         if repositories.is_empty() {
-            if !workspace.use_worktree {
-                if let Some(container_ref) = workspace.container_ref.clone() {
-                    let workspace_dir = PathBuf::from(&container_ref);
-                    if !workspace_dir.exists() {
-                        return Err(ContainerError::Other(anyhow!(
-                            "Folder path does not exist: {}",
-                            workspace_dir.display()
-                        )));
-                    }
-                    return Ok(container_ref);
+            if !workspace.use_worktree
+                && let Some(container_ref) = workspace.container_ref.clone()
+            {
+                let workspace_dir = PathBuf::from(&container_ref);
+                if !workspace_dir.exists() {
+                    return Err(ContainerError::Other(anyhow!(
+                        "Folder path does not exist: {}",
+                        workspace_dir.display()
+                    )));
                 }
+                return Ok(container_ref);
             }
             return Err(ContainerError::Other(anyhow!(
                 "Workspace has no repositories configured"
@@ -2182,9 +2182,12 @@ mod tests {
     async fn cleanup_orphan_executions_records_after_head_commit() {
         let pool = stop_execution_test_pool().await;
         let temp_root = TempDir::new().unwrap();
-        let repo_path = temp_root.path().join("repo");
+        let mut repo_path = temp_root.path().join("repo");
         let git = GitService::new();
         seed_committed_repo(&git, &repo_path);
+        if let Ok(canonical) = std::fs::canonicalize(&repo_path) {
+            repo_path = canonical;
+        }
         let expected_head = git.get_head_info(&repo_path).unwrap().oid;
         let workspace = sample_workspace(Some(&repo_path.to_string_lossy()), false, None);
         let repo = sample_repo("repo", &repo_path.to_string_lossy());

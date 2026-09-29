@@ -1387,7 +1387,7 @@ export function HostBrowserPanel({
             </button>
           </div>
           {suggestOpen && suggestions.length > 0 ? (
-            <div className="absolute inset-x-0 top-[calc(100%+6px)] z-[20000] overflow-hidden rounded-[14px] border border-border/60 bg-[var(--surface-dialog)] py-1 shadow-[0_18px_42px_hsl(220_36%_8%_/_0.2)]">
+            <div className="absolute inset-x-0 top-[calc(100%+6px)] z-[20000] overflow-hidden rounded-xl border border-border/60 bg-[var(--surface-dialog)] py-1 shadow-[0_18px_42px_hsl(220_36%_8%_/_0.2)]">
               <NativeSurfaceOcclusionHold />
               <ul
                 id="host-browser-address-suggestions"
@@ -1417,13 +1417,13 @@ export function HostBrowserPanel({
                         <img
                           src={suggestion.favicon}
                           alt=""
-                          className="h-4 w-4 shrink-0 rounded-[3px] object-contain"
+                          className="h-4 w-4 shrink-0 rounded-sm object-contain"
                           onError={(event) => {
                             event.currentTarget.style.visibility = 'hidden';
                           }}
                         />
                       ) : (
-                        <span className="h-4 w-4 shrink-0 rounded-[3px] bg-muted" />
+                        <span className="h-4 w-4 shrink-0 rounded-sm bg-muted" />
                       )}
                       <span className="min-w-0 flex-1 truncate text-xs font-medium text-foreground">
                         {suggestion.title}

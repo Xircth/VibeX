@@ -199,11 +199,11 @@ describe('persisted layout migration', () => {
       25
     );
 
-    expect(migrated.projectLayouts['project-a'].serializedLayout).toBe(
+    expect(migrated.projectLayouts['project-a'].serializedLayout).toStrictEqual(
       serializedLayout
     );
     expect(migrated.projectLayouts['project-a'].rightPanelWidth).toBe(620);
-    expect(migrated.projectLayouts['project-b'].serializedLayout).toBe(
+    expect(migrated.projectLayouts['project-b'].serializedLayout).toStrictEqual(
       serializedLayout
     );
     expect(migrated.projectLayouts['project-b'].rightPanelWidth).toBe(700);

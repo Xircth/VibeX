@@ -460,12 +460,11 @@ describe('PluginsSettings', () => {
     expect(screen.getByText('打开与预览文件')).toBeVisible();
     expect(screen.getByText('DOCX · PPTX · XLSX')).toBeVisible();
     expect(screen.queryByText('激活代次 7')).not.toBeInTheDocument();
-    expect(
-      screen.getByRole('region', { name: 'Office dashboard' })
-    ).toBeVisible();
-    expect(await screen.findByTitle('Office dashboard')).not.toHaveAttribute(
-      'sandbox'
-    );
+    const officeSurface = await screen.findByRole('region', {
+      name: 'Office dashboard',
+    });
+    expect(officeSurface).toBeVisible();
+    expect(officeSurface).not.toHaveAttribute('sandbox');
     const surfaceOpenCount = backend.call.mock.calls.filter(
       ([command]) => command === 'plugin_surface_open'
     ).length;
@@ -521,7 +520,9 @@ describe('PluginsSettings', () => {
     };
     renderSettings(webTransport, false, 'vibex');
 
-    expect(await screen.findByTitle('Office dashboard')).toBeVisible();
+    expect(
+      await screen.findByRole('region', { name: 'Office dashboard' })
+    ).toBeVisible();
     expect(
       screen.queryByRole('button', { name: '导入插件' })
     ).not.toBeInTheDocument();

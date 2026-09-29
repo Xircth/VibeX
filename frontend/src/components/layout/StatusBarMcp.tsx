@@ -306,7 +306,7 @@ export function StatusBarMcp() {
         report.state !== 'unavailable' ? (
           <button
             type="button"
-            className="mt-3 inline-flex h-8 w-full items-center justify-center gap-1.5 rounded-[14px] bg-primary text-[0.75rem] font-medium text-primary-foreground transition-opacity hover:opacity-90 disabled:opacity-50"
+            className="mt-3 inline-flex h-8 w-full items-center justify-center gap-1.5 rounded-xl bg-primary text-[0.75rem] font-medium text-primary-foreground transition-opacity hover:opacity-90 disabled:opacity-50"
             disabled={starting}
             onClick={() => {
               setStarting(true);
@@ -335,7 +335,7 @@ export function StatusBarMcp() {
 
         <button
           type="button"
-          className="mt-3 inline-flex h-8 w-full items-center justify-center gap-1.5 rounded-[14px] border border-border bg-[var(--surface-control)] text-[0.75rem] font-medium text-foreground transition-colors hover:bg-accent/70"
+          className="mt-3 inline-flex h-8 w-full items-center justify-center gap-1.5 rounded-xl border border-border bg-[var(--surface-control)] text-[0.75rem] font-medium text-foreground transition-colors hover:bg-accent/70"
           onClick={() => {
             setOpen(false);
             openSettingsSurface(navigate, '/plugins');

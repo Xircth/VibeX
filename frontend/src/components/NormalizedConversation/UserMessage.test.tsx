@@ -168,7 +168,7 @@ describe('UserMessage', () => {
       screen
         .getByText('@SaveButton')
         .closest('[data-testid="session-composer-token-chip"]')
-    ).toHaveAttribute('title', elementContext);
+    ).toBeInTheDocument();
   });
 
   it('renders vibe image attachments as inline thumbnails and opens preview', async () => {

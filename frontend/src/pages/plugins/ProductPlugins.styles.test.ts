@@ -164,8 +164,8 @@ describe('Product Plugin content layout', () => {
     expect(card.get('background')).toBe('var(--surface-card-strong)');
     expect(card.get('border')).toBe('1px solid var(--border-subtle)');
     expect(card.get('border-radius')).toBe('var(--radius)');
-    expect(cardHover.get('background')).toBe(
-      'color-mix(in srgb, var(--text-primary) 8%, var(--surface-card-strong))'
+    expect(cardHover.get('background')?.replace(/\s+/g, '')).toBe(
+      'color-mix(insrgb,var(--text-primary)8%,var(--surface-card-strong))'
     );
     expect(cardHover.get('border-color')).toBe('var(--border-strong)');
     expect(cardHover.get('box-shadow')).toBe('var(--shadow-card)');

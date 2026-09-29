@@ -1,6 +1,9 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import { replaceComposerValueWithUndo } from './replaceComposerValueWithUndo';
+import {
+  insertComposerTextWithUndo,
+  replaceComposerValueWithUndo,
+} from './replaceComposerValueWithUndo';
 
 function stubExecCommand(result: boolean) {
   const execCommand = vi.fn(() => result);
@@ -11,6 +14,35 @@ function stubExecCommand(result: boolean) {
   });
   return execCommand;
 }
+
+describe('insertComposerTextWithUndo', () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+    document.body.replaceChildren();
+    Reflect.deleteProperty(document, 'execCommand');
+  });
+
+  it('inserts through execCommand so native undo can restore the pre-paste text', () => {
+    const editor = document.createElement('div');
+    editor.contentEditable = 'true';
+    editor.textContent = 'hello';
+    document.body.append(editor);
+    const execCommand = stubExecCommand(true);
+
+    expect(insertComposerTextWithUndo(editor, ' world')).toBe(true);
+    expect(execCommand).toHaveBeenCalledWith('insertText', false, ' world');
+  });
+
+  it('does not insert an empty clipboard payload', () => {
+    const editor = document.createElement('div');
+    editor.contentEditable = 'true';
+    document.body.append(editor);
+    const execCommand = stubExecCommand(true);
+
+    expect(insertComposerTextWithUndo(editor, '')).toBe(false);
+    expect(execCommand).not.toHaveBeenCalled();
+  });
+});
 
 describe('replaceComposerValueWithUndo', () => {
   afterEach(() => {

@@ -37,6 +37,7 @@ import {
 import { WorkspaceSessionList } from './WorkspaceSessionList';
 import { WorkspaceSessionListToolbar } from './WorkspaceSessionListToolbar';
 import {
+  resolveWorkspaceListActiveSessionId,
   sessionListTitle,
   sessionMatchesQuery,
   toggleSessionListSort,
@@ -79,8 +80,10 @@ function WorkspaceSessionListPanel(_props: IDockviewPanelProps) {
   const queryClient = useQueryClient();
   const [searchParams, setSearchParams] = useSearchParams();
   const { sessions, isLoading } = useKanbanProjectSessions(projectId);
-  const activeSessionId =
-    routeSessionId ?? visibleRightSession?.sessionId ?? null;
+  const activeSessionId = resolveWorkspaceListActiveSessionId(
+    visibleRightSession?.sessionId,
+    routeSessionId
+  );
   const activeSessions = useMemo(
     () => sessions.filter((session) => session.status !== 'archived'),
     [sessions]
@@ -449,6 +452,7 @@ function WorkspaceSessionListPanel(_props: IDockviewPanelProps) {
               isLoading={isLoading}
               activeSessionId={activeSessionId}
               activeWorkspaceId={activeWorktreeId}
+              currentExecutionPlacement={visibleRightSession}
               showPinnedSection={!isArchiveView}
               isDeleteMode={isDeleteMode}
               selectedSessionIds={selectedSessionIdSet}

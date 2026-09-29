@@ -268,7 +268,9 @@ describe('SessionCreationForm agent capability catalog controls', () => {
     const field = input.closest('.astryx-text-input');
 
     expect(field).toBeTruthy();
-    expect(field).toHaveClass('[&_input]:text-sm');
+    expect(field).toHaveAttribute('data-size', 'md');
+    expect(field).not.toHaveClass('lg');
+    expect(field).not.toHaveClass('[&_input]:text-sm');
     expect(field).not.toHaveStyle({
       backgroundColor: 'var(--surface-control)',
     });

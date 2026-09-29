@@ -95,6 +95,13 @@ export function groupWorkspaceSessions(
   });
 }
 
+export function resolveWorkspaceListActiveSessionId(
+  executionSessionId: string | null | undefined,
+  routeSessionId: string | null | undefined
+): string | null {
+  return executionSessionId ?? routeSessionId ?? null;
+}
+
 export function sessionListTitle(session: KanbanProjectSessionRecord): string {
   const manualName = sanitizeSessionListTitle(session.name ?? '');
   if (manualName) return manualName;

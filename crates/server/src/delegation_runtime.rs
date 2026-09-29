@@ -701,6 +701,15 @@ mod official_mcp_tests {
         );
 
         gate.publish_binding(binding("delegation"));
+        if utils::host_bin::locate_runnable_host_family_binary("vibex-mcp").is_none() {
+            assert_eq!(
+                injector.companion(context),
+                CompanionInjection::Unsupported {
+                    code: "companion_binary_missing"
+                }
+            );
+            return;
+        }
         assert!(matches!(
             injector.companion(context),
             CompanionInjection::Injected(_)

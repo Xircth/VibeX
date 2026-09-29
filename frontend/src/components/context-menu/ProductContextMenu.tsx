@@ -71,6 +71,7 @@ export function ProductContextMenu({
     <div
       ref={menuRef}
       role="menu"
+      data-floating-layer="popover"
       className="product-context-menu tahoe-popover fixed z-[10050] min-w-[220px] overflow-visible rounded-xl p-1.5 font-sans text-sm text-popover-foreground"
       style={{ left: pos.x, top: pos.y, fontFamily: 'var(--font-ui)' }}
       onClick={(event) => event.stopPropagation()}

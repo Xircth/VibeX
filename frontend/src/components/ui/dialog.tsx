@@ -109,7 +109,10 @@ const Dialog = React.forwardRef<
   if (!open) return null;
 
   return (
-    <div className="fixed inset-0 z-[9999] flex items-start justify-center p-4 overflow-y-auto">
+    <div
+      data-floating-layer="modal"
+      className="fixed inset-0 z-[9999] flex items-start justify-center p-4 overflow-y-auto"
+    >
       <NativeSurfaceOcclusionHold />
       <div
         className="dialog-backdrop fixed inset-0"

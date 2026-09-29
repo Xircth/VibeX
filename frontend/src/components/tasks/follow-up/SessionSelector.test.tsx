@@ -8,6 +8,7 @@ const overlayValue = {
   setTabCreationMenuOpen: vi.fn(),
   setHtmlOverlayOpen: vi.fn(),
   setHtmlOverlayRect: vi.fn(),
+  setChromeOccluded: vi.fn(),
   subscribeNativeSurfaceOcclusion: () => () => {},
   registerNativeSurfaceHost: () => () => {},
   ackOverlayReady: () => {},

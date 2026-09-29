@@ -1,5 +1,6 @@
 import { ReactNode, useState } from 'react';
 import { PortalContainerContext } from '@/contexts/PortalContainerContext';
+import { WorkspaceOverlayProvider } from '@/contexts/WorkspaceOverlayContext';
 import NiceModal from '@ebay/nice-modal-react';
 import { cn } from '@/lib/utils';
 import { useTheme } from '@/components/ThemeProvider';
@@ -36,6 +37,7 @@ export function LegacyDesignScope({
   return (
     <div
       ref={setContainer}
+      data-overlay-root=""
       className={cn(
         TAHOE_DESIGN_SCOPE_CLASS,
         'relative h-full min-h-0 w-full',
@@ -45,12 +47,14 @@ export function LegacyDesignScope({
       <div className="legacy-design-shell h-full min-h-0 w-full overflow-hidden">
         {container && (
           <PortalContainerContext.Provider value={container}>
-            <AstryxTheme theme={neutralTheme} mode={resolvedTheme}>
-              <NiceModal.Provider>
-                {children}
-                <NativeTitleTooltipHost />
-              </NiceModal.Provider>
-            </AstryxTheme>
+            <WorkspaceOverlayProvider>
+              <AstryxTheme theme={neutralTheme} mode={resolvedTheme}>
+                <NiceModal.Provider>
+                  {children}
+                  <NativeTitleTooltipHost />
+                </NiceModal.Provider>
+              </AstryxTheme>
+            </WorkspaceOverlayProvider>
           </PortalContainerContext.Provider>
         )}
       </div>

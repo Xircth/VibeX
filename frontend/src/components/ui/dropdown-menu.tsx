@@ -6,7 +6,7 @@ import { cn } from '@/lib/utils';
 import { usePortalContainer } from '@/contexts/PortalContainerContext';
 import {
   NativeSurfaceOcclusionHold,
-  useWorkspaceOverlay,
+  useRevealAfterOverlayReady,
 } from '@/contexts/WorkspaceOverlayContext';
 
 const DropdownMenu = DropdownMenuPrimitive.Root;
@@ -52,6 +52,7 @@ const DropdownMenuSubContent = React.forwardRef<
     <DropdownMenuPrimitive.Portal container={container}>
       <DropdownMenuPrimitive.SubContent
         ref={ref}
+        data-floating-layer="popover"
         className={cn(
           'tahoe-popover z-[10000] min-w-[8rem] overflow-hidden rounded-md p-1 text-popover-foreground data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95 origin-[--radix-dropdown-menu-content-transform-origin]',
           className
@@ -72,26 +73,13 @@ const DropdownMenuContent = React.forwardRef<
   React.ComponentPropsWithoutRef<typeof DropdownMenuPrimitive.Content>
 >(({ className, sideOffset = 4, children, ...props }, ref) => {
   const container = usePortalContainer();
-  const { isOverlayReady, waitForOverlayReady } = useWorkspaceOverlay();
-  const [revealed, setRevealed] = React.useState(false);
-  React.useLayoutEffect(() => {
-    if (isOverlayReady()) {
-      setRevealed(true);
-      return;
-    }
-    let cancelled = false;
-    void waitForOverlayReady().then(() => {
-      if (!cancelled) setRevealed(true);
-    });
-    return () => {
-      cancelled = true;
-    };
-  }, [isOverlayReady, waitForOverlayReady]);
+  const revealed = useRevealAfterOverlayReady();
   return (
     <DropdownMenuPrimitive.Portal container={container}>
       <DropdownMenuPrimitive.Content
         ref={ref}
         sideOffset={sideOffset}
+        data-floating-layer="popover"
         className={cn(
           'tahoe-popover z-[10000] max-h-[var(--radix-dropdown-menu-content-available-height)] min-w-[8rem] overflow-y-auto overflow-x-hidden rounded-md p-1 text-popover-foreground origin-[--radix-dropdown-menu-content-transform-origin]',
           revealed

@@ -355,6 +355,7 @@ export function AstryxSelect({
               id={menuId}
               role="listbox"
               aria-label={ariaLabel}
+              data-floating-layer="popover"
               className="astryx-select-menu tahoe-popover"
               style={{
                 top: position.top,

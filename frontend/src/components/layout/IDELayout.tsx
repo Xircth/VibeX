@@ -2,6 +2,7 @@ import {
   Suspense,
   useCallback,
   useEffect,
+  useLayoutEffect,
   lazy,
   useMemo,
   useRef,
@@ -47,7 +48,7 @@ import {
 } from '@/contexts/RightPanelSlotContext';
 import { useWorktree } from '@/contexts/WorktreeContext';
 import { useAgentLongRunningTerminals } from '@/hooks/useAgentLongRunningTerminals';
-import { WorkspaceOverlayProvider } from '@/contexts/WorkspaceOverlayContext';
+import { useWorkspaceOverlay } from '@/contexts/WorkspaceOverlayContext';
 import { BrowserEvalConfirm } from '@/features/host-browser/BrowserEvalConfirm';
 import { KeepAliveSurface } from '@/components/layout/KeepAliveSurface';
 import {
@@ -1297,12 +1298,15 @@ export function IDELayout({
 
   useWorkspaceShortcuts();
 
+  const { setChromeOccluded } = useWorkspaceOverlay();
+  useLayoutEffect(() => {
+    const occlude =
+      tabContextMenu !== null || effectiveActiveTab !== 'workspace';
+    setChromeOccluded(occlude);
+    return () => setChromeOccluded(false);
+  }, [effectiveActiveTab, setChromeOccluded, tabContextMenu]);
+
   return (
-    <WorkspaceOverlayProvider
-      nativeSurfaceOccluded={
-        tabContextMenu !== null || effectiveActiveTab !== 'workspace'
-      }
-    >
       <div className="workspace-shell relative flex h-full w-full flex-col">
         <BrowserEvalConfirm />
         <SearchPalette />
@@ -1403,6 +1407,5 @@ export function IDELayout({
 
         <StatusBar />
       </div>
-    </WorkspaceOverlayProvider>
   );
 }

@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { useLayoutEffect, useRef } from 'react';
 import { describe, expect, it, vi } from 'vitest';
 import {
@@ -194,5 +194,24 @@ describe('WorkspaceOverlayProvider', () => {
       rects: [{ x: 620, y: 40, width: 180, height: 220 }],
     });
     vi.restoreAllMocks();
+  });
+
+  it('occludes native surfaces for a modal that never mounts an occlusion hold', async () => {
+    const onOcclusionChange = vi.fn();
+
+    render(
+      <WorkspaceOverlayProvider>
+        <NativeSurfaceBridge onOcclusionChange={onOcclusionChange} />
+        <div role="dialog" aria-modal="true">
+          Create project
+        </div>
+      </WorkspaceOverlayProvider>
+    );
+
+    await waitFor(() =>
+      expect(onOcclusionChange).toHaveBeenCalledWith(
+        expect.objectContaining({ hide: true })
+      )
+    );
   });
 });

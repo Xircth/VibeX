@@ -75,6 +75,7 @@ vi.mock('@/contexts/WorkspaceOverlayContext', async (importOriginal) => {
       setTabCreationMenuOpen: () => {},
       setHtmlOverlayOpen: () => {},
       setHtmlOverlayRect: () => {},
+      setChromeOccluded: () => {},
       subscribeNativeSurfaceOcclusion: overlayOcclusion.subscribe,
       registerNativeSurfaceHost: () => () => {},
       ackOverlayReady: overlayOcclusion.ackOverlayReady,
@@ -994,6 +995,56 @@ describe('HostBrowserPanel', () => {
         .querySelector('img');
       expect(frame).toHaveAttribute('src', 'data:image/png;base64,ZmFrZQ==');
     });
+    await waitFor(() =>
+      expect(backendCall).toHaveBeenCalledWith(
+        'plugin_invoke_contribution',
+        expect.objectContaining({
+          input: expect.objectContaining({
+            operation: 'surface.set',
+            input: expect.objectContaining({
+              bounds: expect.objectContaining({ visible: false }),
+            }),
+          }),
+        })
+      )
+    );
+  });
+
+  it('still hides the native surface when freeze-frame capture is empty', async () => {
+    const user = userEvent.setup();
+    backendCall.mockImplementation(
+      (_command: string, args: { input?: { operation?: string } }) => {
+        if (args?.input?.operation === 'tab.create') {
+          return Promise.resolve({
+            tabId: 'tab-1',
+            url: 'https://github.com/',
+            title: 'GitHub',
+            grant: { level: 'none' },
+          });
+        }
+        if (args?.input?.operation === 'surface.freeze') {
+          return Promise.resolve({ mime: null, data: null });
+        }
+        return Promise.resolve({ ok: true, messages: [] });
+      }
+    );
+    render(
+      <HostBrowserPanel
+        pluginId="vibex.browser"
+        panelVisible
+        requestedUrl={null}
+      />
+    );
+    await user.type(screen.getByRole('combobox'), 'github.com{enter}');
+    await waitFor(() =>
+      expect(backendCall).toHaveBeenCalledWith(
+        'plugin_invoke_contribution',
+        expect.objectContaining({
+          input: expect.objectContaining({ operation: 'tab.create' }),
+        })
+      )
+    );
+    overlayOcclusion.fire({ hide: true, rects: [] });
     await waitFor(() =>
       expect(backendCall).toHaveBeenCalledWith(
         'plugin_invoke_contribution',

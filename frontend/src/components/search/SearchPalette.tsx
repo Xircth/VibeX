@@ -259,6 +259,7 @@ export function SearchPalette() {
 
   return (
     <div
+      data-floating-layer="modal"
       className="fixed inset-0 z-[100] flex items-start justify-center pt-[15vh]"
       onClick={closeSearchPalette}
       role="presentation"

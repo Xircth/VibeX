@@ -3,7 +3,10 @@ import * as PopoverPrimitive from '@radix-ui/react-popover';
 
 import { cn } from '@/lib/utils';
 import { usePortalContainer } from '@/contexts/PortalContainerContext';
-import { NativeSurfaceOcclusionHold } from '@/contexts/WorkspaceOverlayContext';
+import {
+  NativeSurfaceOcclusionHold,
+  useRevealAfterOverlayReady,
+} from '@/contexts/WorkspaceOverlayContext';
 
 const Popover = PopoverPrimitive.Root;
 
@@ -20,14 +23,19 @@ const PopoverContent = React.forwardRef<
     ref
   ) => {
     const container = usePortalContainer();
+    const revealed = useRevealAfterOverlayReady();
     return (
       <PopoverPrimitive.Portal container={container}>
         <PopoverPrimitive.Content
           ref={ref}
           align={align}
           sideOffset={sideOffset}
+          data-floating-layer="popover"
           className={cn(
             'tahoe-popover z-[10000] w-72 rounded-md p-3 text-popover-foreground outline-none data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95 data-[side=bottom]:slide-in-from-top-2 data-[side=left]:slide-in-from-right-2 data-[side=right]:slide-in-from-left-2 data-[side=top]:slide-in-from-bottom-2 origin-[--radix-popover-content-transform-origin]',
+            revealed
+              ? null
+              : 'invisible opacity-0',
             className
           )}
           {...props}

@@ -204,6 +204,30 @@ test('frontend shell opens the host-browser plugin panel instead of WEB_PREVIEW'
   assert.equal(exists('src-tauri/src/preview_proxy.rs'), false);
 });
 
+test('floating layers occlude native browser surfaces from the design scope', () => {
+  const overlayScope = readRepoFile(
+    'frontend/src/components/legacy-design/LegacyDesignScope.tsx'
+  );
+  const overlayIdx = overlayScope.indexOf('WorkspaceOverlayProvider');
+  const modalIdx = overlayScope.indexOf('NiceModal.Provider');
+  assert.ok(overlayIdx >= 0 && overlayIdx < modalIdx);
+  assert.match(overlayScope, /data-overlay-root/);
+  const ideLayout = readRepoFile(
+    'frontend/src/components/layout/IDELayout.tsx'
+  );
+  assert.doesNotMatch(ideLayout, /WorkspaceOverlayProvider/);
+  const floatingLayer = readRepoFile('frontend/src/lib/floatingLayer.ts');
+  assert.match(floatingLayer, /FLOATING_LAYER_SELECTOR/);
+  assert.match(floatingLayer, /data-floating-layer/);
+  const dialog = readRepoFile('frontend/src/components/ui/dialog.tsx');
+  assert.match(dialog, /data-floating-layer="modal"/);
+  const hostPanel = readRepoFile(
+    'frontend/src/features/host-browser/HostBrowserPanel.tsx'
+  );
+  assert.match(hostPanel, /lastFreezeRef/);
+  assert.match(hostPanel, /occludedRef.current = true/);
+});
+
 test('desktop release workflow does not download or stage CEF', () => {
   const workflow = readRepoFile('.github/workflows/desktop-release.yml');
   const beforeBundle = readRepoFile('scripts/tauri-before-bundle.js');

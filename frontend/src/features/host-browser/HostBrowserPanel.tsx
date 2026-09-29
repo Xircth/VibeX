@@ -364,6 +364,7 @@ export function HostBrowserPanel({
   const [zoom, setZoom] = useState(DEFAULT_ZOOM);
   const [device, setDevice] = useState<BrowserDevice>(DEFAULT_DEVICE);
   const [frozen, setFrozen] = useState<string | null>(null);
+  const lastFreezeRef = useRef<string | null>(null);
   const [addressHistory, setAddressHistory] = useState<
     BrowserAddressHistoryEntry[]
   >(() => loadBrowserAddressHistory());
@@ -705,27 +706,35 @@ export function HostBrowserPanel({
       }
       const tabId = tabIdRef.current;
       void (async () => {
-        let src: string | null = null;
+        let src: string | null = lastFreezeRef.current;
         if (tabId) {
           const frame = (await dispatchRef.current('surface.freeze', {
             tabId,
           })) as FreezePayload | null;
-          src = freezeFrameSrc(frame);
+          src = freezeFrameSrc(frame) ?? lastFreezeRef.current;
         }
         if (hideSeqRef.current !== seq) {
           overlay.ackOverlayReady();
           return;
         }
         if (src) {
+          lastFreezeRef.current = src;
           setFrozen(src);
           await nextPaint();
           if (hideSeqRef.current !== seq) {
             overlay.ackOverlayReady();
             return;
           }
-          occludedRef.current = true;
-          await syncBounds();
+        } else if (lastFreezeRef.current) {
+          setFrozen(lastFreezeRef.current);
+          await nextPaint();
+          if (hideSeqRef.current !== seq) {
+            overlay.ackOverlayReady();
+            return;
+          }
         }
+        occludedRef.current = true;
+        await syncBounds();
         overlay.ackOverlayReady();
       })();
     });

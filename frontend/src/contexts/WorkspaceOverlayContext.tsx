@@ -6,8 +6,16 @@ import {
   useLayoutEffect,
   useMemo,
   useRef,
+  useState,
   type ReactNode,
 } from 'react';
+import { usePortalContainer } from '@/contexts/PortalContainerContext';
+import {
+  collectFloatingLayers,
+  mutationTouchesFloatingLayer,
+  uniqueOverlayRects,
+  type FloatingLayerOcclusion,
+} from '@/lib/floatingLayer';
 import type { OverlayRect } from '@/lib/nativeSurfaceOverlay';
 
 export type { OverlayRect };
@@ -28,6 +36,8 @@ interface WorkspaceOverlayContextValue {
   /** Hide native browser surfaces while an HTML overlay (select, menu) is open. */
   setHtmlOverlayOpen: (open: boolean) => void;
   setHtmlOverlayRect: (id: string, rect: OverlayRect | null) => void;
+  /** Kanban / tab chrome that must cover every native page. */
+  setChromeOccluded: (occluded: boolean) => void;
   subscribeNativeSurfaceOcclusion: (
     listener: NativeSurfaceOcclusionListener
   ) => () => void;
@@ -70,6 +80,7 @@ export const WorkspaceOverlayContext =
     setTabCreationMenuOpen: () => {},
     setHtmlOverlayOpen: () => {},
     setHtmlOverlayRect: () => {},
+    setChromeOccluded: () => {},
     subscribeNativeSurfaceOcclusion: (listener) => {
       listener(EMPTY_OCCLUSION);
       return () => {};
@@ -91,6 +102,7 @@ export function WorkspaceOverlayProvider({
   const tabCreationMenuOpenRef = useRef(false);
   const htmlOverlayCountRef = useRef(0);
   const overlayRectsRef = useRef(new Map<string, OverlayRect>());
+  const observedOcclusionRef = useRef<FloatingLayerOcclusion>(EMPTY_OCCLUSION);
   const currentOcclusionRef = useRef<NativeSurfaceOcclusion>({
     hide: nativeSurfaceOccluded,
     rects: [],
@@ -108,12 +120,17 @@ export function WorkspaceOverlayProvider({
   }, []);
 
   const publishOcclusion = useCallback(() => {
+    const observed = observedOcclusionRef.current;
     const nextOcclusion: NativeSurfaceOcclusion = {
       hide:
         nativeSurfaceOccludedRef.current ||
         tabCreationMenuOpenRef.current ||
-        htmlOverlayCountRef.current > 0,
-      rects: Array.from(overlayRectsRef.current.values()),
+        htmlOverlayCountRef.current > 0 ||
+        observed.hide,
+      rects: uniqueOverlayRects([
+        ...overlayRectsRef.current.values(),
+        ...observed.rects,
+      ]),
     };
     if (occlusionEqual(currentOcclusionRef.current, nextOcclusion)) return;
 
@@ -142,6 +159,32 @@ export function WorkspaceOverlayProvider({
         0,
         htmlOverlayCountRef.current + (open ? 1 : -1)
       );
+      publishOcclusion();
+    },
+    [publishOcclusion]
+  );
+
+  const setChromeOccluded = useCallback(
+    (occluded: boolean) => {
+      nativeSurfaceOccludedRef.current = occluded;
+      publishOcclusion();
+    },
+    [publishOcclusion]
+  );
+
+  const setObservedOcclusion = useCallback(
+    (occlusion: FloatingLayerOcclusion) => {
+      const previous = observedOcclusionRef.current;
+      if (
+        previous.hide === occlusion.hide &&
+        occlusionEqual(
+          { hide: false, rects: previous.rects },
+          { hide: false, rects: occlusion.rects }
+        )
+      ) {
+        return;
+      }
+      observedOcclusionRef.current = occlusion;
       publishOcclusion();
     },
     [publishOcclusion]
@@ -226,6 +269,7 @@ export function WorkspaceOverlayProvider({
       setTabCreationMenuOpen,
       setHtmlOverlayOpen,
       setHtmlOverlayRect,
+      setChromeOccluded,
       subscribeNativeSurfaceOcclusion,
       registerNativeSurfaceHost,
       ackOverlayReady,
@@ -235,6 +279,7 @@ export function WorkspaceOverlayProvider({
     [
       setHtmlOverlayOpen,
       setHtmlOverlayRect,
+      setChromeOccluded,
       setTabCreationMenuOpen,
       subscribeNativeSurfaceOcclusion,
       registerNativeSurfaceHost,
@@ -246,9 +291,72 @@ export function WorkspaceOverlayProvider({
 
   return (
     <WorkspaceOverlayContext.Provider value={value}>
+      <FloatingLayerObserver onChange={setObservedOcclusion} />
       {children}
     </WorkspaceOverlayContext.Provider>
   );
+}
+
+function FloatingLayerObserver({
+  onChange,
+}: {
+  onChange: (occlusion: FloatingLayerOcclusion) => void;
+}) {
+  const portal = usePortalContainer();
+
+  useLayoutEffect(() => {
+    const overlayRoot =
+      (typeof document !== 'undefined'
+        ? document.querySelector('[data-overlay-root]')
+        : null) ??
+      portal ??
+      (typeof document !== 'undefined' ? document.body : null);
+    if (!overlayRoot) return undefined;
+
+    const publish = () => onChange(collectFloatingLayers(overlayRoot));
+    publish();
+    const mutation =
+      typeof MutationObserver === 'undefined'
+        ? null
+        : new MutationObserver((records) => {
+            if (!mutationTouchesFloatingLayer(records)) return;
+            publish();
+          });
+    mutation?.observe(overlayRoot, {
+      childList: true,
+      subtree: true,
+    });
+    window.addEventListener('resize', publish);
+    window.addEventListener('scroll', publish, true);
+    return () => {
+      mutation?.disconnect();
+      window.removeEventListener('resize', publish);
+      window.removeEventListener('scroll', publish, true);
+      onChange({ hide: false, rects: [] });
+    };
+  }, [onChange, portal]);
+
+  return null;
+}
+
+/** Delay painting a floating layer until native pages have frozen and stepped aside. */
+export function useRevealAfterOverlayReady(): boolean {
+  const { isOverlayReady, waitForOverlayReady } = useWorkspaceOverlay();
+  const [revealed, setRevealed] = useState(() => isOverlayReady());
+  useLayoutEffect(() => {
+    if (isOverlayReady()) {
+      setRevealed(true);
+      return undefined;
+    }
+    let cancelled = false;
+    void waitForOverlayReady().then(() => {
+      if (!cancelled) setRevealed(true);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [isOverlayReady, waitForOverlayReady]);
+  return revealed;
 }
 
 export function useWorkspaceOverlay(): WorkspaceOverlayContextValue {

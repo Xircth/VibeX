@@ -177,15 +177,15 @@ pub fn bind_packaged_stdio_paths(spec: &mut Value, package_root: &Path) {
     if object.get("type").and_then(Value::as_str).is_none() {
         object.insert("type".to_owned(), json!("stdio"));
     }
-    if let Some(args) = object.get_mut("args").and_then(Value::as_array_mut) {
-        if let Some(Value::String(first)) = args.first_mut() {
-            let path = Path::new(first.as_str());
-            if !path.is_absolute() {
-                let joined = package_root.join(path);
-                if joined.is_file() {
-                    let resolved = joined.canonicalize().unwrap_or(joined);
-                    *first = spawnable_fs_path(&resolved);
-                }
+    if let Some(args) = object.get_mut("args").and_then(Value::as_array_mut)
+        && let Some(Value::String(first)) = args.first_mut()
+    {
+        let path = Path::new(first.as_str());
+        if !path.is_absolute() {
+            let joined = package_root.join(path);
+            if joined.is_file() {
+                let resolved = joined.canonicalize().unwrap_or(joined);
+                *first = spawnable_fs_path(&resolved);
             }
         }
     }

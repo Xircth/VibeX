@@ -39,7 +39,7 @@ describe('HomeLogoMenu', () => {
     );
 
     await user.click(
-      screen.getByRole('button', { name: '返回首页或打开最近项目' })
+      screen.getByRole('button', { name: '返回首页或打开已导入项目' })
     );
 
     expect(
@@ -48,7 +48,7 @@ describe('HomeLogoMenu', () => {
     expect(
       screen.getByRole('menuitem', { name: '回到首页' })
     ).toBeInTheDocument();
-    expect(screen.getByText('最近项目')).toBeInTheDocument();
+    expect(screen.getByText('已导入项目')).toBeInTheDocument();
     expect(screen.getByRole('menuitem', { name: 'VibeX' })).toBeInTheDocument();
     expect(screen.getByRole('menuitem', { name: 'Notes' })).toBeInTheDocument();
     expect(screen.getByRole('menuitem', { name: 'Projects' })).toHaveAttribute(

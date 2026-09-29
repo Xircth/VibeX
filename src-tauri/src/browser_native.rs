@@ -1344,6 +1344,7 @@ impl NativeTabs for TauriNativeTabs {
         }
         let profile_id = profile_id.to_owned();
         let app = self.app.clone();
+        #[cfg(not(target_os = "linux"))]
         let service = self
             .service
             .lock()

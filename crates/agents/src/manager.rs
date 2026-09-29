@@ -51,7 +51,7 @@ use tokio_util::{
 };
 use workspace_utils::{
     process::{group_spawn_no_window, kill_process_group, new_hidden_tokio_command},
-    proxy::{DetectedProxy, ProxySource, detect_proxy},
+    proxy::{DetectedProxy, detect_proxy},
 };
 
 use crate::{
@@ -6747,6 +6747,8 @@ fn elicitation_response_action(response: AgentElicitationResponse) -> Elicitatio
 
 #[cfg(test)]
 mod tests {
+    use workspace_utils::proxy::ProxySource;
+
     use super::*;
 
     #[test]

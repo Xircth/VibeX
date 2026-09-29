@@ -234,9 +234,10 @@ describe('session composer structured commands', () => {
     expect(getSessionComposerStructuredTokens(next.value)).toEqual([
       expect.objectContaining({
         kind: 'element',
+        type: '@',
+        key: 'SaveButton',
         label: '@SaveButton',
         value: elementContext,
-        title: elementContext,
       }),
     ]);
     expect(serializeSessionComposerBackendMessage(next.value)).toBe(

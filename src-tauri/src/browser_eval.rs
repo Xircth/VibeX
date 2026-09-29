@@ -171,6 +171,7 @@ mod linux {
     use std::sync::Mutex;
 
     use gio::Cancellable;
+    use javascriptcore::ValueExt;
     use webkit2gtk::WebViewExt;
 
     use super::*;

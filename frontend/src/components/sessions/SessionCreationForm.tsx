@@ -623,8 +623,6 @@ export function SessionCreationForm({
           onChange={onSessionNameChange}
           placeholder={t('sessionCreation.sessionNamePlaceholder')}
           width="100%"
-          size="lg"
-          className="[&_input]:text-sm"
         />
       </div>
 

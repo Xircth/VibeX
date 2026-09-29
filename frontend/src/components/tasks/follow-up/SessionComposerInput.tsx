@@ -137,7 +137,10 @@ import {
   isPointInElement,
   relativePathInsideRoot,
 } from './composerHostFileDrop';
-import { replaceComposerValueWithUndo } from './replaceComposerValueWithUndo';
+import {
+  insertComposerTextWithUndo,
+  replaceComposerValueWithUndo,
+} from './replaceComposerValueWithUndo';
 
 export type SessionComposerImage = {
   id: string;
@@ -1780,8 +1783,20 @@ export function SessionComposerInput({
   );
 
   const handleComposerPaste = useCallback(
-    (event: ClipboardEvent<HTMLDivElement>) =>
-      handleComposerImagePaste(event, onAttachImages, disabled),
+    (event: ClipboardEvent<HTMLDivElement>, text?: string) => {
+      if (handleComposerImagePaste(event, onAttachImages, disabled)) {
+        return true;
+      }
+      if (disabled) {
+        return false;
+      }
+      const pasted = text ?? event.clipboardData?.getData('text/plain') ?? '';
+      const editor = getSessionComposerEditable(composerRootRef.current);
+      if (!editor) {
+        return false;
+      }
+      return insertComposerTextWithUndo(editor, pasted);
+    },
     [disabled, onAttachImages]
   );
 

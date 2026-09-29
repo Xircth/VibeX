@@ -7,6 +7,7 @@ import {
   groupWorkspaceSessions,
   moveSessionInOrder,
   pinnedWorkspaceSessions,
+  resolveWorkspaceListActiveSessionId,
   sessionListTitle,
   sessionMatchesNameQuery,
   sessionMatchesQuery,
@@ -349,6 +350,20 @@ describe('session list sort and search', () => {
     });
     expect(sessionMatchesNameQuery(login, 'login')).toBe(true);
     expect(sessionMatchesNameQuery(login, 'password prompt')).toBe(false);
+  });
+});
+
+describe('resolveWorkspaceListActiveSessionId', () => {
+  it('prefers the execution-area session over a stale route id', () => {
+    expect(
+      resolveWorkspaceListActiveSessionId('session-new', 'session-old')
+    ).toBe('session-new');
+  });
+
+  it('falls back to the route session when the execution area is empty', () => {
+    expect(resolveWorkspaceListActiveSessionId(null, 'session-route')).toBe(
+      'session-route'
+    );
   });
 });
 

@@ -1,4 +1,24 @@
 /**
+ * Insert clipboard text as a single native undo unit.
+ * DOM `insertNode` / `textContent` writes are not recorded by the browser
+ * undo stack, so Ctrl+Z would skip the paste and undo earlier typing.
+ */
+export function insertComposerTextWithUndo(
+  editor: HTMLElement,
+  text: string
+): boolean {
+  if (!text) return false;
+  editor.focus();
+  const execCommand = document.execCommand?.bind(document);
+  if (typeof execCommand !== 'function') return false;
+  try {
+    return Boolean(execCommand('insertText', false, text));
+  } catch {
+    return false;
+  }
+}
+
+/**
  * Replace contenteditable text as a single native undo unit.
  * Setting React state / `textContent` bypasses the browser undo stack.
  */

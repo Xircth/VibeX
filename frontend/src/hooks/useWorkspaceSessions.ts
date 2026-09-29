@@ -21,6 +21,75 @@ export type SessionSelection =
   | { mode: 'existing'; sessionId: string }
   | { mode: 'new' };
 
+export function reconcileWorkspaceSessionSelection(input: {
+  prev: SessionSelection | undefined;
+  sessionIds: readonly string[];
+  initialSessionId?: string;
+  pendingSessionId: string | null;
+  autoSelectFirstSession: boolean;
+  workspaceChanged: boolean;
+}): {
+  selection: SessionSelection | undefined;
+  pendingSessionId: string | null;
+} {
+  const sessionIdSet = new Set(input.sessionIds);
+  let pendingSessionId = input.pendingSessionId;
+  if (
+    input.workspaceChanged &&
+    pendingSessionId !== (input.initialSessionId ?? null)
+  ) {
+    pendingSessionId = null;
+  }
+
+  if (input.prev?.mode === 'new') {
+    return { selection: input.prev, pendingSessionId: null };
+  }
+
+  if (pendingSessionId) {
+    return {
+      selection: { mode: 'existing', sessionId: pendingSessionId },
+      pendingSessionId: sessionIdSet.has(pendingSessionId)
+        ? null
+        : pendingSessionId,
+    };
+  }
+
+  if (input.sessionIds.length === 0) {
+    if (input.initialSessionId) {
+      return {
+        selection: { mode: 'existing', sessionId: input.initialSessionId },
+        pendingSessionId: input.initialSessionId,
+      };
+    }
+    return { selection: undefined, pendingSessionId: null };
+  }
+
+  if (
+    input.prev?.mode === 'existing' &&
+    sessionIdSet.has(input.prev.sessionId)
+  ) {
+    return { selection: input.prev, pendingSessionId: null };
+  }
+
+  if (input.initialSessionId) {
+    return {
+      selection: { mode: 'existing', sessionId: input.initialSessionId },
+      pendingSessionId: sessionIdSet.has(input.initialSessionId)
+        ? null
+        : input.initialSessionId,
+    };
+  }
+
+  if (!input.autoSelectFirstSession) {
+    return { selection: undefined, pendingSessionId: null };
+  }
+
+  return {
+    selection: { mode: 'existing', sessionId: input.sessionIds[0] },
+    pendingSessionId: null,
+  };
+}
+
 export interface WorkspaceSessionSummary extends Session {
   taskId: string | null;
   name: string | null;
@@ -185,49 +254,21 @@ export function useWorkspaceSessions(
     previousWorkspaceIdRef.current = workspaceId;
 
     if (workspaceChanged) {
-      pendingSessionIdRef.current = null;
       setIsPendingNewSessionMode(false);
     }
 
-    if (sessions.length > 0) {
-      setSelection((prev) => {
-        if (prev?.mode === 'new') return prev;
-        if (
-          prev?.mode === 'existing' &&
-          pendingSessionIdRef.current === prev.sessionId &&
-          !sessions.some((session) => session.id === prev.sessionId)
-        ) {
-          return prev;
-        }
-        if (
-          prev?.mode === 'existing' &&
-          sessions.some((session) => session.id === prev.sessionId)
-        ) {
-          if (pendingSessionIdRef.current === prev.sessionId) {
-            pendingSessionIdRef.current = null;
-          }
-          return prev;
-        }
-        if (
-          initialSessionId &&
-          !sessions.some((session) => session.id === initialSessionId)
-        ) {
-          return { mode: 'existing', sessionId: initialSessionId };
-        }
-        if (
-          initialSessionId &&
-          sessions.some((session) => session.id === initialSessionId)
-        ) {
-          return { mode: 'existing', sessionId: initialSessionId };
-        }
-        if (!autoSelectFirstSession) {
-          return undefined;
-        }
-        return { mode: 'existing', sessionId: sessions[0].id };
+    setSelection((prev) => {
+      const next = reconcileWorkspaceSessionSelection({
+        prev,
+        sessionIds: sessions.map((session) => session.id),
+        initialSessionId,
+        pendingSessionId: pendingSessionIdRef.current,
+        autoSelectFirstSession,
+        workspaceChanged,
       });
-    } else {
-      setSelection((prev) => (prev?.mode === 'new' ? prev : undefined));
-    }
+      pendingSessionIdRef.current = next.pendingSessionId;
+      return next.selection;
+    });
   }, [autoSelectFirstSession, workspaceId, sessions, initialSessionId]);
 
   const isNewSessionMode = selection?.mode === 'new';

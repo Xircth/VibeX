@@ -100,6 +100,29 @@ describe('SessionComposerInput (Astryx)', () => {
     }
   });
 
+  it('pastes through execCommand so Ctrl+Z undoes only the paste', () => {
+    const execCommand = vi.fn(() => true);
+    Object.defineProperty(document, 'execCommand', {
+      configurable: true,
+      writable: true,
+      value: execCommand,
+    });
+
+    try {
+      renderComposerInput({ value: 'hello' });
+      const editor = getEditor();
+      fireEvent.paste(editor, {
+        clipboardData: {
+          files: [],
+          getData: (type: string) => (type === 'text/plain' ? ' world' : ''),
+        },
+      });
+      expect(execCommand).toHaveBeenCalledWith('insertText', false, ' world');
+    } finally {
+      Reflect.deleteProperty(document, 'execCommand');
+    }
+  });
+
   it('keeps wrapper padding below rather than above the caret', () => {
     renderComposerInput();
 

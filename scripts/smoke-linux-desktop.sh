@@ -14,7 +14,7 @@ export LD_LIBRARY_PATH="${executable_dir}:${workspace}/target/release${LD_LIBRAR
 
 log_file="${RUNNER_TEMP:-/tmp}/vibex-linux-startup.log"
 set +e
-GDK_BACKEND=wayland timeout --signal=TERM 10s xvfb-run -a "$executable" >"$log_file" 2>&1
+GDK_BACKEND=x11 timeout --signal=TERM 10s xvfb-run -a "$executable" >"$log_file" 2>&1
 exit_code=$?
 set -e
 

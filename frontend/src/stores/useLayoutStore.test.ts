@@ -207,7 +207,7 @@ describe('persisted layout migration', () => {
       serializedLayout
     );
     expect(migrated.projectLayouts['project-b'].rightPanelWidth).toBe(700);
-    expect(migrated.serializedLayout).toBe(serializedLayout);
+    expect(migrated.serializedLayout).toStrictEqual(serializedLayout);
     expect(migrated.rightPanelWidth).toBe(620);
   });
 

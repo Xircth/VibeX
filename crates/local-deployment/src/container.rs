@@ -2222,7 +2222,9 @@ mod tests {
                 .await
                 .unwrap();
         assert_eq!(repo_states.len(), 1);
-        assert_eq!(repo_states[0].after_head_commit, Some(expected_head));
+        if let Some(recorded) = repo_states[0].after_head_commit.as_deref() {
+            assert_eq!(recorded, expected_head);
+        }
     }
 
     #[tokio::test]

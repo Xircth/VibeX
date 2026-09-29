@@ -108,10 +108,10 @@ impl DelegationService {
     }
 
     pub fn abort(&self) {
-        if let Ok(mut state) = self.state.try_lock() {
-            if let Some(task) = state.task.take() {
-                task.abort();
-            }
+        if let Ok(mut state) = self.state.try_lock()
+            && let Some(task) = state.task.take()
+        {
+            task.abort();
         }
     }
 }

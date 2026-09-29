@@ -770,6 +770,17 @@ window.__codegPicker && window.__codegPicker.start({id_json});
                 .await;
             Ok(json!({ "ok": true }))
         }
+        "pick.cloak" => {
+            let tab_id = required_string(&input, "tabId")?;
+            let hidden = input.get("hidden").and_then(Value::as_bool).unwrap_or(false);
+            let script = if hidden {
+                "window.__codegPicker && window.__codegPicker.cloak(true);"
+            } else {
+                "window.__codegPicker && window.__codegPicker.cloak(false);"
+            };
+            let _ = service.native.inject(&tab_id, script).await;
+            Ok(json!({ "ok": true, "hidden": hidden }))
+        }
         other => Err(BrowserHostError::new(
             "capability_unimplemented",
             format!("browser.{other} is not implemented"),

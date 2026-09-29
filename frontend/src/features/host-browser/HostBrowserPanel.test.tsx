@@ -25,11 +25,41 @@ const backendListen = vi.hoisted(() => {
   fn.handlers = [];
   return fn;
 });
+const overlayOcclusion = vi.hoisted(() => {
+  let listener:
+    | ((value: { hide: boolean; rects: unknown[] }) => void)
+    | null = null;
+  const ackOverlayReady = vi.fn();
+  return {
+    ackOverlayReady,
+    fire(value: { hide: boolean; rects: unknown[] }) {
+      listener?.(value);
+    },
+    subscribe(fn: (value: { hide: boolean; rects: unknown[] }) => void) {
+      listener = fn;
+      fn({ hide: false, rects: [] });
+      return () => {
+        if (listener === fn) listener = null;
+      };
+    },
+    reset() {
+      listener = null;
+      ackOverlayReady.mockClear();
+    },
+  };
+});
+const requestComposerTokenInsert = vi.hoisted(() => vi.fn());
+const requestComposerImageInsert = vi.hoisted(() => vi.fn());
 
 vi.mock('@/lib/backendTransport', () => ({
   backendCall,
   backendListen,
   backendEmit: vi.fn(async () => {}),
+}));
+
+vi.mock('@/lib/composerInsert', () => ({
+  requestComposerTokenInsert,
+  requestComposerImageInsert,
 }));
 
 vi.mock('@/contexts/PanelActionsContext', () => ({
@@ -45,14 +75,9 @@ vi.mock('@/contexts/WorkspaceOverlayContext', async (importOriginal) => {
       setTabCreationMenuOpen: () => {},
       setHtmlOverlayOpen: () => {},
       setHtmlOverlayRect: () => {},
-      subscribeNativeSurfaceOcclusion: (
-        listener: (value: { hide: boolean; rects: unknown[] }) => void
-      ) => {
-        listener({ hide: false, rects: [] });
-        return () => {};
-      },
+      subscribeNativeSurfaceOcclusion: overlayOcclusion.subscribe,
       registerNativeSurfaceHost: () => () => {},
-      ackOverlayReady: () => {},
+      ackOverlayReady: overlayOcclusion.ackOverlayReady,
       waitForOverlayReady: () => Promise.resolve(),
       isOverlayReady: () => true,
     }),
@@ -63,6 +88,9 @@ describe('HostBrowserPanel', () => {
   beforeEach(() => {
     backendCall.mockReset();
     backendListen.handlers = [];
+    overlayOcclusion.reset();
+    requestComposerTokenInsert.mockReset();
+    requestComposerImageInsert.mockReset();
     window.localStorage.clear();
     setBrowserTabOpenHandler(null);
   });
@@ -810,5 +838,174 @@ describe('HostBrowserPanel', () => {
         label: 'area#copilot-chat-textarea.ChatInput-module__input__IPYf_',
       })
     ).toBe('@area');
+  });
+
+  it('keeps pick mode armed across multiple element handoffs', async () => {
+    const user = userEvent.setup();
+    const label = (key: string) =>
+      i18n.t(`browserPanel.${key}`, { ns: 'panels' });
+    backendCall.mockImplementation(
+      (_command: string, args: { input?: { operation?: string } }) => {
+        if (args?.input?.operation === 'tab.create') {
+          return Promise.resolve({
+            tabId: 'tab-1',
+            url: 'https://github.com/',
+            title: 'GitHub',
+            grant: { level: 'none' },
+          });
+        }
+        if (args?.input?.operation === 'surface.freeze') {
+          return Promise.resolve({ mime: 'image/png', data: 'ZmFrZQ==' });
+        }
+        return Promise.resolve({ ok: true, messages: [] });
+      }
+    );
+    render(
+      <HostBrowserPanel
+        pluginId="vibex.browser"
+        panelVisible
+        requestedUrl={null}
+      />
+    );
+    await user.type(screen.getByRole('combobox'), 'github.com{enter}');
+    await waitFor(() =>
+      expect(backendCall).toHaveBeenCalledWith(
+        'plugin_invoke_contribution',
+        expect.objectContaining({
+          input: expect.objectContaining({ operation: 'tab.create' }),
+        })
+      )
+    );
+    const pick = screen.getByRole('button', { name: label('pick') });
+    await user.click(pick);
+    expect(pick).toHaveAttribute('aria-pressed', 'true');
+    expect(backendCall).toHaveBeenCalledWith(
+      'plugin_invoke_contribution',
+      expect.objectContaining({
+        input: expect.objectContaining({ operation: 'pick.start' }),
+      })
+    );
+    for (const handler of backendListen.handlers) {
+      handler({
+        kind: 'pick',
+        tabId: 'tab-1',
+        payload: {
+          seq: 1,
+          tag: 'a',
+          label: 'a.Link',
+          selector: 'a.Link',
+          rect: { x: 10, y: 10, width: 40, height: 16 },
+          viewport: { width: 800, height: 600 },
+        },
+      });
+      handler({
+        kind: 'pick',
+        tabId: 'tab-1',
+        payload: {
+          seq: 2,
+          tag: 'button',
+          label: 'button.Sign',
+          selector: 'button.Sign',
+          rect: { x: 80, y: 12, width: 64, height: 20 },
+          viewport: { width: 800, height: 600 },
+        },
+      });
+    }
+    await waitFor(() =>
+      expect(requestComposerTokenInsert).toHaveBeenCalledTimes(2)
+    );
+    expect(requestComposerTokenInsert).toHaveBeenNthCalledWith(
+      1,
+      expect.objectContaining({ label: '@a' })
+    );
+    expect(requestComposerTokenInsert).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({ label: '@button' })
+    );
+    expect(pick).toHaveAttribute('aria-pressed', 'true');
+    expect(backendCall).toHaveBeenCalledWith(
+      'plugin_invoke_contribution',
+      expect.objectContaining({
+        input: expect.objectContaining({ operation: 'pick.cloak' }),
+      })
+    );
+    expect(backendCall).not.toHaveBeenCalledWith(
+      'plugin_invoke_contribution',
+      expect.objectContaining({
+        input: expect.objectContaining({ operation: 'pick.cancel' }),
+      })
+    );
+    await user.click(pick);
+    expect(pick).toHaveAttribute('aria-pressed', 'false');
+    expect(backendCall).toHaveBeenCalledWith(
+      'plugin_invoke_contribution',
+      expect.objectContaining({
+        input: expect.objectContaining({ operation: 'pick.cancel' }),
+      })
+    );
+  });
+
+  it('freezes a page screenshot before hiding the native surface under an overlay', async () => {
+    const user = userEvent.setup();
+    backendCall.mockImplementation(
+      (_command: string, args: { input?: { operation?: string } }) => {
+        if (args?.input?.operation === 'tab.create') {
+          return Promise.resolve({
+            tabId: 'tab-1',
+            url: 'https://github.com/',
+            title: 'GitHub',
+            grant: { level: 'none' },
+          });
+        }
+        if (args?.input?.operation === 'surface.freeze') {
+          return Promise.resolve({ mime: 'image/png', data: 'ZmFrZQ==' });
+        }
+        return Promise.resolve({ ok: true, messages: [] });
+      }
+    );
+    render(
+      <HostBrowserPanel
+        pluginId="vibex.browser"
+        panelVisible
+        requestedUrl={null}
+      />
+    );
+    await user.type(screen.getByRole('combobox'), 'github.com{enter}');
+    await waitFor(() =>
+      expect(backendCall).toHaveBeenCalledWith(
+        'plugin_invoke_contribution',
+        expect.objectContaining({
+          input: expect.objectContaining({ operation: 'tab.create' }),
+        })
+      )
+    );
+    overlayOcclusion.fire({ hide: true, rects: [] });
+    await waitFor(() =>
+      expect(backendCall).toHaveBeenCalledWith(
+        'plugin_invoke_contribution',
+        expect.objectContaining({
+          input: expect.objectContaining({ operation: 'surface.freeze' }),
+        })
+      )
+    );
+    await waitFor(() => {
+      const frame = screen
+        .getByTestId('host-browser-surface')
+        .querySelector('img');
+      expect(frame).toHaveAttribute('src', 'data:image/png;base64,ZmFrZQ==');
+    });
+    await waitFor(() =>
+      expect(backendCall).toHaveBeenCalledWith(
+        'plugin_invoke_contribution',
+        expect.objectContaining({
+          input: expect.objectContaining({
+            operation: 'surface.set',
+            input: expect.objectContaining({
+              bounds: expect.objectContaining({ visible: false }),
+            }),
+          }),
+        })
+      )
+    );
   });
 });

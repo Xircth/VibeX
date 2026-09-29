@@ -64,7 +64,7 @@ import {
   type BrowserAddressHistoryEntry,
   type BrowserAddressSuggestion,
 } from './addressSuggestions';
-import { fileFromPickedFrame } from './pickHandoff';
+import { fileFromPickedFrame, freezeFrameSrc } from './pickHandoff';
 import {
   BrowserAgentActivityControl,
   BrowserAgentShareControl,
@@ -237,6 +237,7 @@ type BrowserHostEvent = {
     selector?: string;
     html?: string;
     cancelled?: boolean;
+    seq?: number;
     rect?: { x: number; y: number; width: number; height: number };
     viewport?: { width: number; height: number; dpr?: number };
   };
@@ -276,18 +277,29 @@ function insertPickedElement(payload: BrowserHostEvent['payload']) {
   });
 }
 
-async function insertPickedElementWithImage(
+async function insertPickedElementImage(
   payload: BrowserHostEvent['payload'],
-  capture: () => Promise<FreezePayload | null>
+  capture: () => Promise<FreezePayload | null>,
+  cloak?: (hidden: boolean) => Promise<void>
 ) {
-  insertPickedElement(payload);
-  await nextPaint();
-  const file = await fileFromPickedFrame(await capture(), {
-    rect: payload?.rect,
-    viewport: payload?.viewport,
-    tag: payload?.tag,
-  });
-  if (file) requestComposerImageInsert(file);
+  try {
+    await cloak?.(true);
+    const file = await fileFromPickedFrame(await capture(), {
+      rect: payload?.rect,
+      viewport: payload?.viewport,
+      tag: payload?.tag,
+    });
+    if (file) requestComposerImageInsert(file);
+  } finally {
+    await cloak?.(false);
+  }
+}
+
+function pickFingerprint(payload: BrowserHostEvent['payload']): string | null {
+  if (typeof payload?.seq === 'number') return `seq:${payload.seq}`;
+  if (!payload || payload.cancelled) return null;
+  const rect = payload.rect;
+  return `${payload.selector ?? ''}:${payload.tag ?? ''}:${rect?.x ?? ''}:${rect?.y ?? ''}:${rect?.width ?? ''}:${rect?.height ?? ''}`;
 }
 
 export function HostBrowserPanel({
@@ -332,6 +344,8 @@ export function HostBrowserPanel({
   const visibleRef = useRef(panelVisible);
   const panelVisibleRef = useRef(panelVisible);
   const pickingRef = useRef(false);
+  const seenPickKeysRef = useRef(new Set<string>());
+  const pickHandoffRef = useRef(Promise.resolve());
   const pendingUrlRef = useRef<string | null>(null);
   const pendingEventsRef = useRef<BrowserHostEvent[]>([]);
   const applyEventRef = useRef<(payload: BrowserHostEvent) => void>(() => {});
@@ -373,29 +387,48 @@ export function HostBrowserPanel({
   panelVisibleRef.current = panelVisible;
   visibleRef.current = panelVisible;
 
+  const stopPicking = () => {
+    pickingRef.current = false;
+    setPicking(false);
+    seenPickKeysRef.current.clear();
+  };
+
+  const acceptPickedElement = (payload: BrowserHostEvent['payload']) => {
+    if (payload?.cancelled) {
+      stopPicking();
+      return;
+    }
+    if (!pickingRef.current) return;
+    const key = pickFingerprint(payload);
+    if (key) {
+      if (seenPickKeysRef.current.has(key)) return;
+      seenPickKeysRef.current.add(key);
+    }
+    insertPickedElement(payload);
+    const tabId = tabIdRef.current;
+    pickHandoffRef.current = pickHandoffRef.current
+      .then(() =>
+        insertPickedElementImage(
+          payload,
+          () =>
+            tabId
+              ? (dispatchRef.current('surface.freeze', {
+                  tabId,
+                }) as Promise<FreezePayload | null>)
+              : Promise.resolve(null),
+          async (hidden) => {
+            if (!tabId) return;
+            if (!hidden && !pickingRef.current) return;
+            await dispatchRef.current('pick.cloak', { tabId, hidden });
+          }
+        )
+      )
+      .catch(() => undefined);
+  };
+
   applyEventRef.current = (payload: BrowserHostEvent) => {
     if (payload.kind === 'pick') {
-      if (payload.payload?.cancelled) {
-        setPicking(false);
-        pickingRef.current = false;
-        return;
-      }
-      if (!pickingRef.current) return;
-      pickingRef.current = false;
-      setPicking(false);
-      const tabId = tabIdRef.current;
-      void (async () => {
-        if (tabId) {
-          await dispatchRef.current('pick.cancel', { tabId });
-        }
-        await insertPickedElementWithImage(payload.payload, () =>
-          tabId
-            ? (dispatchRef.current('surface.freeze', {
-                tabId,
-              }) as Promise<FreezePayload | null>)
-            : Promise.resolve(null)
-        );
-      })();
+      acceptPickedElement(payload.payload);
       return;
     }
     if (payload.kind === 'tab.state') {
@@ -670,8 +703,31 @@ export function HostBrowserPanel({
         });
         return;
       }
-      occludedRef.current = true;
-      void syncBounds().finally(() => overlay.ackOverlayReady());
+      const tabId = tabIdRef.current;
+      void (async () => {
+        let src: string | null = null;
+        if (tabId) {
+          const frame = (await dispatchRef.current('surface.freeze', {
+            tabId,
+          })) as FreezePayload | null;
+          src = freezeFrameSrc(frame);
+        }
+        if (hideSeqRef.current !== seq) {
+          overlay.ackOverlayReady();
+          return;
+        }
+        if (src) {
+          setFrozen(src);
+          await nextPaint();
+          if (hideSeqRef.current !== seq) {
+            overlay.ackOverlayReady();
+            return;
+          }
+          occludedRef.current = true;
+          await syncBounds();
+        }
+        overlay.ackOverlayReady();
+      })();
     });
   }, [overlay, syncBounds]);
 
@@ -877,16 +933,15 @@ export function HostBrowserPanel({
     const tabId = tabIdRef.current;
     if (!tabId) return;
     if (pickingRef.current) {
-      pickingRef.current = false;
-      setPicking(false);
+      stopPicking();
       void dispatch('pick.cancel', { tabId });
       return;
     }
     pickingRef.current = true;
+    seenPickKeysRef.current.clear();
     setPicking(true);
     void dispatch('pick.start', { tabId }).catch((cause: unknown) => {
-      pickingRef.current = false;
-      setPicking(false);
+      stopPicking();
       setError(getInvokeErrorMessage(cause));
     });
   };
@@ -911,24 +966,7 @@ export function HostBrowserPanel({
                   payload?: BrowserHostEvent['payload'];
                 });
           if (parsed?.kind !== 'pick') continue;
-          if (parsed.payload?.cancelled) {
-            pickingRef.current = false;
-            setPicking(false);
-            return;
-          }
-          if (!pickingRef.current) return;
-          pickingRef.current = false;
-          setPicking(false);
-          void (async () => {
-            await dispatch('pick.cancel', { tabId });
-            await insertPickedElementWithImage(
-              parsed.payload,
-              () =>
-                dispatch('surface.freeze', {
-                  tabId,
-                }) as Promise<FreezePayload | null>
-            );
-          })();
+          acceptPickedElement(parsed.payload);
         }
       });
     }, 80);
@@ -1457,7 +1495,7 @@ export function HostBrowserPanel({
               src={frozen}
               alt=""
               draggable={false}
-              className="pointer-events-none absolute inset-0 h-full w-full select-none object-cover object-left-top"
+              className="pointer-events-none absolute inset-0 h-full w-full select-none object-fill"
             />
           ) : null}
         </div>

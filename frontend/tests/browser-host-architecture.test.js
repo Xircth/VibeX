@@ -167,6 +167,7 @@ test('frontend shell opens the host-browser plugin panel instead of WEB_PREVIEW'
   assert.match(service, /eval\.run/);
   assert.match(service, /agent\.activity/);
   assert.match(service, /tab\.find/);
+  assert.match(service, /pick\.cloak/);
   assert.match(native, /freeze_frame/);
   assert.match(native, /with_user_agent/);
   assert.match(native, /Safari\/605\.1\.15/);
@@ -175,7 +176,14 @@ test('frontend shell opens the host-browser plugin panel instead of WEB_PREVIEW'
   const picker = readRepoFile('crates/browser-host/js/picker.js');
   assert.match(picker, /59,130,246/);
   assert.doesNotMatch(picker, /139,92,246/);
-  assert.match(picker, /finish\(describe\(element\), true\)/);
+  assert.match(picker, /report\(describe\(element\)\)/);
+  assert.doesNotMatch(picker, /finish\(describe\(element\)/);
+  assert.match(picker, /cloak:/);
+  assert.match(picker, /setProperty\("opacity", "0"/);
+  assert.doesNotMatch(
+    picker,
+    /cloak:[\s\S]*pointer-events", "none"/
+  );
   assert.match(picker, /__vibexPickQueue/);
   const styles = readRepoFile('frontend/src/styles/legacy/index.css');
   assert.match(

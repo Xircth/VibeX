@@ -57,7 +57,11 @@ import {
   sessionListAgentKey,
   type SessionMarker,
 } from '@/components/kanban/session-hub/utils';
-import { SESSION_LIST_DRAG_OVERLAY_CLASS } from '@/components/kanban/session-hub/sessionListDrag';
+import {
+  SESSION_LIST_DRAG_OVERLAY_CLASS,
+  sessionListCardWidthFromDragStart,
+  sessionListDragOverlaySizeStyle,
+} from '@/components/kanban/session-hub/sessionListDrag';
 import { SessionListDragOverlay } from '@/components/kanban/session-hub/SessionListDragOverlay';
 import {
   PINNED_SESSION_GROUP_ID,
@@ -152,6 +156,9 @@ export function WorkspaceSessionList({
     () => new Set(readCollapsedWorkspaceIds())
   );
   const [activeId, setActiveId] = useState<string | null>(null);
+  const [activeDragCardWidth, setActiveDragCardWidth] = useState<number | null>(
+    null
+  );
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 6 } }),
     useSensor(KeyboardSensor, {
@@ -209,13 +216,15 @@ export function WorkspaceSessionList({
     });
   };
 
-  const handleDragStart = ({ active }: DragStartEvent) => {
+  const handleDragStart = (event: DragStartEvent) => {
     if (isDeleteMode || sortSpecs.length > 0) return;
-    setActiveId(String(active.id));
+    setActiveId(String(event.active.id));
+    setActiveDragCardWidth(sessionListCardWidthFromDragStart(event));
   };
 
   const handleDragEnd = ({ active, over }: DragEndEvent) => {
     setActiveId(null);
+    setActiveDragCardWidth(null);
     if (
       enableExternalDrag ||
       isDeleteMode ||
@@ -268,7 +277,10 @@ export function WorkspaceSessionList({
         <WorkspaceSessionListDndMonitor
           onDragStart={handleDragStart}
           onDragEnd={handleDragEnd}
-          onDragCancel={() => setActiveId(null)}
+          onDragCancel={() => {
+            setActiveId(null);
+            setActiveDragCardWidth(null);
+          }}
         />
       ) : null}
       <div className="workspace-session-list space-y-2">
@@ -325,7 +337,8 @@ export function WorkspaceSessionList({
       <SessionListDragOverlay>
         {activeSession ? (
           <div
-            className={`${SESSION_LIST_DRAG_OVERLAY_CLASS} pointer-events-none w-[18rem] max-w-[18rem]`}
+            className={`${SESSION_LIST_DRAG_OVERLAY_CLASS} pointer-events-none`}
+            style={sessionListDragOverlaySizeStyle(activeDragCardWidth)}
           >
             <WorkspaceSessionRow
               session={activeSession}
@@ -349,7 +362,10 @@ export function WorkspaceSessionList({
       collisionDetection={closestCenter}
       onDragStart={handleDragStart}
       onDragEnd={handleDragEnd}
-      onDragCancel={() => setActiveId(null)}
+      onDragCancel={() => {
+        setActiveId(null);
+        setActiveDragCardWidth(null);
+      }}
     >
       {list}
     </DndContext>

@@ -2,6 +2,8 @@ import { describe, expect, it } from 'vitest';
 import {
   dragEndClientPoint,
   isPointOverCanvasDrop,
+  sessionListCardWidthFromDragStart,
+  sessionListDragOverlaySizeStyle,
   snapDragOverlayToCursor,
 } from './sessionListDrag';
 
@@ -64,6 +66,67 @@ describe('snapDragOverlayToCursor', () => {
         windowRect: null,
       })
     ).toEqual({ x: 90, y: 50, scaleX: 1, scaleY: 1 });
+  });
+});
+
+describe('sessionListCardWidthFromDragStart', () => {
+  it('locks onto the list card width measured at drag start', () => {
+    expect(
+      sessionListCardWidthFromDragStart({
+        active: {
+          rect: {
+            current: {
+              initial: { width: 248 },
+              translated: { width: 288 },
+            },
+          },
+        },
+      } as never)
+    ).toBe(248);
+  });
+
+  it('falls back to the translated overlay rect when the initial rect is missing', () => {
+    expect(
+      sessionListCardWidthFromDragStart({
+        active: {
+          rect: {
+            current: {
+              initial: null,
+              translated: { width: 256 },
+            },
+          },
+        },
+      } as never)
+    ).toBe(256);
+  });
+
+  it('ignores non-positive measurements', () => {
+    expect(
+      sessionListCardWidthFromDragStart({
+        active: {
+          rect: {
+            current: {
+              initial: { width: 0 },
+              translated: { width: Number.NaN },
+            },
+          },
+        },
+      } as never)
+    ).toBeNull();
+  });
+});
+
+describe('sessionListDragOverlaySizeStyle', () => {
+  it('pins min, max, and width to the measured list card size', () => {
+    expect(sessionListDragOverlaySizeStyle(248)).toEqual({
+      width: 248,
+      minWidth: 248,
+      maxWidth: 248,
+    });
+  });
+
+  it('omits a size when the list card has not been measured', () => {
+    expect(sessionListDragOverlaySizeStyle(null)).toBeUndefined();
   });
 });
 

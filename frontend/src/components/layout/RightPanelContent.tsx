@@ -42,6 +42,7 @@ import {
 import { getSessionUiErrorMessage } from '@/lib/sessionUiErrors';
 import { paths } from '@/lib/paths';
 import { confirmWorktreeCreation } from '@/lib/confirmWorktreeCreation';
+import { isCreateSessionFormVisibleForProject } from '@/lib/createSessionFormVisibility';
 import { useNavigateWithSearch } from '@/hooks/useNavigateWithSearch';
 
 const MAINLINE_BRANCH_NAMES = new Set(['main', 'master']);
@@ -287,6 +288,9 @@ export function RightPanelContent() {
     [config?.executor_profile, profiles]
   );
   const [isCreateOverlayOpen, setIsCreateOverlayOpen] = useState(false);
+  const [createOverlayProjectId, setCreateOverlayProjectId] = useState<
+    string | null
+  >(null);
   const [createMode, setCreateMode] =
     useState<SessionCreationMode>('existing_workspace');
   const [createSessionName, setCreateSessionName] = useState('');
@@ -295,6 +299,11 @@ export function RightPanelContent() {
   );
   const [selectedExecutorProfile, setSelectedExecutorProfile] =
     useState<ExecutorProfileId | null>(defaultExecutorProfile);
+  const isCreateOverlayVisible = isCreateSessionFormVisibleForProject({
+    open: isCreateOverlayOpen,
+    openedForProjectId: createOverlayProjectId,
+    currentProjectId: effectiveProjectId,
+  });
   const {
     configs: repoBranchConfigs,
     isLoading: isLoadingRepoBranches,
@@ -304,7 +313,7 @@ export function RightPanelContent() {
     reset: resetRepoBranchSelection,
   } = useRepoBranchSelection({
     repos,
-    enabled: isCreateOverlayOpen,
+    enabled: isCreateOverlayVisible,
   });
 
   useEffect(() => {
@@ -319,14 +328,14 @@ export function RightPanelContent() {
   }, [createWorkspaceValue, defaultWorkspaceValue, workspaceBranchOptions]);
 
   useEffect(() => {
-    if (!isCreateOverlayOpen || isLoadingWorktrees) {
+    if (!isCreateOverlayVisible || isLoadingWorktrees) {
       return;
     }
 
     if (!canUseExistingWorkspace) {
       setCreateMode('new_workspace');
     }
-  }, [canUseExistingWorkspace, isCreateOverlayOpen, isLoadingWorktrees]);
+  }, [canUseExistingWorkspace, isCreateOverlayVisible, isLoadingWorktrees]);
 
   useEffect(() => {
     if (selectedExecutorProfile) {
@@ -483,6 +492,7 @@ export function RightPanelContent() {
   const handleCreateOverlayOpenChange = useCallback(
     (open: boolean) => {
       setIsCreateOverlayOpen(open);
+      setCreateOverlayProjectId(open ? (effectiveProjectId ?? null) : null);
 
       if (open) {
         sessionControlsPresetRef.current = null;
@@ -503,9 +513,30 @@ export function RightPanelContent() {
       createSessionMutation,
       defaultExecutorProfile,
       defaultWorkspaceValue,
+      effectiveProjectId,
       resetRepoBranchSelection,
     ]
   );
+
+  useEffect(() => {
+    if (
+      !isCreateOverlayOpen ||
+      isCreateSessionFormVisibleForProject({
+        open: true,
+        openedForProjectId: createOverlayProjectId,
+        currentProjectId: effectiveProjectId,
+      })
+    ) {
+      return;
+    }
+
+    handleCreateOverlayOpenChange(false);
+  }, [
+    createOverlayProjectId,
+    effectiveProjectId,
+    handleCreateOverlayOpenChange,
+    isCreateOverlayOpen,
+  ]);
 
   const openCreateSessionOverlay = useCallback(() => {
     handleCreateOverlayOpenChange(true);
@@ -657,8 +688,11 @@ export function RightPanelContent() {
               />
             ) : null}
 
-            {isCreateOverlayOpen ? (
-              <CreateSessionOverlay {...overlayProps} />
+            {isCreateOverlayVisible ? (
+              <CreateSessionOverlay
+                key={createOverlayProjectId ?? 'create-session'}
+                {...overlayProps}
+              />
             ) : null}
           </div>
         </div>

@@ -3,6 +3,10 @@ import { describe, expect, it } from 'vitest';
 import {
   CARD_HEIGHT,
   CARD_WIDTH,
+  canvasDropOrigin,
+  collapsedSessionCardSize,
+  createCanvasNode,
+  sizeForNode,
   DETAIL_CARD_HEIGHT,
   DETAIL_CARD_WIDTH,
   DETAIL_MIN_HEIGHT,
@@ -62,6 +66,32 @@ describe('canvas node ids', () => {
 describe('collapsed card size', () => {
   it('is 30% narrower than the original 280px board card', () => {
     expect(CARD_WIDTH).toBe(Math.round(280 * 0.7));
+  });
+
+  it('keeps a list-card drop at the measured list width', () => {
+    expect(collapsedSessionCardSize(248)).toEqual({
+      width: 248,
+      height: CARD_HEIGHT,
+    });
+    expect(collapsedSessionCardSize(null)).toEqual({
+      width: CARD_WIDTH,
+      height: CARD_HEIGHT,
+    });
+    expect(
+      canvasDropOrigin({ x: 400, y: 120 }, collapsedSessionCardSize(248))
+    ).toEqual({ x: 276, y: 120 - CARD_HEIGHT / 2 });
+
+    const dropped = createCanvasNode(
+      'sess-list',
+      { x: 10, y: 20 },
+      'n-list',
+      collapsedSessionCardSize(248)
+    );
+    expect(dropped.width).toBe(248);
+    expect(sizeForNode(dropped)).toEqual({
+      width: 248,
+      height: CARD_HEIGHT,
+    });
   });
 });
 

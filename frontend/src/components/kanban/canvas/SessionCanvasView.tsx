@@ -98,6 +98,8 @@ import {
   CANVAS_MIN_ZOOM,
   CARD_HEIGHT,
   CARD_WIDTH,
+  canvasDropOrigin,
+  collapsedSessionCardSize,
   DRAG_HANDLE_SELECTOR,
   alignGuidesEqual,
   applyMoves,
@@ -151,7 +153,11 @@ const ALIGN_TOLERANCE_PX = 6;
 export interface SessionCanvasApi {
   addOrFocus: (session: KanbanProjectSessionRecord) => void;
   addSession: (sessionId: string) => void;
-  dropSessionAt: (sessionId: string, client: { x: number; y: number }) => void;
+  dropSessionAt: (
+    sessionId: string,
+    client: { x: number; y: number },
+    cardWidth?: number | null
+  ) => void;
   presentSessionIds: () => Set<string>;
 }
 
@@ -620,12 +626,19 @@ function SessionCanvasFlow({
   );
 
   const dropSessionAt = useCallback(
-    (sessionId: string, client: { x: number; y: number }) => {
+    (
+      sessionId: string,
+      client: { x: number; y: number },
+      cardWidth?: number | null
+    ) => {
       const flow = screenToFlowPosition(client);
-      const next = createCanvasNode(sessionId, {
-        x: flow.x - CARD_WIDTH / 2,
-        y: flow.y - CARD_HEIGHT / 2,
-      });
+      const size = collapsedSessionCardSize(cardWidth);
+      const next = createCanvasNode(
+        sessionId,
+        canvasDropOrigin(flow, size),
+        undefined,
+        size
+      );
       updateNodes((items) => [...items, next]);
       setSelectedIds(new Set([next.id]));
     },

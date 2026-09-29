@@ -25,6 +25,21 @@ test('right panel session creation does not route through createSession query pa
   assert.match(source, /paths\.projectSession\(/);
 });
 
+test('create-session overlay visibility is isolated to the project that opened it', () => {
+  const source = readFile('src/components/layout/RightPanelContent.tsx');
+  const helperSource = readFile('src/lib/createSessionFormVisibility.ts');
+  const layoutSource = readFile('src/components/layout/IDELayout.tsx');
+
+  assert.match(helperSource, /openedForProjectId === input.currentProjectId/);
+  assert.match(source, /isCreateSessionFormVisibleForProject/);
+  assert.match(source, /createOverlayProjectId/);
+  assert.match(source, /\{isCreateOverlayVisible \? \(/);
+  assert.match(
+    layoutSource,
+    /\{rightPanelContent && sessionContentHost\s*\? createPortal\(rightPanelContent, sessionContentHost\)/
+  );
+});
+
 test('right panel session creation uses a local centered overlay form and creates sessions directly', () => {
   const source = readFile('src/components/layout/RightPanelContent.tsx');
   const promptSource = readFile(
@@ -63,7 +78,7 @@ test('right panel session creation uses a local centered overlay form and create
   assert.match(source, /workspaceSelection\.workspaceId/);
   assert.match(source, /workspaceSelection\.branch/);
   assert.match(source, /useRepoBranches\(primaryRepo\?\.id/);
-  assert.match(source, /if \(!isCreateOverlayOpen \|\| isLoadingWorktrees\)/);
+  assert.match(source, /if \(!isCreateOverlayVisible \|\| isLoadingWorktrees\)/);
 });
 
 test('workspace right-panel new-session triggers route through the shared overlay context instead of the inline input form', () => {

@@ -111,11 +111,33 @@ export function createCanvasInstanceId(): string {
   return `n-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
 }
 
+export function collapsedSessionCardSize(
+  width?: number | null
+): CanvasSize {
+  const nextWidth =
+    typeof width === 'number' && Number.isFinite(width) && width > 0
+      ? width
+      : CARD_WIDTH;
+  return { width: nextWidth, height: CARD_HEIGHT };
+}
+
+export function canvasDropOrigin(
+  flow: { x: number; y: number },
+  size: CanvasSize
+): { x: number; y: number } {
+  return {
+    x: flow.x - size.width / 2,
+    y: flow.y - size.height / 2,
+  };
+}
+
 export function createCanvasNode(
   sessionId: string,
   position: { x: number; y: number },
-  id = createCanvasInstanceId()
+  id = createCanvasInstanceId(),
+  size?: { width?: number; height?: number }
 ): SessionCanvasNode {
+  const collapsed = collapsedSessionCardSize(size?.width);
   return {
     id,
     kind: 'session',
@@ -126,8 +148,13 @@ export function createCanvasNode(
     showAll: false,
     x: position.x,
     y: position.y,
-    width: CARD_WIDTH,
-    height: CARD_HEIGHT,
+    width: collapsed.width,
+    height:
+      typeof size?.height === 'number' &&
+      Number.isFinite(size.height) &&
+      size.height > 0
+        ? size.height
+        : collapsed.height,
     expanded: false,
   };
 }
@@ -227,7 +254,7 @@ export function sizeForNode(node: SessionCanvasNode): CanvasSize {
       height: Math.max(node.height, DETAIL_MIN_HEIGHT),
     };
   }
-  return { width: CARD_WIDTH, height: CARD_HEIGHT };
+  return collapsedSessionCardSize(node.width);
 }
 
 export function flowNodeBox(size: CanvasSize): {

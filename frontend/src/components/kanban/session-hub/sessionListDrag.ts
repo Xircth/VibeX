@@ -1,9 +1,37 @@
-import type { DragEndEvent, Modifier } from '@dnd-kit/core';
+import type { CSSProperties } from 'react';
+import type { DragEndEvent, DragStartEvent, Modifier } from '@dnd-kit/core';
 
 export const CANVAS_DROP_IGNORE_SELECTOR =
   '.session-hub-sidebar, .session-canvas-floating-panel, .session-canvas-create-panel';
 
 export const SESSION_LIST_DRAG_OVERLAY_CLASS = 'session-list-drag-overlay';
+
+export function sessionListCardWidthFromRect(
+  rect: { width?: number | null } | null | undefined
+): number | null {
+  const width = rect?.width;
+  if (typeof width !== 'number' || !Number.isFinite(width) || width <= 0) {
+    return null;
+  }
+  return width;
+}
+
+export function sessionListCardWidthFromDragStart(
+  event: Pick<DragStartEvent, 'active'>
+): number | null {
+  const current = event.active.rect.current;
+  return (
+    sessionListCardWidthFromRect(current.initial) ??
+    sessionListCardWidthFromRect(current.translated)
+  );
+}
+
+export function sessionListDragOverlaySizeStyle(
+  width: number | null
+): CSSProperties | undefined {
+  if (width == null) return undefined;
+  return { width, minWidth: width, maxWidth: width };
+}
 
 export const snapDragOverlayToCursor: Modifier = ({
   activatorEvent,

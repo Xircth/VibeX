@@ -1,6 +1,7 @@
 import {
   useEffect,
   useMemo,
+  useRef,
   useState,
   type ReactNode,
   type MouseEvent as ReactMouseEvent,
@@ -73,6 +74,8 @@ import {
   dragEndClientPoint,
   hitElementFromPoint,
   isPointOverCanvasDrop,
+  sessionListCardWidthFromDragStart,
+  sessionListDragOverlaySizeStyle,
 } from './sessionListDrag';
 import { SessionListDragOverlay } from './SessionListDragOverlay';
 import { SessionListHeaderTitle } from './SessionListHeaderTitle';
@@ -151,7 +154,8 @@ interface SessionHubSidebarProps {
   onPinSession?: (session: KanbanProjectSessionRecord, pinned: boolean) => void;
   onDropSessionOnCanvas?: (
     session: KanbanProjectSessionRecord,
-    client: { x: number; y: number }
+    client: { x: number; y: number },
+    cardWidth?: number | null
   ) => void;
 }
 
@@ -530,6 +534,10 @@ export function SessionHubSidebar({
   const [activeDragSessionId, setActiveDragSessionId] = useState<string | null>(
     null
   );
+  const [activeDragCardWidth, setActiveDragCardWidth] = useState<number | null>(
+    null
+  );
+  const dragCardWidthRef = useRef<number | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [isSearchExpanded, setIsSearchExpanded] = useState(false);
   const [dismissedNotice, setDismissedNotice] = useState<string | null>(null);
@@ -654,13 +662,23 @@ export function SessionHubSidebar({
     return () => window.clearTimeout(timeoutId);
   }, [dismissedNotice, noticeMessage]);
 
+  const clearActiveDrag = () => {
+    dragCardWidthRef.current = null;
+    setActiveDragSessionId(null);
+    setActiveDragCardWidth(null);
+  };
+
   const handleDragStart = (event: DragStartEvent) => {
     if (!canDragToArchive && !canDropOnCanvas) return;
+    const cardWidth = sessionListCardWidthFromDragStart(event);
+    dragCardWidthRef.current = cardWidth;
     setActiveDragSessionId(String(event.active.id));
+    setActiveDragCardWidth(cardWidth);
   };
 
   const handleDragEnd = (event: DragEndEvent) => {
-    setActiveDragSessionId(null);
+    const cardWidth = dragCardWidthRef.current;
+    clearActiveDrag();
     const sessionId = String(event.active.id);
     const session = sessionsById[sessionId];
     if (!session) {
@@ -693,7 +711,7 @@ export function SessionHubSidebar({
     if (!point) return;
     const hit = hitElementFromPoint(point.x, point.y);
     if (isPointOverCanvasDrop(hit)) {
-      onDropSessionOnCanvas(session, point);
+      onDropSessionOnCanvas(session, point, cardWidth);
     }
   };
 
@@ -1063,7 +1081,7 @@ export function SessionHubSidebar({
           collisionDetection={collisionDetection}
           onDragStart={handleDragStart}
           onDragEnd={handleDragEnd}
-          onDragCancel={() => setActiveDragSessionId(null)}
+          onDragCancel={clearActiveDrag}
         >
           <div
             className="session-hub-inset"
@@ -1248,7 +1266,8 @@ export function SessionHubSidebar({
             <SessionListDragOverlay>
               {activeDragSessionId && sessionsById[activeDragSessionId] ? (
                 <div
-                  className={`${SESSION_LIST_DRAG_OVERLAY_CLASS} pointer-events-none w-[18rem] max-w-[18rem] cursor-grabbing`}
+                  className={`${SESSION_LIST_DRAG_OVERLAY_CLASS} pointer-events-none cursor-grabbing`}
+                  style={sessionListDragOverlaySizeStyle(activeDragCardWidth)}
                 >
                   <SessionHubListItem
                     session={sessionsById[activeDragSessionId]}

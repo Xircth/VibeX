@@ -32,6 +32,7 @@ import { ConfirmDialog } from '@/components/dialogs/shared/ConfirmDialog';
 import { TooltipProvider } from '@/components/ui/tooltip';
 import { sessionsApi, type SessionStatus } from '@/lib/api';
 import { useKanbanBoardStyle } from '@/lib/kanbanBoardStyle';
+import { isCreateSessionFormVisibleForProject } from '@/lib/createSessionFormVisibility';
 import {
   requestCreateSessionInExecutionArea,
   resolveCreateSessionSurface,
@@ -264,6 +265,14 @@ export function KanbanSessionHub({
   // Latest ACP control preset picked in the create form (see SessionControlsPreset).
   const sessionControlsPresetRef = useRef<SessionControlsPreset | null>(null);
   const [isCreatePopoverOpen, setIsCreatePopoverOpen] = useState(false);
+  const [createPopoverProjectId, setCreatePopoverProjectId] = useState<
+    string | null
+  >(null);
+  const isCreatePopoverVisible = isCreateSessionFormVisibleForProject({
+    open: isCreatePopoverOpen,
+    openedForProjectId: createPopoverProjectId,
+    currentProjectId: projectId,
+  });
   const [sortField, setSortField] = useState<SortField | null>(null);
   const [workspaceFilterIds, setWorkspaceFilterIds] = useState<string[]>([]);
   const [executorFilterValues, setExecutorFilterValues] = useState<string[]>(
@@ -324,7 +333,7 @@ export function KanbanSessionHub({
     reset: resetRepoBranchSelection,
   } = useRepoBranchSelection({
     repos: projectRepos,
-    enabled: isCreatePopoverOpen,
+    enabled: isCreatePopoverVisible,
   });
 
   const updateCreateWorkspaceValue = useCallback((value: string) => {
@@ -653,6 +662,7 @@ export function KanbanSessionHub({
 
   const handleCreatePopoverOpenChange = (open: boolean) => {
     setIsCreatePopoverOpen(open);
+    setCreatePopoverProjectId(open ? (projectId ?? null) : null);
 
     if (open) {
       updateCreateWorkspaceValue(defaultWorkspaceValue);
@@ -702,9 +712,32 @@ export function KanbanSessionHub({
   useEffect(() => {
     if (!canvasListVisible && isCreatePopoverOpen) {
       setIsCreatePopoverOpen(false);
+      setCreatePopoverProjectId(null);
       createSessionMutation.reset();
     }
   }, [canvasListVisible, createSessionMutation, isCreatePopoverOpen]);
+
+  useEffect(() => {
+    if (
+      !isCreatePopoverOpen ||
+      isCreateSessionFormVisibleForProject({
+        open: true,
+        openedForProjectId: createPopoverProjectId,
+        currentProjectId: projectId,
+      })
+    ) {
+      return;
+    }
+
+    setIsCreatePopoverOpen(false);
+    setCreatePopoverProjectId(null);
+    createSessionMutation.reset();
+  }, [
+    createPopoverProjectId,
+    createSessionMutation,
+    isCreatePopoverOpen,
+    projectId,
+  ]);
 
   const handleResetViewState = () => {
     setSortField(null);
@@ -1114,8 +1147,12 @@ export function KanbanSessionHub({
       }}
       onDropSessionOnCanvas={
         boardStyle === 'canvas'
-          ? (session, client) => {
-              canvasApiRef.current?.dropSessionAt(session.id, client);
+          ? (session, client, cardWidth) => {
+              canvasApiRef.current?.dropSessionAt(
+                session.id,
+                client,
+                cardWidth
+              );
             }
           : undefined
       }
@@ -1149,7 +1186,7 @@ export function KanbanSessionHub({
             projectName={project?.name ?? ''}
             list={sidebarElement}
             createPanel={
-              isCreatePopoverOpen ? (
+              isCreatePopoverVisible ? (
                 <CanvasCreateSessionPanel
                   isGitProject={Boolean(project?.is_git)}
                   createMode={createMode}

@@ -82,7 +82,9 @@ export function ghostBoxForZone(box: Box, zone: LeftPanelDropZone): Box {
   }
 }
 
-export function dropZoneToDirection(zone: LeftPanelDropZone): LeftSplitDirection {
+export function dropZoneToDirection(
+  zone: LeftPanelDropZone
+): LeftSplitDirection {
   switch (zone) {
     case 'top':
       return 'above';
@@ -143,11 +145,13 @@ export function classifyLeftDockSplit(
   if (boxes.length < 2) return 'single';
   const first = boxes[0];
   const stacked = boxes.every(
-    (box) => Math.abs(box.x - first.x) <= 2 && Math.abs(box.width - first.width) <= 2
+    (box) =>
+      Math.abs(box.x - first.x) <= 2 && Math.abs(box.width - first.width) <= 2
   );
   if (stacked) return 'stack';
   const row = boxes.every(
-    (box) => Math.abs(box.y - first.y) <= 2 && Math.abs(box.height - first.height) <= 2
+    (box) =>
+      Math.abs(box.y - first.y) <= 2 && Math.abs(box.height - first.height) <= 2
   );
   if (row) return 'row';
   return 'stack';
@@ -157,7 +161,9 @@ export function sortBoxesForSplit(
   boxes: readonly Box[],
   split: 'stack' | 'row'
 ): Box[] {
-  return boxes.slice().sort((a, b) =>
-    split === 'stack' ? a.y - b.y || a.x - b.x : a.x - b.x || a.y - b.y
-  );
+  return boxes
+    .slice()
+    .sort((a, b) =>
+      split === 'stack' ? a.y - b.y || a.x - b.x : a.x - b.x || a.y - b.y
+    );
 }

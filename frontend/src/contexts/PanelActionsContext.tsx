@@ -244,16 +244,17 @@ export function PanelActionsProvider({ children }: { children: ReactNode }) {
     Array<{ url?: string | null; nativeTabId?: string | null }>
   >([]);
   const openPluginPanelRef = useRef<
-    ((options: {
-      title: string;
-      pluginId: string;
-      contributionId: string;
-      icon?: string | null;
-      multiInstance?: boolean;
-      instance?: 'new' | 'focus';
-      requestedUrl?: string | null;
-      nativeTabId?: string | null;
-    }) => void) | null
+    | ((options: {
+        title: string;
+        pluginId: string;
+        contributionId: string;
+        icon?: string | null;
+        multiInstance?: boolean;
+        instance?: 'new' | 'focus';
+        requestedUrl?: string | null;
+        nativeTabId?: string | null;
+      }) => void)
+    | null
   >(null);
   const pluginPanels = usePluginHostContributions('app_panel');
   const pluginPanelsRef = useRef(pluginPanels);
@@ -1594,10 +1595,9 @@ export function PanelActionsProvider({ children }: { children: ReactNode }) {
     }
   }, [dockviewEpoch, pluginPanels]);
 
-  const value = useMemo<PanelActions>(
-    () => {
-      void leftDockRevision;
-      return {
+  const value = useMemo<PanelActions>(() => {
+    void leftDockRevision;
+    return {
       openOrFocusPanel,
       openFilePreview,
       openImagePreview,
@@ -1632,44 +1632,42 @@ export function PanelActionsProvider({ children }: { children: ReactNode }) {
       openPluginPanel,
       setDockviewApi,
     };
-    },
-    [
-      canOpenPanelInNewEditorGroup,
-      canSplitActiveEditor,
-      closePanel,
-      focusKanban,
-      isPanelOpen,
-      openCommitDiff,
-      openDiffPreview,
-      openDiffPreviewAtPath,
-      openMergePanel,
-      openFilePreview,
-      openImagePreview,
-      openWebPreview,
-      revealInFileTree,
-      openLogs,
-      openNewTerminal,
-      openTerminalEditorTab,
-      showTerminal,
-      openNotes,
-      openPluginPanel,
-      openOrFocusPanel,
-      openPanelInNewEditorGroup,
-      setDockviewApi,
-      splitActiveEditor,
-      toggleEditorArea,
-      toggleFileTree,
-      showFileTree,
-      toggleGitPanel,
-      toggleSearchPanel,
-      toggleSessionList,
-      placeLeftDockPanel,
-      measureLeftDock,
-      isLeftDockSplit,
-      unsplitLeftDock,
-      leftDockRevision,
-    ]
-  );
+  }, [
+    canOpenPanelInNewEditorGroup,
+    canSplitActiveEditor,
+    closePanel,
+    focusKanban,
+    isPanelOpen,
+    openCommitDiff,
+    openDiffPreview,
+    openDiffPreviewAtPath,
+    openMergePanel,
+    openFilePreview,
+    openImagePreview,
+    openWebPreview,
+    revealInFileTree,
+    openLogs,
+    openNewTerminal,
+    openTerminalEditorTab,
+    showTerminal,
+    openNotes,
+    openPluginPanel,
+    openOrFocusPanel,
+    openPanelInNewEditorGroup,
+    setDockviewApi,
+    splitActiveEditor,
+    toggleEditorArea,
+    toggleFileTree,
+    showFileTree,
+    toggleGitPanel,
+    toggleSearchPanel,
+    toggleSessionList,
+    placeLeftDockPanel,
+    measureLeftDock,
+    isLeftDockSplit,
+    unsplitLeftDock,
+    leftDockRevision,
+  ]);
 
   return (
     <PanelActionsContext.Provider value={value}>

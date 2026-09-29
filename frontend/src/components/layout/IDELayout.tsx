@@ -1307,16 +1307,16 @@ export function IDELayout({
   }, [effectiveActiveTab, setChromeOccluded, tabContextMenu]);
 
   return (
-      <div className="workspace-shell relative flex h-full w-full flex-col">
-        <BrowserEvalConfirm />
-        <SearchPalette />
-        {toolbarContent && (
-          <div className="workspace-divider-bottom z-10 shrink-0">
-            {toolbarContent}
-          </div>
-        )}
+    <div className="workspace-shell relative flex h-full w-full flex-col">
+      <BrowserEvalConfirm />
+      <SearchPalette />
+      {toolbarContent && (
+        <div className="workspace-divider-bottom z-10 shrink-0">
+          {toolbarContent}
+        </div>
+      )}
 
-        <ProjectLayoutScope>
+      <ProjectLayoutScope>
         <div className="flex min-h-0 flex-1">
           {effectiveActiveTab === 'workspace' ? (
             <WorkspaceActivityRail
@@ -1399,13 +1399,13 @@ export function IDELayout({
             <RightPanelSidebar />
           ) : null}
         </div>
-        </ProjectLayoutScope>
+      </ProjectLayoutScope>
 
-        {rightPanelContent && sessionContentHost
-          ? createPortal(rightPanelContent, sessionContentHost)
-          : null}
+      {rightPanelContent && sessionContentHost
+        ? createPortal(rightPanelContent, sessionContentHost)
+        : null}
 
-        <StatusBar />
-      </div>
+      <StatusBar />
+    </div>
   );
 }

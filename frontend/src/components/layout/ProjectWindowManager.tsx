@@ -337,10 +337,7 @@ function ProjectActivityTracker({
     }
 
     previousSnapshotSignatureRef.current = nextSignature;
-    if (
-      !sessionsResolved &&
-      snapshot.recentSessions.length === 0
-    ) {
+    if (!sessionsResolved && snapshot.recentSessions.length === 0) {
       const previous =
         useWindowProjectsStore.getState().projectSnapshots[projectId];
       if (previous?.recentSessions.length) {

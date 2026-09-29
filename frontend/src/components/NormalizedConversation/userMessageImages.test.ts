@@ -65,7 +65,9 @@ describe('resolveUserMessageImageFilesystemPath', () => {
   it('loads the first filesystem path that hostFileSrc can read', async () => {
     const load = vi.fn(async (path: string) => {
       if (path.includes('.vibe-images')) {
-        throw new Error('path is outside every registered repository or workspace');
+        throw new Error(
+          'path is outside every registered repository or workspace'
+        );
       }
       return 'blob:image/png';
     });

@@ -33,8 +33,16 @@ describe('browserChromeStore', () => {
       at: 3,
     });
     const rows = getAgentActivity('t1');
-    expect(rows[0]).toMatchObject({ action: 'click', outcome: 'refused', count: 1 });
-    expect(rows[1]).toMatchObject({ action: 'read', outcome: 'done', count: 2 });
+    expect(rows[0]).toMatchObject({
+      action: 'click',
+      outcome: 'refused',
+      count: 1,
+    });
+    expect(rows[1]).toMatchObject({
+      action: 'read',
+      outcome: 'done',
+      count: 2,
+    });
   });
 
   it('records popup denials and eval requests without polling', () => {

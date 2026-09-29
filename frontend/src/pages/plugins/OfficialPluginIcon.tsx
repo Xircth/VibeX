@@ -133,7 +133,8 @@ export function PluginMarketplaceLogo({
   const initials = marketplaceLogoInitials(displayName);
   const fill =
     INITIALS_PALETTE[
-      fnv1a32(`${listing.owner}/${listing.pluginName}`) % INITIALS_PALETTE.length
+      fnv1a32(`${listing.owner}/${listing.pluginName}`) %
+        INITIALS_PALETTE.length
     ];
 
   if (OfficialGlyph) {

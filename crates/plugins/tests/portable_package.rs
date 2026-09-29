@@ -512,7 +512,9 @@ fn v4_runtime_distributions_use_node_style_targets() {
     let rustc_only = PluginPackage::inspect(root.path(), PluginSourceKind::Snapshot);
     let error = rustc_only.expect_err("rustc-triple-only runtimes must not lock");
     assert!(
-        error.to_string().contains("unsupported Runtime contribution"),
+        error
+            .to_string()
+            .contains("unsupported Runtime contribution"),
         "{error}"
     );
 }

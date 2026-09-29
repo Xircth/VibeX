@@ -97,7 +97,9 @@ describe('PluginMarketplaceLogo', () => {
   });
 
   it('rejects untrusted icon urls and falls back to initials', () => {
-    expect(allowedMarketplaceIconUrl('http://vibex.xforever.xin/foo.png')).toBeNull();
+    expect(
+      allowedMarketplaceIconUrl('http://vibex.xforever.xin/foo.png')
+    ).toBeNull();
     expect(
       allowedMarketplaceIconUrl('https://github.com/acme/notes/icon.png')
     ).toBeNull();
@@ -121,9 +123,9 @@ describe('PluginMarketplaceLogo', () => {
       />
     );
     expect(container.querySelector('img')).toBeNull();
-    expect(container.querySelector('.product-plugin-card-initials')).toHaveTextContent(
-      'NO'
-    );
+    expect(
+      container.querySelector('.product-plugin-card-initials')
+    ).toHaveTextContent('NO');
   });
 
   it('falls back to initials when a bitmap fails to load', () => {
@@ -134,8 +136,8 @@ describe('PluginMarketplaceLogo', () => {
       />
     );
     fireEvent.error(container.querySelector('img') as HTMLImageElement);
-    expect(container.querySelector('.product-plugin-card-initials')).toHaveTextContent(
-      'NO'
-    );
+    expect(
+      container.querySelector('.product-plugin-card-initials')
+    ).toHaveTextContent('NO');
   });
 });

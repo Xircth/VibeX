@@ -22,18 +22,13 @@ import {
 } from '@/hooks/usePluginHostContributions';
 import { contributionIconComponent } from '@/components/plugins/contributionIcon';
 
-
 export function WorkspaceTabAddMenu({
   api,
   group,
 }: IDockviewHeaderActionsProps) {
   const { t } = useTranslation('panels');
-  const {
-    openDiffPreview,
-    openNotes,
-    openTerminalEditorTab,
-    openPluginPanel,
-  } = usePanelActionsContext();
+  const { openDiffPreview, openNotes, openTerminalEditorTab, openPluginPanel } =
+    usePanelActionsContext();
   const pluginPanels = usePluginHostContributions('app_panel');
   const { setTabCreationMenuOpen } = useWorkspaceOverlay();
 
@@ -90,8 +85,7 @@ export function WorkspaceTabAddMenu({
                     contributionId: item.id,
                     icon,
                     multiInstance: metadata.multiInstance === true,
-                    instance:
-                      metadata.multiInstance === true ? 'new' : 'focus',
+                    instance: metadata.multiInstance === true ? 'new' : 'focus',
                   })
                 )
               }

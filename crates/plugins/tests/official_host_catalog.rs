@@ -49,14 +49,12 @@ async fn installing_the_host_does_not_auto_register_official_plugins() {
 
     let catalog = plane.catalog().await.unwrap();
     assert!(catalog.is_empty());
-    assert!(
-        utils::assets::existing_official_plugin_roots(data.path()).is_empty()
-    );
+    assert!(utils::assets::existing_official_plugin_roots(data.path()).is_empty());
 }
 
 fn sample_plugin_root() -> Option<std::path::PathBuf> {
-    let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("../../assets/plugins/remote-ssh");
+    let dir =
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../assets/plugins/remote-ssh");
     dir.join(".vibex-plugin/plugin.json")
         .is_file()
         .then_some(dir)

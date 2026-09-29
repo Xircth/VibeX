@@ -102,7 +102,10 @@ function upsertPlugin(
 }
 
 type PluginActivationApi = {
-  setEnabled: (pluginId: string, enabled: boolean) => Promise<PluginControlItem>;
+  setEnabled: (
+    pluginId: string,
+    enabled: boolean
+  ) => Promise<PluginControlItem>;
   configureAgents: (
     pluginId: string,
     allAgents: boolean,

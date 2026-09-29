@@ -100,18 +100,25 @@ export function syncLeftDockSplitFromLayout(
   const split = classifyLeftDockSplit(items.map((item) => item.box));
   if (split === 'single') return null;
 
-  const ordered = items.slice().sort((a, b) =>
-    split === 'stack'
-      ? a.box.y - b.box.y || a.box.x - b.box.x
-      : a.box.x - b.box.x || a.box.y - b.box.y
-  );
+  const ordered = items
+    .slice()
+    .sort((a, b) =>
+      split === 'stack'
+        ? a.box.y - b.box.y || a.box.x - b.box.x
+        : a.box.x - b.box.x || a.box.y - b.box.y
+    );
   const union = unionBoxes(ordered.map((item) => item.box));
   if (!union) return null;
 
   const total = split === 'stack' ? union.height : union.width;
-  const first = split === 'stack' ? ordered[0].box.height : ordered[0].box.width;
+  const first =
+    split === 'stack' ? ordered[0].box.height : ordered[0].box.width;
 
-  if (previous && previous.split === split && Math.abs(previous.total - total) > 2) {
+  if (
+    previous &&
+    previous.split === split &&
+    Math.abs(previous.total - total) > 2
+  ) {
     const nextFirst = innerSizeAfterOuterResize(
       previous.total,
       total,
@@ -130,7 +137,11 @@ export function syncLeftDockSplitFromLayout(
     return { split, total, first: nextFirst };
   }
 
-  if (previous && previous.split === split && Math.abs(previous.first - first) > 2) {
+  if (
+    previous &&
+    previous.split === split &&
+    Math.abs(previous.first - first) > 2
+  ) {
     writeLeftPanelSplitMemory(
       split === 'stack'
         ? { stackRatio: ratioFromSizes(first, total) }
@@ -165,11 +176,13 @@ export function unsplitLeftDockKeepLeading(api: DockviewApi): boolean {
   if (items.length < 2) return false;
 
   const split = classifyLeftDockSplit(items.map((item) => item.box));
-  const ordered = items.slice().sort((a, b) =>
-    split === 'row'
-      ? a.box.x - b.box.x || a.box.y - b.box.y
-      : a.box.y - b.box.y || a.box.x - b.box.x
-  );
+  const ordered = items
+    .slice()
+    .sort((a, b) =>
+      split === 'row'
+        ? a.box.x - b.box.x || a.box.y - b.box.y
+        : a.box.y - b.box.y || a.box.x - b.box.x
+    );
 
   for (const item of ordered.slice(1)) {
     for (const panel of [...item.group.panels]) {

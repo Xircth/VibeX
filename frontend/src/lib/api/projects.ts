@@ -63,7 +63,9 @@ export const projectsApi = {
   },
 
   previewImport: async (path: string): Promise<ProjectImportPreview> => {
-    return backendCall<ProjectImportPreview>('preview_project_import', { path });
+    return backendCall<ProjectImportPreview>('preview_project_import', {
+      path,
+    });
   },
 
   setParent: async (
@@ -81,7 +83,9 @@ export const projectsApi = {
   },
 
   gitChildren: async (projectId: string): Promise<Project[]> => {
-    return backendCall<Project[]>('get_project_git_children', { id: projectId });
+    return backendCall<Project[]>('get_project_git_children', {
+      id: projectId,
+    });
   },
 
   openEditor: async (

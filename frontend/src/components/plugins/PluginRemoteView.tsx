@@ -232,7 +232,11 @@ function PluginRemoteViewBody({
           descriptor={surface}
           enabled
           transport={transport}
-          variant={slot === 'app.tab' || slot === 'app.kanban.view' ? 'editor' : 'panel'}
+          variant={
+            slot === 'app.tab' || slot === 'app.kanban.view'
+              ? 'editor'
+              : 'panel'
+          }
         />
       );
     }

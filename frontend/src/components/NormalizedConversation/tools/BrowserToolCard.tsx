@@ -1,6 +1,10 @@
 import type { NormalizedEntry } from 'shared/types.ts';
 import { Globe } from 'lucide-react';
-import { ToolCardShell, getToolStatusClassName, getToolStatusDotClassName } from './ToolCardShell';
+import {
+  ToolCardShell,
+  getToolStatusClassName,
+  getToolStatusDotClassName,
+} from './ToolCardShell';
 import { ToolArtifact, ToolFacts, ToolProse } from './ToolArtifact';
 import { useExpandable } from '@/stores/useExpandableStore';
 
@@ -28,7 +32,6 @@ export function BrowserToolCard({
   expansionKey: string;
   forceExpanded?: boolean;
 }) {
-
   const toolEntry =
     entry.entry_type.type === 'tool_use' ? entry.entry_type : null;
   const action =
@@ -41,9 +44,7 @@ export function BrowserToolCard({
   );
   const effectiveExpanded = forceExpanded || expanded;
   const facts = [
-    typeof args.tabId === 'string'
-      ? { key: 'tab', value: args.tabId }
-      : null,
+    typeof args.tabId === 'string' ? { key: 'tab', value: args.tabId } : null,
     typeof args.ref === 'string' ? { key: 'ref', value: args.ref } : null,
     typeof args.url === 'string' ? { key: 'url', value: args.url } : null,
   ].filter((item): item is { key: string; value: string } => Boolean(item));

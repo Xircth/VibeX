@@ -19,7 +19,7 @@
     "postpack": "node bin/prepare-plugin-cli.js --clean"
   },
   "dependencies": {
-    "adm-zip": "^0.5.16"
+    "adm-zip": "^0.6.1"
   },
   "files": [
     "bin/cli.js",

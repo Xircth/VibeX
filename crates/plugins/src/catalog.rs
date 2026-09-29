@@ -231,9 +231,11 @@ pub fn marketplace_plugin_ids(owner: &str, plugin_name: &str) -> Vec<String> {
 }
 
 pub fn package_matches_marketplace(package_id: &str, owner: &str, plugin_name: &str) -> bool {
-    marketplace_plugin_ids(owner, plugin_name).iter().any(|candidate| {
-        plugin_ids_match(package_id, candidate) || plugin_ids_match(candidate, package_id)
-    })
+    marketplace_plugin_ids(owner, plugin_name)
+        .iter()
+        .any(|candidate| {
+            plugin_ids_match(package_id, candidate) || plugin_ids_match(candidate, package_id)
+        })
 }
 
 /// GitHub tarball URLs for official plugins listed in `vibex-plugin.json`.
@@ -245,9 +247,7 @@ pub fn official_github_archive_urls(owner: &str, plugin_name: &str) -> Vec<Strin
     }
     for candidate in marketplace_plugin_ids(owner, plugin_name) {
         if let Some(plugin) = crate::official_catalog::official_plugin_record(&candidate) {
-            return crate::official_catalog::github_archive_urls_for_repository(
-                &plugin.repository,
-            );
+            return crate::official_catalog::github_archive_urls_for_repository(&plugin.repository);
         }
     }
     Vec::new()
@@ -268,9 +268,8 @@ pub fn is_channel_category(category: &str) -> bool {
 }
 
 pub fn bundled_topic_category(plugin_id: &str) -> Option<&'static str> {
-    crate::official_catalog::official_plugin_category(plugin_id).or_else(|| {
-        is_authoring_sample_plugin_id(plugin_id).then_some("other")
-    })
+    crate::official_catalog::official_plugin_category(plugin_id)
+        .or_else(|| is_authoring_sample_plugin_id(plugin_id).then_some("other"))
 }
 
 pub fn normalize_listing_category(listing: &mut CatalogListing) {
@@ -455,14 +454,12 @@ fn listing_from_index_record(item: crate::MarketplaceListing) -> Option<CatalogL
             .unwrap_or("other")
             .to_owned(),
         source_kind: "official".to_owned(),
-        homepage: nonempty(&item.archive).or_else(|| {
-            Some(marketplace_listing_url(&owner, &plugin_name))
-        }),
+        homepage: nonempty(&item.archive)
+            .or_else(|| Some(marketplace_listing_url(&owner, &plugin_name))),
         repo: None,
         package_digest: nonempty(&item.package_digest),
-        download_url: nonempty(&item.archive).filter(|url| {
-            !url.starts_with("builtin://") && !url.starts_with("offline://")
-        }),
+        download_url: nonempty(&item.archive)
+            .filter(|url| !url.starts_with("builtin://") && !url.starts_with("offline://")),
         sha256: None,
         offline_plugin_id: Some(qualified.to_owned()),
         has_worker: false,
@@ -561,7 +558,10 @@ pub async fn fetch_listing(owner: &str, plugin_name: &str) -> Result<CatalogList
     Err(last.unwrap_or_else(|| PluginError::not_found(&format!("{owner}/{plugin_name}"))))
 }
 
-async fn fetch_listing_named(owner: &str, plugin_name: &str) -> Result<CatalogListing, PluginError> {
+async fn fetch_listing_named(
+    owner: &str,
+    plugin_name: &str,
+) -> Result<CatalogListing, PluginError> {
     let origin = marketplace_origin();
     let client = marketplace_client(8)?;
     let v1 = format!("{origin}/api/marketplace/v1/listing/{owner}/{plugin_name}");

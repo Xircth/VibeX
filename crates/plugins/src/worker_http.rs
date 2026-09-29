@@ -8,7 +8,10 @@ pub fn worker_http_handler(spec: &Value) -> Option<&str> {
     if managed.get("kind").and_then(Value::as_str) != Some("workerHttp") {
         return None;
     }
-    managed.get("handler").and_then(Value::as_str).filter(|handler| !handler.is_empty())
+    managed
+        .get("handler")
+        .and_then(Value::as_str)
+        .filter(|handler| !handler.is_empty())
 }
 
 /// Build a native `type: http` MCP spec from a Worker `mcp.endpoint` payload.
@@ -76,7 +79,10 @@ mod tests {
         assert!(validate_loopback_mcp_url("http://example.com/mcp").is_err());
         assert!(validate_loopback_mcp_url("http://localhost:9/mcp").is_err());
         assert!(validate_loopback_mcp_url("http://127.0.0.1:9/v1").is_err());
-        assert!(worker_http_mcp_spec_from_endpoint(&json!({ "url": "http://127.0.0.1:9/mcp" })).is_err());
+        assert!(
+            worker_http_mcp_spec_from_endpoint(&json!({ "url": "http://127.0.0.1:9/mcp" }))
+                .is_err()
+        );
     }
 
     #[test]

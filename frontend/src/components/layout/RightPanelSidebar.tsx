@@ -36,12 +36,8 @@ function RightPanelSidebarContent({
   sessionId?: string;
 }) {
   const { t } = useTranslation(['panels', 'common']);
-  const {
-    openNewTerminal,
-    openDiffPreview,
-    openNotes,
-    openPluginPanel,
-  } = usePanelActionsContext();
+  const { openNewTerminal, openDiffPreview, openNotes, openPluginPanel } =
+    usePanelActionsContext();
   const railSections = usePluginHostContributions('app_rail_section');
   const {
     activate: activateTauriInspector,
@@ -102,8 +98,7 @@ function RightPanelSidebarContent({
 
         {railSections.map((item) => {
           const metadata = contributionMetadata(item);
-          const icon =
-            typeof metadata.icon === 'string' ? metadata.icon : null;
+          const icon = typeof metadata.icon === 'string' ? metadata.icon : null;
           const Icon = contributionIconComponent(icon, Puzzle);
           const opens =
             metadata.opens &&
@@ -128,8 +123,7 @@ function RightPanelSidebarContent({
                       contributionId,
                       icon,
                       multiInstance: true,
-                      instance:
-                        opens?.instance === 'new' ? 'new' : 'focus',
+                      instance: opens?.instance === 'new' ? 'new' : 'focus',
                     })
                   }
                   className="workspace-side-rail-button flex h-7 w-7 items-center justify-center"

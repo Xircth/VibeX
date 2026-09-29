@@ -411,9 +411,7 @@ pub async fn dispatch(
                 .and_then(Value::as_str)
                 .and_then(|value| serde_json::from_value(Value::String(value.to_string())).ok());
             let open_in_ui = !bounds.visible || bounds.width < 32.0 || bounds.height < 32.0;
-            let tab = service
-                .create_tab(url, profile_id, bounds, grant)
-                .await?;
+            let tab = service.create_tab(url, profile_id, bounds, grant).await?;
             if open_in_ui {
                 service.native.notify(json!({
                     "kind": "tab.open",
@@ -772,7 +770,10 @@ window.__codegPicker && window.__codegPicker.start({id_json});
         }
         "pick.cloak" => {
             let tab_id = required_string(&input, "tabId")?;
-            let hidden = input.get("hidden").and_then(Value::as_bool).unwrap_or(false);
+            let hidden = input
+                .get("hidden")
+                .and_then(Value::as_bool)
+                .unwrap_or(false);
             let script = if hidden {
                 "window.__codegPicker && window.__codegPicker.cloak(true);"
             } else {
@@ -897,11 +898,7 @@ async fn eval_ask(
             )
         })?;
     let expires_at = now_ms() + crate::confirm::EVAL_CONFIRM_TIMEOUT.as_millis() as i64;
-    let plugin_id = service
-        .occupant
-        .lock()
-        .expect("browser occupant")
-        .clone();
+    let plugin_id = service.occupant.lock().expect("browser occupant").clone();
     service.native.notify(json!({
         "kind": "eval.request",
         "pluginId": plugin_id,
@@ -942,11 +939,7 @@ async fn eval_run(
             )
         })?;
     let expires_at = now_ms() + crate::confirm::EVAL_CONFIRM_TIMEOUT.as_millis() as i64;
-    let plugin_id = service
-        .occupant
-        .lock()
-        .expect("browser occupant")
-        .clone();
+    let plugin_id = service.occupant.lock().expect("browser occupant").clone();
     service.native.notify(json!({
         "kind": "eval.request",
         "pluginId": plugin_id,

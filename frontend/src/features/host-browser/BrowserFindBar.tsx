@@ -89,13 +89,28 @@ export function BrowserFindBar({
           {t('browserPanel.findNone')}
         </span>
       ) : null}
-      <button type="button" className={ICON_BTN} disabled={!query} onClick={() => step(query, false)}>
+      <button
+        type="button"
+        className={ICON_BTN}
+        disabled={!query}
+        onClick={() => step(query, false)}
+      >
         <ChevronUp className="h-4 w-4" />
       </button>
-      <button type="button" className={ICON_BTN} disabled={!query} onClick={() => step(query, true)}>
+      <button
+        type="button"
+        className={ICON_BTN}
+        disabled={!query}
+        onClick={() => step(query, true)}
+      >
         <ChevronDown className="h-4 w-4" />
       </button>
-      <button type="button" className={ICON_BTN} onClick={onClose} aria-label={t('browserPanel.findClose')}>
+      <button
+        type="button"
+        className={ICON_BTN}
+        onClick={onClose}
+        aria-label={t('browserPanel.findClose')}
+      >
         <X className="h-4 w-4" />
       </button>
     </div>

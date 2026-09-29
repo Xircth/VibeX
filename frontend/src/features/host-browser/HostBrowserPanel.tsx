@@ -70,10 +70,7 @@ import {
   BrowserAgentShareControl,
 } from './BrowserAgentAccess';
 import { BrowserFindBar } from './BrowserFindBar';
-import {
-  BrowserDownloadBar,
-  BrowserNoticeBar,
-} from './BrowserStatusLayer';
+import { BrowserDownloadBar, BrowserNoticeBar } from './BrowserStatusLayer';
 import { clearAgentActivity } from './browserChromeStore';
 import {
   faviconForPage,
@@ -395,7 +392,9 @@ export function HostBrowserPanel({
   const freezeGenRef = useRef(0);
   const freezeInFlightRef = useRef<Promise<string | null> | null>(null);
   const hideTargetRef = useRef<boolean | null>(null);
-  const captureFreezeRef = useRef<() => Promise<string | null>>(async () => null);
+  const captureFreezeRef = useRef<() => Promise<string | null>>(
+    async () => null
+  );
   const [addressHistory, setAddressHistory] = useState<
     BrowserAddressHistoryEntry[]
   >(() => loadBrowserAddressHistory());
@@ -729,7 +728,7 @@ export function HostBrowserPanel({
       return Promise.resolve(lastFreezeRef.current);
     }
     const gen = freezeGenRef.current;
-    let work: Promise<string | null>;
+    let work: Promise<string | null> | null = null;
     work = (async () => {
       try {
         const frame = (await dispatchRef.current('surface.freeze', {
@@ -1197,7 +1196,10 @@ export function HostBrowserPanel({
         CONNECTED_CHROME_BG
       )}
       onKeyDown={(event) => {
-        if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'f') {
+        if (
+          (event.metaKey || event.ctrlKey) &&
+          event.key.toLowerCase() === 'f'
+        ) {
           event.preventDefault();
           setFindOpen(true);
           setFindToken((token) => token + 1);
@@ -1337,16 +1339,19 @@ export function HostBrowserPanel({
               onClick={() => {
                 const tabId = tabIdRef.current;
                 if (!tabId) return;
-                void (dispatch('surface.freeze', { tabId }) as Promise<FreezePayload | null>)
-                  .then(async (frame) => {
-                    if (!frame?.mime || !frame.data) return;
-                    const blob = await fetch(
-                      `data:${frame.mime};base64,${frame.data}`
-                    ).then((response) => response.blob());
-                    requestComposerImageInsert(
-                      new File([blob], 'page.jpg', { type: frame.mime })
-                    );
-                  });
+                void (
+                  dispatch('surface.freeze', {
+                    tabId,
+                  }) as Promise<FreezePayload | null>
+                ).then(async (frame) => {
+                  if (!frame?.mime || !frame.data) return;
+                  const blob = await fetch(
+                    `data:${frame.mime};base64,${frame.data}`
+                  ).then((response) => response.blob());
+                  requestComposerImageInsert(
+                    new File([blob], 'page.jpg', { type: frame.mime })
+                  );
+                });
               }}
             >
               <Camera className="h-3.5 w-3.5" />
@@ -1466,9 +1471,7 @@ export function HostBrowserPanel({
                 <Scaling className="h-3.5 w-3.5" />
                 {t('browserPanel.zoom')}
               </DropdownMenuSubTrigger>
-              <DropdownMenuSubContent
-                className="z-[20000] min-w-[7rem]"
-              >
+              <DropdownMenuSubContent className="z-[20000] min-w-[7rem]">
                 {ZOOM_PRESETS.map((factor) => (
                   <DropdownMenuItem
                     key={factor}
@@ -1489,9 +1492,7 @@ export function HostBrowserPanel({
                 <DeviceIcon className="h-3.5 w-3.5" />
                 {t('browserPanel.device')}
               </DropdownMenuSubTrigger>
-              <DropdownMenuSubContent
-                className="z-[20000] min-w-[8rem]"
-              >
+              <DropdownMenuSubContent className="z-[20000] min-w-[8rem]">
                 {DEVICE_PRESETS.map((preset) => (
                   <DropdownMenuItem
                     key={preset}

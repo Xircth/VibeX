@@ -723,16 +723,20 @@ fn loopback_dev_remote_is_live(entry: &str) -> bool {
         return false;
     };
     let timeout = Duration::from_millis(200);
-    let Ok(mut stream) = TcpStream::connect_timeout(
-        &SocketAddr::from(([127, 0, 0, 1], port)),
-        timeout,
-    ) else {
+    let Ok(mut stream) =
+        TcpStream::connect_timeout(&SocketAddr::from(([127, 0, 0, 1], port)), timeout)
+    else {
         return false;
     };
     let _ = stream.set_read_timeout(Some(timeout));
     let _ = stream.set_write_timeout(Some(timeout));
-    let path = if url.path().is_empty() { "/" } else { url.path() };
-    let request = format!("GET {path} HTTP/1.0\r\nHost: {host}:{port}\r\nConnection: close\r\n\r\n");
+    let path = if url.path().is_empty() {
+        "/"
+    } else {
+        url.path()
+    };
+    let request =
+        format!("GET {path} HTTP/1.0\r\nHost: {host}:{port}\r\nConnection: close\r\n\r\n");
     if stream.write_all(request.as_bytes()).is_err() {
         return false;
     }
@@ -772,10 +776,13 @@ pub(crate) fn descriptors_for_package(
 
 #[cfg(test)]
 mod tests {
+    use std::{
+        io::{Read, Write},
+        net::TcpListener,
+        thread,
+    };
+
     use super::*;
-    use std::io::{Read, Write};
-    use std::net::TcpListener;
-    use std::thread;
 
     fn serve_once(status: &'static str) -> String {
         let listener = TcpListener::bind("127.0.0.1:0").expect("bind");

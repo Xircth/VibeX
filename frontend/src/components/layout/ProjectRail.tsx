@@ -239,10 +239,7 @@ export function ProjectRail({
       viewport.width,
       viewport.height
     );
-    if (
-      next.x !== storedRailPosition.x ||
-      next.y !== storedRailPosition.y
-    ) {
+    if (next.x !== storedRailPosition.x || next.y !== storedRailPosition.y) {
       setRailPosition(next);
     }
   }, [
@@ -279,9 +276,7 @@ export function ProjectRail({
     setRailVisible(false);
   };
 
-  const handleMovePointerDown = (
-    event: React.PointerEvent<HTMLDivElement>
-  ) => {
+  const handleMovePointerDown = (event: React.PointerEvent<HTMLDivElement>) => {
     if (event.button !== 0) {
       return;
     }
@@ -453,7 +448,6 @@ export function ProjectRail({
             },
           ]);
         }}
-
       >
         {visibleProjects.map((project) => {
           const isActive = project.id === projectId;
@@ -473,9 +467,8 @@ export function ProjectRail({
                 event.dataTransfer.effectAllowed = 'move';
               }}
               onDragOver={(event) => {
-                const sourceId = event.dataTransfer.types.includes(
-                  'text/project-id'
-                );
+                const sourceId =
+                  event.dataTransfer.types.includes('text/project-id');
                 if (!sourceId) return;
                 event.preventDefault();
               }}
@@ -489,7 +482,9 @@ export function ProjectRail({
                 const parentPath = project.root_path;
                 const childPath = source?.root_path;
                 if (!parentPath || !childPath) return;
-                const parent = parentPath.replace(/\\/g, '/').replace(/\/$/, '');
+                const parent = parentPath
+                  .replace(/\\/g, '/')
+                  .replace(/\/$/, '');
                 const child = childPath.replace(/\\/g, '/').replace(/\/$/, '');
                 if (!child.startsWith(`${parent}/`)) return;
                 void projectsApi.setParent(sourceId, project.id).catch(() => {
@@ -563,9 +558,7 @@ export function ProjectRail({
                   />
                 )}
                 <span className="project-rail-project-name">
-                  {importedProjectName(project, (key) =>
-                    t(key, { ns: 'app' })
-                  )}
+                  {importedProjectName(project, (key) => t(key, { ns: 'app' }))}
                 </span>
                 {visualState === 'loading' ? (
                   <span className="project-rail-status-dot-shell">
@@ -583,29 +576,28 @@ export function ProjectRail({
               </button>
 
               {project.is_home ? null : (
-              <button
-                type="button"
-                className="project-rail-delete-button"
-                onPointerDown={(event) => {
-                  event.stopPropagation();
-                }}
-                onClick={(event) =>
-                  void handleDeleteProject(
-                    { id: project.id, name: project.name },
-                    event
-                  )
-                }
-                aria-label={t('projectRail.deleteProjectAria', {
-                  name: project.name,
-                })}
-                title={t('projectRail.deleteProjectAria', {
-                  name: project.name,
-                })}
-              >
-                <Trash2 aria-hidden="true" />
-              </button>
+                <button
+                  type="button"
+                  className="project-rail-delete-button"
+                  onPointerDown={(event) => {
+                    event.stopPropagation();
+                  }}
+                  onClick={(event) =>
+                    void handleDeleteProject(
+                      { id: project.id, name: project.name },
+                      event
+                    )
+                  }
+                  aria-label={t('projectRail.deleteProjectAria', {
+                    name: project.name,
+                  })}
+                  title={t('projectRail.deleteProjectAria', {
+                    name: project.name,
+                  })}
+                >
+                  <Trash2 aria-hidden="true" />
+                </button>
               )}
-
             </div>
           );
         })}
@@ -620,61 +612,63 @@ export function ProjectRail({
 
   return (
     <>
-    <div
-      className="project-rail-inline-host"
-      style={{
-        position: 'fixed',
-        left: railPosition.x,
-        top: railPosition.y,
-      }}
-    >
       <div
-        ref={glassStageRef}
-        className="project-rail-inline-stage"
-        style={{ height: `${projectRailHeight}px` }}
-      >
-        <HostGlass
-          className="project-rail-liquid-glass"
-          padding="0"
-          cornerRadius={20}
-          displacementScale={64}
-          blurAmount={0.1}
-          saturation={130}
-          aberrationIntensity={2}
-          elasticity={prefersReducedMotion ? 0 : 0.15}
-          mouseContainer={mouseContainerRef ?? glassStageRef}
-          globalMousePos={
-            prefersReducedMotion ? STATIC_GLASS_POINTER : undefined
-          }
-          mouseOffset={prefersReducedMotion ? STATIC_GLASS_POINTER : undefined}
-          mode="standard"
-          style={{
-            position: 'absolute',
-            top: '50%',
-            left: '50%',
-            width: '100%',
-            height: '100%',
-          }}
-        >
-          {shell}
-        </HostGlass>
-      </div>
-    </div>
-    {hoveredProject && hoveredProjectState ? (
-      <ProjectRecentSessionsPopover
-        projectName={importedProjectName(hoveredProject, (key) =>
-          t(key, { ns: 'app' })
-        )}
-        recentSessions={
-          projectSnapshots[hoveredProject.id]?.recentSessions ?? []
-        }
-        align="right"
+        className="project-rail-inline-host"
         style={{
-          top: hoveredProjectState.top,
-          left: hoveredProjectState.left,
+          position: 'fixed',
+          left: railPosition.x,
+          top: railPosition.y,
         }}
-      />
-    ) : null}
+      >
+        <div
+          ref={glassStageRef}
+          className="project-rail-inline-stage"
+          style={{ height: `${projectRailHeight}px` }}
+        >
+          <HostGlass
+            className="project-rail-liquid-glass"
+            padding="0"
+            cornerRadius={20}
+            displacementScale={64}
+            blurAmount={0.1}
+            saturation={130}
+            aberrationIntensity={2}
+            elasticity={prefersReducedMotion ? 0 : 0.15}
+            mouseContainer={mouseContainerRef ?? glassStageRef}
+            globalMousePos={
+              prefersReducedMotion ? STATIC_GLASS_POINTER : undefined
+            }
+            mouseOffset={
+              prefersReducedMotion ? STATIC_GLASS_POINTER : undefined
+            }
+            mode="standard"
+            style={{
+              position: 'absolute',
+              top: '50%',
+              left: '50%',
+              width: '100%',
+              height: '100%',
+            }}
+          >
+            {shell}
+          </HostGlass>
+        </div>
+      </div>
+      {hoveredProject && hoveredProjectState ? (
+        <ProjectRecentSessionsPopover
+          projectName={importedProjectName(hoveredProject, (key) =>
+            t(key, { ns: 'app' })
+          )}
+          recentSessions={
+            projectSnapshots[hoveredProject.id]?.recentSessions ?? []
+          }
+          align="right"
+          style={{
+            top: hoveredProjectState.top,
+            left: hoveredProjectState.left,
+          }}
+        />
+      ) : null}
     </>
   );
 }

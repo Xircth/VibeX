@@ -284,7 +284,10 @@ export function WorkspaceOverlayProvider({
   const registerNativeSurfaceHost = useCallback(() => {
     surfaceHostCountRef.current += 1;
     return () => {
-      surfaceHostCountRef.current = Math.max(0, surfaceHostCountRef.current - 1);
+      surfaceHostCountRef.current = Math.max(
+        0,
+        surfaceHostCountRef.current - 1
+      );
       if (surfaceHostCountRef.current === 0) {
         markOverlayReady();
       }

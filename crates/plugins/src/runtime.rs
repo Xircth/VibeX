@@ -1134,11 +1134,14 @@ mod tests {
             env.keys()
                 .all(|key| !key.to_ascii_uppercase().starts_with("OOMOL_CONNECT_"))
         );
-        assert!(!env.keys().any(|key| key.eq_ignore_ascii_case("DATABASE_URL")));
         assert!(
-            env.keys()
-                .any(|key| key.eq_ignore_ascii_case("PATH") || key.eq_ignore_ascii_case("HOME") || key.eq_ignore_ascii_case("USERPROFILE") || key.eq_ignore_ascii_case("SYSTEMROOT"))
+            !env.keys()
+                .any(|key| key.eq_ignore_ascii_case("DATABASE_URL"))
         );
+        assert!(env.keys().any(|key| key.eq_ignore_ascii_case("PATH")
+            || key.eq_ignore_ascii_case("HOME")
+            || key.eq_ignore_ascii_case("USERPROFILE")
+            || key.eq_ignore_ascii_case("SYSTEMROOT")));
     }
 
     #[test]

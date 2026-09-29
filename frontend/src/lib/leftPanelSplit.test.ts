@@ -42,12 +42,10 @@ describe('left panel split geometry', () => {
     expect(resolveLeftPanelDropZone({ x: 220, y: 380 }, panel)).toBe('right');
     expect(resolveLeftPanelDropZone({ x: 50, y: 100 }, panel)).toBe('top');
     expect(resolveLeftPanelDropZone({ x: 50, y: 640 }, panel)).toBe('bottom');
-    expect(
-      resolveLeftPanelDropZone({ x: 80, y: 380 }, widePanel)
-    ).toBe('left');
-    expect(
-      resolveLeftPanelDropZone({ x: 360, y: 380 }, widePanel)
-    ).toBe('right');
+    expect(resolveLeftPanelDropZone({ x: 80, y: 380 }, widePanel)).toBe('left');
+    expect(resolveLeftPanelDropZone({ x: 360, y: 380 }, widePanel)).toBe(
+      'right'
+    );
   });
 
   it('maps drop zones onto dockview directions and ghost boxes', () => {
@@ -82,9 +80,9 @@ describe('left panel split geometry', () => {
         { x: 240, y: 80, width: 200, height: 600 },
       ])
     ).toBe('row');
-    expect(classifyLeftDockSplit([{ x: 40, y: 80, width: 240, height: 600 }])).toBe(
-      'single'
-    );
+    expect(
+      classifyLeftDockSplit([{ x: 40, y: 80, width: 240, height: 600 }])
+    ).toBe('single');
   });
 
   it('tests point-in-box', () => {

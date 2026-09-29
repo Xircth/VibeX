@@ -4,10 +4,7 @@ import { snapBrowserSurfaceRect } from './browserSurfaceBounds';
 describe('snapBrowserSurfaceRect', () => {
   it('keeps integer CSS pixels unchanged', () => {
     expect(
-      snapBrowserSurfaceRect(
-        { left: 200, top: 80, right: 800, bottom: 500 },
-        1
-      )
+      snapBrowserSurfaceRect({ left: 200, top: 80, right: 800, bottom: 500 }, 1)
     ).toEqual({ x: 200, y: 80, width: 600, height: 420 });
   });
 

@@ -764,7 +764,9 @@ pub async fn plugin_marketplace_listing(
                 .into_iter()
                 .find(|item| {
                     plugins::package_matches_marketplace(
-                        item.offline_plugin_id.as_deref().unwrap_or(&item.plugin_name),
+                        item.offline_plugin_id
+                            .as_deref()
+                            .unwrap_or(&item.plugin_name),
                         &owner,
                         &plugin_name,
                     )

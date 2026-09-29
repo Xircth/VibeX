@@ -376,8 +376,7 @@ export function useKanbanProjectSessions(projectId: string | undefined) {
     [sessions]
   );
 
-  const sessionsResolved =
-    !isWorkspacesLoading && !isSessionSummariesLoading;
+  const sessionsResolved = !isWorkspacesLoading && !isSessionSummariesLoading;
 
   return {
     sessions,

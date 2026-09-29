@@ -121,11 +121,7 @@ fn write_tab_package(root: &std::path::Path) {
         "title": "Console",
         "handler": "surface.createSession"
     }]);
-    std::fs::write(
-        manifest_path,
-        serde_json::to_vec_pretty(&manifest).unwrap(),
-    )
-    .unwrap();
+    std::fs::write(manifest_path, serde_json::to_vec_pretty(&manifest).unwrap()).unwrap();
     std::fs::write(
         root.join("worker.mjs"),
         r#"import { createInterface } from 'node:readline';

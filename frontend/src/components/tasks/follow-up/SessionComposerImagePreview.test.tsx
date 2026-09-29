@@ -20,9 +20,7 @@ vi.mock('@/components/dialogs/wysiwyg/ImagePreviewDialog', () => ({
   ImagePreviewDialog: { show: mocks.showDialog },
 }));
 
-function renderDrawer(
-  presentation: 'dialog' | 'workspace-tab' = 'dialog'
-) {
+function renderDrawer(presentation: 'dialog' | 'workspace-tab' = 'dialog') {
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false } },
   });

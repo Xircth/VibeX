@@ -266,7 +266,9 @@ describe('UserMessage', () => {
       />
     );
 
-    expect(screen.getByTestId('user-message-image-attachments')).toBeInTheDocument();
+    expect(
+      screen.getByTestId('user-message-image-attachments')
+    ).toBeInTheDocument();
     expect(screen.queryByRole('img')).not.toBeInTheDocument();
     expect(imageMocks.hostFileSrc).not.toHaveBeenCalled();
   });

@@ -26,10 +26,7 @@ import {
 } from './tools/GeneratedImagesBlock';
 import { GoalToolCall, isGoalToolEntry } from './tools/GoalToolCall';
 import { PlanCard, isPlanToolEntry } from './tools/PlanCard';
-import {
-  BrowserToolCard,
-  isBrowserToolEntry,
-} from './tools/BrowserToolCard';
+import { BrowserToolCard, isBrowserToolEntry } from './tools/BrowserToolCard';
 
 function isNormalizedEntry(
   entry: NormalizedEntry | ProcessStartPayload

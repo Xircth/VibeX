@@ -736,11 +736,15 @@
      input rules must not add a second border, padding, height, or focus ring.
      Horizontal inset lives on the pressable frame so the caret cannot sit on
      the hairline. */
-  .legacy-design :is(.astryx-text-input, .astryx-textarea) [data-pressable-container] {
+  .legacy-design
+    :is(.astryx-text-input, .astryx-textarea)
+    [data-pressable-container] {
     padding-inline: 10px;
   }
 
-  .legacy-design :is(.astryx-text-input, .astryx-textarea) :is(input, textarea) {
+  .legacy-design
+    :is(.astryx-text-input, .astryx-textarea)
+    :is(input, textarea) {
     border: 0 !important;
     border-radius: 0 !important;
     background: transparent !important;
@@ -2228,7 +2232,8 @@
         .product-plugin-search *
       )
     ),
-  .settings-page textarea:not(:where(.astryx-text-input *, .astryx-textarea *)) {
+  .settings-page
+    textarea:not(:where(.astryx-text-input *, .astryx-textarea *)) {
     padding-inline: 10px;
     font-size: 0.75rem;
     line-height: 1.25;
@@ -2289,7 +2294,9 @@
   .settings-page
     textarea:not(:where(.astryx-text-input *, .astryx-textarea *)):focus,
   .settings-page
-    textarea:not(:where(.astryx-text-input *, .astryx-textarea *)):focus-visible,
+    textarea:not(
+      :where(.astryx-text-input *, .astryx-textarea *)
+    ):focus-visible,
   .settings-page button[role='combobox']:focus,
   .settings-page button[role='combobox']:focus-visible {
     outline: none !important;
@@ -7395,7 +7402,10 @@ html.host-windows :where(.legacy-design) .tahoe-glass,
 html.host-windows :where(.legacy-design) .tahoe-popover,
 html.host-windows :where(.legacy-design) .workspace-topbar,
 html.host-windows :where(.legacy-design) .workspace-chrome,
-html.host-windows :where(.legacy-design) [class*='dockview-theme-ayu'] .dv-tabs-and-actions-container,
+html.host-windows
+  :where(.legacy-design)
+  [class*='dockview-theme-ayu']
+  .dv-tabs-and-actions-container,
 html.host-windows :where(.legacy-design) .settings-titlebar,
 html.host-windows :where(.legacy-design) .settings-sidebar,
 html.host-windows :where(.legacy-design) .vu-toast-surface {
@@ -12949,7 +12959,11 @@ html.host-windows :where(.legacy-design) .vu-toast-surface {
 
 .settings-page .product-plugin-card:hover {
   border-color: var(--border-strong);
-  background: color-mix(in srgb, var(--text-primary) 8%, var(--surface-card-strong));
+  background: color-mix(
+    in srgb,
+    var(--text-primary) 8%,
+    var(--surface-card-strong)
+  );
   box-shadow: var(--shadow-card);
 }
 

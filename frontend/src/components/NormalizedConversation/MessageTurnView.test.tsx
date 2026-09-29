@@ -257,10 +257,9 @@ describe('MessageTurnView', () => {
       />
     );
 
-    expect(await screen.findByRole('img', { name: 'screen.png' })).toHaveAttribute(
-      'src',
-      'blob:image/png'
-    );
+    expect(
+      await screen.findByRole('img', { name: 'screen.png' })
+    ).toHaveAttribute('src', 'blob:image/png');
     expect(hostFileSrcMock).toHaveBeenCalledWith(
       'C:\\Users\\me\\proj\\.vibe-images\\screen.png'
     );

@@ -41,8 +41,7 @@ export default function PluginDockviewPanel(props: IDockviewPanelProps) {
       (panel) => panel.pluginId === pluginId && panel.id === contributionId
     ) ?? null;
   const panelVisible =
-    dockVisible &&
-    isWorkspaceSurfaceActive(workspaceId, sessionId, activeTab);
+    dockVisible && isWorkspaceSurfaceActive(workspaceId, sessionId, activeTab);
 
   if (
     pluginId &&

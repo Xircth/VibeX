@@ -20,9 +20,8 @@ export function applyLeftGroupHeaderHiding(api: DockviewApi): void {
 
   const groups = new Set(
     ACTIVITY_RAIL_ITEMS.map((panelId) => api.getPanel(panelId)?.group).filter(
-      (
-        group
-      ): group is NonNullable<(typeof api.groups)[number]> => Boolean(group)
+      (group): group is NonNullable<(typeof api.groups)[number]> =>
+        Boolean(group)
     )
   );
 

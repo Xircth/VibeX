@@ -910,8 +910,8 @@ mod tests {
 
     #[test]
     fn open_connector_package_status_lists_tools() {
-        let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-            .join("../../assets/plugins/open-connector");
+        let root =
+            PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../assets/plugins/open-connector");
         if !root.join(".vibex-plugin/plugin.json").is_file() {
             return;
         }

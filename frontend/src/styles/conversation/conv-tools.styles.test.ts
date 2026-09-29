@@ -32,7 +32,9 @@ describe('composer todo popover', () => {
     const popover = declarationsFor('.composer-todo-popover.tahoe-popover');
     const list = declarationsFor('.composer-todo-list');
     const webkit = declarationsFor('.composer-todo-list::-webkit-scrollbar');
-    const nestedCard = declarationsFor('.composer-todo-popover .conv-plan-card');
+    const nestedCard = declarationsFor(
+      '.composer-todo-popover .conv-plan-card'
+    );
     const streamCard = declarationsFor('.conv-plan-card');
 
     expect(popover.border?.value).toBe('1px solid var(--border-strong)');

@@ -122,10 +122,10 @@ pub fn action_payload(action: &BrowserAction) -> Result<Value, BrowserHostError>
 
 pub fn decode_eval_result(raw: &str) -> String {
     let trimmed = raw.trim();
-    if trimmed.starts_with('"') {
-        if let Ok(inner) = serde_json::from_str::<String>(trimmed) {
-            return inner;
-        }
+    if trimmed.starts_with('"')
+        && let Ok(inner) = serde_json::from_str::<String>(trimmed)
+    {
+        return inner;
     }
     trimmed.to_owned()
 }

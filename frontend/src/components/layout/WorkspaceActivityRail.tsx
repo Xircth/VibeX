@@ -170,11 +170,7 @@ export function WorkspaceActivityRail({
     const box = dockBoxRef.current;
     const railBox = boxFromElement(railRef.current);
     let next: LeftPanelDropZone | null = null;
-    if (
-      pointer &&
-      box &&
-      !(railBox && boxContains(railBox, pointer))
-    ) {
+    if (pointer && box && !(railBox && boxContains(railBox, pointer))) {
       next = resolveLeftPanelDropZone(pointer, box);
     }
     if (next !== dropZoneRef.current) {
@@ -367,9 +363,7 @@ function ActivityRailItem({
   );
 }
 
-function pointerFromDrag(
-  event: DragMoveEvent | DragEndEvent
-): Point | null {
+function pointerFromDrag(event: DragMoveEvent | DragEndEvent): Point | null {
   const start = event.activatorEvent;
   if (!start || !('clientX' in start) || !('clientY' in start)) return null;
   const { clientX, clientY } = start as { clientX: unknown; clientY: unknown };

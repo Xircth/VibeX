@@ -377,7 +377,12 @@ export const useWindowProjectsStore = create<WindowProjectsState>()(
         projectSnapshots: Object.fromEntries(
           Object.entries(state.projectSnapshots).map(([id, snapshot]) => [
             id,
-            { ...snapshot, isLoading: false, hasRunning: false, runningCount: 0 },
+            {
+              ...snapshot,
+              isLoading: false,
+              hasRunning: false,
+              runningCount: 0,
+            },
           ])
         ),
         projectAlerts: state.projectAlerts,

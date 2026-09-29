@@ -9,7 +9,7 @@ use std::sync::OnceLock;
 use serde::Deserialize;
 
 use crate::catalog::{
-    marketplace_plugin_slug, plugin_ids_match, CatalogListing, CatalogPage, fold_official_listings,
+    CatalogListing, CatalogPage, fold_official_listings, marketplace_plugin_slug, plugin_ids_match,
     prepare_marketplace_page,
 };
 
@@ -46,9 +46,8 @@ pub struct OfficialPluginRecord {
 
 fn catalog() -> &'static OfficialPluginCatalog {
     static CATALOG: OnceLock<OfficialPluginCatalog> = OnceLock::new();
-    CATALOG.get_or_init(|| {
-        serde_json::from_str(CATALOG_JSON).expect("vibex-plugin.json must parse")
-    })
+    CATALOG
+        .get_or_init(|| serde_json::from_str(CATALOG_JSON).expect("vibex-plugin.json must parse"))
 }
 
 pub fn official_plugin_catalog() -> &'static OfficialPluginCatalog {
@@ -146,7 +145,10 @@ fn listing_from_official_record(plugin: &OfficialPluginRecord) -> CatalogListing
             plugin.category.clone()
         },
         source_kind: "official".to_owned(),
-        homepage: Some(crate::catalog::marketplace_listing_url(&owner, &plugin_name)),
+        homepage: Some(crate::catalog::marketplace_listing_url(
+            &owner,
+            &plugin_name,
+        )),
         repo: Some(plugin.repository.clone()),
         package_digest: None,
         download_url,
@@ -190,10 +192,7 @@ mod tests {
                 .any(|plugin| plugin.id == "vibex.open-connector")
         );
         assert!(official_plugin_record("browser").is_some());
-        assert_eq!(
-            official_plugin_category("vibex.multi-agent"),
-            Some("agent")
-        );
+        assert_eq!(official_plugin_category("vibex.multi-agent"), Some("agent"));
     }
 
     #[test]

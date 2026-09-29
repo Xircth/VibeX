@@ -70,7 +70,11 @@ export function BrowserAgentShareControl({
           <button
             type="button"
             className={ICON_SHARE_BTN}
-            title={host ? t('browserPanel.shareSite', { origin: host }) : t('browserPanel.share')}
+            title={
+              host
+                ? t('browserPanel.shareSite', { origin: host })
+                : t('browserPanel.share')
+            }
             aria-label={t('browserPanel.share')}
             disabled={disabled || !origin}
           >
@@ -80,7 +84,9 @@ export function BrowserAgentShareControl({
         <DropdownMenuContent align="start" className="z-[20000] min-w-56">
           <NativeSurfaceOcclusionHold />
           <DropdownMenuLabel className="text-xs font-normal text-muted-foreground">
-            {host ? t('browserPanel.shareSite', { origin: host }) : t('browserPanel.share')}
+            {host
+              ? t('browserPanel.shareSite', { origin: host })
+              : t('browserPanel.share')}
           </DropdownMenuLabel>
           <DropdownMenuItem onSelect={() => onShare('control')}>
             <MousePointerClick className="h-3.5 w-3.5" />
@@ -100,11 +106,10 @@ export function BrowserAgentShareControl({
       <DropdownMenuTrigger asChild>
         <button
           type="button"
-          className={cn(
-            FIELD_PILL,
-            'h-7 bg-blue-500/12 hover:bg-blue-500/20'
+          className={cn(FIELD_PILL, 'h-7 bg-blue-500/12 hover:bg-blue-500/20')}
+          title={t(
+            acting ? 'browserPanel.sharedControl' : 'browserPanel.sharedRead'
           )}
-          title={t(acting ? 'browserPanel.sharedControl' : 'browserPanel.sharedRead')}
         >
           <span
             className={cn(
@@ -124,7 +129,11 @@ export function BrowserAgentShareControl({
                 acting && 'composer-fast-model-flow'
               )}
             >
-              {t(acting ? 'browserPanel.sharedControl' : 'browserPanel.sharedRead')}
+              {t(
+                acting
+                  ? 'browserPanel.sharedControl'
+                  : 'browserPanel.sharedRead'
+              )}
             </span>
           </span>
         </button>
@@ -152,7 +161,11 @@ export function BrowserAgentShareControl({
   );
 }
 
-export function BrowserAgentActivityControl({ tabId }: { tabId: string | null }) {
+export function BrowserAgentActivityControl({
+  tabId,
+}: {
+  tabId: string | null;
+}) {
   const { t } = useTranslation('panels');
   const rows = useSyncExternalStore(
     subscribeBrowserChrome,
@@ -181,7 +194,10 @@ export function BrowserAgentActivityControl({ tabId }: { tabId: string | null })
           <Glyph className="h-3.5 w-3.5" />
         </button>
       </DropdownMenuTrigger>
-      <DropdownMenuContent align="end" className="z-[20000] w-80 max-w-[90vw] p-0">
+      <DropdownMenuContent
+        align="end"
+        className="z-[20000] w-80 max-w-[90vw] p-0"
+      >
         <NativeSurfaceOcclusionHold />
         <div className="px-2 py-1.5 text-xs text-muted-foreground">
           {t('browserPanel.activityTitle')}

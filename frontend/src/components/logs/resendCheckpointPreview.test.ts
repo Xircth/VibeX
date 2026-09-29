@@ -18,7 +18,10 @@ describe('loadResendCheckpointPreview', () => {
 
   it('does not block resend when git preview hangs', async () => {
     vi.useFakeTimers();
-    const preview = loadResendCheckpointPreview(() => new Promise(() => {}), 40);
+    const preview = loadResendCheckpointPreview(
+      () => new Promise(() => {}),
+      40
+    );
     const timeout = vi.advanceTimersByTimeAsync(40);
     await timeout;
     await expect(preview).resolves.toEqual({

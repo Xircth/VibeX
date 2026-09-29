@@ -36,7 +36,9 @@ describe('text control caret clearance', () => {
       if (
         !selector.includes('.settings-page') ||
         !selector.includes('input:not') ||
-        selector.includes('.legacy-design .settings-page :is(.astryx-text-input')
+        selector.includes(
+          '.legacy-design .settings-page :is(.astryx-text-input'
+        )
       ) {
         return;
       }

@@ -71,10 +71,7 @@ export function BrowserDownloadBar({ tabId }: { tabId: string | null }) {
   return (
     <div className="flex shrink-0 flex-col border-b border-border/60 bg-muted/40">
       {items.map((item) => (
-        <div
-          key={item.id}
-          className="flex h-8 items-center gap-2 px-3 text-xs"
-        >
+        <div key={item.id} className="flex h-8 items-center gap-2 px-3 text-xs">
           {item.state === 'completed' ? (
             <Check className="h-3.5 w-3.5 shrink-0 text-emerald-600" />
           ) : item.state === 'failed' ? (
@@ -82,7 +79,10 @@ export function BrowserDownloadBar({ tabId }: { tabId: string | null }) {
           ) : (
             <Download className="h-3.5 w-3.5 shrink-0 animate-pulse text-muted-foreground" />
           )}
-          <span className="min-w-0 flex-1 truncate" title={item.path || item.fileName}>
+          <span
+            className="min-w-0 flex-1 truncate"
+            title={item.path || item.fileName}
+          >
             {item.fileName}
           </span>
           {item.state === 'completed' && item.path ? (

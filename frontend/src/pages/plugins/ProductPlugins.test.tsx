@@ -169,9 +169,9 @@ describe('product plugin experience', () => {
     const status = await screen.findByRole('status', {
       name: /正在加载插件市场|loading marketplace/i,
     });
-    expect(status.querySelectorAll('.product-plugin-card-skeleton')).toHaveLength(
-      6
-    );
+    expect(
+      status.querySelectorAll('.product-plugin-card-skeleton')
+    ).toHaveLength(6);
     expect(status.querySelector('.animate-spin')).toBeNull();
 
     resolveMarket?.({
@@ -992,9 +992,9 @@ describe('product plugin experience', () => {
     );
 
     await waitFor(() => {
-      const card = screen.getByText('Notes').closest(
-        '.product-plugin-card'
-      ) as HTMLElement;
+      const card = screen
+        .getByText('Notes')
+        .closest('.product-plugin-card') as HTMLElement;
       expect(within(card).getByText(/已安装|Installed/)).toBeVisible();
     });
     const installedCard = screen
@@ -1095,9 +1095,7 @@ describe('product plugin experience', () => {
     const installedCard = screen
       .getByText('Notes')
       .closest('.product-plugin-card') as HTMLElement;
-    expect(
-      within(installedCard).getByText(/已安装|Installed/)
-    ).toBeVisible();
+    expect(within(installedCard).getByText(/已安装|Installed/)).toBeVisible();
     expect(call).not.toHaveBeenCalledWith(
       'plugin_uninstall',
       expect.anything()

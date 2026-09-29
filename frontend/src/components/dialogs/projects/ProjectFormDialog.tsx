@@ -360,8 +360,7 @@ const ProjectFormDialogImpl = NiceModal.create<ProjectFormDialogProps>(
         return;
       }
 
-      const shouldInitGit =
-        initGitRepo && selectedFolderIsGitRepo === false;
+      const shouldInitGit = initGitRepo && selectedFolderIsGitRepo === false;
       if (shouldInitGit && (importPreview?.children.length ?? 0) > 0) {
         const confirmed = await ConfirmDialog.show({
           title: t('projectForm.nestedGitConfirmTitle'),
@@ -551,8 +550,9 @@ const ProjectFormDialogImpl = NiceModal.create<ProjectFormDialogProps>(
                         <ScrollArea className="max-h-40 rounded-lg border border-border">
                           <div className="flex flex-col gap-1 p-2">
                             {importPreview.children.map((child) => {
-                              const checked =
-                                selectedChildPaths.includes(child.path);
+                              const checked = selectedChildPaths.includes(
+                                child.path
+                              );
                               return (
                                 <label
                                   key={child.path}

@@ -473,7 +473,9 @@ export function createPluginControlApi(transport: BackendTransport) {
     mcpStatus: () =>
       transport.call('plugin_mcp_status') as Promise<PluginMcpStatusReport>,
     ensureMcpRunning: () =>
-      transport.call('plugin_mcp_ensure_running') as Promise<{ listening: boolean }>,
+      transport.call('plugin_mcp_ensure_running') as Promise<{
+        listening: boolean;
+      }>,
     diagnostics: (pluginId: string) =>
       transport.call('plugin_control_diagnostics', {
         pluginId,

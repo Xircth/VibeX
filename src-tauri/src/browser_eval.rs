@@ -170,8 +170,8 @@ mod windows {
 mod linux {
     use std::sync::Mutex;
 
-    use gtk::glib;
-    use webkit2gtk::prelude::*;
+    use gio::Cancellable;
+    use webkit2gtk::WebViewExt;
 
     use super::*;
 
@@ -182,27 +182,22 @@ mod linux {
     ) {
         let tx = Mutex::new(Some(tx));
         let webview = platform.inner();
-        webview.evaluate_javascript(
-            &script,
-            None,
-            None,
-            None::<&gio::Cancellable>,
-            glib::clone!(
-                #[strong]
-                tx,
-                move |result| {
-                    let payload = match result {
-                        Ok(value) => Ok(value.to_str().unwrap_or("null").to_owned()),
-                        Err(error) => Err(BrowserHostError::new(
-                            "browser_read_failed",
-                            error.to_string(),
-                        )),
-                    };
-                    if let Some(tx) = tx.lock().ok().and_then(|mut slot| slot.take()) {
-                        let _ = tx.send(payload);
-                    }
-                }
-            ),
-        );
+        let cancellable: Option<&Cancellable> = None;
+        webview.run_javascript(&script, cancellable, move |result| {
+            let payload = match result {
+                Ok(value) => Ok(value
+                    .js_value()
+                    .and_then(|js| js.to_json(0))
+                    .map(|json| json.to_string())
+                    .unwrap_or_else(|| "null".into())),
+                Err(error) => Err(BrowserHostError::new(
+                    "browser_read_failed",
+                    error.to_string(),
+                )),
+            };
+            if let Some(tx) = tx.lock().ok().and_then(|mut slot| slot.take()) {
+                let _ = tx.send(payload);
+            }
+        });
     }
 }

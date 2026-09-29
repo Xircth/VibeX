@@ -9,9 +9,10 @@ const mcpStatus = vi.fn<() => Promise<PluginMcpStatusReport>>();
 const setEnabled = vi.fn<(id: string, enabled: boolean) => Promise<unknown>>();
 
 vi.mock('@/lib/api/plugins', async () => {
-  const actual = await vi.importActual<typeof import('@/lib/api/plugins')>(
-    '@/lib/api/plugins'
-  );
+  const actual =
+    await vi.importActual<typeof import('@/lib/api/plugins')>(
+      '@/lib/api/plugins'
+    );
   return {
     ...actual,
     createPluginControlApi: () => ({
@@ -159,14 +160,18 @@ describe('StatusBarMcp', () => {
     mount();
     fireEvent.click(await screen.findByRole('button', { name: /MCP 服务/ }));
     expect(
-      screen.queryByText('从这里启动的 Agent 可以使用已启用插件提供的 MCP 工具。')
+      screen.queryByText(
+        '从这里启动的 Agent 可以使用已启用插件提供的 MCP 工具。'
+      )
     ).not.toBeInTheDocument();
   });
 
   it('toggles the plugin MCP service', async () => {
     mount();
     fireEvent.click(await screen.findByRole('button', { name: /MCP 服务/ }));
-    fireEvent.click(await screen.findByRole('switch', { name: '多智能体协同' }));
+    fireEvent.click(
+      await screen.findByRole('switch', { name: '多智能体协同' })
+    );
 
     await waitFor(() =>
       expect(setEnabled).toHaveBeenCalledWith('vibex.multi-agent', false)
@@ -220,6 +225,9 @@ describe('StatusBarMcp', () => {
     mount();
     fireEvent.click(await screen.findByRole('button', { name: /MCP 服务/ }));
     fireEvent.click(await screen.findByRole('button', { name: /打开插件/ }));
-    expect(openSettingsSurface).toHaveBeenCalledWith(expect.any(Function), '/plugins');
+    expect(openSettingsSurface).toHaveBeenCalledWith(
+      expect.any(Function),
+      '/plugins'
+    );
   });
 });

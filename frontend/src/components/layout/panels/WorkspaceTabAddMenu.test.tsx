@@ -82,7 +82,9 @@ describe('WorkspaceTabAddMenu', () => {
     });
 
     expect(screen.getAllByRole('menuitem')).toHaveLength(3);
-    expect(screen.queryByRole('menuitem', { name: '浏览器' })).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole('menuitem', { name: '浏览器' })
+    ).not.toBeInTheDocument();
     expect(screen.getByRole('menuitem', { name: '审阅' })).toBeVisible();
     expect(screen.getByRole('menuitem', { name: '笔记' })).toBeVisible();
     expect(screen.getByRole('menuitem', { name: '终端' })).toBeVisible();

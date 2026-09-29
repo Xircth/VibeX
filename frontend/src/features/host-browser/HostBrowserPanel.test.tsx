@@ -26,9 +26,8 @@ const backendListen = vi.hoisted(() => {
   return fn;
 });
 const overlayOcclusion = vi.hoisted(() => {
-  let listener:
-    | ((value: { hide: boolean; rects: unknown[] }) => void)
-    | null = null;
+  let listener: ((value: { hide: boolean; rects: unknown[] }) => void) | null =
+    null;
   const ackOverlayReady = vi.fn();
   return {
     ackOverlayReady,
@@ -364,7 +363,9 @@ describe('HostBrowserPanel', () => {
     expect(
       screen.getByRole('button', { name: label('share') })
     ).toBeInTheDocument();
-    const addressField = screen.getByRole('combobox', { name: label('address') });
+    const addressField = screen.getByRole('combobox', {
+      name: label('address'),
+    });
     const share = screen.getByRole('button', { name: label('share') });
     expect(addressField.closest('.relative')?.contains(share)).toBe(false);
   });
@@ -625,7 +626,8 @@ describe('HostBrowserPanel', () => {
       JSON.stringify([
         {
           url: 'https://github.com/xintaofei/codeg',
-          title: 'xintaofei/codeg: Collaborative multi-agent AI coding workspace',
+          title:
+            'xintaofei/codeg: Collaborative multi-agent AI coding workspace',
           favicon: 'https://github.com/favicon.ico',
           visitedAt: 20,
         },

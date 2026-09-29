@@ -59,8 +59,7 @@ export function projectRailHoverPopoverPosition(
   gap = 8
 ): { top: number; left: number } {
   const railBox = rail ?? item;
-  const fitsRight =
-    railBox.right + gap + popoverWidth <= viewport.width - gap;
+  const fitsRight = railBox.right + gap + popoverWidth <= viewport.width - gap;
   const left = fitsRight
     ? railBox.right + gap
     : Math.max(gap, railBox.left - popoverWidth - gap);

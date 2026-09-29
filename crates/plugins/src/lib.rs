@@ -21,8 +21,8 @@ mod marketplace;
 mod native;
 mod official_catalog;
 mod official_mcp;
-mod plugin_mcp;
 mod package;
+mod plugin_mcp;
 mod ports;
 mod preview_host;
 mod process_preview_host;
@@ -51,11 +51,11 @@ pub use catalog::{
     fetch_catalog, fetch_listing, fetch_versions, filter_catalog_page, fold_official_listings,
     github_latest_tag, is_authoring_sample_plugin_id, is_newer_version, listing_from_package,
     listing_identity, listing_is_authoring_sample, listing_is_retired, listing_matches_query,
-    marketplace_plugin_ids, marketplace_plugin_slug, official_github_archive_urls,
-    package_matches_marketplace,
     listings_from_official_index, marketplace_archive_suffix, marketplace_listing_url,
-    marketplace_origin, merge_bundled_official_index, merge_offline_official, origin_kind,
-    origin_owner_name, prepare_marketplace_page, source_allows_remote_update, successor_plugin_id,
+    marketplace_origin, marketplace_plugin_ids, marketplace_plugin_slug,
+    merge_bundled_official_index, merge_offline_official, official_github_archive_urls,
+    origin_kind, origin_owner_name, package_matches_marketplace, prepare_marketplace_page,
+    source_allows_remote_update, successor_plugin_id,
 };
 pub use contribution::{
     ContributionCatalog, ContributionDescriptor, ContributionKind, ResolvedFileOpener,
@@ -73,11 +73,6 @@ pub use conversation_host::{
     PluginConversationHost, PluginConversationInputReceipt, PluginConversationPermission,
     PluginConversationQuestion, PluginConversationSteer, PluginConversationSummary,
     PluginConversationTurn, PluginConversationView, UnavailablePluginConversationHost,
-};
-pub use official_catalog::{
-    listings_from_host_official_catalog, merge_host_official_catalog, official_marketplace_home,
-    official_marketplace_origin, official_plugin_catalog, official_plugin_category,
-    official_plugin_record, OfficialPluginCatalog, OfficialPluginRecord,
 };
 pub use error::PluginError;
 pub use host_call::{
@@ -103,6 +98,11 @@ pub use native::{
     NativePluginDescriptor, NativePluginImportCommand, OfficialCliNativePluginAdapter,
     parse_official_plugin_import_commands,
 };
+pub use official_catalog::{
+    OfficialPluginCatalog, OfficialPluginRecord, listings_from_host_official_catalog,
+    merge_host_official_catalog, official_marketplace_home, official_marketplace_origin,
+    official_plugin_catalog, official_plugin_category, official_plugin_record,
+};
 pub use official_mcp::{
     DELEGATION_MCP_NAME, HOST_FAMILY_MCP_STARTUP_TIMEOUT_SEC, OfficialMcpBinding,
     OfficialMcpRuntime, OfficialProductMcpState, PLUGIN_DEV_MCP_NAME, PluginMcpHeadline,
@@ -110,11 +110,8 @@ pub use official_mcp::{
     SESSION_FEAT_ALL, SESSION_FEAT_ASK, SESSION_FEAT_FEEDBACK, SESSION_FEAT_SESSION_CONTROL,
     SESSION_FEAT_SESSIONS, SESSION_MCP_NAME, WORKFLOW_MCP_NAME, advertised_mcp_tools,
     binding_has_delegation_mcp, host_family_product, host_family_stdio_spec,
-    official_product_mcp_name, plugin_mcp_status_report, projected_mcp_server_id,
-    legacy_projected_mcp_server_id, session_feature_arg, session_features_from_config,
-};
-pub use plugin_mcp::{
-    admit_plugin_mcp, admit_plugin_mcp_servers, PluginMcpAdmission, PluginMcpKind,
+    legacy_projected_mcp_server_id, official_product_mcp_name, plugin_mcp_status_report,
+    projected_mcp_server_id, session_feature_arg, session_features_from_config,
 };
 pub use package::{
     APP_PANEL_SLOT, APP_TAB_SLOT, AppCommandContribution, AppComposerActionContribution,
@@ -129,6 +126,9 @@ pub use package::{
     PreviewProviderContribution, ProviderImportSourceContribution, RemoteModuleRef,
     RemoteProvisionerContribution, RuntimeContribution, RuntimeInstall, SETTINGS_PAGE_SLOT,
     SETTINGS_SECTION_SLOT, TIMELINE_CARD_SLOT, package_content_digest,
+};
+pub use plugin_mcp::{
+    PluginMcpAdmission, PluginMcpKind, admit_plugin_mcp, admit_plugin_mcp_servers,
 };
 pub use ports::{
     ManagedTool, PluginRuntimeError, SkillAvailabilityPort, ToolRuntimeAdapter, ToolRuntimePort,

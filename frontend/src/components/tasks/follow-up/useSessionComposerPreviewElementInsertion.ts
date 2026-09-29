@@ -67,9 +67,7 @@ export function useSessionComposerPreviewElementInsertion({
     let unlisten: (() => void) | undefined;
     void backendListen(
       DRAFT_INSERT_EVENT,
-      (payload: {
-        token?: { label?: string; markdown?: string };
-      }) => {
+      (payload: { token?: { label?: string; markdown?: string } }) => {
         const label = payload.token?.label?.trim();
         const markdown = payload.token?.markdown?.trim();
         if (!label || !markdown) return;

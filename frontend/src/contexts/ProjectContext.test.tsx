@@ -2,10 +2,7 @@ import { render, screen } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import type { SerializedDockview } from 'dockview';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import {
-  ProjectLayoutScope,
-  ProjectProvider,
-} from '@/contexts/ProjectContext';
+import { ProjectLayoutScope, ProjectProvider } from '@/contexts/ProjectContext';
 import { useLayoutStore } from '@/stores/useLayoutStore';
 
 vi.mock('@/hooks/useProjects', () => ({

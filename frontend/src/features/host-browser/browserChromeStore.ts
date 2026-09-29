@@ -122,27 +122,25 @@ export function setEvalRequest(next: EvalRequest | null): void {
   emit();
 }
 
-export function applyBrowserHostEvent(
-  payload: {
-    kind?: string;
-    tabId?: string;
-    sourceTabId?: string;
-    url?: string;
-    reason?: string;
-    action?: string;
-    outcome?: string;
-    at?: number;
-    requestId?: string;
-    pluginId?: string | null;
-    origin?: string | null;
-    title?: string | null;
-    code?: string;
-    expiresAt?: number;
-    state?: string;
-    fileName?: string;
-    path?: string | null;
-  }
-): void {
+export function applyBrowserHostEvent(payload: {
+  kind?: string;
+  tabId?: string;
+  sourceTabId?: string;
+  url?: string;
+  reason?: string;
+  action?: string;
+  outcome?: string;
+  at?: number;
+  requestId?: string;
+  pluginId?: string | null;
+  origin?: string | null;
+  title?: string | null;
+  code?: string;
+  expiresAt?: number;
+  state?: string;
+  fileName?: string;
+  path?: string | null;
+}): void {
   const tabId = payload.tabId || payload.sourceTabId;
   if (payload.kind === 'agent.activity' && tabId && payload.action) {
     recordAgentActivity(

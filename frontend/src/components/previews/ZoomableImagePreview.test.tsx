@@ -338,7 +338,9 @@ describe('ZoomableImagePreview', () => {
     );
 
     expect(screen.getByText('Wheel to zoom')).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Rectangle' })).toBeInTheDocument();
+    expect(
+      screen.getByRole('button', { name: 'Rectangle' })
+    ).toBeInTheDocument();
     expect(screen.getByTestId('image-preview-zoom-dock')).toHaveAttribute(
       'data-stowed',
       'false'
@@ -347,17 +349,23 @@ describe('ZoomableImagePreview', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Hide toolbars' }));
 
     expect(screen.queryByText('Wheel to zoom')).not.toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: 'Rectangle' })).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole('button', { name: 'Rectangle' })
+    ).not.toBeInTheDocument();
     expect(screen.getByTestId('image-preview-zoom-dock')).toHaveAttribute(
       'data-stowed',
       'true'
     );
-    expect(screen.getByRole('button', { name: 'Show toolbars' })).toBeInTheDocument();
+    expect(
+      screen.getByRole('button', { name: 'Show toolbars' })
+    ).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole('button', { name: 'Show toolbars' }));
 
     expect(screen.getByText('Wheel to zoom')).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Rectangle' })).toBeInTheDocument();
+    expect(
+      screen.getByRole('button', { name: 'Rectangle' })
+    ).toBeInTheDocument();
     expect(screen.getByTestId('image-preview-zoom-dock')).toHaveAttribute(
       'data-stowed',
       'false'
@@ -374,11 +382,15 @@ describe('ZoomableImagePreview', () => {
     );
 
     expect(screen.queryByText('Wheel to zoom')).not.toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: 'Rectangle' })).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole('button', { name: 'Rectangle' })
+    ).not.toBeInTheDocument();
     expect(screen.getByTestId('image-preview-zoom-dock')).toHaveAttribute(
       'data-stowed',
       'true'
     );
-    expect(screen.getByRole('button', { name: 'Show toolbars' })).toBeInTheDocument();
+    expect(
+      screen.getByRole('button', { name: 'Show toolbars' })
+    ).toBeInTheDocument();
   });
 });

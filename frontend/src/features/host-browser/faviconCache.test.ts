@@ -49,9 +49,9 @@ describe('favicon cache', () => {
       'https://github.githubassets.com/favicons/favicon.svg',
       storage
     );
-    expect(lookupCachedFavicon('https://github.com/xintaofei/codeg', storage)).toBe(
-      'https://github.githubassets.com/favicons/favicon.svg'
-    );
+    expect(
+      lookupCachedFavicon('https://github.com/xintaofei/codeg', storage)
+    ).toBe('https://github.githubassets.com/favicons/favicon.svg');
     expect(JSON.parse(storage.getItem(FAVICON_CACHE_KEY) ?? '{}')).toEqual({
       'https://github.com':
         'https://github.githubassets.com/favicons/favicon.svg',

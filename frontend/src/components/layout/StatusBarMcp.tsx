@@ -89,7 +89,10 @@ export function StatusBarMcp() {
   const down = state === 'stopped' || state === 'unavailable';
   const TriggerIcon = down ? Unplug : Plug;
 
-  const handleToggle = async (plugin: PluginMcpPluginStatus, enabled: boolean) => {
+  const handleToggle = async (
+    plugin: PluginMcpPluginStatus,
+    enabled: boolean
+  ) => {
     setActionError(null);
     setPending((current) => ({ ...current, [plugin.pluginId]: enabled }));
     try {
@@ -177,9 +180,7 @@ export function StatusBarMcp() {
               return (
                 <div
                   key={plugin.pluginId}
-                  className={cn(
-                    index > 0 && 'border-t border-border'
-                  )}
+                  className={cn(index > 0 && 'border-t border-border')}
                 >
                   <div className="flex items-center gap-2 px-2 py-1.5">
                     <button

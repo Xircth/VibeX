@@ -5,12 +5,14 @@
 
 use serde_json::Value;
 
-use crate::official_mcp::{
-    advertised_mcp_tools, advertised_tools_from_spec, host_family_product, live_plugin_config,
-    live_plugin_mcp, official_product_mcp_name, projected_mcp_server_id,
-    session_features_from_config, SESSION_FEAT_ALL,
+use crate::{
+    InstalledPlugin, PluginMcpToolStatus,
+    official_mcp::{
+        SESSION_FEAT_ALL, advertised_mcp_tools, advertised_tools_from_spec, host_family_product,
+        live_plugin_config, live_plugin_mcp, official_product_mcp_name, projected_mcp_server_id,
+        session_features_from_config,
+    },
 };
-use crate::{InstalledPlugin, PluginMcpToolStatus};
 
 /// How the Host starts a plugin MCP after admission.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -134,7 +136,11 @@ mod tests {
                 .iter()
                 .map(|tool| tool.name.as_str())
                 .collect::<Vec<_>>(),
-            ["delegate_to_agent", "get_delegation_status", "cancel_delegation"]
+            [
+                "delegate_to_agent",
+                "get_delegation_status",
+                "cancel_delegation"
+            ]
         );
     }
 

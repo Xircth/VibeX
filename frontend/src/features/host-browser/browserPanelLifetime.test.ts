@@ -27,7 +27,10 @@ describe('serializedLayoutHasPanel', () => {
   it('finds a panel in the dockview snapshot', () => {
     expect(serializedLayoutHasPanel(layoutWithPanel, panelId)).toBe(true);
     expect(
-      serializedLayoutHasPanel(layoutWithPanel, 'plugin:vibex.browser/browser:2')
+      serializedLayoutHasPanel(
+        layoutWithPanel,
+        'plugin:vibex.browser/browser:2'
+      )
     ).toBe(false);
     expect(serializedLayoutHasPanel(null, panelId)).toBe(false);
   });

@@ -28,26 +28,32 @@ export function BrowserEvalConfirm() {
     getEvalRequest
   );
 
-  const answer = useCallback((requestId: string, allow: boolean) => {
-    const pluginId = pending?.pluginId?.trim();
-    setEvalRequest(null);
-    if (!pluginId) return;
-    void backendCall('plugin_invoke_contribution', {
-      pluginId,
-      handler: 'browser.dispatch',
-      input: {
-        operation: 'eval.decide',
-        input: { requestId, allow },
-      },
-    }).catch(() => {
-      /* timeout on the host is already a refusal */
-    });
-  }, [pending?.pluginId]);
+  const answer = useCallback(
+    (requestId: string, allow: boolean) => {
+      const pluginId = pending?.pluginId?.trim();
+      setEvalRequest(null);
+      if (!pluginId) return;
+      void backendCall('plugin_invoke_contribution', {
+        pluginId,
+        handler: 'browser.dispatch',
+        input: {
+          operation: 'eval.decide',
+          input: { requestId, allow },
+        },
+      }).catch(() => {
+        /* timeout on the host is already a refusal */
+      });
+    },
+    [pending?.pluginId]
+  );
 
   useEffect(() => {
     if (!pending) return undefined;
     const wait = Math.max(0, pending.expiresAt - Date.now());
-    const timer = window.setTimeout(() => answer(pending.requestId, false), wait);
+    const timer = window.setTimeout(
+      () => answer(pending.requestId, false),
+      wait
+    );
     return () => window.clearTimeout(timer);
   }, [pending, answer]);
 
@@ -80,7 +86,9 @@ export function BrowserEvalConfirm() {
         <pre className="max-h-64 overflow-auto rounded border border-border/60 bg-muted/50 p-3 text-xs leading-relaxed break-words whitespace-pre-wrap">
           <code>{pending.code}</code>
         </pre>
-        <p className="text-xs text-muted-foreground">{t('browserPanel.evalEveryTime')}</p>
+        <p className="text-xs text-muted-foreground">
+          {t('browserPanel.evalEveryTime')}
+        </p>
         <AlertDialogFooter>
           <AlertDialogCancel onClick={() => answer(pending.requestId, false)}>
             {t('browserPanel.evalDeny')}

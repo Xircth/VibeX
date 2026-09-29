@@ -206,11 +206,10 @@ impl EventService {
 
                             match &record_type {
                                 RecordTypes::Project(project) => {
-                                    let patch = match hook.operation {
-                                        SqliteOperation::Insert => project_patch::add(project),
-                                        SqliteOperation::Update => project_patch::replace(project),
-                                        _ => project_patch::replace(project),
-                                    };
+                                    let patch = project_patch::sync_visible(
+                                        project,
+                                        matches!(hook.operation, SqliteOperation::Insert),
+                                    );
                                     msg_store_for_hook.push_patch(patch);
                                     return;
                                 }

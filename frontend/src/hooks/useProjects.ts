@@ -3,6 +3,7 @@ import { useQuery } from '@tanstack/react-query';
 import { useTauriPatchStream } from './useTauriPatchStream';
 import type { Project } from 'shared/types';
 import { dateTimestamp } from '@/utils/date';
+import { listedImportedProjects } from '@/lib/importedProject';
 import { useBackendTransport } from '@/lib/transport';
 
 type ProjectsState = {
@@ -38,15 +39,19 @@ export function useProjects(): UseProjectsResult {
     enabled: remote,
   });
 
-  const projectsById = useMemo(
-    () =>
-      remote
-        ? Object.fromEntries(
-            (remoteProjects.data ?? []).map((project) => [project.id, project])
-          )
-        : (data?.projects ?? {}),
-    [data, remote, remoteProjects.data]
-  );
+  const projectsById = useMemo(() => {
+    const source = remote
+      ? Object.fromEntries(
+          (remoteProjects.data ?? []).map((project) => [project.id, project])
+        )
+      : (data?.projects ?? {});
+    return Object.fromEntries(
+      listedImportedProjects(Object.values(source)).map((project) => [
+        project.id,
+        project,
+      ])
+    );
+  }, [data, remote, remoteProjects.data]);
 
   const projects = useMemo(() => {
     return Object.values(projectsById).sort(
@@ -54,9 +59,8 @@ export function useProjects(): UseProjectsResult {
     );
   }, [projectsById]);
 
-  const projectsData = remote
-    ? remoteProjects.data
-    : data
+  const projectsData =
+    (remote && remoteProjects.data !== undefined) || (!remote && data)
       ? projects
       : undefined;
   const errorObj = useMemo(

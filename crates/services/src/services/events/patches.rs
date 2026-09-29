@@ -49,6 +49,17 @@ pub mod project_patch {
                 .expect("Project path should be valid"),
         })])
     }
+
+    /// Live project list only contains visible projects. Hiding unlists.
+    pub fn sync_visible(project: &Project, inserted: bool) -> Patch {
+        if project.hidden {
+            remove(project.id)
+        } else if inserted {
+            add(project)
+        } else {
+            replace(project)
+        }
+    }
 }
 
 /// Helper functions for creating execution process-specific patches
@@ -174,5 +185,57 @@ pub mod scratch_patch {
                 "deleted": true
             }),
         })])
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use chrono::Utc;
+    use json_patch::PatchOperation;
+    use uuid::Uuid;
+
+    use super::*;
+
+    fn sample_project(hidden: bool) -> Project {
+        Project {
+            id: Uuid::new_v4(),
+            name: "StallerLab".into(),
+            root_path: r"C:\tmp\StallerLab".into(),
+            parent_project_id: None,
+            hidden,
+            is_git: true,
+            default_agent_working_dir: None,
+            default_main_branch: None,
+            created_at: Utc::now(),
+            updated_at: Utc::now(),
+            is_home: false,
+        }
+    }
+
+    #[test]
+    fn hiding_a_project_emits_a_remove_patch() {
+        let project = sample_project(true);
+        let patch = project_patch::sync_visible(&project, false);
+        assert_eq!(patch.0.len(), 1);
+        match &patch.0[0] {
+            PatchOperation::Remove(op) => {
+                assert_eq!(op.path.as_str(), format!("/projects/{}", project.id));
+            }
+            other => panic!("expected remove, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn updating_a_visible_project_emits_replace() {
+        let project = sample_project(false);
+        let patch = project_patch::sync_visible(&project, false);
+        assert!(matches!(patch.0[0], PatchOperation::Replace(_)));
+    }
+
+    #[test]
+    fn inserting_a_visible_project_emits_add() {
+        let project = sample_project(false);
+        let patch = project_patch::sync_visible(&project, true);
+        assert!(matches!(patch.0[0], PatchOperation::Add(_)));
     }
 }

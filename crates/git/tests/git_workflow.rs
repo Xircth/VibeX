@@ -602,3 +602,86 @@ fn stash_push_list_pop_roundtrip() {
     s.commit(&repo_path, "two").unwrap();
     assert!(!s.stash_push(&repo_path, None, false).unwrap());
 }
+
+fn init_unborn_repo(root: &TempDir, branch: &str) -> PathBuf {
+    let path = root.path().join(format!("repo-{branch}"));
+    let mut opts = git2::RepositoryInitOptions::new();
+    opts.initial_head(branch).external_template(false);
+    Repository::init_opts(&path, &opts).unwrap();
+    path
+}
+
+#[test]
+fn get_current_branch_reads_unborn_master() {
+    let td = TempDir::new().unwrap();
+    let repo_path = init_unborn_repo(&td, "master");
+    let branch = GitService::new().get_current_branch(&repo_path).unwrap();
+    assert_eq!(branch, "master");
+}
+
+#[test]
+fn get_current_branch_reads_unborn_main() {
+    let td = TempDir::new().unwrap();
+    let repo_path = init_unborn_repo(&td, "main");
+    let branch = GitService::new().get_current_branch(&repo_path).unwrap();
+    assert_eq!(branch, "main");
+}
+
+#[test]
+fn get_all_branches_includes_unborn_default_branch() {
+    let td = TempDir::new().unwrap();
+    let repo_path = init_unborn_repo(&td, "main");
+    let branches = GitService::new().get_all_branches(&repo_path).unwrap();
+    assert_eq!(branches.len(), 1);
+    assert_eq!(branches[0].name, "main");
+    assert!(branches[0].is_current);
+    assert!(!branches[0].is_remote);
+}
+
+#[test]
+fn ensure_main_branch_exists_keeps_unborn_master() {
+    let td = TempDir::new().unwrap();
+    let repo_path = init_unborn_repo(&td, "master");
+    GitService::new()
+        .ensure_main_branch_exists(&repo_path)
+        .unwrap();
+    let repo = Repository::open(&repo_path).unwrap();
+    assert_eq!(repo.head().unwrap().name(), Some("refs/heads/master"));
+    assert!(repo.head().unwrap().target().is_some());
+}
+
+#[test]
+fn ensure_main_branch_exists_keeps_unborn_main() {
+    let td = TempDir::new().unwrap();
+    let repo_path = init_unborn_repo(&td, "main");
+    GitService::new()
+        .ensure_main_branch_exists(&repo_path)
+        .unwrap();
+    let repo = Repository::open(&repo_path).unwrap();
+    assert_eq!(repo.head().unwrap().name(), Some("refs/heads/main"));
+    assert!(repo.head().unwrap().target().is_some());
+}
+
+#[test]
+fn checkout_project_root_uses_actual_branch_when_requested_main_is_missing() {
+    let td = TempDir::new().unwrap();
+    let repo_path = init_unborn_repo(&td, "master");
+    let branch = GitService::new()
+        .checkout_project_root_branch(&repo_path, Some("main"))
+        .unwrap();
+    assert_eq!(branch, "master");
+    let repo = Repository::open(&repo_path).unwrap();
+    assert_eq!(repo.head().unwrap().name(), Some("refs/heads/master"));
+    assert!(repo.head().unwrap().target().is_some());
+}
+
+#[test]
+fn resolve_workspace_branch_keeps_existing_requested_branch() {
+    let td = TempDir::new().unwrap();
+    let repo_path = init_repo_main(&td);
+    create_branch(&repo_path, "feature");
+    let branch = GitService::new()
+        .resolve_workspace_branch(&repo_path, Some("feature"))
+        .unwrap();
+    assert_eq!(branch, "feature");
+}

@@ -292,26 +292,19 @@ pub(crate) async fn create_worktree_workspace_for_project_session(
     let workspace_repos: Vec<CreateWorkspaceRepo> = {
         let mut collected = Vec::with_capacity(repos.len());
         for input in repos {
-            // An empty target_branch means "use the repository's actual
-            // branch"; resolve it from the repo's HEAD instead of assuming a
-            // hard-coded name like "main" that may not exist.
-            let target_branch = if input.target_branch.trim().is_empty() {
-                let repo = Repo::find_by_id(pool, input.repo_id)
-                    .await?
-                    .ok_or(RepoError::NotFound)?;
-                state
-                    .deployment
-                    .git()
-                    .get_current_branch(&repo.path)
-                    .map_err(|error| {
-                        AppError::Internal(format!(
-                            "Could not resolve the default branch of repo {}: {error}",
-                            repo.name
-                        ))
-                    })?
-            } else {
-                input.target_branch.clone()
-            };
+            let repo = Repo::find_by_id(pool, input.repo_id)
+                .await?
+                .ok_or(RepoError::NotFound)?;
+            let target_branch = state
+                .deployment
+                .git()
+                .resolve_workspace_branch(&repo.path, Some(input.target_branch.as_str()))
+                .map_err(|error| {
+                    AppError::Internal(format!(
+                        "Could not resolve the default branch of repo {}: {error}",
+                        repo.name
+                    ))
+                })?;
             collected.push(CreateWorkspaceRepo {
                 repo_id: input.repo_id,
                 target_branch,
@@ -367,34 +360,19 @@ async fn ensure_project_root_workspace(
         return ensure_directory_root_workspace_tauri(state, project).await;
     };
 
-    let current_branch = state
+    let desired_branch = state
         .deployment
         .git()
-        .get_current_branch(&primary_repo.path)
-        .map_err(|e| AppError::Internal(format!("Failed to resolve current branch: {e}")))?;
-    let desired_branch = branch
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-        .map(str::to_owned)
-        .unwrap_or_else(|| current_branch.clone());
+        .checkout_project_root_branch(&primary_repo.path, branch)
+        .map_err(|e| {
+            if git_checkout_error_is_local_changes(&e.to_string()) {
+                return AppError::BadRequest(
+                    "当前分支存在未提交更改，无法切换分支，请先提交或放弃更改。".to_string(),
+                );
+            }
 
-    if desired_branch != current_branch {
-        state
-            .deployment
-            .git()
-            .checkout_branch(&primary_repo.path, &desired_branch)
-            .map_err(|e| {
-                if git_checkout_error_is_local_changes(&e.to_string()) {
-                    return AppError::BadRequest(format!(
-                        "当前分支{current_branch}中存在未提交更改，无法切换到{desired_branch}分支，请先提交或放弃更改。"
-                    ));
-                }
-
-                AppError::Internal(format!(
-                    "Failed to checkout project root branch '{desired_branch}': {e}"
-                ))
-            })?;
-    }
+            AppError::Internal(format!("Failed to prepare project root branch: {e}"))
+        })?;
 
     let workspace_repos = vec![CreateWorkspaceRepo {
         repo_id: primary_repo.id,

@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 
 import {
   importedProjectName,
+  listedImportedProjects,
   orderImportedProjects,
 } from './importedProject';
 
@@ -28,5 +29,17 @@ describe('orderImportedProjects', () => {
         { name: 'notes', is_home: false },
       ]).map((project) => project.name)
     ).toEqual(['Global', 'codeg', 'notes']);
+  });
+});
+
+describe('listedImportedProjects', () => {
+  it('drops hidden projects after a successful unlist', () => {
+    expect(
+      listedImportedProjects([
+        { id: 'home', hidden: false },
+        { id: 'stallerlab', hidden: true },
+        { id: 'vibex', hidden: false },
+      ]).map((project) => project.id)
+    ).toEqual(['home', 'vibex']);
   });
 });

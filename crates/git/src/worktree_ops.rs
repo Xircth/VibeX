@@ -359,6 +359,19 @@ impl GitService {
             }
         }
 
+        if branches.is_empty()
+            && let Some(name) = Self::symbolic_head_branch(&repo)
+        {
+            branches.push(GitBranch {
+                name,
+                is_current: true,
+                is_remote: false,
+                is_worktree: false,
+                worktree_path: None,
+                last_commit_date: Utc::now(),
+            });
+        }
+
         let remote_branches = repo.branches(Some(BranchType::Remote))?;
         for branch_result in remote_branches {
             let (branch, _) = branch_result?;

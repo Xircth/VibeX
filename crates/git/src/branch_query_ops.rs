@@ -224,12 +224,66 @@ impl GitService {
         Ok(HeadInfo { branch, oid })
     }
 
+    pub(crate) fn symbolic_head_branch(repo: &Repository) -> Option<String> {
+        let head = repo.find_reference("HEAD").ok()?;
+        head.symbolic_target()?
+            .strip_prefix("refs/heads/")
+            .filter(|name| !name.is_empty())
+            .map(ToOwned::to_owned)
+    }
+
+    fn local_branch_exists(repo_path: &Path, name: &str) -> bool {
+        let Ok(repo) = Repository::open(repo_path) else {
+            return false;
+        };
+        repo.find_branch(name, BranchType::Local).is_ok()
+    }
+
     pub fn get_current_branch(&self, repo_path: &Path) -> Result<String, git2::Error> {
-        match self.get_head_info(repo_path) {
-            Ok(head_info) => Ok(head_info.branch),
-            Err(GitServiceError::Git(git_err)) => Err(git_err),
-            Err(_) => Err(git2::Error::from_str("Failed to get head info")),
+        let repo = Repository::open(repo_path)?;
+        match repo.head() {
+            Ok(head) => Ok(head.shorthand().unwrap_or("HEAD").to_string()),
+            Err(error) if error.code() == git2::ErrorCode::UnbornBranch => {
+                Self::symbolic_head_branch(&repo).ok_or(error)
+            }
+            Err(error) => Err(error),
         }
+    }
+
+    /// Birth an empty default branch if needed, then pick a branch that exists.
+    /// A stale requested name (for example `main` after `git init` created
+    /// unborn `master`) falls back to the repository's actual default branch.
+    pub fn resolve_workspace_branch(
+        &self,
+        repo_path: &Path,
+        requested: Option<&str>,
+    ) -> Result<String, GitServiceError> {
+        self.ensure_main_branch_exists(repo_path)?;
+        let current = self
+            .get_current_branch(repo_path)
+            .map_err(GitServiceError::from)?;
+        let requested = requested.map(str::trim).filter(|name| !name.is_empty());
+        match requested {
+            None => Ok(current),
+            Some(name) if name == current => Ok(current),
+            Some(name) if Self::local_branch_exists(repo_path, name) => Ok(name.to_string()),
+            Some(_) => Ok(current),
+        }
+    }
+
+    pub fn checkout_project_root_branch(
+        &self,
+        repo_path: &Path,
+        requested: Option<&str>,
+    ) -> Result<String, GitServiceError> {
+        let branch = self.resolve_workspace_branch(repo_path, requested)?;
+        let current = self
+            .get_current_branch(repo_path)
+            .map_err(GitServiceError::from)?;
+        if branch != current {
+            self.checkout_branch(repo_path, &branch)?;
+        }
+        Ok(branch)
     }
 
     /// Get the commit OID for a given branch without modifying HEAD.

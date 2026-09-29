@@ -1059,4 +1059,78 @@ describe('HostBrowserPanel', () => {
       )
     );
   });
+
+  it('reuses a warm freeze frame so a later overlay does not recapture', async () => {
+    const user = userEvent.setup();
+    backendCall.mockImplementation(
+      (_command: string, args: { input?: { operation?: string } }) => {
+        if (args?.input?.operation === 'tab.create') {
+          return Promise.resolve({
+            tabId: 'tab-1',
+            url: 'https://github.com/',
+            title: 'GitHub',
+            grant: { level: 'none' },
+          });
+        }
+        if (args?.input?.operation === 'surface.freeze') {
+          return Promise.resolve({ mime: 'image/png', data: 'ZmFrZQ==' });
+        }
+        return Promise.resolve({ ok: true, messages: [] });
+      }
+    );
+    render(
+      <HostBrowserPanel
+        pluginId="vibex.browser"
+        panelVisible
+        requestedUrl={null}
+      />
+    );
+    await user.type(screen.getByRole('combobox'), 'github.com{enter}');
+    await waitFor(() =>
+      expect(backendCall).toHaveBeenCalledWith(
+        'plugin_invoke_contribution',
+        expect.objectContaining({
+          input: expect.objectContaining({ operation: 'tab.create' }),
+        })
+      )
+    );
+    overlayOcclusion.fire({ hide: true, rects: [] });
+    await waitFor(() =>
+      expect(
+        screen.getByTestId('host-browser-surface').querySelector('img')
+      ).toHaveAttribute('src', 'data:image/png;base64,ZmFrZQ==')
+    );
+    overlayOcclusion.fire({ hide: false, rects: [] });
+    await waitFor(() =>
+      expect(
+        screen.getByTestId('host-browser-surface').querySelector('img')
+      ).toBeNull()
+    );
+    backendCall.mockClear();
+    overlayOcclusion.fire({ hide: true, rects: [] });
+    await waitFor(() =>
+      expect(
+        screen.getByTestId('host-browser-surface').querySelector('img')
+      ).toHaveAttribute('src', 'data:image/png;base64,ZmFrZQ==')
+    );
+    await waitFor(() =>
+      expect(backendCall).toHaveBeenCalledWith(
+        'plugin_invoke_contribution',
+        expect.objectContaining({
+          input: expect.objectContaining({
+            operation: 'surface.set',
+            input: expect.objectContaining({
+              bounds: expect.objectContaining({ visible: false }),
+            }),
+          }),
+        })
+      )
+    );
+    expect(backendCall).not.toHaveBeenCalledWith(
+      'plugin_invoke_contribution',
+      expect.objectContaining({
+        input: expect.objectContaining({ operation: 'surface.freeze' }),
+      })
+    );
+  });
 });

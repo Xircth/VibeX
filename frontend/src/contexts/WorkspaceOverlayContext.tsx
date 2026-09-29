@@ -12,7 +12,9 @@ import {
 import { usePortalContainer } from '@/contexts/PortalContainerContext';
 import {
   collectFloatingLayers,
+  FLOATING_LAYER_SELECTOR,
   mutationTouchesFloatingLayer,
+  OVERLAY_PENDING_ATTR,
   uniqueOverlayRects,
   type FloatingLayerOcclusion,
 } from '@/lib/floatingLayer';
@@ -71,9 +73,31 @@ function occlusionEqual(
   });
 }
 
-/** Long enough for a freeze-frame capture plus one paint before the menu
- *  reveals over a still-visible native HWND. */
-const OVERLAY_READY_TIMEOUT_MS = 500;
+/** Longer than CapturePreview (400ms) plus decode and one paint, so a timeout
+ *  cannot reveal a layer while the native HWND is still on top. */
+const OVERLAY_READY_TIMEOUT_MS = 800;
+const OVERLAY_PENDING_STYLE_ID = 'vibex-overlay-pending-style';
+
+function occlusionNeedsHold(occlusion: NativeSurfaceOcclusion): boolean {
+  return occlusion.hide || occlusion.rects.length > 0;
+}
+
+function writeOverlayPending(pending: boolean) {
+  if (typeof document === 'undefined') return;
+  const root = document.querySelector('[data-overlay-root]');
+  if (!root) return;
+  if (pending) root.setAttribute(OVERLAY_PENDING_ATTR, '');
+  else root.removeAttribute(OVERLAY_PENDING_ATTR);
+}
+
+function ensureOverlayPendingStyle() {
+  if (typeof document === 'undefined') return;
+  if (document.getElementById(OVERLAY_PENDING_STYLE_ID)) return;
+  const style = document.createElement('style');
+  style.id = OVERLAY_PENDING_STYLE_ID;
+  style.textContent = `[data-overlay-root][${OVERLAY_PENDING_ATTR}] :is(${FLOATING_LAYER_SELECTOR}){visibility:hidden!important}`;
+  document.head.appendChild(style);
+}
 
 export const WorkspaceOverlayContext =
   createContext<WorkspaceOverlayContextValue>({
@@ -111,6 +135,9 @@ export function WorkspaceOverlayProvider({
   const surfaceHostCountRef = useRef(0);
   const overlayEpochRef = useRef(0);
   const ackedEpochRef = useRef(0);
+  const expectedAcksRef = useRef(0);
+  const receivedAcksRef = useRef(0);
+  const pendingTimerRef = useRef<number | null>(null);
   const overlayWaitersRef = useRef<Array<() => void>>([]);
 
   const flushOverlayWaiters = useCallback(() => {
@@ -118,6 +145,19 @@ export function WorkspaceOverlayProvider({
     overlayWaitersRef.current = [];
     for (const waiter of waiters) waiter();
   }, []);
+
+  const clearPendingTimer = useCallback(() => {
+    if (pendingTimerRef.current == null) return;
+    window.clearTimeout(pendingTimerRef.current);
+    pendingTimerRef.current = null;
+  }, []);
+
+  const markOverlayReady = useCallback(() => {
+    clearPendingTimer();
+    ackedEpochRef.current = overlayEpochRef.current;
+    writeOverlayPending(false);
+    flushOverlayWaiters();
+  }, [clearPendingTimer, flushOverlayWaiters]);
 
   const publishOcclusion = useCallback(() => {
     const observed = observedOcclusionRef.current;
@@ -134,16 +174,33 @@ export function WorkspaceOverlayProvider({
     };
     if (occlusionEqual(currentOcclusionRef.current, nextOcclusion)) return;
 
+    const wasHold = occlusionNeedsHold(currentOcclusionRef.current);
     currentOcclusionRef.current = nextOcclusion;
     overlayEpochRef.current += 1;
+    expectedAcksRef.current = surfaceHostCountRef.current;
+    receivedAcksRef.current = 0;
+    const needsHold = occlusionNeedsHold(nextOcclusion);
+
+    if (expectedAcksRef.current === 0 || !needsHold) {
+      markOverlayReady();
+      for (const listener of listenersRef.current) {
+        listener(nextOcclusion);
+      }
+      return;
+    }
+
+    if (!wasHold) {
+      writeOverlayPending(true);
+      clearPendingTimer();
+      pendingTimerRef.current = window.setTimeout(
+        markOverlayReady,
+        OVERLAY_READY_TIMEOUT_MS
+      );
+    }
     for (const listener of listenersRef.current) {
       listener(nextOcclusion);
     }
-    if (surfaceHostCountRef.current === 0) {
-      ackedEpochRef.current = overlayEpochRef.current;
-      flushOverlayWaiters();
-    }
-  }, [flushOverlayWaiters]);
+  }, [clearPendingTimer, markOverlayReady]);
 
   const setTabCreationMenuOpen = useCallback(
     (open: boolean) => {
@@ -229,16 +286,17 @@ export function WorkspaceOverlayProvider({
     return () => {
       surfaceHostCountRef.current = Math.max(0, surfaceHostCountRef.current - 1);
       if (surfaceHostCountRef.current === 0) {
-        ackedEpochRef.current = overlayEpochRef.current;
-        flushOverlayWaiters();
+        markOverlayReady();
       }
     };
-  }, [flushOverlayWaiters]);
+  }, [markOverlayReady]);
 
   const ackOverlayReady = useCallback(() => {
-    ackedEpochRef.current = overlayEpochRef.current;
-    flushOverlayWaiters();
-  }, [flushOverlayWaiters]);
+    receivedAcksRef.current += 1;
+    if (receivedAcksRef.current >= Math.max(1, expectedAcksRef.current)) {
+      markOverlayReady();
+    }
+  }, [markOverlayReady]);
 
   const isOverlayReady = useCallback(
     () =>
@@ -258,6 +316,10 @@ export function WorkspaceOverlayProvider({
       overlayWaitersRef.current.push(finish);
     });
   }, [isOverlayReady]);
+
+  useLayoutEffect(() => {
+    ensureOverlayPendingStyle();
+  }, []);
 
   useLayoutEffect(() => {
     nativeSurfaceOccludedRef.current = nativeSurfaceOccluded;

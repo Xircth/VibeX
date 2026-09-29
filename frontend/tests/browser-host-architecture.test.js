@@ -226,6 +226,14 @@ test('floating layers occlude native browser surfaces from the design scope', ()
   );
   assert.match(hostPanel, /lastFreezeRef/);
   assert.match(hostPanel, /occludedRef.current = true/);
+  assert.match(hostPanel, /decodeOffscreen/);
+  assert.match(hostPanel, /pointerdown/);
+  const overlayContext = readRepoFile(
+    'frontend/src/contexts/WorkspaceOverlayContext.tsx'
+  );
+  assert.match(overlayContext, /data-overlay-pending|OVERLAY_PENDING_ATTR/);
+  assert.match(overlayContext, /OVERLAY_READY_TIMEOUT_MS = 800/);
+  assert.match(floatingLayer, /OVERLAY_PENDING_ATTR/);
 });
 
 test('desktop release workflow does not download or stage CEF', () => {

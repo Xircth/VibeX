@@ -10,6 +10,9 @@ import type { OverlayRect } from '@/lib/nativeSurfaceOverlay';
  */
 export const FLOATING_LAYER_ATTR = 'data-floating-layer';
 
+/** Set on `[data-overlay-root]` until native pages have frozen and stepped aside. */
+export const OVERLAY_PENDING_ATTR = 'data-overlay-pending';
+
 export const FLOATING_LAYER_SELECTOR = [
   `[${FLOATING_LAYER_ATTR}]`,
   '[data-native-surface-occlusion]',

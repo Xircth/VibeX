@@ -373,6 +373,9 @@ export function HostBrowserPanel({
   const pendingUrlRef = useRef<string | null>(null);
   const pendingEventsRef = useRef<BrowserHostEvent[]>([]);
   const applyEventRef = useRef<(payload: BrowserHostEvent) => void>(() => {});
+  const acceptPickedElementRef = useRef<
+    (payload: BrowserHostEvent['payload']) => void
+  >(() => {});
   const addressFocusedRef = useRef(false);
   const dispatchRef = useRef<
     (operation: string, input?: Record<string, unknown>) => Promise<unknown>
@@ -458,6 +461,7 @@ export function HostBrowserPanel({
       )
       .catch(() => undefined);
   };
+  acceptPickedElementRef.current = acceptPickedElement;
 
   applyEventRef.current = (payload: BrowserHostEvent) => {
     if (payload.kind === 'pick') {
@@ -1067,7 +1071,7 @@ export function HostBrowserPanel({
                   payload?: BrowserHostEvent['payload'];
                 });
           if (parsed?.kind !== 'pick') continue;
-          acceptPickedElement(parsed.payload);
+          acceptPickedElementRef.current(parsed.payload);
         }
       });
     }, 80);

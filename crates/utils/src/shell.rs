@@ -72,10 +72,11 @@ pub async fn resolve_executable_paths(executable: &str) -> Vec<PathBuf> {
         if let Some(spawnable) = crate::process::prefer_windows_spawnable_executable(path) {
             return vec![spawnable];
         }
-        return path
-            .is_file()
-            .then(|| vec![path.to_path_buf()])
-            .unwrap_or_default();
+        return if path.is_file() {
+            vec![path.to_path_buf()]
+        } else {
+            Vec::new()
+        };
     }
 
     let mut found = which_all_spawnable(executable).await;

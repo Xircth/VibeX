@@ -928,6 +928,7 @@ fn handle_new_window(
     if !gesture_ok {
         return fallback_open_or_deny(app, opener_id, &open_url, "no-gesture");
     }
+    #[cfg(not(target_os = "linux"))]
     if on_main_thread() {
         return adopt_popup(
             app, owner, opener_id, profile_id, service, &open_url, &features,

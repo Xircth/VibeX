@@ -216,6 +216,7 @@ impl VibexDelegationInjector {
     }
 }
 
+#[cfg(test)]
 fn test_locate(_base: &str) -> Option<PathBuf> {
     Some(PathBuf::from("/opt/vibex-mcp"))
 }

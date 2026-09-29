@@ -1824,6 +1824,7 @@ mod tests {
             CREATE TABLE projects (
                 id BLOB PRIMARY KEY NOT NULL,
                 name TEXT NOT NULL,
+                root_path TEXT,
                 default_agent_working_dir TEXT,
                 default_main_branch TEXT,
                 created_at TEXT NOT NULL DEFAULT (datetime('now', 'subsec')),

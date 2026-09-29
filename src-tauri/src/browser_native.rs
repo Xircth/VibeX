@@ -8,6 +8,11 @@
 //! `open_tab_core`. wry's `url()` is never called on macOS: it unwraps a nil
 //! `WKWebView.URL` and panics the main thread.
 
+#![cfg_attr(
+    target_os = "linux",
+    allow(dead_code, unused_imports, unused_variables)
+)]
+
 #[cfg(any(target_os = "macos", target_os = "windows"))]
 use std::sync::atomic::AtomicBool;
 use std::{

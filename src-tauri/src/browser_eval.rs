@@ -184,6 +184,7 @@ mod linux {
         let tx = Mutex::new(Some(tx));
         let webview = platform.inner();
         let cancellable: Option<&Cancellable> = None;
+        #[allow(deprecated)]
         webview.run_javascript(&script, cancellable, move |result| {
             let payload = match result {
                 Ok(value) => Ok(value

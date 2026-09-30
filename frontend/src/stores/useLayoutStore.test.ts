@@ -7,7 +7,7 @@ import {
   MAX_EDITOR_GROUPS,
   migratePersistedLayoutState,
 } from './useLayoutStore';
-import type { SerializedDockview } from 'dockview';
+import type { SerializedDockview } from 'dockview-core';
 
 describe('useLayoutStore', () => {
   beforeEach(() => {

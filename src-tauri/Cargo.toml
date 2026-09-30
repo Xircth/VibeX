@@ -44,10 +44,8 @@ which = "8.0.0"
 dirs = { workspace = true }
 ts-rs = { workspace = true }
 chrono = { workspace = true }
-serde_yaml = "0.9"
 toml = "0.8"
 tokio-tungstenite = { version = "0.26", features = ["rustls-tls-webpki-roots"] }
-prost = "0.13"
 sha2 = "0.10"
 tempfile = { workspace = true }
 zip = { version = "2", default-features = false, features = ["deflate"] }
@@ -57,7 +55,6 @@ flate2 = "1.0"
 aes-gcm = { version = "0.10", features = ["stream"] }
 argon2 = "0.5"
 rand = "0.8"
-raw-window-handle = "0.6"
 # Deep links (P2-5). single-instance MUST be registered before deep-link.
 tauri-plugin-single-instance = { version = "2", features = ["deep-link"] }
 tauri-plugin-deep-link = "2"
@@ -72,18 +69,15 @@ application = { path = "../crates/application" }
 remote-protocol = { path = "../crates/remote-protocol" }
 plugins = { path = "../crates/plugins" }
 server = { path = "../crates/server" }
-tool-runtime = { path = "../crates/tool-runtime" }
 db = { path = "../crates/db" }
 conversations = { path = "../crates/conversations" }
 services = { path = "../crates/services" }
 executors = { path = "../crates/executors" }
-strum = { workspace = true }
 git = { path = "../crates/git" }
 git2 = { workspace = true }
 local-deployment = { path = "../crates/local-deployment" }
 api-types = { path = "../crates/api-types" }
 agents = { path = "../crates/agents" }
-iana-time-zone = "0.1"
 delegation = { path = "../crates/delegation" }
 utils = { path = "../crates/utils" }
 deployment = { path = "../crates/deployment" }

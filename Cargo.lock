@@ -103,7 +103,6 @@ dependencies = [
  "dirs 5.0.1",
  "flate2",
  "futures",
- "jsonc-parser",
  "kill_tree",
  "libc",
  "prost",
@@ -247,7 +246,6 @@ dependencies = [
  "serde_json",
  "sqlx",
  "ts-rs",
- "uuid",
 ]
 
 [[package]]
@@ -303,7 +301,6 @@ dependencies = [
  "serde_json",
  "sha2",
  "sqlx",
- "tempfile",
  "thiserror 2.0.18",
  "tokio",
  "tool-runtime",
@@ -1404,7 +1401,6 @@ dependencies = [
  "serde",
  "serde_json",
  "serde_with",
- "sha2",
  "sqlx",
  "strum 0.27.2",
  "strum_macros 0.27.2",
@@ -1462,7 +1458,6 @@ dependencies = [
  "thiserror 2.0.18",
  "tokio",
  "tracing",
- "utils",
 ]
 
 [[package]]
@@ -1884,7 +1879,6 @@ dependencies = [
  "serde",
  "serde_json",
  "shlex",
- "sqlx",
  "strum 0.27.2",
  "strum_macros 0.27.2",
  "thiserror 2.0.18",
@@ -1893,7 +1887,6 @@ dependencies = [
  "tracing",
  "ts-rs",
  "utils",
- "uuid",
  "winsplit",
 ]
 
@@ -3262,15 +3255,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "jsonc-parser"
-version = "0.29.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9eb0774546269185d38da823d8583e94448ba0e158e3f50759d9c79aba946ca5"
-dependencies = [
- "serde_json",
-]
-
-[[package]]
 name = "jsonptr"
 version = "0.4.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3515,7 +3499,6 @@ version = "0.2.8"
 dependencies = [
  "agents",
  "anyhow",
- "api-types",
  "async-trait",
  "command-group",
  "db",
@@ -3525,7 +3508,6 @@ dependencies = [
  "git",
  "globwalk",
  "portable-pty",
- "serde_json",
  "services",
  "sqlx",
  "tempfile",
@@ -4730,7 +4712,6 @@ dependencies = [
  "url",
  "utils",
  "uuid",
- "windows-sys 0.59.0",
  "xattr",
  "zip 4.6.1",
 ]
@@ -5987,7 +5968,6 @@ dependencies = [
  "tokio-tungstenite 0.29.0",
  "tokio-util",
  "toml 0.8.2",
- "tool-runtime",
  "tower",
  "tracing",
  "tracing-subscriber",
@@ -6042,7 +6022,6 @@ dependencies = [
  "url",
  "utils",
  "uuid",
- "which 8.0.2",
 ]
 
 [[package]]
@@ -6127,15 +6106,6 @@ name = "shell-words"
 version = "1.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "dc6fe69c597f9c37bfeeeeeb33da3530379845f10be461a66d16d03eca2ded77"
-
-[[package]]
-name = "shellexpand"
-version = "3.1.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "32824fab5e16e6c4d86dc1ba84489390419a39f97699852b66480bb87d297ed8"
-dependencies = [
- "dirs 6.0.0",
-]
 
 [[package]]
 name = "shlex"
@@ -7962,7 +7932,6 @@ checksum = "06abde3611657adf66d383f00b093d7faecc7fa57071cce2578660c9f1010821"
 name = "utils"
 version = "0.2.8"
 dependencies = [
- "api-types",
  "axum",
  "bytes",
  "chrono",
@@ -7980,17 +7949,13 @@ dependencies = [
  "rust-embed",
  "serde",
  "serde_json",
- "sha2",
- "shellexpand",
  "shlex",
  "similar",
  "tempfile",
- "thiserror 2.0.18",
  "tokio",
  "tokio-stream",
  "tokio-util",
  "tracing",
- "tracing-subscriber",
  "ts-rs",
  "uuid",
  "which 8.0.2",
@@ -8064,9 +8029,8 @@ dependencies = [
  "gio",
  "git",
  "git2",
- "iana-time-zone",
- "javascriptcore-rs",
  "ignore",
+ "javascriptcore-rs",
  "local-deployment",
  "muda",
  "notify",
@@ -8076,9 +8040,7 @@ dependencies = [
  "objc2-web-kit",
  "os_info",
  "plugins",
- "prost",
  "rand 0.8.6",
- "raw-window-handle",
  "regex",
  "remote-protocol",
  "reqwest 0.12.28",
@@ -8086,12 +8048,10 @@ dependencies = [
  "semver",
  "serde",
  "serde_json",
- "serde_yaml",
  "server",
  "services",
  "sha2",
  "sqlx",
- "strum 0.27.2",
  "tar",
  "tauri",
  "tauri-build",
@@ -8111,7 +8071,6 @@ dependencies = [
  "tokio-tungstenite 0.26.2",
  "tokio-util",
  "toml 0.8.2",
- "tool-runtime",
  "tracing",
  "tracing-appender",
  "tracing-subscriber",
@@ -8134,7 +8093,6 @@ dependencies = [
  "delegation-proto",
  "reqwest 0.12.28",
  "rustls",
- "serde",
  "serde_json",
  "tokio",
 ]
@@ -9261,9 +9219,7 @@ dependencies = [
 name = "workflows"
 version = "0.2.8"
 dependencies = [
- "async-trait",
  "chrono",
- "db",
  "serde",
  "serde_json",
  "sha2",

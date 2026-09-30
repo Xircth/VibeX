@@ -14,6 +14,3 @@ tokio = { workspace = true }
 tool-runtime = { path = "../tool-runtime" }
 tracing = { workspace = true }
 uuid = { workspace = true }
-
-[dev-dependencies]
-tempfile = { workspace = true }

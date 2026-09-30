@@ -1300,11 +1300,13 @@ export function IDELayout({
 
   const { setChromeOccluded } = useWorkspaceOverlay();
   useLayoutEffect(() => {
-    const occlude =
-      tabContextMenu !== null || effectiveActiveTab !== 'workspace';
-    setChromeOccluded(occlude);
-    return () => setChromeOccluded(false);
+    setChromeOccluded(
+      tabContextMenu !== null || effectiveActiveTab !== 'workspace'
+    );
   }, [effectiveActiveTab, setChromeOccluded, tabContextMenu]);
+  useLayoutEffect(() => {
+    return () => setChromeOccluded(false);
+  }, [setChromeOccluded]);
 
   return (
     <div className="workspace-shell relative flex h-full w-full flex-col">

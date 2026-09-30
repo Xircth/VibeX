@@ -745,6 +745,8 @@
   .legacy-design
     :is(.astryx-text-input, .astryx-textarea)
     :is(input, textarea) {
+    appearance: none !important;
+    -webkit-appearance: none !important;
     border: 0 !important;
     border-radius: 0 !important;
     background: transparent !important;

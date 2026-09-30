@@ -29,6 +29,31 @@ describe('text control caret clearance', () => {
     });
   });
 
+  it('strips the platform text-field appearance so Astryx chrome shows through', () => {
+    const inner: Record<string, string> = {};
+    const important = new Set<string>();
+    parse(stylesheet).walkRules((rule) => {
+      const selector = rule.selector.replace(/\s+/g, ' ');
+      if (
+        !selector.includes('.astryx-text-input') ||
+        !selector.includes('input') ||
+        selector.includes('.settings-page')
+      ) {
+        return;
+      }
+      rule.walkDecls((declaration) => {
+        inner[declaration.prop] = declaration.value;
+        if (declaration.important) important.add(declaration.prop);
+      });
+    });
+
+    expect(inner.appearance).toBe('none');
+    expect(inner['-webkit-appearance']).toBe('none');
+    expect(inner.background).toBe('transparent');
+    expect(important.has('appearance')).toBe(true);
+    expect(important.has('-webkit-appearance')).toBe(true);
+  });
+
   it('gives settings text fields a shared inset and compact type', () => {
     const shared: Record<string, string> = {};
     parse(stylesheet).walkRules((rule) => {

@@ -1,5 +1,8 @@
 import { describe, expect, it } from 'vitest';
-import { overlayCoversSurface } from './nativeSurfaceOverlay';
+import {
+  nativeSurfaceNeedsFreezeFrame,
+  overlayCoversSurface,
+} from './nativeSurfaceOverlay';
 
 const surface = { x: 12, y: 48, width: 800, height: 600 };
 
@@ -16,5 +19,15 @@ describe('overlayCoversSurface', () => {
         { x: 620, y: 40, width: 180, height: 220 },
       ])
     ).toBe(true);
+  });
+});
+
+describe('nativeSurfaceNeedsFreezeFrame', () => {
+  it('skips freeze when chrome fully covers the native page', () => {
+    expect(nativeSurfaceNeedsFreezeFrame({ hide: true })).toBe(false);
+  });
+
+  it('freezes when only a popover rectangle covers the page', () => {
+    expect(nativeSurfaceNeedsFreezeFrame({ hide: false })).toBe(true);
   });
 });

@@ -41,24 +41,29 @@ function isProductTextFieldReset(selector: string): boolean {
 }
 
 describe('text control caret clearance', () => {
-  it('lets Astryx TextInput own its frame instead of restyling the wrapper', () => {
+  it('paints the Astryx Field wrapper as a Tahoe raised control', () => {
+    const frame: Record<string, string> = {};
+    let unlayeredFrame = false;
     parse(stylesheet).walkRules((rule) => {
       const selector = selectorOf(rule);
       if (!selector.includes('.astryx-text-input')) return;
-      if (selector.includes('input') || selector.includes('textarea')) return;
-      if (selector.includes('[data-pressable-container]')) {
-        const padding = rule.nodes?.find(
-          (node) => node.type === 'decl' && node.prop === 'padding-inline'
-        );
-        expect(padding && 'value' in padding ? padding.value : '').toBe('10px');
+      if (!selector.includes('[data-pressable-container]')) return;
+      if (selector.includes(':hover') || selector.includes(':focus-within')) {
         return;
       }
-
       rule.walkDecls((declaration) => {
-        expect(declaration.prop).not.toBe('padding');
-        expect(declaration.prop).not.toBe('overflow');
+        frame[declaration.prop] = declaration.value;
       });
+      if (!ruleInLayer(rule) && frame['background-color']) {
+        unlayeredFrame = true;
+      }
     });
+
+    expect(frame['padding-inline']).toBe('10px');
+    expect(frame['border-radius']).toBe('var(--radius)');
+    expect(frame['border-color']).toBe('var(--border-subtle)');
+    expect(frame['background-color']).toBe('var(--surface-raised-control)');
+    expect(unlayeredFrame).toBe(true);
   });
 
   it('strips the platform text-field appearance so Astryx chrome shows through', () => {
@@ -68,7 +73,7 @@ describe('text control caret clearance', () => {
     parse(stylesheet).walkRules((rule) => {
       const selector = selectorOf(rule);
       if (!isAstryxInnerField(selector)) return;
-      if (selector.includes('.dark')) return;
+      if (selector.includes('.dark') || selector.includes(':hover')) return;
       rule.walkDecls((declaration) => {
         inner[declaration.prop] = declaration.value;
         if (declaration.important) important.add(declaration.prop);
@@ -85,9 +90,9 @@ describe('text control caret clearance', () => {
 
     expect(inner.appearance).toBe('none');
     expect(inner['-webkit-appearance']).toBe('none');
-    expect(inner['background-color']).toBe('inherit');
+    expect(inner['background-color']).toBe('var(--surface-raised-control)');
     expect(inner['background-image']).toBe('none');
-    expect(inner['color-scheme']).toBe('light');
+    expect(inner['color-scheme']).toBe('only light');
     expect(important.has('appearance')).toBe(true);
     expect(important.has('-webkit-appearance')).toBe(true);
     expect(important.has('background-color')).toBe(true);
@@ -116,7 +121,7 @@ describe('text control caret clearance', () => {
 
     expect(reset.appearance).toBe('none');
     expect(reset['-webkit-appearance']).toBe('none');
-    expect(reset['color-scheme']).toBe('light');
+    expect(reset['color-scheme']).toBe('only light');
     expect(unlayeredAppearance).toBe(true);
   });
 
@@ -188,7 +193,7 @@ describe('text control caret clearance', () => {
 
     expect(schemes.length).toBeGreaterThan(0);
     expect(schemes.at(-1)).toBe('light');
-    expect(htmlScheme).toBe('light');
+    expect(htmlScheme).toBe('only light');
     expect(htmlInLayer).toBe(false);
   });
 
@@ -204,7 +209,7 @@ describe('text control caret clearance', () => {
       });
     });
 
-    expect(darkSchemes.at(-1)).toBe('dark');
+    expect(darkSchemes.at(-1)).toBe('only dark');
   });
 
   it('gives settings text fields a shared inset and compact type', () => {

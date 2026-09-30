@@ -27,6 +27,18 @@ async fn resolve_repo_path(state: &AppState, repo_id: Uuid) -> Result<PathBuf, A
     Ok(PathBuf::from(&repo.path))
 }
 
+async fn git_blocking<T, E, F>(work: F, failed: &'static str) -> Result<T, AppError>
+where
+    T: Send + 'static,
+    E: std::fmt::Display + Send + 'static,
+    F: FnOnce() -> Result<T, E> + Send + 'static,
+{
+    tokio::task::spawn_blocking(work)
+        .await
+        .map_err(|error| AppError::Internal(error.to_string()))?
+        .map_err(|error| AppError::Internal(format!("{failed}: {error}")))
+}
+
 #[tauri::command]
 pub async fn get_repos(state: tauri::State<'_, AppState>) -> Result<Vec<Repo>, AppError> {
     let repos = Repo::list_all(&state.deployment.db().pool).await?;
@@ -134,11 +146,14 @@ pub async fn add_repo_remote(
     url: String,
 ) -> Result<(), AppError> {
     let path = resolve_repo_path(&state, repo_id).await?;
-    state
-        .deployment
-        .git()
-        .add_remote(&path, name.trim(), url.trim())
-        .map_err(|e| AppError::Internal(format!("git remote add failed: {e}")))
+    let git = state.deployment.git().clone();
+    let name = name.trim().to_string();
+    let url = url.trim().to_string();
+    git_blocking(
+        move || git.add_remote(&path, &name, &url),
+        "git remote add failed",
+    )
+    .await
 }
 
 #[tauri::command]
@@ -148,11 +163,13 @@ pub async fn remove_repo_remote(
     name: String,
 ) -> Result<(), AppError> {
     let path = resolve_repo_path(&state, repo_id).await?;
-    state
-        .deployment
-        .git()
-        .remove_remote(&path, name.trim())
-        .map_err(|e| AppError::Internal(format!("git remote remove failed: {e}")))
+    let git = state.deployment.git().clone();
+    let name = name.trim().to_string();
+    git_blocking(
+        move || git.remove_remote(&path, &name),
+        "git remote remove failed",
+    )
+    .await
 }
 
 #[tauri::command]
@@ -163,11 +180,14 @@ pub async fn set_repo_remote_url(
     url: String,
 ) -> Result<(), AppError> {
     let path = resolve_repo_path(&state, repo_id).await?;
-    state
-        .deployment
-        .git()
-        .set_remote_url(&path, name.trim(), url.trim())
-        .map_err(|e| AppError::Internal(format!("git remote set-url failed: {e}")))
+    let git = state.deployment.git().clone();
+    let name = name.trim().to_string();
+    let url = url.trim().to_string();
+    git_blocking(
+        move || git.set_remote_url(&path, &name, &url),
+        "git remote set-url failed",
+    )
+    .await
 }
 
 #[tauri::command]
@@ -245,8 +265,9 @@ pub async fn get_repo_remotes(
         .repo()
         .get_by_id(&state.deployment.db().pool, repo_id)
         .await?;
-    let remotes = state.deployment.git().list_remotes(&repo.path)?;
-    Ok(remotes)
+    let git = state.deployment.git().clone();
+    let repo_path = repo.path.clone();
+    crate::error::spawn_blocking_into(move || git.list_remotes(&repo_path)).await
 }
 
 #[tauri::command]
@@ -261,13 +282,16 @@ pub async fn list_open_prs(
         .get_by_id(&state.deployment.db().pool, repo_id)
         .await?;
 
-    let remote = match remote {
-        Some(name) => GitRemote {
-            url: state.deployment.git().get_remote_url(&repo.path, &name)?,
+    let git = state.deployment.git().clone();
+    let repo_path = repo.path.clone();
+    let remote = crate::error::spawn_blocking_into(move || match remote {
+        Some(name) => Ok(GitRemote {
+            url: git.get_remote_url(&repo_path, &name)?,
             name,
-        },
-        None => state.deployment.git().get_default_remote(&repo.path)?,
-    };
+        }),
+        None => git.get_default_remote(&repo_path),
+    })
+    .await?;
 
     let git_host = GitHostService::from_url(&remote.url)?;
     Ok(git_host.list_open_prs(&repo.path, &remote.url).await?)
@@ -288,13 +312,16 @@ pub async fn list_repo_issues(
         .get_by_id(&state.deployment.db().pool, repo_id)
         .await?;
 
-    let remote = match remote {
-        Some(name) => GitRemote {
-            url: state.deployment.git().get_remote_url(&repo.path, &name)?,
+    let git = state.deployment.git().clone();
+    let repo_path = repo.path.clone();
+    let remote = crate::error::spawn_blocking_into(move || match remote {
+        Some(name) => Ok(GitRemote {
+            url: git.get_remote_url(&repo_path, &name)?,
             name,
-        },
-        None => state.deployment.git().get_default_remote(&repo.path)?,
-    };
+        }),
+        None => git.get_default_remote(&repo_path),
+    })
+    .await?;
 
     let repo_path = std::path::PathBuf::from(&repo.path);
     let remote_url = remote.url.clone();
@@ -404,11 +431,12 @@ pub async fn get_repo_file_diffs(
     repo_id: Uuid,
 ) -> Result<Vec<git::GitFileDiffEntry>, AppError> {
     let repo_path = resolve_repo_path(&state, repo_id).await?;
-    state
-        .deployment
-        .git()
-        .get_file_diffs(&repo_path)
-        .map_err(|e| AppError::Internal(format!("get file diffs failed: {e}")))
+    let git = state.deployment.git().clone();
+    git_blocking(
+        move || git.get_file_diffs(&repo_path),
+        "get file diffs failed",
+    )
+    .await
 }
 
 #[tauri::command]
@@ -418,11 +446,12 @@ pub async fn stage_repo_file(
     file_path: String,
 ) -> Result<(), AppError> {
     let repo_path = resolve_repo_path(&state, repo_id).await?;
-    state
-        .deployment
-        .git()
-        .stage_file(&repo_path, &file_path)
-        .map_err(|e| AppError::Internal(format!("stage file failed: {e}")))
+    let git = state.deployment.git().clone();
+    git_blocking(
+        move || git.stage_file(&repo_path, &file_path),
+        "stage file failed",
+    )
+    .await
 }
 
 #[tauri::command]
@@ -432,11 +461,12 @@ pub async fn unstage_repo_file(
     file_path: String,
 ) -> Result<(), AppError> {
     let repo_path = resolve_repo_path(&state, repo_id).await?;
-    state
-        .deployment
-        .git()
-        .unstage_file(&repo_path, &file_path)
-        .map_err(|e| AppError::Internal(format!("unstage file failed: {e}")))
+    let git = state.deployment.git().clone();
+    git_blocking(
+        move || git.unstage_file(&repo_path, &file_path),
+        "unstage file failed",
+    )
+    .await
 }
 
 #[tauri::command]
@@ -446,11 +476,12 @@ pub async fn revert_repo_file(
     file_path: String,
 ) -> Result<(), AppError> {
     let repo_path = resolve_repo_path(&state, repo_id).await?;
-    state
-        .deployment
-        .git()
-        .revert_file(&repo_path, &file_path)
-        .map_err(|e| AppError::Internal(format!("revert file failed: {e}")))
+    let git = state.deployment.git().clone();
+    git_blocking(
+        move || git.revert_file(&repo_path, &file_path),
+        "revert file failed",
+    )
+    .await
 }
 
 #[tauri::command]
@@ -459,11 +490,8 @@ pub async fn stage_repo_all(
     repo_id: Uuid,
 ) -> Result<(), AppError> {
     let repo_path = resolve_repo_path(&state, repo_id).await?;
-    state
-        .deployment
-        .git()
-        .stage_all(&repo_path)
-        .map_err(|e| AppError::Internal(format!("stage all failed: {e}")))
+    let git = state.deployment.git().clone();
+    git_blocking(move || git.stage_all(&repo_path), "stage all failed").await
 }
 
 #[tauri::command]
@@ -472,11 +500,8 @@ pub async fn revert_repo_all(
     repo_id: Uuid,
 ) -> Result<(), AppError> {
     let repo_path = resolve_repo_path(&state, repo_id).await?;
-    state
-        .deployment
-        .git()
-        .revert_all(&repo_path)
-        .map_err(|e| AppError::Internal(format!("revert all failed: {e}")))
+    let git = state.deployment.git().clone();
+    git_blocking(move || git.revert_all(&repo_path), "revert all failed").await
 }
 
 #[tauri::command]
@@ -486,22 +511,27 @@ pub async fn commit_repo_changes(
     message: String,
 ) -> Result<(), AppError> {
     let repo_path = resolve_repo_path(&state, repo_id).await?;
-    state
-        .deployment
-        .git()
-        .commit_changes(&repo_path, &message)
-        .map_err(|e| AppError::Internal(format!("commit failed: {e}")))
+    let git = state.deployment.git().clone();
+    git_blocking(
+        move || git.commit_changes(&repo_path, &message),
+        "commit failed",
+    )
+    .await
 }
 
 #[tauri::command]
 pub async fn push_repo(state: tauri::State<'_, AppState>, repo_id: Uuid) -> Result<(), AppError> {
     let repo_path = resolve_repo_path(&state, repo_id).await?;
-    let git = state.deployment.git();
-    let head = git
-        .get_head_info(&repo_path)
-        .map_err(|e| AppError::Internal(format!("get head info failed: {e}")))?;
-    git.push_to_remote(&repo_path, &head.branch, false)
-        .map_err(|e| AppError::Internal(format!("git push failed: {e}")))
+    let git = state.deployment.git().clone();
+    tokio::task::spawn_blocking(move || {
+        let head = git
+            .get_head_info(&repo_path)
+            .map_err(|e| AppError::Internal(format!("get head info failed: {e}")))?;
+        git.push_to_remote(&repo_path, &head.branch, false)
+            .map_err(|e| AppError::Internal(format!("git push failed: {e}")))
+    })
+    .await
+    .map_err(|error| AppError::Internal(error.to_string()))?
 }
 
 #[tauri::command]
@@ -510,21 +540,15 @@ pub async fn pull_repo(
     repo_id: Uuid,
 ) -> Result<git::PullResult, AppError> {
     let repo_path = resolve_repo_path(&state, repo_id).await?;
-    state
-        .deployment
-        .git()
-        .pull(&repo_path)
-        .map_err(|e| AppError::Internal(format!("git pull failed: {e}")))
+    let git = state.deployment.git().clone();
+    git_blocking(move || git.pull(&repo_path), "git pull failed").await
 }
 
 #[tauri::command]
 pub async fn fetch_repo(state: tauri::State<'_, AppState>, repo_id: Uuid) -> Result<(), AppError> {
     let repo_path = resolve_repo_path(&state, repo_id).await?;
-    state
-        .deployment
-        .git()
-        .fetch_all(&repo_path)
-        .map_err(|e| AppError::Internal(format!("git fetch failed: {e}")))
+    let git = state.deployment.git().clone();
+    git_blocking(move || git.fetch_all(&repo_path), "git fetch failed").await
 }
 
 #[tauri::command]
@@ -533,11 +557,8 @@ pub async fn get_repo_git_log(
     repo_id: Uuid,
 ) -> Result<git::GitLogStatus, AppError> {
     let repo_path = resolve_repo_path(&state, repo_id).await?;
-    state
-        .deployment
-        .git()
-        .get_log_status(&repo_path)
-        .map_err(|e| AppError::Internal(format!("git log failed: {e}")))
+    let git = state.deployment.git().clone();
+    git_blocking(move || git.get_log_status(&repo_path), "git log failed").await
 }
 
 #[tauri::command]
@@ -547,11 +568,12 @@ pub async fn get_repo_commit_detail(
     sha: String,
 ) -> Result<git::CommitDetail, AppError> {
     let repo_path = resolve_repo_path(&state, repo_id).await?;
-    state
-        .deployment
-        .git()
-        .get_commit_detail(&repo_path, &sha)
-        .map_err(|e| AppError::Internal(format!("get commit detail failed: {e}")))
+    let git = state.deployment.git().clone();
+    git_blocking(
+        move || git.get_commit_detail(&repo_path, &sha),
+        "get commit detail failed",
+    )
+    .await
 }
 
 #[tauri::command]
@@ -561,17 +583,20 @@ pub async fn get_repo_commit_diffs(
     sha: String,
 ) -> Result<Vec<utils::diff::Diff>, AppError> {
     let repo_path = resolve_repo_path(&state, repo_id).await?;
-    state
-        .deployment
-        .git()
-        .get_diffs(
-            git::DiffTarget::Commit {
-                repo_path: &repo_path,
-                commit_sha: &sha,
-            },
-            None,
-        )
-        .map_err(|e| AppError::Internal(format!("get commit diffs failed: {e}")))
+    let git = state.deployment.git().clone();
+    git_blocking(
+        move || {
+            git.get_diffs(
+                git::DiffTarget::Commit {
+                    repo_path: &repo_path,
+                    commit_sha: &sha,
+                },
+                None,
+            )
+        },
+        "get commit diffs failed",
+    )
+    .await
 }
 
 #[tauri::command]

@@ -31,6 +31,15 @@ function isAstryxInnerField(selector: string): boolean {
   );
 }
 
+function isProductTextFieldReset(selector: string): boolean {
+  return (
+    selector.includes('.legacy-design') &&
+    selector.includes("input:not([type='checkbox'])") &&
+    selector.includes('textarea') &&
+    !selector.includes('.settings-page')
+  );
+}
+
 describe('text control caret clearance', () => {
   it('lets Astryx TextInput own its frame instead of restyling the wrapper', () => {
     parse(stylesheet).walkRules((rule) => {
@@ -76,11 +85,82 @@ describe('text control caret clearance', () => {
 
     expect(inner.appearance).toBe('none');
     expect(inner['-webkit-appearance']).toBe('none');
-    expect(inner.background).toBe('transparent');
+    expect(inner['background-color']).toBe('inherit');
+    expect(inner['background-image']).toBe('none');
     expect(inner['color-scheme']).toBe('light');
     expect(important.has('appearance')).toBe(true);
     expect(important.has('-webkit-appearance')).toBe(true);
+    expect(important.has('background-color')).toBe(true);
     expect(unlayeredAppearance).toBe(true);
+  });
+
+  it('strips native text-field appearance for every product text control', () => {
+    const reset: Record<string, string> = {};
+    let unlayeredAppearance = false;
+    parse(stylesheet).walkRules((rule) => {
+      const selector = selectorOf(rule);
+      if (!isProductTextFieldReset(selector)) return;
+      if (selector.includes('.dark')) return;
+      rule.walkDecls((declaration) => {
+        reset[declaration.prop] = declaration.value;
+        if (
+          !ruleInLayer(rule) &&
+          (declaration.prop === 'appearance' ||
+            declaration.prop === '-webkit-appearance') &&
+          declaration.value === 'none'
+        ) {
+          unlayeredAppearance = true;
+        }
+      });
+    });
+
+    expect(reset.appearance).toBe('none');
+    expect(reset['-webkit-appearance']).toBe('none');
+    expect(reset['color-scheme']).toBe('light');
+    expect(unlayeredAppearance).toBe(true);
+  });
+
+  it('gives standalone text controls an opaque fill so Win11 chrome cannot show through', () => {
+    const fills: string[] = [];
+    parse(stylesheet).walkRules((rule) => {
+      const selector = selectorOf(rule);
+      if (!isProductTextFieldReset(selector)) return;
+      if (!selector.includes('.astryx-text-input *')) return;
+      rule.walkDecls((declaration) => {
+        if (declaration.prop === 'background-color') {
+          fills.push(declaration.value);
+        }
+      });
+    });
+
+    expect(fills.at(-1)).toBe('var(--surface-raised-control)');
+  });
+
+  it('hides platform password-reveal and search decorations on product inputs', () => {
+    const reveal: Record<string, string> = {};
+    parse(stylesheet).walkRules((rule) => {
+      const selector = selectorOf(rule);
+      if (
+        selector.includes('::-ms-reveal') ||
+        selector.includes('::-webkit-search-decoration')
+      ) {
+        rule.walkDecls((declaration) => {
+          reveal[`${selector} ${declaration.prop}`] = declaration.value;
+        });
+      }
+    });
+
+    expect(
+      Object.entries(reveal).some(
+        ([key, value]) => key.includes('::-ms-reveal') && value === 'none'
+      )
+    ).toBe(true);
+    expect(
+      Object.entries(reveal).some(
+        ([key, value]) =>
+          key.includes('::-webkit-search-decoration') && value === 'none'
+      )
+    ).toBe(true);
   });
 
   it('gives the light design scope a definite color-scheme so WebView2 does not paint Win11 fields', () => {

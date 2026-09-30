@@ -41,10 +41,6 @@ export function reconcileWorkspaceSessionSelection(input: {
     pendingSessionId = null;
   }
 
-  if (input.prev?.mode === 'new') {
-    return { selection: input.prev, pendingSessionId: null };
-  }
-
   if (pendingSessionId) {
     return {
       selection: { mode: 'existing', sessionId: pendingSessionId },
@@ -52,6 +48,10 @@ export function reconcileWorkspaceSessionSelection(input: {
         ? null
         : pendingSessionId,
     };
+  }
+
+  if (input.prev?.mode === 'new') {
+    return { selection: input.prev, pendingSessionId: null };
   }
 
   if (input.sessionIds.length === 0) {
@@ -192,9 +192,18 @@ export function useWorkspaceSessions(
   const [isPendingNewSessionMode, setIsPendingNewSessionMode] = useState(false);
   const pendingSessionIdRef = useRef<string | null>(null);
   const previousWorkspaceIdRef = useRef<string | undefined>(workspaceId);
-  const previousInitialSessionIdRef = useRef<string | undefined>(
-    initialSessionId
-  );
+  const [seenInitialSessionId, setSeenInitialSessionId] = useState<
+    string | undefined
+  >(initialSessionId);
+
+  if (initialSessionId !== seenInitialSessionId) {
+    setSeenInitialSessionId(initialSessionId);
+    if (initialSessionId) {
+      pendingSessionIdRef.current = initialSessionId;
+      setIsPendingNewSessionMode(false);
+      setSelection({ mode: 'existing', sessionId: initialSessionId });
+    }
+  }
 
   const { data: sessionSummaries = [], isLoading } = useQuery<
     SessionSummaryRecord[]
@@ -234,20 +243,6 @@ export function useWorkspaceSessions(
       }),
     [sessionSummaries, t]
   );
-
-  useEffect(() => {
-    const initialSessionChanged =
-      previousInitialSessionIdRef.current !== initialSessionId;
-    previousInitialSessionIdRef.current = initialSessionId;
-
-    if (!initialSessionChanged || !initialSessionId) {
-      return;
-    }
-
-    pendingSessionIdRef.current = initialSessionId;
-    setIsPendingNewSessionMode(false);
-    setSelection({ mode: 'existing', sessionId: initialSessionId });
-  }, [initialSessionId]);
 
   useEffect(() => {
     const workspaceChanged = previousWorkspaceIdRef.current !== workspaceId;

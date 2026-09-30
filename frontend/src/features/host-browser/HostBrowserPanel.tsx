@@ -40,10 +40,8 @@ import {
   NativeSurfaceOcclusionHold,
   useWorkspaceOverlay,
 } from '@/contexts/WorkspaceOverlayContext';
-import {
-  nativeSurfaceNeedsFreezeFrame,
-  overlayCoversSurface,
-} from '@/lib/nativeSurfaceOverlay';
+import { nativeSurfaceDestinationProgress } from '@/lib/nativeSurfaceHandoff';
+import { overlayCoversSurface } from '@/lib/nativeSurfaceOverlay';
 import { requestBrowserTabOpen } from './openBrowserTab';
 import { backendCall, backendListen } from '@/lib/backendTransport';
 import { getInvokeErrorMessage } from '@/lib/errors';
@@ -591,19 +589,20 @@ export function HostBrowserPanel({
   }, []);
 
   const waitForStableSurfaceBounds = useCallback(async () => {
-    let last = '';
+    let previousSignature = '';
     let matches = 0;
-    for (let i = 0; i < 16; i += 1) {
+    for (let i = 0; i < 24; i += 1) {
       const bounds = measureSurface(hostRef.current, visibleRef.current, false);
       const laidOut = bounds.width >= 32 && bounds.height >= 32;
-      const signature = boundsKey({ ...bounds, visible: true });
-      if (laidOut && signature === last) {
-        matches += 1;
-        if (matches >= 1) return bounds;
-      } else {
-        matches = 0;
-        last = signature;
-      }
+      const progress = nativeSurfaceDestinationProgress({
+        signature: boundsKey({ ...bounds, visible: true }),
+        laidOut,
+        previousSignature,
+        matches,
+      });
+      previousSignature = progress.previousSignature;
+      matches = progress.matches;
+      if (progress.ready) return bounds;
       await nextFrame();
     }
     return measureSurface(hostRef.current, visibleRef.current, false);
@@ -821,16 +820,6 @@ export function HostBrowserPanel({
           hideTargetRef.current = null;
           overlay.ackOverlayReady();
         })();
-        return;
-      }
-      if (!nativeSurfaceNeedsFreezeFrame(occlusion)) {
-        occludedRef.current = true;
-        setFrozen(null);
-        void syncBounds().finally(() => {
-          if (hideSeqRef.current !== seq) return;
-          hideTargetRef.current = null;
-          overlay.ackOverlayReady();
-        });
         return;
       }
       void (async () => {

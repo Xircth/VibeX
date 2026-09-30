@@ -17,7 +17,7 @@
  * gridview orientation alternates per depth, so a nested subtree cannot be
  * re-parented across slots without changing its meaning.
  */
-import { Orientation, type SerializedDockview } from 'dockview';
+import { Orientation, type SerializedDockview } from 'dockview-core';
 import { GROUP_IDS, PANEL_IDS } from '@/stores/useLayoutStore';
 import {
   BOTTOM_PANEL_IDS,

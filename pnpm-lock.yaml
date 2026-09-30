@@ -140,9 +140,6 @@ importers:
       clsx:
         specifier: ^2.0.0
         version: 2.1.1
-      dockview:
-        specifier: ^5.1.0
-        version: 5.1.0(react@19.2.8)
       dockview-core:
         specifier: ^5.1.0
         version: 5.1.0

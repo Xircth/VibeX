@@ -47,4 +47,3 @@ sha2 = "0.10"
 reqwest = { workspace = true }
 toml = "0.8"
 serde_yaml = "0.9"
-which = "8.0.0"

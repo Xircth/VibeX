@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
-import type { SerializedDockview } from 'dockview';
+import type { SerializedDockview } from 'dockview-core';
 import { GLOBAL_PROJECT_SCOPE } from '@/lib/projectScope';
 import { DEFAULT_SESSION_PANEL_WIDTH } from '@/utils/dockviewStartupSizing';
 

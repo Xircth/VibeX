@@ -948,7 +948,7 @@ describe('HostBrowserPanel', () => {
     );
   });
 
-  it('hides the native surface immediately when chrome fully covers it', async () => {
+  it('parks the native page behind a freeze-frame before chrome covers it', async () => {
     const user = userEvent.setup();
     backendCall.mockImplementation(
       (_command: string, args: { input?: { operation?: string } }) => {
@@ -984,6 +984,12 @@ describe('HostBrowserPanel', () => {
     );
     backendCall.mockClear();
     overlayOcclusion.fire({ hide: true, rects: [] });
+    await waitFor(() => {
+      const frame = screen
+        .getByTestId('host-browser-surface')
+        .querySelector('img');
+      expect(frame).toHaveAttribute('src', 'data:image/png;base64,ZmFrZQ==');
+    });
     await waitFor(() =>
       expect(backendCall).toHaveBeenCalledWith(
         'plugin_invoke_contribution',
@@ -997,15 +1003,112 @@ describe('HostBrowserPanel', () => {
         })
       )
     );
-    expect(backendCall).not.toHaveBeenCalledWith(
-      'plugin_invoke_contribution',
-      expect.objectContaining({
-        input: expect.objectContaining({ operation: 'surface.freeze' }),
-      })
+    const freezeIndex = backendCall.mock.calls.findIndex(
+      ([, args]) => args?.input?.operation === 'surface.freeze'
     );
+    const hideIndex = backendCall.mock.calls.findIndex(
+      ([, args]) =>
+        args?.input?.operation === 'surface.set' &&
+        args?.input?.input?.bounds?.visible === false
+    );
+    expect(freezeIndex).toBeGreaterThanOrEqual(0);
+    expect(hideIndex).toBeGreaterThan(freezeIndex);
+  });
+
+  it('keeps the freeze-frame up until the destination slot is stable', async () => {
+    const user = userEvent.setup();
+    backendCall.mockImplementation(
+      (_command: string, args: { input?: { operation?: string } }) => {
+        if (args?.input?.operation === 'tab.create') {
+          return Promise.resolve({
+            tabId: 'tab-1',
+            url: 'https://github.com/',
+            title: 'GitHub',
+            grant: { level: 'none' },
+          });
+        }
+        if (args?.input?.operation === 'surface.freeze') {
+          return Promise.resolve({ mime: 'image/png', data: 'ZmFrZQ==' });
+        }
+        return Promise.resolve({ ok: true, messages: [] });
+      }
+    );
+    render(
+      <HostBrowserPanel
+        pluginId="vibex.browser"
+        panelVisible
+        requestedUrl={null}
+      />
+    );
+    await user.type(screen.getByRole('combobox'), 'github.com{enter}');
+    await waitFor(() =>
+      expect(backendCall).toHaveBeenCalledWith(
+        'plugin_invoke_contribution',
+        expect.objectContaining({
+          input: expect.objectContaining({ operation: 'tab.create' }),
+        })
+      )
+    );
+    const surface = screen.getByTestId('host-browser-surface');
+    const rectAt = (width: number) =>
+      ({
+        x: 40,
+        y: 80,
+        width,
+        height: 700,
+        top: 80,
+        left: 40,
+        right: 40 + width,
+        bottom: 780,
+        toJSON() {
+          return this;
+        },
+      }) as DOMRect;
+    let slotWidth = 1200;
+    surface.getBoundingClientRect = () => rectAt(slotWidth);
+    overlayOcclusion.fire({ hide: true, rects: [] });
+    await waitFor(() =>
+      expect(
+        screen.getByTestId('host-browser-surface').querySelector('img')
+      ).toHaveAttribute('src', 'data:image/png;base64,ZmFrZQ==')
+    );
+    backendCall.mockClear();
+    slotWidth = 800;
+    overlayOcclusion.fire({ hide: false, rects: [] });
     expect(
       screen.getByTestId('host-browser-surface').querySelector('img')
-    ).toBeNull();
+    ).toHaveAttribute('src', 'data:image/png;base64,ZmFrZQ==');
+    await waitFor(
+      () =>
+        expect(backendCall).toHaveBeenCalledWith(
+          'plugin_invoke_contribution',
+          expect.objectContaining({
+            input: expect.objectContaining({
+              operation: 'surface.set',
+              input: expect.objectContaining({
+                bounds: expect.objectContaining({
+                  visible: true,
+                  width: 800,
+                }),
+              }),
+            }),
+          })
+        ),
+      { timeout: 2000 }
+    );
+    const shown = backendCall.mock.calls.filter(
+      ([, args]) =>
+        args?.input?.operation === 'surface.set' &&
+        args?.input?.input?.bounds?.visible === true
+    );
+    expect(
+      shown.some(([, args]) => args?.input?.input?.bounds?.width === 1200)
+    ).toBe(false);
+    await waitFor(() =>
+      expect(
+        screen.getByTestId('host-browser-surface').querySelector('img')
+      ).toBeNull()
+    );
   });
 
   it('freezes a page screenshot before hiding the native surface under a popover', async () => {

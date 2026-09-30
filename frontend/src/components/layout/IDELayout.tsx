@@ -49,6 +49,7 @@ import {
 import { useWorktree } from '@/contexts/WorktreeContext';
 import { useAgentLongRunningTerminals } from '@/hooks/useAgentLongRunningTerminals';
 import { useWorkspaceOverlay } from '@/contexts/WorkspaceOverlayContext';
+import { chromeHidesNativeSurface } from '@/lib/nativeSurfaceHandoff';
 import { BrowserEvalConfirm } from '@/features/host-browser/BrowserEvalConfirm';
 import { KeepAliveSurface } from '@/components/layout/KeepAliveSurface';
 import {
@@ -1116,25 +1117,21 @@ export function IDELayout({
     }
   }, [rebuildDefaultLayout, serializedLayout]);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     const api = apiRef.current;
     if (!api) return;
     if (effectiveActiveTab !== 'workspace') return;
     if (isWorkspaceEditorAreaCollapsed) return;
 
-    const frame = requestAnimationFrame(() => {
-      try {
-        ensureWorkspacePanelsVisible(api);
-      } catch (error) {
-        console.warn(
-          'Failed to restore workspace panels, rebuilding layout.',
-          error
-        );
-        rebuildDefaultLayout(api);
-      }
-    });
-
-    return () => cancelAnimationFrame(frame);
+    try {
+      ensureWorkspacePanelsVisible(api);
+    } catch (error) {
+      console.warn(
+        'Failed to restore workspace panels, rebuilding layout.',
+        error
+      );
+      rebuildDefaultLayout(api);
+    }
   }, [
     effectiveActiveTab,
     effectiveWorkspaceId,
@@ -1145,7 +1142,7 @@ export function IDELayout({
 
   // Surfaces that declare hidesBottomDock replace the dock/workspace/terminal
   // zones; only the session zone stays interactive next to them.
-  useEffect(() => {
+  useLayoutEffect(() => {
     const api = apiRef.current;
     if (!api || !hidesBottomDock) return;
 
@@ -1168,7 +1165,9 @@ export function IDELayout({
   }, [arrangement, applyArrangement]);
 
   // Session zone visibility follows the store flag and content availability.
-  useEffect(() => {
+  // Layout-phase so the native browser host measures the destination split
+  // before the HWND is allowed to paint.
+  useLayoutEffect(() => {
     const api = apiRef.current;
     if (!api) return;
 
@@ -1300,10 +1299,36 @@ export function IDELayout({
 
   const { setChromeOccluded } = useWorkspaceOverlay();
   useLayoutEffect(() => {
-    setChromeOccluded(
-      tabContextMenu !== null || effectiveActiveTab !== 'workspace'
-    );
-  }, [effectiveActiveTab, setChromeOccluded, tabContextMenu]);
+    if (chromeHidesNativeSurface(effectiveActiveTab, tabContextMenu !== null)) {
+      setChromeOccluded(true);
+      return;
+    }
+    const api = apiRef.current;
+    if (api && !isWorkspaceEditorAreaCollapsed) {
+      try {
+        ensureWorkspacePanelsVisible(api);
+      } catch {
+        // HostBrowserPanel still waits for a stable destination slot.
+      }
+      const shouldShow = isRightPanelVisible && !!rightPanelContent;
+      const rightGroup =
+        getRightGroup(api) ??
+        (shouldShow ? ensureSessionPanel(api) : undefined);
+      if (rightGroup) {
+        setColumnVisible(api, getLayoutArrangement(), rightGroup, shouldShow);
+      }
+    }
+    setChromeOccluded(false);
+  }, [
+    effectiveActiveTab,
+    ensureSessionPanel,
+    ensureWorkspacePanelsVisible,
+    isRightPanelVisible,
+    isWorkspaceEditorAreaCollapsed,
+    rightPanelContent,
+    setChromeOccluded,
+    tabContextMenu,
+  ]);
   useLayoutEffect(() => {
     return () => setChromeOccluded(false);
   }, [setChromeOccluded]);

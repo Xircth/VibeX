@@ -27,6 +27,8 @@ import {
   resetNodeSize,
   resizeNode,
   reuseUnchangedFlowNode,
+  applyDragOverlayToFlowNode,
+  canvasHasLiveSurfaces,
   sameSessionLinks,
   canvasNodeId,
   openWindowSessionIds,
@@ -163,6 +165,33 @@ describe('reuseUnchangedFlowNode', () => {
     });
     expect(next.data.count).toBe(2);
     expect(next).not.toBe(previous);
+  });
+});
+
+describe('drag overlay', () => {
+  it('moves only the overlaid flow node', () => {
+    const card = {
+      id: canvasNodeId('a'),
+      type: 'sessionCard',
+      selected: false,
+      width: CARD_WIDTH,
+      height: CARD_HEIGHT,
+      position: { x: 10, y: 20 },
+      data: { sessionId: 'a' },
+    };
+    const overlay = new Map([['a', { x: 80, y: 40 }]]);
+    expect(applyDragOverlayToFlowNode(card, overlay).position).toEqual({
+      x: 80,
+      y: 40,
+    });
+    expect(applyDragOverlayToFlowNode(card, new Map()).position).toEqual(
+      card.position
+    );
+  });
+
+  it('treats an expanded conversation as a live surface that must stay mounted', () => {
+    expect(canvasHasLiveSurfaces([node('a', 0, 0)])).toBe(false);
+    expect(canvasHasLiveSurfaces([node('a', 0, 0, true)])).toBe(true);
   });
 });
 

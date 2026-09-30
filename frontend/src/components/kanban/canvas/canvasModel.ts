@@ -643,3 +643,21 @@ export function reuseUnchangedFlowNode<T extends ReusableFlowNode>(
   }
   return dataUnchanged ? { ...next, data: previous.data } : next;
 }
+
+export function applyDragOverlayToFlowNode<T extends ReusableFlowNode>(
+  node: T,
+  overlay: ReadonlyMap<string, { x: number; y: number }>
+): T {
+  const instanceId = parseCanvasNodeId(node.id);
+  if (!instanceId) return node;
+  const pos = overlay.get(instanceId);
+  if (!pos) return node;
+  if (pos.x === node.position.x && pos.y === node.position.y) return node;
+  return { ...node, position: pos };
+}
+
+export function canvasHasLiveSurfaces(
+  nodes: readonly SessionCanvasNode[]
+): boolean {
+  return nodes.some((node) => node.kind !== 'group' && node.expanded);
+}

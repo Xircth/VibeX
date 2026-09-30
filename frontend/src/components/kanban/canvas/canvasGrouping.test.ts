@@ -14,6 +14,8 @@ import {
   GROUP_PAD,
   MAX_GROUP_ROWS,
   applyFlowGeometryChanges,
+  applyDragOverlayToCanvasNodes,
+  dragOverlayFromPositionChanges,
   groupHasRunningSession,
   lastSelectedCanvasSessionId,
   selectedSessionIdsForViewed,
@@ -677,6 +679,61 @@ describe('grouping', () => {
       width: DETAIL_CARD_WIDTH,
       height: DETAIL_CARD_HEIGHT,
     });
+  });
+
+  it('keeps live drag positions in a transient overlay instead of rewriting the document', () => {
+    const card = createCanvasNode('sess-a', { x: 0, y: 0 }, 'a');
+    const overlay = dragOverlayFromPositionChanges(
+      [card],
+      [
+        {
+          id: canvasNodeId('a'),
+          type: 'position',
+          position: { x: 80, y: 40 },
+          dragging: true,
+        },
+      ],
+      new Map(),
+      { dx: 4, dy: 0 }
+    );
+    expect(overlay.get('a')).toEqual({ x: 84, y: 40 });
+    expect(card.x).toBe(0);
+    expect(card.y).toBe(0);
+    expect(
+      applyDragOverlayToCanvasNodes([card], overlay).find(
+        (node) => node.id === 'a'
+      )
+    ).toMatchObject({ x: 84, y: 40 });
+  });
+
+  it('does not overlay child cards while their group is the drag primary', () => {
+    const a = createCanvasNode('sess-a', { x: 12, y: 56 }, 'a');
+    const b = createCanvasNode('sess-b', { x: 40, y: 56 }, 'b');
+    const grouped = groupSelection([a, b], new Set(['a', 'b']), 'G');
+    const group = grouped.find((node) => node.kind === 'group')!;
+    const overlay = dragOverlayFromPositionChanges(
+      grouped,
+      [
+        {
+          id: canvasNodeId(group.id),
+          type: 'position',
+          position: { x: group.x + 80, y: group.y + 40 },
+          dragging: true,
+        },
+        {
+          id: canvasNodeId('a'),
+          type: 'position',
+          position: { x: 999, y: 999 },
+          dragging: true,
+        },
+      ],
+      new Map()
+    );
+    expect(overlay.get(group.id)).toEqual({
+      x: group.x + 80,
+      y: group.y + 40,
+    });
+    expect(overlay.has('a')).toBe(false);
   });
 
   it('collapses an expanded window dropped onto a group and keeps the card in the group', () => {

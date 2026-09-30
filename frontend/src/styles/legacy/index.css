@@ -7,8 +7,8 @@
 /* 1) THEME TOKENS scoped to .legacy-design */
 @layer base {
   .legacy-design {
-    /* 避免主题闪烁：不设置默认 color-scheme，由 CSS 变量根据 .dark 类动态设置 */
-    color-scheme: light dark;
+    /* Definite scheme: `light dark` makes WebView2 paint Win11 text fields. */
+    color-scheme: light;
     /* Ayu Light */
     --_background: 0 0% 98%;
     --_foreground: 213 10% 37%;
@@ -743,24 +743,6 @@
   }
 
   .legacy-design
-    :is(.astryx-text-input, .astryx-textarea)
-    :is(input, textarea) {
-    appearance: none !important;
-    -webkit-appearance: none !important;
-    border: 0 !important;
-    border-radius: 0 !important;
-    background: transparent !important;
-    box-shadow: none !important;
-    outline: none !important;
-    height: auto !important;
-    min-height: 0 !important;
-    max-height: none !important;
-    padding: 0 !important;
-    margin: 0 !important;
-    text-indent: 0 !important;
-  }
-
-  .legacy-design
     .settings-page
     :is(.astryx-text-input, .astryx-textarea)
     :is(input, textarea) {
@@ -880,6 +862,46 @@
   .legacy-design .logo {
     @apply fill-foreground;
   }
+}
+
+/* Unlayered: WebView2 native Win11 text-field painting is not a CSS
+   background. Layered `appearance: none` loses to that UA chrome while
+   `color-scheme` is `light dark` (Astryx reset on html). Astryx Field
+   owns the frame; the inner control is a transparent CSS box with a
+   definite scheme that follows the app theme, not the OS. */
+html {
+  color-scheme: light;
+}
+
+html.dark {
+  color-scheme: dark;
+}
+
+.legacy-design :is(.astryx-text-input, .astryx-textarea) :is(input, textarea) {
+  appearance: none !important;
+  -webkit-appearance: none !important;
+  color-scheme: light;
+  border: 0 !important;
+  border-radius: 0 !important;
+  background: transparent !important;
+  box-shadow: none !important;
+  outline: none !important;
+  height: auto !important;
+  min-height: 0 !important;
+  max-height: none !important;
+  padding: 0 !important;
+  margin: 0 !important;
+  text-indent: 0 !important;
+}
+
+.legacy-design.dark
+  :is(.astryx-text-input, .astryx-textarea)
+  :is(input, textarea),
+.dark
+  .legacy-design
+  :is(.astryx-text-input, .astryx-textarea)
+  :is(input, textarea) {
+  color-scheme: dark;
 }
 
 @layer components {

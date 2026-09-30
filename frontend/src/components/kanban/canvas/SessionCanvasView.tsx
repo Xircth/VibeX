@@ -19,6 +19,7 @@ import {
   SelectionMode,
   ViewportPortal,
   useReactFlow,
+  useStore,
   type Node,
   type NodeChange,
   type NodeTypes,
@@ -46,6 +47,7 @@ import { SessionCanvasDetailNode } from './SessionCanvasDetailNode';
 import { SessionCanvasDock } from './SessionCanvasDock';
 import { SessionCanvasGroupNode } from './SessionCanvasGroupNode';
 import {
+  applyAlignmentDeltaToOverlay,
   applyDragOverlayToCanvasNodes,
   applyDropHint,
   buildCanvasFlowLookups,
@@ -295,6 +297,7 @@ function SessionCanvasFlow({
   const listVisible = useKanbanCanvasListVisible();
   const { fitView, setCenter, screenToFlowPosition, getViewport, setViewport } =
     useReactFlow();
+  const viewportZoom = useStore((state) => state.transform[2]);
   const surfaceRef = useRef<HTMLDivElement>(null);
   const onMiddleClickRef = useRef<(event: MouseEvent) => void>(() => {});
   const onMiddleClick = useCallback((event: MouseEvent) => {
@@ -403,7 +406,23 @@ function SessionCanvasFlow({
     window.addEventListener('pointerdown', onPointerDown);
     return () => window.removeEventListener('pointerdown', onPointerDown);
   }, [selectionMenu]);
-  const lastSnapRef = useRef({ dx: 0, dy: 0 });
+  const altHeldRef = useRef(false);
+  useEffect(() => {
+    const sync = (event: KeyboardEvent) => {
+      altHeldRef.current = event.altKey;
+    };
+    const clear = () => {
+      altHeldRef.current = false;
+    };
+    window.addEventListener('keydown', sync);
+    window.addEventListener('keyup', sync);
+    window.addEventListener('blur', clear);
+    return () => {
+      window.removeEventListener('keydown', sync);
+      window.removeEventListener('keyup', sync);
+      window.removeEventListener('blur', clear);
+    };
+  }, []);
   const alignCandidatesRef = useRef<CanvasRect[]>([]);
   const alignPrimaryRef = useRef<{
     id: string;
@@ -412,6 +431,7 @@ function SessionCanvasFlow({
   } | null>(null);
   const flowNodeCacheRef = useRef(new Map<string, Node>());
   const zoomRef = useRef(documentState.viewport?.zoom ?? 1);
+  zoomRef.current = viewportZoom;
   const pendingViewport = useRef<Viewport | null>(documentState.viewport);
   const saveTimer = useRef<number | null>(null);
   const documentRef = useRef(documentState);
@@ -973,9 +993,7 @@ function SessionCanvasFlow({
         : []
     );
     const primary = alignPrimaryRef.current;
-    let snapDx = lastSnapRef.current.dx;
-    let snapDy = lastSnapRef.current.dy;
-    if (primary) {
+    if (primary && !altHeldRef.current) {
       const lead = geometryChanges.find(
         (change) =>
           change.type === 'position' &&
@@ -992,28 +1010,21 @@ function SessionCanvasFlow({
             height: primary.height,
           },
           alignCandidatesRef.current,
-          ALIGN_TOLERANCE_PX / Math.max(zoomRef.current, 0.01),
-          BOARD_DOT_GAP
+          ALIGN_TOLERANCE_PX / Math.max(zoomRef.current, 0.01)
         );
-        snapDx = alignment.dx;
-        snapDy = alignment.dy;
-        lastSnapRef.current = { dx: snapDx, dy: snapDy };
         setAlignGuides((current) =>
           alignGuidesEqual(current, alignment.guides)
             ? current
             : alignment.guides
         );
       }
-    } else {
-      snapDx = 0;
-      snapDy = 0;
-      lastSnapRef.current = { dx: 0, dy: 0 };
+    } else if (primary && altHeldRef.current) {
+      setAlignGuides((current) => (current.length === 0 ? current : []));
     }
     const nextOverlay = dragOverlayFromPositionChanges(
       documentRef.current.nodes,
       geometryChanges,
-      dragOverlayRef.current,
-      { dx: snapDx, dy: snapDy }
+      dragOverlayRef.current
     );
     if (nextOverlay !== dragOverlayRef.current) {
       dragOverlayRef.current = nextOverlay;
@@ -1053,7 +1064,6 @@ function SessionCanvasFlow({
     const instanceId = parseCanvasNodeId(dragged.id);
     if (!instanceId) return;
     setDraggedId(instanceId);
-    lastSnapRef.current = { dx: 0, dy: 0 };
     const items = documentRef.current.nodes;
     const model = nodeById(items, instanceId);
     const moving = new Set<string>([instanceId]);
@@ -1104,11 +1114,7 @@ function SessionCanvasFlow({
     const items = documentRef.current.nodes;
     const model = nodeById(items, instanceId);
     if (!model) return;
-    const snap = lastSnapRef.current;
-    const world = flowPositionToWorld(items, model, {
-      x: dragged.position.x + snap.dx,
-      y: dragged.position.y + snap.dy,
-    });
+    const world = flowPositionToWorld(items, model, dragged.position);
     const hint = visualDropHint(computeDropHint(items, instanceId, world));
     setDropHint((current) => (dropHintsEqual(current, hint) ? current : hint));
   }, []);
@@ -1116,18 +1122,40 @@ function SessionCanvasFlow({
   const handleNodeDragStop = useCallback(
     (_event: unknown, dragged: Node) => {
       const instanceId = parseCanvasNodeId(dragged.id);
-      lastSnapRef.current = { dx: 0, dy: 0 };
+      const overlay = dragOverlayRef.current;
+      const primary = alignPrimaryRef.current;
+      let commitSnap = { dx: 0, dy: 0 };
+      if (instanceId && primary && !altHeldRef.current) {
+        const live = overlay.get(instanceId) ?? {
+          x: dragged.position.x,
+          y: dragged.position.y,
+        };
+        const model = nodeById(documentRef.current.nodes, instanceId);
+        const size = model ? sizeForNode(model) : { width: 0, height: 0 };
+        commitSnap = computeAlignment(
+          {
+            id: instanceId,
+            x: live.x,
+            y: live.y,
+            width: primary?.width ?? size.width,
+            height: primary?.height ?? size.height,
+          },
+          alignCandidatesRef.current,
+          ALIGN_TOLERANCE_PX / Math.max(zoomRef.current, 0.01),
+          BOARD_DOT_GAP
+        );
+      }
       alignPrimaryRef.current = null;
       alignCandidatesRef.current = [];
-      const overlay = dragOverlayRef.current;
       setAlignGuides([]);
       setDropHint(null);
       setDraggedId(null);
       setDragOverlay(new Map());
       dragOverlayRef.current = new Map();
       if (!instanceId) return;
+      const committed = applyAlignmentDeltaToOverlay(overlay, commitSnap);
       updateNodes((items) => {
-        const snapped = applyDragOverlayToCanvasNodes(items, overlay);
+        const snapped = applyDragOverlayToCanvasNodes(items, committed);
         const current = nodeById(snapped, instanceId);
         if (!current) return snapped;
         if (current.expanded) return snapped;

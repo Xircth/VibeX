@@ -864,11 +864,11 @@
   }
 }
 
-/* Unlayered: WebView2 native Win11 text-field painting is not a CSS
-   background. Layered `appearance: none` loses to that UA chrome while
-   `color-scheme` is `light dark` (Astryx reset on html). Astryx Field
-   owns the frame; the inner control is a transparent CSS box with a
-   definite scheme that follows the app theme, not the OS. */
+/* Unlayered: WebView2 paints Win11 text fields for every native
+   <input>/<textarea>. Dual `color-scheme` and a transparent fill let
+   that OS chrome show through, including inside Astryx Field. Make
+   every text control a CSS box with a definite scheme and an opaque
+   fill. Composer stays contenteditable and is unaffected. */
 html {
   color-scheme: light;
 }
@@ -877,13 +877,64 @@ html.dark {
   color-scheme: dark;
 }
 
+.legacy-design
+  :is(
+    input:not([type='checkbox']):not([type='radio']):not([type='file']):not(
+        [type='range']
+      ):not([type='color']):not([type='hidden']):not([type='button']):not(
+        [type='submit']
+      ):not([type='reset']):not([type='image']),
+    textarea
+  ) {
+  appearance: none !important;
+  -webkit-appearance: none !important;
+  color-scheme: light;
+}
+
+.legacy-design.dark
+  :is(
+    input:not([type='checkbox']):not([type='radio']):not([type='file']):not(
+        [type='range']
+      ):not([type='color']):not([type='hidden']):not([type='button']):not(
+        [type='submit']
+      ):not([type='reset']):not([type='image']),
+    textarea
+  ),
+.dark
+  .legacy-design
+  :is(
+    input:not([type='checkbox']):not([type='radio']):not([type='file']):not(
+        [type='range']
+      ):not([type='color']):not([type='hidden']):not([type='button']):not(
+        [type='submit']
+      ):not([type='reset']):not([type='image']),
+    textarea
+  ) {
+  color-scheme: dark;
+}
+
+.legacy-design
+  :is(
+    input:not([type='checkbox']):not([type='radio']):not([type='file']):not(
+        [type='range']
+      ):not([type='color']):not([type='hidden']):not([type='button']):not(
+        [type='submit']
+      ):not([type='reset']):not([type='image']),
+    textarea
+  ):not(
+    :where(.astryx-text-input *, .astryx-textarea *, textarea.notes-editor)
+  ) {
+  background-color: var(--surface-raised-control);
+}
+
 .legacy-design :is(.astryx-text-input, .astryx-textarea) :is(input, textarea) {
   appearance: none !important;
   -webkit-appearance: none !important;
   color-scheme: light;
   border: 0 !important;
   border-radius: 0 !important;
-  background: transparent !important;
+  background-color: inherit !important;
+  background-image: none !important;
   box-shadow: none !important;
   outline: none !important;
   height: auto !important;
@@ -902,6 +953,19 @@ html.dark {
   :is(.astryx-text-input, .astryx-textarea)
   :is(input, textarea) {
   color-scheme: dark;
+}
+
+.legacy-design input::-ms-reveal,
+.legacy-design input::-ms-clear {
+  display: none;
+}
+
+.legacy-design input[type='search']::-webkit-search-decoration,
+.legacy-design input[type='search']::-webkit-search-cancel-button,
+.legacy-design input[type='search']::-webkit-search-results-button,
+.legacy-design input[type='search']::-webkit-search-results-decoration {
+  appearance: none;
+  -webkit-appearance: none;
 }
 
 @layer components {

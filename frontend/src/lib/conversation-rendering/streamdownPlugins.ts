@@ -104,46 +104,6 @@ function splitFencedCodeSegments(value: string): FenceSegment[] {
   return segments;
 }
 
-function normalizeInlineMathSegments(value: string): string {
-  let result = '';
-  let index = 0;
-
-  while (index < value.length) {
-    if (value[index] !== '`') {
-      const nextTick = value.indexOf('`', index);
-      const textSegment =
-        nextTick === -1 ? value.slice(index) : value.slice(index, nextTick);
-      result += convertTexMathDelimiters(textSegment);
-      index = nextTick === -1 ? value.length : nextTick;
-      continue;
-    }
-
-    const tickRunMatch = value.slice(index).match(/^`+/);
-    const tickRun = tickRunMatch?.[0] ?? '`';
-    const closingIndex = value.indexOf(tickRun, index + tickRun.length);
-
-    if (closingIndex === -1) {
-      result += value.slice(index);
-      break;
-    }
-
-    result += value.slice(index, closingIndex + tickRun.length);
-    index = closingIndex + tickRun.length;
-  }
-
-  return result;
-}
-
-function convertTexMathDelimiters(value: string): string {
-  return value
-    .replace(/\\\[([\s\S]+?)\\\]/g, (_match, content: string) => {
-      return `$$${content}$$`;
-    })
-    .replace(/\\\(([\s\S]+?)\\\)/g, (_match, content: string) => {
-      return `$${content}$`;
-    });
-}
-
 function markdownTableCells(line: string): string[] {
   const trimmed = line.trim().replace(/^\|/, '').replace(/\|$/, '');
   if (!trimmed.includes('|')) return [];
@@ -307,8 +267,7 @@ function transformTextSegment(
 ): string {
   const withImages = normalizeBareImageReferences(text);
   const withTables = normalizeLooseTableRowsInText(withImages);
-  const withMath = normalizeInlineMathSegments(withTables);
-  return options.softBreaks ? applySoftBreaksToText(withMath) : withMath;
+  return options.softBreaks ? applySoftBreaksToText(withTables) : withTables;
 }
 
 function transformSegment(

@@ -40,7 +40,10 @@ import {
   NativeSurfaceOcclusionHold,
   useWorkspaceOverlay,
 } from '@/contexts/WorkspaceOverlayContext';
-import { overlayCoversSurface } from '@/lib/nativeSurfaceOverlay';
+import {
+  nativeSurfaceNeedsFreezeFrame,
+  overlayCoversSurface,
+} from '@/lib/nativeSurfaceOverlay';
 import { requestBrowserTabOpen } from './openBrowserTab';
 import { backendCall, backendListen } from '@/lib/backendTransport';
 import { getInvokeErrorMessage } from '@/lib/errors';
@@ -208,6 +211,20 @@ function nextPaint(): Promise<void> {
         resolve();
       })
     );
+  });
+}
+
+function nextFrame(): Promise<void> {
+  return new Promise((resolve) => {
+    if (typeof requestAnimationFrame !== 'function') {
+      resolve();
+      return;
+    }
+    const timer = window.setTimeout(resolve, 32);
+    requestAnimationFrame(() => {
+      window.clearTimeout(timer);
+      resolve();
+    });
   });
 }
 
@@ -564,15 +581,32 @@ export function HostBrowserPanel({
       if (bounds.visible && bounds.width >= 32 && bounds.height >= 32) {
         return bounds;
       }
-      await new Promise<void>((resolve) => {
-        requestAnimationFrame(() => resolve());
-      });
+      await nextFrame();
     }
     return measureSurface(
       hostRef.current,
       visibleRef.current,
       occludedRef.current
     );
+  }, []);
+
+  const waitForStableSurfaceBounds = useCallback(async () => {
+    let last = '';
+    let matches = 0;
+    for (let i = 0; i < 16; i += 1) {
+      const bounds = measureSurface(hostRef.current, visibleRef.current, false);
+      const laidOut = bounds.width >= 32 && bounds.height >= 32;
+      const signature = boundsKey({ ...bounds, visible: true });
+      if (laidOut && signature === last) {
+        matches += 1;
+        if (matches >= 1) return bounds;
+      } else {
+        matches = 0;
+        last = signature;
+      }
+      await nextFrame();
+    }
+    return measureSurface(hostRef.current, visibleRef.current, false);
   }, []);
 
   const openTab = useCallback(
@@ -772,8 +806,13 @@ export function HostBrowserPanel({
       const seq = hideSeqRef.current;
       hideTargetRef.current = hide;
       if (!hide) {
-        occludedRef.current = false;
+        occludedRef.current = true;
         void (async () => {
+          await syncBounds();
+          if (hideSeqRef.current !== seq) return;
+          await waitForStableSurfaceBounds();
+          if (hideSeqRef.current !== seq) return;
+          occludedRef.current = false;
           await syncBounds();
           if (hideSeqRef.current !== seq) return;
           await nextPaint();
@@ -782,6 +821,16 @@ export function HostBrowserPanel({
           hideTargetRef.current = null;
           overlay.ackOverlayReady();
         })();
+        return;
+      }
+      if (!nativeSurfaceNeedsFreezeFrame(occlusion)) {
+        occludedRef.current = true;
+        setFrozen(null);
+        void syncBounds().finally(() => {
+          if (hideSeqRef.current !== seq) return;
+          hideTargetRef.current = null;
+          overlay.ackOverlayReady();
+        });
         return;
       }
       void (async () => {
@@ -807,7 +856,7 @@ export function HostBrowserPanel({
         overlay.ackOverlayReady();
       })();
     });
-  }, [overlay, syncBounds]);
+  }, [overlay, syncBounds, waitForStableSurfaceBounds]);
 
   useEffect(() => {
     const prefetch = () => {

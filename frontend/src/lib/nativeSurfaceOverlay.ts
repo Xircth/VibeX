@@ -32,3 +32,15 @@ export function overlayCoversSurface(
 ): boolean {
   return overlays.some((overlay) => intersects(surface, withPadding(overlay)));
 }
+
+/**
+ * Freeze-then-hide is only for HTML layers that need a still of the page
+ * underneath. Full chrome occlusion (kanban / workspace tab switch) must
+ * drop the native HWND in the same frame, or the live page sits on top of
+ * the next surface until CapturePreview finishes.
+ */
+export function nativeSurfaceNeedsFreezeFrame(occlusion: {
+  hide: boolean;
+}): boolean {
+  return !occlusion.hide;
+}

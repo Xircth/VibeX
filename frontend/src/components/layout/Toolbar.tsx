@@ -73,6 +73,7 @@ import { contributionIconComponent } from '@/components/plugins/contributionIcon
 import { createPluginControlApi } from '@/lib/api/plugins';
 import { useBackendTransport } from '@/lib/transport';
 import { logoLeadsWindowChrome } from '@/utils/platform';
+import { useWorkspaceOverlay } from '@/contexts/WorkspaceOverlayContext';
 import { MoreHorizontal } from 'lucide-react';
 
 function ToolbarDivider() {
@@ -454,6 +455,7 @@ function WorkspaceTabSwitcher() {
     enabled: Boolean(primaryRepo?.id),
   });
   const { activeTab, setActiveTab } = useLayoutStore();
+  const { setChromeOccluded } = useWorkspaceOverlay();
   const pluginTabs = usePluginHostContributions('app_tab');
   const kanbanViews = useKanbanViews();
   const routeTab = workspaceId || sessionId ? 'workspace' : null;
@@ -519,6 +521,9 @@ function WorkspaceTabSwitcher() {
 
   const handleTabSelect = useCallback(
     (tab: WorkspaceTab) => {
+      if (tab !== 'workspace') {
+        setChromeOccluded(true);
+      }
       if (!projectId) {
         startTransition(() => {
           setActiveTab(tab);
@@ -599,6 +604,7 @@ function WorkspaceTabSwitcher() {
       resolveFallbackWorktree,
       setActiveTab,
       setActiveWorktree,
+      setChromeOccluded,
     ]
   );
 

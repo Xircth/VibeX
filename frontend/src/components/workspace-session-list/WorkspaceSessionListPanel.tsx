@@ -149,7 +149,6 @@ function WorkspaceSessionListPanel(_props: IDockviewPanelProps) {
     getWorkspaceRepoInputs: () => [],
     placeCreatedSession: () => undefined,
     addPendingCreatedSession: () => undefined,
-    clearCreateSessionName: () => undefined,
     closeCreatePopover: () => undefined,
   });
 

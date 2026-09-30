@@ -176,8 +176,6 @@ function renderForm(
       workspaceBranchOptions={[workspaceOption]}
       selectedWorkspaceValue={workspaceOption.value}
       onSelectedWorkspaceValueChange={() => {}}
-      sessionName=""
-      onSessionNameChange={() => {}}
       profiles={{}}
       selectedExecutorProfile={{ executor: selectedExecutor, variant: null }}
       onSelectedExecutorProfileChange={() => {}}
@@ -259,25 +257,15 @@ describe('SessionCreationForm agent capability catalog controls', () => {
     ]);
   });
 
-  it('uses an Astryx text input for the optional session name', async () => {
+  it('does not ask for a session name', async () => {
     renderForm('grok', vi.fn());
 
-    const input = await screen.findByRole('textbox', {
-      name: 'sessionCreation.sessionNameLabel',
-    });
-    const field = input.closest('.astryx-text-input');
-
-    expect(field).toBeTruthy();
-    expect(field).toHaveAttribute('data-size', 'md');
-    expect(field).not.toHaveClass('lg');
-    expect(field).not.toHaveClass('[&_input]:text-sm');
-    expect(field).not.toHaveStyle({
-      backgroundColor: 'var(--surface-control)',
-    });
-    expect(input).toHaveAttribute(
-      'placeholder',
-      'sessionCreation.sessionNamePlaceholder'
-    );
+    expect(
+      screen.queryByText('sessionCreation.sessionNameLabel')
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByPlaceholderText('sessionCreation.sessionNamePlaceholder')
+    ).not.toBeInTheDocument();
   });
 
   it('does not recommend switching away from a non-worktree project branch', async () => {
@@ -586,8 +574,6 @@ describe('SessionCreationForm agent capability catalog controls', () => {
         workspaceBranchOptions={[WORKSPACE_OPTION]}
         selectedWorkspaceValue={WORKSPACE_OPTION.value}
         onSelectedWorkspaceValueChange={() => {}}
-        sessionName=""
-        onSessionNameChange={() => {}}
         profiles={{}}
         selectedExecutorProfile={{
           executor: 'claude_code',
@@ -902,8 +888,6 @@ describe('SessionCreationForm agent capability catalog controls', () => {
             workspaceBranchOptions={[WORKSPACE_OPTION]}
             selectedWorkspaceValue={WORKSPACE_OPTION.value}
             onSelectedWorkspaceValueChange={() => {}}
-            sessionName=""
-            onSessionNameChange={() => {}}
             profiles={{}}
             selectedExecutorProfile={{
               executor: 'claude_code',
@@ -1103,8 +1087,6 @@ describe('SessionCreationForm git initialization status', () => {
             workspaceBranchOptions={[]}
             selectedWorkspaceValue=""
             onSelectedWorkspaceValueChange={() => {}}
-            sessionName=""
-            onSessionNameChange={() => {}}
             profiles={{}}
             selectedExecutorProfile={{ executor: 'claude_code', variant: null }}
             onSelectedExecutorProfileChange={() => {}}
@@ -1143,8 +1125,6 @@ describe('SessionCreationForm git initialization status', () => {
             workspaceBranchOptions={[]}
             selectedWorkspaceValue=""
             onSelectedWorkspaceValueChange={() => {}}
-            sessionName=""
-            onSessionNameChange={() => {}}
             profiles={{}}
             selectedExecutorProfile={{ executor: 'claude_code', variant: null }}
             onSelectedExecutorProfileChange={() => {}}

@@ -16,8 +16,6 @@ interface CanvasCreateSessionPanelProps {
   workspaceBranchOptions: WorkspaceBranchOption[];
   createWorkspaceValue: string;
   onCreateWorkspaceValueChange: (value: string) => void;
-  createSessionName: string;
-  onCreateSessionNameChange: (value: string) => void;
   profiles: ExecutorConfigs['executors'] | null;
   selectedExecutorProfile: ExecutorProfileId | null;
   onSelectedExecutorProfileChange: (value: ExecutorProfileId) => void;
@@ -41,8 +39,6 @@ export function CanvasCreateSessionPanel({
   workspaceBranchOptions,
   createWorkspaceValue,
   onCreateWorkspaceValueChange,
-  createSessionName,
-  onCreateSessionNameChange,
   profiles,
   selectedExecutorProfile,
   onSelectedExecutorProfileChange,
@@ -77,8 +73,6 @@ export function CanvasCreateSessionPanel({
           workspaceBranchOptions={workspaceBranchOptions}
           selectedWorkspaceValue={createWorkspaceValue}
           onSelectedWorkspaceValueChange={onCreateWorkspaceValueChange}
-          sessionName={createSessionName}
-          onSessionNameChange={onCreateSessionNameChange}
           profiles={profiles}
           selectedExecutorProfile={selectedExecutorProfile}
           onSelectedExecutorProfileChange={onSelectedExecutorProfileChange}

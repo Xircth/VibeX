@@ -14,7 +14,6 @@ import {
 
 export interface CreateKanbanSessionMutationInput {
   workspaceValue: string;
-  sessionName: string;
   executorProfile: ExecutorProfileId | null;
   mode: KanbanSessionCreationMode;
   /** ACP control picks made in the create form, applied to the new Session. */
@@ -36,7 +35,6 @@ export function useKanbanSessionMutations({
   getWorkspaceRepoInputs,
   placeCreatedSession,
   addPendingCreatedSession,
-  clearCreateSessionName,
   closeCreatePopover,
 }: {
   projectId: string | null | undefined;
@@ -52,7 +50,6 @@ export function useKanbanSessionMutations({
     workspaceId: string;
   }) => void;
   addPendingCreatedSession: (sessionId: string) => void;
-  clearCreateSessionName: () => void;
   closeCreatePopover: () => void;
 }) {
   const queryClient = useQueryClient();
@@ -60,7 +57,6 @@ export function useKanbanSessionMutations({
   const createSessionMutation = useMutation({
     mutationFn: async ({
       workspaceValue,
-      sessionName,
       executorProfile,
       mode,
       sessionControls,
@@ -70,7 +66,6 @@ export function useKanbanSessionMutations({
         ...getCreateProjectSessionRequest({
           projectId,
           workspaceValue,
-          sessionName,
           executorProfile,
           mode,
           workspaceBranchOptions,
@@ -119,7 +114,6 @@ export function useKanbanSessionMutations({
         workspaceId: session.workspace_id,
       });
       addPendingCreatedSession(session.id);
-      clearCreateSessionName();
       closeCreatePopover();
     },
   });

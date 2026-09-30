@@ -256,11 +256,9 @@ export function KanbanSessionHub({
   );
   const [createMode, setCreateMode] =
     useState<SessionCreationMode>('existing_workspace');
-  const [createSessionName, setCreateSessionName] = useState('');
   const [selectedExecutorProfile, setSelectedExecutorProfile] =
     useState<ExecutorProfileId | null>(defaultExecutorProfile);
   const createWorkspaceValueRef = useRef(createWorkspaceValue);
-  const createSessionNameRef = useRef(createSessionName);
   const selectedExecutorProfileRef = useRef(selectedExecutorProfile);
   // Latest ACP control preset picked in the create form (see SessionControlsPreset).
   const sessionControlsPresetRef = useRef<SessionControlsPreset | null>(null);
@@ -339,11 +337,6 @@ export function KanbanSessionHub({
   const updateCreateWorkspaceValue = useCallback((value: string) => {
     createWorkspaceValueRef.current = value;
     setCreateWorkspaceValue(value);
-  }, []);
-
-  const updateCreateSessionName = useCallback((value: string) => {
-    createSessionNameRef.current = value;
-    setCreateSessionName(value);
   }, []);
 
   const updateSelectedExecutorProfile = useCallback(
@@ -515,7 +508,6 @@ export function KanbanSessionHub({
           current.includes(sessionId) ? current : [...current, sessionId]
         );
       },
-      clearCreateSessionName: () => updateCreateSessionName(''),
       closeCreatePopover: () => setIsCreatePopoverOpen(false),
     });
 
@@ -667,7 +659,6 @@ export function KanbanSessionHub({
     if (open) {
       updateCreateWorkspaceValue(defaultWorkspaceValue);
       updateSelectedExecutorProfile(defaultExecutorProfile);
-      updateCreateSessionName('');
       setCreateMode(
         workspaceBranchOptions.length > 0
           ? 'existing_workspace'
@@ -693,7 +684,6 @@ export function KanbanSessionHub({
     createSessionMutation.mutate(
       {
         workspaceValue: createWorkspaceValueRef.current,
-        sessionName: createSessionNameRef.current,
         executorProfile: selectedExecutorProfileRef.current,
         mode: createMode,
         sessionControls: sessionControlsPresetRef.current,
@@ -1194,8 +1184,6 @@ export function KanbanSessionHub({
                   workspaceBranchOptions={workspaceBranchOptions}
                   createWorkspaceValue={createWorkspaceValue}
                   onCreateWorkspaceValueChange={updateCreateWorkspaceValue}
-                  createSessionName={createSessionName}
-                  onCreateSessionNameChange={updateCreateSessionName}
                   profiles={profiles}
                   selectedExecutorProfile={selectedExecutorProfile}
                   onSelectedExecutorProfileChange={

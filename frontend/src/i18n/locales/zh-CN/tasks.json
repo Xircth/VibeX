@@ -134,8 +134,6 @@
     "workspaceBranch": "工作区分支",
     "newWorkspaceHint": "基于 target branch 创建新的 worktree 工作区，然后在其中创建会话。",
     "includeUncommitted": "复制未提交更改",
-    "sessionNameLabel": "会话名称（可选）",
-    "sessionNamePlaceholder": "默认使用自动命名",
     "codingAgent": "编程代理",
     "controlsLoading": "正在准备会话配置…",
     "controlsPrepareFailed": "无法加载 {{agent}} 的会话配置",

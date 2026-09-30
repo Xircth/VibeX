@@ -53,7 +53,6 @@ describe('useKanbanSessionMutations', () => {
     const invalidateSpy = vi.spyOn(queryClient, 'invalidateQueries');
     const placeCreatedSession = vi.fn();
     const addPendingCreatedSession = vi.fn();
-    const clearCreateSessionName = vi.fn();
     const closeCreatePopover = vi.fn();
     const getWorkspaceRepoInputs = vi.fn(() => [
       { repo_id: 'repo-1', target_branch: 'feature/new' },
@@ -82,7 +81,6 @@ describe('useKanbanSessionMutations', () => {
           getWorkspaceRepoInputs,
           placeCreatedSession,
           addPendingCreatedSession,
-          clearCreateSessionName,
           closeCreatePopover,
         }),
       { wrapper }
@@ -91,7 +89,6 @@ describe('useKanbanSessionMutations', () => {
     await act(async () => {
       await result.current.createSessionMutation.mutateAsync({
         workspaceValue: 'workspace:existing',
-        sessionName: '  Ship fix  ',
         executorProfile: executorProfile('codex' as const),
         mode: 'existing_workspace',
         sessionControls: {
@@ -106,7 +103,7 @@ describe('useKanbanSessionMutations', () => {
       workspace_id: 'workspace-1',
       branch: null,
       executor: 'codex' as const,
-      name: 'Ship fix',
+      name: null,
       create_workspace: false,
       repos: undefined,
     });
@@ -144,7 +141,6 @@ describe('useKanbanSessionMutations', () => {
       workspaceId: 'workspace-1',
     });
     expect(addPendingCreatedSession).toHaveBeenCalledWith('session-1');
-    expect(clearCreateSessionName).toHaveBeenCalledTimes(1);
     expect(closeCreatePopover).toHaveBeenCalledTimes(1);
 
     await act(async () => {

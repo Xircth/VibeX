@@ -36,6 +36,10 @@ import {
   type ConversationMarkdownPrepareCache,
 } from '@/lib/conversation-rendering/streamdownPlugins';
 import {
+  MATH_PLACEHOLDER_PATTERN,
+  protectConversationMath,
+} from '@/lib/conversation-rendering/conversationMath';
+import {
   HTML_PLACEHOLDER_PATTERN,
   protectRawHtml,
 } from '@/lib/conversation-rendering/rawHtml';
@@ -328,33 +332,6 @@ function createMarkdownComponents({
   };
 }
 
-/**
- * Extract `$…$` / `$$…$$` math (after delimiter normalization) and replace it
- * with opaque placeholders so the Astryx parser cannot split math on escape
- * sequences (`\int` becomes plain `int`) or break multi-line `$$` blocks into
- * separate paragraphs. The KaTeX inline plugin restores the original text.
- */
-function protectMathSegments(value: string): {
-  text: string;
-  math: { tex: string; display: boolean }[];
-} {
-  const math: { tex: string; display: boolean }[] = [];
-  const text = value.replace(
-    /\$\$([\s\S]+?)\$\$|\$([^$\n]+?)\$/g,
-    (_match, block: string | undefined, inline: string | undefined) => {
-      const index = math.length;
-      math.push({
-        tex: block ?? inline ?? '',
-        display: block !== undefined,
-      });
-      return `\uE000MATH${index}\uE000`;
-    }
-  );
-  return { text, math };
-}
-
-const MATH_PLACEHOLDER_PATTERN = /\uE000MATH(\d+)\uE000/g;
-
 function KatexMath({ tex, display }: { tex: string; display: boolean }) {
   const [html, setHtml] = useState<string | null>(null);
 
@@ -367,6 +344,7 @@ function KatexMath({ tex, display }: { tex: string; display: boolean }) {
           katex.renderToString(tex, {
             displayMode: display,
             throwOnError: false,
+            strict: false,
           })
         );
       })
@@ -432,7 +410,7 @@ export const AstryxMarkdown = memo(function AstryxMarkdown({
       rawHtml !== false
         ? protectRawHtml(withLinks)
         : { text: withLinks, html: [] };
-    const withMath = protectMathSegments(protectedHtml.text);
+    const withMath = protectConversationMath(protectedHtml.text);
     return {
       text: withMath.text,
       math: withMath.math,

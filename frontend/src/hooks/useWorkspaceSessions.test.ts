@@ -67,4 +67,21 @@ describe('reconcileWorkspaceSessionSelection', () => {
       sessionId: 'session-b',
     });
   });
+
+  it('exits new-session mode when the parent jumps to a created or list-selected session', () => {
+    const next = reconcileWorkspaceSessionSelection({
+      prev: { mode: 'new' },
+      sessionIds: ['session-a', 'session-new'],
+      initialSessionId: 'session-new',
+      pendingSessionId: 'session-new',
+      autoSelectFirstSession: true,
+      workspaceChanged: false,
+    });
+
+    expect(next.selection).toEqual({
+      mode: 'existing',
+      sessionId: 'session-new',
+    });
+    expect(next.pendingSessionId).toBeNull();
+  });
 });

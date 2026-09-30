@@ -260,7 +260,7 @@ describe('useCanvasRightDragPan', () => {
     surface.remove();
   });
 
-  it('does not start a right pan from a nopan node', () => {
+  it('pans over a nopan card so right-drag follow stays identical on empty canvas and cards', () => {
     const { surface, ref } = mountSurface();
     const onRightPan = vi.fn();
     const node = document.createElement('div');
@@ -269,6 +269,25 @@ describe('useCanvasRightDragPan', () => {
     renderHook(() => useCanvasRightDragPan(ref, undefined, onRightPan));
 
     node.dispatchEvent(
+      pointer('pointerdown', { button: 2, clientX: 40, clientY: 40 })
+    );
+    window.dispatchEvent(
+      pointer('pointermove', { buttons: 2, clientX: 80, clientY: 80 })
+    );
+
+    expect(onRightPan).toHaveBeenCalled();
+    expect(onRightPan.mock.calls[0]?.[0]).toMatchObject({ x: 40, y: 40 });
+    surface.remove();
+  });
+
+  it('does not pan from a composer or other interactive control', () => {
+    const { surface, ref } = mountSurface();
+    const onRightPan = vi.fn();
+    const input = document.createElement('textarea');
+    surface.appendChild(input);
+    renderHook(() => useCanvasRightDragPan(ref, undefined, onRightPan));
+
+    input.dispatchEvent(
       pointer('pointerdown', { button: 2, clientX: 40, clientY: 40 })
     );
     window.dispatchEvent(

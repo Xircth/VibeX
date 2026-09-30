@@ -1,4 +1,4 @@
-import { useEffect, type RefObject } from 'react';
+import { useEffect, useRef, type RefObject } from 'react';
 import { CANVAS_DROP_IGNORE_SELECTOR } from '@/components/kanban/session-hub/sessionListDrag';
 
 const MIDDLE_BUTTON = 1;
@@ -42,21 +42,18 @@ function isRightPanTarget(
   ) {
     return false;
   }
-  if (
-    target.closest(
-      '.react-flow__nodesselection, .react-flow__nodesselection-rect'
-    )
-  ) {
-    return true;
+  if (target.closest('.react-flow__panel, .react-flow__minimap')) {
+    return false;
   }
-  return !target.closest('.nopan');
+  return true;
 }
 
 /**
- * Own right-button pan in capture. React Flow `panOnDrag={[2]}` plus
- * `onPaneContextMenu` collides click with drag; dropping the click and
- * leaving d3-zoom on button 2 still fails because d3-zoom does not
- * preventDefault on right mousedown, so Chromium never sends mousemove.
+ * Own right-button pan in capture. React Flow cannot pan over `nopan`
+ * cards, so this hook owns the gesture everywhere on the board except
+ * chrome that has its own right-drag (panels, minimap, session list,
+ * form controls). Codeg uses the same split: `panOnDrag={[]}` plus a
+ * window-level mouse pan that starts on cards and empty canvas alike.
  *
  * Pan only after slop. A short press is a no-op (no menu, no pan).
  *
@@ -69,6 +66,11 @@ export function useCanvasRightDragPan(
   onMiddleClick?: (event: PointerEvent | MouseEvent) => void,
   onRightPan?: (delta: CanvasRightPanDelta) => void
 ): void {
+  const onMiddleClickRef = useRef(onMiddleClick);
+  onMiddleClickRef.current = onMiddleClick;
+  const onRightPanRef = useRef(onRightPan);
+  onRightPanRef.current = onRightPan;
+
   useEffect(() => {
     const surface = surfaceRef.current;
     if (!surface) return;
@@ -111,7 +113,7 @@ export function useCanvasRightDragPan(
       event.preventDefault();
       event.stopPropagation();
       if (!isMiddleClick(event)) return;
-      onMiddleClick?.(event);
+      onMiddleClickRef.current?.(event);
     };
 
     const onAuxClick = (event: MouseEvent) => {
@@ -124,7 +126,7 @@ export function useCanvasRightDragPan(
         return;
       }
       pendingMiddle = false;
-      onMiddleClick?.(event);
+      onMiddleClickRef.current?.(event);
     };
 
     const captureRightPointer = (event: PointerEvent | MouseEvent) => {
@@ -188,7 +190,11 @@ export function useCanvasRightDragPan(
         surface.setAttribute('data-canvas-panning', '');
       }
       event.preventDefault();
-      onRightPan?.({ x: dx, y: dy, gestureId: rightSession.gestureId });
+      onRightPanRef.current?.({
+        x: dx,
+        y: dy,
+        gestureId: rightSession.gestureId,
+      });
     };
 
     const finishRight = (event: PointerEvent | MouseEvent) => {
@@ -232,5 +238,5 @@ export function useCanvasRightDragPan(
       window.removeEventListener('pointercancel', finishRight, true);
       window.removeEventListener('blur', endRight);
     };
-  }, [onMiddleClick, onRightPan, surfaceRef]);
+  }, [surfaceRef]);
 }

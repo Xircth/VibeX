@@ -1045,33 +1045,39 @@ impl WorkspacePreparerPort for TauriWorkspacePreparer {
                         return Err(error);
                     }
                 };
-                for repo in repos {
-                    let clean = match state.deployment.git().is_worktree_clean(&repo.path) {
-                        Ok(clean) => clean,
-                        Err(error) => {
-                            let _ = automation_store.release_shared_root(request.run_id).await;
-                            return Err(workspace_adapter_error(error));
+                let git = state.deployment.git().clone();
+                let expected_branch = request.target.branch.clone();
+                let repo_paths: Vec<_> = repos.into_iter().map(|repo| repo.path).collect();
+                let check = tokio::task::spawn_blocking(
+                    move || -> Result<Result<(), WorkspaceError>, git::GitServiceError> {
+                        for path in &repo_paths {
+                            if !git.is_worktree_clean(path)? {
+                                return Ok(Err(WorkspaceError::DirtySharedRoot));
+                            }
+                            let current = git.get_current_branch(path)?;
+                            if let Some(expected) = expected_branch.as_ref()
+                                && expected != &current
+                            {
+                                return Ok(Err(WorkspaceError::WrongBranch {
+                                    expected: expected.clone(),
+                                    actual: current,
+                                }));
+                            }
                         }
-                    };
-                    if !clean {
+                        Ok(Ok(()))
+                    },
+                )
+                .await
+                .map_err(workspace_adapter_error)?;
+                match check {
+                    Ok(Ok(())) => {}
+                    Ok(Err(error)) => {
                         let _ = automation_store.release_shared_root(request.run_id).await;
-                        return Err(WorkspaceError::DirtySharedRoot);
+                        return Err(error);
                     }
-                    let current = match state.deployment.git().get_current_branch(&repo.path) {
-                        Ok(current) => current,
-                        Err(error) => {
-                            let _ = automation_store.release_shared_root(request.run_id).await;
-                            return Err(workspace_adapter_error(error));
-                        }
-                    };
-                    if let Some(expected) = request.target.branch.as_ref()
-                        && expected != &current
-                    {
+                    Err(error) => {
                         let _ = automation_store.release_shared_root(request.run_id).await;
-                        return Err(WorkspaceError::WrongBranch {
-                            expected: expected.clone(),
-                            actual: current,
-                        });
+                        return Err(workspace_adapter_error(error));
                     }
                 }
                 workspace

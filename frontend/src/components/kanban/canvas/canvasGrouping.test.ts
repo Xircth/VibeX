@@ -14,6 +14,7 @@ import {
   GROUP_PAD,
   MAX_GROUP_ROWS,
   applyFlowGeometryChanges,
+  applyAlignmentDeltaToOverlay,
   applyDragOverlayToCanvasNodes,
   dragOverlayFromPositionChanges,
   groupHasRunningSession,
@@ -734,6 +735,25 @@ describe('grouping', () => {
       y: group.y + 40,
     });
     expect(overlay.has('a')).toBe(false);
+  });
+
+  it('keeps live overlay on the pointer and applies snap only when the gesture ends', () => {
+    const live = dragOverlayFromPositionChanges(
+      [createCanvasNode('sess-a', { x: 0, y: 0 }, 'a')],
+      [
+        {
+          id: canvasNodeId('a'),
+          type: 'position',
+          position: { x: 97, y: 40 },
+          dragging: true,
+        },
+      ],
+      new Map()
+    );
+    expect(live.get('a')).toEqual({ x: 97, y: 40 });
+    expect(
+      applyAlignmentDeltaToOverlay(live, { dx: -1, dy: 0 }).get('a')
+    ).toEqual({ x: 96, y: 40 });
   });
 
   it('collapses an expanded window dropped onto a group and keeps the card in the group', () => {

@@ -1818,6 +1818,20 @@ export function dragOverlayFromPositionChanges(
   return next ?? previous;
 }
 
+export function applyAlignmentDeltaToOverlay(
+  overlay: ReadonlyMap<string, { x: number; y: number }>,
+  snap: { dx: number; dy: number }
+): ReadonlyMap<string, { x: number; y: number }> {
+  if (overlay.size === 0 || (snap.dx === 0 && snap.dy === 0)) {
+    return overlay;
+  }
+  const next = new Map<string, { x: number; y: number }>();
+  for (const [id, pos] of overlay) {
+    next.set(id, { x: pos.x + snap.dx, y: pos.y + snap.dy });
+  }
+  return next;
+}
+
 export function applyDragOverlayToCanvasNodes(
   nodes: readonly SessionCanvasNode[],
   overlay: ReadonlyMap<string, { x: number; y: number }>

@@ -350,7 +350,6 @@ export function getCanCreateKanbanSession({
 export function getCreateProjectSessionRequest({
   projectId,
   workspaceValue,
-  sessionName,
   executorProfile,
   mode,
   workspaceBranchOptions,
@@ -360,7 +359,6 @@ export function getCreateProjectSessionRequest({
 }: {
   projectId: string | null | undefined;
   workspaceValue: string;
-  sessionName: string;
   executorProfile: ExecutorProfileId | null;
   mode: KanbanSessionCreationMode;
   workspaceBranchOptions: WorkspaceBranchOption[];
@@ -378,7 +376,7 @@ export function getCreateProjectSessionRequest({
       workspace_id: null,
       branch: null,
       executor: executorProfile?.executor ?? undefined,
-      name: sessionName.trim() || null,
+      name: null,
       create_workspace: false,
       repos: undefined,
     };
@@ -402,7 +400,7 @@ export function getCreateProjectSessionRequest({
     workspace_id: workspaceSelection.workspaceId,
     branch: workspaceSelection.branch,
     executor: executorProfile?.executor ?? undefined,
-    name: sessionName.trim() || null,
+    name: null,
     create_workspace: mode === 'new_workspace',
     ...(mode === 'new_workspace'
       ? { include_uncommitted: Boolean(includeUncommitted) }

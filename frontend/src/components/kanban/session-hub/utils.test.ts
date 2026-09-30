@@ -242,7 +242,6 @@ describe('session hub data helpers', () => {
             branch: 'feature/existing',
           }),
         ],
-        sessionName: '  Ship fix  ',
         executorProfile: executorProfile('codex' as const),
         repoInputs: [{ repo_id: 'repo-1', target_branch: 'main' }],
       })
@@ -251,7 +250,7 @@ describe('session hub data helpers', () => {
       workspace_id: 'workspace-1',
       branch: null,
       executor: 'codex' as const,
-      name: 'Ship fix',
+      name: null,
       create_workspace: false,
       repos: undefined,
     });
@@ -269,7 +268,6 @@ describe('session hub data helpers', () => {
             branch: 'feature/new',
           }),
         ],
-        sessionName: '   ',
         executorProfile: executorProfile('claude_code' as const),
         repoInputs: undefined,
       })
@@ -289,7 +287,6 @@ describe('session hub data helpers', () => {
         mode: 'new_workspace',
         workspaceValue: '',
         workspaceBranchOptions: [],
-        sessionName: 'New workspace',
         executorProfile: executorProfile('codex' as const),
         repoInputs: [{ repo_id: 'repo-1', target_branch: 'feature/new' }],
       })
@@ -298,7 +295,7 @@ describe('session hub data helpers', () => {
       workspace_id: null,
       branch: null,
       executor: 'codex' as const,
-      name: 'New workspace',
+      name: null,
       create_workspace: true,
       include_uncommitted: false,
       repos: [{ repo_id: 'repo-1', target_branch: 'feature/new' }],
@@ -310,7 +307,6 @@ describe('session hub data helpers', () => {
         mode: 'new_workspace',
         workspaceValue: '',
         workspaceBranchOptions: [],
-        sessionName: 'With dirty files',
         executorProfile: executorProfile('codex' as const),
         repoInputs: [{ repo_id: 'repo-1', target_branch: 'main' }],
         includeUncommitted: true,
@@ -320,7 +316,7 @@ describe('session hub data helpers', () => {
       workspace_id: null,
       branch: null,
       executor: 'codex' as const,
-      name: 'With dirty files',
+      name: null,
       create_workspace: true,
       include_uncommitted: true,
       repos: [{ repo_id: 'repo-1', target_branch: 'main' }],
@@ -334,7 +330,6 @@ describe('session hub data helpers', () => {
         mode: 'existing_workspace',
         workspaceValue: '',
         workspaceBranchOptions: [],
-        sessionName: 'Folder session',
         executorProfile: executorProfile('codex' as const),
         repoInputs: undefined,
         projectRepoCount: 0,
@@ -344,7 +339,7 @@ describe('session hub data helpers', () => {
       workspace_id: null,
       branch: null,
       executor: 'codex' as const,
-      name: 'Folder session',
+      name: null,
       create_workspace: false,
       repos: undefined,
     });
@@ -357,7 +352,6 @@ describe('session hub data helpers', () => {
         mode: 'existing_workspace',
         workspaceValue: '',
         workspaceBranchOptions: [],
-        sessionName: '',
         executorProfile: null,
         repoInputs: undefined,
       })
@@ -369,7 +363,6 @@ describe('session hub data helpers', () => {
         mode: 'new_workspace',
         workspaceValue: '',
         workspaceBranchOptions: [],
-        sessionName: '',
         executorProfile: null,
         repoInputs: [],
       })

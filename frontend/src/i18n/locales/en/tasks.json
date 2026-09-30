@@ -134,8 +134,6 @@
     "workspaceBranch": "Workspace branch",
     "newWorkspaceHint": "Create a new worktree workspace based on the target branch, then create a session in it.",
     "includeUncommitted": "Copy uncommitted changes",
-    "sessionNameLabel": "Session name (optional)",
-    "sessionNamePlaceholder": "Auto-named by default",
     "codingAgent": "Coding agent",
     "controlsLoading": "Preparing session options…",
     "controlsPrepareFailed": "Failed to load session options for {{agent}}",

@@ -9,6 +9,14 @@ import {
   type ReactNode,
 } from 'react';
 import type { DockviewApi } from 'dockview-react';
+import { useQueryClient } from '@tanstack/react-query';
+import { fileContentKeys } from '@/hooks/useFileContent';
+import {
+  deriveRelativeFilePath,
+  isAbsoluteFilePath,
+  normalizeFilePath,
+  replaceFilePathPrefix,
+} from '@/utils/filePaths';
 import {
   GROUP_IDS,
   MAX_EDITOR_GROUPS,
@@ -48,6 +56,7 @@ import {
 } from '@/stores/useTerminalStore';
 import {
   buildPreviewPanelParams,
+  type PreviewPanelParams,
   type OpenFilePreviewOptions,
   type OpenFilePreviewResult,
 } from '@/types/panels';
@@ -171,6 +180,7 @@ export interface PanelActions {
     filePath: string,
     options?: OpenFilePreviewOptions
   ) => OpenFilePreviewResult;
+  renameFilePreviews: (oldPath: string, newPath: string) => void;
   openImagePreview: (
     imageUrl: string,
     options?: { title?: string | null }
@@ -236,6 +246,7 @@ export interface PanelActions {
 const PanelActionsContext = createContext<PanelActions | null>(null);
 
 export function PanelActionsProvider({ children }: { children: ReactNode }) {
+  const queryClient = useQueryClient();
   const apiRef = useRef<DockviewApi | null>(null);
   const [dockviewEpoch, setDockviewEpoch] = useState(0);
   const [leftDockRevision, setLeftDockRevision] = useState(0);
@@ -514,12 +525,17 @@ export function PanelActionsProvider({ children }: { children: ReactNode }) {
         revealInTree(filePath, 'file');
       }
 
-      const panelId = `file:${filePath}`;
+      const basePanelId = `file:${filePath}`;
+      let panelId = basePanelId;
       const fileName = filePath.split(/[/\\]/).pop() || filePath;
       const title = options?.title ?? options?.displayPath ?? fileName;
       const params = buildPreviewPanelParams(filePath, options);
 
-      const existingPanel = dockviewApi.getPanel(panelId);
+      const existingPanel = dockviewApi.panels.find(
+        (panel) =>
+          panel.view.contentComponent === PANEL_IDS.PREVIEW &&
+          panel.params?.filePath === filePath
+      );
       if (existingPanel) {
         existingPanel.api.updateParameters(params);
         if (existingPanel.title !== title) {
@@ -530,6 +546,10 @@ export function PanelActionsProvider({ children }: { children: ReactNode }) {
           existingPanel.api.setActive();
         }
         return 'focused';
+      }
+
+      for (let suffix = 1; dockviewApi.getPanel(panelId); suffix += 1) {
+        panelId = `${basePanelId}:${suffix}`;
       }
 
       const panel = addPanelToActiveEditorGroup({
@@ -547,6 +567,59 @@ export function PanelActionsProvider({ children }: { children: ReactNode }) {
       return 'opened';
     },
     [addPanelToActiveEditorGroup, revealInTree, setSelectedFilePath]
+  );
+
+  const renameFilePreviews = useCallback(
+    (oldPath: string, newPath: string) => {
+      const remap = (path: string) =>
+        replaceFilePathPrefix(path, oldPath, newPath);
+      for (const [key, data] of queryClient.getQueriesData({
+        queryKey: fileContentKeys.all,
+      })) {
+        if (typeof key[1] !== 'string' || data === undefined) continue;
+        const path = remap(key[1]);
+        if (path !== key[1])
+          queryClient.setQueryData(fileContentKeys.byPath(path), data);
+      }
+      for (const panel of apiRef.current?.panels ?? []) {
+        if (panel.view.contentComponent !== PANEL_IDS.PREVIEW) continue;
+        const params = panel.params as Partial<PreviewPanelParams>;
+        if (!params.filePath) continue;
+        const path = remap(params.filePath);
+        if (path === params.filePath) continue;
+        let displayPath = params.displayPath ?? null;
+        if (displayPath) {
+          if (isAbsoluteFilePath(displayPath)) {
+            displayPath = remap(displayPath);
+          } else {
+            const originalPath = normalizeFilePath(params.filePath);
+            const relativeDisplayPath = normalizeFilePath(displayPath);
+            const displayRoot = originalPath.endsWith(`/${relativeDisplayPath}`)
+              ? originalPath.slice(0, -(relativeDisplayPath.length + 1))
+              : useFileTreeStore.getState().rootPath;
+            displayPath =
+              deriveRelativeFilePath(path, displayRoot) ?? displayPath;
+          }
+        }
+        panel.api.updateParameters({
+          ...params,
+          filePath: path,
+          renamedFrom: params.filePath,
+          displayPath,
+        });
+        panel.api.setTitle(path.split(/[/\\]/).pop() ?? path);
+      }
+      useFileTreeStore.setState((state) => ({
+        selectedFilePath: state.selectedFilePath
+          ? remap(state.selectedFilePath)
+          : null,
+        diffFilePath: state.diffFilePath ? remap(state.diffFilePath) : null,
+        revealTarget: state.revealTarget
+          ? { ...state.revealTarget, path: remap(state.revealTarget.path) }
+          : null,
+      }));
+    },
+    [queryClient]
   );
 
   const openImagePreview = useCallback(
@@ -1600,6 +1673,7 @@ export function PanelActionsProvider({ children }: { children: ReactNode }) {
     return {
       openOrFocusPanel,
       openFilePreview,
+      renameFilePreviews,
       openImagePreview,
       openWebPreview,
       revealInFileTree,
@@ -1643,6 +1717,7 @@ export function PanelActionsProvider({ children }: { children: ReactNode }) {
     openDiffPreviewAtPath,
     openMergePanel,
     openFilePreview,
+    renameFilePreviews,
     openImagePreview,
     openWebPreview,
     revealInFileTree,

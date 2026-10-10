@@ -1,11 +1,18 @@
-import { useCallback, useMemo, useState, type KeyboardEvent } from 'react';
+import {
+  useCallback,
+  useId,
+  useMemo,
+  useState,
+  type KeyboardEvent,
+  type ReactNode,
+} from 'react';
 import { useTranslation } from 'react-i18next';
 import {
   ChatToolCalls,
   type ChatToolCallItem,
   type ChatToolCallStatus,
 } from '@astryxdesign/core/Chat';
-import { ChevronDown, Images } from 'lucide-react';
+import { ChevronDown, Images, Wrench } from 'lucide-react';
 import type {
   ActionType,
   ConversationDelegationView,
@@ -34,6 +41,7 @@ import {
 import { getToolSummary } from './conversation-entry-utils';
 import type { IndexedTurnItem } from './messageTurnAggregate';
 import type { ToolResultBlock, ToolUseBlock } from './messageTurnBlocks';
+import { isCollapsibleProcessItem } from './messageTurnCollapse';
 import { toolBlockToNormalizedEntry } from './messageTurnTool';
 import { SubagentCard } from './tools/SubagentCard';
 import { AskQuestionToolCard } from './tools/AskQuestionToolCard';
@@ -61,8 +69,13 @@ import { fileReadLocation, resolveToolFilePath } from './tools/FileToolCard';
 import { ToolCallTarget } from './tools/ToolCallTarget';
 import { listDirPath } from './tools/toolDirListing';
 import { useOpenImagePreview } from '@/hooks/useOpenImagePreview';
-import { useExpandable } from '@/stores/useExpandableStore';
+import {
+  useExpandable,
+  useExpandableGroup,
+  useExpandableItems,
+} from '@/stores/useExpandableStore';
 import { cn } from '@/lib/utils';
+import { ThinkingEntry } from './ThinkingEntry';
 
 type ToolSummaryCategory =
   | 'commands'
@@ -82,6 +95,84 @@ const SUMMARY_ORDER: ToolSummaryCategory[] = [
   'agents',
   'other',
 ];
+
+const RECENT_TOOL_CALLS = 3;
+
+type ActivityEntry =
+  | { kind: 'tool'; key: string; index: number; call: ChatToolCallItem }
+  | { kind: 'visible'; key: string; index: number; content: ReactNode }
+  | {
+      kind: 'thinking';
+      key: string;
+      index: number;
+      endIndex: number;
+      texts: string[];
+    };
+
+function ToolCallBatch({
+  calls,
+  label,
+  turnId,
+}: {
+  calls: ChatToolCallItem[];
+  label: string;
+  turnId: string;
+}) {
+  const [expanded, setExpanded] = useExpandableGroup(
+    calls.map((call) => `tool-batch:${turnId}:${call.key}`)
+  );
+  return (
+    <ChatToolCalls
+      className="vibex-tool-call-batch"
+      calls={calls}
+      label={label}
+      alwaysGroup
+      isExpanded={expanded}
+      onExpandedChange={setExpanded}
+    />
+  );
+}
+
+function MixedActivityBatch({
+  entries,
+  label,
+  children,
+}: {
+  entries: ActivityEntry[];
+  label: string;
+  children: ReactNode;
+}) {
+  const id = useId();
+  const [expanded, toggle] = useExpandableGroup(
+    entries.map((entry) => entry.key)
+  );
+  return (
+    <div className="conv-activity-batch">
+      <button
+        type="button"
+        className="conv-activity-header"
+        aria-expanded={expanded}
+        aria-controls={id}
+        onClick={() => toggle()}
+      >
+        <Wrench className="size-3.5 shrink-0" aria-hidden="true" />
+        <span>{label}</span>
+        <ChevronDown
+          className={cn(
+            'conv-thinking-chevron size-3.5 shrink-0',
+            expanded && 'is-expanded'
+          )}
+          aria-hidden="true"
+        />
+      </button>
+      {expanded ? (
+        <div id={id} className="conv-assistant-body mt-1">
+          {children}
+        </div>
+      ) : null}
+    </div>
+  );
+}
 
 type FileReadAction = Extract<ActionType, { action: 'file_read' }>;
 type FileEditAction = Extract<ActionType, { action: 'file_edit' }>;
@@ -388,10 +479,9 @@ export type TimelineQuestion = {
   response: ConversationQuestionResponse | null;
 };
 
-export function TurnToolCalls({
+export function TurnActivity({
   turnId,
   timestamp,
-  offset,
   items,
   attempt,
   task,
@@ -400,10 +490,11 @@ export function TurnToolCalls({
   pollResults: suppliedPollResults,
   onOpenChild,
   questions = [],
+  isStreaming = false,
+  showCompleted = true,
 }: {
   turnId: string;
   timestamp: MessageTurn['timestamp'];
-  offset: number;
   items: IndexedTurnItem[];
   attempt: WorkspaceWithSession;
   task: TaskWithAttemptStatus | null;
@@ -412,6 +503,8 @@ export function TurnToolCalls({
   pollResults?: readonly ToolResultBlock[];
   onOpenChild?: (childConversationId: string) => void;
   questions?: TimelineQuestion[];
+  isStreaming?: boolean;
+  showCompleted?: boolean;
 }) {
   const { t } = useTranslation('conversation');
   const lifecycleIndex = useSubagentLifecycleIndex();
@@ -509,41 +602,26 @@ export function TurnToolCalls({
     [entries, folded.cards]
   );
 
-  const counts = useMemo(() => {
-    const next = Object.fromEntries(
-      SUMMARY_ORDER.map((category) => [category, 0])
-    ) as Record<ToolSummaryCategory, number>;
-    for (const { entry, images } of regularEntries) {
-      if (images.length > 0) continue;
-      if (entry.entry_type.type !== 'tool_use') continue;
-      next[summaryCategory(entry.entry_type.action_type.action)] += 1;
-    }
-    return next;
-  }, [regularEntries]);
-
-  const label = SUMMARY_ORDER.flatMap((category) =>
-    counts[category] > 0
-      ? [
-          t(`messageTurnView.toolSummary.${category}`, {
-            count: counts[category],
-          }),
-        ]
-      : []
-  ).join(t('messageTurnView.toolSummary.separator'));
-
-  const calls: ChatToolCallItem[] = regularEntries.flatMap(
-    ({ entry, index, toolUseId, images }) => {
+  const callCategories = new Map<string, ToolSummaryCategory>();
+  const rawCalls: (ChatToolCallItem & { index: number })[] =
+    regularEntries.flatMap(({ entry, index, toolUseId, images }) => {
       if (images.length > 0) return [];
       if (entry.entry_type.type !== 'tool_use') {
         throw new Error('Turn tool aggregate received a non-tool entry');
       }
       const toolEntry = entry.entry_type;
       const summary = getToolSummary(toolEntry, entry.content.trim());
-      const expansionKey = `${turnId}-${offset + index}`;
+      const expansionKey = `${turnId}-${index}`;
       const action = toolEntry.action_type;
+      callCategories.set(
+        toolUseId || expansionKey,
+        summaryCategory(action.action)
+      );
       const editStats =
         action.action === 'file_edit'
-          ? fileEditStats(action.changes)
+          ? fileEditStats(
+              entry.fileEdits?.flatMap((edit) => edit.changes) ?? action.changes
+            )
           : { additions: undefined, deletions: undefined };
       const detailText =
         summary.detail && summary.detail !== summary.label
@@ -553,6 +631,7 @@ export function TurnToolCalls({
             : '';
       return [
         {
+          index,
           key: toolUseId || expansionKey,
           name: summary.label,
           additions: editStats.additions,
@@ -589,63 +668,91 @@ export function TurnToolCalls({
                 expansionKey={expansionKey}
                 taskAttempt={attempt}
                 task={task ?? undefined}
+                workspacePath={workspacePath ?? attempt.container_ref}
                 toolDetailOnly
               />
             </ToolCallResultDetail>
           ),
         },
       ];
-    }
-  );
+    });
 
-  const viewedImages = regularEntries.flatMap(
-    ({ entry, toolUseId, images }, entryIndex): ViewedImage[] => {
-      if (images.length === 0 || entry.entry_type.type !== 'tool_use')
-        return [];
-      const action = entry.entry_type.action_type;
-      return images.map((image, imageIndex) => ({
-        key: `${toolUseId ?? entryIndex}:${imageIndex}`,
-        image,
-        path:
-          action.action === 'file_read'
-            ? action.path
-            : image.uri || t('viewedImages.image', { count: imageIndex + 1 }),
-      }));
-    }
+  const detailKeys = rawCalls.map(
+    (call) => `tool-detail:${turnId}:${call.key}`
   );
+  const [expandedDetails, setExpanded] = useExpandableItems(detailKeys);
+  const calls = rawCalls.map((call, index) => ({
+    ...call,
+    isDetailExpanded: expandedDetails[index],
+    onDetailExpandedChange: (expanded: boolean) => {
+      setExpanded(detailKeys[index], expanded);
+      if (expanded) setExpanded(`tool-batch:${turnId}:${call.key}`, true);
+    },
+  }));
 
-  return (
-    <div className="conv-entry-item vibex-turn-tool-calls space-y-1">
-      {askQuestionEntries.map(({ use, result, toolUseId, index }) => {
+  const summarizeCalls = (batch: ChatToolCallItem[]): string =>
+    SUMMARY_ORDER.flatMap((category) => {
+      const count = batch.filter(
+        (call) => callCategories.get(String(call.key)) === category
+      ).length;
+      return count > 0
+        ? [t(`messageTurnView.toolSummary.${category}`, { count })]
+        : [];
+    }).join(t('messageTurnView.toolSummary.separator'));
+
+  const activityEntries: ActivityEntry[] = [
+    ...calls.map(
+      (call): ActivityEntry => ({
+        kind: 'tool',
+        key: `tool-batch:${turnId}:${call.key}`,
+        index: call.index,
+        call,
+      })
+    ),
+    ...askQuestionEntries.map(
+      ({ use, result, toolUseId, index }): ActivityEntry => {
         const matched = matchTimelineQuestion(use, questions);
-        return (
-          <AskQuestionToolCard
-            key={toolUseId || `${turnId}-ask-question-${index}`}
+        return {
+          kind: 'visible',
+          key: toolUseId || `${turnId}-ask-question-${index}`,
+          index,
+          content: (
+            <AskQuestionToolCard
+              use={use}
+              result={result}
+              request={matched?.request}
+              response={matched?.response ?? null}
+            />
+          ),
+        };
+      }
+    ),
+    ...hostDelegationEntries.map(
+      ({ use, result, toolUseId, index }): ActivityEntry => ({
+        kind: 'visible',
+        key: toolUseId || `${turnId}-delegation-${index}`,
+        index,
+        content: (
+          <HostDelegationToolCall
             use={use}
             result={result}
-            request={matched?.request}
-            response={matched?.response ?? null}
+            event={matchHostDelegationView(use, delegations)}
+            pollResults={pollResults}
+            onOpenChild={onOpenChild}
           />
-        );
-      })}
-      {hostDelegationEntries.map(({ use, result, toolUseId, index }) => (
-        <HostDelegationToolCall
-          key={toolUseId || `${turnId}-delegation-${index}`}
-          use={use}
-          result={result}
-          event={matchHostDelegationView(use, delegations)}
-          pollResults={pollResults}
-          onOpenChild={onOpenChild}
-        />
-      ))}
-      {hostLifecycleEntries.map(({ use, result, toolUseId, index }) => (
-        <HostDelegationLifecycleRow
-          key={toolUseId || `${turnId}-delegation-status-${index}`}
-          use={use}
-          result={result}
-        />
-      ))}
-      {subagentEntries.map(({ use, result, lifecycle, toolUseId, index }) => {
+        ),
+      })
+    ),
+    ...hostLifecycleEntries.map(
+      ({ use, result, toolUseId, index }): ActivityEntry => ({
+        kind: 'visible',
+        key: toolUseId || `${turnId}-delegation-status-${index}`,
+        index,
+        content: <HostDelegationLifecycleRow use={use} result={result} />,
+      })
+    ),
+    ...subagentEntries.map(
+      ({ use, result, lifecycle, toolUseId, index }): ActivityEntry => {
         const match = entries.find(
           (entry) => entry.use.tool_use_id === use.tool_use_id
         );
@@ -655,37 +762,161 @@ export function TurnToolCalls({
         const summary = toolEntry
           ? getToolSummary(toolEntry, entry?.content.trim() ?? '')
           : { label: t('genericTool.subagent'), detail: '' };
-        return (
-          <SubagentToolCall
-            key={toolUseId || `${turnId}-subagent-${index}`}
-            expansionKey={`${turnId}-subagent-${toolUseId || index}`}
-            label={summary.label}
-            target={
-              summary.detail && summary.detail !== summary.label
-                ? summary.detail
-                : undefined
-            }
-            use={use}
-            result={result}
-            lifecycle={lifecycle}
-            parentAgentId={parentAgentId}
+        return {
+          kind: 'visible',
+          key: toolUseId || `${turnId}-subagent-${index}`,
+          index,
+          content: (
+            <SubagentToolCall
+              expansionKey={`${turnId}-subagent-${toolUseId || index}`}
+              label={summary.label}
+              target={
+                summary.detail && summary.detail !== summary.label
+                  ? summary.detail
+                  : undefined
+              }
+              use={use}
+              result={result}
+              lifecycle={lifecycle}
+              parentAgentId={parentAgentId}
+            />
+          ),
+        };
+      }
+    ),
+    ...regularEntries.flatMap(
+      ({ entry, toolUseId, images, index }): ActivityEntry[] => {
+        if (images.length === 0 || entry.entry_type.type !== 'tool_use')
+          return [];
+        const action = entry.entry_type.action_type;
+        const key = `viewed-images:${turnId}:${toolUseId || index}`;
+        return [
+          {
+            kind: 'visible',
+            key,
+            index,
+            content: (
+              <ViewedImages
+                expansionKey={key}
+                images={images.map((image, imageIndex) => ({
+                  key: `${key}:${imageIndex}`,
+                  image,
+                  path:
+                    action.action === 'file_read'
+                      ? action.path
+                      : image.uri ||
+                        t('viewedImages.image', { count: imageIndex + 1 }),
+                }))}
+              />
+            ),
+          },
+        ];
+      }
+    ),
+  ];
+
+  for (const { item, index } of items) {
+    if (item.kind !== 'thinking') continue;
+    const previous = activityEntries.at(-1);
+    if (previous?.kind === 'thinking' && previous.endIndex === index - 1) {
+      previous.texts.push(item.text);
+      previous.endIndex = index;
+    } else {
+      activityEntries.push({
+        kind: 'thinking',
+        key: `thinking-batch:${turnId}:${index}`,
+        index,
+        endIndex: index,
+        texts: [item.text],
+      });
+    }
+  }
+  activityEntries.sort((a, b) => a.index - b.index);
+
+  const recentStart = calls.at(-RECENT_TOOL_CALLS)?.index ?? -Infinity;
+  const lastIndex = items.at(-1)?.index;
+  const collapsibleIndices = new Set(
+    items
+      .filter(({ item }) => isCollapsibleProcessItem(item))
+      .map(({ index }) => index)
+  );
+  const activityUnits: {
+    kind: 'recent' | 'batch';
+    entries: ActivityEntry[];
+  }[] = [];
+  let batch: ActivityEntry[] = [];
+  for (const entry of activityEntries) {
+    const persistent =
+      entry.kind === 'visible' || !collapsibleIndices.has(entry.index);
+    if (!showCompleted && !persistent) continue;
+    const keepVisible =
+      persistent ||
+      (isStreaming &&
+        (entry.index >= recentStart ||
+          (entry.kind === 'thinking' && entry.endIndex === lastIndex)));
+    if (keepVisible) {
+      if (batch.length > 0)
+        activityUnits.push({ kind: 'batch', entries: batch });
+      batch = [];
+      activityUnits.push({ kind: 'recent', entries: [entry] });
+    } else {
+      batch.push(entry);
+    }
+  }
+  if (batch.length > 0) activityUnits.push({ kind: 'batch', entries: batch });
+
+  const renderActivity = (entry: ActivityEntry): ReactNode => {
+    if (entry.kind === 'visible')
+      return <div key={entry.key}>{entry.content}</div>;
+    if (entry.kind === 'tool')
+      return <ChatToolCalls key={entry.key} calls={[entry.call]} />;
+    return (
+      <ThinkingEntry
+        key={entry.key}
+        content={entry.texts.join('\n\n')}
+        count={entry.texts.length}
+        expansionKey={`${turnId}-${entry.index}`}
+        taskAttemptId={attempt.id}
+        taskId={task?.id ?? attempt.task_id ?? undefined}
+        workspacePath={workspacePath ?? attempt.container_ref}
+        isStreaming={isStreaming && entry.endIndex === lastIndex}
+        onExpandedChange={(expanded) => {
+          if (expanded) setExpanded(entry.key, true);
+        }}
+      />
+    );
+  };
+
+  if (activityUnits.length === 0) return null;
+
+  return (
+    <div className="conv-entry-item vibex-turn-tool-calls flex flex-col gap-1">
+      {activityUnits.map((unit) => {
+        const key = unit.entries[0].key;
+        if (unit.kind === 'recent') return renderActivity(unit.entries[0]);
+        const batchCalls = unit.entries.flatMap((entry) =>
+          entry.kind === 'tool' ? [entry.call] : []
+        );
+        const thinkingCount = unit.entries.reduce(
+          (count, entry) =>
+            count + (entry.kind === 'thinking' ? entry.texts.length : 0),
+          0
+        );
+        if (batchCalls.length === 0) return unit.entries.map(renderActivity);
+        const label = summarizeCalls(batchCalls);
+        return thinkingCount === 0 ? (
+          <ToolCallBatch
+            key={key}
+            turnId={turnId}
+            calls={batchCalls}
+            label={label}
           />
+        ) : (
+          <MixedActivityBatch key={key} entries={unit.entries} label={label}>
+            {unit.entries.map(renderActivity)}
+          </MixedActivityBatch>
         );
       })}
-      {viewedImages.length > 0 ? (
-        <ViewedImages
-          expansionKey={`viewed-images:${turnId}:${offset}`}
-          images={viewedImages}
-        />
-      ) : null}
-      {calls.length > 0 ? (
-        <ChatToolCalls
-          calls={calls}
-          label={label}
-          alwaysGroup
-          defaultIsExpanded={false}
-        />
-      ) : null}
     </div>
   );
 }

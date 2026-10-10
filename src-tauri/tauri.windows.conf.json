@@ -1,9 +1,5 @@
 {
   "bundle": {
-    "windows": {
-      "webviewInstallMode": {
-        "type": "offlineInstaller"
-      }
-    }
+    "windows": {}
   }
 }

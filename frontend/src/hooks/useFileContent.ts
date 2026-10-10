@@ -107,8 +107,13 @@ export function useSaveFile() {
   return useMutation({
     mutationFn: ({ path, content }: { path: string; content: string }) =>
       fileTreeApi.saveFile(path, content),
+    onMutate: ({ path }) =>
+      queryClient.cancelQueries({ queryKey: fileContentKeys.byPath(path) }),
     onSuccess: (_data, variables) => {
-      // Invalidate the file content cache for the saved file
+      queryClient.setQueryData(
+        fileContentKeys.byPath(variables.path),
+        variables.content
+      );
       queryClient.invalidateQueries({
         queryKey: fileContentKeys.byPath(variables.path),
       });

@@ -16,6 +16,7 @@ import { subscribeFileTreeChanges } from '@/lib/fileTreeChangeStream';
 import { FileTreePanel } from '@/components/file-tree/FileTreePanel';
 import { resolveFileTreeAbsolutePath } from '@/components/file-tree/file-tree-utils';
 import { deriveWorkspaceRootPathCandidates } from './workspaceRootPath';
+import { replaceFilePathPrefix } from '@/utils/filePaths';
 
 function stripWindowsExtendedPathPrefix(path: string): string {
   return path
@@ -64,7 +65,7 @@ function DockviewFileTreePanel(_props: IDockviewPanelProps) {
     setSelectedFilePath,
     setDiffFilePath,
   } = useFileTreeStore();
-  const { openFilePreview } = usePanelActions();
+  const { openFilePreview, renameFilePreviews } = usePanelActions();
   const { projectId, project } = useProject();
   const { data: repos } = useProjectRepos(projectId);
   const projectFolderPath =
@@ -368,6 +369,21 @@ function DockviewFileTreePanel(_props: IDockviewPanelProps) {
     }
   }, [setRootPath, t]);
 
+  const handleRenamePath = (oldPath: string, newPath: string) => {
+    const remap = (path: string) =>
+      replaceFilePathPrefix(path, oldPath, newPath);
+    setFiles((paths) => paths.map(remap));
+    setDirectories((paths) => paths.map(remap));
+    setGitignoredFiles((paths) => new Set(Array.from(paths, remap)));
+    setGitignoredDirectories((paths) => new Set(Array.from(paths, remap)));
+    if (rootPath) {
+      renameFilePreviews(
+        resolveFileTreeAbsolutePath(rootPath, oldPath),
+        resolveFileTreeAbsolutePath(rootPath, newPath)
+      );
+    }
+  };
+
   const relativeRevealTarget = useMemo(() => {
     if (!rootPath || !revealTarget) {
       return null;
@@ -423,6 +439,7 @@ function DockviewFileTreePanel(_props: IDockviewPanelProps) {
         gitignoredFiles={gitignoredFiles}
         gitignoredDirectories={gitignoredDirectories}
         onRefreshFiles={refreshFileTree}
+        onRenamePath={handleRenamePath}
         refreshToken={refreshToken}
         lazyLoadAllDirectories
         revealTarget={relativeRevealTarget}

@@ -27,6 +27,7 @@ import { cn } from '@/lib/utils';
 
 import { AgentManagementIcon } from '@/components/agents/AgentManagementIcon';
 import { AgentPreflightCheckItem } from './AgentPreflightCheckItem';
+import { agentProvisioningAction } from './agentProvisioning';
 import { presentPreflightItems } from './agentPreflightSnapshot';
 import { AgentSectionHeading } from './SettingsSection';
 
@@ -138,17 +139,9 @@ export function AgentDetail({
   const items = presentPreflightItems(
     preflight?.items ?? fallbackPreflight(t, agent)
   );
-  const hasRepairableFailure = items.some(
-    (item) => item.status === 'fail' && item.repairable
-  );
-  const canRecoverInstallation =
-    !agent.retired && agent.lifecycle !== 'platform_unsupported';
-  const needsInstall =
-    canRecoverInstallation && agent.lifecycle === 'uninstalled';
-  const needsRepair =
-    canRecoverInstallation &&
-    (agent.lifecycle === 'needs_repair' ||
-      (hasRepairableFailure && !needsInstall));
+  const provisioningAction = agentProvisioningAction(agent, items);
+  const needsInstall = provisioningAction === 'install';
+  const needsRepair = provisioningAction === 'repair';
   const progress = Math.min(100, Math.max(0, operation?.progressPercent ?? 0));
   const stages = operation
     ? operationStages[operation.kind].map((stage) => t(`agents.${stage}`))

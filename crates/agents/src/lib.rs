@@ -6,6 +6,7 @@
 
 mod account_session;
 mod antigravity_auth;
+mod antigravity_login;
 mod auth_mode;
 pub mod auth_status;
 pub mod capability;
@@ -78,8 +79,10 @@ pub use account_session::{
 };
 pub use antigravity_auth::{
     AntigravitySyncReport, AntigravitySyncStatus, apply_antigravity_env_policy,
-    recorded_auth_method, resolve_gemini_home, resolve_gemini_home_from, sync_antigravity_settings,
+    apply_antigravity_launch_env, recorded_auth_method, resolve_gemini_home,
+    resolve_gemini_home_from, sync_antigravity_settings,
 };
+pub use antigravity_login::{LOGIN_TIMEOUT as ANTIGRAVITY_LOGIN_TIMEOUT, run_antigravity_login};
 pub use api_types::{
     AgentAuthenticationStatus, AgentId, AgentKind, AgentLifecycleState, UserAgentDistributionKind,
 };

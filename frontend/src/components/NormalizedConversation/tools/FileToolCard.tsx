@@ -9,7 +9,8 @@ import type { FileOpenLocation } from '@/components/file-tree/file-tree-types';
 import { deriveRelativeFilePath } from '@/utils/filePaths';
 import { useExpandable } from '@/stores/useExpandableStore';
 import { getToolSummary } from '../conversation-entry-utils';
-import { ToolArtifact, ToolCodeSnippet } from './ToolArtifact';
+import { ToolArtifact } from './ToolArtifact';
+import { FileReadSnippet } from './FileReadSnippet';
 import { ToolCallTarget } from './ToolCallTarget';
 import {
   ToolCardShell,
@@ -182,8 +183,13 @@ export function FileToolCard({
         actions={isResultDetail ? actions : undefined}
       >
         {actionType.content ? (
-          <ToolCodeSnippet
+          <FileReadSnippet
             path={path}
+            resolvedPath={
+              containerRef || /^[a-zA-Z]:[\\/]|^\//.test(path)
+                ? resolveToolFilePath(path, containerRef)
+                : null
+            }
             content={actionType.content}
             startLine={actionType.line_start ?? 1}
           />

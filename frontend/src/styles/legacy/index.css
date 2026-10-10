@@ -7757,81 +7757,128 @@ html.host-windows :where(.legacy-design) .vu-toast-surface {
 :is(.settings-page, .plan-usage-page) .agent-management-bar {
   position: relative;
   display: flex;
-  height: 60px;
+  align-items: center;
+  width: 100%;
+  height: calc(var(--agent-bar-item-size) + 8px);
   min-width: 0;
-  flex: 1;
-  align-items: flex-start;
-  gap: 8px;
-}
-
-:is(.settings-page, .plan-usage-page) .agent-management-bar-surface {
-  position: absolute;
-  top: 0;
-  right: 0;
-  bottom: 8px;
-  left: 0;
+  flex: none;
+  overflow: hidden;
+  padding: 0 3px;
   border: 1px solid var(--border-content);
-  border-radius: var(--radius);
+  border-radius: 9999px;
   background: var(--surface-control);
-  pointer-events: none;
 }
 
-:is(.settings-page, .plan-usage-page) .agent-management-bar-scroll {
+:is(.settings-page, .plan-usage-page) .agent-management-bar-viewport {
   position: relative;
-  z-index: 1;
-  display: flex;
-  height: 60px;
+  height: 100%;
   min-width: 0;
-  flex: 1;
-  align-items: flex-start;
+  flex: 1 1 auto;
+  overflow: hidden;
+}
+
+:is(.settings-page, .plan-usage-page) .agent-management-bar-track {
+  display: flex;
+  height: 100%;
+  transform: translate3d(calc(var(--agent-bar-page, 0) * -100%), 0, 0);
+  transition: transform 260ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+:is(.settings-page, .plan-usage-page) .agent-management-bar-page {
+  display: flex;
+  min-width: 0;
+  flex: 0 0 100%;
+  height: 100%;
+  align-items: center;
   justify-content: flex-start;
-  gap: 20px;
-  padding: 4px 0 0 4px;
-  overflow-x: auto;
-  overflow-y: hidden;
-  overscroll-behavior-x: contain;
+  gap: var(--agent-bar-item-gap);
+  padding: 0;
+  transition: gap 220ms cubic-bezier(0.22, 1, 0.36, 1);
 }
 
-@supports not selector(::-webkit-scrollbar) {
-  :is(.settings-page, .plan-usage-page) .agent-management-bar-scroll {
-    scrollbar-width: thin;
-    scrollbar-color: hsl(var(--muted-foreground) / 0.45) transparent;
-  }
+:is(.settings-page, .plan-usage-page) .agent-management-bar-tail {
+  display: flex;
+  align-items: center;
+  height: var(--agent-bar-item-size);
+  padding: 0 3px;
+  gap: 2px;
+  flex: none;
+  border-radius: 9999px;
+  background: hsl(var(--foreground) / 0.08);
+  border: 1px solid var(--border-content);
 }
 
 :is(.settings-page, .plan-usage-page)
-  .agent-management-bar-scroll::-webkit-scrollbar {
+  .agent-management-bar-tail
+  button:not([aria-current='page']):hover {
+  background-color: transparent !important;
+  color: var(--text-strong);
+}
+
+:is(.settings-page, .plan-usage-page) .agent-management-bar-pager {
+  display: none;
+  width: var(--agent-bar-pager-width);
+  flex: 0 0 var(--agent-bar-pager-width);
+  align-items: center;
+  justify-content: center;
+}
+
+:is(.settings-page, .plan-usage-page) .agent-management-bar-pager.is-previous {
+  margin-right: 4px;
+}
+
+:is(.settings-page, .plan-usage-page)
+  .agent-management-bar-tail
+  .agent-management-bar-pager {
+  width: 22px;
+  flex: 0 0 22px;
+}
+
+:is(.settings-page, .plan-usage-page) .agent-management-bar-pager.is-visible {
+  display: flex;
+}
+
+:is(.settings-page, .plan-usage-page) .agent-management-bar-pager-button {
+  display: flex;
+  width: 100%;
+  height: var(--agent-bar-item-size);
+  align-items: center;
+  justify-content: center;
+  border-radius: 9999px;
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: color 160ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+:is(.settings-page, .plan-usage-page)
+  .agent-management-bar-tail
+  .agent-management-bar-pager-button {
+  width: 22px;
+  height: 24px;
+}
+
+:is(.settings-page, .plan-usage-page) .agent-management-bar-pager-button svg {
   width: 8px;
-  height: 8px;
-  background: transparent;
+  height: 12px;
 }
 
 :is(.settings-page, .plan-usage-page)
-  .agent-management-bar-scroll::-webkit-scrollbar-track,
+  .agent-management-bar-tail
+  .agent-management-bar-pager-button
+  svg {
+  transform: scaleX(-1);
+}
+
+:is(.settings-page, .plan-usage-page) .agent-management-bar-pager-button:hover,
 :is(.settings-page, .plan-usage-page)
-  .agent-management-bar-scroll::-webkit-scrollbar-track-piece {
-  background: transparent;
-  border: none;
-  box-shadow: none;
+  .agent-management-bar-pager-button.is-drop-target {
+  color: var(--text-strong);
 }
 
 :is(.settings-page, .plan-usage-page)
-  .agent-management-bar-scroll::-webkit-scrollbar-thumb {
-  border: none;
-  border-radius: 999px;
-  /* --border-strong is already `hsl(...)`; wrapping it in hsl() again
-     makes the thumb paint as transparent. */
-  background: hsl(var(--muted-foreground) / 0.45);
-}
-
-:is(.settings-page, .plan-usage-page)
-  .agent-management-bar-scroll::-webkit-scrollbar-thumb:hover {
-  background: hsl(var(--muted-foreground) / 0.65);
-}
-
-:is(.settings-page, .plan-usage-page)
-  .agent-management-bar-scroll::-webkit-scrollbar-corner {
-  background: transparent;
+  .agent-management-bar-pager-button:focus-visible {
+  outline: 2px solid hsl(var(--primary) / 0.55);
+  outline-offset: -2px;
 }
 
 .plan-usage-page .agent-management-bar-item {
@@ -7842,13 +7889,13 @@ html.host-windows :where(.legacy-design) .vu-toast-surface {
 :is(.settings-page, .plan-usage-page) .agent-management-bar-item {
   position: relative;
   display: flex;
-  width: 44px;
-  height: 44px;
-  flex: 0 0 44px;
+  height: var(--agent-bar-item-size);
+  min-width: var(--agent-bar-item-size);
+  flex: none;
   align-items: center;
-  justify-content: center;
+  padding: 0 5px;
   border: 1px solid transparent;
-  border-radius: var(--radius);
+  border-radius: 9999px;
   color: var(--text-muted);
   cursor: grab;
   touch-action: none;
@@ -7876,6 +7923,30 @@ html.host-windows :where(.legacy-design) .vu-toast-surface {
   box-shadow: var(--shadow-card);
 }
 
+:is(.settings-page, .plan-usage-page) .agent-management-bar-label {
+  max-width: 0;
+  margin: 0;
+  overflow: hidden;
+  opacity: 0;
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  transition:
+    max-width 220ms cubic-bezier(0.22, 1, 0.36, 1),
+    margin 220ms cubic-bezier(0.22, 1, 0.36, 1),
+    opacity 160ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+:is(.settings-page, .plan-usage-page)
+  .agent-management-bar-item.is-selected
+  .agent-management-bar-label {
+  max-width: var(--agent-label-width, var(--agent-bar-label-max));
+  margin: 0 4px 0 6px;
+  opacity: 1;
+}
+
 :is(.settings-page, .plan-usage-page) .agent-management-bar-item.is-disabled {
   opacity: 0.58;
 }
@@ -7895,19 +7966,13 @@ html.host-windows :where(.legacy-design) .vu-toast-surface {
 }
 
 @media (prefers-reduced-motion: reduce) {
-  :is(.settings-page, .plan-usage-page) .agent-management-bar-item {
+  :is(.settings-page, .plan-usage-page) .agent-management-bar-track,
+  :is(.settings-page, .plan-usage-page) .agent-management-bar-page,
+  :is(.settings-page, .plan-usage-page) .agent-management-bar-pager-button,
+  :is(.settings-page, .plan-usage-page) .agent-management-bar-item,
+  :is(.settings-page, .plan-usage-page) .agent-management-bar-label {
     transition: none !important;
   }
-}
-
-:is(.settings-page, .plan-usage-page) .agent-management-bar-add {
-  z-index: 1;
-  margin-top: 4px;
-  margin-right: 4px;
-  margin-left: auto;
-  border-left-color: var(--border-content);
-  cursor: pointer;
-  touch-action: auto;
 }
 
 .agent-settings-loading {
@@ -7963,10 +8028,10 @@ html.host-windows :where(.legacy-design) .vu-toast-surface {
 }
 
 .agent-settings-loading-refresh {
-  width: 36px;
-  height: 36px;
-  flex: 0 0 36px;
-  border-radius: var(--radius);
+  width: var(--agent-bar-item-size);
+  height: var(--agent-bar-item-size);
+  flex: 0 0 var(--agent-bar-item-size);
+  border-radius: 9999px;
 }
 
 .agent-settings-loading-copy {
@@ -8098,64 +8163,10 @@ html.host-windows :where(.legacy-design) .vu-toast-surface {
   max-height: 100%;
 }
 
-:is(.settings-page, .plan-usage-page)
-  .agent-management-brand-icon.is-cline
-  > svg,
-:is(.settings-page, .plan-usage-page)
-  .agent-management-brand-icon.is-cline
-  .agent-management-brand-artwork,
-:is(.settings-page, .plan-usage-page)
-  .agent-management-brand-icon.is-codebuddy
-  > svg,
-:is(.settings-page, .plan-usage-page)
-  .agent-management-brand-icon.is-codebuddy
-  .agent-management-brand-artwork,
-:is(.settings-page, .plan-usage-page)
-  .agent-management-brand-icon.is-kimi
-  > svg,
-:is(.settings-page, .plan-usage-page)
-  .agent-management-brand-icon.is-kimi
-  .agent-management-brand-artwork,
-:is(.settings-page, .plan-usage-page)
-  .agent-management-brand-icon.is-grok
-  > svg,
-:is(.settings-page, .plan-usage-page)
-  .agent-management-brand-icon.is-grok
-  .agent-management-brand-artwork,
-:is(.settings-page, .plan-usage-page)
-  .agent-management-brand-icon.is-deepseek
-  > svg,
-:is(.settings-page, .plan-usage-page)
-  .agent-management-brand-icon.is-deepseek
-  .agent-management-brand-artwork {
-  width: 22px;
-  height: 22px;
-}
-
-:is(.settings-page, .plan-usage-page)
-  .agent-management-brand-icon.is-hermes
-  > svg,
-:is(.settings-page, .plan-usage-page)
-  .agent-management-brand-icon.is-hermes
-  .agent-management-brand-artwork {
-  width: 28px;
-  height: 28px;
-}
-
-:is(.settings-page, .plan-usage-page)
-  .agent-management-brand-icon.is-cursor
-  > svg,
-:is(.settings-page, .plan-usage-page)
-  .agent-management-brand-icon.is-cursor
-  .agent-management-brand-artwork {
-  width: 24px;
-  height: 24px;
-}
-
 :is(.settings-page, .plan-usage-page) .agent-management-status-mark {
   position: absolute;
-  top: 6px;
-  right: 6px;
+  top: 3px;
+  left: 21px;
   width: 7px;
   height: 7px;
   border: 1px solid var(--surface-card-strong);

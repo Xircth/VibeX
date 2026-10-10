@@ -169,4 +169,90 @@ describe('AgentQuestionCard', () => {
       action: 'decline',
     });
   });
+
+  describe('Claude Code AskUserQuestion form', () => {
+    function claudeRequest(): ConversationQuestionRequest {
+      return {
+        question_id: 'claude-question',
+        prompt: 'Which approach should I take?',
+        options: [],
+        schema: {
+          type: 'object',
+          properties: {
+            question_0: {
+              type: 'string',
+              title: 'Approach',
+              oneOf: [
+                { const: 'Incremental', title: 'Incremental' },
+                { const: 'Rewrite', title: 'Rewrite' },
+              ],
+            },
+            question_0_custom: {
+              type: 'string',
+              title: 'Other',
+              description:
+                'Type your own answer, or add a note to the option you chose above (optional).',
+            },
+          },
+        },
+      };
+    }
+
+    it('shows one page with the question text and submits a plain pick', () => {
+      const onRespond = vi.fn();
+      render(
+        <AgentQuestionCard request={claudeRequest()} onRespond={onRespond} />
+      );
+
+      expect(screen.getByText('1 / 1')).toBeInTheDocument();
+      expect(
+        screen.getByText('Which approach should I take?')
+      ).toBeInTheDocument();
+      expect(
+        screen.queryByRole('button', { name: '下一个' })
+      ).not.toBeInTheDocument();
+
+      const submit = screen.getByRole('button', { name: '提交回答' });
+      expect(submit).toBeDisabled();
+      fireEvent.click(screen.getByRole('radio', { name: 'Rewrite' }));
+      expect(submit).toBeEnabled();
+      fireEvent.click(submit);
+
+      expect(onRespond).toHaveBeenCalledWith('claude-question', {
+        action: 'accept',
+        content: { question_0: 'Rewrite' },
+      });
+    });
+
+    it('submits typed text through the companion field', () => {
+      const onRespond = vi.fn();
+      render(
+        <AgentQuestionCard request={claudeRequest()} onRespond={onRespond} />
+      );
+
+      fireEvent.click(screen.getByRole('radio', { name: '输入回答' }));
+      fireEvent.change(screen.getByRole('textbox', { name: '输入回答' }), {
+        target: { value: 'Split it by module.' },
+      });
+      fireEvent.click(screen.getByRole('button', { name: '提交回答' }));
+
+      expect(onRespond).toHaveBeenCalledWith('claude-question', {
+        action: 'accept',
+        content: { question_0_custom: 'Split it by module.' },
+      });
+    });
+
+    it('lets the user decline without choosing', () => {
+      const onRespond = vi.fn();
+      render(
+        <AgentQuestionCard request={claudeRequest()} onRespond={onRespond} />
+      );
+
+      fireEvent.click(screen.getByRole('button', { name: '拒绝回答' }));
+
+      expect(onRespond).toHaveBeenCalledWith('claude-question', {
+        action: 'decline',
+      });
+    });
+  });
 });

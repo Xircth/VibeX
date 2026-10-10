@@ -1287,6 +1287,118 @@ describe('AgentAuthModeControl', () => {
     ).toBeVisible();
   });
 
+  describe('Antigravity sign-in', () => {
+    const antigravityLogin = {
+      agent_id: 'antigravity' as const,
+      actions: [
+        {
+          id: 'login',
+          label: '登录',
+          description: '在浏览器中完成 Antigravity 账号登录',
+          label_key: 'agents.managementAction.antigravity.login.label',
+          description_key:
+            'agents.managementAction.antigravity.login.description',
+          kind: 'login' as const,
+          available: true,
+          unavailable_reason: null,
+          url: null,
+        },
+      ],
+    };
+    const antigravityView = (mode: string) => ({
+      agent_id: 'antigravity' as const,
+      mode,
+      credential_env: 'GEMINI_API_KEY',
+      credential_present: false,
+      modes: [
+        'oauth-personal',
+        'oauth-business',
+        'gemini-api-key',
+        'agent-platform',
+      ],
+      options: antigravityOptions,
+    });
+
+    it('saves the chosen account type before starting the browser sign-in', async () => {
+      vi.spyOn(agentManagementApi, 'authMode').mockResolvedValue(
+        antigravityView('oauth-personal')
+      );
+      const save = vi
+        .spyOn(agentManagementApi, 'setAuthMode')
+        .mockResolvedValue(antigravityView('oauth-business'));
+      const onRunAction = vi.fn();
+      const user = userEvent.setup();
+
+      render(
+        <AgentAuthModeControl
+          agentId="antigravity"
+          authentication="not_logged_in"
+          actions={antigravityLogin}
+          onRunAction={onRunAction}
+        />
+      );
+
+      await user.click(
+        await screen.findByRole('button', { name: 'Gemini Enterprise' })
+      );
+      expect(save).not.toHaveBeenCalled();
+      await user.click(screen.getByRole('button', { name: '登录' }));
+
+      await waitFor(() => expect(onRunAction).toHaveBeenCalledWith('login'));
+      expect(save).toHaveBeenCalledWith('antigravity', 'oauth-business', null);
+      expect(save.mock.invocationCallOrder[0]).toBeLessThan(
+        onRunAction.mock.invocationCallOrder[0]
+      );
+    });
+
+    it('signs in with the saved account type without saving it again', async () => {
+      vi.spyOn(agentManagementApi, 'authMode').mockResolvedValue(
+        antigravityView('oauth-personal')
+      );
+      const save = vi.spyOn(agentManagementApi, 'setAuthMode');
+      const onRunAction = vi.fn();
+      const user = userEvent.setup();
+
+      render(
+        <AgentAuthModeControl
+          agentId="antigravity"
+          authentication="not_logged_in"
+          actions={antigravityLogin}
+          onRunAction={onRunAction}
+        />
+      );
+
+      await user.click(await screen.findByRole('button', { name: '登录' }));
+
+      expect(onRunAction).toHaveBeenCalledWith('login');
+      expect(save).not.toHaveBeenCalled();
+    });
+
+    it('shows the project settings only for the Gemini Enterprise account type', async () => {
+      vi.spyOn(agentManagementApi, 'authMode').mockResolvedValue(
+        antigravityView('oauth-personal')
+      );
+      const user = userEvent.setup();
+
+      render(
+        <AgentAuthModeControl
+          agentId="antigravity"
+          authentication="not_logged_in"
+          actions={antigravityLogin}
+          configuration={<input aria-label="Google Cloud Project" />}
+          configurationOnAccount={(mode) => mode === 'oauth-business'}
+        />
+      );
+
+      await screen.findByRole('button', { name: 'Gemini Enterprise' });
+      expect(screen.getByLabelText('Google Cloud Project')).not.toBeVisible();
+      await user.click(
+        screen.getByRole('button', { name: 'Gemini Enterprise' })
+      );
+      expect(screen.getByLabelText('Google Cloud Project')).toBeVisible();
+    });
+  });
+
   it('maps Antigravity credentials to the native configuration form', async () => {
     vi.spyOn(agentManagementApi, 'authMode').mockResolvedValue({
       agent_id: 'antigravity',

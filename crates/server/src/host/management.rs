@@ -832,6 +832,12 @@ pub async fn run_action(
             ApplicationError::bad_request(format!("Agent `{agent_id}` 不支持动作 `{action_id}`"))
         })?;
 
+    if action.kind == ProfileManagementActionKind::Login
+        && agents::AgentKind::Antigravity.matches_id(agent_id.as_str())
+    {
+        return start_antigravity_login(pool, agent_id, action).await;
+    }
+
     if let Some(url) = action.url {
         utils::browser::open_browser(url)
             .await
@@ -881,6 +887,62 @@ pub async fn run_action(
         action_id,
         launched: true,
     })
+}
+
+/// Signs in to Antigravity by running its ACP server until the browser OAuth
+/// it starts completes. The result reaches the UI through the same account-flow
+/// exit file a terminal action writes, so the frontend watches both alike.
+async fn start_antigravity_login(
+    pool: &SqlitePool,
+    agent_id: AgentId,
+    action: &agents::ProfileManagementAction,
+) -> Result<AgentManagementActionReceipt, ApplicationError> {
+    if account_flow::peek_account_flow(&agent_id).is_some() {
+        return Err(ApplicationError::conflict(
+            "登录正在进行，请先在浏览器中完成",
+        ));
+    }
+    let mut environment = read_agent_environment(pool, &agent_id).await?;
+    let program = resolve_management_action_program(pool, &agent_id, action, &environment)
+        .await
+        .ok_or_else(|| {
+            ApplicationError::bad_request(format!(
+                "未找到 {}；请重新安装或修复此 Agent。",
+                management_program_names(action)
+            ))
+        })?;
+    let report = agents::apply_antigravity_launch_env(&mut environment);
+    if let (agents::AntigravitySyncStatus::Skipped, Some(reason)) = (report.status, report.reason) {
+        return Err(ApplicationError::bad_request(format!(
+            "无法写入 Antigravity 登录设置：{reason}"
+        )));
+    }
+    let cwd =
+        dirs::home_dir().ok_or_else(|| ApplicationError::internal("home directory missing"))?;
+    let result_path = account_flow::account_flow_result_path(&agent_id);
+    let _ = tokio::fs::remove_file(&result_path).await;
+    account_flow::register_account_flow(&agent_id, action.id, action.kind, result_path.clone());
+    let receipt = AgentManagementActionReceipt {
+        agent_id,
+        action_id: action.id.to_string(),
+        launched: true,
+    };
+    tokio::spawn(async move {
+        let outcome = agents::run_antigravity_login(
+            &program.path,
+            &program.args,
+            &environment,
+            &cwd,
+            agents::ANTIGRAVITY_LOGIN_TIMEOUT,
+        )
+        .await;
+        if let Err(reason) = &outcome {
+            tracing::warn!(%reason, "Antigravity sign-in failed");
+        }
+        let exit_code = i32::from(outcome.is_err());
+        let _ = tokio::fs::write(&result_path, format!("{exit_code}\n")).await;
+    });
+    Ok(receipt)
 }
 
 pub async fn account_flow_status(
@@ -986,6 +1048,16 @@ pub async fn auth_mode_set(
     }
     apply_built_in_auth_mode_policy(&agent_id, &mut env);
     persist_agent_environment(pool, &agent_id, &env).await?;
+    if agents::AgentKind::Antigravity.matches_id(agent_id.as_str()) {
+        let report = agents::apply_antigravity_launch_env(&mut env.clone());
+        if let (agents::AntigravitySyncStatus::Skipped, Some(reason)) =
+            (report.status, report.reason)
+        {
+            return Err(ApplicationError::bad_request(format!(
+                "无法写入 Antigravity 认证设置：{reason}"
+            )));
+        }
+    }
     let _ = persist_observed_authentication(pool, &agent_id).await;
     with_account_label(project_auth_mode_view(pool, agent_id, &env).await?).await
 }

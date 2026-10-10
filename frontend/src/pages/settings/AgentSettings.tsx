@@ -1,4 +1,3 @@
-import { RefreshCw } from 'lucide-react';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import type {
@@ -21,7 +20,6 @@ import type {
 } from 'shared/types';
 
 import { useUserSystem } from '@/components/ConfigProvider';
-import { Button } from '@/components/ui/button';
 import { toast } from '@/components/ui/toast';
 import { AgentUpdateConfirmDialog } from '@/components/dialogs/settings/AgentUpdateConfirmDialog';
 import { ConfirmDialog } from '@/components/dialogs/shared/ConfirmDialog';
@@ -63,11 +61,14 @@ import { SettingsSection as CollapsibleSettingsSection } from './SettingsSection
 import { AgentLockedSurface } from './SettingsUi';
 import { UserAgentDefinitionPanel } from './UserAgentDefinitionPanel';
 import {
+  isAuthPreflightItem,
   mergePreflightItems,
   overlayAuthPreflightItems,
+  presentPreflightItems,
   readPreflightSnapshot,
   writePreflightSnapshot,
 } from './agentPreflightSnapshot';
+import { agentProvisioningAction } from './agentProvisioning';
 
 export function AgentSettings() {
   const { t } = useTranslation(['settings', 'common']);
@@ -485,31 +486,42 @@ export function AgentSettings() {
     }
   }, []);
 
-  const runPreflight = useCallback(
+  const inspectAgent = useCallback(
     async (options?: { notify?: boolean }) => {
-      if (!selectedAgentId) return;
+      if (!selectedAgentId) return null;
       const watchId = ++inspectGeneration.current;
       setChecking(true);
       try {
         const report = await agentManagementApi.preflight(selectedAgentId);
-        if (inspectGeneration.current !== watchId) return;
+        if (inspectGeneration.current !== watchId) return null;
         writePreflightSnapshot(report);
         setPreflight(report);
         setChecking(false);
-        await management.refresh();
-        if (inspectGeneration.current !== watchId) return;
+        const agents = await management.refresh();
+        if (inspectGeneration.current !== watchId) return null;
         if (options?.notify !== false) {
           toast.success(t('settings:agents.preflightComplete'));
         }
-        await applyBackgroundUpdateCheck(selectedAgentId);
+        const comparison = await applyBackgroundUpdateCheck(selectedAgentId);
+        const agent =
+          agents.find((entry) => entry.agent_id === selectedAgentId) ?? null;
+        return { report, agent, comparison };
       } catch (error) {
-        if (inspectGeneration.current !== watchId) return;
+        if (inspectGeneration.current !== watchId) return null;
         toast.error(errorMessage(error, t('settings:agents.preflightFailed')));
+        return null;
       } finally {
         if (inspectGeneration.current === watchId) setChecking(false);
       }
     },
     [applyBackgroundUpdateCheck, management, selectedAgentId, t]
+  );
+
+  const runPreflight = useCallback(
+    async (options?: { notify?: boolean }) => {
+      await inspectAgent(options);
+    },
+    [inspectAgent]
   );
 
   const liveOperation =
@@ -710,22 +722,6 @@ export function AgentSettings() {
     [selectedAgentId, t, watchAccountFlow]
   );
 
-  const setEnabled = useCallback(
-    async (enabled: boolean) => {
-      if (!selectedAgentId) return;
-      try {
-        management.mergeAgent(
-          await agentManagementApi.setEnabled(selectedAgentId, enabled)
-        );
-      } catch (error) {
-        toast.error(
-          errorMessage(error, t('settings:agents.enableUpdateFailed'))
-        );
-      }
-    },
-    [management, selectedAgentId, t]
-  );
-
   const reorder = useCallback(
     async (order: string[]) => {
       const currentDefault = userConfig?.executor_profile.executor ?? null;
@@ -864,6 +860,50 @@ export function AgentSettings() {
       toast.error(errorMessage(error, t('settings:agents.updateStartFailed')));
     }
   }, [selectedAgentId, t]);
+
+  const setEnabled = useCallback(
+    async (enabled: boolean) => {
+      if (!selectedAgentId) return;
+      try {
+        management.mergeAgent(
+          await agentManagementApi.setEnabled(selectedAgentId, enabled)
+        );
+      } catch (error) {
+        toast.error(
+          errorMessage(error, t('settings:agents.enableUpdateFailed'))
+        );
+        return;
+      }
+      if (!enabled) return;
+      const inspected = await inspectAgent({ notify: false });
+      if (!inspected?.agent || inspected.agent.active_operation) return;
+      const { report, agent, comparison } = inspected;
+      const action = agentProvisioningAction(
+        agent,
+        presentPreflightItems(report.items).filter(
+          (item) => !isAuthPreflightItem(item)
+        )
+      );
+      if (action === 'install') return queueInstall();
+      if (action === 'repair') return queueRepair();
+      const acpItem = report.items.find((item) => item.id === 'acp');
+      if (
+        comparison?.update_available ||
+        (comparison && agentHasAcpUpdate(comparison, acpItem?.version))
+      ) {
+        await applyUpdate();
+      }
+    },
+    [
+      applyUpdate,
+      inspectAgent,
+      management,
+      queueInstall,
+      queueRepair,
+      selectedAgentId,
+      t,
+    ]
+  );
 
   const applyPreflightItemUpdate = useCallback(
     async (itemId: string) => {
@@ -1169,6 +1209,10 @@ export function AgentSettings() {
                 )
               : undefined
           }
+          configurationOnAccount={(mode) =>
+            selectedAgent.agent_id === 'antigravity' &&
+            mode === 'oauth-business'
+          }
           modelProvider={
             selectedAgent.agent_id === 'opencode' ||
             selectedAgent.agent_id === 'mimo_code' ? (
@@ -1229,45 +1273,29 @@ export function AgentSettings() {
 
   return (
     <div className="agent-settings-scroll flex h-full min-h-0 flex-col gap-4 overflow-y-auto pb-24">
-      <div className="flex shrink-0 items-center gap-2">
-        <AgentBar
-          agents={sortAgentsForBar(
-            management.state.agents,
-            userConfig?.executor_profile.executor ?? null
-          )}
-          selectedAgentId={management.state.selectedAgentId}
-          registryOpen={registryOpen}
-          onSelect={(agentId) =>
-            void (async () => {
-              if (!(await confirmDiscardConfig())) return;
-              management.select(agentId);
-              setRegistryOpen(false);
-            })()
-          }
-          onOpenRegistry={() =>
-            void (async () => {
-              if (await confirmDiscardConfig()) setRegistryOpen(true);
-            })()
-          }
-          onReorder={(order) => void reorder(order)}
-        />
-        <Button
-          size="sm"
-          variant="ghost"
-          className="h-9 w-9 shrink-0 p-0"
-          aria-label={t('settings:agents.refreshStatusAria')}
-          aria-busy={management.loading}
-          disabled={management.loading}
-          onClick={() => void management.refreshFresh().catch(() => undefined)}
-        >
-          <RefreshCw
-            aria-hidden="true"
-            className={`h-3.5 w-3.5 ${
-              management.loading ? 'animate-spin' : ''
-            }`}
-          />
-        </Button>
-      </div>
+      <AgentBar
+        agents={sortAgentsForBar(
+          management.state.agents,
+          userConfig?.executor_profile.executor ?? null
+        )}
+        selectedAgentId={management.state.selectedAgentId}
+        registryOpen={registryOpen}
+        refreshing={management.loading}
+        onSelect={(agentId) =>
+          void (async () => {
+            if (!(await confirmDiscardConfig())) return;
+            management.select(agentId);
+            setRegistryOpen(false);
+          })()
+        }
+        onReorder={(order) => void reorder(order)}
+        onAdd={() =>
+          void (async () => {
+            if (await confirmDiscardConfig()) setRegistryOpen(true);
+          })()
+        }
+        onRefresh={() => void management.refreshFresh().catch(() => undefined)}
+      />
 
       {registryOpen ? (
         <AgentRegistryViewPanel

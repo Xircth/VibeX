@@ -31,6 +31,7 @@ vi.mock('../../lib/api', () => ({
     copyItem: vi.fn(),
     createDirectory: vi.fn(),
     listDirectoryChildren: vi.fn(),
+    moveItem: vi.fn(),
     saveFile: vi.fn(),
     trashItem: vi.fn(),
   },
@@ -65,6 +66,9 @@ describe('FileTreePanel lazy directory loading', () => {
     vi.mocked(fileTreeApi.createDirectory).mockReset();
     vi.mocked(fileTreeApi.listDirectoryChildren).mockReset();
     vi.mocked(fileTreeApi.saveFile).mockReset();
+    vi.mocked(fileTreeApi.moveItem)
+      .mockReset()
+      .mockResolvedValue('/repo/renamed');
     vi.mocked(fileTreeApi.trashItem).mockReset();
     vi.mocked(ConfirmDialog.show).mockReset();
     vi.mocked(fileTreeApi.listDirectoryChildren).mockResolvedValue({
@@ -196,6 +200,42 @@ describe('FileTreePanel lazy directory loading', () => {
     expect(screen.getByPlaceholderText('untitled')).toBeInTheDocument();
   });
 
+  it.each([
+    { path: 'index.ts', name: 'renamed.ts', isFolder: false },
+    { path: 'src', name: 'source', isFolder: true },
+  ])(
+    'renames $path through the context menu',
+    async ({ path, name, isFolder }) => {
+      renderTree(
+        <FileTreePanel
+          workspacePath="/repo"
+          files={isFolder ? [] : [path]}
+          directories={isFolder ? [path] : []}
+          isLoading={false}
+        />
+      );
+
+      fireEvent.contextMenu(
+        screen.getByRole('button', { name: new RegExp(path) })
+      );
+      fireEvent.click(screen.getByRole('button', { name: '重命名' }));
+      const input = screen.getByRole('textbox', { name: '重命名' });
+      expect(input).toHaveValue(path);
+      fireEvent.change(input, { target: { value: name } });
+      fireEvent.keyDown(input, { key: 'Enter' });
+
+      await waitFor(() => {
+        expect(fileTreeApi.moveItem).toHaveBeenCalledWith(
+          `/repo/${path}`,
+          `/repo/${name}`
+        );
+        expect(
+          screen.queryByRole('textbox', { name: '重命名' })
+        ).not.toBeInTheDocument();
+      });
+    }
+  );
+
   it('shows a readable create-file failure toast from the inline input', async () => {
     vi.mocked(fileTreeApi.saveFile).mockRejectedValue(new Error('save failed'));
 
@@ -217,6 +257,66 @@ describe('FileTreePanel lazy directory loading', () => {
       expect(fileTreeApi.saveFile).toHaveBeenCalledWith('/repo/broken.ts', '');
       expect(toast.error).toHaveBeenCalledWith('创建文件失败');
     });
+  });
+
+  it('does not submit or cancel a filename while Chinese IME composition is active', () => {
+    renderTree(
+      <FileTreePanel workspacePath="/repo" files={[]} isLoading={false} />
+    );
+    fireEvent.click(screen.getByRole('button', { name: '新建文件' }));
+    const input = screen.getByRole('textbox', { name: '新建文件' });
+    fireEvent.change(input, { target: { value: '文档.md' } });
+    fireEvent.keyDown(input, { key: 'Enter', isComposing: true });
+    fireEvent.keyDown(input, { key: 'Escape', isComposing: true });
+    expect(input).toHaveFocus();
+    expect(fileTreeApi.saveFile).not.toHaveBeenCalled();
+  });
+
+  it('keeps the rename field available after a name conflict so the user can retry', async () => {
+    vi.mocked(fileTreeApi.moveItem).mockRejectedValueOnce(
+      new Error('Destination already exists')
+    );
+    renderTree(
+      <FileTreePanel
+        workspacePath="/repo"
+        files={['index.ts']}
+        isLoading={false}
+      />
+    );
+    fireEvent.contextMenu(screen.getByRole('button', { name: /index\.ts/ }));
+    fireEvent.click(screen.getByRole('button', { name: '重命名' }));
+    const input = screen.getByRole('textbox', { name: '重命名' });
+    fireEvent.change(input, { target: { value: 'existing.ts' } });
+    fireEvent.keyDown(input, { key: 'Enter' });
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      'Destination already exists'
+    );
+    await waitFor(() => expect(input).toBeEnabled());
+    fireEvent.change(input, { target: { value: 'available.ts' } });
+    fireEvent.keyDown(input, { key: 'Enter' });
+    await waitFor(() =>
+      expect(
+        screen.queryByRole('textbox', { name: '重命名' })
+      ).not.toBeInTheDocument()
+    );
+    expect(fileTreeApi.moveItem).toHaveBeenLastCalledWith(
+      '/repo/index.ts',
+      '/repo/available.ts'
+    );
+  });
+
+  it('cancels filename creation with Escape without writing a file', () => {
+    renderTree(
+      <FileTreePanel workspacePath="/repo" files={[]} isLoading={false} />
+    );
+    fireEvent.click(screen.getByRole('button', { name: '新建文件' }));
+    const input = screen.getByRole('textbox', { name: '新建文件' });
+    fireEvent.change(input, { target: { value: 'cancelled.ts' } });
+    fireEvent.keyDown(input, { key: 'Escape' });
+    expect(
+      screen.queryByRole('textbox', { name: '新建文件' })
+    ).not.toBeInTheDocument();
+    expect(fileTreeApi.saveFile).not.toHaveBeenCalled();
   });
 
   it('shows a readable delete failure toast after confirmation', async () => {

@@ -22,6 +22,7 @@ import {
   updateFileReferenceDragPointer,
 } from '../../utils/fileReferenceDrag';
 import { FilePreviewPopover } from './FilePreviewPopover';
+import { FileTreeNameInput } from './FileTreeNameInput';
 import type { FileTreeNode, FileOpenLocation } from './file-tree-types';
 import { EMPTY_DIRECTORIES, EMPTY_SET } from './file-tree-constants';
 import {
@@ -97,6 +98,7 @@ export type FileTreePanelProps = {
   gitignoredFiles?: Set<string>;
   gitignoredDirectories?: Set<string>;
   onRefreshFiles?: () => void;
+  onRenamePath?: (oldPath: string, newPath: string) => void;
   refreshToken?: number;
   lazyLoadAllDirectories?: boolean;
   revealTarget?: FileTreeRevealTarget | null;
@@ -114,6 +116,7 @@ export function FileTreePanel({
   gitignoredFiles,
   gitignoredDirectories,
   onRefreshFiles,
+  onRenamePath,
   refreshToken = 0,
   lazyLoadAllDirectories = true,
   revealTarget = null,
@@ -179,10 +182,11 @@ export function FileTreePanel({
   const suppressClickPathRef = useRef<string | null>(null);
   const [newFileParent, setNewFileParent] = useState<string | null>(null);
   const [newFileName, setNewFileName] = useState('');
-  const newFileInputRef = useRef<HTMLInputElement | null>(null);
   const [newFolderParent, setNewFolderParent] = useState<string | null>(null);
   const [newFolderName, setNewFolderName] = useState('');
-  const newFolderInputRef = useRef<HTMLInputElement | null>(null);
+  const [renameTarget, setRenameTarget] = useState<FileTreeNode | null>(null);
+  const [renameName, setRenameName] = useState('');
+  const [renameError, setRenameError] = useState<string | null>(null);
   const lazyListing = useFileTreeStore(
     (state) => state.lazyListingByRoot[workspacePath] ?? EMPTY_LAZY_LISTING
   );
@@ -331,6 +335,9 @@ export function FileTreePanel({
     setNewFileName('');
     setNewFolderParent(null);
     setNewFolderName('');
+    setRenameTarget(null);
+    setRenameName('');
+    setRenameError(null);
     setDropTargetPath(null);
     setDragOverlay(null);
     dragCandidateRef.current = null;
@@ -932,6 +939,7 @@ export function FileTreePanel({
 
   const openNewFilePrompt = useCallback(
     (parentFolder: string) => {
+      setRenameTarget(null);
       setNewFolderParent(null);
       setNewFolderName('');
       setNewFileParent(parentFolder);
@@ -942,9 +950,6 @@ export function FileTreePanel({
       if (parentFolder) {
         void loadLazyDirectoryChildren(parentFolder);
       }
-      window.setTimeout(() => {
-        newFileInputRef.current?.focus();
-      }, 0);
     },
     [loadLazyDirectoryChildren, setExpandedFolders]
   );
@@ -991,6 +996,7 @@ export function FileTreePanel({
 
   const openNewFolderPrompt = useCallback(
     (parentFolder: string) => {
+      setRenameTarget(null);
       setNewFileParent(null);
       setNewFileName('');
       setNewFolderParent(parentFolder);
@@ -1001,9 +1007,6 @@ export function FileTreePanel({
       if (parentFolder) {
         void loadLazyDirectoryChildren(parentFolder);
       }
-      window.setTimeout(() => {
-        newFolderInputRef.current?.focus();
-      }, 0);
     },
     [loadLazyDirectoryChildren, setExpandedFolders]
   );
@@ -1049,6 +1052,83 @@ export function FileTreePanel({
     setNewFolderParent(null);
     setNewFolderName('');
   }, []);
+
+  const cancelRename = useCallback(() => {
+    setRenameTarget(null);
+    setRenameName('');
+    setRenameError(null);
+  }, []);
+
+  const openRenamePrompt = (path: string, isFolder: boolean) => {
+    setNewFileParent(null);
+    setNewFolderParent(null);
+    const name = path.split('/').pop() ?? path;
+    setRenameTarget({
+      path,
+      name,
+      type: isFolder ? 'folder' : 'file',
+      children: [],
+    });
+    setRenameName(name);
+    setRenameError(null);
+  };
+
+  const confirmRename = async () => {
+    if (!renameTarget) return;
+    const name = renameName.trim();
+    if (
+      !name ||
+      name === '.' ||
+      name === '..' ||
+      /[<>:"/\\|?*]/.test(name) ||
+      Array.from(name).some((character) => character.charCodeAt(0) < 32)
+    ) {
+      setRenameError(t('fileTreeMenu.invalidName'));
+      return;
+    }
+    if (name === renameTarget.name) {
+      cancelRename();
+      return;
+    }
+    const parent = renameTarget.path.includes('/')
+      ? renameTarget.path.slice(0, renameTarget.path.lastIndexOf('/'))
+      : '';
+    const nextPath = parent ? `${parent}/${name}` : name;
+    try {
+      await fileTreeApi.moveItem(
+        resolvePath(renameTarget.path),
+        resolvePath(nextPath)
+      );
+      const remap = (path: string) =>
+        path === renameTarget.path || path.startsWith(`${renameTarget.path}/`)
+          ? nextPath + path.slice(renameTarget.path.length)
+          : path;
+      const remapSet = (paths: Set<string>) =>
+        new Set(Array.from(paths, remap));
+      setLazyListing((current) => ({
+        files: remapSet(current.files),
+        directories: remapSet(current.directories),
+        gitignoredFiles: remapSet(current.gitignoredFiles),
+        gitignoredDirectories: remapSet(current.gitignoredDirectories),
+        loadableDirectories: remapSet(current.loadableDirectories),
+        loadedDirectories: remapSet(current.loadedDirectories),
+      }));
+      setExpandedFolders(remapSet);
+      setSelectedNodePath(nextPath);
+      setSelectedNodeType(renameTarget.type);
+      closePreview();
+      onRenamePath?.(renameTarget.path, nextPath);
+      cancelRename();
+      void loadLazyDirectoryChildren(parent, { force: true });
+      onRefreshFiles?.();
+    } catch (error) {
+      setRenameError(
+        t('fileTreeMenu.renameFailed', {
+          error: error instanceof Error ? error.message : String(error),
+        })
+      );
+    }
+  };
 
   const resolveParentFolderForNode = useCallback(
     (relativePath: string | null, nodeType: 'file' | 'folder' | null) => {
@@ -1433,14 +1513,29 @@ export function FileTreePanel({
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [selectedNodePath, selectedNodeType, trashItem, copyAbsolutePath]);
 
-  const renderInlineNewInput = (type: 'file' | 'folder', depth: number) => {
+  const renderInlineNewInput = (
+    type: 'file' | 'folder',
+    depth: number,
+    rename = false
+  ) => {
     const isFile = type === 'file';
     const inputConfig = getFileTreeInlineNewInputConfig(type);
-    const inputRef = isFile ? newFileInputRef : newFolderInputRef;
-    const name = isFile ? newFileName : newFolderName;
-    const setName = isFile ? setNewFileName : setNewFolderName;
-    const doConfirm = isFile ? confirmNewFile : confirmNewFolder;
-    const doCancel = isFile ? cancelNewFile : cancelNewFolder;
+    const name = rename ? renameName : isFile ? newFileName : newFolderName;
+    const setName = rename
+      ? setRenameName
+      : isFile
+        ? setNewFileName
+        : setNewFolderName;
+    const doConfirm = rename
+      ? confirmRename
+      : isFile
+        ? confirmNewFile
+        : confirmNewFolder;
+    const doCancel = rename
+      ? cancelRename
+      : isFile
+        ? cancelNewFile
+        : cancelNewFolder;
 
     return (
       <div key={`__inline-new-${type}`} className="file-tree-row-wrap">
@@ -1456,29 +1551,24 @@ export function FileTreePanel({
               isOpen={false}
             />
           </span>
-          <input
-            ref={inputRef}
-            className="file-tree-inline-input"
+          <FileTreeNameInput
+            label={t(
+              rename
+                ? 'fileTreeMenu.rename'
+                : isFile
+                  ? 'fileTreeMenu.newFile'
+                  : 'fileTreeMenu.newFolder'
+            )}
             value={name}
             placeholder={inputConfig.fallbackName}
-            onChange={(e) => setName(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === 'Escape') {
-                e.preventDefault();
-                doCancel();
-              }
-              if (e.key === 'Enter') {
-                e.preventDefault();
-                void doConfirm();
-              }
+            selectName={rename}
+            error={rename ? renameError : null}
+            onChange={(value) => {
+              setName(value);
+              if (rename) setRenameError(null);
             }}
-            onBlur={() => {
-              if (name.trim()) {
-                void doConfirm();
-                return;
-              }
-              doCancel();
-            }}
+            onConfirm={doConfirm}
+            onCancel={doCancel}
           />
         </div>
       </div>
@@ -1510,90 +1600,96 @@ export function FileTreePanel({
     });
     return (
       <div key={node.path}>
-        <div className="file-tree-row-wrap">
-          <button
-            type="button"
-            className={rowClassName}
-            style={{ paddingLeft: `${depth * 10}px` }}
-            onClick={(event) => {
-              if (suppressClickPathRef.current === node.path) {
-                suppressClickPathRef.current = null;
-                event.preventDefault();
-                return;
-              }
-              setSelectedNodePath(node.path);
-              setSelectedNodeType(node.type);
-              if (isFolder) {
-                if (canExpand) {
-                  const shouldExpand = !expandedFolders.has(node.path);
-                  toggleFolder(node.path);
-                  if (shouldExpand && isLazyFolder) {
-                    void loadLazyDirectoryChildren(node.path);
-                  }
-                }
-                return;
-              }
-              if (onOpenFile) {
-                onOpenFile(node.path);
-              } else {
-                openPreview(node.path, event.currentTarget);
-              }
-            }}
-            onContextMenu={(event) => {
-              setSelectedNodePath(node.path);
-              setSelectedNodeType(node.type);
-              void showContextMenu(event, node.path, isFolder);
-            }}
-            onPointerDown={(event) =>
-              beginPointerDrag(
-                {
-                  fileName: node.name,
-                  relativePath: node.path,
-                  kind: isFolder ? 'directory' : 'file',
-                },
-                event
-              )
-            }
-            data-file-tree-drop-path={isFolder ? node.path : undefined}
-          >
-            {isFolder && canExpand ? (
-              <span
-                className={`file-tree-chevron${isExpanded ? ' is-open' : ''}`}
-              >
-                {'>'}
-              </span>
-            ) : (
-              <span className="file-tree-spacer" aria-hidden />
-            )}
-            <span className="file-tree-icon" aria-hidden>
-              <FileIcon
-                filePath={node.name}
-                isFolder={isFolder}
-                isOpen={isExpanded}
-              />
-            </span>
-            <span className={`file-tree-name${gitStatusClass}`}>
-              {node.name}
-            </span>
-          </button>
-          {onInsertText && (
+        {renameTarget?.path === node.path ? (
+          renderInlineNewInput(node.type, depth, true)
+        ) : (
+          <div className="file-tree-row-wrap">
             <button
               type="button"
-              className={`ghost icon-button file-tree-action${selectedNodePath === node.path ? ' is-visible' : ''}`}
-              onMouseDown={(event) => {
-                event.stopPropagation();
-              }}
+              className={rowClassName}
+              style={{ paddingLeft: `${depth * 10}px` }}
               onClick={(event) => {
-                event.stopPropagation();
-                onInsertText(getFileTreeMentionText(node.path, node.type));
+                if (suppressClickPathRef.current === node.path) {
+                  suppressClickPathRef.current = null;
+                  event.preventDefault();
+                  return;
+                }
+                setSelectedNodePath(node.path);
+                setSelectedNodeType(node.type);
+                if (isFolder) {
+                  if (canExpand) {
+                    const shouldExpand = !expandedFolders.has(node.path);
+                    toggleFolder(node.path);
+                    if (shouldExpand && isLazyFolder) {
+                      void loadLazyDirectoryChildren(node.path);
+                    }
+                  }
+                  return;
+                }
+                if (onOpenFile) {
+                  onOpenFile(node.path);
+                } else {
+                  openPreview(node.path, event.currentTarget);
+                }
               }}
-              aria-label={t('fileTreeMenu.referenceNode', { name: node.name })}
-              title={t('fileTreeMenu.referenceToChat')}
+              onContextMenu={(event) => {
+                setSelectedNodePath(node.path);
+                setSelectedNodeType(node.type);
+                void showContextMenu(event, node.path, isFolder);
+              }}
+              onPointerDown={(event) =>
+                beginPointerDrag(
+                  {
+                    fileName: node.name,
+                    relativePath: node.path,
+                    kind: isFolder ? 'directory' : 'file',
+                  },
+                  event
+                )
+              }
+              data-file-tree-drop-path={isFolder ? node.path : undefined}
             >
-              <Plus size={10} aria-hidden />
+              {isFolder && canExpand ? (
+                <span
+                  className={`file-tree-chevron${isExpanded ? ' is-open' : ''}`}
+                >
+                  {'>'}
+                </span>
+              ) : (
+                <span className="file-tree-spacer" aria-hidden />
+              )}
+              <span className="file-tree-icon" aria-hidden>
+                <FileIcon
+                  filePath={node.name}
+                  isFolder={isFolder}
+                  isOpen={isExpanded}
+                />
+              </span>
+              <span className={`file-tree-name${gitStatusClass}`}>
+                {node.name}
+              </span>
             </button>
-          )}
-        </div>
+            {onInsertText && (
+              <button
+                type="button"
+                className={`ghost icon-button file-tree-action${selectedNodePath === node.path ? ' is-visible' : ''}`}
+                onMouseDown={(event) => {
+                  event.stopPropagation();
+                }}
+                onClick={(event) => {
+                  event.stopPropagation();
+                  onInsertText(getFileTreeMentionText(node.path, node.type));
+                }}
+                aria-label={t('fileTreeMenu.referenceNode', {
+                  name: node.name,
+                })}
+                title={t('fileTreeMenu.referenceToChat')}
+              >
+                <Plus size={10} aria-hidden />
+              </button>
+            )}
+          </div>
+        )}
         {isFolder &&
           isExpanded &&
           !(isLazyFolder && node.children.length === 0) &&
@@ -1810,6 +1906,21 @@ export function FileTreePanel({
               >
                 <span>{t('fileTreeMenu.newFolder')}</span>
               </button>
+              {contextMenu.relativePath ? (
+                <button
+                  type="button"
+                  className="flex w-full items-center rounded-lg px-2.5 py-2 text-left text-sm transition-colors hover:bg-muted/70"
+                  onClick={() => {
+                    closeContextMenu();
+                    openRenamePrompt(
+                      contextMenu.relativePath,
+                      contextMenu.isFolder
+                    );
+                  }}
+                >
+                  <span>{t('fileTreeMenu.rename')}</span>
+                </button>
+              ) : null}
               {!contextMenu.relativePath ? (
                 <>
                   <button

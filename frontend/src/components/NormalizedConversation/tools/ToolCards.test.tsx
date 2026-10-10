@@ -1,7 +1,16 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import {
+  fireEvent,
+  render as renderUI,
+  screen,
+  waitFor,
+} from '@testing-library/react';
+import type { ReactNode } from 'react';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { fileTreeApi } from '@/lib/api';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { ActionType, NormalizedEntry, ToolStatus } from 'shared/types';
 import { ToolCallCard } from '../ToolCallCard';
+import DisplayConversationEntry from '../DisplayConversationEntry';
 import type { ToolResultBlock, ToolUseBlock } from '../messageTurnBlocks';
 import { toolBlockToNormalizedEntry } from '../messageTurnTool';
 import { CommandToolCard } from './CommandToolCard';
@@ -73,6 +82,17 @@ function toolEntry({
   };
 }
 
+function render(ui: ReactNode) {
+  const client = new QueryClient({
+    defaultOptions: { queries: { retry: false } },
+  });
+  return renderUI(ui, {
+    wrapper: ({ children }) => (
+      <QueryClientProvider client={client}>{children}</QueryClientProvider>
+    ),
+  });
+}
+
 describe('conversation tool cards', () => {
   const clipboardWrite = vi.fn();
 
@@ -101,6 +121,16 @@ describe('conversation tool cards', () => {
     Object.defineProperty(navigator, 'clipboard', {
       configurable: true,
       value: { writeText: clipboardWrite },
+    });
+    Object.defineProperty(HTMLCanvasElement.prototype, 'getContext', {
+      configurable: true,
+      value: () => ({
+        font: '',
+        measureText: (text: string) => ({ width: text.length * 7 }),
+        beginPath: () => {},
+        arc: () => {},
+        stroke: () => {},
+      }),
     });
   });
 
@@ -460,7 +490,7 @@ describe('conversation tool cards', () => {
     fireEvent.click(screen.getByRole('button', { name: /搜索/ }));
 
     expect(screen.queryByText('参数')).not.toBeInTheDocument();
-    expect(screen.queryByText('maxResults')).not.toBeInTheDocument();
+    expect(screen.getByText('maxResults')).toBeInTheDocument();
     expect(screen.getByRole('list', { name: '搜索结果' })).toBeInTheDocument();
     expect(screen.getAllByRole('listitem')).toHaveLength(2);
     expect(
@@ -656,6 +686,228 @@ describe('conversation tool cards', () => {
     );
   });
 
+  it('shows fetched page content instead of only repeating its URL', () => {
+    const entry = toolBlockToNormalizedEntry(
+      {
+        type: 'tool_use',
+        tool_use_id: 'fetch-page',
+        tool_name: 'web_fetch',
+        kind: 'fetch',
+        meta: null,
+        input_preview: JSON.stringify({ url: 'https://example.com/docs' }),
+      },
+      {
+        type: 'tool_result',
+        tool_use_id: 'fetch-page',
+        is_error: false,
+        agent_stats: null,
+        output_preview: 'Fetched documentation body',
+      },
+      null
+    );
+    render(
+      <ToolCallResultDetail>
+        <ToolCallCard entry={entry} expansionKey="fetch-page" />
+      </ToolCallResultDetail>
+    );
+    expect(screen.getByText('Fetched documentation body')).toBeInTheDocument();
+  });
+
+  it('formats unknown tool arguments and structured results in expanded details', () => {
+    render(
+      <ToolCallResultDetail>
+        <GenericToolCard
+          entry={toolEntry({
+            toolName: 'custom_inspect',
+            actionType: {
+              action: 'tool',
+              tool_name: 'custom_inspect',
+              arguments: { scope: 'workspace' },
+              result: {
+                type: { type: 'json' },
+                value: { matched: 3, duration_ms: 12 },
+              },
+            },
+          })}
+          expansionKey="generic-fields"
+        />
+      </ToolCallResultDetail>
+    );
+    expect(screen.getByText('scope')).toBeInTheDocument();
+    expect(screen.getByText('workspace')).toBeInTheDocument();
+    expect(screen.getByText('matched')).toBeInTheDocument();
+    expect(screen.getByText('3')).toBeInTheDocument();
+    expect(screen.getByText('duration_ms')).toBeInTheDocument();
+  });
+
+  it('shows browser code and formatted output when its aggregate detail is opened', () => {
+    render(
+      <ToolCallResultDetail>
+        <ToolCallCard
+          entry={toolEntry({
+            toolName: 'browser_eval',
+            actionType: {
+              action: 'tool',
+              tool_name: 'browser_eval',
+              arguments: { tabId: 'tab-1', code: 'document.title' },
+              result: { type: { type: 'json' }, value: { title: 'VibeX' } },
+            },
+          })}
+          expansionKey="browser-detail"
+        />
+      </ToolCallResultDetail>
+    );
+    expect(screen.getByText('document.title')).toBeInTheDocument();
+    expect(screen.getByText('title')).toBeInTheDocument();
+    expect(screen.getByText('VibeX')).toBeInTheDocument();
+  });
+
+  it('preserves both terminal streams and the reported exit code in timeline details', () => {
+    const entry = toolBlockToNormalizedEntry(
+      {
+        type: 'tool_use',
+        tool_use_id: 'shell-output',
+        tool_name: 'exec_command',
+        kind: 'execute',
+        meta: null,
+        input_preview: JSON.stringify({ cmd: 'pnpm test' }),
+      },
+      {
+        type: 'tool_result',
+        tool_use_id: 'shell-output',
+        is_error: true,
+        agent_stats: null,
+        output_preview: JSON.stringify({
+          stdout: 'running tests',
+          stderr: 'assertion failed',
+          exit_code: 23,
+        }),
+      },
+      null
+    );
+    render(
+      <ToolCallResultDetail>
+        <CommandToolCard entry={entry} expansionKey="terminal-streams" />
+      </ToolCallResultDetail>
+    );
+    expect(screen.getByText(/running tests/)).toBeInTheDocument();
+    expect(screen.getByText(/assertion failed/)).toBeInTheDocument();
+    expect(screen.getByText('exit 23')).toBeInTheDocument();
+  });
+
+  it('highlights the inspected file range and shows matching surrounding lines', async () => {
+    vi.spyOn(fileTreeApi, 'readFileWithTruncation').mockResolvedValue({
+      content: 'before\ninspected\nafter',
+      truncated: false,
+    });
+    const { container } = render(
+      <ToolCallResultDetail>
+        <FileToolCard
+          entry={toolEntry({
+            toolName: 'Read',
+            actionType: {
+              action: 'file_read',
+              path: 'src/read.ts',
+              line_start: 2,
+              line_end: 2,
+              content: 'inspected',
+            },
+          })}
+          expansionKey="read-context"
+          containerRef={'C:\\workspace'}
+        />
+      </ToolCallResultDetail>
+    );
+
+    await waitFor(() => expect(container).toHaveTextContent('before'));
+    expect(container).toHaveTextContent('after');
+    expect(screen.getByText('inspected').closest('[role="row"]')).toHaveClass(
+      'is-inspected'
+    );
+    expect(screen.getByText('before').closest('[role="row"]')).not.toHaveClass(
+      'is-inspected'
+    );
+    expect(fileTreeApi.readFileWithTruncation).toHaveBeenCalledWith(
+      'C:\\workspace\\src\\read.ts',
+      256_000
+    );
+  });
+
+  it('uses the resolved workspace root for read details without an attempt directory', async () => {
+    vi.spyOn(fileTreeApi, 'readFileWithTruncation').mockResolvedValue({
+      content: 'before\ninspected\nafter',
+      truncated: false,
+    });
+    const { container } = render(
+      <ToolCallResultDetail>
+        <DisplayConversationEntry
+          entry={toolEntry({
+            actionType: {
+              action: 'file_read',
+              path: 'src/read.ts',
+              content: 'inspected',
+              line_start: 2,
+            },
+          })}
+          expansionKey="resolved-read"
+          workspacePath="C:/workspace"
+          toolDetailOnly
+        />
+      </ToolCallResultDetail>
+    );
+    await waitFor(() => expect(container).toHaveTextContent('before'));
+    expect(fileTreeApi.readFileWithTruncation).toHaveBeenCalledWith(
+      'C:/workspace/src/read.ts',
+      256_000
+    );
+  });
+
+  it('renders timeline replacements as a diff instead of raw patch text', () => {
+    const entry = toolBlockToNormalizedEntry(
+      {
+        type: 'tool_use',
+        tool_use_id: 'replacement',
+        tool_name: 'Edit',
+        kind: 'edit',
+        meta: null,
+        input_preview: JSON.stringify({
+          file_path: 'src/config.ts',
+          old_string: 'const enabled = false;',
+          new_string: 'const enabled = true;',
+        }),
+      },
+      {
+        type: 'tool_result',
+        tool_use_id: 'replacement',
+        output_preview: 'File updated',
+        is_error: false,
+        agent_stats: null,
+      },
+      null
+    );
+    if (
+      entry.entry_type.type !== 'tool_use' ||
+      entry.entry_type.action_type.action !== 'file_edit'
+    ) {
+      throw new Error('Expected a file edit');
+    }
+    const { path, changes } = entry.entry_type.action_type;
+    const { container } = render(
+      <ToolCallResultDetail>
+        <UnifiedDiffPreview
+          path={path}
+          change={changes[0]}
+          expansionKey="timeline-replacement"
+        />
+      </ToolCallResultDetail>
+    );
+
+    expect(container.querySelector('.conv-tool-diff-fallback')).toBeNull();
+    expect(container.querySelector('table')).toBeInTheDocument();
+    expect(container).toHaveTextContent('const enabled = false;');
+    expect(container).toHaveTextContent('const enabled = true;');
+  });
+
   it('shows a file edit snippet immediately inside an aggregate row', () => {
     const { container } = render(
       <ToolCallResultDetail>
@@ -674,6 +926,130 @@ describe('conversation tool cards', () => {
     expect(screen.queryByText('修改')).not.toBeInTheDocument();
     expect(container.querySelector('.conv-tool-artifact-body')).toBeTruthy();
     expect(screen.getByText(/\+\s+display: flex;/)).toBeInTheDocument();
+  });
+
+  it('renders apply_patch fragments as a highlighted diff', () => {
+    const entry = toolBlockToNormalizedEntry(
+      {
+        type: 'tool_use',
+        tool_use_id: 'patch',
+        tool_name: 'apply_patch',
+        kind: 'edit',
+        meta: null,
+        input_preview: JSON.stringify({
+          patch: [
+            '*** Begin Patch',
+            '*** Update File: src/theme.css',
+            '@@',
+            '-color: red;',
+            '+color: blue;',
+            '*** End Patch',
+          ].join('\n'),
+        }),
+      },
+      null,
+      null
+    );
+    if (
+      entry.entry_type.type !== 'tool_use' ||
+      entry.entry_type.action_type.action !== 'file_edit'
+    ) {
+      throw new Error('Expected a file edit');
+    }
+    const action = entry.entry_type.action_type;
+    const { container } = render(
+      <ToolCallResultDetail>
+        <UnifiedDiffPreview
+          path={action.path}
+          change={action.changes[0]}
+          expansionKey="patch-fragment"
+        />
+      </ToolCallResultDetail>
+    );
+    expect(container.querySelector('.conv-tool-diff-fallback')).toBeNull();
+    expect(container.querySelector('table')).toBeInTheDocument();
+    expect(container).toHaveTextContent('color: red;');
+    expect(container).toHaveTextContent('color: blue;');
+  });
+
+  it('shows every replacement from a MultiEdit call in the actual detail renderer', () => {
+    const entry = toolBlockToNormalizedEntry(
+      {
+        type: 'tool_use',
+        tool_use_id: 'multi-edit',
+        tool_name: 'MultiEdit',
+        kind: 'edit',
+        meta: null,
+        input_preview: JSON.stringify({
+          file_path: 'src/config.ts',
+          edits: [
+            { old_string: 'const first = 1;', new_string: 'const first = 2;' },
+            {
+              old_string: 'const second = 3;',
+              new_string: 'const second = 4;',
+            },
+          ],
+        }),
+      },
+      null,
+      null
+    );
+    const { container } = render(
+      <ToolCallResultDetail>
+        <DisplayConversationEntry
+          entry={entry}
+          expansionKey="multi-edit"
+          toolDetailOnly
+        />
+      </ToolCallResultDetail>
+    );
+    expect(container).toHaveTextContent('const first = 2;');
+    expect(container).toHaveTextContent('const second = 4;');
+    expect(container.querySelectorAll('table')).toHaveLength(2);
+  });
+
+  it('keeps file identities and all hunks in a patch touching several files', () => {
+    const entry = toolBlockToNormalizedEntry(
+      {
+        type: 'tool_use',
+        tool_use_id: 'files-patch',
+        tool_name: 'apply_patch',
+        kind: 'edit',
+        meta: null,
+        input_preview: JSON.stringify(
+          [
+            '*** Begin Patch',
+            '*** Update File: src/first.ts',
+            '@@',
+            '-firstOld',
+            '+firstNew',
+            '@@ function other',
+            '-secondOld',
+            '+secondNew',
+            '*** Add File: src/second.ts',
+            '+created',
+            '*** End Patch',
+          ].join('\n')
+        ),
+      },
+      null,
+      null
+    );
+    const { container } = render(
+      <ToolCallResultDetail>
+        <DisplayConversationEntry
+          entry={entry}
+          expansionKey="files-patch"
+          toolDetailOnly
+        />
+      </ToolCallResultDetail>
+    );
+    expect(container).toHaveTextContent('src/first.ts');
+    expect(container).toHaveTextContent('src/second.ts');
+    expect(container).toHaveTextContent('firstNew');
+    expect(container).toHaveTextContent('secondNew');
+    expect(container).toHaveTextContent('created');
+    expect(container.querySelector('.conv-tool-diff-fallback')).toBeNull();
   });
 
   it('routes question tool results to a question card', () => {
@@ -747,6 +1123,39 @@ describe('conversation tool cards', () => {
 
     expect(screen.getAllByText('Finish Phase 2')[0]).toBeInTheDocument();
     expect(screen.getByText('active')).toBeInTheDocument();
+  });
+
+  it('routes structured timeline goal results to the existing goal component', () => {
+    const entry = toolBlockToNormalizedEntry(
+      {
+        type: 'tool_use',
+        tool_use_id: 'goal-result',
+        tool_name: 'get_goal',
+        kind: 'other',
+        meta: null,
+        input_preview: '{}',
+      },
+      {
+        type: 'tool_result',
+        tool_use_id: 'goal-result',
+        is_error: false,
+        agent_stats: null,
+        output_preview: JSON.stringify({
+          objective: 'Ship rich details',
+          status: 'active',
+          elapsed_seconds: 12,
+        }),
+      },
+      null
+    );
+    render(
+      <ToolCallResultDetail>
+        <ToolCallCard entry={entry} expansionKey="goal-result" />
+      </ToolCallResultDetail>
+    );
+    expect(screen.getByText('active')).toBeInTheDocument();
+    expect(screen.getByText('elapsed_seconds')).toBeInTheDocument();
+    expect(screen.getByText('12')).toBeInTheDocument();
   });
 
   it('routes generated images to an image result card', () => {

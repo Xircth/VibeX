@@ -1,4 +1,31 @@
 import type { TurnRenderItem } from './messageTurnBlocks';
+import { isAskQuestionTool } from '@/components/tasks/follow-up/agentQuestionModel';
+import {
+  isHostDelegationLifecycleTool,
+  isHostDelegationTool,
+} from './conversation/hostDelegation';
+import {
+  isCompanionMcpDiscoverySearch,
+  isNativeSubagentTool,
+  isSubagentLifecycleTool,
+} from './tools/subagentCardModel';
+
+export function isCollapsibleProcessItem(item: TurnRenderItem): boolean {
+  if (item.kind === 'markdown' || item.kind === 'thinking') return true;
+  if (item.kind !== 'tool' || !item.result || item.result.is_error)
+    return false;
+  const use = item.use;
+  return (
+    !use ||
+    (!use.images?.length &&
+      !isAskQuestionTool(use) &&
+      !isHostDelegationTool(use) &&
+      !isHostDelegationLifecycleTool(use) &&
+      !isNativeSubagentTool(use) &&
+      !isSubagentLifecycleTool(use) &&
+      !isCompanionMcpDiscoverySearch(use))
+  );
+}
 
 export function splitCollapsedTurnItems(items: TurnRenderItem[]): {
   prelude: TurnRenderItem[];

@@ -312,7 +312,7 @@ describe('AgentSettings', () => {
     expect(status).toHaveAttribute('aria-busy', 'true');
     expect(
       status.querySelectorAll('.agent-settings-loading-mark')
-    ).toHaveLength(7);
+    ).toHaveLength(6);
     expect(
       status.querySelectorAll('.agent-settings-loading-rows li')
     ).toHaveLength(5);
@@ -1097,6 +1097,172 @@ describe('AgentSettings', () => {
 
     await user.click(await screen.findByRole('button', { name: '安装 ACP' }));
     expect(api.addAndInstall).toHaveBeenCalledWith('kimi');
+  });
+
+  describe('enabling an Agent', () => {
+    const kimi = {
+      agent_id: 'kimi',
+      display_name: 'Kimi CLI',
+      description: "Moonshot AI's coding assistant",
+      icon_light: null,
+      icon_dark: null,
+      icon_svg: null,
+      source: 'official_registry',
+      built_in: false,
+      retired: false,
+      enabled: false,
+      position: 0,
+      lifecycle: 'ready',
+      authentication: 'not_required',
+      runtime_version: null,
+      acp_version: '1.0.0',
+      active_operation: null,
+      rollback_available: false,
+    };
+    const acpItem = (overrides: Record<string, unknown>) => ({
+      id: 'acp',
+      label: 'ACP 适配器',
+      status: 'pass',
+      detail: '',
+      version: '1.0.0',
+      path: null,
+      source: null,
+      repairable: false,
+      update_available: false,
+      available_version: null,
+      update_group: null,
+      ...overrides,
+    });
+    const arrange = (
+      agent: Record<string, unknown>,
+      acp: Record<string, unknown>,
+      update: Record<string, unknown> = {}
+    ) => {
+      api.bar.mockResolvedValue([agent]);
+      api.setEnabled.mockResolvedValue({ ...agent, enabled: true });
+      api.readConfig.mockResolvedValue({
+        agent_id: 'kimi',
+        available: false,
+        settings_features: [],
+        path: null,
+        paths: [],
+        fields: [],
+        files: [],
+        applies_to_next_session: true,
+      });
+      api.preflight.mockResolvedValue({
+        agent_id: 'kimi',
+        checked_at: '2026-10-09T00:00:00Z',
+        items: [acpItem(acp)],
+      });
+      api.checkUpdate.mockResolvedValue({
+        agent_id: 'kimi',
+        current_version: '1.0.0',
+        available_version: null,
+        update_available: false,
+        snapshot_id: null,
+        fetched_at: null,
+        fresh: true,
+        ...update,
+      });
+      const receipt = (kind: string) => ({
+        operation_id: `${kind}-kimi`,
+        agent_id: 'kimi',
+        kind,
+        status: 'queued',
+      });
+      api.addAndInstall.mockResolvedValue(receipt('install'));
+      api.repair.mockResolvedValue(receipt('repair'));
+      api.applyUpdate.mockResolvedValue(receipt('update'));
+    };
+    const enable = async () => {
+      const user = userEvent.setup();
+      await screen.findByRole('button', { name: 'Kimi CLI' });
+      await waitFor(() => expect(api.preflight).toHaveBeenCalled());
+      api.preflight.mockClear();
+      await user.click(screen.getByRole('switch', { name: '启用 Agent' }));
+    };
+
+    it('checks and installs the ACP of an uninstalled Agent', async () => {
+      arrange(
+        { ...kimi, lifecycle: 'uninstalled', acp_version: null },
+        { status: 'fail', repairable: true, version: null }
+      );
+      render(<AgentSettings />);
+      await enable();
+
+      await waitFor(() =>
+        expect(api.addAndInstall).toHaveBeenCalledWith('kimi')
+      );
+      expect(api.setEnabled).toHaveBeenCalledWith('kimi', true);
+      expect(api.preflight).toHaveBeenCalledWith('kimi');
+    });
+
+    it('repairs an installation the preflight finds broken', async () => {
+      arrange(
+        { ...kimi, lifecycle: 'needs_repair' },
+        { status: 'fail', repairable: true }
+      );
+      render(<AgentSettings />);
+      await enable();
+
+      await waitFor(() => expect(api.repair).toHaveBeenCalledWith('kimi'));
+      expect(api.addAndInstall).not.toHaveBeenCalled();
+    });
+
+    it('updates the ACP when the check finds a newer version', async () => {
+      arrange(
+        kimi,
+        {},
+        {
+          available_version: '1.2.0',
+          acp_available: '1.2.0',
+          acp_current: '1.0.0',
+          update_available: true,
+        }
+      );
+      render(<AgentSettings />);
+      await enable();
+
+      await waitFor(() => expect(api.applyUpdate).toHaveBeenCalledWith('kimi'));
+      expect(api.addAndInstall).not.toHaveBeenCalled();
+      expect(api.repair).not.toHaveBeenCalled();
+    });
+
+    it('leaves a healthy up-to-date Agent alone', async () => {
+      arrange(kimi, {});
+      render(<AgentSettings />);
+      await enable();
+
+      await waitFor(() => expect(api.preflight).toHaveBeenCalledWith('kimi'));
+      await waitFor(() => expect(api.checkUpdate).toHaveBeenCalled());
+      expect(api.addAndInstall).not.toHaveBeenCalled();
+      expect(api.repair).not.toHaveBeenCalled();
+      expect(api.applyUpdate).not.toHaveBeenCalled();
+    });
+
+    it('does not install anything when the user disables an Agent', async () => {
+      const user = userEvent.setup();
+      arrange({ ...kimi, enabled: true, lifecycle: 'uninstalled' }, {});
+      api.setEnabled.mockResolvedValue({
+        ...kimi,
+        enabled: false,
+        lifecycle: 'uninstalled',
+      });
+      render(<AgentSettings />);
+      await screen.findByRole('button', { name: 'Kimi CLI' });
+      await waitFor(() => expect(api.preflight).toHaveBeenCalled());
+      api.preflight.mockClear();
+      api.addAndInstall.mockClear();
+
+      await user.click(screen.getByRole('switch', { name: '启用 Agent' }));
+
+      await waitFor(() =>
+        expect(api.setEnabled).toHaveBeenCalledWith('kimi', false)
+      );
+      expect(api.preflight).not.toHaveBeenCalled();
+      expect(api.addAndInstall).not.toHaveBeenCalled();
+    });
   });
 
   it('shows complete launch evidence for a manually registered Agent', async () => {

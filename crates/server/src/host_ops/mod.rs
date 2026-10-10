@@ -1,4 +1,5 @@
 mod file_listing;
+mod file_move;
 mod file_search;
 
 use std::{
@@ -1269,32 +1270,7 @@ impl ServerApplicationDomains {
         let args: MoveArgs = parse(args)?;
         let source = self.sandbox_existing_path(&args.path).await?;
         let dest = sanitize_absolute(&args.new_path)?;
-        if source == dest {
-            return serialize(dest.to_string_lossy().into_owned());
-        }
-        if dest.exists() {
-            return Err(ApplicationError::conflict(format!(
-                "Destination already exists: {}",
-                dest.display()
-            )));
-        }
-        let dest_parent = dest.parent().ok_or_else(|| {
-            ApplicationError::bad_request("Destination must include a parent directory")
-        })?;
-        if !dest_parent.exists() {
-            return Err(ApplicationError::not_found(format!(
-                "Destination parent does not exist: {}",
-                dest_parent.display()
-            )));
-        }
-        if source.is_dir() && dest.starts_with(&source) {
-            return Err(ApplicationError::bad_request(
-                "Cannot move a directory into itself",
-            ));
-        }
-        tokio::fs::rename(&source, &dest)
-            .await
-            .map_err(internal_error)?;
+        file_move::move_item_at_paths(&source, &dest).await?;
         serialize(dest.to_string_lossy().into_owned())
     }
 

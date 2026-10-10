@@ -22,6 +22,7 @@ import {
   getToolStatusClassName,
   getToolStatusDotClassName,
 } from './ToolCardShell';
+import { jsonToFacts } from './toolArtifactModel';
 
 function GenericToolDetail({
   arguments: args,
@@ -40,7 +41,9 @@ function GenericToolDetail({
   openPath: (path: string, line?: number) => void;
   openDirectory: (path: string) => void;
 }) {
-  const hits = parseToolHitItems(result?.value ?? result);
+  const hits = parseToolHitItems(result?.value ?? result).filter(
+    (item) => item.path || item.url
+  );
   const urlHits = collectHttpUrls(result?.value ?? args).map((url) => ({
     path: null,
     url,
@@ -69,6 +72,10 @@ function GenericToolDetail({
 
   if (typeof result?.value === 'string' && result.value.trim()) {
     return <ToolProse>{result.value}</ToolProse>;
+  }
+
+  if (result?.type.type === 'json') {
+    return <ToolFacts facts={jsonToFacts(result.value)} />;
   }
 
   if (fallbackText) {
@@ -181,20 +188,14 @@ export function GenericToolCard({
       : // Raw tool identifiers are developer-facing noise — fall back to the
         // inline text instead of exposing `tool_name`.
         summary.detail || meaningfulInlineText;
-  const genericItems =
-    isGenericTool && actionType.action === 'tool'
-      ? parseToolHitItems(actionType.result?.value ?? actionType.result)
-      : [];
   const hasDetails =
     isTaskCreate ||
     isTodo ||
     isOther ||
     (isGenericTool &&
-      (genericItems.length > 0 ||
-        (actionType.action === 'tool' &&
-          (actionType.result?.type.type === 'markdown' ||
-            typeof actionType.result?.value === 'string' ||
-            meaningfulInlineText.length > 0))));
+      (actionType.arguments != null ||
+        actionType.result != null ||
+        meaningfulInlineText.length > 0));
   const icon = isTaskCreate ? (
     <Plus className="h-3 w-3" />
   ) : isTodo ? (
@@ -240,25 +241,37 @@ export function GenericToolCard({
       ) : null}
 
       {isGenericTool ? (
-        <GenericToolDetail
-          arguments={actionType.arguments}
-          result={actionType.result}
-          fallbackText={meaningfulInlineText}
-          taskAttemptId={taskAttemptId}
-          openLink={openLink}
-          openPath={(path, line) => {
-            const resolved = resolveToolFilePath(path);
-            const title = deriveRelativeFilePath(resolved, null) ?? path;
-            panelActions?.openFilePreview(resolved, {
-              displayPath: title,
-              title,
-              location: fileReadLocation(line, line),
-            });
-          }}
-          openDirectory={(path) => {
-            panelActions?.revealInFileTree(path, { nodeType: 'folder' });
-          }}
-        />
+        <>
+          {actionType.arguments != null &&
+          jsonToFacts(actionType.arguments).length > 0 ? (
+            <ToolArtifact badge={t('genericTool.arguments')}>
+              <ToolFacts facts={jsonToFacts(actionType.arguments)} />
+            </ToolArtifact>
+          ) : null}
+          <ToolArtifact
+            badge={actionType.result ? t('genericTool.result') : undefined}
+          >
+            <GenericToolDetail
+              arguments={actionType.arguments}
+              result={actionType.result}
+              fallbackText={meaningfulInlineText}
+              taskAttemptId={taskAttemptId}
+              openLink={openLink}
+              openPath={(path, line) => {
+                const resolved = resolveToolFilePath(path);
+                const title = deriveRelativeFilePath(resolved, null) ?? path;
+                panelActions?.openFilePreview(resolved, {
+                  displayPath: title,
+                  title,
+                  location: fileReadLocation(line, line),
+                });
+              }}
+              openDirectory={(path) => {
+                panelActions?.revealInFileTree(path, { nodeType: 'folder' });
+              }}
+            />
+          </ToolArtifact>
+        </>
       ) : null}
 
       {isOther ? (

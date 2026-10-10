@@ -1,9 +1,11 @@
 import { create } from 'zustand';
+import { useShallow } from 'zustand/react/shallow';
 
 type State = {
   expanded: Record<string, boolean>;
   revision: number;
   setKey: (key: string, value: boolean) => void;
+  setKeys: (keys: readonly string[], value: boolean) => void;
   toggleKey: (key: string, fallback?: boolean) => void;
   clear: () => void;
 };
@@ -17,6 +19,18 @@ const useExpandableStore = create<State>((set) => ({
         ? s
         : {
             expanded: { ...s.expanded, [key]: value },
+            revision: s.revision + 1,
+          }
+    ),
+  setKeys: (keys, value) =>
+    set((s) =>
+      keys.every((key) => s.expanded[key] === value)
+        ? s
+        : {
+            expanded: {
+              ...s.expanded,
+              ...Object.fromEntries(keys.map((key) => [key, value])),
+            },
             revision: s.revision + 1,
           }
     ),
@@ -47,6 +61,27 @@ export function useExpandable(
   return [expandedValue ?? defaultValue, set];
 }
 
+/** Preserve opened content when a group gains, loses, or splits its members. */
+export function useExpandableGroup(
+  keys: readonly string[]
+): [boolean, (next?: boolean) => void] {
+  const expanded = useExpandableStore((s) =>
+    keys.some((key) => s.expanded[key] === true)
+  );
+  const setKeys = useExpandableStore((s) => s.setKeys);
+  return [expanded, (next) => setKeys(keys, next ?? !expanded)];
+}
+
 export function useExpandableRevision(): number {
   return useExpandableStore((s) => s.revision);
+}
+
+export function useExpandableItems(
+  keys: readonly string[]
+): [boolean[], (key: string, expanded: boolean) => void] {
+  const expanded = useExpandableStore(
+    useShallow((s) => keys.map((key) => s.expanded[key] ?? false))
+  );
+  const setKey = useExpandableStore((s) => s.setKey);
+  return [expanded, setKey];
 }

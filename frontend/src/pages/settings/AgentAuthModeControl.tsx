@@ -64,6 +64,7 @@ type Props = {
   authentication?: AgentAuthenticationStatus;
   busy?: boolean;
   configuration?: ReactNode | ((mode: string) => ReactNode);
+  configurationOnAccount?: (mode: string) => boolean;
   headingExtra?: ReactNode;
   modelProvider?: ReactNode;
   accountExtra?: ReactNode;
@@ -82,6 +83,7 @@ export function AgentAuthModeControl({
   authentication,
   busy = false,
   configuration,
+  configurationOnAccount,
   headingExtra,
   modelProvider,
   accountExtra,
@@ -155,6 +157,9 @@ export function AgentAuthModeControl({
   );
   const dirty = Boolean(view && apiKey.length > 0);
   const panel = authenticationPanel(selectedKind, Boolean(modelProvider));
+  const configurationVisible =
+    panel === 'configuration' ||
+    (panel === 'account' && Boolean(configurationOnAccount?.(mode)));
   const displayName = agentDisplayName(agentId);
   const signedIn = accountSessionActive(authentication);
   const showCodexDeviceLogin = agentId === 'codex' && !signedIn;
@@ -220,6 +225,16 @@ export function AgentAuthModeControl({
         variant: 'destructive',
       });
       if (result !== 'confirmed') return;
+    }
+    if (
+      action?.kind === 'login' &&
+      view &&
+      mode !== view.mode &&
+      kindOfMode(view.mode) !== 'provider' &&
+      kindOfMode(mode) === 'subscription' &&
+      !(await persistMode(mode))
+    ) {
+      return;
     }
     onRunAction?.(actionId);
   };
@@ -532,7 +547,7 @@ export function AgentAuthModeControl({
             {configuration ? (
               <div
                 className="agent-auth-mode-panel agent-auth-mode-panel-config"
-                hidden={panel !== 'configuration'}
+                hidden={!configurationVisible}
               >
                 {typeof configuration === 'function'
                   ? configuration(mode)

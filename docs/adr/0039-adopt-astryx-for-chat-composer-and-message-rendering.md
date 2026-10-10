@@ -58,13 +58,27 @@ Astryx（Meta 开源设计系统，`@astryxdesign/core`，MIT，GitHub `facebook
    `components.code` 自定义接入（自研 `MermaidDiagram` 原样复用），随后移除
    `react-markdown` / `remark-*` / `rehype-katex` 依赖。
 6. **tool call 渲染**：`ToolCards` → `ChatToolCalls`，`ToolStatus` 映射到
-   `ChatToolCallStatus`（pending/running/complete/error）。消息回合中每段连续工具
-   调用统一由 `TurnToolCalls` 一次性传入 `calls`，命令、读取、修改、搜索、网页、
-   子 Agent 与其他调用可混合聚合；标题按类别计数，即使只有一条也保留可展开的
-   聚合外壳。每一行的 `resultDetail` 复用原有专用卡片的详情与 actions，但通过
+   `ChatToolCallStatus`（pending/running/complete/error）。消息回合中连续工具调用与思考
+   构成一个活动阶段，由 `TurnActivity` 呈现；思考不切断阶段，正文或其他输出结束阶段。
+   命令、读取、修改、搜索、网页与其他调用可混合聚合。
+   仅正在进行的阶段保留最近 3 条调用，较早的连续已完成活动合并为一个聚合入口，
+   不按固定条数切组；阶段结束或回合进入终态时，剩余已完成活动也并入同一入口。
+   正文或须独立展示的内容形成分组边界。标题按本组类别计数，连续思考算一项活动。
+   运行中、失败与等待交互的调用保持可见。每一行的 `resultDetail` 复用原有专用卡片的详情与 actions，但通过
    `ToolCallResultDetail` 上下文省略其单调用标题，避免新旧工具行嵌套。
+   工具适配保留结构化参数与结果；编辑按文件呈现完整差异，包含同次调用中的多个替换与补丁块，
+   不将片段位置冒充文件行号。读取详情保留当时返回的内容，以灰底标记实际读取行；
+   仅当前文件仍与该片段逐行吻合时补充前后各三行上下文。终端详情显示完整命令、参数、
+   标准输出、错误输出与 Agent 报告的退出码，其余调用沿用专用组件或结构化字段展示。
    `ToolCardShell` 仍服务于消息回合以外的独立调用与审批强制展开场景；
    `PendingApprovalEntry` 作为审批状态包装器保留。
+   思考参与同阶段聚合，聚合标题不显示思考段数，Hover 不增加底色；展开后使用独立的
+   `ThinkingEntry`，不采用工具组件样式。仅含思考的批次直接使用 `ThinkingEntry`。
+   消息流末尾正在输出的思考默认展开；后续正文、工具调用或回合终态到来后默认收起，
+   用户可再次展开查看。流式回合不折叠过程正文；开启消息折叠时，终态回合使用一个
+   过程入口收起最终正文之前的过程正文、已完成工具与思考，展开后按阶段顺序展示活动聚合。
+   运行中、失败、待交互、子智能体和图像内容保持可见；没有可折叠内容时不显示过程入口。
+   展开状态按成员保存，阶段结束或分组重组后仍能查看用户已经展开的内容。
 7. **用户消息气泡**：消息流中的用户消息统一由 `ChatMessage(sender="user")` +
    `ChatMessageBubble` 提供语义、对齐和气泡结构；正文使用基于 Astryx `Markdown`
    的受限语法渲染器，并以内联插件承接结构化 token。VibeX 仅在主题层覆盖亮色
@@ -102,8 +116,10 @@ Astryx（Meta 开源设计系统，`@astryxdesign/core`，MIT，GitHub `facebook
   重写；纯逻辑 `sessionComposer*.test.ts` 可复用。
 - **Beta 依赖风险**：Astryx 当前 0.3.0 Beta，API 可能变动，锁定版本并跟踪 changelog。
 - **0.3.0 补丁**：上游 `ChatToolCalls` 声明了 `label` 却未使用，且单调用强制走
-  无聚合分支；仓库以 pnpm patch 落地 `label` 与 `alwaysGroup`，补丁由单条聚合、
-  混合分类摘要回归测试约束，升级 Astryx 时必须先核对并移除已上游化的部分。
+  无聚合分支；单调用详情只保存组件本地状态，聚合重组时会丢失。
+  仓库以 pnpm patch 落地 `label`、`alwaysGroup` 与每条调用的受控详情展开状态，
+  由单条聚合、混合分类摘要与重组后详情展开回归测试约束。
+  升级 Astryx 时必须先核对并移除已上游化的部分。
 - **集成方式**：Astryx 为预编译 ESM + 预编译 CSS（`@astryxdesign/core/astryx.css`），
   无需 PostCSS/Babel 构建插件，`className` 可覆盖样式，不影响 VibeX 现有
   Tailwind / design tokens 体系。

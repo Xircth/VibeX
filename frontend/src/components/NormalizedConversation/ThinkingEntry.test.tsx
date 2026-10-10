@@ -1,9 +1,9 @@
-import { fireEvent, render, screen } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { describe, expect, it } from 'vitest';
 import { ThinkingEntry } from './ThinkingEntry';
 
 describe('ThinkingEntry', () => {
-  it('streams expanded and auto-collapses when the turn finishes', () => {
+  it('streams expanded and auto-collapses when the turn finishes', async () => {
     const { rerender } = render(
       <ThinkingEntry
         content="checking the plan"
@@ -14,7 +14,11 @@ describe('ThinkingEntry', () => {
     );
 
     expect(screen.getByText('思考')).toBeInTheDocument();
-    expect(screen.getByText('checking the plan')).toBeInTheDocument();
+    await waitFor(() =>
+      expect(
+        screen.getByRole('button', { name: '收起思考' }).parentElement
+      ).toHaveTextContent('checking the plan')
+    );
     expect(screen.queryByText('1m 5s')).not.toBeInTheDocument();
 
     rerender(

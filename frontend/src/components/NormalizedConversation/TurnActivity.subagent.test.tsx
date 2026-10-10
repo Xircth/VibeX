@@ -3,7 +3,7 @@ import { describe, expect, it, vi } from 'vitest';
 import type { ChatToolCallItem } from '@astryxdesign/core/Chat';
 import { BackendTransportProvider } from '@/lib/transport';
 import type { BackendTransport } from '@/lib/backendTransport';
-import { TurnToolCalls } from './TurnToolCalls';
+import { TurnActivity } from './TurnActivity';
 import type { IndexedTurnItem } from './messageTurnAggregate';
 import type { ToolResultBlock, ToolUseBlock } from './messageTurnBlocks';
 
@@ -83,7 +83,7 @@ function capturedNames(): string[] {
   );
 }
 
-describe('TurnToolCalls subagent expansion', () => {
+describe('TurnActivity subagent expansion', () => {
   it('renders the host product card for MCP delegation and shows the poll tool', () => {
     captured.groups = [];
     const transport = {
@@ -92,10 +92,9 @@ describe('TurnToolCalls subagent expansion', () => {
     } satisfies BackendTransport;
     render(
       <BackendTransportProvider transport={transport}>
-        <TurnToolCalls
+        <TurnActivity
           turnId="turn-1"
           timestamp="2026-08-18T00:00:00.000Z"
-          offset={0}
           items={[
             toolItem(
               'delegate_to_agent',
@@ -145,13 +144,6 @@ describe('TurnToolCalls subagent expansion', () => {
         /vibex-delegation-mcp__delegate_to_agent/.test(name)
       )
     ).toBe(false);
-    expect(
-      captured.groups
-        .filter((group) =>
-          group.calls.some((call) => /终端|Terminal/.test(String(call.name)))
-        )
-        .every((group) => group.defaultIsExpanded === false)
-    ).toBe(true);
   });
 
   it('expands the card result from the sibling poll instead of a truncated preview', () => {
@@ -164,10 +156,9 @@ describe('TurnToolCalls subagent expansion', () => {
     } satisfies BackendTransport;
     render(
       <BackendTransportProvider transport={transport}>
-        <TurnToolCalls
+        <TurnActivity
           turnId="turn-result"
           timestamp="2026-08-18T00:00:00.000Z"
-          offset={0}
           items={[
             toolItem(
               'delegate_to_agent',
@@ -233,10 +224,9 @@ describe('TurnToolCalls subagent expansion', () => {
     } satisfies BackendTransport;
     render(
       <BackendTransportProvider transport={transport}>
-        <TurnToolCalls
+        <TurnActivity
           turnId="turn-2"
           timestamp="2026-08-18T00:00:00.000Z"
-          offset={0}
           items={[
             toolItem(
               'vibex-delegation-mcp__delegate_to_agent',
@@ -288,10 +278,9 @@ describe('TurnToolCalls subagent expansion', () => {
   it('renders ask_user_question as a dedicated card instead of a grouped tool', () => {
     captured.groups = [];
     render(
-      <TurnToolCalls
+      <TurnActivity
         turnId="turn-ask"
         timestamp="2026-08-18T00:00:00.000Z"
-        offset={0}
         items={[
           toolItem(
             'ask_user_question',

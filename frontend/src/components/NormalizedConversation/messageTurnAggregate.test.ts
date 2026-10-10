@@ -21,8 +21,8 @@ describe('groupTurnRenderItems', () => {
       toolItem('bash', { command: 'three' }),
     ]);
     expect(units).toHaveLength(1);
-    expect(units[0]).toMatchObject({ kind: 'tool_group' });
-    if (units[0].kind === 'tool_group') {
+    expect(units[0]).toMatchObject({ kind: 'activity_group' });
+    if (units[0].kind === 'activity_group') {
       expect(units[0].items).toHaveLength(3);
       expect(units[0].items.map((entry) => entry.index)).toEqual([0, 1, 2]);
     }
@@ -31,8 +31,8 @@ describe('groupTurnRenderItems', () => {
   it('keeps a lone command inside an expandable tool group', () => {
     const units = groupTurnRenderItems([toolItem('bash', { command: 'solo' })]);
     expect(units).toHaveLength(1);
-    expect(units[0]).toMatchObject({ kind: 'tool_group' });
-    if (units[0].kind === 'tool_group') {
+    expect(units[0]).toMatchObject({ kind: 'activity_group' });
+    if (units[0].kind === 'activity_group') {
       expect(units[0].items).toHaveLength(1);
     }
   });
@@ -44,9 +44,9 @@ describe('groupTurnRenderItems', () => {
       toolItem('bash', { command: 'b' }),
     ]);
     expect(units.map((unit) => unit.kind)).toEqual([
-      'tool_group',
+      'activity_group',
       'single',
-      'tool_group',
+      'activity_group',
     ]);
   });
 
@@ -56,8 +56,8 @@ describe('groupTurnRenderItems', () => {
       toolItem('Read', { file_path: 'x.ts' }),
     ]);
     expect(units).toHaveLength(1);
-    expect(units[0]).toMatchObject({ kind: 'tool_group' });
-    if (units[0].kind === 'tool_group') {
+    expect(units[0]).toMatchObject({ kind: 'activity_group' });
+    if (units[0].kind === 'activity_group') {
       expect(units[0].items).toHaveLength(2);
     }
   });
@@ -68,7 +68,7 @@ describe('groupTurnRenderItems', () => {
       toolItem('Read', { file_path: 'b.ts' }),
     ]);
     expect(units).toHaveLength(1);
-    expect(units[0]).toMatchObject({ kind: 'tool_group' });
+    expect(units[0]).toMatchObject({ kind: 'activity_group' });
   });
 
   it('folds consecutive generic tool calls into a 工具调用 group', () => {
@@ -78,7 +78,7 @@ describe('groupTurnRenderItems', () => {
       toolItem('call_eee333fff', { baz: 3 }),
     ]);
     expect(units).toHaveLength(1);
-    expect(units[0]).toMatchObject({ kind: 'tool_group' });
+    expect(units[0]).toMatchObject({ kind: 'activity_group' });
   });
 
   it('merges generic tools with terminal commands in the same run', () => {
@@ -87,7 +87,7 @@ describe('groupTurnRenderItems', () => {
       toolItem('bash', { command: 'ls' }),
     ]);
     expect(units).toHaveLength(1);
-    expect(units[0]).toMatchObject({ kind: 'tool_group' });
+    expect(units[0]).toMatchObject({ kind: 'activity_group' });
   });
 
   it('aggregates file edits while preserving each diff as row detail', () => {
@@ -96,6 +96,6 @@ describe('groupTurnRenderItems', () => {
       toolItem('Edit', { file_path: 'b.ts', old_string: 'x', new_string: 'y' }),
     ]);
     expect(units).toHaveLength(1);
-    expect(units[0]).toMatchObject({ kind: 'tool_group' });
+    expect(units[0]).toMatchObject({ kind: 'activity_group' });
   });
 });

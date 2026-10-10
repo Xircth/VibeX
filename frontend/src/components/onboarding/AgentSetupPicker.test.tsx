@@ -104,28 +104,18 @@ describe('AgentSetupPicker icons', () => {
       expect(getComputedStyle(frame).overflow).toBe('hidden');
     }
 
-    const cursorArtwork = screen
-      .getByRole('checkbox', { name: '启用 Cursor' })
-      .closest('article')
-      ?.querySelector('.onboarding-agent-icon img');
-    const codebuddyArtwork = screen
-      .getByRole('checkbox', { name: '启用 CodeBuddy' })
-      .closest('article')
-      ?.querySelector('.onboarding-agent-icon img');
-    const codexArtwork = screen
-      .getByRole('checkbox', { name: '启用 Codex' })
-      .closest('article')
-      ?.querySelector('.onboarding-agent-icon svg');
+    const artworks = ['Cursor', 'CodeBuddy', 'Codex'].map((name) =>
+      screen
+        .getByRole('checkbox', { name: `启用 ${name}` })
+        .closest('article')
+        ?.querySelector('.onboarding-agent-icon svg')
+    );
 
-    expect(cursorArtwork).toHaveAttribute('src', '/agents/cursor-light.svg');
-    expect(codebuddyArtwork).toHaveAttribute('src', '/agents/codebuddy.svg');
-    expect(codexArtwork).not.toBeNull();
-
-    expect(getComputedStyle(cursorArtwork!).width).toBe('24px');
-    expect(getComputedStyle(cursorArtwork!).height).toBe('24px');
-    expect(getComputedStyle(codebuddyArtwork!).width).toBe('24px');
-    expect(getComputedStyle(codebuddyArtwork!).height).toBe('24px');
-    expect(getComputedStyle(codexArtwork!).width).toBe('24px');
-    expect(getComputedStyle(codexArtwork!).height).toBe('24px');
+    for (const artwork of artworks) {
+      expect(artwork).not.toBeNull();
+      expect(getComputedStyle(artwork!).width).toBe('24px');
+      expect(getComputedStyle(artwork!).height).toBe('24px');
+    }
+    expect(document.querySelector('.onboarding-agent-icon img')).toBeNull();
   });
 });

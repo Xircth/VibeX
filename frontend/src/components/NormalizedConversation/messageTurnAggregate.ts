@@ -1,12 +1,5 @@
 import type { TurnRenderItem } from './messageTurnBlocks';
 
-/**
- * Groups every uninterrupted run of tool calls into one aggregate. A run may
- * mix commands, reads, edits, searches, and arbitrary tools; prose or other
- * message content ends it. Runs of one deliberately remain groups so the
- * conversation has one consistent tool-call disclosure model. VibeX-authored.
- */
-
 export type TurnToolItem = Extract<TurnRenderItem, { kind: 'tool' }>;
 
 export type IndexedTurnItem = { item: TurnRenderItem; index: number };
@@ -14,15 +7,20 @@ export type IndexedTurnItem = { item: TurnRenderItem; index: number };
 export type TurnRenderUnit =
   | { kind: 'single'; item: TurnRenderItem; index: number }
   | {
-      kind: 'tool_group';
+      kind: 'activity_group';
       items: IndexedTurnItem[];
+      endIndex: number;
     };
 
 function isToolCall(item: TurnRenderItem): item is TurnToolItem {
   return item.kind === 'tool' && item.use != null;
 }
 
-/** Fold every consecutive run of recognized tool calls into a group. */
+function isActivity(item: TurnRenderItem): boolean {
+  return item.kind === 'thinking' || isToolCall(item);
+}
+
+/** Prose and other output end a stage; thinking belongs to the tool activity. */
 export function groupTurnRenderItems(
   items: TurnRenderItem[]
 ): TurnRenderUnit[] {
@@ -30,7 +28,7 @@ export function groupTurnRenderItems(
   let i = 0;
   while (i < items.length) {
     const item = items[i];
-    if (!isToolCall(item)) {
+    if (!isActivity(item)) {
       units.push({ kind: 'single', item, index: i });
       i += 1;
       continue;
@@ -40,14 +38,15 @@ export function groupTurnRenderItems(
     let j = i + 1;
     while (j < items.length) {
       const next = items[j];
-      if (!isToolCall(next)) break;
+      if (!isActivity(next)) break;
       group.push({ item: next, index: j });
       j += 1;
     }
 
     units.push({
-      kind: 'tool_group',
+      kind: 'activity_group',
       items: group,
+      endIndex: j - 1,
     });
     i = j;
   }

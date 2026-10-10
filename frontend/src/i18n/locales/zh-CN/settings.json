@@ -2160,6 +2160,9 @@
     "saveFile": "保存文件",
     "agentListAria": "Agent 列表",
     "addAgent": "添加 Agent",
+    "previousAgentPage": "上一页 Agent",
+    "nextAgentPage": "下一页 Agent",
+    "reorderHint": "拖动，或按住 Alt 加方向键调整顺序。",
     "acpRegistry": "ACP 注册表",
     "registryRefreshCached": "注册表刷新失败，已继续使用上次成功缓存。",
     "registryLoadFailed": "无法读取 ACP 注册表",
@@ -2284,7 +2287,12 @@
           "description": "打开 ChatGPT 官方套餐页面。"
         }
       },
-      "antigravity": {},
+      "antigravity": {
+        "login": {
+          "label": "登录",
+          "description": "在浏览器中完成 Antigravity 账号登录。"
+        }
+      },
       "gemini": {
         "login": {
           "label": "登录 Google",

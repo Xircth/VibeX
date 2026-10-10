@@ -505,13 +505,7 @@ pub fn apply_built_in_launch_policy(
 ) {
     apply_built_in_auth_mode_policy(agent_id, env);
     if AgentKind::Antigravity.matches_id(agent_id.as_str()) {
-        crate::apply_antigravity_env_policy(env);
-        let home = env
-            .get("HOME")
-            .or_else(|| env.get("USERPROFILE"))
-            .map(std::path::PathBuf::from)
-            .or_else(dirs::home_dir);
-        let _ = crate::sync_antigravity_settings(env, home.as_deref());
+        let _ = crate::apply_antigravity_launch_env(env);
     }
     match agent_id.as_str() {
         // codex-acp otherwise removes an ACP-injected companion when a global

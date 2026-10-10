@@ -42,7 +42,7 @@ Application Core，也不削弱流式输出、虚拟列表、事件持久化、�
    设置独立 `data_directory`。`settings_window.rs` 会按调用方复用或创建设置窗口。
    每个独立 WebView 环境可能带来额外 renderer、browser/manager、GPU 或 utility
    工作集。打开设置、第二个应用窗口或预览窗口时，分组内存自然上升。
-2. `tauri.windows.conf.json` 使用离线 WebView2 安装包；WebView2 多进程开销是产品
+2. Windows 使用系统 WebView2，安装包不内嵌离线运行时。WebView2 多进程开销是产品
    运行时组成部分，不能只通过压低 Rust 主进程 RSS 解决。
 3. CEF Browser Runtime（ADR-0007）仅在浏览器预览能力启用时加载，并有自己的
    browser/renderer/helper 子进程。普通会话基线必须与 CEF 开启基线分开。

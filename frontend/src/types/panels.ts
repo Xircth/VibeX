@@ -24,6 +24,7 @@ export type OpenFilePreviewResult = 'opened' | 'focused' | 'unavailable';
 
 export interface PreviewPanelParams {
   filePath: string;
+  renamedFrom?: string | null;
   mode: PreviewPanelMode;
   diffViewMode: PreviewDiffViewMode;
   modifiedContent: string | null;

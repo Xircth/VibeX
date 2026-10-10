@@ -1,7 +1,7 @@
 export const DEFAULT_COLLAPSE_PREFERENCES = {
   aiMessagesCollapsed: true,
   filesChangedCollapsed: true,
-  hideModelThinking: true,
+  hideModelThinking: false,
 } as const;
 
 type ConversationCollapseConfig = {

@@ -46,9 +46,10 @@ import {
 import { LoadingCard, CopyButton } from './LoadingCard';
 import { PlanCard } from './tools/PlanCard';
 import { UnifiedDiffPreview } from './tools/UnifiedDiffPreview';
+import type { ToolDisplayEntry } from './messageTurnTool';
 
 type Props = {
-  entry: NormalizedEntry | ProcessStartPayload;
+  entry: ToolDisplayEntry | ProcessStartPayload;
   expansionKey: string;
   diffDeletable?: boolean;
   executionProcessId?: string;
@@ -56,6 +57,7 @@ type Props = {
   task?: TaskWithAttemptStatus;
   hideToolLabel?: boolean;
   toolDetailOnly?: boolean;
+  workspacePath?: string | null;
 };
 
 /*******************
@@ -80,10 +82,11 @@ function DisplayConversationEntry({
   task,
   hideToolLabel = false,
   toolDetailOnly = false,
+  workspacePath,
 }: Props) {
   const isNormalizedEntry = (
     entry: NormalizedEntry | ProcessStartPayload
-  ): entry is NormalizedEntry => 'entry_type' in entry;
+  ): entry is ToolDisplayEntry => 'entry_type' in entry;
 
   const isProcessStart = (
     entry: NormalizedEntry | ProcessStartPayload
@@ -92,6 +95,7 @@ function DisplayConversationEntry({
   const { t } = useTranslation(['conversation', 'common']);
   const { isProcessGreyed } = useRetryUi();
   const greyed = isProcessGreyed(executionProcessId);
+  const containerRef = workspacePath ?? taskAttempt?.container_ref;
   const { isStopping } = useTaskStopping(taskAttempt?.task_id ?? '');
   const markdownContext = useMemo(
     () => ({
@@ -206,18 +210,20 @@ function DisplayConversationEntry({
         const fileEditAction = toolEntry.action_type as FileEditAction;
         return (
           <div className="space-y-3">
-            {fileEditAction.changes.map((change, idx) => (
-              <UnifiedDiffPreview
-                key={idx}
-                path={fileEditAction.path}
-                change={change}
-                expansionKey={`edit:${expansionKey}:${idx}`}
-                defaultExpanded={defaultExpanded}
-                statusAppearance={statusAppearance}
-                forceExpanded={isPendingApproval || toolDetailOnly}
-                containerRef={taskAttempt?.container_ref}
-              />
-            ))}
+            {(entry.fileEdits ?? [fileEditAction]).flatMap((edit, fileIndex) =>
+              edit.changes.map((change, idx) => (
+                <UnifiedDiffPreview
+                  key={`${fileIndex}-${idx}`}
+                  path={edit.path}
+                  change={change}
+                  expansionKey={`edit:${expansionKey}:${fileIndex}:${idx}`}
+                  defaultExpanded={defaultExpanded}
+                  statusAppearance={statusAppearance}
+                  forceExpanded={isPendingApproval || toolDetailOnly}
+                  containerRef={containerRef}
+                />
+              ))
+            )}
           </div>
         );
       }
@@ -244,7 +250,7 @@ function DisplayConversationEntry({
             entry={entry}
             expansionKey={expansionKey}
             forceExpanded={isPendingApproval}
-            containerRef={taskAttempt?.container_ref}
+            containerRef={containerRef}
           />
         );
       }

@@ -54,16 +54,34 @@ function createDockviewApi() {
     panels,
     getGroup: vi.fn(() => undefined),
     getPanel: vi.fn((id: string) => panels.find((panel) => panel.id === id)),
-    addPanel: vi.fn((options: Record<string, unknown>) => {
-      const panel = {
-        id: options.id,
-        title: options.title,
-        group,
-        api: { setActive: vi.fn() },
-      };
-      panels.push(panel);
-      return panel;
-    }),
+    addPanel: vi.fn(
+      (options: {
+        id?: string;
+        title?: string;
+        component?: string;
+        params?: Record<string, unknown>;
+      }) => {
+        const panel = {
+          id: options.id,
+          title: options.title,
+          component: options.component,
+          view: { contentComponent: options.component },
+          params: options.params ?? {},
+          group,
+          api: {
+            setActive: vi.fn(),
+            updateParameters: vi.fn((params: Record<string, unknown>) => {
+              panel.params = { ...panel.params, ...params };
+            }),
+            setTitle: vi.fn((title: string) => {
+              panel.title = title;
+            }),
+          },
+        };
+        panels.push(panel);
+        return panel;
+      }
+    ),
     onDidRemovePanel: vi.fn(() => ({ dispose: vi.fn() })),
     onDidLayoutChange: vi.fn(() => ({ dispose: vi.fn() })),
     removePanel: vi.fn(),
@@ -72,6 +90,40 @@ function createDockviewApi() {
 }
 
 describe('PanelActionsContext host-browser plugin', () => {
+  it('keeps file tabs usable after their directory is renamed', () => {
+    let actions: PanelActions | undefined;
+    function Probe() {
+      actions = usePanelActionsContext();
+      return null;
+    }
+    renderWithQueryClient(
+      <PanelActionsProvider>
+        <Probe />
+      </PanelActionsProvider>
+    );
+    const dockviewApi = createDockviewApi();
+    act(() => actions?.setDockviewApi(dockviewApi));
+    act(() =>
+      actions?.openFilePreview('/repo/src/index.ts', {
+        displayPath: 'src/index.ts',
+      })
+    );
+    act(() => actions?.renameFilePreviews('/repo/src', '/repo/source'));
+
+    expect(dockviewApi.panels[0].params?.filePath).toBe(
+      '/repo/source/index.ts'
+    );
+    expect(dockviewApi.panels[0].params?.displayPath).toBe('source/index.ts');
+    act(() =>
+      expect(actions?.openFilePreview('/repo/source/index.ts')).toBe('focused')
+    );
+    expect(dockviewApi.panels).toHaveLength(1);
+    act(() =>
+      expect(actions?.openFilePreview('/repo/src/index.ts')).toBe('opened')
+    );
+    expect(dockviewApi.panels).toHaveLength(2);
+  });
+
   it('creates a fresh blank browser panel when no URL is provided', () => {
     let actions: PanelActions | undefined;
     function Probe() {

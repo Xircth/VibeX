@@ -2163,6 +2163,9 @@
     "saveFile": "Save file",
     "agentListAria": "Agent list",
     "addAgent": "Add Agent",
+    "previousAgentPage": "Previous Agents",
+    "nextAgentPage": "Next Agents",
+    "reorderHint": "Drag, or press Alt with an arrow key, to reorder.",
     "acpRegistry": "ACP registry",
     "registryRefreshCached": "Registry refresh failed; continuing with the last successful cache.",
     "registryLoadFailed": "Unable to load the ACP registry",
@@ -2287,7 +2290,12 @@
           "description": "Open the official ChatGPT plan page."
         }
       },
-      "antigravity": {},
+      "antigravity": {
+        "login": {
+          "label": "Sign in",
+          "description": "Complete the Antigravity account sign-in in your browser."
+        }
+      },
       "gemini": {
         "login": {
           "label": "Sign in with Google",

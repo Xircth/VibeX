@@ -111,7 +111,7 @@ function EditDiffRenderer({
   return (
     <ToolArtifact
       badge={isResultDetail ? undefined : badge}
-      title={isResultDetail ? undefined : path}
+      title={path}
       titleLabel={path}
       onTitleClick={
         isResultDetail
@@ -129,8 +129,8 @@ function EditDiffRenderer({
                   : { displayPath: path, title: path }
               )
       }
-      additions={isResultDetail || !hasDiff ? undefined : additions}
-      deletions={isResultDetail || !hasDiff ? undefined : deletions}
+      additions={!hasDiff ? undefined : additions}
+      deletions={!hasDiff ? undefined : deletions}
       expandable={!isResultDetail && hasDiff}
       expanded={effectiveExpanded}
       onToggle={() => setExpanded()}

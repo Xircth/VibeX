@@ -1,6 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import type { ContentBlock, MessageTurn } from 'shared/types';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { MessageTurnView } from './MessageTurnView';
 import { STREAMING_ACTIVITY_VERBS } from './assistantStreamingActivity';
@@ -34,6 +35,18 @@ function toolUseBlock(index: number, toolName: string, input: unknown) {
     input_preview: JSON.stringify(input),
     meta: null,
   };
+}
+
+function completedCommands(count: number): ContentBlock[] {
+  return Array.from({ length: count }, (_, index) => [
+    toolUseBlock(index, 'bash', { command: `command-${index}` }),
+    {
+      type: 'tool_result' as const,
+      tool_use_id: `tool-${index}`,
+      output_preview: 'ok',
+      is_error: false,
+    },
+  ]).flat();
 }
 
 vi.mock('./AstryxMarkdown', () => ({
@@ -74,10 +87,6 @@ vi.mock('@/components/ConfigProvider', () => ({
   }),
 }));
 
-vi.mock('./ThinkingEntry', () => ({
-  ThinkingEntry: ({ content }: { content: string }) => <div>{content}</div>,
-}));
-
 vi.mock('./tools/ToolCardShell', () => ({
   ToolCardShell: ({ children }: { children: React.ReactNode }) => (
     <div>{children}</div>
@@ -87,7 +96,11 @@ vi.mock('./tools/ToolCardShell', () => ({
   ),
   useToolCallResultDetail: () => false,
   getToolChatStatus: (status: { status: string }) =>
-    status.status === 'created' ? 'running' : 'complete',
+    status.status === 'created'
+      ? 'running'
+      : status.status === 'failed'
+        ? 'error'
+        : 'complete',
 }));
 
 vi.mock('./ConversationPlanCard', () => ({
@@ -112,6 +125,457 @@ describe('MessageTurnView', () => {
     });
     hostFileSrcMock.mockReset();
     hostFileSrcMock.mockResolvedValue('blob:image/png');
+  });
+
+  it('shows the latest thinking until output moves on, then lets the user reopen it', () => {
+    hideThinkingMock.value = false;
+    const turn = {
+      id: 'live-thinking:assistant',
+      role: 'assistant' as const,
+      blocks: [{ type: 'thinking' as const, text: 'Inspecting the renderer' }],
+      timestamp: '2026-10-09T00:00:00.000Z',
+    };
+    const props = {
+      attempt: { id: 'attempt-1', container_ref: null } as never,
+      task: null,
+      phase: 'streaming' as const,
+    };
+    const { rerender } = render(<MessageTurnView {...props} turn={turn} />);
+
+    expect(screen.getByText('Inspecting the renderer')).toBeInTheDocument();
+    rerender(
+      <MessageTurnView
+        {...props}
+        turn={{
+          ...turn,
+          blocks: [
+            ...turn.blocks,
+            { type: 'thinking', text: 'Checking the next step' },
+          ],
+        }}
+      />
+    );
+    expect(screen.getByText(/Checking the next step/)).toBeInTheDocument();
+    expect(screen.getAllByRole('button', { name: '收起思考' })).toHaveLength(1);
+
+    rerender(
+      <MessageTurnView
+        {...props}
+        turn={{
+          ...turn,
+          blocks: [
+            ...turn.blocks,
+            { type: 'text', text: 'I found the renderer' },
+          ],
+        }}
+      />
+    );
+    expect(
+      screen.queryByText('Inspecting the renderer')
+    ).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: '展开思考' }));
+    expect(screen.getByText('Inspecting the renderer')).toBeInTheDocument();
+  });
+
+  it('keeps the latest three calls visible and appends older calls to one aggregate', () => {
+    const turn: MessageTurn = {
+      id: 'batched-tools:assistant',
+      role: 'assistant',
+      blocks: completedCommands(8),
+      timestamp: '2026-10-09T00:00:00.000Z',
+    };
+    const props = {
+      attempt: { id: 'attempt-1', container_ref: null } as never,
+      task: null,
+      phase: 'streaming' as const,
+    };
+    const { rerender } = render(<MessageTurnView {...props} turn={turn} />);
+
+    expect(screen.getByText('command-5')).toBeInTheDocument();
+    expect(screen.getByText('command-6')).toBeInTheDocument();
+    expect(screen.getByText('command-7')).toBeInTheDocument();
+    const firstBatch = screen.getByRole('button', { name: /运行 5 个命令/ });
+    expect(firstBatch).toHaveAttribute('aria-expanded', 'false');
+    fireEvent.click(firstBatch);
+    expect(screen.getByText('command-0')).toBeInTheDocument();
+
+    rerender(
+      <MessageTurnView
+        {...props}
+        turn={{ ...turn, blocks: completedCommands(13) }}
+      />
+    );
+    expect(screen.getByText('command-0')).toBeInTheDocument();
+    expect(screen.getByText('command-10')).toBeInTheDocument();
+    expect(screen.getByText('command-11')).toBeInTheDocument();
+    expect(screen.getByText('command-12')).toBeInTheDocument();
+    const batches = screen.getAllByRole('button', {
+      name: /运行 \d+ 个命令/,
+    });
+    expect(batches).toHaveLength(1);
+    expect(batches[0]).toHaveTextContent('运行 10 个命令');
+    expect(batches[0]).toHaveAttribute('aria-expanded', 'true');
+    expect(screen.getByText('command-5')).toBeInTheDocument();
+  });
+
+  it('uses one aggregate for consecutive completed commands with thinking between them', () => {
+    hideThinkingMock.value = false;
+    const commands = completedCommands(10);
+    render(
+      <MessageTurnView
+        turn={{
+          id: 'consecutive-commands:assistant',
+          role: 'assistant',
+          blocks: [
+            { type: 'text', text: 'Checking the project' },
+            ...commands.slice(0, 18),
+            { type: 'thinking', text: 'Checking the final command' },
+            ...commands.slice(18),
+          ],
+          timestamp: '2026-10-09T00:00:00.000Z',
+        }}
+        phase="persisted"
+        collapseProcess={false}
+        attempt={{ id: 'attempt-1', container_ref: null } as never}
+        task={null}
+      />
+    );
+
+    const summaries = screen.getAllByRole('button', {
+      name: /运行 \d+ 个命令/,
+    });
+    expect(summaries).toHaveLength(1);
+    expect(summaries[0]).toHaveTextContent('运行 10 个命令');
+    fireEvent.click(summaries[0]);
+    expect(
+      screen.getAllByRole('button', { name: /^终端command-/ })
+    ).toHaveLength(10);
+    fireEvent.click(screen.getByRole('button', { name: '展开思考' }));
+    expect(screen.getByText('Checking the final command')).toBeInTheDocument();
+  });
+
+  it('keeps opened calls visible when an earlier running call finishes and batches regroup', () => {
+    const completedBlocks = completedCommands(9);
+    const turn: MessageTurn = {
+      id: 'regrouped-tools:assistant',
+      role: 'assistant',
+      blocks: completedBlocks.filter(
+        (block) =>
+          block.type !== 'tool_result' || block.tool_use_id !== 'tool-2'
+      ),
+      timestamp: '2026-10-09T00:00:00.000Z',
+    };
+    const props = {
+      attempt: { id: 'attempt-1', container_ref: null } as never,
+      task: null,
+      phase: 'streaming' as const,
+    };
+    const { rerender } = render(<MessageTurnView {...props} turn={turn} />);
+
+    expect(screen.getByText('command-2')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: /运行 3 个命令/ }));
+    expect(screen.getByText('command-3')).toBeInTheDocument();
+    expect(screen.getByText('command-5')).toBeInTheDocument();
+
+    rerender(
+      <MessageTurnView {...props} turn={{ ...turn, blocks: completedBlocks }} />
+    );
+
+    expect(
+      screen.getByRole('button', { name: /运行 6 个命令/ })
+    ).toHaveAttribute('aria-expanded', 'true');
+    expect(
+      screen.getAllByRole('button', { name: /运行 \d+ 个命令/ })
+    ).toHaveLength(1);
+    expect(screen.getByText('command-3')).toBeInTheDocument();
+    expect(screen.getByText('command-5')).toBeInTheDocument();
+  });
+
+  it('aggregates the entire tool and thinking stage when the next prose starts', () => {
+    hideThinkingMock.value = false;
+    const turn: MessageTurn = {
+      id: 'closed-stage:assistant',
+      role: 'assistant',
+      blocks: [
+        ...completedCommands(7),
+        { type: 'thinking', text: 'Preparing the next update' },
+      ],
+      timestamp: '2026-10-09T00:00:00.000Z',
+    };
+    const props = {
+      attempt: { id: 'attempt-1', container_ref: null } as never,
+      task: null,
+      phase: 'streaming' as const,
+    };
+    const { rerender } = render(<MessageTurnView {...props} turn={turn} />);
+
+    expect(screen.getByText('command-6')).toBeInTheDocument();
+    expect(screen.getByText('Preparing the next update')).toBeInTheDocument();
+    expect(
+      screen.getByRole('button', { name: /运行 4 个命令/ })
+    ).toHaveAttribute('aria-expanded', 'false');
+
+    rerender(
+      <MessageTurnView
+        {...props}
+        turn={{
+          ...turn,
+          blocks: [...turn.blocks, { type: 'text', text: 'Next update' }],
+        }}
+      />
+    );
+
+    const summaries = screen.getAllByRole('button', {
+      name: /运行 \d+ 个命令/,
+    });
+    expect(summaries).toHaveLength(1);
+    expect(summaries[0]).toHaveTextContent('运行 7 个命令');
+    expect(screen.queryByRole('button', { name: '展开思考' })).toBeNull();
+    const tailBatch = screen.getByRole('button', {
+      name: /运行 7 个命令/,
+    });
+    expect(tailBatch).toHaveAttribute('aria-expanded', 'false');
+    fireEvent.click(tailBatch);
+    fireEvent.click(screen.getByRole('button', { name: '展开思考' }));
+    expect(screen.getByText('Preparing the next update')).toBeInTheDocument();
+    expect(screen.getByText('Next update')).toBeInTheDocument();
+  });
+
+  it('uses one process disclosure for a settled turn with several prose and activity stages', () => {
+    hideThinkingMock.value = false;
+    const turn: MessageTurn = {
+      id: 'single-process-disclosure:assistant',
+      role: 'assistant',
+      blocks: [
+        { type: 'text', text: 'First progress update' },
+        ...completedCommands(7),
+        { type: 'thinking', text: 'Checking the result' },
+        { type: 'text', text: 'Second progress update' },
+        toolUseBlock(20, 'bash', { command: 'final-check' }),
+        {
+          type: 'tool_result',
+          tool_use_id: 'tool-20',
+          output_preview: 'ok',
+          is_error: false,
+        },
+        { type: 'text', text: 'Final answer' },
+      ],
+      timestamp: '2026-10-09T00:00:00.000Z',
+    };
+    render(
+      <MessageTurnView
+        turn={turn}
+        phase="settled"
+        attempt={{ id: 'attempt-1', container_ref: null } as never}
+        task={null}
+      />
+    );
+
+    const disclosures = screen.getAllByRole('button', {
+      name: /已折叠 .* 条消息/,
+    });
+    expect(disclosures).toHaveLength(1);
+    expect(screen.getByText('Final answer')).toBeInTheDocument();
+    expect(screen.queryByText('First progress update')).toBeNull();
+    expect(screen.queryByRole('button', { name: /运行 .* 个命令/ })).toBeNull();
+    fireEvent.click(disclosures[0]);
+    expect(screen.getByText('First progress update')).toBeInTheDocument();
+    expect(screen.getByText('Second progress update')).toBeInTheDocument();
+    expect(
+      screen.getAllByRole('button', { name: /运行 \d+ 个命令/ })
+    ).toHaveLength(2);
+    expect(
+      screen.getByRole('button', { name: /运行 7 个命令/ })
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole('button', { name: /运行 1 个命令/ })
+    ).toBeInTheDocument();
+    expect(
+      screen.getAllByRole('button', { name: /已折叠 .* 条消息/ })
+    ).toHaveLength(1);
+  });
+
+  it('keeps running and failed calls visible without an empty process disclosure', () => {
+    render(
+      <MessageTurnView
+        turn={{
+          id: 'important-activity:assistant',
+          role: 'assistant',
+          blocks: [
+            toolUseBlock(0, 'bash', { command: 'still-running' }),
+            toolUseBlock(1, 'bash', { command: 'failed-check' }),
+            {
+              type: 'tool_result',
+              tool_use_id: 'tool-1',
+              output_preview: 'failed',
+              is_error: true,
+            },
+            { type: 'text', text: 'Final answer' },
+          ],
+          timestamp: '2026-10-09T00:00:00.000Z',
+        }}
+        phase="settled"
+        attempt={{ id: 'attempt-1', container_ref: null } as never}
+        task={null}
+      />
+    );
+
+    expect(screen.getByText('still-running')).toBeInTheDocument();
+    expect(screen.getByText('failed-check')).toBeInTheDocument();
+    expect(
+      screen.queryByRole('button', { name: /已折叠 .* 条消息/ })
+    ).toBeNull();
+  });
+
+  it('includes interleaved thinking in the same activity stage', () => {
+    hideThinkingMock.value = false;
+    const commands = completedCommands(7);
+    const turn: MessageTurn = {
+      id: 'interleaved-activity:assistant',
+      role: 'assistant',
+      blocks: [
+        ...commands.slice(0, 8),
+        { type: 'thinking', text: 'Checking between calls' },
+        ...commands.slice(8),
+      ],
+      timestamp: '2026-10-09T00:00:00.000Z',
+    };
+    const props = {
+      attempt: { id: 'attempt-1', container_ref: null } as never,
+      task: null,
+      phase: 'streaming' as const,
+    };
+    const { rerender } = render(<MessageTurnView {...props} turn={turn} />);
+    const batch = screen.getByRole('button', {
+      name: /运行 4 个命令/,
+    });
+    expect(batch).toHaveAttribute('aria-expanded', 'false');
+    expect(screen.queryByRole('button', { name: '展开思考' })).toBeNull();
+    expect(screen.getByText('command-4')).toBeInTheDocument();
+    expect(screen.getByText('command-6')).toBeInTheDocument();
+
+    rerender(
+      <MessageTurnView
+        {...props}
+        turn={{
+          ...turn,
+          blocks: [...turn.blocks, { type: 'text', text: 'Next stage' }],
+        }}
+      />
+    );
+    expect(
+      screen.getByRole('button', { name: /运行 7 个命令/ })
+    ).toHaveAttribute('aria-expanded', 'false');
+    expect(
+      screen.getAllByRole('button', { name: /运行 \d+ 个命令/ })
+    ).toHaveLength(1);
+    fireEvent.click(screen.getByRole('button', { name: /运行 7 个命令/ }));
+    fireEvent.click(screen.getByRole('button', { name: '展开思考' }));
+    expect(screen.getByText('Checking between calls')).toBeInTheDocument();
+  });
+
+  it('folds the final activity stage on settlement and preserves opened batch members', () => {
+    hideThinkingMock.value = false;
+    const turn: MessageTurn = {
+      id: 'settled-activity:assistant',
+      role: 'assistant',
+      blocks: [
+        ...completedCommands(7),
+        { type: 'thinking', text: 'Final check' },
+      ],
+      timestamp: '2026-10-09T00:00:00.000Z',
+    };
+    const props = {
+      attempt: { id: 'attempt-1', container_ref: null } as never,
+      task: null,
+    };
+    const { rerender } = render(
+      <MessageTurnView {...props} turn={turn} phase="streaming" />
+    );
+    fireEvent.click(screen.getByRole('button', { name: /运行 4 个命令/ }));
+
+    rerender(<MessageTurnView {...props} turn={turn} phase="settled" />);
+    expect(screen.queryByRole('button', { name: /运行 .* 个命令/ })).toBeNull();
+    expect(screen.queryByText('Final check')).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: /已折叠 8 条消息/ }));
+    expect(
+      screen.getByRole('button', { name: /运行 7 个命令/ })
+    ).toHaveAttribute('aria-expanded', 'true');
+    expect(screen.getByText('command-0')).toBeInTheDocument();
+    expect(
+      screen.getAllByRole('button', { name: /运行 \d+ 个命令/ })
+    ).toHaveLength(1);
+  });
+
+  it('preserves an opened recent tool result when the stage closes', () => {
+    const turn: MessageTurn = {
+      id: 'opened-tool-result:assistant',
+      role: 'assistant',
+      blocks: completedCommands(7),
+      timestamp: '2026-10-09T00:00:00.000Z',
+    };
+    const props = {
+      attempt: { id: 'attempt-1', container_ref: null } as never,
+      task: null,
+      phase: 'streaming' as const,
+    };
+    const { rerender } = render(<MessageTurnView {...props} turn={turn} />);
+    fireEvent.click(screen.getByRole('button', { name: '终端command-6' }));
+    expect(
+      screen.getByRole('button', { name: '终端command-6' })
+    ).toHaveAttribute('aria-expanded', 'true');
+    rerender(
+      <MessageTurnView
+        {...props}
+        turn={{
+          ...turn,
+          blocks: [...turn.blocks, { type: 'text', text: 'Next update' }],
+        }}
+      />
+    );
+    expect(
+      screen.getByRole('button', { name: /运行 7 个命令/ })
+    ).toHaveAttribute('aria-expanded', 'true');
+    expect(
+      screen.getByRole('button', { name: '终端command-6' })
+    ).toHaveAttribute('aria-expanded', 'true');
+  });
+
+  it('keeps opened finished thinking visible when it joins a mixed batch', () => {
+    hideThinkingMock.value = false;
+    const turn: MessageTurn = {
+      id: 'opened-thinking-member:assistant',
+      role: 'assistant',
+      blocks: [
+        { type: 'thinking', text: 'Keep this thought visible' },
+        ...completedCommands(1),
+      ],
+      timestamp: '2026-10-09T00:00:00.000Z',
+    };
+    const props = {
+      attempt: { id: 'attempt-1', container_ref: null } as never,
+      task: null,
+      phase: 'streaming' as const,
+    };
+    const { rerender } = render(<MessageTurnView {...props} turn={turn} />);
+    fireEvent.click(screen.getByRole('button', { name: '展开思考' }));
+    rerender(
+      <MessageTurnView
+        {...props}
+        turn={{ ...turn, blocks: [turn.blocks[0], ...completedCommands(4)] }}
+      />
+    );
+    expect(
+      screen.getByRole('button', { name: /运行 1 个命令/ })
+    ).toHaveAttribute('aria-expanded', 'true');
+    expect(screen.getByText('Keep this thought visible')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: '收起思考' }));
+    expect(
+      screen.getByRole('button', { name: /运行 1 个命令/ })
+    ).toHaveAttribute('aria-expanded', 'true');
+    expect(
+      screen.getByRole('button', { name: '终端command-0' })
+    ).toBeInTheDocument();
   });
 
   it('renders a user turn with the Astryx user-message semantics', () => {
@@ -595,6 +1059,7 @@ describe('MessageTurnView', () => {
       />
     );
 
+    fireEvent.click(screen.getByRole('button', { name: '展开思考' }));
     expect(screen.getByText('private reasoning')).toBeInTheDocument();
     expect(screen.getByText('visible answer')).toBeInTheDocument();
   });
@@ -773,7 +1238,7 @@ describe('MessageTurnView', () => {
     ).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
   });
 
-  it('collapses earlier turn items and leaves the last assistant text visible', () => {
+  it('collapses earlier prose after settlement while leaving running tools visible', () => {
     render(
       <MessageTurnView
         turn={
@@ -789,7 +1254,7 @@ describe('MessageTurnView', () => {
             timestamp: '2026-08-08T00:00:00.000Z',
           } as never
         }
-        phase="streaming"
+        phase="settled"
         attempt={{ id: 'attempt-1', container_ref: null } as never}
         task={null}
         collapseProcess
@@ -798,14 +1263,41 @@ describe('MessageTurnView', () => {
 
     expect(screen.getByText('D')).toBeInTheDocument();
     expect(screen.queryByText('A')).not.toBeInTheDocument();
+    expect(screen.getByText('ls')).toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole('button', { name: /已折叠 3 条消息/ }));
+    fireEvent.click(screen.getByRole('button', { name: /已折叠 .* 条消息/ }));
     expect(
       screen.getByText('A').compareDocumentPosition(screen.getByText('D'))
     ).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
   });
 
-  it('keeps one tool call inside the Astryx aggregate disclosure', () => {
+  it('does not repeat earlier prose that matches the final answer after settlement', () => {
+    render(
+      <MessageTurnView
+        turn={{
+          id: 'duplicate-prose:assistant',
+          role: 'assistant',
+          blocks: [
+            { type: 'text', text: 'The project is ready.' },
+            ...completedCommands(1),
+            { type: 'text', text: 'The project is ready.' },
+          ],
+          timestamp: '2026-10-09T00:00:00.000Z',
+        }}
+        phase="settled"
+        attempt={{ id: 'attempt-1', container_ref: null } as never}
+        task={null}
+      />
+    );
+
+    expect(screen.getAllByText('The project is ready.')).toHaveLength(1);
+    fireEvent.click(screen.getByRole('button', { name: /已折叠 .* 条消息/ }));
+    fireEvent.click(screen.getByRole('button', { name: /运行 1 个命令/ }));
+    expect(screen.getByText('command-0')).toBeInTheDocument();
+    expect(screen.getAllByText('The project is ready.')).toHaveLength(1);
+  });
+
+  it('shows a single recent tool call without an aggregate disclosure', () => {
     render(
       <MessageTurnView
         turn={
@@ -816,16 +1308,15 @@ describe('MessageTurnView', () => {
             timestamp: '2026-08-08T00:00:00.000Z',
           } as never
         }
-        phase="settled"
+        phase="streaming"
         attempt={{ id: 'attempt-1', container_ref: null } as never}
         task={null}
         collapseProcess={false}
       />
     );
 
-    expect(
-      screen.getByRole('button', { name: /运行 1 个命令/ })
-    ).toHaveAttribute('aria-expanded', 'false');
+    expect(screen.getByText('git status')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /运行 1 个命令/ })).toBeNull();
   });
 
   it('summarizes a mixed consecutive run by tool category', () => {
@@ -844,6 +1335,15 @@ describe('MessageTurnView', () => {
         })
       ),
     ];
+    const completedBlocks = blocks.flatMap((block) => [
+      block,
+      {
+        type: 'tool_result' as const,
+        tool_use_id: block.tool_use_id,
+        output_preview: 'ok',
+        is_error: false,
+      },
+    ]);
 
     render(
       <MessageTurnView
@@ -851,7 +1351,7 @@ describe('MessageTurnView', () => {
           {
             id: 'turn-mixed-tools:assistant',
             role: 'assistant',
-            blocks,
+            blocks: completedBlocks,
             timestamp: '2026-08-08T00:00:00.000Z',
           } as never
         }
@@ -864,9 +1364,12 @@ describe('MessageTurnView', () => {
     );
 
     const disclosure = screen.getByRole('button', {
-      name: /运行 5 个命令、已读 3 个文件、已改 2 个文件/,
+      name: '运行 5 个命令、已读 3 个文件、已改 2 个文件',
     });
     expect(disclosure).toHaveAttribute('aria-expanded', 'false');
+    expect(
+      screen.getAllByRole('button', { name: /运行 \d+ 个命令/ })
+    ).toHaveLength(1);
 
     fireEvent.click(disclosure);
     expect(disclosure).toHaveAttribute('aria-expanded', 'true');

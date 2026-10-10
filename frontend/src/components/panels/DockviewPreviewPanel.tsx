@@ -287,7 +287,16 @@ function DockviewPreviewPanel(props: IDockviewPanelProps) {
   const markdownPasteCleanupRef = useRef<(() => void) | null>(null);
   const markdownBasePathRef = useRef<string | null>(null);
   const queryClient = useQueryClient();
-  const [isDirty, setIsDirty] = useState(false);
+  const [draft, setDraft] = useState<{
+    path: string;
+    content: string;
+  } | null>(null);
+  const editorContent =
+    draft &&
+    (draft.path === resolvedFilePath || draft.path === params.renamedFrom)
+      ? draft.content
+      : (content ?? '');
+  const isDirty = editorContent !== (content ?? '');
   const resolvedDisplayPath = useMemo(() => {
     if (!filePath) {
       return null;
@@ -459,13 +468,16 @@ function DockviewPreviewPanel(props: IDockviewPanelProps) {
         saveFile.mutate(
           { path: resolvedFilePath, content: currentValue },
           {
-            onSuccess: () => setIsDirty(false),
+            onSuccess: () => {
+              setDraft((current) =>
+                current?.path === resolvedFilePath &&
+                current.content === currentValue
+                  ? null
+                  : current
+              );
+            },
           }
         );
-      });
-
-      editor.onDidChangeModelContent(() => {
-        setIsDirty(true);
       });
 
       if (isMd) {
@@ -540,8 +552,22 @@ function DockviewPreviewPanel(props: IDockviewPanelProps) {
   }, []);
 
   useEffect(() => {
-    setIsDirty(false);
-  }, [filePath, mode]);
+    setDraft((current) => {
+      if (current?.path === resolvedFilePath) return current;
+      if (current && current.path === params.renamedFrom && resolvedFilePath) {
+        return { ...current, path: resolvedFilePath };
+      }
+      return null;
+    });
+  }, [params.renamedFrom, resolvedFilePath]);
+
+  useEffect(() => {
+    if (isRendered) {
+      editorRef.current = null;
+      markdownPasteCleanupRef.current?.();
+      markdownPasteCleanupRef.current = null;
+    }
+  }, [isRendered]);
 
   if (!filePath) {
     const imageSource =
@@ -746,7 +772,7 @@ function DockviewPreviewPanel(props: IDockviewPanelProps) {
               id: 'copy-content',
               label: t('common:contextMenu.copyFileContent'),
               onSelect: () => {
-                const text = editorRef.current?.getValue() ?? content ?? '';
+                const text = editorRef.current?.getValue() ?? editorContent;
                 void writeClipboardViaBridge(text);
               },
             },
@@ -937,7 +963,7 @@ function DockviewPreviewPanel(props: IDockviewPanelProps) {
               className="h-full overflow-auto px-6 py-4"
             >
               <LazyMarkdown
-                value={content ?? ''}
+                value={editorContent}
                 workspacePath={markdownBasePath}
               />
             </div>
@@ -945,7 +971,16 @@ function DockviewPreviewPanel(props: IDockviewPanelProps) {
         ) : (
           <Editor
             key={resolvedFilePath ?? filePath}
-            defaultValue={content ?? ''}
+            value={editorContent}
+            onChange={(value) => {
+              if (resolvedFilePath && value !== undefined) {
+                setDraft(
+                  value === content
+                    ? null
+                    : { path: resolvedFilePath, content: value }
+                );
+              }
+            }}
             loading={
               <FilePreviewLoading
                 fileName={resolvedDisplayPath ?? filePath}

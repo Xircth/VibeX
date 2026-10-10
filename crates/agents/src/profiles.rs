@@ -669,7 +669,15 @@ const CODEX_ACTIONS: &[ProfileManagementAction] = &[
         "https://chatgpt.com/#pricing",
     ),
 ];
-const ANTIGRAVITY_ACTIONS: &[ProfileManagementAction] = &[];
+// The ACP server owns the browser sign-in, so this action runs the server itself
+// instead of a vendor CLI.
+const ANTIGRAVITY_ACTIONS: &[ProfileManagementAction] = &[terminal_action(
+    "login",
+    "登录",
+    "在浏览器中完成 Antigravity 账号登录",
+    ProfileManagementActionKind::Login,
+    &[program("agy_acp_server", &[])],
+)];
 const OPENCLAW_ACTIONS: &[ProfileManagementAction] = &[terminal_action(
     "onboard",
     "初始化 OpenClaw",
@@ -1421,13 +1429,13 @@ const ANTIGRAVITY_FIELDS: &[NativeConfigField] = &[
         "antigravity_cloud_project",
         "Google Cloud Project",
         "Gemini Enterprise / Agent Platform 项目",
-        &["env", "GOOGLE_CLOUD_PROJECT"],
+        &["gcp", "project"],
     )),
     authentication(text_field(
         "antigravity_cloud_location",
         "Google Cloud Location",
         "例如 global 或 us-central1",
-        &["env", "GOOGLE_CLOUD_LOCATION"],
+        &["gcp", "location"],
     )),
 ];
 const ANTIGRAVITY_CLI_FIELDS: &[NativeConfigField] = &[

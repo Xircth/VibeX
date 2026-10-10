@@ -132,22 +132,43 @@ export function ToolCodeSnippet({
   path,
   content,
   startLine = 1,
+  highlightedRange,
+  language,
+  showLineNumbers = true,
 }: {
   path?: string | null;
   content: string;
   startLine?: number;
+  highlightedRange?: { start: number; end: number };
+  language?: string;
+  showLineNumbers?: boolean;
 }) {
-  const language = normalizeShikiLanguage(languageFromPath(path));
-  const tokens = useShikiTokens(content, language);
+  const codeLanguage = normalizeShikiLanguage(
+    language ?? languageFromPath(path)
+  );
+  const tokens = useShikiTokens(content, codeLanguage);
   const lines = splitCodeLines(content);
 
   return (
     <div className="conv-tool-code" role="table">
       {lines.map((line, index) => (
-        <div className="conv-tool-code-line" key={index} role="row">
-          <span className="conv-tool-code-num" role="rowheader">
-            {startLine + index}
-          </span>
+        <div
+          className={cn(
+            'conv-tool-code-line',
+            !showLineNumbers && 'without-line-numbers',
+            highlightedRange &&
+              startLine + index >= highlightedRange.start &&
+              startLine + index <= highlightedRange.end &&
+              'is-inspected'
+          )}
+          key={index}
+          role="row"
+        >
+          {showLineNumbers ? (
+            <span className="conv-tool-code-num" role="rowheader">
+              {startLine + index}
+            </span>
+          ) : null}
           <span className="conv-tool-code-text" role="cell">
             {(tokens[index] ?? []).map((token, tokenIndex) => (
               <span
@@ -208,11 +229,15 @@ export function ToolTerminal({
   output,
   exitStatus,
   linkifyUrls = false,
+  facts = [],
+  language = 'bash',
 }: {
   command: string;
   output?: string | null;
   exitStatus?: CommandExitStatus | null;
   linkifyUrls?: boolean;
+  facts?: ArtifactFact[];
+  language?: string;
 }) {
   const { t } = useTranslation('conversation');
   const exit = commandExitCode(exitStatus);
@@ -220,7 +245,6 @@ export function ToolTerminal({
   return (
     <ToolArtifact
       badge="$"
-      title={command}
       titleLabel={command}
       meta={
         exit.code != null ? (
@@ -236,6 +260,14 @@ export function ToolTerminal({
         ) : null
       }
     >
+      {facts.length > 0 ? <ToolFacts facts={facts} /> : null}
+      <div className="conv-tool-terminal-command">
+        <ToolCodeSnippet
+          content={command}
+          language={language}
+          showLineNumbers={false}
+        />
+      </div>
       {output ? (
         <div className="conv-tool-terminal-output">
           <RawLogText content={output} linkifyUrls={linkifyUrls} />

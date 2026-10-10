@@ -1,5 +1,5 @@
 diff --git a/dist/Chat/ChatComposerInput.js b/dist/Chat/ChatComposerInput.js
-index edd9080e2d948dcdbb0ac355ae8c1d519958352d..3f9cb06d13fd842239330f96272309f33b060947 100644
+index edd9080e2d948dcdbb0ac355ae8c1d519958352d..34af4c45b6e5688b478962f95c85dff7bf282a88 100644
 --- a/dist/Chat/ChatComposerInput.js
 +++ b/dist/Chat/ChatComposerInput.js
 @@ -103,6 +103,12 @@ function serialize(node) {
@@ -154,10 +154,21 @@ index edd9080e2d948dcdbb0ac355ae8c1d519958352d..3f9cb06d13fd842239330f96272309f3
          }
          emitChange();
 diff --git a/dist/Chat/ChatToolCalls.d.ts b/dist/Chat/ChatToolCalls.d.ts
-index 7bece6857c7470545a94977fd687dc5534e43c9c..e99705176c81f0959d76ffb3cebc572fabcd750b 100644
+index 7bece6857c7470545a94977fd687dc5534e43c9c..c91dd9ff0ad4a92e19367c37d3920a894edb8b1e 100644
 --- a/dist/Chat/ChatToolCalls.d.ts
 +++ b/dist/Chat/ChatToolCalls.d.ts
-@@ -52,6 +52,8 @@ export interface ChatToolCallsProps extends BaseProps<HTMLDivElement> {
+@@ -45,6 +45,10 @@ export interface ChatToolCallItem {
+     data?: unknown;
+     /** Inline detail content shown when the row is expanded (e.g. code diff, command output). */
+     resultDetail?: ReactNode;
++    /** Controlled expansion of this call's result detail. */
++    isDetailExpanded?: boolean;
++    /** Called when this call's result detail is toggled. */
++    onDetailExpandedChange?: (expanded: boolean) => void;
+ }
+ export interface ChatToolCallsProps extends BaseProps<HTMLDivElement> {
+     ref?: React.Ref<HTMLDivElement>;
+@@ -52,6 +56,8 @@ export interface ChatToolCallsProps extends BaseProps<HTMLDivElement> {
      calls: ChatToolCallItem[];
      /** Custom summary label for groups. Auto-generated from count if omitted. */
      label?: string;
@@ -167,10 +178,27 @@ index 7bece6857c7470545a94977fd687dc5534e43c9c..e99705176c81f0959d76ffb3cebc572f
      isExpanded?: boolean;
      /** Default expanded state. @default true for ≤3 calls, false for >3. */
 diff --git a/dist/Chat/ChatToolCalls.js b/dist/Chat/ChatToolCalls.js
-index 791909e7d02b99ddff54507bfffcf846b7ad4a5c..c150dda3160360b2dbe9651b2616af302a32ab2d 100644
+index 791909e7d02b99ddff54507bfffcf846b7ad4a5c..61669d4a80eecd6b47c389fb62e1085c3ea1232c 100644
 --- a/dist/Chat/ChatToolCalls.js
 +++ b/dist/Chat/ChatToolCalls.js
-@@ -260,6 +260,7 @@ export function ChatToolCalls(props) {
+@@ -108,9 +108,14 @@ function CallRow({
+   const t = useTranslator();
+   const status = call.status ?? 'complete';
+   const hasDetail = call.resultDetail != null;
+-  const [isDetailOpen, setIsDetailOpen] = useState(false);
++  const [localDetailOpen, setLocalDetailOpen] = useState(false);
++  const isDetailOpen = call.isDetailExpanded ?? localDetailOpen;
+   const detailId = useId();
+-  const toggleDetail = hasDetail ? () => setIsDetailOpen(prev => !prev) : undefined;
++  const toggleDetail = hasDetail ? () => {
++    const next = !isDetailOpen;
++    if (call.isDetailExpanded === undefined) setLocalDetailOpen(next);
++    call.onDetailExpandedChange?.(next);
++  } : undefined;
+   const row = /*#__PURE__*/_jsxs("div", {
+     role: hasDetail ? 'button' : undefined,
+     tabIndex: hasDetail ? 0 : undefined,
+@@ -260,6 +265,7 @@ export function ChatToolCalls(props) {
    const {
      calls,
      label: _customLabel,
@@ -178,7 +206,7 @@ index 791909e7d02b99ddff54507bfffcf846b7ad4a5c..c150dda3160360b2dbe9651b2616af30
      isExpanded: controlledExpanded,
      defaultIsExpanded,
      onExpandedChange,
-@@ -285,8 +286,8 @@ export function ChatToolCalls(props) {
+@@ -285,8 +291,8 @@ export function ChatToolCalls(props) {
      return null;
    }
  
@@ -189,7 +217,7 @@ index 791909e7d02b99ddff54507bfffcf846b7ad4a5c..c150dda3160360b2dbe9651b2616af30
      return /*#__PURE__*/_jsx("div", {
        ref: ref,
        ...mergeProps(themeProps('chat-tool-calls'), stylex.props(styles.root, xstyle), className, style),
-@@ -300,6 +301,7 @@ export function ChatToolCalls(props) {
+@@ -300,6 +306,7 @@ export function ChatToolCalls(props) {
    // Multiple calls: latest call at surface with chevron to expand all
    const latestCall = calls[calls.length - 1];
    const latestStatus = latestCall.status ?? 'complete';
@@ -197,7 +225,7 @@ index 791909e7d02b99ddff54507bfffcf846b7ad4a5c..c150dda3160360b2dbe9651b2616af30
    return /*#__PURE__*/_jsxs("div", {
      ref: ref,
      ...mergeProps(themeProps('chat-tool-calls'), stylex.props(styles.root, xstyle), className, style),
-@@ -319,7 +321,7 @@ export function ChatToolCalls(props) {
+@@ -319,7 +326,7 @@ export function ChatToolCalls(props) {
        ...{
          className: "x78zum5 x6s0dn4 x1s4dlld xjwf9q1 x13f7esw x1ypdohk"
        },
@@ -206,7 +234,7 @@ index 791909e7d02b99ddff54507bfffcf846b7ad4a5c..c150dda3160360b2dbe9651b2616af30
          children: [/*#__PURE__*/_jsx("span", {
            ...{
              className: "x3nfvp2 x6s0dn4 xl56j7k x2lah0s x1kky2od xlup9mm xv1l7n4"
-@@ -333,7 +335,7 @@ export function ChatToolCalls(props) {
+@@ -333,7 +340,7 @@ export function ChatToolCalls(props) {
            ...{
              className: "x141an7d x1ltkj2j x9ynric x1e4wzip xv1l7n4"
            },
@@ -215,7 +243,7 @@ index 791909e7d02b99ddff54507bfffcf846b7ad4a5c..c150dda3160360b2dbe9651b2616af30
              count: calls.length
            })
          })]
-@@ -377,7 +379,7 @@ export function ChatToolCalls(props) {
+@@ -377,7 +384,7 @@ export function ChatToolCalls(props) {
          ...{
            className: "x3nfvp2 x6s0dn4 x1lsbc85 x141an7d x1ltkj2j x9ynric xnbbluu x2lah0s"
          },
@@ -225,7 +253,7 @@ index 791909e7d02b99ddff54507bfffcf846b7ad4a5c..c150dda3160360b2dbe9651b2616af30
              icon: "wrench",
              size: "xsm",
 diff --git a/src/Chat/ChatComposerInput.tsx b/src/Chat/ChatComposerInput.tsx
-index 1f7560a2cc9b2a7dc3e391b420c1a45da36b63de..4a77ce55c695292812e4598df04b0dd379195022 100644
+index 1f7560a2cc9b2a7dc3e391b420c1a45da36b63de..6b57584176ddfcb1ac0daeb70d6c70c9d58327a7 100644
 --- a/src/Chat/ChatComposerInput.tsx
 +++ b/src/Chat/ChatComposerInput.tsx
 @@ -519,38 +519,75 @@ export function ChatComposerInput(props: ChatComposerInputProps) {
@@ -328,10 +356,21 @@ index 1f7560a2cc9b2a7dc3e391b420c1a45da36b63de..4a77ce55c695292812e4598df04b0dd3
              return;
            }
 diff --git a/src/Chat/ChatToolCalls.tsx b/src/Chat/ChatToolCalls.tsx
-index 234a2e4f42d67cb9db7cc7f11ff73957bb8da99b..b989bf8a76f9f562bc7f2fb92b36603cfa34e2b2 100644
+index 234a2e4f42d67cb9db7cc7f11ff73957bb8da99b..98cc9ee278db6e828bc2d7c5f0ca0c7ca2df79e6 100644
 --- a/src/Chat/ChatToolCalls.tsx
 +++ b/src/Chat/ChatToolCalls.tsx
-@@ -82,6 +82,8 @@ export interface ChatToolCallsProps extends BaseProps<HTMLDivElement> {
+@@ -74,6 +74,10 @@ export interface ChatToolCallItem {
+   data?: unknown;
+   /** Inline detail content shown when the row is expanded (e.g. code diff, command output). */
+   resultDetail?: ReactNode;
++  /** Controlled expansion of this call's result detail. */
++  isDetailExpanded?: boolean;
++  /** Called when this call's result detail is toggled. */
++  onDetailExpandedChange?: (expanded: boolean) => void;
+ }
+ 
+ export interface ChatToolCallsProps extends BaseProps<HTMLDivElement> {
+@@ -82,6 +86,8 @@ export interface ChatToolCallsProps extends BaseProps<HTMLDivElement> {
    calls: ChatToolCallItem[];
    /** Custom summary label for groups. Auto-generated from count if omitted. */
    label?: string;
@@ -340,7 +379,26 @@ index 234a2e4f42d67cb9db7cc7f11ff73957bb8da99b..b989bf8a76f9f562bc7f2fb92b36603c
    /** Whether the group is expanded. Uncontrolled by default. */
    isExpanded?: boolean;
    /** Default expanded state. @default true for ≤3 calls, false for >3. */
-@@ -508,6 +510,7 @@ export function ChatToolCalls(props: ChatToolCallsProps) {
+@@ -367,11 +373,16 @@ function CallRow({call}: {call: ChatToolCallItem}) {
+   const t = useTranslator();
+   const status = call.status ?? 'complete';
+   const hasDetail = call.resultDetail != null;
+-  const [isDetailOpen, setIsDetailOpen] = useState(false);
++  const [localDetailOpen, setLocalDetailOpen] = useState(false);
++  const isDetailOpen = call.isDetailExpanded ?? localDetailOpen;
+   const detailId = useId();
+ 
+   const toggleDetail = hasDetail
+-    ? () => setIsDetailOpen(prev => !prev)
++    ? () => {
++        const next = !isDetailOpen;
++        if (call.isDetailExpanded === undefined) setLocalDetailOpen(next);
++        call.onDetailExpandedChange?.(next);
++      }
+     : undefined;
+ 
+   const row = (
+@@ -508,6 +519,7 @@ export function ChatToolCalls(props: ChatToolCallsProps) {
    const {
      calls,
      label: _customLabel,
@@ -348,7 +406,7 @@ index 234a2e4f42d67cb9db7cc7f11ff73957bb8da99b..b989bf8a76f9f562bc7f2fb92b36603c
      isExpanded: controlledExpanded,
      defaultIsExpanded,
      onExpandedChange,
-@@ -536,8 +539,8 @@ export function ChatToolCalls(props: ChatToolCallsProps) {
+@@ -536,8 +548,8 @@ export function ChatToolCalls(props: ChatToolCallsProps) {
      return null;
    }
  
@@ -359,7 +417,7 @@ index 234a2e4f42d67cb9db7cc7f11ff73957bb8da99b..b989bf8a76f9f562bc7f2fb92b36603c
      return (
        <div
          ref={ref}
-@@ -556,6 +559,7 @@ export function ChatToolCalls(props: ChatToolCallsProps) {
+@@ -556,6 +568,7 @@ export function ChatToolCalls(props: ChatToolCallsProps) {
    // Multiple calls: latest call at surface with chevron to expand all
    const latestCall = calls[calls.length - 1];
    const latestStatus = latestCall.status ?? 'complete';
@@ -367,7 +425,7 @@ index 234a2e4f42d67cb9db7cc7f11ff73957bb8da99b..b989bf8a76f9f562bc7f2fb92b36603c
  
    return (
      <div
-@@ -581,13 +585,14 @@ export function ChatToolCalls(props: ChatToolCallsProps) {
+@@ -581,13 +594,14 @@ export function ChatToolCalls(props: ChatToolCallsProps) {
            }
          }}
          {...stylex.props(styles.callRow, styles.callRowToggle)}>
@@ -384,7 +442,7 @@ index 234a2e4f42d67cb9db7cc7f11ff73957bb8da99b..b989bf8a76f9f562bc7f2fb92b36603c
              </span>
            </>
          ) : (
-@@ -620,7 +625,7 @@ export function ChatToolCalls(props: ChatToolCallsProps) {
+@@ -620,7 +634,7 @@ export function ChatToolCalls(props: ChatToolCallsProps) {
            </>
          )}
          <span {...stylex.props(styles.callCount)}>

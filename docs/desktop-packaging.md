@@ -65,9 +65,11 @@ same inputs there.
 ## Runtime contract
 
 - macOS bundles target macOS 12 or newer and are built for Apple Silicon.
-- Windows bundles target x64 and ARM64, use the GUI PE subsystem, and include
-  the offline WebView2 installer. Background commands use hidden-process
-  creation flags and must not open a console window.
+- Windows bundles target x64 and ARM64 and use the GUI PE subsystem. WebView2
+  is not embedded; the installer uses Tauri's default bootstrapper and
+  downloads the runtime only when the machine does not already have it.
+  Background commands use hidden-process creation flags and must not open a
+  console window.
 - Linux bundles target x64 and ARM64 on an Ubuntu 22.04 baseline. The built-in
   browser uses the system WebView (WebKitGTK), not a bundled Chromium child.
 

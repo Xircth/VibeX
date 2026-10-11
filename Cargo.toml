@@ -63,11 +63,23 @@ debug = 1
 split-debuginfo = "packed"
 strip = true
 
+# macOS 27 dyld rejects proc-macro dylibs whose LINKEDIT string pool is not
+# 8-byte aligned after rustc strip (rust-lang/rust#157750). build-override
+# covers build scripts + proc-macros only; the final binary stays stripped.
+[profile.release.build-override]
+strip = false
+
 [profile.dev]
 debug = 1
+# Opt out of Cargo's implicit `-C strip=debuginfo` (triggered when package
+# debuginfo is off). That strip path mis-aligns LINKEDIT on macOS 27 and
+# breaks loading proc-macro dylibs such as sqlx-macros.
+strip = "none"
 
 [profile.dev.package."*"]
 debug = 0
+strip = "none"
 
 [profile.dev.build-override]
 debug = 0
+strip = "none"

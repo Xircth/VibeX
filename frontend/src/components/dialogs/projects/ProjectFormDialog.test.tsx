@@ -3,11 +3,12 @@ import { join } from 'node:path';
 import type { ComponentType } from 'react';
 import NiceModal, { type NiceModalHocProps } from '@ebay/nice-modal-react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { render, screen } from '@testing-library/react';
+import { render, screen, within } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { HotkeysProvider } from 'react-hotkeys-hook';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { repoApi } from '@/lib/api';
+import { projectsApi, repoApi } from '@/lib/api';
 import {
   ProjectFormDialog,
   type ProjectFormDialogProps,
@@ -36,6 +37,11 @@ function renderDialog(props: ProjectFormDialogProps = {}) {
 describe('ProjectFormDialog', () => {
   beforeEach(() => {
     vi.spyOn(repoApi, 'checkGitRepoPath').mockResolvedValue(false);
+    vi.spyOn(projectsApi, 'previewImport').mockResolvedValue({
+      path: '/Users/mac/Projects/workspace',
+      is_git: false,
+      children: [],
+    });
   });
 
   it('creates new projects through the Host command, not the client filesystem', () => {
@@ -137,5 +143,56 @@ describe('ProjectFormDialog', () => {
       'text-xs',
       'bg-[var(--surface-control-hover)]'
     );
+  });
+
+  it('selects and deselects all discovered git child repos, with a scrollable list', async () => {
+    const user = userEvent.setup();
+    vi.mocked(projectsApi.previewImport).mockResolvedValue({
+      path: '/Users/mac/Projects/workspace',
+      is_git: false,
+      children: [
+        {
+          name: 'api',
+          path: '/Users/mac/Projects/workspace/api',
+          existing_project_id: null,
+        },
+        {
+          name: 'web',
+          path: '/Users/mac/Projects/workspace/web',
+          existing_project_id: null,
+        },
+        {
+          name: 'cli',
+          path: '/Users/mac/Projects/workspace/cli',
+          existing_project_id: null,
+        },
+      ],
+    });
+
+    renderDialog({
+      autoOpenFolderPicker: true,
+      initialFolderPath: '/Users/mac/Projects/workspace',
+    });
+
+    expect(await screen.findByText('发现 3 个 Git 仓库')).toBeInTheDocument();
+
+    const list = screen.getByTestId('discovered-git-repos-list');
+    expect(list).toHaveClass('overflow-y-auto', 'max-h-40');
+
+    const checkboxes = within(list).getAllByRole('checkbox');
+    expect(checkboxes).toHaveLength(3);
+    for (const checkbox of checkboxes) {
+      expect(checkbox).not.toBeChecked();
+    }
+
+    await user.click(screen.getByRole('button', { name: '全选' }));
+    for (const checkbox of within(list).getAllByRole('checkbox')) {
+      expect(checkbox).toBeChecked();
+    }
+
+    await user.click(screen.getByRole('button', { name: '取消全选' }));
+    for (const checkbox of within(list).getAllByRole('checkbox')) {
+      expect(checkbox).not.toBeChecked();
+    }
   });
 });

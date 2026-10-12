@@ -1,16 +1,21 @@
 import type { ReactNode } from 'react';
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { HotkeysProvider } from 'react-hotkeys-hook';
 import { TooltipProvider } from '@/components/ui/tooltip';
+import { sessionsApi } from '@/lib/api';
 import type { KanbanProjectSessionRecord } from '@/hooks/useKanbanProjectSessions';
 import { emptyGroupFootprint } from './canvasGrouping';
-import { SessionCanvasView } from './SessionCanvasView';
+import {
+  SessionCanvasView,
+  type SessionCanvasApi,
+} from './SessionCanvasView';
 
 const fitView = vi.fn();
 const setCenter = vi.fn();
+const getViewport = vi.fn(() => ({ x: 0, y: 0, zoom: 1 }));
 const screenToFlowPosition = vi.fn(() => ({ x: 40, y: 40 }));
 
 vi.mock('@xyflow/react', () => ({
@@ -29,7 +34,7 @@ vi.mock('@xyflow/react', () => ({
     fitView,
     setCenter,
     screenToFlowPosition,
-    getViewport: () => ({ x: 0, y: 0, zoom: 1 }),
+    getViewport,
     setViewport: vi.fn(),
   }),
   useStore: (
@@ -81,6 +86,9 @@ describe('SessionCanvasView', () => {
     localStorage.clear();
     fitView.mockReset();
     setCenter.mockReset();
+    getViewport.mockReset();
+    getViewport.mockReturnValue({ x: 0, y: 0, zoom: 1 });
+    vi.mocked(sessionsApi.markViewed).mockClear();
   });
 
   it('shows the minimap by default', () => {
@@ -167,6 +175,79 @@ describe('SessionCanvasView', () => {
       );
     });
     expect(fitView).not.toHaveBeenCalled();
+  });
+
+  it('places a created session as a collapsed card and focuses it at the current zoom', async () => {
+    let api: SessionCanvasApi | null = null;
+    getViewport.mockReturnValue({ x: 12, y: 8, zoom: 0.35 });
+    renderCanvas(
+      <SessionCanvasView
+        projectId="p1"
+        sessions={[]}
+        sessionsReady
+        listWidth={280}
+        list={<div>list</div>}
+        onApiReady={(next) => {
+          api = next;
+        }}
+      />
+    );
+
+    act(() => {
+      api?.addSession('created-1');
+    });
+
+    const saved = JSON.parse(
+      window.localStorage.getItem('vibex:kanban-canvas:p1') ?? '{}'
+    ) as { nodes: Array<{ sessionId: string; expanded: boolean }> };
+    expect(
+      saved.nodes.some(
+        (node) => node.sessionId === 'created-1' && node.expanded === false
+      )
+    ).toBe(true);
+
+    await waitFor(() => {
+      expect(setCenter).toHaveBeenCalledWith(
+        expect.any(Number),
+        expect.any(Number),
+        expect.objectContaining({ zoom: 0.35, duration: 280 })
+      );
+    });
+    expect(fitView).not.toHaveBeenCalled();
+  });
+
+  it('marks a session viewed when focusing it from the session list', async () => {
+    let api: SessionCanvasApi | null = null;
+    const record = {
+      ...session('review-1', new Date().toISOString()),
+      status: 'inreview',
+    };
+    renderCanvas(
+      <SessionCanvasView
+        projectId="p1"
+        sessions={[record]}
+        listWidth={280}
+        list={<div>list</div>}
+        onApiReady={(next) => {
+          api = next;
+        }}
+      />
+    );
+
+    act(() => {
+      api?.addOrFocus(record);
+    });
+
+    await waitFor(() => {
+      expect(sessionsApi.markViewed).toHaveBeenCalledWith('review-1');
+    });
+    await waitFor(() => {
+      expect(setCenter).toHaveBeenCalledWith(
+        expect.any(Number),
+        expect.any(Number),
+        expect.objectContaining({ zoom: 1, duration: 280 })
+      );
+    });
   });
 
   it('opens the same create-session flow from the dock plus menu', async () => {

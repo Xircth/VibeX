@@ -14453,6 +14453,10 @@ html.host-windows :where(.legacy-design) .vu-toast-surface {
   pointer-events: none;
 }
 
+.canvas-surface[data-canvas-panning] .react-flow__viewport {
+  will-change: transform;
+}
+
 .canvas-surface[data-canvas-panning] .canvas-session-card .session-hub-card,
 .canvas-surface[data-canvas-panning] .canvas-session-group,
 .canvas-surface[data-canvas-panning] .canvas-session-window {

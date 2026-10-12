@@ -24,6 +24,8 @@ import {
   displayedCanvasNodes,
   preferLiveKanbanSessions,
   pruneMissingSessions,
+  reuseSetIfEqual,
+  reuseStringListIfEqual,
   resetNodeSize,
   resizeNode,
   reuseUnchangedFlowNode,
@@ -508,13 +510,32 @@ describe('pruneMissingSessions', () => {
 
   it('does not drop stored cards while no live sessions have loaded', () => {
     const stored = [node('live', 0, 0), node('gone', 10, 10)];
-    expect(displayedCanvasNodes(stored, new Set(), false)).toEqual(stored);
-    expect(displayedCanvasNodes(stored, new Set(), true)).toEqual(stored);
+    expect(displayedCanvasNodes(stored, new Set(), false)).toBe(stored);
+    expect(displayedCanvasNodes(stored, new Set(), true)).toBe(stored);
     expect(
       displayedCanvasNodes(stored, new Set(['live']), true).map(
         (item) => item.sessionId
       )
     ).toEqual(['live']);
+  });
+
+  it('keeps a just-created card before the live session list includes it', () => {
+    const stored = [node('new', 0, 0), node('live', 40, 0)];
+    expect(
+      displayedCanvasNodes(
+        stored,
+        new Set(['live']),
+        true,
+        new Set(['new'])
+      ).map((item) => item.sessionId)
+    ).toEqual(['new', 'live']);
+  });
+
+  it('reuses set and id-list identities when contents match', () => {
+    const ids = new Set(['a', 'b']);
+    expect(reuseSetIfEqual(ids, new Set(['a', 'b']))).toBe(ids);
+    const list = ['a', 'b'];
+    expect(reuseStringListIfEqual(list, ['a', 'b'])).toBe(list);
   });
 
   it('keeps the previous live session records across an empty snapshot', () => {

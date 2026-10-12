@@ -14,6 +14,7 @@ import {
   getSessionMarker,
   groupKanbanSessionsByStatus,
   sessionAttentionKind,
+  sessionCompletesWhenViewed,
   sortSessions,
 } from './utils';
 
@@ -500,6 +501,18 @@ describe('sessionAttentionKind', () => {
     expect(
       sessionAttentionKind({ isRunning: false, status: 'inprogress' })
     ).toBe(null);
+  });
+
+  it('completes in-review sessions when they are viewed from the session list', () => {
+    expect(
+      sessionCompletesWhenViewed({ isRunning: false, status: 'inreview' })
+    ).toBe(true);
+    expect(
+      sessionCompletesWhenViewed({ isRunning: true, status: 'inreview' })
+    ).toBe(false);
+    expect(
+      sessionCompletesWhenViewed({ isRunning: false, status: 'todo' })
+    ).toBe(false);
   });
 });
 

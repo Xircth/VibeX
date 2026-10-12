@@ -64,6 +64,7 @@ import {
   buildDefaultSessionName,
   fallbackSessionNamesByCreationOrder,
   isProjectSessionListLoading,
+  kanbanSessionFromCreated,
   useKanbanProjectSessions,
 } from './useKanbanProjectSessions';
 
@@ -179,6 +180,37 @@ describe('fallbackSessionNamesByCreationOrder', () => {
 
     expect(names.get('older')).toBe('新会话1');
     expect(names.get('newer')).toBe('新会话2');
+  });
+
+  it('builds a session-card record from a just-created session', () => {
+    const record = kanbanSessionFromCreated(
+      {
+        id: 'session-new',
+        workspace_id: workspace.id,
+        task_id: null,
+        name: null,
+        initial_prompt: null,
+        status: 'todo',
+        executor: 'codex',
+        external_session_id: null,
+        agent_id: 'codex',
+        parent_session_id: null,
+        parent_tool_use_id: null,
+        delegation_call_id: null,
+        created_at: '2026-10-12T00:00:00Z',
+        updated_at: '2026-10-12T00:00:00Z',
+      },
+      workspace,
+      '新会话'
+    );
+    expect(record.id).toBe('session-new');
+    expect(record.fullName).toBe('新会话');
+    expect(record.status).toBe('todo');
+    expect(record.workspace.id).toBe(workspace.id);
+    expect(record.placement).toEqual({
+      sessionId: 'session-new',
+      workspaceId: workspace.id,
+    });
   });
 });
 

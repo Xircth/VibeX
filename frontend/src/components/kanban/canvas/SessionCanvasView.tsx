@@ -19,7 +19,6 @@ import {
   SelectionMode,
   ViewportPortal,
   useReactFlow,
-  useStore,
   type Node,
   type NodeChange,
   type NodeTypes,
@@ -120,6 +119,8 @@ import {
   removeCanvasNode,
   resetNodeSize,
   resizeNode,
+  reuseSetIfEqual,
+  reuseStringListIfEqual,
   reuseUnchangedFlowNode,
   applyDragOverlayToFlowNode,
   canvasHasLiveSurfaces,
@@ -297,7 +298,6 @@ function SessionCanvasFlow({
   const listVisible = useKanbanCanvasListVisible();
   const { fitView, setCenter, screenToFlowPosition, getViewport, setViewport } =
     useReactFlow();
-  const viewportZoom = useStore((state) => state.transform[2]);
   const surfaceRef = useRef<HTMLDivElement>(null);
   const onMiddleClickRef = useRef<(event: MouseEvent) => void>(() => {});
   const onMiddleClick = useCallback((event: MouseEvent) => {
@@ -431,8 +431,16 @@ function SessionCanvasFlow({
   } | null>(null);
   const flowNodeCacheRef = useRef(new Map<string, Node>());
   const zoomRef = useRef(documentState.viewport?.zoom ?? 1);
-  zoomRef.current = viewportZoom;
   const pendingViewport = useRef<Viewport | null>(documentState.viewport);
+  const [heldSessionIds, setHeldSessionIds] = useState<ReadonlySet<string>>(
+    () => new Set()
+  );
+  const liveIdsRef = useRef<ReadonlySet<string>>(new Set());
+  const runningIdsRef = useRef<ReadonlySet<string>>(new Set());
+  const reviewIdsRef = useRef<ReadonlySet<string>>(new Set());
+  const windowSessionIdsRef = useRef<readonly string[]>([]);
+  const presentIdsKeyRef = useRef('');
+  const windowIdsKeyRef = useRef('');
   const saveTimer = useRef<number | null>(null);
   const documentRef = useRef(documentState);
   documentRef.current = documentState;
@@ -450,10 +458,11 @@ function SessionCanvasFlow({
   if (displaySessions !== previousLiveSessionsRef.current) {
     previousLiveSessionsRef.current = displaySessions;
   }
-  const liveIds = useMemo(
-    () => new Set(displaySessions.map((session) => session.id)),
-    [displaySessions]
+  const liveIds = reuseSetIfEqual(
+    liveIdsRef.current,
+    new Set(displaySessions.map((session) => session.id))
   );
+  liveIdsRef.current = liveIds;
   const sessionsById = useMemo(
     () => new Map(displaySessions.map((session) => [session.id, session])),
     [displaySessions]
@@ -476,24 +485,38 @@ function SessionCanvasFlow({
   );
 
   const nodes = useMemo(
-    () => displayedCanvasNodes(documentState.nodes, liveIds, sessionsReady),
-    [documentState.nodes, liveIds, sessionsReady]
+    () =>
+      displayedCanvasNodes(
+        documentState.nodes,
+        liveIds,
+        sessionsReady,
+        heldSessionIds
+      ),
+    [documentState.nodes, heldSessionIds, liveIds, sessionsReady]
   );
-  const windowSessionIds = useMemo(() => openWindowSessionIds(nodes), [nodes]);
-  const runningSessionIds = useMemo(() => {
+  const windowSessionIds = reuseStringListIfEqual(
+    windowSessionIdsRef.current,
+    openWindowSessionIds(nodes)
+  );
+  windowSessionIdsRef.current = windowSessionIds;
+  const runningSessionIds = (() => {
     const ids = new Set<string>();
     for (const session of sessionsById.values()) {
       if (sessionAttentionKind(session) === 'running') ids.add(session.id);
     }
-    return ids;
-  }, [sessionsById]);
-  const reviewSessionIds = useMemo(() => {
+    const stable = reuseSetIfEqual(runningIdsRef.current, ids);
+    runningIdsRef.current = stable;
+    return stable;
+  })();
+  const reviewSessionIds = (() => {
     const ids = new Set<string>();
     for (const session of sessionsById.values()) {
       if (sessionAttentionKind(session) === 'review') ids.add(session.id);
     }
-    return ids;
-  }, [sessionsById]);
+    const stable = reuseSetIfEqual(reviewIdsRef.current, ids);
+    reviewIdsRef.current = stable;
+    return stable;
+  })();
   sessionStoreRef.current.replace(sessionsById, sessionsReady);
 
   useLayoutEffect(() => {
@@ -641,25 +664,73 @@ function SessionCanvasFlow({
     []
   );
 
+  const holdSessionId = useCallback((sessionId: string) => {
+    setHeldSessionIds((current) => {
+      if (current.has(sessionId)) return current;
+      const next = new Set(current);
+      next.add(sessionId);
+      return next;
+    });
+  }, []);
+
+  const canvasFlowCenter = useCallback(() => {
+    const rect = surfaceRef.current?.getBoundingClientRect();
+    return screenToFlowPosition(
+      rect
+        ? { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 }
+        : { x: window.innerWidth / 2, y: window.innerHeight / 2 }
+    );
+  }, [screenToFlowPosition]);
+
+  const currentCanvasZoom = useCallback(() => {
+    const zoom = getViewport().zoom;
+    zoomRef.current = zoom;
+    return zoom;
+  }, [getViewport]);
+
+  const focusCanvasNode = useCallback(
+    (node: SessionCanvasNode) => {
+      const rect = worldRect(documentRef.current.nodes, node);
+      const zoom = currentCanvasZoom();
+      void setCenter(rect.x + rect.width / 2, rect.y + rect.height / 2, {
+        duration: 280,
+        zoom,
+      });
+    },
+    [currentCanvasZoom, setCenter]
+  );
+
   const addSession = useCallback(
     (sessionId: string) => {
+      holdSessionId(sessionId);
       const current = documentRef.current.nodes;
       const existing = current.find((node) => node.sessionId === sessionId);
       if (existing) {
         setSelectedIds(new Set([existing.id]));
-        return;
+        focusCanvasNode(existing);
+        return existing;
       }
       const drop = nextDropPoint(current);
-      const center = screenToFlowPosition({
-        x: window.innerWidth / 2,
-        y: window.innerHeight / 2,
-      });
-      const point = current.length === 0 ? { x: center.x, y: center.y } : drop;
+      const center = canvasFlowCenter();
+      const point =
+        current.length === 0
+          ? {
+              x: center.x - CARD_WIDTH / 2,
+              y: center.y - CARD_HEIGHT / 2,
+            }
+          : drop;
       const next = createCanvasNode(sessionId, point);
       updateNodes((items) => [...items, next]);
       setSelectedIds(new Set([next.id]));
+      window.setTimeout(() => {
+        const placed = documentRef.current.nodes.find(
+          (node) => node.id === next.id
+        );
+        if (placed) focusCanvasNode(placed);
+      }, 40);
+      return next;
     },
-    [screenToFlowPosition, updateNodes]
+    [canvasFlowCenter, focusCanvasNode, holdSessionId, updateNodes]
   );
 
   const dropSessionAt = useCallback(
@@ -668,6 +739,7 @@ function SessionCanvasFlow({
       client: { x: number; y: number },
       cardWidth?: number | null
     ) => {
+      holdSessionId(sessionId);
       const flow = screenToFlowPosition(client);
       const size = collapsedSessionCardSize(cardWidth);
       const next = createCanvasNode(
@@ -679,7 +751,7 @@ function SessionCanvasFlow({
       updateNodes((items) => [...items, next]);
       setSelectedIds(new Set([next.id]));
     },
-    [screenToFlowPosition, updateNodes]
+    [holdSessionId, screenToFlowPosition, updateNodes]
   );
 
   const addOrFocus = useCallback(
@@ -689,17 +761,12 @@ function SessionCanvasFlow({
       );
       if (existing) {
         setSelectedIds(new Set([existing.id]));
-        const size = sizeForNode(existing);
-        void setCenter(
-          existing.x + size.width / 2,
-          existing.y + size.height / 2,
-          { duration: 280, zoom: Math.max(zoomRef.current, 0.8) }
-        );
+        focusCanvasNode(existing);
         return;
       }
       addSession(session.id);
     },
-    [addSession, setCenter]
+    [addSession, focusCanvasNode]
   );
 
   // Focus-request reveal: place the session card onto the canvas and focus it.
@@ -714,18 +781,8 @@ function SessionCanvasFlow({
         return;
       }
       addSession(sessionId);
-      const added = documentRef.current.nodes.find(
-        (node) => node.sessionId === sessionId
-      );
-      if (added) {
-        const size = sizeForNode(added);
-        void setCenter(added.x + size.width / 2, added.y + size.height / 2, {
-          duration: 280,
-          zoom: Math.max(zoomRef.current, 0.8),
-        });
-      }
     },
-    [addSession, setCenter]
+    [addSession]
   );
 
   const applyCanvasReveal = useCallback(() => {
@@ -764,11 +821,33 @@ function SessionCanvasFlow({
   }, [addOrFocus, addSession, dropSessionAt, onApiReady, presentSessionIds]);
 
   useEffect(() => {
-    onPresentIdsChange?.([...new Set(nodes.map((node) => node.sessionId))]);
+    setHeldSessionIds((current) => {
+      if (current.size === 0) return current;
+      let changed = false;
+      const next = new Set(current);
+      for (const id of current) {
+        if (liveIds.has(id)) {
+          next.delete(id);
+          changed = true;
+        }
+      }
+      return changed ? next : current;
+    });
+  }, [liveIds]);
+
+  useEffect(() => {
+    const ids = [...new Set(nodes.map((node) => node.sessionId))];
+    const key = ids.join('\0');
+    if (key === presentIdsKeyRef.current) return;
+    presentIdsKeyRef.current = key;
+    onPresentIdsChange?.(ids);
   }, [nodes, onPresentIdsChange]);
 
   useEffect(() => {
-    onWindowSessionIdsChange?.(windowSessionIds);
+    const key = windowSessionIds.join('\0');
+    if (key === windowIdsKeyRef.current) return;
+    windowIdsKeyRef.current = key;
+    onWindowSessionIdsChange?.([...windowSessionIds]);
   }, [onWindowSessionIdsChange, windowSessionIds]);
 
   const expandCard = useCallback(
@@ -1193,14 +1272,7 @@ function SessionCanvasFlow({
     window.setTimeout(() => void fitView({ padding: 0.2, duration: 300 }), 40);
   }, [fitView, updateNodes]);
 
-  const flowOriginAtCanvasCenter = useCallback(() => {
-    const rect = surfaceRef.current?.getBoundingClientRect();
-    return screenToFlowPosition(
-      rect
-        ? { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 }
-        : { x: window.innerWidth / 2, y: window.innerHeight / 2 }
-    );
-  }, [screenToFlowPosition]);
+  const flowOriginAtCanvasCenter = canvasFlowCenter;
 
   const importSessions = useCallback(
     (sessionIds: string[], groupName: string) => {
@@ -1252,11 +1324,11 @@ function SessionCanvasFlow({
       window.setTimeout(() => {
         void setCenter(focusX, focusY, {
           duration: 280,
-          zoom: zoomRef.current,
+          zoom: currentCanvasZoom(),
         });
       }, 40);
     }
-  }, [flowOriginAtCanvasCenter, setCenter, updateNodes]);
+  }, [currentCanvasZoom, flowOriginAtCanvasCenter, setCenter, updateNodes]);
 
   const deleteSelection = useCallback(() => {
     if (selectedIds.size === 0) return;
@@ -1421,6 +1493,9 @@ function SessionCanvasFlow({
             }}
             onMove={handleMove}
             onMoveEnd={handleMoveEnd}
+            onInit={(instance) => {
+              zoomRef.current = instance.getZoom();
+            }}
             fitView={documentState.viewport == null}
             fitViewOptions={{ padding: 0.2, maxZoom: 1 }}
             defaultViewport={documentState.viewport ?? undefined}

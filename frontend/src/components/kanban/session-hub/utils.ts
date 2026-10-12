@@ -53,6 +53,13 @@ export function sessionAttentionKind(session: {
   return null;
 }
 
+export function sessionCompletesWhenViewed(session: {
+  isRunning?: boolean;
+  status?: SessionStatus | string | null;
+}): boolean {
+  return sessionAttentionKind(session) === 'review';
+}
+
 export type ActiveSessionStatus = Exclude<SessionStatus, 'archived'>;
 export const ARCHIVED_SESSION_STATUS: SessionStatus = 'archived';
 export const SESSION_ARCHIVE_DROP_ID = 'session-archive-drop';

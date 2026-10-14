@@ -1799,6 +1799,109 @@ describe('AgentSettings', () => {
     expect(api.accountFlow).toHaveBeenCalledWith('cursor');
   });
 
+  it('shows browserLoginStarted toast when logging in to Antigravity', async () => {
+    const user = userEvent.setup();
+    const successSpy = vi.spyOn(toast, 'success');
+    const loggedOut = {
+      agent_id: 'antigravity',
+      display_name: 'Antigravity',
+      description: 'Antigravity ACP',
+      icon_light: null,
+      icon_dark: null,
+      icon_svg: null,
+      source: 'built_in_profile',
+      built_in: true,
+      retired: false,
+      enabled: true,
+      position: 0,
+      lifecycle: 'needs_auth',
+      authentication: 'not_logged_in',
+      runtime_version: '1.0.0',
+      acp_version: '1.0.0',
+      active_operation: null,
+      attention_reason: null,
+      is_default: true,
+    };
+    const loggedIn = {
+      ...loggedOut,
+      lifecycle: 'healthy',
+      authentication: 'account',
+    };
+    api.bar.mockResolvedValue([loggedOut]);
+    api.readConfig.mockResolvedValue({
+      agent_id: 'antigravity',
+      available: false,
+      settings_features: ['authentication_mode'],
+      path: null,
+      paths: [],
+      fields: [],
+      files: [],
+      applies_to_next_session: true,
+    });
+    api.authMode.mockResolvedValue({
+      agent_id: 'antigravity',
+      mode: 'oauth-personal',
+      modes: ['oauth-personal', 'oauth-business'],
+      options: [
+        {
+          value: 'oauth-personal',
+          kind: 'subscription',
+          label: 'Google 账号登录',
+          label_key: 'agents.authModeGoogleLogin',
+          description: 'OAuth 登录',
+          description_key: 'agents.authDescAntigravityOauthPersonal',
+          credential_env: null,
+          credential_required: false,
+          native_config_field_id: null,
+        },
+      ],
+      credential_env: 'GEMINI_API_KEY',
+      credential_present: false,
+      account_label: null,
+    });
+    api.actions.mockResolvedValue({
+      agent_id: 'antigravity',
+      actions: [
+        {
+          id: 'login',
+          kind: 'login',
+          label: '登录',
+          label_key: 'agents.managementAction.antigravity.login.label',
+          description: '在浏览器中完成 Antigravity 账号登录',
+          description_key: 'agents.managementAction.antigravity.login.description',
+          available: true,
+          unavailable_reason: null,
+          url: null,
+        },
+      ],
+    });
+    api.runAction.mockImplementation(async () => {
+      api.bar.mockResolvedValue([loggedIn]);
+      api.accountFlow.mockResolvedValue({
+        agent_id: 'antigravity',
+        action_id: 'login',
+        status: 'succeeded',
+        exit_code: 0,
+        authentication: 'account',
+      });
+      return {
+        agent_id: 'antigravity',
+        action_id: 'login',
+        launched: true,
+      };
+    });
+
+    render(<AgentSettings />);
+    expect(await screen.findByText('暂未登录')).toBeVisible();
+    await user.click(await screen.findByRole('button', { name: '登录' }));
+    await waitFor(() =>
+      expect(api.runAction).toHaveBeenCalledWith('antigravity', 'login')
+    );
+    expect(successSpy).toHaveBeenCalledWith(
+      '已启动官方登录，请在浏览器中完成。'
+    );
+  });
+
   it('refreshes Grok official-subscription login status after the terminal flow finishes', async () => {
     const user = userEvent.setup();
     const loggedOut = {
@@ -2369,6 +2472,90 @@ describe('AgentSettings', () => {
     await waitFor(() => expect(screen.getByTitle('1.7.0')).toBeInTheDocument());
     expect(screen.queryByTitle('1.1.0')).not.toBeInTheDocument();
     expect(screen.queryByText('可更新')).not.toBeInTheDocument();
+  });
+
+  it('recovers from transient accountFlow polling errors and clears running state on persistent failure', async () => {
+    const errorSpy = vi.spyOn(toast, 'error');
+    api.actions.mockResolvedValue({
+      agent_id: 'codex',
+      actions: [
+        {
+          id: 'login',
+          label: '登录 Codex',
+          description: '登录',
+          label_key: 'agents.managementAction.codex.login.label',
+          description_key: 'agents.managementAction.codex.login.description',
+          kind: 'login',
+          available: true,
+          unavailable_reason: null,
+          url: null,
+        },
+      ],
+    });
+    api.accountFlow
+      .mockResolvedValueOnce({
+        agent_id: 'codex',
+        action_id: 'login',
+        status: 'pending',
+        exit_code: null,
+        authentication: null,
+      })
+      .mockRejectedValue(new Error('poll network error'));
+
+    render(<AgentSettings />);
+    await screen.findByRole('button', { name: 'Codex' });
+
+    await waitFor(
+      () => expect(errorSpy).toHaveBeenCalledWith('poll network error'),
+      { timeout: 5000 }
+    );
+  });
+
+  it('guards settings sidebar navigation when agent configuration has unsaved changes', async () => {
+    const user = userEvent.setup();
+    api.readConfig.mockResolvedValue({
+      agent_id: 'codex',
+      available: true,
+      settings_features: ['authentication_mode'],
+      path: '/Users/example/.codex/config.toml',
+      paths: ['/Users/example/.codex/config.toml'],
+      files: [],
+      applies_to_next_session: true,
+      fields: [
+        configField({
+          id: 'codex_model',
+          label: '默认模型',
+          kind: 'text',
+          value: 'gpt-5',
+          path: '/Users/example/.codex/config.toml',
+          surface: 'configuration',
+        }),
+      ],
+    });
+
+    render(
+      <div className="settings-page">
+        <aside className="settings-sidebar">
+          <a href="/settings/general">常规</a>
+        </aside>
+        <AgentSettings />
+      </div>
+    );
+
+    const input = await screen.findByLabelText('默认模型');
+    await user.type(input, '-mini');
+
+    confirmShow.mockResolvedValueOnce('cancelled');
+    await user.click(screen.getByRole('link', { name: '常规' }));
+    expect(confirmShow).toHaveBeenCalledOnce();
+    expect(window.location.pathname).not.toBe('/settings/general');
+
+    confirmShow.mockResolvedValueOnce('confirmed');
+    await user.click(screen.getByRole('link', { name: '常规' }));
+    await waitFor(() => expect(confirmShow).toHaveBeenCalledTimes(2));
+    await waitFor(() =>
+      expect(window.location.pathname).toBe('/settings/general')
+    );
   });
 });
 

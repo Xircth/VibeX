@@ -177,7 +177,42 @@ describe('MessageTurnView', () => {
     expect(screen.getByText('Inspecting the renderer')).toBeInTheDocument();
   });
 
-  it('keeps the latest three calls visible and appends older calls to one aggregate', () => {
+  it('aggregates running calls and keeps only the last two activities, including thinking', () => {
+    hideThinkingMock.value = false;
+    const turn: MessageTurn = {
+      id: 'running-activities:assistant',
+      role: 'assistant',
+      blocks: [
+        ...Array.from({ length: 5 }, (_, index) =>
+          toolUseBlock(index, 'bash', { command: `running-${index}` })
+        ),
+        { type: 'thinking', text: 'Inspecting the last result' },
+      ],
+      timestamp: '2026-10-09T00:00:00.000Z',
+    };
+    render(
+      <MessageTurnView
+        turn={turn}
+        phase="streaming"
+        attempt={{ id: 'attempt-1', container_ref: null } as never}
+        task={null}
+      />
+    );
+
+    const aggregate = screen.getByRole('button', { name: /运行 4 个命令/ });
+    expect(aggregate).toHaveAttribute('aria-expanded', 'false');
+    const group = aggregate.parentElement!;
+    expect(group).toContainElement(screen.getByText('running-0'));
+    expect(group).toContainElement(screen.getByText('running-3'));
+    expect(group).not.toContainElement(screen.getByText('running-4'));
+    expect(screen.getByText('running-4')).toBeInTheDocument();
+    expect(screen.getByText('Inspecting the last result')).toBeInTheDocument();
+    fireEvent.click(aggregate);
+    expect(screen.getByText('running-0')).toBeInTheDocument();
+    expect(screen.getByText('running-3')).toBeInTheDocument();
+  });
+
+  it('keeps the latest two calls visible and appends older calls to one aggregate', () => {
     const turn: MessageTurn = {
       id: 'batched-tools:assistant',
       role: 'assistant',
@@ -194,7 +229,7 @@ describe('MessageTurnView', () => {
     expect(screen.getByText('command-5')).toBeInTheDocument();
     expect(screen.getByText('command-6')).toBeInTheDocument();
     expect(screen.getByText('command-7')).toBeInTheDocument();
-    const firstBatch = screen.getByRole('button', { name: /运行 5 个命令/ });
+    const firstBatch = screen.getByRole('button', { name: /运行 6 个命令/ });
     expect(firstBatch).toHaveAttribute('aria-expanded', 'false');
     fireEvent.click(firstBatch);
     expect(screen.getByText('command-0')).toBeInTheDocument();
@@ -213,9 +248,64 @@ describe('MessageTurnView', () => {
       name: /运行 \d+ 个命令/,
     });
     expect(batches).toHaveLength(1);
-    expect(batches[0]).toHaveTextContent('运行 10 个命令');
+    expect(batches[0]).toHaveTextContent('运行 11 个命令');
     expect(batches[0]).toHaveAttribute('aria-expanded', 'true');
     expect(screen.getByText('command-5')).toBeInTheDocument();
+  });
+
+  it('keeps resources and plans in one activity stage until prose arrives', () => {
+    const turn: MessageTurn = {
+      id: 'mixed-running-activities:assistant',
+      role: 'assistant',
+      blocks: [
+        ...Array.from({ length: 3 }, (_, index) =>
+          toolUseBlock(index, 'bash', { command: `mixed-${index}` })
+        ),
+        {
+          type: 'resource',
+          uri: 'file:///workspace/note.md',
+          title: 'note.md',
+        },
+        toolUseBlock(3, 'bash', { command: 'mixed-3' }),
+        { type: 'plan', entries: [] },
+      ],
+      timestamp: '2026-10-09T00:00:00.000Z',
+    };
+    const props = {
+      attempt: { id: 'attempt-1', container_ref: null } as never,
+      task: null,
+      phase: 'streaming' as const,
+      collapseProcess: false,
+    };
+    const { rerender } = render(<MessageTurnView {...props} turn={turn} />);
+    const aggregate = screen.getByRole('button', {
+      name: '运行 3 个命令、1 项其他活动',
+    });
+    expect(aggregate).toHaveAttribute('aria-expanded', 'false');
+    expect(screen.queryByText('mixed-0')).not.toBeInTheDocument();
+    expect(screen.queryByText('note.md')).not.toBeInTheDocument();
+    expect(screen.getByText('mixed-3')).toBeInTheDocument();
+    fireEvent.click(aggregate);
+    expect(screen.getByText('mixed-0')).toBeInTheDocument();
+    expect(screen.getByText('note.md')).toBeInTheDocument();
+
+    rerender(
+      <MessageTurnView
+        {...props}
+        turn={{
+          ...turn,
+          blocks: [...turn.blocks, { type: 'text', text: 'Done' }],
+        }}
+      />
+    );
+    const summaries = screen.getAllByRole('button', {
+      name: /运行 \d+ 个命令/,
+    });
+    expect(summaries).toHaveLength(1);
+    expect(summaries[0]).toHaveTextContent('运行 4 个命令、2 项其他活动');
+    expect(summaries[0]).toHaveAttribute('aria-expanded', 'true');
+    expect(screen.getByText('mixed-3')).toBeInTheDocument();
+    expect(screen.getByText('Done')).toBeInTheDocument();
   });
 
   it('uses one aggregate for consecutive completed commands with thinking between them', () => {
@@ -273,7 +363,7 @@ describe('MessageTurnView', () => {
     const { rerender } = render(<MessageTurnView {...props} turn={turn} />);
 
     expect(screen.getByText('command-2')).toBeInTheDocument();
-    fireEvent.click(screen.getByRole('button', { name: /运行 3 个命令/ }));
+    fireEvent.click(screen.getByRole('button', { name: /运行 7 个命令/ }));
     expect(screen.getByText('command-3')).toBeInTheDocument();
     expect(screen.getByText('command-5')).toBeInTheDocument();
 
@@ -282,7 +372,7 @@ describe('MessageTurnView', () => {
     );
 
     expect(
-      screen.getByRole('button', { name: /运行 6 个命令/ })
+      screen.getByRole('button', { name: /运行 7 个命令/ })
     ).toHaveAttribute('aria-expanded', 'true');
     expect(
       screen.getAllByRole('button', { name: /运行 \d+ 个命令/ })
@@ -312,7 +402,7 @@ describe('MessageTurnView', () => {
     expect(screen.getByText('command-6')).toBeInTheDocument();
     expect(screen.getByText('Preparing the next update')).toBeInTheDocument();
     expect(
-      screen.getByRole('button', { name: /运行 4 个命令/ })
+      screen.getByRole('button', { name: /运行 6 个命令/ })
     ).toHaveAttribute('aria-expanded', 'false');
 
     rerender(
@@ -395,7 +485,7 @@ describe('MessageTurnView', () => {
     ).toHaveLength(1);
   });
 
-  it('keeps running and failed calls visible without an empty process disclosure', () => {
+  it('folds running and failed calls into the same process disclosure', () => {
     render(
       <MessageTurnView
         turn={{
@@ -420,11 +510,14 @@ describe('MessageTurnView', () => {
       />
     );
 
+    expect(screen.queryByText('still-running')).toBeNull();
+    expect(screen.queryByText('failed-check')).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: /已折叠 2 条消息/ }));
+    const aggregate = screen.getByRole('button', { name: /运行 2 个命令/ });
+    expect(aggregate).toHaveAttribute('aria-expanded', 'false');
+    fireEvent.click(aggregate);
     expect(screen.getByText('still-running')).toBeInTheDocument();
     expect(screen.getByText('failed-check')).toBeInTheDocument();
-    expect(
-      screen.queryByRole('button', { name: /已折叠 .* 条消息/ })
-    ).toBeNull();
   });
 
   it('includes interleaved thinking in the same activity stage', () => {
@@ -447,11 +540,11 @@ describe('MessageTurnView', () => {
     };
     const { rerender } = render(<MessageTurnView {...props} turn={turn} />);
     const batch = screen.getByRole('button', {
-      name: /运行 4 个命令/,
+      name: /运行 5 个命令/,
     });
     expect(batch).toHaveAttribute('aria-expanded', 'false');
     expect(screen.queryByRole('button', { name: '展开思考' })).toBeNull();
-    expect(screen.getByText('command-4')).toBeInTheDocument();
+    expect(screen.getByText('command-5')).toBeInTheDocument();
     expect(screen.getByText('command-6')).toBeInTheDocument();
 
     rerender(
@@ -492,7 +585,7 @@ describe('MessageTurnView', () => {
     const { rerender } = render(
       <MessageTurnView {...props} turn={turn} phase="streaming" />
     );
-    fireEvent.click(screen.getByRole('button', { name: /运行 4 个命令/ }));
+    fireEvent.click(screen.getByRole('button', { name: /运行 6 个命令/ }));
 
     rerender(<MessageTurnView {...props} turn={turn} phase="settled" />);
     expect(screen.queryByRole('button', { name: /运行 .* 个命令/ })).toBeNull();
@@ -566,12 +659,12 @@ describe('MessageTurnView', () => {
       />
     );
     expect(
-      screen.getByRole('button', { name: /运行 1 个命令/ })
+      screen.getByRole('button', { name: /运行 2 个命令/ })
     ).toHaveAttribute('aria-expanded', 'true');
     expect(screen.getByText('Keep this thought visible')).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: '收起思考' }));
     expect(
-      screen.getByRole('button', { name: /运行 1 个命令/ })
+      screen.getByRole('button', { name: /运行 2 个命令/ })
     ).toHaveAttribute('aria-expanded', 'true');
     expect(
       screen.getByRole('button', { name: '终端command-0' })
@@ -1238,7 +1331,7 @@ describe('MessageTurnView', () => {
     ).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
   });
 
-  it('collapses earlier prose after settlement while leaving running tools visible', () => {
+  it('collapses earlier prose and running tools together after settlement', () => {
     render(
       <MessageTurnView
         turn={
@@ -1263,7 +1356,7 @@ describe('MessageTurnView', () => {
 
     expect(screen.getByText('D')).toBeInTheDocument();
     expect(screen.queryByText('A')).not.toBeInTheDocument();
-    expect(screen.getByText('ls')).toBeInTheDocument();
+    expect(screen.queryByText('ls')).toBeNull();
 
     fireEvent.click(screen.getByRole('button', { name: /已折叠 .* 条消息/ }));
     expect(
@@ -1418,6 +1511,7 @@ describe('MessageTurnView', () => {
       />
     );
 
+    fireEvent.click(screen.getByRole('button', { name: /已读 1 个文件/ }));
     const disclosure = screen.getByRole('button', {
       name: '已查看 1 张图像',
     });

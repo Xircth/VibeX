@@ -70,6 +70,30 @@ describe('App surface backend transport', () => {
     ).rejects.toThrow(/invalid document/i);
   });
 
+  it('accepts multi-megabyte bundled surface documents above 2 MB', async () => {
+    const html = `<main>${'x'.repeat(3 * 1024 * 1024)}</main>`;
+    const call = vi.fn().mockResolvedValue({
+      html,
+      token: '0123456789abcdef0123456789abcdef',
+    });
+    const transport = createBackendAppSurfaceTransport({
+      environment: 'desktop',
+      call,
+    });
+
+    await expect(
+      transport.load({
+        pluginId: plugin.id,
+        surfaceId: 'dashboard',
+        generation: 2,
+        token: 'token',
+      })
+    ).resolves.toEqual({
+      html,
+      token: '0123456789abcdef0123456789abcdef',
+    });
+  });
+
   it('normalizes only typed app_surface contribution metadata', () => {
     expect(
       appSurfaceDescriptors(plugin, [

@@ -84,6 +84,54 @@ function capturedNames(): string[] {
 }
 
 describe('TurnActivity subagent expansion', () => {
+  it('preserves an opened delegation result when it moves into an activity batch', () => {
+    const delegation = toolItem(
+      'delegate_to_agent',
+      { agent_type: 'codex', task: 'Review' },
+      JSON.stringify({
+        task_id: 'review-1',
+        status: 'completed',
+        text: 'Review result',
+      }),
+      0
+    );
+    const props = {
+      turnId: 'regrouped-delegation',
+      timestamp: '2026-10-10T00:00:00.000Z',
+      attempt: { id: 'ws-1', container_ref: null } as never,
+      task: null,
+      isStreaming: true,
+    };
+    const transport = {
+      environment: 'web',
+      call: vi.fn().mockResolvedValue(undefined),
+    } satisfies BackendTransport;
+    const view = (items: IndexedTurnItem[]) => (
+      <BackendTransportProvider transport={transport}>
+        <TurnActivity {...props} items={items} />
+      </BackendTransportProvider>
+    );
+    const { rerender } = render(view([delegation]));
+    fireEvent.click(screen.getByRole('button', { name: '结果' }));
+    expect(screen.getByText('Review result')).toBeInTheDocument();
+    rerender(
+      view([
+        delegation,
+        ...Array.from({ length: 3 }, (_, index) =>
+          toolItem('bash', { command: `later-${index}` }, null, index + 1)
+        ),
+      ])
+    );
+    expect(
+      screen.getByRole('button', { name: /启动 1 个智能体/ })
+    ).toHaveAttribute('aria-expanded', 'true');
+    expect(screen.getByRole('button', { name: '结果' })).toHaveAttribute(
+      'aria-expanded',
+      'true'
+    );
+    expect(screen.getByText('Review result')).toBeInTheDocument();
+  });
+
   it('renders the host product card for MCP delegation and shows the poll tool', () => {
     captured.groups = [];
     const transport = {
@@ -123,6 +171,7 @@ describe('TurnActivity subagent expansion', () => {
       </BackendTransportProvider>
     );
 
+    fireEvent.click(screen.getByRole('button', { name: /启动 1 个智能体/ }));
     expect(screen.getByTestId('host-delegation-card')).toBeInTheDocument();
     expect(screen.getByTitle('Grok')).toBeInTheDocument();
     expect(screen.getByRole('group', { name: 'Grok' })).toBeInTheDocument();
@@ -208,6 +257,7 @@ describe('TurnActivity subagent expansion', () => {
       </BackendTransportProvider>
     );
 
+    fireEvent.click(screen.getByRole('button', { name: /启动 1 个智能体/ }));
     fireEvent.click(screen.getByRole('button', { name: '结果' }));
     expect(screen.getByTestId('markdown')).toHaveTextContent(full);
     expect(screen.queryByText(/\.\.\.$/)).not.toBeInTheDocument();
@@ -263,6 +313,7 @@ describe('TurnActivity subagent expansion', () => {
       </BackendTransportProvider>
     );
 
+    fireEvent.click(screen.getByRole('button', { name: /启动 3 个智能体/ }));
     expect(screen.getAllByTestId('host-delegation-card')).toHaveLength(3);
     expect(
       screen.queryByText(/vibex-delegation-mcp__delegate_to_agent/)
@@ -275,7 +326,7 @@ describe('TurnActivity subagent expansion', () => {
     ).toBe(false);
   });
 
-  it('renders ask_user_question as a dedicated card instead of a grouped tool', () => {
+  it('preserves the dedicated question card inside the activity aggregate', () => {
     captured.groups = [];
     render(
       <TurnActivity
@@ -306,6 +357,7 @@ describe('TurnActivity subagent expansion', () => {
       />
     );
 
+    fireEvent.click(screen.getByRole('button', { name: /1 次其他工具调用/ }));
     expect(screen.getByTestId('ask-question-tool-card')).toBeInTheDocument();
     expect(screen.getByText('Pick a tracker')).toBeInTheDocument();
     expect(

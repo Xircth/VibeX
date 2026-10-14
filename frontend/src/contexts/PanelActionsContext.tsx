@@ -249,7 +249,6 @@ export function PanelActionsProvider({ children }: { children: ReactNode }) {
   const queryClient = useQueryClient();
   const apiRef = useRef<DockviewApi | null>(null);
   const [dockviewEpoch, setDockviewEpoch] = useState(0);
-  const [leftDockRevision, setLeftDockRevision] = useState(0);
   const offeredPluginPanelsRef = useRef(new Set<string>());
   const pendingBrowserOpensRef = useRef<
     Array<{ url?: string | null; nativeTabId?: string | null }>
@@ -1090,7 +1089,6 @@ export function PanelActionsProvider({ children }: { children: ReactNode }) {
         });
       }
       normalizeEditorGroupIds(dockviewApi);
-      setLeftDockRevision((revision) => revision + 1);
     },
     [normalizeEditorGroupIds]
   );
@@ -1669,7 +1667,6 @@ export function PanelActionsProvider({ children }: { children: ReactNode }) {
   }, [dockviewEpoch, pluginPanels]);
 
   const value = useMemo<PanelActions>(() => {
-    void leftDockRevision;
     return {
       openOrFocusPanel,
       openFilePreview,
@@ -1741,7 +1738,6 @@ export function PanelActionsProvider({ children }: { children: ReactNode }) {
     measureLeftDock,
     isLeftDockSplit,
     unsplitLeftDock,
-    leftDockRevision,
   ]);
 
   return (

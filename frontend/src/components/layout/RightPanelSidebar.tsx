@@ -16,7 +16,6 @@ import {
 import { contributionIconComponent } from '@/components/plugins/contributionIcon';
 import { useWorktree } from '@/contexts/WorktreeContext';
 import { useKanbanSessionContext } from '@/contexts/KanbanSessionContext';
-import { ExecutionProcessesProvider } from '@/contexts/ExecutionProcessesContext';
 import { ViewProcessesDialog } from '@/components/dialogs/tasks/ViewProcessesDialog';
 import { useTaskAttemptWithSession } from '@/hooks/useTaskAttempt';
 
@@ -175,14 +174,9 @@ export function RightPanelSidebar() {
   const effectiveSessionId = explicitSessionId ?? attempt?.session?.id;
 
   return (
-    <ExecutionProcessesProvider
-      attemptId={effectiveWorkspaceId}
+    <RightPanelSidebarContent
+      workspaceId={effectiveWorkspaceId}
       sessionId={effectiveSessionId}
-    >
-      <RightPanelSidebarContent
-        workspaceId={effectiveWorkspaceId}
-        sessionId={effectiveSessionId}
-      />
-    </ExecutionProcessesProvider>
+    />
   );
 }

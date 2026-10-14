@@ -83,6 +83,10 @@ pub struct AgentToolCall {
     pub id: String,
     pub title: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub status: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub content: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub kind: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub input_preview: Option<String>,
@@ -642,6 +646,8 @@ mod tests {
             },
             AgentEvent::ToolCall {
                 tool_call: AgentToolCall {
+                    status: None,
+                    content: None,
                     id: "tool-1".to_string(),
                     title: "Edit".to_string(),
                     kind: Some("edit".to_string()),

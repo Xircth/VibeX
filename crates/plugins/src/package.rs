@@ -507,6 +507,10 @@ pub struct AppSettingsPageContribution {
     pub handler: String,
     #[serde(default)]
     pub remote: Option<RemoteModuleRef>,
+    #[serde(default)]
+    pub engine: Option<String>,
+    #[serde(default)]
+    pub allowed_methods: Vec<String>,
 }
 
 /// Action listed in the Composer `@` panel.
@@ -979,10 +983,10 @@ impl PluginPackage {
             if fs::metadata(&path)
                 .map_err(|error| PluginError::io("inspect Plugin content", error))?
                 .len()
-                > 1024 * 1024
+                > 16 * 1024 * 1024
             {
                 return Err(PluginError::invalid_manifest(format!(
-                    "Plugin content exceeds 1 MiB: {}",
+                    "Plugin content exceeds 16 MiB: {}",
                     item.path
                 )));
             }
@@ -2357,7 +2361,7 @@ fn parse_v4_ui_contributions(
                         &item.title,
                         SETTINGS_PAGE_SLOT,
                         &item.handler,
-                        Vec::new(),
+                        item.allowed_methods.clone(),
                         None,
                     ));
                     contributions.settings_pages.push(item);
@@ -2715,6 +2719,8 @@ fn parse_settings_page_contribution(
         icon: contribution_icon(integration).ok()?,
         handler: surface_handler(integration)?,
         remote: parse_remote(integration).ok()?,
+        engine: contribution_text(integration, "engine"),
+        allowed_methods: contribution_allowed_methods(integration)?,
     })
 }
 

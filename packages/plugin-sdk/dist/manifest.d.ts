@@ -69,6 +69,11 @@ export interface McpIntegrationManifest extends IntegrationBase {
     kind: "content.mcp";
     resource: string;
 }
+/** One tool the Host MCP manager lists before an agent session connects. */
+export interface PluginMcpToolDeclaration {
+    name: string;
+    group?: string;
+}
 /** Package-relative MCP process supervised and credentialed by the VibeX Host. */
 export interface ManagedMcpRuntimeResource {
     managedRuntime: {
@@ -83,6 +88,8 @@ export interface ManagedMcpRuntimeResource {
         protocolRevision: "2026-07-28";
         defaultBinding?: "all-compatible-agents";
     };
+    /** Required for packaged/static/workerHttp MCP so the status bar can list tools. */
+    tools?: Array<string | PluginMcpToolDeclaration>;
 }
 export interface WorkflowIntegrationManifest extends IntegrationBase {
     kind: "workflow.binding";
@@ -320,6 +327,8 @@ export interface SettingsPageIntegrationManifest extends IntegrationBase {
     icon?: ContributionIcon;
     handler: "surface.createSession";
     remote?: RemoteModuleManifest;
+    engine?: string;
+    allowedMethods?: string[];
 }
 export interface ComposerActionIntegrationManifest extends IntegrationBase {
     kind: "app.composer.action";

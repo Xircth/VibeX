@@ -1167,6 +1167,71 @@ describe('conversationStore (row-op dumb container)', () => {
       )
     ).toEqual(['user', 'terminal_summary', 'assistant']);
   });
+
+  it('deterministically interleaves messages and side rows without inverting message order across optimistic and revision-0 turns', () => {
+    const terminalEarly: TimelineRow = timelineRow('term:early', 10n, {
+      kind: 'terminal_summary',
+      terminal: {
+        terminal_id: 't-early',
+        command: 'pwd',
+        status: 'exited',
+        output_summary: '/repo',
+        output_truncated: false,
+      },
+    });
+    const terminalMid: TimelineRow = timelineRow('term:mid', 55n, {
+      kind: 'terminal_summary',
+      terminal: {
+        terminal_id: 't-mid',
+        command: 'git status',
+        status: 'exited',
+        output_summary: 'clean',
+        output_truncated: false,
+      },
+    });
+    const zeroRevisionTrailingUser: TimelineRow = timelineRow(
+      't2:user',
+      0n,
+      {
+        kind: 'message_turn',
+        phase: 'optimistic',
+        turn: messageTurn('t2:user', 'user', [
+          { type: 'text', text: 'zero-rev' },
+        ]),
+      }
+    );
+    let state = loaded([
+      userRow('t1', 'first', 50n),
+      assistantRow('t1', [{ type: 'text', text: 'first-reply' }], 20n),
+      terminalMid,
+      terminalEarly,
+      zeroRevisionTrailingUser,
+    ]);
+    state = conversationStoreReducer(state, {
+      type: 'optimistic_turn',
+      conversationId: CONVERSATION_ID,
+      turn: messageTurn('optimistic-3', 'user', [
+        { type: 'text', text: 'optimistic-follow-up' },
+      ]),
+    });
+
+    const items = timelineItemsForEntry(entryOf(state));
+    expect(
+      items.map((item) =>
+        item.kind === 'message'
+          ? `${item.item.turn.role}:${textOf(item.item.turn.blocks)}`
+          : `side:${item.row.row_id}`
+      )
+    ).toEqual([
+      'side:term:early',
+      'user:first',
+      'assistant:first-reply',
+      'side:term:mid',
+      'user:zero-rev',
+      'user:optimistic-follow-up',
+      'assistant:',
+    ]);
+  });
 });
 
 function textOf(blocks: ContentBlock[]): string {

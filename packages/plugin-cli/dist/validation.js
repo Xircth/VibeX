@@ -328,6 +328,12 @@ async function validateIntegrations(root, value, diagnostics) {
                                 !(await safePath(root, managed.source))))) {
                         diagnostics.push(error("managed_mcp_invalid", "Managed MCP requires hostFamilyBinary, workerHttp handler, or a package entrypoint, protocolRevision 2026-07-28, and an optional all-compatible-agents default binding"));
                     }
+                    if (!hostFamily) {
+                        pushMcpToolsDiagnostic(diagnostics, resource, join(root, integration.resource));
+                    }
+                }
+                else if (isObject(resource)) {
+                    pushMcpToolsDiagnostic(diagnostics, resource, join(root, integration.resource));
                 }
             }
             catch {
@@ -508,6 +514,7 @@ function validateHostChrome(integration, diagnostics) {
         case "app.settings.page":
             requireText("title");
             requireSurfaceEntry();
+            requireStringArray("allowedMethods");
             validateRemote(integration, diagnostics, kind);
             break;
         case "app.composer.action": {
@@ -822,6 +829,27 @@ function string(object, key, diagnostics) {
 }
 function isObject(value) {
     return Boolean(value) && typeof value === "object" && !Array.isArray(value);
+}
+function pushMcpToolsDiagnostic(diagnostics, resource, path) {
+    const tools = resource.tools;
+    if (!Array.isArray(tools) || tools.length === 0) {
+        diagnostics.push(warning("mcp_tools_missing", "content.mcp should declare tools so the Host MCP manager can list them before an agent connects", path));
+        return;
+    }
+    for (const tool of tools) {
+        const name = typeof tool === "string"
+            ? tool.trim()
+            : isObject(tool) && typeof tool.name === "string"
+                ? tool.name.trim()
+                : "";
+        if (!name) {
+            diagnostics.push(error("mcp_tools_invalid", "each content.mcp tools entry must be a name string or { name, group }", path));
+            return;
+        }
+    }
+}
+function warning(code, text, path) {
+    return { code, severity: "warning", message: text, path };
 }
 function error(code, text, path) {
     return { code, severity: "error", message: text, path };

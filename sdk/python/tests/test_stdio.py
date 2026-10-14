@@ -116,6 +116,46 @@ class StdioProtocolTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(response["error"]["code"], "protocol_unsupported")
         await session.close()
 
+    async def test_accepts_frames_larger_than_one_mib(self) -> None:
+        import json
+        from vibex_plugin.stdio import MAX_FRAME_BYTES
+
+        self.assertGreaterEqual(MAX_FRAME_BYTES, 32 * 1024 * 1024)
+        outbound: asyncio.Queue[dict] = asyncio.Queue()
+        session = PluginWorkerSession(
+            define_plugin_worker(lambda registrar, _env: registrar.handle("hello", lambda v, _e: v)),
+            outbound.put,
+        )
+        await session.handle_message(
+            {
+                "id": "1",
+                "method": "activate",
+                "params": {
+                    "pluginId": "echo",
+                    "pluginVersion": "1.0.0",
+                    "generation": 1,
+                    "packageClass": "full-trust",
+                    "grantedCapabilities": ["*"],
+                },
+            }
+        )
+        await outbound.get()
+        large_payload = "x" * (2 * 1024 * 1024)
+        await session.handle_line(
+            json.dumps(
+                {
+                    "id": "2",
+                    "method": "invoke",
+                    "params": {"handler": "hello", "input": large_payload},
+                }
+            )
+        )
+        response = await asyncio.wait_for(outbound.get(), timeout=5)
+        self.assertEqual(response["id"], "2")
+        self.assertEqual(response["ok"], True)
+        self.assertEqual(len(response["result"]), 2 * 1024 * 1024)
+        await session.close()
+
     async def test_isolated_exports_worker_not_fs_helpers(self) -> None:
         import vibex_plugin.isolated as isolated
 

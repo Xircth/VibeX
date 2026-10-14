@@ -1,11 +1,12 @@
 import { ChevronRight } from 'lucide-react';
-import { useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { useId, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import type {
   ConversationQuestionRequest,
   ConversationQuestionResponse,
 } from 'shared/types';
 import { cn } from '@/lib/utils';
+import { useExpandable } from '@/stores/useExpandableStore';
 import { AgentQuestionCard } from '@/components/tasks/follow-up/AgentQuestionCard';
 import {
   answerStateFromResponse,
@@ -21,14 +22,19 @@ export function AskQuestionToolCard({
   result = null,
   request,
   response = null,
+  expansionKey,
+  onExpandedChange,
 }: {
   use?: ToolUseBlock | null;
   result?: ToolResultBlock | null;
   request?: ConversationQuestionRequest | null;
   response?: ConversationQuestionResponse | null;
+  expansionKey?: string;
+  onExpandedChange?: (expanded: boolean) => void;
 }) {
   const { t } = useTranslation('conversation');
-  const [open, setOpen] = useState(false);
+  const id = useId();
+  const [open, setOpen] = useExpandable(expansionKey ?? id);
   const titleRef = useRef<HTMLSpanElement | null>(null);
   const [titleOverflows, setTitleOverflows] = useState(false);
   const resolvedRequest = useMemo(
@@ -87,7 +93,10 @@ export function AskQuestionToolCard({
             type="button"
             className="flex items-center gap-1 text-xs font-medium text-muted-foreground hover:text-foreground"
             aria-expanded={open}
-            onClick={() => setOpen((current) => !current)}
+            onClick={() => {
+              onExpandedChange?.(!open);
+              setOpen(!open);
+            }}
           >
             <ChevronRight
               aria-hidden

@@ -21,3 +21,30 @@ export function findHostBrowserContribution<
     )
   );
 }
+
+export function isHostBrowserPlugin<
+  T extends { pluginId: string; metadata?: unknown },
+>(
+  pluginId: string | null | undefined,
+  items: readonly T[],
+  itemMetadata?: Record<string, unknown> | null
+): boolean {
+  if (isHostBrowserEngine(pluginId, itemMetadata)) {
+    return true;
+  }
+  if (!pluginId) {
+    return false;
+  }
+  return items.some(
+    (entry) =>
+      entry.pluginId === pluginId &&
+      isHostBrowserEngine(
+        entry.pluginId,
+        entry.metadata &&
+          typeof entry.metadata === 'object' &&
+          !Array.isArray(entry.metadata)
+          ? (entry.metadata as Record<string, unknown>)
+          : null
+      )
+  );
+}

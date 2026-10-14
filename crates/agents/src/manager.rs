@@ -1858,6 +1858,8 @@ impl AgentConnectionRunner {
             Some(prompt_id),
             AgentEvent::ToolCall {
                 tool_call: AgentToolCall {
+                    status: None,
+                    content: None,
                     id: "fixture-tool".to_string(),
                     title: "Inspect fixture workspace".to_string(),
                     kind: Some("read".to_string()),
@@ -5126,6 +5128,7 @@ impl AcpClientBridge {
                 .await
                 .map(|content| AgentEvent::ThoughtChunk { content }),
             SessionUpdate::ToolCall(tool_call) => {
+                let status = Some(acp_enum_label(&tool_call.status));
                 let original_input_preview = acp_tool_input_preview(
                     tool_call.raw_input.as_ref(),
                     &tool_call.content,
@@ -5138,7 +5141,7 @@ impl AcpClientBridge {
                     Some(tool_call.title.as_str()),
                     original_input_preview.as_deref(),
                     meta.as_ref(),
-                    Some("running"),
+                    status.as_deref(),
                 );
                 let peeled = self.grok_mcp.lock().await.apply(
                     &call_id,
@@ -5151,8 +5154,15 @@ impl AcpClientBridge {
                 } else {
                     original_input_preview
                 };
+                let content = peeled
+                    .output_text
+                    .map(truncate_preview)
+                    .or_else(|| json_preview(tool_call.raw_output.as_ref()))
+                    .or_else(|| acp_tool_content_preview(&tool_call.content));
                 Some(AgentEvent::ToolCall {
                     tool_call: AgentToolCall {
+                        status,
+                        content,
                         id: call_id,
                         title: peeled.title,
                         kind: Some(acp_enum_label(&tool_call.kind)),
@@ -6750,6 +6760,55 @@ mod tests {
     use workspace_utils::proxy::ProxySource;
 
     use super::*;
+
+    #[tokio::test]
+    async fn acp_tool_call_notifications_preserve_reported_status_and_output() {
+        let session_id = AgentSessionId::new();
+        let (event_tx, mut event_rx) = mpsc::unbounded_channel();
+        let bridge = AcpClientBridge::new(
+            AgentConnectionId::new(),
+            AgentId::parse("antigravity").unwrap(),
+            event_tx,
+            Arc::new(RwLock::new(HashMap::from([(
+                session_id,
+                "acp-test".into(),
+            )]))),
+            Arc::new(RwLock::new(HashMap::new())),
+            Arc::new(Mutex::new(HashMap::new())),
+            Arc::new(Mutex::new(HashMap::new())),
+            Arc::new(Mutex::new(AgentAutoApproveMode::default())),
+            Arc::new(Mutex::new(HashMap::new())),
+            Arc::new(Mutex::new(Instant::now())),
+            Arc::new(Mutex::new(GrokSubagentTracker::default())),
+            Arc::new(Mutex::new(GrokMcpTracker::default())),
+            Arc::new(Mutex::new(None)),
+            PathBuf::from("C:/workspace"),
+            HashMap::new(),
+        );
+        for status in ["in_progress", "completed", "failed"] {
+            let notification: SessionNotification = serde_json::from_value(serde_json::json!({
+                "sessionId": "acp-test",
+                "update": {
+                    "sessionUpdate": "tool_call",
+                    "toolCallId": "view-1",
+                    "title": "Running view_file",
+                    "kind": "read",
+                    "status": status,
+                    "rawInput": {"AbsolutePath": "C:/workspace/src/read.ts"},
+                    "rawOutput": "inspected content"
+                }
+            }))
+            .unwrap();
+            bridge.session_notification(notification).await.unwrap();
+            let event = event_rx.try_recv().unwrap();
+            let AgentEvent::ToolCall { tool_call } = event.event else {
+                panic!("Expected a tool call");
+            };
+            let call = serde_json::to_value(tool_call).unwrap();
+            assert_eq!(call["status"], status);
+            assert_eq!(call["content"], "\"inspected content\"");
+        }
+    }
 
     #[test]
     fn structured_acp_diff_becomes_a_file_edit_input_preview() {

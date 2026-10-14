@@ -24,14 +24,14 @@ const SelectTrigger = React.forwardRef<
   <SelectPrimitive.Trigger
     ref={ref}
     className={cn(
-      'raised-control flex h-8 w-full items-center justify-between px-2.5 py-1 text-sm data-[placeholder]:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-[var(--focus-ring)] focus:ring-offset-0 disabled:cursor-not-allowed disabled:opacity-50 [&>span]:line-clamp-1',
+      'raised-control flex h-8 w-full items-center justify-between rounded-[var(--_field-radius,var(--radius-element,var(--radius)))] border border-[var(--color-border-emphasized,var(--border-content))] bg-[var(--color-background-surface,var(--surface-control))] px-2.5 py-1 text-xs text-foreground transition-[border-color,background-color,box-shadow] data-[placeholder]:text-muted-foreground hover:enabled:not(:focus-visible):[box-shadow:inset_0_0_0_2px_color-mix(in_srgb,var(--color-border-emphasized,var(--border-strong))_30%,transparent)] focus:outline-none focus-visible:border-[var(--color-accent,hsl(var(--primary)))] focus-visible:[box-shadow:inset_0_0_0_2px_var(--color-accent-muted,hsl(var(--primary)/0.22))] disabled:cursor-not-allowed disabled:opacity-50 [&>span]:line-clamp-1',
       className
     )}
     {...props}
   >
     {children}
     <SelectPrimitive.Icon asChild>
-      <ChevronDown className="h-4 w-4 opacity-50" />
+      <ChevronDown className="h-3.5 w-3.5 opacity-50" />
     </SelectPrimitive.Icon>
   </SelectPrimitive.Trigger>
 ));
@@ -117,7 +117,7 @@ const SelectLabel = React.forwardRef<
 >(({ className, ...props }, ref) => (
   <SelectPrimitive.Label
     ref={ref}
-    className={cn('py-1.5 pl-8 pr-2 text-sm font-semibold', className)}
+    className={cn('py-1.5 pl-8 pr-2 text-xs font-semibold', className)}
     {...props}
   />
 ));
@@ -130,7 +130,7 @@ const SelectItem = React.forwardRef<
   <SelectPrimitive.Item
     ref={ref}
     className={cn(
-      'relative flex w-full cursor-default select-none items-center rounded-md py-1.5 pl-8 pr-2 text-sm outline-none transition-colors focus:bg-[var(--surface-control-hover)] focus:text-foreground data-[disabled]:pointer-events-none data-[disabled]:opacity-50',
+      'relative flex w-full cursor-default select-none items-center rounded-md py-1.5 pl-8 pr-2 text-xs outline-none transition-colors focus:bg-[var(--surface-control-hover)] focus:text-foreground data-[disabled]:pointer-events-none data-[disabled]:opacity-50',
       className
     )}
     {...props}

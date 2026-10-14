@@ -2,7 +2,6 @@ import {
   useCallback,
   useId,
   useMemo,
-  useState,
   type KeyboardEvent,
   type ReactNode,
 } from 'react';
@@ -40,8 +39,11 @@ import {
 } from './tools/subagentCardModel';
 import { getToolSummary } from './conversation-entry-utils';
 import type { IndexedTurnItem } from './messageTurnAggregate';
-import type { ToolResultBlock, ToolUseBlock } from './messageTurnBlocks';
-import { isCollapsibleProcessItem } from './messageTurnCollapse';
+import type {
+  ToolResultBlock,
+  ToolUseBlock,
+  TurnRenderItem,
+} from './messageTurnBlocks';
 import { toolBlockToNormalizedEntry } from './messageTurnTool';
 import { SubagentCard } from './tools/SubagentCard';
 import { AskQuestionToolCard } from './tools/AskQuestionToolCard';
@@ -84,6 +86,7 @@ type ToolSummaryCategory =
   | 'searches'
   | 'webFetches'
   | 'agents'
+  | 'otherActivities'
   | 'other';
 
 const SUMMARY_ORDER: ToolSummaryCategory[] = [
@@ -94,13 +97,20 @@ const SUMMARY_ORDER: ToolSummaryCategory[] = [
   'webFetches',
   'agents',
   'other',
+  'otherActivities',
 ];
 
-const RECENT_TOOL_CALLS = 3;
+const RECENT_ACTIVITIES = 2;
 
 type ActivityEntry =
   | { kind: 'tool'; key: string; index: number; call: ChatToolCallItem }
-  | { kind: 'visible'; key: string; index: number; content: ReactNode }
+  | {
+      kind: 'visible';
+      key: string;
+      index: number;
+      content: ReactNode;
+      category?: ToolSummaryCategory | null;
+    }
   | {
       kind: 'thinking';
       key: string;
@@ -195,9 +205,11 @@ function fileName(path: string): string {
 function ViewedImages({
   expansionKey,
   images,
+  onExpandedChange,
 }: {
   expansionKey: string;
   images: ViewedImage[];
+  onExpandedChange: (expanded: boolean) => void;
 }) {
   const { t } = useTranslation('conversation');
   const [expanded, toggle] = useExpandable(expansionKey, false);
@@ -209,7 +221,10 @@ function ViewedImages({
         type="button"
         className="flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left text-sm font-medium text-muted-foreground hover:bg-muted/60 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
         aria-expanded={expanded}
-        onClick={() => toggle()}
+        onClick={() => {
+          onExpandedChange(!expanded);
+          toggle();
+        }}
       >
         <Images className="h-4 w-4" aria-hidden="true" />
         <span>{t('viewedImages.summary', { count: images.length })}</span>
@@ -378,15 +393,26 @@ function HostDelegationToolCall({
   event,
   pollResults,
   onOpenChild,
+  expansionKey,
+  onExpandedChange,
 }: {
   use: ToolUseBlock;
   result: ToolResultBlock | null;
   event: ConversationDelegationView | null;
   pollResults: readonly ToolResultBlock[];
   onOpenChild?: (childConversationId: string) => void;
+  expansionKey: string;
+  onExpandedChange: (expanded: boolean) => void;
 }) {
   const delegation = mergeHostDelegationView(use, result, event, pollResults);
-  return <DelegationCard delegation={delegation} onOpenChild={onOpenChild} />;
+  return (
+    <DelegationCard
+      delegation={delegation}
+      onOpenChild={onOpenChild}
+      expansionKey={expansionKey}
+      onExpandedChange={onExpandedChange}
+    />
+  );
 }
 
 function SubagentToolCall({
@@ -397,6 +423,7 @@ function SubagentToolCall({
   result,
   lifecycle,
   parentAgentId,
+  onExpandedChange,
 }: {
   expansionKey: string;
   label: string;
@@ -405,13 +432,17 @@ function SubagentToolCall({
   result: ToolResultBlock | null;
   lifecycle: SubagentLifecycleEvent[];
   parentAgentId?: string | null;
+  onExpandedChange: (expanded: boolean) => void;
 }) {
-  const [expanded, setExpanded] = useState(true);
+  const [expanded, setExpanded] = useExpandable(expansionKey, true);
   const model = applySubagentLifecycle(
     buildSubagentCardModel(use, result, parentAgentId),
     lifecycle
   );
-  const toggle = () => setExpanded((open) => !open);
+  const toggle = () => {
+    onExpandedChange(!expanded);
+    setExpanded(!expanded);
+  };
   const onKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
     if (event.key === 'Enter' || event.key === ' ') {
       event.preventDefault();
@@ -448,6 +479,8 @@ function SubagentToolCall({
             result={result}
             lifecycle={lifecycle}
             parentAgentId={parentAgentId}
+            expansionKey={`${expansionKey}:sections`}
+            onExpandedChange={onExpandedChange}
           />
         </div>
       ) : null}
@@ -492,6 +525,7 @@ export function TurnActivity({
   questions = [],
   isStreaming = false,
   showCompleted = true,
+  renderOtherItem,
 }: {
   turnId: string;
   timestamp: MessageTurn['timestamp'];
@@ -505,6 +539,7 @@ export function TurnActivity({
   questions?: TimelineQuestion[];
   isStreaming?: boolean;
   showCompleted?: boolean;
+  renderOtherItem?: (item: TurnRenderItem, index: number) => ReactNode;
 }) {
   const { t } = useTranslation('conversation');
   const lifecycleIndex = useSubagentLifecycleIndex();
@@ -690,10 +725,17 @@ export function TurnActivity({
     },
   }));
 
-  const summarizeCalls = (batch: ChatToolCallItem[]): string =>
+  const summarizeActivities = (batch: ActivityEntry[]): string =>
     SUMMARY_ORDER.flatMap((category) => {
       const count = batch.filter(
-        (call) => callCategories.get(String(call.key)) === category
+        (entry) =>
+          (entry.kind === 'tool'
+            ? callCategories.get(String(entry.call.key))
+            : entry.kind === 'visible'
+              ? entry.category === undefined
+                ? 'other'
+                : entry.category
+              : null) === category
       ).length;
       return count > 0
         ? [t(`messageTurnView.toolSummary.${category}`, { count })]
@@ -714,7 +756,7 @@ export function TurnActivity({
         const matched = matchTimelineQuestion(use, questions);
         return {
           kind: 'visible',
-          key: toolUseId || `${turnId}-ask-question-${index}`,
+          key: `tool-batch:${turnId}:${toolUseId || index}`,
           index,
           content: (
             <AskQuestionToolCard
@@ -722,6 +764,14 @@ export function TurnActivity({
               result={result}
               request={matched?.request}
               response={matched?.response ?? null}
+              expansionKey={`question-details:${turnId}:${toolUseId || index}`}
+              onExpandedChange={(expanded) => {
+                if (expanded)
+                  setExpanded(
+                    `tool-batch:${turnId}:${toolUseId || index}`,
+                    true
+                  );
+              }}
             />
           ),
         };
@@ -730,7 +780,8 @@ export function TurnActivity({
     ...hostDelegationEntries.map(
       ({ use, result, toolUseId, index }): ActivityEntry => ({
         kind: 'visible',
-        key: toolUseId || `${turnId}-delegation-${index}`,
+        key: `tool-batch:${turnId}:${toolUseId || index}`,
+        category: 'agents',
         index,
         content: (
           <HostDelegationToolCall
@@ -739,6 +790,11 @@ export function TurnActivity({
             event={matchHostDelegationView(use, delegations)}
             pollResults={pollResults}
             onOpenChild={onOpenChild}
+            expansionKey={`delegation-details:${turnId}:${toolUseId || index}`}
+            onExpandedChange={(expanded) => {
+              if (expanded)
+                setExpanded(`tool-batch:${turnId}:${toolUseId || index}`, true);
+            }}
           />
         ),
       })
@@ -746,7 +802,7 @@ export function TurnActivity({
     ...hostLifecycleEntries.map(
       ({ use, result, toolUseId, index }): ActivityEntry => ({
         kind: 'visible',
-        key: toolUseId || `${turnId}-delegation-status-${index}`,
+        key: `tool-batch:${turnId}:${toolUseId || index}`,
         index,
         content: <HostDelegationLifecycleRow use={use} result={result} />,
       })
@@ -764,7 +820,8 @@ export function TurnActivity({
           : { label: t('genericTool.subagent'), detail: '' };
         return {
           kind: 'visible',
-          key: toolUseId || `${turnId}-subagent-${index}`,
+          key: `tool-batch:${turnId}:${toolUseId || index}`,
+          category: 'agents',
           index,
           content: (
             <SubagentToolCall
@@ -779,6 +836,13 @@ export function TurnActivity({
               result={result}
               lifecycle={lifecycle}
               parentAgentId={parentAgentId}
+              onExpandedChange={(expanded) => {
+                if (expanded)
+                  setExpanded(
+                    `tool-batch:${turnId}:${toolUseId || index}`,
+                    true
+                  );
+              }}
             />
           ),
         };
@@ -794,10 +858,14 @@ export function TurnActivity({
           {
             kind: 'visible',
             key,
+            category: summaryCategory(action.action),
             index,
             content: (
               <ViewedImages
-                expansionKey={key}
+                expansionKey={`${key}:details`}
+                onExpandedChange={(expanded) => {
+                  if (expanded) setExpanded(key, true);
+                }}
                 images={images.map((image, imageIndex) => ({
                   key: `${key}:${imageIndex}`,
                   image,
@@ -816,7 +884,18 @@ export function TurnActivity({
   ];
 
   for (const { item, index } of items) {
-    if (item.kind !== 'thinking') continue;
+    if (item.kind !== 'thinking') {
+      if (item.kind !== 'tool' || !item.use) {
+        activityEntries.push({
+          kind: 'visible',
+          key: `activity:${turnId}:${index}`,
+          index,
+          category: 'otherActivities',
+          content: renderOtherItem?.(item, index),
+        });
+      }
+      continue;
+    }
     const previous = activityEntries.at(-1);
     if (previous?.kind === 'thinking' && previous.endIndex === index - 1) {
       previous.texts.push(item.text);
@@ -833,27 +912,20 @@ export function TurnActivity({
   }
   activityEntries.sort((a, b) => a.index - b.index);
 
-  const recentStart = calls.at(-RECENT_TOOL_CALLS)?.index ?? -Infinity;
+  if (!showCompleted) return null;
+
+  const recentStart =
+    [...new Set(activityEntries.map((entry) => entry.index))].at(
+      -RECENT_ACTIVITIES
+    ) ?? -Infinity;
   const lastIndex = items.at(-1)?.index;
-  const collapsibleIndices = new Set(
-    items
-      .filter(({ item }) => isCollapsibleProcessItem(item))
-      .map(({ index }) => index)
-  );
   const activityUnits: {
     kind: 'recent' | 'batch';
     entries: ActivityEntry[];
   }[] = [];
   let batch: ActivityEntry[] = [];
   for (const entry of activityEntries) {
-    const persistent =
-      entry.kind === 'visible' || !collapsibleIndices.has(entry.index);
-    if (!showCompleted && !persistent) continue;
-    const keepVisible =
-      persistent ||
-      (isStreaming &&
-        (entry.index >= recentStart ||
-          (entry.kind === 'thinking' && entry.endIndex === lastIndex)));
+    const keepVisible = isStreaming && entry.index >= recentStart;
     if (keepVisible) {
       if (batch.length > 0)
         activityUnits.push({ kind: 'batch', entries: batch });
@@ -902,9 +974,13 @@ export function TurnActivity({
             count + (entry.kind === 'thinking' ? entry.texts.length : 0),
           0
         );
-        if (batchCalls.length === 0) return unit.entries.map(renderActivity);
-        const label = summarizeCalls(batchCalls);
-        return thinkingCount === 0 ? (
+        if (unit.entries.every((entry) => entry.kind === 'thinking'))
+          return unit.entries.map(renderActivity);
+        const otherCount = unit.entries.filter(
+          (entry) => entry.kind === 'visible'
+        ).length;
+        const label = summarizeActivities(unit.entries);
+        return thinkingCount === 0 && otherCount === 0 ? (
           <ToolCallBatch
             key={key}
             turnId={turnId}

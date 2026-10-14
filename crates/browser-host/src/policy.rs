@@ -322,7 +322,7 @@ pub fn managed_policy_path() -> PathBuf {
         let base = std::env::var_os("PROGRAMDATA")
             .map(PathBuf::from)
             .unwrap_or_else(|| PathBuf::from(r"C:\ProgramData"));
-        base.join("codeg").join("policy.json")
+        base.join("vibex").join("policy.json")
     } else {
         PathBuf::from("/etc/vibex/policy.json")
     }
@@ -395,6 +395,16 @@ pub struct BrowserPolicyStatus {
     pub enabled: bool,
     pub managed_rules: Vec<HostRule>,
     pub managed_source: Option<String>,
+}
+
+impl Default for BrowserPolicyStatus {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            managed_rules: Vec::new(),
+            managed_source: None,
+        }
+    }
 }
 
 /// The rules in force: the administrator's (fixed for the process) and the

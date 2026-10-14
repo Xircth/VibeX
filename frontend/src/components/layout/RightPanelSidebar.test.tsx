@@ -17,11 +17,6 @@ vi.mock('@/contexts/KanbanSessionContext', () => ({
   useKanbanSessionContext: () => ({ visibleRightSession: null }),
 }));
 
-vi.mock('@/contexts/ExecutionProcessesContext', () => ({
-  ExecutionProcessesProvider: ({ children }: { children: React.ReactNode }) =>
-    children,
-}));
-
 vi.mock('@/contexts/PanelActionsContext', () => ({
   usePanelActionsContext: () => ({
     openNewTerminal: vi.fn(),

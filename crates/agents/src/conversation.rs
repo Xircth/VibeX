@@ -284,6 +284,9 @@ pub enum ContentBlock {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         tool_use_id: Option<String>,
         tool_name: String,
+        /// Last status reported by the Agent. Older events may omit it.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        status: Option<String>,
         /// ACP tool-call kind (`execute`/`read`/`edit`/`search`/`fetch`/…),
         /// preserved so the frontend can route to the right card even when the
         /// agent's title is free-form prose.

@@ -2,7 +2,6 @@ import { useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { TextInput } from '@astryxdesign/core/TextInput';
 import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
 import {
   Dialog,
   DialogContent,
@@ -187,6 +186,7 @@ const FolderPickerDialogImpl = NiceModal.create<FolderPickerDialogProps>(
                     className="min-w-0 flex-1 [&_input]:text-sm"
                   />
                   <Button
+                    type="button"
                     onClick={handleManualPathSubmit}
                     variant="outline"
                     size="sm"
@@ -202,32 +202,44 @@ const FolderPickerDialogImpl = NiceModal.create<FolderPickerDialogProps>(
                 <div className="text-sm font-medium">
                   {t('folderPicker.searchLabel')}
                 </div>
-                <div className="relative">
-                  <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                  <Input
-                    value={searchTerm}
-                    onChange={(e) => setSearchTerm(e.target.value)}
-                    placeholder="Filter folders and files..."
-                    className="pl-10"
-                  />
-                </div>
+                <TextInput
+                  label={t('folderPicker.searchLabel')}
+                  isLabelHidden
+                  value={searchTerm}
+                  onChange={setSearchTerm}
+                  placeholder="Filter folders and files..."
+                  startIcon={
+                    <Search className="h-4 w-4 text-muted-foreground" />
+                  }
+                  hasClear
+                  width="100%"
+                  className="[&_input]:text-sm"
+                />
               </div>
 
               {/* Navigation */}
               <div className="flex items-center space-x-2 min-w-0">
                 <Button
+                  type="button"
                   onClick={handleHomeDirectory}
                   variant="outline"
                   size="sm"
+                  aria-label={t('folderPicker.homeDirectory', {
+                    defaultValue: 'Home directory',
+                  })}
                   className="flex-shrink-0"
                 >
                   <Home className="h-4 w-4" />
                 </Button>
                 <Button
+                  type="button"
                   onClick={handleParentDirectory}
                   variant="outline"
                   size="sm"
                   disabled={!currentPath || currentPath === '/'}
+                  aria-label={t('folderPicker.parentDirectory', {
+                    defaultValue: 'Parent directory',
+                  })}
                   className="flex-shrink-0"
                 >
                   <ChevronUp className="h-4 w-4" />
@@ -236,6 +248,7 @@ const FolderPickerDialogImpl = NiceModal.create<FolderPickerDialogProps>(
                   {currentPath || 'Home'}
                 </div>
                 <Button
+                  type="button"
                   onClick={handleSelectCurrent}
                   variant="outline"
                   size="sm"
@@ -264,38 +277,52 @@ const FolderPickerDialogImpl = NiceModal.create<FolderPickerDialogProps>(
                       : 'No folders found'}
                   </div>
                 ) : (
-                  <div className="p-2">
-                    {filteredEntries.map((entry, index) => (
-                      <div
-                        key={index}
-                        className={`flex items-center space-x-2 p-2 rounded cursor-pointer hover:bg-accent ${
-                          !entry.is_directory &&
-                          !(selectFile && extensionAllowed(entry.name))
-                            ? 'opacity-50 cursor-not-allowed'
-                            : ''
-                        }`}
-                        onClick={() => handleFolderClick(entry)}
-                        title={entry.name} // Show full name on hover
-                      >
-                        {entry.is_directory ? (
-                          entry.is_git_repo ? (
-                            <FolderOpen className="h-4 w-4 text-success flex-shrink-0" />
+                  <div className="p-2" role="listbox" aria-label={title}>
+                    {filteredEntries.map((entry, index) => {
+                      const isSelectable =
+                        entry.is_directory ||
+                        (selectFile && extensionAllowed(entry.name));
+                      return (
+                        <div
+                          key={index}
+                          role="button"
+                          tabIndex={isSelectable ? 0 : -1}
+                          aria-disabled={!isSelectable || undefined}
+                          className={`flex items-center space-x-2 p-2 rounded cursor-pointer hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--focus-ring)] ${
+                            !isSelectable ? 'opacity-50 cursor-not-allowed' : ''
+                          }`}
+                          onClick={() => handleFolderClick(entry)}
+                          onKeyDown={(e) => {
+                            if (
+                              isSelectable &&
+                              (e.key === 'Enter' || e.key === ' ')
+                            ) {
+                              e.preventDefault();
+                              handleFolderClick(entry);
+                            }
+                          }}
+                          title={entry.name} // Show full name on hover
+                        >
+                          {entry.is_directory ? (
+                            entry.is_git_repo ? (
+                              <FolderOpen className="h-4 w-4 text-success flex-shrink-0" />
+                            ) : (
+                              <Folder className="h-4 w-4 text-primary flex-shrink-0" />
+                            )
                           ) : (
-                            <Folder className="h-4 w-4 text-primary flex-shrink-0" />
-                          )
-                        ) : (
-                          <File className="h-4 w-4 text-muted-foreground/70 flex-shrink-0" />
-                        )}
-                        <span className="text-sm flex-1 truncate min-w-0">
-                          {entry.name}
-                        </span>
-                        {entry.is_git_repo && (
-                          <span className="flex-shrink-0 rounded bg-[hsl(var(--success)/0.12)] px-2 py-1 text-xs text-[hsl(var(--success))]">
-                            {t('folderPicker.gitRepo')}
+                            <File className="h-4 w-4 text-muted-foreground/70 flex-shrink-0" />
+                          )}
+                          <span className="text-sm flex-1 truncate min-w-0">
+                            {entry.name}
                           </span>
-                        )}
-                      </div>
-                    ))}
+                          {entry.is_git_repo && (
+                            <span className="flex-shrink-0 rounded bg-[hsl(var(--success)/0.12)] px-2 py-1 text-xs text-[hsl(var(--success))]">
+                              {t('folderPicker.gitRepo')}
+                            </span>
+                          )}
+                        </div>
+                      );
+                    })}
                   </div>
                 )}
               </div>
@@ -306,6 +333,8 @@ const FolderPickerDialogImpl = NiceModal.create<FolderPickerDialogProps>(
                 {t('common:cancel')}
               </Button>
               <Button
+                type="submit"
+                data-dialog-primary="true"
                 onClick={handleSelectManual}
                 disabled={!manualPath.trim()}
               >

@@ -11,7 +11,7 @@ use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 use tokio::{sync::Mutex, time::Instant};
 
-const MAX_DOCUMENT_BYTES: u64 = 2_000_000;
+const MAX_DOCUMENT_BYTES: u64 = 16 * 1024 * 1024;
 const MAX_ARTIFACT_BYTES: u64 = 16 * 1024 * 1024;
 const MAX_TOKEN_LENGTH: usize = 128;
 const MAX_REQUEST_ID_LENGTH: usize = 128;
@@ -375,6 +375,7 @@ impl PluginAppSurfaceHost {
                 ));
             }
             session.last_sequence = request.sequence;
+            session.expires_at = Instant::now() + self.token_ttl;
             (session.worker_generation, session.artifact.clone())
         };
         if let Some(artifact) = artifact {

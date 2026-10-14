@@ -41,29 +41,16 @@ function isProductTextFieldReset(selector: string): boolean {
 }
 
 describe('text control caret clearance', () => {
-  it('paints the Astryx Field wrapper as a Tahoe raised control', () => {
-    const frame: Record<string, string> = {};
-    let unlayeredFrame = false;
+  it('lets Astryx TextInput own its frame instead of restyling the wrapper', () => {
     parse(stylesheet).walkRules((rule) => {
       const selector = selectorOf(rule);
       if (!selector.includes('.astryx-text-input')) return;
-      if (!selector.includes('[data-pressable-container]')) return;
-      if (selector.includes(':hover') || selector.includes(':focus-within')) {
-        return;
-      }
+      if (selector.includes('input') || selector.includes('textarea')) return;
       rule.walkDecls((declaration) => {
-        frame[declaration.prop] = declaration.value;
+        expect(declaration.prop).not.toBe('padding');
+        expect(declaration.prop).not.toBe('overflow');
       });
-      if (!ruleInLayer(rule) && frame['background-color']) {
-        unlayeredFrame = true;
-      }
     });
-
-    expect(frame['padding-inline']).toBe('10px');
-    expect(frame['border-radius']).toBe('var(--radius)');
-    expect(frame['border-color']).toBe('var(--border-subtle)');
-    expect(frame['background-color']).toBe('var(--surface-raised-control)');
-    expect(unlayeredFrame).toBe(true);
   });
 
   it('strips the platform text-field appearance so Astryx chrome shows through', () => {
@@ -90,7 +77,7 @@ describe('text control caret clearance', () => {
 
     expect(inner.appearance).toBe('none');
     expect(inner['-webkit-appearance']).toBe('none');
-    expect(inner['background-color']).toBe('var(--surface-raised-control)');
+    expect(inner['background-color']).toBe('transparent');
     expect(inner['background-image']).toBe('none');
     expect(inner['color-scheme']).toBe('only light');
     expect(important.has('appearance')).toBe(true);
@@ -253,5 +240,65 @@ describe('text control caret clearance', () => {
         expect(declaration.prop).not.toBe('padding-inline');
       });
     });
+  });
+
+  it('guarantees Astryx input frame has an unselected border and focus-within accent ring', () => {
+    const frameDecls: Record<string, string> = {};
+    const focusDecls: Record<string, string> = {};
+
+    parse(stylesheet).walkRules((rule) => {
+      const selector = selectorOf(rule);
+      if (selector === '.legacy-design :is(.astryx-text-input, .astryx-textarea)') {
+        rule.walkDecls((d) => {
+          frameDecls[d.prop] = d.value;
+        });
+      }
+      if (selector === '.legacy-design :is(.astryx-text-input, .astryx-textarea):focus-within') {
+        rule.walkDecls((d) => {
+          focusDecls[d.prop] = d.value;
+        });
+      }
+    });
+
+    expect(frameDecls['border-width']).toBe('1px');
+    expect(frameDecls['border-style']).toBe('solid');
+    expect(frameDecls['border-color']).toContain('--color-border-emphasized');
+    expect(focusDecls['border-color']).toContain('--color-accent');
+    expect(focusDecls['box-shadow']).toContain('--color-accent-muted');
+  });
+
+  it('gives settings search and settings page inputs an opaque recessed gray fill on Windows WebView2', () => {
+    const lightTokens: Record<string, string> = {};
+    const darkTokens: Record<string, string> = {};
+    const settingsInputFills: string[] = [];
+
+    parse(stylesheet).walkRules((rule) => {
+      const selector = selectorOf(rule);
+      if (selector === '.legacy-design') {
+        rule.walkDecls((d) => {
+          lightTokens[d.prop] = d.value;
+        });
+      }
+      if (selector.includes('.legacy-design.dark')) {
+        rule.walkDecls((d) => {
+          darkTokens[d.prop] = d.value;
+        });
+      }
+      if (
+        !ruleInLayer(rule) &&
+        selector.includes('.legacy-design .settings-search-input') &&
+        selector.includes('.legacy-design .settings-page')
+      ) {
+        rule.walkDecls((d) => {
+          if (d.prop === 'background-color' && d.important) {
+            settingsInputFills.push(d.value);
+          }
+        });
+      }
+    });
+
+    expect(lightTokens['--surface-control-solid']).toBe('hsl(220 16% 91%)');
+    expect(darkTokens['--surface-control-solid']).toBe('hsl(220 18% 20%)');
+    expect(settingsInputFills).toContain('var(--surface-control-solid)');
   });
 });

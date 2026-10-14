@@ -584,7 +584,10 @@ fn plugin_templates(plugin: &InstalledPlugin) -> Vec<ContributionTemplate> {
                     &page.handler,
                     false,
                     page.remote.as_ref(),
-                    json!({}),
+                    json!({
+                        "engine": page.engine,
+                        "allowedMethods": page.allowed_methods,
+                    }),
                 ),
             }),
     );

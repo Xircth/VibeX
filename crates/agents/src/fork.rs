@@ -273,6 +273,7 @@ mod tests {
     fn claude_declines_a_synthesized_turn_with_neither_id_nor_text() {
         let mut turn = assistant("t1:assistant", "", None);
         turn.blocks = vec![ContentBlock::ToolUse {
+            status: None,
             tool_use_id: Some("tl-tool-0".into()),
             tool_name: "Bash".into(),
             kind: None,

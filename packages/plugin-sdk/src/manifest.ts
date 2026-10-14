@@ -404,6 +404,8 @@ export interface SettingsPageIntegrationManifest extends IntegrationBase {
   icon?: ContributionIcon;
   handler: "surface.createSession";
   remote?: RemoteModuleManifest;
+  engine?: string;
+  allowedMethods?: string[];
 }
 
 export interface ComposerActionIntegrationManifest extends IntegrationBase {

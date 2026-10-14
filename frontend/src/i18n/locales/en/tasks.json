@@ -13,6 +13,11 @@
     "steerEnqueuedWholeDraft": "This draft cannot ride the live channel; queued for the next turn",
     "steerUnknown": "Steering status is unknown; the message was kept to avoid sending it twice.",
     "steerRejected": "The Agent did not accept in-turn steering.",
+    "steerTurnEnded": "The current turn has already finished. Your draft was kept so you can send it as a new turn.",
+    "commands": {
+      "loading": "Loading commands...",
+      "noMatches": "No matching commands found."
+    },
     "commandSource": {
       "plugin": "Plugin",
       "skill": "Skill",

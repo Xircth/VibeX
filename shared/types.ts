@@ -1324,7 +1324,7 @@ export type AgentTerminalOutputSnapshot = { terminal_id: AgentTerminalId, output
 
 export type AgentTerminalSnapshot = { id: AgentTerminalId, command: string, args: Array<string>, cwd?: string | null, };
 
-export type AgentToolCall = { id: string, title: string, kind?: string | null, input_preview?: string | null, meta?: JsonValue | null, images?: Array<ImageData>, };
+export type AgentToolCall = { id: string, title: string, status?: string | null, content?: string | null, kind?: string | null, input_preview?: string | null, meta?: JsonValue | null, images?: Array<ImageData>, };
 
 export type AgentToolCallUpdate = { id: string,
 /**
@@ -1379,6 +1379,10 @@ export type AgentPermissionOptionKind = "allow_once" | "allow_always" | "reject_
 export type AgentExecutionStats = { agent_type?: string | null, status?: string | null, total_duration_ms?: bigint | null, total_tokens?: bigint | null, total_tool_use_count?: number | null, lines_added?: number | null, lines_removed?: number | null, tool_calls: Array<SubAgentToolCall>, };
 
 export type ContentBlock = { "type": "text", text: string, } | { "type": "thinking", text: string, } | { "type": "image", data: string, mime_type: string, uri?: string | null, } | { "type": "image_generation", revised_prompt?: string | null, image?: ImageData | null, } | { "type": "tool_use", tool_use_id?: string | null, tool_name: string,
+/**
+ * Last status reported by the Agent. Older events may omit it.
+ */
+status?: string | null,
 /**
  * ACP tool-call kind (`execute`/`read`/`edit`/`search`/`fetch`/…),
  * preserved so the frontend can route to the right card even when the

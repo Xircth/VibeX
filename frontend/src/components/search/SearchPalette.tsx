@@ -270,14 +270,17 @@ export function SearchPalette() {
 
       {/* Palette */}
       <div
-        className="tahoe-popover modal-surface relative mx-4 w-full max-w-[600px] overflow-hidden rounded-lg"
+        className="modal-surface relative mx-4 w-full max-w-[600px] overflow-hidden rounded-lg"
         role="dialog"
         aria-modal="true"
         aria-label={t('searchPalette.dialogLabel')}
         onClick={(e) => e.stopPropagation()}
       >
         {/* Input row */}
-        <div className="flex items-center gap-2 border-b border-[var(--border-content)] px-3 py-2.5">
+        <div
+          data-control-frame="true"
+          className="flex items-center gap-2 border-b border-[var(--border-content)] px-3 py-2.5"
+        >
           <SearchIcon className="h-4 w-4 text-muted-foreground shrink-0" />
           <input
             ref={inputRef}

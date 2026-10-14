@@ -24,7 +24,7 @@ from vibex_plugin.worker import (
     error_payload,
 )
 
-MAX_FRAME_BYTES = 1_048_576
+MAX_FRAME_BYTES = 32 * 1024 * 1024
 
 
 class StderrLogger(PluginLogger):

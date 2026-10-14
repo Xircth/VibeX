@@ -202,8 +202,8 @@ describe('SystemSettings', () => {
         expect.objectContaining({
           auto_update_enabled: false,
           editor: expect.objectContaining({
-            remote_ssh_host: null,
-            remote_ssh_user: null,
+            remote_ssh_host: 'old-host',
+            remote_ssh_user: 'old-user',
           }),
         })
       );

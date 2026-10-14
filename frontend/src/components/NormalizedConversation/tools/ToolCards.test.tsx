@@ -8,7 +8,14 @@ import type { ReactNode } from 'react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { fileTreeApi } from '@/lib/api';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import type { ActionType, NormalizedEntry, ToolStatus } from 'shared/types';
+import type {
+  ActionType,
+  ContentBlock,
+  MessageTurn,
+  NormalizedEntry,
+  ToolStatus,
+} from 'shared/types';
+import { MessageTurnView } from '../MessageTurnView';
 import { ToolCallCard } from '../ToolCallCard';
 import DisplayConversationEntry from '../DisplayConversationEntry';
 import type { ToolResultBlock, ToolUseBlock } from '../messageTurnBlocks';
@@ -48,7 +55,9 @@ vi.mock('@/components/NormalizedConversation/AstryxMarkdown', () => ({
 
 vi.mock('@/components/ConfigProvider', () => ({
   useUserSystem: () => ({ config: { theme: 'light' } }),
-  useOptionalUserSystem: () => null,
+  useOptionalUserSystem: () => ({
+    config: { theme: 'light', hide_model_thinking: false },
+  }),
 }));
 
 vi.mock('@/components/dialogs/wysiwyg/ImagePreviewDialog', () => ({
@@ -143,6 +152,188 @@ describe('conversation tool cards', () => {
     [{ status: 'timed_out' }, 'error'],
   ] as const)('maps tool status %o to Astryx status %s', (status, expected) => {
     expect(getToolChatStatus(status as ToolStatus)).toBe(expected);
+  });
+
+  it('keeps failed calls in their activity batch when status updates and prose arrives', () => {
+    const commands: ContentBlock[] = Array.from({ length: 5 }, (_, index) => ({
+      type: 'tool_use',
+      tool_use_id: `failed-batch-${index}`,
+      tool_name: 'bash',
+      input_preview: JSON.stringify({ command: `batch-command-${index}` }),
+      status: 'in_progress',
+    }));
+    const turn: MessageTurn = {
+      id: 'failed-batch:assistant',
+      role: 'assistant',
+      blocks: commands.flatMap((block, index) =>
+        block.type === 'tool_use' && index < 3
+          ? [
+              block,
+              {
+                type: 'tool_result',
+                tool_use_id: block.tool_use_id,
+                output_preview: `Partial output ${index}`,
+                is_error: false,
+              },
+            ]
+          : [block]
+      ),
+      timestamp: '2026-10-10T00:00:00.000Z',
+    };
+    const props = {
+      attempt: { id: 'attempt-1', container_ref: null } as never,
+      task: null,
+      collapseProcess: false,
+      phase: 'streaming' as const,
+    };
+    const { rerender } = render(<MessageTurnView {...props} turn={turn} />);
+    const disclosure = screen.getByRole('button', { name: '运行 3 个命令' });
+    expect(disclosure).toHaveAttribute('aria-expanded', 'false');
+
+    const failedCommands: ContentBlock[] = commands.flatMap((block, index) =>
+      block.type === 'tool_use' && index < 3
+        ? [
+            { ...block, status: 'failed' },
+            {
+              type: 'tool_result',
+              tool_use_id: block.tool_use_id,
+              output_preview: index === 0 ? 'Permission denied' : null,
+              is_error: true,
+            },
+          ]
+        : [block]
+    );
+    rerender(
+      <MessageTurnView {...props} turn={{ ...turn, blocks: failedCommands }} />
+    );
+    const updatedDisclosure = screen.getByRole('button', {
+      name: '运行 3 个命令',
+    });
+    expect(updatedDisclosure).toHaveAttribute('aria-expanded', 'false');
+    const group = updatedDisclosure.parentElement!;
+    for (let index = 0; index < 3; index += 1) {
+      const call = screen.getByRole('button', {
+        name: new RegExp(`Error:.*batch-command-${index}`),
+      });
+      expect(group).toContainElement(call);
+    }
+    expect(group).not.toContainElement(screen.getByText('batch-command-3'));
+
+    rerender(
+      <MessageTurnView
+        {...props}
+        turn={{
+          ...turn,
+          blocks: [
+            ...failedCommands,
+            { type: 'text', text: 'Retrying safely' },
+          ],
+        }}
+      />
+    );
+    const finalBatch = screen.getByRole('button', { name: '运行 5 个命令' });
+    expect(finalBatch).toHaveAttribute('aria-expanded', 'false');
+    expect(screen.getByText('Retrying safely')).toBeInTheDocument();
+    fireEvent.click(finalBatch);
+    fireEvent.click(
+      screen.getByRole('button', { name: /Error:.*batch-command-0/ })
+    );
+    expect(screen.getByText('Permission denied')).toBeInTheDocument();
+  });
+
+  it('aggregates failed file calls with thinking and folds them after the final answer', () => {
+    const turn: MessageTurn = {
+      id: 'failed-mixed-batch:assistant',
+      role: 'assistant',
+      timestamp: '2026-10-10T00:00:00.000Z',
+      blocks: [
+        {
+          type: 'tool_use',
+          tool_use_id: 'failed-read',
+          tool_name: 'Running view_file',
+          kind: 'read',
+          status: 'failed',
+          input_preview: JSON.stringify({ AbsolutePath: '/repo/denied.ts' }),
+        },
+        { type: 'thinking', text: 'Checking the denied file' },
+        {
+          type: 'tool_use',
+          tool_use_id: 'failed-edit',
+          tool_name: 'Edit',
+          status: 'failed',
+          input_preview: JSON.stringify({
+            file_path: '/repo/locked.ts',
+            old_string: 'before',
+            new_string: 'after',
+          }),
+        },
+        {
+          type: 'tool_result',
+          tool_use_id: 'failed-edit',
+          output_preview: 'File is locked',
+          is_error: true,
+        },
+        {
+          type: 'tool_use',
+          tool_use_id: 'later-read',
+          tool_name: 'Read',
+          status: 'completed',
+          input_preview: JSON.stringify({ file_path: '/repo/available.ts' }),
+        },
+        {
+          type: 'tool_use',
+          tool_use_id: 'later-command',
+          tool_name: 'bash',
+          input_preview: JSON.stringify({ command: 'next-check' }),
+        },
+      ],
+    };
+    const props = {
+      attempt: { id: 'attempt-1', container_ref: null } as never,
+      task: null,
+      phase: 'streaming' as const,
+    };
+    const { rerender } = render(<MessageTurnView {...props} turn={turn} />);
+    const batch = screen.getByRole('button', {
+      name: '已读 1 个文件、已改 1 个文件',
+    });
+    expect(batch).toHaveAttribute('aria-expanded', 'false');
+    expect(screen.queryByText('denied.ts')).not.toBeInTheDocument();
+    expect(screen.queryByText('locked.ts')).not.toBeInTheDocument();
+    expect(screen.getByText('available.ts')).toBeInTheDocument();
+    expect(screen.getByText('next-check')).toBeInTheDocument();
+
+    const answeredTurn: MessageTurn = {
+      ...turn,
+      blocks: [...turn.blocks, { type: 'text', text: 'Final answer' }],
+    };
+    rerender(<MessageTurnView {...props} turn={answeredTurn} />);
+    expect(
+      screen.getByRole('button', {
+        name: '运行 1 个命令、已读 2 个文件、已改 1 个文件',
+      })
+    ).toHaveAttribute('aria-expanded', 'false');
+    expect(screen.queryByText('available.ts')).not.toBeInTheDocument();
+
+    rerender(
+      <MessageTurnView {...props} turn={answeredTurn} phase="settled" />
+    );
+    const process = screen.getByRole('button', { name: /已折叠 5 条消息/ });
+    expect(process).toHaveAttribute('aria-expanded', 'false');
+    expect(screen.getByText('Final answer')).toBeInTheDocument();
+    expect(
+      screen.queryByRole('button', { name: /已读 2 个文件/ })
+    ).not.toBeInTheDocument();
+    fireEvent.click(process);
+    fireEvent.click(screen.getByRole('button', { name: /已读 2 个文件/ }));
+    expect(
+      screen.getByRole('button', { name: /Error:.*denied.ts/ })
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole('button', { name: /Error:.*locked.ts/ })
+    ).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: '展开思考' }));
+    expect(screen.getByText('Checking the denied file')).toBeInTheDocument();
   });
 
   it('renders command output inside an expandable command card', () => {
@@ -861,6 +1052,79 @@ describe('conversation tool cards', () => {
       256_000
     );
   });
+
+  it('renders Antigravity view_file with its path, range and inspected content', async () => {
+    const entry = toolBlockToNormalizedEntry(
+      {
+        type: 'tool_use',
+        tool_use_id: 'antigravity-view',
+        tool_name: 'Running view_file',
+        kind: 'other',
+        meta: null,
+        input_preview: JSON.stringify({
+          AbsolutePath: 'C:/workspace/src/read.ts',
+          StartLine: 12,
+          EndLine: 13,
+        }),
+      },
+      {
+        type: 'tool_result',
+        tool_use_id: 'antigravity-view',
+        output_preview: '12: const enabled = true;\n13: export { enabled };',
+        is_error: false,
+      },
+      null
+    );
+    const { container } = render(
+      <DisplayConversationEntry entry={entry} expansionKey="antigravity-view" />
+    );
+    fireEvent.click(screen.getByRole('button', { name: /查看/ }));
+    expect(container).toHaveTextContent('C:/workspace/src/read.ts');
+    await waitFor(() =>
+      expect(container).toHaveTextContent('const enabled = true;')
+    );
+    expect(container.querySelectorAll('.is-inspected')).toHaveLength(2);
+    expect(screen.queryByText('Running view_file')).toBeNull();
+  });
+
+  it.each([
+    ['in_progress', 'partial output', 'running'],
+    ['completed', null, 'complete'],
+    ['failed', null, 'error'],
+  ])(
+    'uses reported ACP status %s independently of tool output',
+    (status, output, expected) => {
+      const use = {
+        type: 'tool_use' as const,
+        tool_use_id: 'status-read',
+        tool_name: 'Running view_file',
+        status,
+        input_preview: JSON.stringify({ AbsolutePath: 'src/read.ts' }),
+      };
+      const entry = toolBlockToNormalizedEntry(
+        use,
+        output
+          ? {
+              type: 'tool_result',
+              tool_use_id: 'status-read',
+              output_preview: output,
+              is_error: false,
+            }
+          : null,
+        null
+      );
+      const { container } = render(
+        <DisplayConversationEntry
+          entry={entry}
+          expansionKey={`status-${status}`}
+        />
+      );
+      expect(container.querySelector('[data-tool-status]')).toHaveAttribute(
+        'data-tool-status',
+        expected
+      );
+    }
+  );
 
   it('renders timeline replacements as a diff instead of raw patch text', () => {
     const entry = toolBlockToNormalizedEntry(

@@ -207,8 +207,11 @@
     /* Tahoe app-design tokens scoped to the historical legacy UI wrapper. */
     --text-strong: hsl(222 30% 16%);
     --text-primary: hsl(213 10% 30%);
+    --text-default: var(--text-primary);
     --text-muted: hsl(213 8% 45%);
+    --text-secondary: var(--text-muted);
     --text-subtle: hsl(214 7% 56%);
+    --text-tertiary: var(--text-subtle);
     --text-faint: hsl(214 6% 66%);
     --primary-control-foreground: hsl(var(--_primary-foreground));
     --switch-checked-track: hsl(213 25% 15%);
@@ -229,6 +232,9 @@
     --surface-card-strong: hsl(0 0% 100% / 0.94);
     --surface-control: hsl(220 20% 20% / 0.06);
     --surface-control-hover: hsl(220 20% 20% / 0.1);
+    --surface-control-solid: hsl(220 16% 91%);
+    --surface-control-solid-hover: hsl(220 16% 88%);
+    --surface-raised: var(--surface-control-solid);
     --surface-raised-control: hsl(220 14% 97%);
     --surface-raised-control-hover: hsl(220 14% 95%);
     --surface-hover: hsl(220 20% 20% / 0.07);
@@ -329,8 +335,11 @@
   .dark .legacy-design {
     --text-strong: #e7ebef;
     --text-primary: #c5cdd6;
+    --text-default: var(--text-primary);
     --text-muted: #8b949e;
+    --text-secondary: var(--text-muted);
     --text-subtle: hsl(215 8% 52%);
+    --text-tertiary: var(--text-subtle);
     --text-faint: hsl(211 11% 41%);
     --surface-shell: #0e1319;
     --surface-topbar: hsl(210 18% 16% / 0.55);
@@ -347,6 +356,9 @@
     --surface-card-strong: #242936;
     --surface-control: hsl(210 30% 80% / 0.07);
     --surface-control-hover: hsl(210 30% 80% / 0.12);
+    --surface-control-solid: hsl(220 18% 20%);
+    --surface-control-solid-hover: hsl(220 18% 24%);
+    --surface-raised: var(--surface-control-solid);
     --surface-raised-control: #242936;
     --surface-raised-control-hover: hsl(222 16% 22%);
     --surface-hover: hsl(210 30% 80% / 0.08);
@@ -549,12 +561,28 @@
     --color-text-accent: hsl(var(--primary));
     --color-icon-accent: hsl(var(--primary));
     --color-on-accent: hsl(var(--primary-foreground));
+    --color-border-emphasized: light-dark(#d4d4d4, #525252);
+  }
+
+  .legacy-design.dark [data-astryx-theme],
+  .dark .legacy-design [data-astryx-theme] {
+    --color-border-emphasized: #525252;
   }
 
   .legacy-design .session-composer-attachment-drawer {
     --radius-chat: var(--radius);
     border: 1px solid var(--border-strong);
     box-shadow: var(--shadow-control);
+  }
+
+  .legacy-design .session-composer-attachment-drawer > [id],
+  .legacy-design .session-composer-attachment-drawer > [id] > div {
+    width: 100%;
+    min-width: 0;
+  }
+
+  .legacy-design .session-composer-attachment-drawer > [id] > div {
+    overflow: hidden;
   }
 
   .legacy-design .session-composer-body {
@@ -732,23 +760,6 @@
     color: inherit;
   }
 
-  /* Horizontal inset lives on the pressable frame so the caret cannot sit
-     on the hairline. Frame fill, radius, and border are unlayered below so
-     they beat StyleX and WebView2 native widgets. */
-  .legacy-design
-    :is(.astryx-text-input, .astryx-textarea)
-    [data-pressable-container] {
-    padding-inline: 10px;
-  }
-
-  .legacy-design
-    .settings-page
-    :is(.astryx-text-input, .astryx-textarea)
-    :is(input, textarea) {
-    font-size: 0.75rem !important;
-    line-height: 1.25 !important;
-  }
-
   .legacy-design .browser-toolbar-over-page {
     background-color: color-mix(
       in srgb,
@@ -852,8 +863,7 @@
     @apply ring-inset;
   }
 
-  :where(.legacy-design) button:has(svg.lucide-x):focus,
-  :where(.legacy-design) button:has(svg.lucide-x):focus-visible {
+  :where(.legacy-design) button:has(svg.lucide-x):focus:not(:focus-visible) {
     outline: none !important;
     box-shadow: none !important;
   }
@@ -923,42 +933,111 @@ html.dark {
       ):not([type='reset']):not([type='image']),
     textarea
   ):not(
-    :where(.astryx-text-input *, .astryx-textarea *, textarea.notes-editor)
+    :where(
+      .astryx-text-input *,
+      .astryx-textarea *,
+      .settings-search-field *,
+      .plugin-search-control *,
+      .agent-registry-search *,
+      .product-plugin-search *,
+      .file-tree-search *,
+      .workspace-search-bar *,
+      .conv-user-edit-panel *,
+      [data-control-frame] *,
+      input.bg-transparent,
+      textarea.bg-transparent,
+      textarea.notes-editor
+    )
   ) {
   background-color: var(--surface-raised-control) !important;
   background-image: none !important;
 }
 
+.legacy-design .settings-search-input,
+.legacy-design .settings-page .plugin-search-control > input,
 .legacy-design
-  :is(.astryx-text-input, .astryx-textarea)
-  [data-pressable-container] {
-  --_field-radius: var(--radius);
-  padding-inline: 10px;
-  border-radius: var(--radius) !important;
-  border-color: var(--border-subtle) !important;
-  background-color: var(--surface-raised-control) !important;
+  .settings-page
+  :is(
+    input:not([type='checkbox']):not([type='radio']):not([type='file']):not(
+        [type='range']
+      ):not([type='color']):not([type='hidden']):not([type='button']):not(
+        [type='submit']
+      ):not([type='reset']):not([type='image']),
+    textarea
+  ):not(
+    :where(
+      .astryx-text-input *,
+      .astryx-textarea *,
+      .settings-search-field *,
+      .plugin-search-control *,
+      .agent-registry-search *,
+      .agent-auth-mode-secret *,
+      .product-plugin-search *,
+      .file-tree-search *,
+      .workspace-search-bar *,
+      .conv-user-edit-panel *,
+      [data-control-frame] *,
+      input.bg-transparent,
+      textarea.bg-transparent,
+      textarea.notes-editor
+    )
+  ) {
+  background: var(--surface-control-solid) !important;
+  background-color: var(--surface-control-solid) !important;
+  background-image: none !important;
+}
+
+.legacy-design .settings-search-input:hover:not(:focus):not(:focus-visible),
+.legacy-design
+  .settings-page
+  .plugin-search-control
+  > input:hover:not(:focus):not(:focus-visible) {
+  background: var(--surface-control-solid-hover) !important;
+  background-color: var(--surface-control-solid-hover) !important;
+}
+
+.legacy-design :is(.astryx-text-input, .astryx-textarea) {
+  border-width: 1px !important;
+  border-style: solid !important;
+  border-color: var(--color-border-emphasized, #d4d4d4) !important;
+  border-radius: var(
+    --_field-radius,
+    var(--radius-element, var(--radius))
+  ) !important;
+  background-color: var(--color-background-surface, #ffffff) !important;
+  box-sizing: border-box !important;
+  transition:
+    border-color 125ms ease,
+    box-shadow 125ms ease !important;
+  outline: none !important;
+}
+
+.legacy-design.dark :is(.astryx-text-input, .astryx-textarea),
+.dark .legacy-design :is(.astryx-text-input, .astryx-textarea) {
+  border-color: var(--color-border-emphasized, #525252) !important;
+  background-color: var(--color-background-surface, #262626) !important;
+}
+
+.legacy-design
+  :is(.astryx-text-input, .astryx-textarea):hover:not(:focus-within):not(
+    [aria-disabled='true']
+  ):not(:has(:disabled)) {
+  box-shadow: inset 0 0 0 2px
+    color-mix(in srgb, var(--color-border-emphasized, #d4d4d4) 30%, transparent) !important;
+}
+
+.legacy-design :is(.astryx-text-input, .astryx-textarea):focus-within {
+  border-color: var(--color-accent, hsl(var(--primary, 0 0% 9.02%))) !important;
+  box-shadow: inset 0 0 0 2px
+    var(--color-accent-muted, hsl(var(--primary, 0 0% 9.02%) / 0.12)) !important;
+}
+
+.legacy-design :is(.astryx-text-input, .astryx-textarea)[data-disabled='true'],
+.legacy-design :is(.astryx-text-input, .astryx-textarea):has(:disabled) {
+  opacity: 0.5 !important;
+  border-color: var(--color-border-emphasized, #d4d4d4) !important;
   box-shadow: none !important;
-}
-
-.legacy-design
-  :is(.astryx-text-input, .astryx-textarea)
-  [data-pressable-container]:hover:not(:focus-within) {
-  background-color: var(--surface-raised-control-hover) !important;
-  box-shadow: none !important;
-}
-
-.legacy-design
-  :is(.astryx-text-input, .astryx-textarea)
-  [data-pressable-container]:hover:not(:focus-within)
-  :is(input, textarea) {
-  background-color: var(--surface-raised-control-hover) !important;
-}
-
-.legacy-design
-  :is(.astryx-text-input, .astryx-textarea)
-  [data-pressable-container]:focus-within {
-  border-color: hsl(var(--primary)) !important;
-  box-shadow: inset 0 0 0 2px hsl(var(--primary) / 0.22) !important;
+  cursor: not-allowed !important;
 }
 
 .legacy-design :is(.astryx-text-input, .astryx-textarea) :is(input, textarea) {
@@ -967,7 +1046,8 @@ html.dark {
   color-scheme: only light;
   border: 0 !important;
   border-radius: 0 !important;
-  background-color: var(--surface-raised-control) !important;
+  background: transparent !important;
+  background-color: transparent !important;
   background-image: none !important;
   box-shadow: none !important;
   outline: none !important;
@@ -2338,7 +2418,7 @@ html.dark {
   .settings-page .settings-card kbd {
     border-width: 1px;
     border-color: var(--border-subtle);
-    background-color: var(--surface-control);
+    background-color: var(--surface-control-solid);
     box-shadow: var(--shadow-inset);
   }
 
@@ -2737,49 +2817,49 @@ html.dark {
     display: flex;
     width: 100%;
     min-width: 0;
-    height: 34px;
+    height: 32px;
     align-items: center;
     justify-content: flex-start;
     gap: 6px;
     padding: 0 10px;
-    border: 1px solid var(--border-content);
-    border-radius: var(--radius);
+    border: 1px solid var(--color-border-emphasized, var(--border-content));
+    border-radius: var(--_field-radius, var(--radius-element, var(--radius)));
     outline: none;
-    background: var(--surface-control);
+    background: var(--color-background-surface, var(--surface-control));
     color: var(--text-strong);
     font-size: 0.75rem;
     line-height: 1;
     text-align: start;
     cursor: pointer;
     transition:
-      border-color 150ms cubic-bezier(0.22, 1, 0.36, 1),
-      background-color 150ms cubic-bezier(0.22, 1, 0.36, 1),
-      box-shadow 150ms cubic-bezier(0.22, 1, 0.36, 1);
+      border-color 125ms ease,
+      background-color 125ms ease,
+      box-shadow 125ms ease;
   }
 
-  .astryx-select-trigger:hover:not([aria-disabled='true']) {
-    border-color: var(--border-strong);
-    background: var(--surface-control-hover);
+  .astryx-select-trigger:hover:not([aria-disabled='true']):not(.is-open):not(
+      :focus-visible
+    ) {
+    border-color: var(--color-border-emphasized, var(--border-strong));
+    background: var(--color-background-surface, var(--surface-control-hover));
+    box-shadow: inset 0 0 0 2px
+      color-mix(
+        in srgb,
+        var(--color-border-emphasized, var(--border-strong)) 30%,
+        transparent
+      );
   }
 
   .astryx-select-trigger:focus-visible,
   .astryx-select-trigger.is-open {
-    border-color: hsl(var(--primary));
-    box-shadow: inset 0 0 0 2px hsl(var(--primary) / 0.22);
+    border-color: var(--color-accent, hsl(var(--primary)));
+    box-shadow: inset 0 0 0 2px
+      var(--color-accent-muted, hsl(var(--primary) / 0.22));
   }
 
   .astryx-select-trigger[aria-disabled='true'] {
     cursor: not-allowed;
     opacity: 0.5;
-  }
-
-  .settings-page .agent-codex-quick-field .astryx-select-trigger,
-  .settings-page .agent-model-catalog-actions .astryx-select-trigger,
-  .settings-page .agent-model-provider-binding .astryx-select-trigger,
-  .settings-page .agent-model-provider-claude .astryx-select-trigger,
-  .settings-page .agent-model-provider-form-grid .astryx-select-trigger,
-  .settings-page .codex-default-model .astryx-select-trigger {
-    height: 32px;
   }
 
   .astryx-select--compact .astryx-select-trigger {
@@ -2820,9 +2900,15 @@ html.dark {
     cursor: pointer;
   }
 
-  .astryx-select-clear:hover {
+  .astryx-select-clear:hover,
+  .astryx-select-clear:focus-visible {
+    outline: none;
     color: var(--text-strong);
     background: var(--surface-control-hover);
+  }
+
+  .astryx-select-clear:focus-visible {
+    box-shadow: inset 0 0 0 1.5px var(--color-accent, hsl(var(--primary)));
   }
 
   .astryx-select-clear svg {
@@ -5786,7 +5872,8 @@ html.dark {
     border: 1px solid var(--border-content);
     border-radius: var(--radius);
     outline: 0;
-    background: var(--surface-control);
+    background: var(--surface-control-solid) !important;
+    background-color: var(--surface-control-solid) !important;
     box-shadow: var(--shadow-inset);
     color: var(--text-primary);
     font: inherit;
@@ -5797,6 +5884,11 @@ html.dark {
     transition:
       border-color 160ms cubic-bezier(0.22, 1, 0.36, 1),
       box-shadow 160ms cubic-bezier(0.22, 1, 0.36, 1);
+  }
+
+  .settings-search-input:hover:not(:focus):not(:focus-visible) {
+    background: var(--surface-control-solid-hover) !important;
+    background-color: var(--surface-control-solid-hover) !important;
   }
 
   .settings-search-input::placeholder {
@@ -7483,6 +7575,8 @@ html.host-windows .legacy-design {
   --surface-popover: var(--surface-glass-solid);
   --surface-topbar: var(--surface-glass-solid);
   --surface-sidebar: var(--surface-glass-solid);
+  --surface-control: var(--surface-control-solid);
+  --surface-control-hover: var(--surface-control-solid-hover);
 }
 
 html.tauri-desktop[data-host-platform='macos'] .window-chrome {

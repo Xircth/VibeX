@@ -329,7 +329,7 @@ export function AstryxSelect({
         {hasClear && selected ? (
           <span
             role="button"
-            tabIndex={-1}
+            tabIndex={disabled ? -1 : 0}
             aria-label={ariaLabel ? `${ariaLabel}（清除）` : '清除'}
             className="astryx-select-clear"
             onClick={(event) => {
@@ -338,6 +338,7 @@ export function AstryxSelect({
             }}
             onKeyDown={(event) => {
               if (event.key === 'Enter' || event.key === ' ') {
+                event.preventDefault();
                 event.stopPropagation();
                 onChange('');
               }

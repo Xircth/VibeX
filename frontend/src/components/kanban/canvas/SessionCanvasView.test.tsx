@@ -220,7 +220,7 @@ describe('SessionCanvasView', () => {
     let api: SessionCanvasApi | null = null;
     const record = {
       ...session('review-1', new Date().toISOString()),
-      status: 'inreview',
+      status: 'inreview' as const,
     };
     renderCanvas(
       <SessionCanvasView

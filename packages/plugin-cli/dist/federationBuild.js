@@ -45,20 +45,37 @@ export async function startFederationDevServer(options) {
     await server.listen();
     return server;
 }
+function canResolveFrom(root, name) {
+    try {
+        const localRequire = createRequire(join(root, "package.json"));
+        localRequire.resolve(`${name}/package.json`);
+        return true;
+    }
+    catch {
+        return false;
+    }
+}
 function federationViteConfig(pluginRoot, name, viewPath) {
+    const alias = {};
+    if (!canResolveFrom(pluginRoot, "react")) {
+        alias.react = resolveHostPackage("react");
+    }
+    if (!canResolveFrom(pluginRoot, "react-dom")) {
+        alias["react-dom"] = resolveHostPackage("react-dom");
+    }
     return {
         root: pluginRoot,
         configFile: false,
         appType: "custom",
         plugins: [federationPlugin(name)],
-        resolve: {
-            alias: {
-                react: resolveHostPackage("react"),
-                "react-dom": resolveHostPackage("react-dom"),
-            },
+        ...(Object.keys(alias).length > 0 ? { resolve: { alias } } : {}),
+        optimizeDeps: {
+            entries: [viewPath],
         },
         esbuild: {
-            jsx: "automatic",
+            jsx: "transform",
+            jsxFactory: "React.createElement",
+            jsxFragment: "React.Fragment",
         },
         build: {
             target: "esnext",

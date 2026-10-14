@@ -665,6 +665,9 @@ export const MessageTurnView = memo(function MessageTurnView({
           onOpenChild={onOpenChild}
           questions={questions}
           showCompleted={showCompleted}
+          renderOtherItem={(item, index) =>
+            renderTurnItem(item, `${turn.id}-${index}`)
+          }
           isStreaming={
             phase === 'streaming' &&
             !hasTurnError &&

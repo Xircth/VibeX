@@ -85,3 +85,23 @@ export function useExpandableItems(
   const setKey = useExpandableStore((s) => s.setKey);
   return [expanded, setKey];
 }
+
+export function useExpandableSection<T extends string>(
+  key: string,
+  sections: readonly T[]
+): [T | null, (section: T) => void] {
+  const keys = sections.map((section) => `${key}:${section}`);
+  const [expanded, setExpanded] = useExpandableItems(keys);
+  const openSection = sections.find((_, index) => expanded[index]) ?? null;
+  return [
+    openSection,
+    (section) => {
+      sections.forEach((candidate, index) =>
+        setExpanded(
+          keys[index],
+          candidate === section && openSection !== section
+        )
+      );
+    },
+  ];
+}

@@ -391,3 +391,61 @@ fn install_panic_hook(state: Arc<SessionState>) {
         previous(info);
     }));
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::define_plugin_worker;
+
+    #[tokio::test]
+    async fn handle_line_accepts_frames_larger_than_one_mib() {
+        let definition = define_plugin_worker(|registrar, _env| {
+            registrar.handle("echo", |input, _env| async move { Ok(input) });
+        });
+        let session = WorkerSession::new(definition);
+        let mut outbound = session.take_outbound();
+
+        session
+            .handle_line(
+                &json!({
+                    "id": "1",
+                    "method": "activate",
+                    "params": {
+                        "pluginId": "demo.echo",
+                        "pluginVersion": "1.0.0",
+                        "generation": 1,
+                        "packageClass": "full-trust",
+                        "grantedCapabilities": ["*"]
+                    }
+                })
+                .to_string(),
+            )
+            .await;
+        let activated = outbound.recv().await.expect("activate response");
+        assert_eq!(activated.get("ok"), Some(&Value::Bool(true)));
+
+        let large_payload = "x".repeat(2 * 1024 * 1024);
+        session
+            .handle_line(
+                &json!({
+                    "id": "2",
+                    "method": "invoke",
+                    "params": {
+                        "handler": "echo",
+                        "input": large_payload
+                    }
+                })
+                .to_string(),
+            )
+            .await;
+        let response = outbound.recv().await.expect("invoke response");
+        assert_eq!(response.get("ok"), Some(&Value::Bool(true)));
+        assert_eq!(
+            response
+                .get("result")
+                .and_then(Value::as_str)
+                .map(str::len),
+            Some(2 * 1024 * 1024)
+        );
+    }
+}

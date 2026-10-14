@@ -897,10 +897,20 @@ async fn start_antigravity_login(
     agent_id: AgentId,
     action: &agents::ProfileManagementAction,
 ) -> Result<AgentManagementActionReceipt, ApplicationError> {
-    if account_flow::peek_account_flow(&agent_id).is_some() {
-        return Err(ApplicationError::conflict(
-            "登录正在进行，请先在浏览器中完成",
-        ));
+    if let Some(pending) = account_flow::peek_account_flow(&agent_id) {
+        let is_finished = if let Ok(contents) = tokio::fs::read_to_string(&pending.result_path).await {
+            account_flow::parse_account_flow_exit(&contents).is_some()
+        } else {
+            false
+        };
+        if is_finished {
+            account_flow::take_account_flow(&agent_id);
+            let _ = tokio::fs::remove_file(&pending.result_path).await;
+        } else {
+            return Err(ApplicationError::conflict(
+                "登录正在进行，请先在浏览器中完成",
+            ));
+        }
     }
     let mut environment = read_agent_environment(pool, &agent_id).await?;
     let program = resolve_management_action_program(pool, &agent_id, action, &environment)

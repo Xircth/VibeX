@@ -252,6 +252,8 @@
       "agents_other": "Started {{count}} agents",
       "other_one": "{{count}} other tool call",
       "other_other": "{{count}} other tool calls",
+      "otherActivities_one": "{{count}} other activity",
+      "otherActivities_other": "{{count}} other activities",
       "separator": ", ",
       "failed": "Tool call failed"
     },

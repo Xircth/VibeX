@@ -276,6 +276,7 @@ mod tests {
             rec(
                 TurnRole::Assistant,
                 vec![ContentBlock::ToolUse {
+                    status: None,
                     tool_use_id: Some("t1".into()),
                     tool_name: "read".into(),
                     kind: None,
@@ -299,6 +300,7 @@ mod tests {
             rec(
                 TurnRole::Assistant,
                 vec![ContentBlock::ToolUse {
+                    status: None,
                     tool_use_id: Some("t1".into()),
                     tool_name: "read".into(),
                     kind: None,

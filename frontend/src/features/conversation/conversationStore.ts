@@ -533,10 +533,14 @@ export function timelineTurnsForEntry(
       },
     ];
   });
+  const maxRowRevision = entry.rows.reduce((max, row) => {
+    const revision = toBigInt(row.revision);
+    return revision > max ? revision : max;
+  }, entry.lastSequence);
   const optimistic = entry.optimisticTurns.map((turn, index) => ({
     key: `optimistic-${turn.id}`,
     turn,
-    revision: entry.lastSequence + BigInt(index + 1),
+    revision: maxRowRevision + BigInt(index + 1),
     phase: 'optimistic' as const,
   }));
   return alignStreamingAssistantWithUserPhase(
@@ -607,23 +611,64 @@ export function timelineItemsForEntry(
     revision: item.revision,
     item,
   }));
-  const sides = sideRowsForEntry(entry)
+  const sortedSides = sideRowsForEntry(entry)
     .filter(shouldInline)
-    .map((row) => ({
-      kind: 'side' as const,
-      revision: toBigInt(row.revision),
-      row,
-    }));
-  return [...messages, ...sides].sort((left, right) => {
-    if (left.kind === 'message' && right.kind === 'message') {
-      return 0;
+    .map((row, index) => ({
+      index,
+      item: {
+        kind: 'side' as const,
+        revision: toBigInt(row.revision),
+        row,
+      },
+    }))
+    .sort((left, right) => {
+      if (left.item.revision !== right.item.revision) {
+        return left.item.revision < right.item.revision ? -1 : 1;
+      }
+      return left.index - right.index;
+    })
+    .map((entryItem) => entryItem.item);
+
+  if (sortedSides.length === 0) {
+    return messages;
+  }
+
+  const maxSideRevision =
+    sortedSides[sortedSides.length - 1]?.revision ?? 0n;
+  const result: ConversationTimelineItem[] = [];
+  let sideIndex = 0;
+  let runningMaxRevision = 0n;
+
+  for (const message of messages) {
+    const isOptimisticOrZeroTrailing =
+      message.item.phase === 'optimistic' ||
+      (message.revision <= 0n &&
+        (runningMaxRevision > 0n || maxSideRevision > 0n));
+    const effectiveRevision = isOptimisticOrZeroTrailing
+      ? (runningMaxRevision > maxSideRevision
+          ? runningMaxRevision
+          : maxSideRevision) + 1n
+      : message.revision > runningMaxRevision
+        ? message.revision
+        : runningMaxRevision;
+    runningMaxRevision = effectiveRevision;
+
+    while (
+      sideIndex < sortedSides.length &&
+      sortedSides[sideIndex]!.revision < effectiveRevision
+    ) {
+      result.push(sortedSides[sideIndex]!);
+      sideIndex += 1;
     }
-    if (left.revision === right.revision) {
-      if (left.kind === right.kind) return 0;
-      return left.kind === 'message' ? -1 : 1;
-    }
-    return left.revision < right.revision ? -1 : 1;
-  });
+    result.push(message);
+  }
+
+  while (sideIndex < sortedSides.length) {
+    result.push(sortedSides[sideIndex]!);
+    sideIndex += 1;
+  }
+
+  return result;
 }
 
 export function defaultInlineSideRow(row: TimelineRow): boolean {

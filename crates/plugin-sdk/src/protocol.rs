@@ -4,7 +4,7 @@ use serde_json::Value;
 pub const PLUGIN_API_VERSION: &str = "1.0";
 pub const PLUGIN_PROTOCOL_VERSION: &str = "1.1";
 pub const PLUGIN_SDK_VERSION: &str = "1.0.0";
-pub const MAX_FRAME_BYTES: usize = 1_048_576;
+pub const MAX_FRAME_BYTES: usize = 32 * 1024 * 1024;
 
 #[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "kebab-case")]

@@ -42,7 +42,7 @@ use uuid::Uuid;
 
 // v17 attributes streaming deltas to the recorder's turn_id, which is now read from
 // the authoritative active-turn pointer instead of a cache that could go stale.
-pub const CONVERSATION_PROJECTION_VERSION: u32 = 19;
+pub const CONVERSATION_PROJECTION_VERSION: u32 = 20;
 pub const OPEN_TIMELINE_ROW_LIMIT: usize = 80;
 const SNAPSHOT_REFRESH_EVENT_GAP: i64 = 40;
 
@@ -509,7 +509,7 @@ impl ConversationStateApplier {
                             tool_call_id: &tool_call.tool_call_id,
                             title: tool_call.title.as_deref(),
                             kind: tool_call.kind.as_deref(),
-                            status: tool_call.status.as_deref().unwrap_or("running"),
+                            status: tool_call.status.as_deref(),
                             raw_input_json: raw_input_json.as_deref(),
                             raw_output_json: raw_output_json.as_deref(),
                             content_json: content_json.as_deref(),
@@ -1452,22 +1452,26 @@ impl ProjectionFold {
                                 ContentBlock::ToolUse {
                                     tool_use_id: Some(id),
                                     tool_name,
+                                    status,
                                     kind,
                                     input_preview,
                                     meta,
                                     images,
                                 } if *id == call_id => {
-                                    Some((tool_name, kind, input_preview, meta, images))
+                                    Some((tool_name, status, kind, input_preview, meta, images))
                                 }
                                 _ => None,
                             });
                     match existing_use {
-                        Some((tool_name, kind, input_preview, meta, images)) => {
+                        Some((tool_name, status, kind, input_preview, meta, images)) => {
                             if let Some(title) = tool_call.title {
                                 *tool_name = title;
                             }
                             if tool_call.kind.is_some() {
                                 *kind = tool_call.kind;
+                            }
+                            if tool_call.status.is_some() {
+                                *status = tool_call.status.clone();
                             }
                             if let Some(raw) = tool_call.raw_input {
                                 *input_preview = Some(cap_preview_bytes(raw.to_string()));
@@ -1481,6 +1485,7 @@ impl ProjectionFold {
                         }
                         None => {
                             turn.assistant.blocks.push(ContentBlock::ToolUse {
+                                status: tool_call.status.clone(),
                                 tool_use_id: Some(call_id.clone()),
                                 tool_name: tool_call
                                     .title
@@ -1500,7 +1505,15 @@ impl ProjectionFold {
 
                     // Attach/refresh the paired result so the card's status dot
                     // settles: on output, or on a terminal status without one.
-                    let is_error = matches!(tool_call.status.as_deref(), Some("failed"));
+                    let status = turn.assistant.blocks.iter().find_map(|block| match block {
+                        ContentBlock::ToolUse {
+                            tool_use_id: Some(id),
+                            status,
+                            ..
+                        } if *id == call_id => status.as_deref(),
+                        _ => None,
+                    });
+                    let is_error = matches!(status, Some("failed"));
                     let terminal = matches!(
                         tool_call.status.as_deref(),
                         Some("completed") | Some("failed")
@@ -5345,6 +5358,118 @@ mod tests {
         assert_eq!(tools[0].status, "completed");
         assert!(tools[0].raw_input_json.is_some());
         assert!(tools[0].raw_output_json.is_some());
+    }
+
+    #[tokio::test]
+    async fn timeline_preserves_reported_tool_status_independently_of_output() {
+        let pool = setup_pool().await;
+        let (conversation_id, turn_id) = seed_turn(&pool).await;
+
+        for (call_id, reported_status, output, expected_status, expected_error) in [
+            (
+                "running",
+                Some("in_progress"),
+                Some("partial output"),
+                "in_progress",
+                false,
+            ),
+            ("success", Some("completed"), None, "completed", false),
+            ("failure", Some("failed"), None, "failed", true),
+            ("failure", None, Some("late error output"), "failed", true),
+        ] {
+            append_event(
+                &pool,
+                conversation_id,
+                Some(turn_id),
+                "acp",
+                ConversationEvent::ToolCallUpsert {
+                    tool_call: ConversationToolCallPatch {
+                        tool_call_id: call_id.into(),
+                        title: Some("Running view_file".into()),
+                        kind: Some("read".into()),
+                        status: reported_status.map(str::to_string),
+                        raw_input: Some(serde_json::json!({"AbsolutePath": "/workspace/main.rs"})),
+                        raw_output: output.map(|text| serde_json::Value::String(text.into())),
+                        raw_output_append: None,
+                        content: None,
+                        locations: None,
+                        metadata: None,
+                        images: Vec::new(),
+                    },
+                },
+                None,
+            )
+            .await;
+
+            let timeline = ConversationProjector::project(&pool, conversation_id)
+                .await
+                .expect("project tool status");
+            let tools = ConversationToolCallRecord::list_for_turn(&pool, turn_id)
+                .await
+                .expect("stored tools");
+            let stored = tools
+                .iter()
+                .find(|tool| tool.tool_call_id == call_id)
+                .expect("stored tool");
+            assert_eq!(
+                stored.status,
+                if expected_status == "in_progress" {
+                    "running"
+                } else {
+                    expected_status
+                }
+            );
+            let blocks: Vec<_> = timeline
+                .rows
+                .iter()
+                .filter_map(|row| match &row.row {
+                    ConversationTimelineRow::MessageTurn { turn, .. }
+                        if turn.role == TurnRole::Assistant =>
+                    {
+                        Some(&turn.blocks)
+                    }
+                    _ => None,
+                })
+                .flatten()
+                .collect();
+            let statuses: Vec<_> = blocks
+                .iter()
+                .filter_map(|block| match block {
+                    ContentBlock::ToolUse {
+                        tool_use_id: Some(id),
+                        status,
+                        ..
+                    } if id == call_id => Some(status.as_deref()),
+                    _ => None,
+                })
+                .collect();
+            assert_eq!(
+                statuses,
+                vec![Some(expected_status)],
+                "one card with the reported status"
+            );
+            let results: Vec<_> = blocks
+                .iter()
+                .filter_map(|block| match block {
+                    ContentBlock::ToolResult {
+                        tool_use_id: Some(id),
+                        is_error,
+                        output_preview,
+                        ..
+                    } if id == call_id => Some((*is_error, output_preview.as_deref())),
+                    _ => None,
+                })
+                .collect();
+            assert_eq!(
+                results.len(),
+                1,
+                "one result even for status-only completion"
+            );
+            assert_eq!(results[0].0, expected_error);
+            if let Some(output) = output {
+                assert!(results[0].1.expect("output preview").contains(output));
+            }
+        }
     }
 
     #[tokio::test]

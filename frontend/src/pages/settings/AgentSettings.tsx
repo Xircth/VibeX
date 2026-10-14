@@ -199,15 +199,11 @@ export function AgentSettings() {
     updateCheck: new Map<AgentId, AgentUpdateCheckView>(),
   });
 
-  useEffect(() => {
-    if (!configDirty) return;
-    const warn = (event: BeforeUnloadEvent) => event.preventDefault();
-    window.addEventListener('beforeunload', warn);
-    return () => window.removeEventListener('beforeunload', warn);
-  }, [configDirty]);
+  const configDirtyRef = useRef(configDirty);
+  configDirtyRef.current = configDirty;
 
   const confirmDiscardConfig = useCallback(async () => {
-    if (!configDirty) return true;
+    if (!configDirtyRef.current) return true;
     const result = await ConfirmDialog.show({
       title: t('settings:agents.unsavedConfigTitle'),
       message: t('settings:agents.unsavedConfigMessage'),
@@ -216,9 +212,64 @@ export function AgentSettings() {
       variant: 'destructive',
     });
     if (result !== 'confirmed') return false;
+    configDirtyRef.current = false;
     setDirtySources({});
     return true;
-  }, [configDirty, t]);
+  }, [t]);
+
+  useEffect(() => {
+    if (!configDirty) return;
+    const currentHref = window.location.href;
+    const warn = (event: BeforeUnloadEvent) => event.preventDefault();
+    const handleSidebarClick = (event: MouseEvent) => {
+      if (!configDirtyRef.current) return;
+      const target = event.target;
+      if (!(target instanceof Element)) return;
+      const navTarget = target.closest<HTMLElement>(
+        '.settings-sidebar a[href], .settings-sidebar .settings-nav-button, .settings-sidebar .settings-search-result'
+      );
+      if (!navTarget) return;
+      if (
+        navTarget.getAttribute('aria-current') === 'page' ||
+        navTarget.classList.contains('is-active')
+      ) {
+        return;
+      }
+      event.preventDefault();
+      event.stopPropagation();
+      void (async () => {
+        if (!(await confirmDiscardConfig())) return;
+        const fallbackAnchorNav = (e: MouseEvent) => {
+          if (navTarget instanceof HTMLAnchorElement && !e.defaultPrevented) {
+            e.preventDefault();
+            const href = navTarget.getAttribute('href');
+            if (href) window.history.pushState(null, '', href);
+          }
+        };
+        window.addEventListener('click', fallbackAnchorNav, { once: true });
+        navTarget.click();
+        window.removeEventListener('click', fallbackAnchorNav);
+      })();
+    };
+    const handlePopState = () => {
+      if (!configDirtyRef.current) return;
+      const nextHref = window.location.href;
+      window.history.pushState(null, '', currentHref);
+      void (async () => {
+        if (await confirmDiscardConfig()) {
+          window.history.replaceState(null, '', nextHref);
+        }
+      })();
+    };
+    window.addEventListener('beforeunload', warn);
+    document.addEventListener('click', handleSidebarClick, true);
+    window.addEventListener('popstate', handlePopState);
+    return () => {
+      window.removeEventListener('beforeunload', warn);
+      document.removeEventListener('click', handleSidebarClick, true);
+      window.removeEventListener('popstate', handlePopState);
+    };
+  }, [configDirty, confirmDiscardConfig]);
 
   useEffect(() => {
     setNativePluginsExpanded(false);
@@ -645,38 +696,65 @@ export function AgentSettings() {
       const deadline = Date.now() + 15 * 60 * 1000;
       let sawPending = false;
       let completedAction: string | null = null;
-      while (Date.now() < deadline) {
-        if (authWatchGeneration.current !== watchId) return;
-        if (!completedAction) {
-          let flow;
-          try {
-            flow = await agentManagementApi.accountFlow(agentId);
-          } catch {
-            return;
-          }
-          if (flow.status === 'pending') {
-            sawPending = true;
-          } else if (flow.status === 'succeeded') {
-            completedAction = flow.action_id ?? expectedAction ?? 'login';
-          } else if (flow.status === 'failed') {
-            toast.error(t('settings:agents.accountFlowCommandFailed'));
-            return;
-          } else if (!expectPending && !sawPending) {
-            return;
-          } else if (expectPending && flow.status === 'idle') {
-            completedAction = expectedAction ?? 'login';
-          }
-        }
-        if (completedAction) {
-          const authentication = await refreshAuthentication();
+      let consecutiveErrors = 0;
+      try {
+        while (Date.now() < deadline) {
           if (authWatchGeneration.current !== watchId) return;
-          if (accountSessionMatchesAction(completedAction, authentication)) {
-            return;
+          if (!completedAction) {
+            let flow;
+            try {
+              flow = await agentManagementApi.accountFlow(agentId);
+              consecutiveErrors = 0;
+            } catch (error) {
+              consecutiveErrors += 1;
+              if ((!expectPending && !sawPending) || consecutiveErrors >= 3) {
+                if (expectPending || sawPending) {
+                  toast.error(
+                    errorMessage(
+                      error,
+                      t('settings:agents.accountFlowCommandFailed')
+                    )
+                  );
+                }
+                return;
+              }
+              await new Promise((resolve) => {
+                window.setTimeout(resolve, 1000);
+              });
+              continue;
+            }
+            if (authWatchGeneration.current !== watchId) return;
+            if (flow.status === 'pending') {
+              sawPending = true;
+              if (flow.action_id) {
+                setActionRunning(flow.action_id);
+              }
+            } else if (flow.status === 'succeeded') {
+              completedAction = flow.action_id ?? expectedAction ?? 'login';
+            } else if (flow.status === 'failed') {
+              toast.error(t('settings:agents.accountFlowCommandFailed'));
+              return;
+            } else if (!expectPending && !sawPending) {
+              return;
+            } else if (expectPending && flow.status === 'idle') {
+              completedAction = expectedAction ?? 'login';
+            }
           }
+          if (completedAction) {
+            const authentication = await refreshAuthentication();
+            if (authWatchGeneration.current !== watchId) return;
+            if (accountSessionMatchesAction(completedAction, authentication)) {
+              return;
+            }
+          }
+          await new Promise((resolve) => {
+            window.setTimeout(resolve, 1000);
+          });
         }
-        await new Promise((resolve) => {
-          window.setTimeout(resolve, 1000);
-        });
+      } finally {
+        if (authWatchGeneration.current === watchId) {
+          setActionRunning(null);
+        }
       }
     },
     [refreshAuthentication, t]
@@ -684,6 +762,7 @@ export function AgentSettings() {
 
   useEffect(() => {
     authWatchGeneration.current += 1;
+    setActionRunning(null);
     return () => {
       authWatchGeneration.current += 1;
     };
@@ -697,6 +776,7 @@ export function AgentSettings() {
   const runManagementAction = useCallback(
     async (actionId: string) => {
       if (!selectedAgentId) return;
+      const watchIdAtStart = authWatchGeneration.current;
       setActionRunning(actionId);
       try {
         await agentManagementApi.runAction(selectedAgentId, actionId);
@@ -706,18 +786,25 @@ export function AgentSettings() {
         toast.success(
           actionId === 'subscription'
             ? t('settings:agents.subscriptionOpened')
-            : t('settings:agents.terminalFlowStarted')
+            : selectedAgentId === 'antigravity' && actionId === 'login'
+              ? t('settings:agents.browserLoginStarted')
+              : t('settings:agents.terminalFlowStarted')
         );
+        if (actionId === 'login' || actionId === 'logout') {
+          await watchAccountFlow(selectedAgentId, true, actionId);
+        }
       } catch (error) {
         toast.error(
           errorMessage(error, t('settings:agents.accountFlowFailed'))
         );
-        return;
       } finally {
-        setActionRunning(null);
+        if (
+          authWatchGeneration.current === watchIdAtStart ||
+          (actionId !== 'login' && actionId !== 'logout')
+        ) {
+          setActionRunning(null);
+        }
       }
-      if (actionId !== 'login' && actionId !== 'logout') return;
-      await watchAccountFlow(selectedAgentId, true, actionId);
     },
     [selectedAgentId, t, watchAccountFlow]
   );

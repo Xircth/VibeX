@@ -12,15 +12,11 @@ export type TurnRenderUnit =
       endIndex: number;
     };
 
-function isToolCall(item: TurnRenderItem): item is TurnToolItem {
-  return item.kind === 'tool' && item.use != null;
-}
-
 function isActivity(item: TurnRenderItem): boolean {
-  return item.kind === 'thinking' || isToolCall(item);
+  return item.kind !== 'markdown';
 }
 
-/** Prose and other output end a stage; thinking belongs to the tool activity. */
+/** Only prose ends an activity stage. */
 export function groupTurnRenderItems(
   items: TurnRenderItem[]
 ): TurnRenderUnit[] {

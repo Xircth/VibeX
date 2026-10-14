@@ -320,6 +320,7 @@ mod tests {
                         text: "好的".into(),
                     },
                     ContentBlock::ToolUse {
+                        status: None,
                         tool_use_id: None,
                         tool_name: "edit_file".into(),
                         kind: None,

@@ -72,7 +72,14 @@ import {
 } from './BrowserAgentAccess';
 import { BrowserFindBar } from './BrowserFindBar';
 import { BrowserDownloadBar, BrowserNoticeBar } from './BrowserStatusLayer';
-import { clearAgentActivity } from './browserChromeStore';
+import {
+  applyBrowserHostEvent,
+  clearAgentActivity,
+} from './browserChromeStore';
+import {
+  updateBrowserSettings,
+  useBrowserPrefs,
+} from './browserPrefsStore';
 import {
   faviconForPage,
   prefetchFavicon,
@@ -264,6 +271,8 @@ type BrowserHostEvent = {
   tabId?: string;
   sourceTabId?: string;
   url?: string;
+  origin?: string | null;
+  grant?: { level: string } | null;
   title?: string | null;
   favicon?: string | null;
   loading?: boolean;
@@ -370,6 +379,9 @@ export function HostBrowserPanel({
 }) {
   const { t } = useTranslation('panels');
   const overlay = useWorkspaceOverlay();
+  const browserPrefs = useBrowserPrefs();
+  const browserSettingsRef = useRef(browserPrefs.settings);
+  browserSettingsRef.current = browserPrefs.settings;
   const rootRef = useRef<HTMLDivElement | null>(null);
   const hostRef = useRef<HTMLDivElement | null>(null);
   const moreRef = useRef<HTMLButtonElement | null>(null);
@@ -548,6 +560,17 @@ export function HostBrowserPanel({
         Boolean(pendingUrlRef.current) && !payload.url?.trim();
       if (pageTitle && !titleIsStale) panelApi?.setTitle?.(pageTitle);
     }
+    if (payload.kind === 'tab.grant') {
+      setTab((current) => {
+        if (!current || current.tabId !== payload.tabId) return current;
+        return {
+          ...current,
+          origin: payload.origin || current.origin,
+          grant: payload.grant ?? null,
+        };
+      });
+      return;
+    }
     setTab((current) => {
       if (!current || current.tabId !== payload.tabId) return current;
       return {
@@ -620,9 +643,21 @@ export function HostBrowserPanel({
       if (icon) panelApi?.updateParameters({ faviconUrl: icon });
       try {
         const bounds = await waitForSurfaceBounds();
+        const currentSettings = browserSettingsRef.current;
+        let initialGrant = currentSettings.defaultGrant;
+        try {
+          const origin = new URL(url).origin;
+          const remembered = currentSettings.originGrants[origin];
+          if (remembered) initialGrant = remembered;
+        } catch {
+          // keep defaultGrant
+        }
         const created = (await dispatch('tab.create', {
           url,
-          grant: 'control',
+          grant: initialGrant,
+          ...(currentSettings.newTabProfile !== 'default'
+            ? { profile: currentSettings.newTabProfile }
+            : {}),
           ...(bounds ? { bounds } : {}),
         })) as BrowserTab;
         tabIdRef.current = created.tabId;
@@ -874,6 +909,7 @@ export function HostBrowserPanel({
     let cancelled = false;
     let unlisten: (() => void) | undefined;
     void backendListen<BrowserHostEvent>('plugin.browser', (payload) => {
+      applyBrowserHostEvent(payload);
       if (payload.kind === 'tab.open') {
         const source = payload.sourceTabId;
         if (source && tabIdRef.current && source !== tabIdRef.current) {
@@ -905,6 +941,35 @@ export function HostBrowserPanel({
       cancelled = true;
       unlisten?.();
     };
+  }, []);
+
+  useEffect(() => {
+    const onGrantChanged = (event: Event) => {
+      const detail = (
+        event as CustomEvent<{
+          tabId?: string;
+          level?: string;
+          origin?: string | null;
+          grant?: { level: string } | null;
+        }>
+      ).detail;
+      if (!detail?.tabId || detail.tabId !== tabIdRef.current) return;
+      setTab((current) => {
+        if (!current || current.tabId !== detail.tabId) return current;
+        return {
+          ...current,
+          origin: detail.origin || current.origin,
+          grant:
+            detail.level === 'none'
+              ? null
+              : (detail.grant ??
+                (detail.level ? { level: detail.level } : null)),
+        };
+      });
+    };
+    window.addEventListener('vibex:browser-grant-changed', onGrantChanged);
+    return () =>
+      window.removeEventListener('vibex:browser-grant-changed', onGrantChanged);
   }, []);
 
   useEffect(() => {
@@ -1398,16 +1463,18 @@ export function HostBrowserPanel({
             >
               <Camera className="h-3.5 w-3.5" />
             </button>
-            <button
-              type="button"
-              className={FIELD_BTN}
-              title={t('browserPanel.devtools')}
-              aria-label={t('browserPanel.devtools')}
-              disabled={!tab}
-              onClick={() => runTab('tab.devtools')}
-            >
-              <Bug className="h-3.5 w-3.5" />
-            </button>
+            {browserPrefs.settings.devtools ? (
+              <button
+                type="button"
+                className={FIELD_BTN}
+                title={t('browserPanel.devtools')}
+                aria-label={t('browserPanel.devtools')}
+                disabled={!tab}
+                onClick={() => runTab('tab.devtools')}
+              >
+                <Bug className="h-3.5 w-3.5" />
+              </button>
+            ) : null}
             <button
               type="button"
               className={cn(
@@ -1486,7 +1553,28 @@ export function HostBrowserPanel({
             const tabId = tabIdRef.current;
             if (!tabId) return;
             void dispatch('grant.set', { tabId, level }).then((next) => {
-              setTab(next as BrowserTab);
+              const updated = next as BrowserTab;
+              setTab(updated);
+              const origin = updated.origin || tab?.origin;
+              if (origin) {
+                const nextGrants = { ...browserSettingsRef.current.originGrants };
+                if (level === 'none') {
+                  delete nextGrants[origin];
+                } else {
+                  nextGrants[origin] = level;
+                }
+                void updateBrowserSettings({ originGrants: nextGrants });
+              }
+              window.dispatchEvent(
+                new CustomEvent('vibex:browser-grant-changed', {
+                  detail: {
+                    tabId,
+                    level,
+                    origin: origin ?? null,
+                    grant: updated.grant ?? null,
+                  },
+                })
+              );
             });
           }}
         />

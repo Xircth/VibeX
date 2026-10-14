@@ -73,6 +73,7 @@ const OUTPUT_TEXT_KEYS = [
   'stdout',
   'stderr',
   'output',
+  'combinedOutput',
   'formatted_output',
   'text',
   'FileContent',
@@ -131,6 +132,10 @@ const FILE_PATH_KEYS = [
   'abs_path',
   'filepath',
   'filePath',
+  'absolute_path',
+  'absolutePath',
+  'AbsolutePath',
+  'TargetFile',
 ];
 
 const LINE_NUMBER_PREFIX = /^(?: {0,3}(\d+)(?:→|[|:]\s?|\t))/;
@@ -236,13 +241,15 @@ function readRange(obj: Record<string, unknown>): {
     'line_start',
     'start_line',
     'startLine',
+    'StartLine',
     'line'
   );
   const explicitEnd = firstNonNegativeInteger(
     obj,
     'line_end',
     'end_line',
-    'endLine'
+    'endLine',
+    'EndLine'
   );
   const offset = firstNonNegativeInteger(obj, 'offset');
   const limit = firstNonNegativeInteger(
@@ -275,6 +282,8 @@ function firstCommand(obj: Record<string, unknown>): string | null {
     'script',
     'shell_command',
     'commandLine',
+    'command_line',
+    'CommandLine',
   ]) {
     const value = obj[key];
     if (typeof value === 'string' && value.trim().length > 0) return value;
@@ -482,7 +491,10 @@ function editChanges(
 
 /** Normalize a tool/kind name for set membership (drops spaces, _, -, dots). */
 function canonicalName(toolName: string): string {
-  return toolName.replace(/[\s._-]/g, '').toLowerCase();
+  return toolName
+    .replace(/^Running\s+/i, '')
+    .replace(/[\s._-]/g, '')
+    .toLowerCase();
 }
 
 /**
@@ -762,11 +774,18 @@ export function toolBlockToNormalizedEntry(
 ): ToolDisplayEntry {
   const toolResult = toolResultFromPreview(result?.output_preview ?? null);
   const output = extractOutputText(result?.output_preview ?? null, toolResult);
-  const statusKind: 'created' | 'success' | 'failed' = result
-    ? result.is_error
-      ? 'failed'
-      : 'success'
-    : 'created';
+  const statusKind: 'created' | 'success' | 'failed' =
+    use.status != null
+      ? use.status === 'completed'
+        ? 'success'
+        : use.status === 'failed'
+          ? 'failed'
+          : 'created'
+      : result
+        ? result.is_error
+          ? 'failed'
+          : 'success'
+        : 'created';
   const status =
     statusKind === 'created'
       ? ({ status: 'created' } as const)

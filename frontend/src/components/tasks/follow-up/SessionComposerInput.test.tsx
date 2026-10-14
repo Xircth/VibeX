@@ -23,11 +23,14 @@ import {
 } from './sessionComposerStructuredTokens';
 import {
   requestComposerImageInsert,
+  requestComposerInsert,
   requestComposerTokenInsert,
 } from '@/lib/composerInsert';
 import type { FileReferencePayload } from '@/utils/fileReferences';
 import { setCurrentDraggedFileReference } from '@/utils/fileReferenceDrag';
-import { tagsApi } from '@/lib/api';
+import { projectsApi, tagsApi } from '@/lib/api';
+import * as materializeHostReferences from '@/lib/materializeHostReferences';
+import { toast } from '@/components/ui/toast';
 import type { BackendTransport } from '@/lib/backendTransport';
 
 const legacyStyles = readFileSync(
@@ -420,6 +423,60 @@ describe('SessionComposerInput (Astryx)', () => {
     expect(
       screen.getAllByTestId('session-composer-file-attachment')
     ).toHaveLength(2);
+  });
+
+  it('wraps many image and file attachments with bounded vertical scrolling without shrinking tiles', () => {
+    const convComponentStyles = readFileSync(
+      resolve(process.cwd(), 'src/styles/conversation/conv-components.css'),
+      'utf8'
+    );
+    const rowRule =
+      convComponentStyles.match(
+        /\.session-composer-attachment-row\s*\{[^}]+\}/u
+      )?.[0] ?? '';
+    expect(rowRule).toContain('flex-wrap: wrap');
+    expect(rowRule).toContain('overflow-y: auto');
+    expect(rowRule).toContain('max-height:');
+
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+    const manyAttachments = [
+      ...Array.from({ length: 10 }, (_, index) => ({
+        id: `img-${index + 1}`,
+        name: `shot-${index + 1}.png`,
+        path: `.vibe-images/shot-${index + 1}.png`,
+        previewUrl: `blob:shot-${index + 1}`,
+      })),
+      ...Array.from({ length: 6 }, (_, index) => ({
+        id: `doc-${index + 1}`,
+        name: `document-${index + 1}.pdf`,
+        path: `.vibe-images/document-${index + 1}.pdf`,
+      })),
+    ];
+
+    render(
+      <QueryClientProvider client={queryClient}>
+        <SessionComposerAttachmentDrawer
+          images={manyAttachments}
+          onRemoveImage={vi.fn()}
+        />
+      </QueryClientProvider>
+    );
+
+    const fileItems = screen.getAllByTestId('session-composer-file-attachment');
+    expect(fileItems).toHaveLength(6);
+    for (const item of fileItems) {
+      expect(item).toHaveClass('shrink-0', 'max-w-full');
+    }
+
+    const imagePreviewButtons = screen.getAllByRole('button', {
+      name: /^Preview shot-/i,
+    });
+    expect(imagePreviewButtons).toHaveLength(10);
+    for (const button of imagePreviewButtons) {
+      expect(button.parentElement).toHaveClass('shrink-0', 'h-16', 'w-16');
+    }
   });
 
   it('separates the attachment drawer with a hairline and narrow shadow', () => {
@@ -1700,5 +1757,258 @@ describe('SessionComposerInput (Astryx)', () => {
     expect(
       screen.getByRole('status', { name: 'Composer value' })
     ).toHaveTextContent('sent just now');
+  });
+
+  it('keeps the draft in the editor and shows a toast when materializeMentionedHostFiles fails', async () => {
+    const user = userEvent.setup();
+    const onSubmit = vi.fn();
+    const toastErrorSpy = vi.spyOn(toast, 'error').mockImplementation(() => '');
+    const materializeSpy = vi
+      .spyOn(materializeHostReferences, 'materializeMentionedHostFiles')
+      .mockRejectedValue(new Error('disk full'));
+
+    const initialDraft =
+      'Connect to [@:prod](.vibex/ssh-hosts/prod-12345678.sshconfig)';
+
+    function ControlledComposer() {
+      const [value, setValue] = useState(initialDraft);
+      return (
+        <>
+          <SessionComposerInput
+            value={value}
+            onChange={setValue}
+            onSubmit={onSubmit}
+            onAttachImages={vi.fn()}
+          />
+          <output aria-label="Composer value">{value}</output>
+        </>
+      );
+    }
+
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+    try {
+      render(
+        <QueryClientProvider client={queryClient}>
+          <ControlledComposer />
+        </QueryClientProvider>
+      );
+      const editor = getEditor();
+      await user.click(editor);
+      await user.keyboard('{Enter}');
+
+      await waitFor(() => {
+        expect(materializeSpy).toHaveBeenCalledOnce();
+        expect(toastErrorSpy).toHaveBeenCalledOnce();
+      });
+
+      expect(onSubmit).not.toHaveBeenCalled();
+      expect(
+        screen.getByRole('status', { name: 'Composer value' })
+      ).toHaveTextContent('Connect to');
+      expect(editor).not.toBeEmptyDOMElement();
+    } finally {
+      materializeSpy.mockRestore();
+      toastErrorSpy.mockRestore();
+    }
+  });
+
+  it('accepts plain-text COMPOSER_INSERT_EVENT only when acceptExternalInserts is enabled', async () => {
+    const onChangeAccepted = vi.fn();
+    const onChangeIgnored = vi.fn();
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+
+    render(
+      <QueryClientProvider client={queryClient}>
+        <SessionComposerInput
+          value="existing line"
+          acceptExternalInserts={true}
+          onChange={onChangeAccepted}
+          onSubmit={vi.fn()}
+          onAttachImages={vi.fn()}
+        />
+        <SessionComposerInput
+          value="do not touch"
+          acceptExternalInserts={false}
+          onChange={onChangeIgnored}
+          onSubmit={vi.fn()}
+          onAttachImages={vi.fn()}
+        />
+      </QueryClientProvider>
+    );
+
+    act(() => {
+      requestComposerInsert('inserted note');
+    });
+
+    expect(onChangeAccepted).toHaveBeenCalledWith(
+      'existing line\n\ninserted note'
+    );
+    expect(onChangeIgnored).not.toHaveBeenCalled();
+  });
+
+  it('caches projects across @ reference queries within an open panel session and clears on close', async () => {
+    const user = userEvent.setup();
+    vi.spyOn(tagsApi, 'list').mockResolvedValue([]);
+    const getAllSpy = vi.spyOn(projectsApi, 'getAll').mockResolvedValue([
+      {
+        id: 'proj-1',
+        name: 'AlphaRepo',
+        root_path: '/workspace/alpha',
+        parent_project_id: null,
+        hidden: false,
+        is_git: true,
+        default_agent_working_dir: null,
+        default_main_branch: null,
+        created_at: new Date(0),
+        updated_at: new Date(0),
+        is_home: false,
+      },
+    ]);
+    const getReposSpy = vi
+      .spyOn(projectsApi, 'getRepositories')
+      .mockResolvedValue([
+        {
+          id: 'repo-1',
+          name: 'alpha',
+          display_name: 'alpha',
+          path: '/workspace/alpha',
+          created_at: new Date(0),
+          updated_at: new Date(0),
+          setup_script: null,
+          cleanup_script: null,
+          archive_script: null,
+          copy_files: null,
+          parallel_setup_script: false,
+          dev_server_script: null,
+          default_target_branch: null,
+          default_working_dir: null,
+        },
+      ]);
+
+    try {
+      renderComposerInput();
+      const editor = getEditor();
+
+      await user.click(editor);
+      await user.type(editor, '@');
+      await screen.findByTestId('composer-at-reference-menu');
+
+      await waitFor(() => {
+        expect(getAllSpy).toHaveBeenCalledTimes(1);
+        expect(getReposSpy).toHaveBeenCalledTimes(1);
+      });
+
+      await user.type(editor, 'Alp');
+      await act(async () => {
+        await new Promise((resolve) => setTimeout(resolve, 160));
+      });
+
+      expect(getAllSpy).toHaveBeenCalledTimes(1);
+      expect(getReposSpy).toHaveBeenCalledTimes(1);
+
+      await user.keyboard('{Escape}');
+      expect(
+        screen.queryByTestId('composer-at-reference-menu')
+      ).not.toBeInTheDocument();
+    } finally {
+      getAllSpy.mockRestore();
+      getReposSpy.mockRestore();
+    }
+  });
+
+  it('preserves the relative caret offset when restoreStructuredTokens replaces children while focused', async () => {
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+    const { rerender } = render(
+      <QueryClientProvider client={queryClient}>
+        <SessionComposerInput
+          value="Hello world"
+          onChange={vi.fn()}
+          onSubmit={vi.fn()}
+          onAttachImages={vi.fn()}
+        />
+      </QueryClientProvider>
+    );
+
+    const editor = getEditor();
+    editor.focus();
+    const firstText = editor.firstChild as Text;
+    const range = document.createRange();
+    range.setStart(firstText, 2);
+    range.collapse(true);
+    const selection = window.getSelection();
+    selection?.removeAllRanges();
+    selection?.addRange(range);
+
+    rerender(
+      <QueryClientProvider client={queryClient}>
+        <SessionComposerInput
+          value="Hello [@:App.tsx](src/App.tsx) world"
+          onChange={vi.fn()}
+          onSubmit={vi.fn()}
+          onAttachImages={vi.fn()}
+        />
+      </QueryClientProvider>
+    );
+
+    await waitFor(() => {
+      expect(editor.querySelector('[data-astryx-token]')).toBeInTheDocument();
+    });
+
+    const activeRange = window.getSelection()?.getRangeAt(0);
+    expect(activeRange?.startContainer).toBe(editor.firstChild);
+    expect(activeRange?.startOffset).toBe(2);
+  });
+
+  it('wraps many image and file attachments with bounded vertical scrolling without shrinking tiles', () => {
+    const convCss = readFileSync(
+      resolve(__dirname, '../../../styles/conversation/conv-components.css'),
+      'utf8'
+    );
+    expect(convCss).toMatch(
+      /\.session-composer-attachment-row\s*\{[^}]*flex-wrap:\s*wrap;[^}]*max-height:\s*11rem;[^}]*overflow-y:\s*auto;/s
+    );
+
+    const attachments = [
+      ...Array.from({ length: 8 }, (_, index) => ({
+        id: `img-${index + 1}`,
+        path: `.vibex-images/shot-${index + 1}.png`,
+        name: `shot-${index + 1}.png`,
+        previewUrl: `blob:shot-${index + 1}`,
+        attachmentKind: 'image' as const,
+      })),
+      ...Array.from({ length: 6 }, (_, index) => ({
+        id: `file-${index + 1}`,
+        path: `.vibex-images/spec-${index + 1}.pdf`,
+        name: `spec-${index + 1}.pdf`,
+        attachmentKind: 'file' as const,
+      })),
+    ];
+
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+    render(
+      <QueryClientProvider client={queryClient}>
+        <SessionComposerAttachmentDrawer
+          images={attachments}
+          onRemoveImage={vi.fn()}
+        />
+      </QueryClientProvider>
+    );
+
+    const drawer = screen.getByTestId('session-composer-attachment-drawer');
+    const row = drawer.querySelector('.session-composer-attachment-row');
+    expect(row).not.toBeNull();
+    expect(row?.children).toHaveLength(14);
+
+    for (const child of Array.from(row?.children ?? [])) {
+      expect(child.className).toContain('shrink-0');
+    }
   });
 });

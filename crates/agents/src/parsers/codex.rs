@@ -85,6 +85,7 @@ fn record_from_item(value: &Value) -> Option<ParsedRecord> {
             let block = match plan_entries_from_codex_args(payload.get("arguments")) {
                 Some(entries) if is_plan_tool(name) => ContentBlock::Plan { entries },
                 _ => ContentBlock::ToolUse {
+                    status: None,
                     kind: None,
                     tool_use_id: payload
                         .get("call_id")

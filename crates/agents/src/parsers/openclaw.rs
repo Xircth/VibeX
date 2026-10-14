@@ -135,6 +135,7 @@ fn assistant_blocks(message: &Value) -> Vec<ContentBlock> {
                     }
                 }
                 Some("toolCall") => blocks.push(ContentBlock::ToolUse {
+                    status: None,
                     kind: None,
                     tool_use_id: item.get("id").and_then(Value::as_str).map(str::to_string),
                     tool_name: item

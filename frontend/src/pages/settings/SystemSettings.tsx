@@ -124,8 +124,6 @@ function sanitizeDraft(draft: SystemSettingsConfig): SystemSettingsConfig {
     ...draft,
     editor: {
       ...draft.editor,
-      remote_ssh_host: null,
-      remote_ssh_user: null,
     },
   };
 }

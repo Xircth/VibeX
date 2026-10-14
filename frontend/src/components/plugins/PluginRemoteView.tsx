@@ -141,28 +141,45 @@ function PluginRemoteViewBody({
       .then(async (module) => {
         if (disposed) return;
         let sequence = 0;
+        let invokeQueue: Promise<unknown> = Promise.resolve();
         let sessionToken: string | null = null;
-        try {
-          const session = await transport.load({
-            pluginId: item.pluginId,
-            surfaceId,
-            generation: item.generation,
-            token: clientToken,
-          });
-          sessionToken = session.token;
-          revoke = () => {
-            void transport.revoke({
+        const openSession = async (): Promise<string | null> => {
+          try {
+            const session = await transport.load({
               pluginId: item.pluginId,
               surfaceId,
               generation: item.generation,
-              token: session.token,
-              reason: 'unmount',
+              token: clientToken,
             });
-          };
-        } catch {
-          sessionToken = null;
-        }
+            sequence = 0;
+            sessionToken = session.token;
+            revoke = () => {
+              void transport.revoke({
+                pluginId: item.pluginId,
+                surfaceId,
+                generation: item.generation,
+                token: session.token,
+                reason: 'unmount',
+              });
+            };
+            return session.token;
+          } catch {
+            sessionToken = null;
+            return null;
+          }
+        };
+        await openSession();
         if (disposed) return;
+        const toError = (err: unknown): Error => {
+          if (err instanceof Error) return err;
+          if (err && typeof err === 'object') {
+            const rec = err as Record<string, unknown>;
+            if (typeof rec.message === 'string' && rec.message.trim()) {
+              return new Error(rec.message);
+            }
+          }
+          return new Error(typeof err === 'string' ? err : 'Plugin invoke failed');
+        };
         dispose = mountRemoteModule(module, root, {
           pluginId: item.pluginId,
           surfaceId,
@@ -170,22 +187,55 @@ function PluginRemoteViewBody({
           workspaceId,
           projectId,
           invoke: (handler, input) => {
-            if (!sessionToken) {
-              return Promise.reject(
-                new Error('Plugin Worker is not available')
-              );
-            }
-            sequence += 1;
-            return transport.invoke({
-              pluginId: item.pluginId,
-              surfaceId,
-              generation: item.generation,
-              token: sessionToken,
-              requestId: crypto.randomUUID(),
-              sequence,
-              method: handler,
-              params: (input ?? {}) as never,
-            });
+            const run = async () => {
+              let activeToken = sessionToken ?? (await openSession());
+              if (!activeToken) {
+                throw new Error('Plugin Worker is not available');
+              }
+              sequence += 1;
+              try {
+                return await transport.invoke({
+                  pluginId: item.pluginId,
+                  surfaceId,
+                  generation: item.generation,
+                  token: activeToken,
+                  requestId: crypto.randomUUID(),
+                  sequence,
+                  method: handler,
+                  params: (input ?? {}) as never,
+                });
+              } catch (err) {
+                const msg = toError(err).message.toLowerCase();
+                if (
+                  msg.includes('expired') ||
+                  msg.includes('revoked') ||
+                  msg.includes('sequence is invalid')
+                ) {
+                  activeToken = await openSession();
+                  if (activeToken) {
+                    sequence += 1;
+                    try {
+                      return await transport.invoke({
+                        pluginId: item.pluginId,
+                        surfaceId,
+                        generation: item.generation,
+                        token: activeToken,
+                        requestId: crypto.randomUUID(),
+                        sequence,
+                        method: handler,
+                        params: (input ?? {}) as never,
+                      });
+                    } catch (retryErr) {
+                      throw toError(retryErr);
+                    }
+                  }
+                }
+                throw toError(err);
+              }
+            };
+            const next = invokeQueue.then(run, run);
+            invokeQueue = next.catch(() => undefined);
+            return next;
           },
         });
         setRemoteState('ready');
@@ -225,6 +275,13 @@ function PluginRemoteViewBody({
     [item, metadata.allowedMethods, slot, surfaceId]
   );
 
+  const surfaceVariant =
+    slot === 'app.tab' ||
+    slot === 'app.kanban.view' ||
+    slot === 'app.settings.page'
+      ? 'editor'
+      : 'panel';
+
   if (remote && isHttpRemoteEntry(remote.entry)) {
     if (remoteState === 'failed') {
       return (
@@ -232,11 +289,7 @@ function PluginRemoteViewBody({
           descriptor={surface}
           enabled
           transport={transport}
-          variant={
-            slot === 'app.tab' || slot === 'app.kanban.view'
-              ? 'editor'
-              : 'panel'
-          }
+          variant={surfaceVariant}
         />
       );
     }
@@ -257,7 +310,7 @@ function PluginRemoteViewBody({
       descriptor={surface}
       enabled
       transport={transport}
-      variant="panel"
+      variant={surfaceVariant}
     />
   );
 }

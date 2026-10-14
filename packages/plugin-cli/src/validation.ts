@@ -781,6 +781,7 @@ function validateHostChrome(
     case "app.settings.page":
       requireText("title");
       requireSurfaceEntry();
+      requireStringArray("allowedMethods");
       validateRemote(integration, diagnostics, kind);
       break;
     case "app.composer.action": {

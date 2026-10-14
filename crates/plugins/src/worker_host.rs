@@ -18,7 +18,7 @@ use tokio::{
 
 use crate::PluginPackage;
 
-const MAX_PROTOCOL_FRAME_BYTES: usize = 1024 * 1024;
+const MAX_PROTOCOL_FRAME_BYTES: usize = 32 * 1024 * 1024;
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -593,7 +593,7 @@ fn hosted_worker_command(
     if runtime == "python" {
         command.arg(&entrypoint);
     } else if runtime != "native" {
-        command.arg("--max-old-space-size=128").arg(&entrypoint);
+        command.arg("--max-old-space-size=512").arg(&entrypoint);
     }
     command
         .current_dir(&package_root)
@@ -876,7 +876,7 @@ mod worker_host_tests {
         assert_eq!(
             command.get_args().collect::<Vec<_>>(),
             vec![
-                OsStr::new("--max-old-space-size=128"),
+                OsStr::new("--max-old-space-size=512"),
                 OsStr::new(r"C:\Users\user\AppData\Roaming\vibex\plugin\dist\worker.mjs"),
             ]
         );
@@ -902,7 +902,7 @@ mod worker_host_tests {
         assert_eq!(
             command.get_args().collect::<Vec<_>>(),
             vec![
-                OsStr::new("--max-old-space-size=128"),
+                OsStr::new("--max-old-space-size=512"),
                 OsStr::new(r"\\server\share\plugin\dist\worker.mjs"),
             ]
         );
@@ -926,6 +926,19 @@ mod worker_host_tests {
             command.get_args().collect::<Vec<_>>(),
             vec![OsStr::new(r"C:\vibex\plugin\worker.py")]
         );
+    }
+
+    #[tokio::test]
+    async fn write_message_accepts_frames_larger_than_one_mib() {
+        let mut sink = Vec::new();
+        let payload = "x".repeat(2 * 1024 * 1024);
+        write_message(
+            &mut sink,
+            &json!({ "id": "req:1", "ok": true, "result": payload }),
+        )
+        .await
+        .expect("frames above 1 MiB should be accepted up to MAX_PROTOCOL_FRAME_BYTES");
+        assert!(sink.len() > 2 * 1024 * 1024);
     }
 
     #[test]

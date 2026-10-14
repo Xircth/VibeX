@@ -119,6 +119,7 @@ import {
 } from './sessionComposerStructuredTokens';
 import { useAgentMentions } from './AgentMention';
 import {
+  astryxHandlesComposerSubmit,
   composerEnterAction,
   isComposerImeCommitEnter,
 } from './sessionComposerSubmitHotkey';
@@ -350,7 +351,7 @@ function SessionComposerImageAttachment({
   if (previewKind === 'file') {
     return (
       <div
-        className="group relative"
+        className="group relative max-w-full shrink-0"
         data-testid="session-composer-file-attachment"
       >
         <AttachmentFileCard
@@ -373,7 +374,7 @@ function SessionComposerImageAttachment({
 
   return (
     <div
-      className="group relative h-16 w-16 overflow-hidden rounded-md border border-border bg-muted/40"
+      className="group relative h-16 w-16 shrink-0 overflow-hidden rounded-md border border-border bg-muted/40"
       title={label}
     >
       <button
@@ -888,10 +889,142 @@ function appendPlainTextWithLineBreaks(parent: ParentNode, text: string): void {
   });
 }
 
+function getSerializedNodeLength(node: Node): number {
+  if (node.nodeType === Node.TEXT_NODE) {
+    return (node.textContent ?? '').length;
+  }
+  if (node instanceof HTMLElement) {
+    if (node.hasAttribute('data-astryx-token')) {
+      return (
+        Number(node.dataset.astryxTokenSourceLength) ||
+        (node.dataset.astryxTokenValue ?? node.textContent ?? '').length
+      );
+    }
+    if (node.nodeName === 'BR') {
+      return 1;
+    }
+  }
+  let total = 0;
+  for (const child of Array.from(node.childNodes)) {
+    total += getSerializedNodeLength(child);
+  }
+  return total;
+}
+
+function getEditorCaretOffset(editor: HTMLElement): number | null {
+  const selection = window.getSelection();
+  if (!selection || selection.rangeCount === 0) return null;
+  const range = selection.getRangeAt(0);
+  if (!editor.contains(range.endContainer)) return null;
+
+  const targetContainer = range.endContainer;
+  const targetOffset = range.endOffset;
+  let offset = 0;
+  let found = false;
+
+  const visit = (node: Node): void => {
+    if (found) return;
+    if (node === targetContainer) {
+      if (node.nodeType === Node.TEXT_NODE) {
+        offset += Math.min(targetOffset, (node.textContent ?? '').length);
+      } else {
+        const children = Array.from(node.childNodes);
+        for (let i = 0; i < Math.min(targetOffset, children.length); i += 1) {
+          offset += getSerializedNodeLength(children[i]);
+        }
+      }
+      found = true;
+      return;
+    }
+    if (node.nodeType === Node.TEXT_NODE) {
+      offset += (node.textContent ?? '').length;
+      return;
+    }
+    if (node instanceof HTMLElement) {
+      if (node.hasAttribute('data-astryx-token')) {
+        const len = getSerializedNodeLength(node);
+        offset += len;
+        if (node.contains(targetContainer)) {
+          found = true;
+        }
+        return;
+      }
+      if (node.nodeName === 'BR') {
+        offset += 1;
+        return;
+      }
+    }
+    for (const child of Array.from(node.childNodes)) {
+      visit(child);
+      if (found) return;
+    }
+  };
+
+  visit(editor);
+  return found ? offset : null;
+}
+
+function restoreEditorCaretOffset(
+  editor: HTMLElement,
+  caretOffset: number | null
+): void {
+  const selection = window.getSelection();
+  if (!selection) return;
+  const range = document.createRange();
+
+  if (caretOffset == null) {
+    range.selectNodeContents(editor);
+    range.collapse(false);
+    selection.removeAllRanges();
+    selection.addRange(range);
+    return;
+  }
+
+  let remaining = Math.max(0, caretOffset);
+  const children = Array.from(editor.childNodes);
+  for (let index = 0; index < children.length; index += 1) {
+    const child = children[index];
+    if (child.nodeType === Node.TEXT_NODE) {
+      const len = (child.textContent ?? '').length;
+      if (remaining <= len) {
+        range.setStart(child, remaining);
+        range.collapse(true);
+        selection.removeAllRanges();
+        selection.addRange(range);
+        return;
+      }
+      remaining -= len;
+      continue;
+    }
+    const len = getSerializedNodeLength(child);
+    if (remaining === 0) {
+      range.setStart(editor, index);
+      range.collapse(true);
+      selection.removeAllRanges();
+      selection.addRange(range);
+      return;
+    }
+    if (remaining < len) {
+      range.setStart(editor, index + 1);
+      range.collapse(true);
+      selection.removeAllRanges();
+      selection.addRange(range);
+      return;
+    }
+    remaining -= len;
+  }
+
+  range.selectNodeContents(editor);
+  range.collapse(false);
+  selection.removeAllRanges();
+  selection.addRange(range);
+}
+
 function restoreStructuredTokens(
   composerRoot: HTMLDivElement,
   value: string,
-  bareAgentMentions?: Array<{ agent_kind: string; display_name: string }>
+  bareAgentMentions?: Array<{ agent_kind: string; display_name: string }>,
+  savedCaretOffset?: number | null
 ): void {
   const editor = getSessionComposerEditable(composerRoot);
   if (!editor) return;
@@ -919,6 +1052,9 @@ function restoreStructuredTokens(
   }
 
   const wasFocused = document.activeElement === editor;
+  const caretOffset = wasFocused
+    ? (savedCaretOffset ?? getEditorCaretOffset(editor))
+    : null;
   const fragment = document.createDocumentFragment();
   for (const segment of segments) {
     if (segment.kind === 'text') {
@@ -929,6 +1065,10 @@ function restoreStructuredTokens(
     const token = document.createElement('span');
     token.setAttribute('data-astryx-token', '');
     token.setAttribute('data-astryx-token-value', segment.token.raw);
+    token.setAttribute(
+      'data-astryx-token-source-length',
+      String(segment.end - segment.start)
+    );
     token.setAttribute('data-astryx-restored-token', '');
     token.contentEditable = 'false';
     token.textContent = segment.token.label;
@@ -938,14 +1078,7 @@ function restoreStructuredTokens(
   editor.replaceChildren(fragment);
 
   if (wasFocused) {
-    const selection = window.getSelection();
-    if (selection) {
-      const range = document.createRange();
-      range.selectNodeContents(editor);
-      range.collapse(false);
-      selection.removeAllRanges();
-      selection.addRange(range);
-    }
+    restoreEditorCaretOffset(editor, caretOffset);
   }
 }
 
@@ -1116,14 +1249,26 @@ export function SessionComposerInput({
     onChange,
   });
 
+  const preSyncCaretOffsetRef = useRef<number | null>(null);
+  useLayoutEffect(() => {
+    const editor = getSessionComposerEditable(composerRootRef.current);
+    preSyncCaretOffsetRef.current =
+      editor && document.activeElement === editor
+        ? getEditorCaretOffset(editor)
+        : null;
+  }, [agentMentions.candidates, agentMentions.capability, value]);
+
   useEffect(() => {
+    const savedCaretOffset = preSyncCaretOffsetRef.current;
+    preSyncCaretOffsetRef.current = null;
     if (composerRootRef.current) {
       restoreStructuredTokens(
         composerRootRef.current,
         value,
         agentMentions.capability === 'supported'
           ? agentMentions.candidates
-          : undefined
+          : undefined,
+        savedCaretOffset
       );
     }
   }, [agentMentions.candidates, agentMentions.capability, value]);
@@ -1409,16 +1554,22 @@ export function SessionComposerInput({
         searchSource: slashSource,
         onSelect: makeToken,
         renderItem,
-        loadingText: 'Loading commands...',
-        emptySearchResultsText: 'No matching commands found.',
+        loadingText: t('composer.commands.loading', 'Loading commands...'),
+        emptySearchResultsText: t(
+          'composer.commands.noMatches',
+          'No matching commands found.'
+        ),
       },
       {
         character: '$',
         searchSource: dollarSource,
         onSelect: makeToken,
         renderItem,
-        loadingText: 'Loading commands...',
-        emptySearchResultsText: 'No matching commands found.',
+        loadingText: t('composer.commands.loading', 'Loading commands...'),
+        emptySearchResultsText: t(
+          'composer.commands.noMatches',
+          'No matching commands found.'
+        ),
       },
       ...(agentMentions.capability === 'supported'
         ? [
@@ -1511,17 +1662,31 @@ export function SessionComposerInput({
       ) {
         return;
       }
-      if (!detail || detail.mode !== 'token' || !detail.text) return;
-      insertStructuredTokenAtCaret({
-        value: detail.text,
-        label: detail.label ?? detail.text,
-      });
+      if (!detail || typeof detail.text !== 'string') return;
+      if (detail.mode === 'token') {
+        if (!detail.text) return;
+        insertStructuredTokenAtCaret({
+          value: detail.text,
+          label: detail.label ?? detail.text,
+        });
+        return;
+      }
+      const text = detail.text.trim();
+      if (!text) return;
+      const current = composerHandleRef.current?.getValue() ?? value;
+      onChange(current.trim() ? `${current.trim()}\n\n${text}` : text);
     };
     window.addEventListener(COMPOSER_INSERT_EVENT, onInsert);
     return () => {
       window.removeEventListener(COMPOSER_INSERT_EVENT, onInsert);
     };
-  }, [acceptExternalInserts, insertStructuredTokenAtCaret, sessionId]);
+  }, [
+    acceptExternalInserts,
+    insertStructuredTokenAtCaret,
+    onChange,
+    sessionId,
+    value,
+  ]);
 
   useEffect(() => {
     const onImage = (event: Event) => {
@@ -1806,29 +1971,50 @@ export function SessionComposerInput({
     localSubmitsRef.current = [];
   }, [sessionId]);
 
-  const handleSubmit = useCallback(
-    (text: string) => {
-      if (text.trim()) {
-        localSubmitsRef.current = [...localSubmitsRef.current, text];
+  const isMaterializingSubmitRef = useRef(false);
+  const clearSubmittedEditor = useCallback(() => {
+    const editable = composerRootRef.current?.querySelector<HTMLElement>(
+      '[contenteditable="true"]'
+    );
+    if (editable) editable.replaceChildren();
+    onChange('');
+  }, [onChange]);
+
+  const commitSubmission = useCallback(
+    (rawText: string, submittedText: string) => {
+      if (rawText.trim()) {
+        localSubmitsRef.current = [...localSubmitsRef.current, rawText];
       }
       historyIndexRef.current = -1;
       historyDraftRef.current = '';
+      onSubmit(submittedText);
+      clearSubmittedEditor();
+    },
+    [clearSubmittedEditor, onSubmit]
+  );
+
+  const handleSubmit = useCallback(
+    (text: string) => {
+      if (isMaterializingSubmitRef.current) return;
       if (mentionedHostFileNames(text).length === 0) {
-        onSubmit(text);
+        commitSubmission(text, text);
         return;
       }
+      isMaterializingSubmitRef.current = true;
       void (async () => {
         try {
           const submitted = await materializeMentionedHostFiles({ text });
-          onSubmit(submitted);
+          commitSubmission(text, submitted);
         } catch (error) {
           toast.error(t('composer.atReference.materializeFailed'), {
             description: error instanceof Error ? error.message : String(error),
           });
+        } finally {
+          isMaterializingSubmitRef.current = false;
         }
       })();
     },
-    [onSubmit, t]
+    [commitSubmission, t]
   );
 
   const handleHistoryKeyDown = useCallback(
@@ -1940,7 +2126,21 @@ export function SessionComposerInput({
               event,
               lastCompositionEndAtRef.current
             );
-            if (action === 'defer') return;
+            if (action === 'defer') {
+              if (!event.shiftKey && astryxHandlesComposerSubmit(event)) {
+                const text = composerHandleRef.current?.getValue().trim() ?? '';
+                if (
+                  isMaterializingSubmitRef.current ||
+                  mentionedHostFileNames(text).length > 0
+                ) {
+                  event.preventDefault();
+                  if (text) {
+                    handleSubmit(text);
+                  }
+                }
+              }
+              return;
+            }
             event.preventDefault();
             if (action === 'newline') {
               composerHandleRef.current?.insertText('\n');
@@ -1950,12 +2150,6 @@ export function SessionComposerInput({
             const text = composerHandleRef.current?.getValue().trim() ?? '';
             if (!text) return;
             handleSubmit(text);
-            const editable =
-              composerRootRef.current?.querySelector<HTMLElement>(
-                '[contenteditable="true"]'
-              );
-            if (editable) editable.replaceChildren();
-            onChange('');
           }}
           onSubmit={handleSubmit}
           onFiles={(files) => {

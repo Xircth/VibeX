@@ -1,10 +1,5 @@
 import { TooltipProvider } from '@/components/ui/tooltip';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import {
-  COMPOSER_INSERT_EVENT,
-  shouldAcceptComposerInsert,
-  type ComposerInsertDetail,
-} from '@/lib/composerInsert';
 import { useTranslation } from 'react-i18next';
 import { useQuery } from '@tanstack/react-query';
 import type { AgentKind } from 'shared/types';
@@ -100,6 +95,7 @@ import {
   restoreComposerAttachmentsAfterSendFailure,
   buildQueuedFollowUp,
 } from './follow-up/sessionComposerSubmit';
+import { executeComposerSteer } from './follow-up/sessionComposerSteering';
 import { canEnhancePrompt as getCanEnhancePrompt } from './follow-up/sessionComposerPromptEnhancement';
 import { useSessionComposerPromptEnhancement } from './follow-up/useSessionComposerPromptEnhancement';
 import { useSessionComposerContextCompact } from './follow-up/useSessionComposerContextCompact';
@@ -343,28 +339,6 @@ export function TaskFollowUpSection({
     executorProfileRef,
   } = useSessionComposerLocalState();
 
-  useEffect(() => {
-    const onInsert = (event: Event) => {
-      const detail = (event as CustomEvent<ComposerInsertDetail>).detail;
-      if (
-        !shouldAcceptComposerInsert(detail, {
-          conversationId: sessionId,
-        })
-      ) {
-        return;
-      }
-      if (!detail || detail.mode === 'token') return;
-      const text = detail.text;
-      if (typeof text !== 'string' || !text.trim()) return;
-      setLocalMessage((current) =>
-        current.trim() ? `${current.trim()}\n\n${text.trim()}` : text.trim()
-      );
-    };
-    window.addEventListener(COMPOSER_INSERT_EVENT, onInsert);
-    return () => {
-      window.removeEventListener(COMPOSER_INSERT_EVENT, onInsert);
-    };
-  }, [sessionId, setLocalMessage]);
   const {
     createdSessionProfiles,
     handleSelectSession,
@@ -771,6 +745,7 @@ export function TaskFollowUpSection({
   const [isSteering, setIsSteering] = useState(false);
   const handleSteer = useCallback(async () => {
     if (!sessionId) return;
+    const previousDraft = localMessage;
     const followUp = buildQueuedFollowUp({
       message: localMessage,
       conflictMarkdown: conflictResolutionInstructions,
@@ -779,76 +754,30 @@ export function TaskFollowUpSection({
       executorProfile: effectiveExecutorProfile,
     });
     if (!followUp) return;
-    const enqueueWholeDraft = async () => {
-      if (!workspaceIdValue) return;
-      await conversationApi.submitInput(sessionId, {
-        agentId: (session?.executor ?? 'claude_code') as AgentKind,
-        workspaceId: workspaceIdValue,
-        text: followUp.message,
-        images: followUp.images,
-        executorProfileId: effectiveExecutorProfile,
-      });
-      toast.info(t('tasks:composer.steerEnqueuedWholeDraft'));
-      cancelDebouncedSave();
-      await handleAfterSendWithSessionControlCleanup();
-    };
-    const channelCannotCarry =
-      followUp.pluginActions.length > 0 ||
-      (!steeringTarget && followUp.images.length > 0);
     setIsSteering(true);
-    setFollowUpError(null);
     try {
-      if (channelCannotCarry) {
-        await enqueueWholeDraft();
-        return;
-      }
-      if (steeringTarget) {
-        const receipt = await conversationApi.steer({
-          conversationId: sessionId,
-          expectedTurnId: steeringTarget.turnId,
-          text: followUp.message,
-          images: followUp.images,
-        });
-        if (receipt.status === 'accepted') {
+      await executeComposerSteer({
+        sessionId,
+        previousDraft,
+        followUp,
+        steeringTarget,
+        steer: (args) => conversationApi.steer(args),
+        submitFeedback: (args) => conversationApi.submitFeedback(args),
+        onAfterSuccess: async () => {
           cancelDebouncedSave();
           await handleAfterSendWithSessionControlCleanup();
-          return;
-        }
-        if (receipt.code === 'no_running_turn') {
-          await enqueueWholeDraft();
-          return;
-        }
-        setFollowUpError(
-          receipt.status === 'unknown'
-            ? [t('tasks:composer.steerUnknown'), receipt.message]
-                .filter(Boolean)
-                .join(' ')
-            : receipt.message || t('tasks:composer.steerRejected')
-        );
-        return;
-      }
-      await conversationApi.submitFeedback({
-        conversationId: sessionId,
-        text: followUp.message,
+        },
+        onRestoreDraft: handleSendFailure,
+        onError: setFollowUpError,
+        onToastError: (message) => toast.error(message),
+        messages: {
+          pluginBlocked: t('tasks:composer.steerPluginBlocked'),
+          imagesBlocked: t('tasks:composer.steerImagesBlocked'),
+          turnEnded: t('tasks:composer.steerTurnEnded'),
+          unknown: t('tasks:composer.steerUnknown'),
+          rejected: t('tasks:composer.steerRejected'),
+        },
       });
-      cancelDebouncedSave();
-      await handleAfterSendWithSessionControlCleanup();
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      if (/no active turn/i.test(message) && workspaceIdValue) {
-        await conversationApi.submitInput(sessionId, {
-          agentId: (session?.executor ?? 'claude_code') as AgentKind,
-          workspaceId: workspaceIdValue,
-          text: followUp.message,
-          images: followUp.images,
-          executorProfileId: effectiveExecutorProfile,
-        });
-        toast.info(t('tasks:composer.steerQueuedInstead'));
-        cancelDebouncedSave();
-        await handleAfterSendWithSessionControlCleanup();
-        return;
-      }
-      setFollowUpError(message);
     } finally {
       setIsSteering(false);
     }
@@ -858,14 +787,13 @@ export function TaskFollowUpSection({
     conflictResolutionInstructions,
     effectiveExecutorProfile,
     handleAfterSendWithSessionControlCleanup,
+    handleSendFailure,
     localMessage,
     reviewMarkdown,
-    session?.executor,
     sessionId,
     setFollowUpError,
     steeringTarget,
     t,
-    workspaceIdValue,
   ]);
   const { isCompactingContext, canCompactContext, handleCompactContext } =
     useSessionComposerContextCompact({

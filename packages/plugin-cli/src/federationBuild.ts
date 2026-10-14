@@ -64,24 +64,41 @@ export async function startFederationDevServer(options: {
   return server;
 }
 
+function canResolveFrom(root: string, name: string): boolean {
+  try {
+    const localRequire = createRequire(join(root, "package.json"));
+    localRequire.resolve(`${name}/package.json`);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 function federationViteConfig(
   pluginRoot: string,
   name: string,
   viewPath: string,
 ) {
+  const alias: Record<string, string> = {};
+  if (!canResolveFrom(pluginRoot, "react")) {
+    alias.react = resolveHostPackage("react");
+  }
+  if (!canResolveFrom(pluginRoot, "react-dom")) {
+    alias["react-dom"] = resolveHostPackage("react-dom");
+  }
   return {
     root: pluginRoot,
     configFile: false as const,
     appType: "custom" as const,
     plugins: [federationPlugin(name)],
-    resolve: {
-      alias: {
-        react: resolveHostPackage("react"),
-        "react-dom": resolveHostPackage("react-dom"),
-      },
+    ...(Object.keys(alias).length > 0 ? { resolve: { alias } } : {}),
+    optimizeDeps: {
+      entries: [viewPath],
     },
     esbuild: {
-      jsx: "automatic" as const,
+      jsx: "transform" as const,
+      jsxFactory: "React.createElement",
+      jsxFragment: "React.Fragment",
     },
     build: {
       target: "esnext",

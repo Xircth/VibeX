@@ -13,6 +13,11 @@
     "steerEnqueuedWholeDraft": "通道无法携带这份草稿，已加入下一轮队列",
     "steerUnknown": "纠偏送达状态未知；为避免重复注入，内容已保留。",
     "steerRejected": "Agent 未接受本次运行中纠偏。",
+    "steerTurnEnded": "当前回合已结束，草稿已保留，你可以作为新回合发送。",
+    "commands": {
+      "loading": "正在加载命令...",
+      "noMatches": "没有匹配的命令。"
+    },
     "commandSource": {
       "plugin": "插件",
       "skill": "Skill",

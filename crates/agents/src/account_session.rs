@@ -119,6 +119,7 @@ pub async fn resolve_account_label(agent_id: &AgentId) -> Option<String> {
         }
         "cursor" => jwt_identity(cursor_auth::cursor_account_token().await?.as_str()),
         "grok" => account_label_from_grok_auth(&read_json_value(grok_auth_path()?).await?),
+        "antigravity" | "gemini" => resolve_antigravity_account_label().await,
         _ => None,
     }
 }
@@ -129,6 +130,122 @@ pub fn account_label_from_codex_auth(auth: &Value) -> Option<String> {
         .and_then(Value::as_str)
         .and_then(jwt_identity)
         .or_else(|| account_label_from_document(auth))
+}
+
+pub fn account_label_from_antigravity_token(value: &Value) -> Option<String> {
+    identity_from_value(value)
+        .or_else(|| {
+            value
+                .get("id_token")
+                .and_then(Value::as_str)
+                .and_then(jwt_identity)
+        })
+        .or_else(|| account_label_from_document(value))
+}
+
+pub fn extract_email_from_antigravity_log(content: &str) -> Option<String> {
+    for line in content.lines().rev() {
+        if let Some(pos) = line.find("OAuth: authenticated successfully as ") {
+            let email = line[pos + "OAuth: authenticated successfully as ".len()..].trim();
+            if !email.is_empty() && email.contains('@') {
+                return Some(email.to_string());
+            }
+        }
+        if let Some(pos) = line.find("applyAuthResult: email=") {
+            let rest = &line[pos + "applyAuthResult: email=".len()..];
+            let email = rest.split(',').next().unwrap_or("").trim();
+            if !email.is_empty() && email.contains('@') {
+                return Some(email.to_string());
+            }
+        }
+    }
+    None
+}
+
+async fn read_antigravity_email_from_logs() -> Option<String> {
+    let log_dir = metadata::gemini_home()?.join("antigravity-cli").join("log");
+    let mut entries = tokio::fs::read_dir(log_dir).await.ok()?;
+    let mut newest_file = None;
+    let mut newest_time = std::time::SystemTime::UNIX_EPOCH;
+
+    while let Ok(Some(entry)) = entries.next_entry().await {
+        let path = entry.path();
+        if path.extension().and_then(|s| s.to_str()) == Some("log") {
+            if let Ok(meta) = entry.metadata().await {
+                if let Ok(modified) = meta.modified() {
+                    if modified > newest_time {
+                        newest_time = modified;
+                        newest_file = Some(path);
+                    }
+                }
+            }
+        }
+    }
+
+    let file_path = newest_file?;
+    let content = tokio::fs::read_to_string(file_path).await.ok()?;
+    extract_email_from_antigravity_log(&content)
+}
+
+async fn refresh_antigravity_token_email(doc: &Value) -> Option<String> {
+    let refresh_token = doc.get("refresh_token").and_then(Value::as_str)?;
+    let client_id = doc.get("client_id").and_then(Value::as_str)?;
+    let client_secret = doc.get("client_secret").and_then(Value::as_str).unwrap_or("");
+    let token_uri = doc
+        .get("token_uri")
+        .and_then(Value::as_str)
+        .unwrap_or("https://oauth2.googleapis.com/token");
+
+    let client = reqwest::Client::builder()
+        .timeout(Duration::from_secs(CONFIRM_TIMEOUT_SECS))
+        .build()
+        .ok()?;
+
+    let params = [
+        ("grant_type", "refresh_token"),
+        ("refresh_token", refresh_token),
+        ("client_id", client_id),
+        ("client_secret", client_secret),
+    ];
+
+    let response = client.post(token_uri).form(&params).send().await.ok()?;
+    if !response.status().is_success() {
+        return None;
+    }
+    let res_json = response.json::<Value>().await.ok()?;
+    account_label_from_antigravity_token(&res_json)
+}
+
+pub async fn resolve_antigravity_account_label() -> Option<String> {
+    let token_path = metadata::antigravity_token_path()?;
+    let mut token_doc = read_json_value(token_path.clone()).await;
+
+    if let Some(doc) = &token_doc {
+        if let Some(label) = account_label_from_antigravity_token(doc) {
+            return Some(label);
+        }
+    }
+
+    let mut resolved_email = read_antigravity_email_from_logs().await;
+
+    if resolved_email.is_none() {
+        if let Some(doc) = &token_doc {
+            resolved_email = refresh_antigravity_token_email(doc).await;
+        }
+    }
+
+    if let Some(ref email) = resolved_email {
+        if let Some(ref mut doc) = token_doc {
+            if doc.is_object() {
+                doc["email"] = Value::String(email.clone());
+                if let Ok(bytes) = serde_json::to_vec_pretty(doc) {
+                    let _ = tokio::fs::write(&token_path, bytes).await;
+                }
+            }
+        }
+    }
+
+    resolved_email
 }
 
 pub fn account_label_from_document(value: &Value) -> Option<String> {
@@ -544,6 +661,45 @@ mod tests {
                 "tokens": {}
             })),
             None
+        );
+    }
+
+    #[test]
+    fn extracts_email_from_antigravity_token_document() {
+        assert_eq!(
+            account_label_from_antigravity_token(&serde_json::json!({
+                "email": "user@gmail.com",
+                "refresh_token": "token123"
+            })),
+            Some("user@gmail.com".to_string())
+        );
+
+        assert_eq!(
+            account_label_from_antigravity_token(&serde_json::json!({
+                "oauthAccount": { "email": "account@gmail.com" }
+            })),
+            Some("account@gmail.com".to_string())
+        );
+    }
+
+    #[test]
+    fn extracts_email_from_antigravity_cli_log() {
+        let log = r#"
+I1011 14:53:09.766535     319 auth.go:157] ChainedAuth: authenticated via keyring (effective: keyring)
+I1011 14:53:09.766535     319 server_oauth.go:204] applyAuthResult: email=dev@google.com, authMethod=consumer, quotaProject=
+I1011 14:53:09.766535     319 server_oauth.go:209] OAuth: authenticated successfully as dev@google.com
+"#;
+        assert_eq!(
+            extract_email_from_antigravity_log(log),
+            Some("dev@google.com".to_string())
+        );
+
+        let log2 = r#"
+I1011 14:53:09.766535     319 server_oauth.go:204] applyAuthResult: email=engineer@example.com, authMethod=consumer
+"#;
+        assert_eq!(
+            extract_email_from_antigravity_log(log2),
+            Some("engineer@example.com".to_string())
         );
     }
 }

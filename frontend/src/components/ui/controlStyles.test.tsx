@@ -66,16 +66,68 @@ describe('shared raised controls', () => {
   it('keeps destructive actions on the same control geometry and elevation', () => {
     render(<Button variant="destructive">Remove</Button>);
 
-    const className = screen.getByRole('button', { name: 'Remove' }).className;
-    expect(className).toContain('rounded-lg');
-    expect(className).toContain('destructive-control');
+    const button = screen.getByRole('button', { name: 'Remove' });
+    expect(button.className).toContain('rounded-lg');
+    expect(button.className).toContain('destructive-control');
+    expect(button.className).toContain('astryx-button');
+    expect(button).toHaveAttribute('data-variant', 'destructive');
+    expect(button).toHaveAttribute('data-size', 'md');
+  });
+
+  it('aligns Button with Astryx pressable, loading, icon, and endContent capabilities', () => {
+    const { rerender } = render(
+      <Button
+        variant="primary"
+        size="sm"
+        icon={<span data-testid="lead-icon">+</span>}
+        endContent={<span data-testid="end-badge">3</span>}
+      >
+        Create
+      </Button>
+    );
+
+    const button = screen.getByRole('button', { name: /Create/i });
+    expect(button.className).toContain('astryx-button');
+    expect(button.className).toContain('primary-control');
+    expect(button).toHaveAttribute('data-variant', 'primary');
+    expect(button).toHaveAttribute('data-size', 'sm');
+    expect(button).toHaveAttribute('data-astryx-pressable', '');
+    expect(screen.getByTestId('lead-icon')).toBeInTheDocument();
+    expect(screen.getByTestId('end-badge')).toBeInTheDocument();
+
+    rerender(
+      <Button label="Save changes" isLoading>
+        Save changes
+      </Button>
+    );
+
+    const loadingButton = screen.getByRole('button', { name: 'Save changes' });
+    expect(loadingButton).toBeDisabled();
+    expect(loadingButton).toHaveAttribute('aria-busy', 'true');
+    expect(
+      loadingButton.querySelector('.astryx-button__spinner')
+    ).not.toBeNull();
+
+    rerender(
+      <Button
+        label="Close panel"
+        variant="ghost"
+        isIconOnly
+        icon={<span data-testid="only-icon">x</span>}
+      />
+    );
+
+    const iconOnlyButton = screen.getByRole('button', { name: 'Close panel' });
+    expect(iconOnlyButton).toHaveAttribute('data-variant', 'ghost');
+    expect(iconOnlyButton).toHaveAttribute('data-icon-only', '');
+    expect(screen.getByTestId('only-icon')).toBeInTheDocument();
   });
 
   it('keeps shared inputs on the canonical control radius', () => {
     render(<Input aria-label="Credential" />);
 
     const className = screen.getByLabelText('Credential').className;
-    expect(className).toContain('rounded-lg');
+    expect(className).toContain('var(--radius)');
     expect(className).not.toContain('ring-2');
     expect(className).toContain('inset_0_0_0_2px');
   });
@@ -107,6 +159,9 @@ describe('shared raised controls', () => {
     const design = readFileSync(join(frontendRoot, '../DESIGN.md'), 'utf8');
 
     expect(css).toContain('--_radius: 0.875rem;');
+    expect(css).toContain('--radius-element: var(--radius);');
+    expect(css).toContain('--_button-radius: var(--radius);');
+    expect(css).toContain('--color-neutral: var(--surface-raised-control);');
     expect(css).toContain('--_primary: var(--accent-hsl, 0 0% 9.02%);');
     expect(css).toContain(
       '--_primary-foreground: var(--accent-foreground-hsl, 0 0% 100%);'

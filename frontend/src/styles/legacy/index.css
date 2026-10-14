@@ -556,11 +556,16 @@
 
   .legacy-design [data-astryx-theme] {
     --font-family-body: var(--font-ui);
+    --radius-element: var(--radius);
+    --_button-radius: var(--radius);
     --color-accent: hsl(var(--primary));
     --color-accent-muted: hsl(var(--primary) / 0.12);
     --color-text-accent: hsl(var(--primary));
     --color-icon-accent: hsl(var(--primary));
     --color-on-accent: hsl(var(--primary-foreground));
+    --color-neutral: var(--surface-raised-control);
+    --color-overlay-hover: var(--surface-control);
+    --color-overlay-pressed: var(--surface-control-hover);
     --color-border-emphasized: light-dark(#d4d4d4, #525252);
   }
 
@@ -2801,6 +2806,87 @@ html.dark {
   .primary-control:disabled,
   .destructive-control:disabled {
     box-shadow: none;
+  }
+
+  :where(.astryx-button) {
+    position: relative;
+  }
+
+  @media (prefers-reduced-motion: no-preference) {
+    .astryx-button[data-astryx-pressable]:active:not(:disabled):not(
+        [aria-disabled='true']
+      ) {
+      transform: scale(0.98);
+    }
+  }
+
+  .astryx-button[data-elevation='low'] {
+    box-shadow: var(--shadow-low, var(--shadow-control));
+  }
+
+  .astryx-button[data-elevation='med'] {
+    box-shadow: var(--shadow-med, var(--shadow-card));
+  }
+
+  .astryx-button[data-elevation='high'] {
+    box-shadow: var(--shadow-high, var(--shadow-popover));
+  }
+
+  .astryx-button__spinner {
+    position: absolute;
+    inset: 0;
+    display: grid;
+    place-items: center;
+    pointer-events: none;
+  }
+
+  .astryx-button__spinner-ring {
+    width: 14px;
+    height: 14px;
+    border: 1.75px solid currentColor;
+    border-right-color: transparent;
+    border-radius: 999px;
+    animation: astryx-button-spin 650ms linear infinite;
+  }
+
+  @keyframes astryx-button-spin {
+    to {
+      transform: rotate(360deg);
+    }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .astryx-button__spinner-ring {
+      animation: none;
+    }
+  }
+
+  .astryx-button__content {
+    display: contents;
+  }
+
+  .astryx-button__content[data-loading='true'] {
+    color: transparent;
+  }
+
+  .astryx-button__icon {
+    display: inline-flex;
+    flex-shrink: 0;
+    align-items: center;
+    justify-content: center;
+  }
+
+  .astryx-button__label {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .astryx-button__end {
+    display: inline-flex;
+    flex-shrink: 0;
+    align-items: center;
+    color: inherit;
   }
 
   select.raised-control:not([multiple]) {

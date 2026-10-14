@@ -208,3 +208,112 @@ fn resolve_session_defaults_keeps_all_ids_stale_without_a_catalog() {
     assert!(validation.valid.is_empty());
     assert_eq!(validation.stale_ids, ["broken", "model"]);
 }
+
+fn select_option(
+    key: &str,
+    category: &str,
+    current: serde_json::Value,
+    choices: &[&str],
+) -> AgentSessionConfigOption {
+    AgentSessionConfigOption {
+        key: key.to_string(),
+        label: key.to_string(),
+        description: None,
+        category: Some(category.to_string()),
+        value: Some(current),
+        choices: choices
+            .iter()
+            .map(|choice| AgentSessionConfigChoice {
+                value: serde_json::json!(choice),
+                label: choice.to_string(),
+                description: None,
+            })
+            .collect(),
+        dependency: None,
+    }
+}
+
+#[test]
+fn session_defaults_accept_antigravity_thinking_level_and_model() {
+    let defaults = BTreeMap::from([
+        ("model".to_string(), serde_json::json!("gemini-3.8-flash")),
+        ("thinking_level".to_string(), serde_json::json!("high")),
+    ]);
+    let options = vec![
+        select_option(
+            "model",
+            "model",
+            serde_json::json!("gemini-3.8-flash"),
+            &["gemini-3.8-flash", "gemini-4-argon"],
+        ),
+        select_option(
+            "thinking_level",
+            "thought_level",
+            serde_json::json!("medium"),
+            &["low", "medium", "high"],
+        ),
+    ];
+
+    let validation = validate_session_defaults(defaults, &options);
+
+    assert_eq!(
+        validation.valid,
+        BTreeMap::from([
+            ("model".to_string(), serde_json::json!("gemini-3.8-flash")),
+            ("thinking_level".to_string(), serde_json::json!("high")),
+        ])
+    );
+    assert!(validation.stale_ids.is_empty());
+}
+
+#[test]
+fn session_defaults_accept_the_currently_advertised_value_without_a_choice() {
+    let defaults = BTreeMap::from([("model".to_string(), serde_json::json!("custom-grok"))]);
+    let options = vec![select_option(
+        "model",
+        "model",
+        serde_json::json!("custom-grok"),
+        &["grok-4.6"],
+    )];
+
+    let validation = validate_session_defaults(defaults, &options);
+
+    assert_eq!(
+        validation.valid,
+        BTreeMap::from([("model".to_string(), serde_json::json!("custom-grok"))])
+    );
+    assert!(validation.stale_ids.is_empty());
+}
+
+#[test]
+fn session_defaults_canonicalize_thought_level_aliases_onto_the_advertised_key() {
+    let defaults = BTreeMap::from([
+        ("model".to_string(), serde_json::json!("gemini-4-argon")),
+        ("effort".to_string(), serde_json::json!("low")),
+    ]);
+    let options = vec![
+        select_option(
+            "model",
+            "model",
+            serde_json::json!("gemini-3.8-flash"),
+            &["gemini-3.8-flash", "gemini-4-argon"],
+        ),
+        select_option(
+            "thinking_level",
+            "thought_level",
+            serde_json::json!("high"),
+            &["low", "medium", "high"],
+        ),
+    ];
+
+    let validation = validate_session_defaults(defaults, &options);
+
+    assert_eq!(
+        validation.valid,
+        BTreeMap::from([
+            ("model".to_string(), serde_json::json!("gemini-4-argon")),
+            ("thinking_level".to_string(), serde_json::json!("low")),
+        ])
+    );
+    assert!(validation.stale_ids.is_empty());
+}

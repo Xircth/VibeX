@@ -2708,7 +2708,9 @@ fn store_error(error: sqlx::Error) -> ApplicationError {
     }
 }
 
-fn conversation_error(error: conversations::ConversationServiceError) -> ApplicationError {
+pub(crate) fn conversation_error(
+    error: conversations::ConversationServiceError,
+) -> ApplicationError {
     match error {
         conversations::ConversationServiceError::NotFound(message) => {
             ApplicationError::not_found(message)

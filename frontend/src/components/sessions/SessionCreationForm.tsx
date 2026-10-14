@@ -14,7 +14,6 @@ import { ConversationStatusDetails } from '@/components/NormalizedConversation/c
 import { TerminalProfileControls } from '@/components/tasks/TerminalProfileControls';
 import {
   advertisedSessionConfigValues,
-  jsonValueToString,
   presentableSessionConfigOptions,
   resolvedConfigOptionChoices,
   sanitizeDependentConfigValues,
@@ -29,6 +28,7 @@ import {
   isAgentInstallLaunchError,
   splitLaunchError,
 } from '@/features/agents/sessionControlsError';
+import { sessionDefaultsWritePayload } from '@/features/agents/sessionDefaults';
 import {
   loadAgentSessionControlsCatalog,
   mergeCreateSessionControls,
@@ -400,22 +400,19 @@ export function SessionCreationForm({
   );
   const saveAgentDefaults = async () => {
     if (!executor) return;
-    const rawDefaults = Object.fromEntries(
-      visibleConfigOptions.flatMap((option) => {
-        const serialized = configOverrides[option.key];
-        if (serialized === undefined) return [];
-        const advertisedChoice = (option.choices ?? []).find(
-          (choice) => jsonValueToString(choice.value) === serialized
-        );
-        if (advertisedChoice) {
-          return [[option.key, advertisedChoice.value]];
-        }
-        if (typeof option.value === 'boolean') {
-          return [[option.key, serialized === 'true']];
-        }
-        return [[option.key, serialized]];
-      })
+    const advertisedOptions =
+      catalogQuery.data?.config_options &&
+      catalogQuery.data.config_options.length > 0
+        ? catalogQuery.data.config_options
+        : visibleConfigOptions;
+    const rawDefaults = sessionDefaultsWritePayload(
+      advertisedOptions,
+      configOverrides
     );
+    if (Object.keys(rawDefaults).length === 0) {
+      setDefaultsSaveState('error');
+      return;
+    }
     setDefaultsSaveState('saving');
     try {
       await agentsApi.setSessionDefaults(executor, rawDefaults);

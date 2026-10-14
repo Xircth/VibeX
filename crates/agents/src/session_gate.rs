@@ -16,33 +16,85 @@ pub struct SessionDefaultValidation {
     pub stale_ids: Vec<String>,
 }
 
-/// Validate persisted raw ACP option/value pairs against the exact options
-/// advertised by the newly prepared session. A catalog or historical option
-/// label is never sufficient evidence for sending a saved value.
+/// Validate persisted raw ACP option/value pairs against the options
+/// advertised by the catalog or newly prepared session.
+///
+/// Thought-level keys are matched by alias (`effort` / `reasoning_effort` /
+/// `thinking_level`) because vendors advertise the same control under
+/// different ids. A currently advertised `option.value` is valid even when it
+/// is missing from `choices` (custom or newly selected models).
 pub fn validate_session_defaults(
     defaults: BTreeMap<String, Value>,
     advertised_options: &[AgentSessionConfigOption],
 ) -> SessionDefaultValidation {
     let mut validation = SessionDefaultValidation::default();
     for (option_id, value) in defaults {
-        let valid = advertised_options
-            .iter()
-            .find(|option| option.key == option_id)
-            .is_some_and(|option| {
-                if option.choices.is_empty() {
-                    option.value.as_ref().is_some_and(Value::is_boolean) && value.is_boolean()
-                } else {
-                    option.choices.iter().any(|choice| choice.value == value)
-                }
-            });
-        if valid {
-            validation.valid.insert(option_id, value);
-        } else {
-            validation.stale_ids.push(option_id);
+        match advertised_option_for_default(advertised_options, &option_id) {
+            Some(option) if default_value_is_advertised(option, &value) => {
+                validation.valid.insert(option.key.clone(), value);
+            }
+            _ => validation.stale_ids.push(option_id),
         }
     }
     validation.stale_ids.sort();
     validation
+}
+
+fn advertised_option_for_default<'a>(
+    advertised_options: &'a [AgentSessionConfigOption],
+    option_id: &str,
+) -> Option<&'a AgentSessionConfigOption> {
+    advertised_options
+        .iter()
+        .find(|option| option.key == option_id)
+        .or_else(|| {
+            advertised_options
+                .iter()
+                .find(|option| session_default_key_aliases(option, option_id))
+        })
+}
+
+fn session_default_key_aliases(option: &AgentSessionConfigOption, option_id: &str) -> bool {
+    let requested = normalize_session_default_token(option_id);
+    if !is_thought_level_default_token(&requested) {
+        return false;
+    }
+    let id = normalize_session_default_token(&option.key);
+    option.category.as_deref() == Some("thought_level") || is_thought_level_default_token(&id)
+}
+
+fn is_thought_level_default_token(token: &str) -> bool {
+    matches!(
+        token,
+        "reasoning"
+            | "reasoningeffort"
+            | "thoughteffort"
+            | "thoughtlevel"
+            | "thinkinglevel"
+            | "effort"
+    ) || token.contains("reason")
+        || token.contains("thought")
+        || token.contains("thinking")
+        || token.contains("effort")
+}
+
+fn normalize_session_default_token(value: &str) -> String {
+    value
+        .trim()
+        .chars()
+        .filter(|ch| ch.is_ascii_alphanumeric())
+        .flat_map(char::to_lowercase)
+        .collect()
+}
+
+fn default_value_is_advertised(option: &AgentSessionConfigOption, value: &Value) -> bool {
+    if option.value.as_ref() == Some(value) {
+        return true;
+    }
+    if option.choices.is_empty() {
+        return option.value.as_ref().is_some_and(Value::is_boolean) && value.is_boolean();
+    }
+    option.choices.iter().any(|choice| choice.value == *value)
 }
 
 /// Fold stored defaults against the current catalog. Missing catalog evidence

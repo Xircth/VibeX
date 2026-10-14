@@ -28,8 +28,9 @@ pub use bundle::{
 };
 pub use capability_catalog::{
     capability_catalog_is_fresh, invalidate_open_capability_catalog,
-    open_capability_catalog_fingerprint, read_matching_open_capability_catalog,
-    refresh_open_capability_catalog,
+    load_capability_catalog_for_session_defaults, open_capability_catalog_fingerprint,
+    read_matching_capability_catalog_for_defaults, read_matching_open_capability_catalog,
+    record_open_capability_catalog, refresh_open_capability_catalog,
 };
 pub use export::{render_html, render_markdown};
 pub use host::{

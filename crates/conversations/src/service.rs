@@ -2563,6 +2563,20 @@ impl ConversationSessionService {
             }
             Err(error) => return Err(error.into()),
         };
+        if let Err(error) = crate::record_open_capability_catalog(
+            pool,
+            &agent_id,
+            &launch_settings.launch_lock,
+            &controls,
+        )
+        .await
+        {
+            tracing::warn!(
+                %error,
+                agent_id = %agent_id,
+                "failed to record live capability catalog"
+            );
+        }
         self.ctx
             .agent_runtime
             .commit_prepared_session(runtime_session_id)

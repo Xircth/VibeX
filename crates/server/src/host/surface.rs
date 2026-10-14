@@ -47,7 +47,7 @@ use services::services::{
 use uuid::Uuid;
 
 use crate::{
-    domains::{ServerApplicationDomains, internal_error, parse, serialize},
+    domains::{ServerApplicationDomains, conversation_error, internal_error, parse, serialize},
     install_resolved_plan, plan_host_agent_install, weixin_check_qrcode, weixin_get_qrcode,
 };
 
@@ -1342,15 +1342,13 @@ impl ServerApplicationDomains {
         let valid = if requested.is_empty() {
             BTreeMap::new()
         } else {
-            let catalog = self
-                .agent_capability_catalog(json!({ "agentId": args.agent_id }))
-                .await?;
-            let snapshot = serde_json::from_value::<AgentSessionControlsSnapshot>(catalog)
-                .map_err(|_| {
-                    ApplicationError::conflict(
-                        "Agent capability catalog is unavailable; refresh it before saving defaults",
-                    )
-                })?;
+            let snapshot = conversations::load_capability_catalog_for_session_defaults(
+                &self.pool,
+                &self.conversations.agent_runtime,
+                &args.agent_id,
+            )
+            .await
+            .map_err(conversation_error)?;
             let validation = agents::validate_session_defaults(requested, &snapshot.config_options);
             if !validation.stale_ids.is_empty() {
                 return Err(ApplicationError::conflict(format!(

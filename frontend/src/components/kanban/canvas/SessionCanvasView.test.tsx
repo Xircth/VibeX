@@ -1,5 +1,11 @@
 import type { ReactNode } from 'react';
-import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import {
+  act,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+} from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
@@ -8,10 +14,7 @@ import { TooltipProvider } from '@/components/ui/tooltip';
 import { sessionsApi } from '@/lib/api';
 import type { KanbanProjectSessionRecord } from '@/hooks/useKanbanProjectSessions';
 import { emptyGroupFootprint } from './canvasGrouping';
-import {
-  SessionCanvasView,
-  type SessionCanvasApi,
-} from './SessionCanvasView';
+import { SessionCanvasView, type SessionCanvasApi } from './SessionCanvasView';
 
 const fitView = vi.fn();
 const setCenter = vi.fn();
@@ -62,13 +65,18 @@ function renderCanvas(ui: ReactNode) {
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false } },
   });
-  return render(
+  const wrap = (node: ReactNode) => (
     <QueryClientProvider client={queryClient}>
       <HotkeysProvider initiallyActiveScopes={['dialog', 'kanban', 'projects']}>
-        <TooltipProvider>{ui}</TooltipProvider>
+        <TooltipProvider>{node}</TooltipProvider>
       </HotkeysProvider>
     </QueryClientProvider>
   );
+  const result = render(wrap(ui));
+  return {
+    ...result,
+    rerender: (node: ReactNode) => result.rerender(wrap(node)),
+  };
 }
 
 function session(id: string, updatedAt: string): KanbanProjectSessionRecord {
@@ -248,6 +256,106 @@ describe('SessionCanvasView', () => {
         expect.objectContaining({ zoom: 1, duration: 280 })
       );
     });
+  });
+
+  it('keeps the workspace execution session when the catalog refreshes', () => {
+    const onSelectedSessionChange = vi.fn();
+    const current = session('alpha', '2026-10-15T00:00:00.000Z');
+    current.placement = { sessionId: 'alpha', workspaceId: 'ws' };
+    let api: SessionCanvasApi | null = null;
+    const view = (sessions: KanbanProjectSessionRecord[]) => (
+      <SessionCanvasView
+        projectId="p1"
+        sessions={sessions}
+        sessionsReady
+        listWidth={280}
+        list={<div>list</div>}
+        onApiReady={(next) => {
+          api = next;
+        }}
+        onSelectedSessionChange={onSelectedSessionChange}
+      />
+    );
+
+    const { rerender } = renderCanvas(view([current]));
+    act(() => {
+      api?.addOrFocus(current);
+    });
+
+    expect(onSelectedSessionChange).toHaveBeenCalledTimes(1);
+    expect(onSelectedSessionChange).toHaveBeenCalledWith({
+      sessionId: 'alpha',
+      workspaceId: 'ws',
+    });
+    onSelectedSessionChange.mockClear();
+
+    rerender(
+      view([
+        {
+          ...current,
+          updatedAt: '2026-10-15T00:00:01.000Z',
+        },
+      ])
+    );
+
+    expect(onSelectedSessionChange).not.toHaveBeenCalled();
+
+    const next = session('beta', '2026-10-15T00:00:02.000Z');
+    next.placement = { sessionId: 'beta', workspaceId: 'ws' };
+    rerender(view([current, next]));
+    act(() => {
+      api?.addOrFocus(next);
+    });
+
+    expect(onSelectedSessionChange).toHaveBeenCalledTimes(1);
+    expect(onSelectedSessionChange).toHaveBeenCalledWith({
+      sessionId: 'beta',
+      workspaceId: 'ws',
+    });
+  });
+
+  it('binds execution once when a selected session arrives in the catalog', () => {
+    const onSelectedSessionChange = vi.fn();
+    let api: SessionCanvasApi | null = null;
+    const view = (sessions: KanbanProjectSessionRecord[]) => (
+      <SessionCanvasView
+        projectId="p1"
+        sessions={sessions}
+        sessionsReady
+        listWidth={280}
+        list={<div>list</div>}
+        onApiReady={(next) => {
+          api = next;
+        }}
+        onSelectedSessionChange={onSelectedSessionChange}
+      />
+    );
+
+    const { rerender } = renderCanvas(view([]));
+    act(() => {
+      api?.addSession('late');
+    });
+    expect(onSelectedSessionChange).not.toHaveBeenCalled();
+
+    const arrived = session('late', '2026-10-15T00:00:00.000Z');
+    arrived.placement = { sessionId: 'late', workspaceId: 'ws' };
+    rerender(view([arrived]));
+    expect(onSelectedSessionChange).toHaveBeenCalledTimes(1);
+    expect(onSelectedSessionChange).toHaveBeenCalledWith({
+      sessionId: 'late',
+      workspaceId: 'ws',
+    });
+
+    onSelectedSessionChange.mockClear();
+    rerender(
+      view([
+        {
+          ...arrived,
+          updatedAt: '2026-10-15T00:00:01.000Z',
+        },
+      ])
+    );
+    expect(onSelectedSessionChange).not.toHaveBeenCalled();
   });
 
   it('opens the same create-session flow from the dock plus menu', async () => {

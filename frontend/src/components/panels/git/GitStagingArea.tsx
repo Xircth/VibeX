@@ -39,7 +39,10 @@ const SectionHeader = memo(function SectionHeader({
   actions,
 }: SectionHeaderProps) {
   return (
-    <div className="flex items-center justify-between px-2 py-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+    <div
+      data-testid={`git-section-header-${label.toLowerCase()}`}
+      className="my-0.5 flex items-center justify-between rounded-md bg-muted/60 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground"
+    >
       <div className="flex items-center gap-1.5">
         {icon}
         <span>{label}</span>
@@ -185,10 +188,10 @@ export const GitStagingArea = memo(function GitStagingArea({
   const hasMultiSelection = selectedPaths.size > 1;
 
   return (
-    <div className="flex flex-col min-h-0">
+    <div className="flex flex-col gap-1.5 px-1.5 py-1 min-h-0">
       {/* Batch action bar */}
       {hasMultiSelection && (
-        <div className="flex items-center gap-1 px-2 py-1 bg-accent/20 border-b border-border/30 text-[10px] text-muted-foreground">
+        <div className="flex items-center gap-1 rounded-md px-2 py-1 bg-accent/20 border border-border/30 text-[10px] text-muted-foreground">
           <span>{selectedPaths.size} files selected</span>
           <div className="flex-1" />
           <button
@@ -229,7 +232,7 @@ export const GitStagingArea = memo(function GitStagingArea({
 
       {/* Staged section */}
       {stagedFiles.length > 0 && (
-        <div className="flex flex-col">
+        <div className="flex flex-col gap-0.5">
           <SectionHeader
             label="Staged"
             count={stagedFiles.length}
@@ -253,12 +256,13 @@ export const GitStagingArea = memo(function GitStagingArea({
               selectedPath={selectedPath}
               selectedPaths={selectedPaths}
               onSelectFile={handleFileClick}
+              onReviewFile={onSelectFile}
               onDoubleClick={onDoubleClickFile}
               onContextMenu={(path, e) => handleContextMenu(path, 'staged', e)}
               onUnstageFile={onUnstageFile}
             />
           ) : (
-            <div className="flex flex-col">
+            <div className="flex flex-col gap-0.5">
               {stagedFiles.map((file) => (
                 <GitFileRow
                   key={`staged-${file.path}`}
@@ -267,6 +271,7 @@ export const GitStagingArea = memo(function GitStagingArea({
                   isActive={selectedPath === file.path}
                   isSelected={selectedPaths.has(file.path)}
                   onSelect={handleFileClick}
+                  onReviewFile={onSelectFile}
                   onDoubleClick={onDoubleClickFile}
                   onContextMenu={(path, e) =>
                     handleContextMenu(path, 'staged', e)
@@ -281,7 +286,7 @@ export const GitStagingArea = memo(function GitStagingArea({
 
       {/* Unstaged section */}
       {unstagedFiles.length > 0 && (
-        <div className="flex flex-col">
+        <div className="flex flex-col gap-0.5">
           <SectionHeader
             label="Changes"
             count={unstagedFiles.length}
@@ -312,6 +317,7 @@ export const GitStagingArea = memo(function GitStagingArea({
               selectedPath={selectedPath}
               selectedPaths={selectedPaths}
               onSelectFile={handleFileClick}
+              onReviewFile={onSelectFile}
               onDoubleClick={onDoubleClickFile}
               onContextMenu={(path, e) =>
                 handleContextMenu(path, 'unstaged', e)
@@ -320,7 +326,7 @@ export const GitStagingArea = memo(function GitStagingArea({
               onRevertFile={handleRevertFile}
             />
           ) : (
-            <div className="flex flex-col">
+            <div className="flex flex-col gap-0.5">
               {unstagedFiles.map((file) => (
                 <GitFileRow
                   key={`unstaged-${file.path}`}
@@ -329,6 +335,7 @@ export const GitStagingArea = memo(function GitStagingArea({
                   isActive={selectedPath === file.path}
                   isSelected={selectedPaths.has(file.path)}
                   onSelect={handleFileClick}
+                  onReviewFile={onSelectFile}
                   onDoubleClick={onDoubleClickFile}
                   onContextMenu={(path, e) =>
                     handleContextMenu(path, 'unstaged', e)

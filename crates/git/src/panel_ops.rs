@@ -18,25 +18,68 @@ impl GitService {
         let status = git
             .get_worktree_status_with(worktree_path, crate::UntrackedFiles::All)
             .map_err(|e| GitServiceError::InvalidRepository(format!("git status failed: {e}")))?;
-        let branch_name = git.get_current_branch(worktree_path).unwrap_or_default();
         let repo = self.open_repo(worktree_path)?;
+        let branch_name = repo
+            .head()
+            .ok()
+            .and_then(|head| {
+                if head.is_branch() {
+                    head.shorthand().map(str::to_string)
+                } else {
+                    None
+                }
+            })
+            .unwrap_or_else(|| git.get_current_branch(worktree_path).unwrap_or_default());
 
-        let staged_numstat = git.get_numstat_staged(worktree_path).unwrap_or_else(|e| {
-            tracing::warn!(error = %e, "git numstat (staged) failed; reporting zero line counts");
-            String::new()
-        });
+        let has_staged = status
+            .entries
+            .iter()
+            .any(|e| e.staged != ' ' && e.staged != '?');
+        let has_unstaged_tracked = status
+            .entries
+            .iter()
+            .any(|e| !e.is_untracked && e.unstaged != ' ');
+
+        let (staged_numstat, all_numstat) = match (has_staged, has_unstaged_tracked) {
+            (false, false) => (String::new(), String::new()),
+            (true, false) => {
+                let staged = git.get_numstat_staged(worktree_path).unwrap_or_else(|e| {
+                    tracing::warn!(error = %e, "git numstat (staged) failed; reporting zero line counts");
+                    String::new()
+                });
+                (staged, String::new())
+            }
+            (false, true) => {
+                let all = git.get_numstat(worktree_path).unwrap_or_else(|e| {
+                    tracing::warn!(error = %e, "git numstat failed; reporting zero line counts");
+                    String::new()
+                });
+                (String::new(), all)
+            }
+            (true, true) => std::thread::scope(|s| {
+                let staged_handle = s.spawn(|| {
+                    git.get_numstat_staged(worktree_path).unwrap_or_else(|e| {
+                        tracing::warn!(error = %e, "git numstat (staged) failed; reporting zero line counts");
+                        String::new()
+                    })
+                });
+                let all = git.get_numstat(worktree_path).unwrap_or_else(|e| {
+                    tracing::warn!(error = %e, "git numstat failed; reporting zero line counts");
+                    String::new()
+                });
+                let staged = staged_handle.join().unwrap_or_default();
+                (staged, all)
+            }),
+        };
+
         let staged_stats = parse_numstat(&staged_numstat);
-
-        let all_numstat = git.get_numstat(worktree_path).unwrap_or_else(|e| {
-            tracing::warn!(error = %e, "git numstat failed; reporting zero line counts");
-            String::new()
-        });
         let all_stats = parse_numstat(&all_numstat);
 
         let mut staged_files = Vec::new();
         let mut unstaged_files = Vec::new();
         let mut total_additions: i32 = 0;
         let mut total_deletions: i32 = 0;
+        let mut untracked_stat_reads: usize = 0;
 
         for entry in &status.entries {
             let path_str = String::from_utf8_lossy(&entry.path).to_string();
@@ -54,10 +97,17 @@ impl GitService {
             }
 
             if entry.is_untracked {
-                let (adds, dels) = all_stats
-                    .get(&path_str)
-                    .copied()
-                    .unwrap_or_else(|| untracked_file_stats(&repo, &path_str));
+                let (adds, dels) =
+                    if let Some(stats) = all_stats.get(&path_str).copied() {
+                        stats
+                    } else if untracked_stat_reads < MAX_UNTRACKED_STAT_FILES
+                        && !is_likely_binary(&path_str)
+                    {
+                        untracked_stat_reads += 1;
+                        untracked_file_stats(&repo, &path_str)
+                    } else {
+                        (0, 0)
+                    };
                 unstaged_files.push(GitFileStatusEntry {
                     path: path_str,
                     status: "?".to_string(),
@@ -145,7 +195,20 @@ impl GitService {
             .get_worktree_status_with(worktree_path, crate::UntrackedFiles::All)
             .map_err(|e| GitServiceError::InvalidRepository(format!("git status failed: {e}")))?;
 
-        let mut diffs = Vec::new();
+        let has_tracked_non_binary = status.entries.iter().any(|entry| {
+            !entry.is_untracked && !is_likely_binary(&String::from_utf8_lossy(&entry.path))
+        });
+
+        let batch_diffs = if has_tracked_non_binary {
+            let raw_all = git.get_diff_all(worktree_path).unwrap_or_default();
+            parse_unified_diff_by_path(&raw_all)
+        } else {
+            HashMap::new()
+        };
+
+        let mut diffs = Vec::with_capacity(status.entries.len());
+        let mut single_file_fallbacks = 0usize;
+
         for entry in &status.entries {
             let path_str = String::from_utf8_lossy(&entry.path).to_string();
             let status_char = if entry.is_untracked {
@@ -159,11 +222,16 @@ impl GitService {
             let is_binary = is_likely_binary(&path_str);
             let is_image = is_image_file(&path_str);
 
-            let diff_content = if is_binary {
+            let diff_content = if is_binary || entry.is_untracked {
                 String::new()
-            } else {
+            } else if let Some(patch) = batch_diffs.get(&path_str) {
+                patch.clone()
+            } else if single_file_fallbacks < 8 {
+                single_file_fallbacks += 1;
                 git.get_diff_file(worktree_path, &path_str)
                     .unwrap_or_default()
+            } else {
+                String::new()
             };
 
             diffs.push(GitFileDiffEntry {
@@ -289,17 +357,35 @@ impl GitService {
     /// Get ahead/behind counts for the current branch vs its upstream.
     pub fn get_log_status(&self, worktree_path: &Path) -> Result<GitLogStatus, GitServiceError> {
         let git = GitCli::new();
-        let branch = git.get_current_branch(worktree_path).unwrap_or_default();
-        let upstream = git.get_upstream_branch(worktree_path).unwrap_or(None);
+        let branch_from_repo = self
+            .open_repo(worktree_path)
+            .ok()
+            .and_then(|repo| {
+                repo.head().ok().and_then(|head| {
+                    if head.is_branch() {
+                        head.shorthand().map(str::to_string)
+                    } else {
+                        None
+                    }
+                })
+            });
 
-        let (ahead, behind) = if let Some(ref up) = upstream {
-            git.get_rev_list_count(worktree_path, up, "HEAD")
-                .unwrap_or((0, 0))
-        } else {
-            (0, 0)
-        };
+        let ((branch, upstream, ahead, behind), entries_res) = std::thread::scope(|s| {
+            let log_handle = s.spawn(|| self.get_log(worktree_path, 100));
+            let branch = branch_from_repo
+                .unwrap_or_else(|| git.get_current_branch(worktree_path).unwrap_or_default());
+            let upstream = git.get_upstream_branch(worktree_path).unwrap_or(None);
+            let (ahead, behind) = if let Some(ref up) = upstream {
+                git.get_rev_list_count(worktree_path, up, "HEAD")
+                    .unwrap_or((0, 0))
+            } else {
+                (0, 0)
+            };
+            let entries_res = log_handle.join().unwrap_or_else(|_| Ok(Vec::new()));
+            ((branch, upstream, ahead, behind), entries_res)
+        });
 
-        let entries = self.get_log(worktree_path, 100)?;
+        let entries = entries_res?;
         let total = entries.len() as i32;
 
         Ok(GitLogStatus {
@@ -397,6 +483,38 @@ impl GitService {
 }
 
 const MAX_UNTRACKED_LINECOUNT_BYTES: u64 = 256 * 1024;
+const MAX_UNTRACKED_STAT_FILES: usize = 64;
+
+fn parse_unified_diff_by_path(raw_diff: &str) -> HashMap<String, String> {
+    let mut map = HashMap::new();
+    if raw_diff.is_empty() {
+        return map;
+    }
+
+    let mut current_path: Option<String> = None;
+    let mut current_chunk = String::new();
+
+    for line in raw_diff.split_inclusive('\n') {
+        if let Some(rest) = line.strip_prefix("diff --git ") {
+            if let Some(prev_path) = current_path.take() {
+                map.insert(prev_path, std::mem::take(&mut current_chunk));
+            }
+            let header = rest.trim_end_matches(&['\r', '\n'][..]);
+            if let Some((_, b_part)) = header.rsplit_once(" b/") {
+                current_path = Some(b_part.trim_matches('"').to_string());
+            }
+        }
+        if current_path.is_some() {
+            current_chunk.push_str(line);
+        }
+    }
+
+    if let Some(prev_path) = current_path {
+        map.insert(prev_path, current_chunk);
+    }
+
+    map
+}
 
 fn untracked_file_stats(repo: &Repository, path: &str) -> (i32, i32) {
     let workdir = match repo.workdir() {

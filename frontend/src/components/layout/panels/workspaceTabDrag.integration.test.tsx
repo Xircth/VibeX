@@ -24,7 +24,7 @@ function Panel() {
 }
 
 describe('workspace tab drag', () => {
-  it('starts a dockview drag from the tab face and can land in another column', () => {
+  it('starts a dockview drag from the tab title and can land in another column', () => {
     let api: DockviewApi | undefined;
     let reviewGroup: ReturnType<DockviewApi['addGroup']> | undefined;
     const onReady = (event: DockviewReadyEvent) => {
@@ -55,11 +55,14 @@ describe('workspace tab drag', () => {
       />
     );
 
-    const surface = screen.getByText('Notes').closest('.workspace-tab-surface');
-    expect(surface).toHaveAttribute('draggable', 'true');
-    expect(surface?.closest('.dv-tab')).toHaveAttribute('draggable', 'true');
+    const title = screen.getByText('Notes');
+    const surface = title.closest('.workspace-tab-surface');
+    const tab = surface?.closest('.dv-tab');
+    expect(surface).not.toHaveAttribute('draggable');
+    expect(tab).toHaveAttribute('draggable', 'true');
 
-    fireEvent.dragStart(surface!);
+    const drag = fireEvent.dragStart(title);
+    expect(drag).toBe(true);
 
     expect(getPanelData()?.panelId).toBe('notes');
     if (!reviewGroup) throw new Error('expected a second editor column');

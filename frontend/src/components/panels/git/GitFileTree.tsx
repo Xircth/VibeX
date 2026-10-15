@@ -65,6 +65,7 @@ interface GitFileTreeProps {
   selectedPath: string | null;
   selectedPaths?: Set<string>;
   onSelectFile: (path: string, e?: React.MouseEvent) => void;
+  onReviewFile?: (path: string) => void;
   onDoubleClick?: (path: string) => void;
   onContextMenu?: (path: string, e: React.MouseEvent) => void;
   onStageFile?: (path: string) => void;
@@ -78,6 +79,7 @@ export const GitFileTree = memo(function GitFileTree({
   selectedPath,
   selectedPaths,
   onSelectFile,
+  onReviewFile,
   onDoubleClick,
   onContextMenu,
   onStageFile,
@@ -87,7 +89,7 @@ export const GitFileTree = memo(function GitFileTree({
   const tree = useMemo(() => flattenSingleChildDirs(buildTree(files)), [files]);
 
   return (
-    <div className="flex flex-col">
+    <div className="flex flex-col gap-0.5">
       <TreeNodeRenderer
         node={tree}
         depth={0}
@@ -95,6 +97,7 @@ export const GitFileTree = memo(function GitFileTree({
         selectedPath={selectedPath}
         selectedPaths={selectedPaths}
         onSelectFile={onSelectFile}
+        onReviewFile={onReviewFile}
         onDoubleClick={onDoubleClick}
         onContextMenu={onContextMenu}
         onStageFile={onStageFile}
@@ -113,6 +116,7 @@ interface TreeNodeRendererProps {
   selectedPath: string | null;
   selectedPaths?: Set<string>;
   onSelectFile: (path: string, e?: React.MouseEvent) => void;
+  onReviewFile?: (path: string) => void;
   onDoubleClick?: (path: string) => void;
   onContextMenu?: (path: string, e: React.MouseEvent) => void;
   onStageFile?: (path: string) => void;
@@ -128,6 +132,7 @@ function TreeNodeRenderer({
   selectedPath,
   selectedPaths,
   onSelectFile,
+  onReviewFile,
   onDoubleClick,
   onContextMenu,
   onStageFile,
@@ -168,7 +173,7 @@ function TreeNodeRenderer({
     <>
       {!isRoot && (
         <div
-          className="group flex min-h-[30px] cursor-pointer items-center gap-1.5 border-b border-border/20 px-2 py-1 text-xs text-muted-foreground hover:bg-accent/30"
+          className="group flex min-h-[28px] cursor-pointer items-center gap-1.5 rounded-md px-2 py-1 text-xs text-muted-foreground transition-colors hover:bg-accent/50"
           style={{ paddingLeft: `${depth * 12 + 8}px` }}
           onClick={toggle}
           role="button"
@@ -178,15 +183,20 @@ function TreeNodeRenderer({
           }}
         >
           {expanded ? (
-            <ChevronDown className="h-3 w-3 shrink-0" />
+            <ChevronDown className="h-3 w-3 shrink-0 self-center" />
           ) : (
-            <ChevronRight className="h-3 w-3 shrink-0" />
+            <ChevronRight className="h-3 w-3 shrink-0 self-center" />
           )}
-          <FileIcon filePath={node.name} isFolder isOpen={expanded} />
-          <span className="truncate font-mono text-[11px] text-foreground/90">
+          <FileIcon
+            filePath={node.name}
+            isFolder
+            isOpen={expanded}
+            className="shrink-0 self-center"
+          />
+          <span className="truncate self-center text-[11px] font-medium text-foreground/90">
             {node.name}
           </span>
-          <span className="ml-auto shrink-0 rounded bg-muted px-1.5 py-0.5 text-[10px] tabular-nums text-muted-foreground/80">
+          <span className="ml-auto shrink-0 self-center rounded bg-muted px-1.5 py-0.5 text-[10px] tabular-nums text-muted-foreground/80">
             {fileCount}
           </span>
         </div>
@@ -203,6 +213,7 @@ function TreeNodeRenderer({
               selectedPath={selectedPath}
               selectedPaths={selectedPaths}
               onSelectFile={onSelectFile}
+              onReviewFile={onReviewFile}
               onDoubleClick={onDoubleClick}
               onContextMenu={onContextMenu}
               onStageFile={onStageFile}
@@ -211,23 +222,21 @@ function TreeNodeRenderer({
             />
           ))}
           {sortedFiles.map((file) => (
-            <div
+            <GitFileRow
               key={file.path}
-              style={{ paddingLeft: `${(isRoot ? 0 : depth + 1) * 12}px` }}
-            >
-              <GitFileRow
-                file={file}
-                section={section}
-                isActive={selectedPath === file.path}
-                isSelected={selectedPaths?.has(file.path)}
-                onSelect={onSelectFile}
-                onDoubleClick={onDoubleClick}
-                onContextMenu={onContextMenu}
-                onStageFile={onStageFile}
-                onUnstageFile={onUnstageFile}
-                onRevertFile={onRevertFile}
-              />
-            </div>
+              file={file}
+              section={section}
+              isActive={selectedPath === file.path}
+              isSelected={selectedPaths?.has(file.path)}
+              indentPx={(isRoot ? 0 : depth + 1) * 12}
+              onSelect={onSelectFile}
+              onReviewFile={onReviewFile}
+              onDoubleClick={onDoubleClick}
+              onContextMenu={onContextMenu}
+              onStageFile={onStageFile}
+              onUnstageFile={onUnstageFile}
+              onRevertFile={onRevertFile}
+            />
           ))}
         </>
       )}

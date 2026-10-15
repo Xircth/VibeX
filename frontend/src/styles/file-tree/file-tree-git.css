@@ -31,10 +31,6 @@
   opacity: 0.5;
 }
 
-.file-tree-row.is-gitignored .file-tree-name {
-  font-style: italic;
-}
-
 .file-tree-toggle.is-active {
   color: var(--text-emphasis);
   background: var(--surface-active);

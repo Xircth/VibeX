@@ -81,6 +81,12 @@ export function useSessionComposerQueue({
     let unlisten: (() => void) | undefined;
     listenToConversationEvents((batch) => {
       if (!active || batch.conversation_id !== sessionId) return;
+      if (
+        batch.ops.length > 0 &&
+        batch.ops.every((op) => op.op === 'append_text')
+      ) {
+        return;
+      }
       void refetch();
     }, sessionId)
       .then((unsubscribe) => {

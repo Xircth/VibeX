@@ -592,10 +592,42 @@ function alignStreamingAssistantWithUserPhase(
 }
 
 /** Side rows (everything that is not a message turn), carrying their stable `row_id`. */
+const EMPTY_TIMELINE_ROWS: TimelineRow[] = [];
+const sideRowsByEntryRows = new WeakMap<TimelineRow[], TimelineRow[]>();
+const lastSideRowsByConversation = new Map<string, TimelineRow[]>();
+
 export function sideRowsForEntry(
   entry: ConversationStoreEntry | null
 ): TimelineRow[] {
-  return entry?.rows.filter((row) => row.row.kind !== 'message_turn') ?? [];
+  if (!entry || entry.rows.length === 0) return EMPTY_TIMELINE_ROWS;
+  const cached = sideRowsByEntryRows.get(entry.rows);
+  if (cached) return cached;
+
+  const filtered = entry.rows.filter((row) => row.row.kind !== 'message_turn');
+  if (filtered.length === 0) {
+    sideRowsByEntryRows.set(entry.rows, EMPTY_TIMELINE_ROWS);
+    return EMPTY_TIMELINE_ROWS;
+  }
+
+  const convId = entry.conversationId;
+  if (convId) {
+    const prev = lastSideRowsByConversation.get(convId);
+    if (
+      prev &&
+      prev.length === filtered.length &&
+      prev.every((row, index) => row === filtered[index])
+    ) {
+      sideRowsByEntryRows.set(entry.rows, prev);
+      return prev;
+    }
+    if (lastSideRowsByConversation.size >= 32 && !lastSideRowsByConversation.has(convId)) {
+      const oldest = lastSideRowsByConversation.keys().next().value;
+      if (oldest !== undefined) lastSideRowsByConversation.delete(oldest);
+    }
+    lastSideRowsByConversation.set(convId, filtered);
+  }
+  sideRowsByEntryRows.set(entry.rows, filtered);
+  return filtered;
 }
 
 const INLINE_SIDE_ROW_KINDS = new Set([
@@ -610,14 +642,18 @@ const INLINE_SIDE_ROW_KINDS = new Set([
 /** Message turns and inlined side rows, ordered by revision to match the event log. */
 export function timelineItemsForEntry(
   entry: ConversationStoreEntry | null,
-  shouldInline: (row: TimelineRow) => boolean = defaultInlineSideRow
+  shouldInline: (row: TimelineRow) => boolean = defaultInlineSideRow,
+  precomputedTurns?: ConversationTimelineTurn[],
+  precomputedSideRows?: TimelineRow[]
 ): ConversationTimelineItem[] {
-  const messages = timelineTurnsForEntry(entry).map((item) => ({
+  const turns = precomputedTurns ?? timelineTurnsForEntry(entry);
+  const messages = turns.map((item) => ({
     kind: 'message' as const,
     revision: item.revision,
     item,
   }));
-  const sortedSides = sideRowsForEntry(entry)
+  const sideRows = precomputedSideRows ?? sideRowsForEntry(entry);
+  const sortedSides = sideRows
     .filter(shouldInline)
     .map((row, index) => ({
       index,
@@ -770,6 +806,17 @@ function detectSequenceGap(
 ): ConversationGapState {
   const incomingLast = toBigInt(batch.last_sequence);
   if (lastSequence <= 0n || incomingLast <= lastSequence) {
+    return { kind: 'none' };
+  }
+  if (batch.previous_sequence != null) {
+    const previousSequence = toBigInt(batch.previous_sequence);
+    if (previousSequence > lastSequence) {
+      return {
+        kind: 'gap',
+        expectedSequence: lastSequence + 1n,
+        receivedSequence: previousSequence + 1n,
+      };
+    }
     return { kind: 'none' };
   }
   const revisions = batch.ops.map(opRevision);

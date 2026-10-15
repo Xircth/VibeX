@@ -767,13 +767,64 @@ function displayToolName(
   return i18n.t('app:turnTool.toolCall');
 }
 
+type CachedToolEntry = {
+  status: string | null | undefined;
+  toolName: string;
+  inputPreview: string | null | undefined;
+  resultRef: ToolResultBlock | null;
+  outputPreview: string | null | undefined;
+  isError: boolean | undefined;
+  timestamp: string | null;
+  language: string;
+  entry: ToolDisplayEntry;
+};
+
+const toolEntryByUseRef = new WeakMap<ToolUseBlock, CachedToolEntry>();
+const toolEntryByKey = new Map<string, CachedToolEntry>();
+const MAX_TOOL_ENTRY_CACHE_SIZE = 512;
+
 export function toolBlockToNormalizedEntry(
   use: ToolUseBlock,
   result: ToolResultBlock | null,
   timestamp: string | null
 ): ToolDisplayEntry {
-  const toolResult = toolResultFromPreview(result?.output_preview ?? null);
-  const output = extractOutputText(result?.output_preview ?? null, toolResult);
+  const language = i18n.language ?? '';
+  const outputPreview = result?.output_preview ?? null;
+  const isError = result?.is_error;
+
+  const refHit = toolEntryByUseRef.get(use);
+  if (
+    refHit &&
+    refHit.status === use.status &&
+    refHit.toolName === use.tool_name &&
+    refHit.inputPreview === use.input_preview &&
+    (refHit.resultRef === result ||
+      (refHit.outputPreview === outputPreview && refHit.isError === isError)) &&
+    refHit.timestamp === timestamp &&
+    refHit.language === language
+  ) {
+    return refHit.entry;
+  }
+
+  const cacheKey = use.tool_use_id
+    ? `${use.tool_use_id}:${use.status ?? ''}:${timestamp ?? ''}:${language}`
+    : null;
+  if (cacheKey) {
+    const keyHit = toolEntryByKey.get(cacheKey);
+    if (
+      keyHit &&
+      keyHit.toolName === use.tool_name &&
+      keyHit.inputPreview === use.input_preview &&
+      keyHit.outputPreview === outputPreview &&
+      keyHit.isError === isError
+    ) {
+      toolEntryByUseRef.set(use, keyHit);
+      return keyHit.entry;
+    }
+  }
+
+  const toolResult = toolResultFromPreview(outputPreview);
+  const output = extractOutputText(outputPreview, toolResult);
   const statusKind: 'created' | 'success' | 'failed' =
     use.status != null
       ? use.status === 'completed'
@@ -823,7 +874,7 @@ export function toolBlockToNormalizedEntry(
               ? ''
               : use.tool_name;
 
-  return {
+  const entry: ToolDisplayEntry = {
     timestamp,
     content,
     ...(fileEdits.length > 0 ? { fileEdits } : {}),
@@ -836,4 +887,31 @@ export function toolBlockToNormalizedEntry(
       status,
     },
   };
+
+  const cachedRecord: CachedToolEntry = {
+    status: use.status,
+    toolName: use.tool_name,
+    inputPreview: use.input_preview,
+    resultRef: result,
+    outputPreview,
+    isError,
+    timestamp,
+    language,
+    entry,
+  };
+  toolEntryByUseRef.set(use, cachedRecord);
+  if (cacheKey) {
+    if (
+      toolEntryByKey.size >= MAX_TOOL_ENTRY_CACHE_SIZE &&
+      !toolEntryByKey.has(cacheKey)
+    ) {
+      const oldestKey = toolEntryByKey.keys().next().value;
+      if (oldestKey !== undefined) {
+        toolEntryByKey.delete(oldestKey);
+      }
+    }
+    toolEntryByKey.set(cacheKey, cachedRecord);
+  }
+
+  return entry;
 }

@@ -20,6 +20,7 @@ import {
   SESSION_PANEL_IDS,
 } from '@/utils/dockviewGroupPolicy';
 import { syncDockviewGroupRegistry } from '@/utils/dockviewHelpers';
+import { gridLocationFromElement } from '@/utils/dockviewEditorSplit';
 import {
   DEFAULT_SESSION_PANEL_WIDTH,
   settleDockviewGroupWidths,
@@ -73,6 +74,124 @@ function getEditorGroups(api: DockviewApi) {
 
 function isSideColumn(slot: ReturnType<typeof slotOfZone>): boolean {
   return slot !== 'center' && slot !== 'bottom';
+}
+
+interface EditorColumnWidth {
+  id: string;
+  width: number;
+  editor: boolean;
+  /** Groups with the same parent path share one split. */
+  parentPath: string;
+  /** That split assigns width. A vertical stack assigns height instead. */
+  sharesWidth: boolean;
+  index: number;
+}
+
+/**
+ * Dockview's root split is horizontal. A group's location length is odd when
+ * its parent split sizes children by width (root children are [i], a nested
+ * horizontal row is [branch, row, i]).
+ */
+function columnSharesWidth(location: readonly number[]): boolean {
+  return location.length % 2 === 1;
+}
+
+function captureEditorColumnWidths(api: DockviewApi): EditorColumnWidth[] {
+  const columns: EditorColumnWidth[] = [];
+  for (const group of api.groups) {
+    if (!group.api.isVisible || !(group.api.width > 0)) continue;
+    let location: number[];
+    try {
+      location = gridLocationFromElement(group.element);
+    } catch {
+      continue;
+    }
+    columns.push({
+      id: group.id,
+      width: group.api.width,
+      editor: isEditorGroup(group),
+      parentPath: location.slice(0, -1).join('.'),
+      sharesWidth: columnSharesWidth(location),
+      index: location[location.length - 1] ?? 0,
+    });
+  }
+  return columns;
+}
+
+/**
+ * Dockview gives a removed view's size to every flexible sibling, so closing
+ * an editor column in [A | B1 | B2 | C] also resizes A and C. Put that width
+ * back and share it equally across the editor columns that remain in the row.
+ * The last editor column is left alone: hiding it lets the session expand.
+ */
+function rebalanceEditorColumnsAfterRemoval(
+  api: DockviewApi,
+  snapshot: readonly EditorColumnWidth[],
+  removedGroupId: string
+): void {
+  const removed = snapshot.find((column) => column.id === removedGroupId);
+  if (!removed?.editor || !removed.sharesWidth) return;
+
+  const row = snapshot.filter(
+    (column) =>
+      column.editor &&
+      column.sharesWidth &&
+      column.parentPath === removed.parentPath
+  );
+  const survivors = row
+    .filter((column) => column.id !== removedGroupId)
+    .sort((a, b) => a.index - b.index)
+    .flatMap((column) => {
+      const group = api.getGroup(column.id);
+      return group?.api.isVisible ? [group] : [];
+    });
+  if (survivors.length === 0) return;
+
+  const total = row.reduce((sum, column) => sum + column.width, 0);
+  const base = Math.floor(total / survivors.length);
+  let remainder = total - base * survivors.length;
+  const targets: Array<{ group: DockviewGroup; width: number }> = [];
+
+  for (const column of snapshot) {
+    if (column.editor || column.id === removedGroupId) continue;
+    if (!column.sharesWidth || column.parentPath !== removed.parentPath) {
+      continue;
+    }
+    const group = api.getGroup(column.id);
+    if (!group?.api.isVisible) continue;
+    targets.push({ group, width: column.width });
+  }
+
+  for (const group of survivors) {
+    const extra = remainder > 0 ? 1 : 0;
+    remainder -= extra;
+    targets.push({ group, width: base + extra });
+  }
+
+  settleDockviewGroupWidths(targets);
+}
+
+export function installEditorColumnWidthRebalance(
+  api: DockviewApi,
+  options?: { shouldRebalance?: () => boolean }
+): { dispose(): void } {
+  let snapshot = captureEditorColumnWidths(api);
+  const layoutDisposable = api.onDidLayoutChange(() => {
+    snapshot = captureEditorColumnWidths(api);
+  });
+  const removeDisposable = api.onDidRemoveGroup((group) => {
+    const shouldRebalance = options?.shouldRebalance?.() ?? true;
+    if (shouldRebalance) {
+      rebalanceEditorColumnsAfterRemoval(api, snapshot, group.id);
+    }
+    snapshot = captureEditorColumnWidths(api);
+  });
+  return {
+    dispose() {
+      layoutDisposable.dispose();
+      removeDisposable.dispose();
+    },
+  };
 }
 
 export function groupForZone(

@@ -388,9 +388,6 @@ export function WorkspaceDockviewTab({
       {...rest}
       data-testid="dockview-dv-default-tab"
       title={title}
-      // The face covers Dockview's .dv-tab. WebView2 starts a drag only when
-      // this face is the drag source.
-      draggable
       className="dv-default-tab workspace-tab-surface"
       onContextMenu={(event) => {
         if (editorTabMenu) {

@@ -160,7 +160,7 @@ function tabProps({
 }
 
 describe('WorkspaceDockviewTab', () => {
-  it('makes the tab face the drag source', () => {
+  it('does not make the tab face its own drag source', () => {
     const { props } = tabProps({
       component: PANEL_IDS.NOTES,
       title: 'Notes',
@@ -168,9 +168,8 @@ describe('WorkspaceDockviewTab', () => {
 
     render(<WorkspaceDockviewTab {...props} />);
 
-    expect(screen.getByTestId('dockview-dv-default-tab')).toHaveAttribute(
-      'draggable',
-      'true'
+    expect(screen.getByTestId('dockview-dv-default-tab')).not.toHaveAttribute(
+      'draggable'
     );
   });
 

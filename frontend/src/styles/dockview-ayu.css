@@ -368,11 +368,12 @@
   min-height: 28px;
   padding: 0 4px 0 8px;
   border-radius: var(--radius);
-  /* The face covers .dv-tab. It has to be the drag source, and text
-     selection must not win the gesture, or the label cannot be dragged. */
+  /* The face fills .dv-tab, which is the only drag source. Marking this face
+     draggable makes WebView2 the drag source and the cursor stays no-drop,
+     because Dockview writes the payload on .dv-tab. user-select:none lets
+     that drag start on the title instead of a text selection. */
   user-select: none;
   -webkit-user-select: none;
-  -webkit-user-drag: element;
   transition:
     background-color 0.15s ease,
     color 0.15s ease;

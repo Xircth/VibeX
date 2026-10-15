@@ -272,7 +272,29 @@ function AppContent() {
     return <DesktopToastAppContent />;
   }
 
-  return <MainAppContent />;
+  return (
+    <ClickedElementsProvider>
+      <ProjectProvider>
+        <HotkeysProvider
+          initiallyActiveScopes={[
+            'global',
+            'workspace',
+            'kanban',
+            'projects',
+          ]}
+        >
+          <SequenceTrackerProvider>
+            <GlobalShortcutActionBridge />
+            <PluginContributionBridge />
+            <AppContextMenuHost>
+              <MainAppContent />
+            </AppContextMenuHost>
+            <SequenceIndicator />
+          </SequenceTrackerProvider>
+        </HotkeysProvider>
+      </ProjectProvider>
+    </ClickedElementsProvider>
+  );
 }
 
 function GlobalShortcutActionBridge() {
@@ -302,27 +324,7 @@ function App() {
     <AppErrorBoundary>
       <BrowserRouter>
         <UserSystemProvider>
-          <ClickedElementsProvider>
-            <ProjectProvider>
-              <HotkeysProvider
-                initiallyActiveScopes={[
-                  'global',
-                  'workspace',
-                  'kanban',
-                  'projects',
-                ]}
-              >
-                <SequenceTrackerProvider>
-                  <GlobalShortcutActionBridge />
-                  <PluginContributionBridge />
-                  <AppContextMenuHost>
-                    <AppContent />
-                  </AppContextMenuHost>
-                  <SequenceIndicator />
-                </SequenceTrackerProvider>
-              </HotkeysProvider>
-            </ProjectProvider>
-          </ClickedElementsProvider>
+          <AppContent />
         </UserSystemProvider>
       </BrowserRouter>
     </AppErrorBoundary>

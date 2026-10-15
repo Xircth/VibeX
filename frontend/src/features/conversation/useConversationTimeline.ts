@@ -523,11 +523,19 @@ export function useConversationTimeline(
     [conversationId]
   );
 
-  return useMemo(
-    () => ({
-      timeline: timelineTurnsForEntry(entry),
-      items: timelineItemsForEntry(entry),
-      sideRows: sideRowsForEntry(entry),
+  return useMemo(() => {
+    const timeline = timelineTurnsForEntry(entry);
+    const sideRows = sideRowsForEntry(entry);
+    const items = timelineItemsForEntry(
+      entry,
+      undefined,
+      timeline,
+      sideRows
+    );
+    return {
+      timeline,
+      items,
+      sideRows,
       agentId: entry?.detail?.summary.agent_id ?? null,
       currentTurnId: entry?.currentTurnId ?? null,
       steeringSupported: Boolean(
@@ -560,8 +568,8 @@ export function useConversationTimeline(
         !(entry?.rows ?? []).some(
           (row) => row.row_id === AGENT_BINDING_LOAD_FAILURE_NOTICE_ROW_ID
         ),
-    }),
-    [
+    };
+  }, [
       entry,
       hasDetail,
       sendOptimisticTurn,

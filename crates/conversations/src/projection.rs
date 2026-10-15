@@ -13,8 +13,8 @@ use agents::{
         ConversationPermissionView, ConversationRowOp, ConversationSessionNotice,
         ConversationTerminalView, ConversationTimeline, ConversationTimelineRow, MessageTurn,
         PlanEntry, SessionLoadFailureReason, SessionRecoveryStrategy, SessionStats, TimelineRow,
-        TimelineTextStream, TurnRole, TurnUsage, cap_preview_bytes, cap_timeline_preview_fields,
-        cap_timeline_row_preview_fields,
+        TimelineTextStream, TurnRole, TurnUsage, cap_json_value, cap_preview_bytes,
+        cap_timeline_preview_fields, cap_timeline_row_preview_fields,
     },
 };
 use db::models::{
@@ -1157,19 +1157,50 @@ const MAX_CACHED_ROW_PROJECTORS: usize = 8;
 /// A cached projector plus the recency used to bound the cache.
 pub struct CachedRowProjector {
     pub projector: IncrementalRowProjector,
+    pub last_emitted_sequence: i64,
     last_used: Instant,
 }
 
 impl CachedRowProjector {
     pub fn new(projector: IncrementalRowProjector) -> Self {
+        let last_emitted_sequence = projector.last_sequence();
         Self {
             projector,
+            last_emitted_sequence,
             last_used: Instant::now(),
         }
     }
 
     pub fn touch(&mut self) {
         self.last_used = Instant::now();
+    }
+}
+
+fn row_op_target_id(op: &ConversationRowOp) -> &str {
+    match op {
+        ConversationRowOp::Upsert { row } => &row.row_id,
+        ConversationRowOp::Delete { row_id, .. } => row_id,
+        ConversationRowOp::AppendText { row_id, .. } => row_id,
+    }
+}
+
+/// Append `new_ops` into `ops`, coalescing redundant earlier ops for the same `row_id`
+/// whenever a full-row `Upsert` or `Delete` supersedes them within the same batch.
+pub fn extend_coalesced_row_ops(
+    ops: &mut Vec<ConversationRowOp>,
+    new_ops: impl IntoIterator<Item = ConversationRowOp>,
+) {
+    for op in new_ops {
+        match &op {
+            ConversationRowOp::Upsert { row } => {
+                ops.retain(|existing| row_op_target_id(existing) != row.row_id);
+            }
+            ConversationRowOp::Delete { row_id, .. } => {
+                ops.retain(|existing| row_op_target_id(existing) != row_id);
+            }
+            ConversationRowOp::AppendText { .. } => {}
+        }
+        ops.push(op);
     }
 }
 
@@ -1347,14 +1378,9 @@ impl ProjectionFold {
             }]);
         }
 
-        // Bump the touched turn's revision so its message rows re-upsert at this
-        // sequence. Over-bumping on a side-row event is harmless — the frontend upsert
-        // is idempotent by revision. A brand-new turn gets its revision from
-        // `ensure_turn` below (it does not exist here yet).
-        if let Some(turn_id) = self.resolved_turn_id(record)
-            && let Some(turn) = self.turns.get_mut(&turn_id)
-        {
-            turn.revision = record.sequence;
+        enum TouchedTurnRows {
+            All(Uuid),
+            AssistantOnly(Uuid),
         }
 
         let turns = &mut self.turns;
@@ -1362,12 +1388,14 @@ impl ProjectionFold {
         let side_rows = &mut self.side_rows;
         let auto_permission_approvals = &mut self.auto_permission_approvals;
         let mut deleted_rows = Vec::new();
+        let mut touched_turn_rows: Option<TouchedTurnRows> = None;
 
         match event {
             ConversationEvent::UserTurnCreated { blocks, .. } => {
                 if let Some(turn_id) = record.turn_id {
                     ensure_turn(turns, turn_order, turn_id, record);
                     let turn = turns.get_mut(&turn_id).expect("turn exists");
+                    turn.revision = record.sequence;
                     turn.user.blocks = blocks
                         .into_iter()
                         .filter_map(|block| match block {
@@ -1387,33 +1415,32 @@ impl ProjectionFold {
                             agents::conversation::ConversationInputBlock::Protocol { .. } => None,
                         })
                         .collect();
+                    touched_turn_rows = Some(TouchedTurnRows::All(turn_id));
                 }
             }
             ConversationEvent::UserTurnStarted => {
                 if let Some(turn_id) = record.turn_id {
                     ensure_turn(turns, turn_order, turn_id, record);
-                    turns
-                        .get_mut(&turn_id)
-                        .expect("turn exists")
-                        .assistant
-                        .timestamp = record.created_at;
+                    let turn = turns.get_mut(&turn_id).expect("turn exists");
+                    turn.revision = record.sequence;
+                    turn.assistant.timestamp = record.created_at;
+                    touched_turn_rows = Some(TouchedTurnRows::All(turn_id));
                 }
             }
             ConversationEvent::AssistantContentAppended { block, .. } => {
                 if let Some(turn_id) = record.turn_id.or_else(|| turn_order.last().copied()) {
                     ensure_turn(turns, turn_order, turn_id, record);
-                    turns
-                        .get_mut(&turn_id)
-                        .expect("turn exists")
-                        .assistant
-                        .blocks
-                        .push(block);
+                    let turn = turns.get_mut(&turn_id).expect("turn exists");
+                    turn.revision = record.sequence;
+                    turn.assistant.blocks.push(block);
+                    touched_turn_rows = Some(TouchedTurnRows::AssistantOnly(turn_id));
                 }
             }
             ConversationEvent::PlanUpdated { entries } => {
                 if let Some(turn_id) = record.turn_id.or_else(|| turn_order.last().copied()) {
                     ensure_turn(turns, turn_order, turn_id, record);
                     let turn = turns.get_mut(&turn_id).expect("turn exists");
+                    turn.revision = record.sequence;
                     let plan = ContentBlock::Plan {
                         entries: entries
                             .into_iter()
@@ -1434,12 +1461,15 @@ impl ProjectionFold {
                     } else {
                         turn.assistant.blocks.push(plan);
                     }
+                    touched_turn_rows = Some(TouchedTurnRows::AssistantOnly(turn_id));
                 }
             }
             ConversationEvent::ToolCallUpsert { tool_call } => {
                 if let Some(turn_id) = record.turn_id.or_else(|| turn_order.last().copied()) {
                     ensure_turn(turns, turn_order, turn_id, record);
                     let turn = turns.get_mut(&turn_id).expect("turn exists");
+                    turn.revision = record.sequence;
+                    touched_turn_rows = Some(TouchedTurnRows::AssistantOnly(turn_id));
                     let call_id = tool_call.tool_call_id.clone();
 
                     // Upsert semantics: a tool_call_update must fold into the
@@ -1476,11 +1506,11 @@ impl ProjectionFold {
                             if let Some(raw) = tool_call.raw_input {
                                 *input_preview = Some(cap_preview_bytes(raw.to_string()));
                             }
-                            if tool_call.metadata.is_some() {
-                                *meta = tool_call.metadata.clone();
+                            if let Some(metadata) = tool_call.metadata.clone() {
+                                *meta = Some(cap_json_value(metadata));
                             }
                             if !tool_call.images.is_empty() {
-                                *images = tool_call.images.clone();
+                                *images = tool_call.images.iter().take(4).cloned().collect();
                             }
                         }
                         None => {
@@ -1497,8 +1527,8 @@ impl ProjectionFold {
                                     .raw_input
                                     .as_ref()
                                     .map(|value| cap_preview_bytes(value.to_string())),
-                                meta: tool_call.metadata.clone(),
-                                images: tool_call.images.clone(),
+                                meta: tool_call.metadata.clone().map(cap_json_value),
+                                images: tool_call.images.iter().take(4).cloned().collect(),
                             });
                         }
                     }
@@ -1561,7 +1591,7 @@ impl ProjectionFold {
                 if let Some(turn_id) = record.turn_id.or_else(|| turn_order.last().copied()) {
                     ensure_turn(turns, turn_order, turn_id, record);
                     let turn = turns.get_mut(&turn_id).expect("turn exists");
-                    turn.assistant.usage = Some(TurnUsage {
+                    let next_usage = Some(TurnUsage {
                         input_tokens: usage.input_tokens,
                         output_tokens: usage.output_tokens,
                         cache_creation_input_tokens: usage.cache_creation_input_tokens,
@@ -1571,17 +1601,24 @@ impl ProjectionFold {
                         cost_amount: usage.cost_amount,
                         cost_currency: usage.cost_currency.clone(),
                     });
+                    if turn.assistant.usage != next_usage {
+                        turn.assistant.usage = next_usage;
+                        turn.revision = record.sequence;
+                        touched_turn_rows = Some(TouchedTurnRows::AssistantOnly(turn_id));
+                    }
                 }
             }
             // ACP session metadata is preserved in the durable event log. It is
             // intentionally not folded into VibeX conversation identity/title.
             ConversationEvent::AgentSessionInfoUpdated { .. } => {}
             ConversationEvent::TurnCompleted { .. } => {
-                settle_turn(turns, turn_order, record, "settled");
+                let turn_id = settle_turn(turns, turn_order, record, "settled");
+                touched_turn_rows = Some(TouchedTurnRows::All(turn_id));
                 clear_session_connect_notices(side_rows, &mut deleted_rows, record.sequence);
             }
             ConversationEvent::TurnCancelled { .. } => {
-                settle_turn(turns, turn_order, record, "cancelled");
+                let turn_id = settle_turn(turns, turn_order, record, "cancelled");
+                touched_turn_rows = Some(TouchedTurnRows::All(turn_id));
                 clear_session_connect_notices(side_rows, &mut deleted_rows, record.sequence);
             }
             ConversationEvent::TurnInterrupted { .. } => {
@@ -1591,7 +1628,10 @@ impl ProjectionFold {
                 // turn's user row). Never auto-retried — ADR-0001.
                 if let Some(turn_id) = record.turn_id {
                     ensure_turn(turns, turn_order, turn_id, record);
-                    turns.get_mut(&turn_id).expect("turn exists").phase = "interrupted".into();
+                    let turn = turns.get_mut(&turn_id).expect("turn exists");
+                    turn.phase = "interrupted".into();
+                    turn.revision = record.sequence;
+                    touched_turn_rows = Some(TouchedTurnRows::All(turn_id));
                 }
             }
             ConversationEvent::PermissionRequested { request } => {
@@ -1804,7 +1844,8 @@ impl ProjectionFold {
                 ));
             }
             ConversationEvent::TurnFailed { error } => {
-                settle_turn(turns, turn_order, record, "failed");
+                let turn_id = settle_turn(turns, turn_order, record, "failed");
+                touched_turn_rows = Some(TouchedTurnRows::All(turn_id));
                 if let Some(turn_id) = record.turn_id.or_else(|| turn_order.last().copied())
                     && let Some(turn) = turns.get_mut(&turn_id)
                     && assistant_content_is_turn_error_echo(&turn.assistant.blocks, &error)
@@ -2137,6 +2178,7 @@ impl ProjectionFold {
                     let turn = turns.get_mut(&expected_turn_id).expect("turn exists");
                     turn.pending_steering = Some((steering_id, content_blocks_from_input(&blocks)));
                     turn.revision = record.sequence;
+                    touched_turn_rows = Some(TouchedTurnRows::All(expected_turn_id));
                 }
                 agents::ConversationSteeringEvent::Accepted {
                     steering_id,
@@ -2145,6 +2187,7 @@ impl ProjectionFold {
                     ensure_turn(turns, turn_order, expected_turn_id, record);
                     let turn = turns.get_mut(&expected_turn_id).expect("turn exists");
                     apply_accepted_steering(turn, steering_id, record);
+                    touched_turn_rows = Some(TouchedTurnRows::All(expected_turn_id));
                 }
                 agents::ConversationSteeringEvent::Rejected {
                     expected_turn_id, ..
@@ -2155,27 +2198,41 @@ impl ProjectionFold {
                     if let Some(turn) = turns.get_mut(&expected_turn_id) {
                         turn.pending_steering = None;
                         turn.revision = record.sequence;
+                        touched_turn_rows = Some(TouchedTurnRows::All(expected_turn_id));
                     }
                 }
             },
             _ => {}
         }
 
-        // Every row this event touched carries `revision == record.sequence` now, so
-        // emit an `Upsert` for each — the message row(s) of the touched turn and any
-        // created/modified side row. (Streaming text already returned early above.)
+        // Emit `Upsert` only for rows this event actually modified, and cap tool preview
+        // fields so live row-op batches never carry multi-megabyte raw metadata.
         let mut ops = deleted_rows;
-        if let Some(turn_id) = self.resolved_turn_id(record)
-            && let Some(turn) = self.turns.get(&turn_id)
-            && turn.revision == record.sequence
-        {
-            for row in message_rows(turn) {
-                ops.push(ConversationRowOp::Upsert { row });
+        match touched_turn_rows {
+            Some(TouchedTurnRows::All(turn_id)) => {
+                if let Some(turn) = self.turns.get(&turn_id) {
+                    for mut row in message_rows(turn) {
+                        cap_timeline_row_preview_fields(&mut row);
+                        ops.push(ConversationRowOp::Upsert { row });
+                    }
+                }
             }
+            Some(TouchedTurnRows::AssistantOnly(turn_id)) => {
+                if let Some(turn) = self.turns.get(&turn_id)
+                    && !turn.assistant.blocks.is_empty()
+                {
+                    let mut row = message_row(turn, TurnRole::Assistant);
+                    cap_timeline_row_preview_fields(&mut row);
+                    ops.push(ConversationRowOp::Upsert { row });
+                }
+            }
+            None => {}
         }
         for row in &self.side_rows {
             if row.revision == record.sequence {
-                ops.push(ConversationRowOp::Upsert { row: row.clone() });
+                let mut row = row.clone();
+                cap_timeline_row_preview_fields(&mut row);
+                ops.push(ConversationRowOp::Upsert { row });
             }
         }
         Ok(ops)
@@ -2470,13 +2527,14 @@ fn settle_turn(
     turn_order: &mut Vec<Uuid>,
     record: &ConversationEventRecord,
     phase: &str,
-) {
+) -> Uuid {
     let turn_id = record
         .turn_id
         .or_else(|| turn_order.last().copied())
         .unwrap_or(record.conversation_id);
     ensure_turn(turns, turn_order, turn_id, record);
     let turn = turns.get_mut(&turn_id).expect("turn exists");
+    turn.revision = record.sequence;
     turn.phase = phase.into();
     turn.assistant.completed_at = Some(record.created_at);
     turn.assistant.duration_ms = Some(
@@ -2486,6 +2544,7 @@ fn settle_turn(
             .num_milliseconds()
             .max(0) as u64,
     );
+    turn_id
 }
 
 /// Stable per-row id for the incremental row-op protocol (消灭双投影). Message rows
@@ -7272,4 +7331,175 @@ mod tests {
             ContentBlock::Resource { uri, .. } if uri == "file:///tmp/a.md"
         )));
     }
+
+    #[tokio::test]
+    async fn incremental_projector_skips_turn_reemission_on_non_turn_events_and_coalesces_batches() {
+        let pool = setup_pool().await;
+        let (conversation_id, turn_id) = seed_turn(&pool).await;
+        let user_rec = append_event(
+            &pool,
+            conversation_id,
+            Some(turn_id),
+            "user",
+            ConversationEvent::UserTurnCreated {
+                blocks: vec![ConversationInputBlock::Text {
+                    text: "investigate memory".into(),
+                }],
+                workflow_refs: Vec::new(),
+            },
+            None,
+        )
+        .await;
+        let mut projector = IncrementalRowProjector::load(&pool, conversation_id, 0)
+            .await
+            .expect("load projector");
+        let initial_ops = projector.apply(&user_rec).expect("apply user turn");
+        assert_eq!(initial_ops.len(), 1);
+
+        let diag_rec = append_event(
+            &pool,
+            conversation_id,
+            Some(turn_id),
+            "acp",
+            ConversationEvent::RawDiagnosticRecorded {
+                label: "acp_frame".into(),
+                payload: Some(serde_json::json!({"ok": true})),
+            },
+            None,
+        )
+        .await;
+        let diag_ops = projector.apply(&diag_rec).expect("apply diagnostic");
+        assert!(
+            !diag_ops.iter().any(|op| matches!(
+                op,
+                ConversationRowOp::Upsert { row }
+                    if matches!(row.row, ConversationTimelineRow::MessageTurn { .. })
+            )),
+            "diagnostic events must not re-emit MessageTurn rows"
+        );
+
+        let term_rec = append_event(
+            &pool,
+            conversation_id,
+            Some(turn_id),
+            "host",
+            ConversationEvent::TerminalUpdated {
+                terminal: ConversationTerminalPatch {
+                    terminal_id: "term-1".into(),
+                    command: Some("cargo".into()),
+                    args: vec!["check".into()],
+                    cwd: None,
+                    status: "running".into(),
+                    output_summary: Some("checking".into()),
+                    output_truncated: false,
+                    exit_status: None,
+                },
+            },
+            None,
+        )
+        .await;
+        let term_ops = projector.apply(&term_rec).expect("apply terminal");
+        assert!(
+            term_ops.iter().all(|op| !matches!(
+                op,
+                ConversationRowOp::Upsert { row }
+                    if matches!(row.row, ConversationTimelineRow::MessageTurn { .. })
+            )),
+            "side-row events must only emit the side row, not re-emit MessageTurn rows"
+        );
+
+        let huge_meta = "x".repeat(64 * 1024);
+        let tool1 = append_event(
+            &pool,
+            conversation_id,
+            Some(turn_id),
+            "acp",
+            ConversationEvent::ToolCallUpsert {
+                tool_call: ConversationToolCallPatch {
+                    tool_call_id: "call-1".into(),
+                    title: Some("Read".into()),
+                    kind: Some("read".into()),
+                    status: Some("running".into()),
+                    raw_input: Some(serde_json::json!({"path": "main.rs"})),
+                    raw_output: None,
+                    raw_output_append: None,
+                    content: None,
+                    locations: None,
+                    metadata: Some(serde_json::json!({ "blob": huge_meta })),
+                    images: Vec::new(),
+                },
+            },
+            None,
+        )
+        .await;
+        let tool2 = append_event(
+            &pool,
+            conversation_id,
+            Some(turn_id),
+            "acp",
+            ConversationEvent::ToolCallUpsert {
+                tool_call: ConversationToolCallPatch {
+                    tool_call_id: "call-1".into(),
+                    title: None,
+                    kind: None,
+                    status: Some("completed".into()),
+                    raw_input: None,
+                    raw_output: Some(serde_json::Value::String("y".repeat(64 * 1024))),
+                    raw_output_append: None,
+                    content: None,
+                    locations: None,
+                    metadata: None,
+                    images: Vec::new(),
+                },
+            },
+            None,
+        )
+        .await;
+
+        let mut coalesced = Vec::new();
+        for rec in [&tool1, &tool2] {
+            let ops = projector.apply(rec).expect("apply tool");
+            // Only the assistant MessageTurn row should be emitted, never the user turn row.
+            assert_eq!(ops.len(), 1);
+            extend_coalesced_row_ops(&mut coalesced, ops);
+        }
+        assert_eq!(
+            coalesced.len(),
+            1,
+            "multiple Upserts to the same assistant turn row in one batch must coalesce to one op"
+        );
+        match &coalesced[0] {
+            ConversationRowOp::Upsert { row } => match &row.row {
+                ConversationTimelineRow::MessageTurn { turn, .. } => {
+                    assert_eq!(turn.role, TurnRole::Assistant);
+                    for block in &turn.blocks {
+                        match block {
+                            ContentBlock::ToolUse { meta: Some(meta), .. } => {
+                                let serialized = serde_json::to_string(meta).unwrap();
+                                assert!(
+                                    serialized.len()
+                                        <= agents::conversation::MAX_TIMELINE_PREVIEW_BYTES + 32,
+                                    "tool metadata must be capped in live projection"
+                                );
+                            }
+                            ContentBlock::ToolResult {
+                                output_preview: Some(preview),
+                                ..
+                            } => {
+                                assert!(
+                                    preview.len()
+                                        <= agents::conversation::MAX_TIMELINE_PREVIEW_BYTES + 8,
+                                    "tool output_preview must be capped in live projection"
+                                );
+                            }
+                            _ => {}
+                        }
+                    }
+                }
+                other => panic!("expected MessageTurn, got {other:?}"),
+            },
+            other => panic!("expected Upsert, got {other:?}"),
+        }
+    }
 }
+

@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import { ArrowUp } from 'lucide-react';
 import type {
   ExecutorProfileId,
@@ -64,6 +65,8 @@ export function SessionComposerTopbar({
   onStartNewSession,
   onRenameSession,
 }: SessionComposerTopbarProps) {
+  const [showDiffStats, setShowDiffStats] = useState(false);
+
   return (
     <div className="composer-topbar flex items-center gap-2 px-1 pb-0 text-xs">
       <DiffStatsBar
@@ -71,19 +74,20 @@ export function SessionComposerTopbar({
         sessionExecutor={sessionExecutor}
       />
       {showChangedFileSummary ? (
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <div className="composer-control inline-flex items-center rounded-md px-2 py-0.5 text-[11px]">
-              {`${changedFileCount} \u4e2a\u6587\u4ef6\u66f4\u6539`}
-            </div>
-          </TooltipTrigger>
-          <TooltipContent>
-            <div className="flex items-center gap-2 font-mono">
+        <button
+          type="button"
+          onClick={() => setShowDiffStats((prev) => !prev)}
+          className="composer-control inline-flex items-center rounded-md px-2 py-0.5 text-[11px] transition-colors"
+        >
+          {showDiffStats ? (
+            <span className="inline-flex items-center gap-1.5 font-mono">
               <span className="text-[hsl(var(--success))]">+{added}</span>
               <span className="text-destructive">-{deleted}</span>
-            </div>
-          </TooltipContent>
-        </Tooltip>
+            </span>
+          ) : (
+            `${changedFileCount} Diffs`
+          )}
+        </button>
       ) : null}
 
       <div className="flex-1" />

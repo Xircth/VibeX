@@ -505,18 +505,44 @@ function SessionCanvasFlow({
     return stable;
   })();
   sessionStoreRef.current.replace(sessionsById, sessionsReady);
+  const sessionsByIdRef = useRef(sessionsById);
+  sessionsByIdRef.current = sessionsById;
+  const onSelectedSessionChangeRef = useRef(onSelectedSessionChange);
+  onSelectedSessionChangeRef.current = onSelectedSessionChange;
+  // A catalog refresh replaces the session map without a new canvas selection.
+  // Publishing that again puts the hidden canvas card back into the workspace
+  // execution area after the session list has already switched.
+  const pendingCanvasSelectionIdRef = useRef<string | null>(null);
 
   useLayoutEffect(() => {
-    if (!onSelectedSessionChange) return;
+    const notify = onSelectedSessionChangeRef.current;
+    if (!notify) return;
     const sessionId = lastSelectedCanvasSessionId(
       documentRef.current.nodes,
       selectedIds
     );
-    if (!sessionId) return;
+    if (!sessionId) {
+      pendingCanvasSelectionIdRef.current = null;
+      return;
+    }
+    const session = sessionsByIdRef.current.get(sessionId);
+    if (!session) {
+      pendingCanvasSelectionIdRef.current = sessionId;
+      return;
+    }
+    pendingCanvasSelectionIdRef.current = null;
+    notify(session.placement);
+  }, [selectedIds]);
+
+  useLayoutEffect(() => {
+    const sessionId = pendingCanvasSelectionIdRef.current;
+    const notify = onSelectedSessionChangeRef.current;
+    if (!sessionId || !notify) return;
     const session = sessionsById.get(sessionId);
     if (!session) return;
-    onSelectedSessionChange(session.placement);
-  }, [onSelectedSessionChange, selectedIds, sessionsById]);
+    pendingCanvasSelectionIdRef.current = null;
+    notify(session.placement);
+  }, [sessionsById]);
 
   useEffect(() => {
     const sessionIds = selectedSessionIdsForViewed(

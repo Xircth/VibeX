@@ -123,7 +123,7 @@ describe('workspace tab strip chrome', () => {
     expect(rules.overflow).toBeUndefined();
     expect(rules['scrollbar-width']?.value).toBe('none');
     expect(surface['user-select']?.value).toBe('none');
-    expect(surface['-webkit-user-drag']?.value).toBe('element');
+    expect(surface['-webkit-user-drag']).toBeUndefined();
     expect(icon['pointer-events']?.value).toBe('none');
   });
 

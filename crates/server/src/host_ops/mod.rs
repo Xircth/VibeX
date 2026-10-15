@@ -1162,13 +1162,14 @@ impl ServerApplicationDomains {
                 "root path is not a directory",
             ));
         }
-        let git_map = build_git_status_map(&root);
-        serialize(walk_file_tree(
-            &root,
-            args.depth.unwrap_or(10),
-            0,
-            &git_map,
-        )?)
+        let depth = args.depth.unwrap_or(10);
+        let entries = tokio::task::spawn_blocking(move || {
+            let git_map = build_git_status_map(&root);
+            walk_file_tree(&root, depth, 0, &git_map)
+        })
+        .await
+        .map_err(|error| ApplicationError::internal(error.to_string()))??;
+        serialize(entries)
     }
 
     async fn list_directory_children(&self, args: Value) -> Result<Value, ApplicationError> {

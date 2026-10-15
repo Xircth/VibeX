@@ -114,31 +114,48 @@ pub async fn emit_conversation_row_ops_after(
         }
     }
     let mut ops = Vec::new();
-    {
+    let should_emit = {
         let entry = map.get_mut(&conversation_id).expect("projector present");
         entry.touch();
+        let previous_sequence = entry.last_emitted_sequence;
         for record in &new_records {
             if record.sequence <= entry.projector.last_sequence() {
                 continue;
             }
             match entry.projector.apply(record) {
-                Ok(record_ops) => ops.extend(record_ops),
+                Ok(record_ops) => conversations::extend_coalesced_row_ops(&mut ops, record_ops),
                 Err(error) => {
                     tracing::warn!(sequence = record.sequence, %error, "row-op emit: fold failed")
                 }
             }
         }
-    }
+        let will_emit = !(ops.is_empty()
+            && session_modes.is_none()
+            && session_config_options.is_none()
+            && available_commands.is_none()
+            && !queue_changed);
+        if will_emit {
+            entry.last_emitted_sequence = entry.projector.last_sequence().max(last_sequence);
+            Some(previous_sequence)
+        } else {
+            None
+        }
+    };
 
-    if !(ops.is_empty()
-        && session_modes.is_none()
-        && session_config_options.is_none()
-        && available_commands.is_none()
-        && !queue_changed)
-    {
+    if let Some(previous_sequence) = should_emit {
+        let emit_global = !ops.iter().all(|op| {
+            matches!(
+                op,
+                agents::conversation::ConversationRowOp::AppendText { .. }
+            )
+        }) || session_modes.is_some()
+            || session_config_options.is_some()
+            || available_commands.is_some()
+            || queue_changed;
         let batch = ConversationRowOpBatch {
             conversation_id,
             last_sequence,
+            previous_sequence: Some(previous_sequence),
             ops,
             session_modes,
             session_config_options,
@@ -149,7 +166,9 @@ pub async fn emit_conversation_row_ops_after(
             format!("{}:{conversation_id}", channels::CONVERSATION_EVENTS),
             &batch,
         );
-        bus.emit(channels::CONVERSATION_EVENTS, &batch);
+        if emit_global {
+            bus.emit(channels::CONVERSATION_EVENTS, &batch);
+        }
     }
 
     // The projector is a pure cache of the folded timeline, so it must stay bounded —

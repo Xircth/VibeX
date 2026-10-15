@@ -48,7 +48,9 @@ export const useDiffStream = (
   const { data, error, isInitialized } = useTauriPatchStream<DiffStreamEvent>({
     subscribeCommand: 'subscribe_diff_stream',
     subscribeArgs,
-    eventChannel: `diff-stream:${attemptId}`,
+    eventChannel: statsOnly
+      ? `diff-stream:${attemptId}:stats`
+      : `diff-stream:${attemptId}`,
     initialData,
     enabled: enabled && !!attemptId,
   });

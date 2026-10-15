@@ -1229,6 +1229,69 @@ describe('conversationStore (row-op dumb container)', () => {
       'assistant:',
     ]);
   });
+
+  it('does not trigger a false sequence gap when previous_sequence matches local cursor across coalesced or no-op sequences', () => {
+    let state = loaded([userRow('t1', 'q', 1n)]);
+    expect(entryOf(state).lastSequence).toBe(1n);
+    state = conversationStoreReducer(state, {
+      type: 'row_ops',
+      batch: batch(
+        [
+          {
+            op: 'upsert',
+            row: assistantRow(
+              't1',
+              [{ type: 'text', text: 'coalesced' }],
+              15n,
+              'streaming'
+            ),
+          },
+        ],
+        15n,
+        { previous_sequence: 1n }
+      ),
+    });
+    expect(entryOf(state).gap).toEqual({ kind: 'none' });
+    expect(entryOf(state).lastSequence).toBe(15n);
+  });
+
+  it('preserves sideRowsForEntry array identity across streaming message row updates', () => {
+    const permission: TimelineRow = timelineRow('perm:p1', 2n, {
+      kind: 'permission_request',
+      request: {
+        permission_id: 'p1',
+        title: 'Allow?',
+        status: 'pending',
+        details: null,
+        options: [],
+      },
+    });
+    let state = loaded([
+      userRow('t1', 'q', 1n),
+      permission,
+      assistantRow('t1', [{ type: 'text', text: 'hel' }], 3n, 'streaming'),
+    ]);
+    const firstSideRows = sideRowsForEntry(entryOf(state));
+    state = conversationStoreReducer(state, {
+      type: 'row_ops',
+      batch: batch(
+        [
+          {
+            op: 'upsert',
+            row: assistantRow(
+              't1',
+              [{ type: 'text', text: 'hello' }],
+              4n,
+              'streaming'
+            ),
+          },
+        ],
+        4n
+      ),
+    });
+    const secondSideRows = sideRowsForEntry(entryOf(state));
+    expect(secondSideRows).toBe(firstSideRows);
+  });
 });
 
 function textOf(blocks: ContentBlock[]): string {

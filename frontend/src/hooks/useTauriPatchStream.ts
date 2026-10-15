@@ -140,6 +140,8 @@ export const usePatchStream = <T extends object>(
       }
     };
 
+    let iterator: AsyncIterator<RemoteEvent> | undefined;
+
     const setup = async () => {
       const transport = getBackendTransport();
       const stream = STREAM_BY_COMMAND[subscribeCommand];
@@ -155,19 +157,25 @@ export const usePatchStream = <T extends object>(
           stream,
           args,
         });
-        if (!cancelled) {
-          setIsConnected(true);
-          setError(null);
+        iterator = subscription[Symbol.asyncIterator]();
+        if (cancelled) {
+          void iterator.return?.();
+          return;
         }
-        for await (const event of subscription) {
-          if (cancelled) return;
-          applyMessage((event as RemoteEvent).payload);
+        setIsConnected(true);
+        setError(null);
+        while (!cancelled) {
+          const next = await iterator.next();
+          if (next.done || cancelled) break;
+          applyMessage((next.value as RemoteEvent).payload);
         }
       } catch (err) {
         if (!cancelled) {
           console.error(`Failed to subscribe to ${eventChannel}:`, err);
           setError(err instanceof Error ? err.message : 'Failed to connect');
         }
+      } finally {
+        void iterator?.return?.();
       }
     };
 
@@ -175,6 +183,7 @@ export const usePatchStream = <T extends object>(
 
     return () => {
       cancelled = true;
+      void iterator?.return?.();
       dataRef.current = undefined;
       finishedRef.current = false;
       isInitializedRef.current = false;

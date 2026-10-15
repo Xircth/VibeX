@@ -42,6 +42,9 @@ function commandFromToolUse(
   if (!preview) {
     return block.tool_name.trim() || null;
   }
+  if (!LONG_RUNNING_COMMAND.test(preview)) {
+    return null;
+  }
   try {
     const parsed = JSON.parse(preview) as unknown;
     if (typeof parsed === 'string' && parsed.trim()) {

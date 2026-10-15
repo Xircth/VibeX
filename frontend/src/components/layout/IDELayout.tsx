@@ -62,6 +62,7 @@ import {
 import {
   dismissEmptyEditorColumn,
   ensureWelcomeEditorGroup,
+  installEditorColumnWidthRebalance,
   setColumnVisible,
   setLeftDockVisible,
   setColumnsVisible,
@@ -863,6 +864,9 @@ export function IDELayout({
           normalizeGroupIds(api);
         }
       });
+      const columnWidthRebalance = installEditorColumnWidthRebalance(api, {
+        shouldRebalance: () => !isResettingRef.current,
+      });
 
       const layoutDisposable = api.onDidLayoutChange(() => {
         if (isResettingRef.current) return;
@@ -941,6 +945,7 @@ export function IDELayout({
         removePanelDisposable.dispose();
         normalizeGroupsDisposable.dispose();
         removeGroupDisposable.dispose();
+        columnWidthRebalance.dispose();
         layoutDisposable.dispose();
 
         if (layoutChangeTimerRef.current) {

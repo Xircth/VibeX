@@ -44,6 +44,8 @@ struct NativeSurfaces {
     views: HashMap<String, WebView>,
     #[cfg(target_os = "windows")]
     contexts: HashMap<String, wry::WebContext>,
+    #[cfg(target_os = "windows")]
+    tab_profiles: HashMap<String, String>,
     #[cfg(target_os = "linux")]
     windows: HashMap<String, tauri::WebviewWindow>,
     devices: HashMap<String, String>,
@@ -56,6 +58,8 @@ thread_local! {
         views: HashMap::new(),
         #[cfg(target_os = "windows")]
         contexts: HashMap::new(),
+        #[cfg(target_os = "windows")]
+        tab_profiles: HashMap::new(),
         #[cfg(target_os = "linux")]
         windows: HashMap::new(),
         devices: HashMap::new(),
@@ -1004,6 +1008,14 @@ fn emit_popup_denied(app: &tauri::AppHandle, opener_id: &str, url: &str, reason:
     );
 }
 
+#[cfg(target_os = "windows")]
+static EVENT_TOKENS: OnceLock<Mutex<HashMap<String, (i64, i64)>>> = OnceLock::new();
+
+#[cfg(target_os = "windows")]
+fn event_tokens() -> &'static Mutex<HashMap<String, (i64, i64)>> {
+    EVENT_TOKENS.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
 /// WebView2 raises this on the UI thread. wry 0.54 then hops to a worker
 /// and waits for `Create`, which deadlocks the deferral. Attach this instead:
 /// handle the request here, tell the Host to open a tab, and mark it handled.
@@ -1030,8 +1042,10 @@ fn attach_windows_popup_handler(
     let core = webview.webview();
     let app_popup = app.clone();
     let opener_popup = opener_id.clone();
+    let token_tab_id = opener_id.clone();
     let popup_service = service.clone();
     let mut token = 0i64;
+    let mut msg_token = 0i64;
     unsafe {
         core.add_NewWindowRequested(
             &NewWindowRequestedEventHandler::create(Box::new(move |_, args| {
@@ -1058,7 +1072,6 @@ fn attach_windows_popup_handler(
             &mut token,
         )
         .map_err(|error| BrowserHostError::new("browser_open_failed", error.to_string()))?;
-        let mut msg_token = 0i64;
         core.add_WebMessageReceived(
             &WebMessageReceivedEventHandler::create(Box::new(move |_, args| {
                 let Some(args) = args else {
@@ -1082,6 +1095,9 @@ fn attach_windows_popup_handler(
             &mut msg_token,
         )
         .map_err(|error| BrowserHostError::new("browser_open_failed", error.to_string()))?;
+    }
+    if let Ok(mut tokens) = event_tokens().lock() {
+        tokens.insert(token_tab_id, (token, msg_token));
     }
     Ok(())
 }
@@ -1251,6 +1267,10 @@ fn adopt_popup_view(
             }
         };
         let _ = webview.set_visible(false);
+        #[cfg(target_os = "windows")]
+        store
+            .tab_profiles
+            .insert(tab_id.clone(), profile_id.to_owned());
         store.last_bounds.insert(tab_id.clone(), bounds.clone());
         store.views.insert(tab_id.clone(), webview);
         let platform = {
@@ -1611,6 +1631,10 @@ impl NativeTabs for TauriNativeTabs {
                             )?
                         }
                     };
+                    #[cfg(target_os = "windows")]
+                    store
+                        .tab_profiles
+                        .insert(tab_id.clone(), profile_id.clone());
                     store.last_bounds.insert(tab_id.clone(), bounds.clone());
                     store.views.insert(tab_id.clone(), webview);
                     let webview = store.views.get(&tab_id).expect("inserted");
@@ -1748,12 +1772,43 @@ impl NativeTabs for TauriNativeTabs {
 
     async fn close(&self, tab_id: &str) -> Result<(), BrowserHostError> {
         let tab_id = tab_id.to_owned();
+        if let Ok(mut map) = gestures().lock() {
+            map.remove(&tab_id);
+        }
+        if let Ok(mut map) = pending_popups().lock() {
+            map.remove(&tab_id);
+        }
         self.on_main(move || {
             SURFACES.with(|slot| {
                 let mut store = slot.borrow_mut();
                 #[cfg(not(target_os = "linux"))]
                 {
-                    store.views.remove(&tab_id);
+                    if let Some(webview) = store.views.remove(&tab_id) {
+                        #[cfg(target_os = "windows")]
+                        {
+                            use tauri_runtime_wry::wry::WebViewExtWindows;
+                            if let Some((new_win_token, msg_token)) = event_tokens()
+                                .lock()
+                                .ok()
+                                .and_then(|mut tokens| tokens.remove(&tab_id))
+                            {
+                                let core = webview.webview();
+                                unsafe {
+                                    let _ = core.remove_NewWindowRequested(new_win_token);
+                                    let _ = core.remove_WebMessageReceived(msg_token);
+                                }
+                            }
+                        }
+                        let _ = webview.set_visible(false);
+                        let _ = webview.load_url("about:blank");
+                    }
+                    #[cfg(target_os = "windows")]
+                    if let Some(profile_id) = store.tab_profiles.remove(&tab_id)
+                        && profile_id != "default"
+                        && !store.tab_profiles.values().any(|active| active == &profile_id)
+                    {
+                        store.contexts.remove(&profile_id);
+                    }
                 }
                 #[cfg(target_os = "linux")]
                 {

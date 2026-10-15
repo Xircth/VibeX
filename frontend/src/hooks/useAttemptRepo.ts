@@ -21,6 +21,7 @@ export function useAttemptRepo(
       return repos;
     },
     enabled: enabled && !!attemptId,
+    staleTime: 15_000,
   });
 
   const repos = useMemo(() => query.data ?? [], [query.data]);
@@ -39,6 +40,14 @@ export function useAttemptRepo(
     },
     [queryClient, attemptId]
   );
+
+  const effectiveSelectedRepoId = useMemo(() => {
+    if (repos.length === 0) return null;
+    if (selectedRepoId !== null && repos.some((repo) => repo.id === selectedRepoId)) {
+      return selectedRepoId;
+    }
+    return repos[0].id;
+  }, [repos, selectedRepoId]);
 
   // Auto-select first repo when none selected or when the current selection
   // does not belong to the active workspace anymore.
@@ -61,7 +70,7 @@ export function useAttemptRepo(
 
   return {
     repos,
-    selectedRepoId,
+    selectedRepoId: effectiveSelectedRepoId,
     setSelectedRepoId,
     isLoading: query.isLoading,
     refetch: query.refetch,

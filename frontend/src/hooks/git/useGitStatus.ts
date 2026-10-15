@@ -54,6 +54,8 @@ export function useGitStatus({
         : await repoApi.getGitStatus(repoId!);
     },
     enabled: !!repoId,
+    staleTime: 10_000,
+    placeholderData: (previousData) => previousData,
     refetchOnWindowFocus: true,
     refetchInterval: (query) => {
       const data = query.state.data;

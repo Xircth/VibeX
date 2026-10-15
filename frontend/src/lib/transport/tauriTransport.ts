@@ -111,15 +111,22 @@ export class TauriTransport implements BackendTransport {
     await tauriEmit(event, payload);
   }
 
-  async *subscribe(request: SubscriptionRequest): AsyncIterable<RemoteEvent> {
+  subscribe(request: SubscriptionRequest): AsyncIterable<RemoteEvent> {
     if (request.resource === 'patch_stream') {
-      yield* this.subscribePatchStream(request);
-      return;
+      return this.subscribePatchStream(request);
     }
     if (request.resource === 'host_event') {
-      yield* this.subscribeHostEvent(request);
-      return;
+      return this.subscribeHostEvent(request);
     }
+    return this.subscribeDurable(request);
+  }
+
+  private async *subscribeDurable(
+    request: Exclude<
+      SubscriptionRequest,
+      { resource: 'patch_stream' | 'host_event' }
+    >
+  ): AsyncIterable<RemoteEvent> {
     const isWorkflowRun = request.resource === 'workflow_run';
     let dirty = true;
     let wake: (() => void) | undefined;
@@ -182,66 +189,110 @@ export class TauriTransport implements BackendTransport {
     }
   }
 
-  private async *subscribePatchStream(
-    request: SubscriptionRequest
+  private subscribePatchStream(
+    request: Extract<SubscriptionRequest, { resource: 'patch_stream' }>
   ): AsyncIterable<RemoteEvent> {
-    if (request.resource !== 'patch_stream') {
-      return;
-    }
     const command = PATCH_STREAM_COMMAND[request.stream];
     if (!command) {
-      throw new Error(`unknown patch stream \`${request.stream}\``);
+      return {
+        [Symbol.asyncIterator](): AsyncIterator<RemoteEvent> {
+          return {
+            async next(): Promise<IteratorResult<RemoteEvent>> {
+              throw new Error(`unknown patch stream \`${request.stream}\``);
+            },
+          };
+        },
+      };
     }
     const channel = patchStreamChannel(request.stream, request.args);
-    yield* this.subscribeChannel(channel, async () => {
+    return this.subscribeChannel(channel, async () => {
       await this.call(command, objectArgs(request.args));
     });
   }
 
-  private async *subscribeHostEvent(
-    request: SubscriptionRequest
+  private subscribeHostEvent(
+    request: Extract<SubscriptionRequest, { resource: 'host_event' }>
   ): AsyncIterable<RemoteEvent> {
-    if (request.resource !== 'host_event') {
-      return;
-    }
-    yield* this.subscribeChannel(request.channel, async () => undefined);
+    return this.subscribeChannel(request.channel, async () => undefined);
   }
 
-  private async *subscribeChannel(
+  private subscribeChannel(
     channel: string,
     start: () => Promise<void>
   ): AsyncIterable<RemoteEvent> {
-    const queue: RemoteEvent[] = [];
-    let wake: (() => void) | undefined;
-    let closed = false;
-    let sequence = 0n;
-    const unlisten = await this.listen(channel, (payload) => {
-      sequence += 1n;
-      queue.push({
-        sequence,
-        kind: channel,
-        payload: payload as RemoteEvent['payload'],
-      });
-      wake?.();
-      wake = undefined;
-    });
-    try {
-      await start();
-      while (!closed) {
-        if (queue.length === 0) {
-          await new Promise<void>((resolve) => {
-            wake = resolve;
-          });
-        }
-        const next = queue.shift();
-        if (next) {
-          yield next;
-        }
-      }
-    } finally {
-      closed = true;
-      unlisten();
-    }
+    const self = this;
+    return {
+      [Symbol.asyncIterator](): AsyncIterator<RemoteEvent> {
+        const queue: RemoteEvent[] = [];
+        let wake: (() => void) | undefined;
+        let closed = false;
+        let sequence = 0n;
+        let unlisten: (() => void) | undefined;
+        let started = false;
+
+        const cleanup = () => {
+          closed = true;
+          const pendingWake = wake;
+          wake = undefined;
+          pendingWake?.();
+          const fn = unlisten;
+          unlisten = undefined;
+          fn?.();
+        };
+
+        return {
+          async next(): Promise<IteratorResult<RemoteEvent>> {
+            if (closed) {
+              return { value: undefined, done: true };
+            }
+            if (!started) {
+              started = true;
+              unlisten = await self.listen(channel, (payload) => {
+                if (closed) return;
+                sequence += 1n;
+                queue.push({
+                  sequence,
+                  kind: channel,
+                  payload: payload as RemoteEvent['payload'],
+                });
+                const pendingWake = wake;
+                wake = undefined;
+                pendingWake?.();
+              });
+              if (closed) {
+                cleanup();
+                return { value: undefined, done: true };
+              }
+              try {
+                await start();
+              } catch (err) {
+                cleanup();
+                throw err;
+              }
+            }
+            while (!closed) {
+              const nextItem = queue.shift();
+              if (nextItem) {
+                return { value: nextItem, done: false };
+              }
+              await new Promise<void>((resolve) => {
+                wake = resolve;
+              });
+            }
+            cleanup();
+            return { value: undefined, done: true };
+          },
+          async return(): Promise<IteratorResult<RemoteEvent>> {
+            cleanup();
+            return { value: undefined, done: true };
+          },
+          async throw(err?: unknown): Promise<IteratorResult<RemoteEvent>> {
+            cleanup();
+            throw err;
+          },
+        };
+      },
+    };
   }
 }
 
@@ -298,7 +349,8 @@ function patchStreamChannel(stream: string, rawArgs: unknown): string {
     case 'diff': {
       const id = field(args, 'workspaceId', 'workspace_id');
       if (!id) throw new Error('workspaceId is required');
-      return `diff-stream:${id}`;
+      const statsOnly = Boolean(args.statsOnly ?? args.stats_only);
+      return statsOnly ? `diff-stream:${id}:stats` : `diff-stream:${id}`;
     }
     case 'scratch': {
       const id = field(args, 'scratchId', 'scratch_id');

@@ -1377,6 +1377,12 @@ pub enum ConversationRowOp {
 pub struct ConversationRowOpBatch {
     pub conversation_id: Uuid,
     pub last_sequence: i64,
+    /// Last sequence emitted in the immediately preceding batch for this conversation,
+    /// when known by the incremental projector. Allows the frontend to distinguish
+    /// skipped no-op sequences or coalesced intra-batch revisions from dropped batches.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub previous_sequence: Option<i64>,
     pub ops: Vec<ConversationRowOp>,
     /// Latest agent-advertised session modes carried in this batch, if any. Session
     /// control state isn't a timeline row, so it rides alongside the row ops rather

@@ -89,10 +89,16 @@ describe('SessionComposerTopbar', () => {
       onJumpToPreviousUserMessage: onJump,
     });
 
-    expect(
-      screen.getByText('3 \u4e2a\u6587\u4ef6\u66f4\u6539')
-    ).toBeInTheDocument();
+    const diffsButton = screen.getByRole('button', { name: '3 Diffs' });
+    expect(diffsButton).toBeInTheDocument();
     expect(screen.getByText('1')).toBeInTheDocument();
+
+    fireEvent.click(diffsButton);
+    expect(screen.getByText('+12')).toBeInTheDocument();
+    expect(screen.getByText('-4')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByText('+12'));
+    expect(screen.getByRole('button', { name: '3 Diffs' })).toBeInTheDocument();
 
     fireEvent.click(
       screen.getByRole('button', {

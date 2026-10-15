@@ -272,6 +272,12 @@ export function TaskFollowUpSection({
     let unlisten: (() => void) | undefined;
     listenToConversationEvents((batch) => {
       if (!active || batch.conversation_id !== sessionId) return;
+      if (
+        batch.ops.length > 0 &&
+        batch.ops.every((op) => op.op === 'append_text')
+      ) {
+        return;
+      }
       void refetchLiveFeedback();
     }, sessionId)
       .then((unsubscribe) => {

@@ -49,7 +49,7 @@ pub use projection::{
     CONVERSATION_PROJECTION_VERSION, CachedRowProjector, ConversationEventAppender,
     ConversationProjector, ConversationRowProjectors, ConversationRowWindow,
     ConversationStateApplier, IncrementalRowProjector, OPEN_TIMELINE_ROW_LIMIT,
-    OpenConversationProjection, evict_least_recently_used_projectors,
+    OpenConversationProjection, evict_least_recently_used_projectors, extend_coalesced_row_ops,
 };
 pub use relation::{
     ConversationChildSummaryView, ConversationRelationControl, ConversationRelationView,

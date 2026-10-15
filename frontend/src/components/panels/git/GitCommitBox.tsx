@@ -1,11 +1,12 @@
-import { memo, useCallback, useRef, useState } from 'react';
+import { memo, useCallback, useEffect, useRef, useState } from 'react';
 import {
   Upload,
-  Loader2,
   ChevronsUpDown,
   ChevronsDownUp,
   Sparkles,
 } from 'lucide-react';
+import { Button } from '@astryxdesign/core/Button';
+import { ButtonGroup } from '@astryxdesign/core/ButtonGroup';
 import type { GitFileStatusEntry, GitFileDiffEntry } from 'shared/types';
 import { generateCommitMessage } from './generateCommitMessage';
 
@@ -25,6 +26,10 @@ interface GitCommitBoxProps {
   onCommitAndPush: () => void;
   onPush?: () => void;
 }
+
+const SINGLE_ROW_LINE_HEIGHT = 18;
+const MAX_COMMIT_INPUT_ROWS = 4;
+const MAX_COMMIT_INPUT_HEIGHT = SINGLE_ROW_LINE_HEIGHT * MAX_COMMIT_INPUT_ROWS;
 
 export const GitCommitBox = memo(function GitCommitBox({
   commitMessage,
@@ -48,6 +53,24 @@ export const GitCommitBox = memo(function GitCommitBox({
   const hasMessage = commitMessage.trim().length > 0;
   const hasChanges = hasStagedFiles || hasUnstagedFiles;
   const canCommit = hasMessage && hasChanges && !commitLoading;
+
+  const adjustTextareaHeight = useCallback(() => {
+    const textarea = textareaRef.current;
+    if (!textarea) return;
+    textarea.style.setProperty('height', 'auto', 'important');
+    const naturalHeight = Math.max(
+      textarea.scrollHeight,
+      SINGLE_ROW_LINE_HEIGHT
+    );
+    const nextHeight = Math.min(naturalHeight, MAX_COMMIT_INPUT_HEIGHT);
+    textarea.style.setProperty('height', `${nextHeight}px`, 'important');
+    textarea.style.overflowY =
+      naturalHeight > MAX_COMMIT_INPUT_HEIGHT ? 'auto' : 'hidden';
+  }, []);
+
+  useEffect(() => {
+    adjustTextareaHeight();
+  }, [adjustTextareaHeight, commitMessage, collapsed]);
 
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
@@ -76,14 +99,6 @@ export const GitCommitBox = memo(function GitCommitBox({
       onCommitMessageChange(msg);
     }
   }, [stagedFiles, diffs, onCommitMessageChange]);
-
-  const commitTitle = !hasMessage
-    ? 'Enter a commit message'
-    : !hasChanges
-      ? 'No changes to commit'
-      : commitLoading
-        ? 'Committing...'
-        : 'Commit (Ctrl+Enter)';
 
   return (
     <div className="flex flex-col border-b border-border/50">
@@ -115,22 +130,31 @@ export const GitCommitBox = memo(function GitCommitBox({
 
       {/* Expanded content */}
       {!collapsed && (
-        <div className="flex flex-col gap-1.5 px-2 pb-1.5">
-          {/* Commit message input */}
-          <div className="relative">
+        <div className="flex flex-col gap-1.5 px-2 pb-2">
+          {/* Commit message input with standard TextInput styling */}
+          <div
+            data-control-frame=""
+            className="astryx-text-input flex min-h-7 w-full items-center gap-1 rounded-lg border border-input bg-background px-2.5 py-1 text-xs text-foreground shadow-none"
+            onClick={() => textareaRef.current?.focus()}
+          >
             <textarea
               ref={textareaRef}
-              className="w-full resize-none bg-background/50 border border-border/50 rounded px-2 py-1.5 pr-7 text-xs text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring font-mono"
+              data-auto-resize=""
+              className="bg-transparent min-w-0 flex-1 resize-none border-0 p-0 text-xs leading-[18px] text-foreground placeholder:text-muted-foreground focus:outline-none"
               placeholder="Commit message..."
-              rows={2}
+              rows={1}
               value={commitMessage}
               onChange={(e) => onCommitMessageChange(e.target.value)}
+              onInput={adjustTextareaHeight}
               onKeyDown={handleKeyDown}
             />
             {stagedFiles.length > 0 && (
               <button
-                className="absolute top-1.5 right-1.5 p-0.5 rounded text-muted-foreground hover:bg-[hsl(var(--warning)/0.1)] hover:text-[hsl(var(--warning))] transition-colors"
-                onClick={handleGenerateMessage}
+                className="shrink-0 p-0.5 rounded text-muted-foreground hover:bg-[hsl(var(--warning)/0.1)] hover:text-[hsl(var(--warning))] transition-colors"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  handleGenerateMessage();
+                }}
                 title="Generate commit message from staged changes"
                 type="button"
               >
@@ -146,47 +170,43 @@ export const GitCommitBox = memo(function GitCommitBox({
             </div>
           )}
 
-          {/* Commit buttons */}
-          <div className="flex items-center gap-1">
-            <button
-              className="flex-1 flex items-center justify-center gap-1 px-2 py-1 rounded text-[11px] font-medium bg-primary text-primary-foreground hover:bg-primary/90 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
-              disabled={!canCommit}
-              onClick={onCommit}
-              title={commitTitle}
+          {/* Commit action group + Push button */}
+          <div className="flex items-center gap-1.5">
+            <ButtonGroup
+              label="Commit actions"
+              size="sm"
+              className="min-w-0 flex-1"
             >
-              {commitLoading ? (
-                <Loader2 className="h-3 w-3 animate-spin" />
-              ) : (
-                'Commit'
-              )}
-            </button>
-            <button
-              className="raised-control flex items-center justify-center gap-1 px-2 py-1 text-[11px] font-medium disabled:cursor-not-allowed disabled:opacity-40"
-              disabled={!canCommit}
-              onClick={onCommitAndPush}
-              title="Commit and Push (Ctrl+Shift+Enter)"
-            >
-              {pushLoading ? (
-                <Loader2 className="h-3 w-3 animate-spin" />
-              ) : (
-                <>Commit & Push</>
-              )}
-            </button>
-          </div>
+              <Button
+                label="Commit"
+                variant="secondary"
+                size="sm"
+                className="min-w-0 flex-auto !px-2 !text-[11px]"
+                isDisabled={!canCommit}
+                isLoading={commitLoading}
+                onClick={onCommit}
+              />
+              <Button
+                label="Commit&Push"
+                variant="secondary"
+                size="sm"
+                className="min-w-0 flex-auto !px-2 !text-[11px]"
+                isDisabled={!canCommit || pushLoading}
+                isLoading={pushLoading && canCommit}
+                onClick={onCommitAndPush}
+              />
+            </ButtonGroup>
 
-          {/* Push indicator */}
-          {commitsAhead > 0 && (
-            <button
-              className="flex items-center justify-center gap-1 px-2 py-0.5 rounded text-[10px] text-muted-foreground hover:text-foreground hover:bg-secondary/50 transition-colors"
+            <Button
+              label={`Push ${commitsAhead} commits`}
+              variant="primary"
+              size="sm"
+              className="shrink-0 !px-2.5 !text-[11px]"
+              isDisabled={commitsAhead <= 0 || pushLoading}
+              isLoading={pushLoading && !canCommit}
               onClick={onPush}
-              title={`Push ${commitsAhead} commit${commitsAhead > 1 ? 's' : ''}`}
-            >
-              <Upload className="h-3 w-3" />
-              <span>
-                Push {commitsAhead} commit{commitsAhead > 1 ? 's' : ''}
-              </span>
-            </button>
-          )}
+            />
+          </div>
         </div>
       )}
     </div>

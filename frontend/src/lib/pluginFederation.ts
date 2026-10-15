@@ -107,10 +107,15 @@ export function unloadPluginRemote(name: string): void {
   releaseRemote(name);
 }
 
+/** Count a live mount before any async load, so cleanup can always release once. */
+export function retainPluginRemote(name: string): void {
+  if (!name) return;
+  remoteUsers.set(name, (remoteUsers.get(name) ?? 0) + 1);
+}
+
 export async function loadPluginRemote(
   remote: PluginRemoteRef
 ): Promise<RemoteModule> {
-  remoteUsers.set(remote.name, (remoteUsers.get(remote.name) ?? 0) + 1);
   const runtime = federationHost();
   await runtime.registerRemotes(
     [{ name: remote.name, entry: remote.entry, type: 'module' }],

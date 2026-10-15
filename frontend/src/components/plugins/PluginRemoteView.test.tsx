@@ -11,6 +11,7 @@ vi.mock('@/lib/pluginFederation', () => ({
   }),
   isHttpRemoteEntry: () => true,
   loadPluginRemote: () => Promise.reject(new Error('plugin_remote_timeout')),
+  retainPluginRemote: vi.fn(),
   mountRemoteModule: vi.fn(),
   unloadPluginRemote: vi.fn(),
 }));

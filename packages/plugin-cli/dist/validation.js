@@ -410,8 +410,12 @@ function validateHostChrome(integration, diagnostics) {
         }
     };
     const requireSlot = (expected) => {
-        if (integration.slot !== undefined && integration.slot !== expected) {
-            diagnostics.push(error(`${kindCode(kind)}_invalid`, `${kind} slot must be ${expected}`));
+        requireSlotOneOf([expected]);
+    };
+    const requireSlotOneOf = (expected) => {
+        if (integration.slot !== undefined &&
+            !expected.includes(String(integration.slot))) {
+            diagnostics.push(error(`${kindCode(kind)}_invalid`, `${kind} slot must be ${expected.join(" or ")}`));
         }
     };
     const requireRange = (key, min, max) => {
@@ -450,9 +454,10 @@ function validateHostChrome(integration, diagnostics) {
             requireText("handler");
             break;
         case "app.status":
-            requireSlot("status.main");
+            requireSlotOneOf(["status.main", "status.after-mcp"]);
             requireText("handler");
             requireRange("refreshSeconds", 5, 3600);
+            validateRemote(integration, diagnostics, kind);
             break;
         case "app.composer.slash": {
             requireText("title");

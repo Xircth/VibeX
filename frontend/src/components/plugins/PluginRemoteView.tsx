@@ -8,6 +8,7 @@ import {
   loadPluginRemote,
   mountRemoteModule,
   parseRemoteRef,
+  retainPluginRemote,
   unloadPluginRemote,
 } from '@/lib/pluginFederation';
 import type { PluginContributionCatalogItem } from '@/lib/api/plugins';
@@ -143,6 +144,7 @@ function PluginRemoteViewBody({
     if (!remote || !isHttpRemoteEntry(remote.entry)) return;
     const root = rootRef.current;
     if (!root) return;
+    retainPluginRemote(remote.name);
     let disposed = false;
     let dispose: (() => void) | void;
     let revoke: (() => void) | undefined;

@@ -121,7 +121,10 @@ describe('AgentSetupPicker icons', () => {
 
   it('separates the agent list from a lighter panel without painting selected rows', () => {
     const css = readFileSync(
-      resolve(process.cwd(), 'src/components/onboarding/firstRunExperience.css'),
+      resolve(
+        process.cwd(),
+        'src/components/onboarding/firstRunExperience.css'
+      ),
       'utf8'
     );
     expect(css).toMatch(
@@ -142,5 +145,32 @@ describe('AgentSetupPicker icons', () => {
     expect(css).not.toMatch(
       /\.onboarding-agent-row\.is-enabled\s*\{[^}]*background:/
     );
+  });
+
+  it('centers a narrower install column and names every agent in the rail', () => {
+    const css = readFileSync(
+      resolve(
+        process.cwd(),
+        'src/components/onboarding/firstRunExperience.css'
+      ),
+      'utf8'
+    );
+    expect(css).toMatch(
+      /\.onboarding-install-step\s*\{[^}]*align-content:\s*safe center;/
+    );
+    expect(css).toMatch(
+      /\.onboarding-install-step\s*\{[^}]*padding:\s*88px 32px 48px;/
+    );
+    expect(css).toMatch(
+      /\.onboarding-install-column\s*\{[^}]*width:\s*min\(820px,/
+    );
+    expect(css).toMatch(
+      /\.onboarding-install-layout\s*\{[^}]*align-items:\s*center;/
+    );
+    expect(css).toMatch(/@keyframes onboarding-install-dot/);
+    expect(css).toMatch(
+      /\.onboarding-agent-rail\.settings-page \.agent-management-bar\s*\{[^}]*width:\s*212px;/
+    );
+    expect(css).toMatch(/\.agent-management-bar-label\s*\{[^}]*opacity:\s*1;/);
   });
 });

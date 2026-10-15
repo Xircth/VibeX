@@ -123,11 +123,10 @@ export function OnboardingAgentInstall({
   const { t } = useTranslation(['dialogs', 'settings']);
   const runtime = runtimeRef.current;
   const [, setVersion] = useState(0);
-  const [selectedAgentId, setSelectedAgentId] = useState<AgentId | null>(
-    () =>
-      defaultAgentId && agents.some((agent) => agent.agentId === defaultAgentId)
-        ? defaultAgentId
-        : (agents[0]?.agentId ?? null)
+  const [selectedAgentId, setSelectedAgentId] = useState<AgentId | null>(() =>
+    defaultAgentId && agents.some((agent) => agent.agentId === defaultAgentId)
+      ? defaultAgentId
+      : (agents[0]?.agentId ?? null)
   );
   const [actionsByAgent, setActionsByAgent] = useState<
     Record<string, AgentManagementActionsView>
@@ -143,17 +142,13 @@ export function OnboardingAgentInstall({
     agents.find((agent) => agent.agentId === selectedAgentId) ??
     agents[0] ??
     null;
-  const selectedView = selected
-    ? viewForOption(selected, barAgents)
-    : null;
+  const selectedView = selected ? viewForOption(selected, barAgents) : null;
   const operation = selected
     ? (runtime.operations[selected.agentId] ?? null)
     : null;
   const ready = selected ? runtime.ready.has(selected.agentId) : false;
   const installError = selected ? runtime.errors[selected.agentId] : undefined;
-  const preflight = selected
-    ? runtime.preflights[selected.agentId]
-    : undefined;
+  const preflight = selected ? runtime.preflights[selected.agentId] : undefined;
   const loginFailed = selected
     ? runtime.loginFailed.has(selected.agentId)
     : false;
@@ -231,10 +226,7 @@ export function OnboardingAgentInstall({
           event.status === 'failed' ||
           event.status === 'canceled' ||
           event.status === 'interrupted';
-        if (
-          terminal &&
-          (event.kind === 'install' || event.kind === 'repair')
-        ) {
+        if (terminal && (event.kind === 'install' || event.kind === 'repair')) {
           if (event.status === 'succeeded') {
             runtime.ready.add(event.agent_id);
             delete runtime.errors[event.agent_id];
@@ -274,16 +266,14 @@ export function OnboardingAgentInstall({
     };
   }, [ready, selected]);
 
-  const checkStatuses = agents.map(
-    (agent): OnboardingAgentCheckStatus => {
-      if (runtime.loginFailed.has(agent.agentId)) return 'blocked';
-      const report = runtime.preflights[agent.agentId];
-      if (!report) return 'blocked';
-      const judged = judgedPreflightItems(report.items);
-      if (judged.length === 0) return 'blocked';
-      return judged.some((item) => item.status === 'fail') ? 'blocked' : 'pass';
-    }
-  );
+  const checkStatuses = agents.map((agent): OnboardingAgentCheckStatus => {
+    if (runtime.loginFailed.has(agent.agentId)) return 'blocked';
+    const report = runtime.preflights[agent.agentId];
+    if (!report) return 'blocked';
+    const judged = judgedPreflightItems(report.items);
+    if (judged.length === 0) return 'blocked';
+    return judged.some((item) => item.status === 'fail') ? 'blocked' : 'pass';
+  });
 
   const continueDirectly = () => {
     setContinuePrompt(null);
@@ -349,131 +339,144 @@ export function OnboardingAgentInstall({
   const guidance = selected
     ? guidanceFor(selected, preflight, loginFailed, installError, t)
     : null;
+  const installTitle = t('dialogs:onboarding.installEnvironment').replace(
+    /(?:\.{3}|…)\s*$/u,
+    ''
+  );
   const showEnvironment = Boolean(operation) || Boolean(installError && !ready);
   const showConfiguration = Boolean(selected && ready && !operation);
 
   return (
     <main className="onboarding-install-step">
-      <div className="onboarding-install-copy">
-        <h1 id="onboarding-title" tabIndex={-1}>
-          {t('dialogs:onboarding.installEnvironment')}
-        </h1>
-      </div>
-      <div className="onboarding-install-layout">
-        <div className="onboarding-agent-rail settings-page">
-          <AgentBar
-            agents={barAgents}
-            selectedAgentId={selected?.agentId ?? null}
-            registryOpen={false}
-            orientation="vertical"
-            installReadyIds={runtime.ready}
-            onSelect={(agentId) => setSelectedAgentId(agentId as AgentId)}
-            onReorder={() => undefined}
-          />
+      <div className="onboarding-install-column">
+        <div className="onboarding-install-copy">
+          <h1 id="onboarding-title" tabIndex={-1}>
+            {[
+              installTitle,
+              <span className="onboarding-install-dots" key="dots">
+                <span>.</span>
+                <span>.</span>
+                <span>.</span>
+              </span>,
+            ]}
+          </h1>
         </div>
-        <div className="onboarding-install-detail settings-page">
-          {showEnvironment && operation ? (
-            <AgentOperationProgress
-              operation={operation}
-              onCancel={() => {
-                if (!selected || !operation.operationId) return;
-                void agentManagementApi.cancelOperation(
-                  selected.agentId,
-                  operation.operationId
-                );
-              }}
+        <div className="onboarding-install-layout">
+          <div className="onboarding-agent-rail settings-page">
+            <AgentBar
+              agents={barAgents}
+              selectedAgentId={selected?.agentId ?? null}
+              registryOpen={false}
+              orientation="vertical"
+              installReadyIds={runtime.ready}
+              onSelect={(agentId) => setSelectedAgentId(agentId as AgentId)}
+              onReorder={() => undefined}
             />
-          ) : null}
-          {showEnvironment && !operation && guidance ? (
-            <InstallGuidance
-              guidance={guidance}
-              onRepair={selected ? () => void repair(selected) : undefined}
-            />
-          ) : null}
-          {showConfiguration && selected && selectedView ? (
-            <>
-              <AgentAuthModeControl
-                actions={actionsByAgent[selected.agentId] ?? null}
-                authentication={selectedView.authentication}
-                agentId={selected.agentId}
-                modelProvider={
-                  selected.agentId === 'opencode' ||
-                  selected.agentId === 'mimo_code' ? (
-                    <OpenCodeProviderConnections
-                      agentId={selected.agentId}
-                      surface="provider"
-                    />
-                  ) : selectedView.settings_features?.includes(
-                      'reusable_model_providers'
-                    ) ? (
-                    <AgentModelProviderManager
-                      agentId={selected.agentId}
-                      disabled={false}
-                      embedded
-                      signedIn={
-                        selectedView.authentication === 'account' ||
-                        selectedView.authentication === 'multiple_unknown'
-                      }
-                    />
-                  ) : undefined
-                }
-                onRunAction={(actionId) => void runAction(actionId)}
+          </div>
+          <div className="onboarding-install-detail settings-page">
+            {showEnvironment && operation ? (
+              <AgentOperationProgress
+                operation={operation}
+                onCancel={() => {
+                  if (!selected || !operation.operationId) return;
+                  void agentManagementApi.cancelOperation(
+                    selected.agentId,
+                    operation.operationId
+                  );
+                }}
               />
-              <section
-                aria-labelledby="onboarding-preflight-heading"
-                className="settings-surface agent-preflight-surface"
-              >
-                <AgentSectionHeading
-                  headingId="onboarding-preflight-heading"
-                  title={t('settings:agents.preflightTitle')}
-                  expanded
-                />
-                <ul className="agent-preflight-grid">
-                  {(preflight
-                    ? presentPreflightItems(preflight.items)
-                    : []
-                  ).map((item) => (
-                    <AgentPreflightCard item={item} key={item.id} />
-                  ))}
-                </ul>
-              </section>
-              {guidance ? (
-                <InstallGuidance
-                  guidance={guidance}
-                  onRepair={
-                    guidance.repairable
-                      ? () => void repair(selected)
-                      : undefined
+            ) : null}
+            {showEnvironment && !operation && guidance ? (
+              <InstallGuidance
+                guidance={guidance}
+                onRepair={selected ? () => void repair(selected) : undefined}
+              />
+            ) : null}
+            {showConfiguration && selected && selectedView ? (
+              <>
+                <AgentAuthModeControl
+                  actions={actionsByAgent[selected.agentId] ?? null}
+                  authentication={selectedView.authentication}
+                  agentId={selected.agentId}
+                  modelProvider={
+                    selected.agentId === 'opencode' ||
+                    selected.agentId === 'mimo_code' ? (
+                      <OpenCodeProviderConnections
+                        agentId={selected.agentId}
+                        surface="provider"
+                      />
+                    ) : selectedView.settings_features?.includes(
+                        'reusable_model_providers'
+                      ) ? (
+                      <AgentModelProviderManager
+                        agentId={selected.agentId}
+                        disabled={false}
+                        embedded
+                        signedIn={
+                          selectedView.authentication === 'account' ||
+                          selectedView.authentication === 'multiple_unknown'
+                        }
+                      />
+                    ) : undefined
                   }
+                  onRunAction={(actionId) => void runAction(actionId)}
                 />
-              ) : (
-                <p className="onboarding-install-guidance" role="status">
-                  {t('dialogs:onboarding.checking')}
-                </p>
-              )}
-            </>
-          ) : null}
+                <section
+                  aria-labelledby="onboarding-preflight-heading"
+                  className="settings-surface agent-preflight-surface"
+                >
+                  <AgentSectionHeading
+                    headingId="onboarding-preflight-heading"
+                    title={t('settings:agents.preflightTitle')}
+                    expanded
+                  />
+                  <ul className="agent-preflight-grid">
+                    {(preflight
+                      ? presentPreflightItems(preflight.items)
+                      : []
+                    ).map((item) => (
+                      <AgentPreflightCard item={item} key={item.id} />
+                    ))}
+                  </ul>
+                </section>
+                {guidance ? (
+                  <InstallGuidance
+                    guidance={guidance}
+                    onRepair={
+                      guidance.repairable
+                        ? () => void repair(selected)
+                        : undefined
+                    }
+                  />
+                ) : (
+                  <p className="onboarding-install-guidance" role="status">
+                    {t('dialogs:onboarding.checking')}
+                  </p>
+                )}
+              </>
+            ) : null}
+          </div>
         </div>
+        <footer className="onboarding-config-footer">
+          <div className="onboarding-step-actions onboarding-config-actions">
+            <button
+              type="button"
+              className="onboarding-back-button"
+              onClick={onBack}
+            >
+              <ArrowLeft aria-hidden="true" />
+              {t('dialogs:onboarding.back')}
+            </button>
+            <button
+              type="button"
+              className="onboarding-primary-button"
+              onClick={requestContinue}
+            >
+              {t('dialogs:onboarding.continue')}
+            </button>
+          </div>
+        </footer>
       </div>
-      <footer className="onboarding-config-footer">
-        <div className="onboarding-step-actions onboarding-config-actions">
-          <button
-            type="button"
-            className="onboarding-back-button"
-            onClick={onBack}
-          >
-            <ArrowLeft aria-hidden="true" />
-            {t('dialogs:onboarding.back')}
-          </button>
-          <button
-            type="button"
-            className="onboarding-primary-button"
-            onClick={requestContinue}
-          >
-            {t('dialogs:onboarding.continue')}
-          </button>
-        </div>
-      </footer>
       {continuePrompt ? (
         <Dialog
           open
@@ -483,9 +486,7 @@ export function OnboardingAgentInstall({
         >
           <DialogContent className="onboarding-continue-dialog">
             <DialogHeader>
-              <DialogTitle>
-                {t('dialogs:onboarding.continueTitle')}
-              </DialogTitle>
+              <DialogTitle>{t('dialogs:onboarding.continueTitle')}</DialogTitle>
               <DialogDescription>
                 {continuePrompt === 'partial'
                   ? t('dialogs:onboarding.continuePartialBefore')
@@ -634,7 +635,10 @@ function recordReceipt(
   publish(runtime);
 }
 
-async function loadPreflight(runtime: OnboardingInstallRuntime, agentId: AgentId) {
+async function loadPreflight(
+  runtime: OnboardingInstallRuntime,
+  agentId: AgentId
+) {
   try {
     runtime.preflights[agentId] = await agentManagementApi.preflight(agentId);
     publish(runtime);

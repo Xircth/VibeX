@@ -115,7 +115,6 @@ function AgentBarVertical({
           <button
             key={agent.agent_id}
             type="button"
-            aria-label={agent.display_name}
             aria-current={selected ? 'true' : undefined}
             className={cn(
               'agent-management-bar-item',
@@ -124,13 +123,18 @@ function AgentBarVertical({
             )}
             onClick={() => onSelect(agent.agent_id)}
           >
-            <AgentManagementIcon agent={agent} className="h-5 w-5" />
-            {ready ? (
-              <span
-                aria-hidden="true"
-                className="settings-status-lamp settings-status-dot-success agent-install-lamp"
-              />
-            ) : null}
+            <span aria-hidden="true" className="agent-management-bar-mark">
+              <AgentManagementIcon agent={agent} className="h-5 w-5" />
+              {ready ? (
+                <span
+                  aria-hidden="true"
+                  className="settings-status-lamp settings-status-dot-success agent-install-lamp"
+                />
+              ) : null}
+            </span>
+            <span className="agent-management-bar-label">
+              {agent.display_name}
+            </span>
           </button>
         );
       })}

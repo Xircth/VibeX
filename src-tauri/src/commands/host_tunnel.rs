@@ -158,7 +158,13 @@ fn active_published_origin(store: &HostTunnelStore) -> Option<String> {
 }
 
 fn publish_browser_origins(store: &HostTunnelStore) {
-    server::set_extra_browser_origins(active_published_origin(store));
+    let origin = active_published_origin(store);
+    server::set_extra_browser_origins(origin.clone());
+    server::set_published_reachability(
+        origin
+            .into_iter()
+            .map(remote_protocol::ReachabilityOrigin::published),
+    );
 }
 
 fn view_saved(item: &SavedTunnel) -> SavedTunnelView {
@@ -242,9 +248,6 @@ pub fn merge_host_reachability(
 ) -> Vec<ReachabilityOrigin> {
     let mut items: Vec<ReachabilityOrigin> = Vec::new();
     for origin in published {
-        if remote_protocol::is_public_plaintext_http_origin(&origin.origin) {
-            continue;
-        }
         if !items.iter().any(|item| item.origin == origin.origin) {
             items.push(origin);
         }
@@ -776,7 +779,7 @@ mod tests {
     };
 
     #[test]
-    fn published_plaintext_public_origins_are_dropped() {
+    fn published_plaintext_public_origins_stay_in_reachability() {
         let merged = merge_host_reachability(
             &["http://192.168.1.20:17891".to_string()],
             vec![
@@ -787,9 +790,13 @@ mod tests {
         assert_eq!(
             merged
                 .iter()
-                .map(|item| item.origin.as_str())
+                .map(|item| (item.origin.as_str(), item.kind.as_str()))
                 .collect::<Vec<_>>(),
-            vec!["https://gate.example.ts.net", "http://192.168.1.20:17891"]
+            vec![
+                ("http://203.0.113.10:13630", "published"),
+                ("https://gate.example.ts.net", "published"),
+                ("http://192.168.1.20:17891", "lan"),
+            ]
         );
     }
 

@@ -22,9 +22,9 @@ pub use notification::{NotificationOutcome, NotificationSource, TerminalNotifica
 pub use pairing_invitation::{
     CONNECTION_CODE_ALPHABET, CONNECTION_CODE_LEN, IssuedPairingInvitation,
     PAIRING_TTL_CHOICES_SECONDS, PAIRING_TTL_DEFAULT_SECONDS, PairingInvitationPayload,
-    ReachabilityOrigin, is_connection_code, is_loopback_origin, is_public_plaintext_http_origin,
-    issue_connection_code, origin_allows_plaintext_http, parse_pairing_ttl_seconds,
-    resolve_pairing_ttl_seconds,
+    ReachabilityOrigin, canonical_pairing_token, is_connection_code, is_loopback_origin,
+    is_public_plaintext_http_origin, issue_connection_code, origin_allows_plaintext_http,
+    parse_pairing_ttl_seconds, resolve_pairing_ttl_seconds,
 };
 pub use schema::{ProtocolSchemaBundle, protocol_schema_bundle, write_protocol_schema_artifacts};
 pub use subscription::{

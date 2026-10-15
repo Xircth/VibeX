@@ -268,6 +268,7 @@ impl AgentManagementApplicationService {
                 runtime_version: versions.map(|versions| versions.0.clone()),
                 acp_version: versions.map(|versions| versions.1.clone()),
                 local_runtime: None,
+                desktop_client: None,
                 active_operation: installation
                     .and_then(|installation| installation.active_operation.as_deref())
                     .and_then(parse_operation),

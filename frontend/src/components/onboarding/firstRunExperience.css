@@ -482,50 +482,12 @@
   display: grid;
   padding: 18px 20px;
   grid-template-rows: auto auto auto;
+  background: var(--surface-dialog);
 }
 
 .onboarding-editor-panel {
   padding: 18px 20px;
-}
-
-.onboarding-version-control-panel {
-  display: grid;
-  gap: 12px;
-  padding: 18px 20px;
-}
-
-.onboarding-version-control-fields {
-  display: grid;
-  grid-template-columns: minmax(9rem, 1fr) minmax(14rem, 1.75fr);
-  gap: 12px 16px;
-  align-items: start;
-}
-
-.onboarding-version-control-field {
-  display: grid;
-  min-width: 0;
-  gap: 7px;
-}
-
-.onboarding-version-control-field > span {
-  color: hsl(var(--muted-foreground));
-  font-size: 11px;
-  font-weight: 680;
-}
-
-.onboarding-version-control-progress {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  margin: 0;
-  color: var(--onboarding-ink-muted);
-  font-size: 13px;
-  line-height: 1.4;
-}
-
-.onboarding-version-control-progress svg {
-  width: 14px;
-  height: 14px;
+  background: var(--surface-dialog);
 }
 
 .onboarding-agent-picker {
@@ -548,7 +510,11 @@
   overflow: auto;
   border: 1px solid hsl(var(--border) / 0.7);
   border-radius: var(--radius);
-  background: hsl(var(--background));
+  background: var(--surface-card-strong);
+}
+
+.dark .onboarding-agent-list {
+  background: var(--surface-card);
 }
 
 .onboarding-agent-row {
@@ -564,14 +530,6 @@
 
 .onboarding-agent-row:last-child {
   border-bottom: 0;
-}
-
-.onboarding-agent-row.is-enabled {
-  background: hsl(var(--primary) / 0.07);
-}
-
-.dark .onboarding-agent-row.is-enabled {
-  background: hsl(var(--primary) / 0.11);
 }
 
 .onboarding-agent-enable {
@@ -1011,7 +969,12 @@
 
 .onboarding-experience .onboarding-editor-select,
 .onboarding-experience .onboarding-editor-options {
-  background: hsl(var(--card));
+  background: var(--surface-card-strong);
+}
+
+.dark .onboarding-experience .onboarding-editor-select,
+.dark .onboarding-experience .onboarding-editor-options {
+  background: var(--surface-card);
 }
 
 .onboarding-experience .onboarding-editor-options {
@@ -1153,6 +1116,112 @@
   z-index: 4;
   margin: 12px auto 0;
   text-align: center;
+}
+
+.onboarding-install-step {
+  position: relative;
+  z-index: 1;
+  display: grid;
+  min-height: 0;
+  height: 100%;
+  padding: 28px 32px 20px;
+  grid-template-rows: auto minmax(0, 1fr) auto;
+  gap: 18px;
+}
+
+.onboarding-install-copy h1 {
+  margin: 0;
+  color: var(--onboarding-ink);
+  font-size: 1.5rem;
+  font-weight: 600;
+  letter-spacing: -0.025em;
+  line-height: 1.3;
+}
+
+.onboarding-install-copy h1:focus {
+  outline: none;
+}
+
+.onboarding-install-layout {
+  display: grid;
+  min-height: 0;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 16px;
+  align-items: start;
+}
+
+.onboarding-agent-rail.settings-page .agent-management-bar {
+  flex-direction: column;
+  width: auto;
+  height: auto;
+  overflow: visible;
+  padding: 6px;
+  border-radius: var(--radius);
+  gap: 6px;
+}
+
+.onboarding-agent-rail .agent-management-bar-item {
+  width: var(--agent-bar-item-size, 36px);
+  justify-content: center;
+  padding: 0;
+  cursor: pointer;
+  touch-action: auto;
+}
+
+.onboarding-agent-rail.settings-page .settings-status-lamp.agent-install-lamp {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  box-shadow: 0 0 0 2px var(--surface-dialog);
+}
+
+.onboarding-install-detail {
+  min-width: 0;
+  min-height: 0;
+  overflow: auto;
+  padding: 16px;
+  border: 1px solid hsl(var(--border) / 0.78);
+  border-radius: var(--radius);
+  background: var(--surface-dialog);
+}
+
+.onboarding-install-guidance {
+  display: grid;
+  gap: 8px;
+  margin-top: 12px;
+  color: var(--onboarding-ink);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.onboarding-install-guidance p {
+  margin: 0;
+}
+
+.onboarding-install-guidance.is-pass {
+  color: hsl(var(--success));
+}
+
+.onboarding-repair-button {
+  justify-self: start;
+  height: 32px;
+  padding: 0 12px;
+  border: 1px solid hsl(var(--border));
+  border-radius: var(--radius);
+  color: var(--onboarding-ink);
+  background: var(--surface-card-strong);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.onboarding-repair-button:focus-visible {
+  outline: 2px solid hsl(var(--primary) / 0.55);
+  outline-offset: 2px;
+}
+
+.dark .onboarding-repair-button {
+  background: var(--surface-card);
 }
 
 .onboarding-welcome-step {

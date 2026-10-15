@@ -8,6 +8,7 @@ pub mod config;
 pub mod container;
 pub mod container_actions;
 mod container_workflow;
+pub mod desktop_client_probe;
 pub mod diff_stream;
 pub mod events;
 pub mod file_search;

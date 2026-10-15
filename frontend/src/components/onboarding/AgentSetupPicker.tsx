@@ -241,7 +241,7 @@ export function AgentSetupPicker({
             return (
               <article
                 key={agent.agentId}
-                className={cn('onboarding-agent-row', enabled && 'is-enabled')}
+                className="onboarding-agent-row"
                 role="listitem"
               >
                 <label className="onboarding-agent-enable">

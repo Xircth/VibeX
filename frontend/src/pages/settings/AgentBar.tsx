@@ -64,6 +64,9 @@ type AgentBarProps = {
   onReorder: (agentIds: string[]) => void;
   onAdd?: () => void;
   onRefresh?: () => void;
+  orientation?: 'horizontal' | 'vertical';
+  /** Agents whose ACP runtime install has finished. */
+  installReadyIds?: ReadonlySet<string>;
 };
 
 type PagerDirection = 'previous' | 'next';
@@ -84,7 +87,58 @@ const DRAG_PAGE_DELAY_MS = 450;
  */
 const keepLayout: SortingStrategy = () => null;
 
-export function AgentBar({
+export function AgentBar(props: AgentBarProps) {
+  if (props.orientation === 'vertical') {
+    return <AgentBarVertical {...props} />;
+  }
+  return <AgentBarHorizontal {...props} />;
+}
+
+function AgentBarVertical({
+  agents,
+  selectedAgentId,
+  registryOpen,
+  onSelect,
+  installReadyIds,
+}: AgentBarProps) {
+  const { t } = useTranslation('settings');
+  return (
+    <nav
+      aria-label={t('agents.agentListAria')}
+      className="agent-management-bar agent-management-bar-vertical"
+      style={agentBarLayoutStyle}
+    >
+      {agents.map((agent) => {
+        const selected = !registryOpen && selectedAgentId === agent.agent_id;
+        const ready = installReadyIds?.has(agent.agent_id) ?? false;
+        return (
+          <button
+            key={agent.agent_id}
+            type="button"
+            aria-label={agent.display_name}
+            aria-current={selected ? 'true' : undefined}
+            className={cn(
+              'agent-management-bar-item',
+              selected && 'is-selected',
+              !agent.enabled && 'is-disabled'
+            )}
+            onClick={() => onSelect(agent.agent_id)}
+          >
+            <AgentManagementIcon agent={agent} className="h-5 w-5" />
+            {ready ? (
+              <span
+                aria-hidden="true"
+                className="settings-status-lamp settings-status-dot-success agent-install-lamp"
+              />
+            ) : null}
+          </button>
+        );
+      })}
+    </nav>
+  );
+}
+
+function AgentBarHorizontal({
   agents,
   selectedAgentId,
   registryOpen,

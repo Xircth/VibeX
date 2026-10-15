@@ -118,4 +118,29 @@ describe('AgentSetupPicker icons', () => {
     }
     expect(document.querySelector('.onboarding-agent-icon img')).toBeNull();
   });
+
+  it('separates the agent list from a lighter panel without painting selected rows', () => {
+    const css = readFileSync(
+      resolve(process.cwd(), 'src/components/onboarding/firstRunExperience.css'),
+      'utf8'
+    );
+    expect(css).toMatch(
+      /\.onboarding-agent-panel\s*\{[^}]*background:\s*var\(--surface-dialog\);/
+    );
+    expect(css).toMatch(
+      /\.onboarding-agent-list\s*\{[^}]*background:\s*var\(--surface-card-strong\);/
+    );
+    expect(css).toMatch(
+      /\.dark \.onboarding-agent-list\s*\{[^}]*background:\s*var\(--surface-card\);/
+    );
+    expect(css).toMatch(
+      /\.onboarding-editor-panel\s*\{[^}]*background:\s*var\(--surface-dialog\);/
+    );
+    expect(css).toMatch(
+      /\.onboarding-experience \.onboarding-editor-select,\s*\.onboarding-experience \.onboarding-editor-options\s*\{[^}]*background:\s*var\(--surface-card-strong\);/
+    );
+    expect(css).not.toMatch(
+      /\.onboarding-agent-row\.is-enabled\s*\{[^}]*background:/
+    );
+  });
 });

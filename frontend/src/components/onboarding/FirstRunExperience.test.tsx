@@ -8,6 +8,7 @@ import {
 } from '@testing-library/react';
 import { StrictMode } from 'react';
 import userEvent from '@testing-library/user-event';
+import { HotkeysProvider } from 'react-hotkeys-hook';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { EditorType, type AgentManagementView } from 'shared/types';
 
@@ -25,6 +26,11 @@ const managementMock = vi.hoisted(() => ({
   reorder: vi.fn(),
   addAndInstall: vi.fn(),
   preflight: vi.fn(),
+  authMode: vi.fn(),
+  actions: vi.fn(),
+  repair: vi.fn(),
+  runAction: vi.fn(),
+  cancelOperation: vi.fn(),
 }));
 
 const transportMock = vi.hoisted(() => ({
@@ -86,14 +92,19 @@ vi.mock('@/lib/api', () => ({
   versionControlApi: versionControlApiMock,
 }));
 
-vi.mock('@/lib/backendTransport', () => ({
-  backendListen: vi.fn(
-    async (event: string, handler: (payload: unknown) => void) => {
-      transportMock.listeners.set(event, handler);
-      return () => transportMock.listeners.delete(event);
-    }
-  ),
-}));
+vi.mock('@/lib/backendTransport', async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import('@/lib/backendTransport')>();
+  return {
+    ...actual,
+    backendListen: vi.fn(
+      async (event: string, handler: (payload: unknown) => void) => {
+        transportMock.listeners.set(event, handler);
+        return () => transportMock.listeners.delete(event);
+      }
+    ),
+  };
+});
 
 vi.mock('@/components/ui/toast', () => ({
   toast: toastMock,
@@ -245,6 +256,35 @@ describe('FirstRunExperience', () => {
           update_group: null,
         },
       ],
+    });
+    managementMock.authMode.mockResolvedValue({
+      agent_id: 'claude_code',
+      mode: 'subscription',
+      modes: [],
+      options: [],
+      credential_env: 'API_KEY',
+      credential_present: false,
+    });
+    managementMock.actions.mockResolvedValue({
+      agent_id: 'claude_code',
+      actions: [],
+    });
+    managementMock.repair.mockResolvedValue({
+      operation_id: 'operation-repair',
+      agent_id: 'codex',
+      kind: 'repair',
+      status: 'queued',
+    });
+    managementMock.runAction.mockResolvedValue({
+      agent_id: 'claude_code',
+      action_id: 'login',
+      launched: true,
+    });
+    managementMock.cancelOperation.mockResolvedValue({
+      operation_id: 'operation-codex',
+      agent_id: 'codex',
+      kind: 'install',
+      status: 'canceled',
     });
   });
 
@@ -712,7 +752,7 @@ describe('FirstRunExperience', () => {
     expect(progress).toHaveAttribute('aria-valuemax', '12');
     expect(screen.getByText('已检查 3 / 12')).toBeInTheDocument();
     expect(screen.getByText('已发现 1 个可用 Agent')).toBeInTheDocument();
-    expect(screen.getByRole('combobox', { name: '外部编辑器' })).toBeEnabled();
+    expect(screen.getByRole('combobox', { name: '外部查看器' })).toBeEnabled();
   });
 
   it('updates local check progress from backend events without showing an uninstalled list', async () => {
@@ -980,9 +1020,11 @@ describe('FirstRunExperience', () => {
     ).toBeInTheDocument();
 
     const editorPicker = screen.getByRole('combobox', {
-      name: '外部编辑器',
+      name: '外部查看器',
     });
     expect(editorPicker).toHaveClass('onboarding-editor-select');
+    expect(editorPicker).toHaveTextContent('文件资源管理器');
+    expect(editorPicker).not.toHaveTextContent('系统文件资源管理器');
     await user.click(editorPicker);
     const editorList = await screen.findByRole('listbox');
     expect(editorList).toHaveClass(
@@ -990,6 +1032,12 @@ describe('FirstRunExperience', () => {
       'onboarding-editor-options'
     );
     expect(editorList).toBeInTheDocument();
+    expect(
+      screen.getAllByRole('option', { name: /文件资源管理器/ })
+    ).toHaveLength(1);
+    expect(
+      screen.queryByRole('option', { name: /系统文件资源管理器/ })
+    ).not.toBeInTheDocument();
     expect(screen.getByRole('option', { name: /Cursor/ })).toBeInTheDocument();
     expect(screen.getByRole('listbox')).toBeInTheDocument();
     await user.click(screen.getByRole('option', { name: /Cursor/ }));
@@ -998,7 +1046,7 @@ describe('FirstRunExperience', () => {
       screen.queryByText('从下拉中选择编辑器，列表会标注其可用状态。')
     ).not.toBeInTheDocument();
 
-    await user.click(screen.getByRole('button', { name: '开始安装并继续' }));
+    await user.click(screen.getByRole('button', { name: '下一步' }));
 
     await waitFor(() => {
       expect(managementMock.setEnabled).toHaveBeenCalledWith('codex', true);
@@ -1014,7 +1062,7 @@ describe('FirstRunExperience', () => {
       });
     });
     expect(
-      screen.getByRole('heading', { name: '欢迎来到 VibeX' })
+      screen.getByRole('heading', { name: '正在安装必要的 Agent 运行环境...' })
     ).toBeInTheDocument();
   });
 
@@ -1048,13 +1096,13 @@ describe('FirstRunExperience', () => {
     await user.click(screen.getByRole('checkbox', { name: '启用 Codex' }));
     await user.click(screen.getByRole('combobox', { name: '默认 Agent' }));
     await user.click(screen.getByRole('option', { name: 'Codex' }));
-    await user.click(screen.getByRole('button', { name: '开始安装并继续' }));
+    await user.click(screen.getByRole('button', { name: '下一步' }));
 
     expect(managementMock.addAndInstall).toHaveBeenCalledWith('codex');
     expect(
       await screen.findByRole(
         'heading',
-        { name: '欢迎来到 VibeX' },
+        { name: '正在安装必要的 Agent 运行环境...' },
         { timeout: 250 }
       )
     ).toBeInTheDocument();
@@ -1090,23 +1138,13 @@ describe('FirstRunExperience', () => {
     await user.click(screen.getByRole('checkbox', { name: '启用 Codex' }));
     await user.click(screen.getByRole('combobox', { name: '默认 Agent' }));
     await user.click(screen.getByRole('option', { name: 'Codex' }));
-    await user.click(screen.getByRole('button', { name: '开始安装并继续' }));
+    await user.click(screen.getByRole('button', { name: '下一步' }));
 
-    await waitFor(
-      () => {
-        expect(toastMock.error).toHaveBeenCalledWith(
-          'Codex Agent 安装失败，请在设置中查看',
-          expect.objectContaining({
-            details: [
-              expect.objectContaining({
-                description: '未找到兼容的系统 Node.js',
-              }),
-            ],
-          })
-        );
-      },
-      { timeout: 2_500 }
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      '未找到兼容的系统 Node.js'
     );
+    expect(screen.getByRole('button', { name: '一键修复' })).toBeEnabled();
+    expect(toastMock.error).not.toHaveBeenCalled();
   });
 
   it('prioritizes recommended Agents and explains why the default picker cannot open yet', async () => {
@@ -1141,7 +1179,7 @@ describe('FirstRunExperience', () => {
       screen.getByRole('heading', { name: '选择出战的 Agent' })
     ).toBeInTheDocument();
     expect(
-      screen.getByRole('heading', { name: '选择外部编辑器' })
+      screen.getByRole('heading', { name: '选择外部查看器' })
     ).toBeInTheDocument();
 
     const rows = screen.getAllByRole('listitem');
@@ -1191,7 +1229,7 @@ describe('FirstRunExperience', () => {
     await user.click(screen.getByRole('checkbox', { name: '启用 Codex' }));
 
     const startButton = screen.getByRole('button', {
-      name: '开始安装并继续',
+      name: '下一步',
     });
     expect(startButton).toBeEnabled();
     await user.click(startButton);
@@ -1239,7 +1277,7 @@ describe('FirstRunExperience', () => {
     await screen.findByRole('checkbox', { name: '启用 Claude Code' });
 
     const startButton = screen.getByRole('button', {
-      name: '开始安装并继续',
+      name: '下一步',
     });
     expect(startButton).toBeEnabled();
     await user.click(startButton);
@@ -1291,7 +1329,7 @@ describe('FirstRunExperience', () => {
     await user.click(screen.getByRole('checkbox', { name: '启用 Codex' }));
     await user.click(screen.getByRole('combobox', { name: '默认 Agent' }));
     await user.click(screen.getByRole('option', { name: 'Codex' }));
-    await user.click(screen.getByRole('button', { name: '开始安装并继续' }));
+    await user.click(screen.getByRole('button', { name: '下一步' }));
 
     await waitFor(() => {
       expect(managementMock.refreshRegistry).toHaveBeenCalled();
@@ -1318,38 +1356,14 @@ describe('FirstRunExperience', () => {
     await user.click(screen.getByRole('checkbox', { name: '启用 Codex' }));
     await user.click(screen.getByRole('combobox', { name: '默认 Agent' }));
     await user.click(screen.getByRole('option', { name: 'Codex' }));
-    await user.click(screen.getByRole('button', { name: '开始安装并继续' }));
+    await user.click(screen.getByRole('button', { name: '下一步' }));
 
     await waitFor(() => {
       expect(managementMock.addAndInstall).toHaveBeenCalledWith('codex');
     });
   });
 
-  it('keeps the start button disabled while the editor command is invalid', async () => {
-    const user = userEvent.setup();
-    render(
-      <FirstRunExperience
-        open
-        initialEditor={{
-          editor_type: EditorType.CUSTOM,
-          custom_command: '',
-          remote_ssh_host: null,
-          remote_ssh_user: null,
-        }}
-        initialDefaultAgentId="claude_code"
-        onPersist={vi.fn().mockResolvedValue(undefined)}
-        onFinish={vi.fn()}
-      />
-    );
-
-    await user.click(screen.getByRole('button', { name: '下一步' }));
-    await screen.findByRole('checkbox', { name: '启用 Claude Code' });
-    expect(
-      screen.getByRole('button', { name: '开始安装并继续' })
-    ).toBeDisabled();
-  });
-
-  it('skips version control setup when Git is already installed', async () => {
+  it('keeps the next button disabled while a custom viewer command is empty', async () => {
     const user = userEvent.setup();
     render(
       <FirstRunExperience
@@ -1361,28 +1375,16 @@ describe('FirstRunExperience', () => {
       />
     );
 
-    await waitFor(() =>
-      expect(versionControlApiMock.detectGit).toHaveBeenCalled()
-    );
     await user.click(screen.getByRole('button', { name: '下一步' }));
-
-    expect(
-      screen.getByRole('heading', { name: '选择出战的 Agent' })
-    ).toBeInTheDocument();
-    expect(
-      screen.queryByRole('heading', { name: '配置版本管理器' })
-    ).not.toBeInTheDocument();
+    await screen.findByRole('checkbox', { name: '启用 Claude Code' });
+    await user.click(screen.getByRole('combobox', { name: '外部查看器' }));
+    await user.click(screen.getByRole('option', { name: '自定义命令' }));
+    expect(screen.getByRole('button', { name: '下一步' })).toBeDisabled();
   });
 
-  it('asks for a Git identity on the setup page when Git is missing', async () => {
+  it('does not ask to install Git and defaults an empty viewer to the file manager', async () => {
     const user = userEvent.setup();
     const onPersist = vi.fn().mockResolvedValue(undefined);
-    versionControlApiMock.detectGit.mockResolvedValue({
-      installed: false,
-      version: null,
-      path: null,
-      message: 'Git not detected',
-    });
     render(
       <FirstRunExperience
         open
@@ -1393,123 +1395,175 @@ describe('FirstRunExperience', () => {
       />
     );
 
-    await waitFor(() =>
-      expect(versionControlApiMock.detectGit).toHaveBeenCalled()
-    );
+    await user.click(screen.getByRole('button', { name: '下一步' }));
+    await screen.findByRole('heading', { name: '选择出战的 Agent' });
+    expect(
+      screen.queryByRole('heading', { name: '配置版本管理器' })
+    ).not.toBeInTheDocument();
+    expect(versionControlApiMock.detectGit).not.toHaveBeenCalled();
     await user.click(screen.getByRole('button', { name: '下一步' }));
 
-    expect(
-      await screen.findByRole('heading', { name: '选择出战的 Agent' })
-    ).toBeInTheDocument();
-    expect(
-      screen.getByRole('heading', { name: '配置版本管理器' })
-    ).toBeInTheDocument();
-    await user.click(screen.getByRole('button', { name: '开始安装并继续' }));
-    expect(screen.getByRole('alert')).toHaveTextContent('请填写名称和邮箱');
-    expect(versionControlApiMock.installTools).not.toHaveBeenCalled();
-    expect(onPersist).not.toHaveBeenCalled();
-
-    await user.type(screen.getByPlaceholderText('例如：张三'), 'Ada');
-    await user.type(
-      screen.getByPlaceholderText('name@example.com'),
-      'ada@example.com'
-    );
-    await user.click(screen.getByRole('button', { name: '开始安装并继续' }));
-
     await waitFor(() =>
-      expect(versionControlApiMock.installTools).toHaveBeenCalledWith({
-        user_name: 'Ada',
-        user_email: 'ada@example.com',
+      expect(onPersist).toHaveBeenCalledWith({
+        editor: {
+          editor_type: EditorType.FILE_MANAGER,
+          custom_command: null,
+          remote_ssh_host: null,
+          remote_ssh_user: null,
+        },
+        defaultAgentId: 'claude_code',
+        skipped: false,
       })
     );
-    expect(onPersist).toHaveBeenCalled();
     expect(
-      await screen.findByRole('heading', { name: /欢迎来到/ })
+      screen.getByRole('heading', {
+        name: '正在安装必要的 Agent 运行环境...',
+      })
     ).toBeInTheDocument();
+    expect(managementMock.addAndInstall).not.toHaveBeenCalled();
   });
 
-  it('keeps the setup page open and retries after a failed Git install', async () => {
+  it('enters home directly after one selected agent passes preflight', async () => {
     const user = userEvent.setup();
-    versionControlApiMock.detectGit.mockResolvedValue({
-      installed: false,
-      version: null,
-      path: null,
-      message: 'Git not detected',
-    });
-    versionControlApiMock.installTools
-      .mockResolvedValueOnce({
-        git: {
-          installed: false,
-          version: null,
-          path: null,
-          message: 'timeout',
-        },
-        github: {
-          gh_installed: false,
-          gh_path: null,
-          authenticated: false,
-          username: null,
-          host: 'github.com',
-          message: null,
-        },
-        identity_configured: false,
-        error: '官方源超时',
-      })
-      .mockResolvedValueOnce({
-        git: {
-          installed: true,
-          version: '2.47.0',
-          path: '/usr/bin/git',
-          message: null,
-        },
-        github: {
-          gh_installed: true,
-          gh_path: '/usr/bin/gh',
-          authenticated: false,
-          username: null,
-          host: 'github.com',
-          message: null,
-        },
-        identity_configured: true,
-        error: null,
-      });
-
+    const onFinish = vi.fn();
     render(
-      <FirstRunExperience
-        open
-        initialEditor={editor}
-        initialDefaultAgentId="claude_code"
-        onPersist={vi.fn().mockResolvedValue(undefined)}
-        onFinish={vi.fn()}
-      />
+      <HotkeysProvider>
+        <FirstRunExperience
+          open
+          initialEditor={editor}
+          initialDefaultAgentId="claude_code"
+          onPersist={vi.fn().mockResolvedValue(undefined)}
+          onFinish={onFinish}
+        />
+      </HotkeysProvider>
     );
 
-    await waitFor(() =>
-      expect(versionControlApiMock.detectGit).toHaveBeenCalled()
-    );
     await user.click(screen.getByRole('button', { name: '下一步' }));
-    await screen.findByRole('heading', { name: '配置版本管理器' });
-    await user.type(screen.getByPlaceholderText('例如：张三'), 'Ada');
-    await user.type(
-      screen.getByPlaceholderText('name@example.com'),
-      'ada@example.com'
+    await screen.findByRole('checkbox', { name: '启用 Claude Code' });
+    await user.click(screen.getByRole('button', { name: '下一步' }));
+
+    expect(
+      await screen.findByText(
+        '当前 Agent 已完成配置，请查看其他 Agent 或继续下一步'
+      )
+    ).toBeInTheDocument();
+    expect(document.querySelector('.agent-install-lamp')).not.toBeNull();
+    await user.click(screen.getByRole('button', { name: '继续' }));
+
+    await waitFor(() => expect(onFinish).toHaveBeenCalledTimes(1));
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+  });
+
+  it('asks before continuing while another selected agent is still blocked', async () => {
+    const user = userEvent.setup();
+    const onFinish = vi.fn();
+    managementMock.addAndInstall.mockImplementation(
+      () => new Promise(() => undefined)
     );
-    await user.click(screen.getByRole('button', { name: '开始安装并继续' }));
+    render(
+      <HotkeysProvider>
+        <FirstRunExperience
+          open
+          initialEditor={editor}
+          initialDefaultAgentId="claude_code"
+          onPersist={vi.fn().mockResolvedValue(undefined)}
+          onFinish={onFinish}
+        />
+      </HotkeysProvider>
+    );
 
-    expect(await screen.findByRole('alert')).toHaveTextContent('官方源超时');
-    expect(
-      screen.getByRole('heading', { name: '选择出战的 Agent' })
-    ).toBeInTheDocument();
-    expect(
-      screen.getByRole('heading', { name: '配置版本管理器' })
-    ).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: '下一步' }));
+    await screen.findByRole('checkbox', { name: '启用 Codex' });
+    await user.click(screen.getByRole('checkbox', { name: '启用 Codex' }));
+    await user.click(screen.getByRole('button', { name: '下一步' }));
+    await screen.findByText(
+      '当前 Agent 已完成配置，请查看其他 Agent 或继续下一步'
+    );
+    await user.click(screen.getByRole('button', { name: '继续' }));
 
-    await user.click(screen.getByRole('button', { name: '重试安装' }));
+    const dialog = await screen.findByRole('dialog');
+    expect(dialog).toHaveTextContent(
+      '当前还有 Agent 未通过预检查，将在后台继续完成运行环境安装，可在设置 - Agent中对 Agent 进行后续配置，是否确认继续？'
+    );
+    await user.click(within(dialog).getByRole('button', { name: '留在此页' }));
+    expect(onFinish).not.toHaveBeenCalled();
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: '继续' }));
+    const confirm = await screen.findByRole('dialog');
+    await user.click(within(confirm).getByRole('button', { name: '继续' }));
+    await waitFor(() => expect(onFinish).toHaveBeenCalledTimes(1));
+  });
+
+  it('warns when no selected agent has passed preflight', async () => {
+    const user = userEvent.setup();
+    const onFinish = vi.fn();
+    managementMock.addAndInstall.mockImplementation(
+      () => new Promise(() => undefined)
+    );
+    render(
+      <HotkeysProvider>
+        <FirstRunExperience
+          open
+          initialEditor={editor}
+          initialDefaultAgentId="claude_code"
+          onPersist={vi.fn().mockResolvedValue(undefined)}
+          onFinish={onFinish}
+        />
+      </HotkeysProvider>
+    );
+
+    await user.click(screen.getByRole('button', { name: '下一步' }));
+    const claudeToggle = await screen.findByRole('checkbox', {
+      name: '启用 Claude Code',
+    });
+    await user.click(claudeToggle);
+    await user.click(screen.getByRole('checkbox', { name: '启用 Codex' }));
+    await user.click(screen.getByRole('combobox', { name: '默认 Agent' }));
+    await user.click(screen.getByRole('option', { name: 'Codex' }));
+    await user.click(screen.getByRole('button', { name: '下一步' }));
+    await screen.findByRole('heading', {
+      name: '正在安装必要的 Agent 运行环境...',
+    });
+    await user.click(screen.getByRole('button', { name: '继续' }));
+
+    const dialog = await screen.findByRole('dialog');
+    expect(dialog).toHaveTextContent(
+      '当前暂无已通过预检查的 Agent，可在设置 - Agent中完成 Agent 运行环境安装与鉴权配置，是否确认继续？'
+    );
+    await user.click(within(dialog).getByRole('button', { name: '继续' }));
+    await waitFor(() => expect(onFinish).toHaveBeenCalledTimes(1));
+  });
+
+  it('repairs a failed ACP install from the guidance', async () => {
+    const user = userEvent.setup();
+    managementMock.addAndInstall.mockRejectedValue({
+      code: 'internal',
+      message: '未找到兼容的系统 Node.js',
+      agent_id: 'codex',
+    });
+    render(
+      <HotkeysProvider>
+        <FirstRunExperience
+          open
+          initialEditor={editor}
+          initialDefaultAgentId="claude_code"
+          onPersist={vi.fn().mockResolvedValue(undefined)}
+          onFinish={vi.fn()}
+        />
+      </HotkeysProvider>
+    );
+
+    await user.click(screen.getByRole('button', { name: '下一步' }));
+    await screen.findByRole('checkbox', { name: '启用 Codex' });
+    await user.click(screen.getByRole('checkbox', { name: '启用 Codex' }));
+    await user.click(screen.getByRole('combobox', { name: '默认 Agent' }));
+    await user.click(screen.getByRole('option', { name: 'Codex' }));
+    await user.click(screen.getByRole('button', { name: '下一步' }));
+    await user.click(await screen.findByRole('button', { name: '一键修复' }));
+
     await waitFor(() =>
-      expect(versionControlApiMock.installTools).toHaveBeenCalledTimes(2)
+      expect(managementMock.repair).toHaveBeenCalledWith('codex')
     );
-    expect(
-      await screen.findByRole('heading', { name: /欢迎来到/ })
-    ).toBeInTheDocument();
   });
 });

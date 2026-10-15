@@ -205,6 +205,11 @@ pub struct AgentManagementView {
     #[serde(default)]
     #[ts(optional)]
     pub local_runtime: Option<AgentLocalRuntimeView>,
+    /// Installed desktop product, such as the ChatGPT app for Codex.
+    /// This is not the CLI executable used to launch the Agent.
+    #[serde(default)]
+    #[ts(optional)]
+    pub desktop_client: Option<AgentLocalRuntimeView>,
     pub active_operation: Option<AgentOperationKind>,
     pub rollback_available: bool,
     #[serde(default)]

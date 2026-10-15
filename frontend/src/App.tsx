@@ -86,26 +86,34 @@ function MainAppContent() {
       >['executor_profile']['executor'];
       skipped: boolean;
     }) => {
-      await updateAndSaveConfig({
-        disclaimer_acknowledged: true,
-        onboarding_acknowledged: true,
-        ...(skipped
-          ? {}
+      // The guide stays mounted only while onboarding is unacknowledged.
+      // Saving the choices here must not dismiss it; acknowledgement waits
+      // until the user skips or leaves the install step.
+      await updateAndSaveConfig(
+        skipped
+          ? {
+              disclaimer_acknowledged: true,
+              onboarding_acknowledged: true,
+            }
           : {
               editor,
               executor_profile: {
                 executor: defaultAgentId,
                 variant: null,
               },
-            }),
-      });
+            }
+      );
     },
     [updateAndSaveConfig]
   );
 
   const finishFirstRun = useCallback(() => {
+    void updateAndSaveConfig({
+      disclaimer_acknowledged: true,
+      onboarding_acknowledged: true,
+    });
     navigate('/local-projects', { replace: true });
-  }, [navigate]);
+  }, [navigate, updateAndSaveConfig]);
 
   // Track previous path for back navigation
   usePreviousPath();

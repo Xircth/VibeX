@@ -298,7 +298,8 @@ function patchStreamChannel(stream: string, rawArgs: unknown): string {
     case 'diff': {
       const id = field(args, 'workspaceId', 'workspace_id');
       if (!id) throw new Error('workspaceId is required');
-      return `diff-stream:${id}`;
+      const statsOnly = Boolean(args.statsOnly ?? args.stats_only);
+      return statsOnly ? `diff-stream:${id}:stats` : `diff-stream:${id}`;
     }
     case 'scratch': {
       const id = field(args, 'scratchId', 'scratch_id');

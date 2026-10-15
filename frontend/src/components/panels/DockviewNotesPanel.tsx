@@ -8,9 +8,11 @@ import { useWorkspaceNotes } from '@/hooks/useWorkspaceNotes';
 import { useAppContextMenu } from '@/components/context-menu';
 import { requestComposerInsert } from '@/lib/composerInsert';
 import { writeClipboardViaBridge } from '@/vscode/bridge';
+import { NotesSelectionToolbar } from './NotesSelectionToolbar';
 
 function DockviewNotesPanel(_props: IDockviewPanelProps) {
-  const { t } = useTranslation('common');
+  const { t } = useTranslation('panels');
+  const { t: tCommon } = useTranslation('common');
   const { openSurfaceMenu } = useAppContextMenu();
   const editorRef = useRef<HTMLTextAreaElement>(null);
   const { activeWorktreeId } = useWorktree();
@@ -23,7 +25,7 @@ function DockviewNotesPanel(_props: IDockviewPanelProps) {
     openSurfaceMenu(event, [
       {
         id: 'send-composer',
-        label: t('contextMenu.sendToComposer'),
+        label: tCommon('contextMenu.sendToComposer'),
         disabled: !content.trim(),
         onSelect: () => {
           requestComposerInsert(content);
@@ -31,14 +33,14 @@ function DockviewNotesPanel(_props: IDockviewPanelProps) {
       },
       {
         id: 'copy-note',
-        label: t('contextMenu.copyNote'),
+        label: tCommon('contextMenu.copyNote'),
         onSelect: () => {
           void writeClipboardViaBridge(content);
         },
       },
       {
         id: 'jump-bottom',
-        label: t('contextMenu.jumpToBottom'),
+        label: tCommon('contextMenu.jumpToBottom'),
         onSelect: () => {
           const el = editorRef.current;
           if (el) el.scrollTop = el.scrollHeight;
@@ -46,7 +48,7 @@ function DockviewNotesPanel(_props: IDockviewPanelProps) {
       },
       {
         id: 'jump-top',
-        label: t('contextMenu.jumpToTop'),
+        label: tCommon('contextMenu.jumpToTop'),
         onSelect: () => {
           const el = editorRef.current;
           if (el) el.scrollTop = 0;
@@ -87,12 +89,13 @@ function DockviewNotesPanel(_props: IDockviewPanelProps) {
         ref={editorRef}
         className="notes-editor h-[calc(100%-2rem)] w-full resize-none text-sm text-foreground placeholder:text-muted-foreground focus:outline-none"
         placeholder={
-          isLoading ? 'Loading notes...' : 'Write workspace notes here...'
+          isLoading ? t('notesPanel.loading') : t('notesPanel.placeholder')
         }
         value={isLoading ? '' : content}
         onChange={(event) => setContent(event.target.value)}
         disabled={isLoading}
       />
+      <NotesSelectionToolbar editorRef={editorRef} />
       {isLoading && (
         <div className="pointer-events-none absolute inset-x-0 bottom-3 flex justify-center">
           <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />

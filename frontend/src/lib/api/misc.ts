@@ -199,8 +199,15 @@ export const fileTreeApi = {
     return backendCall<void>('delete_file', { path });
   },
 
-  getFileAtHead: async (filePath: string): Promise<string> => {
-    return backendCall<string>('get_file_at_head', { filePath });
+  getFileAtHead: async (
+    filePath: string,
+    options?: { workspaceId?: string | null; repoId?: string | null }
+  ): Promise<string> => {
+    return backendCall<string>('get_file_at_head', {
+      filePath,
+      ...(options?.workspaceId ? { workspaceId: options.workspaceId } : {}),
+      ...(options?.repoId ? { repoId: options.repoId } : {}),
+    });
   },
 
   getClaudeSettingsPath: async (): Promise<string> => {

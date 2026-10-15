@@ -280,6 +280,8 @@ mod tests {
             input_preview: None,
             meta: None,
             images: Vec::new(),
+            started_at: None,
+            ended_at: None,
         }];
         assert!(resolve_fork_point(&[turn], "t1:assistant", AgentKind::ClaudeCode).is_none());
     }

@@ -1397,7 +1397,15 @@ meta?: JsonValue | null,
  * Images returned by the tool call, such as files inspected by an
  * Agent image-viewing tool.
  */
-images?: Array<ImageData>, } | { "type": "tool_result", tool_use_id?: string | null, output_preview?: string | null, is_error: boolean, agent_stats?: AgentExecutionStats | null, } | { "type": "plan", entries: Array<PlanEntry>, } | { "type": "resource", uri: string, title?: string | null, } | { "type": "protocol", content: JsonValue, };
+images?: Array<ImageData>,
+/**
+ * Wall-clock start from the first tool-call event. Missing stays missing.
+ */
+started_at?: string | null,
+/**
+ * Wall-clock end from the terminal tool-call event.
+ */
+ended_at?: string | null, } | { "type": "tool_result", tool_use_id?: string | null, output_preview?: string | null, is_error: boolean, agent_stats?: AgentExecutionStats | null, } | { "type": "plan", entries: Array<PlanEntry>, } | { "type": "resource", uri: string, title?: string | null, } | { "type": "protocol", content: JsonValue, };
 
 export type ConversationDetail = { summary: ConversationSummary, turns: Array<MessageTurn>, session_stats?: SessionStats | null, };
 

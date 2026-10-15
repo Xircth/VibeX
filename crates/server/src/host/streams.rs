@@ -134,10 +134,14 @@ impl ServerApplicationDomains {
             .ok_or_else(|| {
                 ApplicationError::not_found(format!("Workspace {} not found", args.workspace_id))
             })?;
-        let channel = format!("diff-stream:{}", args.workspace_id);
+        let stats = args.stats_only.unwrap_or(false);
+        let channel = if stats {
+            format!("diff-stream:{}:stats", args.workspace_id)
+        } else {
+            format!("diff-stream:{}", args.workspace_id)
+        };
         let deployment = self.deployment.clone();
         let host_events = self.events.clone();
-        let stats = args.stats_only.unwrap_or(false);
         tokio::spawn(async move {
             match deployment.container().stream_diff(&workspace, stats).await {
                 Ok(mut stream) => {

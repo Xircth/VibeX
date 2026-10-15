@@ -114,6 +114,8 @@ fn block_from_item(item: &Value) -> Option<ContentBlock> {
                 input_preview: item.get("input").map(|input| input.to_string()),
                 meta: None,
                 images: Vec::new(),
+                started_at: None,
+                ended_at: None,
             })
         }
         "tool_result" => Some(ContentBlock::ToolResult {

@@ -109,7 +109,12 @@
     "noChangesYet": "No changes yet",
     "expandFileTree": "Expand file tree",
     "collapse": "Collapse",
-    "filesCount": "{{count}} files"
+    "filesCount": "{{count}} files",
+    "resizeFileTree": "Resize changes"
+  },
+  "notesPanel": {
+    "placeholder": "Write workspace notes here...",
+    "loading": "Loading notes..."
   },
   "webPreviewPanel": {
     "emptyTitle": "Start browsing",
@@ -321,7 +326,7 @@
     "emptySessions": "No agent sessions in this workspace.",
     "emptyBackground": "No background tasks.",
     "emptyNotices": "No errors or warnings.",
-    "openFlame": "Show timeline",
+    "openFlame": "View session timeline",
     "backToList": "Back",
     "noSpans": "This session has no timed events yet.",
     "running": "Running",

@@ -382,7 +382,8 @@
     "allowDangerousOperations": "允许危险操作"
   },
   "sessionConfigSelector": {
-    "fallbackLabel": "选项"
+    "fallbackLabel": "选项",
+    "optionAdjusted": "{{option}}已从{{requested}}调整为{{actual}}"
   },
   "sessionSettings": {
     "title": "本次会话",

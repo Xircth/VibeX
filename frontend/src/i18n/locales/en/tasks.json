@@ -382,7 +382,8 @@
     "allowDangerousOperations": "Allow dangerous operations"
   },
   "sessionConfigSelector": {
-    "fallbackLabel": "Option"
+    "fallbackLabel": "Option",
+    "optionAdjusted": "{{option}} was changed from {{requested}} to {{actual}}"
   },
   "sessionSettings": {
     "title": "This session",

@@ -1054,6 +1054,7 @@ fn map_agent_event(
         | AgentEvent::PromptStarted { .. }
         | AgentEvent::ModeChanged { .. }
         | AgentEvent::ConfigChanged { .. }
+        | AgentEvent::ConfigOptionRejected { .. }
         | AgentEvent::SessionBindReady { .. } => None,
     }
 }

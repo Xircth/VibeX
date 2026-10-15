@@ -1,5 +1,5 @@
 use std::{
-    collections::{HashMap, VecDeque},
+    collections::{BTreeMap, HashMap, VecDeque},
     future::Future,
     path::{Path, PathBuf},
     process::ExitStatus,
@@ -76,6 +76,11 @@ use crate::{
     grok_usage,
     pi_commands::{enrich_pi_available_commands, merge_available_command_lists},
     pi_trust::{PI_COMMAND_ENV, PI_CONFIG_DIR_ENV, PI_SESSION_DIR_ENV, PI_TRUST_WORKSPACE_ENV},
+    session_config_guard::{
+        self, GROK_MODELS_UPDATE_METHOD, GrokModelCatalog, asserted_from_preferred,
+        config_option_rejection, fold_grok_catalog_model_choices, parse_grok_model_catalog,
+        preferred_controls_map, take_asserted_config_drift,
+    },
     session_notice,
     state::{AgentConnectionSnapshot, AgentConnectionStatus},
     terminal::agent_terminal_registry,
@@ -1463,6 +1468,8 @@ struct AgentConnectionRunner {
     preferred_controls: Arc<RwLock<HashMap<AgentSessionId, crate::SessionControlPreferences>>>,
     status: Arc<Mutex<AgentConnectionStatus>>,
     handshake_started: Instant,
+    live_conn: Arc<Mutex<Option<ConnectionTo<Agent>>>>,
+    grok_catalog: Arc<Mutex<Option<GrokModelCatalog>>>,
 }
 
 /// Non-standard wire surface an ACP agent requires for its vendor-advertised
@@ -1496,6 +1503,10 @@ struct SessionControlState {
     /// The matching first `agent_message_chunk` is dropped so skill paths
     /// are not rendered as the assistant's opening words.
     pi_startup_banner: Option<String>,
+    /// Values this host asserted at establishment and the agent confirmed.
+    /// Kept until the first prompt; a later push that contradicts them is
+    /// re-asserted once (Codeg `asserted_config_values`).
+    asserted_config_values: BTreeMap<String, String>,
 }
 
 #[derive(Debug)]
@@ -1602,6 +1613,8 @@ impl AgentConnectionRunner {
             preferred_controls: Arc::new(RwLock::new(HashMap::new())),
             status: Arc::new(Mutex::new(AgentConnectionStatus::Connecting)),
             handshake_started: Instant::now(),
+            live_conn: Arc::new(Mutex::new(None)),
+            grok_catalog: Arc::new(Mutex::new(None)),
         }
     }
 
@@ -2280,6 +2293,7 @@ impl AgentConnectionRunner {
             Arc::clone(&self.pending_session_id),
             self.snapshot.working_dir.clone(),
             self.snapshot.env.clone(),
+            self.clone(),
         );
         let request_bridge = bridge.clone();
         let notification_bridge = bridge;
@@ -2339,6 +2353,7 @@ impl AgentConnectionRunner {
                 acp::on_receive_notification!(),
             )
             .connect_with(transport, |conn: ConnectionTo<Agent>| async move {
+                *runner.live_conn.lock().await = Some(conn.clone());
                 let client_capabilities = ClientCapabilities::new()
                     .terminal(true)
                     .session(
@@ -3374,6 +3389,13 @@ impl AgentConnectionRunner {
         {
             // Apply before the first broadcast so the UI never sees the agent's
             // defaults (CodeG `acp_connect` + preferred_*).
+            let preferred_map = preferred_controls_map(
+                preferences.mode.as_deref(),
+                preferences
+                    .config
+                    .iter()
+                    .map(|item| (item.key.as_str(), item.value.as_str())),
+            );
             if let Err(error) = self
                 .apply_session_overrides(
                     conn,
@@ -3389,6 +3411,17 @@ impl AgentConnectionRunner {
                     %error,
                     "preferred session controls were rejected by the new session"
                 );
+            }
+            let mut controls = self.session_controls.write().await;
+            if let Some(stored) = controls.get_mut(&session_id) {
+                let settled = agent_session_config_options_from_acp(stored.config_options.clone());
+                stored.asserted_config_values = asserted_from_preferred(&preferred_map, &settled);
+            }
+        }
+        if let Some(catalog) = self.grok_catalog.lock().await.clone() {
+            let mut controls = self.session_controls.write().await;
+            if let Some(stored) = controls.get_mut(&session_id) {
+                apply_grok_catalog_to_stored_options(&mut stored.config_options, &catalog);
             }
         }
 
@@ -3661,12 +3694,46 @@ impl AgentConnectionRunner {
             let stored = controls.entry(session_id).or_default();
             stored.config_options = response.config_options;
         }
+        if let Some(requested) = selection.event_value.as_str() {
+            let updated = agent_session_config_options_from_acp(
+                self.session_controls
+                    .read()
+                    .await
+                    .get(&session_id)
+                    .map(|stored| stored.config_options.clone())
+                    .unwrap_or_default(),
+            );
+            if let Some(rejection) =
+                config_option_rejection(&updated, &selection.config_id, requested)
+            {
+                self.emit_config_option_rejection(session_id, rejection);
+            }
+        }
         // Codex advertises mode as a config option. The composer still reads
         // Mode from `sessionModes`, so a config-option response that only
         // republishes `SessionConfigOptions` leaves the summary on the old
         // mode. Republish both control surfaces from the stored snapshot.
         self.publish_applied_config(session_id, &selection).await;
         Ok(())
+    }
+
+    fn emit_config_option_rejection(
+        &self,
+        session_id: AgentSessionId,
+        rejection: session_config_guard::ConfigOptionRejection,
+    ) {
+        self.emit(
+            Some(session_id),
+            None,
+            AgentEvent::ConfigOptionRejected {
+                config_id: rejection.config_id,
+                option_name: rejection.option_name,
+                requested: rejection.requested,
+                actual: rejection.actual,
+                requested_value: rejection.requested_value,
+                actual_value: rejection.actual_value,
+            },
+        );
     }
 
     async fn publish_applied_config(
@@ -3720,6 +3787,7 @@ impl AgentConnectionRunner {
                 "no live ACP session yet; the mode will apply when the next turn starts".into(),
             ));
         };
+        self.drop_asserted_config(session_id, "mode").await;
         self.apply_mode_value(conn, &acp_session_id, session_id, mode_id)
             .await
             .map_err(|error| AgentError::Runtime(format!("session/set_mode failed: {error}")))?;
@@ -3741,12 +3809,62 @@ impl AgentConnectionRunner {
                 "no live ACP session yet; the setting will apply when the next turn starts".into(),
             ));
         };
+        self.drop_asserted_config(session_id, key).await;
         self.apply_config_value(conn, &acp_session_id, session_id, key, value)
             .await
             .map_err(|error| {
                 AgentError::Runtime(format!("session/set_config_option failed: {error}"))
             })?;
         Ok(self.session_controls_snapshot(session_id).await)
+    }
+
+    async fn drop_asserted_config(&self, session_id: AgentSessionId, config_id: &str) {
+        let mut controls = self.session_controls.write().await;
+        if let Some(stored) = controls.get_mut(&session_id) {
+            stored.asserted_config_values.remove(config_id);
+        }
+    }
+
+    fn spawn_reassert_config_drift(
+        &self,
+        session_id: AgentSessionId,
+        acp_session_id: String,
+        drift: Vec<(String, String)>,
+    ) {
+        if drift.is_empty() {
+            return;
+        }
+        let apply = self.clone();
+        tokio::spawn(async move {
+            let Some(conn) = apply.live_conn.lock().await.clone() else {
+                return;
+            };
+            for (key, value) in drift {
+                tracing::info!(
+                    %session_id,
+                    config_id = %key,
+                    value = %value,
+                    "re-asserting session config the agent reverted after establishment"
+                );
+                if let Err(error) = apply
+                    .apply_config_value(
+                        &conn,
+                        &acp_session_id,
+                        session_id,
+                        &key,
+                        &serde_json::Value::String(value.clone()),
+                    )
+                    .await
+                {
+                    tracing::warn!(
+                        %session_id,
+                        config_id = %key,
+                        %error,
+                        "failed to re-assert session config after the agent reverted it"
+                    );
+                }
+            }
+        });
     }
 
     fn emit_override_diagnostic(
@@ -3794,6 +3912,9 @@ impl AgentConnectionRunner {
         // closes the turn.
         *self.active_prompt.lock().await = Some((session_id, prompt_id));
         *self.last_activity.lock().await = Instant::now();
+        if let Some(stored) = self.session_controls.write().await.get_mut(&session_id) {
+            stored.asserted_config_values.clear();
+        }
         let idle_timeout = prompt_idle_timeout();
 
         // Start each turn with a clean streaming accumulator so snapshot dedup
@@ -4578,6 +4699,7 @@ struct AcpClientBridge {
     pending_session_id: Arc<Mutex<Option<AgentSessionId>>>,
     working_dir: PathBuf,
     env: HashMap<String, String>,
+    apply: AgentConnectionRunner,
 }
 
 impl AcpClientBridge {
@@ -4598,6 +4720,7 @@ impl AcpClientBridge {
         pending_session_id: Arc<Mutex<Option<AgentSessionId>>>,
         working_dir: PathBuf,
         env: HashMap<String, String>,
+        apply: AgentConnectionRunner,
     ) -> Self {
         Self {
             connection_id,
@@ -4615,6 +4738,7 @@ impl AcpClientBridge {
             pending_session_id,
             working_dir,
             env,
+            apply,
         }
     }
 
@@ -4947,6 +5071,10 @@ impl AcpClientBridge {
     ) -> Result<(), acp::Error> {
         let params: serde_json::Value =
             serde_json::from_str(ext.params.get()).unwrap_or(serde_json::Value::Null);
+        if ext.method.as_ref() == GROK_MODELS_UPDATE_METHOD {
+            self.handle_grok_models_update(&params).await;
+            return Ok(());
+        }
         let updates = self
             .grok_subagent
             .lock()
@@ -5037,6 +5165,42 @@ impl AcpClientBridge {
             );
         }
         Ok(())
+    }
+
+    /// Grok's process-wide catalog. Refresh every session's model list and
+    /// never move this session's current model — `currentModelId` is not a
+    /// session switch (Codeg `fold_grok_catalog_into_picker`).
+    async fn handle_grok_models_update(&self, params: &serde_json::Value) {
+        let Some(catalog) = parse_grok_model_catalog(params) else {
+            return;
+        };
+        *self.apply.grok_catalog.lock().await = Some(catalog.clone());
+        let establishing = self.pending_session_id.lock().await.is_some();
+        let mut changed = Vec::new();
+        {
+            let mut controls = self.session_controls.write().await;
+            for (session_id, stored) in controls.iter_mut() {
+                if apply_grok_catalog_to_stored_options(&mut stored.config_options, &catalog) {
+                    changed.push((*session_id, stored.config_options.clone()));
+                }
+            }
+        }
+        if establishing {
+            return;
+        }
+        for (session_id, options) in changed {
+            send_manager_event(
+                &self.event_tx,
+                AgentConnectionManagerEvent {
+                    connection_id: self.connection_id,
+                    session_id: Some(session_id),
+                    prompt_id: None,
+                    event: AgentEvent::SessionConfigOptions {
+                        options: agent_session_config_options_from_acp(options),
+                    },
+                },
+            );
+        }
     }
 
     async fn take_pi_startup_banner(
@@ -5277,11 +5441,15 @@ impl AcpClientBridge {
             SessionUpdate::CurrentModeUpdate(update) => {
                 let mode_id = update.current_mode_id.0.to_string();
                 if let Some(session_id) = session_id {
-                    let options = {
+                    let (options, drift) = {
                         let mut controls = self.session_controls.write().await;
                         let entry = controls.entry(session_id).or_default();
                         apply_current_mode_to_config_options(&mut entry.config_options, &mode_id);
-                        entry.config_options.clone()
+                        let mapped =
+                            agent_session_config_options_from_acp(entry.config_options.clone());
+                        let drift =
+                            take_asserted_config_drift(&mut entry.asserted_config_values, &mapped);
+                        (entry.config_options.clone(), drift)
                     };
                     let (modes, current) = session_modes_from_config_options(&options);
                     if self.pending_session_id.lock().await.is_none() {
@@ -5295,25 +5463,39 @@ impl AcpClientBridge {
                             },
                         );
                     }
+                    self.apply.spawn_reassert_config_drift(
+                        session_id,
+                        acp_session_id.clone(),
+                        drift,
+                    );
                 }
                 Some(AgentEvent::ModeChanged { mode_id })
             }
             SessionUpdate::ConfigOptionUpdate(update) => {
                 // Mirror the pushed options into the stored controls so later
                 // `session/set_config_option` matching never works off stale data.
+                let mapped = agent_session_config_options_from_acp(update.config_options.clone());
                 if let Some(session_id) = session_id {
-                    let mut controls = self.session_controls.write().await;
-                    let stored = controls.entry(session_id).or_default();
-                    stored.config_options = update.config_options.clone();
-                    stored.mode_uses_set_mode = stored.mode_uses_set_mode
-                        && config_options_have_mode_category(&stored.config_options);
-                    if let Some(model) = current_grok_model_id(&stored.config_options) {
-                        stored.last_model_id = Some(model);
-                    }
+                    let drift = {
+                        let mut controls = self.session_controls.write().await;
+                        let stored = controls.entry(session_id).or_default();
+                        let drift =
+                            take_asserted_config_drift(&mut stored.asserted_config_values, &mapped);
+                        stored.config_options = update.config_options.clone();
+                        stored.mode_uses_set_mode = stored.mode_uses_set_mode
+                            && config_options_have_mode_category(&stored.config_options);
+                        if let Some(model) = current_grok_model_id(&stored.config_options) {
+                            stored.last_model_id = Some(model);
+                        }
+                        drift
+                    };
+                    self.apply.spawn_reassert_config_drift(
+                        session_id,
+                        acp_session_id.clone(),
+                        drift,
+                    );
                 }
-                Some(AgentEvent::SessionConfigOptions {
-                    options: agent_session_config_options_from_acp(update.config_options),
-                })
+                Some(AgentEvent::SessionConfigOptions { options: mapped })
             }
             SessionUpdate::UsageUpdate(update) => {
                 let usage = agent_usage_from_acp(update);
@@ -5798,6 +5980,54 @@ fn session_modes_from_config_options(
         })
         .collect();
     (modes, current)
+}
+
+fn apply_grok_catalog_to_stored_options(
+    options: &mut [AcpSessionConfigOption],
+    catalog: &GrokModelCatalog,
+) -> bool {
+    let Some(option) = options
+        .iter_mut()
+        .find(|option| option.category == Some(SessionConfigOptionCategory::Model))
+    else {
+        return false;
+    };
+    let SessionConfigKind::Select(select) = &mut option.kind else {
+        return false;
+    };
+    let current = select.current_value.0.to_string();
+    let rows = select_option_rows(&select.options);
+    let current_label = rows
+        .iter()
+        .find(|(id, _)| id == &current)
+        .map(|(_, name)| name.as_str())
+        .unwrap_or(current.as_str());
+    let next = fold_grok_catalog_model_choices(&current, current_label, catalog);
+    if next == rows {
+        return false;
+    }
+    select.options = SessionConfigSelectOptions::Ungrouped(
+        next.into_iter()
+            .map(|(id, name)| SessionConfigSelectOption::new(id, name))
+            .collect(),
+    );
+    true
+}
+
+fn select_option_rows(options: &SessionConfigSelectOptions) -> Vec<(String, String)> {
+    match options {
+        SessionConfigSelectOptions::Ungrouped(choices) => choices
+            .iter()
+            .map(|choice| (choice.value.0.to_string(), choice.name.clone()))
+            .collect(),
+        SessionConfigSelectOptions::Grouped(groups) => groups
+            .iter()
+            .flat_map(|group| group.options.iter())
+            .map(|choice| (choice.value.0.to_string(), choice.name.clone()))
+            .collect(),
+        #[allow(unreachable_patterns)]
+        _ => Vec::new(),
+    }
 }
 
 fn apply_current_mode_to_config_options(options: &mut [AcpSessionConfigOption], mode_id: &str) {
@@ -6761,6 +6991,74 @@ mod tests {
 
     use super::*;
 
+    fn dummy_runner(
+        event_tx: mpsc::UnboundedSender<AgentConnectionManagerEvent>,
+    ) -> AgentConnectionRunner {
+        AgentConnectionRunner::new(
+            ManagedAgentConnectionSnapshot {
+                connection_id: AgentConnectionId::new(),
+                agent_id: AgentId::parse("antigravity").unwrap(),
+                launch_lock: crate::SessionLaunchLock {
+                    agent_id: AgentId::parse("antigravity").unwrap(),
+                    absolute_acp_program: PathBuf::from("/managed/acp"),
+                    args: vec!["serve".into()],
+                    env: BTreeMap::new(),
+                    runtime_version: "2.0.0".into(),
+                    acp_version: "1.1.0".into(),
+                },
+                workspace_id: uuid::Uuid::nil(),
+                working_dir: PathBuf::from("C:/workspace"),
+                additional_directories: Vec::new(),
+                auto_approve_mode: AgentAutoApproveMode::default(),
+                env: HashMap::new(),
+            },
+            event_tx,
+            None,
+        )
+    }
+
+    #[test]
+    fn grok_catalog_refresh_keeps_this_session_current_model() {
+        let mut options = vec![
+            AcpSessionConfigOption::select(
+                "model",
+                "Model",
+                "grok-4.7",
+                vec![
+                    SessionConfigSelectOption::new("grok-4.6", "Grok 4.6"),
+                    SessionConfigSelectOption::new("grok-4.7", "Grok 4.7"),
+                ],
+            )
+            .category(Some(SessionConfigOptionCategory::Model)),
+        ];
+        let catalog = parse_grok_model_catalog(&serde_json::json!({
+            "currentModelId": "grok-4.6",
+            "availableModels": [
+                {"modelId": "grok-4.6", "name": "Grok 4.6"},
+                {"modelId": "grok-4.7", "name": "Grok 4.7"},
+                {"modelId": "grok-4.5", "name": "Grok 4.5"}
+            ]
+        }))
+        .expect("catalog");
+        assert!(apply_grok_catalog_to_stored_options(&mut options, &catalog));
+        let SessionConfigKind::Select(select) = &options[0].kind else {
+            panic!("model stays a select");
+        };
+        assert_eq!(select.current_value.0.as_ref(), "grok-4.7");
+        assert_eq!(
+            select_option_rows(&select.options),
+            vec![
+                ("grok-4.6".into(), "Grok 4.6".into()),
+                ("grok-4.7".into(), "Grok 4.7".into()),
+                ("grok-4.5".into(), "Grok 4.5".into()),
+            ]
+        );
+        assert!(!apply_grok_catalog_to_stored_options(
+            &mut options,
+            &catalog
+        ));
+    }
+
     #[tokio::test]
     async fn acp_tool_call_notifications_preserve_reported_status_and_output() {
         let session_id = AgentSessionId::new();
@@ -6784,6 +7082,7 @@ mod tests {
             Arc::new(Mutex::new(None)),
             PathBuf::from("C:/workspace"),
             HashMap::new(),
+            dummy_runner(mpsc::unbounded_channel().0),
         );
         for status in ["in_progress", "completed", "failed"] {
             let notification: SessionNotification = serde_json::from_value(serde_json::json!({

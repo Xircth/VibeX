@@ -22,6 +22,7 @@ import { conversationApi } from '@/features/conversation/conversationApi';
 import { AGENT_BINDING_LOAD_FAILURE_NOTICE_ROW_ID } from '@/features/conversation/sessionNoticeNeedsRebind';
 import { sessionsApi } from '@/lib/api';
 import { listenToConversationEvents } from '@/features/conversation/events';
+import { listenToAgentEvents } from '@/features/agents/events';
 import {
   composerSessionControlDisplay,
   liveSessionControlsSnapshot,
@@ -47,6 +48,8 @@ import { AgentQuestionCard } from './follow-up/AgentQuestionCard';
 import { PermissionRequestCard } from '@/components/NormalizedConversation/conversation/PermissionRequestCard';
 import {
   areConfigValuesEqual,
+  dropPendingConfigValueAfterRejection,
+  dropPendingModeAfterRejection,
   reconcilePendingConfigValues,
   reconcilePendingMode,
   sanitizeDependentConfigValues,
@@ -591,6 +594,32 @@ export function TaskFollowUpSection({
   useEffect(() => {
     setSelectedMode((previous) => reconcilePendingMode(liveModeId, previous));
   }, [liveModeId]);
+  useEffect(() => {
+    if (!sessionId) return;
+    let active = true;
+    let unlisten: (() => void) | undefined;
+    void listenToAgentEvents((envelope) => {
+      if (!active || envelope.session_id !== sessionId) return;
+      if (envelope.event.kind !== 'config_option_rejected') return;
+      const rejection = envelope.event;
+      setSelectedMode((previous) =>
+        dropPendingModeAfterRejection(rejection, previous)
+      );
+      setSelectedConfigValues((previous) =>
+        dropPendingConfigValueAfterRejection(rejection.config_id, previous)
+      );
+    }).then((unsubscribe) => {
+      if (!active) {
+        unsubscribe();
+        return;
+      }
+      unlisten = unsubscribe;
+    });
+    return () => {
+      active = false;
+      unlisten?.();
+    };
+  }, [sessionId]);
   // Selecting a mode applies immediately via ACP `session/set_mode` when the
   // session is idle; while a turn is streaming (or before the session exists)
   // the backend rejects and the choice stays pending as a next-turn override.
@@ -654,12 +683,11 @@ export function TaskFollowUpSection({
     [displaySessionConfigOptions, selectedConfigValues]
   );
 
-  // Once a turn is sent the pending mode/config overrides were applied by the
-  // backend; clear them so they don't re-apply on every subsequent turn.
+  // Pending mode/config stay until the live snapshot matches or the agent
+  // rejects the pick. Clearing them on send races the ACP answer and makes
+  // Codex/Grok selectors snap to a reverted current.
   const sentAttachmentsRef = useRef<SessionComposerImageAttachment[]>([]);
   const handleAfterSendWithSessionControlCleanup = useCallback(async () => {
-    setSelectedMode(null);
-    setSelectedConfigValues({});
     sentAttachmentsRef.current.forEach(revokeComposerImagePreviewUrl);
     sentAttachmentsRef.current = [];
     await handleAfterSendCleanup();

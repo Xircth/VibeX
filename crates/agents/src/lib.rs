@@ -57,6 +57,7 @@ pub mod registry_client;
 pub mod runtime;
 pub mod session;
 mod session_bind_metrics;
+mod session_config_guard;
 mod session_notice;
 pub use session_notice::{
     AGENT_SESSION_NOTICE_KIND, SESSION_CONNECT_ERROR_KIND, SESSION_RECONNECT_PROGRESS_KIND,

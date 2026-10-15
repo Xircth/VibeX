@@ -222,6 +222,8 @@ export function reduceAgentEvent(
       };
       return next;
     }
+    case 'config_option_rejected':
+      return next;
     case 'available_commands':
       next.availableCommandsByScope = {
         ...state.availableCommandsByScope,

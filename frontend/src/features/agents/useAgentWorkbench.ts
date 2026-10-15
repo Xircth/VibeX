@@ -9,6 +9,8 @@ import {
   useState,
   type ReactNode,
 } from 'react';
+import { toast } from '@/components/ui/toast';
+import i18n from '@/i18n';
 import { agentsApi } from './api';
 import { listenToAgentEvents } from './events';
 import {
@@ -91,6 +93,19 @@ function useAgentWorkbenchStore(): AgentWorkbench {
 
     listenToAgentEvents((envelope) => {
       dispatch({ type: 'event', envelope });
+      if (envelope.event.kind === 'config_option_rejected') {
+        const rejection = envelope.event;
+        toast.warning(
+          i18n.t('tasks:sessionConfigSelector.optionAdjusted', {
+            option: rejection.option_name,
+            requested: rejection.requested,
+            actual: rejection.actual,
+          }),
+          {
+            id: `config-option-rejected:${envelope.session_id ?? envelope.connection_id}:${rejection.config_id}`,
+          }
+        );
+      }
     })
       .then((unlistenAgentEvents) => {
         if (!active) {

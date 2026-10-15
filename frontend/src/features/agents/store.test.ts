@@ -367,6 +367,54 @@ describe('agent workbench store', () => {
     ]);
   });
 
+  it('keeps session controls when a config option is rejected', () => {
+    const options: AgentEventEnvelope = {
+      sequence: 1,
+      workspace_id: 'workspace',
+      connection_id: 'connection',
+      session_id: 'session',
+      created_at: new Date().toISOString(),
+      event: {
+        kind: 'session_config_options',
+        options: [
+          {
+            key: 'mode',
+            label: 'Mode',
+            value: 'agent',
+            choices: [
+              { value: 'agent', label: 'Approve for me' },
+              { value: 'agent-full-access', label: 'Agent (full access)' },
+            ],
+          },
+        ],
+      },
+    };
+    const rejected: AgentEventEnvelope = {
+      sequence: 2,
+      workspace_id: 'workspace',
+      connection_id: 'connection',
+      session_id: 'session',
+      created_at: new Date().toISOString(),
+      event: {
+        kind: 'config_option_rejected',
+        config_id: 'mode',
+        option_name: 'Mode',
+        requested: 'Agent (full access)',
+        actual: 'Approve for me',
+        requested_value: 'agent-full-access',
+        actual_value: 'agent',
+      },
+    };
+
+    const state = reduceAgentEvent(
+      reduceAgentEvent(emptyAgentWorkbenchState(), options),
+      rejected
+    );
+
+    expect(state.sessionConfigOptionsByScope.session?.[0]?.value).toBe('agent');
+    expect(state.lastSequence).toBe(2);
+  });
+
   it('tracks permission requests until a response arrives', () => {
     const requested: AgentEventEnvelope = {
       sequence: 1,

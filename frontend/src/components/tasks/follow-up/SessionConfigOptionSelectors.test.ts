@@ -5,6 +5,8 @@ import {
   configOptionDisplayState,
   presentableSessionConfigOptions,
   resolvedConfigOptionChoices,
+  dropPendingConfigValueAfterRejection,
+  dropPendingModeAfterRejection,
   reconcilePendingConfigValues,
   reconcilePendingMode,
   sanitizeDependentConfigValues,
@@ -240,6 +242,30 @@ describe('Agent-advertised choice presentation', () => {
     expect(reconcilePendingMode('agent-full-access', 'agent-full-access')).toBe(
       null
     );
+  });
+
+  it('drops a refused pending pick and keeps unrelated pending values', () => {
+    expect(
+      dropPendingModeAfterRejection(
+        { config_id: 'mode', requested_value: 'agent-full-access' },
+        'agent-full-access'
+      )
+    ).toBeNull();
+    expect(
+      dropPendingModeAfterRejection(
+        { config_id: 'model', requested_value: 'grok-4.7' },
+        'agent-full-access'
+      )
+    ).toBe('agent-full-access');
+    expect(
+      dropPendingConfigValueAfterRejection('mode', {
+        mode: 'agent-full-access',
+        model: 'grok-4.7',
+      })
+    ).toEqual({ model: 'grok-4.7' });
+    expect(
+      dropPendingConfigValueAfterRejection('effort', { model: 'grok-4.7' })
+    ).toEqual({ model: 'grok-4.7' });
   });
 
   it('hides Codex collaboration mode while preserving the runtime snapshot', () => {

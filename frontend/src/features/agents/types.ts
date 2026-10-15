@@ -178,6 +178,15 @@ export type AgentEvent =
       options: AgentSessionConfigOption[];
     }
   | { kind: 'config_changed'; key: string; value: unknown }
+  | {
+      kind: 'config_option_rejected';
+      config_id: string;
+      option_name: string;
+      requested: string;
+      actual: string;
+      requested_value: string;
+      actual_value: string;
+    }
   | { kind: 'available_commands'; commands: AgentAvailableCommand[] }
   | { kind: 'session_load_failed'; reason: string }
   | { kind: 'turn_completed'; stop_reason?: string | null }

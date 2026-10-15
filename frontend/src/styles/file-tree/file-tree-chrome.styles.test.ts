@@ -67,4 +67,21 @@ describe('file tree chrome', () => {
     expect(row.opacity?.value).toBe('0.5');
     expect(name['font-style']?.value).not.toBe('italic');
   });
+
+  it('expands file search over the title without a rule above the results', () => {
+    const overlay = declarationsFor(BASE, '.file-tree-search-overlay');
+    const results = declarationsFor(BASE, '.file-tree-search-results');
+    const css = readFileSync(resolve(process.cwd(), BASE), 'utf8');
+
+    expect(overlay.background?.value).toBe('var(--surface-card-strong)');
+    expect(overlay.height).toBeUndefined();
+    expect(overlay['max-height']).toBeUndefined();
+    expect(results.border?.value).toBe('0');
+    expect(results['border-top']).toBeUndefined();
+    expect(css).toContain('@keyframes file-tree-search-expand');
+    expect(css).toContain('prefers-reduced-motion: reduce');
+    expect(css).not.toContain('mask-image:');
+    expect(css).not.toContain('.astryx-power-search');
+    expect(css).toContain('.file-tree-search-input');
+  });
 });

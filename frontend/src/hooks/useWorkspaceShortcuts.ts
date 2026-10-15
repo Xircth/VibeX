@@ -1,5 +1,6 @@
 import { useEffect } from 'react';
 import { usePanelActionsContext } from '@/contexts/PanelActionsContext';
+import { requestFileTreeSearch } from '@/components/file-tree/fileTreeSearchRequest';
 import { useOpenSettings } from '@/lib/api';
 import { PANEL_IDS, useLayoutStore } from '@/stores/useLayoutStore';
 import {
@@ -17,7 +18,6 @@ export function useWorkspaceShortcuts() {
     openDiffPreview,
     openLogs,
     toggleFileTree,
-    toggleSearchPanel,
     isPanelOpen,
   } = usePanelActionsContext();
   const toggleRightPanel = useLayoutStore((state) => state.toggleRightPanel);
@@ -37,9 +37,10 @@ export function useWorkspaceShortcuts() {
 
       if (event.shiftKey && key === 'f') {
         event.preventDefault();
-        if (!isPanelOpen(PANEL_IDS.SEARCH)) {
-          toggleSearchPanel();
+        if (!isPanelOpen(PANEL_IDS.FILE_TREE)) {
+          toggleFileTree();
         }
+        requestFileTreeSearch();
         return;
       }
 
@@ -66,13 +67,7 @@ export function useWorkspaceShortcuts() {
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [
-    isPanelOpen,
-    openOrFocusPanel,
-    openSettings,
-    toggleFileTree,
-    toggleSearchPanel,
-  ]);
+  }, [isPanelOpen, openOrFocusPanel, openSettings, toggleFileTree]);
 
   useEffect(() => {
     const handleShortcutAction = (event: Event) => {

@@ -8,6 +8,7 @@ import {
   FolderPlus,
   Plus,
   RefreshCw,
+  Search,
   SquareMinus,
 } from 'lucide-react';
 import FileIcon from '../FileIcon';
@@ -23,6 +24,15 @@ import {
 } from '../../utils/fileReferenceDrag';
 import { FilePreviewPopover } from './FilePreviewPopover';
 import { FileTreeNameInput } from './FileTreeNameInput';
+import {
+  acknowledgeFileTreeSearch,
+  subscribeFileTreeSearch,
+} from './fileTreeSearchRequest';
+import {
+  useWorkspaceTextSearch,
+  WorkspaceFileSearchField,
+  WorkspaceFileSearchResults,
+} from './WorkspaceFileSearch';
 import type { FileTreeNode, FileOpenLocation } from './file-tree-types';
 import { EMPTY_DIRECTORIES, EMPTY_SET } from './file-tree-constants';
 import {
@@ -124,6 +134,60 @@ export function FileTreePanel({
 }: FileTreePanelProps) {
   const { t } = useTranslation(['panels', 'common']);
   const localDesktopHost = useLocalDesktopHost();
+  const [searchOpen, setSearchOpen] = useState(false);
+  const [searchFocusNonce, setSearchFocusNonce] = useState(0);
+  const search = useWorkspaceTextSearch(workspacePath || null);
+  const setSearchQuery = search.setQuery;
+
+  const closeFileSearch = useCallback(() => {
+    setSearchOpen(false);
+    setSearchQuery('');
+  }, [setSearchQuery]);
+
+  useEffect(() => {
+    return subscribeFileTreeSearch(() => {
+      setSearchOpen(true);
+      setSearchFocusNonce((value) => value + 1);
+      acknowledgeFileTreeSearch();
+    });
+  }, []);
+
+  useEffect(() => {
+    if (!searchOpen) return;
+
+    const onPointerDown = (event: PointerEvent) => {
+      const target = event.target;
+      const element =
+        target instanceof Element
+          ? target
+          : target instanceof Node
+            ? target.parentElement
+            : null;
+      if (!element) return;
+      if (element.closest('[data-file-tree-search-overlay]')) return;
+      if (element.closest('[data-file-tree-search-result]')) return;
+      if (element.closest('[data-file-tree-search-chrome]')) return;
+      if (element.closest('.product-context-menu')) return;
+      if (element.closest('.file-tree-row')) return;
+      if (element.closest('[popover]')) return;
+      if (element.closest('.astryx-typeahead-dropdown')) return;
+      closeFileSearch();
+    };
+
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape') return;
+      event.preventDefault();
+      closeFileSearch();
+    };
+
+    document.addEventListener('pointerdown', onPointerDown);
+    document.addEventListener('keydown', onKeyDown);
+    return () => {
+      document.removeEventListener('pointerdown', onPointerDown);
+      document.removeEventListener('keydown', onKeyDown);
+    };
+  }, [closeFileSearch, searchOpen]);
+
   const directoryEntries = directories ?? EMPTY_DIRECTORIES;
   const ignoredFileEntries = gitignoredFiles ?? EMPTY_SET;
   const ignoredDirectoryEntries = gitignoredDirectories ?? EMPTY_SET;
@@ -1522,7 +1586,10 @@ export function FileTreePanel({
         id: 'open-in-file-manager',
         label: t('fileTreeMenu.openInFileManager'),
         onSelect: () => {
-          void openInFileManager(contextMenu.relativePath, contextMenu.isFolder);
+          void openInFileManager(
+            contextMenu.relativePath,
+            contextMenu.isFolder
+          );
         },
       });
     }
@@ -1826,93 +1893,115 @@ export function FileTreePanel({
   return (
     <aside className="diff-panel file-tree-panel" ref={panelRef}>
       <div className="file-tree-top-zone">
-        <div className="file-tree-root-row">
-          <div className="file-tree-root-wrap">
-            <button
-              type="button"
-              className={`file-tree-row is-folder is-root${selectedNodePath === '' ? ' is-selected' : ''}${dropTargetPath === '' ? ' is-drop-target' : ''}`}
-              data-file-tree-drop-path=""
-              aria-expanded="true"
-              onClick={() => {
-                if (suppressClickPathRef.current === '') {
-                  suppressClickPathRef.current = null;
-                  return;
+        {searchOpen ? (
+          <div
+            className="file-tree-search-overlay"
+            data-file-tree-search-overlay=""
+          >
+            <WorkspaceFileSearchField
+              search={search}
+              autoFocus
+              focusNonce={searchFocusNonce}
+            />
+          </div>
+        ) : (
+          <div className="file-tree-root-row">
+            <div className="file-tree-root-wrap">
+              <button
+                type="button"
+                className={`file-tree-row is-folder is-root${selectedNodePath === '' ? ' is-selected' : ''}${dropTargetPath === '' ? ' is-drop-target' : ''}`}
+                data-file-tree-drop-path=""
+                aria-expanded="true"
+                onClick={() => {
+                  if (suppressClickPathRef.current === '') {
+                    suppressClickPathRef.current = null;
+                    return;
+                  }
+                  setSelectedNodePath('');
+                  setSelectedNodeType('folder');
+                }}
+                onContextMenu={(event) => {
+                  setSelectedNodePath('');
+                  setSelectedNodeType('folder');
+                  void showContextMenu(event, '', true);
+                }}
+                onPointerDown={(event) =>
+                  beginPointerDrag(
+                    {
+                      fileName: workspaceRootLabel,
+                      relativePath: '',
+                      kind: 'directory',
+                    },
+                    event
+                  )
                 }
-                setSelectedNodePath('');
-                setSelectedNodeType('folder');
-              }}
-              onContextMenu={(event) => {
-                setSelectedNodePath('');
-                setSelectedNodeType('folder');
-                void showContextMenu(event, '', true);
-              }}
-              onPointerDown={(event) =>
-                beginPointerDrag(
-                  {
-                    fileName: workspaceRootLabel,
-                    relativePath: '',
-                    kind: 'directory',
-                  },
-                  event
-                )
-              }
-            >
-              <span className="file-tree-name">{workspaceRootLabel}</span>
-            </button>
+              >
+                <span className="file-tree-name">{workspaceRootLabel}</span>
+              </button>
+            </div>
+            <div className="file-tree-root-actions">
+              <button
+                type="button"
+                className="ghost icon-button file-tree-root-action"
+                onClick={() => openNewFilePrompt(selectedParentFolder)}
+                aria-label={t('fileTreeMenu.newFile')}
+                title={t('fileTreeMenu.newFile')}
+              >
+                <FilePlus size={14} aria-hidden />
+              </button>
+              <button
+                type="button"
+                className="ghost icon-button file-tree-root-action"
+                onClick={() => openNewFolderPrompt(selectedParentFolder)}
+                aria-label={t('fileTreeMenu.newFolder')}
+                title={t('fileTreeMenu.newFolder')}
+              >
+                <FolderPlus size={14} aria-hidden />
+              </button>
+              <button
+                type="button"
+                className="ghost icon-button file-tree-root-action"
+                onClick={() => onRefreshFiles?.()}
+                disabled={!onRefreshFiles}
+                aria-label={t('fileTreeMenu.refreshFileTree')}
+                title={t('fileTreeMenu.refreshFileTree')}
+              >
+                <RefreshCw
+                  size={14}
+                  aria-hidden
+                  className={isLoading ? 'animate-spin' : undefined}
+                />
+              </button>
+              <button
+                type="button"
+                className="ghost icon-button file-tree-root-action"
+                onClick={toggleAllFolders}
+                disabled={!hasFolders}
+                aria-label={
+                  showCollapseAll
+                    ? t('fileTreeMenu.collapseAllFolders')
+                    : t('fileTreeMenu.expandAllFolders')
+                }
+                title={
+                  showCollapseAll
+                    ? t('fileTreeMenu.collapseAllFolders')
+                    : t('fileTreeMenu.expandAllFolders')
+                }
+              >
+                <SquareMinus size={14} aria-hidden />
+              </button>
+              <button
+                type="button"
+                className="ghost icon-button file-tree-root-action"
+                onClick={() => setSearchOpen(true)}
+                aria-label={t('fileTreeMenu.search')}
+                title={t('fileTreeMenu.search')}
+              >
+                <Search size={14} aria-hidden />
+              </button>
+            </div>
           </div>
-          <div className="file-tree-root-actions">
-            <button
-              type="button"
-              className="ghost icon-button file-tree-root-action"
-              onClick={() => openNewFilePrompt(selectedParentFolder)}
-              aria-label={t('fileTreeMenu.newFile')}
-              title={t('fileTreeMenu.newFile')}
-            >
-              <FilePlus size={14} aria-hidden />
-            </button>
-            <button
-              type="button"
-              className="ghost icon-button file-tree-root-action"
-              onClick={() => openNewFolderPrompt(selectedParentFolder)}
-              aria-label={t('fileTreeMenu.newFolder')}
-              title={t('fileTreeMenu.newFolder')}
-            >
-              <FolderPlus size={14} aria-hidden />
-            </button>
-            <button
-              type="button"
-              className="ghost icon-button file-tree-root-action"
-              onClick={() => onRefreshFiles?.()}
-              disabled={!onRefreshFiles}
-              aria-label={t('fileTreeMenu.refreshFileTree')}
-              title={t('fileTreeMenu.refreshFileTree')}
-            >
-              <RefreshCw
-                size={14}
-                aria-hidden
-                className={isLoading ? 'animate-spin' : undefined}
-              />
-            </button>
-            <button
-              type="button"
-              className="ghost icon-button file-tree-root-action"
-              onClick={toggleAllFolders}
-              disabled={!hasFolders}
-              aria-label={
-                showCollapseAll
-                  ? t('fileTreeMenu.collapseAllFolders')
-                  : t('fileTreeMenu.expandAllFolders')
-              }
-              title={
-                showCollapseAll
-                  ? t('fileTreeMenu.collapseAllFolders')
-                  : t('fileTreeMenu.expandAllFolders')
-              }
-            >
-              <SquareMinus size={14} aria-hidden />
-            </button>
-          </div>
-        </div>
+        )}
       </div>
       <div
         className="file-tree-list"
@@ -1930,7 +2019,12 @@ export function FileTreePanel({
           void showContextMenu(event, '', true);
         }}
       >
-        {showLoading ? (
+        {searchOpen && search.isSearchMode ? (
+          <WorkspaceFileSearchResults
+            search={search}
+            onOpenFile={(path, location) => onOpenFile?.(path, location)}
+          />
+        ) : showLoading ? (
           <div className="file-tree-skeleton">
             {Array.from({ length: 8 }).map((_, index) => (
               <div

@@ -92,6 +92,8 @@ fn assistant_record(message: &Value) -> Option<ParsedRecord> {
                             .map(|input| truncate(&input.to_string(), TOOL_INPUT_LIMIT)),
                         meta: None,
                         images: Vec::new(),
+                        started_at: None,
+                        ended_at: None,
                     }),
                     Some("tool_result") => blocks.push(ContentBlock::ToolResult {
                         tool_use_id: item

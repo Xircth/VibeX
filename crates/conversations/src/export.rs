@@ -327,6 +327,8 @@ mod tests {
                         input_preview: Some("auth.ts".into()),
                         meta: None,
                         images: Vec::new(),
+                        started_at: None,
+                        ended_at: None,
                     },
                 ],
             ),

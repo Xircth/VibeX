@@ -441,9 +441,20 @@ pub fn patch_stream_channel(stream: &str, args: &serde_json::Value) -> Result<St
         "execution_processes" => field("sessionId", "session_id")
             .map(|id| format!("execution-processes-stream:{id}"))
             .ok_or_else(|| "sessionId is required".to_string()),
-        "diff" => field("workspaceId", "workspace_id")
-            .map(|id| format!("diff-stream:{id}"))
-            .ok_or_else(|| "workspaceId is required".to_string()),
+        "diff" => {
+            let id = field("workspaceId", "workspace_id")
+                .ok_or_else(|| "workspaceId is required".to_string())?;
+            let stats = args
+                .get("statsOnly")
+                .or_else(|| args.get("stats_only"))
+                .and_then(serde_json::Value::as_bool)
+                .unwrap_or(false);
+            Ok(if stats {
+                format!("diff-stream:{id}:stats")
+            } else {
+                format!("diff-stream:{id}")
+            })
+        }
         "scratch" => field("scratchId", "scratch_id")
             .map(|id| format!("scratch-stream:{id}"))
             .ok_or_else(|| "scratchId is required".to_string()),
@@ -656,6 +667,14 @@ mod tests {
         assert_eq!(
             patch_stream_channel("diff", &serde_json::json!({ "workspaceId": "ws-1" })).unwrap(),
             "diff-stream:ws-1"
+        );
+        assert_eq!(
+            patch_stream_channel(
+                "diff",
+                &serde_json::json!({ "workspaceId": "ws-1", "statsOnly": true })
+            )
+            .unwrap(),
+            "diff-stream:ws-1:stats"
         );
         assert_eq!(
             patch_stream_channel(

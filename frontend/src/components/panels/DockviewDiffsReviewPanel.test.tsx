@@ -157,4 +157,33 @@ describe('DockviewDiffsReviewPanel large changes', () => {
 
     expect(screen.getAllByTestId('diff-card')).toHaveLength(2);
   });
+
+  it('puts the file count beside Changes and resizes from the left edge', () => {
+    diffState.current = [
+      diff('src/first.ts', 160, 140),
+      diff('src/second.ts', 4, 2),
+    ];
+
+    render(<DockviewDiffsReviewPanel />);
+
+    expect(screen.getByText('Changes')).toBeInTheDocument();
+    expect(screen.getByText('2 Files')).toBeInTheDocument();
+    expect(screen.queryByText(/个文件已更改/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/个文件$/)).not.toBeInTheDocument();
+    expect(screen.getByTestId('diff-view-switch')).toBeInTheDocument();
+
+    const stats = screen.getByTestId('changes-line-stats');
+    expect(stats).toHaveTextContent('+164');
+    expect(stats).toHaveTextContent('-142');
+    expect(stats.className).toContain('hidden');
+
+    const sidebar = screen.getByRole('separator').parentElement;
+    expect(sidebar).toHaveStyle({ width: '240px' });
+    fireEvent.pointerDown(screen.getByRole('separator'), { clientX: 100 });
+    fireEvent.pointerMove(window, { clientX: 40 });
+    expect(sidebar).toHaveStyle({ width: '300px' });
+    fireEvent.pointerMove(window, { clientX: -1000 });
+    expect(sidebar).toHaveStyle({ width: '480px' });
+    fireEvent.pointerUp(window);
+  });
 });

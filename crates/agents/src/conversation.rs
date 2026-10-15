@@ -301,6 +301,12 @@ pub enum ContentBlock {
         /// Agent image-viewing tool.
         #[serde(default, skip_serializing_if = "Vec::is_empty")]
         images: Vec<ImageData>,
+        /// Wall-clock start from the first tool-call event. Missing stays missing.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        started_at: Option<DateTime<Utc>>,
+        /// Wall-clock end from the terminal tool-call event.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        ended_at: Option<DateTime<Utc>>,
     },
     ToolResult {
         #[serde(default, skip_serializing_if = "Option::is_none")]

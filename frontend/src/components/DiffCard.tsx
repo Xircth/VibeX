@@ -41,6 +41,11 @@ import { useProject } from '@/contexts/ProjectContext';
 import { useOptionalPanelActionsContext } from '@/contexts/PanelActionsContext';
 import { useLocalDesktopHost } from '@/lib/desktopShell';
 import { getFilePreviewKind } from '@/utils/filePreviewKind';
+import {
+  generatedDiffDropsDeletions,
+  headerChangeCounts,
+  streamContentsAreUsable,
+} from '@/components/diff/diffCardContent';
 
 type Props = {
   diff: Diff;
@@ -220,12 +225,16 @@ export default function DiffCard({
       } else {
         setForcedNewContent('');
       }
-      // Load old (HEAD) content — empty for added files
+      // Old side is the diff merge-base when the workspace and repo are known.
+      // Empty for added files.
       if (headRelPath && diff.change !== 'added') {
         const oldContent =
           uniqueBasePaths.length > 0
             ? await loadFromCandidates(headRelPath, (path) =>
-                fileTreeApi.getFileAtHead(path)
+                fileTreeApi.getFileAtHead(path, {
+                  workspaceId: selectedAttempt?.id,
+                  repoId: diff.repoId,
+                })
               )
             : null;
         setForcedOldContent(oldContent ?? '');
@@ -260,14 +269,17 @@ export default function DiffCard({
     shouldForceLoadTextContent,
   ]);
 
-  // Build a diff from raw contents so the viewer can expand beyond hunks.
-  // If content was force-loaded, use that instead of stream payload content.
-  const oldContentSafe =
-    shouldForceLoadTextContent && forcedOldContent !== null
+  // Stream contents win. Force-load only fills a real gap, and never from a
+  // snapshot that drops deletions the git stats already counted.
+  const usingStream = canForceLoadTextContent && streamContentsAreUsable(diff);
+  const oldContentSafe = usingStream
+    ? (diff.oldContent ?? '')
+    : forcedOldContent !== null
       ? forcedOldContent
       : (diff.oldContent ?? '');
-  const newContentSafe =
-    shouldForceLoadTextContent && forcedNewContent !== null
+  const newContentSafe = usingStream
+    ? (diff.newContent ?? '')
+    : forcedNewContent !== null
       ? forcedNewContent
       : (diff.newContent ?? '');
 
@@ -301,12 +313,22 @@ export default function DiffCard({
         diffOptions
       );
       file.initRaw();
+      if (
+        generatedDiffDropsDeletions(
+          diff.deletions,
+          file.deletionLength ?? 0,
+          usingStream
+        )
+      ) {
+        return null;
+      }
       return file;
     } catch (e) {
       console.error('Failed to build diff for view', e);
       return null;
     }
   }, [
+    diff.deletions,
     isContentEqual,
     isEffectivelyOmitted,
     oldName,
@@ -316,14 +338,20 @@ export default function DiffCard({
     oldContentSafe,
     newContentSafe,
     diffOptions,
+    usingStream,
   ]);
 
-  const add = isEffectivelyOmitted
-    ? (diff.additions ?? 0)
-    : (diffFile?.additionLength ?? 0);
-  const del = isEffectivelyOmitted
-    ? (diff.deletions ?? 0)
-    : (diffFile?.deletionLength ?? 0);
+  const headerCounts = headerChangeCounts(
+    diff,
+    diffFile
+      ? {
+          additions: diffFile.additionLength ?? 0,
+          deletions: diffFile.deletionLength ?? 0,
+        }
+      : null
+  );
+  const add = headerCounts.additions;
+  const del = headerCounts.deletions;
 
   // Review functionality
   const commentsForFile = useMemo(
@@ -467,8 +495,12 @@ export default function DiffCard({
   const expandable = true;
 
   return (
-    <div className="my-4 overflow-hidden rounded-xl border border-border/70 bg-card shadow-sm">
-      <div className="sticky top-0 z-[5] flex items-center border-b border-border/70 bg-muted/20 px-4 py-2 backdrop-blur supports-[backdrop-filter]:bg-background/80">
+    <div className="my-4 overflow-clip rounded-xl border border-border bg-card">
+      <div
+        className={`sticky top-0 z-[5] flex items-center bg-card px-4 py-2 ${
+          expanded ? 'border-b border-border' : ''
+        }`}
+      >
         {expandable && (
           <Button
             variant="ghost"

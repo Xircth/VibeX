@@ -147,6 +147,7 @@ function DockviewDiffsReviewPanel() {
   const [collapsedIds, setCollapsedIds] = useState<Set<string>>(new Set());
   const [processedIds, setProcessedIds] = useState<Set<string>>(new Set());
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const [sidebarWidth, setSidebarWidth] = useState(240);
   const [loadingTimedOut, setLoadingTimedOut] = useState(false);
   const [stickyFileId, setStickyFileId] = useState<string | null>(null);
   const [selectedFileId, setSelectedFileId] = useState<string | null>(null);
@@ -398,7 +399,7 @@ function DockviewDiffsReviewPanel() {
       }}
     >
       {/* Left: Diff content */}
-      <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden rounded-xl border border-border/60 bg-background">
+      <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-background">
         {/* Commit info header (only in commit mode) */}
         {isCommitMode && commitInfo && (
           <div className="shrink-0 border-b border-border bg-muted/20">
@@ -455,38 +456,26 @@ function DockviewDiffsReviewPanel() {
           </div>
         )}
 
-        {/* Header toolbar */}
         {diffs.length > 0 && (
-          <div className="shrink-0 flex items-center gap-2 px-3 h-[33px] border-b border-border bg-muted/30">
-            <span className="text-xs text-muted-foreground flex items-center gap-1.5">
-              <span>
-                {t('diffsReviewPanel.filesChanged', { count: fileCount })}
-              </span>
-              <span className="font-mono text-[hsl(var(--success))]">
-                +{added}
-              </span>
-              <span className="font-mono text-destructive">-{deleted}</span>
-            </span>
-            <div className="ml-auto flex items-center gap-1">
-              <DiffViewSwitch />
-              {!isLargeChangeSet && (
-                <button
-                  onClick={handleCollapseAll}
-                  className="p-1 rounded hover:bg-accent text-muted-foreground"
-                  title={
-                    allCollapsed
-                      ? t('diffsReviewPanel.expandAll')
-                      : t('diffsReviewPanel.collapseAll')
-                  }
-                >
-                  {allCollapsed ? (
-                    <ChevronsDown className="h-3.5 w-3.5" />
-                  ) : (
-                    <ChevronsUp className="h-3.5 w-3.5" />
-                  )}
-                </button>
-              )}
-            </div>
+          <div className="flex h-8 shrink-0 items-center justify-end gap-1 px-3">
+            <DiffViewSwitch />
+            {!isLargeChangeSet && (
+              <button
+                onClick={handleCollapseAll}
+                className="rounded p-1 text-muted-foreground hover:bg-accent"
+                title={
+                  allCollapsed
+                    ? t('diffsReviewPanel.expandAll')
+                    : t('diffsReviewPanel.collapseAll')
+                }
+              >
+                {allCollapsed ? (
+                  <ChevronsDown className="h-3.5 w-3.5" />
+                ) : (
+                  <ChevronsUp className="h-3.5 w-3.5" />
+                )}
+              </button>
+            )}
           </div>
         )}
 
@@ -572,31 +561,69 @@ function DockviewDiffsReviewPanel() {
       {/* Right: Changes directory sidebar */}
       {diffs.length > 0 && (
         <div
-          className={`shrink-0 overflow-hidden rounded-xl border border-border/60 bg-muted/20 flex flex-col transition-[width] duration-150 ${
-            sidebarCollapsed ? 'w-8' : 'w-60'
+          className={`relative shrink-0 overflow-hidden rounded-xl border border-border/60 bg-muted/20 flex flex-col ${
+            sidebarCollapsed ? 'w-8' : ''
           }`}
+          style={sidebarCollapsed ? undefined : { width: sidebarWidth }}
         >
+          {sidebarCollapsed ? null : (
+            <div
+              role="separator"
+              aria-orientation="vertical"
+              aria-label={t('diffsReviewPanel.resizeFileTree')}
+              className="absolute inset-y-0 left-0 z-10 w-1.5 cursor-col-resize"
+              onPointerDown={(event) => {
+                event.preventDefault();
+                const startX = event.clientX;
+                const startWidth = sidebarWidth;
+                const onMove = (move: PointerEvent) => {
+                  const next = startWidth + startX - move.clientX;
+                  setSidebarWidth(Math.min(480, Math.max(160, next)));
+                };
+                const onUp = () => {
+                  window.removeEventListener('pointermove', onMove);
+                  window.removeEventListener('pointerup', onUp);
+                };
+                window.addEventListener('pointermove', onMove);
+                window.addEventListener('pointerup', onUp);
+              }}
+            />
+          )}
           {sidebarCollapsed ? (
             <button
               onClick={() => setSidebarCollapsed(false)}
-              className="h-8 flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-accent/50 border-b border-border"
+              className="h-8 flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-accent/50"
               title={t('diffsReviewPanel.expandFileTree')}
             >
               <PanelRightOpen className="h-3.5 w-3.5" />
             </button>
           ) : (
             <>
-              <div className="flex items-center h-[33px] px-2.5 border-b border-border">
-                <span className="text-xs font-medium text-muted-foreground flex-1">
+              <div className="flex items-center gap-1.5 h-[33px] px-2.5">
+                <span className="text-xs font-medium text-muted-foreground">
                   {isCommitMode ? 'Changed Files' : 'Changes'}
                 </span>
-                <button
-                  onClick={() => setSidebarCollapsed(true)}
-                  className="p-0.5 rounded hover:bg-accent text-muted-foreground"
-                  title={t('diffsReviewPanel.collapse')}
-                >
-                  <PanelRightClose className="h-3.5 w-3.5" />
-                </button>
+                <span className="group/files relative">
+                  <span className="text-xs text-muted-foreground">
+                    {fileCount} Files
+                  </span>
+                  <span
+                    data-testid="changes-line-stats"
+                    className="pointer-events-none absolute left-0 top-full z-20 mt-1 hidden whitespace-nowrap rounded-xl border border-border bg-popover px-2 py-1 font-mono text-[10px] text-popover-foreground group-hover/files:block"
+                  >
+                    <span className="text-[hsl(var(--success))]">+{added}</span>{' '}
+                    <span className="text-destructive">-{deleted}</span>
+                  </span>
+                </span>
+                <div className="ml-auto flex items-center gap-1">
+                  <button
+                    onClick={() => setSidebarCollapsed(true)}
+                    className="p-0.5 rounded hover:bg-accent text-muted-foreground"
+                    title={t('diffsReviewPanel.collapse')}
+                  >
+                    <PanelRightClose className="h-3.5 w-3.5" />
+                  </button>
+                </div>
               </div>
               <div className="flex-1 overflow-y-auto py-1">
                 <DiffFileTree
@@ -618,17 +645,6 @@ function DockviewDiffsReviewPanel() {
                   }
                   onFileClick={(id) => scrollToFile(id)}
                 />
-              </div>
-              {/* Summary footer */}
-              <div className="shrink-0 flex items-center gap-1.5 px-2.5 py-1.5 border-t border-border text-[10px] text-muted-foreground">
-                <span>
-                  {t('diffsReviewPanel.filesCount', { count: fileCount })}
-                </span>
-                <span className="text-muted-foreground/40">·</span>
-                <span className="font-mono text-[hsl(var(--success))]">
-                  +{added}
-                </span>
-                <span className="font-mono text-destructive">-{deleted}</span>
               </div>
             </>
           )}

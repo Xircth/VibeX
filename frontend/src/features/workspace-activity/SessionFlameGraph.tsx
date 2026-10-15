@@ -1,6 +1,7 @@
 import { cn } from '@/lib/utils';
 import {
   spanWindow,
+  type ActivityChart,
   type ActivitySpan,
   type ActivitySpanKind,
 } from './workspaceActivityModel';
@@ -13,57 +14,76 @@ const KIND_CLASS: Record<ActivitySpanKind, string> = {
   output: 'bg-muted-foreground/50',
 };
 
-function SpanBar({
+function GanttRow({
   span,
   windowStart,
   windowDuration,
-  depth,
 }: {
   span: ActivitySpan;
   windowStart: number;
   windowDuration: number;
-  depth: number;
 }) {
-  const left = ((span.startMs - windowStart) / windowDuration) * 100;
-  const width = Math.max((span.durationMs / windowDuration) * 100, 1.5);
+  const left = span.timed
+    ? ((span.startMs - windowStart) / windowDuration) * 100
+    : 0;
+  const width = span.timed
+    ? Math.max((span.durationMs / windowDuration) * 100, 0)
+    : 0;
   return (
-    <div className="space-y-1" style={{ paddingLeft: depth * 12 }}>
-      <div className="relative h-6 overflow-hidden rounded-sm bg-muted/40">
-        <div
-          className={cn('absolute inset-y-0 rounded-sm', KIND_CLASS[span.kind])}
-          style={{ left: `${left}%`, width: `${width}%` }}
-          title={`${span.label} · ${span.durationMs}ms`}
-        />
-        <span className="relative z-10 truncate px-2 text-[11px] leading-6 text-foreground">
-          {span.label}
-        </span>
+    <div className="grid grid-cols-[minmax(0,12rem)_minmax(0,1fr)] items-center gap-2">
+      <span
+        className="truncate text-[11px] leading-4 text-foreground"
+        title={span.label}
+      >
+        {span.label}
+      </span>
+      <div className="relative h-3 bg-muted/50">
+        {span.timed ? (
+          <div
+            className={cn('absolute inset-y-0', KIND_CLASS[span.kind])}
+            style={{
+              left: `${left}%`,
+              width: `${width}%`,
+              minWidth: '2px',
+            }}
+            title={`${span.label} · ${span.durationMs}ms`}
+          />
+        ) : null}
       </div>
-      {span.children.map((child) => (
-        <SpanBar
-          key={child.id}
-          span={child}
-          windowStart={windowStart}
+    </div>
+  );
+}
+
+function GanttChart({ spans }: { spans: ActivitySpan[] }) {
+  const window = spanWindow(spans);
+  const windowDuration = window.endMs - window.startMs;
+  if (spans.length === 0) return null;
+  return (
+    <div className="space-y-1.5">
+      {spans.map((span) => (
+        <GanttRow
+          key={span.id}
+          span={span}
+          windowStart={window.startMs}
           windowDuration={windowDuration}
-          depth={depth + 1}
         />
       ))}
     </div>
   );
 }
 
-export function SessionFlameGraph({ spans }: { spans: ActivitySpan[] }) {
-  const window = spanWindow(spans);
-  const windowDuration = window.endMs - window.startMs;
+export function SessionFlameGraph({ charts }: { charts: ActivityChart[] }) {
   return (
-    <div className="space-y-2">
-      {spans.map((span) => (
-        <SpanBar
-          key={span.id}
-          span={span}
-          windowStart={window.startMs}
-          windowDuration={windowDuration}
-          depth={0}
-        />
+    <div className="space-y-5">
+      {charts.map((chart) => (
+        <section key={chart.id}>
+          {chart.divider ? (
+            <p className="mb-2 border-b border-border pb-1 text-xs font-medium text-foreground">
+              {chart.divider}
+            </p>
+          ) : null}
+          <GanttChart spans={chart.spans} />
+        </section>
       ))}
     </div>
   );

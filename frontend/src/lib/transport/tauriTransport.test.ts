@@ -156,6 +156,10 @@ describe('TauriTransport application command adapter', () => {
       'diff-stream:ws-1:stats',
       expect.any(Function)
     );
+    expect(tauriListen).not.toHaveBeenCalledWith(
+      'diff-stream:ws-1',
+      expect.any(Function)
+    );
     expect(unlisten).not.toHaveBeenCalled();
 
     await iterator.return?.();

@@ -1471,6 +1471,11 @@ impl ProjectionFold {
                     turn.revision = record.sequence;
                     touched_turn_rows = Some(TouchedTurnRows::AssistantOnly(turn_id));
                     let call_id = tool_call.tool_call_id.clone();
+                    let observed_at = record.created_at;
+                    let terminal = matches!(
+                        tool_call.status.as_deref(),
+                        Some("completed") | Some("failed")
+                    );
 
                     // Upsert semantics: a tool_call_update must fold into the
                     // existing card, not spawn a second titleless block.
@@ -1487,13 +1492,31 @@ impl ProjectionFold {
                                     input_preview,
                                     meta,
                                     images,
-                                } if *id == call_id => {
-                                    Some((tool_name, status, kind, input_preview, meta, images))
-                                }
+                                    started_at,
+                                    ended_at,
+                                } if *id == call_id => Some((
+                                    tool_name,
+                                    status,
+                                    kind,
+                                    input_preview,
+                                    meta,
+                                    images,
+                                    started_at,
+                                    ended_at,
+                                )),
                                 _ => None,
                             });
                     match existing_use {
-                        Some((tool_name, status, kind, input_preview, meta, images)) => {
+                        Some((
+                            tool_name,
+                            status,
+                            kind,
+                            input_preview,
+                            meta,
+                            images,
+                            started_at,
+                            ended_at,
+                        )) => {
                             if let Some(title) = tool_call.title {
                                 *tool_name = title;
                             }
@@ -1512,6 +1535,12 @@ impl ProjectionFold {
                             if !tool_call.images.is_empty() {
                                 *images = tool_call.images.iter().take(4).cloned().collect();
                             }
+                            if started_at.is_none() {
+                                *started_at = Some(observed_at);
+                            }
+                            if terminal {
+                                *ended_at = Some(observed_at);
+                            }
                         }
                         None => {
                             turn.assistant.blocks.push(ContentBlock::ToolUse {
@@ -1529,6 +1558,8 @@ impl ProjectionFold {
                                     .map(|value| cap_preview_bytes(value.to_string())),
                                 meta: tool_call.metadata.clone().map(cap_json_value),
                                 images: tool_call.images.iter().take(4).cloned().collect(),
+                                started_at: Some(observed_at),
+                                ended_at: terminal.then_some(observed_at),
                             });
                         }
                     }
@@ -1544,10 +1575,6 @@ impl ProjectionFold {
                         _ => None,
                     });
                     let is_error = matches!(status, Some("failed"));
-                    let terminal = matches!(
-                        tool_call.status.as_deref(),
-                        Some("completed") | Some("failed")
-                    );
                     let output_preview = tool_call.raw_output.map(|output| {
                         cap_preview_bytes(match output {
                             serde_json::Value::String(text) => text,
@@ -5610,14 +5637,26 @@ mod tests {
                     tool_name,
                     kind,
                     input_preview,
+                    started_at,
+                    ended_at,
                     ..
-                } => Some((tool_use_id, tool_name, kind, input_preview)),
+                } => Some((
+                    tool_use_id,
+                    tool_name,
+                    kind,
+                    input_preview,
+                    started_at,
+                    ended_at,
+                )),
                 _ => None,
             })
             .collect();
         assert_eq!(tool_uses.len(), 1, "update must not spawn a second block");
-        let (tool_use_id, tool_name, kind, input_preview) = &tool_uses[0];
+        let (tool_use_id, tool_name, kind, input_preview, started_at, ended_at) = &tool_uses[0];
         assert_eq!(tool_use_id.as_deref(), Some("tool-1"));
+        assert!(started_at.is_some(), "tool start comes from the upsert event");
+        assert!(ended_at.is_some(), "terminal status stamps the tool end");
+        assert!(ended_at.unwrap() >= started_at.unwrap());
         assert_eq!(tool_name.as_str(), "Run tests");
         assert_eq!(kind.as_deref(), Some("execute"));
         assert!(

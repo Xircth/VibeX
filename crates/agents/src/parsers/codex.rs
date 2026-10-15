@@ -97,6 +97,8 @@ fn record_from_item(value: &Value) -> Option<ParsedRecord> {
                     input_preview: payload.get("arguments").map(codex_tool_input),
                     meta: None,
                     images: Vec::new(),
+                    started_at: None,
+                    ended_at: None,
                 },
             };
             (TurnRole::Assistant, block)

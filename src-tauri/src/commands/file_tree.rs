@@ -20,7 +20,7 @@ use filesystem_ops::{
     read_file_content_at_path, resolve_existing_file_path, save_file_content_at_path,
     write_unique_binary_in_subdir,
 };
-use git_head::get_file_at_head_content;
+use git_head::{read_text_file_at_revision, workspace_diff_base_revision};
 pub use listing::{DirectoryChildrenResponse, FileTreeEntry};
 use listing::{get_file_tree_entries, list_directory_children_at_path};
 pub use preview::BinaryAssetResponse;
@@ -536,8 +536,27 @@ pub async fn delete_file(path: String) -> Result<(), AppError> {
 }
 
 #[tauri::command]
-pub async fn get_file_at_head(file_path: String) -> Result<String, AppError> {
-    get_file_at_head_content(&file_path)
+pub async fn get_file_at_head(
+    state: tauri::State<'_, crate::state::AppState>,
+    file_path: String,
+    workspace_id: Option<uuid::Uuid>,
+    repo_id: Option<uuid::Uuid>,
+) -> Result<String, AppError> {
+    let revision = match (workspace_id, repo_id) {
+        (Some(workspace_id), Some(repo_id)) => Some(
+            workspace_diff_base_revision(
+                &state.deployment.db().pool,
+                state.deployment.git(),
+                workspace_id,
+                repo_id,
+            )
+            .await?,
+        ),
+        _ => None,
+    };
+    tokio::task::spawn_blocking(move || read_text_file_at_revision(&file_path, revision.as_deref()))
+        .await
+        .map_err(|error| AppError::Internal(error.to_string()))?
 }
 
 // Directory listing commands

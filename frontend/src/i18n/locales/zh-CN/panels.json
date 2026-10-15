@@ -109,7 +109,12 @@
     "noChangesYet": "尚未进行任何更改",
     "expandFileTree": "展开文件目录",
     "collapse": "收起",
-    "filesCount": "{{count}} 个文件"
+    "filesCount": "{{count}} 个文件",
+    "resizeFileTree": "调整变更列表宽度"
+  },
+  "notesPanel": {
+    "placeholder": "在这里记录工作区笔记",
+    "loading": "正在加载笔记…"
   },
   "webPreviewPanel": {
     "emptyTitle": "开始浏览",
@@ -321,7 +326,7 @@
     "emptySessions": "当前工作区没有 Agent 会话。",
     "emptyBackground": "没有后台任务。",
     "emptyNotices": "没有错误或警告。",
-    "openFlame": "查看时间跨度",
+    "openFlame": "查看会话时序图",
     "backToList": "返回",
     "noSpans": "该会话还没有可计时的事件。",
     "running": "运行中",

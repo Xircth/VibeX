@@ -336,13 +336,7 @@ pub(crate) fn validate_base_url(value: &str) -> Result<String, AppError> {
                 .to_string(),
         ));
     }
-    let origin = url.as_str().trim_end_matches('/').to_string();
-    if url.scheme() == "http" && !remote_protocol::origin_allows_plaintext_http(&origin) {
-        return Err(AppError::BadRequest(
-            "public Server origins must use HTTPS".to_string(),
-        ));
-    }
-    Ok(origin)
+    Ok(url.as_str().trim_end_matches('/').to_string())
 }
 
 fn internal(error: impl std::fmt::Display) -> AppError {
@@ -575,8 +569,14 @@ mod tests {
         assert!(validate_base_url("http://studio.local:17891").is_ok());
         assert!(validate_base_url("http://[::1]:17891").is_ok());
         assert!(validate_base_url("http://10.8.0.2:17891").is_ok());
-        assert!(validate_base_url("http://203.0.113.10:443").is_err());
-        assert!(validate_base_url("http://example.com").is_err());
+        assert_eq!(
+            validate_base_url("http://203.0.113.10:13630").expect("tunnel origin"),
+            "http://203.0.113.10:13630"
+        );
+        assert_eq!(
+            validate_base_url("http://47.109.140.92:13630").expect("tunnel origin"),
+            "http://47.109.140.92:13630"
+        );
         assert!(validate_base_url("https://203.0.113.10").is_ok());
         assert!(validate_base_url("ftp://server.example").is_err());
         assert!(validate_base_url("https://user@server.example").is_err());

@@ -19,7 +19,7 @@ use local_deployment::pty::PtyService;
 use remote_protocol::{
     CapabilityId, CommandRequest, ConversationId, CreatePairingRequest, DeviceId,
     DevicePermissionPreset, ErrorCode, ErrorEnvelope, IssuedPairingInvitation, OperationId,
-    PairingInvitationPayload, RedeemPairingRequest, ServerCapabilities,
+    PairingInvitationPayload, ReachabilityOrigin, RedeemPairingRequest, ServerCapabilities,
 };
 use serde::Deserialize;
 use serde_json::json;
@@ -370,6 +370,47 @@ pub fn set_extra_browser_origins(origins: impl IntoIterator<Item = impl Into<Str
     guard.extend(origins.into_iter().map(Into::into));
 }
 
+static PUBLISHED_REACHABILITY: OnceLock<RwLock<Vec<ReachabilityOrigin>>> = OnceLock::new();
+
+fn published_reachability() -> &'static RwLock<Vec<ReachabilityOrigin>> {
+    PUBLISHED_REACHABILITY.get_or_init(|| RwLock::new(Vec::new()))
+}
+
+/// Active tunnel origins saved after the Host process started.
+/// Pairing and capability responses merge these onto the startup snapshot.
+pub fn set_published_reachability(origins: impl IntoIterator<Item = ReachabilityOrigin>) {
+    let Ok(mut guard) = published_reachability().write() else {
+        return;
+    };
+    guard.clear();
+    for origin in origins {
+        if guard.iter().any(|item| item.origin == origin.origin) {
+            continue;
+        }
+        guard.push(origin);
+    }
+}
+
+fn with_published_reachability(base: &[ReachabilityOrigin]) -> Vec<ReachabilityOrigin> {
+    let Ok(guard) = published_reachability().read() else {
+        return base.to_vec();
+    };
+    let mut items: Vec<ReachabilityOrigin> = Vec::new();
+    for origin in guard.iter().cloned() {
+        if items.iter().any(|item| item.origin == origin.origin) {
+            continue;
+        }
+        items.push(origin);
+    }
+    for origin in base {
+        if items.iter().any(|item| item.origin == origin.origin) {
+            continue;
+        }
+        items.push(origin.clone());
+    }
+    items
+}
+
 async fn enforce_origin<R>(
     State(state): State<Arc<ServerState<R>>>,
     request: Request,
@@ -616,6 +657,7 @@ async fn capabilities<R>(
         }
     }
     let mut capabilities = state.capabilities.clone();
+    capabilities.reachability = with_published_reachability(&capabilities.reachability);
     capabilities
         .capabilities
         .retain(|capability| credential.grants_capability(capability.as_str()));
@@ -676,7 +718,7 @@ async fn create_pairing<R>(
                 state.config.host_id.clone(),
                 preset,
                 &challenge,
-                state.config.reachability.clone(),
+                with_published_reachability(&state.config.reachability),
             );
             (
                 StatusCode::CREATED,
@@ -924,6 +966,7 @@ mod origin_allowed_tests {
 
     use super::{
         ServerConfig, origin_allowed, origin_matches_request_host, set_extra_browser_origins,
+        set_published_reachability, with_published_reachability,
     };
 
     fn config(listen: &str, allow_lan: bool) -> ServerConfig {
@@ -996,6 +1039,22 @@ mod origin_allowed_tests {
             "http://attacker.invalid",
             Some("47.109.140.92:13630")
         ));
+    }
+
+    #[test]
+    fn live_published_tunnel_joins_pairing_reachability() {
+        set_published_reachability(Vec::<ReachabilityOrigin>::new());
+        set_published_reachability([ReachabilityOrigin::published("http://47.109.140.92:13630")]);
+        let merged =
+            with_published_reachability(&[ReachabilityOrigin::lan("http://192.168.1.20:17891")]);
+        assert_eq!(
+            merged
+                .iter()
+                .map(|item| item.origin.as_str())
+                .collect::<Vec<_>>(),
+            vec!["http://47.109.140.92:13630", "http://192.168.1.20:17891"]
+        );
+        set_published_reachability(Vec::<ReachabilityOrigin>::new());
     }
 
     #[test]

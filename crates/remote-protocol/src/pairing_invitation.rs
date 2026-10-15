@@ -58,10 +58,7 @@ impl PairingInvitationPayload {
             pairing_token: challenge.pairing_token.clone(),
             reachability: reachability
                 .into_iter()
-                .filter(|item| {
-                    !is_loopback_origin(&item.origin)
-                        && !is_public_plaintext_http_origin(&item.origin)
-                })
+                .filter(|item| !is_loopback_origin(&item.origin))
                 .collect(),
         }
     }
@@ -166,6 +163,16 @@ pub fn is_connection_code(value: &str) -> bool {
         && trimmed
             .bytes()
             .all(|byte| CONNECTION_CODE_ALPHABET.contains(&byte.to_ascii_uppercase()))
+}
+
+/// Connection codes compare case-insensitively. Other pairing secrets stay exact.
+pub fn canonical_pairing_token(value: &str) -> String {
+    let trimmed = value.trim();
+    if is_connection_code(trimmed) {
+        trimmed.to_ascii_uppercase()
+    } else {
+        trimmed.to_string()
+    }
 }
 
 pub fn is_loopback_origin(origin: &str) -> bool {

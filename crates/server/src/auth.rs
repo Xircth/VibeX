@@ -523,7 +523,9 @@ impl ServerAuth for SqliteServerAuth {
         if device_name.is_empty() || device_name.len() > 128 {
             return Err(AuthStoreError::InvalidDeviceName);
         }
-        let digest = TokenDigest::from_secret(&request.pairing_token);
+        let digest = TokenDigest::from_secret(&remote_protocol::canonical_pairing_token(
+            &request.pairing_token,
+        ));
         let now = self.now();
         let mut connection = self.pool.acquire().await?;
         sqlx::query("BEGIN IMMEDIATE")

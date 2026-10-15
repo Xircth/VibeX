@@ -51,4 +51,40 @@ describe('splitCollapsedTurnItems', () => {
       )
     ).toEqual([]);
   });
+
+  it('keeps tool-only items in rest while streaming and folds them once markdown arrives', () => {
+    const toolOnly = [tool('bash'), tool('read')];
+    expect(splitCollapsedTurnItems(toolOnly, { isStreaming: true })).toEqual({
+      prelude: [],
+      rest: toolOnly,
+    });
+    expect(splitCollapsedTurnItems(toolOnly, { isStreaming: false })).toEqual({
+      prelude: toolOnly,
+      rest: [],
+    });
+
+    const withFirstMarkdown = [...toolOnly, markdown('first stage')];
+    expect(
+      splitCollapsedTurnItems(withFirstMarkdown, { isStreaming: true })
+    ).toEqual({
+      prelude: toolOnly,
+      rest: [markdown('first stage')],
+    });
+
+    const withMoreTools = [...withFirstMarkdown, tool('grep')];
+    expect(
+      splitCollapsedTurnItems(withMoreTools, { isStreaming: true })
+    ).toEqual({
+      prelude: toolOnly,
+      rest: [markdown('first stage'), tool('grep')],
+    });
+
+    const withSecondMarkdown = [...withMoreTools, markdown('second stage')];
+    expect(
+      splitCollapsedTurnItems(withSecondMarkdown, { isStreaming: true })
+    ).toEqual({
+      prelude: [...toolOnly, markdown('first stage'), tool('grep')],
+      rest: [markdown('second stage')],
+    });
+  });
 });

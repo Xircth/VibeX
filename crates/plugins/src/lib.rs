@@ -5,6 +5,7 @@ mod app_surface;
 mod archive;
 mod artifact_http;
 mod artifact_preview;
+mod blob_store;
 mod catalog;
 mod contribution;
 mod control_plane;

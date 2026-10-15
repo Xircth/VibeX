@@ -26,7 +26,6 @@ import {
 } from '@xyflow/react';
 import { Map as MapIcon, Wand2 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
-import { createPortal } from 'react-dom';
 import type { KanbanProjectSessionRecord } from '@/hooks/useKanbanProjectSessions';
 import { useQueryClient } from '@tanstack/react-query';
 import { sessionsApi } from '@/lib/api';
@@ -38,6 +37,8 @@ import {
   subscribeCanvasReveal,
 } from '@/lib/canvasSessionReveal';
 import { sessionAttentionKind } from '@/components/kanban/session-hub/utils';
+import { ProductContextMenu } from '@/components/context-menu/ProductContextMenu';
+import type { ProductContextMenuItem } from '@/components/context-menu/contextMenuTypes';
 import { cn } from '@/lib/utils';
 import { FloatingSessionList } from './FloatingSessionList';
 import { ImportRecentSessionsDialog } from './ImportRecentSessionsDialog';
@@ -380,7 +381,6 @@ function SessionCanvasFlow({
   }>({ past: [], future: [] });
   const skipHistoryRef = useRef(false);
   const marqueeSelectingRef = useRef(false);
-  const selectionMenuRef = useRef<HTMLDivElement | null>(null);
   useLayoutEffect(() => {
     onMiddleClickRef.current = (event) => {
       event.preventDefault();
@@ -393,19 +393,6 @@ function SessionCanvasFlow({
     };
   }, []);
 
-  useEffect(() => {
-    if (!selectionMenu) return;
-    const onPointerDown = (event: PointerEvent) => {
-      if (event.button !== 0) return;
-      const menu = selectionMenuRef.current;
-      if (menu && event.target instanceof Node && menu.contains(event.target)) {
-        return;
-      }
-      setSelectionMenu(null);
-    };
-    window.addEventListener('pointerdown', onPointerDown);
-    return () => window.removeEventListener('pointerdown', onPointerDown);
-  }, [selectionMenu]);
   const altHeldRef = useRef(false);
   useEffect(() => {
     const sync = (event: KeyboardEvent) => {
@@ -1453,6 +1440,26 @@ function SessionCanvasFlow({
   const canUndo = historyRef.current.past.length > 0;
   const canRedo = historyRef.current.future.length > 0;
   const canGroup = canGroupSelection(nodes, selectedIds);
+  const canvasContextMenuItems = useMemo<ProductContextMenuItem[]>(
+    () => [
+      {
+        id: 'group-selection',
+        label: t('hubCanvas.groupSelection'),
+        disabled: !canGroup,
+        onSelect: () => {
+          updateNodes((items) => groupSelection(items, selectedIds));
+        },
+      },
+      {
+        id: 'remove-nodes',
+        label: t('hubCanvas.removeNodes'),
+        onSelect: () => {
+          deleteSelection();
+        },
+      },
+    ],
+    [canGroup, deleteSelection, selectedIds, t, updateNodes]
+  );
 
   return (
     <SessionCanvasViewProvider value={viewContext}>
@@ -1689,43 +1696,14 @@ function SessionCanvasFlow({
           }}
           onImport={importSessions}
         />
-        {selectionMenu
-          ? createPortal(
-              <div
-                ref={selectionMenuRef}
-                role="menu"
-                className="tahoe-popover fixed z-[100000] min-w-36 rounded-md p-1 text-popover-foreground"
-                style={{ left: selectionMenu.x, top: selectionMenu.y }}
-                onClick={(event) => event.stopPropagation()}
-                onPointerDown={(event) => event.stopPropagation()}
-              >
-                <button
-                  type="button"
-                  role="menuitem"
-                  disabled={!canGroup}
-                  className="flex w-full rounded-md px-2.5 py-1.5 text-left text-xs hover:bg-[var(--surface-control-hover)] disabled:pointer-events-none disabled:opacity-40"
-                  onClick={() => {
-                    updateNodes((items) => groupSelection(items, selectedIds));
-                    setSelectionMenu(null);
-                  }}
-                >
-                  {t('hubCanvas.groupSelection')}
-                </button>
-                <button
-                  type="button"
-                  role="menuitem"
-                  className="flex w-full rounded-md px-2.5 py-1.5 text-left text-xs hover:bg-[var(--surface-control-hover)]"
-                  onClick={() => {
-                    deleteSelection();
-                    setSelectionMenu(null);
-                  }}
-                >
-                  {t('hubCanvas.removeNodes')}
-                </button>
-              </div>,
-              document.body
-            )
-          : null}
+        {selectionMenu ? (
+          <ProductContextMenu
+            x={selectionMenu.x}
+            y={selectionMenu.y}
+            items={canvasContextMenuItems}
+            onClose={() => setSelectionMenu(null)}
+          />
+        ) : null}
       </div>
     </SessionCanvasViewProvider>
   );

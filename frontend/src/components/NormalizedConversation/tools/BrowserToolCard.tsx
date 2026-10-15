@@ -10,6 +10,7 @@ import { ToolArtifact, ToolFacts, ToolCodeSnippet } from './ToolArtifact';
 import { useExpandable } from '@/stores/useExpandableStore';
 import { ToolResultView } from './ToolResultView';
 import { jsonToFacts } from './toolArtifactModel';
+import { getToolCallDescription } from '../conversation-entry-utils';
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
@@ -47,19 +48,24 @@ export function BrowserToolCard({
   );
   const isResultDetail = useToolCallResultDetail();
   const effectiveExpanded = forceExpanded || isResultDetail || expanded;
-  const facts = jsonToFacts(action?.arguments, { skipKeys: ['code'] });
+  const facts = jsonToFacts(action?.arguments, {
+    skipKeys: ['code', 'description'],
+  });
   const code = typeof args.code === 'string' ? args.code : '';
   const name = action?.tool_name || toolEntry?.tool_name || 'browser';
+  const description = getToolCallDescription(entry);
   return (
     <ToolCardShell
       icon={<Globe className="h-3 w-3" />}
-      label={name.replace(/^.*browser_/, 'browser_')}
+      label={description ?? name.replace(/^.*browser_/, 'browser_')}
       detail={
-        typeof args.url === 'string'
-          ? args.url
-          : typeof args.tabId === 'string'
-            ? args.tabId
-            : undefined
+        description
+          ? undefined
+          : typeof args.url === 'string'
+            ? args.url
+            : typeof args.tabId === 'string'
+              ? args.tabId
+              : undefined
       }
       statusClassName={getToolStatusClassName(toolEntry?.status)}
       statusDotClassName={getToolStatusDotClassName(toolEntry?.status)}

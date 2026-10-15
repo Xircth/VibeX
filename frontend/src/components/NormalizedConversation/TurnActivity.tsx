@@ -37,7 +37,10 @@ import {
   isCompanionMcpDiscoverySearch,
   isCompanionSearchQuery,
 } from './tools/subagentCardModel';
-import { getToolSummary } from './conversation-entry-utils';
+import {
+  getToolCallDescription,
+  getToolSummary,
+} from './conversation-entry-utils';
 import type { IndexedTurnItem } from './messageTurnAggregate';
 import type {
   ToolResultBlock,
@@ -646,6 +649,7 @@ export function TurnActivity({
       }
       const toolEntry = entry.entry_type;
       const summary = getToolSummary(toolEntry, entry.content.trim());
+      const description = getToolCallDescription(entry);
       const expansionKey = `${turnId}-${index}`;
       const action = toolEntry.action_type;
       callCategories.set(
@@ -668,29 +672,30 @@ export function TurnActivity({
         {
           index,
           key: toolUseId || expansionKey,
-          name: summary.label,
+          name: description ?? summary.label,
           additions: editStats.additions,
           deletions: editStats.deletions,
-          stats:
-            action.action === 'file_read' ? (
-              <FileReadStats
-                action={action}
-                workspacePath={workspacePath ?? attempt.container_ref}
-              />
-            ) : action.action === 'file_edit' ? (
-              <FileEditPath
-                action={action}
-                workspacePath={workspacePath ?? attempt.container_ref}
-              />
-            ) : action.action === 'tool' && action.tool_name === 'list_dir' ? (
-              <ToolCallTarget
-                text={listDirPath(action.arguments) || detailText}
-                path={listDirPath(action.arguments) || detailText}
-                isFolder
-              />
-            ) : detailText ? (
-              <ToolCallTarget text={detailText} />
-            ) : undefined,
+          stats: description
+            ? undefined
+            : action.action === 'file_read' ? (
+                <FileReadStats
+                  action={action}
+                  workspacePath={workspacePath ?? attempt.container_ref}
+                />
+              ) : action.action === 'file_edit' ? (
+                <FileEditPath
+                  action={action}
+                  workspacePath={workspacePath ?? attempt.container_ref}
+                />
+              ) : action.action === 'tool' && action.tool_name === 'list_dir' ? (
+                <ToolCallTarget
+                  text={listDirPath(action.arguments) || detailText}
+                  path={listDirPath(action.arguments) || detailText}
+                  isFolder
+                />
+              ) : detailText ? (
+                <ToolCallTarget text={detailText} />
+              ) : undefined,
           status: getToolChatStatus(toolEntry.status),
           errorMessage:
             toolEntry.status.status === 'failed'

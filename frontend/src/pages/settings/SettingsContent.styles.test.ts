@@ -362,18 +362,14 @@ describe('settings page alignment', () => {
     expect(hover.get('border-color')).toBe('var(--text-muted)');
   });
 
-  it('paints the global settings search box with an opaque recessed gray fill on Windows and macOS', () => {
+  it('paints the global settings search box with an opaque recessed gray fill while keeping non-input control surfaces translucent on Windows', () => {
     const searchInput = declarationsFor('.settings-search-input');
     const windowsTokens = declarationsFor('html.host-windows .legacy-design');
 
     expect(searchInput.get('background-color')).toBe(
       'var(--surface-control-solid)'
     );
-    expect(windowsTokens.get('--surface-control')).toBe(
-      'var(--surface-control-solid)'
-    );
-    expect(windowsTokens.get('--surface-control-hover')).toBe(
-      'var(--surface-control-solid-hover)'
-    );
+    expect(windowsTokens.get('--surface-control')).toBeUndefined();
+    expect(windowsTokens.get('--surface-control-hover')).toBeUndefined();
   });
 });

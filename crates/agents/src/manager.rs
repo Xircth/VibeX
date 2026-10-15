@@ -1341,6 +1341,28 @@ impl AgentConnectionManager {
         Ok(())
     }
 
+    #[cfg(test)]
+    pub(crate) async fn last_activity_elapsed(
+        &self,
+        connection_id: AgentConnectionId,
+    ) -> Option<Duration> {
+        let connections = self.connections.lock().await;
+        let connection = connections.get(&connection_id)?;
+        Some(connection.last_activity.lock().await.elapsed())
+    }
+
+    #[cfg(test)]
+    pub(crate) async fn set_last_activity_elapsed(
+        &self,
+        connection_id: AgentConnectionId,
+        elapsed: Duration,
+    ) {
+        let connections = self.connections.lock().await;
+        if let Some(connection) = connections.get(&connection_id) {
+            *connection.last_activity.lock().await = Instant::now() - elapsed;
+        }
+    }
+
     /// Disconnect Ready connections that have been idle past `idle_timeout`.
     /// Skips in-flight turns (including the ADR-0071 cancel window), pending
     /// permission prompts, and connections that are not Ready.

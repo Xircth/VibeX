@@ -779,6 +779,63 @@ fn v4_rejects_unknown_manifest_fields_before_install() {
 }
 
 #[test]
+fn worker_frame_size_defaults_to_32_mib_and_accepts_a_declared_size() {
+    let root = tempfile::tempdir().unwrap();
+    write(
+        &root.path().join(".vibex-plugin/plugin.json"),
+        r#"{
+          "manifestVersion":4,"apiVersion":"1.0",
+          "id":"studio.draw","publisher":"studio","name":"Draw","version":"1.0.0",
+          "engines":{"vibex":">=0.1.3 <1.0.0","pluginSdk":"^1.0.0"},
+          "entrypoints":{"worker":{"path":"worker.mjs","runtime":"node","protocol":"1.1"}},
+          "contributes":{"agent.invocations":[
+            {"id":"draw","kindVersion":1,"label":"Draw","entrypoints":["action"],"handler":"draw"}
+          ]}
+        }"#,
+    );
+    write(&root.path().join("worker.mjs"), "export {};");
+    let package = PluginPackage::inspect(root.path(), PluginSourceKind::Snapshot).unwrap();
+    assert_eq!(package.entrypoints.worker_max_frame_bytes, 32 * 1024 * 1024);
+
+    let custom = tempfile::tempdir().unwrap();
+    write(
+        &custom.path().join(".vibex-plugin/plugin.json"),
+        r#"{
+          "manifestVersion":4,"apiVersion":"1.0",
+          "id":"studio.draw","publisher":"studio","name":"Draw","version":"1.0.0",
+          "engines":{"vibex":">=0.1.3 <1.0.0","pluginSdk":"^1.0.0"},
+          "entrypoints":{"worker":{"path":"worker.mjs","runtime":"node","protocol":"1.1","maxFrameMiB":64}},
+          "contributes":{"agent.invocations":[
+            {"id":"draw","kindVersion":1,"label":"Draw","entrypoints":["action"],"handler":"draw"}
+          ]}
+        }"#,
+    );
+    write(&custom.path().join("worker.mjs"), "export {};");
+    let package = PluginPackage::inspect(custom.path(), PluginSourceKind::Snapshot).unwrap();
+    assert_eq!(package.entrypoints.worker_max_frame_bytes, 64 * 1024 * 1024);
+}
+
+#[test]
+fn worker_frame_size_rejects_values_outside_1_to_128_mib() {
+    let root = tempfile::tempdir().unwrap();
+    write(
+        &root.path().join(".vibex-plugin/plugin.json"),
+        r#"{
+          "manifestVersion":4,"apiVersion":"1.0",
+          "id":"studio.draw","publisher":"studio","name":"Draw","version":"1.0.0",
+          "engines":{"vibex":">=0.1.3 <1.0.0","pluginSdk":"^1.0.0"},
+          "entrypoints":{"worker":{"path":"worker.mjs","runtime":"node","protocol":"1.1","maxFrameMiB":0}},
+          "contributes":{"agent.invocations":[
+            {"id":"draw","kindVersion":1,"label":"Draw","entrypoints":["action"],"handler":"draw"}
+          ]}
+        }"#,
+    );
+    write(&root.path().join("worker.mjs"), "export {};");
+    let error = PluginPackage::inspect(root.path(), PluginSourceKind::Snapshot).unwrap_err();
+    assert!(error.to_string().contains("maxFrameMiB"));
+}
+
+#[test]
 fn v4_rejects_unknown_contribution_fields_before_install() {
     let root = tempfile::tempdir().unwrap();
     write(

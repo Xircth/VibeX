@@ -243,8 +243,10 @@ export const WebviewContextMenu: React.FC = () => {
         left: (adjustedPos ?? pos).x,
         top: (adjustedPos ?? pos).y,
         zIndex: 99999,
+        fontFamily: 'var(--font-ui)',
       }}
-      className="min-w-[160px] rounded-md border border-border bg-popover text-popover-foreground shadow-[var(--shadow-popover)]"
+      className="product-context-menu min-w-44 overflow-visible rounded-md border border-border bg-white p-1 font-sans text-[13px] leading-5 text-popover-foreground shadow-none animate-in fade-in-0 zoom-in-95 duration-100 dark:bg-popover"
+      role="menu"
       onContextMenu={(e) => e.preventDefault()}
     >
       <MenuItem label="Copy" onClick={onCopy} />
@@ -264,7 +266,8 @@ const MenuItem: React.FC<{ label: string; onClick: () => void }> = ({
   onClick,
 }) => (
   <button
-    className="block w-full px-3 py-1.5 text-left text-sm text-popover-foreground hover:bg-accent hover:text-accent-foreground focus-visible:bg-accent focus-visible:text-accent-foreground focus-visible:outline-none"
+    role="menuitem"
+    className="flex w-full items-center gap-2 rounded-sm px-2.5 py-1.5 text-left text-[13px] leading-5 transition-colors hover:bg-accent hover:text-accent-foreground focus-visible:bg-accent focus-visible:text-accent-foreground focus-visible:outline-none"
     onClick={onClick}
     type="button"
   >
@@ -272,4 +275,6 @@ const MenuItem: React.FC<{ label: string; onClick: () => void }> = ({
   </button>
 );
 
-const Divider: React.FC = () => <div className="my-1 h-px bg-border" />;
+const Divider: React.FC = () => (
+  <div className="mx-1 my-1 border-t border-border/60" role="separator" />
+);

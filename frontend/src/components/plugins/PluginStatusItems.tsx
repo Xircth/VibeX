@@ -3,6 +3,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import { contributionIconComponent } from '@/components/plugins/contributionIcon';
+import { PluginRemoteView } from '@/components/plugins/PluginRemoteView';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -10,10 +11,18 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from '@/components/ui/popover';
+import {
   contributionMetadata,
   usePluginHostContributions,
 } from '@/hooks/usePluginHostContributions';
-import { createPluginControlApi } from '@/lib/api/plugins';
+import {
+  createPluginControlApi,
+  type PluginContributionCatalogItem,
+} from '@/lib/api/plugins';
 import { cn } from '@/lib/utils';
 import { useBackendTransport } from '@/lib/transport';
 
@@ -22,12 +31,14 @@ const INLINE_LIMIT = 3;
 
 interface StatusEntry {
   key: string;
+  item: PluginContributionCatalogItem;
   pluginId: string;
   handler: string;
   icon: ReturnType<typeof contributionIconComponent>;
   text: string;
   tooltip?: string;
   refreshSeconds?: number;
+  remote: boolean;
 }
 
 function positiveInteger(value: unknown): number | undefined {
@@ -52,7 +63,12 @@ function readStatusResult(result: unknown): {
  * Plugin-contributed status bar items. Plugins may add items here; they cannot
  * change or remove the Host's own indicators, which render alongside.
  */
-export function PluginStatusItems() {
+export function PluginStatusItems({
+  placement = 'main',
+}: {
+  /** `after-mcp` renders icon buttons immediately right of the MCP status icon. */
+  placement?: 'main' | 'after-mcp';
+}) {
   const { t } = useTranslation('common');
   const contributions = usePluginHostContributions('status');
   const transport = useBackendTransport();
@@ -63,23 +79,33 @@ export function PluginStatusItems() {
 
   const entries = useMemo<StatusEntry[]>(
     () =>
-      contributions.map((item) => {
+      contributions.flatMap((item) => {
         const metadata = contributionMetadata(item);
+        const slot =
+          typeof metadata.slot === 'string' ? metadata.slot : 'status.main';
+        const afterMcp = slot === 'status.after-mcp';
+        if (placement === 'after-mcp' ? !afterMcp : afterMcp) return [];
         const key = `${item.pluginId}:${item.id}`;
-        return {
-          key,
-          pluginId: item.pluginId,
-          handler:
-            typeof metadata.handler === 'string' ? metadata.handler : item.id,
-          icon: contributionIconComponent(metadata.icon),
-          text:
-            live[key]?.text ??
-            (typeof metadata.text === 'string' ? metadata.text : item.label),
-          tooltip: live[key]?.tooltip,
-          refreshSeconds: positiveInteger(metadata.refreshSeconds),
-        };
+        return [
+          {
+            key,
+            item,
+            pluginId: item.pluginId,
+            handler:
+              typeof metadata.handler === 'string' ? metadata.handler : item.id,
+            icon: contributionIconComponent(metadata.icon),
+            text:
+              live[key]?.text ??
+              (typeof metadata.text === 'string' ? metadata.text : item.label),
+            tooltip: live[key]?.tooltip,
+            refreshSeconds: positiveInteger(metadata.refreshSeconds),
+            remote:
+              metadata.remote !== null &&
+              typeof metadata.remote === 'object',
+          },
+        ];
       }),
-    [contributions, live]
+    [contributions, live, placement]
   );
 
   const refreshTargets = useMemo(
@@ -149,6 +175,20 @@ export function PluginStatusItems() {
 
   if (entries.length === 0) return null;
 
+  if (placement === 'after-mcp') {
+    return (
+      <>
+        {entries.map((entry) => (
+          <AfterMcpStatusButton
+            key={entry.key}
+            entry={entry}
+            onInvoke={() => invoke(entry)}
+          />
+        ))}
+      </>
+    );
+  }
+
   const inline = entries.slice(0, INLINE_LIMIT);
   const overflow = entries.slice(INLINE_LIMIT);
 
@@ -201,5 +241,53 @@ export function PluginStatusItems() {
         </DropdownMenu>
       )}
     </>
+  );
+}
+
+function AfterMcpStatusButton({
+  entry,
+  onInvoke,
+}: {
+  entry: StatusEntry;
+  onInvoke: () => void;
+}) {
+  const Icon = entry.icon;
+  const label = entry.tooltip ?? entry.text;
+  const buttonClass =
+    'flex h-4 w-4 items-center justify-center rounded-sm text-secondary-foreground hover:bg-accent/70';
+  if (!entry.remote) {
+    return (
+      <button
+        type="button"
+        title={label}
+        aria-label={label}
+        className={buttonClass}
+        onClick={onInvoke}
+      >
+        <Icon className="h-3 w-3" />
+      </button>
+    );
+  }
+  return (
+    <Popover>
+      <PopoverTrigger asChild>
+        <button
+          type="button"
+          title={label}
+          aria-label={label}
+          className={buttonClass}
+        >
+          <Icon className="h-3 w-3" />
+        </button>
+      </PopoverTrigger>
+      <PopoverContent
+        side="top"
+        align="end"
+        sideOffset={6}
+        className="flex h-[min(78vh,620px)] w-[min(720px,calc(100vw-2rem))] flex-col overflow-hidden border border-border bg-background p-0 shadow-md"
+      >
+        <PluginRemoteView item={entry.item} slot="status.after-mcp" />
+      </PopoverContent>
+    </Popover>
   );
 }

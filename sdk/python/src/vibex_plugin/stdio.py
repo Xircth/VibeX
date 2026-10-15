@@ -9,6 +9,14 @@ import sys
 from collections.abc import Awaitable, Callable
 from typing import Any
 
+from vibex_plugin.frame import (
+    MAX_FRAME_BYTES,
+    FrameError,
+    FrameLimits,
+    FrameReassembler,
+    encode_message,
+    limits_from_advertised,
+)
 from vibex_plugin.worker import (
     PLUGIN_API_VERSION,
     PLUGIN_PROTOCOL_VERSION,
@@ -23,9 +31,6 @@ from vibex_plugin.worker import (
     context_from_initialize,
     error_payload,
 )
-
-MAX_FRAME_BYTES = 32 * 1024 * 1024
-
 
 class StderrLogger(PluginLogger):
     def debug(self, message: str, fields: JsonValue | None = None) -> None:
@@ -70,6 +75,7 @@ class PluginWorkerSession:
         self,
         definition: PluginWorkerDefinition,
         send: Callable[[dict[str, Any]], Awaitable[None] | None],
+        limits: FrameLimits | None = None,
     ) -> None:
         self._definition = definition
         self._send = send
@@ -81,6 +87,8 @@ class PluginWorkerSession:
         self._current_request_id = "unknown"
         self.host = StdioHostClient(self)
         self.log = StderrLogger()
+        self.frame_limits = limits or FrameLimits()
+        self._frames = FrameReassembler(self.frame_limits)
 
     async def emit(self, message: dict[str, Any]) -> None:
         result = self._send(message)
@@ -143,25 +151,17 @@ class PluginWorkerSession:
             await self.emit(error_response(request_id, "worker_failed", str(error)))
 
     async def handle_line(self, line: str) -> None:
-        stripped = line.strip()
-        if not stripped:
-            return
-        if len(stripped.encode("utf-8")) > MAX_FRAME_BYTES:
-            await self.emit(
-                error_response("unknown", "worker_frame_too_large", "Worker protocol frame exceeded the limit")
-            )
-            return
         try:
-            message = json.loads(stripped)
-        except json.JSONDecodeError:
-            await self.emit(
-                error_response("unknown", "protocol_invalid", "Invalid JSON message")
-            )
+            message = self._frames.push_line(line)
+        except FrameError as error:
+            code = {
+                "frame_too_large": "worker_frame_too_large",
+                "frame_chunk_invalid": "worker_frame_chunk_invalid",
+                "message_too_large": "worker_message_too_large",
+            }.get(error.code, "protocol_invalid")
+            await self.emit(error_response("unknown", code, error.message))
             return
-        if not isinstance(message, dict):
-            await self.emit(
-                error_response("unknown", "protocol_invalid", "Protocol message must be an object")
-            )
+        if message is None:
             return
         await self.handle_message(message)
 
@@ -193,6 +193,18 @@ class PluginWorkerSession:
                 "protocol_unsupported",
                 "Host protocol range does not include 1.1",
             )
+        raw_limits = params.get("limits") if isinstance(params.get("limits"), dict) else {}
+        if "maxFrameBytes" in raw_limits or "maxLogicalMessageBytes" in raw_limits:
+            try:
+                advertised = limits_from_advertised(
+                    raw_limits.get("maxFrameBytes", self.frame_limits.max_frame_bytes),
+                    raw_limits.get("maxLogicalMessageBytes"),
+                )
+            except FrameError as error:
+                raise PluginSdkError(error.code, error.message) from error
+            self.frame_limits.max_frame_bytes = advertised.max_frame_bytes
+            self.frame_limits.max_logical_bytes = advertised.max_logical_bytes
+            self._frames.set_limits(self.frame_limits)
         if self._worker is None:
             self._worker = await activate_plugin_worker(
                 self._definition,
@@ -318,25 +330,28 @@ def configure_binary_stdio() -> None:
 async def run_stdio_plugin_worker_async(definition: PluginWorkerDefinition) -> None:
     configure_binary_stdio()
     write_lock = asyncio.Lock()
+    limits = FrameLimits()
 
     async def send(message: dict[str, Any]) -> None:
-        payload = (json.dumps(message, ensure_ascii=False) + "\n").encode("utf-8")
-        if len(payload) > MAX_FRAME_BYTES:
-            payload = (
+        try:
+            frames = encode_message(message, limits)
+        except FrameError as error:
+            frames = [
                 json.dumps(
                     error_response(
                         str(message.get("id") or "unknown"),
-                        "worker_frame_too_large",
-                        "Worker protocol frame exceeded the limit",
+                        error.code,
+                        error.message,
                     ),
                     ensure_ascii=False,
+                    separators=(",", ":"),
                 )
-                + "\n"
-            ).encode("utf-8")
+            ]
         async with write_lock:
-            await asyncio.to_thread(_write_stdout, payload)
+            for frame in frames:
+                await asyncio.to_thread(_write_stdout, (frame + "\n").encode("utf-8"))
 
-    session = PluginWorkerSession(definition, send)
+    session = PluginWorkerSession(definition, send, limits)
     loop = asyncio.get_running_loop()
     try:
         while True:

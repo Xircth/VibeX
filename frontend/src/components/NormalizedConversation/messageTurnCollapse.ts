@@ -4,7 +4,10 @@ export function isCollapsibleProcessItem(item: TurnRenderItem): boolean {
   return item.kind !== 'markdown' || item.text.trim().length > 0;
 }
 
-export function splitCollapsedTurnItems(items: TurnRenderItem[]): {
+export function splitCollapsedTurnItems(
+  items: TurnRenderItem[],
+  options?: { isStreaming?: boolean }
+): {
   prelude: TurnRenderItem[];
   rest: TurnRenderItem[];
 } {
@@ -14,7 +17,9 @@ export function splitCollapsedTurnItems(items: TurnRenderItem[]): {
   );
 
   if (lastMarkdownIndex < 0) {
-    return { prelude: items, rest: [] };
+    return options?.isStreaming
+      ? { prelude: [], rest: items }
+      : { prelude: items, rest: [] };
   }
 
   const visible = items[lastMarkdownIndex];

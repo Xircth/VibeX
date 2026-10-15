@@ -64,8 +64,8 @@ describe('TurnStats', () => {
       />
     );
 
-    expect(screen.getByText('模型')).toBeInTheDocument();
-    expect(screen.getByText('gpt-5-codex')).toBeInTheDocument();
+    expect(screen.queryByText('模型')).not.toBeInTheDocument();
+    expect(screen.queryByText('gpt-5-codex')).not.toBeInTheDocument();
     expect(screen.getByText('12,345')).toBeInTheDocument();
     expect(screen.queryByText(/100,000/)).not.toBeInTheDocument();
     expect(screen.queryByText(/12,345 \/ /)).not.toBeInTheDocument();
@@ -163,7 +163,8 @@ describe('TurnStats', () => {
       />
     );
 
-    expect(screen.getByText('生成中')).toBeInTheDocument();
+    expect(screen.queryByText('生成中')).not.toBeInTheDocument();
+    expect(screen.queryByText('状态')).not.toBeInTheDocument();
     expect(screen.getByText('5s')).toBeInTheDocument();
 
     vi.setSystemTime(new Date('2026-03-22T00:00:07.000Z'));

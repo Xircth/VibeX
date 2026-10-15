@@ -4693,6 +4693,7 @@ version = "0.2.8"
 dependencies = [
  "async-trait",
  "axum",
+ "base64 0.22.1",
  "browser-host",
  "dirs 5.0.1",
  "flate2",
@@ -4714,6 +4715,7 @@ dependencies = [
  "url",
  "utils",
  "uuid",
+ "vibex-plugin-sdk",
  "xattr",
  "zip 4.6.1",
 ]
@@ -8104,6 +8106,7 @@ name = "vibex-plugin-sdk"
 version = "1.0.0"
 dependencies = [
  "async-trait",
+ "base64 0.22.1",
  "futures",
  "regex",
  "serde",

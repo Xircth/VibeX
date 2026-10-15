@@ -2,6 +2,7 @@ import { fireEvent, render, screen } from '@testing-library/react';
 import type { IDockviewHeaderActionsProps } from 'dockview-react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { WorkspaceOverlayContext } from '@/contexts/WorkspaceOverlayContext';
+import { getTerminalShellOptions } from '@/lib/terminalPreferences';
 import { WorkspaceTabAddMenu } from './WorkspaceTabAddMenu';
 
 const {
@@ -9,12 +10,14 @@ const {
   openNotes,
   openTerminalEditorTab,
   openPluginPanel,
+  runInEditorGroup,
   usePluginHostContributions,
 } = vi.hoisted(() => ({
   openDiffPreview: vi.fn(),
   openNotes: vi.fn(),
   openTerminalEditorTab: vi.fn(),
   openPluginPanel: vi.fn(),
+  runInEditorGroup: vi.fn((_groupId: string, action: () => void) => action()),
   usePluginHostContributions: vi.fn((): unknown[] => []),
 }));
 
@@ -24,6 +27,7 @@ vi.mock('@/contexts/PanelActionsContext', () => ({
     openNotes,
     openTerminalEditorTab,
     openPluginPanel,
+    runInEditorGroup,
   }),
 }));
 
@@ -128,8 +132,10 @@ describe('WorkspaceTabAddMenu', () => {
     expect(setTabCreationMenuOpen).toHaveBeenCalledWith(true);
   });
 
-  it('opens the terminal from the tab creation menu', () => {
+  it('opens the chosen shell from the terminal submenu in this group', () => {
     const props = headerProps();
+    const shell = getTerminalShellOptions()[1] ?? getTerminalShellOptions()[0];
+    if (!shell) throw new Error('expected a terminal shell option');
 
     render(<WorkspaceTabAddMenu {...props} />);
 
@@ -138,9 +144,16 @@ describe('WorkspaceTabAddMenu', () => {
       ctrlKey: false,
     });
     fireEvent.click(screen.getByRole('menuitem', { name: '终端' }));
+    expect(openTerminalEditorTab).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByRole('menuitem', { name: shell.label }));
 
     expect(props.api.setActive).toHaveBeenCalledOnce();
-    expect(openTerminalEditorTab).toHaveBeenCalledOnce();
+    expect(runInEditorGroup).toHaveBeenCalledWith(
+      'group-editor-1',
+      expect.any(Function)
+    );
+    expect(openTerminalEditorTab).toHaveBeenCalledWith(shell.value);
   });
 
   it('does not make the workspace inert while the tab menu is open', () => {

@@ -77,7 +77,16 @@ export function isHttpRemoteEntry(entry: string): boolean {
 
 const LOAD_REMOTE_TIMEOUT_MS = 8_000;
 
-export function unloadPluginRemote(name: string): void {
+/** Live mounts of each remote name. Unregister only after the last one goes. */
+const remoteUsers = new Map<string, number>();
+
+function releaseRemote(name: string): void {
+  const next = (remoteUsers.get(name) ?? 0) - 1;
+  if (next > 0) {
+    remoteUsers.set(name, next);
+    return;
+  }
+  remoteUsers.delete(name);
   const runtime = host;
   if (!runtime || !name) return;
   const unregister = (
@@ -93,14 +102,27 @@ export function unloadPluginRemote(name: string): void {
   }
 }
 
+export function unloadPluginRemote(name: string): void {
+  if (!name) return;
+  releaseRemote(name);
+}
+
 export async function loadPluginRemote(
   remote: PluginRemoteRef
 ): Promise<RemoteModule> {
+  remoteUsers.set(remote.name, (remoteUsers.get(remote.name) ?? 0) + 1);
   const runtime = federationHost();
   await runtime.registerRemotes(
     [{ name: remote.name, entry: remote.entry, type: 'module' }],
     { force: true }
   );
+  return await loadRegisteredRemote(runtime, remote);
+}
+
+async function loadRegisteredRemote(
+  runtime: FederationRuntime,
+  remote: PluginRemoteRef
+): Promise<RemoteModule> {
   const loaded = await Promise.race([
     runtime.loadRemote<RemoteModule>(
       `${remote.name}/${remote.module.replace(/^\.\//, '')}`

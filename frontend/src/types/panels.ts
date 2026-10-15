@@ -43,6 +43,10 @@ export type TerminalPanelSurface = 'panel' | 'editor';
 export interface TerminalPanelParams {
   surface?: TerminalPanelSurface;
   tabId?: string;
+  /** Shell chosen when the tab was created. The panel shell list owns the values. */
+  shell?: string;
+  /** Marks the tab that was opened into the terminal shelf group. */
+  terminalShelf?: boolean;
 }
 
 /** Params for the Web Preview panel (built-in browser / dev-server preview). */

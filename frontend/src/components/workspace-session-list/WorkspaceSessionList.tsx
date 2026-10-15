@@ -28,19 +28,16 @@ import {
   Archive,
   Bot,
   Check,
-  FileCode,
-  FileDown,
   Folder,
-  GitFork,
   Loader2,
-  Pencil,
+  MoreVertical,
   Pin,
   RotateCcw,
-  Trash2,
   X,
 } from 'lucide-react';
 import type { ExecutorProfileId } from 'shared/types';
 import { AgentIcon } from '@/components/agents/AgentIcon';
+import { ProductContextMenu } from '@/components/context-menu/ProductContextMenu';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Input } from '@/components/ui/input';
 import { toast } from '@/components/ui/toast';
@@ -50,8 +47,11 @@ import type { KanbanProjectSessionRecord } from '@/hooks/useKanbanProjectSession
 import { exportConversation } from '@/lib/exportConversation';
 import { cn } from '@/lib/utils';
 import { formatRelativeTime } from '@/utils/date';
+import { writeClipboardViaBridge } from '@/vscode/bridge';
+import { buildSessionCardMenuItems } from '@/components/kanban/session-hub/sessionCardMenu';
 import {
   SESSION_ARCHIVE_DROP_ID,
+  formatSessionInfoForCopy,
   getExecutorDisplayName,
   getSessionMarker,
   sessionListAgentKey,
@@ -124,7 +124,7 @@ export function WorkspaceSessionList({
   onRenameSession,
   onDeleteSession,
   onRestoreSession,
-  showPinnedSection = true,
+  showPinnedSection = false,
   isDeleteMode = false,
   selectedSessionIds,
   onToggleSessionSelection,
@@ -812,30 +812,20 @@ function WorkspaceSessionRow({
   const [isHovered, setIsHovered] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isForking, setIsForking] = useState(false);
   const [draftName, setDraftName] = useState(title);
   const [contextMenu, setContextMenu] = useState<{
     x: number;
     y: number;
   } | null>(null);
-  const showRowActions =
-    !isDeleteMode && Boolean(onPin || onRename || onDelete);
+  const showRowActions = !isDeleteMode && !overlay;
+  const isRowHovered = (isHovered || Boolean(contextMenu)) && !isEditing;
 
   useEffect(() => {
     if (!isEditing) {
       setDraftName(title);
     }
   }, [isEditing, title]);
-
-  useEffect(() => {
-    if (!contextMenu) return;
-    const closeMenu = () => setContextMenu(null);
-    window.addEventListener('click', closeMenu);
-    window.addEventListener('keydown', closeMenu);
-    return () => {
-      window.removeEventListener('click', closeMenu);
-      window.removeEventListener('keydown', closeMenu);
-    };
-  }, [contextMenu]);
 
   const submitRename = async () => {
     if (!onRename || isSubmitting) return;
@@ -854,6 +844,95 @@ function WorkspaceSessionRow({
     setIsSubmitting(false);
   };
 
+  const handleForkSession = () => {
+    if (isForking) return;
+    setIsForking(true);
+    void conversationApi
+      .fork(session.id)
+      .then((result) => {
+        if (result.continuity === 'history_only') {
+          toast.warning(
+            t('tasks:hubListItem.forkHistoryOnly', {
+              reason: result.continuityNote,
+            })
+          );
+        } else {
+          toast.success(t('tasks:hubListItem.forkSuccess'));
+        }
+        if (kanbanSessions?.placeForkedChild) {
+          kanbanSessions.placeForkedChild(
+            {
+              sessionId: result.conversationId,
+              workspaceId: session.workspace.id,
+            },
+            session.id
+          );
+        } else {
+          kanbanSessions?.placeCreatedSession({
+            sessionId: result.conversationId,
+            workspaceId: session.workspace.id,
+          });
+        }
+      })
+      .catch((error) =>
+        toast.error(
+          t('tasks:hubListItem.forkFailed', {
+            error: String(error),
+          })
+        )
+      )
+      .finally(() => {
+        setIsForking(false);
+      });
+  };
+
+  const menuItems = buildSessionCardMenuItems({
+    session,
+    t,
+    onRestore,
+    restoreLabel: t('workspaceSessionList.restore'),
+    onRename: onRename
+      ? () => {
+          setDraftName(title);
+          setIsEditing(true);
+        }
+      : undefined,
+    onCopySessionInfo: () => {
+      void writeClipboardViaBridge(
+        formatSessionInfoForCopy({
+          ...session,
+          fullName: title,
+        })
+      );
+      toast.success(t('tasks:hubListItem.copiedSessionInfo'));
+    },
+    onCopySessionName: () => {
+      void writeClipboardViaBridge(title);
+      toast.success(t('tasks:hubListItem.copiedSessionName'));
+    },
+    onExportHtml: () => {
+      void exportConversation(
+        session.id,
+        'html',
+        session.name ?? title ?? t('tasks:hubListItem.sessionFallback')
+      );
+    },
+    onExportMarkdown: () => {
+      void exportConversation(
+        session.id,
+        'markdown',
+        session.name ?? title ?? t('tasks:hubListItem.sessionFallback')
+      );
+    },
+    onFork: handleForkSession,
+    isForking,
+    onDelete: onDelete
+      ? () => {
+          void onDelete();
+        }
+      : undefined,
+  });
+
   return (
     <div
       role="listitem"
@@ -868,7 +947,7 @@ function WorkspaceSessionRow({
           isDragging && 'is-dragging',
           overlay && 'is-overlay',
           isDeleteMode && 'is-delete-mode',
-          isHovered && !isEditing && 'is-hovered'
+          isRowHovered && 'is-hovered'
         )}
         onMouseEnter={() => setIsHovered(true)}
         onMouseLeave={() => setIsHovered(false)}
@@ -989,6 +1068,12 @@ function WorkspaceSessionRow({
               <span className="workspace-session-title" title={title}>
                 {title}
               </span>
+              {isPinned ? (
+                <Pin
+                  data-testid="workspace-session-pinned-indicator"
+                  className="h-3 w-3 shrink-0 text-primary"
+                />
+              ) : null}
               <span className="workspace-session-meta-idle">
                 {session.isRunning ? (
                   <Loader2
@@ -1007,202 +1092,103 @@ function WorkspaceSessionRow({
             </button>
             {showRowActions ? (
               <span className="workspace-session-row-actions">
-                {onPin ? (
-                  <button
-                    type="button"
-                    className={cn(
-                      'workspace-session-row-action',
-                      isPinned && 'is-active'
-                    )}
-                    aria-label={
-                      isPinned
-                        ? t('workspaceSessionList.unpin')
-                        : t('workspaceSessionList.pin')
-                    }
-                    aria-pressed={isPinned}
-                    onPointerDown={(event) => event.stopPropagation()}
-                    onClick={(event) => {
-                      event.stopPropagation();
-                      onPin(!isPinned);
-                    }}
-                  >
-                    <Pin className="h-3.5 w-3.5" />
-                  </button>
-                ) : null}
-                {onRename ? (
-                  <button
-                    type="button"
-                    className="workspace-session-row-action"
-                    aria-label={t('workspaceSessionList.edit')}
-                    onPointerDown={(event) => event.stopPropagation()}
-                    onClick={(event) => {
-                      event.stopPropagation();
-                      setDraftName(title);
-                      setIsEditing(true);
-                    }}
-                  >
-                    <Pencil className="h-3.5 w-3.5" />
-                  </button>
-                ) : null}
-                {onDelete ? (
+                <button
+                  type="button"
+                  className={cn(
+                    'workspace-session-row-action',
+                    Boolean(contextMenu) && 'is-active'
+                  )}
+                  aria-label={t('tasks:hubListItem.moreActions')}
+                  aria-haspopup="menu"
+                  aria-expanded={Boolean(contextMenu)}
+                  onPointerDown={(event) => event.stopPropagation()}
+                  onMouseDown={(event) => {
+                    event.preventDefault();
+                    event.stopPropagation();
+                  }}
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    const rect = event.currentTarget.getBoundingClientRect();
+                    setContextMenu((current) =>
+                      current ? null : { x: rect.left, y: rect.bottom + 4 }
+                    );
+                  }}
+                >
+                  <MoreVertical className="h-3.5 w-3.5" />
+                </button>
+                {onRestore ? (
                   <button
                     type="button"
                     className="workspace-session-row-action"
-                    aria-label={t('workspaceSessionList.deleteSession')}
+                    aria-label={t('workspaceSessionList.restore')}
                     onPointerDown={(event) => event.stopPropagation()}
+                    onMouseDown={(event) => {
+                      event.preventDefault();
+                      event.stopPropagation();
+                    }}
                     onClick={(event) => {
                       event.stopPropagation();
-                      void onDelete();
+                      onRestore();
                     }}
                   >
-                    <Trash2 className="h-3.5 w-3.5" />
+                    <RotateCcw className="h-3.5 w-3.5" />
                   </button>
-                ) : null}
+                ) : (
+                  <>
+                    <button
+                      type="button"
+                      className={cn(
+                        'workspace-session-row-action',
+                        isPinned && 'is-active'
+                      )}
+                      aria-label={
+                        isPinned
+                          ? t('workspaceSessionList.unpin')
+                          : t('workspaceSessionList.pin')
+                      }
+                      aria-pressed={isPinned}
+                      onPointerDown={(event) => event.stopPropagation()}
+                      onMouseDown={(event) => {
+                        event.preventDefault();
+                        event.stopPropagation();
+                      }}
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        onPin?.(!isPinned);
+                      }}
+                    >
+                      <Pin className="h-3.5 w-3.5" />
+                    </button>
+                    <button
+                      type="button"
+                      className="workspace-session-row-action"
+                      aria-label={t('workspaceSessionList.archive')}
+                      onPointerDown={(event) => event.stopPropagation()}
+                      onMouseDown={(event) => {
+                        event.preventDefault();
+                        event.stopPropagation();
+                      }}
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        onArchive?.();
+                      }}
+                    >
+                      <Archive className="h-3.5 w-3.5" />
+                    </button>
+                  </>
+                )}
               </span>
             ) : null}
           </>
         )}
       </div>
       {contextMenu ? (
-        <div
-          className="tahoe-popover fixed z-50 min-w-40 rounded-md p-1 text-popover-foreground"
-          style={{ left: contextMenu.x, top: contextMenu.y }}
-          onClick={(event) => event.stopPropagation()}
-          onMouseDown={(event) => event.preventDefault()}
-        >
-          {onRestore ? (
-            <button
-              type="button"
-              className="flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-left text-xs hover:bg-accent hover:text-accent-foreground"
-              onClick={() => {
-                setContextMenu(null);
-                onRestore();
-              }}
-            >
-              <RotateCcw className="h-3.5 w-3.5" />
-              {t('workspaceSessionList.restore')}
-            </button>
-          ) : null}
-          {onArchive ? (
-            <button
-              type="button"
-              className="flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-left text-xs hover:bg-accent hover:text-accent-foreground"
-              onClick={() => {
-                setContextMenu(null);
-                onArchive();
-              }}
-            >
-              <Archive className="h-3.5 w-3.5" />
-              {t('workspaceSessionList.archive')}
-            </button>
-          ) : null}
-          {onPin ? (
-            <button
-              type="button"
-              className="flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-left text-xs hover:bg-accent hover:text-accent-foreground"
-              onClick={() => {
-                setContextMenu(null);
-                onPin(!isPinned);
-              }}
-            >
-              <Pin className="h-3.5 w-3.5" />
-              {isPinned
-                ? t('workspaceSessionList.unpin')
-                : t('workspaceSessionList.pin')}
-            </button>
-          ) : null}
-          {onRename ? (
-            <button
-              type="button"
-              className="flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-left text-xs hover:bg-accent hover:text-accent-foreground"
-              onClick={() => {
-                setContextMenu(null);
-                setDraftName(title);
-                setIsEditing(true);
-              }}
-            >
-              <Pencil className="h-3.5 w-3.5" />
-              {t('common:contextMenu.rename')}
-            </button>
-          ) : null}
-          <button
-            type="button"
-            className="flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-left text-xs hover:bg-accent hover:text-accent-foreground"
-            onClick={() => {
-              setContextMenu(null);
-              void conversationApi
-                .fork(session.id)
-                .then((result) => {
-                  if (result.continuity === 'history_only') {
-                    toast.warning(
-                      t('tasks:hubListItem.forkHistoryOnly', {
-                        reason: result.continuityNote,
-                      })
-                    );
-                  } else {
-                    toast.success(t('tasks:hubListItem.forkSuccess'));
-                  }
-                  kanbanSessions?.placeCreatedSession({
-                    sessionId: result.conversationId,
-                    workspaceId: session.workspace.id,
-                  });
-                })
-                .catch((error) =>
-                  toast.error(
-                    t('tasks:hubListItem.forkFailed', {
-                      error: String(error),
-                    })
-                  )
-                );
-            }}
-          >
-            <GitFork className="h-3.5 w-3.5" />
-            {t('tasks:hubListItem.forkSession')}
-          </button>
-          <button
-            type="button"
-            className="flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-left text-xs hover:bg-accent hover:text-accent-foreground"
-            onClick={() => {
-              setContextMenu(null);
-              void exportConversation(
-                session.id,
-                'markdown',
-                session.name ?? t('tasks:hubListItem.sessionFallback')
-              );
-            }}
-          >
-            <FileDown className="h-3.5 w-3.5" />
-            {t('tasks:hubListItem.exportAsMarkdown')}
-          </button>
-          <button
-            type="button"
-            className="flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-left text-xs hover:bg-accent hover:text-accent-foreground"
-            onClick={() => {
-              setContextMenu(null);
-              void exportConversation(
-                session.id,
-                'html',
-                session.name ?? t('tasks:hubListItem.sessionFallback')
-              );
-            }}
-          >
-            <FileCode className="h-3.5 w-3.5" />
-            {t('tasks:hubListItem.exportAsHtml')}
-          </button>
-          {onDelete ? (
-            <button
-              type="button"
-              className="flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-left text-xs text-destructive hover:bg-destructive/10"
-              onClick={() => {
-                setContextMenu(null);
-                void onDelete();
-              }}
-            >
-              <Trash2 className="h-3.5 w-3.5" />
-              {t('workspaceSessionList.deleteSession')}
-            </button>
-          ) : null}
-        </div>
+        <ProductContextMenu
+          x={contextMenu.x}
+          y={contextMenu.y}
+          items={menuItems}
+          onClose={() => setContextMenu(null)}
+        />
       ) : null}
     </div>
   );

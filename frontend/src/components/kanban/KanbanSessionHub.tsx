@@ -297,6 +297,8 @@ export function KanbanSessionHub({
   >([]);
   const [optimisticStatusBySessionId, setOptimisticStatusBySessionId] =
     useState<Record<string, SessionStatus>>({});
+  const [optimisticPinnedAtBySessionId, setOptimisticPinnedAtBySessionId] =
+    useState<Record<string, string | null>>({});
   const [expandedSections, setExpandedSections] = useState<
     Record<SessionStatusKey, boolean>
   >({
@@ -497,6 +499,28 @@ export function KanbanSessionHub({
   }, [sessions]);
 
   useEffect(() => {
+    setOptimisticPinnedAtBySessionId((current) => {
+      let changed = false;
+      const next = { ...current };
+
+      Object.entries(current).forEach(([sessionId, optimisticPinnedAt]) => {
+        const latestSession = sessions.find(
+          (session) => session.id === sessionId
+        );
+        if (
+          !latestSession ||
+          Boolean(latestSession.pinnedAt) === Boolean(optimisticPinnedAt)
+        ) {
+          delete next[sessionId];
+          changed = true;
+        }
+      });
+
+      return changed ? next : current;
+    });
+  }, [sessions]);
+
+  useEffect(() => {
     const availableSessionIds = new Set(sessions.map((session) => session.id));
     setSelectedSessionIds((current) => {
       const next = current.filter((sessionId) =>
@@ -526,17 +550,29 @@ export function KanbanSessionHub({
     () =>
       sessions.map((session) => {
         const optimisticStatus = optimisticStatusBySessionId[session.id];
-        if (!optimisticStatus || optimisticStatus === session.status) {
+        const hasOptimisticPin = Object.prototype.hasOwnProperty.call(
+          optimisticPinnedAtBySessionId,
+          session.id
+        );
+        const optimisticPinnedAt = optimisticPinnedAtBySessionId[session.id];
+        const statusChanged =
+          Boolean(optimisticStatus) && optimisticStatus !== session.status;
+        const pinChanged =
+          hasOptimisticPin && optimisticPinnedAt !== session.pinnedAt;
+
+        if (!statusChanged && !pinChanged) {
           return session;
         }
 
+        const nextStatus = optimisticStatus ?? session.status;
         return {
           ...session,
-          status: optimisticStatus,
-          isCompleted: optimisticStatus === 'done',
+          status: nextStatus,
+          isCompleted: nextStatus === 'done',
+          pinnedAt: hasOptimisticPin ? optimisticPinnedAt : session.pinnedAt,
         };
       }),
-    [optimisticStatusBySessionId, sessions]
+    [optimisticPinnedAtBySessionId, optimisticStatusBySessionId, sessions]
   );
 
   const activeSessionsWithOptimisticStatus = useMemo(
@@ -867,12 +903,22 @@ export function KanbanSessionHub({
     session: KanbanProjectSessionRecord,
     pinned: boolean
   ) => {
+    setDeleteErrorMessage(null);
+    setOptimisticPinnedAtBySessionId((current) => ({
+      ...current,
+      [session.id]: pinned ? new Date().toISOString() : null,
+    }));
     try {
       await sessionsApi.setPinned(session.id, pinned);
       await queryClient.invalidateQueries({
         queryKey: ['workspaceSessions', session.workspace.id],
       });
     } catch (error) {
+      setOptimisticPinnedAtBySessionId((current) => {
+        const next = { ...current };
+        delete next[session.id];
+        return next;
+      });
       setDeleteErrorMessage(
         mapSessionErrorMessage(error, t('sessionHub.pinFailed'))
       );

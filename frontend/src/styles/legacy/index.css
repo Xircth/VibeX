@@ -232,9 +232,9 @@
     --surface-card-strong: hsl(0 0% 100% / 0.94);
     --surface-control: hsl(220 20% 20% / 0.06);
     --surface-control-hover: hsl(220 20% 20% / 0.1);
-    --surface-control-solid: hsl(220 16% 91%);
-    --surface-control-solid-hover: hsl(220 16% 88%);
-    --surface-raised: var(--surface-control-solid);
+    --surface-control-solid: hsl(220 14% 94%);
+    --surface-control-solid-hover: hsl(220 14% 92%);
+    --surface-raised: var(--surface-raised-control);
     --surface-raised-control: hsl(220 14% 97%);
     --surface-raised-control-hover: hsl(220 14% 95%);
     --surface-hover: hsl(220 20% 20% / 0.07);
@@ -356,9 +356,9 @@
     --surface-card-strong: #242936;
     --surface-control: hsl(210 30% 80% / 0.07);
     --surface-control-hover: hsl(210 30% 80% / 0.12);
-    --surface-control-solid: hsl(220 18% 20%);
-    --surface-control-solid-hover: hsl(220 18% 24%);
-    --surface-raised: var(--surface-control-solid);
+    --surface-control-solid: hsl(216 18% 22%);
+    --surface-control-solid-hover: hsl(216 18% 25%);
+    --surface-raised: var(--surface-raised-control);
     --surface-raised-control: #242936;
     --surface-raised-control-hover: hsl(222 16% 22%);
     --surface-hover: hsl(210 30% 80% / 0.08);
@@ -2736,13 +2736,22 @@ html.dark {
   }
 
   .product-context-menu {
-    font-family: var(--font-ui);
-    font-optical-sizing: auto;
-    font-size: 0.875rem;
-    line-height: 1.45;
-    background: var(--surface-dialog);
+    background: #ffffff;
+    border: 1px solid hsl(var(--border));
+    box-shadow: none;
     backdrop-filter: none;
     -webkit-backdrop-filter: none;
+    font-family: var(--font-ui);
+    font-optical-sizing: auto;
+    font-size: 0.8125rem;
+    line-height: 1.25rem;
+  }
+
+  .legacy-design.dark .product-context-menu,
+  .dark .legacy-design .product-context-menu,
+  .dark .product-context-menu {
+    background: hsl(var(--popover));
+    border-color: hsl(var(--border));
   }
 
   .branch-selector-menu {
@@ -4558,20 +4567,20 @@ html.dark {
 
   .workspace-session-row-action {
     display: inline-flex;
-    height: 1.5rem;
-    width: 1.5rem;
+    height: 1.25rem;
+    width: 1.25rem;
     align-items: center;
     justify-content: center;
     border: 0;
-    border-radius: 999px;
     background: transparent;
     color: var(--text-muted);
+    transition: color 120ms ease;
   }
 
   .workspace-session-row-action:hover,
   .workspace-session-row-action.is-active {
     color: var(--text-strong);
-    background: var(--surface-control);
+    background: transparent;
   }
 
   .workspace-session-row-action:focus-visible {
@@ -4676,18 +4685,26 @@ html.dark {
     background: var(--surface-active);
   }
 
-  .session-hub-card-action {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    padding: 0.125rem;
-    border: 0;
-    border-radius: 0;
+  .session-hub-card-actions {
     background: transparent;
-    color: var(--text-muted);
+    box-shadow: none;
   }
 
-  .session-hub-card-action:hover {
+  .session-hub-card-action {
+    display: inline-flex;
+    height: 1.25rem;
+    width: 1.25rem;
+    align-items: center;
+    justify-content: center;
+    padding: 0;
+    border: 0;
+    background: transparent;
+    color: var(--text-muted);
+    transition: color 120ms ease;
+  }
+
+  .session-hub-card-action:hover,
+  .session-hub-card-action.is-active {
     color: var(--text-strong);
     background: transparent;
   }
@@ -7661,8 +7678,6 @@ html.host-windows .legacy-design {
   --surface-popover: var(--surface-glass-solid);
   --surface-topbar: var(--surface-glass-solid);
   --surface-sidebar: var(--surface-glass-solid);
-  --surface-control: var(--surface-control-solid);
-  --surface-control-hover: var(--surface-control-solid-hover);
 }
 
 html.tauri-desktop[data-host-platform='macos'] .window-chrome {
@@ -13775,48 +13790,6 @@ html.host-windows :where(.legacy-design) .vu-toast-surface {
   height: 16px;
   flex: none;
   color: var(--text-tertiary);
-}
-
-.settings-page .product-plugin-context-menu {
-  position: fixed;
-  z-index: 40;
-  min-width: 160px;
-  padding: 4px;
-  border-radius: var(--radius);
-}
-
-.settings-page .product-plugin-context-menu button {
-  display: flex;
-  width: 100%;
-  height: auto;
-  min-height: 0;
-  align-items: center;
-  padding: 7px 10px;
-  border: 0;
-  border-radius: var(--radius);
-  background: transparent;
-  box-shadow: none;
-  color: var(--text-primary);
-  font-size: 13px;
-  line-height: 1.3;
-  text-align: left;
-}
-
-.settings-page .product-plugin-context-menu button:hover,
-.settings-page .product-plugin-context-menu button:focus-visible {
-  background: color-mix(in srgb, var(--accent) 10%, transparent);
-  outline: 0;
-}
-
-.settings-page .product-plugin-context-menu button.is-destructive {
-  color: hsl(var(--destructive));
-}
-
-.settings-page .product-plugin-context-menu button.is-destructive:hover,
-.settings-page
-  .product-plugin-context-menu
-  button.is-destructive:focus-visible {
-  background: hsl(var(--destructive) / 0.1);
 }
 
 .settings-page .product-plugin-loading {

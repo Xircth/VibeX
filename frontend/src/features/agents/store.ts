@@ -27,6 +27,11 @@ export type AgentWorkbenchState = {
   availableCommandsByScope: Record<string, AgentAvailableCommand[]>;
   usageByScope: Record<string, { used: number; limit?: number | null }>;
   errorsByScope: Record<string, string[]>;
+  /**
+   * Kept on the state shape so callers can read a scope key, but never filled.
+   * The durable conversation log is the transcript. Retaining every ACP
+   * envelope here duplicated tool output in the WebView for the process lifetime.
+   */
   eventsByScope: Record<string, AgentEventEnvelope[]>;
   lastSequence: number;
 };
@@ -98,6 +103,8 @@ export function hydrateAgentSnapshot(
   return stateFromAgentSnapshot(snapshot);
 }
 
+const MAX_RETAINED_WORKBENCH_ERRORS = 8;
+
 export function reduceAgentEvent(
   state: AgentWorkbenchState,
   envelope: AgentEventEnvelope
@@ -117,7 +124,7 @@ export function reduceAgentEvent(
     availableCommandsByScope: state.availableCommandsByScope,
     usageByScope: state.usageByScope,
     errorsByScope: state.errorsByScope,
-    eventsByScope: appendEvent(state.eventsByScope, envelope),
+    eventsByScope: state.eventsByScope,
     lastSequence: envelope.sequence,
   };
 
@@ -236,16 +243,18 @@ export function reduceAgentEvent(
         [scopeId(envelope)]: envelope.event.usage,
       };
       return next;
-    case 'error':
+    case 'error': {
+      const scope = scopeId(envelope);
+      const prior = state.errorsByScope[scope] ?? [];
       next.errorsByScope = {
         ...state.errorsByScope,
-        [scopeId(envelope)]: [
-          ...(state.errorsByScope[scopeId(envelope)] ?? []),
-          envelope.event.error.message,
-        ],
+        [scope]: [...prior, envelope.event.error.message].slice(
+          -MAX_RETAINED_WORKBENCH_ERRORS
+        ),
       };
       next.sessions = clearSessionPrompt(state.sessions, envelope.session_id);
       return next;
+    }
     default:
       return next;
   }
@@ -296,17 +305,4 @@ function clearSessionPrompt(
 
 function scopeId(envelope: AgentEventEnvelope): string {
   return envelope.session_id ?? envelope.connection_id;
-}
-
-function appendEvent(
-  eventsByScope: Record<string, AgentEventEnvelope[]>,
-  envelope: AgentEventEnvelope
-): Record<string, AgentEventEnvelope[]> {
-  return {
-    ...eventsByScope,
-    [scopeId(envelope)]: [
-      ...(eventsByScope[scopeId(envelope)] ?? []),
-      envelope,
-    ],
-  };
 }

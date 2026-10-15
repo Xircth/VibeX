@@ -1,5 +1,9 @@
 export declare const VIBEX_PLUGIN_API_VERSION: "1.0";
 export declare const VIBEX_PLUGIN_PROTOCOL_VERSION: "1.1";
+export declare const MIN_FRAME_BYTES: number;
+export declare const MAX_FRAME_BYTES: number;
+export declare const MAX_LOGICAL_MESSAGE_BYTES: number;
+export declare const FRAME_CHUNK_METHOD = "frame.chunk";
 export type JsonPrimitive = string | number | boolean | null;
 export type JsonValue = JsonPrimitive | JsonValue[] | {
     [key: string]: JsonValue;
@@ -20,6 +24,7 @@ export interface InitializeParams {
     features: string[];
     limits: {
         maxFrameBytes: number;
+        maxLogicalMessageBytes?: number;
         requestTimeoutMs: number;
     };
     runtime: {
@@ -91,3 +96,38 @@ export type HostRequest = {
     };
 };
 export type HostResponse = WorkerResponse;
+export declare class ProtocolFrameError extends Error {
+    readonly code: string;
+    constructor(code: string, message: string);
+}
+export interface FrameLimits {
+    maxFrameBytes: number;
+    maxLogicalBytes: number;
+}
+export declare function protocolFrameLimits(): FrameLimits;
+/** Limits the Host advertised in initialize. Frame stays inside 1 MiB..=128 MiB. */
+export declare function frameLimitsFromAdvertised(maxFrameBytes: number, maxLogicalMessageBytes?: number): FrameLimits;
+/** One JSON line when the message fits. Larger payloads become frame.chunk. */
+export declare function encodeProtocolMessage(message: {
+    id?: string;
+}, limits?: FrameLimits): string[];
+type DecodedFrame = {
+    kind: "skip";
+} | {
+    kind: "message";
+    message: Record<string, unknown>;
+};
+export declare class FrameReassembler {
+    private limits;
+    private streamId;
+    private count;
+    private nextIndex;
+    private parts;
+    private totalBytes;
+    constructor(limits?: FrameLimits);
+    setLimits(limits: FrameLimits): void;
+    pushLine(line: string): DecodedFrame;
+    private pushChunk;
+    private reset;
+}
+export {};

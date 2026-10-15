@@ -6,7 +6,11 @@ import { useExpandable } from '@/stores/useExpandableStore';
 import { useOptionalPanelActionsContext } from '@/contexts/PanelActionsContext';
 import { useOpenLink } from '@/hooks/useOpenLink';
 import { deriveRelativeFilePath } from '@/utils/filePaths';
-import { getEntryIcon, getToolSummary } from '../conversation-entry-utils';
+import {
+  getEntryIcon,
+  getToolCallDescription,
+  getToolSummary,
+} from '../conversation-entry-utils';
 import {
   ToolArtifact,
   ToolFacts,
@@ -167,6 +171,7 @@ export function GenericToolCard({
 
   const inlineText = entry.content.trim();
   const summary = getToolSummary(toolEntry, inlineText);
+  const description = getToolCallDescription(entry);
   const isTaskCreate = actionType.action === 'task_create';
   const isTodo = actionType.action === 'todo_management';
   const isGenericTool = actionType.action === 'tool';
@@ -175,25 +180,31 @@ export function GenericToolCard({
     ? t('genericTool.subagent')
     : isTodo
       ? t('genericTool.todo')
-      : summary.label;
+      : description ?? summary.label;
   // The generic branch mirrors the tool name into `content`; repeating it next
   // to the label ("Write Write") carries no information — show nothing instead.
-  const meaningfulInlineText = inlineText === label ? '' : inlineText;
+  const meaningfulInlineText =
+    inlineText === label || inlineText === summary.label ? '' : inlineText;
   const detail = isTaskCreate
     ? [actionType.subagent_type, actionType.description]
         .filter(Boolean)
         .join(': ')
     : isOther
       ? actionType.description
-      : // Raw tool identifiers are developer-facing noise — fall back to the
-        // inline text instead of exposing `tool_name`.
-        summary.detail || meaningfulInlineText;
+      : description
+        ? undefined
+        : // Raw tool identifiers are developer-facing noise — fall back to the
+          // inline text instead of exposing `tool_name`.
+          summary.detail || meaningfulInlineText;
+  const argumentFacts = isGenericTool
+    ? jsonToFacts(actionType.arguments, { skipKeys: ['description'] })
+    : [];
   const hasDetails =
     isTaskCreate ||
     isTodo ||
     isOther ||
     (isGenericTool &&
-      (actionType.arguments != null ||
+      (argumentFacts.length > 0 ||
         actionType.result != null ||
         meaningfulInlineText.length > 0));
   const icon = isTaskCreate ? (
@@ -242,10 +253,9 @@ export function GenericToolCard({
 
       {isGenericTool ? (
         <>
-          {actionType.arguments != null &&
-          jsonToFacts(actionType.arguments).length > 0 ? (
+          {argumentFacts.length > 0 ? (
             <ToolArtifact badge={t('genericTool.arguments')}>
-              <ToolFacts facts={jsonToFacts(actionType.arguments)} />
+              <ToolFacts facts={argumentFacts} />
             </ToolArtifact>
           ) : null}
           <ToolArtifact

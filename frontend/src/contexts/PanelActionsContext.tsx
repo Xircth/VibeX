@@ -8,6 +8,7 @@ import {
   useState,
   type ReactNode,
 } from 'react';
+import type { DockviewGroupPanel } from 'dockview-core';
 import type { DockviewApi } from 'dockview-react';
 import { useQueryClient } from '@tanstack/react-query';
 import { fileContentKeys } from '@/hooks/useFileContent';
@@ -45,9 +46,14 @@ import {
   ensureBrowserTabOpenBridge,
   setBrowserTabOpenHandler,
 } from '@/features/host-browser/openBrowserTab';
-import { DEFAULT_TERMINAL_PANEL_HEIGHT } from '@/lib/terminalPreferences';
+import {
+  clearTerminalShelf,
+  markTerminalShelf,
+  terminalShelfGroupId,
+} from '@/lib/terminalShelf';
 import {
   editorTerminalPanelId,
+  isEditorTerminalPanelId,
   tabIdFromEditorTerminalPanelId,
 } from '@/lib/workspaceTerminalTabs';
 import {
@@ -66,7 +72,6 @@ import {
   compareEditorGroups,
   getGroupElement,
   getNextEditorGroupId,
-  isBottomGroup,
   isEditorGroup,
   isLeftGroup,
   isPlaceholderPanelId,
@@ -75,7 +80,7 @@ import {
   LEFT_PANEL_IDS,
   listLeftDockGroups,
 } from '@/utils/dockviewGroupPolicy';
-import { getLayoutArrangement, slotOfZone } from '@/lib/layoutArrangement';
+import { getLayoutArrangement } from '@/lib/layoutArrangement';
 import { useFileTreeStore } from '@/stores/useFileTreeStore';
 import {
   applyWorkspaceZoneConstraints,
@@ -110,6 +115,16 @@ import {
   registerImagePreviewSource,
   releaseImagePreviewSource,
 } from '@/lib/imagePreviewRegistry';
+import {
+  addGroupBelowEditorGroups,
+  leastPopulatedEditorGroup,
+  terminalShelfHeight,
+  type EditorSplitDirection,
+} from '@/utils/dockviewEditorSplit';
+import {
+  releaseLegacyTerminalZones,
+  rememberTerminalShelfFromApi,
+} from '@/utils/terminalZoneRelease';
 
 const DIFF_PREVIEW_PANEL_ID_PREFIX = 'diff:';
 const MAX_OPEN_DIFF_PREVIEW_PANELS = 5;
@@ -136,14 +151,6 @@ function buildImagePreviewPanelId(imageUrl: string): string {
     hash = ((hash << 5) + hash + imageUrl.charCodeAt(i)) | 0;
   }
   return `image:${(hash >>> 0).toString(36)}`;
-}
-
-function buildSplitPanelId(panelId: string, targetGroupId: string): string {
-  return `${panelId}::split::${targetGroupId}`;
-}
-
-function isDiffPreviewPanelId(panelId: string): boolean {
-  return panelId.startsWith(DIFF_PREVIEW_PANEL_ID_PREFIX);
 }
 
 function closeRemovedEditorTerminal(panelId: string): void {
@@ -199,9 +206,12 @@ export interface PanelActions {
   }) => void;
   openCommitDiff: () => void;
   openNewTerminal: () => void;
-  openTerminalEditorTab: () => void;
+  openTerminalEditorTab: (shell?: string) => void;
   showTerminal: () => void;
   toggleEditorArea: () => void;
+  runInEditorGroup: (groupId: string, action: () => void) => void;
+  splitEditorPanel: (panelId: string, direction: EditorSplitDirection) => boolean;
+  sortEditorGroupByName: (groupId: string) => void;
   openPanelInNewEditorGroup: (panelId: string) => boolean;
   canOpenPanelInNewEditorGroup: (panelId: string) => boolean;
   splitActiveEditor: () => boolean;
@@ -280,6 +290,7 @@ export function PanelActionsProvider({ children }: { children: ReactNode }) {
   } | null>(null);
   const applyingLeftSplitRef = useRef(false);
   const diffPreviewPanelQueueRef = useRef<string[]>([]);
+  const preferredEditorGroupIdRef = useRef<string | null>(null);
   const clearCommitDiff = useCommitDiffStore((state) => state.clearCommitDiff);
   const clearGitDiffTargetPath = useGitDiffNavigationStore(
     (state) => state.clearTargetPath
@@ -312,6 +323,9 @@ export function PanelActionsProvider({ children }: { children: ReactNode }) {
       releaseImagePreviewSource(panel.id);
       closeRemovedEditorTerminal(panel.id);
     });
+    const removeGroupDisposable = api.onDidRemoveGroup((group) => {
+      clearTerminalShelf(group.id);
+    });
 
     let frame = 0;
     const syncSplit = () => {
@@ -325,11 +339,17 @@ export function PanelActionsProvider({ children }: { children: ReactNode }) {
         applyingLeftSplitRef.current = false;
       });
     };
-    layoutDisposableRef.current = api.onDidLayoutChange(() => {
+    const layoutDisposable = api.onDidLayoutChange(() => {
       if (applyingLeftSplitRef.current) return;
       if (frame) return;
       frame = requestAnimationFrame(syncSplit);
     });
+    layoutDisposableRef.current = {
+      dispose: () => {
+        layoutDisposable.dispose();
+        removeGroupDisposable.dispose();
+      },
+    };
   }, []);
 
   useEffect(
@@ -347,13 +367,6 @@ export function PanelActionsProvider({ children }: { children: ReactNode }) {
     return (
       dockviewApi.getGroup(GROUP_IDS.LEFT) ??
       dockviewApi.groups.find((group) => isLeftGroup(group))
-    );
-  }, []);
-
-  const getBottomGroup = useCallback((dockviewApi: DockviewApi) => {
-    return (
-      dockviewApi.getGroup(GROUP_IDS.BOTTOM) ??
-      dockviewApi.groups.find((group) => isBottomGroup(group))
     );
   }, []);
 
@@ -377,24 +390,8 @@ export function PanelActionsProvider({ children }: { children: ReactNode }) {
         (leftGroups[0] as { id: string }).id = GROUP_IDS.LEFT;
       }
 
-      const bottomGroup = getBottomGroup(dockviewApi);
-      if (bottomGroup) {
-        (bottomGroup as { id: string }).id = GROUP_IDS.BOTTOM;
-        bottomGroup.locked = 'no-drop-target';
-        try {
-          const model = (
-            bottomGroup as {
-              model?: { header?: { hidden?: boolean } };
-            }
-          ).model;
-          if (typeof model?.header?.hidden !== 'undefined') {
-            model.header.hidden = true;
-          }
-        } catch {
-          // Ignore internal model access failures and rely on CSS class fallback.
-        }
-        getGroupElement(bottomGroup)?.classList.add('dv-header-hidden');
-      }
+      releaseLegacyTerminalZones(dockviewApi);
+      rememberTerminalShelfFromApi(dockviewApi);
 
       const rightGroup = getRightGroup(dockviewApi);
       if (rightGroup) {
@@ -418,7 +415,7 @@ export function PanelActionsProvider({ children }: { children: ReactNode }) {
       syncDockviewGroupRegistry(dockviewApi);
       applyLeftGroupHeaderHiding(dockviewApi);
     },
-    [getBottomGroup, getRightGroup]
+    [getRightGroup]
   );
 
   const recreateWelcomeEditorGroup = useCallback(() => {
@@ -451,12 +448,41 @@ export function PanelActionsProvider({ children }: { children: ReactNode }) {
     return getEditorGroups(dockviewApi)[0] ?? recreateWelcomeEditorGroup();
   }, [getEditorGroups, recreateWelcomeEditorGroup]);
 
+  const runInEditorGroup = useCallback(
+    (groupId: string, action: () => void) => {
+      const previous = preferredEditorGroupIdRef.current;
+      preferredEditorGroupIdRef.current = groupId;
+      try {
+        action();
+      } finally {
+        preferredEditorGroupIdRef.current = previous;
+      }
+    },
+    []
+  );
+
   const addPanelToActiveEditorGroup = useCallback(
-    (options: AddPanelOptions) => {
+    (options: AddPanelOptions, placement: 'active' | 'least' = 'least') => {
       const dockviewApi = apiRef.current;
       if (!dockviewApi) return undefined;
 
-      const targetGroup = getActiveEditorGroup();
+      const preferredId = preferredEditorGroupIdRef.current;
+      const preferred = preferredId
+        ? dockviewApi.getGroup(preferredId)
+        : undefined;
+      let targetGroup =
+        preferred && isEditorGroup(preferred) ? preferred : undefined;
+      if (!targetGroup && placement === 'least') {
+        const visible = getEditorGroups(dockviewApi).filter(
+          (group) => group.api.isVisible
+        );
+        const activeId =
+          dockviewApi.activeGroup && isEditorGroup(dockviewApi.activeGroup)
+            ? dockviewApi.activeGroup.id
+            : undefined;
+        targetGroup = leastPopulatedEditorGroup(visible, activeId);
+      }
+      targetGroup ??= getActiveEditorGroup();
       if (!targetGroup) return undefined;
 
       targetGroup.api.setVisible(true);
@@ -484,7 +510,7 @@ export function PanelActionsProvider({ children }: { children: ReactNode }) {
             ? 'onlyWhenVisible'
             : options.renderer,
         position: {
-          referenceGroup: targetGroup,
+          referenceGroup: targetGroup.id,
           direction: 'within',
           ...(placeholderPanels.length > 0 ? { index: 0 } : {}),
         },
@@ -504,7 +530,7 @@ export function PanelActionsProvider({ children }: { children: ReactNode }) {
       normalizeEditorGroupIds(dockviewApi);
       return panel;
     },
-    [getActiveEditorGroup, getLeftGroup, normalizeEditorGroupIds]
+    [getActiveEditorGroup, getEditorGroups, getLeftGroup, normalizeEditorGroupIds]
   );
 
   const openFilePreview = useCallback(
@@ -730,30 +756,39 @@ export function PanelActionsProvider({ children }: { children: ReactNode }) {
     [syncDiffPreviewPanelQueue]
   );
 
-  const replaceDiffPreviewPanelQueueId = useCallback(
-    (fromPanelId: string, toPanelId: string) => {
-      if (!isDiffPreviewPanelId(fromPanelId)) {
-        return;
-      }
+  const findTerminalShelf = useCallback((dockviewApi: DockviewApi) => {
+    releaseLegacyTerminalZones(dockviewApi);
+    rememberTerminalShelfFromApi(dockviewApi);
+    const shelfId = terminalShelfGroupId();
+    if (!shelfId) return undefined;
+    const group = dockviewApi.getGroup(shelfId);
+    if (!group || !isEditorGroup(group)) {
+      clearTerminalShelf(shelfId);
+      return undefined;
+    }
+    return group;
+  }, []);
 
-      diffPreviewPanelQueueRef.current = diffPreviewPanelQueueRef.current.map(
-        (panelId) => (panelId === fromPanelId ? toPanelId : panelId)
-      );
-    },
-    []
-  );
-
-  const applyDefaultTerminalHeight = useCallback(
-    (bottomGroup: NonNullable<ReturnType<DockviewApi['getGroup']>>) => {
-      // Only meaningful while the terminal zone is the bottom strip; when the
-      // arrangement moves it into a column its height is the full grid.
-      if (slotOfZone(getLayoutArrangement(), 'terminal') !== 'bottom') return;
-
-      try {
-        bottomGroup.api.setSize({ height: DEFAULT_TERMINAL_PANEL_HEIGHT });
-      } catch {
-        // Ignore resize failures while the layout is settling.
-      }
+  const addShelfTerminal = useCallback(
+    (
+      dockviewApi: DockviewApi,
+      group: NonNullable<ReturnType<DockviewApi['getGroup']>>,
+      shell?: string
+    ) => {
+      const tabId = generateTerminalTabId();
+      return dockviewApi.addPanel({
+        id: editorTerminalPanelId(tabId),
+        component: PANEL_IDS.TERMINAL,
+        title: 'Terminal',
+        renderer: 'onlyWhenVisible',
+        params: {
+          surface: 'editor',
+          tabId,
+          terminalShelf: true,
+          ...(shell ? { shell } : {}),
+        },
+        position: { referenceGroup: group.id, direction: 'within' },
+      });
     },
     []
   );
@@ -763,79 +798,67 @@ export function PanelActionsProvider({ children }: { children: ReactNode }) {
       const dockviewApi = apiRef.current;
       if (!dockviewApi) return;
 
-      const existingTerminal = dockviewApi.getPanel(PANEL_IDS.TERMINAL);
-      let bottomGroup = getBottomGroup(dockviewApi);
+      const existing = findTerminalShelf(dockviewApi);
+      if (existing) {
+        const nextVisible = toggleExisting ? !existing.api.isVisible : true;
+        existing.api.setVisible(nextVisible);
+        markTerminalShelf(existing.id, nextVisible);
+        if (!nextVisible) return;
 
-      if (existingTerminal && bottomGroup) {
-        const nextVisible = toggleExisting ? !bottomGroup.api.isVisible : true;
-        bottomGroup.api.setVisible(nextVisible);
-        if (nextVisible) {
-          existingTerminal.api.setActive();
-          applyDefaultTerminalHeight(bottomGroup);
-        }
-        return;
-      }
-
-      if (bottomGroup && !existingTerminal) {
-        bottomGroup.api.setVisible(true);
-        const terminalPanel = dockviewApi.addPanel({
-          id: PANEL_IDS.TERMINAL,
-          component: PANEL_IDS.TERMINAL,
-          title: 'Terminal',
-          renderer: 'onlyWhenVisible',
-          position: { referenceGroup: GROUP_IDS.BOTTOM, direction: 'within' },
-        });
-        terminalPanel.api.setActive();
-        applyDefaultTerminalHeight(bottomGroup);
+        const terminal =
+          existing.panels.find((panel) => isEditorTerminalPanelId(panel.id)) ??
+          null;
+        const panel = terminal ?? addShelfTerminal(dockviewApi, existing);
+        panel.api.setActive();
         normalizeEditorGroupIds(dockviewApi);
         return;
       }
 
-      if (existingTerminal && !bottomGroup) {
-        // The terminal panel exists but its group wasn't recognized (e.g. a
-        // transient state during a layout transform): control its own group
-        // instead of re-adding a duplicate panel, which would throw.
-        const group = existingTerminal.group;
-        const nextVisible = toggleExisting ? !group.api.isVisible : true;
-        group.api.setVisible(nextVisible);
-        if (nextVisible) {
-          existingTerminal.api.setActive();
-        }
+      const visibleEditors = getEditorGroups(dockviewApi).filter(
+        (group) => group.api.isVisible
+      );
+      const editorGroups =
+        visibleEditors.length > 0
+          ? visibleEditors
+          : getEditorGroups(dockviewApi);
+      const hostGroups =
+        editorGroups.length > 0
+          ? editorGroups
+          : [recreateWelcomeEditorGroup()].filter(
+              (group): group is NonNullable<typeof group> => Boolean(group)
+            );
+      if (hostGroups.length === 0 || !hostGroups[0]?.panels[0]) return;
+
+      const height = terminalShelfHeight(dockviewApi.height);
+      let shelf: ReturnType<DockviewApi['addGroup']>;
+      try {
+        shelf = addGroupBelowEditorGroups(dockviewApi, hostGroups, {
+          id: getNextEditorGroupId(dockviewApi),
+          height,
+        });
+      } catch {
         return;
       }
 
-      const targetGroup =
-        getEditorGroups(dockviewApi)[0] ?? recreateWelcomeEditorGroup();
-      const referencePanel = targetGroup?.panels[0];
-      if (!referencePanel) return;
-
-      bottomGroup = dockviewApi.addGroup({
-        id: GROUP_IDS.BOTTOM,
-        referencePanel,
-        direction: 'below',
-        locked: 'no-drop-target',
-        initialHeight: DEFAULT_TERMINAL_PANEL_HEIGHT,
-      });
-      bottomGroup.locked = 'no-drop-target';
-
-      const terminalPanel = dockviewApi.addPanel({
-        id: PANEL_IDS.TERMINAL,
-        component: PANEL_IDS.TERMINAL,
-        title: 'Terminal',
-        renderer: 'onlyWhenVisible',
-        position: { referenceGroup: GROUP_IDS.BOTTOM, direction: 'within' },
-      });
-      terminalPanel.api.setActive();
-      applyDefaultTerminalHeight(bottomGroup);
-
+      shelf.api.setVisible(true);
+      if (height > 0) {
+        try {
+          shelf.api.setSize({ height });
+        } catch {
+          // The initial split size still applies when setSize is early.
+        }
+      }
+      markTerminalShelf(shelf.id, true);
+      const panel = addShelfTerminal(dockviewApi, shelf);
+      panel.api.setActive();
       normalizeEditorGroupIds(dockviewApi);
     },
     [
-      applyDefaultTerminalHeight,
-      recreateWelcomeEditorGroup,
-      getBottomGroup,
+      addShelfTerminal,
+      findTerminalShelf,
       getEditorGroups,
       normalizeEditorGroupIds,
+      recreateWelcomeEditorGroup,
     ]
   );
 
@@ -849,19 +872,26 @@ export function PanelActionsProvider({ children }: { children: ReactNode }) {
     [setTerminalVisibility]
   );
 
-  const openTerminalEditorTab = useCallback(() => {
-    const tabId = generateTerminalTabId();
-    const panel = addPanelToActiveEditorGroup({
-      id: editorTerminalPanelId(tabId),
-      component: PANEL_IDS.TERMINAL,
-      title: 'Terminal',
-      params: {
-        surface: 'editor',
-        tabId,
-      },
-    });
-    panel?.api.setActive();
-  }, [addPanelToActiveEditorGroup]);
+  const openTerminalEditorTab = useCallback(
+    (shell?: string) => {
+      const tabId = generateTerminalTabId();
+      const panel = addPanelToActiveEditorGroup(
+        {
+          id: editorTerminalPanelId(tabId),
+          component: PANEL_IDS.TERMINAL,
+          title: 'Terminal',
+          params: {
+            surface: 'editor',
+            tabId,
+            ...(shell ? { shell } : {}),
+          },
+        },
+        'active'
+      );
+      panel?.api.setActive();
+    },
+    [addPanelToActiveEditorGroup]
+  );
 
   const toggleEditorArea = useCallback(() => {
     const dockviewApi = apiRef.current;
@@ -918,60 +948,48 @@ export function PanelActionsProvider({ children }: { children: ReactNode }) {
     [getEditorGroups]
   );
 
-  const openPanelInNewEditorGroup = useCallback(
-    (panelId: string) => {
+  const splitEditorPanel = useCallback(
+    (panelId: string, direction: EditorSplitDirection) => {
       const dockviewApi = apiRef.current;
       if (!dockviewApi || !canOpenPanelInNewEditorGroup(panelId)) {
         return false;
       }
 
       const panel = dockviewApi.getPanel(panelId);
-      if (!panel) {
-        return false;
-      }
-
-      const panelState = panel.toJSON();
-      if (!panelState.contentComponent) {
-        return false;
-      }
+      if (!panel) return false;
 
       const newGroup = dockviewApi.addGroup({
         id: getNextEditorGroupId(dockviewApi),
         referencePanel: panel,
-        direction: 'right',
+        direction,
         skipSetActive: true,
       });
 
-      const splitPanelId = buildSplitPanelId(panelId, newGroup.id);
+      const host = (
+        dockviewApi as unknown as {
+          component?: {
+            moveGroupOrPanel: (options: {
+              from: { groupId: string; panelId?: string };
+              to: { group: typeof newGroup; position: 'center' };
+              skipSetActive?: boolean;
+              keepEmptyGroups?: boolean;
+            }) => void;
+          };
+        }
+      ).component;
 
       try {
-        dockviewApi.addPanel({
-          id: splitPanelId,
-          component: panelState.contentComponent,
-          tabComponent: panelState.tabComponent,
-          title: panel.title,
-          params: panel.params,
-          renderer: panelState.renderer,
-          minimumWidth: panel.minimumWidth,
-          minimumHeight: panel.minimumHeight,
-          maximumWidth: panel.maximumWidth,
-          maximumHeight: panel.maximumHeight,
-          position: {
-            referenceGroup: newGroup,
-            direction: 'within',
-          },
-        });
-      } catch {
-        try {
-          dockviewApi.removeGroup(newGroup);
-        } catch {
-          // Ignore cleanup failures.
+        if (host?.moveGroupOrPanel) {
+          host.moveGroupOrPanel({
+            from: { groupId: panel.group.id, panelId: panel.id },
+            to: { group: newGroup, position: 'center' },
+            skipSetActive: true,
+            keepEmptyGroups: true,
+          });
+        } else {
+          panel.api.moveTo({ group: newGroup, skipSetActive: true });
         }
-        return false;
-      }
-
-      const duplicatedPanel = dockviewApi.getPanel(splitPanelId);
-      if (!duplicatedPanel || duplicatedPanel.group !== newGroup) {
+      } catch {
         try {
           dockviewApi.removeGroup(newGroup);
         } catch {
@@ -981,34 +999,37 @@ export function PanelActionsProvider({ children }: { children: ReactNode }) {
       }
 
       newGroup.api.setVisible(true);
+      panel.api.setActive();
       normalizeEditorGroupIds(dockviewApi);
-      duplicatedPanel.api.setActive();
-
-      try {
-        dockviewApi.removePanel(panel);
-      } catch {
-        try {
-          dockviewApi.removePanel(duplicatedPanel);
-        } catch {
-          // Ignore cleanup failures.
-        }
-        try {
-          dockviewApi.removeGroup(newGroup);
-        } catch {
-          // Ignore cleanup failures.
-        }
-        return false;
-      }
-
-      replaceDiffPreviewPanelQueueId(panelId, splitPanelId);
       return true;
     },
-    [
-      canOpenPanelInNewEditorGroup,
-      normalizeEditorGroupIds,
-      replaceDiffPreviewPanelQueueId,
-    ]
+    [canOpenPanelInNewEditorGroup, normalizeEditorGroupIds]
   );
+
+  const openPanelInNewEditorGroup = useCallback(
+    (panelId: string) => splitEditorPanel(panelId, 'right'),
+    [splitEditorPanel]
+  );
+
+  const sortEditorGroupByName = useCallback((groupId: string) => {
+    const dockviewApi = apiRef.current;
+    const group = dockviewApi?.getGroup(groupId);
+    if (!group || !isEditorGroup(group)) return;
+
+    const ordered = [...group.panels].sort((a, b) =>
+      (a.title ?? a.id).localeCompare(b.title ?? b.id, undefined, {
+        numeric: true,
+        sensitivity: 'base',
+      })
+    );
+    ordered.forEach((panel, index) => {
+      panel.api.moveTo({
+        group: group as unknown as DockviewGroupPanel,
+        index,
+        skipSetActive: true,
+      });
+    });
+  }, []);
 
   const splitActiveEditor = useCallback(() => {
     const dockviewApi = apiRef.current;
@@ -1419,6 +1440,12 @@ export function PanelActionsProvider({ children }: { children: ReactNode }) {
     const dockviewApi = apiRef.current;
     if (!dockviewApi) return false;
 
+    if (panelId === PANEL_IDS.TERMINAL) {
+      const shelfId = terminalShelfGroupId();
+      const shelf = shelfId ? dockviewApi.getGroup(shelfId) : undefined;
+      return Boolean(shelf && isEditorGroup(shelf) && shelf.api.isVisible);
+    }
+
     const panel = dockviewApi.getPanel(panelId);
     if (!panel) return false;
 
@@ -1682,6 +1709,9 @@ export function PanelActionsProvider({ children }: { children: ReactNode }) {
       openTerminalEditorTab,
       showTerminal,
       toggleEditorArea,
+      runInEditorGroup,
+      splitEditorPanel,
+      sortEditorGroupByName,
       openPanelInNewEditorGroup,
       canOpenPanelInNewEditorGroup,
       splitActiveEditor,
@@ -1722,6 +1752,9 @@ export function PanelActionsProvider({ children }: { children: ReactNode }) {
     openNewTerminal,
     openTerminalEditorTab,
     showTerminal,
+    runInEditorGroup,
+    splitEditorPanel,
+    sortEditorGroupByName,
     openNotes,
     openPluginPanel,
     openOrFocusPanel,

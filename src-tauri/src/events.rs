@@ -532,16 +532,16 @@ async fn emit_desktop_session_attention(
 }
 
 /// Whether an event is worth forwarding to the live `AGENT_EVENTS` Tauri channel
-/// (the agents workbench debug view). High-frequency streaming events (per-token
-/// chunks, tool-call updates, terminal output, raw ACP diagnostics) are excluded —
-/// the workbench doesn't render them and they would flood the channel while an agent
-/// streams. (The former append-only `agent_events` DB log this once gated was retired
-/// in 批次D1; `conversation_events` is the single authoritative log.)
+/// (the agents workbench). High-frequency or bulky transcript events are excluded.
+/// The workbench does not render them; the conversation row-op stream is the
+/// transcript. Tool calls carry image bytes and previews, so they stay on the
+/// conversation log and off this channel. Persistence runs before this filter.
 fn should_emit_agent_event(event: &AgentEvent) -> bool {
     !matches!(
         event,
         AgentEvent::MessageChunk { .. }
             | AgentEvent::ThoughtChunk { .. }
+            | AgentEvent::ToolCall { .. }
             | AgentEvent::ToolCallUpdate { .. }
             | AgentEvent::TerminalOutput { .. }
             | AgentEvent::RawAcpDiagnostic { .. }
@@ -673,9 +673,26 @@ mod tests {
                 text: "thinking".to_string(),
             },
         }));
+        assert!(!super::should_emit_agent_event(&AgentEvent::ToolCall {
+            tool_call: agents::AgentToolCall {
+                id: "tool-1".to_string(),
+                title: "read".to_string(),
+                status: None,
+                content: None,
+                kind: None,
+                input_preview: None,
+                meta: None,
+                images: Vec::new(),
+            },
+        }));
         assert!(super::should_emit_agent_event(&AgentEvent::TurnCompleted {
             stop_reason: None,
         }));
+        assert!(super::should_emit_agent_event(
+            &AgentEvent::SessionBindReady {
+                acp_session_id: "acp-1".to_string(),
+            }
+        ));
     }
 
     #[test]

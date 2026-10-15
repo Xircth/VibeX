@@ -2374,6 +2374,20 @@ impl ConversationSessionService {
             .map_err(Into::into)
     }
 
+    /// `watch` registers the on-screen surface. The runtime repeats the bump.
+    /// Forgetting the id does not disconnect the agent.
+    pub async fn set_session_keepalive(
+        &self,
+        conversation_id: Uuid,
+        watch: bool,
+    ) -> Result<(), ConversationServiceError> {
+        self.ctx
+            .agent_runtime
+            .set_session_keepalive(AgentSessionId(conversation_id), watch)
+            .await
+            .map_err(Into::into)
+    }
+
     async fn ensure_session_controls_locked(
         &self,
         conversation_id: Uuid,

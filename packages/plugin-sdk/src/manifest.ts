@@ -173,6 +173,7 @@ export const CONTRIBUTION_ICONS = [
   "link",
   "list",
   "message-square",
+  "monitor",
   "package",
   "play",
   "plug",
@@ -211,7 +212,12 @@ export interface ToolbarIntegrationManifest extends IntegrationBase {
 
 export interface StatusIntegrationManifest extends IntegrationBase {
   kind: "app.status";
-  slot?: "status.main";
+  /**
+   * `status.main` (default) sits left of the MCP status icon and shows
+   * icon plus text. `status.after-mcp` is an icon button immediately to the
+   * right of that MCP icon; `text` is its tooltip.
+   */
+  slot?: "status.main" | "status.after-mcp";
   /** Text shown before the first refresh, and the only text when static. */
   text?: string;
   icon?: ContributionIcon;
@@ -219,6 +225,11 @@ export interface StatusIntegrationManifest extends IntegrationBase {
   handler: string;
   /** 5–3600. Omit for a static item. */
   refreshSeconds?: number;
+  /**
+   * When set on `status.after-mcp`, clicking the icon opens this remote
+   * instead of invoking `handler`.
+   */
+  remote?: RemoteModuleManifest;
 }
 
 export interface ComposerSlashIntegrationManifest extends IntegrationBase {

@@ -125,7 +125,7 @@ my-plugin/
 }
 ```
 
-`entrypoints.worker.runtime` 取 `node`、`python` 或 `native`。作者只写 `runtime`，不要再写已经废掉的 `format=javascript-esm`。
+`entrypoints.worker.runtime` 取 `node`、`python` 或 `native`。作者只写 `runtime`，不要再写已经废掉的 `format=javascript-esm`。`maxFrameMiB` 可选，不写就是 32。取值是 1 到 128 的整数，单位 MiB。Host 把它作为这个 Worker 的单帧上限，并在 `initialize` 的 `limits.maxFrameBytes` 里宣布。
 
 Worker 走协议 1.1（initialize 再 activate）。App 走协议 1.0。
 
@@ -144,7 +144,7 @@ Worker 走协议 1.1（initialize 再 activate）。App 走协议 1.0。
 | `app.surface` | Full Trust App。可编辑文本页用 `slot` 为 `artifact.editor` |
 | `app.command` | 命令面板 |
 | `app.toolbar` | 工具栏 |
-| `app.status` | 状态栏，前 3 条并排显示，其余进溢出菜单 |
+| `app.status` | 状态栏。`status.main` 在 MCP 图标左侧，前 3 条并排，其余进溢出菜单。`status.after-mcp` 是紧挨 MCP 图标右侧的图标按钮 |
 | `app.composer.slash` | Composer 斜杠 |
 | `app.timeline.card` | 时间线卡片 |
 | `app.settings.section` | 设置段 |
@@ -191,7 +191,7 @@ STDIO 服务必须回答 MCP `initialize`（协议以 `2026-07-28` 为主，兼�
 | --- | --- | --- |
 | `app.command` | `title`、`handler` | 不读，执行即可 |
 | `app.toolbar` | `title`、`handler`；`slot` 省略即 `toolbar.main` | 不读 |
-| `app.status` | `text` 或 `handler`；`slot` 省略即 `status.main` | `text` 与 `tooltip`；配 `refreshSeconds` 才会轮询 |
+| `app.status` | `handler`；`slot` 省略即 `status.main`，或 `status.after-mcp` | `text` 与 `tooltip`；配 `refreshSeconds` 才会轮询。`status.after-mcp` 只显示图标，`text` 是提示。带 `remote` 时点击打开该远程界面，否则点击调用 `handler` |
 | `app.composer.slash` | `command`（省略则取 `id`）、`prompt` | 不读，`prompt` 直接插进输入框 |
 | `app.timeline.card` | `label`、`handler`、`allowedMethods` | 由 App 通过 `bridge.invoke` 自取 |
 | `app.settings.section` | `title`、`handler`、`allowedMethods` | 同上 |
@@ -265,7 +265,7 @@ CLI 侧对应的是 `doctor`；崩溃与日志两边同源。
 
 stdio，一行一条 JSON。顺序是 `initialize`（谈成 `1.1`）→ `activate` → 之后 `invoke` / `ping` / `dispose`。Worker 调 Host 用 `host.call`，带 `capability`、`operation`、`input`。
 
-单帧上限 1 MiB。超时默认 30 秒。
+单帧默认 32 MiB，用 `entrypoints.worker.maxFrameMiB` 改成 1 到 128。一条消息超过单帧、不超过 128 MiB 时，协议把它拆成 `frame.chunk`，对端拼回后再交给 handler。图片放在这一条 JSON 里即可。视频和其他更大的二进制不要放进 JSON：用 `blob.create`、`blob.append`、`blob.finish` 写到 Host 磁盘，调用结果只带 blob id。单文件上限 4 GiB，每次读写 512 KiB。不要自己按别的格式拆行：那种分片会被拒绝，但只失败这一次调用，不会卸载 Worker。超时默认 30 秒。
 
 handler id 正则
 
@@ -357,6 +357,7 @@ catalog 里的名字是契约。当前 Host 实现参差不齐，按代码说话
 - `conversation.archive` 归档
 - `conversation.events.since` `{ conversationId, afterSequence? }` 拉变更过的时间线行
 - `log.*` 走 Worker 日志
+- `blob.create` `{ mediaType?, name? }` 建一个空文件，返回 `{ id }`。`blob.append` `{ id, data }` 的 `data` 是一段 base64，解码后不超过 512 KiB。`blob.finish` `{ id }` 返回 `{ id, byteLength, mediaType, name, finished }`。`blob.read` `{ id, offset?, length? }` 按同样的块读回。`blob.stat` 看元数据，`blob.delete` 删掉。单文件上限 4 GiB。JavaScript 用 `writeBlob` / `readBlob`（`@vibex/plugin-sdk`），Python 用 `vibex_plugin.write_blob` / `read_blob`，Rust 用 `write_blob` / `read_blob`。视频走这里，不要塞进 `invoke` 的 JSON。
 
 结构面（`app.tab` / `app.panel` / `app.kanban.view` / `app.settings.page`）的 Federation `mount(root, environment)` 会带上 `workspaceId` 和 `invoke(handler, input)`。`invoke` 打到本插件 Worker，再由 Worker 调 `host.call`。不要从 App 里自己 `invoke` Tauri 命令。
 

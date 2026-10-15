@@ -129,6 +129,7 @@ describe('conversationStore (row-op dumb container)', () => {
     expect(turns.map((row) => [row.turn.role, row.phase])).toEqual([
       ['user', 'persisted'],
     ]);
+    expect(entryOf(state).detail?.timeline.rows).toEqual([]);
   });
 
   it('hydrates session-config summary fields from conversation detail', () => {
@@ -1189,17 +1190,13 @@ describe('conversationStore (row-op dumb container)', () => {
         output_truncated: false,
       },
     });
-    const zeroRevisionTrailingUser: TimelineRow = timelineRow(
-      't2:user',
-      0n,
-      {
-        kind: 'message_turn',
-        phase: 'optimistic',
-        turn: messageTurn('t2:user', 'user', [
-          { type: 'text', text: 'zero-rev' },
-        ]),
-      }
-    );
+    const zeroRevisionTrailingUser: TimelineRow = timelineRow('t2:user', 0n, {
+      kind: 'message_turn',
+      phase: 'optimistic',
+      turn: messageTurn('t2:user', 'user', [
+        { type: 'text', text: 'zero-rev' },
+      ]),
+    });
     let state = loaded([
       userRow('t1', 'first', 50n),
       assistantRow('t1', [{ type: 'text', text: 'first-reply' }], 20n),

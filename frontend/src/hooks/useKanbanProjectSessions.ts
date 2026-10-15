@@ -33,6 +33,7 @@ export interface KanbanProjectSessionRecord {
   isRunning: boolean;
   isErrored: boolean;
   pinnedAt: string | null;
+  forkSupported?: boolean;
 }
 
 function truncateSessionName(name: string, length = 7) {

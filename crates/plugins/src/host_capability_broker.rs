@@ -196,6 +196,7 @@ impl crate::CapabilityBroker for HostCapabilityBroker {
                 | "agent"
                 | "conversation"
                 | "browser"
+                | "blob"
                 | "app"
                 | "plugin.self"
                 | "provider.presets"
@@ -234,6 +235,7 @@ impl crate::CapabilityBroker for HostCapabilityBroker {
                 "artifact_not_found",
                 "Artifact text is only available on an editor surface session",
             )),
+            "blob" => crate::blob_store::dispatch_plugin_blob(plugin_id, operation, &input),
             "log" => Ok(json!({})),
             "plugin.self" if operation == "doctor" => Ok(json!({
                 "pluginId": plugin_id,

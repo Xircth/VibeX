@@ -1,8 +1,15 @@
 //! Periodic sweeper that disconnects ACP connections idle past a deadline.
 //!
-//! Connections accumulate when frontends close a tab without an explicit
-//! disconnect. The sweep prevents leaked ACP child processes. Keepalive is
-//! `conversation_touch` (~30s) on the active conversation.
+//! Connections accumulate when a conversation surface closes without an
+//! explicit disconnect. The sweep drops Ready connections with no in-flight
+//! turn once `last_activity` is older than the idle timeout (default 180s).
+//! The runtime keeps each on-screen, already-bound conversation alive. The UI
+//! only registers and forgets those ids. This process then bumps their
+//! activity on its own cadence (30s, or half of a shorter idle timeout). That
+//! bump does not connect, resume, or emit a status notice. Hiding the window
+//! does not unregister: stopping would let this sweep reap every open
+//! conversation, and the next focus would resume them together. Off-screen
+//! surfaces unregister and become eligible here.
 
 use std::time::Duration;
 

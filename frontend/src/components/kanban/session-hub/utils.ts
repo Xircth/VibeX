@@ -166,6 +166,53 @@ export function sessionListAgentKey(session: {
   return session.agentId || session.executor || null;
 }
 
+const FORK_SUPPORTED_AGENT_KEYS = new Set([
+  'claude_code',
+  'claude-code',
+  'codex',
+  'deepseek_harness',
+  'deepseek-harness',
+]);
+
+export function isSessionForkSupported(session: {
+  agentId?: string | null;
+  executor: string | null;
+  forkSupported?: boolean | null;
+}): boolean {
+  if (typeof session.forkSupported === 'boolean') {
+    return session.forkSupported;
+  }
+  const key = sessionListAgentKey(session)?.trim().toLowerCase();
+  if (!key) return false;
+  return FORK_SUPPORTED_AGENT_KEYS.has(key);
+}
+
+export function formatSessionInfoForCopy(
+  session: Pick<
+    KanbanProjectSessionRecord,
+    | 'id'
+    | 'fullName'
+    | 'agentId'
+    | 'executor'
+    | 'workspaceDisplayLabel'
+    | 'workspaceName'
+    | 'branch'
+  >
+): string {
+  const agentLabel = getExecutorDisplayName(sessionListAgentKey(session));
+  const workspaceLabel =
+    session.workspaceDisplayLabel ||
+    session.workspaceName ||
+    session.branch ||
+    '-';
+  return [
+    `${i18n.t('tasks:hubListItem.sessionInfoName')}: ${session.fullName}`,
+    `${i18n.t('tasks:hubListItem.sessionInfoId')}: ${session.id}`,
+    `${i18n.t('tasks:hubListItem.sessionInfoAgent')}: ${agentLabel}`,
+    `${i18n.t('tasks:hubListItem.sessionInfoWorkspace')}: ${workspaceLabel}`,
+  ].join('\n');
+}
+
 export function mapSessionErrorMessage(error: unknown, fallback: string) {
   return getSessionUiErrorMessage(error, fallback);
 }
@@ -282,6 +329,24 @@ export function groupKanbanSessionsByStatus(
 
   sessions.forEach((session) => {
     groups[session.status as ActiveSessionStatus].push(session);
+  });
+
+  SESSION_STATUS_ORDER.forEach((status) => {
+    groups[status].sort((left, right) => {
+      const leftPinned = Boolean(left.pinnedAt);
+      const rightPinned = Boolean(right.pinnedAt);
+      if (leftPinned !== rightPinned) {
+        return leftPinned ? -1 : 1;
+      }
+      if (leftPinned && rightPinned) {
+        return (
+          dateTimestamp(right.pinnedAt ?? 0) -
+            dateTimestamp(left.pinnedAt ?? 0) ||
+          dateTimestamp(right.updatedAt) - dateTimestamp(left.updatedAt)
+        );
+      }
+      return 0;
+    });
   });
 
   return groups;

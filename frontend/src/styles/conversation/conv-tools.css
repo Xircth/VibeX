@@ -1076,6 +1076,18 @@ button.vibex-tool-call-target-label:hover {
   line-height: 1.55;
 }
 
+.conv-thinking-content .conv-markdown,
+.conv-thinking-content .conv-markdown [data-astryx-theme],
+.conv-thinking-content
+  .conv-markdown
+  :where(p, li, h1, h2, h3, h4, h5, h6, strong, em),
+.conv-thinking-content .conv-markdown :not(pre) > code {
+  --color-text-primary: var(--conv-text-secondary, var(--text-muted));
+  --color-text-secondary: var(--conv-text-tertiary, var(--text-faint));
+  --color-icon-primary: var(--conv-text-secondary, var(--text-muted));
+  color: var(--conv-text-secondary, var(--text-muted));
+}
+
 .conv-activity-header {
   display: flex;
   width: 100%;

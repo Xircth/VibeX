@@ -66,6 +66,7 @@ import {
   AUTO_PERMISSION_NOTICE_ROW_ID,
   sessionNoticeNeedsRebind,
 } from '@/features/conversation/sessionNoticeNeedsRebind';
+import { nextSurfaceActive } from '@/features/conversation/surfaceActivity';
 import { sendAgentRuntimeTurn } from '@/features/agents/sendAgentRuntimeTurn';
 import { ConfirmDialog } from '@/components/dialogs';
 import {
@@ -545,30 +546,26 @@ const AgentTimelineConversation = forwardRef<
     const el = containerRef.current;
     if (!el) return;
     let seenVisible = false;
-    const update = (intersecting: boolean) => {
-      if (intersecting) {
-        seenVisible = true;
-        setSurfaceActive(document.visibilityState === 'visible');
-        return;
-      }
-      // Ignore the first 0-size miss so a layout pass doesn't disable connect.
-      if (seenVisible) {
-        setSurfaceActive(false);
-      }
+    let active = true;
+    const apply = (intersecting: boolean) => {
+      const next = nextSurfaceActive({
+        active,
+        intersecting,
+        visibilityState: document.visibilityState,
+        seenVisible,
+      });
+      seenVisible = next.seenVisible;
+      if (next.active === active) return;
+      active = next.active;
+      setSurfaceActive(next.active);
     };
     const observer = new IntersectionObserver(
-      ([entry]) => update(entry.isIntersecting),
+      ([entry]) => apply(entry.isIntersecting),
       { threshold: 0 }
     );
     observer.observe(el);
     const onVisibility = () => {
-      if (document.visibilityState !== 'visible') {
-        setSurfaceActive(false);
-        return;
-      }
-      if (seenVisible || el.getClientRects().length > 0) {
-        setSurfaceActive(true);
-      }
+      apply(el.getClientRects().length > 0);
     };
     document.addEventListener('visibilitychange', onVisibility);
     return () => {
@@ -894,7 +891,8 @@ const AgentTimelineConversation = forwardRef<
     [timeline]
   );
   const composerUserMessageHistory = useMemo(
-    () => composerMessageHistoryFromTurns(timelineTurns, isContextCompactPrompt),
+    () =>
+      composerMessageHistoryFromTurns(timelineTurns, isContextCompactPrompt),
     [timelineTurns]
   );
   useEffect(() => {

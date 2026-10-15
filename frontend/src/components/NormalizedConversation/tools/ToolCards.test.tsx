@@ -308,23 +308,23 @@ describe('conversation tool cards', () => {
       blocks: [...turn.blocks, { type: 'text', text: 'Final answer' }],
     };
     rerender(<MessageTurnView {...props} turn={answeredTurn} />);
+    const process = screen.getByRole('button', { name: /已折叠 5 条消息/ });
+    expect(process).toHaveAttribute('aria-expanded', 'false');
+    expect(screen.getByText('Final answer')).toBeInTheDocument();
+    expect(screen.queryByText('available.ts')).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole('button', { name: /已读 2 个文件/ })
+    ).not.toBeInTheDocument();
+
+    rerender(
+      <MessageTurnView {...props} turn={answeredTurn} phase="settled" />
+    );
+    fireEvent.click(screen.getByRole('button', { name: /已折叠 5 条消息/ }));
     expect(
       screen.getByRole('button', {
         name: '运行 1 个命令、已读 2 个文件、已改 1 个文件',
       })
     ).toHaveAttribute('aria-expanded', 'false');
-    expect(screen.queryByText('available.ts')).not.toBeInTheDocument();
-
-    rerender(
-      <MessageTurnView {...props} turn={answeredTurn} phase="settled" />
-    );
-    const process = screen.getByRole('button', { name: /已折叠 5 条消息/ });
-    expect(process).toHaveAttribute('aria-expanded', 'false');
-    expect(screen.getByText('Final answer')).toBeInTheDocument();
-    expect(
-      screen.queryByRole('button', { name: /已读 2 个文件/ })
-    ).not.toBeInTheDocument();
-    fireEvent.click(process);
     fireEvent.click(screen.getByRole('button', { name: /已读 2 个文件/ }));
     expect(
       screen.getByRole('button', { name: /Error:.*denied.ts/ })
@@ -334,6 +334,55 @@ describe('conversation tool cards', () => {
     ).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: '展开思考' }));
     expect(screen.getByText('Checking the denied file')).toBeInTheDocument();
+  });
+
+  it('displays tool description directly on the tool call row and omits description in expanded details', () => {
+    const turn: MessageTurn = {
+      id: 'tool-with-description:assistant',
+      role: 'assistant',
+      timestamp: '2026-10-10T00:00:00.000Z',
+      blocks: [
+        {
+          type: 'tool_use',
+          tool_use_id: 'described-cmd',
+          tool_name: 'bash',
+          input_preview: JSON.stringify({
+            command: 'git status --short',
+            description: '检查 Git 工作区状态',
+            timeout: 5000,
+          }),
+          status: 'completed',
+        },
+        {
+          type: 'tool_result',
+          tool_use_id: 'described-cmd',
+          output_preview: 'M frontend/src/App.tsx',
+          is_error: false,
+        },
+      ],
+    };
+
+    render(
+      <MessageTurnView
+        turn={turn}
+        phase="streaming"
+        attempt={{ id: 'attempt-1', container_ref: null } as never}
+        task={null}
+      />
+    );
+
+    const row = screen.getByRole('button', { name: '检查 Git 工作区状态' });
+    expect(row).toBeInTheDocument();
+    expect(screen.queryByText('终端')).not.toBeInTheDocument();
+    expect(screen.queryByText('git status --short')).not.toBeInTheDocument();
+
+    fireEvent.click(row);
+    expect(screen.getByText('git status --short')).toBeInTheDocument();
+    expect(screen.getByText('M frontend/src/App.tsx')).toBeInTheDocument();
+    expect(screen.getByText('timeout')).toBeInTheDocument();
+    expect(screen.getByText('5000')).toBeInTheDocument();
+    expect(screen.queryByText('description')).not.toBeInTheDocument();
+    expect(screen.getAllByText('检查 Git 工作区状态')).toHaveLength(1);
   });
 
   it('renders command output inside an expandable command card', () => {

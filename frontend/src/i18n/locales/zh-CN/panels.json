@@ -126,7 +126,17 @@
     "browser": "浏览器",
     "review": "审阅",
     "note": "笔记",
-    "terminal": "终端"
+    "terminal": "终端",
+    "close": "关闭",
+    "closeCurrent": "关闭当前页",
+    "closeOthers": "关闭其他页",
+    "split": "拆分",
+    "splitDown": "向下拆分",
+    "splitLeft": "向左拆分",
+    "splitRight": "向右拆分",
+    "new": "新建",
+    "sort": "排序",
+    "sortByName": "按名称排序"
   },
   "kanbanPanel": {
     "backToBoard": "返回看板",

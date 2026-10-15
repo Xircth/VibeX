@@ -99,7 +99,11 @@ pub struct PackageWarning {
     pub contribution: Option<String>,
 }
 
-#[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
+fn default_worker_max_frame_bytes() -> usize {
+    vibex_plugin_sdk::protocol::MAX_FRAME_BYTES
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct PluginEntrypoints {
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -110,6 +114,21 @@ pub struct PluginEntrypoints {
     pub app: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub app_document: Option<String>,
+    /// Wire frame for this Worker. `entrypoints.worker.maxFrameMiB` overrides the 32 MiB default.
+    #[serde(default = "default_worker_max_frame_bytes")]
+    pub worker_max_frame_bytes: usize,
+}
+
+impl Default for PluginEntrypoints {
+    fn default() -> Self {
+        Self {
+            worker: None,
+            worker_runtime: None,
+            app: None,
+            app_document: None,
+            worker_max_frame_bytes: default_worker_max_frame_bytes(),
+        }
+    }
 }
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
@@ -273,6 +292,7 @@ pub const CONTRIBUTION_ICONS: &[&str] = &[
     "link",
     "list",
     "message-square",
+    "monitor",
     "package",
     "play",
     "plug",
@@ -316,8 +336,16 @@ pub struct AppToolbarContribution {
     pub handler: String,
 }
 
+fn default_status_slot() -> String {
+    "status.main".to_owned()
+}
+
 /// Status bar item. When `refresh_seconds` is set the Host polls `handler`
 /// for `{ text, tooltip }` so the item can track live state.
+///
+/// `slot` is `status.main` (left of the MCP icon, icon plus text) or
+/// `status.after-mcp` (icon button immediately right of the MCP icon).
+/// A `remote` on the latter opens that surface instead of invoking `handler`.
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AppStatusContribution {
@@ -329,6 +357,10 @@ pub struct AppStatusContribution {
     pub handler: String,
     #[serde(default)]
     pub refresh_seconds: Option<u32>,
+    #[serde(default = "default_status_slot")]
+    pub slot: String,
+    #[serde(default)]
+    pub remote: Option<RemoteModuleRef>,
 }
 
 /// Composer slash command. Selecting it inserts `prompt` into the draft;
@@ -1979,6 +2011,9 @@ fn parse_entrypoints(
                 parsed.worker_runtime = value
                     .as_object()
                     .and_then(|entrypoint| compiled_worker_runtime(entrypoint).ok());
+                if let Some(entrypoint) = value.as_object() {
+                    parsed.worker_max_frame_bytes = worker_frame_bytes(entrypoint);
+                }
             }
             if key == "app" {
                 let document = value
@@ -2516,8 +2551,8 @@ fn parse_toolbar_contribution(integration: &Map<String, Value>) -> Option<AppToo
 }
 
 fn parse_status_contribution(integration: &Map<String, Value>) -> Option<AppStatusContribution> {
-    let slot = contribution_text(integration, "slot");
-    if slot.as_deref().is_some_and(|slot| slot != "status.main") {
+    let slot = contribution_text(integration, "slot").unwrap_or_else(default_status_slot);
+    if slot != "status.main" && slot != "status.after-mcp" {
         return None;
     }
     let refresh_seconds = match integration.get("refreshSeconds") {
@@ -2535,6 +2570,8 @@ fn parse_status_contribution(integration: &Map<String, Value>) -> Option<AppStat
         icon: contribution_icon(integration).ok()?,
         handler: contribution_text(integration, "handler")?,
         refresh_seconds,
+        slot,
+        remote: parse_remote(integration).ok()?,
     })
 }
 
@@ -3235,6 +3272,19 @@ fn validate_v4_contract(contract: V4Contract<'_>) -> Result<(), PluginError> {
                     "Worker must declare runtime node|python|native and protocol 1.1",
                 ));
             }
+            validate_v4_object_keys(
+                entrypoints_object.get("worker").expect("worker entrypoint"),
+                "Worker entrypoint",
+                &["path", "runtime", "protocol", "maxFrameMiB"],
+            )?;
+            if let Some(value) = worker.get("maxFrameMiB") {
+                let mib = value.as_u64();
+                if mib.is_none_or(|mib| !(1..=128).contains(&mib)) {
+                    return Err(PluginError::invalid_manifest(
+                        "entrypoints.worker.maxFrameMiB must be an integer from 1 to 128",
+                    ));
+                }
+            }
         }
         if let Some(app) = entrypoints_object.get("app") {
             validate_v4_object_keys(app, "App entrypoint", &["root", "document", "protocol"])?;
@@ -3413,6 +3463,15 @@ fn validate_v4_contract(contract: V4Contract<'_>) -> Result<(), PluginError> {
         ));
     }
     Ok(())
+}
+
+fn worker_frame_bytes(worker: &Map<String, Value>) -> usize {
+    worker
+        .get("maxFrameMiB")
+        .and_then(Value::as_u64)
+        .filter(|mib| (1..=128).contains(mib))
+        .map(|mib| (mib as usize) * 1024 * 1024)
+        .unwrap_or_else(default_worker_max_frame_bytes)
 }
 
 fn compiled_worker_runtime(worker: &Map<String, Value>) -> Result<String, PluginError> {

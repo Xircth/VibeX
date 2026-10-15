@@ -368,6 +368,11 @@
   min-height: 28px;
   padding: 0 4px 0 8px;
   border-radius: var(--radius);
+  /* The face covers .dv-tab. It has to be the drag source, and text
+     selection must not win the gesture, or the label cannot be dragged. */
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-user-drag: element;
   transition:
     background-color 0.15s ease,
     color 0.15s ease;
@@ -381,6 +386,7 @@
   align-items: center;
   justify-content: center;
   overflow: hidden;
+  pointer-events: none;
   stroke-width: 1.75;
 }
 
@@ -579,14 +585,12 @@
 }
 
 /*
- * Tab strip scrolling: keep overflow-x so trackpads can pan, but hide the
- * native scrollbar. Dockview's `scrollbar-width: thin` plus macOS overlay
- * painting draws a track on top of tab titles. The custom `.dv-scrollbar`
- * overlay is the remaining thumb.
+ * Do not override Dockview's overflow:hidden on this strip. overflow:auto
+ * makes Chromium and WebView2 treat a tab drag as a scroll, so dragstart
+ * never fires. Wheel events still pan through Dockview's scrollbar.
+ * scrollbar-width:none only hides a native bar if one appears.
  */
 [class*='dockview-theme-ayu'] .dv-scrollable > .dv-tabs-container {
-  overflow-x: auto !important;
-  overflow-y: hidden !important;
   scrollbar-width: none;
 }
 

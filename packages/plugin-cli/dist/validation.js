@@ -253,6 +253,20 @@ async function validateEntrypoints(root, value, diagnostics) {
             !(await safeFile(root, value.worker.path))) {
             diagnostics.push(error("worker_entrypoint_invalid", "Worker entrypoint is invalid"));
         }
+        for (const key of Object.keys(value.worker)) {
+            if (!["path", "runtime", "protocol", "maxFrameMiB"].includes(key)) {
+                diagnostics.push(error("worker_entrypoint_invalid", `Unknown worker field ${key}`));
+            }
+        }
+        if ("maxFrameMiB" in value.worker) {
+            const frame = value.worker.maxFrameMiB;
+            if (typeof frame !== "number" ||
+                !Number.isInteger(frame) ||
+                frame < 1 ||
+                frame > 128) {
+                diagnostics.push(error("worker_entrypoint_invalid", "Worker maxFrameMiB must be an integer from 1 to 128"));
+            }
+        }
     }
     if (isObject(value.app)) {
         if (value.app.protocol !== "1.0" ||
@@ -404,7 +418,10 @@ function validateHostChrome(integration, diagnostics) {
         const value = integration[key];
         if (value === undefined)
             return;
-        if (typeof value !== "number" || !Number.isInteger(value) || value < min || value > max) {
+        if (typeof value !== "number" ||
+            !Number.isInteger(value) ||
+            value < min ||
+            value > max) {
             diagnostics.push(error(`${kindCode(kind)}_invalid`, `${kind} ${key} must be an integer between ${min} and ${max}`));
         }
     };
@@ -756,7 +773,9 @@ function catalogUrlError(value) {
     }
     for (const key of url.searchParams.keys()) {
         const normalized = key.toLowerCase();
-        if (normalized === "token" || normalized === "api_key" || normalized === "aff") {
+        if (normalized === "token" ||
+            normalized === "api_key" ||
+            normalized === "aff") {
             return "query must not contain token, api_key, or aff";
         }
     }

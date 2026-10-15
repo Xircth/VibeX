@@ -5,6 +5,7 @@ import type { WorkspaceBranchOption } from '@/lib/workspaceBranchOptions';
 import {
   UNASSIGNED_EXECUTOR,
   filterKanbanSessions,
+  formatSessionInfoForCopy,
   getBulkDeleteSessionSummary,
   getMonitorGridClassName,
   getCanCreateKanbanSession,
@@ -13,6 +14,7 @@ import {
   getExecutorFilterOptions,
   getSessionMarker,
   groupKanbanSessionsByStatus,
+  isSessionForkSupported,
   sessionAttentionKind,
   sessionCompletesWhenViewed,
   sortSessions,
@@ -120,6 +122,91 @@ describe('session hub data helpers', () => {
       inreview: [],
       done: [sessions[2]],
     });
+  });
+
+  it('places pinned sessions at the top of their status group and retains pinned order when status changes', () => {
+    const unpinnedNewer = {
+      ...session('unpinned-newer', {
+        workspaceId: 'workspace-main',
+        executor: 'codex',
+        status: 'inprogress',
+      }),
+      updatedAt: '2026-05-26T12:00:00.000Z',
+      pinnedAt: null,
+    };
+    const pinnedOlder = {
+      ...session('pinned-older', {
+        workspaceId: 'workspace-main',
+        executor: 'codex',
+        status: 'inprogress',
+      }),
+      updatedAt: '2026-05-24T12:00:00.000Z',
+      pinnedAt: '2026-05-25T08:00:00.000Z',
+    };
+
+    const groupedInProgress = groupKanbanSessionsByStatus([
+      unpinnedNewer,
+      pinnedOlder,
+    ]);
+    expect(groupedInProgress.inprogress.map((item) => item.id)).toEqual([
+      'pinned-older',
+      'unpinned-newer',
+    ]);
+
+    const unpinnedReview = {
+      ...session('unpinned-review', {
+        workspaceId: 'workspace-main',
+        executor: 'codex',
+        status: 'inreview',
+      }),
+      updatedAt: '2026-05-27T12:00:00.000Z',
+      pinnedAt: null,
+    };
+    const movedToReview = {
+      ...pinnedOlder,
+      status: 'inreview' as const,
+    };
+
+    const groupedInReview = groupKanbanSessionsByStatus([
+      unpinnedReview,
+      movedToReview,
+    ]);
+    expect(groupedInReview.inreview.map((item) => item.id)).toEqual([
+      'pinned-older',
+      'unpinned-review',
+    ]);
+  });
+
+  it('checks whether a session agent supports fork', () => {
+    expect(isSessionForkSupported({ executor: 'claude_code' })).toBe(true);
+    expect(isSessionForkSupported({ executor: 'CODEX' })).toBe(true);
+    expect(isSessionForkSupported({ executor: 'deepseek_harness' })).toBe(true);
+    expect(isSessionForkSupported({ executor: 'gemini' })).toBe(false);
+    expect(isSessionForkSupported({ executor: null })).toBe(false);
+    expect(
+      isSessionForkSupported({ executor: 'gemini', forkSupported: true })
+    ).toBe(true);
+  });
+
+  it('formats session info for clipboard copy', () => {
+    expect(
+      formatSessionInfoForCopy({
+        id: 'session-42',
+        fullName: 'Auth Refactor',
+        executor: 'claude_code',
+        agentId: null,
+        workspaceDisplayLabel: 'VibeX · feat/auth',
+        workspaceName: 'VibeX',
+        branch: 'feat/auth',
+      })
+    ).toBe(
+      [
+        '会话名称: Auth Refactor',
+        'ID: session-42',
+        'Agent: Claude Code',
+        '工作区: VibeX · feat/auth',
+      ].join('\n')
+    );
   });
 
   it('sorts sessions by Agent then recency', () => {

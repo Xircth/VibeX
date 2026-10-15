@@ -14,7 +14,10 @@ import {
   readClipboardViaBridge,
   writeClipboardViaBridge,
 } from '@/vscode/bridge';
-import { ProductContextMenu } from './ProductContextMenu';
+import {
+  dismissActiveProductContextMenu,
+  ProductContextMenu,
+} from './ProductContextMenu';
 import {
   getContextMenuSelectedText,
   isEditableContextMenuTarget,
@@ -158,6 +161,7 @@ export function AppContextMenuHost({ children }: { children: ReactNode }) {
   const close = useCallback(() => setMenu(null), []);
 
   const open = useCallback((input: OpenProductContextMenuInput) => {
+    dismissActiveProductContextMenu();
     setMenu(input.items.length > 0 ? input : null);
   }, []);
 
@@ -223,6 +227,8 @@ export function AppContextMenuHost({ children }: { children: ReactNode }) {
           x={menu.x}
           y={menu.y}
           items={menu.items}
+          header={menu.header}
+          ariaLabel={menu.ariaLabel}
           onClose={close}
         />
       ) : null}

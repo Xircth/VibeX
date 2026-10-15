@@ -3,7 +3,11 @@ import { useTranslation } from 'react-i18next';
 import type { ToolStatus } from 'shared/types';
 import type { ToolDisplayEntry } from '../messageTurnTool';
 import { useExpandable } from '@/stores/useExpandableStore';
-import { getToolExitStatus, getToolSummary } from '../conversation-entry-utils';
+import {
+  getToolCallDescription,
+  getToolExitStatus,
+  getToolSummary,
+} from '../conversation-entry-utils';
 import { ToolTerminal } from './ToolArtifact';
 import { jsonToFacts } from './toolArtifactModel';
 import {
@@ -79,6 +83,7 @@ export function CommandToolCard({
   const effectiveExpanded = forceExpanded || expanded;
   const inlineText = entry.content.trim();
   const summary = getToolSummary(toolEntry, inlineText);
+  const description = getToolCallDescription(entry);
   const command = (actionType?.command || inlineText).trim();
   const output = actionType?.result?.output ?? null;
   const hasDetails = Boolean(command || output);
@@ -94,8 +99,8 @@ export function CommandToolCard({
   return (
     <ToolCardShell
       icon={<TerminalSquare className="h-3 w-3" />}
-      label={hideLabel ? '' : t('entryUtils.terminal')}
-      detail={summary.detail || command}
+      label={description ?? (hideLabel ? '' : t('entryUtils.terminal'))}
+      detail={description ? undefined : summary.detail || command}
       statusClassName={statusClass}
       statusDotClassName={statusDotClass}
       status={toolEntry.status}
@@ -131,6 +136,7 @@ export function CommandToolCard({
             'script',
             'shell_command',
             'commandLine',
+            'description',
           ],
         })}
       />

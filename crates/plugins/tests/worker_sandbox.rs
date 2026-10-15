@@ -188,6 +188,164 @@ async fn windows_node_worker_initializes_from_canonicalized_verbatim_entrypoint(
     worker.dispose("verbatim path regression").await.unwrap();
 }
 
+fn write_limit_worker(root: &std::path::Path) {
+    std::fs::create_dir_all(root.join(".vibex-plugin")).unwrap();
+    std::fs::write(
+        root.join(".vibex-plugin/plugin.json"),
+        r#"{
+          "manifestVersion":4,"apiVersion":"1.0",
+          "id":"studio.draw","publisher":"studio",
+          "name":"Draw","version":"1.0.0",
+          "engines":{"vibex":">=0.1.3 <1.0.0","pluginSdk":"^1.0.0"},
+          "entrypoints":{"worker":{"path":"worker.mjs","runtime":"node","protocol":"1.1","maxFrameMiB":8}},
+          "permissions":[],
+          "contributes":{"agent.invocations":[
+            {"id":"draw","kindVersion":1,"label":"Draw","entrypoints":["action"],"handler":"draw"}
+          ]}
+        }"#,
+    )
+    .unwrap();
+    std::fs::write(
+        root.join("worker.mjs"),
+        r#"import { createInterface } from 'node:readline';
+let maxFrameBytes = null;
+for await (const line of createInterface({ input: process.stdin, crlfDelay: Infinity })) {
+  const request = JSON.parse(line);
+  if (request.method === 'initialize') {
+    maxFrameBytes = request.params && request.params.limits && request.params.limits.maxFrameBytes;
+    console.log(JSON.stringify({ id: request.id, ok: true, result: { protocolVersion: '1.1', sdkVersion: '1.0.0', registrations: ['draw'], requestedFeatures: [] } }));
+    continue;
+  }
+  if (request.method === 'activate') {
+    console.log(JSON.stringify({ id: request.id, ok: true, result: { handlers: ['draw'] } }));
+    continue;
+  }
+  if (request.method === 'dispose') {
+    console.log(JSON.stringify({ id: request.id, ok: true, result: null }));
+    continue;
+  }
+  if (request.method === 'invoke') {
+    console.log(JSON.stringify({ id: request.id, ok: true, result: { maxFrameBytes } }));
+  }
+}
+"#,
+    )
+    .unwrap();
+}
+
+#[tokio::test]
+async fn manifest_frame_size_is_advertised_to_the_worker() {
+    let Some(node) = node_executable() else {
+        return;
+    };
+    let package_root = tempfile::tempdir().unwrap();
+    write_limit_worker(package_root.path());
+    let package = PluginPackage::inspect(package_root.path(), PluginSourceKind::Snapshot).unwrap();
+    assert_eq!(package.entrypoints.worker_max_frame_bytes, 8 * 1024 * 1024);
+    let worker = WorkerHost::spawn(&node, &package, 1, &[], Arc::new(DenyCapabilityBroker))
+        .await
+        .expect("draw worker activates with a custom frame");
+    let limits = worker
+        .invoke("draw", json!({}))
+        .await
+        .expect("worker reports the advertised frame");
+    assert_eq!(limits["maxFrameBytes"], 8 * 1024 * 1024);
+    worker.dispose("frame size test complete").await.unwrap();
+}
+
+fn write_draw_worker(root: &std::path::Path) {
+    std::fs::create_dir_all(root.join(".vibex-plugin")).unwrap();
+    std::fs::write(
+        root.join(".vibex-plugin/plugin.json"),
+        r#"{
+          "manifestVersion":4,"apiVersion":"1.0",
+          "id":"studio.draw","publisher":"studio",
+          "name":"Draw","version":"1.0.0",
+          "engines":{"vibex":">=0.1.3 <1.0.0","pluginSdk":"^1.0.0"},
+          "entrypoints":{"worker":{"path":"worker.mjs","runtime":"node","protocol":"1.1"}},
+          "permissions":[],
+          "contributes":{"agent.invocations":[
+            {"id":"draw","kindVersion":1,"label":"Draw","entrypoints":["action"],"handler":"draw"}
+          ]}
+        }"#,
+    )
+    .unwrap();
+    std::fs::write(
+        root.join("worker.mjs"),
+        r#"import { createInterface } from 'node:readline';
+for await (const line of createInterface({ input: process.stdin, crlfDelay: Infinity })) {
+  const request = JSON.parse(line);
+  if (request.method === 'initialize') {
+    console.log(JSON.stringify({ id: request.id, ok: true, result: { protocolVersion: '1.1', sdkVersion: '1.0.0', registrations: ['draw'], requestedFeatures: [] } }));
+    continue;
+  }
+  if (request.method === 'activate') {
+    console.log(JSON.stringify({ id: request.id, ok: true, result: { handlers: ['draw'] } }));
+    continue;
+  }
+  if (request.method === 'dispose') {
+    console.log(JSON.stringify({ id: request.id, ok: true, result: null }));
+    continue;
+  }
+  if (request.method !== 'invoke') continue;
+  const mode = request.params && request.params.input && request.params.input.mode;
+  if (mode === 'illegal-chunk') {
+    console.log(JSON.stringify({ id: 'chunk:0', method: 'image.chunk', params: { index: 0, data: 'AAAA' } }));
+    continue;
+  }
+  if (mode === 'legal-chunk') {
+    const image = 'A'.repeat(2000);
+    const body = JSON.stringify({ id: request.id, ok: true, result: { image } });
+    const mid = Math.floor(body.length / 2);
+    const parts = [body.slice(0, mid), body.slice(mid)];
+    for (let index = 0; index < parts.length; index += 1) {
+      console.log(JSON.stringify({
+        id: `chunk:${request.id}:${index}`,
+        method: 'frame.chunk',
+        params: { streamId: request.id, index, count: parts.length, data: parts[index] },
+      }));
+    }
+    continue;
+  }
+  console.log(JSON.stringify({ id: request.id, ok: true, result: { ready: true } }));
+}
+"#,
+    )
+    .unwrap();
+}
+
+#[tokio::test]
+async fn chunked_image_transfer_does_not_unload_the_worker() {
+    let Some(node) = node_executable() else {
+        return;
+    };
+    let package_root = tempfile::tempdir().unwrap();
+    write_draw_worker(package_root.path());
+    let package = PluginPackage::inspect(package_root.path(), PluginSourceKind::Snapshot).unwrap();
+    let worker = WorkerHost::spawn(&node, &package, 1, &[], Arc::new(DenyCapabilityBroker))
+        .await
+        .expect("draw worker activates");
+
+    let illegal = worker
+        .invoke("draw", json!({ "mode": "illegal-chunk" }))
+        .await
+        .expect_err("a private chunk protocol is not a worker response");
+    assert_eq!(illegal.code(), "worker_protocol_invalid");
+
+    let image = worker
+        .invoke("draw", json!({ "mode": "legal-chunk" }))
+        .await
+        .expect("official frame.chunk payloads reassemble");
+    assert_eq!(image["image"].as_str().map(str::len), Some(2000));
+
+    let ready = worker
+        .invoke("draw", json!({ "mode": "ready" }))
+        .await
+        .expect("the worker stays loaded after a rejected chunk");
+    assert_eq!(ready["ready"], true);
+    worker.dispose("draw test complete").await.unwrap();
+}
+
 #[tokio::test]
 async fn timed_out_worker_is_killed_and_remains_terminal() {
     let Some(node) = node_executable() else {

@@ -146,9 +146,15 @@ export function conversationStoreReducer(
           entry.optimisticTurns,
           action.detail.timeline.rows
         );
+        // `rows` is the timeline the view renders. Keeping the same rows on
+        // `detail` duplicated the open window for as long as the card was mounted.
+        const detail = {
+          ...action.detail,
+          timeline: { ...action.detail.timeline, rows: [] },
+        };
         return {
           ...entry,
-          detail: action.detail,
+          detail,
           rows: keepRealtimeRows ? entry.rows : reconciledTimeline.rows,
           liveText: keepRealtimeRows
             ? entry.liveText
@@ -633,8 +639,7 @@ export function timelineItemsForEntry(
     return messages;
   }
 
-  const maxSideRevision =
-    sortedSides[sortedSides.length - 1]?.revision ?? 0n;
+  const maxSideRevision = sortedSides[sortedSides.length - 1]?.revision ?? 0n;
   const result: ConversationTimelineItem[] = [];
   let sideIndex = 0;
   let runningMaxRevision = 0n;

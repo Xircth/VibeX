@@ -297,8 +297,20 @@ describe('text control caret clearance', () => {
       }
     });
 
-    expect(lightTokens['--surface-control-solid']).toBe('hsl(220 16% 91%)');
-    expect(darkTokens['--surface-control-solid']).toBe('hsl(220 18% 20%)');
+    expect(lightTokens['--surface-control-solid']).toBe('hsl(220 14% 94%)');
+    expect(lightTokens['--surface-control-solid-hover']).toBe(
+      'hsl(220 14% 92%)'
+    );
+    expect(lightTokens['--surface-raised']).toBe(
+      'var(--surface-raised-control)'
+    );
+    expect(darkTokens['--surface-control-solid']).toBe('hsl(216 18% 22%)');
+    expect(darkTokens['--surface-control-solid-hover']).toBe(
+      'hsl(216 18% 25%)'
+    );
+    expect(darkTokens['--surface-raised']).toBe(
+      'var(--surface-raised-control)'
+    );
     expect(settingsInputFills).toContain('var(--surface-control-solid)');
   });
 });

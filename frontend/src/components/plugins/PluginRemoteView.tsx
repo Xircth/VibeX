@@ -51,7 +51,12 @@ export function PluginRemoteView({
   projectId = null,
 }: {
   item: PluginContributionCatalogItem | null;
-  slot: 'app.panel' | 'app.tab' | 'app.kanban.view' | 'app.settings.page';
+  slot:
+    | 'app.panel'
+    | 'app.tab'
+    | 'app.kanban.view'
+    | 'app.settings.page'
+    | 'status.after-mcp';
   enabled?: boolean;
   workspaceId?: string | null;
   projectId?: string | null;
@@ -109,15 +114,25 @@ function PluginRemoteViewBody({
   projectId,
 }: {
   item: PluginContributionCatalogItem;
-  slot: 'app.panel' | 'app.tab' | 'app.kanban.view' | 'app.settings.page';
+  slot:
+    | 'app.panel'
+    | 'app.tab'
+    | 'app.kanban.view'
+    | 'app.settings.page'
+    | 'status.after-mcp';
   workspaceId: string | null;
   projectId: string | null;
 }) {
   const metadata = contributionMetadata(item);
-  const remote = useMemo(
-    () => parseRemoteRef(metadata.remote),
-    [metadata.remote]
-  );
+  const remote = useMemo(() => {
+    const parsed = parseRemoteRef(metadata.remote);
+    if (!parsed || !isHttpRemoteEntry(parsed.entry)) return parsed;
+    const separator = parsed.entry.includes('?') ? '&' : '?';
+    return {
+      ...parsed,
+      entry: `${parsed.entry}${separator}g=${item.generation}`,
+    };
+  }, [item.generation, metadata.remote]);
   const rootRef = useRef<HTMLDivElement | null>(null);
   const [remoteState, setRemoteState] = useState<
     'idle' | 'loading' | 'ready' | 'failed'

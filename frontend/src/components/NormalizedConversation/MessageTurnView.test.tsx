@@ -173,6 +173,7 @@ describe('MessageTurnView', () => {
     expect(
       screen.queryByText('Inspecting the renderer')
     ).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: /已折叠 1 条消息/ }));
     fireEvent.click(screen.getByRole('button', { name: '展开思考' }));
     expect(screen.getByText('Inspecting the renderer')).toBeInTheDocument();
   });
@@ -415,6 +416,11 @@ describe('MessageTurnView', () => {
       />
     );
 
+    expect(screen.getByText('Next update')).toBeInTheDocument();
+    expect(
+      screen.queryByRole('button', { name: /运行 \d+ 个命令/ })
+    ).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: /已折叠 8 条消息/ }));
     const summaries = screen.getAllByRole('button', {
       name: /运行 \d+ 个命令/,
     });
@@ -428,7 +434,83 @@ describe('MessageTurnView', () => {
     fireEvent.click(tailBatch);
     fireEvent.click(screen.getByRole('button', { name: '展开思考' }));
     expect(screen.getByText('Preparing the next update')).toBeInTheDocument();
-    expect(screen.getByText('Next update')).toBeInTheDocument();
+  });
+
+  it('progressively collapses earlier stages during streaming while keeping live activities aggregated', () => {
+    const stage1Commands = completedCommands(4);
+    const stage2Commands = Array.from({ length: 4 }, (_, index) => [
+      toolUseBlock(index + 10, 'bash', { command: `stage2-${index}` }),
+      {
+        type: 'tool_result' as const,
+        tool_use_id: `tool-${index + 10}`,
+        output_preview: 'ok',
+        is_error: false,
+      },
+    ]).flat();
+
+    const turn: MessageTurn = {
+      id: 'progressive-collapse:assistant',
+      role: 'assistant',
+      blocks: [
+        { type: 'text', text: 'Stage 1 update' },
+        ...stage1Commands,
+        { type: 'text', text: 'Stage 2 update' },
+      ],
+      timestamp: '2026-10-09T00:00:00.000Z',
+    };
+    const props = {
+      attempt: { id: 'attempt-1', container_ref: null } as never,
+      task: null,
+      phase: 'streaming' as const,
+    };
+    const { rerender } = render(<MessageTurnView {...props} turn={turn} />);
+
+    expect(
+      screen.getByRole('button', { name: /已折叠 5 条消息/ })
+    ).toHaveAttribute('aria-expanded', 'false');
+    expect(screen.queryByText('Stage 1 update')).not.toBeInTheDocument();
+    expect(screen.getByText('Stage 2 update')).toBeInTheDocument();
+
+    rerender(
+      <MessageTurnView
+        {...props}
+        turn={{
+          ...turn,
+          blocks: [...turn.blocks, ...stage2Commands],
+        }}
+      />
+    );
+
+    expect(
+      screen.getByRole('button', { name: /已折叠 5 条消息/ })
+    ).toHaveAttribute('aria-expanded', 'false');
+    expect(screen.getByText('Stage 2 update')).toBeInTheDocument();
+    expect(
+      screen.getByRole('button', { name: /运行 2 个命令/ })
+    ).toHaveAttribute('aria-expanded', 'false');
+    expect(screen.getByText('stage2-2')).toBeInTheDocument();
+    expect(screen.getByText('stage2-3')).toBeInTheDocument();
+
+    rerender(
+      <MessageTurnView
+        {...props}
+        turn={{
+          ...turn,
+          blocks: [
+            ...turn.blocks,
+            ...stage2Commands,
+            { type: 'text', text: 'Stage 3 final' },
+          ],
+        }}
+      />
+    );
+
+    expect(
+      screen.getByRole('button', { name: /已折叠 10 条消息/ })
+    ).toHaveAttribute('aria-expanded', 'false');
+    expect(screen.queryByText('Stage 2 update')).not.toBeInTheDocument();
+    expect(screen.queryByText('stage2-3')).not.toBeInTheDocument();
+    expect(screen.getByText('Stage 3 final')).toBeInTheDocument();
   });
 
   it('uses one process disclosure for a settled turn with several prose and activity stages', () => {
@@ -556,6 +638,7 @@ describe('MessageTurnView', () => {
         }}
       />
     );
+    fireEvent.click(screen.getByRole('button', { name: /已折叠 8 条消息/ }));
     expect(
       screen.getByRole('button', { name: /运行 7 个命令/ })
     ).toHaveAttribute('aria-expanded', 'false');
@@ -626,6 +709,7 @@ describe('MessageTurnView', () => {
         }}
       />
     );
+    fireEvent.click(screen.getByRole('button', { name: /已折叠 7 条消息/ }));
     expect(
       screen.getByRole('button', { name: /运行 7 个命令/ })
     ).toHaveAttribute('aria-expanded', 'true');

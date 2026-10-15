@@ -8,7 +8,10 @@ import { useOpenLink } from '@/hooks/useOpenLink';
 import { useTemporaryFlag } from '@/hooks/useTemporaryFlag';
 import { useExpandable } from '@/stores/useExpandableStore';
 import { deriveRelativeFilePath } from '@/utils/filePaths';
-import { getToolSummary } from '../conversation-entry-utils';
+import {
+  getToolCallDescription,
+  getToolSummary,
+} from '../conversation-entry-utils';
 import {
   ToolArtifact,
   ToolSearchHits,
@@ -60,6 +63,7 @@ export function SearchToolCard({
     ? (actionType?.url || entry.content).trim()
     : searchQuery;
   const summary = getToolSummary(toolEntry, entry.content.trim());
+  const description = getToolCallDescription(entry);
   const canOpenLink = isWebFetch && /^https?:\/\//i.test(detail);
   const isResultDetail = useToolCallResultDetail();
   const [copied, triggerCopied] = useTemporaryFlag(1500);
@@ -142,8 +146,8 @@ export function SearchToolCard({
           <Search className="h-3 w-3" />
         )
       }
-      label={summary.label}
-      detail={detail}
+      label={description ?? summary.label}
+      detail={description ? undefined : detail}
       actions={isResultDetail ? undefined : actions}
       statusClassName={getToolStatusClassName(toolEntry.status)}
       statusDotClassName={getToolStatusDotClassName(toolEntry.status)}

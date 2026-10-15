@@ -24,6 +24,8 @@ import {
 import { Switch } from '@/components/ui/switch';
 import { toast } from '@/components/ui/toast';
 import { AppSurfaceHost } from '@/components/plugins/AppSurfaceHost';
+import { ProductContextMenu } from '@/components/context-menu/ProductContextMenu';
+import type { ProductContextMenuItem } from '@/components/context-menu/contextMenuTypes';
 import {
   appSurfaceDescriptors,
   createBackendAppSurfaceTransport,
@@ -194,29 +196,29 @@ export function PluginCatalogPage() {
     useState<PluginControlItem | null>(null);
   const [deletePluginData, setDeletePluginData] = useState(false);
 
-  const contextMenuStyle = useMemo(() => {
-    if (!contextMenu || typeof window === 'undefined') return null;
-    return {
-      left: Math.max(12, Math.min(contextMenu.x, window.innerWidth - 180)),
-      top: Math.max(12, Math.min(contextMenu.y, window.innerHeight - 96)),
-    };
-  }, [contextMenu]);
-
-  useEffect(() => {
-    if (!contextMenu) return;
-    const closeMenu = () => setContextMenu(null);
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') closeMenu();
-    };
-    window.addEventListener('click', closeMenu);
-    window.addEventListener('blur', closeMenu);
-    window.addEventListener('keydown', onKeyDown);
-    return () => {
-      window.removeEventListener('click', closeMenu);
-      window.removeEventListener('blur', closeMenu);
-      window.removeEventListener('keydown', onKeyDown);
-    };
-  }, [contextMenu]);
+  const contextMenuItems = useMemo<ProductContextMenuItem[]>(() => {
+    if (!contextMenu) return [];
+    const items: ProductContextMenuItem[] = [
+      {
+        id: 'open-plugin',
+        label: t('plugins.openPlugin'),
+        onSelect: () => {
+          navigate(`/plugins/${encodeURIComponent(contextMenu.plugin.id)}`);
+        },
+      },
+    ];
+    if (canInstall && pluginCanUninstall(contextMenu.plugin)) {
+      items.push({
+        id: 'uninstall-plugin',
+        label: t('plugins.uninstall'),
+        danger: true,
+        onSelect: () => {
+          setUninstallTarget(contextMenu.plugin);
+        },
+      });
+    }
+    return items;
+  }, [contextMenu, canInstall, navigate, t]);
 
   useEffect(() => {
     if (catalogMode !== 'marketplace') return;
@@ -734,45 +736,18 @@ export function PluginCatalogPage() {
         onConfirm={() => void confirmMarketplaceInstall()}
       />
 
-      {contextMenu && contextMenuStyle ? (
-        <div
-          className="product-plugin-context-menu tahoe-popover"
-          role="menu"
-          aria-label={officialPluginName(
+      {contextMenu ? (
+        <ProductContextMenu
+          x={contextMenu.x}
+          y={contextMenu.y}
+          items={contextMenuItems}
+          ariaLabel={officialPluginName(
             contextMenu.plugin.id,
             contextMenu.plugin.name,
             t
           )}
-          style={contextMenuStyle}
-          onClick={(event) => event.stopPropagation()}
-          onMouseDown={(event) => event.preventDefault()}
-          onContextMenu={(event) => event.preventDefault()}
-        >
-          <button
-            type="button"
-            role="menuitem"
-            onClick={() => {
-              const pluginId = contextMenu.plugin.id;
-              setContextMenu(null);
-              navigate(`/plugins/${encodeURIComponent(pluginId)}`);
-            }}
-          >
-            {t('plugins.openPlugin')}
-          </button>
-          {canInstall && pluginCanUninstall(contextMenu.plugin) ? (
-            <button
-              type="button"
-              role="menuitem"
-              className="is-destructive"
-              onClick={() => {
-                setUninstallTarget(contextMenu.plugin);
-                setContextMenu(null);
-              }}
-            >
-              {t('plugins.uninstall')}
-            </button>
-          ) : null}
-        </div>
+          onClose={() => setContextMenu(null)}
+        />
       ) : null}
 
       <Dialog

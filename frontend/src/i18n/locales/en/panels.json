@@ -126,7 +126,17 @@
     "browser": "Browser",
     "review": "Review",
     "note": "Note",
-    "terminal": "Terminal"
+    "terminal": "Terminal",
+    "close": "Close",
+    "closeCurrent": "Close tab",
+    "closeOthers": "Close other tabs",
+    "split": "Split",
+    "splitDown": "Split down",
+    "splitLeft": "Split left",
+    "splitRight": "Split right",
+    "new": "New",
+    "sort": "Sort",
+    "sortByName": "Sort by name"
   },
   "kanbanPanel": {
     "backToBoard": "Back to board",

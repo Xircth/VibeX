@@ -1,5 +1,6 @@
 """VibeX plugin worker SDK (protocol 1.1)."""
 
+from vibex_plugin.blob import read_blob, write_blob
 from vibex_plugin.host import HostClient, fetch_url, read_local_file, write_local_file
 from vibex_plugin.stdio import (
     PluginWorkerSession,
@@ -27,6 +28,8 @@ __all__ = [
     "PLUGIN_PROTOCOL_VERSION",
     "PLUGIN_SDK_VERSION",
     "HostClient",
+    "read_blob",
+    "write_blob",
     "MemoryHostClient",
     "PluginSdkError",
     "PluginWorkerEnvironment",

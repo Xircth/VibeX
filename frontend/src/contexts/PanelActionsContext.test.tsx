@@ -1,9 +1,13 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { act, render, type RenderResult } from '@testing-library/react';
+import { createDockview } from 'dockview-core';
 import type { DockviewApi } from 'dockview-react';
 import type { ReactNode } from 'react';
-import { describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { resetTerminalShelfForTests } from '@/lib/terminalShelf';
 import { PANEL_IDS } from '@/stores/useLayoutStore';
+import { syncDockviewGroupRegistry } from '@/utils/dockviewHelpers';
+import { isEditorGroup } from '@/utils/dockviewGroupPolicy';
 import { resolveImagePreviewSource } from '@/lib/imagePreviewRegistry';
 import {
   PanelActionsProvider,
@@ -82,10 +86,35 @@ function createDockviewApi() {
         return panel;
       }
     ),
+    height: 800,
     onDidRemovePanel: vi.fn(() => ({ dispose: vi.fn() })),
+    onDidRemoveGroup: vi.fn(() => ({ dispose: vi.fn() })),
     onDidLayoutChange: vi.fn(() => ({ dispose: vi.fn() })),
     removePanel: vi.fn(),
+    addGroup: vi.fn(),
   };
+  api.getGroup = vi.fn((id: string) =>
+    api.groups.find((entry) => entry.id === id)
+  );
+  api.addGroup = vi.fn(
+    (options: { id?: string; direction?: string; initialHeight?: number }) => {
+      const created = {
+        id: options.id ?? 'group-created',
+        panels: [] as Array<Record<string, unknown>>,
+        element: document.createElement('div'),
+        api: {
+          isVisible: true,
+          setVisible: vi.fn(),
+          setSize: vi.fn(),
+        },
+      };
+      created.api.setVisible.mockImplementation((visible: boolean) => {
+        created.api.isVisible = visible;
+      });
+      api.groups.push(created);
+      return created;
+    }
+  );
   return api as unknown as DockviewApi;
 }
 
@@ -248,7 +277,11 @@ describe('PanelActionsContext image preview', () => {
 });
 
 describe('PanelActionsContext terminal visibility', () => {
-  it('keeps an existing terminal visible when explicitly opened', () => {
+  beforeEach(() => {
+    resetTerminalShelfForTests();
+  });
+
+  it('opens a reusable shelf under the editor groups', () => {
     let actions: PanelActions | undefined;
     function Probe() {
       actions = usePanelActionsContext();
@@ -262,28 +295,36 @@ describe('PanelActionsContext terminal visibility', () => {
     );
 
     const dockviewApi = createDockviewApi();
-    const terminalGroup = {
-      id: 'group-bottom',
-      panels: [] as Array<Record<string, unknown>>,
-      api: { setVisible: vi.fn(), isVisible: true },
-    };
-    const terminalPanel = {
-      id: PANEL_IDS.TERMINAL,
-      group: terminalGroup,
-      api: { setActive: vi.fn() },
-    };
-    terminalGroup.panels.push(terminalPanel);
-    dockviewApi.groups.push(terminalGroup as never);
-    dockviewApi.panels.push(terminalPanel as never);
-    vi.mocked(dockviewApi.getGroup).mockImplementation((id) =>
-      id === 'group-bottom' ? (terminalGroup as never) : undefined
-    );
+    dockviewApi.groups[0]?.panels.push({ id: 'file:a.ts' } as never);
 
     act(() => actions?.setDockviewApi(dockviewApi));
     act(() => actions?.showTerminal());
 
-    expect(terminalGroup.api.setVisible).toHaveBeenCalledWith(true);
-    expect(terminalPanel.api.setActive).toHaveBeenCalledOnce();
+    expect(dockviewApi.addGroup).toHaveBeenCalledWith(
+      expect.objectContaining({
+        direction: 'below',
+        initialHeight: 320,
+      })
+    );
+    expect(dockviewApi.addPanel).toHaveBeenCalledWith(
+      expect.objectContaining({
+        component: PANEL_IDS.TERMINAL,
+        params: expect.objectContaining({
+          surface: 'editor',
+          terminalShelf: true,
+        }),
+      })
+    );
+    expect(actions?.isPanelOpen(PANEL_IDS.TERMINAL)).toBe(true);
+
+    act(() => actions?.openNewTerminal());
+
+    const shelf = vi.mocked(dockviewApi.addGroup).mock.results[0]?.value as {
+      api: { setVisible: ReturnType<typeof vi.fn> };
+    };
+    expect(shelf.api.setVisible).toHaveBeenCalledWith(false);
+    expect(dockviewApi.addGroup).toHaveBeenCalledTimes(1);
+    expect(actions?.isPanelOpen(PANEL_IDS.TERMINAL)).toBe(false);
   });
 });
 
@@ -320,5 +361,178 @@ describe('PanelActionsContext terminal editor tab', () => {
         }),
       })
     );
+  });
+});
+
+describe('PanelActionsContext editor placement', () => {
+  function setup() {
+    let actions: PanelActions | undefined;
+    function Probe() {
+      actions = usePanelActionsContext();
+      return null;
+    }
+    renderWithQueryClient(
+      <PanelActionsProvider>
+        <Probe />
+      </PanelActionsProvider>
+    );
+    const dockviewApi = createDockviewApi();
+    const busy = dockviewApi.groups[0];
+    busy.panels.push(
+      {
+        id: 'file:a.ts',
+        view: { contentComponent: 'other' },
+        params: {},
+        group: busy,
+      } as never,
+      {
+        id: 'file:b.ts',
+        view: { contentComponent: 'other' },
+        params: {},
+        group: busy,
+      } as never
+    );
+    const quiet = {
+      id: 'group-editor-2',
+      panels: [{ id: 'file:c.ts' }],
+      element: document.createElement('div'),
+      api: { setVisible: vi.fn(), isVisible: true },
+    };
+    dockviewApi.groups.push(quiet as never);
+    act(() => actions?.setDockviewApi(dockviewApi));
+    return { actions, dockviewApi, quiet };
+  }
+
+  it('opens a file in the editor group with the fewest tabs', () => {
+    const { actions, dockviewApi, quiet } = setup();
+
+    act(() => actions?.openFilePreview('/repo/d.ts'));
+
+    const call = vi.mocked(dockviewApi.addPanel).mock.calls.at(-1)?.[0] as {
+      position?: { referenceGroup?: string };
+    };
+    expect(call.position?.referenceGroup).toBe(quiet.id);
+  });
+
+  it('pins a terminal tab to the requested editor group', () => {
+    const { actions, dockviewApi } = setup();
+
+    act(() =>
+      actions?.runInEditorGroup('group-editor-1', () => {
+        actions?.openTerminalEditorTab('powershell.exe');
+      })
+    );
+
+    const call = vi.mocked(dockviewApi.addPanel).mock.calls.at(-1)?.[0] as {
+      params?: { shell?: string };
+      position?: { referenceGroup?: string };
+    };
+    expect(call.position?.referenceGroup).toBe('group-editor-1');
+    expect(call.params?.shell).toBe('powershell.exe');
+  });
+
+  it('moves a tab into a new group when splitting down', () => {
+    const { actions, dockviewApi } = setup();
+    const panel = dockviewApi.groups[0].panels[0] as unknown as {
+      id: string;
+      api: { moveTo: ReturnType<typeof vi.fn>; setActive: ReturnType<typeof vi.fn> };
+      toJSON?: () => { contentComponent: string };
+    };
+    panel.toJSON = () => ({ contentComponent: 'preview' });
+    panel.api = { moveTo: vi.fn(), setActive: vi.fn() };
+    vi.mocked(dockviewApi.getPanel).mockReturnValue(panel as never);
+
+    act(() => actions?.splitEditorPanel(panel.id, 'below'));
+
+    expect(dockviewApi.addGroup).toHaveBeenCalledWith(
+      expect.objectContaining({ direction: 'below' })
+    );
+    expect(panel.api.moveTo).toHaveBeenCalledOnce();
+  });
+
+  it('sorts the tabs in one group by title', () => {
+    const { actions, dockviewApi } = setup();
+    const group = dockviewApi.groups[0];
+    const first = {
+      id: 'file:b.ts',
+      title: 'b.ts',
+      api: { moveTo: vi.fn() },
+    };
+    const second = {
+      id: 'file:a.ts',
+      title: 'a.ts',
+      api: { moveTo: vi.fn() },
+    };
+    group.panels.splice(0, group.panels.length, first as never, second as never);
+
+    act(() => actions?.sortEditorGroupByName(group.id));
+
+    expect(second.api.moveTo).toHaveBeenCalledWith(
+      expect.objectContaining({ index: 0, group })
+    );
+    expect(first.api.moveTo).toHaveBeenCalledWith(
+      expect.objectContaining({ index: 1, group })
+    );
+  });
+
+  it('keeps the source group when its only tab is split down', () => {
+    class ResizeObserverStub {
+      observe() {}
+      unobserve() {}
+      disconnect() {}
+    }
+    (globalThis as { ResizeObserver?: unknown }).ResizeObserver ??=
+      ResizeObserverStub;
+
+    const container = document.createElement('div');
+    document.body.appendChild(container);
+    const api = createDockview(container, {
+      createComponent: () => ({
+        element: document.createElement('div'),
+        init: () => {},
+        dispose: () => {},
+      }),
+    });
+    api.layout(900, 600, true);
+    const panel = api.addPanel({
+      id: 'file:a.ts',
+      component: 'preview',
+      title: 'a.ts',
+    });
+    (panel.group as { id: string }).id = 'group-editor-1';
+    syncDockviewGroupRegistry(api);
+
+    let actions: PanelActions | undefined;
+    function Probe() {
+      actions = usePanelActionsContext();
+      return null;
+    }
+    renderWithQueryClient(
+      <PanelActionsProvider>
+        <Probe />
+      </PanelActionsProvider>
+    );
+    act(() => actions?.setDockviewApi(api as unknown as DockviewApi));
+    let split = false;
+    act(() => {
+      split = actions?.splitEditorPanel('file:a.ts', 'below') ?? false;
+    });
+
+    expect(split).toBe(true);
+    const source = api.getGroup('group-editor-1');
+    expect(source).toBeDefined();
+    expect(source!.panels).toHaveLength(0);
+    const destination = api.groups.find(
+      (group) => isEditorGroup(group) && group.id !== 'group-editor-1'
+    );
+    expect(destination?.panels.map((item) => item.id)).toEqual(['file:a.ts']);
+    expect(destination!.api.height).toBeGreaterThan(80);
+    expect(source!.api.height).toBeGreaterThan(80);
+    expect(Math.abs(destination!.api.width - source!.api.width)).toBeLessThan(
+      8
+    );
+
+    api.dispose();
+    container.remove();
   });
 });

@@ -589,7 +589,7 @@ export const MessageTurnView = memo(function MessageTurnView({
     key: string,
     hideToolLabel = false
   ): ReactNode => {
-    if (item.kind === 'markdown' && collapseProcess && phase !== 'streaming') {
+    if (item.kind === 'markdown' && collapseProcess) {
       const commandOutput = splitAssistantCommandOutput(item.text);
       if (commandOutput) {
         return (
@@ -626,10 +626,9 @@ export const MessageTurnView = memo(function MessageTurnView({
   const items = hideThinking
     ? plannedItems.filter((item) => item.kind !== 'thinking')
     : plannedItems;
-  const { prelude, rest } =
-    collapseProcess && phase !== 'streaming'
-      ? splitCollapsedTurnItems(items)
-      : { prelude: [], rest: items };
+  const { prelude, rest } = collapseProcess
+    ? splitCollapsedTurnItems(items, { isStreaming: phase === 'streaming' })
+    : { prelude: [], rest: items };
   const originalIndices = new Map(items.map((item, index) => [item, index]));
   const processCount = prelude.filter(isCollapsibleProcessItem).length;
   const pollResults = collectHostDelegationPollResults(

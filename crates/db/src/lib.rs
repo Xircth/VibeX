@@ -9,7 +9,10 @@ use sqlx::{
 };
 use utils::assets::asset_dir;
 
+mod local_data_reset;
 pub mod models;
+
+pub use local_data_reset::{clear_local_database_rows, reset_local_database};
 
 async fn run_migrations(pool: &Pool<Sqlite>) -> Result<(), Error> {
     // Keep this call in the DB crate so every composition embeds the same migration set.

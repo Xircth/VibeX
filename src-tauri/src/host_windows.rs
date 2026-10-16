@@ -154,7 +154,9 @@ mod tests {
         assert!(is_local_desktop_window("main"));
         assert!(is_local_desktop_window("settings"));
         assert!(is_local_desktop_window("app-local-1"));
-        assert!(is_local_desktop_window("desktop-toast"));
+        // The toast is a local overlay, but it must not take the tray icon
+        // or the host event bus.
+        assert!(!is_local_desktop_window("desktop-toast"));
         assert!(!is_local_desktop_window("host-abc"));
         assert!(!is_local_desktop_window("settings-host-abc"));
     }

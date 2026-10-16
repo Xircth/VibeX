@@ -1,4 +1,5 @@
 import { render, screen } from '@testing-library/react';
+import type { IDockviewPanelProps } from 'dockview-react';
 import { describe, expect, it, vi } from 'vitest';
 import DockviewNotesPanel from './DockviewNotesPanel';
 
@@ -20,7 +21,7 @@ vi.mock('@/components/context-menu', () => ({
 
 describe('DockviewNotesPanel', () => {
   it('uses the project language for the empty-note placeholder', () => {
-    render(<DockviewNotesPanel {...({} as never)} />);
+    render(<DockviewNotesPanel {...({} as IDockviewPanelProps)} />);
     expect(
       screen.getByPlaceholderText('在这里记录工作区笔记')
     ).toBeInTheDocument();

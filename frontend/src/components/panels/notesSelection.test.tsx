@@ -6,11 +6,13 @@ describe('notesTextareaSelection', () => {
   it('reads the textarea range instead of the window selection', () => {
     const view = render(<textarea defaultValue="hello notes world" />);
     const textarea = view.container.querySelector('textarea');
-    expect(textarea).toBeTruthy();
-    textarea!.focus();
-    textarea!.setSelectionRange(6, 11);
+    if (!(textarea instanceof HTMLTextAreaElement)) {
+      throw new Error('missing textarea');
+    }
+    textarea.focus();
+    textarea.setSelectionRange(6, 11);
 
-    expect(notesTextareaSelection(textarea).text).toBe('notes');
+    expect(notesTextareaSelection(textarea)?.text).toBe('notes');
     expect(window.getSelection()?.toString() ?? '').toBe('');
   });
 

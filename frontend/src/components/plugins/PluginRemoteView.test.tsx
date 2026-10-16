@@ -13,8 +13,9 @@ const { surfaceTransport, backend, federation } = vi.hoisted(() => ({
     call: vi.fn(),
   },
   federation: {
-    loadPluginRemote: vi.fn(() =>
-      Promise.reject(new Error('plugin_remote_timeout'))
+    loadPluginRemote: vi.fn(
+      (): Promise<{ default?: unknown }> =>
+        Promise.reject(new Error('plugin_remote_timeout'))
     ),
     mountRemoteModule: vi.fn(),
   },

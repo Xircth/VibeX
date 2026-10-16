@@ -205,6 +205,7 @@ export function WorkspaceActivityRail({
 
   const handleNudge = useCallback(
     (itemId: ActivityRailItemId, direction: -1 | 1) => {
+      if (itemId === PANEL_IDS.SEARCH) return;
       const visible = order.filter((id) => id !== PANEL_IDS.SEARCH);
       const from = visible.indexOf(itemId);
       const target = from < 0 ? undefined : visible[from + direction];

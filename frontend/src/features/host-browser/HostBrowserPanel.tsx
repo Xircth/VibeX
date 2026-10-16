@@ -1444,7 +1444,9 @@ export function HostBrowserPanel({
             width="100%"
             value={address}
             placeholder={t('browserPanel.addressPlaceholder')}
-            autoComplete="off"
+            ref={(node) => {
+              node?.setAttribute('autocomplete', 'off');
+            }}
             role="combobox"
             aria-expanded={suggestOpen && suggestions.length > 0}
             aria-controls="host-browser-address-suggestions"

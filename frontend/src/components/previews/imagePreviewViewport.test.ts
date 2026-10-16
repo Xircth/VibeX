@@ -1,10 +1,16 @@
 import { describe, expect, it } from 'vitest';
 import {
   actualSizeScale,
+  applyViewScale,
   canPanImage,
   clampOffset,
+  FIT_SCALE,
   getContainedSize,
+  MAX_SCALE,
+  MIN_SCALE,
   offsetAfterScale,
+  SCALE_PRESETS,
+  SCALE_STEP,
 } from './imagePreviewViewport';
 
 describe('getContainedSize', () => {
@@ -76,5 +82,60 @@ describe('image pan and zoom math', () => {
         viewport,
       })
     ).toEqual({ x: 0, y: 80 });
+  });
+});
+
+describe('applyViewScale', () => {
+  const viewport = { width: 800, height: 600 };
+  const fitted = { width: 120, height: 600 };
+
+  it('allows zooming below fit down to 25%', () => {
+    expect(MIN_SCALE).toBe(0.25);
+    expect(FIT_SCALE).toBe(1);
+    expect(MAX_SCALE).toBe(8);
+    expect(SCALE_STEP).toBe(0.25);
+    expect(SCALE_PRESETS).toEqual([0.25, 0.5, 1, 1.5, 2]);
+
+    const next = applyViewScale({
+      currentOffset: { x: 0, y: -120 },
+      currentScale: 2,
+      nextScale: 0.25,
+      fitted,
+      viewport,
+    });
+    expect(next.scale).toBe(0.25);
+    expect(next.offset).toEqual({ x: 0, y: 0 });
+  });
+
+  it('resets pan when returning to fit without discarding a 25% zoom', () => {
+    const fit = applyViewScale({
+      currentOffset: { x: 0, y: -120 },
+      currentScale: 2,
+      nextScale: FIT_SCALE,
+      fitted,
+      viewport,
+    });
+    expect(fit).toEqual({ scale: 1, offset: { x: 0, y: 0 } });
+  });
+
+  it('clamps zoom to 25%–800%', () => {
+    expect(
+      applyViewScale({
+        currentOffset: { x: 0, y: 0 },
+        currentScale: 1,
+        nextScale: 0.1,
+        fitted,
+        viewport,
+      }).scale
+    ).toBe(0.25);
+    expect(
+      applyViewScale({
+        currentOffset: { x: 0, y: 0 },
+        currentScale: 1,
+        nextScale: 12,
+        fitted,
+        viewport,
+      }).scale
+    ).toBe(8);
   });
 });

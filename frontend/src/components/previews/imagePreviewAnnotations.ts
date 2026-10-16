@@ -3,6 +3,12 @@ import type { Offset, Size } from './imagePreviewViewport';
 export const ANNOTATION_BRUSH_OPACITY = 0.42;
 export const MIN_ANNOTATION_SIZE = 4;
 export const DEFAULT_ANNOTATION_COLOR = '#ff3b30';
+export const MARK_PRESET_COLORS = [
+  '#ff3b30',
+  '#34c759',
+  '#007aff',
+  '#ffcc00',
+] as const;
 export const DEFAULT_STROKE_WIDTH = 4;
 export const DEFAULT_BRUSH_SIZE = 18;
 export const DEFAULT_FONT_SIZE = 28;
@@ -262,6 +268,48 @@ export function hitTestAnnotation(
     }
   }
   return null;
+}
+
+export function parseAnnotationColor(value: string): string | null {
+  const trimmed = value.trim().replace(/^#/, '');
+  if (/^[0-9a-fA-F]{3}$/.test(trimmed)) {
+    return `#${trimmed
+      .split('')
+      .map((char) => `${char}${char}`)
+      .join('')
+      .toLowerCase()}`;
+  }
+  if (/^[0-9a-fA-F]{6}$/.test(trimmed)) {
+    return `#${trimmed.toLowerCase()}`;
+  }
+  return null;
+}
+
+export function imagePointToViewport(
+  point: Point,
+  viewport: Size,
+  fitted: Size,
+  scale: number,
+  offset: Offset,
+  natural: Size
+): Point {
+  const displayedWidth = fitted.width * scale;
+  const displayedHeight = fitted.height * scale;
+  if (
+    displayedWidth <= 0 ||
+    displayedHeight <= 0 ||
+    natural.width <= 0 ||
+    natural.height <= 0
+  ) {
+    return { x: 0, y: 0 };
+  }
+
+  const originX = viewport.width / 2 + offset.x - displayedWidth / 2;
+  const originY = viewport.height / 2 + offset.y - displayedHeight / 2;
+  return {
+    x: originX + (point.x / natural.width) * displayedWidth,
+    y: originY + (point.y / natural.height) * displayedHeight,
+  };
 }
 
 export function viewportPointToImage(

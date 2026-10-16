@@ -9,7 +9,9 @@ import {
   drawAnnotations,
   fileFromAnnotatedImage,
   hitTestAnnotation,
+  imagePointToViewport,
   moveAnnotation,
+  parseAnnotationColor,
   rectFromPoints,
   viewportPointToImage,
   type Annotation,
@@ -41,6 +43,38 @@ describe('image preview annotations', () => {
         NATURAL
       )
     ).toEqual({ x: 200, y: 1000 / 3 });
+  });
+
+  it('maps an image point back onto the viewport', () => {
+    const imagePoint = { x: 200, y: 1000 / 3 };
+    const viewportPoint = imagePointToViewport(
+      imagePoint,
+      VIEWPORT,
+      FITTED,
+      1,
+      { x: 0, y: 0 },
+      NATURAL
+    );
+    expect(viewportPoint.x).toBeCloseTo(400);
+    expect(viewportPoint.y).toBeCloseTo(100);
+    expect(
+      viewportPointToImage(
+        viewportPoint,
+        { left: 0, top: 0 },
+        VIEWPORT,
+        FITTED,
+        1,
+        { x: 0, y: 0 },
+        NATURAL
+      )
+    ).toEqual(imagePoint);
+  });
+
+  it('normalizes preset and custom hex colors', () => {
+    expect(parseAnnotationColor('#f00')).toBe('#ff0000');
+    expect(parseAnnotationColor('34C759')).toBe('#34c759');
+    expect(parseAnnotationColor('#007aff')).toBe('#007aff');
+    expect(parseAnnotationColor('not-a-color')).toBeNull();
   });
 
   it('moves a rectangle by a delta without writing the source object', () => {

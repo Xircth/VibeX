@@ -1199,9 +1199,7 @@
   max-width: 440px;
 }
 
-.onboarding-experience
-  .onboarding-agent-rail
-  .agent-management-bar-item {
+.onboarding-experience .onboarding-agent-rail .agent-management-bar-item {
   cursor: pointer;
   touch-action: auto;
 }

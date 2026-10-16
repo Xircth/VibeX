@@ -161,10 +161,7 @@ function AgentBarPaged({
   );
   const [requestedPage, setRequestedPage] = useState(0);
   const viewportRef = useRef<HTMLDivElement>(null);
-  const order = useMemo(
-    () => agents.map((agent) => agent.agent_id),
-    [agents]
-  );
+  const order = useMemo(() => agents.map((agent) => agent.agent_id), [agents]);
   const orderKey = order.join('|');
   const expandedId = registryOpen ? null : selectedAgentId;
   const labelWidth = expandedId
@@ -203,7 +200,9 @@ function AgentBarPaged({
     const next: Record<string, number> = {};
     viewport.querySelectorAll<HTMLElement>('[data-agent-id]').forEach((el) => {
       const id = el.dataset.agentId;
-      const label = el.querySelector<HTMLElement>('.agent-management-bar-label');
+      const label = el.querySelector<HTMLElement>(
+        '.agent-management-bar-label'
+      );
       const measured = label?.scrollWidth ?? 0;
       if (!id || measured <= 0) return;
       next[id] = Math.min(
@@ -255,13 +254,16 @@ function AgentBarPaged({
             <div
               key={agentIds.join('|') || index}
               className="agent-management-bar-page"
-              style={{ gap: `${pageGaps[index] ?? AGENT_BAR_LAYOUT.itemGap}px` }}
+              style={{
+                gap: `${pageGaps[index] ?? AGENT_BAR_LAYOUT.itemGap}px`,
+              }}
               inert={index !== page}
             >
               {agentIds.map((agentId) => {
                 const agent = agents.find((item) => item.agent_id === agentId);
                 if (!agent) return null;
-                const selected = !registryOpen && selectedAgentId === agent.agent_id;
+                const selected =
+                  !registryOpen && selectedAgentId === agent.agent_id;
                 const ready = installReadyIds?.has(agent.agent_id) ?? false;
                 return (
                   <button
@@ -277,7 +279,10 @@ function AgentBarPaged({
                     )}
                     onClick={() => onSelect(agent.agent_id)}
                   >
-                    <span aria-hidden="true" className="agent-management-bar-mark">
+                    <span
+                      aria-hidden="true"
+                      className="agent-management-bar-mark"
+                    >
                       <AgentManagementIcon agent={agent} className="h-5 w-5" />
                       {ready ? (
                         <span

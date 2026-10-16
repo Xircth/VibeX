@@ -88,8 +88,12 @@ export function ProjectLayoutScope({ children }: { children: ReactNode }) {
   return children;
 }
 
+export function useOptionalProject(): ProjectContextValue | null {
+  return useContext(ProjectContext);
+}
+
 export function useProject(): ProjectContextValue {
-  const context = useContext(ProjectContext);
+  const context = useOptionalProject();
   if (!context) {
     throw new Error('useProject must be used within a ProjectProvider');
   }

@@ -101,6 +101,23 @@ describe('SessionHubListItem', () => {
     ).not.toBeInTheDocument();
   });
 
+  it('uses regular weight for Chinese session names and keeps Latin titles semibold', () => {
+    const { unmount } = renderItem({
+      session: session({ fullName: '请参考附图，对我' }),
+    });
+    const chineseName = screen.getByText('请参考附图，对我');
+    expect(chineseName).toHaveClass('font-normal');
+    expect(chineseName).not.toHaveAttribute('title');
+    unmount();
+
+    renderItem();
+    const latinName = screen.getByText(
+      'A fairly long session name for the card'
+    );
+    expect(latinName).toHaveClass('font-semibold');
+    expect(latinName).not.toHaveAttribute('title');
+  });
+
   it('keeps hover actions out of the name row and renders 3-dot, pin, and archive buttons', () => {
     renderItem();
 

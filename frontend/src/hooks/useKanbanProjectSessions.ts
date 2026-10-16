@@ -26,6 +26,7 @@ export interface KanbanProjectSessionRecord {
   updatedAt: string;
   createdAt: string;
   firstPrompt: string | null;
+  model: string | null;
   fullName: string;
   shortName: string;
   taskTitle: string | null;
@@ -93,6 +94,7 @@ export function kanbanSessionFromCreated(
     updatedAt: session.updated_at,
     createdAt: session.created_at,
     firstPrompt: session.initial_prompt,
+    model: null,
     fullName,
     shortName: truncateSessionName(fullName),
     taskTitle: null,
@@ -190,7 +192,7 @@ export function buildDefaultSessionName(
 
   if (promptName.length > 0) {
     return {
-      name: Array.from(promptName).slice(0, 8).join(''),
+      name: promptName,
       source: 'prompt' as const,
       prompt: promptName,
     };
@@ -331,6 +333,7 @@ export function useKanbanProjectSessions(projectId: string | undefined) {
             updatedAt: summary.updated_at,
             createdAt: summary.created_at,
             firstPrompt: summary.first_prompt,
+            model: summary.model?.trim() || null,
             fullName: derivedName.name,
             shortName: truncateSessionName(derivedName.name),
             taskTitle: null,
@@ -397,18 +400,6 @@ export function useKanbanProjectSessions(projectId: string | undefined) {
       usedNamesByBaseName.set(duplicateKey, usedNames);
 
       let resolvedName = baseName;
-      if (meta?.source === 'prompt' && meta.prompt) {
-        const chars = Array.from(meta.prompt);
-        const upperBound = Math.min(32, chars.length);
-        for (let length = 8; length <= upperBound; length += 1) {
-          const candidate = chars.slice(0, length).join('');
-          if (!usedNames.has(candidate)) {
-            resolvedName = candidate;
-            break;
-          }
-        }
-      }
-
       if (usedNames.has(resolvedName)) {
         const nextOccurrence =
           (occurrenceByBaseName.get(duplicateKey) ?? 0) + 1;

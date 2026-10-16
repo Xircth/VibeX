@@ -3,6 +3,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import type { TFunction } from 'i18next';
 import { useTranslation } from 'react-i18next';
 import { Badge } from '@astryxdesign/core/Badge';
+import { Banner } from '@astryxdesign/core/Banner';
 import { Check, ChevronDown, History, LoaderCircle } from 'lucide-react';
 import type { ExecutorConfigs, ExecutorProfileId } from 'shared/types';
 import type { RepoBranchConfig } from '@/hooks';
@@ -576,9 +577,15 @@ export function SessionCreationForm({
                 dropdownSide={dropdownSide}
               />
               {workspaceCheckoutHint ? (
-                <div className="rounded-md border border-[hsl(var(--warning)/0.3)] bg-[hsl(var(--warning)/0.1)] px-2.5 py-2 text-[10px] leading-4 text-[hsl(var(--warning))]">
-                  <p>{workspaceCheckoutHint}</p>
-                </div>
+                <Banner
+                  status="warning"
+                  className="session-create-checkout-banner"
+                  title={
+                    <span className="session-create-checkout-banner-text">
+                      {workspaceCheckoutHint}
+                    </span>
+                  }
+                />
               ) : null}
             </div>
           ) : (

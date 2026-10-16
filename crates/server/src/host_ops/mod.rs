@@ -10,7 +10,7 @@ use std::{
 use agents::{AgentId, AgentSessionId, AgentTerminalId, terminal::agent_terminal_registry};
 use application::{ApplicationError, DomainCommand};
 use base64::{Engine, engine::general_purpose::STANDARD as BASE64};
-use conversations::sanitize_agent_session_title;
+use conversations::derive_session_display_name;
 use db::models::{
     conversation::DbConversationSummary,
     conversation_turn::ConversationTurnRecord,
@@ -918,14 +918,15 @@ impl ServerApplicationDomains {
         )
         .await
         .map_err(internal_error)?;
-        let pinned_rows: Vec<(Uuid, Option<chrono::DateTime<chrono::Utc>>)> =
-            sqlx::query_as(r#"SELECT id, pinned_at FROM sessions WHERE workspace_id = ?"#)
+        let pinned_rows: Vec<(Uuid, Option<chrono::DateTime<chrono::Utc>>, Option<String>)> =
+            sqlx::query_as(r#"SELECT id, pinned_at, model FROM sessions WHERE workspace_id = ?"#)
                 .bind(args.workspace_id)
                 .fetch_all(&self.pool)
                 .await
                 .map_err(internal_error)?;
-        let pinned_at_by_id = pinned_rows
+        let summary_meta_by_id = pinned_rows
             .into_iter()
+            .map(|(id, pinned_at, model)| (id, (pinned_at, model)))
             .collect::<std::collections::HashMap<_, _>>();
         let fallback_numbers = untitled_fallback_numbers(&sessions);
         serialize(
@@ -953,7 +954,12 @@ impl ServerApplicationDomains {
                         "first_prompt": first_prompt,
                         "is_running": in_flight.contains(&session.id),
                         "continuity_mode": "new_session",
-                        "pinned_at": pinned_at_by_id.get(&session.id).copied().flatten(),
+                        "pinned_at": summary_meta_by_id
+                            .get(&session.id)
+                            .and_then(|meta| meta.0),
+                        "model": summary_meta_by_id
+                            .get(&session.id)
+                            .and_then(|meta| meta.1.clone()),
                     })
                 })
                 .collect::<Vec<_>>(),
@@ -2221,17 +2227,7 @@ fn session_display_name(
     first_prompt: Option<&str>,
     fallback_number: usize,
 ) -> String {
-    session
-        .name
-        .as_deref()
-        .and_then(sanitize_agent_session_title)
-        .or_else(|| {
-            first_prompt
-                .map(|value| value.split_whitespace().collect::<Vec<_>>().join(" "))
-                .filter(|value| !value.is_empty())
-                .map(|value| value.chars().take(8).collect())
-        })
-        .unwrap_or_else(|| format!("新会话{fallback_number}"))
+    derive_session_display_name(session.name.as_deref(), first_prompt, fallback_number)
 }
 
 fn unique_copy_path(source: &Path) -> Result<PathBuf, ApplicationError> {

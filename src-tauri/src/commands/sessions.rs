@@ -39,6 +39,8 @@ pub struct SessionSummary {
     pub continuity_mode: SessionContinuityMode,
     #[serde(default)]
     pub pinned_at: Option<DateTime<Utc>>,
+    #[serde(default)]
+    pub model: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, TS)]
@@ -61,17 +63,11 @@ fn build_session_display_name(
     first_prompt: Option<&str>,
     fallback_number: usize,
 ) -> String {
-    session
-        .name
-        .as_deref()
-        .and_then(conversations::sanitize_agent_session_title)
-        .or_else(|| {
-            first_prompt
-                .map(|value| value.split_whitespace().collect::<Vec<_>>().join(" "))
-                .filter(|value| !value.is_empty())
-                .map(|value| value.chars().take(8).collect())
-        })
-        .unwrap_or_else(|| format!("新会话{fallback_number}"))
+    conversations::derive_session_display_name(
+        session.name.as_deref(),
+        first_prompt,
+        fallback_number,
+    )
 }
 
 fn to_task_status(status: SessionStatus) -> TaskStatus {
@@ -575,7 +571,7 @@ pub async fn get_session_summaries(
         .await?
         .ok_or_else(|| AppError::NotFound(format!("Workspace {} not found", workspace_id)))?;
     let sessions = Session::find_by_workspace_id(pool, workspace_id).await?;
-    let pinned_at_by_id = session_pinned_at_by_id(pool, workspace_id).await?;
+    let summary_meta_by_id = session_summary_meta_by_id(pool, workspace_id).await?;
     let in_flight_ids =
         ConversationTurnRecord::in_flight_conversation_ids_for_workspace(pool, workspace_id)
             .await?;
@@ -607,24 +603,30 @@ pub async fn get_session_summaries(
             first_prompt,
             is_running,
             continuity_mode,
-            pinned_at: pinned_at_by_id.get(&session.id).copied().flatten(),
+            pinned_at: summary_meta_by_id.get(&session.id).and_then(|meta| meta.0),
+            model: summary_meta_by_id
+                .get(&session.id)
+                .and_then(|meta| meta.1.clone()),
         });
     }
 
     Ok(summaries)
 }
 
-async fn session_pinned_at_by_id(
+async fn session_summary_meta_by_id(
     pool: &sqlx::SqlitePool,
     workspace_id: Uuid,
-) -> Result<std::collections::HashMap<Uuid, Option<DateTime<Utc>>>, AppError> {
-    let rows: Vec<(Uuid, Option<DateTime<Utc>>)> =
-        sqlx::query_as(r#"SELECT id, pinned_at FROM sessions WHERE workspace_id = ?"#)
+) -> Result<std::collections::HashMap<Uuid, (Option<DateTime<Utc>>, Option<String>)>, AppError> {
+    let rows: Vec<(Uuid, Option<DateTime<Utc>>, Option<String>)> =
+        sqlx::query_as(r#"SELECT id, pinned_at, model FROM sessions WHERE workspace_id = ?"#)
             .bind(workspace_id)
             .fetch_all(pool)
             .await?;
 
-    Ok(rows.into_iter().collect())
+    Ok(rows
+        .into_iter()
+        .map(|(id, pinned_at, model)| (id, (pinned_at, model)))
+        .collect())
 }
 
 /// Get a single session by ID.

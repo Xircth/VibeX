@@ -26,6 +26,14 @@ function mockImageNaturalSize(width: number, height: number, complete = true) {
 }
 
 function installViewportObserver(size: { width: number; height: number }) {
+  class MockIntersectionObserver {
+    observe() {}
+    unobserve() {}
+    disconnect() {}
+  }
+  vi.stubGlobal('IntersectionObserver', MockIntersectionObserver);
+  Element.prototype.scrollIntoView = vi.fn();
+
   class MockResizeObserver {
     callback: ResizeObserverCallback;
 
@@ -108,23 +116,38 @@ describe('ZoomableImagePreview', () => {
     expect(viewport()).toHaveClass('overflow-hidden');
   });
 
-  it('localizes zoom and pan hints', async () => {
+  it('places a localized capsule toolbar at the bottom without the old hint', async () => {
     const { unmount } = render(
       <ZoomableImagePreview src="asset://localhost/i18n.png" alt="photo" />
     );
-    expect(screen.getByText('Wheel to zoom')).toBeInTheDocument();
-    expect(screen.getByText('Drag to pan')).toBeInTheDocument();
+    expect(screen.getByTestId('image-preview-toolbar')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Move' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Mark' })).toBeInTheDocument();
+    expect(screen.getByRole('combobox', { name: 'Scale' })).toHaveTextContent(
+      '100%'
+    );
+    expect(screen.queryByText('Wheel to zoom')).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole('button', { name: 'Zoom in' })
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole('button', { name: 'View image at actual size' })
+    ).not.toBeInTheDocument();
     unmount();
 
     await i18n.changeLanguage('zh-CN');
     render(
       <ZoomableImagePreview src="asset://localhost/i18n.png" alt="photo" />
     );
-    expect(screen.getByText('滚轮缩放')).toBeInTheDocument();
-    expect(screen.getByText('拖动平移')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '移动' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '记号' })).toBeInTheDocument();
+    expect(
+      screen.getByRole('button', { name: '插入文本' })
+    ).toBeInTheDocument();
+    expect(screen.getByRole('combobox', { name: '比例' })).toBeInTheDocument();
   });
 
-  it('zooms a cached image without waiting for another load event', async () => {
+  it('zooms with Ctrl+wheel and ignores a plain wheel', async () => {
     render(
       <ZoomableImagePreview src="asset://localhost/cached.png" alt="cached" />
     );
@@ -133,8 +156,10 @@ describe('ZoomableImagePreview', () => {
       expect(stage()).toHaveStyle({ width: '120px' });
     });
 
-    fireEvent.click(screen.getByRole('button', { name: 'Zoom in' }));
+    fireEvent.wheel(viewport(), { deltaY: -120, ctrlKey: false });
+    expect(stage().style.transform).toContain('scale(1)');
 
+    fireEvent.wheel(viewport(), { deltaY: -120, ctrlKey: true });
     await waitFor(() => {
       expect(stage().style.transform).toContain('scale(1.25)');
     });
@@ -150,11 +175,16 @@ describe('ZoomableImagePreview', () => {
       expect(stage()).toHaveStyle({ width: '120px' });
     });
 
-    fireEvent.click(
-      screen.getByRole('button', { name: 'View image at actual size' })
-    );
+    for (let step = 0; step < 4; step += 1) {
+      fireEvent.wheel(viewport(), {
+        deltaY: -120,
+        ctrlKey: true,
+        clientX: 400,
+        clientY: 300,
+      });
+    }
     await waitFor(() => {
-      expect(stage().style.transform).toContain(`scale(${1 / 0.3})`);
+      expect(stage().style.transform).toContain('scale(2)');
     });
 
     fireEvent.pointerDown(viewport(), {
@@ -208,7 +238,7 @@ describe('ZoomableImagePreview', () => {
       expect(stage()).toHaveStyle({ width: '120px' });
     });
 
-    fireEvent.click(screen.getByRole('button', { name: 'Rectangle' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Mark' }));
     fireEvent.pointerDown(viewport(), {
       pointerId: 2,
       clientX: 400,
@@ -240,7 +270,7 @@ describe('ZoomableImagePreview', () => {
       expect(stage()).toHaveStyle({ width: '120px' });
     });
 
-    fireEvent.click(screen.getByRole('button', { name: 'Text' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Insert text' }));
     fireEvent.pointerDown(viewport(), {
       pointerId: 3,
       clientX: 400,
@@ -332,41 +362,32 @@ describe('ZoomableImagePreview', () => {
     expect(getCurrentDraggedAnnotatedImage()?.type).toBe('image/png');
   });
 
-  it('stows zoom tools and removes the other chrome', async () => {
+  it('stows the capsule toolbar and keeps the expand control', async () => {
     render(
       <ZoomableImagePreview src="asset://localhost/chrome.png" alt="chrome" />
     );
 
-    expect(screen.getByText('Wheel to zoom')).toBeInTheDocument();
-    expect(
-      screen.getByRole('button', { name: 'Rectangle' })
-    ).toBeInTheDocument();
-    expect(screen.getByTestId('image-preview-zoom-dock')).toHaveAttribute(
+    expect(screen.getByRole('button', { name: 'Mark' })).toBeInTheDocument();
+    expect(screen.getByTestId('image-preview-toolbar')).toHaveAttribute(
       'data-stowed',
       'false'
     );
 
-    fireEvent.click(screen.getByRole('button', { name: 'Hide toolbars' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Collapse' }));
 
-    expect(screen.queryByText('Wheel to zoom')).not.toBeInTheDocument();
     expect(
-      screen.queryByRole('button', { name: 'Rectangle' })
+      screen.queryByRole('button', { name: 'Mark' })
     ).not.toBeInTheDocument();
-    expect(screen.getByTestId('image-preview-zoom-dock')).toHaveAttribute(
+    expect(screen.getByTestId('image-preview-toolbar')).toHaveAttribute(
       'data-stowed',
       'true'
     );
-    expect(
-      screen.getByRole('button', { name: 'Show toolbars' })
-    ).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Expand' })).toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole('button', { name: 'Show toolbars' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Expand' }));
 
-    expect(screen.getByText('Wheel to zoom')).toBeInTheDocument();
-    expect(
-      screen.getByRole('button', { name: 'Rectangle' })
-    ).toBeInTheDocument();
-    expect(screen.getByTestId('image-preview-zoom-dock')).toHaveAttribute(
+    expect(screen.getByRole('button', { name: 'Mark' })).toBeInTheDocument();
+    expect(screen.getByTestId('image-preview-toolbar')).toHaveAttribute(
       'data-stowed',
       'false'
     );
@@ -381,16 +402,114 @@ describe('ZoomableImagePreview', () => {
       />
     );
 
-    expect(screen.queryByText('Wheel to zoom')).not.toBeInTheDocument();
     expect(
-      screen.queryByRole('button', { name: 'Rectangle' })
+      screen.queryByRole('button', { name: 'Mark' })
     ).not.toBeInTheDocument();
-    expect(screen.getByTestId('image-preview-zoom-dock')).toHaveAttribute(
+    expect(screen.getByTestId('image-preview-toolbar')).toHaveAttribute(
       'data-stowed',
       'true'
     );
+    expect(screen.getByRole('button', { name: 'Expand' })).toBeInTheDocument();
+  });
+
+  it('undoes and redoes a finished mark', async () => {
+    render(
+      <ZoomableImagePreview src="asset://localhost/history.png" alt="history" />
+    );
+    await waitFor(() => {
+      expect(stage()).toHaveStyle({ width: '120px' });
+    });
+
+    fireEvent.click(screen.getByRole('button', { name: 'Mark' }));
+    fireEvent.pointerDown(viewport(), {
+      pointerId: 6,
+      clientX: 400,
+      clientY: 100,
+    });
+    fireEvent.pointerMove(viewport(), {
+      pointerId: 6,
+      clientX: 460,
+      clientY: 400,
+    });
+    fireEvent.pointerUp(viewport(), { pointerId: 6 });
+
+    await waitFor(() => {
+      expect(
+        screen
+          .getByTestId('image-preview-annotation-layer')
+          .querySelector('rect')
+      ).not.toBeNull();
+    });
+
+    fireEvent.click(screen.getByRole('button', { name: 'Undo' }));
+    await waitFor(() => {
+      expect(
+        screen
+          .getByTestId('image-preview-annotation-layer')
+          .querySelector('rect')
+      ).toBeNull();
+    });
+
+    fireEvent.click(screen.getByRole('button', { name: 'Redo' }));
+    await waitFor(() => {
+      expect(
+        screen
+          .getByTestId('image-preview-annotation-layer')
+          .querySelector('rect')
+      ).not.toBeNull();
+    });
+  });
+
+  it('lets the mark popover switch to a circle', async () => {
+    render(
+      <ZoomableImagePreview src="asset://localhost/circle.png" alt="circle" />
+    );
+    await waitFor(() => {
+      expect(stage()).toHaveStyle({ width: '120px' });
+    });
+
+    fireEvent.click(screen.getByRole('button', { name: 'Mark' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Circle' }));
+    fireEvent.pointerDown(viewport(), {
+      pointerId: 7,
+      clientX: 400,
+      clientY: 100,
+    });
+    fireEvent.pointerMove(viewport(), {
+      pointerId: 7,
+      clientX: 460,
+      clientY: 400,
+    });
+    fireEvent.pointerUp(viewport(), { pointerId: 7 });
+
+    const ellipse = await waitFor(() => {
+      const node = screen
+        .getByTestId('image-preview-annotation-layer')
+        .querySelector('ellipse');
+      expect(node).not.toBeNull();
+      return node as SVGEllipseElement;
+    });
+    expect(Number(ellipse.getAttribute('rx'))).toBeGreaterThan(2);
+  });
+
+  it('hides annotation tools when annotate is disabled', () => {
+    render(
+      <ZoomableImagePreview
+        src="asset://localhost/plain.png"
+        alt="plain"
+        annotate={false}
+      />
+    );
+
     expect(
-      screen.getByRole('button', { name: 'Show toolbars' })
+      screen.queryByRole('button', { name: 'Mark' })
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole('button', { name: 'Undo' })
+    ).not.toBeInTheDocument();
+    expect(screen.getByRole('combobox', { name: 'Scale' })).toBeInTheDocument();
+    expect(
+      screen.getByRole('button', { name: 'Fit image to view' })
     ).toBeInTheDocument();
   });
 });

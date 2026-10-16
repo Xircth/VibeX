@@ -1,38 +1,23 @@
 import {
+  useCallback,
   useEffect,
   useMemo,
   useRef,
   useState,
   type PointerEventHandler,
-  type ReactNode,
 } from 'react';
 import { createPortal } from 'react-dom';
 import { useTranslation } from 'react-i18next';
-import {
-  ChevronsLeft,
-  ChevronsRight,
-  Circle,
-  Maximize2,
-  Minus,
-  Move,
-  Paintbrush,
-  Plus,
-  ScanSearch,
-  Square,
-  Trash2,
-  Type,
-  Undo2,
-} from 'lucide-react';
 import { cn } from '@/lib/utils';
 import './zoomableImagePreview.css';
+import { ImagePreviewToolbar } from './ImagePreviewToolbar';
 import {
   actualSizeScale,
   applyViewScale,
   canPanImage,
   clampOffset,
+  FIT_SCALE,
   getContainedSize,
-  MAX_SCALE,
-  MIN_SCALE,
   SCALE_STEP,
   type Offset,
   type Size,
@@ -52,6 +37,7 @@ import {
   DEFAULT_STROKE_WIDTH,
   fileFromAnnotatedImage,
   hitTestAnnotation,
+  imagePointToViewport,
   moveAnnotation,
   textAnnotationHeight,
   viewportPointToImage,
@@ -128,6 +114,20 @@ function createAnnotationId() {
   return `ann-${Math.random().toString(36).slice(2, 10)}`;
 }
 
+function cloneAnnotation(annotation: Annotation): Annotation {
+  if (annotation.kind === 'stroke') {
+    return {
+      ...annotation,
+      points: annotation.points.map((point) => ({ ...point })),
+    };
+  }
+  return { ...annotation };
+}
+
+function cloneAnnotations(annotations: readonly Annotation[]) {
+  return annotations.map(cloneAnnotation);
+}
+
 function fileStemFromAlt(alt: string) {
   const name = alt.split(/[\\/]/).at(-1)?.trim();
   return name || 'image';
@@ -150,16 +150,25 @@ export function ZoomableImagePreview({
   const textInputRef = useRef<HTMLTextAreaElement | null>(null);
   const ghostUrlRef = useRef<string | null>(null);
   const draftRef = useRef<Annotation | null>(null);
+  const annotationsRef = useRef<Annotation[]>([]);
   const [viewportSize, setViewportSize] = useState<Size>({
     width: 0,
     height: 0,
   });
   const [naturalSize, setNaturalSize] = useState<Size>({ width: 0, height: 0 });
-  const [scale, setScale] = useState(MIN_SCALE);
+  const [scale, setScale] = useState(FIT_SCALE);
   const [offset, setOffset] = useState<Offset>({ x: 0, y: 0 });
   const [isDragging, setIsDragging] = useState(false);
   const [tool, setTool] = useState<AnnotationTool>('view');
+  const [markKind, setMarkKind] = useState<'rect' | 'ellipse'>('rect');
   const [annotations, setAnnotations] = useState<Annotation[]>([]);
+  const historyRef = useRef<Annotation[][]>([[]]);
+  const historyIndexRef = useRef(0);
+  const [historyIndex, setHistoryIndex] = useState(0);
+  const [historySize, setHistorySize] = useState(1);
+  const [markOpen, setMarkOpen] = useState(false);
+  const [brushOpen, setBrushOpen] = useState(false);
+  const [textOpen, setTextOpen] = useState(false);
   const [draft, setDraft] = useState<Annotation | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [editingTextId, setEditingTextId] = useState<string | null>(null);
@@ -227,6 +236,7 @@ export function ZoomableImagePreview({
     alt,
   };
   draftRef.current = draft;
+  annotationsRef.current = annotations;
 
   const syncNaturalSize = (image: HTMLImageElement) => {
     if (image.naturalWidth <= 0 || image.naturalHeight <= 0) {
@@ -257,16 +267,25 @@ export function ZoomableImagePreview({
   };
 
   useEffect(() => {
-    setScale(MIN_SCALE);
+    setScale(FIT_SCALE);
     setOffset({ x: 0, y: 0 });
     setNaturalSize({ width: 0, height: 0 });
     setIsDragging(false);
     setAnnotations([]);
+    annotationsRef.current = [];
+    historyRef.current = [[]];
+    historyIndexRef.current = 0;
+    setHistoryIndex(0);
+    setHistorySize(1);
     setDraft(null);
     setSelectedId(null);
     setEditingTextId(null);
     setDraggingAnnotationId(null);
     setTool('view');
+    setMarkKind('rect');
+    setMarkOpen(false);
+    setBrushOpen(false);
+    setTextOpen(false);
     setChromeVisible(chromeDefaultVisible);
     dragStateRef.current = null;
     sessionRef.current = null;
@@ -329,6 +348,9 @@ export function ZoomableImagePreview({
     }
 
     const handleWheel = (event: WheelEvent) => {
+      if (!event.ctrlKey && !event.metaKey) {
+        return;
+      }
       const view = viewRef.current;
       if (view.fittedSize.width === 0 || view.fittedSize.height === 0) {
         return;
@@ -362,37 +384,6 @@ export function ZoomableImagePreview({
     textInputRef.current?.focus();
   }, [editingTextId]);
 
-  useEffect(() => {
-    const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key !== 'Backspace' && event.key !== 'Delete') {
-        return;
-      }
-      if (editingTextId) {
-        return;
-      }
-      if (!(event.target instanceof HTMLElement)) {
-        return;
-      }
-      if (
-        event.target.tagName === 'INPUT' ||
-        event.target.tagName === 'TEXTAREA'
-      ) {
-        return;
-      }
-      const currentSelectedId = viewRef.current.selectedId;
-      if (!currentSelectedId) {
-        return;
-      }
-      event.preventDefault();
-      setAnnotations((current) =>
-        current.filter((annotation) => annotation.id !== currentSelectedId)
-      );
-      setSelectedId(null);
-    };
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [editingTextId]);
-
   const applyScale = (nextScale: number, anchor?: Offset) => {
     const view = viewRef.current;
     const nextView = applyViewScale({
@@ -408,8 +399,117 @@ export function ZoomableImagePreview({
   };
 
   const resetView = () => {
-    setScale(MIN_SCALE);
+    setScale(FIT_SCALE);
     setOffset({ x: 0, y: 0 });
+  };
+
+  const syncHistoryMeta = useCallback((index: number, size: number) => {
+    historyIndexRef.current = index;
+    setHistoryIndex(index);
+    setHistorySize(size);
+  }, []);
+
+  const commitAnnotations = useCallback(
+    (next: Annotation[]) => {
+      annotationsRef.current = next;
+      setAnnotations(next);
+      const stack = historyRef.current.slice(0, historyIndexRef.current + 1);
+      const previous = stack[stack.length - 1];
+      if (JSON.stringify(previous) === JSON.stringify(next)) {
+        return;
+      }
+      stack.push(cloneAnnotations(next));
+      if (stack.length > 50) {
+        stack.shift();
+      }
+      historyRef.current = stack;
+      syncHistoryMeta(stack.length - 1, stack.length);
+    },
+    [syncHistoryMeta]
+  );
+
+  const undoAnnotations = useCallback(() => {
+    if (historyIndexRef.current <= 0) {
+      return;
+    }
+    const nextIndex = historyIndexRef.current - 1;
+    const next = cloneAnnotations(historyRef.current[nextIndex] ?? []);
+    annotationsRef.current = next;
+    setAnnotations(next);
+    syncHistoryMeta(nextIndex, historyRef.current.length);
+    setSelectedId(null);
+    setEditingTextId(null);
+    setDraft(null);
+  }, [syncHistoryMeta]);
+
+  const redoAnnotations = useCallback(() => {
+    if (historyIndexRef.current >= historyRef.current.length - 1) {
+      return;
+    }
+    const nextIndex = historyIndexRef.current + 1;
+    const next = cloneAnnotations(historyRef.current[nextIndex] ?? []);
+    annotationsRef.current = next;
+    setAnnotations(next);
+    syncHistoryMeta(nextIndex, historyRef.current.length);
+    setSelectedId(null);
+    setEditingTextId(null);
+    setDraft(null);
+  }, [syncHistoryMeta]);
+
+  useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      const target = event.target;
+      const typing =
+        target instanceof HTMLElement &&
+        (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA');
+      if (
+        !typing &&
+        (event.ctrlKey || event.metaKey) &&
+        event.key.toLowerCase() === 'z'
+      ) {
+        event.preventDefault();
+        if (event.shiftKey) {
+          redoAnnotations();
+        } else {
+          undoAnnotations();
+        }
+        return;
+      }
+      if (
+        !typing &&
+        (event.ctrlKey || event.metaKey) &&
+        event.key.toLowerCase() === 'y'
+      ) {
+        event.preventDefault();
+        redoAnnotations();
+        return;
+      }
+      if (event.key !== 'Backspace' && event.key !== 'Delete') {
+        return;
+      }
+      if (editingTextId || typing) {
+        return;
+      }
+      const currentSelectedId = viewRef.current.selectedId;
+      if (!currentSelectedId) {
+        return;
+      }
+      event.preventDefault();
+      commitAnnotations(
+        annotationsRef.current.filter(
+          (annotation) => annotation.id !== currentSelectedId
+        )
+      );
+      setSelectedId(null);
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [commitAnnotations, editingTextId, redoAnnotations, undoAnnotations]);
+
+  const closeToolPopovers = () => {
+    setMarkOpen(false);
+    setBrushOpen(false);
+    setTextOpen(false);
   };
 
   const imagePointFromPointer = (event: {
@@ -450,13 +550,13 @@ export function ZoomableImagePreview({
     if (patch.fontSize !== undefined) {
       setFontSize(patch.fontSize);
     }
-    setAnnotations((current) =>
-      current.map((annotation) =>
-        annotation.id === viewRef.current.selectedId
-          ? applyAnnotationStyle(annotation, patch)
-          : annotation
-      )
+    const selectedAnnotationId = viewRef.current.selectedId;
+    const next = annotationsRef.current.map((annotation) =>
+      annotation.id === selectedAnnotationId
+        ? applyAnnotationStyle(annotation, patch)
+        : annotation
     );
+    commitAnnotations(next);
     setDraft((current) =>
       current ? applyAnnotationStyle(current, patch) : current
     );
@@ -523,6 +623,7 @@ export function ZoomableImagePreview({
       : null;
 
     clearLongPress();
+    closeToolPopovers();
     setEditingTextId((current) => (hitId === current ? current : null));
 
     if (view.annotate && hitId) {
@@ -706,13 +807,15 @@ export function ZoomableImagePreview({
         last: point,
         moved: true,
       };
-      setAnnotations((current) =>
-        current.map((annotation) =>
+      setAnnotations((current) => {
+        const next = current.map((annotation) =>
           annotation.id === session.id
             ? moveAnnotation(annotation, dx, dy, viewRef.current.naturalSize)
             : annotation
-        )
-      );
+        );
+        annotationsRef.current = next;
+        return next;
+      });
       return;
     }
 
@@ -753,7 +856,7 @@ export function ZoomableImagePreview({
       const currentDraft = draftRef.current;
       setDraft(null);
       if (currentDraft && annotationHasArea(currentDraft)) {
-        setAnnotations((existing) => [...existing, currentDraft]);
+        commitAnnotations([...annotationsRef.current, currentDraft]);
       } else {
         setSelectedId(null);
       }
@@ -761,12 +864,14 @@ export function ZoomableImagePreview({
 
     if (session.type === 'move') {
       if (!session.moved) {
-        const target = annotations.find(
+        const target = annotationsRef.current.find(
           (annotation) => annotation.id === session.id
         );
         if (target?.kind === 'text') {
           setEditingTextId(target.id);
         }
+      } else {
+        commitAnnotations(annotationsRef.current);
       }
       setDraggingAnnotationId(null);
     }
@@ -779,7 +884,6 @@ export function ZoomableImagePreview({
     }
   };
 
-  const zoomPercent = Math.round(scale * 100);
   const imageBoxStyle =
     fittedSize.width > 0 && fittedSize.height > 0
       ? {
@@ -798,192 +902,78 @@ export function ZoomableImagePreview({
     naturalSize.width > 0 ? fittedSize.width / naturalSize.width : 1;
   const drawing = tool !== 'view';
   const canGrab = canPan && !drawing && !draggingAnnotationId && !ghost;
-  const showStyleControls = annotate && (tool !== 'view' || Boolean(selected));
+  const editingText = annotations.find(
+    (annotation): annotation is Extract<Annotation, { kind: 'text' }> =>
+      annotation.kind === 'text' && annotation.id === editingTextId
+  );
+  const editingTextBox = editingText
+    ? (() => {
+        const origin = imagePointToViewport(
+          { x: editingText.x, y: editingText.y },
+          viewportSize,
+          fittedSize,
+          scale,
+          offset,
+          naturalSize
+        );
+        const displayScale =
+          naturalSize.width > 0
+            ? (fittedSize.width * scale) / naturalSize.width
+            : 1;
+        return {
+          left: origin.x,
+          top: origin.y,
+          width: Math.max(editingText.width * displayScale, 48),
+          minHeight: textAnnotationHeight(editingText) * displayScale,
+          fontSize: editingText.fontSize * displayScale,
+        };
+      })()
+    : null;
 
   return (
     <div className={cn('relative h-full min-h-0 w-full', className)}>
-      <div className="absolute right-3 top-3 z-10">
-        <div
-          className="image-preview-chrome image-preview-zoom-dock"
-          data-testid="image-preview-zoom-dock"
-          data-stowed={chromeVisible ? 'false' : 'true'}
-        >
-          <div className="image-preview-zoom-tools pr-1">
-            <button
-              type="button"
-              className="inline-flex h-8 w-8 items-center justify-center rounded-[var(--radius)] text-muted-foreground transition hover:bg-muted hover:text-foreground disabled:opacity-40"
-              onClick={() => applyScale(scale - SCALE_STEP)}
-              disabled={scale <= MIN_SCALE}
-              aria-label={t('imagePreview.zoomOut')}
-              title={t('imagePreview.zoomOut')}
-            >
-              <Minus className="h-4 w-4" />
-            </button>
-            <span className="min-w-[3.5rem] select-none text-center text-[11px] font-medium text-foreground/80">
-              {zoomPercent}%
-            </span>
-            <button
-              type="button"
-              className="inline-flex h-8 w-8 items-center justify-center rounded-[var(--radius)] text-muted-foreground transition hover:bg-muted hover:text-foreground disabled:opacity-40"
-              onClick={() => applyScale(scale + SCALE_STEP)}
-              disabled={scale >= MAX_SCALE}
-              aria-label={t('imagePreview.zoomIn')}
-              title={t('imagePreview.zoomIn')}
-            >
-              <Plus className="h-4 w-4" />
-            </button>
-            <button
-              type="button"
-              className="inline-flex h-8 items-center justify-center rounded-[var(--radius)] px-2 text-[11px] font-medium text-muted-foreground transition hover:bg-muted hover:text-foreground"
-              onClick={() => applyScale(oneToOneScale)}
-              aria-label={t('imagePreview.actualSizeAria')}
-              title={t('imagePreview.actualSize')}
-            >
-              <Maximize2 className="mr-1 h-3.5 w-3.5" />
-              {t('imagePreview.actualSize')}
-            </button>
-            <button
-              type="button"
-              className="inline-flex h-8 items-center justify-center rounded-[var(--radius)] px-2 text-[11px] font-medium text-muted-foreground transition hover:bg-muted hover:text-foreground"
-              onClick={resetView}
-              aria-label={t('imagePreview.fitAria')}
-              title={t('imagePreview.fit')}
-            >
-              <Undo2 className="mr-1 h-3.5 w-3.5" />
-              {t('imagePreview.fit')}
-            </button>
-          </div>
-          <button
-            type="button"
-            className="image-preview-chrome-toggle inline-flex h-8 w-8 items-center justify-center rounded-[var(--radius)] text-muted-foreground transition hover:bg-muted hover:text-foreground"
-            onClick={() => setChromeVisible((visible) => !visible)}
-            aria-expanded={chromeVisible}
-            aria-label={
-              chromeVisible
-                ? t('imagePreview.hideChrome')
-                : t('imagePreview.showChrome')
-            }
-            title={
-              chromeVisible
-                ? t('imagePreview.hideChrome')
-                : t('imagePreview.showChrome')
-            }
-          >
-            {chromeVisible ? (
-              <ChevronsRight className="h-4 w-4" />
-            ) : (
-              <ChevronsLeft className="h-4 w-4" />
-            )}
-          </button>
-        </div>
-      </div>
-
-      {annotate && chromeVisible ? (
-        <div className="absolute left-3 top-3 z-10 flex max-w-[calc(100%-9rem)] flex-col gap-1">
-          <div className="image-preview-chrome flex items-center gap-1 p-1">
-            <ToolButton
-              label={t('imagePreview.toolView')}
-              active={tool === 'view'}
-              onClick={() => setTool('view')}
-            >
-              <Move className="h-4 w-4" />
-            </ToolButton>
-            <ToolButton
-              label={t('imagePreview.toolRect')}
-              active={tool === 'rect'}
-              onClick={() => setTool('rect')}
-            >
-              <Square className="h-4 w-4" />
-            </ToolButton>
-            <ToolButton
-              label={t('imagePreview.toolEllipse')}
-              active={tool === 'ellipse'}
-              onClick={() => setTool('ellipse')}
-            >
-              <Circle className="h-4 w-4" />
-            </ToolButton>
-            <ToolButton
-              label={t('imagePreview.toolBrush')}
-              active={tool === 'brush'}
-              onClick={() => setTool('brush')}
-            >
-              <Paintbrush className="h-4 w-4" />
-            </ToolButton>
-            <ToolButton
-              label={t('imagePreview.toolText')}
-              active={tool === 'text'}
-              onClick={() => setTool('text')}
-            >
-              <Type className="h-4 w-4" />
-            </ToolButton>
-            {selected ? (
-              <ToolButton
-                label={t('imagePreview.deleteAnnotation')}
-                onClick={() => {
-                  setAnnotations((current) =>
-                    current.filter(
-                      (annotation) => annotation.id !== selected.id
-                    )
-                  );
-                  setSelectedId(null);
-                  setEditingTextId(null);
-                }}
-              >
-                <Trash2 className="h-4 w-4" />
-              </ToolButton>
-            ) : null}
-          </div>
-          {showStyleControls ? (
-            <div className="image-preview-chrome flex items-center gap-2 px-2 py-1">
-              <label className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
-                <span className="sr-only">{t('imagePreview.color')}</span>
-                <input
-                  type="color"
-                  value={selected?.color ?? color}
-                  onChange={(event) =>
-                    applyStylePatch({ color: event.target.value })
-                  }
-                  className="h-6 w-6 cursor-pointer rounded-md border border-border bg-transparent p-0"
-                />
-              </label>
-              {tool === 'brush' || selected?.kind === 'stroke' ? (
-                <RangeControl
-                  label={t('imagePreview.brushSize')}
-                  value={
-                    selected?.kind === 'stroke' ? selected.size : brushSize
-                  }
-                  min={6}
-                  max={48}
-                  onChange={(value) => applyStylePatch({ size: value })}
-                />
-              ) : tool === 'text' || selected?.kind === 'text' ? (
-                <RangeControl
-                  label={t('imagePreview.fontSize')}
-                  value={
-                    selected?.kind === 'text' ? selected.fontSize : fontSize
-                  }
-                  min={14}
-                  max={72}
-                  onChange={(value) => applyStylePatch({ fontSize: value })}
-                />
-              ) : (
-                <RangeControl
-                  label={t('imagePreview.strokeWidth')}
-                  value={
-                    selected &&
-                    (selected.kind === 'rect' || selected.kind === 'ellipse')
-                      ? selected.strokeWidth
-                      : strokeWidth
-                  }
-                  min={2}
-                  max={20}
-                  onChange={(value) => applyStylePatch({ strokeWidth: value })}
-                />
-              )}
-            </div>
-          ) : null}
-        </div>
-      ) : null}
+      <ImagePreviewToolbar
+        annotate={annotate}
+        chromeVisible={chromeVisible}
+        tool={tool}
+        markKind={markKind}
+        color={selected?.color ?? color}
+        strokeWidth={
+          selected && (selected.kind === 'rect' || selected.kind === 'ellipse')
+            ? selected.strokeWidth
+            : strokeWidth
+        }
+        brushSize={selected?.kind === 'stroke' ? selected.size : brushSize}
+        fontSize={selected?.kind === 'text' ? selected.fontSize : fontSize}
+        scale={scale}
+        canUndo={historyIndex > 0}
+        canRedo={historyIndex < historySize - 1}
+        markOpen={markOpen}
+        brushOpen={brushOpen}
+        textOpen={textOpen}
+        onToolChange={(nextTool) => {
+          setTool(nextTool);
+          if (nextTool === 'rect' || nextTool === 'ellipse') {
+            setMarkKind(nextTool);
+          }
+        }}
+        onMarkKindChange={(kind) => {
+          setMarkKind(kind);
+          setTool(kind);
+        }}
+        onColorChange={(nextColor) => applyStylePatch({ color: nextColor })}
+        onStrokeWidthChange={(value) => applyStylePatch({ strokeWidth: value })}
+        onBrushSizeChange={(value) => applyStylePatch({ size: value })}
+        onFontSizeChange={(value) => applyStylePatch({ fontSize: value })}
+        onScaleChange={(nextScale) => applyScale(nextScale)}
+        onFit={resetView}
+        onUndo={undoAnnotations}
+        onRedo={redoAnnotations}
+        onToggleChrome={() => setChromeVisible((visible) => !visible)}
+        onMarkOpenChange={setMarkOpen}
+        onBrushOpenChange={setBrushOpen}
+        onTextOpenChange={setTextOpen}
+      />
 
       <div
         ref={viewportRef}
@@ -1010,9 +1000,11 @@ export function ZoomableImagePreview({
           if (tool !== 'view') {
             return;
           }
-          applyScale(
-            scale > MIN_SCALE ? MIN_SCALE : Math.min(oneToOneScale, 2)
-          );
+          if (scale === FIT_SCALE) {
+            applyScale(Math.min(oneToOneScale, 2));
+            return;
+          }
+          resetView();
         }}
       >
         <div
@@ -1120,7 +1112,9 @@ export function ZoomableImagePreview({
                     annotation.kind === 'text'
                 )
                 .map((annotation) => {
-                  const isEditing = editingTextId === annotation.id;
+                  if (editingTextId === annotation.id) {
+                    return null;
+                  }
                   const isDraggingText = draggingAnnotationId === annotation.id;
                   return (
                     <div
@@ -1142,75 +1136,69 @@ export function ZoomableImagePreview({
                           'system-ui, "SF Pro Text", "PingFang SC", sans-serif',
                       }}
                     >
-                      {isEditing ? (
-                        <textarea
-                          ref={textInputRef}
-                          value={annotation.text}
-                          placeholder={t('imagePreview.textPlaceholder')}
-                          className="h-full min-h-[1em] w-full resize-none border-0 bg-transparent p-0 text-inherit outline-none"
-                          style={{
-                            fontSize: 'inherit',
-                            lineHeight: 'inherit',
-                            color: 'inherit',
-                          }}
-                          onChange={(event) => {
-                            const text = event.target.value;
-                            setAnnotations((current) =>
-                              current.map((item) =>
-                                item.id === annotation.id &&
-                                item.kind === 'text'
-                                  ? { ...item, text }
-                                  : item
-                              )
-                            );
-                          }}
-                          onPointerDown={(event) => event.stopPropagation()}
-                          onBlur={() => {
-                            setEditingTextId(null);
-                            setAnnotations((current) =>
-                              current.filter(
-                                (item) =>
-                                  item.id !== annotation.id ||
-                                  item.kind !== 'text' ||
-                                  item.text.trim().length > 0
-                              )
-                            );
-                          }}
-                        />
-                      ) : (
-                        <span className="pointer-events-none">
-                          {annotation.text}
-                        </span>
-                      )}
+                      <span className="pointer-events-none">
+                        {annotation.text}
+                      </span>
                     </div>
                   );
                 })
             : null}
         </div>
+        {editingText && editingTextBox ? (
+          <textarea
+            ref={textInputRef}
+            data-testid="image-preview-text-editor"
+            value={editingText.text}
+            autoFocus
+            placeholder={t('imagePreview.textPlaceholder')}
+            className="image-preview-text-editor"
+            style={{
+              left: editingTextBox.left,
+              top: editingTextBox.top,
+              width: editingTextBox.width,
+              minHeight: editingTextBox.minHeight,
+              fontSize: editingTextBox.fontSize,
+              lineHeight: 1.3,
+              color: editingText.color,
+              fontFamily: 'system-ui, "SF Pro Text", "PingFang SC", sans-serif',
+            }}
+            onChange={(event) => {
+              const text = event.target.value;
+              setAnnotations((current) => {
+                const next = current.map((item) =>
+                  item.id === editingText.id && item.kind === 'text'
+                    ? { ...item, text }
+                    : item
+                );
+                annotationsRef.current = next;
+                return next;
+              });
+            }}
+            onPointerDown={(event) => event.stopPropagation()}
+            onPointerUp={(event) => event.stopPropagation()}
+            onBlur={() => {
+              setEditingTextId(null);
+              const current = annotationsRef.current.find(
+                (item) => item.id === editingText.id
+              );
+              if (
+                !current ||
+                current.kind !== 'text' ||
+                current.text.trim().length === 0
+              ) {
+                const next = annotationsRef.current.filter(
+                  (item) => item.id !== editingText.id
+                );
+                annotationsRef.current = next;
+                setAnnotations(next);
+                setSelectedId(null);
+                return;
+              }
+              commitAnnotations(annotationsRef.current);
+            }}
+          />
+        ) : null}
       </div>
-
-      {chromeVisible ? (
-        <div className="image-preview-chrome pointer-events-none absolute bottom-3 left-3 z-10 flex items-center gap-2 px-2.5 py-1.5 text-[11px] text-muted-foreground">
-          <ScanSearch className="h-3.5 w-3.5" />
-          <span>{t('imagePreview.wheelToZoom')}</span>
-          <span className="text-muted-foreground/50">/</span>
-          <span className={cn(canPan ? 'text-foreground/80' : '')}>
-            {t('imagePreview.dragToPan')}
-          </span>
-          {canPan ? (
-            <>
-              <span className="text-muted-foreground/50">/</span>
-              <Move className="h-3.5 w-3.5" />
-            </>
-          ) : null}
-          {annotate ? (
-            <>
-              <span className="text-muted-foreground/50">/</span>
-              <span>{t('imagePreview.holdToInsert')}</span>
-            </>
-          ) : null}
-        </div>
-      ) : null}
 
       {ghost
         ? createPortal(
@@ -1229,64 +1217,5 @@ export function ZoomableImagePreview({
           )
         : null}
     </div>
-  );
-}
-
-function ToolButton({
-  label,
-  active = false,
-  onClick,
-  children,
-}: {
-  label: string;
-  active?: boolean;
-  onClick: () => void;
-  children: ReactNode;
-}) {
-  return (
-    <button
-      type="button"
-      className={cn(
-        'inline-flex h-8 w-8 items-center justify-center rounded-md transition',
-        active
-          ? 'bg-primary text-primary-foreground'
-          : 'text-muted-foreground hover:bg-muted hover:text-foreground'
-      )}
-      aria-label={label}
-      aria-pressed={active}
-      title={label}
-      onClick={onClick}
-    >
-      {children}
-    </button>
-  );
-}
-
-function RangeControl({
-  label,
-  value,
-  min,
-  max,
-  onChange,
-}: {
-  label: string;
-  value: number;
-  min: number;
-  max: number;
-  onChange: (value: number) => void;
-}) {
-  return (
-    <label className="flex min-w-0 flex-1 items-center gap-2 text-[11px] text-muted-foreground">
-      <span>{label}</span>
-      <input
-        type="range"
-        min={min}
-        max={max}
-        value={value}
-        aria-label={label}
-        className="h-1 w-full accent-primary"
-        onChange={(event) => onChange(Number(event.target.value))}
-      />
-    </label>
   );
 }

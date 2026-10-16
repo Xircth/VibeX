@@ -1,6 +1,8 @@
-export const MIN_SCALE = 1;
+export const MIN_SCALE = 0.25;
+export const FIT_SCALE = 1;
 export const MAX_SCALE = 8;
 export const SCALE_STEP = 0.25;
+export const SCALE_PRESETS = [0.25, 0.5, 1, 1.5, 2] as const;
 
 export type Size = {
   width: number;
@@ -65,10 +67,10 @@ export function canPanImage(scale: number, fitted: Size, viewport: Size) {
 
 export function actualSizeScale(fitRatio: number) {
   if (fitRatio <= 0) {
-    return MIN_SCALE;
+    return FIT_SCALE;
   }
 
-  return Math.max(MIN_SCALE, 1 / fitRatio);
+  return Math.max(FIT_SCALE, 1 / fitRatio);
 }
 
 export function offsetAfterScale({
@@ -115,12 +117,12 @@ export function applyViewScale({
 }): { scale: number; offset: Offset } {
   const normalizedScale = clamp(nextScale, MIN_SCALE, MAX_SCALE);
 
-  if (
-    normalizedScale === MIN_SCALE ||
-    fitted.width === 0 ||
-    fitted.height === 0
-  ) {
-    return { scale: MIN_SCALE, offset: { x: 0, y: 0 } };
+  if (fitted.width === 0 || fitted.height === 0) {
+    return { scale: FIT_SCALE, offset: { x: 0, y: 0 } };
+  }
+
+  if (normalizedScale === FIT_SCALE && !anchor) {
+    return { scale: FIT_SCALE, offset: { x: 0, y: 0 } };
   }
 
   if (!anchor) {

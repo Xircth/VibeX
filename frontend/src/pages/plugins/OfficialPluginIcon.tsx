@@ -8,6 +8,7 @@ import {
   LayoutGrid,
   Link,
   MessageSquareWarning,
+  Monitor,
   Puzzle,
   Plug,
   Users,
@@ -42,6 +43,7 @@ export const OFFICIAL_GLYPHS: Record<OfficialPluginI18nKey, LucideIcon> = {
   science: FlaskConical,
   browser: Globe,
   openConnector: Link,
+  computerUse: Monitor,
 };
 
 const MARKETPLACE_ICON_HOST = 'vibex.xforever.xin';

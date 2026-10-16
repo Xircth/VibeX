@@ -1108,6 +1108,7 @@ impl WorkflowStore {
         if updated.rows_affected() != 1 {
             return Err(WorkflowError::NotFound(format!("workflow run {run_id}")));
         }
+        crate::wake::notify_workflow_work();
         Ok(())
     }
 
@@ -3238,32 +3239,66 @@ impl WorkflowStore {
         self.finish(conn, result).await
     }
 
-    async fn begin_immediate(
-        &self,
-    ) -> Result<sqlx::pool::PoolConnection<sqlx::Sqlite>, WorkflowError> {
+    async fn begin_immediate(&self) -> Result<ImmediateTx, WorkflowError> {
         let mut conn = self.pool.acquire().await?;
         sqlx::query("BEGIN IMMEDIATE").execute(&mut *conn).await?;
-        Ok(conn)
+        let changes_at_start: i64 = sqlx::query_scalar("SELECT total_changes()")
+            .fetch_one(&mut *conn)
+            .await?;
+        Ok(ImmediateTx {
+            conn,
+            changes_at_start,
+        })
     }
 
     async fn finish<T>(
         &self,
-        mut conn: sqlx::pool::PoolConnection<sqlx::Sqlite>,
+        mut tx: ImmediateTx,
         result: Result<T, WorkflowError>,
     ) -> Result<T, WorkflowError> {
         match result {
             Ok(value) => {
-                if let Err(error) = sqlx::query("COMMIT").execute(&mut *conn).await {
-                    let _ = sqlx::query("ROLLBACK").execute(&mut *conn).await;
+                // A read-only claim still commits. Waking on that commit makes the
+                // dispatcher spin, because the sticky permit is already stored
+                // when it starts waiting.
+                let wrote = sqlx::query_scalar::<_, i64>("SELECT total_changes()")
+                    .fetch_one(&mut *tx.conn)
+                    .await
+                    .map(|changes_now| changes_now != tx.changes_at_start)
+                    .unwrap_or(true);
+                if let Err(error) = sqlx::query("COMMIT").execute(&mut *tx.conn).await {
+                    let _ = sqlx::query("ROLLBACK").execute(&mut *tx.conn).await;
                     return Err(error.into());
+                }
+                if wrote {
+                    crate::wake::notify_workflow_work();
                 }
                 Ok(value)
             }
             Err(error) => {
-                let _ = sqlx::query("ROLLBACK").execute(&mut *conn).await;
+                let _ = sqlx::query("ROLLBACK").execute(&mut *tx.conn).await;
                 Err(error)
             }
         }
+    }
+}
+
+struct ImmediateTx {
+    conn: sqlx::pool::PoolConnection<sqlx::Sqlite>,
+    changes_at_start: i64,
+}
+
+impl std::ops::Deref for ImmediateTx {
+    type Target = SqliteConnection;
+
+    fn deref(&self) -> &Self::Target {
+        &self.conn
+    }
+}
+
+impl std::ops::DerefMut for ImmediateTx {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.conn
     }
 }
 

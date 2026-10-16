@@ -2,8 +2,11 @@ use std::{
     collections::{BTreeSet, VecDeque},
     path::{Path, PathBuf},
     process::Stdio,
-    sync::Arc,
-    time::Duration,
+    sync::{
+        Arc,
+        atomic::{AtomicU64, Ordering},
+    },
+    time::{Duration, SystemTime, UNIX_EPOCH},
 };
 
 use async_trait::async_trait;
@@ -165,6 +168,7 @@ pub struct WorkerHost {
     process: Mutex<WorkerProcess>,
     request_timeout: Duration,
     frame_codec: FrameCodec,
+    last_activity_ms: AtomicU64,
 }
 
 enum HostedChild {
@@ -181,6 +185,22 @@ impl HostedChild {
     async fn wait(&mut self) -> std::io::Result<()> {
         match self {
             Self::Command(child) => child.wait().await.map(|_| ()),
+        }
+    }
+}
+
+impl Drop for HostedChild {
+    fn drop(&mut self) {
+        match self {
+            Self::Command(child) => {
+                let _ = child.start_kill();
+                for _ in 0..50 {
+                    if matches!(child.try_wait(), Ok(Some(_)) | Err(_)) {
+                        break;
+                    }
+                    std::thread::sleep(Duration::from_millis(2));
+                }
+            }
         }
     }
 }
@@ -351,7 +371,19 @@ impl WorkerHost {
             process: Mutex::new(process),
             request_timeout,
             frame_codec,
+            last_activity_ms: AtomicU64::new(activity_now_ms()),
         })
+    }
+
+    pub fn idle_elapsed(&self) -> Duration {
+        Duration::from_millis(
+            activity_now_ms().saturating_sub(self.last_activity_ms.load(Ordering::Relaxed)),
+        )
+    }
+
+    fn touch_activity(&self) {
+        self.last_activity_ms
+            .store(activity_now_ms(), Ordering::Relaxed);
     }
 
     pub fn activation(&self) -> &WorkerActivation {
@@ -369,6 +401,7 @@ impl WorkerHost {
         input: Value,
         request_timeout: Duration,
     ) -> Result<Value, WorkerHostError> {
+        self.touch_activity();
         if !self.activation.handlers.iter().any(|item| item == handler) {
             return Err(WorkerHostError::new(
                 "handler_not_found",
@@ -418,13 +451,22 @@ impl WorkerHost {
             .child
             .kill()
             .await
-            .map_err(|error| WorkerHostError::new("worker_terminate_failed", error.to_string()))
+            .map_err(|error| WorkerHostError::new("worker_terminate_failed", error.to_string()))?;
+        let _ = process.child.wait().await;
+        Ok(())
     }
 }
 
 /// A rejected frame is one consumed line. An image that does not fit, and a
 /// chunk sequence the host refuses, fail that call only. Unloading here is
 /// what made a split image payload kill the worker.
+fn activity_now_ms() -> u64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|elapsed| u64::try_from(elapsed.as_millis()).unwrap_or(u64::MAX))
+        .unwrap_or(0)
+}
+
 fn is_fatal_exchange_error(error: &WorkerHostError) -> bool {
     matches!(
         error.code(),
@@ -623,7 +665,7 @@ fn hosted_worker_command(
     if runtime == "python" {
         command.arg(&entrypoint);
     } else if runtime != "native" {
-        command.arg("--max-old-space-size=512").arg(&entrypoint);
+        command.arg("--max-old-space-size=128").arg(&entrypoint);
     }
     command
         .current_dir(&package_root)
@@ -909,7 +951,7 @@ mod worker_host_tests {
         assert_eq!(
             command.get_args().collect::<Vec<_>>(),
             vec![
-                OsStr::new("--max-old-space-size=512"),
+                OsStr::new("--max-old-space-size=128"),
                 OsStr::new(r"C:\Users\user\AppData\Roaming\vibex\plugin\dist\worker.mjs"),
             ]
         );
@@ -935,7 +977,7 @@ mod worker_host_tests {
         assert_eq!(
             command.get_args().collect::<Vec<_>>(),
             vec![
-                OsStr::new("--max-old-space-size=512"),
+                OsStr::new("--max-old-space-size=128"),
                 OsStr::new(r"\\server\share\plugin\dist\worker.mjs"),
             ]
         );

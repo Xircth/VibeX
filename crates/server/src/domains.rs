@@ -1196,7 +1196,7 @@ impl ServerApplicationDomains {
         };
         Ok(json!({
             "workerExpected": enabled && declares_worker,
-            "workerRunning": control_plane.activation_lease(&args.plugin_id).await.is_some(),
+            "workerRunning": control_plane.is_worker_running(&args.plugin_id).await,
             "generation": control_plane.active_generation(&args.plugin_id).await,
             "missingRuntimes": missing_runtimes,
             "recentCrashes": plugins::recent_plugin_crashes(&args.plugin_id)

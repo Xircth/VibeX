@@ -32,6 +32,7 @@ mod prompt_enhancement;
 mod remote_desktop;
 mod settings_watcher;
 mod state;
+mod memory_target;
 mod tray;
 mod workflow_mcp_gateway;
 mod workspace_paths;
@@ -48,6 +49,22 @@ const APP_ICON_DARK_LITE_BYTES: &[u8] =
     include_bytes!("../../frontend/src/assets/app-logo-dark-lite.png");
 const MAIN_WINDOW_REVEAL_FALLBACK: Duration = Duration::from_secs(8);
 const MAIN_WINDOW_REVEAL_POLL: Duration = Duration::from_millis(100);
+
+async fn release_startup_working_set(pool: &sqlx::SqlitePool) {
+    // PRAGMA shrink_memory is SQLite's SQL entry to sqlite3_db_release_memory.
+    if let Err(error) = sqlx::query("PRAGMA shrink_memory").execute(pool).await {
+        tracing::debug!(%error, "sqlite shrink_memory failed");
+    }
+    #[cfg(windows)]
+    {
+        unsafe extern "C" {
+            fn _heapmin() -> i32;
+        }
+        unsafe {
+            let _ = _heapmin();
+        }
+    }
+}
 
 fn prepare_main_window(app: &tauri::App) {
     let Some(main_window) = app.get_webview_window("main") else {
@@ -281,9 +298,19 @@ pub fn run() {
             application::WorkflowAgentDispatcher::new(state.conversation_context());
         tauri::async_runtime::spawn(async move {
             loop {
+                // Register before the tick so a commit during the tick is not lost.
+                // The 30s bound still cancels expired runs and runs retention when
+                // nobody writes. Read-only ticks do not notify, so this does not spin.
+                let wake = std::pin::pin!(workflows::workflow_wake().notified());
                 match workflow_dispatcher.tick().await {
                     Ok(true) => continue,
-                    Ok(false) => tokio::time::sleep(std::time::Duration::from_secs(2)).await,
+                    Ok(false) => {
+                        tokio::select! {
+                            biased;
+                            _ = wake => {}
+                            _ = tokio::time::sleep(std::time::Duration::from_secs(30)) => {}
+                        }
+                    }
                     Err(error) => {
                         tracing::warn!(%error, "workflow dispatcher tick failed");
                         tokio::time::sleep(std::time::Duration::from_secs(1)).await;
@@ -341,6 +368,7 @@ pub fn run() {
                     tracing::warn!("conversation search backfill failed: {error}")
                 }
             }
+            release_startup_working_set(&search_pool).await;
         });
 
         app.manage(state);
@@ -390,6 +418,7 @@ pub fn run() {
                     .await;
                 };
                 tokio::join!(local_discovery, recovery_and_warmup);
+                release_startup_working_set(&pool).await;
             });
         }
         // Bidirectional IM channels: run inbound loops + conversation command dispatch.
@@ -528,6 +557,11 @@ pub fn run() {
                 let _ = window.close();
             }
             tauri::async_runtime::spawn(async move {
+                if label == "desktop-toast" {
+                    let state = app.state::<state::AppState>();
+                    let mut runtime = state.desktop_toast_state.lock().await;
+                    runtime.ready = false;
+                }
                 let window_still_open = app.get_webview_window(&label).is_some();
                 host_client::runtime()
                     .drop_binding_for_destroyed_window(&remote_desktop, &label, window_still_open)

@@ -3,7 +3,7 @@ import { sendAgentRuntimeTurn } from '@/features/agents/sendAgentRuntimeTurn';
 import {
   RestoreLogsDialog,
   type RestoreLogsDialogResult,
-} from '@/components/dialogs';
+} from '@/components/dialogs/tasks/RestoreLogsDialog';
 import type { RepoBranchStatus, ExecutionProcess, AgentId } from 'shared/types';
 
 export interface RetryProcessParams {

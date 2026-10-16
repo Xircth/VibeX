@@ -10,6 +10,7 @@ serde_json = { workspace = true }
 sha2 = "0.10"
 sqlx = { version = "0.8.6", features = ["runtime-tokio", "sqlite", "chrono", "uuid"] }
 thiserror = { workspace = true }
+tokio = { workspace = true }
 ts-rs = { workspace = true }
 uuid = { workspace = true }
 

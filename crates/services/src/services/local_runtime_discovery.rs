@@ -204,8 +204,8 @@ async fn probe_resolved_candidates(
         }
         if version_args.is_empty() {
             return Ok(LocalRuntimeEvidence {
-                path: executable,
-                version: Some("1.0.0".to_string()),
+                path: executable.clone(),
+                version: executable_file_revision(&executable),
             });
         }
         match probe_version(&executable, version_args).await {
@@ -245,10 +245,78 @@ async fn canonicalize_spawnable(
     Ok(executable)
 }
 
+/// Identity of an executable that has no safe `--version` probe.
+///
+/// Antigravity's ACP server blocks on `--version`. The file mtime and length
+/// change when the binary changes, so discovery can skip spawning it.
+pub fn executable_file_revision(path: &std::path::Path) -> Option<String> {
+    let meta = std::fs::metadata(path).ok()?;
+    let modified = meta.modified().ok()?;
+    let secs = modified
+        .duration_since(std::time::UNIX_EPOCH)
+        .ok()?
+        .as_secs();
+    Some(format!("file:{secs}:{}", meta.len()))
+}
+
+fn probe_cache_path() -> std::path::PathBuf {
+    utils::assets::host_data_dir().join("runtime-probe-cache.json")
+}
+
+fn probe_cache_lock() -> std::sync::MutexGuard<'static, ()> {
+    static LOCK: std::sync::OnceLock<std::sync::Mutex<()>> = std::sync::OnceLock::new();
+    LOCK.get_or_init(|| std::sync::Mutex::new(()))
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+}
+
+fn read_cached_probe_version(path: &std::path::Path, revision: &str) -> Option<String> {
+    let _guard = probe_cache_lock();
+    let raw = std::fs::read(probe_cache_path()).ok()?;
+    let value: serde_json::Value = serde_json::from_slice(&raw).ok()?;
+    let entry = value.get(path.to_string_lossy().as_ref())?;
+    if entry.get("revision").and_then(|item| item.as_str()) != Some(revision) {
+        return None;
+    }
+    entry
+        .get("version")
+        .and_then(|item| item.as_str())
+        .filter(|version| !version.is_empty())
+        .map(str::to_owned)
+}
+
+fn write_cached_probe_version(path: &std::path::Path, revision: &str, version: &str) {
+    let _guard = probe_cache_lock();
+    let cache_path = probe_cache_path();
+    let mut value = std::fs::read(&cache_path)
+        .ok()
+        .and_then(|raw| serde_json::from_slice::<serde_json::Value>(&raw).ok())
+        .filter(|value| value.is_object())
+        .unwrap_or_else(|| serde_json::json!({}));
+    if let Some(object) = value.as_object_mut() {
+        object.insert(
+            path.to_string_lossy().into_owned(),
+            serde_json::json!({ "revision": revision, "version": version }),
+        );
+    }
+    if let Some(parent) = cache_path.parent() {
+        let _ = std::fs::create_dir_all(parent);
+    }
+    if let Ok(body) = serde_json::to_vec_pretty(&value) {
+        let _ = std::fs::write(cache_path, body);
+    }
+}
+
 async fn probe_version(
     executable: &std::path::Path,
     version_args: &[&str],
 ) -> anyhow::Result<Option<String>> {
+    let revision = executable_file_revision(executable);
+    if let Some(revision) = revision.as_deref()
+        && let Some(cached) = read_cached_probe_version(executable, revision)
+    {
+        return Ok(Some(cached));
+    }
     let mut command = utils::process::new_hidden_tokio_command(executable, version_args);
     command.kill_on_drop(true);
     let output = tokio::time::timeout(LOCAL_RUNTIME_VERSION_TIMEOUT, command.output())
@@ -259,7 +327,11 @@ async fn probe_version(
     }
     let stdout = String::from_utf8_lossy(&output.stdout).trim().to_string();
     let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
-    Ok([stdout, stderr].into_iter().find(|value| !value.is_empty()))
+    let version = [stdout, stderr].into_iter().find(|value| !value.is_empty());
+    if let (Some(revision), Some(version)) = (revision.as_deref(), version.as_deref()) {
+        write_cached_probe_version(executable, revision, version);
+    }
+    Ok(version)
 }
 
 #[cfg(test)]
@@ -293,6 +365,33 @@ mod tests {
         let expected = canonicalize_spawnable(script).await.unwrap();
         assert_eq!(evidence.path, expected);
         assert!(evidence.version.is_none());
+    }
+
+    #[tokio::test]
+    async fn empty_version_args_use_file_revision_without_running_the_binary() {
+        let dir = tempfile::tempdir().unwrap();
+        #[cfg(windows)]
+        let script = {
+            let script = dir.path().join("agy_acp_server.cmd");
+            std::fs::write(&script, b"@echo off\r\nexit /b 1\r\n").unwrap();
+            script
+        };
+        #[cfg(not(windows))]
+        let script = {
+            use std::os::unix::fs::PermissionsExt;
+            let script = dir.path().join("agy_acp_server");
+            std::fs::write(&script, b"#!/bin/sh\nexit 1\n").unwrap();
+            let mut permissions = std::fs::metadata(&script).unwrap().permissions();
+            permissions.set_mode(0o755);
+            std::fs::set_permissions(&script, permissions).unwrap();
+            script
+        };
+        let evidence = probe_resolved_candidates(vec![script], &[])
+            .await
+            .expect("present binary is evidence");
+        let version = evidence.version.expect("file revision");
+        assert!(version.starts_with("file:"), "{version}");
+        assert_ne!(version, "1.0.0");
     }
 
     #[tokio::test]

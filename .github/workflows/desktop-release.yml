@@ -205,6 +205,9 @@ jobs:
           NODE_OPTIONS: --max-old-space-size=6144
         run: pnpm run frontend:build
 
+      - name: Check frontend bundle budget
+        run: node frontend/scripts/check-bundle-budget.mjs
+
       - name: Upload frontend artifact
         uses: actions/upload-artifact@v4
         with:

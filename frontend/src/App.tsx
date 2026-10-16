@@ -1,4 +1,11 @@
-import { lazy, Suspense, useCallback, useEffect, useRef } from 'react';
+import {
+  lazy,
+  Suspense,
+  useCallback,
+  useEffect,
+  useRef,
+  type ReactNode,
+} from 'react';
 import { BrowserRouter, useLocation, useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { getCurrentWindow } from '@tauri-apps/api/window';
@@ -12,8 +19,6 @@ import { Toaster, toast } from '@/components/ui/toast';
 import { ProjectWindowManager } from '@/components/layout/ProjectWindowManager';
 import { DesktopWindowControls } from '@/components/settings/DesktopWindowControls';
 import { TrayBadgeSync } from '@/components/layout/TrayBadgeSync';
-import { DesktopToastWindow } from '@/components/desktop-toast/DesktopToastWindow';
-
 import { HotkeysProvider } from 'react-hotkeys-hook';
 
 import { ProjectProvider } from '@/contexts/ProjectContext';
@@ -28,7 +33,7 @@ import { checkAppUpdate } from '@/lib/appUpdate';
 import { getStartupPromptStep } from '@/appStartupPrompt';
 import { getAppRouteMode } from '@/appRouteMode';
 import { useLegacyDesignBodyClass } from '@/useLegacyDesignBodyClass';
-import { MainAppRoutes } from '@/MainAppRoutes';
+import { isSettingsSurfacePath } from '@/lib/settingsPreload';
 import { AgentWorkbenchProvider } from '@/features/agents/useAgentWorkbench';
 import { scheduleIdleWork } from '@/lib/scheduleIdleWork';
 import { revealDesktopWindowAfterPaint } from '@/lib/revealDesktopWindow';
@@ -48,10 +53,22 @@ const FirstRunExperience = lazy(() =>
     default: module.FirstRunExperience,
   }))
 );
+const SettingsAppRoutes = lazy(() =>
+  import('@/SettingsAppRoutes').then((module) => ({
+    default: module.SettingsAppRoutes,
+  }))
+);
+const DesktopToastApp = lazy(() =>
+  import('@/DesktopToastApp').then((module) => ({
+    default: module.DesktopToastApp,
+  }))
+);
+const MainAppRoutes = lazy(() =>
+  import('@/MainAppRoutes').then((module) => ({
+    default: module.MainAppRoutes,
+  }))
+);
 
-// Tahoe design compatibility scope. The exported component keeps its historical
-// name while the `.legacy-design` class remains Tailwind's active scope.
-import { LegacyDesignScope } from '@/components/legacy-design/LegacyDesignScope';
 import { AppContextMenuHost } from '@/components/context-menu';
 
 function ThemedToaster() {
@@ -60,7 +77,7 @@ function ThemedToaster() {
   return <Toaster theme={resolvedTheme} />;
 }
 
-function MainAppContent() {
+function MainAppContent({ children }: { children: ReactNode }) {
   const { t } = useTranslation(['app', 'common']);
   const { config, updateAndSaveConfig } = useUserSystem();
   const navigate = useNavigate();
@@ -242,7 +259,7 @@ function MainAppContent() {
           {isTauri ? <TrayBadgeSync /> : null}
           {isTauri ? <DesktopWindowControls /> : null}
           <ThemedToaster />
-          <MainAppRoutes />
+          {children}
           {config && isTauri && startupPromptStep === 'first-run' ? (
             <Suspense fallback={null}>
               <FirstRunExperience
@@ -260,25 +277,27 @@ function MainAppContent() {
   );
 }
 
-function DesktopToastAppContent() {
-  const { config } = useUserSystem();
-
-  return (
-    <ThemeProvider initialTheme={config?.theme || ThemeMode.SYSTEM}>
-      <LegacyDesignScope>
-        <DesktopToastWindow />
-      </LegacyDesignScope>
-    </ThemeProvider>
-  );
-}
-
 function AppContent() {
   const location = useLocation();
   const routeMode = getAppRouteMode(location.pathname);
 
   if (routeMode === 'desktop-toast') {
-    return <DesktopToastAppContent />;
+    return (
+      <Suspense fallback={null}>
+        <DesktopToastApp />
+      </Suspense>
+    );
   }
+
+  const routes = isSettingsSurfacePath(location.pathname) ? (
+    <Suspense fallback={null}>
+      <SettingsAppRoutes />
+    </Suspense>
+  ) : (
+    <Suspense fallback={null}>
+      <MainAppRoutes />
+    </Suspense>
+  );
 
   return (
     <ClickedElementsProvider>
@@ -290,7 +309,7 @@ function AppContent() {
             <GlobalShortcutActionBridge />
             <PluginContributionBridge />
             <AppContextMenuHost>
-              <MainAppContent />
+              <MainAppContent>{routes}</MainAppContent>
             </AppContextMenuHost>
             <SequenceIndicator />
           </SequenceTrackerProvider>

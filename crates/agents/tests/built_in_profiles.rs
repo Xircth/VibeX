@@ -196,6 +196,13 @@ fn codeg_pinned_distribution_matrix_is_exact() {
             .iter()
             .any(|candidate| candidate.executable == "agy_acp_server.par")
     );
+    assert!(
+        profile("antigravity")
+            .external_candidates
+            .iter()
+            .all(|candidate| candidate.version_args.is_empty()),
+        "agy_acp_server does not accept --version and blocks on stdio if spawned with --version"
+    );
     assert_eq!(entry.windows, "agy_acp_server.exe");
     assert_eq!(entry.unix_siblings, &["localharness_external"]);
     if cfg!(target_os = "linux") {

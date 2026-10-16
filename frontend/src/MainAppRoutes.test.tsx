@@ -1,8 +1,10 @@
 import { render, screen } from '@testing-library/react';
-import { MemoryRouter } from 'react-router-dom';
+import { MemoryRouter, useLocation } from 'react-router-dom';
 import { describe, expect, it, vi } from 'vitest';
 
 import { MainAppRoutes } from './MainAppRoutes';
+import { SettingsAppRoutes } from './SettingsAppRoutes';
+import { isSettingsSurfacePath } from './lib/settingsPreload';
 
 vi.mock('@/components/legacy-design/LegacyDesignScope', () => ({
   LegacyDesignScope: ({ children }: { children: React.ReactNode }) => (
@@ -147,10 +149,18 @@ vi.mock('@/pages/plugins/ProductPlugins', () => ({
   ),
 }));
 
+function ProductRoutes() {
+  const { pathname } = useLocation();
+  if (isSettingsSurfacePath(pathname)) {
+    return <SettingsAppRoutes />;
+  }
+  return <MainAppRoutes />;
+}
+
 function renderAt(pathname: string) {
   render(
     <MemoryRouter initialEntries={[pathname]}>
-      <MainAppRoutes />
+      <ProductRoutes />
     </MemoryRouter>
   );
 }

@@ -1,17 +1,18 @@
 //! Windows WebView2 process arguments applied before the first environment.
 //!
-//! Codex sessions stream into the main Tauri WebView2 for a long time, even
-//! when the built-in CEF preview is never opened. On Windows 11 23H2,
-//! Chromium's native-window occlusion can pin DWM/GPU compositor surfaces for
-//! the life of that page, so the renderer grows across a long conversation.
-//! CEF disables the same features in its own process; WebView2 must match.
+//! Keep WebView2 aligned with Codeg's lean Chromium defaults: allow Windows
+//! native-window occlusion and compositor surface eviction when windows or
+//! surfaces are hidden/backgrounded, let V8 manage old-space dynamically
+//! without a 1.5 GB floor, and disable non-essential Edge/Chromium background
+//! features (`Translate`, `OptimizationHints`, `MediaRouter`, Edge OOUI).
 
 pub const ADDITIONAL_BROWSER_ARGUMENTS_ENV: &str = "WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS";
 
-/// Chromium features the main WebView2 must disable on Windows 23H2.
-pub const OCCLUSION_DISABLE_FEATURES: &str = "CalculateNativeWinOcclusion,ApplyNativeOcclusionToCompositor,Translate,OptimizationHints,MediaRouter";
+/// Non-essential Chromium/Edge features disabled in the main WebView2.
+pub const OCCLUSION_DISABLE_FEATURES: &str =
+    "Translate,OptimizationHints,MediaRouter,msWebOOUI,msPdfOOUI,msSmartScreenProtection";
 
-pub const ADDITIONAL_BROWSER_ARGUMENTS: &str = "--disable-features=CalculateNativeWinOcclusion,ApplyNativeOcclusionToCompositor,Translate,OptimizationHints,MediaRouter --disk-cache-size=104857600 --js-flags=--max-old-space-size=1536";
+pub const ADDITIONAL_BROWSER_ARGUMENTS: &str = "--disable-features=Translate,OptimizationHints,MediaRouter,msWebOOUI,msPdfOOUI,msSmartScreenProtection --disk-cache-size=33554432";
 
 /// Decide the process-wide WebView2 argument string.
 ///
@@ -333,5 +334,13 @@ mod tests {
             false
         ));
         assert!(!should_relaunch_on_interactive_desktop(None, false));
+    }
+
+    #[test]
+    fn keeps_v8_heap_and_native_occlusion_at_lean_chromium_defaults() {
+        assert!(!ADDITIONAL_BROWSER_ARGUMENTS.contains("--max-old-space-size"));
+        assert!(!ADDITIONAL_BROWSER_ARGUMENTS.contains("CalculateNativeWinOcclusion"));
+        assert!(!ADDITIONAL_BROWSER_ARGUMENTS.contains("ApplyNativeOcclusionToCompositor"));
+        assert!(ADDITIONAL_BROWSER_ARGUMENTS.contains("--disk-cache-size=33554432"));
     }
 }

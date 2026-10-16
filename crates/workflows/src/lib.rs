@@ -3,6 +3,7 @@
 mod service;
 mod spec;
 mod store;
+mod wake;
 
 pub use service::{
     AcceptWorkflowStepCandidate, CompleteWorkflowStep, DecideApproval, ForkWorkflowRun,
@@ -16,6 +17,7 @@ pub use spec::{
     WorkspaceAccess, normalize_definition, validate_definition, validate_json_schema,
     validate_json_value,
 };
+pub use wake::{notify_workflow_work, workflow_wake};
 pub use store::{
     ClaimedWorkflowStep, DebugRunScope, ResolvedWorkflowStepInput, WorkflowDefinitionSummary,
     WorkflowEvent, WorkflowEventRecord, WorkflowRetentionCandidate, WorkflowRunStatus,

@@ -4,25 +4,42 @@ interface KeepAliveSurfaceProps {
   active: boolean;
   className?: string;
   children: ReactNode;
+  evictAfterMs?: number;
 }
 
 /**
  * Mounts children the first time `active` is true and keeps them mounted
  * afterwards, hiding the surface instead of unmounting. Used so kanban
  * monitor/execution conversations survive workspace tab switches.
+ * When `evictAfterMs` is provided, inactive surfaces are evicted after the
+ * idle window to reclaim DOM and JS heap.
  */
 export function KeepAliveSurface({
   active,
   className,
   children,
+  evictAfterMs,
 }: KeepAliveSurfaceProps) {
   const [mounted, setMounted] = useState(active);
 
   useEffect(() => {
     if (active) {
       setMounted(true);
+      return undefined;
     }
-  }, [active]);
+
+    if (typeof evictAfterMs !== 'number' || evictAfterMs <= 0) {
+      return undefined;
+    }
+
+    const timer = window.setTimeout(() => {
+      setMounted(false);
+    }, evictAfterMs);
+
+    return () => {
+      window.clearTimeout(timer);
+    };
+  }, [active, evictAfterMs]);
 
   if (!mounted) {
     return null;

@@ -88,7 +88,29 @@ fn open_or_focus(
 
     let window = builder.build().map_err(|e| e.to_string())?;
     crate::window_chrome::apply_created_window_chrome(&window);
+    destroy_settings_webview_on_close(app, &window, label);
     Ok(())
+}
+
+fn destroy_settings_webview_on_close(
+    app: &tauri::AppHandle,
+    window: &tauri::WebviewWindow,
+    label: &str,
+) {
+    let app = app.clone();
+    let label = label.to_string();
+    window.on_window_event(move |event| {
+        if !matches!(event, tauri::WindowEvent::CloseRequested { .. }) {
+            return;
+        }
+        let app_for_destroy = app.clone();
+        let label = label.clone();
+        let _ = app.run_on_main_thread(move || {
+            if let Some(settings) = app_for_destroy.get_webview_window(&label) {
+                let _ = settings.destroy();
+            }
+        });
+    });
 }
 
 pub fn open_local_settings_window(app: &tauri::AppHandle) -> Result<(), String> {

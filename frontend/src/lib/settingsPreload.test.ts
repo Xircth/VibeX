@@ -23,4 +23,12 @@ describe('preloadSettingsPath', () => {
     const { preloadSettingsPath } = await import('./settingsPreload');
     expect(() => preloadSettingsPath('/not-a-settings-page')).not.toThrow();
   });
+
+  it('does not export a full settings-page preload', async () => {
+    const settingsPreload = await import('./settingsPreload');
+    expect(settingsPreload).not.toHaveProperty('preloadRemainingSettingsPages');
+    expect(settingsPreload).not.toHaveProperty(
+      'scheduleRemainingSettingsPreload'
+    );
+  });
 });

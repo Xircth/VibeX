@@ -1,33 +1,16 @@
 import { useEffect, useRef, useState, type CSSProperties } from 'react';
 import type {
-  BundledLanguage,
-  BundledTheme,
-  Highlighter,
-  SpecialLanguage,
+  HighlighterCore,
   ThemedTokenWithVariants,
   TokenStyles,
-} from 'shiki';
+} from 'shiki/core';
+import type { BundledLanguage } from 'shiki/langs';
 import { resolvePreviewLanguageFromPath } from './fileLanguageRegistry';
 
-const LIGHT_THEME: BundledTheme = 'github-light';
-const DARK_THEME: BundledTheme = 'github-dark-default';
+const LIGHT_THEME = 'github-light';
+const DARK_THEME = 'github-dark-default';
 const PLAIN_LANGUAGE = 'text';
 const TOKEN_CACHE_LIMIT = 64;
-
-const INITIAL_LANGUAGES = [
-  'bash',
-  'css',
-  'diff',
-  'html',
-  'javascript',
-  'json',
-  'markdown',
-  'python',
-  'rust',
-  'tsx',
-  'typescript',
-  'yaml',
-] satisfies BundledLanguage[];
 
 const LANGUAGE_ALIASES: Record<string, string> = {
   cjs: 'javascript',
@@ -46,7 +29,7 @@ const LANGUAGE_ALIASES: Record<string, string> = {
   yml: 'yaml',
 };
 
-type ShikiRuntime = typeof import('shiki');
+type ShikiLangs = typeof import('shiki/langs');
 
 export type ShikiCodeLanguage = string;
 export type ShikiTokenLines = ThemedTokenWithVariants[][];
@@ -55,9 +38,10 @@ export type ShikiTokenCssProperties = CSSProperties & {
   '--shiki-token-dark'?: string;
 };
 
-let highlighterPromise: Promise<Highlighter> | null = null;
-let shikiRuntimePromise: Promise<ShikiRuntime> | null = null;
-const loadedLanguages = new Set<string>([...INITIAL_LANGUAGES, PLAIN_LANGUAGE]);
+let highlighterPromise: Promise<HighlighterCore> | null = null;
+let shikiLangsPromise: Promise<ShikiLangs> | null = null;
+const loadedLanguages = new Set<string>([PLAIN_LANGUAGE]);
+const loadingLanguagePromises = new Map<string, Promise<void>>();
 const tokenCache = new Map<string, ShikiTokenLines>();
 
 export function languageFromPath(path?: string | null) {
@@ -143,7 +127,7 @@ export async function highlightCodeToTokens(
 
   const { highlighter, resolvedLanguage } = await ensureLanguage(language);
   const tokens = highlighter.codeToTokensWithThemes(value, {
-    lang: resolvedLanguage as BundledLanguage | SpecialLanguage,
+    lang: resolvedLanguage,
     themes: {
       light: LIGHT_THEME,
       dark: DARK_THEME,
@@ -272,24 +256,31 @@ export function getShikiTokenStyle(
   };
 }
 
-function getShikiRuntime() {
-  if (!shikiRuntimePromise) {
-    shikiRuntimePromise = import('shiki').catch((error) => {
-      shikiRuntimePromise = null;
+function getShikiLangs() {
+  if (!shikiLangsPromise) {
+    shikiLangsPromise = import('shiki/langs').catch((error) => {
+      shikiLangsPromise = null;
       throw error;
     });
   }
 
-  return shikiRuntimePromise;
+  return shikiLangsPromise;
 }
 
 function getHighlighter() {
   if (!highlighterPromise) {
-    highlighterPromise = getShikiRuntime()
-      .then(({ createHighlighter }) =>
-        createHighlighter({
-          themes: [LIGHT_THEME, DARK_THEME],
-          langs: [...INITIAL_LANGUAGES, PLAIN_LANGUAGE],
+    highlighterPromise = Promise.all([
+      import('shiki/core'),
+      import('shiki/engine/javascript'),
+    ])
+      .then(([{ createHighlighterCore }, { createJavaScriptRegexEngine }]) =>
+        createHighlighterCore({
+          themes: [
+            import('shiki/themes/github-light.mjs'),
+            import('shiki/themes/github-dark-default.mjs'),
+          ],
+          langs: [],
+          engine: createJavaScriptRegexEngine(),
         })
       )
       .catch((error) => {
@@ -305,9 +296,23 @@ async function ensureLanguage(language: ShikiCodeLanguage) {
   const resolvedLanguage = await resolveBundledLanguage(language);
   const highlighter = await getHighlighter();
   if (!loadedLanguages.has(resolvedLanguage)) {
+    let pendingLoad = loadingLanguagePromises.get(resolvedLanguage);
+    if (!pendingLoad) {
+      pendingLoad = (async () => {
+        const { bundledLanguages } = await getShikiLangs();
+        const loader = bundledLanguages[resolvedLanguage as BundledLanguage];
+        if (!loader) {
+          throw new Error(`Missing Shiki language loader: ${resolvedLanguage}`);
+        }
+        await highlighter.loadLanguage(loader);
+        loadedLanguages.add(resolvedLanguage);
+      })().finally(() => {
+        loadingLanguagePromises.delete(resolvedLanguage);
+      });
+      loadingLanguagePromises.set(resolvedLanguage, pendingLoad);
+    }
     try {
-      await highlighter.loadLanguage(resolvedLanguage as BundledLanguage);
-      loadedLanguages.add(resolvedLanguage);
+      await pendingLoad;
     } catch {
       return { highlighter, resolvedLanguage: PLAIN_LANGUAGE };
     }
@@ -320,7 +325,7 @@ async function resolveBundledLanguage(language: ShikiCodeLanguage) {
   if (language === PLAIN_LANGUAGE) return PLAIN_LANGUAGE;
 
   try {
-    const { bundledLanguages } = await getShikiRuntime();
+    const { bundledLanguages } = await getShikiLangs();
     return Object.prototype.hasOwnProperty.call(bundledLanguages, language)
       ? language
       : PLAIN_LANGUAGE;

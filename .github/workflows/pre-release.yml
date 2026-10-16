@@ -172,6 +172,9 @@ jobs:
       - name: Build frontend
         run: cd frontend && npm run build
 
+      - name: Check frontend bundle budget
+        run: cd frontend && node scripts/check-bundle-budget.mjs
+
       - name: Upload frontend artifact
         uses: actions/upload-artifact@v6
         with:

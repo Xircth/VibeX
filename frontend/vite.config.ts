@@ -1,8 +1,8 @@
-// vite.config.ts
 import { createLogger, defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 import path from 'path';
 import pkg from './package.json';
+import { createManualChunks } from './vite.manualChunks';
 
 function createFilteredLogger() {
   const logger = createLogger();
@@ -29,61 +29,6 @@ function createFilteredLogger() {
   };
 
   return logger;
-}
-
-function createManualChunks(id: string): string | undefined {
-  const normalizedId = id.replace(/\\/g, '/');
-
-  if (!normalizedId.includes('/node_modules/')) {
-    return undefined;
-  }
-
-  if (
-    normalizedId.includes('/node_modules/mermaid/') ||
-    normalizedId.includes('/node_modules/@mermaid-js/')
-  ) {
-    return 'vendor-mermaid';
-  }
-
-  if (
-    normalizedId.includes('/node_modules/shiki/') ||
-    normalizedId.includes('/node_modules/@shikijs/') ||
-    normalizedId.includes('/node_modules/vscode-oniguruma/') ||
-    normalizedId.includes('/node_modules/vscode-textmate/')
-  ) {
-    return 'vendor-shiki';
-  }
-
-  if (
-    normalizedId.includes('/node_modules/monaco-editor/') ||
-    normalizedId.includes('/node_modules/@monaco-editor/')
-  ) {
-    return 'vendor-monaco';
-  }
-
-  if (normalizedId.includes('/node_modules/@xterm/')) {
-    return 'vendor-terminal';
-  }
-
-  if (normalizedId.includes('/node_modules/@git-diff-view/')) {
-    return 'vendor-diff';
-  }
-
-  if (
-    normalizedId.includes('/node_modules/dockview') ||
-    normalizedId.includes('/node_modules/dockview-core/') ||
-    normalizedId.includes('/node_modules/dockview-react/')
-  ) {
-    return 'vendor-dockview';
-  }
-
-  if (normalizedId.includes('/node_modules/@tauri-apps/')) {
-    return 'vendor-tauri';
-  }
-
-  // React UI libraries stay here with React. A separate icons/radix chunk
-  // boots before React.forwardRef exists and leaves the Host Web UI blank.
-  return 'vendor';
 }
 
 export default defineConfig({

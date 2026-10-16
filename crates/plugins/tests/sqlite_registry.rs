@@ -298,7 +298,9 @@ async fn enabled_worker_is_restored_after_host_restart() {
         .await
         .unwrap();
     assert!(failures.is_empty());
+    assert!(!restored.is_worker_running("dev.vibex.drain").await);
     assert!(restored.activation_lease("dev.vibex.drain").await.is_some());
+    assert!(restored.is_worker_running("dev.vibex.drain").await);
     let generations: Vec<(i64, String)> = sqlx::query_as(
         "SELECT generation_id, state FROM plugin_generations_v4 WHERE plugin_id = ? ORDER BY generation_id",
     )
@@ -319,6 +321,18 @@ async fn enabled_worker_is_restored_after_host_restart() {
             .generation as i64,
         published_generation
     );
+    restored
+        .recycle_idle_workers(std::time::Duration::ZERO)
+        .await;
+    assert!(
+        !restored.is_worker_running("dev.vibex.drain").await,
+        "idle recycle stops a worker with no host.service"
+    );
+    assert!(
+        restored.activation_lease("dev.vibex.drain").await.is_some(),
+        "recycle keeps the plugin enabled"
+    );
+    assert!(restored.is_worker_running("dev.vibex.drain").await);
 }
 
 #[tokio::test]

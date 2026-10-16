@@ -87,6 +87,9 @@ jobs:
           NODE_OPTIONS: --max-old-space-size=8192
         run: cd frontend && npm run build
 
+      - name: Check frontend bundle budget
+        run: cd frontend && node scripts/check-bundle-budget.mjs
+
   frontend-checks:
     runs-on: *runner_label
     steps:

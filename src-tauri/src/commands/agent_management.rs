@@ -1021,7 +1021,12 @@ async fn probe_one_built_in_external_installation(
         };
         if version.is_empty() {
             if candidate.version_args.is_empty() {
-                version = "1.0.0".to_string();
+                version = services::services::local_runtime_discovery::executable_file_revision(
+                    &executable,
+                )
+                .ok_or_else(|| {
+                    anyhow::anyhow!("external Agent binary revision could not be read")
+                })?;
             } else {
                 anyhow::bail!("external Agent version probe returned no version");
             }
@@ -1493,6 +1498,8 @@ async fn live_npm_global_prefix() -> Option<PathBuf> {
     }
 }
 
+const ACP_CAPABILITY_PROBE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(10);
+
 async fn probe_acp_capabilities(
     agent_id: &AgentId,
     lock: &SessionLaunchLock,
@@ -1519,6 +1526,9 @@ async fn probe_acp_capabilities(
             Ok(result) => result.map_err(Into::into),
             Err(_) => Err(anyhow::anyhow!("ACP process exited before initialize")),
         },
+        () = tokio::time::sleep(ACP_CAPABILITY_PROBE_TIMEOUT) => {
+            Err(anyhow::anyhow!("ACP capability probe timed out"))
+        }
         () = cancellation.cancelled() => Err(anyhow::anyhow!("operation canceled")),
     };
     if let Err(error) = initialized {

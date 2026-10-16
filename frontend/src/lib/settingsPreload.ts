@@ -1,5 +1,3 @@
-import { scheduleIdleWork } from '@/lib/scheduleIdleWork';
-
 export function isSettingsSurfacePath(pathname: string): boolean {
   return pathname.startsWith('/settings') || pathname.startsWith('/plugins');
 }
@@ -101,35 +99,21 @@ export function warmDefaultSettingsSurface(
 ): void {
   if (pathname.startsWith('/plugins')) {
     void loadPluginsPage();
-    void loadPluginDetailPage();
+    if (pathname !== '/plugins' && pathname !== '/plugins/') {
+      void loadPluginDetailPage();
+    }
     return;
   }
   if (pathname.startsWith('/settings')) {
+    const exactLoader = SETTINGS_PATH_LOADERS[pathname];
+    if (exactLoader) {
+      void exactLoader();
+      return;
+    }
     void loadAgentSettings();
-  }
-}
-
-export function preloadRemainingSettingsPages(): void {
-  for (const load of new Set([
-    ...Object.values(SETTINGS_PATH_LOADERS),
-    loadAutomationEditorRoutes,
-  ])) {
-    void load();
   }
 }
 
 export function preloadSettingsPath(path: string): void {
   void SETTINGS_PATH_LOADERS[path]?.();
-}
-
-export function scheduleRemainingSettingsPreload(): () => void {
-  if (
-    typeof window === 'undefined' ||
-    !isSettingsSurfacePath(window.location.pathname)
-  ) {
-    return () => undefined;
-  }
-  return scheduleIdleWork(() => {
-    preloadRemainingSettingsPages();
-  });
 }

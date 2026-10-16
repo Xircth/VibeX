@@ -1,6 +1,7 @@
 import { useLayoutEffect } from 'react';
-import { render, screen } from '@testing-library/react';
-import { describe, expect, it } from 'vitest';
+import { act, render, screen } from '@testing-library/react';
+import { describe, expect, it, vi } from 'vitest';
+import { KANBAN_INACTIVE_EVICT_MS } from './kanbanKeepAlive';
 import { KeepAliveSurface } from './KeepAliveSurface';
 
 describe('KeepAliveSurface', () => {
@@ -65,5 +66,58 @@ describe('KeepAliveSurface', () => {
 
     expect(events).toEqual(['mount']);
     expect(screen.getByTestId('slot')).toBeInTheDocument();
+  });
+
+  it('evicts inactive children at the 30s kanban TTL unless reactivated', () => {
+    expect(KANBAN_INACTIVE_EVICT_MS).toBe(30_000);
+    vi.useFakeTimers();
+    try {
+      const { rerender } = render(
+        <KeepAliveSurface active evictAfterMs={KANBAN_INACTIVE_EVICT_MS}>
+          <div data-testid="evictable">evictable</div>
+        </KeepAliveSurface>
+      );
+
+      expect(screen.getByTestId('evictable')).toBeInTheDocument();
+
+      rerender(
+        <KeepAliveSurface
+          active={false}
+          evictAfterMs={KANBAN_INACTIVE_EVICT_MS}
+        >
+          <div data-testid="evictable">evictable</div>
+        </KeepAliveSurface>
+      );
+
+      act(() => {
+        vi.advanceTimersByTime(KANBAN_INACTIVE_EVICT_MS - 1_000);
+      });
+      expect(screen.getByTestId('evictable')).toBeInTheDocument();
+
+      rerender(
+        <KeepAliveSurface active evictAfterMs={KANBAN_INACTIVE_EVICT_MS}>
+          <div data-testid="evictable">evictable</div>
+        </KeepAliveSurface>
+      );
+      act(() => {
+        vi.advanceTimersByTime(KANBAN_INACTIVE_EVICT_MS);
+      });
+      expect(screen.getByTestId('evictable')).toBeInTheDocument();
+
+      rerender(
+        <KeepAliveSurface
+          active={false}
+          evictAfterMs={KANBAN_INACTIVE_EVICT_MS}
+        >
+          <div data-testid="evictable">evictable</div>
+        </KeepAliveSurface>
+      );
+      act(() => {
+        vi.advanceTimersByTime(KANBAN_INACTIVE_EVICT_MS);
+      });
+      expect(screen.queryByTestId('evictable')).not.toBeInTheDocument();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

@@ -21,34 +21,43 @@ const shikiMock = vi.hoisted(() => {
         : []
     )
   );
-  const createHighlighter = vi.fn(async () => ({
+  const createHighlighterCore = vi.fn(async () => ({
     loadLanguage,
     codeToTokensWithThemes,
   }));
+  const createJavaScriptRegexEngine = vi.fn(() => ({}));
 
   return {
     codeToTokensWithThemes,
-    createHighlighter,
+    createHighlighterCore,
+    createJavaScriptRegexEngine,
     loadLanguage,
   };
 });
 
-vi.mock('shiki', () => ({
+vi.mock('shiki/core', () => ({
+  createHighlighterCore: shikiMock.createHighlighterCore,
+}));
+
+vi.mock('shiki/engine/javascript', () => ({
+  createJavaScriptRegexEngine: shikiMock.createJavaScriptRegexEngine,
+}));
+
+vi.mock('shiki/langs', () => ({
   bundledLanguages: {
-    bash: {},
-    css: {},
-    diff: {},
-    html: {},
-    javascript: {},
-    json: {},
-    markdown: {},
-    python: {},
-    rust: {},
-    tsx: {},
-    typescript: {},
-    yaml: {},
+    bash: () => Promise.resolve({}),
+    css: () => Promise.resolve({}),
+    diff: () => Promise.resolve({}),
+    html: () => Promise.resolve({}),
+    javascript: () => Promise.resolve({}),
+    json: () => Promise.resolve({}),
+    markdown: () => Promise.resolve({}),
+    python: () => Promise.resolve({}),
+    rust: () => Promise.resolve({}),
+    tsx: () => Promise.resolve({}),
+    typescript: () => Promise.resolve({}),
+    yaml: () => Promise.resolve({}),
   },
-  createHighlighter: shikiMock.createHighlighter,
 }));
 
 const CLOSE_PREVIEW_LABEL = '\u5173\u95ed\u9884\u89c8';
@@ -73,7 +82,8 @@ const defaultProps = {
 
 describe('FilePreviewPopover', () => {
   beforeEach(() => {
-    shikiMock.createHighlighter.mockClear();
+    shikiMock.createHighlighterCore.mockClear();
+    shikiMock.createJavaScriptRegexEngine.mockClear();
     shikiMock.codeToTokensWithThemes.mockClear();
     shikiMock.loadLanguage.mockClear();
   });

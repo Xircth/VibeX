@@ -145,6 +145,18 @@ impl ActivationManager {
         })
     }
 
+    pub async fn running_plugin_ids(&self) -> Vec<String> {
+        self.active.read().await.keys().cloned().collect()
+    }
+
+    pub async fn idle_elapsed(&self, plugin_id: &str) -> Option<std::time::Duration> {
+        self.active
+            .read()
+            .await
+            .get(plugin_id)
+            .map(|host| host.idle_elapsed())
+    }
+
     pub async fn lease(&self, plugin_id: &str) -> Option<ActivationLease> {
         self.active
             .read()

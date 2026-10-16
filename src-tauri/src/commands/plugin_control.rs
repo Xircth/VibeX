@@ -937,7 +937,7 @@ pub async fn plugin_control_diagnostics(
 
     Ok(PluginDiagnosticsDto {
         worker_expected: enabled && declares_worker,
-        worker_running: control_plane.activation_lease(&plugin_id).await.is_some(),
+        worker_running: control_plane.is_worker_running(&plugin_id).await,
         generation: control_plane.active_generation(&plugin_id).await,
         missing_runtimes,
         recent_crashes: plugins::recent_plugin_crashes(&plugin_id)

@@ -174,6 +174,20 @@ pub async fn reindex_from_projection(
 /// first creates the table, or for histories imported before this feature).
 /// Returns the number of conversations indexed. Best-effort per conversation.
 pub async fn backfill_missing(pool: &SqlitePool) -> Result<usize, sqlx::Error> {
+    let missing: i64 = sqlx::query_scalar(
+        "SELECT EXISTS(\
+            SELECT 1 FROM sessions \
+            WHERE NOT EXISTS (\
+                SELECT 1 FROM conversation_fts \
+                WHERE conversation_fts.conversation_id = sessions.id\
+            )\
+         )",
+    )
+    .fetch_one(pool)
+    .await?;
+    if missing == 0 {
+        return Ok(0);
+    }
     let ids: Vec<Uuid> = sqlx::query_scalar(
         "SELECT id FROM sessions \
          WHERE id NOT IN (SELECT conversation_id FROM conversation_fts)",

@@ -1,5 +1,7 @@
 import {
   Fragment,
+  Suspense,
+  lazy,
   useCallback,
   useEffect,
   useMemo,
@@ -65,13 +67,20 @@ import {
   type SessionControlsPreset,
   type SessionCreationMode,
 } from '@/components/sessions/SessionCreationForm';
-import { CanvasCreateSessionPanel } from './canvas/CanvasCreateSessionPanel';
-import {
-  SessionCanvasView,
-  type SessionCanvasApi,
-} from './canvas/SessionCanvasView';
+import type { SessionCanvasApi } from './canvas/SessionCanvasView';
 import { SessionHubMonitor } from './session-hub/SessionHubMonitor';
 import { SessionHubSidebar } from './session-hub/SessionHubSidebar';
+
+const LazyCanvasCreateSessionPanel = lazy(() =>
+  import('./canvas/CanvasCreateSessionPanel').then((module) => ({
+    default: module.CanvasCreateSessionPanel,
+  }))
+);
+const LazySessionCanvasView = lazy(() =>
+  import('./canvas/SessionCanvasView').then((module) => ({
+    default: module.SessionCanvasView,
+  }))
+);
 import { useKanbanSessionMutations } from './session-hub/useKanbanSessionMutations';
 import {
   DEFAULT_SESSION_LIST_WIDTH,
@@ -1303,61 +1312,65 @@ export function KanbanSessionHub({
     return (
       <TooltipProvider delayDuration={120}>
         <div className="session-hub-shell h-full min-h-0">
-          <SessionCanvasView
-            projectId={projectId ?? ''}
-            sessions={sessionsForCanvas}
-            sessionsReady={!isLoading}
-            listWidth={sessionListWidth}
-            projectName={project?.name ?? ''}
-            list={sidebarElement}
-            createPanel={
-              isCreatePopoverVisible ? (
-                <CanvasCreateSessionPanel
-                  isGitProject={Boolean(project?.is_git)}
-                  createMode={createMode}
-                  onCreateModeChange={setCreateMode}
-                  workspaceBranchOptions={workspaceBranchOptions}
-                  createWorkspaceValue={createWorkspaceValue}
-                  onCreateWorkspaceValueChange={updateCreateWorkspaceValue}
-                  profiles={profiles}
-                  selectedExecutorProfile={selectedExecutorProfile}
-                  onSelectedExecutorProfileChange={
-                    updateSelectedExecutorProfile
-                  }
-                  repoBranchConfigs={repoBranchConfigs}
-                  onRepoBranchChange={setRepoBranch}
-                  isLoadingRepoBranches={isLoadingRepoBranches}
-                  canCreateSession={canCreateSession}
-                  isCreatePending={createSessionMutation.isPending}
-                  createError={createSessionMutation.error}
-                  onSubmit={(input) => {
-                    void handleSubmitCreateSession(input);
-                  }}
-                  onClose={() => handleCreatePopoverOpenChange(false)}
-                  onSessionControlsPresetChange={(preset) => {
-                    sessionControlsPresetRef.current = preset;
-                  }}
-                />
-              ) : null
-            }
-            onRenameSession={async (session, name) => {
-              await renameSessionMutation.mutateAsync({
-                sessionId: session.id,
-                name,
-                workspaceId: session.workspace.id,
-              });
-            }}
-            onDeleteSession={handleDeleteSession}
-            onApiReady={(api) => {
-              canvasApiRef.current = api;
-            }}
-            onWindowSessionIdsChange={setCanvasWindowSessionIds}
-            onSelectedSessionChange={replaceRightSession}
-            onCreateSession={() => {
-              setKanbanCanvasListVisible(true);
-              handleCreatePopoverOpenChange(true);
-            }}
-          />
+          <Suspense fallback={null}>
+            <LazySessionCanvasView
+              projectId={projectId ?? ''}
+              sessions={sessionsForCanvas}
+              sessionsReady={!isLoading}
+              listWidth={sessionListWidth}
+              projectName={project?.name ?? ''}
+              list={sidebarElement}
+              createPanel={
+                isCreatePopoverVisible ? (
+                  <Suspense fallback={null}>
+                    <LazyCanvasCreateSessionPanel
+                      isGitProject={Boolean(project?.is_git)}
+                      createMode={createMode}
+                      onCreateModeChange={setCreateMode}
+                      workspaceBranchOptions={workspaceBranchOptions}
+                      createWorkspaceValue={createWorkspaceValue}
+                      onCreateWorkspaceValueChange={updateCreateWorkspaceValue}
+                      profiles={profiles}
+                      selectedExecutorProfile={selectedExecutorProfile}
+                      onSelectedExecutorProfileChange={
+                        updateSelectedExecutorProfile
+                      }
+                      repoBranchConfigs={repoBranchConfigs}
+                      onRepoBranchChange={setRepoBranch}
+                      isLoadingRepoBranches={isLoadingRepoBranches}
+                      canCreateSession={canCreateSession}
+                      isCreatePending={createSessionMutation.isPending}
+                      createError={createSessionMutation.error}
+                      onSubmit={(input) => {
+                        void handleSubmitCreateSession(input);
+                      }}
+                      onClose={() => handleCreatePopoverOpenChange(false)}
+                      onSessionControlsPresetChange={(preset) => {
+                        sessionControlsPresetRef.current = preset;
+                      }}
+                    />
+                  </Suspense>
+                ) : null
+              }
+              onRenameSession={async (session, name) => {
+                await renameSessionMutation.mutateAsync({
+                  sessionId: session.id,
+                  name,
+                  workspaceId: session.workspace.id,
+                });
+              }}
+              onDeleteSession={handleDeleteSession}
+              onApiReady={(api) => {
+                canvasApiRef.current = api;
+              }}
+              onWindowSessionIdsChange={setCanvasWindowSessionIds}
+              onSelectedSessionChange={replaceRightSession}
+              onCreateSession={() => {
+                setKanbanCanvasListVisible(true);
+                handleCreatePopoverOpenChange(true);
+              }}
+            />
+          </Suspense>
         </div>
       </TooltipProvider>
     );

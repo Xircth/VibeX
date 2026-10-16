@@ -1,5 +1,4 @@
 @import '@fontsource-variable/inter/wght.css';
-@import '@fontsource-variable/noto-sans-sc/wght.css';
 
 /* IBM Plex Mono */
 @font-face {
@@ -40,17 +39,15 @@
  */
 :root {
   /*
-   * Product UI font. macOS keeps the native SF Pro / PingFang stack. Windows and
-   * Linux swap Latin UI to bundled Inter Variable below: Segoe UI and typical
-   * Linux UI sans render poorly in WebView2/Chromium with antialiased smoothing.
-   * CJK: PingFang on macOS. Windows and Linux use bundled Noto Sans SC Variable
-   * (Source Han Sans / 思源黑体) immediately after Inter so Segoe UI font-linking
-   * cannot pull Microsoft YaHei.
+   * Product UI font. Latin on Windows and Linux uses bundled Inter Variable:
+   * Segoe UI and typical Linux UI sans render poorly in WebView2. CJK stays on
+   * the system face (PingFang SC, Microsoft YaHei) and is not shipped as
+   * Noto slices.
    */
   --font-ui:
-    -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'SF Pro', 'Segoe UI',
-    system-ui, 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei',
-    'Noto Sans SC Variable', 'Source Han Sans SC', 'Noto Sans SC', sans-serif;
+    -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'SF Pro', 'PingFang SC',
+    'Hiragino Sans GB', 'Microsoft YaHei UI', 'Microsoft YaHei', system-ui,
+    'Segoe UI', sans-serif;
   --font-mono:
     'IBM Plex Mono', ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas,
     monospace;
@@ -59,7 +56,7 @@
 html[data-host-platform='windows'],
 html[data-host-platform='linux'] {
   --font-ui:
-    'Inter Variable', 'Noto Sans SC Variable', 'Source Han Sans SC',
-    'Noto Sans SC', system-ui, 'Segoe UI', Roboto, 'Helvetica Neue', Arial,
-    sans-serif;
+    'Inter Variable', 'Microsoft YaHei UI', 'Microsoft YaHei', 'PingFang SC',
+    'Noto Sans CJK SC', 'Source Han Sans SC', system-ui, 'Segoe UI', Roboto,
+    'Helvetica Neue', Arial, sans-serif;
 }

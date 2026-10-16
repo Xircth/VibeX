@@ -35,10 +35,7 @@ import { SurfaceLoading } from '@/components/layout/SurfaceLoading';
 import { AppTitleBar } from '@/components/settings/AppTitleBar';
 import { Button } from '@/components/ui/button';
 import { useTauriClient } from '@/lib/desktopShell';
-import {
-  preloadSettingsPath,
-  scheduleRemainingSettingsPreload,
-} from '@/lib/settingsPreload';
+import { preloadSettingsPath } from '@/lib/settingsPreload';
 import { cn } from '@/lib/utils';
 import { useBackendCapabilities } from '@/lib/transport';
 import { logoLeadsWindowChrome } from '@/utils/platform';
@@ -170,13 +167,12 @@ export function SettingsLayout() {
 
   const jumpToSetting = useCallback(
     (path: string, id: string) => {
+      preloadSettingsPath(path);
       const target = `${path}?highlight=${encodeURIComponent(id)}`;
       navigate(target);
     },
     [navigate]
   );
-
-  useEffect(() => scheduleRemainingSettingsPreload(), []);
 
   useEffect(() => {
     void syncSettingsWindowTitle(t('windowTitle'));

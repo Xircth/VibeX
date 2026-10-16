@@ -51,6 +51,7 @@ import { useWorkspaceOverlay } from '@/contexts/WorkspaceOverlayContext';
 import { chromeHidesNativeSurface } from '@/lib/nativeSurfaceHandoff';
 import { BrowserEvalConfirm } from '@/features/host-browser/BrowserEvalConfirm';
 import { KeepAliveSurface } from '@/components/layout/KeepAliveSurface';
+import { KANBAN_INACTIVE_EVICT_MS } from '@/components/layout/kanbanKeepAlive';
 import {
   applyLeftGroupHeaderHiding,
   syncDockviewGroupRegistry,
@@ -264,6 +265,7 @@ function buildDefaultLayout(api: DockviewApi) {
     id: PANEL_IDS.WELCOME,
     component: PANEL_IDS.WELCOME,
     title: 'Welcome',
+    renderer: 'onlyWhenVisible',
   });
   (welcomePanel.group as { id: string }).id = `${EDITOR_GROUP_PREFIX}1`;
 
@@ -281,6 +283,7 @@ function buildDefaultLayout(api: DockviewApi) {
     id: defaultLeftPanelId,
     component: defaultLeftPanelId,
     title: ACTIVITY_RAIL_PANEL_TITLES[defaultLeftPanelId],
+    renderer: 'onlyWhenVisible',
     position: {
       referenceGroup: leftGroup,
       direction: 'within',
@@ -366,6 +369,14 @@ export function IDELayout({
   const effectiveWorkspaceId = activeWorktreeId ?? workspaceId ?? null;
   const routeTab = workspaceId || sessionId ? 'workspace' : null;
   const effectiveActiveTab = routeTab ?? activeTab;
+  const [isDockviewMounted, setIsDockviewMounted] = useState(
+    () => effectiveActiveTab === 'workspace'
+  );
+  useEffect(() => {
+    if (effectiveActiveTab === 'workspace') {
+      setIsDockviewMounted(true);
+    }
+  }, [effectiveActiveTab]);
   const hidesBottomDock = useActiveSurfaceHidesBottomDock(effectiveActiveTab);
   const pluginTabs = usePluginHostContributions('app_tab');
   const activePluginTab = (() => {
@@ -622,6 +633,7 @@ export function IDELayout({
           id: defaultLeftPanelId,
           component: defaultLeftPanelId,
           title: ACTIVITY_RAIL_PANEL_TITLES[defaultLeftPanelId],
+          renderer: 'onlyWhenVisible',
           position: {
             referenceGroup: GROUP_IDS.LEFT,
             direction: 'within',
@@ -1160,20 +1172,31 @@ export function IDELayout({
 
           <RightPanelSlotContext.Provider value={sessionPlacement}>
             <div className="relative flex-1 min-w-0" ref={dockviewRootRef}>
-              <div className="h-full">
-                <DockviewReact
-                  components={panelComponents}
-                  defaultTabComponent={WorkspaceDockviewTab}
-                  leftHeaderActionsComponent={WorkspaceTabAddMenu}
-                  onReady={handleReady}
-                  className="dockview-theme-light dockview-theme-ayu"
-                  disableAutoResizing={true}
-                  disableFloatingGroups={true}
-                />
-              </div>
+              {isDockviewMounted ? (
+                <div
+                  className="h-full"
+                  style={
+                    effectiveActiveTab === 'workspace'
+                      ? undefined
+                      : { display: 'none' }
+                  }
+                  aria-hidden={effectiveActiveTab !== 'workspace'}
+                >
+                  <DockviewReact
+                    components={panelComponents}
+                    defaultTabComponent={WorkspaceDockviewTab}
+                    leftHeaderActionsComponent={WorkspaceTabAddMenu}
+                    onReady={handleReady}
+                    className="dockview-theme-light dockview-theme-ayu"
+                    disableAutoResizing={true}
+                    disableFloatingGroups={true}
+                  />
+                </div>
+              ) : null}
 
               <KeepAliveSurface
                 active={effectiveActiveTab === 'kanban'}
+                evictAfterMs={KANBAN_INACTIVE_EVICT_MS}
                 className="kanban-overlay absolute inset-0 z-10"
               >
                 <Suspense

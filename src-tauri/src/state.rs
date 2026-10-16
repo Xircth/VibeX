@@ -20,6 +20,7 @@ use crate::commands::{
 pub struct DesktopToastRuntimeState {
     pub ready: bool,
     pub pending: Vec<DesktopToastPayload>,
+    pub idle_generation: u64,
 }
 
 pub struct AppState {
@@ -52,6 +53,7 @@ pub struct AppState {
     pub plugin_capability_broker: Arc<plugins::HostCapabilityBroker>,
     pub plugin_provider_presets: Arc<server::HostProviderPresetHost>,
     pub plugin_app_surfaces: Arc<plugins::PluginAppSurfaceHost>,
+    pub bundled_plugin_roots: Arc<Vec<std::path::PathBuf>>,
     pub remote_desktop: Arc<crate::remote_desktop::RemoteDesktopRegistry>,
     pub local_history_import: Arc<StdMutex<LocalHistoryImportRuntime>>,
     pub host: server::HostRuntime,
@@ -119,10 +121,12 @@ impl AppState {
         if let Err(error) = plugin_host_call.clone().bind_loopback().await {
             tracing::warn!(%error, "plugin host.call loopback is unavailable");
         }
-        plugin_control_plane
-            .install_bundled_official_plugins(&utils::assets::asset_dir(), None)
-            .await
-            .map_err(|error| deployment::DeploymentError::Other(anyhow::anyhow!(error)))?;
+        let bundled_plugin_roots = Arc::new(
+            plugin_control_plane
+                .install_bundled_official_plugins(&utils::assets::asset_dir(), None)
+                .await
+                .map_err(|error| deployment::DeploymentError::Other(anyhow::anyhow!(error)))?,
+        );
         // Plugin Worker Node download/probe stays off the setup path. On
         // Windows first launch that work (and Defender scanning node.exe)
         // otherwise freezes the window before onboarding can mount.
@@ -273,6 +277,7 @@ impl AppState {
             plugin_capability_broker,
             plugin_provider_presets: provider_preset_host,
             plugin_app_surfaces,
+            bundled_plugin_roots,
             remote_desktop,
             local_history_import: Arc::new(StdMutex::new(LocalHistoryImportRuntime::default())),
             host,
@@ -306,12 +311,25 @@ impl AppState {
         let plugin_control_plane = self.plugin_control_plane.clone();
         let plugin_worker_runtime = self.plugin_worker_runtime.clone();
         let plugin_capability_broker = self.plugin_capability_broker.clone();
+        let bundled_roots = self.bundled_plugin_roots.clone();
         let app_handle = self.app_handle.clone();
+        let idle_recycle = plugin_control_plane.clone();
+        tauri::async_runtime::spawn(async move {
+            let mut interval = tokio::time::interval(std::time::Duration::from_secs(60));
+            interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+            loop {
+                interval.tick().await;
+                idle_recycle
+                    .recycle_idle_workers(std::time::Duration::from_secs(10 * 60))
+                    .await;
+            }
+        });
         tauri::async_runtime::spawn(async move {
             provision_plugin_workers(
                 plugin_control_plane,
                 plugin_worker_runtime,
                 plugin_capability_broker,
+                bundled_roots,
                 app_handle,
             )
             .await;
@@ -323,18 +341,9 @@ async fn provision_plugin_workers(
     plugin_control_plane: Arc<plugins::PluginControlPlane>,
     plugin_worker_runtime: Arc<plugins::PluginWorkerRuntimeProvider>,
     plugin_capability_broker: Arc<plugins::HostCapabilityBroker>,
+    bundled_roots: Arc<Vec<std::path::PathBuf>>,
     app_handle: tauri::AppHandle,
 ) {
-    let bundled_roots = match plugin_control_plane
-        .install_bundled_official_plugins(&utils::assets::asset_dir(), None)
-        .await
-    {
-        Ok(roots) => roots,
-        Err(error) => {
-            tracing::warn!(%error, "official plugin packages could not be refreshed");
-            return;
-        }
-    };
     let enabled_worker_exists = match plugin_control_plane.catalog().await {
         Ok(catalog) => catalog.iter().any(|plugin| {
             plugin.activation == plugins::PluginActivation::Enabled

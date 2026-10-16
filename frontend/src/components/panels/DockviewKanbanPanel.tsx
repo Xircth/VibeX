@@ -1,5 +1,7 @@
 import {
   Component,
+  Suspense,
+  lazy,
   useCallback,
   useEffect,
   useLayoutEffect,
@@ -61,13 +63,20 @@ import {
 import { kanbanSessionRendersInHub } from '@/lib/kanbanZoneVisibility';
 import { KanbanSessionHub } from '@/components/kanban/KanbanSessionHub';
 import { KanbanSessionSlot } from '@/components/kanban/KanbanSessionSlot';
-import { KanbanUsageDashboard } from '@/components/kanban/KanbanUsageDashboard';
 import { SessionHubListItem } from '@/components/kanban/session-hub/SessionHubListItem';
 import {
   ARCHIVED_SESSION_STATUS,
   SESSION_STATUS_LIGHT_COLORS,
   type ActiveSessionStatus,
 } from '@/components/kanban/session-hub/utils';
+
+const LazyKanbanUsageDashboard = lazy(() =>
+  import('@/components/kanban/KanbanUsageDashboard').then((module) => ({
+    default: module.KanbanUsageDashboard,
+  }))
+);
+
+const KANBAN_CAROUSEL_TRANSITION_MS = 320;
 
 const KANBAN_COLUMNS = [
   {
@@ -118,6 +127,27 @@ export function KanbanBoard() {
     }
   }, [activeViewId, resolvedViewId, setActiveViewId]);
   const currentViewId = resolvedViewId ?? activeViewId;
+  const previousViewIdRef = useRef(currentViewId);
+  const [transitioningFromViewId, setTransitioningFromViewId] = useState<
+    string | null
+  >(null);
+
+  useEffect(() => {
+    const previousViewId = previousViewIdRef.current;
+    if (previousViewId && previousViewId !== currentViewId) {
+      previousViewIdRef.current = currentViewId;
+      setTransitioningFromViewId(previousViewId);
+      const timer = window.setTimeout(() => {
+        setTransitioningFromViewId((current) =>
+          current === previousViewId ? null : current
+        );
+      }, KANBAN_CAROUSEL_TRANSITION_MS);
+      return () => window.clearTimeout(timer);
+    }
+    previousViewIdRef.current = currentViewId;
+    return undefined;
+  }, [currentViewId]);
+
   const currentIndex = kanbanViewIndex(views, currentViewId);
   const sessionSlotSide = kanbanSlotOfZone(kanbanArrangement, 'session');
   const hideSessionSlot = kanbanViewHidesSessionSlot(currentViewId);
@@ -176,45 +206,57 @@ export function KanbanBoard() {
             width: kanbanCarouselWidth(views.length),
             transform: kanbanCarouselTranslateX(views, currentViewId),
           }}
+          onTransitionEnd={(event) => {
+            if (event.target === event.currentTarget) {
+              setTransitioningFromViewId(null);
+            }
+          }}
         >
-          {views.map((view) => (
-            <div
-              key={view.id}
-              className="h-full shrink-0"
-              style={{ width: kanbanPageWidth(views.length) }}
-              data-kanban-view={view.id}
-            >
-              <KanbanViewErrorBoundary>
-                <KanbanRegisteredView
-                  view={view}
-                  active={view.id === currentViewId}
-                  zoneOrder={[
-                    kanbanArrangement.left,
-                    kanbanArrangement.center,
-                    kanbanArrangement.right,
-                  ]}
-                  sessionSlot={
-                    view.id === 'builtin:sessions' ? (
-                      <KanbanSessionSlot
-                        side={sessionSlotSide}
-                        active={currentViewId === 'builtin:sessions'}
-                        inHub
-                      />
-                    ) : null
-                  }
-                  pluginItem={
-                    view.pluginId
-                      ? (pluginViews.find(
-                          (item) =>
-                            item.pluginId === view.pluginId &&
-                            item.id === view.contributionId
-                        ) ?? null)
-                      : null
-                  }
-                />
-              </KanbanViewErrorBoundary>
-            </div>
-          ))}
+          {views.map((view) => {
+            const isMountedView =
+              view.id === currentViewId || view.id === transitioningFromViewId;
+
+            return (
+              <div
+                key={view.id}
+                className="h-full shrink-0"
+                style={{ width: kanbanPageWidth(views.length) }}
+                data-kanban-view={view.id}
+              >
+                {isMountedView ? (
+                  <KanbanViewErrorBoundary>
+                    <KanbanRegisteredView
+                      view={view}
+                      active={view.id === currentViewId}
+                      zoneOrder={[
+                        kanbanArrangement.left,
+                        kanbanArrangement.center,
+                        kanbanArrangement.right,
+                      ]}
+                      sessionSlot={
+                        view.id === 'builtin:sessions' ? (
+                          <KanbanSessionSlot
+                            side={sessionSlotSide}
+                            active={currentViewId === 'builtin:sessions'}
+                            inHub
+                          />
+                        ) : null
+                      }
+                      pluginItem={
+                        view.pluginId
+                          ? (pluginViews.find(
+                              (item) =>
+                                item.pluginId === view.pluginId &&
+                                item.id === view.contributionId
+                            ) ?? null)
+                          : null
+                      }
+                    />
+                  </KanbanViewErrorBoundary>
+                ) : null}
+              </div>
+            );
+          })}
         </div>
       </div>
       {!hideSessionSlot && outerSessionSide === 'right' && (
@@ -290,7 +332,11 @@ function KanbanRegisteredView({
     return <KanbanSessionHub presentation="canvas" zoneOrder={zoneOrder} />;
   }
   if (view.id === 'builtin:usage') {
-    return <KanbanUsageDashboard />;
+    return (
+      <Suspense fallback={null}>
+        <LazyKanbanUsageDashboard />
+      </Suspense>
+    );
   }
   return (
     <PluginRemoteView

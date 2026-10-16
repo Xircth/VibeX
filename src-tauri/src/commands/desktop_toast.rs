@@ -141,6 +141,36 @@ fn toast_window_physical_position(
     )
 }
 
+const DESKTOP_TOAST_IDLE_CLOSE_DELAY: std::time::Duration = std::time::Duration::from_secs(60);
+
+fn schedule_desktop_toast_idle_cleanup(app: &tauri::AppHandle) {
+    let app = app.clone();
+    tauri::async_runtime::spawn(async move {
+        let generation = {
+            let state = app.state::<crate::state::AppState>();
+            let mut runtime = state.desktop_toast_state.lock().await;
+            runtime.idle_generation = runtime.idle_generation.wrapping_add(1);
+            runtime.idle_generation
+        };
+        tokio::time::sleep(DESKTOP_TOAST_IDLE_CLOSE_DELAY).await;
+        let should_close = {
+            let state = app.state::<crate::state::AppState>();
+            let mut runtime = state.desktop_toast_state.lock().await;
+            if runtime.idle_generation == generation && runtime.pending.is_empty() {
+                runtime.ready = false;
+                true
+            } else {
+                false
+            }
+        };
+        if should_close
+            && let Some(toast_window) = app.get_webview_window(DESKTOP_TOAST_WINDOW_LABEL)
+        {
+            let _ = toast_window.destroy();
+        }
+    });
+}
+
 #[tauri::command]
 pub async fn show_desktop_toast(
     app: tauri::AppHandle,
@@ -152,15 +182,27 @@ pub async fn show_desktop_toast(
 
     #[cfg(target_os = "windows")]
     {
+        use webview2_com::Microsoft::Web::WebView2::Win32::{
+            COREWEBVIEW2_MEMORY_USAGE_TARGET_LEVEL_NORMAL, ICoreWebView2_19,
+        };
+        use windows::core::Interface;
         let _ = window.with_webview(|platform| {
             let controller = platform.controller();
             unsafe {
+                if let Ok(core) = controller.CoreWebView2()
+                    && let Ok(core19) = core.cast::<ICoreWebView2_19>()
+                {
+                    let _ = core19.SetMemoryUsageTargetLevel(
+                        COREWEBVIEW2_MEMORY_USAGE_TARGET_LEVEL_NORMAL,
+                    );
+                }
                 let _ = controller.SetIsVisible(true);
             }
         });
     }
 
     let mut runtime = state.desktop_toast_state.lock().await;
+    runtime.idle_generation = runtime.idle_generation.wrapping_add(1);
     if runtime.ready {
         window
             .emit(DESKTOP_TOAST_EVENT, payload)
@@ -202,14 +244,25 @@ pub async fn activate_desktop_toast(
     if let Some(toast_window) = app.get_webview_window(DESKTOP_TOAST_WINDOW_LABEL) {
         #[cfg(target_os = "windows")]
         {
+            use webview2_com::Microsoft::Web::WebView2::Win32::{
+                COREWEBVIEW2_MEMORY_USAGE_TARGET_LEVEL_LOW, ICoreWebView2_19,
+            };
+            use windows::core::Interface;
             let _ = toast_window.with_webview(|platform| {
                 let controller = platform.controller();
                 unsafe {
                     let _ = controller.SetIsVisible(false);
+                    if let Ok(core) = controller.CoreWebView2()
+                        && let Ok(core19) = core.cast::<ICoreWebView2_19>()
+                    {
+                        let _ = core19
+                            .SetMemoryUsageTargetLevel(COREWEBVIEW2_MEMORY_USAGE_TARGET_LEVEL_LOW);
+                    }
                 }
             });
         }
         let _ = toast_window.hide();
+        schedule_desktop_toast_idle_cleanup(&app);
     }
 
     Ok(())
@@ -220,14 +273,25 @@ pub async fn hide_desktop_toast(app: tauri::AppHandle) -> Result<(), String> {
     if let Some(toast_window) = app.get_webview_window(DESKTOP_TOAST_WINDOW_LABEL) {
         #[cfg(target_os = "windows")]
         {
+            use webview2_com::Microsoft::Web::WebView2::Win32::{
+                COREWEBVIEW2_MEMORY_USAGE_TARGET_LEVEL_LOW, ICoreWebView2_19,
+            };
+            use windows::core::Interface;
             let _ = toast_window.with_webview(|platform| {
                 let controller = platform.controller();
                 unsafe {
                     let _ = controller.SetIsVisible(false);
+                    if let Ok(core) = controller.CoreWebView2()
+                        && let Ok(core19) = core.cast::<ICoreWebView2_19>()
+                    {
+                        let _ = core19
+                            .SetMemoryUsageTargetLevel(COREWEBVIEW2_MEMORY_USAGE_TARGET_LEVEL_LOW);
+                    }
                 }
             });
         }
         toast_window.hide().map_err(|error| error.to_string())?;
+        schedule_desktop_toast_idle_cleanup(&app);
     }
     Ok(())
 }

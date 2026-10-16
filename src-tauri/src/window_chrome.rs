@@ -51,10 +51,14 @@ pub fn handle_window_event(window: &tauri::Window, event: &tauri::WindowEvent) {
         return;
     }
     match event {
+        tauri::WindowEvent::Focused(focused) => {
+            crate::memory_target::on_main_window_focus(window, *focused);
+            #[cfg(target_os = "macos")]
+            align_macos_traffic_lights(window.ns_window().ok());
+        }
         tauri::WindowEvent::Resized(_)
         | tauri::WindowEvent::ScaleFactorChanged { .. }
-        | tauri::WindowEvent::ThemeChanged(_)
-        | tauri::WindowEvent::Focused(_) => {
+        | tauri::WindowEvent::ThemeChanged(_) => {
             #[cfg(target_os = "macos")]
             align_macos_traffic_lights(window.ns_window().ok());
         }

@@ -309,6 +309,9 @@ impl WorkflowAgentDispatcher {
         if self.cleanup_retained_runs().await? {
             return Ok(true);
         }
+        if !self.has_active_runs().await? {
+            return Ok(false);
+        }
         if self.cancel_expired_runs().await? {
             return Ok(true);
         }
@@ -502,6 +505,16 @@ impl WorkflowAgentDispatcher {
             }
         }
         Ok(true)
+    }
+
+    async fn has_active_runs(&self) -> Result<bool, ApplicationError> {
+        let active: bool = sqlx::query_scalar(
+            "SELECT EXISTS(SELECT 1 FROM workflow_runs WHERE status IN ('running', 'waiting'))",
+        )
+        .fetch_one(&self.context.deployment.db().pool)
+        .await
+        .map_err(|error| ApplicationError::internal(error.to_string()))?;
+        Ok(active)
     }
 
     async fn cleanup_retained_runs(&self) -> Result<bool, ApplicationError> {

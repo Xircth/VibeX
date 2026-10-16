@@ -1,4 +1,12 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import {
+  Suspense,
+  lazy,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
 import type { MouseEvent } from 'react';
 import { createPortal } from 'react-dom';
 import { toast } from '@/components/ui/toast';
@@ -22,8 +30,13 @@ import {
   subscribeFileReferenceDrag,
   updateFileReferenceDragPointer,
 } from '../../utils/fileReferenceDrag';
-import { FilePreviewPopover } from './FilePreviewPopover';
 import { FileTreeNameInput } from './FileTreeNameInput';
+
+const LazyFilePreviewPopover = lazy(() =>
+  import('./FilePreviewPopover').then((module) => ({
+    default: module.FilePreviewPopover,
+  }))
+);
 import {
   acknowledgeFileTreeSearch,
   subscribeFileTreeSearch,
@@ -2062,33 +2075,35 @@ export function FileTreePanel({
       ) : null}
       {previewPath && previewAnchor
         ? createPortal(
-            <FilePreviewPopover
-              path={previewPath}
-              absolutePath={resolvePath(previewPath)}
-              content={previewContent}
-              truncated={previewTruncated}
-              previewKind={previewKind}
-              imageSrc={previewImageSrc}
-              selection={previewSelection}
-              onSelectLine={handleSelectLine}
-              onLineMouseDown={handleLineMouseDown}
-              onLineMouseEnter={handleLineMouseEnter}
-              onLineMouseUp={handleLineMouseUp}
-              onClearSelection={() => setPreviewSelection(null)}
-              onAddSelection={handleAddSelection}
-              onClose={closePreview}
-              selectionHints={selectionHints}
-              style={{
-                position: 'fixed',
-                top: previewAnchor.top,
-                left: previewAnchor.left,
-                width: 640,
-                maxHeight: previewAnchor.height,
-                ['--file-preview-arrow-top' as string]: `${previewAnchor.arrowTop}px`,
-              }}
-              isLoading={effectivePreviewLoading}
-              error={effectivePreviewError}
-            />,
+            <Suspense fallback={null}>
+              <LazyFilePreviewPopover
+                path={previewPath}
+                absolutePath={resolvePath(previewPath)}
+                content={previewContent}
+                truncated={previewTruncated}
+                previewKind={previewKind}
+                imageSrc={previewImageSrc}
+                selection={previewSelection}
+                onSelectLine={handleSelectLine}
+                onLineMouseDown={handleLineMouseDown}
+                onLineMouseEnter={handleLineMouseEnter}
+                onLineMouseUp={handleLineMouseUp}
+                onClearSelection={() => setPreviewSelection(null)}
+                onAddSelection={handleAddSelection}
+                onClose={closePreview}
+                selectionHints={selectionHints}
+                style={{
+                  position: 'fixed',
+                  top: previewAnchor.top,
+                  left: previewAnchor.left,
+                  width: 640,
+                  maxHeight: previewAnchor.height,
+                  ['--file-preview-arrow-top' as string]: `${previewAnchor.arrowTop}px`,
+                }}
+                isLoading={effectivePreviewLoading}
+                error={effectivePreviewError}
+              />
+            </Suspense>,
             document.body
           )
         : null}

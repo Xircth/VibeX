@@ -1,4 +1,4 @@
-import { fileNameFromPath } from './ToolCallTarget';
+import { fileNameFromPath } from './toolCallPath';
 
 export type DirListEntry = {
   name: string;

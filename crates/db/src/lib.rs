@@ -335,8 +335,9 @@ fn sqlite_connect_options(database_path: &Path) -> SqliteConnectOptions {
     // while an agent streams). DELETE mode serialized every access and caused
     // "database is locked" + pool-acquire timeouts once agents actually run.
     // busy_timeout makes a contended write wait for the lock instead of
-    // erroring immediately. cache_size=-65536 is 64 MiB so fold_json and event
-    // pages stay in the page cache instead of re-reading the same snapshot.
+    // erroring immediately. cache_size=-4000 is 4 MiB per connection. That is
+    // small enough for an idle desktop process and not zero, which would force
+    // every page read back to disk. Temporary tables stay on the default store.
     //
     // Use a filesystem path rather than interpolating `sqlite://{native path}`.
     // Windows paths contain `:` and `\`, which URL parsers treat as a host.
@@ -347,7 +348,7 @@ fn sqlite_connect_options(database_path: &Path) -> SqliteConnectOptions {
         .journal_mode(SqliteJournalMode::Wal)
         .synchronous(SqliteSynchronous::Normal)
         .busy_timeout(Duration::from_secs(10))
-        .pragma("cache_size", "-65536")
+        .pragma("cache_size", "-4000")
 }
 
 type AfterConnectHook = Arc<
@@ -417,8 +418,9 @@ impl DBService {
     ) -> Result<Pool<Sqlite>, Error> {
         let options = sqlite_connect_options(&data_dir.as_ref().join("db.sqlite"));
         let pool_options = SqlitePoolOptions::new()
-            .max_connections(8)
+            .max_connections(3)
             .min_connections(1)
+            .idle_timeout(Duration::from_secs(30))
             .acquire_timeout(Duration::from_secs(30));
 
         let pool = if let Some(hook) = after_connect {

@@ -77,6 +77,9 @@ jobs:
       - name: Build frontend
         run: pnpm run frontend:build
 
+      - name: Check frontend bundle budget
+        run: node frontend/scripts/check-bundle-budget.mjs
+
       - name: Build Host binaries
         run: cargo build --release --target ${{ matrix.target }} -p server -p vibex-mcp -p vibex-workflow-mcp --bin vibex-server --bin vibex-mcp --bin vibex-workflow-mcp
 

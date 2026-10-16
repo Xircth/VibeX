@@ -12,7 +12,7 @@ import { resolvePreviewLanguageFromPath } from './fileLanguageRegistry';
 const LIGHT_THEME: BundledTheme = 'github-light';
 const DARK_THEME: BundledTheme = 'github-dark-default';
 const PLAIN_LANGUAGE = 'text';
-const TOKEN_CACHE_LIMIT = 160;
+const TOKEN_CACHE_LIMIT = 64;
 
 const INITIAL_LANGUAGES = [
   'bash',

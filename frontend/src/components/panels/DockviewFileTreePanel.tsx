@@ -14,6 +14,7 @@ import { fileTreeApi } from '@/lib/api';
 import type { DirectoryChildrenResponse } from '@/lib/api';
 import { subscribeFileTreeChanges } from '@/lib/fileTreeChangeStream';
 import { FileTreePanel } from '@/components/file-tree/FileTreePanel';
+import type { FileOpenLocation } from '@/components/file-tree/file-tree-types';
 import { resolveFileTreeAbsolutePath } from '@/components/file-tree/file-tree-utils';
 import { deriveWorkspaceRootPathCandidates } from './workspaceRootPath';
 import { replaceFilePathPrefix } from '@/utils/filePaths';
@@ -347,11 +348,11 @@ function DockviewFileTreePanel(_props: IDockviewPanelProps) {
   }, [refreshFileTree, rootPath]);
 
   const handleOpenFile = useCallback(
-    (relativePath: string) => {
+    (relativePath: string, location?: FileOpenLocation) => {
       if (!rootPath) return;
       const absolutePath = resolveFileTreeAbsolutePath(rootPath, relativePath);
       setSelectedFilePath(absolutePath);
-      openFilePreview(absolutePath);
+      openFilePreview(absolutePath, location ? { location } : undefined);
     },
     [rootPath, setSelectedFilePath, openFilePreview]
   );

@@ -89,7 +89,7 @@ describe('SessionComposerTopbar', () => {
       onJumpToPreviousUserMessage: onJump,
     });
 
-    const diffsButton = screen.getByRole('button', { name: '3 Diffs' });
+    const diffsButton = screen.getByRole('button', { name: '3 CHANGES' });
     expect(diffsButton).toBeInTheDocument();
     expect(screen.getByText('1')).toBeInTheDocument();
 
@@ -98,7 +98,9 @@ describe('SessionComposerTopbar', () => {
     expect(screen.getByText('-4')).toBeInTheDocument();
 
     fireEvent.click(screen.getByText('+12'));
-    expect(screen.getByRole('button', { name: '3 Diffs' })).toBeInTheDocument();
+    expect(
+      screen.getByRole('button', { name: '3 CHANGES' })
+    ).toBeInTheDocument();
 
     fireEvent.click(
       screen.getByRole('button', {

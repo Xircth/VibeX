@@ -208,7 +208,7 @@ describe('HostBrowserPanel', () => {
     ).toBeInTheDocument();
   });
 
-  it('keeps the shared-access chip outside the address field', async () => {
+  it('keeps the shared-access avatar inside the address field', async () => {
     const user = userEvent.setup();
     backendCall.mockResolvedValue({
       tabId: 'tab-share',
@@ -227,8 +227,23 @@ describe('HostBrowserPanel', () => {
     const shared = await screen.findByRole('button', {
       name: i18n.t('browserPanel.sharedControl', { ns: 'panels' }),
     });
+    const pick = screen.getByRole('button', {
+      name: i18n.t('browserPanel.pick', { ns: 'panels' }),
+    });
+    const field = screen.getByRole('combobox').closest('.relative');
+    expect(field?.contains(shared)).toBe(true);
+    expect(field?.contains(pick)).toBe(true);
     expect(
-      screen.getByRole('combobox').closest('.relative')?.contains(shared)
+      pick.compareDocumentPosition(shared) & Node.DOCUMENT_POSITION_FOLLOWING
+    ).toBeTruthy();
+    expect(shared.textContent?.trim()).toBe('');
+    expect(shared.className).not.toMatch(/hover:bg/);
+    expect(
+      field?.contains(
+        screen.getByRole('button', {
+          name: i18n.t('browserPanel.more', { ns: 'panels' }),
+        })
+      )
     ).toBe(false);
   });
 
@@ -367,7 +382,24 @@ describe('HostBrowserPanel', () => {
       name: label('address'),
     });
     const share = screen.getByRole('button', { name: label('share') });
-    expect(addressField.closest('.relative')?.contains(share)).toBe(false);
+    const pick = screen.getByRole('button', { name: label('pick') });
+    const field = addressField.closest('.relative');
+    expect(field?.contains(share)).toBe(true);
+    expect(
+      pick.compareDocumentPosition(share) & Node.DOCUMENT_POSITION_FOLLOWING
+    ).toBeTruthy();
+    expect(
+      screen
+        .getByRole('button', { name: label('screenshot') })
+        .compareDocumentPosition(
+          screen.getByRole('button', { name: label('devtools') })
+        ) & Node.DOCUMENT_POSITION_FOLLOWING
+    ).toBeTruthy();
+    expect(
+      screen
+        .getByRole('button', { name: label('devtools') })
+        .compareDocumentPosition(pick) & Node.DOCUMENT_POSITION_FOLLOWING
+    ).toBeTruthy();
   });
 
   it('applies load-finished events that arrive before tab.create returns', async () => {
@@ -619,7 +651,7 @@ describe('HostBrowserPanel', () => {
     });
   });
 
-  it('suggests only URLs, with visited rows last and titled', async () => {
+  it('suggests visited URLs before the unmatched site, with titles', async () => {
     const user = userEvent.setup();
     window.localStorage.setItem(
       ADDRESS_HISTORY_KEY,
@@ -648,9 +680,10 @@ describe('HostBrowserPanel', () => {
     );
     await user.type(screen.getByRole('combobox'), 'github');
     const options = await screen.findAllByRole('option');
-    expect(options).toHaveLength(2);
     expect(options[0]).toHaveTextContent('xintaofei/codeg');
     expect(options[1]).toHaveTextContent('Xircth/VibeX');
+    expect(options.at(-1)).toHaveTextContent('github.com');
+    expect(options.length).toBeGreaterThanOrEqual(3);
     expect(options[0].querySelector('img')?.getAttribute('src')).toBe(
       'https://github.com/favicon.ico'
     );

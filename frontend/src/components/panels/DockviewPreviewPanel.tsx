@@ -283,7 +283,8 @@ function DockviewPreviewPanel(props: IDockviewPanelProps) {
   const saveFile = useSaveFile();
   const { resolvedTheme } = useTheme();
   const editorRef = useRef<monacoEditor.IStandaloneCodeEditor | null>(null);
-  const readRangeDecorationRef = useRef<string[]>([]);
+  const readRangeDecorationRef =
+    useRef<monacoEditor.IEditorDecorationsCollection | null>(null);
   const markdownPasteCleanupRef = useRef<(() => void) | null>(null);
   const markdownBasePathRef = useRef<string | null>(null);
   const queryClient = useQueryClient();
@@ -423,10 +424,7 @@ function DockviewPreviewPanel(props: IDockviewPanelProps) {
   const applyReadRange = useCallback(
     (editor: monacoEditor.IStandaloneCodeEditor) => {
       if (!location) {
-        readRangeDecorationRef.current = editor.deltaDecorations(
-          readRangeDecorationRef.current,
-          []
-        );
+        readRangeDecorationRef.current?.clear();
         return;
       }
 
@@ -436,30 +434,45 @@ function DockviewPreviewPanel(props: IDockviewPanelProps) {
         column: location.column,
       });
       editor.revealLineInCenter(location.line);
-      readRangeDecorationRef.current = editor.deltaDecorations(
-        readRangeDecorationRef.current,
-        [
-          {
-            range: {
-              startLineNumber: location.line,
-              startColumn: 1,
-              endLineNumber: endLine,
-              endColumn: 1,
-            },
-            options: {
-              isWholeLine: true,
-              className: 'preview-read-range',
-              linesDecorationsClassName: 'preview-read-range-gutter',
-            },
+      if (!readRangeDecorationRef.current) {
+        readRangeDecorationRef.current = editor.createDecorationsCollection();
+      }
+      readRangeDecorationRef.current.set([
+        {
+          range: {
+            startLineNumber: location.line,
+            startColumn: 1,
+            endLineNumber: endLine,
+            endColumn: 1,
           },
-        ]
-      );
+          options: {
+            isWholeLine: true,
+            className: 'preview-read-range',
+            linesDecorationsClassName: 'preview-read-range-gutter',
+          },
+        },
+      ]);
     },
     [location]
   );
 
+  const disposeEditorModel = useCallback(() => {
+    readRangeDecorationRef.current?.clear();
+    readRangeDecorationRef.current = null;
+    if (editorRef.current) {
+      if (typeof editorRef.current.getModel === 'function') {
+        const model = editorRef.current.getModel();
+        model?.dispose();
+      }
+      editorRef.current = null;
+    }
+  }, []);
+
   const handleEditorMount: OnMount = useCallback(
     (editor, monaco) => {
+      if (editorRef.current && editorRef.current !== editor) {
+        disposeEditorModel();
+      }
       editorRef.current = editor;
 
       editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyS, () => {
@@ -531,7 +544,16 @@ function DockviewPreviewPanel(props: IDockviewPanelProps) {
         editor.focus();
       }
     },
-    [applyReadRange, isMd, location, queryClient, resolvedFilePath, saveFile, t]
+    [
+      applyReadRange,
+      disposeEditorModel,
+      isMd,
+      location,
+      queryClient,
+      resolvedFilePath,
+      saveFile,
+      t,
+    ]
   );
 
   useEffect(() => {
@@ -539,13 +561,14 @@ function DockviewPreviewPanel(props: IDockviewPanelProps) {
     applyReadRange(editorRef.current);
   }, [applyReadRange, filePath]);
 
-  // Tear down the markdown paste listener when the panel unmounts.
+  // Tear down the markdown paste listener and dispose the Monaco model when the panel unmounts.
   useEffect(() => {
     return () => {
       markdownPasteCleanupRef.current?.();
       markdownPasteCleanupRef.current = null;
+      disposeEditorModel();
     };
-  }, []);
+  }, [disposeEditorModel]);
 
   const handleEditorBeforeMount: BeforeMount = useCallback((monaco) => {
     defineAyuMonacoThemes(monaco);
@@ -562,12 +585,12 @@ function DockviewPreviewPanel(props: IDockviewPanelProps) {
   }, [params.renamedFrom, resolvedFilePath]);
 
   useEffect(() => {
-    if (isRendered) {
-      editorRef.current = null;
+    if (isRendered || isDiffMode) {
+      disposeEditorModel();
       markdownPasteCleanupRef.current?.();
       markdownPasteCleanupRef.current = null;
     }
-  }, [isRendered]);
+  }, [disposeEditorModel, isDiffMode, isRendered]);
 
   if (!filePath) {
     const imageSource =

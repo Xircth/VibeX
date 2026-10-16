@@ -2,6 +2,7 @@ import {
   getToolCallDescription,
   getToolSummary,
 } from '@/components/NormalizedConversation/conversation-entry-utils';
+import { isResendColdStartNotice } from '@/features/conversation/sessionNoticeNeedsRebind';
 import { toolBlockToNormalizedEntry } from '@/components/NormalizedConversation/messageTurnTool';
 import i18n from '@/i18n';
 import type {
@@ -208,6 +209,7 @@ export function activityNoticesFromRows(rows: TimelineRow[]): string[] {
   const notices: string[] = [];
   for (const row of rows) {
     if (row.row.kind === 'session_notice') {
+      if (isResendColdStartNotice(row.row_id, row.row.notice)) continue;
       const text = row.row.notice.message?.trim() || row.row.notice.title;
       if (text) {
         notices.push(text);

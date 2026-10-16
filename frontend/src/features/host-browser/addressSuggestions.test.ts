@@ -40,7 +40,7 @@ describe('suggestBrowserAddresses', () => {
     expect(suggestBrowserAddresses('   ', history)).toEqual([]);
   });
 
-  it('puts the typed URL first and visited URLs last', () => {
+  it('puts a visited typed URL ahead of later visits on that host', () => {
     const rows = suggestBrowserAddresses('github.com', history);
     expect(rows[0]?.url).toBe('https://github.com/');
     expect(rows.slice(1).every((row) => row.kind === 'history')).toBe(true);
@@ -64,6 +64,42 @@ describe('suggestBrowserAddresses', () => {
       'xintaofei/codeg: Collaborative multi-agent AI coding workspace',
       'Xircth/VibeX: IADE',
     ]);
+  });
+
+  it('stays closed until three characters, then matches a prefix', () => {
+    expect(suggestBrowserAddresses('gi', history)).toEqual([]);
+    expect(suggestBrowserAddresses('g', [])).toEqual([]);
+
+    const fromPrefix = suggestBrowserAddresses('git', []);
+    expect(fromPrefix.map((row) => row.url)).toEqual(
+      expect.arrayContaining(['https://github.com/', 'https://gitee.com/'])
+    );
+    expect(fromPrefix[0]?.url).toBe('https://github.com/');
+
+    const whileTyping = suggestBrowserAddresses('gith', []).map(
+      (row) => row.url
+    );
+    expect(whileTyping).toContain('https://github.com/');
+    expect(whileTyping).toContain('https://gitee.com/');
+    expect(whileTyping[0]).toBe('https://github.com/');
+    expect(suggestBrowserAddresses('hub', []).map((row) => row.url)).toContain(
+      'https://github.com/'
+    );
+  });
+
+  it('lists visited URLs before unvisited matches', () => {
+    const rows = suggestBrowserAddresses('git', history);
+    expect(rows.map((row) => row.url).slice(0, 3)).toEqual([
+      'https://github.com/',
+      'https://github.com/xintaofei/codeg',
+      'https://github.com/Xircth/VibeX',
+    ]);
+    const gitee = rows.findIndex((row) => row.url === 'https://gitee.com/');
+    expect(gitee).toBeGreaterThan(2);
+    expect(rows.slice(0, gitee).every((row) => row.kind === 'history')).toBe(
+      true
+    );
+    expect(rows[gitee]?.kind).toBe('completion');
   });
 
   it('keeps favicons on history rows', () => {

@@ -7,7 +7,7 @@ import {
   Trash2,
 } from 'lucide-react';
 import { useCallback, useEffect, useState } from 'react';
-import type { FormEvent } from 'react';
+import type { SyntheticEvent } from 'react';
 import { useTranslation } from 'react-i18next';
 import type { PiPluginSummaryView, PiPluginView } from 'shared/types';
 
@@ -67,7 +67,7 @@ export function PiPluginManager({ onChanged, onCount }: Props) {
     onCount?.(summary?.plugins.length ?? 0);
   }, [onCount, summary]);
 
-  const add = async (event: FormEvent<HTMLFormElement>) => {
+  const add = async (event: SyntheticEvent<HTMLFormElement>) => {
     event.preventDefault();
     const next = spec.trim();
     if (!next) return;

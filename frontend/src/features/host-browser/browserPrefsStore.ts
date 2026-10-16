@@ -84,7 +84,7 @@ export const DEFAULT_BROWSER_SETTINGS: BrowserSettings = {
     toolCard: 'builtin',
     terminal: 'builtin',
     editor: 'builtin',
-    notification: 'system',
+    notification: 'builtin',
   },
   hostRules: [],
   toolsEnabled: true,
@@ -175,6 +175,9 @@ export function validateHostRulePattern(
     }
   }
 
+  if (hostPart === '*') {
+    return null;
+  }
   if (hostPart.startsWith('*.')) {
     hostPart = hostPart.slice(2);
     if (!hostPart || hostPart.includes('*')) return 'wildcard';
@@ -184,8 +187,12 @@ export function validateHostRulePattern(
 
   if (!hostPart || /\s/.test(hostPart)) return 'host';
   if (hostPart.startsWith('[') && hostPart.endsWith(']')) {
-    const inner = hostPart.slice(1, -1);
-    if (!inner || !/^[0-9a-f:]+$/i.test(inner)) return 'host';
+    try {
+      const hostname = new URL(`http://${hostPart}`).hostname;
+      if (!hostname.includes(':')) return 'host';
+    } catch {
+      return 'host';
+    }
     return null;
   }
 
@@ -232,6 +239,13 @@ export function parseHostRulePattern(raw: string): ParsedHostPattern | null {
     wildcardSubdomain = true;
     hostPart = hostPart.slice(2);
   }
+  if (hostPart.startsWith('[') && hostPart.endsWith(']')) {
+    try {
+      hostPart = new URL(`http://${hostPart}`).hostname;
+    } catch {
+      return null;
+    }
+  }
 
   return {
     scheme,
@@ -256,9 +270,12 @@ export function matchHostRule(pattern: string, rawUrl: string): boolean {
   }
 
   const urlHost = url.hostname.toLowerCase();
-  const hostOk = parsed.wildcardSubdomain
-    ? urlHost === parsed.host || urlHost.endsWith(`.${parsed.host}`)
-    : urlHost === parsed.host;
+  const hostOk =
+    parsed.host === '*'
+      ? true
+      : parsed.wildcardSubdomain
+        ? urlHost === parsed.host || urlHost.endsWith(`.${parsed.host}`)
+        : urlHost === parsed.host;
   if (!hostOk) return false;
 
   const explicitPort = url.port ? Number(url.port) : null;
@@ -275,21 +292,49 @@ export function matchHostRule(pattern: string, rawUrl: string): boolean {
   return true;
 }
 
+type RuleScore = [number, number, number, number];
+
+function ruleScore(rule: HostRule, rawUrl: string): RuleScore | null {
+  if (!matchHostRule(rule.pattern, rawUrl)) return null;
+  const parsed = parseHostRulePattern(rule.pattern);
+  if (!parsed) return null;
+  let kind = 2;
+  let len = parsed.host.length;
+  if (parsed.host === '*') {
+    kind = 0;
+    len = 0;
+  } else if (parsed.wildcardSubdomain) {
+    kind = 1;
+    len = parsed.host.length + 1;
+  }
+  const pinned = typeof parsed.port === 'number' ? 1 : 0;
+  const restrict =
+    rule.action === 'block' ? 2 : rule.action === 'system' ? 1 : 0;
+  return [kind, len, pinned, restrict];
+}
+
+function scoreGreater(next: RuleScore, current: RuleScore): boolean {
+  for (let index = 0; index < next.length; index += 1) {
+    if (next[index] !== current[index]) return next[index] > current[index];
+  }
+  return false;
+}
+
 export function evaluateHostRules(
   rules: readonly HostRule[],
   rawUrl: string
 ): HostRuleAction | null {
+  let best: HostRuleAction | null = null;
+  let bestScore: RuleScore | null = null;
   for (const rule of rules) {
-    if (rule.action === 'block' && matchHostRule(rule.pattern, rawUrl)) {
-      return 'block';
+    const score = ruleScore(rule, rawUrl);
+    if (!score) continue;
+    if (!bestScore || scoreGreater(score, bestScore)) {
+      best = rule.action;
+      bestScore = score;
     }
   }
-  for (const rule of rules) {
-    if (rule.action !== 'block' && matchHostRule(rule.pattern, rawUrl)) {
-      return rule.action;
-    }
-  }
-  return null;
+  return best;
 }
 
 function parseLegacySiteRules(raw: string): HostRule[] {
@@ -782,7 +827,7 @@ export type ResolvedLinkDecision = 'builtin' | 'system' | 'ask' | 'block';
 
 export function resolveLinkOpenAction(
   url: string,
-  source: LinkOpenSource = 'transcript',
+  _source: LinkOpenSource = 'transcript',
   overrideSettings?: BrowserSettings
 ): ResolvedLinkDecision {
   const settings = overrideSettings ?? state.settings;
@@ -799,7 +844,25 @@ export function resolveLinkOpenAction(
   if (personalMatch) {
     return personalMatch;
   }
-  return settings.defaultTarget[source] ?? 'builtin';
+  return settings.defaultTarget.transcript === 'system' ? 'system' : 'builtin';
+}
+
+/** Site-rule decision for the address bar. Ignores the default link opener. */
+export function resolveSiteRuleAction(
+  url: string,
+  overrideSettings?: BrowserSettings
+): HostRuleAction | null {
+  const settings = overrideSettings ?? state.settings;
+  const { capabilities } = state;
+  if (capabilities?.policy && !capabilities.policy.enabled) {
+    return 'system';
+  }
+  const managedMatch = evaluateHostRules(
+    capabilities?.policy?.managedRules ?? [],
+    url
+  );
+  if (managedMatch) return managedMatch;
+  return evaluateHostRules(settings.hostRules, url);
 }
 
 export function resetBrowserPrefsForTests(): void {

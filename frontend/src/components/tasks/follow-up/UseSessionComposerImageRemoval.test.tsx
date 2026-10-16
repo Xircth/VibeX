@@ -2,7 +2,7 @@ import { act, renderHook } from '@testing-library/react';
 import {
   createRef,
   type Dispatch,
-  type MutableRefObject,
+  type RefObject,
   type SetStateAction,
   useState,
 } from 'react';
@@ -15,11 +15,11 @@ const profile = { executor: 'codex' as const };
 function renderImageRemovalHook({
   initialImages,
   draftMessage = 'draft',
-  executorProfileRef = createRef() as MutableRefObject<typeof profile | null>,
+  executorProfileRef = createRef() as RefObject<typeof profile | null>,
 }: {
   initialImages: SessionComposerImage[];
   draftMessage?: string;
-  executorProfileRef?: MutableRefObject<typeof profile | null>;
+  executorProfileRef?: RefObject<typeof profile | null>;
 }) {
   executorProfileRef.current = profile;
   const saveToScratch = vi.fn();
@@ -100,7 +100,7 @@ describe('useSessionComposerImageRemoval', () => {
   });
 
   it('reads the current executor profile ref when removal happens', () => {
-    const executorProfileRef = createRef() as MutableRefObject<
+    const executorProfileRef = createRef() as RefObject<
       typeof profile | null
     >;
     const { result, saveToScratch } = renderImageRemovalHook({

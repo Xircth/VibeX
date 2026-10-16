@@ -36,6 +36,29 @@ fn configure_desktop_toast_window(window: &tauri::WebviewWindow) -> Result<(), S
     window
         .set_shadow(false)
         .map_err(|error| error.to_string())?;
+
+    #[cfg(target_os = "windows")]
+    {
+        use webview2_com::Microsoft::Web::WebView2::Win32::{
+            COREWEBVIEW2_MEMORY_USAGE_TARGET_LEVEL_LOW, ICoreWebView2_19,
+        };
+        use windows::core::Interface;
+        let _ = window.with_webview(|platform| {
+            let controller = platform.controller();
+            unsafe {
+                let _ = controller.SetIsVisible(false);
+            }
+            if let Ok(core) = unsafe { controller.CoreWebView2() } {
+                if let Ok(core19) = core.cast::<ICoreWebView2_19>() {
+                    unsafe {
+                        let _ = core19
+                            .SetMemoryUsageTargetLevel(COREWEBVIEW2_MEMORY_USAGE_TARGET_LEVEL_LOW);
+                    }
+                }
+            }
+        });
+    }
+
     Ok(())
 }
 
@@ -127,6 +150,16 @@ pub async fn show_desktop_toast(
     let window = ensure_desktop_toast_window(&app)?;
     position_desktop_toast_window(&app, &window)?;
 
+    #[cfg(target_os = "windows")]
+    {
+        let _ = window.with_webview(|platform| {
+            let controller = platform.controller();
+            unsafe {
+                let _ = controller.SetIsVisible(true);
+            }
+        });
+    }
+
     let mut runtime = state.desktop_toast_state.lock().await;
     if runtime.ready {
         window
@@ -161,16 +194,41 @@ pub async fn activate_desktop_toast(
         .get_webview_window("main")
         .ok_or_else(|| "Main window not found".to_string())?;
 
-    main_window.show().map_err(|error| error.to_string())?;
-    main_window.set_focus().map_err(|error| error.to_string())?;
+    crate::tray::show_main_window(&app);
     main_window
         .emit(DESKTOP_TOAST_ACTIVATED_EVENT, payload)
         .map_err(|error| error.to_string())?;
 
     if let Some(toast_window) = app.get_webview_window(DESKTOP_TOAST_WINDOW_LABEL) {
+        #[cfg(target_os = "windows")]
+        {
+            let _ = toast_window.with_webview(|platform| {
+                let controller = platform.controller();
+                unsafe {
+                    let _ = controller.SetIsVisible(false);
+                }
+            });
+        }
         let _ = toast_window.hide();
     }
 
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn hide_desktop_toast(app: tauri::AppHandle) -> Result<(), String> {
+    if let Some(toast_window) = app.get_webview_window(DESKTOP_TOAST_WINDOW_LABEL) {
+        #[cfg(target_os = "windows")]
+        {
+            let _ = toast_window.with_webview(|platform| {
+                let controller = platform.controller();
+                unsafe {
+                    let _ = controller.SetIsVisible(false);
+                }
+            });
+        }
+        toast_window.hide().map_err(|error| error.to_string())?;
+    }
     Ok(())
 }
 

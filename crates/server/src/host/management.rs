@@ -898,11 +898,12 @@ async fn start_antigravity_login(
     action: &agents::ProfileManagementAction,
 ) -> Result<AgentManagementActionReceipt, ApplicationError> {
     if let Some(pending) = account_flow::peek_account_flow(&agent_id) {
-        let is_finished = if let Ok(contents) = tokio::fs::read_to_string(&pending.result_path).await {
-            account_flow::parse_account_flow_exit(&contents).is_some()
-        } else {
-            false
-        };
+        let is_finished =
+            if let Ok(contents) = tokio::fs::read_to_string(&pending.result_path).await {
+                account_flow::parse_account_flow_exit(&contents).is_some()
+            } else {
+                false
+            };
         if is_finished {
             account_flow::take_account_flow(&agent_id);
             let _ = tokio::fs::remove_file(&pending.result_path).await;

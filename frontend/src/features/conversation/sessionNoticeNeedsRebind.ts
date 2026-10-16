@@ -16,6 +16,23 @@ export const AGENT_SESSION_CONNECT_ERROR_NOTICE_ROW_ID =
 export const AUTO_PERMISSION_NOTICE_ROW_ID = 'notice:auto-permission-approved';
 
 /**
+ * Resend truncates the visible log and the host records this banner because
+ * the Agent thread cold-starts. The cut is the user's own action.
+ */
+const RESEND_COLD_START_NOTICE_MESSAGE =
+  '可见历史仍在，但 Agent 隐藏上下文已丢失。后续消息从新的冷启动会话继续。';
+
+export function isResendColdStartNotice(
+  rowId: string | undefined,
+  notice: { message?: string | null }
+): boolean {
+  return (
+    rowId === AGENT_BINDING_REBIND_NOTICE_ROW_ID &&
+    notice.message === RESEND_COLD_START_NOTICE_MESSAGE
+  );
+}
+
+/**
  * Rebind is only for notices that mean the Agent session cannot continue.
  * Product banners, info notices, and warnings that do not block the session
  * must not offer it.

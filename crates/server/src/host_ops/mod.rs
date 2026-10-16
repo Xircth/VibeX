@@ -465,17 +465,15 @@ impl ServerApplicationDomains {
             DomainCommand::FileAtHead => {
                 let args: FileAtHeadArgs = parse(args)?;
                 let revision = match (args.workspace_id, args.repo_id) {
-                    (Some(workspace_id), Some(repo_id)) => {
-                        Some(
-                            diff_base_revision(
-                                &self.pool,
-                                self.deployment.git(),
-                                workspace_id,
-                                repo_id,
-                            )
-                            .await?,
+                    (Some(workspace_id), Some(repo_id)) => Some(
+                        diff_base_revision(
+                            &self.pool,
+                            self.deployment.git(),
+                            workspace_id,
+                            repo_id,
                         )
-                    }
+                        .await?,
+                    ),
                     _ => None,
                 };
                 serialize(file_at_head_content(&args.file_path, revision.as_deref())?)
@@ -2057,7 +2055,9 @@ async fn diff_base_revision(
     let workspace = Workspace::find_by_id(pool, workspace_id)
         .await
         .map_err(internal_error)?
-        .ok_or_else(|| ApplicationError::not_found(format!("Workspace {workspace_id} not found")))?;
+        .ok_or_else(|| {
+            ApplicationError::not_found(format!("Workspace {workspace_id} not found"))
+        })?;
     let repo = Repo::find_by_id(pool, repo_id)
         .await
         .map_err(internal_error)?

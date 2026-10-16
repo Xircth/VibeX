@@ -64,6 +64,7 @@ import {
   AGENT_CONNECTION_RECOVERING_NOTICE_ROW_ID,
   AGENT_SESSION_CONNECT_ERROR_NOTICE_ROW_ID,
   AUTO_PERMISSION_NOTICE_ROW_ID,
+  isResendColdStartNotice,
   sessionNoticeNeedsRebind,
 } from '@/features/conversation/sessionNoticeNeedsRebind';
 import { nextSurfaceActive } from '@/features/conversation/surfaceActivity';
@@ -1472,6 +1473,7 @@ const AgentTimelineConversation = forwardRef<
         | undefined
     ) => {
       if (!row || row.row.kind !== 'session_notice' || !row.row.notice) return;
+      if (isResendColdStartNotice(row.row_id, row.row.notice)) return;
       if (notices.some((notice) => notice.id === row.row_id)) return;
       const notice = row.row.notice;
       notices.push({

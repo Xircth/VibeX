@@ -147,7 +147,7 @@ describe('AgentSetupPicker icons', () => {
     );
   });
 
-  it('centers a narrower install column and names every agent in the rail', () => {
+  it('centers a horizontal agent rail inside the install detail', () => {
     const css = readFileSync(
       resolve(
         process.cwd(),
@@ -162,15 +162,34 @@ describe('AgentSetupPicker icons', () => {
       /\.onboarding-install-step\s*\{[^}]*padding:\s*88px 32px 48px;/
     );
     expect(css).toMatch(
-      /\.onboarding-install-column\s*\{[^}]*width:\s*min\(820px,/
+      /\.onboarding-install-column\s*\{[^}]*width:\s*min\(1120px,/
     );
     expect(css).toMatch(
-      /\.onboarding-install-layout\s*\{[^}]*align-items:\s*center;/
+      /\.onboarding-agent-rail\s*\{[^}]*justify-content:\s*center;/
+    );
+    expect(css).toMatch(
+      /\.agent-management-bar-vertical\s*\{[^}]*flex-direction:\s*row;/
+    );
+    expect(css).toMatch(
+      /\.agent-management-bar-vertical\s*\{[^}]*height:\s*calc\(var\(--agent-bar-item-size\) \+ 8px\);/
+    );
+    expect(css).toMatch(
+      /\.agent-management-bar-vertical\s*\{[^}]*border-radius:\s*9999px;/
+    );
+    expect(css).not.toMatch(
+      /\.agent-management-bar-label\s*\{[^}]*max-width:\s*none;/
+    );
+    expect(css).toMatch(/\.onboarding-install-panels\s*\{[^}]*gap:\s*24px;/);
+    const settingsCss = readFileSync(
+      resolve(process.cwd(), 'src/styles/legacy/index.css'),
+      'utf8'
+    );
+    expect(settingsCss).toMatch(
+      /\.agent-management-bar-label\s*\{[^}]*max-width:\s*0;/
+    );
+    expect(settingsCss).toMatch(
+      /\.agent-management-bar-item\.is-selected\s+\.agent-management-bar-label\s*\{[^}]*opacity:\s*1;/
     );
     expect(css).toMatch(/@keyframes onboarding-install-dot/);
-    expect(css).toMatch(
-      /\.onboarding-agent-rail\.settings-page \.agent-management-bar\s*\{[^}]*width:\s*212px;/
-    );
-    expect(css).toMatch(/\.agent-management-bar-label\s*\{[^}]*opacity:\s*1;/);
   });
 });

@@ -37,6 +37,3 @@ export async function deliverDesktopNotification({
   if (pushEnabled) deliveries.push(showPush());
   await Promise.all(deliveries);
 }
-
-/** @deprecated use deliverDesktopNotification */
-export const deliverSessionCompletionNotification = deliverDesktopNotification;

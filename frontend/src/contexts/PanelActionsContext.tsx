@@ -107,6 +107,7 @@ import {
   ensureWelcomeEditorGroup,
   isEditorColumnCrushed,
   restoreFlexibleEditorColumn,
+  revealEditorColumnForTerminal,
   setColumnVisible,
   setLeftDockVisible,
 } from '@/utils/dockviewEditorGroup';
@@ -805,6 +806,16 @@ export function PanelActionsProvider({ children }: { children: ReactNode }) {
         markTerminalShelf(existing.id, nextVisible);
         if (!nextVisible) return;
 
+        if (isEditorColumnCrushed(dockviewApi)) {
+          const leftGroup = getLeftGroup(dockviewApi);
+          restoreFlexibleEditorColumn(
+            dockviewApi,
+            getLayoutArrangement(),
+            useLayoutStore.getState().rightPanelWidth,
+            leftGroup?.api.isVisible ? leftGroup.api.width : undefined
+          );
+        }
+
         const terminal =
           existing.panels.find((panel) => isEditorTerminalPanelId(panel.id)) ??
           null;
@@ -817,22 +828,47 @@ export function PanelActionsProvider({ children }: { children: ReactNode }) {
       const visibleEditors = getEditorGroups(dockviewApi).filter(
         (group) => group.api.isVisible
       );
-      const editorGroups =
-        visibleEditors.length > 0
-          ? visibleEditors
-          : getEditorGroups(dockviewApi);
-      const hostGroups =
-        editorGroups.length > 0
-          ? editorGroups
-          : [recreateWelcomeEditorGroup()].filter(
-              (group): group is NonNullable<typeof group> => Boolean(group)
-            );
-      if (hostGroups.length === 0 || !hostGroups[0]?.panels[0]) return;
+      if (visibleEditors.length === 0) {
+        const leftGroup = getLeftGroup(dockviewApi);
+        const group = revealEditorColumnForTerminal(dockviewApi, {
+          arrangement: getLayoutArrangement(),
+          sessionWidth: useLayoutStore.getState().rightPanelWidth,
+          dockWidth: leftGroup?.api.isVisible ? leftGroup.api.width : undefined,
+        });
+        if (!group) return;
+
+        const tabId = generateTerminalTabId();
+        const placeholders = group.panels.filter((panel) =>
+          isPlaceholderPanelId(panel.id)
+        );
+        const panel = dockviewApi.addPanel({
+          id: editorTerminalPanelId(tabId),
+          component: PANEL_IDS.TERMINAL,
+          title: 'Terminal',
+          renderer: 'onlyWhenVisible',
+          params: { surface: 'editor', tabId },
+          position: { referenceGroup: group.id, direction: 'within' },
+        });
+        for (const placeholder of placeholders) {
+          const current = dockviewApi.getPanel(placeholder.id);
+          if (!current) continue;
+          try {
+            dockviewApi.removePanel(current);
+          } catch {
+            // Ignore placeholder cleanup while the column is appearing.
+          }
+        }
+        panel.api.setActive();
+        normalizeEditorGroupIds(dockviewApi);
+        return;
+      }
+
+      if (!visibleEditors[0]?.panels[0]) return;
 
       const height = terminalShelfHeight(dockviewApi.height);
       let shelf: ReturnType<DockviewApi['addGroup']>;
       try {
-        shelf = addGroupBelowEditorGroups(dockviewApi, hostGroups, {
+        shelf = addGroupBelowEditorGroups(dockviewApi, visibleEditors, {
           id: getNextEditorGroupId(dockviewApi),
           height,
         });
@@ -857,8 +893,8 @@ export function PanelActionsProvider({ children }: { children: ReactNode }) {
       addShelfTerminal,
       findTerminalShelf,
       getEditorGroups,
+      getLeftGroup,
       normalizeEditorGroupIds,
-      recreateWelcomeEditorGroup,
     ]
   );
 

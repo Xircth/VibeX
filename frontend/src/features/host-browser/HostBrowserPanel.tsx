@@ -6,6 +6,7 @@ import {
   useState,
 } from 'react';
 import { useTranslation } from 'react-i18next';
+import { TextInput } from '@astryxdesign/core/TextInput';
 
 import {
   ArrowLeft,
@@ -47,6 +48,7 @@ import { backendCall, backendListen } from '@/lib/backendTransport';
 import { getInvokeErrorMessage } from '@/lib/errors';
 import { cn } from '@/lib/utils';
 import { open } from '@tauri-apps/plugin-shell';
+import { openInSystemBrowser } from '@/hooks/useOpenLink';
 import {
   requestComposerImageInsert,
   requestComposerTokenInsert,
@@ -77,6 +79,7 @@ import {
   clearAgentActivity,
 } from './browserChromeStore';
 import {
+  resolveSiteRuleAction,
   updateBrowserSettings,
   useBrowserPrefs,
 } from './browserPrefsStore';
@@ -431,9 +434,30 @@ export function HostBrowserPanel({
   const [suggestOpen, setSuggestOpen] = useState(false);
   const [suggestIndex, setSuggestIndex] = useState(0);
   const addressDirtyRef = useRef(false);
+  const addressFieldRef = useRef<HTMLDivElement>(null);
+  const addressToolsRef = useRef<HTMLDivElement>(null);
   const suggestions = suggestBrowserAddresses(address, addressHistory);
   const hideSeqRef = useRef(0);
   const loadingRef = useRef(false);
+
+  useLayoutEffect(() => {
+    const tools = addressToolsRef.current;
+    const root = addressFieldRef.current;
+    if (!tools || !root) return;
+    const apply = () => {
+      const input = root.querySelector('input');
+      if (!(input instanceof HTMLInputElement)) return;
+      input.spellcheck = false;
+      const width = Math.ceil(tools.getBoundingClientRect().width);
+      if (width < 24) return;
+      input.style.paddingInlineEnd = `${width + 10}px`;
+    };
+    apply();
+    if (typeof ResizeObserver === 'undefined') return;
+    const observer = new ResizeObserver(apply);
+    observer.observe(tools);
+    return () => observer.disconnect();
+  }, []);
 
   const dispatch = useCallback(
     async (operation: string, input: Record<string, unknown> = {}) => {
@@ -631,8 +655,44 @@ export function HostBrowserPanel({
     return measureSurface(hostRef.current, visibleRef.current, false);
   }, []);
 
+  const stopForSiteRule = useCallback(
+    (url: string) => {
+      const decision = resolveSiteRuleAction(url);
+      if (decision === 'block') {
+        toast.error(t('settings:browser.rules.blockedToast'));
+        return true;
+      }
+      if (decision === 'system') {
+        void openInSystemBrowser(url);
+        return true;
+      }
+      return false;
+    },
+    [t]
+  );
+
+  const explainSiteRuleError = useCallback(
+    (url: string, cause: unknown) => {
+      const message = getInvokeErrorMessage(cause);
+      if (message.includes('browser_use_system_browser')) {
+        void openInSystemBrowser(url);
+        return true;
+      }
+      if (
+        message.includes('browser_blocked_by_policy') ||
+        message.includes('browser_navigation_blocked')
+      ) {
+        toast.error(t('settings:browser.rules.blockedToast'));
+        return true;
+      }
+      return false;
+    },
+    [t]
+  );
+
   const openTab = useCallback(
     async (url: string) => {
+      if (stopForSiteRule(url)) return;
       setError(null);
       pendingUrlRef.current = url;
       setLoading(true);
@@ -656,7 +716,7 @@ export function HostBrowserPanel({
           url,
           grant: initialGrant,
           ...(currentSettings.newTabProfile !== 'default'
-            ? { profile: currentSettings.newTabProfile }
+            ? { profileId: currentSettings.newTabProfile }
             : {}),
           ...(bounds ? { bounds } : {}),
         })) as BrowserTab;
@@ -696,10 +756,19 @@ export function HostBrowserPanel({
         await syncBounds();
       } catch (cause) {
         setLoading(false);
+        if (explainSiteRuleError(url, cause)) return;
         setError(getInvokeErrorMessage(cause));
       }
     },
-    [dispatch, panelApi, panelId, syncBounds, waitForSurfaceBounds]
+    [
+      dispatch,
+      explainSiteRuleError,
+      panelApi,
+      panelId,
+      stopForSiteRule,
+      syncBounds,
+      waitForSurfaceBounds,
+    ]
   );
 
   useLayoutEffect(() => {
@@ -1082,6 +1151,7 @@ export function HostBrowserPanel({
 
   const goToUrl = (url: string) => {
     setSuggestOpen(false);
+    if (stopForSiteRule(url)) return;
     setError(null);
     addressDirtyRef.current = false;
     setAddress(url);
@@ -1111,6 +1181,7 @@ export function HostBrowserPanel({
       },
       (cause: unknown) => {
         setLoading(false);
+        if (explainSiteRuleError(url, cause)) return;
         setError(getInvokeErrorMessage(cause));
       }
     );
@@ -1365,77 +1436,78 @@ export function HostBrowserPanel({
             <RotateCw className="h-4 w-4" />
           )}
         </button>
-        <div className="relative mx-1 min-w-0 flex-1">
-          <div
-            className={cn(
-              'flex h-7 min-w-0 items-center gap-0.5 rounded-full border border-border/60 bg-muted/50 px-0.5 backdrop-blur-sm',
-              'focus-within:border-ring/50 focus-within:ring-2 focus-within:ring-ring/20'
-            )}
-          >
-            <input
-              value={address}
-              onChange={(event) => {
-                addressDirtyRef.current = true;
-                setAddress(event.target.value);
-                setSuggestIndex(0);
-                setSuggestOpen(true);
-              }}
-              onFocus={(event) => {
-                addressFocusedRef.current = true;
+        <div ref={addressFieldRef} className="relative mx-1 min-w-0 flex-1">
+          <TextInput
+            label={t('browserPanel.address')}
+            isLabelHidden
+            size="sm"
+            width="100%"
+            value={address}
+            placeholder={t('browserPanel.addressPlaceholder')}
+            autoComplete="off"
+            role="combobox"
+            aria-expanded={suggestOpen && suggestions.length > 0}
+            aria-controls="host-browser-address-suggestions"
+            onChange={(value) => {
+              addressDirtyRef.current = true;
+              setAddress(value);
+              setSuggestIndex(0);
+              setSuggestOpen(true);
+            }}
+            onFocus={(event) => {
+              addressFocusedRef.current = true;
+              if (event.currentTarget instanceof HTMLInputElement) {
                 event.currentTarget.select();
-                setSuggestOpen(true);
-              }}
-              onBlur={() => {
-                addressFocusedRef.current = false;
-                addressDirtyRef.current = false;
-                window.setTimeout(() => setSuggestOpen(false), 120);
-              }}
-              onKeyDown={(event) => {
-                if (event.key === 'ArrowDown' && suggestions.length > 0) {
-                  event.preventDefault();
-                  setSuggestOpen(true);
-                  setSuggestIndex((index) => (index + 1) % suggestions.length);
-                  return;
-                }
-                if (event.key === 'ArrowUp' && suggestions.length > 0) {
-                  event.preventDefault();
-                  setSuggestOpen(true);
-                  setSuggestIndex(
-                    (index) =>
-                      (index - 1 + suggestions.length) % suggestions.length
-                  );
-                  return;
-                }
-                if (event.key === 'Escape') {
-                  setSuggestOpen(false);
-                  return;
-                }
-                if (
-                  !isBrowserAddressSubmitKey({
-                    key: event.key,
-                    code: event.code,
-                    shiftKey: event.shiftKey,
-                    altKey: event.altKey,
-                    metaKey: event.metaKey,
-                    ctrlKey: event.ctrlKey,
-                    isComposing: event.nativeEvent.isComposing,
-                    keyCode: event.nativeEvent.keyCode,
-                  })
-                ) {
-                  return;
-                }
+              }
+              setSuggestOpen(true);
+            }}
+            onBlur={() => {
+              addressFocusedRef.current = false;
+              addressDirtyRef.current = false;
+              window.setTimeout(() => setSuggestOpen(false), 120);
+            }}
+            onKeyDown={(event) => {
+              if (event.key === 'ArrowDown' && suggestions.length > 0) {
                 event.preventDefault();
-                navigate();
-              }}
-              spellCheck={false}
-              autoComplete="off"
-              role="combobox"
-              aria-expanded={suggestOpen && suggestions.length > 0}
-              aria-controls="host-browser-address-suggestions"
-              placeholder={t('browserPanel.addressPlaceholder')}
-              aria-label={t('browserPanel.address')}
-              className="h-full min-w-0 flex-1 bg-transparent px-1.5 text-xs text-foreground outline-none"
-            />
+                setSuggestOpen(true);
+                setSuggestIndex((index) => (index + 1) % suggestions.length);
+                return;
+              }
+              if (event.key === 'ArrowUp' && suggestions.length > 0) {
+                event.preventDefault();
+                setSuggestOpen(true);
+                setSuggestIndex(
+                  (index) =>
+                    (index - 1 + suggestions.length) % suggestions.length
+                );
+                return;
+              }
+              if (event.key === 'Escape') {
+                setSuggestOpen(false);
+                return;
+              }
+              if (
+                !isBrowserAddressSubmitKey({
+                  key: event.key,
+                  code: event.code,
+                  shiftKey: event.shiftKey,
+                  altKey: event.altKey,
+                  metaKey: event.metaKey,
+                  ctrlKey: event.ctrlKey,
+                  isComposing: event.nativeEvent.isComposing,
+                  keyCode: event.nativeEvent.keyCode,
+                })
+              ) {
+                return;
+              }
+              event.preventDefault();
+              navigate();
+            }}
+          />
+          <div
+            ref={addressToolsRef}
+            className="absolute inset-y-0 right-1 z-[1] flex items-center gap-0.5"
+          >
             <BrowserAgentActivityControl tabId={tab?.tabId ?? null} />
             <button
               type="button"
@@ -1490,6 +1562,41 @@ export function HostBrowserPanel({
             >
               <MousePointerClick className="h-3.5 w-3.5" />
             </button>
+            <BrowserAgentShareControl
+              origin={tab?.origin || tab?.url}
+              grant={tab?.grant}
+              disabled={!tab}
+              onShare={(level) => {
+                const tabId = tabIdRef.current;
+                if (!tabId) return;
+                void dispatch('grant.set', { tabId, level }).then((next) => {
+                  const updated = next as BrowserTab;
+                  setTab(updated);
+                  const origin = updated.origin || tab?.origin;
+                  if (origin) {
+                    const nextGrants = {
+                      ...browserSettingsRef.current.originGrants,
+                    };
+                    if (level === 'none') {
+                      delete nextGrants[origin];
+                    } else {
+                      nextGrants[origin] = level;
+                    }
+                    void updateBrowserSettings({ originGrants: nextGrants });
+                  }
+                  window.dispatchEvent(
+                    new CustomEvent('vibex:browser-grant-changed', {
+                      detail: {
+                        tabId,
+                        level,
+                        origin: origin ?? null,
+                        grant: updated.grant ?? null,
+                      },
+                    })
+                  );
+                });
+              }}
+            />
           </div>
           {suggestOpen && suggestions.length > 0 ? (
             <div className="absolute inset-x-0 top-[calc(100%+6px)] z-[20000] overflow-hidden rounded-xl border border-border/60 bg-[var(--surface-dialog)] py-1 shadow-[0_18px_42px_hsl(220_36%_8%_/_0.2)]">
@@ -1545,39 +1652,6 @@ export function HostBrowserPanel({
             </div>
           ) : null}
         </div>
-        <BrowserAgentShareControl
-          origin={tab?.origin || tab?.url}
-          grant={tab?.grant}
-          disabled={!tab}
-          onShare={(level) => {
-            const tabId = tabIdRef.current;
-            if (!tabId) return;
-            void dispatch('grant.set', { tabId, level }).then((next) => {
-              const updated = next as BrowserTab;
-              setTab(updated);
-              const origin = updated.origin || tab?.origin;
-              if (origin) {
-                const nextGrants = { ...browserSettingsRef.current.originGrants };
-                if (level === 'none') {
-                  delete nextGrants[origin];
-                } else {
-                  nextGrants[origin] = level;
-                }
-                void updateBrowserSettings({ originGrants: nextGrants });
-              }
-              window.dispatchEvent(
-                new CustomEvent('vibex:browser-grant-changed', {
-                  detail: {
-                    tabId,
-                    level,
-                    origin: origin ?? null,
-                    grant: updated.grant ?? null,
-                  },
-                })
-              );
-            });
-          }}
-        />
         <DropdownMenu modal={false}>
           <DropdownMenuTrigger asChild>
             <button

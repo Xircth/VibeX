@@ -1,8 +1,10 @@
 import { Diff } from 'shared/types';
 import { useTranslation } from 'react-i18next';
 import { DiffModeEnum, DiffView, SplitSide } from '@git-diff-view/react';
-import { generateDiffFile, type DiffFile } from '@git-diff-view/file';
+import { _cacheMap, generateDiffFile, type DiffFile } from '@git-diff-view/file';
 import { useMemo, useState, useCallback, useEffect } from 'react';
+
+_cacheMap.setMaxLength(10);
 import { useUserSystem } from '@/components/ConfigProvider';
 import { getHighLightLanguageFromPath } from '@/utils/extToLanguage';
 import { getActualTheme } from '@/utils/theme';
@@ -297,7 +299,11 @@ export default function DiffCard({
   const isContentEqual =
     !isEffectivelyOmitted && oldContentSafe === newContentSafe;
 
+  const hasKnownHeaderCounts =
+    diff.additions != null && diff.deletions != null;
+
   const diffFile = useMemo(() => {
+    if (!expanded && hasKnownHeaderCounts) return null;
     if (isEffectivelyOmitted) return null;
     if (isContentEqual) return null;
     try {
@@ -320,6 +326,7 @@ export default function DiffCard({
           usingStream
         )
       ) {
+        file._destroy?.();
         return null;
       }
       return file;
@@ -329,6 +336,8 @@ export default function DiffCard({
     }
   }, [
     diff.deletions,
+    expanded,
+    hasKnownHeaderCounts,
     isContentEqual,
     isEffectivelyOmitted,
     oldName,
@@ -340,6 +349,12 @@ export default function DiffCard({
     diffOptions,
     usingStream,
   ]);
+
+  useEffect(() => {
+    return () => {
+      diffFile?._destroy?.();
+    };
+  }, [diffFile]);
 
   const headerCounts = headerChangeCounts(
     diff,
@@ -495,10 +510,10 @@ export default function DiffCard({
   const expandable = true;
 
   return (
-    <div className="my-4 overflow-clip rounded-xl border border-border bg-card">
+    <div className="my-2 overflow-clip rounded-xl border border-border/60 bg-muted/20">
       <div
-        className={`sticky top-0 z-[5] flex items-center bg-card px-4 py-2 ${
-          expanded ? 'border-b border-border' : ''
+        className={`sticky top-0 z-[5] flex items-center bg-transparent px-4 py-2 ${
+          expanded ? 'border-b border-border/60' : ''
         }`}
       >
         {expandable && (

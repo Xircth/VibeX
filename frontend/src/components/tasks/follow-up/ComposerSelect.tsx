@@ -22,7 +22,7 @@ export const COMPOSER_SELECT_LIST_CLASS = 'composer-select-list';
  * `focus:` style only ever reflects keyboard navigation.
  */
 export const COMPOSER_SELECT_ITEM_CLASS =
-  'flex items-center gap-2 rounded-md px-2 py-1 hover:bg-[var(--surface-control-hover)]';
+  'flex items-center gap-2 rounded-sm px-2.5 py-1.5 text-[13px] leading-5 hover:bg-accent hover:text-accent-foreground focus:bg-accent focus:text-accent-foreground';
 
 /**
  * Radix focuses a menu item when the pointer moves over it; with a partially

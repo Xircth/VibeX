@@ -743,11 +743,21 @@ function updateEntry(
 ): ConversationStoreState {
   const current =
     state.byConversationId[conversationId] ?? createEntry(conversationId);
+  const nextByConversationId = {
+    ...state.byConversationId,
+    [conversationId]: update(current),
+  };
+  const keys = Object.keys(nextByConversationId);
+  if (keys.length > 5) {
+    for (const key of keys) {
+      if (key !== conversationId && nextByConversationId[key]?.loading !== true) {
+        delete nextByConversationId[key];
+        if (Object.keys(nextByConversationId).length <= 5) break;
+      }
+    }
+  }
   return {
-    byConversationId: {
-      ...state.byConversationId,
-      [conversationId]: update(current),
-    },
+    byConversationId: nextByConversationId,
   };
 }
 

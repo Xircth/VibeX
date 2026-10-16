@@ -230,7 +230,9 @@ impl BrowserService {
         if !next.profiles.iter().any(|p| p.id == "default") {
             next.profiles.insert(0, BrowserProfileRecord::default());
         }
-        if !next.profiles.iter().any(|p| p.id == next.new_tab_profile) {
+        if next.new_tab_profile != "ephemeral"
+            && !next.profiles.iter().any(|p| p.id == next.new_tab_profile)
+        {
             next.new_tab_profile = "default".to_owned();
         }
         self.policy.set_user_rules(next.host_rules.clone());
@@ -249,6 +251,16 @@ impl BrowserService {
             return false;
         }
         !self.policy.blocked(&parsed)
+    }
+
+    /// A site rule says this URL must leave the built-in browser.
+    pub fn prefers_system_browser(&self, raw_url: &str) -> bool {
+        let Ok(parsed) = Url::parse(raw_url) else {
+            return false;
+        };
+        self.policy
+            .rule_for(&parsed)
+            .is_some_and(|rule| rule.action == HostRuleAction::System)
     }
 
     pub fn begin_navigation(&self, tab_id: &str, url: &str) -> bool {
@@ -436,16 +448,25 @@ impl BrowserService {
                 "the built-in browser is disabled by administrator policy",
             ));
         }
-        if let Some(rule) = self.policy.rule_for(parsed)
-            && rule.action == HostRuleAction::Block
-        {
-            return Err(BrowserHostError::new(
-                "browser_blocked_by_policy",
-                format!(
-                    "navigation to {} is blocked by site rules (matching {})",
-                    parsed, rule.pattern
-                ),
-            ));
+        if let Some(rule) = self.policy.rule_for(parsed) {
+            if rule.action == HostRuleAction::Block {
+                return Err(BrowserHostError::new(
+                    "browser_blocked_by_policy",
+                    format!(
+                        "navigation to {} is blocked by site rules (matching {})",
+                        parsed, rule.pattern
+                    ),
+                ));
+            }
+            if rule.action == HostRuleAction::System {
+                return Err(BrowserHostError::new(
+                    "browser_use_system_browser",
+                    format!(
+                        "site rules open {} in the system browser (matching {})",
+                        parsed, rule.pattern
+                    ),
+                ));
+            }
         }
         Ok(())
     }
@@ -481,12 +502,16 @@ impl BrowserService {
             .to_owned();
         self.native.open(&tab_id, url, &bounds, &profile_id).await?;
         let origin = origin_of(&parsed);
-        let share_level = grant.unwrap_or_else(|| {
-            origin
-                .as_deref()
-                .and_then(|o| settings.origin_grants.get(o).copied())
-                .unwrap_or(GrantLevel::Control)
-        });
+        let share_level = if !settings.tools_enabled {
+            GrantLevel::None
+        } else {
+            grant.unwrap_or_else(|| {
+                origin
+                    .as_deref()
+                    .and_then(|o| settings.origin_grants.get(o).copied())
+                    .unwrap_or(settings.default_grant)
+            })
+        };
         let mut tab = BrowserTab {
             tab_id: tab_id.clone(),
             url: url.to_owned(),
@@ -620,6 +645,29 @@ impl BrowserService {
             ));
         }
         Ok(())
+    }
+
+    fn ensure_tools(&self) -> Result<(), BrowserHostError> {
+        if self.settings().tools_enabled {
+            Ok(())
+        } else {
+            Err(BrowserHostError::new(
+                "browser_tools_disabled",
+                "Agent browser tools are disabled in Settings → Browser.",
+            ))
+        }
+    }
+
+    fn ensure_eval(&self) -> Result<(), BrowserHostError> {
+        self.ensure_tools()?;
+        if self.settings().eval_enabled {
+            Ok(())
+        } else {
+            Err(BrowserHostError::new(
+                "browser_eval_disabled",
+                "Running page JavaScript is disabled in Settings → Browser.",
+            ))
+        }
     }
 
     fn note_activity(&self, tab_id: &str, action: &str, outcome: &str) {
@@ -1045,12 +1093,25 @@ pub async fn dispatch(
             }));
             Ok(result)
         }
-        "snapshot" => snapshot(service, &input).await,
-        "act" => act(service, &input).await,
-        "console.read" => console_read(service, &input),
+        "snapshot" => {
+            service.ensure_tools()?;
+            snapshot(service, &input).await
+        }
+        "act" => {
+            service.ensure_tools()?;
+            act(service, &input).await
+        }
+        "console.read" => {
+            service.ensure_tools()?;
+            console_read(service, &input)
+        }
         "console.push" => console_push(service, &input),
-        "screenshot" | "tab.capture" => screenshot(service, &input).await,
+        "screenshot" | "tab.capture" => {
+            service.ensure_tools()?;
+            screenshot(service, &input).await
+        }
         "eval.request" => {
+            service.ensure_eval()?;
             let tab_id = service.resolve_tab_id(input.get("tabId").and_then(Value::as_str))?;
             let code = required_string(&input, "code")?;
             eval::validate_code(&code).map_err(|bad| {
@@ -1067,6 +1128,7 @@ pub async fn dispatch(
             eval_ask(service, &tab, &code).await
         }
         "eval.run" => {
+            service.ensure_eval()?;
             let tab_id = service.resolve_tab_id(input.get("tabId").and_then(Value::as_str))?;
             let code = required_string(&input, "code")?;
             eval::validate_code(&code).map_err(|bad| {
@@ -1080,11 +1142,7 @@ pub async fn dispatch(
             })?;
             let tab = service.tab(&tab_id)?;
             service.require_grant(&tab, GrantLevel::Control, "eval")?;
-            let silent = input
-                .get("evalApproval")
-                .and_then(Value::as_str)
-                .is_some_and(|mode| mode == "silent")
-                || service.settings().eval_approval == EvalApprovalMode::Silent;
+            let silent = service.settings().eval_approval == EvalApprovalMode::Silent;
             eval_run(service, &tab, &code, silent).await
         }
         "eval.decide" => {
@@ -1354,10 +1412,7 @@ fn console_read(service: &BrowserService, input: &Value) -> Result<Value, Browse
         .and_then(Value::as_str)
     {
         Some(raw) => Some(ConsoleLevel::parse(raw).ok_or_else(|| {
-            BrowserHostError::new(
-                "browser_invalid",
-                format!("unknown console level {raw:?}"),
-            )
+            BrowserHostError::new("browser_invalid", format!("unknown console level {raw:?}"))
         })?),
         None => None,
     };
@@ -1385,10 +1440,7 @@ fn console_read(service: &BrowserService, input: &Value) -> Result<Value, Browse
 
 fn console_push(service: &BrowserService, input: &Value) -> Result<Value, BrowserHostError> {
     let tab_id = required_string(input, "tabId")?;
-    let level_raw = input
-        .get("level")
-        .and_then(Value::as_str)
-        .unwrap_or("log");
+    let level_raw = input.get("level").and_then(Value::as_str).unwrap_or("log");
     let level = ConsoleLevel::parse(level_raw).unwrap_or(ConsoleLevel::Log);
     let source = input
         .get("source")
@@ -1400,10 +1452,7 @@ fn console_push(service: &BrowserService, input: &Value) -> Result<Value, Browse
         .and_then(Value::as_str)
         .unwrap_or("")
         .to_owned();
-    let url = input
-        .get("url")
-        .and_then(Value::as_str)
-        .map(str::to_owned);
+    let url = input.get("url").and_then(Value::as_str).map(str::to_owned);
     let line = input
         .get("line")
         .and_then(Value::as_u64)
@@ -1412,7 +1461,10 @@ fn console_push(service: &BrowserService, input: &Value) -> Result<Value, Browse
         .get("column")
         .and_then(Value::as_u64)
         .and_then(|n| u32::try_from(n).ok());
-    let at = input.get("at").and_then(Value::as_i64).unwrap_or_else(now_ms);
+    let at = input
+        .get("at")
+        .and_then(Value::as_i64)
+        .unwrap_or_else(now_ms);
     service.push_console_line(
         &tab_id,
         ConsoleLine {
@@ -1484,9 +1536,7 @@ async fn screenshot(service: &BrowserService, input: &Value) -> Result<Value, Br
             })?;
             agent::epoch(record.incarnation, record.nav_epoch)
         };
-        if gen_token.split('.').count() == 4
-            && !agent::ref_is_current(gen_token, &current_epoch)
-        {
+        if gen_token.split('.').count() == 4 && !agent::ref_is_current(gen_token, &current_epoch) {
             return Err(BrowserHostError::new(
                 "browser_stale_ref",
                 "the page has navigated since that snapshot; take a new snapshot",
@@ -2320,6 +2370,131 @@ mod tests {
         .expect("profile.remove");
         assert_eq!(removed["removed"], true);
         assert_eq!(removed["profiles"].as_array().unwrap().len(), 1);
+    }
+
+    #[tokio::test]
+    async fn settings_page_values_reach_tab_create_and_agent_tools() {
+        let service = BrowserService::new(Arc::new(MemoryNative), true);
+        let updated = dispatch(
+            &service,
+            "vibex.browser",
+            "settings.set",
+            json!({
+                "newTabProfile": "ephemeral",
+                "defaultGrant": "read",
+                "hostRules": [
+                    { "pattern": "https://*.example.com:8443", "action": "system" },
+                    { "pattern": "blocked.example", "action": "block" }
+                ]
+            }),
+        )
+        .await
+        .expect("settings.set");
+        assert_eq!(updated["newTabProfile"], "ephemeral");
+        assert_eq!(updated["defaultGrant"], "read");
+        assert_eq!(updated["devtools"], true);
+        assert_eq!(updated["evalEnabled"], true);
+        assert_eq!(updated["hostRules"].as_array().unwrap().len(), 2);
+
+        let tab = dispatch(
+            &service,
+            "vibex.browser",
+            "tab.create",
+            json!({ "url": "https://example.test/" }),
+        )
+        .await
+        .expect("open");
+        assert_eq!(tab["grant"]["level"], "read");
+        assert_eq!(tab["profileId"], "ephemeral");
+
+        let external = dispatch(
+            &service,
+            "vibex.browser",
+            "tab.navigate",
+            json!({ "tabId": tab["tabId"], "url": "https://a.example.com:8443/login" }),
+        )
+        .await
+        .expect_err("system rule");
+        assert_eq!(external.code(), "browser_use_system_browser");
+
+        dispatch(
+            &service,
+            "vibex.browser",
+            "settings.set",
+            json!({ "toolsEnabled": false, "evalEnabled": false }),
+        )
+        .await
+        .expect("disable tools");
+        let unshared = dispatch(
+            &service,
+            "vibex.browser",
+            "tab.create",
+            json!({ "url": "https://example.test/next", "grant": "control" }),
+        )
+        .await
+        .expect("open unshared");
+        assert!(unshared["grant"].is_null());
+        let refused = dispatch(
+            &service,
+            "vibex.browser",
+            "snapshot",
+            json!({ "tabId": unshared["tabId"] }),
+        )
+        .await
+        .expect_err("tools off");
+        assert_eq!(refused.code(), "browser_tools_disabled");
+
+        dispatch(
+            &service,
+            "vibex.browser",
+            "settings.set",
+            json!({ "toolsEnabled": true, "evalEnabled": false, "defaultGrant": "control" }),
+        )
+        .await
+        .expect("eval off");
+        let shared = dispatch(
+            &service,
+            "vibex.browser",
+            "tab.create",
+            json!({ "url": "https://example.test/eval" }),
+        )
+        .await
+        .expect("open shared");
+        let eval_off = dispatch(
+            &service,
+            "vibex.browser",
+            "eval.run",
+            json!({
+                "tabId": shared["tabId"],
+                "code": "1+1",
+                "evalApproval": "silent"
+            }),
+        )
+        .await
+        .expect_err("eval disabled");
+        assert_eq!(eval_off.code(), "browser_eval_disabled");
+
+        dispatch(
+            &service,
+            "vibex.browser",
+            "settings.set",
+            json!({ "evalEnabled": true, "evalApproval": "silent" }),
+        )
+        .await
+        .expect("silent eval");
+        let ran = dispatch(
+            &service,
+            "vibex.browser",
+            "eval.run",
+            json!({
+                "tabId": shared["tabId"],
+                "code": "1+1",
+                "evalApproval": "ask"
+            }),
+        )
+        .await
+        .expect("setting silent wins over the request");
+        assert_eq!(ran["tabId"], shared["tabId"]);
     }
 
     #[tokio::test]

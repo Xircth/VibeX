@@ -85,7 +85,7 @@ export function SessionComposerTopbar({
               <span className="text-destructive">-{deleted}</span>
             </span>
           ) : (
-            `${changedFileCount} Diffs`
+            `${changedFileCount} CHANGES`
           )}
         </button>
       ) : null}

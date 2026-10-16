@@ -12,7 +12,9 @@ pub mod types;
 pub use agent::{ActOutcome, PageSnapshot, ScrollReport, SnapshotRequest, SnapshotViewport};
 pub use capture::{CaptureFormat, CaptureRegion, CaptureRequest, PageCapture};
 pub use confirm::{AskRefused, EVAL_CONFIRM_TIMEOUT, EvalConsent};
-pub use console::{ConsoleEntry, ConsoleLevel, ConsoleLine, ConsoleQuery, ConsoleRead, ConsoleRing, ConsoleSource};
+pub use console::{
+    ConsoleEntry, ConsoleLevel, ConsoleLine, ConsoleQuery, ConsoleRead, ConsoleRing, ConsoleSource,
+};
 pub use error::BrowserHostError;
 pub use grant::{AgentGrant, GrantLevel};
 pub use policy::{

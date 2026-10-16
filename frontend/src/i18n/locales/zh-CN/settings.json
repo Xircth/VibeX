@@ -2845,13 +2845,14 @@
     },
     "rules": {
       "title": "站点规则",
-      "description": "按域名或主机规律覆盖默认打开方式。企业策略规则优先于个人规则，拦截优先于允许。",
+      "description": "按域名或主机规律覆盖默认打开方式。企业策略规则优先于个人规则。更具体的主机优先；同一范围时，拦截优先于系统浏览器，系统浏览器优先于内置浏览器。",
       "policyManaged": "已加载企业策略文件",
       "policyRule": "策略锁定",
       "patternPlaceholder": "例如 *.corp.internal、localhost:3000 或 https://*.example.com:8443",
       "actionBuiltin": "内置浏览器打开",
       "actionSystem": "系统浏览器打开",
       "actionBlock": "拦截访问",
+      "blockedToast": "该站点已被站点规则拦截",
       "addRule": "添加规则",
       "empty": "暂未配置个人站点规则。",
       "removeRule": "删除规则",
@@ -2860,7 +2861,7 @@
         "path": "站点规则仅匹配主机名与可选端口，不支持路径、查询参数或锚点",
         "scheme": "协议仅支持 http:// 或 https://",
         "port": "端口必须是 1–65535 的数字或 *",
-        "wildcard": "通配符仅支持精确前缀 *.example.com",
+        "wildcard": "通配符仅支持 *，或作为前缀的 *.example.com",
         "host": "请输入有效的主机名、IPv4 或 [IPv6] 地址",
         "duplicate": "该匹配规则与动作已存在"
       }
@@ -2896,7 +2897,11 @@
       "terminalClickMenuHint": "按住 Alt 点击终端 URL 时，可临时选择内置浏览器或系统浏览器。"
     },
     "runtime": {
-      "title": "运行环境与渲染",
+      "title": "基础设置",
+      "defaultLinkTarget": "链接默认打开方式",
+      "defaultLinkTargetHint": "点击工作区中的 http(s) 链接时使用的浏览器。",
+      "defaultLinkBuiltin": "内置浏览器",
+      "defaultLinkSystem": "默认浏览器",
       "devtools": "显示开发者工具 (DevTools) 按钮",
       "surfaceOverride": "浏览器承载模式",
       "surfaceAuto": "自动（平台原生子视图嵌入）",

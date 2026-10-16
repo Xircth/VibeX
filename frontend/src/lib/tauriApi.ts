@@ -67,8 +67,12 @@ function isExpectedRepoRemoteConfigError(cmd: string, error: unknown) {
   const normalized = message.toLowerCase();
 
   return (
-    normalized.includes('invalid repository') &&
-    normalized.includes('no remotes configured')
+    (normalized.includes('invalid repository') &&
+      normalized.includes('no remotes configured')) ||
+    normalized.includes('github cli') ||
+    normalized.includes('gh auth login') ||
+    normalized.includes('not authenticated') ||
+    normalized.includes('authentication failed')
   );
 }
 

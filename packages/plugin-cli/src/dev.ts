@@ -61,7 +61,13 @@ export async function watchPluginSources(
       do {
         queued = false;
         if (options.signal.aborted) return;
-        const observed = await sourceDigest(root, ignoreRemoteSources);
+        let observed: string;
+        try {
+          observed = await sourceDigest(root, ignoreRemoteSources);
+        } catch (error) {
+          options.onError?.(error);
+          return;
+        }
         if (observed === baseline && !queued) return;
         try {
           await options.reload();
@@ -69,7 +75,13 @@ export async function watchPluginSources(
           options.onError?.(error);
         }
         baseline = observed;
-        const after = await sourceDigest(root, ignoreRemoteSources);
+        let after: string;
+        try {
+          after = await sourceDigest(root, ignoreRemoteSources);
+        } catch (error) {
+          options.onError?.(error);
+          return;
+        }
         if (after !== observed) queued = true;
       } while (queued && !options.signal.aborted);
     } finally {
@@ -102,11 +114,27 @@ export async function watchPluginSources(
   });
 }
 
+function isEnoent(error: unknown) {
+  return (
+    typeof error === 'object' &&
+    error !== null &&
+    'code' in error &&
+    (error as { code?: unknown }).code === 'ENOENT'
+  );
+}
+
 async function sourceDigest(root: string, ignoreRemoteSources = false) {
   const hash = createHash('sha256');
   const files: string[] = [];
   async function visit(directory: string) {
-    for (const entry of await readdir(directory, { withFileTypes: true })) {
+    let entries;
+    try {
+      entries = await readdir(directory, { withFileTypes: true });
+    } catch (error) {
+      if (isEnoent(error) && directory !== root) return;
+      throw error;
+    }
+    for (const entry of entries) {
       if (entry.isDirectory() && ignoredDirectories.has(entry.name)) continue;
       const absolute = join(directory, entry.name);
       const path = relative(root, absolute).replaceAll('\\', '/');
@@ -117,10 +145,14 @@ async function sourceDigest(root: string, ignoreRemoteSources = false) {
   }
   await visit(root);
   for (const path of files.sort()) {
-    hash
-      .update(path)
-      .update('\0')
-      .update(await readFile(join(root, path)));
+    let content: Buffer;
+    try {
+      content = await readFile(join(root, path));
+    } catch (error) {
+      if (isEnoent(error)) continue;
+      throw error;
+    }
+    hash.update(path).update('\0').update(content);
   }
   return hash.digest('hex');
 }

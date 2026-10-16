@@ -5654,7 +5654,10 @@ mod tests {
         assert_eq!(tool_uses.len(), 1, "update must not spawn a second block");
         let (tool_use_id, tool_name, kind, input_preview, started_at, ended_at) = &tool_uses[0];
         assert_eq!(tool_use_id.as_deref(), Some("tool-1"));
-        assert!(started_at.is_some(), "tool start comes from the upsert event");
+        assert!(
+            started_at.is_some(),
+            "tool start comes from the upsert event"
+        );
         assert!(ended_at.is_some(), "terminal status stamps the tool end");
         assert!(ended_at.unwrap() >= started_at.unwrap());
         assert_eq!(tool_name.as_str(), "Run tests");
@@ -7372,7 +7375,8 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn incremental_projector_skips_turn_reemission_on_non_turn_events_and_coalesces_batches() {
+    async fn incremental_projector_skips_turn_reemission_on_non_turn_events_and_coalesces_batches()
+    {
         let pool = setup_pool().await;
         let (conversation_id, turn_id) = seed_turn(&pool).await;
         let user_rec = append_event(
@@ -7513,7 +7517,9 @@ mod tests {
                     assert_eq!(turn.role, TurnRole::Assistant);
                     for block in &turn.blocks {
                         match block {
-                            ContentBlock::ToolUse { meta: Some(meta), .. } => {
+                            ContentBlock::ToolUse {
+                                meta: Some(meta), ..
+                            } => {
                                 let serialized = serde_json::to_string(meta).unwrap();
                                 assert!(
                                     serialized.len()
@@ -7541,4 +7547,3 @@ mod tests {
         }
     }
 }
-

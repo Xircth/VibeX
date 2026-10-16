@@ -58,7 +58,7 @@ const Dialog = React.forwardRef<
       if (typeof ref === 'function') {
         ref(node);
       } else if (ref) {
-        (ref as React.MutableRefObject<HTMLDivElement | null>).current = node;
+        (ref as React.RefObject<HTMLDivElement | null>).current = node;
       }
     },
     [ref]

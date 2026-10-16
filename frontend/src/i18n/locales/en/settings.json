@@ -2848,13 +2848,14 @@
     },
     "rules": {
       "title": "Site rules",
-      "description": "Override default link routing by domain or host pattern. Managed policy rules run before personal rules, and block rules take precedence.",
+      "description": "Override the default opener by domain or host pattern. Managed policy rules run before personal rules. A more specific host wins. At the same specificity, block wins over the system browser, and the system browser wins over the built-in browser.",
       "policyManaged": "Managed enterprise policy loaded",
       "policyRule": "Policy",
       "patternPlaceholder": "e.g. *.corp.internal, localhost:3000, or https://*.example.com:8443",
       "actionBuiltin": "Open in built-in browser",
       "actionSystem": "Open in system browser",
       "actionBlock": "Block navigation",
+      "blockedToast": "This site is blocked by a site rule",
       "addRule": "Add rule",
       "empty": "No custom site rules configured.",
       "removeRule": "Remove rule",
@@ -2863,7 +2864,7 @@
         "path": "Site rules match hostnames and optional ports only (no path, query, or hash)",
         "scheme": "Scheme must be http:// or https://",
         "port": "Port must be 1–65535 or *",
-        "wildcard": "Wildcards are only supported as a leading *.example.com prefix",
+        "wildcard": "Wildcards are only supported as * or a leading *.example.com prefix",
         "host": "Enter a valid hostname, IPv4, or [IPv6] address",
         "duplicate": "A rule with this pattern and action already exists"
       }
@@ -2899,7 +2900,11 @@
       "terminalClickMenuHint": "Hold Alt when clicking a terminal URL to choose between the built-in and system browser."
     },
     "runtime": {
-      "title": "WebView runtime & rendering",
+      "title": "Basic settings",
+      "defaultLinkTarget": "Default link opener",
+      "defaultLinkTargetHint": "Browser used when an http(s) link is opened from the workspace.",
+      "defaultLinkBuiltin": "Built-in browser",
+      "defaultLinkSystem": "Default browser",
       "devtools": "Show DevTools button in toolbar",
       "surfaceOverride": "Browser surface mode",
       "surfaceAuto": "Auto (Native embedded child WebView)",

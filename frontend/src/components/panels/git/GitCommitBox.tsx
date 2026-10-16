@@ -1,10 +1,5 @@
-import { memo, useCallback, useEffect, useRef, useState } from 'react';
-import {
-  Upload,
-  ChevronsUpDown,
-  ChevronsDownUp,
-  Sparkles,
-} from 'lucide-react';
+import { memo, useCallback, useEffect, useRef } from 'react';
+import { Sparkles } from 'lucide-react';
 import { Button } from '@astryxdesign/core/Button';
 import { ButtonGroup } from '@astryxdesign/core/ButtonGroup';
 import type { GitFileStatusEntry, GitFileDiffEntry } from 'shared/types';
@@ -48,7 +43,6 @@ export const GitCommitBox = memo(function GitCommitBox({
   onPush,
 }: GitCommitBoxProps) {
   const textareaRef = useRef<HTMLTextAreaElement>(null);
-  const [collapsed, setCollapsed] = useState(false);
 
   const hasMessage = commitMessage.trim().length > 0;
   const hasChanges = hasStagedFiles || hasUnstagedFiles;
@@ -70,7 +64,7 @@ export const GitCommitBox = memo(function GitCommitBox({
 
   useEffect(() => {
     adjustTextareaHeight();
-  }, [adjustTextareaHeight, commitMessage, collapsed]);
+  }, [adjustTextareaHeight, commitMessage]);
 
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
@@ -88,10 +82,6 @@ export const GitCommitBox = memo(function GitCommitBox({
     [canCommit, onCommit, onCommitAndPush]
   );
 
-  const toggleCollapsed = useCallback(() => {
-    setCollapsed((prev) => !prev);
-  }, []);
-
   const handleGenerateMessage = useCallback(() => {
     if (stagedFiles.length === 0) return;
     const msg = generateCommitMessage(stagedFiles, diffs);
@@ -101,114 +91,86 @@ export const GitCommitBox = memo(function GitCommitBox({
   }, [stagedFiles, diffs, onCommitMessageChange]);
 
   return (
-    <div className="flex flex-col border-b border-border/50">
-      {/* Collapsed header bar */}
+    <div className="flex flex-col gap-1.5 border-b border-border/50 p-2">
+      {/* Commit message input with standard TextInput styling */}
       <div
-        className="flex items-center gap-1 px-2 py-1 cursor-pointer hover:bg-accent/30 transition-colors"
-        onClick={toggleCollapsed}
-        role="button"
-        tabIndex={0}
-        onKeyDown={(e) => {
-          if (e.key === 'Enter' || e.key === ' ') toggleCollapsed();
-        }}
+        data-control-frame=""
+        className="astryx-text-input flex min-h-7 w-full items-center gap-1 rounded-lg border border-input bg-background px-2.5 py-1 text-xs text-foreground shadow-none"
+        onClick={() => textareaRef.current?.focus()}
       >
-        {collapsed ? (
-          <ChevronsUpDown className="h-3 w-3 text-muted-foreground shrink-0" />
-        ) : (
-          <ChevronsDownUp className="h-3 w-3 text-muted-foreground shrink-0" />
-        )}
-        <span className="text-[10px] text-muted-foreground font-medium uppercase tracking-wider flex-1">
-          Commit
-        </span>
-        {collapsed && commitsAhead > 0 && (
-          <span className="text-[10px] text-muted-foreground">
-            <Upload className="h-3 w-3 inline mr-0.5" />
-            {commitsAhead}
-          </span>
+        <textarea
+          ref={textareaRef}
+          data-auto-resize=""
+          className="bg-transparent min-w-0 flex-1 resize-none border-0 p-0 text-xs leading-[18px] text-foreground placeholder:text-muted-foreground focus:outline-none"
+          placeholder="Commit message..."
+          rows={1}
+          value={commitMessage}
+          onChange={(e) => onCommitMessageChange(e.target.value)}
+          onInput={adjustTextareaHeight}
+          onKeyDown={handleKeyDown}
+        />
+        {stagedFiles.length > 0 && (
+          <button
+            className="shrink-0 p-0.5 rounded text-muted-foreground hover:bg-[hsl(var(--warning)/0.1)] hover:text-[hsl(var(--warning))] transition-colors"
+            onClick={(e) => {
+              e.stopPropagation();
+              handleGenerateMessage();
+            }}
+            title="Generate commit message from staged changes"
+            type="button"
+          >
+            <Sparkles className="h-3.5 w-3.5" />
+          </button>
         )}
       </div>
 
-      {/* Expanded content */}
-      {!collapsed && (
-        <div className="flex flex-col gap-1.5 px-2 pb-2">
-          {/* Commit message input with standard TextInput styling */}
-          <div
-            data-control-frame=""
-            className="astryx-text-input flex min-h-7 w-full items-center gap-1 rounded-lg border border-input bg-background px-2.5 py-1 text-xs text-foreground shadow-none"
-            onClick={() => textareaRef.current?.focus()}
-          >
-            <textarea
-              ref={textareaRef}
-              data-auto-resize=""
-              className="bg-transparent min-w-0 flex-1 resize-none border-0 p-0 text-xs leading-[18px] text-foreground placeholder:text-muted-foreground focus:outline-none"
-              placeholder="Commit message..."
-              rows={1}
-              value={commitMessage}
-              onChange={(e) => onCommitMessageChange(e.target.value)}
-              onInput={adjustTextareaHeight}
-              onKeyDown={handleKeyDown}
-            />
-            {stagedFiles.length > 0 && (
-              <button
-                className="shrink-0 p-0.5 rounded text-muted-foreground hover:bg-[hsl(var(--warning)/0.1)] hover:text-[hsl(var(--warning))] transition-colors"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  handleGenerateMessage();
-                }}
-                title="Generate commit message from staged changes"
-                type="button"
-              >
-                <Sparkles className="h-3.5 w-3.5" />
-              </button>
-            )}
-          </div>
-
-          {/* Error display */}
-          {(commitError || operationError) && (
-            <div className="text-[10px] text-destructive px-0.5">
-              {commitError || operationError}
-            </div>
-          )}
-
-          {/* Commit action group + Push button */}
-          <div className="flex items-center gap-1.5">
-            <ButtonGroup
-              label="Commit actions"
-              size="sm"
-              className="min-w-0 flex-1"
-            >
-              <Button
-                label="Commit"
-                variant="secondary"
-                size="sm"
-                className="min-w-0 flex-auto !px-2 !text-[11px]"
-                isDisabled={!canCommit}
-                isLoading={commitLoading}
-                onClick={onCommit}
-              />
-              <Button
-                label="Commit&Push"
-                variant="secondary"
-                size="sm"
-                className="min-w-0 flex-auto !px-2 !text-[11px]"
-                isDisabled={!canCommit || pushLoading}
-                isLoading={pushLoading && canCommit}
-                onClick={onCommitAndPush}
-              />
-            </ButtonGroup>
-
-            <Button
-              label={`Push ${commitsAhead} commits`}
-              variant="primary"
-              size="sm"
-              className="shrink-0 !px-2.5 !text-[11px]"
-              isDisabled={commitsAhead <= 0 || pushLoading}
-              isLoading={pushLoading && !canCommit}
-              onClick={onPush}
-            />
-          </div>
+      {/* Error display */}
+      {(commitError || operationError) && (
+        <div className="text-[10px] text-destructive px-0.5">
+          {commitError || operationError}
         </div>
       )}
+
+      {/* Commit action group + Push button (wraps Push onto its own row unless container is wide enough) */}
+      <div
+        data-testid="git-commit-actions-row"
+        className="flex flex-wrap items-center gap-1.5"
+      >
+        <ButtonGroup
+          label="Commit actions"
+          size="sm"
+          className="min-w-[min(100%,180px)] grow shrink-0 basis-auto"
+        >
+          <Button
+            label="Commit"
+            variant="secondary"
+            size="sm"
+            className="grow shrink-0 basis-auto !px-2 !text-[11px]"
+            isDisabled={!canCommit}
+            isLoading={commitLoading}
+            onClick={onCommit}
+          />
+          <Button
+            label="Commit&Push"
+            variant="secondary"
+            size="sm"
+            className="grow shrink-0 basis-auto !px-2 !text-[11px]"
+            isDisabled={!canCommit || pushLoading}
+            isLoading={pushLoading && canCommit}
+            onClick={onCommitAndPush}
+          />
+        </ButtonGroup>
+
+        <Button
+          label={`Push ${commitsAhead} commits`}
+          variant="primary"
+          size="sm"
+          className="min-w-[min(100%,120px)] grow shrink-0 basis-auto !px-2.5 !text-[11px]"
+          isDisabled={commitsAhead <= 0 || pushLoading}
+          isLoading={pushLoading && !canCommit}
+          onClick={onPush}
+        />
+      </div>
     </div>
   );
 });

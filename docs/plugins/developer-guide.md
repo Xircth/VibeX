@@ -191,7 +191,7 @@ STDIO 服务必须回答 MCP `initialize`（协议以 `2026-07-28` 为主，兼�
 | --- | --- | --- |
 | `app.command` | `title`、`handler` | 不读，执行即可 |
 | `app.toolbar` | `title`、`handler`；`slot` 省略即 `toolbar.main` | 不读 |
-| `app.status` | `handler`；`slot` 省略即 `status.main`，或 `status.after-mcp` | `text` 与 `tooltip`；配 `refreshSeconds` 才会轮询。`status.after-mcp` 只显示图标，`text` 是提示。带 `remote` 时点击打开该远程界面，否则点击调用 `handler` |
+| `app.status` | `handler`；`slot` 省略即 `status.main`，或 `status.after-mcp` | `text` 与 `tooltip`；配 `refreshSeconds` 才会轮询。`status.after-mcp` 只显示图标，`text` 是提示。带 `remote` 时点击打开该远程界面，并建立 Worker 会话，界面通过 `surface.createSession` 调用插件；否则点击直接调用 `handler` |
 | `app.composer.slash` | `command`（省略则取 `id`）、`prompt` | 不读，`prompt` 直接插进输入框 |
 | `app.timeline.card` | `label`、`handler`、`allowedMethods` | 由 App 通过 `bridge.invoke` 自取 |
 | `app.settings.section` | `title`、`handler`、`allowedMethods` | 同上 |

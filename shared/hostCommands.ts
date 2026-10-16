@@ -543,6 +543,7 @@ export const DESKTOP_SHELL_COMMANDS = [
   'open_devtools',
   'plugin_dev_connection',
   'activate_desktop_toast',
+  'hide_desktop_toast',
   'set_app_icon',
   'update_tray_badge',
   'host_client_delete',

@@ -1,9 +1,7 @@
-import { memo, useMemo, useCallback, useState } from 'react';
+import { memo, useMemo, useCallback, useRef, useState } from 'react';
 import { Virtuoso } from 'react-virtuoso';
 import {
   GitCommit,
-  ArrowUp,
-  ArrowDown,
   Upload,
   Download,
   Copy,
@@ -15,6 +13,7 @@ import {
   Loader2,
   Search,
 } from 'lucide-react';
+import { TextInput } from '@astryxdesign/core/TextInput';
 import type { GitLogEntry } from 'shared/types';
 import { toast } from '@/components/ui/toast';
 import { attemptsApi, repoApi } from '@/lib/api';
@@ -69,7 +68,6 @@ const LogEntry = memo(function LogEntry({
   entry,
   isSelected,
   isHead,
-  isPushable,
   onSelect,
   onContextMenu,
 }: {
@@ -91,14 +89,13 @@ const LogEntry = memo(function LogEntry({
   const initial = entry.author.charAt(0).toUpperCase();
   return (
     <div
-      className={`flex items-start gap-2.5 border-l px-2.5 py-2 text-xs group cursor-pointer transition-colors ${
+      data-testid="git-log-entry"
+      className={`group mx-1.5 my-0.5 flex cursor-pointer items-start gap-2.5 rounded-md px-2.5 py-2 text-xs transition-colors hover:bg-accent/50 ${
         isSelected
-          ? 'border-l-primary bg-accent/50'
+          ? 'bg-accent/60 ring-1 ring-inset ring-ring/30'
           : isHead
-            ? 'border-l-[hsl(var(--success))] bg-accent/20'
-            : isPushable
-              ? 'border-l-[hsl(var(--success)/0.4)] hover:bg-accent/30'
-              : 'hover:bg-accent/30 border-l-transparent'
+            ? 'bg-accent/20'
+            : ''
       }`}
       onClick={() => onSelect(entry.sha)}
       onContextMenu={(e) => onContextMenu(e, entry)}
@@ -181,13 +178,12 @@ export const GitLogView = memo(function GitLogView(props: GitLogViewProps) {
     entries,
     ahead,
     behind,
-    upstream,
-    branchName,
     loading,
     workspaceId,
     repoId,
     onRefresh,
   } = props;
+  const searchInputRef = useRef<HTMLInputElement>(null);
   const [contextMenu, setContextMenu] = useState<ContextMenuState | null>(null);
   const [selectedSha, setSelectedSha] = useState<string | null>(null);
   const [actionLoading, setActionLoading] = useState(false);
@@ -200,7 +196,6 @@ export const GitLogView = memo(function GitLogView(props: GitLogViewProps) {
   });
   const [newBranchName, setNewBranchName] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
-  const [showSearch, setShowSearch] = useState(false);
 
   const panelActions = useOptionalPanelActionsContext();
   const { setCommitDiff, setLoading: setCommitDiffLoading } =
@@ -484,6 +479,22 @@ export const GitLogView = memo(function GitLogView(props: GitLogViewProps) {
     executeAction,
   ]);
 
+  const [collapsedSections, setCollapsedSections] = useState<Set<string>>(
+    () => new Set()
+  );
+
+  const toggleSection = useCallback((title: string) => {
+    setCollapsedSections((prev) => {
+      const next = new Set(prev);
+      if (next.has(title)) {
+        next.delete(title);
+      } else {
+        next.add(title);
+      }
+      return next;
+    });
+  }, []);
+
   // Build flat virtual list items from sections
   const virtualItems = useMemo<VirtualListItem[]>(() => {
     const items: VirtualListItem[] = [];
@@ -497,8 +508,10 @@ export const GitLogView = memo(function GitLogView(props: GitLogViewProps) {
         count: ahead,
         accentColor: 'text-[hsl(var(--success))]',
       });
-      for (const entry of filteredAhead) {
-        items.push({ type: 'entry', entry, isPushable: true });
+      if (!collapsedSections.has('To Push')) {
+        for (const entry of filteredAhead) {
+          items.push({ type: 'entry', entry, isPushable: true });
+        }
       }
     }
 
@@ -510,7 +523,9 @@ export const GitLogView = memo(function GitLogView(props: GitLogViewProps) {
         icon: 'download',
         count: behind,
         accentColor: 'text-[hsl(var(--warning))]',
-        extra: 'Fetch or pull to see these commits',
+        extra: collapsedSections.has('To Pull')
+          ? undefined
+          : 'Fetch or pull to see these commits',
       });
     }
 
@@ -525,13 +540,15 @@ export const GitLogView = memo(function GitLogView(props: GitLogViewProps) {
           accentColor: 'text-muted-foreground',
         });
       }
-      for (const entry of filteredRecent) {
-        items.push({ type: 'entry', entry, isPushable: false });
+      if (!collapsedSections.has('Recent Commits')) {
+        for (const entry of filteredRecent) {
+          items.push({ type: 'entry', entry, isPushable: false });
+        }
       }
     }
 
     return items;
-  }, [ahead, behind, filteredAhead, filteredRecent]);
+  }, [ahead, behind, filteredAhead, filteredRecent, collapsedSections]);
 
   const sectionIcons = useMemo(
     () => ({
@@ -545,22 +562,39 @@ export const GitLogView = memo(function GitLogView(props: GitLogViewProps) {
   const renderVirtualItem = useCallback(
     (_index: number, item: VirtualListItem) => {
       if (item.type === 'section-header') {
+        const testId = `git-log-section-header-${item.title
+          .toLowerCase()
+          .replace(/\s+/g, '-')}`;
+        const isCollapsed = collapsedSections.has(item.title);
         return (
           <div
-            className={`flex items-center gap-1.5 px-2.5 py-1.5 text-[10px] font-semibold uppercase tracking-wider bg-muted/30 border-b border-border/20 ${item.accentColor}`}
+            role="button"
+            tabIndex={0}
+            aria-expanded={!isCollapsed}
+            data-testid={testId}
+            className="mx-1.5 my-0.5 flex cursor-pointer select-none items-center justify-between rounded-md bg-muted/60 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground transition-colors hover:bg-muted/80"
+            onClick={() => toggleSection(item.title)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' || e.key === ' ') {
+                e.preventDefault();
+                toggleSection(item.title);
+              }
+            }}
           >
-            {sectionIcons[item.icon]}
-            <span>{item.title}</span>
-            {item.count > 0 && (
-              <span className="ml-1 px-1.5 py-0 rounded-full bg-foreground/10 text-muted-foreground font-mono text-[9px]">
-                {item.count}
+            <div className="flex items-center gap-1.5">
+              <span className={item.accentColor}>
+                {sectionIcons[item.icon]}
               </span>
-            )}
-            {item.extra && (
-              <span className="text-[9px] text-muted-foreground normal-case font-normal ml-1">
-                {item.extra}
-              </span>
-            )}
+              <span>{item.title}</span>
+              {item.count > 0 && (
+                <span className="text-muted-foreground/60">({item.count})</span>
+              )}
+              {item.extra && (
+                <span className="ml-1 text-[9px] font-normal normal-case text-muted-foreground">
+                  {item.extra}
+                </span>
+              )}
+            </div>
           </div>
         );
       }
@@ -576,63 +610,45 @@ export const GitLogView = memo(function GitLogView(props: GitLogViewProps) {
         />
       );
     },
-    [sectionIcons, selectedSha, headSha, handleSelect, handleContextMenu]
+    [
+      sectionIcons,
+      collapsedSections,
+      toggleSection,
+      selectedSha,
+      headSha,
+      handleSelect,
+      handleContextMenu,
+    ]
   );
 
   return (
     <div className="flex flex-col flex-1 min-h-0">
-      {/* Branch status header */}
-      <div className="flex items-center gap-2 px-2.5 py-1.5 border-b border-border/30 text-xs">
-        <GitBranch className="h-3.5 w-3.5 text-[hsl(var(--success))] shrink-0" />
-        <span className="font-mono text-foreground font-medium truncate">
-          {branchName}
-        </span>
-        {upstream && (
-          <span className="text-muted-foreground text-[10px] truncate">
-            {'->'} {upstream}
-          </span>
-        )}
-        <div className="flex items-center gap-1.5 ml-auto shrink-0">
-          {ahead > 0 && (
-            <span className="flex items-center gap-0.5 rounded-full bg-[hsl(var(--success)/0.1)] px-1.5 py-0.5 text-[10px] font-medium text-[hsl(var(--success))]">
-              <ArrowUp className="h-2.5 w-2.5" />
-              {ahead}
-            </span>
-          )}
-          {behind > 0 && (
-            <span className="flex items-center gap-0.5 rounded-full bg-[hsl(var(--warning)/0.1)] px-1.5 py-0.5 text-[10px] font-medium text-[hsl(var(--warning))]">
-              <ArrowDown className="h-2.5 w-2.5" />
-              {behind}
-            </span>
-          )}
-          <button
-            className="p-0.5 rounded hover:bg-accent/50 text-muted-foreground hover:text-foreground transition-colors"
-            onClick={() => setShowSearch(!showSearch)}
-            title="Search commits"
-          >
-            <Search className="h-3.5 w-3.5" />
-          </button>
-        </div>
+      {/* Permanent search input */}
+      <div className="px-2 py-1 border-b border-border/30 shrink-0">
+        <TextInput
+          ref={searchInputRef}
+          label="Search commits"
+          isLabelHidden
+          size="sm"
+          width="100%"
+          className="git-log-search-input"
+          placeholder="Search commits..."
+          value={searchQuery}
+          onChange={(val) => setSearchQuery(val)}
+          hasClear
+          startIcon={
+            <button
+              type="button"
+              className="flex shrink-0 items-center justify-center rounded p-0.5 text-muted-foreground hover:text-foreground transition-colors"
+              onClick={() => searchInputRef.current?.focus()}
+              title="Search commits"
+              aria-label="Search commits"
+            >
+              <Search className="h-3 w-3" />
+            </button>
+          }
+        />
       </div>
-
-      {/* Search input */}
-      {showSearch && (
-        <div className="flex items-center gap-1 px-2 py-1.5 border-b border-border/30 bg-accent/5">
-          <Search className="h-3 w-3 text-muted-foreground shrink-0" />
-          <input
-            className="flex-1 bg-transparent border-none text-xs text-foreground placeholder:text-muted-foreground focus:outline-none font-mono"
-            placeholder="Search commits..."
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            autoFocus
-          />
-          {searchQuery && (
-            <span className="text-[10px] text-muted-foreground shrink-0">
-              {filteredAhead.length + filteredRecent.length} results
-            </span>
-          )}
-        </div>
-      )}
 
       {/* Create branch input (shown after context menu action) */}
       {createBranchInput.show && (

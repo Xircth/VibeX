@@ -89,6 +89,12 @@ describe('WorkspaceTabAddMenu', () => {
     expect(
       screen.queryByRole('menuitem', { name: '浏览器' })
     ).not.toBeInTheDocument();
+    const menu = screen.getByRole('menu');
+    expect(menu).toHaveClass('product-context-menu', 'bg-white');
+    expect(menu).not.toHaveClass('tahoe-popover');
+    expect(screen.getByRole('menuitem', { name: '审阅' })).toHaveClass(
+      'hover:bg-accent'
+    );
     expect(screen.getByRole('menuitem', { name: '审阅' })).toBeVisible();
     expect(screen.getByRole('menuitem', { name: '笔记' })).toBeVisible();
     expect(screen.getByRole('menuitem', { name: '终端' })).toBeVisible();

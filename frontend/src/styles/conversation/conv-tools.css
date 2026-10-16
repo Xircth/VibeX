@@ -50,7 +50,7 @@
   background: transparent;
 }
 
-.composer-session-popover.tahoe-popover {
+.composer-session-popover {
   display: flex;
   width: 18rem;
   max-height: min(

@@ -3,8 +3,7 @@
 use std::io::Cursor;
 
 use base64::Engine as _;
-use image::imageops::FilterType;
-use image::{DynamicImage, GenericImageView, ImageFormat};
+use image::{DynamicImage, GenericImageView, ImageFormat, imageops::FilterType};
 use serde::{Deserialize, Serialize};
 
 use crate::agent::SnapshotViewport;
@@ -176,7 +175,7 @@ fn scale_down(image: DynamicImage, max_width: u32) -> DynamicImage {
     if w <= max_width || max_width == 0 {
         return image;
     }
-    let next_h = ((u64::from(h) * u64::from(max_width) + u64::from(w) / 2) / u64::from(w))
-        .max(1) as u32;
+    let next_h =
+        ((u64::from(h) * u64::from(max_width) + u64::from(w) / 2) / u64::from(w)).max(1) as u32;
     image.resize_exact(max_width, next_h, FilterType::Triangle)
 }

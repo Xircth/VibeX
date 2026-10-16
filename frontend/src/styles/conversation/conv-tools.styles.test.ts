@@ -57,7 +57,7 @@ describe('composer todo popover', () => {
 
 describe('composer session popover', () => {
   it('caps height, scrolls sessions, and pins the new-session action', () => {
-    const popover = declarationsFor('.composer-session-popover.tahoe-popover');
+    const popover = declarationsFor('.composer-session-popover');
     const list = declarationsFor('.composer-session-list');
     const create = declarationsFor('.composer-session-new');
 

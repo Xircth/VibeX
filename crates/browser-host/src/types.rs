@@ -168,16 +168,12 @@ pub struct BrowserDefaultTargets {
     pub terminal: String,
     #[serde(default = "default_target_builtin")]
     pub editor: String,
-    #[serde(default = "default_target_system")]
+    #[serde(default = "default_target_builtin")]
     pub notification: String,
 }
 
 fn default_target_builtin() -> String {
     "builtin".to_owned()
-}
-
-fn default_target_system() -> String {
-    "system".to_owned()
 }
 
 impl Default for BrowserDefaultTargets {
@@ -187,7 +183,7 @@ impl Default for BrowserDefaultTargets {
             tool_card: default_target_builtin(),
             terminal: default_target_builtin(),
             editor: default_target_builtin(),
-            notification: default_target_system(),
+            notification: default_target_builtin(),
         }
     }
 }
@@ -203,7 +199,7 @@ pub struct BrowserSettings {
     pub tools_enabled: bool,
     #[serde(default = "default_grant_control")]
     pub default_grant: GrantLevel,
-    #[serde(default)]
+    #[serde(default = "default_true")]
     pub eval_enabled: bool,
     #[serde(default)]
     pub eval_approval: EvalApprovalMode,
@@ -211,7 +207,7 @@ pub struct BrowserSettings {
     pub service_auto_open: ServiceAutoOpenMode,
     #[serde(default = "default_true")]
     pub terminal_click_menu: bool,
-    #[serde(default)]
+    #[serde(default = "default_true")]
     pub devtools: bool,
     #[serde(default)]
     pub surface_override: SurfaceOverride,
@@ -250,11 +246,11 @@ impl Default for BrowserSettings {
             host_rules: Vec::new(),
             tools_enabled: true,
             default_grant: GrantLevel::Control,
-            eval_enabled: false,
+            eval_enabled: true,
             eval_approval: EvalApprovalMode::Ask,
             service_auto_open: ServiceAutoOpenMode::Toast,
             terminal_click_menu: true,
-            devtools: false,
+            devtools: true,
             surface_override: SurfaceOverride::Auto,
             suspend_background_tabs: true,
             sign_in_user_agent: true,

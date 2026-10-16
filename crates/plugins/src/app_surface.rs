@@ -170,13 +170,21 @@ impl PluginAppSurfaceHost {
                 .and_then(Value::as_str)
                 .unwrap_or_default()
         });
+        // A status item with a federation remote is a Host-rendered view, same
+        // as a settings page: it has no app document, but its click surface
+        // still has to open a Worker session so the view can call handlers.
+        let federation_status = descriptor.kind == crate::ContributionKind::Status
+            && metadata.get("remote").and_then(Value::as_object).is_some();
         // Authors declare only the two `app.surface` slots; the card and section
         // slots are synthesized by the Host from their own integration kinds.
         // Structure contributions (`app.tab` / `app.panel` / …) bind a Worker
         // session so federation remotes can invoke the same handlers.
         let app_entrypoint_ok =
             metadata.get("appEntrypoint").and_then(Value::as_str) == Some("app");
-        if structure_slot.is_none() && (!slot_is_openable(slot) || !app_entrypoint_ok) {
+        if structure_slot.is_none()
+            && !federation_status
+            && (!slot_is_openable(slot) || !app_entrypoint_ok)
+        {
             return Err(bad_request("App surface targets an unsupported Host slot"));
         }
         let artifact = match (slot, artifact_path) {
@@ -211,6 +219,7 @@ impl PluginAppSurfaceHost {
             .ok_or_else(|| conflict("App surface Worker is not active"))?;
         if allowed_methods.is_empty()
             && (structure_slot.is_some()
+                || federation_status
                 || matches!(
                     slot,
                     crate::APP_TAB_SLOT
@@ -267,7 +276,7 @@ impl PluginAppSurfaceHost {
                 .map_err(internal)?;
             match read_surface_document(&plugin.package).await {
                 Ok(html) => Ok(html),
-                Err(_) if structure_slot.is_some() => {
+                Err(_) if structure_slot.is_some() || federation_status => {
                     Ok("<!doctype html><html><body></body></html>".to_owned())
                 }
                 Err(error) => Err(error),
@@ -423,6 +432,7 @@ fn structure_or_app_surface(kind: crate::ContributionKind) -> bool {
             | crate::ContributionKind::AppPanel
             | crate::ContributionKind::KanbanView
             | crate::ContributionKind::SettingsPage
+            | crate::ContributionKind::Status
     )
 }
 

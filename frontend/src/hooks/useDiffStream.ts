@@ -1,6 +1,6 @@
 import { useCallback, useMemo } from 'react';
 import type { Diff, PatchType } from 'shared/types';
-import { useTauriPatchStream } from './useTauriPatchStream';
+import { usePatchStream } from './useTauriPatchStream';
 
 interface DiffEntries {
   [filePath: string]: PatchType;
@@ -45,7 +45,7 @@ export const useDiffStream = (
     []
   );
 
-  const { data, error, isInitialized } = useTauriPatchStream<DiffStreamEvent>({
+  const { data, error, isInitialized } = usePatchStream<DiffStreamEvent>({
     subscribeCommand: 'subscribe_diff_stream',
     subscribeArgs,
     eventChannel: statsOnly

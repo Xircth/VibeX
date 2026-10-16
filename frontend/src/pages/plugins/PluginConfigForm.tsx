@@ -300,7 +300,10 @@ export function PluginConfigForm({
   };
 
   const properties = schemaProperties(detail.configSchema);
-  if (properties.length === 0) {
+  if (
+    detail.configSchema['x-vibex-config-form'] === false ||
+    properties.length === 0
+  ) {
     return <p className="product-plugin-muted">{t('plugins.noConfig')}</p>;
   }
 

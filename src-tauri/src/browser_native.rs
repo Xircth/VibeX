@@ -13,17 +13,15 @@
     allow(dead_code, unused_imports, unused_variables)
 )]
 
+#[cfg(target_os = "macos")]
+use std::sync::atomic::AtomicU64;
 #[cfg(any(target_os = "macos", target_os = "windows"))]
-use std::sync::atomic::AtomicBool;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::{
     cell::RefCell,
     collections::HashMap,
     path::PathBuf,
-    sync::{
-        Arc, Mutex, OnceLock, Weak,
-        atomic::{AtomicU64, Ordering},
-        mpsc,
-    },
+    sync::{Arc, Mutex, OnceLock, Weak, mpsc},
     thread::ThreadId,
     time::{Duration, Instant},
 };
@@ -33,8 +31,10 @@ use browser_host::{BrowserBounds, BrowserHostError, BrowserService, FrozenFrame,
 use serde::Serialize;
 use serde_json::{Value, json};
 use tauri::{Emitter, Manager};
+#[cfg(target_os = "macos")]
+use tauri_runtime_wry::wry::NewWindowResponse;
 use tauri_runtime_wry::wry::{
-    self, NewWindowFeatures, NewWindowResponse, PageLoadEvent, Rect, WebView, WebViewBuilder,
+    self, NewWindowFeatures, PageLoadEvent, Rect, WebView, WebViewBuilder,
     dpi::{LogicalPosition, LogicalSize},
 };
 use url::Url;
@@ -50,6 +50,9 @@ struct NativeSurfaces {
     windows: HashMap<String, tauri::WebviewWindow>,
     devices: HashMap<String, String>,
     last_bounds: HashMap<String, BrowserBounds>,
+    /// Proxy URL frozen for a profile's webview environment. WebView2 rejects
+    /// a second environment on the same data directory when the arguments differ.
+    profile_proxy: HashMap<String, Option<String>>,
 }
 
 thread_local! {
@@ -64,10 +67,12 @@ thread_local! {
         windows: HashMap::new(),
         devices: HashMap::new(),
         last_bounds: HashMap::new(),
+        profile_proxy: HashMap::new(),
     });
 }
 
 static MAIN_THREAD: OnceLock<ThreadId> = OnceLock::new();
+#[cfg(target_os = "macos")]
 static POPUP_SEQ: AtomicU64 = AtomicU64::new(0);
 static GESTURES: OnceLock<Mutex<HashMap<String, Instant>>> = OnceLock::new();
 static PENDING_POPUPS: OnceLock<Mutex<HashMap<String, (String, Instant)>>> = OnceLock::new();
@@ -89,6 +94,7 @@ fn mark_gesture(tab_id: &str) {
     }
 }
 
+#[cfg(target_os = "macos")]
 fn recent_gesture(tab_id: &str) -> bool {
     gestures()
         .lock()
@@ -173,6 +179,7 @@ impl TauriNativeTabs {
             .join(profile_id)
     }
 
+    #[cfg(target_os = "macos")]
     fn data_store_identifier(profile_id: &str) -> [u8; 16] {
         const NAMESPACE_URL: uuid::Uuid = uuid::Uuid::from_bytes([
             0x6b, 0xa7, 0xb8, 0x11, 0x9d, 0xad, 0x11, 0xd1, 0x80, 0xb4, 0x00, 0xc0, 0x4f, 0xd4,
@@ -430,6 +437,102 @@ fn apply_user_agent(webview: &WebView, device: &str, sign_in_ua: bool) {
     {
         let _ = (webview, device, sign_in_ua);
     }
+}
+
+fn ephemeral_profile_dir() -> PathBuf {
+    std::env::temp_dir().join("vibex-browser-ephemeral")
+}
+
+fn open_system_browser(url: &str) {
+    let url = url.to_owned();
+    tauri::async_runtime::spawn(async move {
+        let _ = utils::browser::open_browser(&url).await;
+    });
+}
+
+/// Proxy inherited from the process environment (VibeX system-proxy settings
+/// write these before the browser starts). Returns `http://host:port` or
+/// `socks5://host:port`.
+fn inherited_proxy_url() -> Option<String> {
+    for key in [
+        "HTTPS_PROXY",
+        "https_proxy",
+        "HTTP_PROXY",
+        "http_proxy",
+        "ALL_PROXY",
+        "all_proxy",
+    ] {
+        let Ok(value) = std::env::var(key) else {
+            continue;
+        };
+        if let Some(url) = canonical_proxy_url(value.trim()) {
+            return Some(url);
+        }
+    }
+    None
+}
+
+fn canonical_proxy_url(raw: &str) -> Option<String> {
+    let trimmed = raw.trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+    let (socks, rest) = if let Some(rest) = trimmed
+        .strip_prefix("socks5://")
+        .or_else(|| trimmed.strip_prefix("socks://"))
+    {
+        (true, rest)
+    } else if let Some(rest) = trimmed
+        .strip_prefix("http://")
+        .or_else(|| trimmed.strip_prefix("https://"))
+    {
+        (false, rest)
+    } else {
+        (false, trimmed)
+    };
+    let rest = rest.split(['/', '?', '#']).next().unwrap_or(rest);
+    let rest = rest.rsplit('@').next().unwrap_or(rest);
+    let (host, port) = if let Some(host) = rest.strip_prefix('[') {
+        let (addr, after) = host.split_once(']')?;
+        (addr, after.strip_prefix(':')?)
+    } else {
+        rest.rsplit_once(':')?
+    };
+    let port_num: u16 = port.parse().ok()?;
+    if host.is_empty() || port_num == 0 {
+        return None;
+    }
+    let scheme = if socks { "socks5" } else { "http" };
+    Some(format!("{scheme}://{host}:{port_num}"))
+}
+
+fn proxy_config_from_url(raw: &str) -> Option<wry::ProxyConfig> {
+    let url = canonical_proxy_url(raw)?;
+    let socks = url.starts_with("socks5://");
+    let rest = url
+        .trim_start_matches("socks5://")
+        .trim_start_matches("http://");
+    let (host, port) = rest.rsplit_once(':')?;
+    let endpoint = wry::ProxyEndpoint {
+        host: host.to_owned(),
+        port: port.to_owned(),
+    };
+    Some(if socks {
+        wry::ProxyConfig::Socks5(endpoint)
+    } else {
+        wry::ProxyConfig::Http(endpoint)
+    })
+}
+
+fn profile_proxy_url(store: &mut NativeSurfaces, profile_id: &str) -> Option<String> {
+    if let Some(cached) = store.profile_proxy.get(profile_id) {
+        return cached.clone();
+    }
+    let resolved = inherited_proxy_url();
+    store
+        .profile_proxy
+        .insert(profile_id.to_owned(), resolved.clone());
+    resolved
 }
 
 fn map_wry(error: wry::Error) -> BrowserHostError {
@@ -776,6 +879,7 @@ fn emit_tab_state(app: &tauri::AppHandle, tab_id: &str, url: &str, loading: bool
     );
 }
 
+#[cfg(target_os = "macos")]
 fn emit_tab_open(app: &tauri::AppHandle, tab_id: &str, url: &str, source_tab_id: &str) {
     let _ = app.emit(
         PAGE_EVENT,
@@ -897,6 +1001,13 @@ fn dispatch_page_ipc(
                 .get("newTab")
                 .and_then(Value::as_bool)
                 .unwrap_or(true);
+            if service
+                .upgrade()
+                .is_some_and(|svc| svc.prefers_system_browser(&url))
+            {
+                open_system_browser(&url);
+                return;
+            }
             let allowed = service
                 .upgrade()
                 .map_or_else(|| allow_navigation(&url), |svc| svc.can_navigate(&url));
@@ -959,6 +1070,7 @@ fn emit_tab_open_payload(app: &tauri::AppHandle, payload: Value) {
     let _ = app.emit(PAGE_EVENT, payload);
 }
 
+#[cfg(target_os = "macos")]
 fn fallback_open_or_deny(
     app: &tauri::AppHandle,
     opener_id: &str,
@@ -982,20 +1094,14 @@ fn fallback_open_or_deny(
     NewWindowResponse::Deny
 }
 
-#[cfg(target_os = "windows")]
-type AdoptedView = webview2_com::Microsoft::Web::WebView2::Win32::ICoreWebView2;
 #[cfg(target_os = "macos")]
 type AdoptedView = objc2::rc::Retained<objc2_web_kit::WKWebView>;
-
-#[cfg(target_os = "windows")]
-struct SendCoreWebView(AdoptedView);
-#[cfg(target_os = "windows")]
-unsafe impl Send for SendCoreWebView {}
 
 /// Codeg `surface_child::new_window_handler`: build a child webview from the
 /// opener's environment, register it, and hand the platform view back so the
 /// engine navigates it. Deny cancels `window.open` / `target=_blank` with no
 /// visible tab.
+#[cfg(target_os = "macos")]
 fn emit_popup_denied(app: &tauri::AppHandle, opener_id: &str, url: &str, reason: &str) {
     let _ = app.emit(
         PAGE_EVENT,
@@ -1102,6 +1208,7 @@ fn attach_windows_popup_handler(
     Ok(())
 }
 
+#[cfg(target_os = "macos")]
 fn handle_new_window(
     app: &tauri::AppHandle,
     owner: &tauri::WebviewWindow,
@@ -1121,72 +1228,39 @@ fn handle_new_window(
             take_popup_url(opener_id).unwrap_or_else(|| "about:blank".to_owned())
         }
     } else {
-        url.clone()
+        url
     };
-    let allowed = service
+    if service
         .upgrade()
-        .map_or_else(|| allow_navigation(&open_url), |svc| svc.can_navigate(&open_url));
+        .is_some_and(|svc| svc.prefers_system_browser(&open_url))
+    {
+        open_system_browser(&open_url);
+        return NewWindowResponse::Deny;
+    }
+    let allowed = service.upgrade().map_or_else(
+        || allow_navigation(&open_url),
+        |svc| svc.can_navigate(&open_url),
+    );
     if !allowed {
         emit_popup_denied(app, opener_id, &open_url, "blocked-scheme");
         return NewWindowResponse::Deny;
     }
-    // http(s) links become a Host tab. Creating a child WebView2 from wry's
-    // Windows worker deadlocks the NewWindowRequested deferral, and emitting
-    // from that worker never reaches the UI. Deny the engine window and
-    // open the URL ourselves on the main thread — the same outcome as a
-    // browser tab, without opener.
     if open_url != "about:blank" {
         return fallback_open_or_deny(app, opener_id, &open_url, "opened-as-tab");
     }
-    let gesture_ok = recent_gesture(opener_id) || cfg!(target_os = "windows");
-    if !gesture_ok {
+    if !recent_gesture(opener_id) {
         return fallback_open_or_deny(app, opener_id, &open_url, "no-gesture");
     }
-    #[cfg(not(target_os = "linux"))]
     if on_main_thread() {
         return adopt_popup(
             app, owner, opener_id, profile_id, service, &open_url, &features,
         )
         .unwrap_or_else(|_| fallback_open_or_deny(app, opener_id, &open_url, "create-failed"));
     }
-    #[cfg(target_os = "windows")]
-    {
-        let (tx, rx) = mpsc::channel();
-        let app = app.clone();
-        let deny_app = app.clone();
-        let owner = owner.clone();
-        let opener_owned = opener_id.to_owned();
-        let profile_id = profile_id.to_owned();
-        let deny_opener = opener_owned.clone();
-        let deny_url = open_url.clone();
-        let adopt_url = open_url.clone();
-        let _ = app.clone().run_on_main_thread(move || {
-            remember_main_thread();
-            let result = adopt_popup_view(
-                &app,
-                &owner,
-                &opener_owned,
-                &profile_id,
-                service,
-                &adopt_url,
-                &features,
-            )
-            .map(SendCoreWebView);
-            let _ = tx.send(result);
-        });
-        return match rx.recv_timeout(Duration::from_millis(400)) {
-            Ok(Ok(SendCoreWebView(webview))) => NewWindowResponse::Create { webview },
-            _ => fallback_open_or_deny(&deny_app, &deny_opener, &deny_url, "create-failed"),
-        };
-    }
-    #[cfg(not(target_os = "windows"))]
-    {
-        let _ = (owner, profile_id, service, url, features);
-        fallback_open_or_deny(app, opener_id, &open_url, "create-failed")
-    }
+    fallback_open_or_deny(app, opener_id, &open_url, "create-failed")
 }
 
-#[cfg(not(target_os = "linux"))]
+#[cfg(target_os = "macos")]
 fn adopt_popup(
     app: &tauri::AppHandle,
     owner: &tauri::WebviewWindow,
@@ -1200,7 +1274,7 @@ fn adopt_popup(
     Ok(NewWindowResponse::Create { webview })
 }
 
-#[cfg(not(target_os = "linux"))]
+#[cfg(target_os = "macos")]
 fn adopt_popup_view(
     app: &tauri::AppHandle,
     owner: &tauri::WebviewWindow,
@@ -1237,54 +1311,25 @@ fn adopt_popup_view(
             .unwrap_or_default();
         bounds.visible = false;
         let label = TauriNativeTabs::label(&tab_id);
-        let webview = {
-            #[cfg(target_os = "windows")]
-            {
-                build_child(
-                    owner,
-                    &tab_id,
-                    &label,
-                    &bounds,
-                    profile_id,
-                    app,
-                    service.clone(),
-                    None,
-                    Some(features),
-                )?
-            }
-            #[cfg(target_os = "macos")]
-            {
-                build_child(
-                    owner,
-                    &tab_id,
-                    &label,
-                    &bounds,
-                    profile_id,
-                    app,
-                    service.clone(),
-                    Some(features),
-                )?
-            }
-        };
+        let proxy = profile_proxy_url(&mut store, profile_id);
+        let webview = build_child(
+            owner,
+            &tab_id,
+            &label,
+            &bounds,
+            profile_id,
+            app,
+            service.clone(),
+            Some(features),
+            proxy.as_deref(),
+        )?;
         let _ = webview.set_visible(false);
-        #[cfg(target_os = "windows")]
-        store
-            .tab_profiles
-            .insert(tab_id.clone(), profile_id.to_owned());
         store.last_bounds.insert(tab_id.clone(), bounds.clone());
         store.views.insert(tab_id.clone(), webview);
         let platform = {
+            use tauri_runtime_wry::wry::WebViewExtMacOS;
             let webview = store.views.get(&tab_id).expect("inserted popup");
-            #[cfg(target_os = "windows")]
-            {
-                use tauri_runtime_wry::wry::WebViewExtWindows;
-                webview.webview()
-            }
-            #[cfg(target_os = "macos")]
-            {
-                use tauri_runtime_wry::wry::WebViewExtMacOS;
-                objc2::rc::Retained::into_super(webview.webview())
-            }
+            objc2::rc::Retained::into_super(webview.webview())
         };
         if let Some(service) = service.upgrade() {
             service.adopt_tab(
@@ -1377,15 +1422,11 @@ fn build_child(
     service: Weak<BrowserService>,
     #[cfg(target_os = "windows")] context: Option<&mut wry::WebContext>,
     popup: Option<&NewWindowFeatures>,
+    proxy: Option<&str>,
 ) -> Result<WebView, BrowserHostError> {
     let (on_load, on_title) = page_handlers(app.clone(), tab_id.to_owned(), service.clone());
     let nav_id = tab_id.to_owned();
     let nav_service = service.clone();
-    let popup_app = app.clone();
-    let popup_owner = parent.clone();
-    let popup_opener = tab_id.to_owned();
-    let popup_profile = profile_id.to_owned();
-    let popup_service = service.clone();
     let ipc_app = app.clone();
     let ipc_id = tab_id.to_owned();
     let ipc_service = service.clone();
@@ -1418,12 +1459,24 @@ fn build_child(
         .with_initialization_script(PAGE_CONSOLE_SCRIPT)
         .with_initialization_script(PAGE_CHROME_SCRIPT)
         .with_initialization_script(PAGE_NAV_SCRIPT);
+    if profile_id == "ephemeral" {
+        builder = builder.with_incognito(true);
+    }
+    if let Some(config) = proxy.and_then(proxy_config_from_url) {
+        builder = builder.with_proxy_config(config);
+    }
     let started_app = app.clone();
     let started_id = tab_id.to_owned();
     let done_app = app.clone();
     let done_id = tab_id.to_owned();
+    let downloads_dir = app.path().download_dir().ok();
     builder = builder
         .with_download_started_handler(move |url, path: &mut PathBuf| {
+            if let Some(dir) = downloads_dir.as_ref()
+                && let Some(name) = path.file_name()
+            {
+                *path = dir.join(name);
+            }
             let file_name = path
                 .file_name()
                 .and_then(|name| name.to_str())
@@ -1487,9 +1540,25 @@ fn build_child(
     let nav_app = app.clone();
     let nav_emit_id = tab_id.to_owned();
     let mut builder = builder.with_navigation_handler(move |url| {
-        let allowed = nav_service
+        if nav_service
             .upgrade()
-            .map_or_else(|| allow_navigation(&url), |svc| svc.begin_navigation(&nav_id, &url));
+            .is_some_and(|svc| svc.prefers_system_browser(&url))
+        {
+            open_system_browser(&url);
+            let _ = nav_app.emit(
+                PAGE_EVENT,
+                json!({
+                    "kind": "navigation.external",
+                    "tabId": nav_emit_id,
+                    "url": url,
+                }),
+            );
+            return false;
+        }
+        let allowed = nav_service.upgrade().map_or_else(
+            || allow_navigation(&url),
+            |svc| svc.begin_navigation(&nav_id, &url),
+        );
         if !allowed {
             let _ = nav_app.emit(
                 PAGE_EVENT,
@@ -1505,8 +1574,13 @@ fn build_child(
         emit_tab_state(&nav_app, &nav_emit_id, &url, true);
         true
     });
-    #[cfg(not(target_os = "windows"))]
+    #[cfg(target_os = "macos")]
     {
+        let popup_app = app.clone();
+        let popup_owner = parent.clone();
+        let popup_opener = tab_id.to_owned();
+        let popup_profile = profile_id.to_owned();
+        let popup_service = service.clone();
         builder = builder.with_new_window_req_handler(move |url, features| {
             handle_new_window(
                 &popup_app,
@@ -1519,16 +1593,6 @@ fn build_child(
             )
         });
     }
-    #[cfg(target_os = "windows")]
-    {
-        let _ = (
-            &popup_app,
-            &popup_owner,
-            &popup_opener,
-            &popup_profile,
-            &popup_service,
-        );
-    }
     builder = builder
         .with_ipc_handler(move |request| {
             let Some(value) = parse_page_ipc(request.body()) else {
@@ -1540,15 +1604,11 @@ fn build_child(
         .with_document_title_changed_handler(on_title);
     #[cfg(target_os = "macos")]
     {
-        if popup.is_none() {
+        if popup.is_none() && profile_id != "ephemeral" {
             use tauri_runtime_wry::wry::WebViewBuilderExtDarwin;
             builder = builder
                 .with_data_store_identifier(TauriNativeTabs::data_store_identifier(profile_id));
         }
-    }
-    #[cfg(not(target_os = "macos"))]
-    {
-        let _ = profile_id;
     }
     let webview = builder.build_as_child(parent).map_err(map_wry)?;
     #[cfg(target_os = "windows")]
@@ -1594,10 +1654,15 @@ impl NativeTabs for TauriNativeTabs {
                     let label = Self::label(&tab_id);
                     #[cfg(target_os = "windows")]
                     let profile_dir = {
-                        let dir = Self::profile_dir(&profile_id);
+                        let dir = if profile_id == "ephemeral" {
+                            ephemeral_profile_dir()
+                        } else {
+                            Self::profile_dir(&profile_id)
+                        };
                         let _ = std::fs::create_dir_all(&dir);
                         dir
                     };
+                    let proxy = profile_proxy_url(&mut store, &profile_id);
                     let webview = {
                         #[cfg(target_os = "windows")]
                         {
@@ -1615,6 +1680,7 @@ impl NativeTabs for TauriNativeTabs {
                                 service.clone(),
                                 Some(context),
                                 None,
+                                proxy.as_deref(),
                             )?
                         }
                         #[cfg(not(target_os = "windows"))]
@@ -1628,6 +1694,7 @@ impl NativeTabs for TauriNativeTabs {
                                 &app,
                                 service.clone(),
                                 None,
+                                proxy.as_deref(),
                             )?
                         }
                     };
@@ -1661,18 +1728,33 @@ impl NativeTabs for TauriNativeTabs {
                     }
                     let label = Self::label(&tab_id);
                     let blank = Url::parse("about:blank").expect("blank");
-                    let profile_dir = Self::profile_dir(&profile_id);
+                    let ephemeral = profile_id == "ephemeral";
+                    let profile_dir = if ephemeral {
+                        ephemeral_profile_dir()
+                    } else {
+                        Self::profile_dir(&profile_id)
+                    };
                     let _ = std::fs::create_dir_all(&profile_dir);
+                    let proxy = profile_proxy_url(&mut store, &profile_id)
+                        .as_deref()
+                        .and_then(|raw| Url::parse(raw).ok());
                     let load_app = app.clone();
                     let load_id = tab_id.clone();
                     let title_app = app.clone();
                     let title_id = tab_id.clone();
-                    let window =
+                    let mut window_builder =
                         WebviewWindowBuilder::new(&app, &label, WebviewUrl::External(blank))
                             .title("Browser")
                             .inner_size(bounds.width.max(480.0), bounds.height.max(320.0))
                             .focused(false)
-                            .devtools(true)
+                            .devtools(true);
+                    if ephemeral {
+                        window_builder = window_builder.incognito(true);
+                    }
+                    if let Some(proxy) = proxy {
+                        window_builder = window_builder.proxy_url(proxy);
+                    }
+                    let window = window_builder
                             .on_navigation(|nav| allow_navigation(nav.as_str()))
                             .on_page_load(move |_window, payload| {
                                 let _ = load_app.emit(
@@ -1804,10 +1886,16 @@ impl NativeTabs for TauriNativeTabs {
                     }
                     #[cfg(target_os = "windows")]
                     if let Some(profile_id) = store.tab_profiles.remove(&tab_id)
-                        && profile_id != "default"
-                        && !store.tab_profiles.values().any(|active| active == &profile_id)
+                        && !store
+                            .tab_profiles
+                            .values()
+                            .any(|active| active == &profile_id)
                     {
                         store.contexts.remove(&profile_id);
+                        store.profile_proxy.remove(&profile_id);
+                        if profile_id == "ephemeral" {
+                            let _ = std::fs::remove_dir_all(ephemeral_profile_dir());
+                        }
                     }
                 }
                 #[cfg(target_os = "linux")]
@@ -1862,10 +1950,42 @@ impl NativeTabs for TauriNativeTabs {
                     webview.set_visible(bounds.visible).map_err(map_wry)?;
                     if prev_visible != Some(bounds.visible) {
                         if !bounds.visible && suspend_bg {
+                            #[cfg(target_os = "windows")]
+                            {
+                                use tauri_runtime_wry::wry::WebViewExtWindows;
+                                use webview2_com::Microsoft::Web::WebView2::Win32::{
+                                    COREWEBVIEW2_MEMORY_USAGE_TARGET_LEVEL_LOW, ICoreWebView2_19,
+                                };
+                                use windows::core::Interface;
+                                let core = webview.webview();
+                                if let Ok(core19) = core.cast::<ICoreWebView2_19>() {
+                                    unsafe {
+                                        let _ = core19.SetMemoryUsageTargetLevel(
+                                            COREWEBVIEW2_MEMORY_USAGE_TARGET_LEVEL_LOW,
+                                        );
+                                    }
+                                }
+                            }
                             let _ = webview.evaluate_script(
                                 r#"(function(){try{document.querySelectorAll('video,audio').forEach(function(m){if(!m.paused){m.dataset.vibexSuspended='1';m.pause();}});window.__vibexTabSuspended=true;}catch(e){}})()"#,
                             );
                         } else if bounds.visible {
+                            #[cfg(target_os = "windows")]
+                            {
+                                use tauri_runtime_wry::wry::WebViewExtWindows;
+                                use webview2_com::Microsoft::Web::WebView2::Win32::{
+                                    COREWEBVIEW2_MEMORY_USAGE_TARGET_LEVEL_NORMAL, ICoreWebView2_19,
+                                };
+                                use windows::core::Interface;
+                                let core = webview.webview();
+                                if let Ok(core19) = core.cast::<ICoreWebView2_19>() {
+                                    unsafe {
+                                        let _ = core19.SetMemoryUsageTargetLevel(
+                                            COREWEBVIEW2_MEMORY_USAGE_TARGET_LEVEL_NORMAL,
+                                        );
+                                    }
+                                }
+                            }
                             let _ = webview.evaluate_script(
                                 r#"(function(){try{if(window.__vibexTabSuspended){window.__vibexTabSuspended=false;document.querySelectorAll('video[data-vibex-suspended="1"],audio[data-vibex-suspended="1"]').forEach(function(m){delete m.dataset.vibexSuspended;m.play().catch(function(){});});}}catch(e){}})()"#,
                             );
@@ -2186,8 +2306,11 @@ impl NativeTabs for TauriNativeTabs {
                         "the browser engine could not capture a screenshot",
                     )
                 })?;
-            base64::Engine::decode(&base64::engine::general_purpose::STANDARD, frame.data.trim())
-                .map_err(|error| BrowserHostError::new("browser_read_failed", error.to_string()))
+            base64::Engine::decode(
+                &base64::engine::general_purpose::STANDARD,
+                frame.data.trim(),
+            )
+            .map_err(|error| BrowserHostError::new("browser_read_failed", error.to_string()))
         }
     }
 
@@ -2199,20 +2322,35 @@ impl NativeTabs for TauriNativeTabs {
                 {
                     let mut store = slot.borrow_mut();
                     store.contexts.remove(&profile_id);
-                    let dir = Self::profile_dir(&profile_id);
+                    store.profile_proxy.remove(&profile_id);
+                    let dir = if profile_id == "ephemeral" {
+                        ephemeral_profile_dir()
+                    } else {
+                        Self::profile_dir(&profile_id)
+                    };
                     let _ = std::fs::remove_dir_all(&dir);
-                    let _ = std::fs::create_dir_all(&dir);
+                    if profile_id != "ephemeral" {
+                        let _ = std::fs::create_dir_all(&dir);
+                    }
                 }
                 #[cfg(target_os = "linux")]
                 {
-                    let _ = slot;
-                    let dir = Self::profile_dir(&profile_id);
+                    let mut store = slot.borrow_mut();
+                    store.profile_proxy.remove(&profile_id);
+                    let dir = if profile_id == "ephemeral" {
+                        ephemeral_profile_dir()
+                    } else {
+                        Self::profile_dir(&profile_id)
+                    };
                     let _ = std::fs::remove_dir_all(&dir);
-                    let _ = std::fs::create_dir_all(&dir);
+                    if profile_id != "ephemeral" {
+                        let _ = std::fs::create_dir_all(&dir);
+                    }
                 }
                 #[cfg(target_os = "macos")]
                 {
-                    let _ = (slot, profile_id);
+                    let mut store = slot.borrow_mut();
+                    store.profile_proxy.remove(&profile_id);
                 }
                 Ok(())
             })
@@ -2227,18 +2365,29 @@ impl NativeTabs for TauriNativeTabs {
                 {
                     let mut store = slot.borrow_mut();
                     store.contexts.remove(&profile_id);
-                    let dir = Self::profile_dir(&profile_id);
+                    store.profile_proxy.remove(&profile_id);
+                    let dir = if profile_id == "ephemeral" {
+                        ephemeral_profile_dir()
+                    } else {
+                        Self::profile_dir(&profile_id)
+                    };
                     let _ = std::fs::remove_dir_all(&dir);
                 }
                 #[cfg(target_os = "linux")]
                 {
-                    let _ = slot;
-                    let dir = Self::profile_dir(&profile_id);
+                    let mut store = slot.borrow_mut();
+                    store.profile_proxy.remove(&profile_id);
+                    let dir = if profile_id == "ephemeral" {
+                        ephemeral_profile_dir()
+                    } else {
+                        Self::profile_dir(&profile_id)
+                    };
                     let _ = std::fs::remove_dir_all(&dir);
                 }
                 #[cfg(target_os = "macos")]
                 {
-                    let _ = (slot, profile_id);
+                    let mut store = slot.borrow_mut();
+                    store.profile_proxy.remove(&profile_id);
                 }
                 Ok(())
             })

@@ -31,7 +31,7 @@ export interface OpenLinkOptions {
 
 /**
  * Returns a click handler that opens external links according to the user's
- * browser settings (per-source routing + site rules) or `link_open_behavior`.
+ * browser settings (one default opener + site rules) or `link_open_behavior`.
  * Falls back to the system browser when no panel context is available.
  */
 export function useOpenLink(

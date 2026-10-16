@@ -12,7 +12,7 @@ import {
   type FocusEvent,
   type KeyboardEvent,
   type MouseEvent,
-  type MutableRefObject,
+  type RefObject,
   type PointerEvent,
 } from 'react';
 import { createPortal } from 'react-dom';
@@ -170,7 +170,7 @@ type SessionComposerInputProps = {
   context?: SessionComposerInputContext;
   messageHistory?: readonly string[];
   acceptExternalInserts?: boolean;
-  replaceValueRef?: MutableRefObject<((next: string) => void) | null>;
+  replaceValueRef?: RefObject<((next: string) => void) | null>;
   onChange: (value: string) => void;
   onSubmit: (value: string) => void;
   onAttachImages: (files: File[]) => void;

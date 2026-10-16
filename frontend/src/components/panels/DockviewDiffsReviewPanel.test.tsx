@@ -3,8 +3,23 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Diff } from 'shared/types';
 import DockviewDiffsReviewPanel from './DockviewDiffsReviewPanel';
 
-const { diffState, clearTargetPathMock } = vi.hoisted(() => ({
+const { diffState, commitDiffState, clearTargetPathMock } = vi.hoisted(() => ({
   diffState: { current: [] as Diff[] },
+  commitDiffState: {
+    current: {
+      commitSha: null as string | null,
+      commitInfo: null as {
+        sha: string;
+        summary: string;
+        body?: string;
+        author: string;
+        timestamp: number;
+      } | null,
+      commitDiffs: [] as Diff[],
+      isLoading: false,
+      clearCommitDiff: vi.fn(),
+    },
+  },
   clearTargetPathMock: vi.fn(),
 }));
 
@@ -39,13 +54,7 @@ vi.mock('@/hooks/useDiffSummary', () => ({
 }));
 
 vi.mock('@/stores/useCommitDiffStore', () => ({
-  useCommitDiffStore: () => ({
-    commitSha: null,
-    commitInfo: null,
-    commitDiffs: [],
-    isLoading: false,
-    clearCommitDiff: vi.fn(),
-  }),
+  useCommitDiffStore: () => commitDiffState.current,
 }));
 
 vi.mock('@/stores/useGitDiffNavigationStore', () => ({
@@ -57,9 +66,19 @@ vi.mock('@/stores/useGitDiffNavigationStore', () => ({
     }),
 }));
 
-vi.mock('@/components/DiffViewSwitch', () => ({
-  default: () => <div data-testid="diff-view-switch" />,
-}));
+vi.mock('@/components/DiffViewSwitch', async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import('@/components/DiffViewSwitch')>();
+  return {
+    ...actual,
+    default: ({ visibleLabelCount }: { visibleLabelCount?: number }) => (
+      <div
+        data-testid="diff-view-switch"
+        data-visible-labels={String(visibleLabelCount ?? 4)}
+      />
+    ),
+  };
+});
 
 vi.mock('@/components/DiffCard', () => ({
   default: ({ diff, expanded }: { diff: Diff; expanded: boolean }) => (
@@ -186,4 +205,106 @@ describe('DockviewDiffsReviewPanel large changes', () => {
     expect(sidebar).toHaveStyle({ width: '480px' });
     fireEvent.pointerUp(window);
   });
+
+  it('progressively hides DiffViewSwitch button labels from right to left as available width shrinks while keeping all icons', async () => {
+    const actualModule = await vi.importActual<
+      typeof import('@/components/DiffViewSwitch')
+    >('@/components/DiffViewSwitch');
+    const RealDiffViewSwitch = actualModule.default;
+    const { computeDiffViewVisibleLabelCount } = actualModule;
+
+    expect(computeDiffViewVisibleLabelCount(320)).toBe(4);
+    expect(computeDiffViewVisibleLabelCount(280)).toBe(3);
+    expect(computeDiffViewVisibleLabelCount(230)).toBe(2);
+    expect(computeDiffViewVisibleLabelCount(180)).toBe(1);
+    expect(computeDiffViewVisibleLabelCount(130)).toBe(0);
+
+    const { rerender, container } = render(
+      <RealDiffViewSwitch visibleLabelCount={4} />
+    );
+    expect(
+      container.querySelectorAll('.diff-toolbar-btn-label')
+    ).toHaveLength(4);
+    expect(container.querySelectorAll('button svg')).toHaveLength(4);
+
+    // Narrow step 1: rightmost label (4th button) hides first
+    rerender(<RealDiffViewSwitch visibleLabelCount={3} />);
+    expect(
+      container.querySelectorAll('.diff-toolbar-btn-label')
+    ).toHaveLength(3);
+    expect(
+      container
+        .querySelectorAll('button')[3]
+        ?.querySelector('.diff-toolbar-btn-label')
+    ).toBeNull();
+    expect(container.querySelectorAll('button svg')).toHaveLength(4);
+
+    // Narrow step 2: 3rd button label hides next
+    rerender(<RealDiffViewSwitch visibleLabelCount={2} />);
+    expect(
+      container.querySelectorAll('.diff-toolbar-btn-label')
+    ).toHaveLength(2);
+    expect(
+      container
+        .querySelectorAll('button')[2]
+        ?.querySelector('.diff-toolbar-btn-label')
+    ).toBeNull();
+    expect(container.querySelectorAll('button svg')).toHaveLength(4);
+
+    // Narrow step 3: 2nd button label hides next
+    rerender(<RealDiffViewSwitch visibleLabelCount={1} />);
+    expect(
+      container.querySelectorAll('.diff-toolbar-btn-label')
+    ).toHaveLength(1);
+    expect(
+      container
+        .querySelectorAll('button')[0]
+        ?.querySelector('.diff-toolbar-btn-label')
+    ).not.toBeNull();
+    expect(container.querySelectorAll('button svg')).toHaveLength(4);
+
+    // Narrow step 4: all labels hidden, all 4 icons still rendered
+    rerender(<RealDiffViewSwitch visibleLabelCount={0} />);
+    expect(
+      container.querySelectorAll('.diff-toolbar-btn-label')
+    ).toHaveLength(0);
+    expect(container.querySelectorAll('button svg')).toHaveLength(4);
+  });
+
+  it('renders Commit Diff info card with rounded corners, bottom spacing, widened description, and left-aligned ButtonGroup with right-aligned Expand All button', () => {
+    commitDiffState.current = {
+      commitSha: '3ab7835d80de',
+      commitInfo: {
+        sha: '3ab7835d80de1234',
+        summary: 'merge(workspace): reshape the right sidebar',
+        body: 'Bring the session timeline, diff review, notes quoting, and the\nelement-picker removal onto master.',
+        author: 'Xircth',
+        timestamp: 1700000000,
+      },
+      commitDiffs: [diff('crates/agents/src/conversation.rs', 6, 0)],
+      isLoading: false,
+      clearCommitDiff: vi.fn(),
+    };
+
+    const { container } = render(<DockviewDiffsReviewPanel />);
+
+    const infoCard = screen.getByTestId('commit-diff-info-card');
+    expect(infoCard.className).toContain('rounded-xl');
+    expect(infoCard.className).toContain('mb-2.5');
+
+    const bodyEl = screen.getByTestId('commit-diff-body');
+    expect(bodyEl.className).toContain('w-full');
+    expect(bodyEl.className).toContain('max-w-none');
+    expect(bodyEl.textContent).toBe(
+      'Bring the session timeline, diff review, notes quoting, and the element-picker removal onto master.'
+    );
+
+    const toolbar = container.querySelector('.diff-review-toolbar');
+    expect(toolbar?.className).toContain('justify-between');
+    expect(toolbar?.className).not.toContain('justify-end');
+
+    const expandGroup = container.querySelector('.diff-expand-button-group');
+    expect(expandGroup?.className).toContain('ml-auto');
+  });
 });
+

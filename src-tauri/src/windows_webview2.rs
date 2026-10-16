@@ -9,11 +9,9 @@
 pub const ADDITIONAL_BROWSER_ARGUMENTS_ENV: &str = "WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS";
 
 /// Chromium features the main WebView2 must disable on Windows 23H2.
-pub const OCCLUSION_DISABLE_FEATURES: &str =
-    "CalculateNativeWinOcclusion,ApplyNativeOcclusionToCompositor";
+pub const OCCLUSION_DISABLE_FEATURES: &str = "CalculateNativeWinOcclusion,ApplyNativeOcclusionToCompositor,Translate,OptimizationHints,MediaRouter";
 
-pub const ADDITIONAL_BROWSER_ARGUMENTS: &str =
-    "--disable-features=CalculateNativeWinOcclusion,ApplyNativeOcclusionToCompositor";
+pub const ADDITIONAL_BROWSER_ARGUMENTS: &str = "--disable-features=CalculateNativeWinOcclusion,ApplyNativeOcclusionToCompositor,Translate,OptimizationHints,MediaRouter --disk-cache-size=104857600 --js-flags=--max-old-space-size=1536";
 
 /// Decide the process-wide WebView2 argument string.
 ///
@@ -176,7 +174,11 @@ mod win32_desktop {
                 return None;
             }
             let len = buf.iter().position(|&c| c == 0).unwrap_or(buf.len());
-            Some(OsString::from_wide(&buf[..len]).to_string_lossy().into_owned())
+            Some(
+                OsString::from_wide(&buf[..len])
+                    .to_string_lossy()
+                    .into_owned(),
+            )
         }
     }
 
@@ -220,8 +222,7 @@ mod win32_desktop {
             while *cmd_ptr.add(cmd_len) != 0 {
                 cmd_len += 1;
             }
-            let mut cmd_buf: Vec<u16> =
-                std::slice::from_raw_parts(cmd_ptr, cmd_len + 1).to_vec();
+            let mut cmd_buf: Vec<u16> = std::slice::from_raw_parts(cmd_ptr, cmd_len + 1).to_vec();
 
             let mut desktop_wide: Vec<u16> = "WinSta0\\Default"
                 .encode_utf16()

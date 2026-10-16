@@ -119,10 +119,45 @@ function captureEditorColumnWidths(api: DockviewApi): EditorColumnWidth[] {
 }
 
 /**
+ * Closing the last editor column removes it from [A | B | C]. Dockview then
+ * hands B's width to every flexible sibling, which lands on the left dock.
+ * Keep the dock and give that width to the session column.
+ */
+function assignDismissedEditorWidthToSession(
+  api: DockviewApi,
+  snapshot: readonly EditorColumnWidth[],
+  removed: EditorColumnWidth
+): void {
+  const visible = snapshot
+    .filter(
+      (column) =>
+        column.id !== removed.id &&
+        column.sharesWidth &&
+        column.parentPath === removed.parentPath
+    )
+    .flatMap((column) => {
+      const group = api.getGroup(column.id);
+      return group?.api.isVisible ? [{ column, group }] : [];
+    });
+  const session = visible.find(({ group }) => isSessionGroup(group));
+  if (!session) return;
+
+  settleDockviewGroupWidths(
+    visible.map(({ column, group }) => ({
+      group,
+      width:
+        group.id === session.group.id
+          ? column.width + removed.width
+          : column.width,
+    }))
+  );
+}
+
+/**
  * Dockview gives a removed view's size to every flexible sibling, so closing
  * an editor column in [A | B1 | B2 | C] also resizes A and C. Put that width
  * back and share it equally across the editor columns that remain in the row.
- * The last editor column is left alone: hiding it lets the session expand.
+ * With no editor column left, the released width goes to the session.
  */
 function rebalanceEditorColumnsAfterRemoval(
   api: DockviewApi,
@@ -145,7 +180,10 @@ function rebalanceEditorColumnsAfterRemoval(
       const group = api.getGroup(column.id);
       return group?.api.isVisible ? [group] : [];
     });
-  if (survivors.length === 0) return;
+  if (survivors.length === 0) {
+    assignDismissedEditorWidthToSession(api, snapshot, removed);
+    return;
+  }
 
   const total = row.reduce((sum, column) => sum + column.width, 0);
   const base = Math.floor(total / survivors.length);
@@ -257,7 +295,23 @@ export function settleSlotColumnWidths(
     }
   }
 
-  if (center?.api.isVisible && right?.api.isVisible && snapshot.centerVisible) {
+  const centerHidden =
+    snapshot.centerVisible && (!center || !center.api.isVisible);
+  if (centerHidden && right?.api.isVisible) {
+    const dockWidth = left?.api.isVisible
+      ? snapshot.left && snapshot.left > 0
+        ? snapshot.left
+        : left.api.width
+      : 0;
+    targets.push({
+      group: right,
+      width: Math.max(MIN_RIGHT_PANEL_WIDTH, api.width - dockWidth),
+    });
+  } else if (
+    center?.api.isVisible &&
+    right?.api.isVisible &&
+    snapshot.centerVisible
+  ) {
     const width =
       snapshot.right && snapshot.right > 0 ? snapshot.right : right.api.width;
     if (width > 0) {
@@ -412,6 +466,31 @@ export function restoreFlexibleEditorColumn(
   }
 
   settleDockviewGroupWidths(targets);
+}
+
+/**
+ * Show the editor column at its flexible width before the first terminal tab
+ * is added. A hidden anchor is still crushed, so width is restored only after
+ * the group is visible.
+ */
+export function revealEditorColumnForTerminal(
+  api: DockviewApi,
+  options: EnsureWelcomeEditorGroupOptions
+): DockviewGroup | undefined {
+  const group = ensureWelcomeEditorGroup(api, options);
+  if (!group) return undefined;
+  if (!group.api.isVisible) {
+    group.api.setVisible(true);
+  }
+  if (isEditorColumnCrushed(api)) {
+    restoreFlexibleEditorColumn(
+      api,
+      options.arrangement,
+      options.sessionWidth,
+      options.dockWidth
+    );
+  }
+  return group;
 }
 
 /**

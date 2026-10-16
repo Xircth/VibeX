@@ -1420,7 +1420,9 @@ describe('FirstRunExperience', () => {
         name: '正在安装必要的 Agent 运行环境...',
       })
     ).toBeInTheDocument();
-    const rail = document.querySelector('.agent-management-bar-vertical');
+    const detail = document.querySelector('.onboarding-install-detail');
+    const rail = detail?.querySelector('.agent-management-bar-vertical');
+    expect(detail?.firstElementChild).toHaveClass('onboarding-agent-rail');
     expect(rail).not.toBeNull();
     expect(
       within(rail as HTMLElement).getByRole('button', { name: 'Claude Code' })

@@ -37,6 +37,7 @@ import {
 import { GitConflictSection } from './GitConflictSection';
 import { GitStagingArea } from './GitStagingArea';
 import { GitCommitBox } from './GitCommitBox';
+import { GitChangeStats } from './GitChangeStats';
 import { GitLogView } from './GitLogView';
 import { GitBranchList } from './GitBranchList';
 import { GitIssuesView } from './GitIssuesView';
@@ -60,27 +61,27 @@ const GIT_PANEL_MODE_OPTIONS: SelectorOptionData[] = [
   {
     value: 'diff',
     label: 'Diff',
-    icon: <ArrowLeftRight className="h-3.5 w-3.5" />,
+    icon: <ArrowLeftRight className="h-3 w-3" />,
   },
   {
     value: 'log',
     label: 'Log',
-    icon: <History className="h-3.5 w-3.5" />,
+    icon: <History className="h-3 w-3" />,
   },
   {
     value: 'branches',
     label: 'Branch',
-    icon: <GitBranchPlus className="h-3.5 w-3.5" />,
+    icon: <GitBranchPlus className="h-3 w-3" />,
   },
   {
     value: 'issues',
     label: 'Issue',
-    icon: <CircleDot className="h-3.5 w-3.5" />,
+    icon: <CircleDot className="h-3 w-3" />,
   },
   {
     value: 'prs',
     label: 'PR',
-    icon: <GitPullRequest className="h-3.5 w-3.5" />,
+    icon: <GitPullRequest className="h-3 w-3" />,
   },
 ];
 
@@ -315,6 +316,8 @@ export function GitPanel() {
             isLabelHidden
             size="sm"
             width="100%"
+            placement="below"
+            className="git-mode-selector"
             options={GIT_PANEL_MODE_OPTIONS}
             value={mode}
             onChange={(nextMode) => setMode(nextMode as GitPanelMode)}
@@ -324,7 +327,11 @@ export function GitPanel() {
             renderOption={(option) => (
               <SelectorOption
                 icon={option.icon}
-                label={option.label ?? option.value}
+                label={
+                  <span className="text-[11px] font-normal">
+                    {option.label ?? option.value}
+                  </span>
+                }
               />
             )}
           />
@@ -390,11 +397,11 @@ export function GitPanel() {
         </div>
       </div>
 
-      {/* Row 2: Branch info and change stats (only in Diff and Log modes) */}
-      {(mode === 'diff' || mode === 'log') && (
+      {/* Row 2: Branch info and change stats (only in Diff mode) */}
+      {mode === 'diff' && (
         <div
           data-testid="git-panel-branch-toolbar"
-          className="flex items-center gap-1 px-2 py-1 border-b border-border/30 shrink-0"
+          className="flex items-center justify-between gap-2 px-2.5 py-1.5 border-b border-border/30 shrink-0"
         >
           {parentHasNoGitRepo && gitChildren.length > 0 ? (
             <Select
@@ -413,32 +420,27 @@ export function GitPanel() {
               </SelectContent>
             </Select>
           ) : (
-            <div className="flex items-center gap-1 text-xs text-foreground mr-1 min-w-0">
-              <GitBranch className="h-3 w-3 shrink-0 text-muted-foreground" />
+            <div className="flex items-center gap-1.5 text-sm text-foreground min-w-0">
+              <GitBranch className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
               {displayedBranchName ? (
-                <span className="font-mono font-medium truncate max-w-[140px]">
+                <span
+                  data-testid="git-diff-branch-title"
+                  className="truncate max-w-[180px] text-sm font-bold leading-tight text-foreground"
+                >
                   {displayedBranchName}
                 </span>
               ) : (
-                <Loader2 className="h-3 w-3 animate-spin text-muted-foreground" />
+                <Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground" />
               )}
             </div>
           )}
 
           {(totalAdditions > 0 || totalDeletions > 0) && (
-            <span className="text-[10px] font-mono shrink-0">
-              {totalAdditions > 0 && (
-                <span className="text-[hsl(var(--success))]">
-                  +{totalAdditions}
-                </span>
-              )}
-              {totalAdditions > 0 && totalDeletions > 0 && (
-                <span className="text-muted-foreground">/</span>
-              )}
-              {totalDeletions > 0 && (
-                <span className="text-destructive">-{totalDeletions}</span>
-              )}
-            </span>
+            <GitChangeStats
+              additions={totalAdditions}
+              deletions={totalDeletions}
+              className="ml-auto shrink-0"
+            />
           )}
         </div>
       )}
@@ -539,6 +541,7 @@ export function GitPanel() {
       {mode === 'branches' && (
         <GitBranchList
           branches={gitBranches.branches}
+          remotes={gitBranches.remotes}
           isLoading={gitBranches.isLoading}
           error={gitBranches.error}
           onCheckout={gitBranches.checkoutBranch}

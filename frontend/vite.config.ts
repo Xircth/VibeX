@@ -65,13 +65,6 @@ function createManualChunks(id: string): string | undefined {
     return 'vendor-terminal';
   }
 
-  if (
-    normalizedId.includes('/node_modules/@codemirror/') ||
-    normalizedId.includes('/node_modules/@uiw/react-codemirror/')
-  ) {
-    return 'vendor-codemirror';
-  }
-
   if (normalizedId.includes('/node_modules/@git-diff-view/')) {
     return 'vendor-diff';
   }
@@ -168,7 +161,6 @@ window.__vite_plugin_react_preamble_installed__ = true;`,
     ],
   },
   optimizeDeps: {
-    exclude: ['wa-sqlite'],
     include: ['lucide-react', '@module-federation/runtime'],
   },
   build: {

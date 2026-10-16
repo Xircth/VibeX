@@ -1,5 +1,5 @@
 import { useCallback, useMemo } from 'react';
-import { useTauriPatchStream } from './useTauriPatchStream';
+import { usePatchStream } from './useTauriPatchStream';
 import type { ExecutionProcess } from 'shared/types';
 import { dateTimestamp } from '@/utils/date';
 
@@ -46,7 +46,7 @@ export const useExecutionProcesses = (
   );
 
   const { data, isConnected, isInitialized, error } =
-    useTauriPatchStream<ExecutionProcessState>({
+    usePatchStream<ExecutionProcessState>({
       subscribeCommand: 'subscribe_execution_processes_stream',
       subscribeArgs,
       eventChannel: `execution-processes-stream:${sessionId}`,

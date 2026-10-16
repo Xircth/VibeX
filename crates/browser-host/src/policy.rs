@@ -69,11 +69,12 @@ pub enum HostRuleAction {
     Block,
 }
 
-/// One row of the site-rule table. Same shape as `HostRule` in
-/// `src/lib/browser/host-rules.ts`, which mirrors the matching below.
+/// One row of the site-rule table. Same shape as the settings page, which
+/// mirrors the matching below.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct HostRule {
-    /// A hostname, `*.suffix`, or `*`, optionally followed by `:port`.
+    /// A hostname, `*.suffix`, or `*`, optionally prefixed with `http://` or
+    /// `https://` and optionally followed by `:port`.
     pub pattern: String,
     pub action: HostRuleAction,
 }
@@ -91,6 +92,7 @@ enum HostMatcher {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct ParsedPattern {
+    scheme: Option<String>,
     host: HostMatcher,
     port: Option<u16>,
 }
@@ -101,10 +103,24 @@ fn parse_pattern(pattern: &str) -> Option<ParsedPattern> {
     // ASCII whitespace only, like the frontend: `str::trim` would also eat
     // U+0085 and friends, and a pattern the two sides parse differently is
     // a rule one of them silently ignores.
-    let trimmed = pattern
+    let mut trimmed = pattern
         .trim_matches(|c: char| c.is_ascii_whitespace())
         .to_ascii_lowercase();
-    if trimmed.is_empty() || trimmed.len() > MAX_PATTERN_LEN {
+    let scheme = if let Some(rest) = trimmed.strip_prefix("https://") {
+        trimmed = rest.to_owned();
+        Some("https".to_owned())
+    } else if let Some(rest) = trimmed.strip_prefix("http://") {
+        trimmed = rest.to_owned();
+        Some("http".to_owned())
+    } else {
+        None
+    };
+    if trimmed.is_empty()
+        || trimmed.len() > MAX_PATTERN_LEN
+        || trimmed.contains('/')
+        || trimmed.contains('?')
+        || trimmed.contains('#')
+    {
         return None;
     }
     let (host, port, bracketed) = if let Some(rest) = trimmed.strip_prefix('[') {
@@ -120,18 +136,20 @@ fn parse_pattern(pattern: &str) -> Option<ParsedPattern> {
         (host.to_string(), port.map(str::to_string), true)
     } else {
         match trimmed.rsplit_once(':') {
-            Some((host, digits))
-                if !digits.is_empty() && digits.bytes().all(|b| b.is_ascii_digit()) =>
+            Some((host, port_text))
+                if port_text == "*"
+                    || (!port_text.is_empty()
+                        && port_text.bytes().all(|b| b.is_ascii_digit())) =>
             {
-                (host.to_string(), Some(digits.to_string()), false)
+                (host.to_string(), Some(port_text.to_string()), false)
             }
             Some(_) => return None,
             None => (trimmed.clone(), None, false),
         }
     };
-    let port = match port {
+    let port = match port.as_deref() {
+        None | Some("*") => None,
         Some(digits) => Some(digits.parse::<u16>().ok().filter(|p| *p > 0)?),
-        None => None,
     };
     let host = if bracketed {
         // Brackets mean an IPv6 literal and nothing else — not a wildcard,
@@ -151,7 +169,7 @@ fn parse_pattern(pattern: &str) -> Option<ParsedPattern> {
     } else {
         return None;
     };
-    Some(ParsedPattern { host, port })
+    Some(ParsedPattern { scheme, host, port })
 }
 
 /// An IPv6 literal (without brackets) in the canonical form the URL parser
@@ -193,11 +211,16 @@ fn effective_port(url: &Url) -> Option<u16> {
 }
 
 impl ParsedPattern {
-    fn matches(&self, hostname: &str, port: Option<u16>) -> bool {
+    fn matches(&self, scheme: &str, hostname: &str, port: Option<u16>) -> bool {
+        if self.scheme.as_ref().is_some_and(|wanted| wanted != scheme) {
+            return false;
+        }
         let host_ok = match &self.host {
             HostMatcher::Any => true,
             HostMatcher::Suffix(suffix) => {
-                hostname.ends_with(suffix.as_str()) && hostname.len() > suffix.len()
+                let apex = suffix.trim_start_matches('.');
+                hostname == apex
+                    || (hostname.ends_with(suffix.as_str()) && hostname.len() > suffix.len())
             }
             HostMatcher::Exact(exact) => hostname == exact,
         };
@@ -246,7 +269,7 @@ pub fn match_host_rule<'a>(rules: &'a [HostRule], url: &Url) -> Option<&'a HostR
         let Some(parsed) = parse_pattern(&rule.pattern) else {
             continue;
         };
-        if !parsed.matches(&hostname, port) {
+        if !parsed.matches(url.scheme(), &hostname, port) {
             continue;
         }
         let (kind, len, pinned) = parsed.specificity();
@@ -580,13 +603,18 @@ mod tests {
             "127.0.0.1",
             "10.0.0.1:8080",
             "*:443",
+            "example.com:*",
+            "https://example.com",
+            "http://*.example.com:8443",
+            "https://[::1]:*",
         ] {
             assert!(valid_pattern(ok), "{ok:?} should parse");
         }
         for bad in [
             "",
             "   ",
-            "https://example.com",
+            "https://example.com/path",
+            "ftp://example.com",
             "example.com/path",
             "example.com:",
             "example.com:0",
@@ -636,7 +664,7 @@ mod tests {
         let block = [rule("*.example.com", HostRuleAction::Block)];
         assert!(match_host_rule(&block, &u("https://a.example.com/")).is_some());
         assert!(match_host_rule(&block, &u("https://a.b.example.com/")).is_some());
-        assert!(match_host_rule(&block, &u("https://example.com/")).is_none());
+        assert!(match_host_rule(&block, &u("https://example.com/")).is_some());
         assert!(match_host_rule(&block, &u("https://notexample.com/")).is_none());
 
         let any = [rule("*", HostRuleAction::System)];
@@ -653,9 +681,24 @@ mod tests {
         assert!(match_host_rule(&http_only, &u("https://example.com/")).is_none());
         assert!(match_host_rule(&http_only, &u("http://example.com/")).is_some());
 
+        // Optional scheme, the same form the settings page accepts.
+        let https_only = [rule("https://example.com", HostRuleAction::Block)];
+        assert!(match_host_rule(&https_only, &u("https://example.com/")).is_some());
+        assert!(match_host_rule(&https_only, &u("http://example.com/")).is_none());
+        let https_wild = [rule("https://*.example.com:8443", HostRuleAction::System)];
+        assert!(match_host_rule(&https_wild, &u("https://a.example.com:8443/")).is_some());
+        assert!(match_host_rule(&https_wild, &u("https://a.example.com/")).is_none());
+        assert!(match_host_rule(&https_wild, &u("http://a.example.com:8443/")).is_none());
+
+        // `: *` is any port, the same form the settings page accepts.
+        let any_port = [rule("example.com:*", HostRuleAction::Block)];
+        assert!(match_host_rule(&any_port, &u("https://example.com:8443/")).is_some());
+        assert!(match_host_rule(&any_port, &u("http://example.com/")).is_some());
+        assert!(valid_pattern("https://[::1]:*"));
+
         // An unparsable pattern never matches, and never panics.
-        let junk = [rule("https://example.com", HostRuleAction::Block)];
-        assert!(match_host_rule(&junk, &u("https://example.com/")).is_none());
+        let junk = [rule("https://example.com/path", HostRuleAction::Block)];
+        assert!(match_host_rule(&junk, &u("https://example.com/path")).is_none());
     }
 
     #[test]

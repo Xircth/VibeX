@@ -220,9 +220,8 @@ export class TauriTransport implements BackendTransport {
     channel: string,
     start: () => Promise<void>
   ): AsyncIterable<RemoteEvent> {
-    const self = this;
     return {
-      [Symbol.asyncIterator](): AsyncIterator<RemoteEvent> {
+      [Symbol.asyncIterator]: (): AsyncIterator<RemoteEvent> => {
         const queue: RemoteEvent[] = [];
         let wake: (() => void) | undefined;
         let closed = false;
@@ -241,13 +240,13 @@ export class TauriTransport implements BackendTransport {
         };
 
         return {
-          async next(): Promise<IteratorResult<RemoteEvent>> {
+          next: async (): Promise<IteratorResult<RemoteEvent>> => {
             if (closed) {
               return { value: undefined, done: true };
             }
             if (!started) {
               started = true;
-              unlisten = await self.listen(channel, (payload) => {
+              unlisten = await this.listen(channel, (payload) => {
                 if (closed) return;
                 sequence += 1n;
                 queue.push({

@@ -11,7 +11,10 @@ import {
   retainPluginRemote,
   unloadPluginRemote,
 } from '@/lib/pluginFederation';
-import type { PluginContributionCatalogItem } from '@/lib/api/plugins';
+import type {
+  PluginContributionCatalog,
+  PluginContributionCatalogItem,
+} from '@/lib/api/plugins';
 import { contributionMetadata } from '@/hooks/usePluginHostContributions';
 import {
   useEffect,
@@ -23,6 +26,67 @@ import {
 } from 'react';
 
 const transport = createBackendAppSurfaceTransport(configuredBackendTransport);
+
+const OPEN_BROKER_KINDS = new Set([
+  'settings_page',
+  'app_tab',
+  'app_panel',
+  'kanban_view',
+  'app_surface',
+]);
+
+function remoteKey(metadata: unknown): string | null {
+  if (!metadata || typeof metadata !== 'object' || Array.isArray(metadata)) {
+    return null;
+  }
+  const remote = (metadata as { remote?: unknown }).remote;
+  if (!remote || typeof remote !== 'object' || Array.isArray(remote)) return null;
+  const record = remote as { name?: unknown; module?: unknown };
+  if (typeof record.name !== 'string' || !record.name) return null;
+  const moduleName =
+    typeof record.module === 'string' && record.module ? record.module : './view';
+  return `${record.name}\n${moduleName}`;
+}
+
+/** A status remote is not itself an App surface. Prefer a sibling surface that
+ *  publishes the same remote so the view can call the Worker on hosts that
+ *  only open settings, tab, and panel sessions. */
+export function brokerSurfaceForStatusRemote(
+  item: PluginContributionCatalogItem,
+  items: PluginContributionCatalogItem[]
+): { surfaceId: string; generation: number } {
+  const own = { surfaceId: item.id, generation: item.generation };
+  const wanted = remoteKey(item.metadata);
+  if (!wanted) return own;
+  const matches = items.filter(
+    (candidate) =>
+      candidate.pluginId === item.pluginId &&
+      candidate.id !== item.id &&
+      OPEN_BROKER_KINDS.has(candidate.kind) &&
+      remoteKey(candidate.metadata) === wanted
+  );
+  const chosen =
+    matches.find((candidate) => candidate.kind === 'settings_page') ??
+    matches[0];
+  if (!chosen) return own;
+  return { surfaceId: chosen.id, generation: chosen.generation };
+}
+
+async function resolveBrokerSurface(
+  item: PluginContributionCatalogItem,
+  slot: string
+): Promise<{ surfaceId: string; generation: number }> {
+  const own = { surfaceId: item.id, generation: item.generation };
+  if (slot !== 'status.after-mcp') return own;
+  try {
+    const catalog = (await configuredBackendTransport.call(
+      'plugin_contribution_catalog'
+    )) as PluginContributionCatalog;
+    return brokerSurfaceForStatusRemote(item, catalog.items ?? []);
+  } catch {
+    return own;
+  }
+}
 
 async function remoteEntryAvailable(entry: string): Promise<boolean> {
   try {
@@ -160,12 +224,13 @@ function PluginRemoteViewBody({
         let sequence = 0;
         let invokeQueue: Promise<unknown> = Promise.resolve();
         let sessionToken: string | null = null;
+        const broker = await resolveBrokerSurface(item, slot);
         const openSession = async (): Promise<string | null> => {
           try {
             const session = await transport.load({
               pluginId: item.pluginId,
-              surfaceId,
-              generation: item.generation,
+              surfaceId: broker.surfaceId,
+              generation: broker.generation,
               token: clientToken,
             });
             sequence = 0;
@@ -173,8 +238,8 @@ function PluginRemoteViewBody({
             revoke = () => {
               void transport.revoke({
                 pluginId: item.pluginId,
-                surfaceId,
-                generation: item.generation,
+                surfaceId: broker.surfaceId,
+                generation: broker.generation,
                 token: session.token,
                 reason: 'unmount',
               });
@@ -213,8 +278,8 @@ function PluginRemoteViewBody({
               try {
                 return await transport.invoke({
                   pluginId: item.pluginId,
-                  surfaceId,
-                  generation: item.generation,
+                  surfaceId: broker.surfaceId,
+                  generation: broker.generation,
                   token: activeToken,
                   requestId: crypto.randomUUID(),
                   sequence,
@@ -234,8 +299,8 @@ function PluginRemoteViewBody({
                     try {
                       return await transport.invoke({
                         pluginId: item.pluginId,
-                        surfaceId,
-                        generation: item.generation,
+                        surfaceId: broker.surfaceId,
+                        generation: broker.generation,
                         token: activeToken,
                         requestId: crypto.randomUUID(),
                         sequence,

@@ -1,12 +1,14 @@
-import { useCallback, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { DiffView, DiffModeEnum } from '@git-diff-view/react';
-import { generateDiffFile } from '@git-diff-view/file';
+import { _cacheMap, generateDiffFile } from '@git-diff-view/file';
 import { MessageSquarePlus } from 'lucide-react';
 /* diff-style-overrides.css and edit-diff-overrides.css imported by parent FileChangeRenderer */
 import { cn } from '@/lib/utils';
 import { useComposerSelectionStore } from '@/stores/useComposerSelectionStore';
 import { computeLineRange } from '@/utils/codeSelection';
+
+_cacheMap.setMaxLength(10);
 
 type Props = {
   content: string;
@@ -86,6 +88,12 @@ function FileContentView({
       return null;
     }
   }, [baseContent, content, lang]);
+
+  useEffect(() => {
+    return () => {
+      diffFile?._destroy?.();
+    };
+  }, [diffFile]);
 
   if (isComparisonMode && baseContent === content) {
     return (

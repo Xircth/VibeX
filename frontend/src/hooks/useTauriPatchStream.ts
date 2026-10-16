@@ -203,6 +203,3 @@ export const usePatchStream = <T extends object>(
 
   return { data, isConnected, isInitialized, error };
 };
-
-/** @deprecated Host Event Bus + patch_stream subscription; same hook. */
-export const useTauriPatchStream = usePatchStream;

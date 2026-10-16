@@ -44,7 +44,6 @@ describe('global modal surfaces', () => {
     const customModalFiles = [
       'src/components/search/SearchPalette.tsx',
       'src/components/panels/git/GitDiscardDialog.tsx',
-      'src/components/panels/git/GitDiffModal.tsx',
     ];
 
     for (const file of customModalFiles) {

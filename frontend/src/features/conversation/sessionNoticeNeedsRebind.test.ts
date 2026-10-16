@@ -5,6 +5,7 @@ import {
   AGENT_BINDING_REBIND_NOTICE_ROW_ID,
   AGENT_CONNECTION_RECOVERING_NOTICE_ROW_ID,
   AGENT_SESSION_CONNECT_ERROR_NOTICE_ROW_ID,
+  isResendColdStartNotice,
   sessionNoticeNeedsRebind,
 } from './sessionNoticeNeedsRebind';
 
@@ -18,6 +19,32 @@ function notice(
     ...overrides,
   };
 }
+
+describe('isResendColdStartNotice', () => {
+  it('hides the cold-start banner resend records', () => {
+    expect(
+      isResendColdStartNotice(AGENT_BINDING_REBIND_NOTICE_ROW_ID, {
+        message:
+          '可见历史仍在，但 Agent 隐藏上下文已丢失。后续消息从新的冷启动会话继续。',
+      })
+    ).toBe(true);
+  });
+
+  it('keeps a rebind that still links the previous thread', () => {
+    expect(
+      isResendColdStartNotice(AGENT_BINDING_REBIND_NOTICE_ROW_ID, {
+        message:
+          '可见历史已链接到上一线程。后续消息走新的 Agent 线程，不会混入其他会话。',
+      })
+    ).toBe(false);
+    expect(
+      isResendColdStartNotice(AGENT_BINDING_LOAD_FAILURE_NOTICE_ROW_ID, {
+        message:
+          '可见历史仍在，但 Agent 隐藏上下文已丢失。后续消息从新的冷启动会话继续。',
+      })
+    ).toBe(false);
+  });
+});
 
 describe('sessionNoticeNeedsRebind', () => {
   it('does not offer rebind for product notices or non-blocking warnings', () => {

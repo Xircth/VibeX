@@ -16,9 +16,7 @@ pub const DEFAULT_READ_LIMIT: usize = 100;
 pub const MAX_READ_LIMIT: usize = 200;
 pub const CDP_MAX_EVENT_BYTES: usize = 64 * 1024;
 
-#[derive(
-    Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize, Default,
-)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize, Default)]
 #[serde(rename_all = "kebab-case")]
 pub enum ConsoleLevel {
     Debug,
@@ -158,7 +156,10 @@ impl ConsoleRing {
         let weight = text.chars().count();
         self.next_seq = self.next_seq.saturating_add(1);
         let seq = self.next_seq;
-        let url = line.url.filter(|u| !u.is_empty()).map(|u| cap_chars(&u, 512).0);
+        let url = line
+            .url
+            .filter(|u| !u.is_empty())
+            .map(|u| cap_chars(&u, 512).0);
         self.entries.push_back(ConsoleEntry {
             seq,
             level: line.level,
@@ -272,7 +273,10 @@ pub fn cdp_exception_line(
     frame_origin: Option<String>,
 ) -> Option<ConsoleLine> {
     let details = params.get("exceptionDetails")?;
-    let head = details.get("text").and_then(Value::as_str).unwrap_or("Uncaught");
+    let head = details
+        .get("text")
+        .and_then(Value::as_str)
+        .unwrap_or("Uncaught");
     let body = details
         .get("exception")
         .map(format_remote_object)

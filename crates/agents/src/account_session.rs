@@ -190,7 +190,10 @@ async fn read_antigravity_email_from_logs() -> Option<String> {
 async fn refresh_antigravity_token_email(doc: &Value) -> Option<String> {
     let refresh_token = doc.get("refresh_token").and_then(Value::as_str)?;
     let client_id = doc.get("client_id").and_then(Value::as_str)?;
-    let client_secret = doc.get("client_secret").and_then(Value::as_str).unwrap_or("");
+    let client_secret = doc
+        .get("client_secret")
+        .and_then(Value::as_str)
+        .unwrap_or("");
     let token_uri = doc
         .get("token_uri")
         .and_then(Value::as_str)

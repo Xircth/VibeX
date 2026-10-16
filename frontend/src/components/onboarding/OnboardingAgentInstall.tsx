@@ -362,99 +362,101 @@ export function OnboardingAgentInstall({
           </h1>
         </div>
         <div className="onboarding-install-layout">
-          <div className="onboarding-agent-rail settings-page">
-            <AgentBar
-              agents={barAgents}
-              selectedAgentId={selected?.agentId ?? null}
-              registryOpen={false}
-              orientation="vertical"
-              installReadyIds={runtime.ready}
-              onSelect={(agentId) => setSelectedAgentId(agentId as AgentId)}
-              onReorder={() => undefined}
-            />
-          </div>
           <div className="onboarding-install-detail settings-page">
-            {showEnvironment && operation ? (
-              <AgentOperationProgress
-                operation={operation}
-                onCancel={() => {
-                  if (!selected || !operation.operationId) return;
-                  void agentManagementApi.cancelOperation(
-                    selected.agentId,
-                    operation.operationId
-                  );
-                }}
+            <div className="onboarding-agent-rail settings-page">
+              <AgentBar
+                agents={barAgents}
+                selectedAgentId={selected?.agentId ?? null}
+                registryOpen={false}
+                orientation="vertical"
+                installReadyIds={runtime.ready}
+                onSelect={(agentId) => setSelectedAgentId(agentId as AgentId)}
+                onReorder={() => undefined}
               />
-            ) : null}
-            {showEnvironment && !operation && guidance ? (
-              <InstallGuidance
-                guidance={guidance}
-                onRepair={selected ? () => void repair(selected) : undefined}
-              />
-            ) : null}
-            {showConfiguration && selected && selectedView ? (
-              <>
-                <AgentAuthModeControl
-                  actions={actionsByAgent[selected.agentId] ?? null}
-                  authentication={selectedView.authentication}
-                  agentId={selected.agentId}
-                  modelProvider={
-                    selected.agentId === 'opencode' ||
-                    selected.agentId === 'mimo_code' ? (
-                      <OpenCodeProviderConnections
-                        agentId={selected.agentId}
-                        surface="provider"
-                      />
-                    ) : selectedView.settings_features?.includes(
-                        'reusable_model_providers'
-                      ) ? (
-                      <AgentModelProviderManager
-                        agentId={selected.agentId}
-                        disabled={false}
-                        embedded
-                        signedIn={
-                          selectedView.authentication === 'account' ||
-                          selectedView.authentication === 'multiple_unknown'
-                        }
-                      />
-                    ) : undefined
-                  }
-                  onRunAction={(actionId) => void runAction(actionId)}
+            </div>
+            <div className="onboarding-install-panels">
+              {showEnvironment && operation ? (
+                <AgentOperationProgress
+                  operation={operation}
+                  onCancel={() => {
+                    if (!selected || !operation.operationId) return;
+                    void agentManagementApi.cancelOperation(
+                      selected.agentId,
+                      operation.operationId
+                    );
+                  }}
                 />
-                <section
-                  aria-labelledby="onboarding-preflight-heading"
-                  className="settings-surface agent-preflight-surface"
-                >
-                  <AgentSectionHeading
-                    headingId="onboarding-preflight-heading"
-                    title={t('settings:agents.preflightTitle')}
-                    expanded
-                  />
-                  <ul className="agent-preflight-grid">
-                    {(preflight
-                      ? presentPreflightItems(preflight.items)
-                      : []
-                    ).map((item) => (
-                      <AgentPreflightCard item={item} key={item.id} />
-                    ))}
-                  </ul>
-                </section>
-                {guidance ? (
-                  <InstallGuidance
-                    guidance={guidance}
-                    onRepair={
-                      guidance.repairable
-                        ? () => void repair(selected)
-                        : undefined
+              ) : null}
+              {showEnvironment && !operation && guidance ? (
+                <InstallGuidance
+                  guidance={guidance}
+                  onRepair={selected ? () => void repair(selected) : undefined}
+                />
+              ) : null}
+              {showConfiguration && selected && selectedView ? (
+                <>
+                  <AgentAuthModeControl
+                    actions={actionsByAgent[selected.agentId] ?? null}
+                    authentication={selectedView.authentication}
+                    agentId={selected.agentId}
+                    modelProvider={
+                      selected.agentId === 'opencode' ||
+                      selected.agentId === 'mimo_code' ? (
+                        <OpenCodeProviderConnections
+                          agentId={selected.agentId}
+                          surface="provider"
+                        />
+                      ) : selectedView.settings_features?.includes(
+                          'reusable_model_providers'
+                        ) ? (
+                        <AgentModelProviderManager
+                          agentId={selected.agentId}
+                          disabled={false}
+                          embedded
+                          signedIn={
+                            selectedView.authentication === 'account' ||
+                            selectedView.authentication === 'multiple_unknown'
+                          }
+                        />
+                      ) : undefined
                     }
+                    onRunAction={(actionId) => void runAction(actionId)}
                   />
-                ) : (
-                  <p className="onboarding-install-guidance" role="status">
-                    {t('dialogs:onboarding.checking')}
-                  </p>
-                )}
-              </>
-            ) : null}
+                  <section
+                    aria-labelledby="onboarding-preflight-heading"
+                    className="settings-surface agent-preflight-surface"
+                  >
+                    <AgentSectionHeading
+                      headingId="onboarding-preflight-heading"
+                      title={t('settings:agents.preflightTitle')}
+                      expanded
+                    />
+                    <ul className="agent-preflight-grid">
+                      {(preflight
+                        ? presentPreflightItems(preflight.items)
+                        : []
+                      ).map((item) => (
+                        <AgentPreflightCard item={item} key={item.id} />
+                      ))}
+                    </ul>
+                  </section>
+                  {guidance ? (
+                    <InstallGuidance
+                      guidance={guidance}
+                      onRepair={
+                        guidance.repairable
+                          ? () => void repair(selected)
+                          : undefined
+                      }
+                    />
+                  ) : (
+                    <p className="onboarding-install-guidance" role="status">
+                      {t('dialogs:onboarding.checking')}
+                    </p>
+                  )}
+                </>
+              ) : null}
+            </div>
           </div>
         </div>
         <footer className="onboarding-config-footer">

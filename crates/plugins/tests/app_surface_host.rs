@@ -204,6 +204,118 @@ async fn a_structure_tab_opens_through_the_shared_host() {
     assert_eq!(result["handler"], "surface.createSession");
 }
 
+fn write_status_package(root: &std::path::Path) {
+    write_tab_package(root);
+    let manifest_path = root.join(".vibex-plugin/plugin.json");
+    let mut manifest: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(&manifest_path).unwrap()).unwrap();
+    manifest["integrations"] = json!([
+        {
+            "id": "computer",
+            "kind": "app.status",
+            "slot": "status.after-mcp",
+            "text": "电脑控制",
+            "icon": "monitor",
+            "handler": "surface.createSession",
+            "remote": {
+                "name": "fixture_status",
+                "entry": "dist/remoteEntry.js",
+                "module": "./view"
+            }
+        },
+        {
+            "id": "plain",
+            "kind": "app.status",
+            "slot": "status.main",
+            "text": "Plain",
+            "handler": "surface.createSession"
+        }
+    ]);
+    std::fs::write(manifest_path, serde_json::to_vec_pretty(&manifest).unwrap()).unwrap();
+}
+
+#[tokio::test]
+async fn a_status_remote_opens_a_worker_session() {
+    let Some(node) = node_executable() else {
+        return;
+    };
+    let root = tempfile::tempdir().unwrap();
+    write_status_package(root.path());
+    let package = PluginPackage::inspect(root.path(), PluginSourceKind::DeveloperLink).unwrap();
+    assert!(
+        package.warnings.is_empty(),
+        "status remote fixture must be valid: {:?}",
+        package.warnings
+    );
+    let control = Arc::new(PluginControlPlane::new(Arc::new(
+        InMemoryPluginRegistry::default(),
+    )));
+    control
+        .import(package, ConflictDecision::Reject)
+        .await
+        .unwrap();
+    control
+        .activate_and_enable(&node, "tests.surface", &[], Arc::new(DenyCapabilityBroker))
+        .await
+        .unwrap();
+
+    let catalog = control.contributions().await.unwrap();
+    let status = catalog
+        .items
+        .iter()
+        .find(|item| item.id == "computer")
+        .expect("status contribution");
+    let plain = catalog
+        .items
+        .iter()
+        .find(|item| item.id == "plain")
+        .expect("status contribution without a remote");
+    let host = PluginAppSurfaceHost::new(control);
+    let document = host
+        .open(AppSurfaceOpenRequest {
+            identity: AppSurfaceIdentity {
+                plugin_id: "tests.surface".to_owned(),
+                surface_id: "computer".to_owned(),
+                generation: status.generation,
+                token: "0123456789abcdef0123456789abcdef".to_owned(),
+            },
+            artifact_path: None,
+        })
+        .await
+        .expect("a status item with a remote must open a Worker session");
+    let result = host
+        .invoke(AppSurfaceInvocation {
+            identity: AppSurfaceIdentity {
+                plugin_id: "tests.surface".to_owned(),
+                surface_id: "computer".to_owned(),
+                generation: status.generation,
+                token: document.token,
+            },
+            request_id: "status-1".to_owned(),
+            sequence: 1,
+            method: "surface.createSession".to_owned(),
+            params: json!({ "rpcMethod": "computer.status" }),
+        })
+        .await
+        .expect("status remote session must accept Worker handlers");
+    assert_eq!(result["handler"], "surface.createSession");
+
+    let rejected = host
+        .open(AppSurfaceOpenRequest {
+            identity: AppSurfaceIdentity {
+                plugin_id: "tests.surface".to_owned(),
+                surface_id: "plain".to_owned(),
+                generation: plain.generation,
+                token: "abcdef0123456789abcdef0123456789".to_owned(),
+            },
+            artifact_path: None,
+        })
+        .await
+        .expect_err("a status item without a remote is a click handler, not a session");
+    assert_eq!(rejected.kind(), plugins::AppSurfaceErrorKind::BadRequest);
+    assert!(rejected.to_string().contains("unsupported Host slot"));
+}
+
 #[tokio::test]
 async fn published_surface_opens_invokes_and_revokes_through_the_shared_host() {
     let Some(node) = node_executable() else {

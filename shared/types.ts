@@ -1668,7 +1668,13 @@ export type AgentSessionConfigOverride = { key: string, value: string, };
 
 export type ConversationRowOp = { "op": "upsert", row: TimelineRow, } | { "op": "delete", row_id: string, revision: bigint, } | { "op": "append_text", row_id: string, revision: bigint, stream: TimelineTextStream, delta: string, };
 
-export type ConversationRowOpBatch = { conversation_id: string, last_sequence: bigint, previous_sequence?: bigint | null, ops: Array<ConversationRowOp>,
+export type ConversationRowOpBatch = { conversation_id: string, last_sequence: bigint,
+/**
+ * Last sequence emitted in the immediately preceding batch for this conversation,
+ * when known by the incremental projector. Allows the frontend to distinguish
+ * skipped no-op sequences or coalesced intra-batch revisions from dropped batches.
+ */
+previous_sequence?: bigint, ops: Array<ConversationRowOp>,
 /**
  * Latest agent-advertised session modes carried in this batch, if any. Session
  * control state isn't a timeline row, so it rides alongside the row ops rather

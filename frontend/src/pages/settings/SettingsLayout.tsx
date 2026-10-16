@@ -53,7 +53,6 @@ import {
   usePluginHostContributions,
 } from '@/hooks/usePluginHostContributions';
 import { contributionIconComponent } from '@/components/plugins/contributionIcon';
-import { isHostBrowserPlugin } from '@/features/host-browser/hostBrowserEngine';
 
 interface SettingsNavItem {
   path: string;
@@ -157,7 +156,6 @@ export function SettingsLayout() {
   const isTauri = useTauriClient();
   const logoLeads = logoLeadsWindowChrome();
   const pluginPages = usePluginHostContributions('settings_page');
-  const allContributions = usePluginHostContributions();
   const [searchQuery, setSearchQuery] = useState('');
   const highlightId = searchParams.get('highlight');
   const searching = searchQuery.trim().length > 0;
@@ -239,15 +237,9 @@ export function SettingsLayout() {
                   ...SETTINGS_NAV_ITEMS,
                   ...pluginPages.map((page): SettingsNavItem => {
                     const meta = contributionMetadata(page);
-                    const isBrowser = isHostBrowserPlugin(
-                      page.pluginId,
-                      allContributions,
-                      meta
-                    );
                     return {
                       path: `/settings/plugin/${page.pluginId}/${page.id}`,
-                      labelKey: isBrowser ? 'browser' : undefined,
-                      label: isBrowser ? undefined : page.label,
+                      label: page.label,
                       icon: contributionIconComponent(meta.icon, Puzzle),
                     };
                   }),

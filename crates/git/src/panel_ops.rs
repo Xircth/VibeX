@@ -97,17 +97,16 @@ impl GitService {
             }
 
             if entry.is_untracked {
-                let (adds, dels) =
-                    if let Some(stats) = all_stats.get(&path_str).copied() {
-                        stats
-                    } else if untracked_stat_reads < MAX_UNTRACKED_STAT_FILES
-                        && !is_likely_binary(&path_str)
-                    {
-                        untracked_stat_reads += 1;
-                        untracked_file_stats(&repo, &path_str)
-                    } else {
-                        (0, 0)
-                    };
+                let (adds, dels) = if let Some(stats) = all_stats.get(&path_str).copied() {
+                    stats
+                } else if untracked_stat_reads < MAX_UNTRACKED_STAT_FILES
+                    && !is_likely_binary(&path_str)
+                {
+                    untracked_stat_reads += 1;
+                    untracked_file_stats(&repo, &path_str)
+                } else {
+                    (0, 0)
+                };
                 unstaged_files.push(GitFileStatusEntry {
                     path: path_str,
                     status: "?".to_string(),
@@ -357,18 +356,15 @@ impl GitService {
     /// Get ahead/behind counts for the current branch vs its upstream.
     pub fn get_log_status(&self, worktree_path: &Path) -> Result<GitLogStatus, GitServiceError> {
         let git = GitCli::new();
-        let branch_from_repo = self
-            .open_repo(worktree_path)
-            .ok()
-            .and_then(|repo| {
-                repo.head().ok().and_then(|head| {
-                    if head.is_branch() {
-                        head.shorthand().map(str::to_string)
-                    } else {
-                        None
-                    }
-                })
-            });
+        let branch_from_repo = self.open_repo(worktree_path).ok().and_then(|repo| {
+            repo.head().ok().and_then(|head| {
+                if head.is_branch() {
+                    head.shorthand().map(str::to_string)
+                } else {
+                    None
+                }
+            })
+        });
 
         let ((branch, upstream, ahead, behind), entries_res) = std::thread::scope(|s| {
             let log_handle = s.spawn(|| self.get_log(worktree_path, 100));

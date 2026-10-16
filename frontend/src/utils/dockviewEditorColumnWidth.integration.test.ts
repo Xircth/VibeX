@@ -166,7 +166,12 @@ describe('editor column close widths', () => {
     const api = createApi();
     const { fileTree, session } = buildColumns(api);
     const rebalance = installEditorColumnWidthRebalance(api);
+    const dockBefore = fileTree.api.width;
     const sessionBefore = session.api.width;
+    const editorWidth = visibleEditors(api).reduce(
+      (sum, group) => sum + group.api.width,
+      0
+    );
 
     for (const panelId of ['b1', 'b2', 'b3', 'b4']) {
       const panel = api.getPanel(panelId);
@@ -174,8 +179,8 @@ describe('editor column close widths', () => {
     }
 
     expect(visibleEditors(api)).toHaveLength(0);
-    expect(session.api.width).toBeGreaterThan(sessionBefore + 50);
-    expect(fileTree.api.width).toBeGreaterThan(0);
+    expectNear(fileTree.api.width, dockBefore);
+    expectNear(session.api.width, sessionBefore + editorWidth);
     rebalance.dispose();
     api.dispose();
   });

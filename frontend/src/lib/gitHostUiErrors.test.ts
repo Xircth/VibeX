@@ -20,4 +20,12 @@ describe('getGitHostErrorPresentation', () => {
       hint: 'boom',
     });
   });
+
+  it('safely normalizes Error objects and detects GitHub CLI setup/auth errors without throwing', () => {
+    const presentation = getGitHostErrorPresentation(
+      new Error('GitHub CLI (`gh`) executable not found or not runnable'),
+      'Issues'
+    );
+    expect(presentation?.requiresGhSetup).toBe(true);
+  });
 });

@@ -1132,7 +1132,7 @@
 
 .onboarding-install-column {
   display: grid;
-  width: min(820px, calc(100vw - 64px));
+  width: min(1120px, calc(100vw - 48px));
   gap: 22px;
 }
 
@@ -1183,40 +1183,47 @@
 }
 
 .onboarding-install-layout {
-  display: grid;
-  min-height: 0;
-  grid-template-columns: auto minmax(0, 1fr);
-  gap: 16px;
-  align-items: center;
+  display: block;
+  width: 100%;
+  min-width: 0;
 }
 
-.onboarding-agent-rail.settings-page .agent-management-bar {
-  flex-direction: column;
-  align-items: stretch;
-  width: 212px;
-  height: auto;
-  overflow: visible;
-  padding: 8px;
-  border-radius: var(--radius);
-  gap: 4px;
+.onboarding-experience .onboarding-agent-rail {
+  display: flex;
+  width: 100%;
+  justify-content: center;
 }
 
 .onboarding-experience
-  .onboarding-agent-rail.settings-page
+  .onboarding-agent-rail
+  .agent-management-bar.agent-management-bar-vertical {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: nowrap;
+  align-items: center;
+  justify-content: center;
+  width: fit-content;
+  max-width: 100%;
+  height: calc(var(--agent-bar-item-size) + 8px);
+  min-height: 0;
+  flex: none;
+  overflow: hidden;
+  padding: 0 3px;
+  border: 1px solid var(--border-content);
+  border-radius: 9999px;
+  background: var(--surface-control);
+  gap: var(--agent-bar-item-gap);
+}
+
+.onboarding-experience
+  .onboarding-agent-rail
+  .agent-management-bar-vertical
   .agent-management-bar-item {
-  width: 100%;
-  min-width: 0;
-  height: 36px;
-  justify-content: flex-start;
-  padding: 0 10px;
-  gap: 8px;
   cursor: pointer;
   touch-action: auto;
 }
 
-.onboarding-experience
-  .onboarding-agent-rail.settings-page
-  .agent-management-bar-mark {
+.onboarding-experience .onboarding-agent-rail .agent-management-bar-mark {
   position: relative;
   display: grid;
   width: 22px;
@@ -1225,19 +1232,7 @@
   place-items: center;
 }
 
-.onboarding-experience
-  .onboarding-agent-rail.settings-page
-  .agent-management-bar-item
-  .agent-management-bar-label {
-  max-width: none;
-  margin: 0;
-  opacity: 1;
-  flex: 1 1 auto;
-  min-width: 0;
-  text-align: start;
-}
-
-.onboarding-agent-rail.settings-page .settings-status-lamp.agent-install-lamp {
+.onboarding-agent-rail .settings-status-lamp.agent-install-lamp {
   position: absolute;
   right: -3px;
   bottom: -3px;
@@ -1245,13 +1240,30 @@
 }
 
 .onboarding-install-detail {
+  display: flex;
+  width: 100%;
   min-width: 0;
   min-height: 0;
+  flex-direction: column;
+  align-items: stretch;
   overflow: auto;
-  padding: 16px;
+  padding: 20px;
   border: 1px solid hsl(var(--border) / 0.78);
   border-radius: var(--radius);
   background: var(--surface-dialog);
+  gap: 24px;
+}
+
+.onboarding-install-panels {
+  display: flex;
+  width: 100%;
+  min-width: 0;
+  flex-direction: column;
+  gap: 24px;
+}
+
+.onboarding-install-panels > .onboarding-install-guidance {
+  margin-top: 0;
 }
 
 .onboarding-install-guidance {

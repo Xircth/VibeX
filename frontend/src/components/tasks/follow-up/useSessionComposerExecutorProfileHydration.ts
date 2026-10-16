@@ -2,7 +2,7 @@ import {
   useEffect,
   useRef,
   type Dispatch,
-  type MutableRefObject,
+  type RefObject,
   type SetStateAction,
 } from 'react';
 import type { ExecutorProfileId } from 'shared/types';
@@ -33,7 +33,7 @@ export function useSessionComposerExecutorProfileHydration({
     SetStateAction<ExecutorProfileId | null>
   >;
   effectiveExecutorProfile: ExecutorProfileId | null;
-  executorProfileRef: MutableRefObject<ExecutorProfileId | null>;
+  executorProfileRef: RefObject<ExecutorProfileId | null>;
   isScratchLoading: boolean;
   localMessage: string;
   saveToScratch: (

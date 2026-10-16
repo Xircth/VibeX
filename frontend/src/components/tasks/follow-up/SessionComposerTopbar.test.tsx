@@ -111,6 +111,26 @@ describe('SessionComposerTopbar', () => {
     expect(onJump).toHaveBeenCalledTimes(1);
   });
 
+  it('keeps the agent icon bare and restores todo and jump control chrome', () => {
+    renderTopbar({
+      executorProfile: { executor: 'codex' },
+      onJumpToPreviousUserMessage: vi.fn(),
+    });
+
+    const agentIcon = screen.getByRole('img', { name: 'Codex' });
+    expect(agentIcon.parentElement).not.toHaveClass('bg-muted/40');
+    expect(agentIcon.parentElement).not.toHaveClass('composer-control');
+    expect(agentIcon.parentElement).not.toHaveClass('border');
+
+    const todoButton = screen.getByRole('button', { name: '任务列表' });
+    expect(todoButton).toHaveClass('composer-control');
+
+    const jumpButton = screen.getByRole('button', {
+      name: '\u56de\u5230\u4e0a\u4e00\u6761\u7528\u6237\u6d88\u606f',
+    });
+    expect(jumpButton).toHaveClass('composer-control');
+  });
+
   it('gates the session selector and disabled jump control', () => {
     const onSelectSession = vi.fn();
 

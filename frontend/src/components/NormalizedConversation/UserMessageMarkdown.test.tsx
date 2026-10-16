@@ -89,8 +89,8 @@ describe('UserMessageMarkdown', () => {
       .closest('[data-testid="session-composer-token-chip"]');
 
     expect(tokenChip).toHaveAttribute('data-token-kind', 'tag');
-    expect(tokenChip).toHaveAttribute('data-variant', 'cyan');
-    expect(tokenChip?.querySelector('svg')).toBeNull();
+    expect(tokenChip).toHaveAttribute('data-variant', 'blue');
+    expect(tokenChip?.querySelector('svg.lucide-hash')).not.toBeNull();
   });
 
   it('renders agent mentions with the real agent icon and composer token tone', () => {
@@ -99,7 +99,7 @@ describe('UserMessageMarkdown', () => {
     );
 
     const chip = screen
-      .getByText('&Codex')
+      .getByText('Codex')
       .closest('[data-testid="session-composer-token-chip"]');
 
     expect(chip).toHaveAttribute('data-token-kind', 'agent_mention');
@@ -150,11 +150,12 @@ describe('UserMessageMarkdown', () => {
       .getByText('/review')
       .closest('[data-testid="session-composer-token-chip"]');
 
-    expect(fileChip).toHaveAttribute('data-variant', 'cyan');
+    expect(fileChip).toHaveAttribute('data-variant', 'blue');
     expect(dollarChip).toHaveAttribute('data-variant', 'green');
     expect(slashChip).toHaveAttribute('data-variant', 'blue');
+    expect(fileChip?.querySelector('svg')).not.toBeNull();
     expect(getComputedStyle(fileChip as Element).color).toBe(
-      'var(--color-text-cyan)'
+      'var(--color-text-blue)'
     );
     expect(getComputedStyle(dollarChip as Element).color).toBe(
       'var(--color-text-green)'
@@ -191,7 +192,8 @@ describe('UserMessageMarkdown', () => {
       .getByText('@请你帮我...')
       .closest('[data-testid="session-composer-token-chip"]');
     expect(chip).toHaveAttribute('data-token-kind', 'quote');
-    expect(chip).toHaveAttribute('data-variant', 'cyan');
+    expect(chip).toHaveAttribute('data-variant', 'blue');
+    expect(chip?.querySelector('svg')).not.toBeNull();
 
     fireEvent.pointerEnter(chip as HTMLElement);
     const tooltip = await screen.findByRole('tooltip');

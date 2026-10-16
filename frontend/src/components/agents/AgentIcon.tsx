@@ -134,6 +134,14 @@ export function getAgentName(agent: string | null | undefined): string {
   return (key && BUILT_IN_DISPLAY_NAMES[key]) || agent;
 }
 
+export function getBuiltInAgentIconPaths(
+  agent: string | null | undefined
+): { light: string; dark: string } | null {
+  const key = normalizeAgentIconKey(agent);
+  if (!key) return null;
+  return BUILT_IN_ICON_PATHS[key] ?? null;
+}
+
 export function AgentIcon({
   agent,
   className = 'h-4 w-4',

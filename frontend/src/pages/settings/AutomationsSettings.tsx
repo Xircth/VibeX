@@ -775,7 +775,6 @@ export function AutomationsSettings({
         icon={CalendarClock}
         title={t('automations.pageTitle')}
         description={t('automations.sectionDescription')}
-        descriptionClassName="text-foreground"
         action={
           draft || editorOnly ? null : (
             <Button
@@ -805,7 +804,7 @@ export function AutomationsSettings({
             role="alert"
             className="flex min-h-32 flex-col items-center justify-center gap-3 px-6 py-8 text-center"
           >
-            <p className="max-w-[65ch] text-sm text-destructive">
+            <p className="max-w-[65ch] text-xs text-destructive">
               {t('automations.loadFailed', { error: loadError })}
             </p>
             <Button variant="outline" size="sm" onClick={() => void reload()}>
@@ -817,7 +816,7 @@ export function AutomationsSettings({
           <div
             role="status"
             aria-label={t('automations.loading')}
-            className="flex min-h-32 items-center justify-center text-sm text-muted-foreground"
+            className="flex min-h-32 items-center justify-center text-xs text-muted-foreground"
           >
             <Loader2 className="mr-2 h-4 w-4 animate-spin" />
             {t('automations.loading')}
@@ -1176,6 +1175,7 @@ export function AutomationsSettings({
                   <div className="flex gap-2">
                     <Button
                       type="button"
+                      size="sm"
                       variant="ghost"
                       onClick={() => closeDraft()}
                       disabled={saving}
@@ -1184,7 +1184,7 @@ export function AutomationsSettings({
                     </Button>
                     <Button
                       type="submit"
-                      className="bg-foreground text-background hover:bg-foreground/90"
+                      size="sm"
                       disabled={saving || !pluginActionReady}
                     >
                       {saving ? (
@@ -1209,7 +1209,6 @@ export function AutomationsSettings({
           icon={LayoutTemplate}
           title={t('automations.templatesTitle')}
           description={t('automations.templatesDescription')}
-          descriptionClassName="text-foreground"
         >
           <div className="grid gap-2 p-3 sm:grid-cols-2 xl:grid-cols-3">
             {templates.map((template) => (
@@ -1228,7 +1227,7 @@ export function AutomationsSettings({
                   <span className="block truncate text-xs font-medium">
                     {template.draft.name}
                   </span>
-                  <span className="mt-0.5 block line-clamp-2 text-[11px] font-normal text-foreground">
+                  <span className="mt-0.5 block line-clamp-2 text-xs font-normal text-muted-foreground">
                     {template.draft.launch.displayText}
                   </span>
                 </span>
@@ -1272,8 +1271,8 @@ function AutomationList({
     return (
       <div className="flex min-h-32 flex-col items-center justify-center gap-1 px-6 py-8 text-center">
         <Clock3 className="h-5 w-5 text-muted-foreground" />
-        <p className="text-sm font-medium">{t('automations.emptyTitle')}</p>
-        <p className="max-w-[55ch] text-xs text-foreground">
+        <p className="text-[13px] font-medium">{t('automations.emptyTitle')}</p>
+        <p className="max-w-[55ch] text-xs text-muted-foreground">
           {t('automations.empty')}
         </p>
       </div>
@@ -1299,10 +1298,10 @@ function AutomationList({
               onClick={() => onEdit(automation)}
               disabled={!mutable}
             >
-              <span className="block truncate text-sm font-medium">
+              <span className="settings-row__label block truncate text-[13px] font-medium">
                 {automation.name}
               </span>
-              <span className="mt-0.5 block text-[11px] text-foreground">
+              <span className="settings-row__description mt-0.5 block text-xs text-muted-foreground">
                 {t(
                   automation.target?.kind === 'workflow'
                     ? 'automations.targetWorkflow'

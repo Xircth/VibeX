@@ -33,6 +33,9 @@ async function loadMermaid(theme: 'default' | 'dark') {
     mermaid.initialize({
       startOnLoad: false,
       securityLevel: 'strict',
+      // A parse error otherwise appends a bomb SVG to document.body. The
+      // component already renders its own error state.
+      suppressErrorRendering: true,
       // Inline SVG can paint foreignObject HTML labels; the data-URL <img>
       // path could not. Keep htmlLabels on so node text stays complete.
       htmlLabels: true,
@@ -126,6 +129,8 @@ export const MermaidDiagram = memo(function MermaidDiagram({
                 : '\u672a\u77e5\u7684 Mermaid \u6e32\u67d3\u9519\u8bef',
           });
         }
+      } finally {
+        document.getElementById(`d${diagramId}`)?.remove();
       }
     }
 

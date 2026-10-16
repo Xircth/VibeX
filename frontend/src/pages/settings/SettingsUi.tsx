@@ -83,7 +83,7 @@ export function SettingsSection({
           </h3>
           {description ? (
             <p
-              className={`mt-1 text-sm leading-5 ${
+              className={`mt-1 text-xs leading-5 ${
                 descriptionClassName ?? 'text-muted-foreground'
               }`}
             >

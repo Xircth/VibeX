@@ -1,11 +1,9 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { act, fireEvent, render, screen, within } from '@testing-library/react';
+import { fireEvent, render, screen, within } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { agentManagementApi } from '@/features/agent-management';
 import { localUsageApi } from '@/lib/api';
-import {
-  KanbanUsageDashboard,
-  UNATTRIBUTED_VENDOR_NOTICE_MS,
-} from './KanbanUsageDashboard';
+import { KanbanUsageDashboard } from './KanbanUsageDashboard';
 
 vi.mock('@/contexts/ProjectContext', () => ({
   useProject: () => ({ projectId: 'project-1' }),
@@ -102,39 +100,16 @@ const sourced = (total: number) => ({
   sources_disagree: false,
 });
 
-const unattributedStatistics = {
-  scope: 'project' as const,
-  project_id: 'project-1',
-  project_name: 'VibeX',
-  total_sessions: 0,
-  total_tokens: {
-    protocol: null,
-    vendor_log: null,
-    sources_disagree: false,
-  },
-  estimated_cost: null,
-  sessions: [],
-  daily_usage: [],
-  weekly_comparison: {
-    current_week: { sessions: 0, cost: null, tokens: null },
-    last_week: { sessions: 0, cost: null, tokens: null },
-    trends: { sessions: 0, cost: 0, tokens: 0 },
-  },
-  by_model: [],
-  by_folder: [],
-  by_agent: [],
-  provider_status: [],
-  unattributed_vendor_sessions: 132,
-  last_updated: Date.now(),
-  pricing_notice: null,
-};
-
 describe('KanbanUsageDashboard', () => {
   beforeEach(() => {
     vi.useRealTimers();
     vi.mocked(localUsageApi.getProjectStatistics).mockResolvedValue(
       null as never
     );
+    vi.mocked(agentManagementApi.planUsage).mockResolvedValue({
+      type: 'UNAVAILABLE',
+      reason: 'NOT_LOGGED_IN',
+    } as never);
   });
 
   it('loads the selected range once instead of prefetching every target', async () => {
@@ -285,6 +260,36 @@ describe('KanbanUsageDashboard', () => {
           tokens: sourced(250),
           session_count: 2,
         },
+        {
+          model: 'gpt-5.1',
+          cost: 0.21,
+          tokens: sourced(120),
+          session_count: 1,
+        },
+        {
+          model: 'gemini-2.5-pro',
+          cost: 0.1,
+          tokens: sourced(80),
+          session_count: 1,
+        },
+        {
+          model: 'deepseek-r1',
+          cost: 0.05,
+          tokens: sourced(60),
+          session_count: 1,
+        },
+        {
+          model: 'qwen-max',
+          cost: 0.04,
+          tokens: sourced(40),
+          session_count: 1,
+        },
+        {
+          model: 'llama-4',
+          cost: 0.02,
+          tokens: sourced(20),
+          session_count: 1,
+        },
       ],
       by_folder: [
         {
@@ -312,7 +317,7 @@ describe('KanbanUsageDashboard', () => {
       defaultOptions: { queries: { retry: false } },
     });
 
-    render(
+    const { container } = render(
       <QueryClientProvider client={queryClient}>
         <KanbanUsageDashboard />
       </QueryClientProvider>
@@ -321,6 +326,7 @@ describe('KanbanUsageDashboard', () => {
     expect(
       await screen.findByRole('img', { name: '缓存命中率: 40%' })
     ).toBeVisible();
+    expect(container.querySelector('.kanban-usage-page')).not.toBeNull();
 
     const summary = screen.getByRole('region', { name: '用量摘要' });
     expect(within(summary).getByText('250')).toHaveClass(
@@ -334,7 +340,17 @@ describe('KanbanUsageDashboard', () => {
         .getByRole('img', { name: '缓存命中率: 40%' })
         .closest('.kanban-usage-summary__ring')
     ).not.toBeNull();
-    expect(within(summary).getByText('总 Token')).toBeVisible();
+    expect(within(summary).queryByText('缓存命中率')).not.toBeInTheDocument();
+    expect(within(summary).queryByText(/80\s*缓存读取/)).not.toBeInTheDocument();
+    expect(
+      within(summary).getByRole('heading', { name: 'Token统计与缓存率' })
+    ).toBeVisible();
+    expect(
+      within(summary).getByRole('heading', { name: '统计信息' })
+    ).toBeVisible();
+    expect(
+      within(summary).getByRole('heading', { name: '用户习惯' })
+    ).toBeVisible();
     expect(within(summary).getByText('总费用')).toBeVisible();
     expect(within(summary).getByText('总会话')).toBeVisible();
     expect(within(summary).getByText('平均/会话')).toBeVisible();
@@ -342,22 +358,254 @@ describe('KanbanUsageDashboard', () => {
     expect(within(summary).getByText('$0.4200')).toBeVisible();
     expect(within(summary).getByText('平均每次 125 Token')).toBeVisible();
 
+    expect(
+      screen.queryByText(/Claude 缓存写入默认按 5 分钟档处理/)
+    ).not.toBeInTheDocument();
+
+    const lastUpdated = screen.getByText(/最后更新：/);
+    const projectSelector = screen.getByRole('combobox', { name: '当前项目' });
+    expect(lastUpdated.parentElement).toContainElement(projectSelector);
+
+    const refreshButton = screen.getByRole('button', { name: '刷新' });
+    expect(refreshButton).toHaveTextContent('刷新');
+    expect(refreshButton).toHaveClass('astryx-button');
+
+    const dateRangeButton = screen.getByRole('button', { name: '7天' });
+    expect(dateRangeButton.parentElement).toHaveClass('h-8');
+
+    expect(within(summary).getByText('活跃工作时段')).toBeVisible();
+    expect(within(summary).getByText('15:00 - 16:00')).toBeVisible();
+    expect(within(summary).getByText('日均 Token 用量')).toBeVisible();
+    expect(within(summary).getByText('125')).toBeVisible();
+    expect(within(summary).getByText('仅活跃日期')).toBeVisible();
+    expect(within(summary).getByText('最爱用的 Agent')).toBeVisible();
+    expect(within(summary).getByText('claude_code')).toBeVisible();
+    expect(within(summary).getByText('最爱用的模型')).toBeVisible();
+    expect(within(summary).getByText('claude-sonnet-4')).toBeVisible();
+
+    const allCardTitles = [
+      'Token统计与缓存率',
+      '统计信息',
+      '用户习惯',
+      '用量趋势',
+      'Token 构成',
+      '常用模型',
+      '活跃热力图',
+      '常用项目',
+      '常用Agent',
+    ];
+    for (const title of allCardTitles) {
+      const heading = screen.getByRole('heading', { name: title });
+      expect(heading.querySelector('svg')).not.toBeNull();
+    }
+
+    const trendHeading = screen.getByRole('heading', { name: '用量趋势' });
+    const compositionHeading = screen.getByRole('heading', {
+      name: 'Token 构成',
+    });
+    const trendCard = trendHeading.closest('section');
+    const compositionCard = compositionHeading.closest('section');
+    expect(trendCard?.parentElement).toBe(compositionCard?.parentElement);
+    expect(trendCard?.nextElementSibling).toBe(compositionCard);
+
+    const modelsHeading = screen.getByRole('heading', { name: '常用模型' });
+    const heatmapHeading = screen.getByRole('heading', { name: '活跃热力图' });
+    const modelsCard = modelsHeading.closest('section') as HTMLElement;
+    const heatmapCard = heatmapHeading.closest('section');
+    expect(modelsCard?.parentElement).toBe(heatmapCard?.parentElement);
+    expect(modelsCard?.nextElementSibling).toBe(heatmapCard);
+    expect(
+      modelsCard.querySelector('.kanban-usage-ranking-list')
+    ).not.toBeNull();
+    expect(within(modelsCard).getByText('llama-4')).toBeInTheDocument();
+    expect(within(modelsCard).getByText('1')).toHaveClass('kanban-rank-first');
+    expect(within(modelsCard).getByText('2')).toHaveClass('kanban-rank-second');
+    expect(within(modelsCard).getByText('3')).toHaveClass('kanban-rank-third');
+
+    const projectsHeading = screen.getByRole('heading', { name: '常用项目' });
+    const agentsHeading = screen.getByRole('heading', { name: '常用Agent' });
+    const projectsCard = projectsHeading.closest('section');
+    const agentsCard = agentsHeading.closest('section');
+    expect(projectsCard?.parentElement).toBe(agentsCard?.parentElement);
+    expect(projectsCard?.nextElementSibling).toBe(agentsCard);
+    expect(within(projectsCard as HTMLElement).getByText('/repo')).toBeVisible();
+    expect(
+      within(agentsCard as HTMLElement).getByText('claude_code')
+    ).toBeVisible();
+
+    const trendLineSvg = screen.getByTestId('usage-trend-line-chart');
+    expect(trendLineSvg).toBeInTheDocument();
+    expect(trendLineSvg.querySelector('polyline')).not.toBeNull();
+
+    const metricPills = modelsCard.querySelectorAll(
+      '.kanban-usage-metric-pill'
+    );
+    expect(metricPills.length).toBeGreaterThanOrEqual(3);
+    expect(metricPills[0].className).toBe(metricPills[1].className);
+    expect(metricPills[1].className).toBe(metricPills[2].className);
+
     const dailyBar = screen.getByRole('button', {
       name: '09-02，共 100 Token',
     });
     fireEvent.mouseEnter(dailyBar);
 
-    expect(screen.getByText('总计：100 Token')).toBeVisible();
-    expect(screen.getByText('新鲜：60')).toBeVisible();
-    expect(screen.getByText('缓存读取：40')).toBeVisible();
+    const trendTooltip = screen.getByTestId('usage-trend-tooltip');
+    expect(within(trendTooltip).getByText('9月2日周三')).toBeVisible();
+    expect(within(trendTooltip).getAllByText('100').length).toBeGreaterThan(0);
+    expect(within(trendTooltip).getByText('缓存读取')).toBeVisible();
+    expect(within(trendTooltip).getByText('40')).toBeVisible();
+    expect(within(trendTooltip).getByText('新算 Token')).toBeVisible();
+    expect(within(trendTooltip).getByText('60')).toBeVisible();
+    expect(within(trendTooltip).getByText('趋势折线')).toBeVisible();
+    expect(within(trendTooltip).getByText('$0.1200')).toBeVisible();
+    fireEvent.mouseLeave(dailyBar);
 
     const heatmapCell = screen.getByRole('img', {
       name: '二 15:00，150 Token',
     });
+    expect(heatmapCell).toHaveClass('aspect-[4/3]', 'rounded-[3px]');
     fireEvent.mouseEnter(heatmapCell);
 
     expect(screen.getByRole('tooltip')).toHaveTextContent('二 15:00');
     expect(screen.getByRole('tooltip')).toHaveTextContent('150 Token');
+
+    fireEvent.click(screen.getByRole('button', { name: '目录' }));
+    const folderButton = screen.getByRole('button', { name: /\/repo/ });
+    expect(folderButton).toHaveAttribute('aria-expanded', 'false');
+    fireEvent.click(folderButton);
+    expect(folderButton).toHaveAttribute('aria-expanded', 'true');
+    expect(screen.getByText('平均日 Token')).toBeVisible();
+    expect(
+      screen.getByRole('heading', { name: 'Token 构成' })
+    ).toBeVisible();
+  });
+
+  it('resolves Grok cost and falls back to protocol tokens when vendor_log has empty token counts', async () => {
+    const emptyVendorCounts = {
+      input_tokens: null,
+      output_tokens: null,
+      cache_write_tokens: null,
+      cache_read_tokens: null,
+      total_tokens: null,
+    };
+    const grokProtocolCounts = {
+      input_tokens: 500_000,
+      output_tokens: 100_000,
+      cache_write_tokens: 0,
+      cache_read_tokens: 400_000,
+      total_tokens: 1_000_000,
+    };
+
+    vi.mocked(localUsageApi.getProjectStatistics).mockResolvedValue({
+      scope: 'project',
+      project_id: 'project-1',
+      project_name: 'VibeX',
+      total_sessions: 1,
+      total_tokens: {
+        protocol: grokProtocolCounts,
+        vendor_log: emptyVendorCounts,
+        sources_disagree: false,
+      },
+      estimated_cost: null,
+      sessions: [
+        {
+          session_id: 'grok-session-1',
+          workspace_id: 'ws-grok',
+          folder: 'C:\\projects\\VibeX',
+          agent_id: 'grok',
+          timestamp: new Date(2026, 8, 18, 10).getTime(),
+          model: 'grok-4.6',
+          tokens: {
+            protocol: grokProtocolCounts,
+            vendor_log: emptyVendorCounts,
+            sources_disagree: false,
+          },
+          cost: null,
+          summary: 'Grok optimization session',
+        },
+      ],
+      daily_usage: [
+        {
+          date: '2026-09-18',
+          sessions: 1,
+          tokens: {
+            protocol: grokProtocolCounts,
+            vendor_log: emptyVendorCounts,
+            sources_disagree: false,
+          },
+          cost: null,
+          models_used: ['grok-4.6'],
+        },
+      ],
+      weekly_comparison: {
+        current_week: { sessions: 1, cost: null, tokens: 1_000_000 },
+        last_week: { sessions: 0, cost: null, tokens: null },
+        trends: { sessions: 0, cost: 0, tokens: 0 },
+      },
+      by_model: [
+        {
+          model: 'grok-4.6',
+          cost: null,
+          tokens: {
+            protocol: grokProtocolCounts,
+            vendor_log: emptyVendorCounts,
+            sources_disagree: false,
+          },
+          session_count: 1,
+        },
+      ],
+      by_folder: [
+        {
+          workspace_id: 'ws-grok',
+          folder: 'C:\\projects\\VibeX',
+          session_count: 1,
+          tokens: {
+            protocol: grokProtocolCounts,
+            vendor_log: emptyVendorCounts,
+            sources_disagree: false,
+          },
+          cost: null,
+        },
+      ],
+      by_agent: [
+        {
+          agent_id: 'grok',
+          session_count: 1,
+          tokens: {
+            protocol: grokProtocolCounts,
+            vendor_log: emptyVendorCounts,
+            sources_disagree: false,
+          },
+          cost: null,
+        },
+      ],
+      provider_status: [],
+      unattributed_vendor_sessions: 0,
+      last_updated: Date.now(),
+      pricing_notice: null,
+    });
+
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+
+    render(
+      <QueryClientProvider client={queryClient}>
+        <KanbanUsageDashboard />
+      </QueryClientProvider>
+    );
+
+    const summary = await screen.findByRole('region', { name: '用量摘要' });
+    // grok-4.6 rate: 0.5M * $2 + 0.1M * $6 + 0.4M * $0.5 = $1.0 + $0.6 + $0.2 = $1.8000
+    expect(within(summary).getAllByText('$1.8000').length).toBeGreaterThan(0);
+    expect(within(summary).getAllByText('1.0M').length).toBeGreaterThan(0);
+
+    const modelsCard = screen
+      .getByRole('heading', { name: '常用模型' })
+      .closest('section') as HTMLElement;
+    expect(within(modelsCard).getByText('grok-4.6')).toBeVisible();
+    expect(within(modelsCard).getByText('$1.8000')).toBeVisible();
+    expect(within(modelsCard).getByText('1.0M Token')).toBeVisible();
   });
 
   it('renders missing token breakdowns as 未提供 instead of zero', async () => {
@@ -431,14 +679,20 @@ describe('KanbanUsageDashboard', () => {
     expect(screen.getAllByText('未提供').length).toBeGreaterThan(0);
   });
 
-  it('shows vendor log tokens when protocol breakdown is missing', async () => {
+  it('uses vendor log tokens as standard when both protocol and vendor log exist and hides unattributed notices', async () => {
     vi.mocked(localUsageApi.getProjectStatistics).mockResolvedValue({
       scope: 'project',
       project_id: 'project-1',
       project_name: 'VibeX',
       total_sessions: 1,
       total_tokens: {
-        protocol: null,
+        protocol: {
+          input_tokens: 50,
+          output_tokens: 50,
+          cache_write_tokens: 0,
+          cache_read_tokens: 0,
+          total_tokens: 100,
+        },
         vendor_log: {
           input_tokens: 100,
           output_tokens: 50,
@@ -446,7 +700,7 @@ describe('KanbanUsageDashboard', () => {
           cache_read_tokens: 80,
           total_tokens: 250,
         },
-        sources_disagree: false,
+        sources_disagree: true,
       },
       estimated_cost: 0.2,
       sessions: [
@@ -498,7 +752,7 @@ describe('KanbanUsageDashboard', () => {
       by_folder: [],
       by_agent: [],
       provider_status: [],
-      unattributed_vendor_sessions: 0,
+      unattributed_vendor_sessions: 132,
       last_updated: Date.now(),
       pricing_notice: null,
     });
@@ -519,64 +773,142 @@ describe('KanbanUsageDashboard', () => {
       screen.getByRole('img', { name: '二 15:00，250 Token' })
     ).toBeVisible();
     expect(
-      within(screen.getByRole('region', { name: '用量摘要' })).getByText('250')
+      within(screen.getByRole('region', { name: '用量摘要' })).getAllByText(
+        '250'
+      )
+    ).toHaveLength(2);
+    expect(
+      screen.queryByText(/协议 .* · 厂商日志/)
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByText(/条厂商日志未能对齐到任何会话/)
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByTestId('overview-subscription-plans-card')
+    ).not.toBeInTheDocument();
+  });
+
+  it('aligns usage trend row and renders subscription plans card with Astryx ProgressBar when active plans exist', async () => {
+    vi.mocked(localUsageApi.getProjectStatistics).mockResolvedValue({
+      scope: 'project',
+      project_id: 'project-1',
+      project_name: 'VibeX',
+      total_sessions: 1,
+      total_tokens: sourced(250),
+      estimated_cost: 0.25,
+      sessions: [],
+      daily_usage: [
+        {
+          date: '2026-09-02',
+          sessions: 1,
+          tokens: sourced(250),
+          cost: 0.25,
+          models_used: ['claude-sonnet-4'],
+        },
+      ],
+      weekly_comparison: {
+        current_week: { sessions: 1, cost: 0.25, tokens: 250 },
+        last_week: { sessions: 0, cost: null, tokens: null },
+        trends: { sessions: 0, cost: 0, tokens: 0 },
+      },
+      by_model: [],
+      by_folder: [],
+      by_agent: [],
+      provider_status: [],
+      unattributed_vendor_sessions: 0,
+      last_updated: Date.now(),
+      pricing_notice: null,
+    });
+
+    vi.mocked(agentManagementApi.planUsage).mockImplementation(
+      async (agentId: string) => {
+        if (agentId === 'claude_code') {
+          return {
+            type: 'OK',
+            usage: {
+              agentId: 'claude_code',
+              planType: 'max',
+              windows: [
+                {
+                  id: 'five_hour',
+                  usedPercent: 35,
+                  windowMinutes: 300,
+                  resetsAtMs: Date.now() + 3_600_000,
+                },
+                {
+                  id: 'seven_day',
+                  usedPercent: 72,
+                  windowMinutes: 10_080,
+                  resetsAtMs: Date.now() + 86_400_000,
+                },
+                {
+                  id: 'monthly',
+                  usedPercent: 92,
+                  windowMinutes: 43_200,
+                  resetsAtMs: Date.now() + 172_800_000,
+                },
+              ],
+              credits: null,
+              fetchedAtMs: Date.now(),
+            },
+          } as never;
+        }
+        return {
+          type: 'UNAVAILABLE',
+          reason: 'NOT_LOGGED_IN',
+        } as never;
+      }
+    );
+
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+
+    render(
+      <QueryClientProvider client={queryClient}>
+        <KanbanUsageDashboard />
+      </QueryClientProvider>
+    );
+
+    const trendCard = (
+      await screen.findByRole('heading', { name: '用量趋势' })
+    ).closest('section') as HTMLElement;
+    expect(trendCard).toHaveClass('kanban-usage-trend-row__trend');
+    expect(trendCard.parentElement).toHaveClass('kanban-usage-trend-row');
+
+    const plansCard = await screen.findByTestId(
+      'overview-subscription-plans-card'
+    );
+    expect(plansCard).toBeVisible();
+    expect(
+      within(plansCard).getByRole('heading', { name: '订阅套餐' })
     ).toBeVisible();
-  });
+    expect(trendCard.parentElement?.nextElementSibling).toBe(plansCard);
 
-  it('lets the user close the unattributed vendor notice', async () => {
-    vi.mocked(localUsageApi.getProjectStatistics).mockResolvedValue(
-      unattributedStatistics
+    const claudeRow = within(plansCard).getByTestId(
+      'subscription-plan-row-claude_code'
     );
-    const queryClient = new QueryClient({
-      defaultOptions: { queries: { retry: false } },
-    });
-
-    render(
-      <QueryClientProvider client={queryClient}>
-        <KanbanUsageDashboard />
-      </QueryClientProvider>
-    );
-
-    const notice = await screen.findByText('132 条厂商日志未能对齐会话');
-    fireEvent.click(
-      within(notice.closest('div') as HTMLElement).getByRole('button', {
-        name: '关闭',
-      })
-    );
-
     expect(
-      screen.queryByText('132 条厂商日志未能对齐会话')
-    ).not.toBeInTheDocument();
-  });
+      within(claudeRow).getAllByText('Claude Code').length
+    ).toBeGreaterThanOrEqual(2);
 
-  it('hides the unattributed vendor notice after 10 seconds', () => {
-    vi.useFakeTimers();
-    vi.mocked(localUsageApi.getProjectStatistics).mockResolvedValue(
-      unattributedStatistics
+    const windowsGrid = within(claudeRow).getByTestId(
+      'subscription-plan-windows-claude_code'
     );
-    const queryClient = new QueryClient({
-      defaultOptions: { queries: { retry: false } },
-    });
-    queryClient.setQueryData(
-      ['kanbanUsageStatistics', 'project:project-1', '7d'],
-      unattributedStatistics
-    );
-
-    render(
-      <QueryClientProvider client={queryClient}>
-        <KanbanUsageDashboard />
-      </QueryClientProvider>
-    );
-
-    expect(screen.getByText('132 条厂商日志未能对齐会话')).toBeVisible();
-
-    act(() => {
-      vi.advanceTimersByTime(UNATTRIBUTED_VENDOR_NOTICE_MS);
+    expect(windowsGrid).toHaveStyle({
+      gridTemplateColumns: 'repeat(3, minmax(0, 1fr))',
     });
 
+    expect(within(windowsGrid).getByText('5 小时窗口')).toBeVisible();
     expect(
-      screen.queryByText('132 条厂商日志未能对齐会话')
-    ).not.toBeInTheDocument();
-    vi.useRealTimers();
+      within(windowsGrid).getByText('每周窗口（全部模型）')
+    ).toBeVisible();
+    expect(within(windowsGrid).getByText('每月窗口')).toBeVisible();
+
+    const progressBars = within(windowsGrid).getAllByRole('progressbar');
+    expect(progressBars).toHaveLength(3);
+    expect(progressBars[0]).toHaveAttribute('aria-valuenow', '35');
+    expect(progressBars[1]).toHaveAttribute('aria-valuenow', '72');
+    expect(progressBars[2]).toHaveAttribute('aria-valuenow', '92');
   });
 });

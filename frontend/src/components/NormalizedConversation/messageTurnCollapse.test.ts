@@ -87,4 +87,27 @@ describe('splitCollapsedTurnItems', () => {
       rest: [markdown('second stage')],
     });
   });
+
+  it('folds a streaming tool run down to a two-block tail', () => {
+    const tools = [tool('bash'), tool('read'), tool('grep'), tool('edit')];
+    expect(splitCollapsedTurnItems(tools, { isStreaming: true })).toEqual({
+      prelude: [tool('bash'), tool('read')],
+      rest: [tool('grep'), tool('edit')],
+    });
+  });
+
+  it('keeps the last markdown and only the last two following tools while streaming', () => {
+    const items = [
+      tool('bash'),
+      markdown('answer'),
+      tool('read'),
+      tool('grep'),
+      tool('edit'),
+      tool('write'),
+    ];
+    expect(splitCollapsedTurnItems(items, { isStreaming: true })).toEqual({
+      prelude: [tool('bash'), tool('read'), tool('grep')],
+      rest: [markdown('answer'), tool('edit'), tool('write')],
+    });
+  });
 });

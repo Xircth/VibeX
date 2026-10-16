@@ -1080,6 +1080,8 @@ fn map_content_chunk(content: &AgentContentBlock, thought: bool) -> Option<Conve
                 data: data.clone(),
                 mime_type: mime_type.clone(),
                 uri: uri.clone(),
+                width: None,
+                height: None,
             },
             message_id: None,
         }),
@@ -1241,6 +1243,8 @@ mod tests {
             data: "AAAA".to_string(),
             mime_type: "image/png".to_string(),
             uri: Some("assets/logo.png".to_string()),
+            width: None,
+            height: None,
         };
         let envelope = envelope(AgentEvent::ToolCall {
             tool_call: AgentToolCall {

@@ -242,6 +242,28 @@ impl ServerApplicationDomains {
         }))
     }
 
+    pub(crate) async fn conversation_timeline_image(
+        &self,
+        args: Value,
+    ) -> Result<Value, ApplicationError> {
+        #[derive(Deserialize)]
+        #[serde(rename_all = "camelCase")]
+        struct TimelineImageArgs {
+            hash: String,
+        }
+        let args: TimelineImageArgs = parse(args)?;
+        match agents::read_timeline_image(&args.hash) {
+            Ok(image) => serialize(image),
+            Err(agents::TimelineImageError::InvalidHash) => {
+                Err(ApplicationError::bad_request("invalid timeline image hash"))
+            }
+            Err(agents::TimelineImageError::NotFound) => {
+                Err(ApplicationError::not_found("timeline image not found"))
+            }
+            Err(agents::TimelineImageError::Io(error)) => Err(internal_error(error)),
+        }
+    }
+
     pub(crate) async fn conversation_truncate_to_turn(
         &self,
         args: Value,

@@ -326,6 +326,15 @@ export function createConversationApi(transport: BackendTransport) {
     ): Promise<ConversationTimelinePage> =>
       call('conversation_timeline_page', { request }),
 
+    timelineImage: (
+      hash: string
+    ): Promise<{
+      mime_type: string;
+      data_base64: string;
+      width?: number | null;
+      height?: number | null;
+    }> => call('conversation_timeline_image', { request: { hash } }),
+
     respondPermission: (
       request: ConversationPermissionResponseRequest
     ): Promise<void> => call('conversation_respond_permission', { request }),

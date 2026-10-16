@@ -2,11 +2,18 @@
 
 import * as React from 'react';
 import { createPortal } from 'react-dom';
+import { SelectorOption } from '@astryxdesign/core/Selector';
 import { Check, ChevronDown, X } from 'lucide-react';
 
 import { usePortalContainer } from '@/contexts/PortalContainerContext';
 import { NativeSurfaceOcclusionHold } from '@/contexts/WorkspaceOverlayContext';
 import { cn } from '@/lib/utils';
+import { useOptionMenuPlacement } from '@/components/ui/option-menu-position';
+
+export { getMenuPosition } from '@/components/ui/option-menu-position';
+
+export type SelectorOptionProps = React.ComponentProps<typeof SelectorOption>;
+export { SelectorOption };
 
 /**
  * Dropdown selector for choosing a single value from a list of options.
@@ -21,6 +28,9 @@ import { cn } from '@/lib/utils';
 export interface AstryxSelectOption {
   value: string;
   label: string;
+  icon?: SelectorOptionProps['icon'];
+  description?: React.ReactNode;
+  endContent?: React.ReactNode;
   disabled?: boolean;
 }
 
@@ -35,6 +45,8 @@ interface AstryxSelectProps {
   disabled?: boolean;
   /** Shows a clear (×) button when a value is selected. */
   hasClear?: boolean;
+  /** Custom option body renderer (for example `<SelectorOption ... />`). */
+  renderOption?: (option: AstryxSelectOption) => React.ReactNode;
   /** Renders a trailing action (for example edit/delete) inside each option. */
   renderOptionAction?: (option: AstryxSelectOption) => React.ReactNode;
   /** `compact` shrinks the trigger to fit dense toolbar and tab-bar chrome. */
@@ -52,40 +64,6 @@ interface AstryxSelectProps {
   preferAbove?: boolean;
 }
 
-interface MenuPosition {
-  top: number;
-  left: number;
-  width: number;
-  maxHeight: number;
-}
-
-const TRIGGER_GAP = 4;
-const MENU_MAX_HEIGHT = 300;
-const MIN_USABLE_HEIGHT = 64;
-const MIN_BELOW_HEIGHT = 160;
-
-export function getMenuPosition(
-  triggerRect: Pick<DOMRect, 'top' | 'bottom' | 'left' | 'width'>,
-  preferAbove = false,
-  viewportHeight = typeof window === 'undefined' ? 0 : window.innerHeight
-): MenuPosition {
-  const spaceBelow = viewportHeight - triggerRect.bottom - TRIGGER_GAP;
-  const spaceAbove = triggerRect.top - TRIGGER_GAP;
-  const openAbove = preferAbove
-    ? spaceAbove >= MIN_USABLE_HEIGHT || spaceAbove >= spaceBelow
-    : spaceBelow < MIN_BELOW_HEIGHT && spaceAbove > spaceBelow;
-  const available = openAbove ? spaceAbove : spaceBelow;
-  const maxHeight = Math.min(MENU_MAX_HEIGHT, Math.max(available, 0));
-  return {
-    top: openAbove
-      ? triggerRect.top - TRIGGER_GAP - maxHeight
-      : triggerRect.bottom + TRIGGER_GAP,
-    left: triggerRect.left,
-    width: triggerRect.width,
-    maxHeight,
-  };
-}
-
 export function AstryxSelect({
   id,
   value,
@@ -95,6 +73,7 @@ export function AstryxSelect({
   ariaLabel,
   disabled = false,
   hasClear = false,
+  renderOption,
   renderOptionAction,
   size = 'default',
   className,
@@ -110,7 +89,12 @@ export function AstryxSelect({
   const menuId = React.useId();
   const [open, setOpen] = React.useState(false);
   const [activeIndex, setActiveIndex] = React.useState(-1);
-  const [position, setPosition] = React.useState<MenuPosition | null>(null);
+  const position = useOptionMenuPlacement(
+    open,
+    triggerRef,
+    menuRef,
+    preferAbove
+  );
   const typeAheadRef = React.useRef({ text: '', at: 0 });
 
   const selectedIndex = options.findIndex((option) => option.value === value);
@@ -133,28 +117,6 @@ export function AstryxSelect({
     setOpen(true);
     onOpenChange?.(true);
   }, [onOpenChange]);
-
-  const reposition = React.useCallback(() => {
-    if (triggerRef.current) {
-      setPosition(
-        getMenuPosition(triggerRef.current.getBoundingClientRect(), preferAbove)
-      );
-    }
-  }, [preferAbove]);
-
-  React.useEffect(() => {
-    if (!open) return;
-    reposition();
-    window.addEventListener('scroll', reposition, {
-      capture: true,
-      passive: true,
-    });
-    window.addEventListener('resize', reposition);
-    return () => {
-      window.removeEventListener('scroll', reposition, true);
-      window.removeEventListener('resize', reposition);
-    };
-  }, [open, reposition]);
 
   React.useEffect(() => {
     if (!open) return;
@@ -391,9 +353,17 @@ export function AstryxSelect({
                       if (!option.disabled) setActiveIndex(index);
                     }}
                   >
-                    <span className="astryx-select-option-label">
-                      {option.label}
-                    </span>
+                    {renderOption ? (
+                      renderOption(option)
+                    ) : (
+                      <SelectorOption
+                        icon={option.icon}
+                        label={option.label}
+                        description={option.description}
+                        endContent={option.endContent}
+                        className="astryx-select-option-label"
+                      />
+                    )}
                     {option.value === value ? (
                       <Check
                         aria-hidden="true"

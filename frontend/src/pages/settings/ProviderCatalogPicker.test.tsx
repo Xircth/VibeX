@@ -130,6 +130,7 @@ describe('ProviderCatalogPicker', () => {
     await openPicker(user);
 
     const option = screen.getByRole('option', { name: 'Apple' });
+    expect(option.querySelector('.astryx-selector-option')).not.toBeNull();
     expect(within(option).getByText('Apple')).toBeVisible();
     expect(within(option).getByText('https://apple.example/v1')).toBeVisible();
     expect(within(option).getByText('预置 · ProviderSwitch')).toBeVisible();

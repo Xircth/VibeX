@@ -457,10 +457,7 @@ function SessionConfigOptionSelector({
                 key={choice.value}
                 onSelect={() => onSelect(option.key, choice.value)}
                 onPointerMove={blockItemPointerMoveFocus}
-                className={cn(
-                  COMPOSER_SELECT_ITEM_CLASS,
-                  isActive && 'bg-accent/60'
-                )}
+                className={COMPOSER_SELECT_ITEM_CLASS}
               >
                 <span className="min-w-0 flex-1">
                   <ComposerOptionName

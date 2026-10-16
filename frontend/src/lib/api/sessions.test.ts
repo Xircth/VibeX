@@ -48,7 +48,26 @@ describe('sessionsApi.createProject', () => {
             targetBranch: 'main',
           },
         ],
+        modeOverride: null,
+        configOverrides: null,
       },
+    });
+  });
+
+  it('sends the create-form mode and config with the new session', async () => {
+    await sessionsApi.createProject({
+      project_id: '11111111-1111-1111-1111-111111111111',
+      executor: 'antigravity',
+      mode_override: 'yolo',
+      config_overrides: { model: 'gemini-4-argon' },
+    });
+
+    expect(backendCall).toHaveBeenCalledWith('create_project_session', {
+      payload: expect.objectContaining({
+        executor: 'antigravity',
+        modeOverride: 'yolo',
+        configOverrides: { model: 'gemini-4-argon' },
+      }),
     });
   });
 });

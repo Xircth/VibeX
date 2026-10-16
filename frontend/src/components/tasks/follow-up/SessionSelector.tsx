@@ -89,11 +89,10 @@ export function SessionSelector({
         side={dropdownSide}
         align="end"
         sideOffset={1}
-        avoidCollisions={false}
         className="composer-session-popover"
       >
         <div
-          className="composer-session-list space-y-1"
+          className="composer-session-list space-y-1.5"
           data-testid="session-selector-list"
         >
           {sessions.map((session) => {
@@ -105,9 +104,7 @@ export function SessionSelector({
                 key={session.id}
                 className={cn(
                   'group flex items-center gap-2 rounded-md px-2 py-1.5 text-sm',
-                  !isEditing &&
-                    'cursor-pointer hover:bg-accent hover:text-accent-foreground',
-                  isSelected && !isEditing && 'bg-accent'
+                  !isEditing && 'cursor-pointer hover:bg-accent'
                 )}
                 onClick={() => {
                   if (!isEditing) {
@@ -174,16 +171,24 @@ export function SessionSelector({
                     </button>
                   </>
                 ) : (
-                  <button
-                    type="button"
-                    className="opacity-0 transition-opacity group-hover:opacity-100 text-muted-foreground hover:text-foreground"
-                    onClick={(event) => {
-                      event.stopPropagation();
-                      beginRename(session.id);
-                    }}
-                  >
-                    <Pencil className="h-3.5 w-3.5" />
-                  </button>
+                  <>
+                    {isSelected ? (
+                      <Check
+                        aria-hidden="true"
+                        className="h-3.5 w-3.5 shrink-0"
+                      />
+                    ) : null}
+                    <button
+                      type="button"
+                      className="opacity-0 transition-opacity group-hover:opacity-100 text-muted-foreground hover:text-foreground"
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        beginRename(session.id);
+                      }}
+                    >
+                      <Pencil className="h-3.5 w-3.5" />
+                    </button>
+                  </>
                 )}
               </div>
             );

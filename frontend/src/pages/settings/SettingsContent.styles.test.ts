@@ -92,6 +92,7 @@ describe('settings page alignment', () => {
   });
 
   it('matches chat-channel and plugin catalog titles to other settings headings', () => {
+    const pageTitle = declarationsFor('.settings-page .settings-page-header h2');
     const chatTitle = declarationsFor(
       '.settings-page .chat-channel-heading__copy h2'
     );
@@ -108,9 +109,11 @@ describe('settings page alignment', () => {
       '.settings-page .settings-card__header p'
     );
 
-    expect(chatTitle.get('font-size')).toBe(sectionTitle.get('font-size'));
+    expect(pageTitle.get('font-size')).toBe('1.25rem');
+    expect(chatTitle.get('font-size')).toBe(pageTitle.get('font-size'));
+    expect(sectionTitle.get('font-size')).toBe('0.875rem');
     expect(chatCopy.get('font-size')).toBe(sectionCopy.get('font-size'));
-    expect(pluginCopy.get('font-size')).toBe('calc(0.875rem - 2px)');
+    expect(pluginCopy.get('font-size')).toBe('0.75rem');
     expect(chatTitle.get('display')).toBe('flex');
   });
 
@@ -153,7 +156,7 @@ describe('settings page alignment', () => {
     expect(notes.get('overflow')).toBe('auto');
   });
 
-  it('keeps setting labels and descriptions on the same type scale', () => {
+  it('keeps setting labels larger than descriptions in the 4-tier type scale', () => {
     const description = declarationsFor(
       '.settings-page .settings-row__description'
     );
@@ -161,13 +164,13 @@ describe('settings page alignment', () => {
       '.settings-page .settings-row :where(label, .settings-row__label)'
     );
 
-    expect(description.get('font-size')).toBe('0.875rem');
-    expect(label.get('font-size')).toBe('0.875rem');
+    expect(label.get('font-size')).toBe('0.8125rem');
+    expect(description.get('font-size')).toBe('0.75rem');
 
     const pairingDescription = declarationsFor(
       '.settings-page .settings-pairing-devices__row .settings-row__description'
     );
-    expect(pairingDescription.get('font-size')).toBe('0.875rem');
+    expect(pairingDescription.get('font-size')).toBe('0.75rem');
   });
 
   it('centers project names in the worktree list items', () => {
@@ -355,11 +358,11 @@ describe('settings page alignment', () => {
       '.settings-page button.agent-preflight-status.is-update:hover:not(:disabled)'
     );
 
-    expect(update.get('background')).toBe('var(--kanban-column-background)');
+    expect(update.get('background')).toBe('var(--surface-control)');
     expect(update.get('border-color')).toBe('var(--border-strong)');
     expect(update.get('color')).toBe('var(--text-strong)');
-    expect(hover.get('background')).toBe('var(--kanban-column-background)');
-    expect(hover.get('border-color')).toBe('var(--text-muted)');
+    expect(hover.get('background')).toBe('var(--surface-control-hover)');
+    expect(hover.get('border-color')).toBe('var(--border-strong)');
   });
 
   it('paints the global settings search box with an opaque recessed gray fill while keeping non-input control surfaces translucent on Windows', () => {
@@ -371,5 +374,46 @@ describe('settings page alignment', () => {
     );
     expect(windowsTokens.get('--surface-control')).toBeUndefined();
     expect(windowsTokens.get('--surface-control-hover')).toBeUndefined();
+  });
+
+  it('styles the settings sidebar as a floating rounded component with a gray-white wash and #1B1B1B / #E3E3E3 button bases', () => {
+    const sidebar = declarationsFor('.settings-sidebar');
+    const settingsPage = declarationsFor('.settings-page');
+    const quickToggle = declarationsFor(
+      '.settings-page .agent-codex-quick-toggle'
+    );
+    const statusChip = declarationsFor(
+      '.settings-page .agent-preflight-status'
+    );
+    const updateButton = declarationsFor(
+      '.settings-page button.agent-preflight-status'
+    );
+
+    const themeChoices = declarationsFor(
+      '.settings-page .settings-theme-choices'
+    );
+    const selectedThemeCard = declarationsFor(
+      ".settings-page .settings-theme-card[data-selected='true']"
+    );
+
+    expect(sidebar.get('border-radius')).toBe('var(--radius)');
+    expect(sidebar.get('background')).toBe(
+      'var(--surface-wash), var(--surface-sidebar)'
+    );
+    expect(settingsPage.get('--surface-sidebar')).toBe('#ffffff');
+    expect(settingsPage.get('--surface-wash')).toContain('180deg');
+    expect(settingsPage.get('--surface-wash')).toContain('#ffffff 0%');
+    expect(settingsPage.get('--surface-wash')).toContain('#e6e6e6 100%');
+    expect(settingsPage.get('--settings-button-primary-bg')).toBe('#1b1b1b');
+    expect(settingsPage.get('--settings-button-secondary-bg')).toBe('#e3e3e3');
+    expect(quickToggle.get('background')).toBe('var(--surface-control)');
+    expect(updateButton.get('font-size')).toBe(statusChip.get('font-size'));
+    expect(updateButton.get('font-size')).toBe('0.6875rem');
+    expect(themeChoices.get('grid-template-columns')).toBe(
+      'repeat(3, minmax(0, 1fr))'
+    );
+    expect(selectedThemeCard.get('border-color')).toBe(
+      'var(--settings-button-primary-bg)'
+    );
   });
 });

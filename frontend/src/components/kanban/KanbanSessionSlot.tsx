@@ -132,7 +132,7 @@ export function KanbanSessionSlot({
       role="separator"
       aria-orientation="vertical"
       data-handle-side={handleSide}
-      className="workspace-resize-handle relative z-20 w-px shrink-0 cursor-col-resize after:absolute after:inset-y-0 after:-left-[5px] after:w-[11px] after:content-['']"
+      className="workspace-resize-handle z-20"
       onMouseDown={handleResizeMouseDown}
     />
   );

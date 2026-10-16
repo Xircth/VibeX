@@ -234,7 +234,7 @@ function ControlField({
               <DropdownMenuItem
                 key={choice.value}
                 onSelect={() => onSelect(choice.value)}
-                className={cn('justify-between', isActive && 'bg-accent')}
+                className="justify-between"
                 title={choice.description ?? undefined}
               >
                 <span className="truncate">{choice.name}</span>

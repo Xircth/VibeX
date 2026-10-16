@@ -74,7 +74,7 @@ pub use service::{
     CreateForkConversation, CreateWorkflowConversation, ForkVisibleConversation,
     NoopConversationEventPublisher, QueuedConversationInputClaim, create_delegated_conversation,
     create_fork_conversation, create_workflow_conversation, finalize_checkpoint_file_changes,
-    fork_visible_conversation, preview_checkpoint_file_changes,
+    fork_visible_conversation, preview_checkpoint_file_changes, remember_creation_session_controls,
 };
 pub use session_info::{
     SessionInfo, agent_session_title_from_patch, derive_session_display_name,

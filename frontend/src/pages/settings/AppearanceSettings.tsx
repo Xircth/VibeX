@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import { SelectableCard } from '@astryxdesign/core/SelectableCard';
 import {
   AppWindow,
   Infinity as InfinityIcon,
@@ -8,6 +9,8 @@ import {
   Eye,
   Loader2,
   Maximize2,
+  Monitor,
+  Moon,
   Palette,
   Sun,
   Type,
@@ -73,6 +76,121 @@ import {
   KanbanLayoutSchematic,
   WorkspaceLayoutSchematic,
 } from './LayoutArrangementSchematic';
+
+const THEME_CHOICES: {
+  value: ThemeMode;
+  label: string;
+  scheme: 'light' | 'dark' | 'system';
+  icon: typeof Sun;
+}[] = [
+  {
+    value: ThemeMode.LIGHT,
+    label: toPrettyCase(ThemeMode.LIGHT),
+    scheme: 'light',
+    icon: Sun,
+  },
+  {
+    value: ThemeMode.DARK,
+    label: toPrettyCase(ThemeMode.DARK),
+    scheme: 'dark',
+    icon: Moon,
+  },
+  {
+    value: ThemeMode.SYSTEM,
+    label: toPrettyCase(ThemeMode.SYSTEM),
+    scheme: 'system',
+    icon: Monitor,
+  },
+];
+
+function ThemePreviewCanvas({ mode }: { mode: 'light' | 'dark' }) {
+  return (
+    <div className="settings-theme-preview__canvas" data-mode={mode}>
+      <div className="settings-theme-preview__header">
+        <span className="settings-theme-preview__bar is-wide" />
+        <span className="settings-theme-preview__bar" />
+      </div>
+      <div className="settings-theme-preview__surface">
+        <span className="settings-theme-preview__bar" />
+        <span className="settings-theme-preview__bar" />
+        <span className="settings-theme-preview__bar" />
+      </div>
+    </div>
+  );
+}
+
+function ThemePreviewMock({ scheme }: { scheme: 'light' | 'dark' | 'system' }) {
+  return (
+    <div aria-hidden="true" className="settings-theme-preview">
+      {scheme === 'system' ? (
+        <div className="settings-theme-preview__split">
+          <ThemePreviewCanvas mode="light" />
+          <ThemePreviewCanvas mode="dark" />
+        </div>
+      ) : (
+        <ThemePreviewCanvas mode={scheme} />
+      )}
+    </div>
+  );
+}
+
+function ThemeChoiceCards({
+  ariaLabel,
+  value,
+  onChange,
+}: {
+  ariaLabel: string;
+  value: ThemeMode;
+  onChange: (value: ThemeMode) => void;
+}) {
+  return (
+    <div
+      role="radiogroup"
+      aria-label={ariaLabel}
+      className="settings-theme-choices"
+    >
+      {THEME_CHOICES.map((choice) => {
+        const isSelected = choice.value === value;
+        const Icon = choice.icon;
+        return (
+          <SelectableCard
+            key={choice.value}
+            label={choice.label}
+            isSelected={isSelected}
+            padding={2}
+            className="settings-theme-card"
+            onChange={() => {
+              if (!isSelected) {
+                onChange(choice.value);
+              }
+            }}
+            onClick={(event) => {
+              if (!(event.target instanceof HTMLInputElement) && !isSelected) {
+                onChange(choice.value);
+              }
+            }}
+          >
+            <div className="settings-theme-card__body">
+              <ThemePreviewMock scheme={choice.scheme} />
+              <div className="settings-theme-card__caption">
+                <Icon aria-hidden="true" className="settings-theme-card__icon" />
+                <span
+                  className={
+                    isSelected
+                      ? 'settings-theme-card__label is-selected'
+                      : 'settings-theme-card__label'
+                  }
+                >
+                  {choice.label}
+                </span>
+              </div>
+            </div>
+          </SelectableCard>
+        );
+      })}
+    </div>
+  );
+}
 
 export function AppearanceSettings() {
   const { config, loading, updateAndSaveConfig } = useUserSystem();
@@ -187,28 +305,18 @@ export function AppearanceSettings() {
           title={t('appearance.theme.title')}
           description={t('appearance.theme.description')}
         >
-          <div className="settings-row">
-            <div>
+          <div className="settings-row settings-row--stacked">
+            <div className="settings-row__stack">
               <Label>{t('appearance.theme.label')}</Label>
               <p className="settings-row__description">
                 {t('appearance.theme.hint')}
               </p>
             </div>
-            <Select
+            <ThemeChoiceCards
+              ariaLabel={t('appearance.theme.label')}
               value={draft.theme}
-              onValueChange={(value) => updateTheme(value as ThemeMode)}
-            >
-              <SelectTrigger className="w-56">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent align="start">
-                {Object.values(ThemeMode).map((theme) => (
-                  <SelectItem key={theme} value={theme}>
-                    {toPrettyCase(theme)}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+              onChange={updateTheme}
+            />
           </div>
         </SettingsSection>
 

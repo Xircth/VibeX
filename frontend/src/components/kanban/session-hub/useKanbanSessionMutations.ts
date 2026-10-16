@@ -74,6 +74,8 @@ export function useKanbanSessionMutations({
           includeUncommitted,
           projectRepoCount,
         }),
+        mode_override: sessionControls?.modeOverride ?? null,
+        config_overrides: sessionControls?.configOverrides ?? null,
       });
 
       if (executorProfile?.executor) {

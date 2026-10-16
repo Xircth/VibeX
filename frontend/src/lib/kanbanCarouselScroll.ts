@@ -26,3 +26,17 @@ export function pinKanbanCarouselScroll(
     element.scrollTop = 0;
   }
 }
+
+export function consumeKanbanCarouselPageKey(
+  event: {
+    key: string;
+    target: EventTarget | null;
+    preventDefault: () => void;
+  },
+  shell: { scrollLeft: number; scrollTop: number } | null
+): void {
+  if (!shouldPinKanbanCarouselKey(event.key)) return;
+  if (!shouldSuppressKanbanCarouselPageKey(event.target)) return;
+  event.preventDefault();
+  pinKanbanCarouselScroll(shell);
+}

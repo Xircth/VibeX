@@ -106,6 +106,8 @@ describe('useKanbanSessionMutations', () => {
       name: null,
       create_workspace: false,
       repos: undefined,
+      mode_override: 'plan',
+      config_overrides: { model: 'gpt-5.6-sol' },
     });
     expect(scratchUpdateMock).toHaveBeenCalledWith(
       ScratchType.DRAFT_FOLLOW_UP,

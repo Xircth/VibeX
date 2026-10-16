@@ -401,8 +401,9 @@ export function RightPanelContent() {
           repoBranchConfigs.every((repoConfig) => !!repoConfig.targetBranch)
       : true);
 
-  // Latest ACP control preset picked in the create form; stored on the draft
-  // scratch so the first send applies it (ref: no re-render needed on pick).
+  // Latest ACP control preset picked in the create form. Create writes it onto
+  // the conversation binding; the draft scratch keeps it visible in the composer
+  // until the live session reports the same mode.
   const sessionControlsPresetRef = useRef<SessionControlsPreset | null>(null);
 
   const createSessionMutation = useMutation({
@@ -417,6 +418,7 @@ export function RightPanelContent() {
           : { workspaceId: null, branch: null }
         : { workspaceId: null, branch: null };
 
+      const sessionControls = sessionControlsPresetRef.current;
       return sessionsApi.createProject({
         project_id: effectiveProjectId,
         workspace_id: workspaceSelection.workspaceId,
@@ -432,6 +434,8 @@ export function RightPanelContent() {
           isGitProject && createMode === 'new_workspace'
             ? getWorkspaceRepoInputs()
             : undefined,
+        mode_override: sessionControls?.modeOverride ?? null,
+        config_overrides: sessionControls?.configOverrides ?? null,
       });
     },
     onSuccess: async (newSession) => {

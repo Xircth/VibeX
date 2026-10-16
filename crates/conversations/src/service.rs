@@ -4110,6 +4110,31 @@ fn conversation_input_blocks_with_display_text(
     visible
 }
 
+/// Record the controls chosen while creating a conversation, before that
+/// conversation is shown. Session establishment prefers this binding over the
+/// agent's last-used defaults, so the create-form mode is the mode the new ACP
+/// session opens with and later resumes with.
+pub async fn remember_creation_session_controls(
+    pool: &SqlitePool,
+    conversation_id: Uuid,
+    mode: Option<&str>,
+    config_overrides: impl IntoIterator<Item = AgentSessionConfigOverride>,
+) {
+    let mode = mode.map(str::trim).filter(|mode| !mode.is_empty());
+    let config_overrides = config_overrides
+        .into_iter()
+        .filter(|item| !item.key.trim().is_empty() && !item.value.trim().is_empty())
+        .map(|item| AgentSessionConfigOverride {
+            key: item.key.trim().to_string(),
+            value: item.value.trim().to_string(),
+        })
+        .collect::<Vec<_>>();
+    if mode.is_none() && config_overrides.is_empty() {
+        return;
+    }
+    persist_confirmed_session_controls(pool, conversation_id, mode, &config_overrides).await;
+}
+
 /// Persist a confirmed mode / config selection so the next `session/resume`
 /// can replay it before the agent defaults reach the UI (ADR-0071 §4).
 ///
@@ -4516,8 +4541,9 @@ mod tests {
         conversation_input_blocks_with_display_text, diff_to_conversation_file_change,
         ensure_conversation_has_no_in_flight_turn, host_started_at, is_zombie_in_flight_turn,
         known_acp_session_id, merge_user_prompt_overrides, persist_confirmed_session_controls,
-        prune_unreferenced_turn_lock, resume_external_session_id, session_control_preferences,
-        session_control_replay_plan, turn_predates_this_host,
+        prune_unreferenced_turn_lock, remember_creation_session_controls,
+        resume_external_session_id, session_control_preferences, session_control_replay_plan,
+        turn_predates_this_host,
     };
 
     #[test]
@@ -4731,6 +4757,96 @@ mod tests {
                 .collect::<Vec<_>>(),
             vec![("model", "gemini-4-argon")]
         );
+    }
+
+    /// The create form's YOLO pick has to be on the binding before the ACP
+    /// session exists. Otherwise establishment applies the agent's last-used
+    /// Default, and a later resume has nothing else to replay.
+    #[tokio::test]
+    async fn creation_time_yolo_is_remembered_before_the_acp_session_exists() {
+        let pool = migrated_pool().await;
+        let conversation = ConversationRecord::create(
+            &pool,
+            Uuid::new_v4(),
+            CreateConversationRecord {
+                workspace_id: Uuid::new_v4(),
+                task_id: None,
+                title: Some("Antigravity"),
+                initial_prompt: None,
+                status: Some(SessionStatus::Todo),
+                executor: Some("antigravity"),
+            },
+        )
+        .await
+        .expect("create conversation");
+        let antigravity = AgentId::parse("antigravity").expect("agent id");
+        Session::update_agent_metadata(&pool, conversation.id, None, Some(&antigravity))
+            .await
+            .expect("store agent id");
+        SessionDefaultRepository::new(pool.clone())
+            .upsert(
+                &antigravity,
+                "mode",
+                &serde_json::Value::String("default".into()).to_string(),
+            )
+            .await
+            .expect("seed last-used default mode");
+
+        remember_creation_session_controls(
+            &pool,
+            conversation.id,
+            Some(" yolo "),
+            [AgentSessionConfigOverride {
+                key: " model ".into(),
+                value: " gemini-4-argon ".into(),
+            }],
+        )
+        .await;
+
+        let binding =
+            ConversationAgentBindingRecord::latest_for_conversation(&pool, conversation.id)
+                .await
+                .expect("read binding")
+                .expect("creation controls open a binding before ACP exists");
+        assert_eq!(binding.acp_session_id, None);
+        assert_eq!(binding.current_mode.as_deref(), Some("yolo"));
+        let defaults = SessionDefaultRepository::new(pool.clone())
+            .list_for_agent(&antigravity)
+            .await
+            .expect("list defaults")
+            .into_iter()
+            .filter_map(|record| {
+                serde_json::from_str(&record.value_json)
+                    .ok()
+                    .map(|value| (record.option_id, value))
+            })
+            .collect::<Vec<_>>();
+        let prefs = session_control_preferences(Some(&binding), &defaults);
+        assert_eq!(prefs.mode.as_deref(), Some("yolo"));
+        let advertised = agents::AgentSessionControlsSnapshot {
+            current_mode: Some("default".into()),
+            config_options: vec![config_option("model", "gemini-3.8-flash")],
+            ..Default::default()
+        };
+        let plan =
+            session_control_replay_plan(prefs.mode.clone(), prefs.config.clone(), &advertised);
+        assert_eq!(plan.mode.as_deref(), Some("yolo"));
+        assert_eq!(
+            plan.config_overrides
+                .iter()
+                .map(|item| (item.key.as_str(), item.value.as_str()))
+                .collect::<Vec<_>>(),
+            vec![("model", "gemini-4-argon")]
+        );
+
+        remember_creation_session_controls(&pool, conversation.id, Some("   "), std::iter::empty())
+            .await;
+        let unchanged =
+            ConversationAgentBindingRecord::latest_for_conversation(&pool, conversation.id)
+                .await
+                .expect("read binding")
+                .expect("blank mode does not drop the binding");
+        assert_eq!(unchanged.current_mode.as_deref(), Some("yolo"));
     }
 
     /// Replaying a value the session already holds is not free: some agents rebuild

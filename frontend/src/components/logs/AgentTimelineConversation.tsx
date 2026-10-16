@@ -104,7 +104,16 @@ import {
 } from '@/contexts/ActiveExecutorProfileContext';
 import { useAttemptRepo } from '@/hooks/useAttemptRepo';
 import { useMediaQuery } from '@/hooks/useMediaQuery';
-import { resolveConversationCollapsePreferences } from '@/lib/conversationCollapsePreferences';
+import {
+  resolveConversationCollapsePreferences,
+  resolveHideModelThinking,
+} from '@/lib/conversationCollapsePreferences';
+import {
+  isExpandableOpen,
+  useExpandableRevision,
+} from '@/stores/useExpandableStore';
+import { buildTimelineVirtualEntries } from './assistantVirtualSlices';
+import { TimelineImagePanel } from '@/components/NormalizedConversation/TimelineDecodedImage';
 import { cn } from '@/lib/utils';
 import { isContextCompactPrompt } from '@/lib/contextCompact';
 import { composerMessageHistoryFromTurns } from '@/components/tasks/follow-up/sessionComposerHistory';
@@ -914,12 +923,33 @@ const AgentTimelineConversation = forwardRef<
     () => buildTimelineNavEntries(timelineItems),
     [timelineItems]
   );
+  const expandableRevision = useExpandableRevision();
+  const hideThinking = resolveHideModelThinking(config);
+  const virtualEntries = useMemo(
+    () =>
+      buildTimelineVirtualEntries({
+        items: timelineItems,
+        collapseProcess,
+        hideThinking,
+        processExpanded: (turnId) => isExpandableOpen(`process:${turnId}`),
+        isContextCompact: (rowKey) => contextCompactByRowKey.has(rowKey),
+      }),
+    [
+      collapseProcess,
+      config,
+      contextCompactByRowKey,
+      expandableRevision,
+      hideThinking,
+      timelineItems,
+    ]
+  );
   const userMessageIndexes = useMemo(
     () =>
-      timelineItems.flatMap((item, index) =>
-        timelineItemAsMessage(item)?.turn.role === 'user' ? [index] : []
-      ),
-    [timelineItems]
+      virtualEntries.flatMap((entry, index) => {
+        const item = timelineItems[entry.timelineIndex];
+        return timelineItemAsMessage(item)?.turn.role === 'user' ? [index] : [];
+      }),
+    [timelineItems, virtualEntries]
   );
   const activeNavEntry = useMemo(
     () => findActiveConversationMessageNavEntry(navEntries, activeIndex),
@@ -927,13 +957,10 @@ const AgentTimelineConversation = forwardRef<
   );
 
   const rowVirtualizer = useVirtualizer<HTMLDivElement, HTMLDivElement>({
-    count: timelineItems.length,
+    count: virtualEntries.length,
     getScrollElement: () => containerRef.current,
     estimateSize: () => ESTIMATED_CONVERSATION_ROW_HEIGHT,
-    getItemKey: (index) =>
-      timelineItems[index]?.kind === 'message'
-        ? timelineItems[index].item.key
-        : (timelineItems[index]?.row.row_id ?? index),
+    getItemKey: (index) => virtualEntries[index]?.key ?? index,
     overscan: OVERSCAN,
     scrollMargin,
     observeElementRect: observeUnscaledElementRect,
@@ -944,7 +971,7 @@ const AgentTimelineConversation = forwardRef<
 
   const jumpToVirtualIndex = useCallback(
     (index: number, align: 'start' | 'center' | 'end' | 'auto' = 'start') => {
-      if (index < 0 || index >= timelineItems.length) return;
+      if (index < 0 || index >= virtualEntries.length) return;
       const jump = () => {
         rowVirtualizer.scrollToIndex(index, {
           align,
@@ -953,7 +980,7 @@ const AgentTimelineConversation = forwardRef<
       };
       scheduleMeasuredScrollToIndex(jump, index);
     },
-    [rowVirtualizer, timelineItems.length]
+    [rowVirtualizer, virtualEntries.length]
   );
 
   const conversationHasEarlier = conversation.hasEarlier;
@@ -988,13 +1015,14 @@ const AgentTimelineConversation = forwardRef<
       if (!match) return;
       const key = timeline[match.rowIndex]?.key;
       if (!key) return;
-      const virtualIndex = timelineItems.findIndex(
-        (item) => item.kind === 'message' && item.item.key === key
-      );
+      const virtualIndex = virtualEntries.findIndex((entry) => {
+        const item = timelineItems[entry.timelineIndex];
+        return item?.kind === 'message' && item.item.key === key;
+      });
       if (virtualIndex < 0) return;
       jumpToVirtualIndex(virtualIndex, 'center');
     },
-    [findMatches, jumpToVirtualIndex, timeline, timelineItems]
+    [findMatches, jumpToVirtualIndex, timeline, timelineItems, virtualEntries]
   );
 
   const goToFindMatch = useCallback(
@@ -1041,13 +1069,15 @@ const AgentTimelineConversation = forwardRef<
   const updateActiveIndex = useCallback(() => {
     const container = containerRef.current;
     if (!container) return;
-    const next = findViewportAnchorVirtualIndex(
+    const anchor = findViewportAnchorVirtualIndex(
       rowVirtualizer.getVirtualItems(),
       container.scrollTop,
       container.clientHeight
     );
+    const next =
+      anchor == null ? null : (virtualEntries[anchor]?.timelineIndex ?? null);
     setActiveIndex((current) => (current === next ? current : next));
-  }, [rowVirtualizer]);
+  }, [rowVirtualizer, virtualEntries]);
 
   const handleScroll = useCallback(() => {
     updateAtBottomState();
@@ -1064,8 +1094,8 @@ const AgentTimelineConversation = forwardRef<
     (behavior: ScrollBehavior) => {
       const container = containerRef.current;
       if (!container) return;
-      if (timelineItems.length > 0) {
-        rowVirtualizer.scrollToIndex(timelineItems.length - 1, {
+      if (virtualEntries.length > 0) {
+        rowVirtualizer.scrollToIndex(virtualEntries.length - 1, {
           align: 'end',
           behavior,
         });
@@ -1075,17 +1105,20 @@ const AgentTimelineConversation = forwardRef<
       isAtBottomRef.current = true;
       onAtBottomChange?.(true);
     },
-    [onAtBottomChange, rowVirtualizer, timelineItems.length]
+    [onAtBottomChange, rowVirtualizer, virtualEntries.length]
   );
 
   const scrollToIndex = useCallback(
     (index: number) => {
-      if (index < 0 || index >= timelineItems.length) return;
+      const virtualIndex = virtualEntries.findIndex(
+        (entry) => entry.timelineIndex === index
+      );
+      if (virtualIndex < 0) return;
       detachFromBottom();
-      jumpToVirtualIndex(index, 'start');
+      jumpToVirtualIndex(virtualIndex, 'start');
       setActiveIndex(index);
     },
-    [detachFromBottom, jumpToVirtualIndex, timelineItems.length]
+    [detachFromBottom, jumpToVirtualIndex, virtualEntries]
   );
 
   const updateScrollMargin = useCallback(() => {
@@ -1117,11 +1150,11 @@ const AgentTimelineConversation = forwardRef<
   useLayoutEffect(() => {
     const next = conversationOpenPinState({
       settlePassesRemaining: openSettlePassesRef.current,
-      itemCount: timelineItems.length,
+      itemCount: virtualEntries.length,
       nearBottom: isAtBottomRef.current,
     });
     openSettlePassesRef.current = next.settlePassesRemaining;
-    if (timelineItems.length === 0) {
+    if (virtualEntries.length === 0) {
       if (isAtBottomRef.current !== next.pinned) {
         isAtBottomRef.current = next.pinned;
         onAtBottomChange?.(next.pinned);
@@ -1133,7 +1166,7 @@ const AgentTimelineConversation = forwardRef<
       onAtBottomChange?.(true);
       scrollToBottom('auto');
     }
-  }, [onAtBottomChange, scrollToBottom, timelineItems.length, totalSize]);
+  }, [onAtBottomChange, scrollToBottom, virtualEntries.length, totalSize]);
 
   useImperativeHandle(
     ref,
@@ -1142,11 +1175,14 @@ const AgentTimelineConversation = forwardRef<
         scrollToBottom(scrollBehavior);
       },
       scrollToIndex(index, options) {
-        if (index < 0 || index >= timelineItems.length) return;
+        const virtualIndex = virtualEntries.findIndex(
+          (entry) => entry.timelineIndex === index
+        );
+        if (virtualIndex < 0) return;
         if ((options?.behavior ?? scrollBehavior) === 'smooth') {
           detachFromBottom();
         }
-        jumpToVirtualIndex(index, options?.align ?? 'center');
+        jumpToVirtualIndex(virtualIndex, options?.align ?? 'center');
       },
       scrollToPreviousUserMessage() {
         const container = containerRef.current;
@@ -1171,8 +1207,8 @@ const AgentTimelineConversation = forwardRef<
       rowVirtualizer,
       scrollBehavior,
       scrollToBottom,
-      timelineItems.length,
       userMessageIndexes,
+      virtualEntries,
     ]
   );
 
@@ -1618,7 +1654,12 @@ const AgentTimelineConversation = forwardRef<
           const index = rowEl
             ? Number(rowEl.getAttribute('data-index'))
             : Number.NaN;
-          const item = Number.isFinite(index) ? timelineItems[index] : null;
+          const virtualEntry = Number.isFinite(index)
+            ? virtualEntries[index]
+            : null;
+          const item = virtualEntry
+            ? timelineItems[virtualEntry.timelineIndex]
+            : null;
           const row = item?.kind === 'message' ? item.item : null;
           const items: ProductContextMenuItem[] = [];
           if (row) {
@@ -1739,113 +1780,121 @@ const AgentTimelineConversation = forwardRef<
                   <WorkflowRunCard runId={sessionId} />
                 ) : null}
 
-                <div
-                  ref={virtualListRef}
-                  className="relative w-full"
-                  style={{ height: `${totalSize}px` }}
-                >
-                  {virtualRows.map((virtualRow) => {
-                    const item = timelineItems[virtualRow.index];
-                    if (!item) return null;
-                    const row = item.kind === 'message' ? item.item : null;
-                    const isCurrentFindMatch =
-                      row != null &&
-                      currentFindMatch != null &&
-                      timeline[currentFindMatch.rowIndex]?.key === row.key;
-                    return (
-                      <div
-                        key={virtualRow.key}
-                        ref={rowVirtualizer.measureElement}
-                        data-index={virtualRow.index}
-                        className={cn(
-                          'absolute left-0 top-0 w-full pb-3',
-                          activeNavEntry?.index === virtualRow.index &&
-                            'conv-message-nav-target-active',
-                          isCurrentFindMatch && 'rounded-md bg-primary/10'
-                        )}
-                        style={{
-                          transform: getVirtualRowTranslateY(
-                            virtualRow.start,
-                            scrollMargin
-                          ),
-                        }}
-                      >
-                        {item.kind === 'side' ? (
-                          <InlineTimelineSideRow
-                            entry={item.row}
-                            onRespondQuestion={handleRespondQuestion}
-                            respondingQuestionId={respondingQuestionId}
-                          />
-                        ) : null}
-                        {row ? (
-                          <MessageTurnView
-                            turn={row.turn}
-                            phase={row.phase}
-                            attempt={attempt}
-                            task={task}
-                            workspacePath={workspaceRoot}
-                            onRetry={
-                              row.turn.role === 'user'
-                                ? () =>
-                                    void handleRetry(
-                                      row.turn,
-                                      userOrdinalByKey.get(row.key) ?? 0
-                                    )
-                                : undefined
-                            }
-                            onEditRetry={
-                              isEditableUserTimelineRow(row, lastUserRowKey)
-                                ? (editedText) =>
-                                    handleRetry(
-                                      row.turn,
-                                      userOrdinalByKey.get(row.key) ?? 0,
-                                      editedText
-                                    )
-                                : undefined
-                            }
-                            collapseProcess={collapseProcess}
-                            delegations={delegations}
-                            questions={timelineQuestions}
-                            onOpenChild={handleOpenChild}
-                            showInterruptedNotice={false}
-                            contextCompact={
-                              contextCompactByRowKey.get(row.key) ?? null
-                            }
-                            hasTurnError={
-                              turnIdsWithErrors.has(
-                                vibexTurnIdFromTimelineRowId(row.turn.id)
-                              ) || hasReconnectNotice
-                            }
-                          />
-                        ) : null}
-                        {row?.turn.role === 'assistant'
-                          ? (() => {
-                              const turnId = vibexTurnIdFromTimelineRowId(
-                                row.turn.id
-                              );
-                              const fileChanges =
-                                fileChangesByTurnId.get(turnId);
-                              if (!fileChanges) return null;
-                              return (
-                                <div className="min-w-0 px-4">
-                                  <TurnFileChangesCard
-                                    summary={fileChanges.summary}
-                                    expansionKey={`turn-files:${turnId}`}
-                                    defaultExpanded={expandFileChanges}
-                                    onUndo={() =>
-                                      void handleUndoTurnChanges(turnId)
-                                    }
-                                    undoDisabled={isTurnInFlight}
-                                  />
-                                </div>
-                              );
-                            })()
-                          : null}
-                        {row ? renderTurnStats(row, virtualRow.index) : null}
-                      </div>
-                    );
-                  })}
-                </div>
+                <TimelineImagePanel>
+                  <div
+                    ref={virtualListRef}
+                    className="relative w-full"
+                    style={{ height: `${totalSize}px` }}
+                  >
+                    {virtualRows.map((virtualRow) => {
+                      const entry = virtualEntries[virtualRow.index];
+                      if (!entry) return null;
+                      const item = timelineItems[entry.timelineIndex];
+                      if (!item) return null;
+                      const row = item.kind === 'message' ? item.item : null;
+                      const isCurrentFindMatch =
+                        row != null &&
+                        currentFindMatch != null &&
+                        timeline[currentFindMatch.rowIndex]?.key === row.key;
+                      return (
+                        <div
+                          key={virtualRow.key}
+                          ref={rowVirtualizer.measureElement}
+                          data-index={virtualRow.index}
+                          className={cn(
+                            'absolute left-0 top-0 w-full pb-3',
+                            activeNavEntry?.index === entry.timelineIndex &&
+                              'conv-message-nav-target-active',
+                            isCurrentFindMatch && 'rounded-md bg-primary/10'
+                          )}
+                          style={{
+                            transform: getVirtualRowTranslateY(
+                              virtualRow.start,
+                              scrollMargin
+                            ),
+                          }}
+                        >
+                          {item.kind === 'side' ? (
+                            <InlineTimelineSideRow
+                              entry={item.row}
+                              onRespondQuestion={handleRespondQuestion}
+                              respondingQuestionId={respondingQuestionId}
+                            />
+                          ) : null}
+                          {row ? (
+                            <MessageTurnView
+                              turn={row.turn}
+                              phase={row.phase}
+                              attempt={attempt}
+                              task={task}
+                              workspacePath={workspaceRoot}
+                              onRetry={
+                                row.turn.role === 'user'
+                                  ? () =>
+                                      void handleRetry(
+                                        row.turn,
+                                        userOrdinalByKey.get(row.key) ?? 0
+                                      )
+                                  : undefined
+                              }
+                              onEditRetry={
+                                isEditableUserTimelineRow(row, lastUserRowKey)
+                                  ? (editedText) =>
+                                      handleRetry(
+                                        row.turn,
+                                        userOrdinalByKey.get(row.key) ?? 0,
+                                        editedText
+                                      )
+                                  : undefined
+                              }
+                              collapseProcess={collapseProcess}
+                              delegations={delegations}
+                              questions={timelineQuestions}
+                              onOpenChild={handleOpenChild}
+                              showInterruptedNotice={false}
+                              contextCompact={
+                                contextCompactByRowKey.get(row.key) ?? null
+                              }
+                              hasTurnError={
+                                turnIdsWithErrors.has(
+                                  vibexTurnIdFromTimelineRowId(row.turn.id)
+                                ) || hasReconnectNotice
+                              }
+                              slice={entry.slice}
+                              isLastSlice={entry.isLast}
+                            />
+                          ) : null}
+                          {row?.turn.role === 'assistant' && entry.isLast
+                            ? (() => {
+                                const turnId = vibexTurnIdFromTimelineRowId(
+                                  row.turn.id
+                                );
+                                const fileChanges =
+                                  fileChangesByTurnId.get(turnId);
+                                if (!fileChanges) return null;
+                                return (
+                                  <div className="min-w-0 px-4">
+                                    <TurnFileChangesCard
+                                      summary={fileChanges.summary}
+                                      expansionKey={`turn-files:${turnId}`}
+                                      defaultExpanded={expandFileChanges}
+                                      onUndo={() =>
+                                        void handleUndoTurnChanges(turnId)
+                                      }
+                                      undoDisabled={isTurnInFlight}
+                                    />
+                                  </div>
+                                );
+                              })()
+                            : null}
+                          {row && entry.isLast
+                            ? renderTurnStats(row, virtualRow.index)
+                            : null}
+                        </div>
+                      );
+                    })}
+                  </div>
+                </TimelineImagePanel>
                 {!usesComposerStatusDock && pendingPermissions.length > 0 ? (
                   <div className="sticky bottom-0 z-10 space-y-2 pt-2">
                     {pendingPermissions.map((request) => (

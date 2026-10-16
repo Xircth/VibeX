@@ -123,25 +123,38 @@ describe('AppearanceSettings', () => {
     expect(screen.getByRole('heading', { name: '强调色' })).toBeInTheDocument();
   });
 
+  it('renders visual theme choice cards (Light, Dark, System) instead of a combobox', () => {
+    render(<AppearanceSettings />);
+    const group = screen.getByRole('radiogroup', { name: '应用主题' });
+    expect(group).toBeInTheDocument();
+    expect(
+      screen.getByRole('checkbox', { name: 'Light' })
+    ).not.toBeChecked();
+    expect(screen.getByRole('checkbox', { name: 'Dark' })).not.toBeChecked();
+    expect(screen.getByRole('checkbox', { name: 'System' })).toBeChecked();
+  });
+
   it('applies immediate display preferences and persists the theme on save', async () => {
     const user = userEvent.setup();
     render(<AppearanceSettings />);
     const selects = screen.getAllByRole('combobox');
 
-    await user.click(selects[2]);
-    await user.click(screen.getByRole('option', { name: '110%' }));
+    await user.click(selects[1]);
+    const zoomOption = screen.getByRole('option', { name: '110%' });
+    expect(zoomOption.querySelector('.astryx-selector-option')).not.toBeNull();
+    await user.click(zoomOption);
     expect(mocks.setUiZoom).toHaveBeenCalledWith(1.1);
 
-    await user.click(selects[3]);
+    await user.click(selects[2]);
     await user.click(screen.getByRole('option', { name: 'Menlo' }));
     expect(mocks.setMonoFont).toHaveBeenCalledWith('menlo');
 
-    await user.click(selects[4]);
+    await user.click(selects[3]);
     await user.click(screen.getByRole('option', { name: 'English' }));
     expect(mocks.setUiLanguage).toHaveBeenCalledWith('en');
 
-    await user.click(selects[0]);
-    await user.click(screen.getByRole('option', { name: 'Dark' }));
+    await user.click(screen.getByText('Dark'));
+    expect(screen.getByRole('checkbox', { name: 'Dark' })).toBeChecked();
     await user.click(screen.getByRole('button', { name: '保存' }));
 
     await waitFor(() => {
@@ -161,7 +174,7 @@ describe('AppearanceSettings', () => {
 
     expect(screen.getByText('应用图标')).toBeInTheDocument();
     const selects = screen.getAllByRole('combobox');
-    await user.click(selects[1]);
+    await user.click(selects[0]);
     await user.click(screen.getByRole('option', { name: '纯标记' }));
 
     expect(mocks.setAppIconStyle).toHaveBeenCalledWith('lite');
@@ -173,7 +186,7 @@ describe('AppearanceSettings', () => {
 
     expect(screen.getByText('Kanban 会话列表')).toBeInTheDocument();
     const selects = screen.getAllByRole('combobox');
-    await user.click(selects[5]);
+    await user.click(selects[4]);
     await user.click(screen.getByRole('option', { name: '工作区分组视图' }));
 
     expect(mocks.setKanbanSessionListView).toHaveBeenCalledWith('workspace');
@@ -185,7 +198,7 @@ describe('AppearanceSettings', () => {
 
     expect(screen.getByText('会话看板样式')).toBeInTheDocument();
     const selects = screen.getAllByRole('combobox');
-    await user.click(selects[6]);
+    await user.click(selects[5]);
     await user.click(screen.getByRole('option', { name: '无限画布' }));
 
     expect(mocks.setKanbanBoardStyle).toHaveBeenCalledWith('canvas');

@@ -407,7 +407,7 @@ function DockviewTerminalPanel(props: IDockviewPanelProps) {
       {isEditorSurface ? null : (
         <>
           <div
-            className="terminal-list-resizer"
+            className="workspace-resize-handle terminal-list-resizer"
             role="separator"
             tabIndex={0}
             aria-label={t('terminalPanel.resizeListAria')}

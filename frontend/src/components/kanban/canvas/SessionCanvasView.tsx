@@ -167,6 +167,7 @@ export interface SessionCanvasApi {
     cardWidth?: number | null
   ) => void;
   presentSessionIds: () => Set<string>;
+  removeSession: (sessionId: string) => void;
 }
 
 interface SessionCanvasViewProps {
@@ -181,6 +182,9 @@ interface SessionCanvasViewProps {
     session: KanbanProjectSessionRecord,
     name: string | null
   ) => Promise<void>;
+  onArchiveSession?: (
+    session: KanbanProjectSessionRecord
+  ) => void | Promise<void>;
   onDeleteSession?: (
     session: KanbanProjectSessionRecord
   ) => void | Promise<void>;
@@ -287,6 +291,7 @@ function SessionCanvasFlow({
   createPanel = null,
   projectName = '',
   onRenameSession,
+  onArchiveSession,
   onDeleteSession,
   onApiReady,
   onPresentIdsChange,
@@ -830,10 +835,6 @@ function SessionCanvasFlow({
   }, [projectId, sessionsById, sessionsReady]);
 
   useEffect(() => {
-    onApiReady?.({ addOrFocus, addSession, dropSessionAt, presentSessionIds });
-  }, [addOrFocus, addSession, dropSessionAt, onApiReady, presentSessionIds]);
-
-  useEffect(() => {
     setHeldSessionIds((current) => {
       if (current.size === 0) return current;
       let changed = false;
@@ -889,6 +890,43 @@ function SessionCanvasFlow({
     },
     [updateNodes]
   );
+
+  const removeSession = useCallback(
+    (sessionId: string) => {
+      const removedIds = documentRef.current.nodes.flatMap((node) =>
+        isSessionNode(node) && node.sessionId === sessionId ? [node.id] : []
+      );
+      if (removedIds.length === 0) return;
+      const removed = new Set(removedIds);
+      updateNodes((items) => items.filter((node) => !removed.has(node.id)));
+      setSelectedIds((current) => {
+        let changed = false;
+        const next = new Set(current);
+        for (const id of removed) {
+          changed = next.delete(id) || changed;
+        }
+        return changed ? next : current;
+      });
+    },
+    [updateNodes]
+  );
+
+  useEffect(() => {
+    onApiReady?.({
+      addOrFocus,
+      addSession,
+      dropSessionAt,
+      presentSessionIds,
+      removeSession,
+    });
+  }, [
+    addOrFocus,
+    addSession,
+    dropSessionAt,
+    onApiReady,
+    presentSessionIds,
+    removeSession,
+  ]);
 
   const zoomToCard = useCallback(
     (instanceId: string) => {
@@ -1045,11 +1083,13 @@ function SessionCanvasFlow({
       resizeGroup,
       collapseGroup,
       onRenameSession,
+      onArchiveSession,
       onDeleteSession,
     }),
     [
       collapseCard,
       expandCard,
+      onArchiveSession,
       onDeleteSession,
       sessionsReady,
       onRenameSession,

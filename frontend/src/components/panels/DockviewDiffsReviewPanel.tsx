@@ -656,9 +656,7 @@ function DockviewDiffsReviewPanel() {
       {/* Right: Changes directory sidebar */}
       {diffs.length > 0 && (
         <div
-          className={`relative shrink-0 overflow-hidden rounded-xl border border-border/60 bg-muted/20 flex flex-col ${
-            sidebarCollapsed ? 'w-8' : ''
-          }`}
+          className="relative h-full shrink-0"
           style={sidebarCollapsed ? undefined : { width: sidebarWidth }}
         >
           {sidebarCollapsed ? null : (
@@ -666,7 +664,7 @@ function DockviewDiffsReviewPanel() {
               role="separator"
               aria-orientation="vertical"
               aria-label={t('diffsReviewPanel.resizeFileTree')}
-              className="absolute inset-y-0 left-0 z-10 w-1.5 cursor-col-resize"
+              className="workspace-resize-handle diffs-file-tree-resizer"
               onPointerDown={(event) => {
                 event.preventDefault();
                 const startX = event.clientX;
@@ -684,67 +682,73 @@ function DockviewDiffsReviewPanel() {
               }}
             />
           )}
-          {sidebarCollapsed ? (
-            <button
-              onClick={() => setSidebarCollapsed(false)}
-              className="h-7 flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-accent/50"
-              title={t('diffsReviewPanel.expandFileTree')}
-            >
-              <PanelRightOpen className="h-3.5 w-3.5" />
-            </button>
-          ) : (
-            <>
-              <div className="flex items-center gap-1.5 h-7 px-2.5">
-                <span className="inline-flex items-center text-xs font-bold text-foreground leading-none">
-                  {isCommitMode ? 'Changed Files' : 'Changes'}
-                </span>
-                <div className="ml-auto flex items-center gap-1.5">
-                  <span className="group/files relative inline-flex items-center">
-                    <span className="inline-flex items-center text-xs text-muted-foreground leading-none">
-                      {fileCount} Files
-                    </span>
-                    <span
-                      data-testid="changes-line-stats"
-                      className="pointer-events-none absolute right-0 top-full z-20 mt-1 hidden whitespace-nowrap rounded-xl border border-border bg-popover px-2 py-1 font-mono text-[10px] text-popover-foreground group-hover/files:block"
-                    >
-                      <span className="text-[hsl(var(--success))]">
-                        +{added}
-                      </span>{' '}
-                      <span className="text-destructive">-{deleted}</span>
-                    </span>
+          <div
+            className={`flex h-full min-h-0 flex-col overflow-hidden rounded-xl border border-border/60 bg-muted/20 ${
+              sidebarCollapsed ? 'w-8' : ''
+            }`}
+          >
+            {sidebarCollapsed ? (
+              <button
+                onClick={() => setSidebarCollapsed(false)}
+                className="h-7 flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-accent/50"
+                title={t('diffsReviewPanel.expandFileTree')}
+              >
+                <PanelRightOpen className="h-3.5 w-3.5" />
+              </button>
+            ) : (
+              <>
+                <div className="flex items-center gap-1.5 h-7 px-2.5">
+                  <span className="inline-flex items-center text-xs font-bold text-foreground leading-none">
+                    {isCommitMode ? 'Changed Files' : 'Changes'}
                   </span>
-                  <button
-                    onClick={() => setSidebarCollapsed(true)}
-                    className="inline-flex items-center justify-center p-0.5 rounded hover:bg-accent text-muted-foreground"
-                    title={t('diffsReviewPanel.collapse')}
-                  >
-                    <PanelRightClose className="h-3.5 w-3.5" />
-                  </button>
+                  <div className="ml-auto flex items-center gap-1.5">
+                    <span className="group/files relative inline-flex items-center">
+                      <span className="inline-flex items-center text-xs text-muted-foreground leading-none">
+                        {fileCount} Files
+                      </span>
+                      <span
+                        data-testid="changes-line-stats"
+                        className="pointer-events-none absolute right-0 top-full z-20 mt-1 hidden whitespace-nowrap rounded-xl border border-border bg-popover px-2 py-1 font-mono text-[10px] text-popover-foreground group-hover/files:block"
+                      >
+                        <span className="text-[hsl(var(--success))]">
+                          +{added}
+                        </span>{' '}
+                        <span className="text-destructive">-{deleted}</span>
+                      </span>
+                    </span>
+                    <button
+                      onClick={() => setSidebarCollapsed(true)}
+                      className="inline-flex items-center justify-center p-0.5 rounded hover:bg-accent text-muted-foreground"
+                      title={t('diffsReviewPanel.collapse')}
+                    >
+                      <PanelRightClose className="h-3.5 w-3.5" />
+                    </button>
+                  </div>
                 </div>
-              </div>
-              <div className="flex-1 overflow-y-auto py-1">
-                <DiffFileTree
-                  key={`diff-tree-${targetToken}`}
-                  files={diffs.map((diff, idx) => {
-                    const id = getDiffId(diff, idx);
-                    const badge =
-                      changeBadge[diff.change] || changeBadge.modified;
-                    return {
-                      id,
-                      path: diff.newPath || diff.oldPath || id,
-                      badge,
-                      additions: diff.additions,
-                      deletions: diff.deletions,
-                    };
-                  })}
-                  activeFileId={
-                    isLargeChangeSet ? activeLargeDiffId : selectedFileId
-                  }
-                  onFileClick={(id) => scrollToFile(id)}
-                />
-              </div>
-            </>
-          )}
+                <div className="flex-1 overflow-y-auto py-1">
+                  <DiffFileTree
+                    key={`diff-tree-${targetToken}`}
+                    files={diffs.map((diff, idx) => {
+                      const id = getDiffId(diff, idx);
+                      const badge =
+                        changeBadge[diff.change] || changeBadge.modified;
+                      return {
+                        id,
+                        path: diff.newPath || diff.oldPath || id,
+                        badge,
+                        additions: diff.additions,
+                        deletions: diff.deletions,
+                      };
+                    })}
+                    activeFileId={
+                      isLargeChangeSet ? activeLargeDiffId : selectedFileId
+                    }
+                    onFileClick={(id) => scrollToFile(id)}
+                  />
+                </div>
+              </>
+            )}
+          </div>
         </div>
       )}
     </div>

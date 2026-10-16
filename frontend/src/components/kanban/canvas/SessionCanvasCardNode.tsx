@@ -29,8 +29,13 @@ export const SessionCanvasCardNode = memo(function SessionCanvasCardNode({
   selected,
 }: NodeProps<SessionCanvasCardFlowNode>) {
   const { t } = useTranslation(['tasks']);
-  const { sessionsReady, removeCard, onRenameSession, onDeleteSession } =
-    useSessionCanvasView();
+  const {
+    sessionsReady,
+    removeCard,
+    onRenameSession,
+    onArchiveSession,
+    onDeleteSession,
+  } = useSessionCanvasView();
   const session = useCanvasSession(data.sessionId);
 
   if (!session) {
@@ -88,6 +93,9 @@ export const SessionCanvasCardNode = memo(function SessionCanvasCardNode({
             onRenameSession
               ? (name) => onRenameSession(session, name)
               : undefined
+          }
+          onArchiveSession={
+            onArchiveSession ? () => onArchiveSession(session) : undefined
           }
           onDeleteSession={
             onDeleteSession ? () => onDeleteSession(session) : undefined

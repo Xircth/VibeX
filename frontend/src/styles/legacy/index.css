@@ -246,15 +246,18 @@
     --composer-token-usage-core: hsl(0 0% 100%);
     --border-subtle: hsl(220 16% 28% / 0.09);
     --border-strong: hsl(220 16% 28% / 0.18);
+    --workspace-divider-color: hsl(var(--border) / 0.88);
+    --workspace-divider-subtle: hsl(var(--border) / 0.74);
+    --workspace-divider-hover: hsl(var(--primary) / 0.52);
     --border-glass: hsl(0 0% 100% / 0.62);
     --border-content: var(--border-subtle);
     --focus-ring: hsl(var(--primary) / 0.28);
     --highlight-edge: hsl(0 0% 100% / 0.36);
     --surface-wash: linear-gradient(
-      145deg,
-      #e2effc 0%,
-      #f1f8fe 28%,
-      transparent 52%
+      180deg,
+      transparent 44%,
+      #f3f3f3 70%,
+      #e6e6e6 100%
     );
     --shadow-shell: 0 18px 42px hsl(220 36% 8% / 0.16);
     --shadow-popover: 0 18px 42px hsl(220 36% 8% / 0.2);
@@ -367,6 +370,9 @@
     --kanban-column-background: #242936;
     --border-subtle: hsl(210 30% 80% / 0.1);
     --border-strong: hsl(210 30% 80% / 0.18);
+    --workspace-divider-color: hsl(var(--border) / 0.9);
+    --workspace-divider-subtle: hsl(var(--border) / 0.76);
+    --workspace-divider-hover: hsl(var(--primary) / 0.62);
     --border-glass: hsl(210 30% 80% / 0.12);
     --border-content: var(--border-subtle);
     --focus-ring: hsl(var(--primary) / 0.36);
@@ -1179,6 +1185,8 @@ html.dark {
 
 .legacy-design [popover]:has([role='listbox']) {
   margin-block: 4px !important;
+  max-height: calc(100dvh - 16px);
+  overflow: auto;
 }
 
 .legacy-design [popover]:has([role='listbox']) > div {
@@ -1206,7 +1214,7 @@ html.dark {
 .legacy-design [popover]:has([role='listbox']) [role='listbox'] [role='group'] {
   display: flex;
   flex-direction: column;
-  gap: 3px;
+  gap: 6px;
 }
 
 .legacy-design [popover]:has([role='listbox']) [role='option'] {
@@ -1214,20 +1222,39 @@ html.dark {
   color: inherit;
 }
 
-.legacy-design [popover]:has([role='listbox']) [role='option']:hover,
-.legacy-design [popover]:has([role='listbox']) [role='option']:focus,
 .legacy-design
-  [popover]:has([role='listbox'])
-  [role='option'][aria-selected='true'] {
+  [popover]:has([role='listbox']:not(.astryx-trigger-menu))
+  [role='option']:hover,
+.legacy-design
+  [popover]:has([role='listbox']:not(.astryx-trigger-menu))
+  [role='option']:focus-visible {
   background: hsl(var(--accent));
   color: hsl(var(--accent-foreground));
 }
 
 .legacy-design
-  [popover]:has([role='listbox'])
+  [popover]:has([role='listbox']:not(.astryx-trigger-menu))
+  [role='option'][aria-selected='true'] {
+  background: transparent;
+  color: inherit;
+  font-weight: 500;
+}
+
+.legacy-design
+  [popover]:has([role='listbox']:not(.astryx-trigger-menu))
+  [role='option'][aria-selected='true']:hover,
+.legacy-design
+  [popover]:has([role='listbox']:not(.astryx-trigger-menu))
+  [role='option'][aria-selected='true']:focus-visible {
+  background: hsl(var(--accent));
+  color: hsl(var(--accent-foreground));
+}
+
+.legacy-design
+  [popover]:has([role='listbox']:not(.astryx-trigger-menu))
   [role='option'][aria-disabled='true'],
 .legacy-design
-  [popover]:has([role='listbox'])
+  [popover]:has([role='listbox']:not(.astryx-trigger-menu))
   [role='option'][aria-disabled='true']:hover {
   background: transparent;
   color: inherit;
@@ -1286,7 +1313,10 @@ html.dark {
   ) !important;
 }
 
-.legacy-design :is(.astryx-button, .astryx-icon-button)[data-variant='ghost'] {
+.legacy-design
+  :is(.astryx-button, .astryx-icon-button)[data-variant='ghost']:not(
+    .is-active
+  ) {
   background-color: transparent !important;
   color: var(--text-primary, var(--color-text-primary)) !important;
   border-radius: var(
@@ -1296,9 +1326,9 @@ html.dark {
 }
 
 .legacy-design
-  :is(.astryx-button, .astryx-icon-button)[data-variant='ghost']:hover:not(
-    :disabled
-  ):not([aria-disabled='true']) {
+  :is(.astryx-button, .astryx-icon-button)[data-variant='ghost']:not(
+    .is-active
+  ):hover:not(:disabled):not([aria-disabled='true']) {
   background-color: var(--surface-control-hover) !important;
 }
 
@@ -1541,21 +1571,113 @@ html.dark {
 /* 4) Settings page overrides – darker text for better readability */
 @layer base {
   .settings-page {
-    --foreground: 0 0% 13%;
-    --muted-foreground: 0 0% 35%;
-    --card: 0 0% 96%;
-    --card-foreground: 0 0% 13%;
-    --border: 0 0% 72%;
-    --input: 0 0% 90%;
+    --background: 0 0% 100%;
+    --foreground: 0 0% 9%;
+    --muted: 0 0% 95%;
+    --muted-foreground: 0 0% 32%;
+    --card: 0 0% 95%;
+    --card-foreground: 0 0% 9%;
+    --border: 0 0% 88%;
+    --input: 0 0% 88%;
+    --surface-shell: #ffffff;
+    --surface-page-solid: #ffffff;
+    --surface-topbar: #ffffff;
+    --surface-sidebar: #ffffff;
+    --surface-wash: linear-gradient(
+      180deg,
+      #ffffff 0%,
+      #ffffff 44%,
+      #f3f3f3 70%,
+      #e6e6e6 100%
+    );
+    --surface-glass: #ffffff;
+    --surface-glass-solid: #ffffff;
+    --surface-content: #f1f1f1;
+    --surface-card: #f1f1f1;
+    --surface-card-strong: #f1f1f1;
+    --surface-raised: #ffffff;
+    --surface-subtle: #ffffff;
+    --surface-control: #ffffff;
+    --surface-control-hover: var(--color-overlay-hover, rgba(0, 0, 0, 0.05));
+    --surface-control-solid: #ffffff;
+    --surface-control-solid-hover: #fafafa;
+    --surface-raised-control: #ffffff;
+    --surface-raised-control-hover: #fafafa;
+    --surface-hover: var(--color-overlay-hover, rgba(0, 0, 0, 0.05));
+    --settings-button-primary-bg: #1b1b1b;
+    --settings-button-primary-hover-bg: #2e2e2e;
+    --settings-button-primary-fg: #ffffff;
+    --settings-button-secondary-bg: #e3e3e3;
+    --settings-button-secondary-hover-bg: #d6d6d6;
+    --settings-button-secondary-fg: #171717;
+    --text-strong: #171717;
+    --text-primary: #171717;
+    --text-default: #171717;
+    --text-muted: #525252;
+    --text-secondary: #525252;
+    --text-tertiary: #737373;
+    --text-faint: #737373;
+    --border-subtle: rgba(0, 0, 0, 0.06);
+    --border-content: rgba(0, 0, 0, 0.06);
+    --border-strong: #d4d4d4;
+    --shadow-surface: none;
+    background-color: #ffffff;
+    font-family: var(--font-sans);
   }
 
   .dark .settings-page {
+    --background: 222 18% 9%;
     --foreground: 210 20% 92%;
+    --muted: 222 16% 15%;
     --muted-foreground: 212 9% 58%;
     --card: 222 22% 15%;
     --card-foreground: 210 20% 92%;
     --border: 210 16% 28%;
     --input: 222 16% 20%;
+    --surface-shell: #0f1217;
+    --surface-page-solid: #0f1217;
+    --surface-topbar: #0f1217;
+    --surface-sidebar: #141820;
+    --surface-wash: linear-gradient(
+      180deg,
+      transparent 44%,
+      hsl(215 24% 24% / 0.08) 70%,
+      hsl(210 32% 42% / 0.14) 100%
+    );
+    --surface-glass: rgba(20, 24, 32, 0.74);
+    --surface-glass-solid: #171c25;
+    --surface-content: #1a202b;
+    --surface-card: #1a202b;
+    --surface-card-strong: #1c222e;
+    --surface-raised: #222938;
+    --surface-subtle: #141820;
+    --surface-control: #222938;
+    --surface-control-hover: var(
+      --color-overlay-hover,
+      rgba(255, 255, 255, 0.06)
+    );
+    --surface-control-solid: #222938;
+    --surface-control-solid-hover: #293142;
+    --surface-raised-control: #252c3b;
+    --surface-raised-control-hover: #2d3546;
+    --surface-hover: var(--color-overlay-hover, rgba(255, 255, 255, 0.06));
+    --settings-button-primary-bg: hsl(var(--primary));
+    --settings-button-primary-hover-bg: hsl(var(--primary) / 0.9);
+    --settings-button-primary-fg: hsl(var(--primary-foreground));
+    --settings-button-secondary-bg: #252c3b;
+    --settings-button-secondary-hover-bg: #2d3546;
+    --settings-button-secondary-fg: #f2f4f8;
+    --text-strong: #f2f4f8;
+    --text-primary: #e6eaf0;
+    --text-default: #e6eaf0;
+    --text-muted: #98a1b0;
+    --text-secondary: #98a1b0;
+    --text-tertiary: #6e7787;
+    --text-faint: #6e7787;
+    --border-subtle: rgba(255, 255, 255, 0.08);
+    --border-content: rgba(255, 255, 255, 0.1);
+    --border-strong: rgba(255, 255, 255, 0.18);
+    background-color: var(--surface-shell);
   }
 
   .settings-page .settings-card {
@@ -1575,26 +1697,43 @@ html.dark {
   }
 
   .settings-page .settings-page-header {
-    margin-bottom: 1rem;
+    margin-bottom: 1.25rem;
   }
 
   .settings-page .settings-page-header h2 {
     color: var(--text-strong);
-    font-size: 1rem;
+    font-size: 1.25rem;
     font-weight: 600;
-    letter-spacing: 0;
+    line-height: 1.4;
+    letter-spacing: -0.01em;
   }
 
   .settings-page .settings-page-header p {
     margin-top: 0.25rem;
     color: var(--text-muted);
-    font-size: 0.875rem;
-    line-height: 1.45;
+    font-size: 0.75rem;
+    font-weight: 400;
+    line-height: 1.5;
   }
 
   .settings-page .settings-sections {
     display: grid;
-    gap: 1rem;
+    gap: 1.25rem;
+  }
+
+  .settings-page .settings-section h3 {
+    color: var(--text-strong);
+    font-size: 0.875rem;
+    font-weight: 600;
+    line-height: 1.4286;
+    letter-spacing: 0;
+  }
+
+  .settings-page .settings-section > div:first-child p {
+    color: var(--text-muted);
+    font-size: 0.75rem;
+    font-weight: 400;
+    line-height: 1.5;
   }
 
   .settings-page .chat-channel-heading {
@@ -1616,24 +1755,26 @@ html.dark {
     align-items: center;
     gap: 8px;
     color: var(--text-strong);
-    font-size: 0.875rem;
+    font-size: 1.25rem;
     font-weight: 600;
-    letter-spacing: 0;
+    line-height: 1.4;
+    letter-spacing: -0.01em;
   }
 
   .settings-page .chat-channel-heading__copy h2 svg {
-    width: 1rem;
-    height: 1rem;
+    width: 1.125rem;
+    height: 1.125rem;
     flex-shrink: 0;
     color: var(--text-muted);
   }
 
   .settings-page .chat-channel-heading__copy p {
     margin-top: 0.25rem;
-    max-width: 46ch;
+    max-width: 56ch;
     color: var(--text-muted);
-    font-size: 0.875rem;
-    line-height: 1.45;
+    font-size: 0.75rem;
+    font-weight: 400;
+    line-height: 1.5;
   }
 
   .settings-page .chat-channel-heading__actions {
@@ -1651,7 +1792,7 @@ html.dark {
     gap: 3px;
     padding: 3px;
     border-radius: var(--radius);
-    background: var(--surface-control);
+    background: var(--surface-content);
   }
 
   .settings-page .chat-channel-tabs > button {
@@ -1671,10 +1812,11 @@ html.dark {
 
   .settings-page .chat-channel-tabs > button:hover {
     color: var(--text-strong);
+    background: var(--surface-hover);
   }
 
   .settings-page .chat-channel-tabs > button.is-active {
-    background: var(--surface-card-strong);
+    background: var(--surface-control);
     color: var(--text-strong);
     box-shadow: var(--shadow-card);
   }
@@ -1749,29 +1891,32 @@ html.dark {
   }
 
   .settings-page .chat-channel-command-usage {
-    font-size: 0.875rem;
-    font-weight: 600;
+    color: var(--text-strong);
+    font-size: 0.8125rem;
+    font-weight: 500;
   }
 
   .settings-page .chat-channel-command-copy {
-    margin-top: 0.35rem;
+    margin-top: 0.25rem;
     color: var(--text-muted);
-    font-size: 0.8125rem;
-    line-height: 1.45;
+    font-size: 0.75rem;
+    line-height: 1.5;
   }
 
   .settings-page .settings-card__header h3 {
     color: var(--text-strong);
     font-size: 0.875rem;
     font-weight: 600;
+    line-height: 1.4286;
     letter-spacing: 0;
   }
 
   .settings-page .settings-card__header p {
     margin-top: 0.25rem;
     color: var(--text-muted);
-    font-size: 0.875rem;
-    line-height: 1.45;
+    font-size: 0.75rem;
+    font-weight: 400;
+    line-height: 1.5;
   }
 
   .settings-page .settings-card > :not([hidden]) {
@@ -1825,6 +1970,144 @@ html.dark {
     margin-top: 0;
   }
 
+  .settings-page .settings-theme-choices {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 0.5rem;
+    width: 100%;
+    max-width: 30rem;
+  }
+
+  @media (max-width: 520px) {
+    .settings-page .settings-theme-choices {
+      grid-template-columns: 1fr;
+    }
+  }
+
+  .settings-page .settings-theme-card {
+    position: relative;
+    padding: 0.5rem !important;
+    border: 1px solid var(--border-subtle) !important;
+    border-radius: var(--radius) !important;
+    background: var(--surface-control) !important;
+    box-shadow: none !important;
+    cursor: pointer;
+    user-select: none;
+    -webkit-user-select: none;
+    transition:
+      border-color 150ms cubic-bezier(0.22, 1, 0.36, 1),
+      box-shadow 150ms cubic-bezier(0.22, 1, 0.36, 1),
+      background-color 150ms cubic-bezier(0.22, 1, 0.36, 1);
+  }
+
+  .settings-page
+    .settings-theme-card:hover:not([data-selected='true']) {
+    border-color: var(--border-strong) !important;
+  }
+
+  .settings-page .settings-theme-card[data-selected='true'] {
+    border-color: var(--settings-button-primary-bg) !important;
+    box-shadow:
+      inset 0 0 0 1px var(--surface-control),
+      inset 0 0 0 2.5px var(--settings-button-primary-bg) !important;
+  }
+
+  .settings-page .settings-theme-card__body {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+  }
+
+  .settings-page .settings-theme-preview {
+    aspect-ratio: 3 / 2;
+    overflow: hidden;
+    border-radius: var(--radius);
+    pointer-events: none;
+  }
+
+  .settings-page .settings-theme-preview__split {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    height: 100%;
+  }
+
+  .settings-page .settings-theme-preview__canvas {
+    display: flex;
+    flex-direction: column;
+    gap: 0.375rem;
+    height: 100%;
+    padding: 0.5rem;
+  }
+
+  .settings-page .settings-theme-preview__canvas[data-mode='light'] {
+    background: #efefef;
+    --theme-preview-surface: #ffffff;
+    --theme-preview-bar: rgba(0, 0, 0, 0.18);
+  }
+
+  .settings-page .settings-theme-preview__canvas[data-mode='dark'] {
+    background: #1b1b1b;
+    --theme-preview-surface: #262626;
+    --theme-preview-bar: rgba(255, 255, 255, 0.26);
+  }
+
+  .settings-page .settings-theme-preview__header {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0.25rem;
+  }
+
+  .settings-page .settings-theme-preview__surface {
+    display: flex;
+    flex: 1 1 auto;
+    flex-direction: column;
+    justify-content: center;
+    gap: 0.25rem;
+    padding: 0.5rem;
+    background: var(--theme-preview-surface);
+  }
+
+  .settings-page .settings-theme-preview__bar {
+    display: block;
+    width: 50%;
+    height: 4px;
+    border-radius: 999px;
+    background: var(--theme-preview-bar);
+  }
+
+  .settings-page .settings-theme-preview__bar.is-wide {
+    width: 66%;
+  }
+
+  .settings-page .settings-theme-card__caption {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.375rem;
+    padding-block: 0.125rem;
+    color: var(--text-secondary);
+    font-size: 0.75rem;
+    line-height: 1.25;
+  }
+
+  .settings-page .settings-theme-card__icon {
+    width: 0.875rem;
+    height: 0.875rem;
+    flex-shrink: 0;
+    color: var(--text-muted);
+  }
+
+  .settings-page .settings-theme-card__label {
+    color: var(--text-secondary);
+    font-weight: 400;
+  }
+
+  .settings-page .settings-theme-card__label.is-selected {
+    color: var(--text-strong);
+    font-weight: 600;
+  }
+
   .settings-page .settings-command-line {
     min-inline-size: 0;
   }
@@ -1847,7 +2130,7 @@ html.dark {
   .settings-page .settings-release-notes__body,
   .settings-page .settings-release-notes .conv-markdown {
     color: var(--text-secondary);
-    font-size: 0.8125rem;
+    font-size: 0.75rem;
     line-height: 1.55;
   }
 
@@ -1890,13 +2173,16 @@ html.dark {
   .settings-page .settings-row__description {
     margin-top: 0.25rem;
     color: var(--text-muted);
-    font-size: 0.875rem;
-    line-height: 1.45;
+    font-size: 0.75rem;
+    font-weight: 400;
+    line-height: 1.5;
   }
 
   .settings-page .settings-row :where(label, .settings-row__label) {
-    font-size: 0.875rem;
-    line-height: 1.45;
+    color: var(--text-strong);
+    font-size: 0.8125rem;
+    font-weight: 500;
+    line-height: 1.4286;
   }
 
   .settings-page .settings-card > .settings-worktree-board {
@@ -1932,18 +2218,18 @@ html.dark {
     border-radius: var(--radius);
     background: transparent;
     color: var(--text-primary);
-    font-size: 0.875rem;
+    font-size: 0.8125rem;
     font-weight: 500;
     line-height: 1.25;
     text-align: left;
   }
 
   .settings-page .settings-worktree-board__item:hover {
-    background: var(--surface-raised);
+    background: var(--surface-control-hover);
   }
 
   .settings-page .settings-worktree-board__item.is-selected {
-    background: hsl(var(--primary) / 0.14);
+    background: var(--surface-content);
     color: var(--text-strong);
   }
 
@@ -1955,7 +2241,7 @@ html.dark {
   .settings-page .settings-worktree-board__empty {
     padding: 0.75rem;
     color: var(--text-muted);
-    font-size: 0.875rem;
+    font-size: 0.75rem;
   }
 
   .settings-page .settings-worktree-board__pane {
@@ -2043,7 +2329,7 @@ html.dark {
     margin-left: auto;
     align-items: center;
     gap: 0.375rem;
-    font-size: 0.875rem;
+    font-size: 0.75rem;
   }
 
   .settings-page .settings-pairing-addresses {
@@ -2059,7 +2345,7 @@ html.dark {
     align-items: center;
     gap: 0.25rem;
     color: var(--text-strong);
-    font-size: 0.875rem;
+    font-size: 0.8125rem;
     font-weight: 500;
   }
 
@@ -2098,7 +2384,7 @@ html.dark {
     gap: 0.25rem;
     padding: 0.2rem 0.2rem 0.2rem 0.6rem;
     border-radius: var(--radius);
-    background: hsl(var(--muted));
+    background: var(--surface-control);
   }
 
   .settings-page .settings-pairing-code code {
@@ -2195,7 +2481,7 @@ html.dark {
   }
 
   .settings-page .settings-pairing-devices__row .settings-row__description {
-    font-size: 0.875rem;
+    font-size: 0.75rem;
   }
 
   .settings-page .settings-pairing-devices__choose {
@@ -2583,7 +2869,7 @@ html.dark {
   }
 
   .settings-page .settings-disclosure-trigger:hover {
-    background: var(--surface-control);
+    background: var(--surface-control-hover);
   }
 
   .settings-page .settings-disclosure-trigger:focus-visible {
@@ -2664,21 +2950,21 @@ html.dark {
   }
 
   .settings-page .settings-agent-tab:hover {
-    border-color: var(--border-content);
+    border-color: transparent;
     background: var(--surface-control-hover);
     color: var(--text-strong);
   }
 
   .settings-page .settings-agent-tab.is-active {
     border-color: hsl(var(--primary) / 0.35);
-    background: var(--surface-content);
+    background: var(--surface-control);
     color: var(--text-strong);
     box-shadow: var(--shadow-card);
   }
 
   .settings-page .settings-agent-icon {
     border: 1px solid var(--border-content);
-    background: var(--surface-content);
+    background: var(--surface-control);
   }
 
   .settings-page .settings-agent-icon.is-active {
@@ -2727,19 +3013,19 @@ html.dark {
   }
 
   .settings-page .settings-list-button:hover {
-    border-color: var(--border-content);
+    border-color: transparent;
     background: var(--surface-control-hover);
     color: var(--text-strong);
   }
 
   .settings-page .settings-list-button.is-active {
-    border-color: hsl(var(--primary) / 0.62);
-    background: hsl(var(--primary));
-    color: hsl(var(--primary-foreground));
+    border-color: transparent;
+    background: var(--surface-control);
+    color: var(--text-strong);
   }
 
   .settings-page .settings-list-button.is-active .settings-list-muted {
-    color: hsl(var(--primary-foreground) / 0.82);
+    color: var(--text-muted);
   }
 
   .settings-page .settings-accent-icon {
@@ -2801,12 +3087,66 @@ html.dark {
       )
     ),
   .settings-page button[role='combobox'],
+  .settings-page .astryx-button,
   .settings-page
     :where(
       button:not([role='switch']):not([role='checkbox']):not([aria-expanded])
     ) {
     height: 2rem;
     min-height: 2rem;
+    font-size: 0.75rem;
+  }
+
+  .settings-page
+    :is(
+      button.primary-control,
+      .astryx-button[data-variant='primary'],
+      .astryx-icon-button[data-variant='primary']
+    ) {
+    border-color: transparent !important;
+    background: var(--settings-button-primary-bg) !important;
+    background-color: var(--settings-button-primary-bg) !important;
+    color: var(--settings-button-primary-fg) !important;
+    box-shadow: none !important;
+  }
+
+  .settings-page
+    :is(
+      button.primary-control,
+      .astryx-button[data-variant='primary'],
+      .astryx-icon-button[data-variant='primary']
+    ):hover:not(:disabled):not([aria-disabled='true']) {
+    background: var(--settings-button-primary-hover-bg) !important;
+    background-color: var(--settings-button-primary-hover-bg) !important;
+    color: var(--settings-button-primary-fg) !important;
+  }
+
+  .settings-page
+    :is(
+      .astryx-button[data-variant='secondary'],
+      .astryx-icon-button[data-variant='secondary'],
+      button.raised-control:not(.astryx-button):not([role='combobox']):not(
+          [data-raised-selector]
+        ):not([aria-expanded])
+    ) {
+    border-color: var(--border-subtle) !important;
+    background: var(--settings-button-secondary-bg) !important;
+    background-color: var(--settings-button-secondary-bg) !important;
+    color: var(--settings-button-secondary-fg) !important;
+    box-shadow: none !important;
+  }
+
+  .settings-page
+    :is(
+      .astryx-button[data-variant='secondary'],
+      .astryx-icon-button[data-variant='secondary'],
+      button.raised-control:not(.astryx-button):not([role='combobox']):not(
+          [data-raised-selector]
+        ):not([aria-expanded])
+    ):hover:not(:disabled):not([aria-disabled='true']) {
+    background: var(--settings-button-secondary-hover-bg) !important;
+    background-color: var(--settings-button-secondary-hover-bg) !important;
+    color: var(--settings-button-secondary-fg) !important;
   }
 
   .settings-page button[role='combobox'] {
@@ -2895,6 +3235,9 @@ html.dark {
      a height-capped option list with an extra-thin scrollbar (half the global
      .legacy-design 8px one). */
   .composer-select-list {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
     max-height: 232px;
     overflow-y: auto;
   }
@@ -3222,6 +3565,13 @@ html.dark {
     color: hsl(var(--destructive));
   }
 
+  .product-context-menu
+    :is([role='menuitemradio'], [role='menuitemcheckbox'])
+    + :is([role='menuitemradio'], [role='menuitemcheckbox']),
+  [data-radix-select-viewport] [role='option'] + [role='option'] {
+    margin-top: 6px;
+  }
+
   .tahoe-content {
     border: 1px solid var(--border-content);
     background: var(--surface-content);
@@ -3488,9 +3838,12 @@ html.dark {
   .astryx-select-menu {
     position: fixed;
     z-index: 10000;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
     box-sizing: border-box;
     overflow-y: auto;
-    padding: 4px;
+    padding: 6px;
     border-radius: var(--radius);
     color: hsl(var(--popover-foreground));
     font-family: var(--font-ui);
@@ -3505,7 +3858,7 @@ html.dark {
     justify-content: space-between;
     gap: 8px;
     box-sizing: border-box;
-    padding: 6px 10px;
+    padding: 8px 10px;
     border-radius: var(--radius);
     color: inherit;
     font-size: 0.8125rem;
@@ -3515,8 +3868,18 @@ html.dark {
   }
 
   .astryx-select-option:hover,
-  .astryx-select-option[data-active='true'],
+  .astryx-select-option[data-active='true'] {
+    background: hsl(var(--accent));
+    color: hsl(var(--accent-foreground));
+  }
+
   .astryx-select-option[aria-selected='true'] {
+    background: transparent;
+    font-weight: 500;
+  }
+
+  .astryx-select-option[aria-selected='true']:hover,
+  .astryx-select-option[aria-selected='true'][data-active='true'] {
     background: hsl(var(--accent));
     color: hsl(var(--accent-foreground));
   }
@@ -3531,9 +3894,17 @@ html.dark {
 
   .astryx-select-option-label {
     min-width: 0;
+    flex: 1 1 auto;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+  }
+
+  .astryx-select-option .astryx-selector-option,
+  .astryx-select-option .astryx-selector-option * {
+    color: inherit;
+    font-size: inherit;
+    line-height: inherit;
   }
 
   .astryx-select-option-check {
@@ -4216,19 +4587,6 @@ html.dark {
     background: hsl(var(--warning) / 0.11);
   }
 
-  .workspace-resize-handle {
-    background: var(--border-subtle);
-    transition:
-      background 150ms ease,
-      box-shadow 150ms ease,
-      width 150ms ease;
-  }
-
-  .workspace-resize-handle:hover {
-    background: hsl(var(--primary) / 0.42);
-    box-shadow: 0 0 0 1px hsl(var(--primary) / 0.12);
-  }
-
   @media (max-width: 780px) {
     .workspace-welcome__inner {
       grid-template-columns: 1fr;
@@ -4379,7 +4737,7 @@ html.dark {
     --project-rail-divider-margin: 6px auto 7px;
     width: 100%;
     height: 100%;
-    padding: 8px 8px 8px;
+    padding: 8px 4px 8px 8px;
     border: 0;
     border-radius: var(--radius);
     background: transparent;
@@ -4402,6 +4760,10 @@ html.dark {
     gap: 8px;
     padding: 0 2px 6px;
     cursor: grab;
+  }
+
+  .project-rail-shell--inline .project-rail-header {
+    padding-right: 6px;
   }
 
   .project-rail-header .project-rail-action-button,
@@ -4432,6 +4794,12 @@ html.dark {
     overflow-x: hidden;
     overflow-y: auto;
     cursor: grab;
+  }
+
+  /* The shell's right padding is 4px, so the thumb sits near the rail edge.
+     This inset keeps the project rows clear of that thumb. */
+  .project-rail-shell--inline .project-rail-projects {
+    padding-right: 12px;
   }
 
   .project-rail-projects::-webkit-scrollbar {
@@ -4797,7 +5165,6 @@ html.dark {
   .session-hub-sidebar {
     min-width: 0;
     overflow: hidden;
-    border-right: 1px solid var(--border-subtle);
     background: hsl(var(--background));
   }
 
@@ -4830,11 +5197,11 @@ html.dark {
     flex-direction: column;
     gap: 0.375rem;
     min-height: 0;
-    padding: 0 0.5rem;
+    padding: 0 0.75rem;
   }
 
   .session-hub-inset[data-expanded='true'] {
-    padding: 0.25rem 0.5rem 0.375rem;
+    padding: 0.25rem 0.75rem 0.375rem;
   }
 
   .workspace-session-search-shell {
@@ -5187,44 +5554,72 @@ html.dark {
     outline-offset: 1px;
   }
 
-  .session-hub-resizer {
-    background: transparent;
-  }
-
-  .session-hub-resizer::before {
-    background: var(--border-subtle);
-  }
-
-  .session-hub-resizer:hover::before {
-    background: hsl(var(--primary) / 0.48);
-  }
-
   .session-hub-monitor-inner {
     padding: 0.25rem;
   }
 
+  .kanban-usage-page {
+    background-color: #ffffff;
+    --color-track: hsl(var(--muted));
+  }
+
+  .dark .kanban-usage-page {
+    background-color: hsl(var(--background));
+    --color-track: hsl(var(--muted));
+  }
+
+  .kanban-usage-header-select.astryx-select {
+    width: 14rem;
+    flex: 0 0 14rem;
+  }
+
   .kanban-usage-card,
   .kanban-usage-tab-rail {
-    border: 1px solid var(--border-content);
+    border: 1px solid var(--border-strong);
     border-radius: var(--radius);
     background: var(--surface-content);
     box-shadow: none;
   }
 
-  .kanban-usage-summary {
+  .kanban-usage-summary,
+  .kanban-usage-trend-row {
     container-type: inline-size;
     display: grid;
-    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    grid-template-columns: minmax(0, 0.78fr) minmax(0, 1.17fr) minmax(0, 1.05fr);
     align-items: stretch;
     gap: 1rem;
   }
 
+  .kanban-usage-trend-row__trend {
+    grid-column: span 2 / span 2;
+  }
+
+  @media (max-width: 1100px) {
+    .kanban-usage-summary,
+    .kanban-usage-trend-row {
+      grid-template-columns: minmax(0, 1fr);
+    }
+
+    .kanban-usage-trend-row__trend {
+      grid-column: span 1 / span 1;
+    }
+  }
+
   .kanban-usage-summary__primary {
     display: flex;
+    flex-direction: column;
     min-width: 0;
+    justify-content: space-between;
+    gap: 0.75rem;
+  }
+
+  .kanban-usage-summary__primary-body {
+    display: flex;
+    min-width: 0;
+    flex: 1;
     align-items: center;
     justify-content: space-between;
-    gap: 1rem;
+    gap: 0.75rem;
   }
 
   .kanban-usage-summary__metrics {
@@ -5237,14 +5632,20 @@ html.dark {
   }
 
   .kanban-usage-stat__value {
-    font-size: 3.25rem;
+    font-size: 2.35rem;
     line-height: 1;
     letter-spacing: -0.02em;
   }
 
   .kanban-usage-stat__value--compact {
-    font-size: 1.75rem;
+    font-size: 1.65rem;
     line-height: 1;
+    letter-spacing: -0.01em;
+  }
+
+  .kanban-usage-stat__value--habit {
+    font-size: 1.125rem;
+    line-height: 1.25;
     letter-spacing: -0.01em;
   }
 
@@ -5252,13 +5653,14 @@ html.dark {
     display: flex;
     min-width: 0;
     align-items: center;
-    gap: 0.75rem;
+    justify-content: center;
+    flex-shrink: 0;
   }
 
   .kanban-usage-summary__ring {
     position: relative;
-    width: 11rem;
-    height: 11rem;
+    width: 6.25rem;
+    height: 6.25rem;
     flex-shrink: 0;
   }
 
@@ -5268,11 +5670,24 @@ html.dark {
     display: flex;
     align-items: center;
     justify-content: center;
-    font-size: 2.25rem;
+    font-size: 1.375rem;
     font-weight: 600;
     letter-spacing: -0.02em;
     font-variant-numeric: tabular-nums;
     color: var(--text-strong);
+  }
+
+  .kanban-usage-ranking-list {
+    max-height: 12.75rem;
+    overflow-y: auto;
+    scrollbar-width: none;
+    -ms-overflow-style: none;
+  }
+
+  .kanban-usage-ranking-list::-webkit-scrollbar {
+    display: none;
+    width: 0;
+    height: 0;
   }
 
   .kanban-usage-card--pink,
@@ -5346,13 +5761,18 @@ html.dark {
   }
 
   .kanban-rank-first {
-    background: hsl(var(--warning) / 0.16);
+    background: transparent;
     color: hsl(var(--warning));
   }
 
-  .kanban-rank-third {
-    background: hsl(var(--primary) / 0.12);
+  .kanban-rank-second {
+    background: transparent;
     color: hsl(var(--primary));
+  }
+
+  .kanban-rank-third {
+    background: transparent;
+    color: hsl(var(--status-running));
   }
 
   .session-status-running-pill,
@@ -6391,11 +6811,11 @@ html.dark {
   }
 
   .settings-titlebar {
-    border-bottom: 1px solid var(--border-glass);
-    background: var(--surface-glass);
-    box-shadow: inset 0 1px 0 var(--highlight-edge);
-    backdrop-filter: blur(18px) saturate(1.2);
-    -webkit-backdrop-filter: blur(18px) saturate(1.2);
+    border-bottom: 1px solid var(--border-subtle);
+    background: var(--surface-topbar);
+    box-shadow: none;
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
   }
 
   /* Floating rounded sidebar container (macOS-style inset panel). The upper
@@ -6453,13 +6873,14 @@ html.dark {
     box-shadow: var(--shadow-inset);
     color: var(--text-primary);
     font: inherit;
-    font-size: 0.8125rem;
+    font-size: 0.75rem;
     line-height: 1.25;
     appearance: none;
     -webkit-appearance: none;
     transition:
       border-color 160ms cubic-bezier(0.22, 1, 0.36, 1),
-      box-shadow 160ms cubic-bezier(0.22, 1, 0.36, 1);
+      box-shadow 160ms cubic-bezier(0.22, 1, 0.36, 1),
+      background-color 160ms cubic-bezier(0.22, 1, 0.36, 1);
   }
 
   .settings-search-input:hover:not(:focus):not(:focus-visible) {
@@ -6490,7 +6911,7 @@ html.dark {
   .settings-search-clear {
     position: absolute;
     top: 50%;
-    right: 4px;
+    right: 6px;
     z-index: 1;
     display: inline-flex;
     width: 22px;
@@ -6519,7 +6940,7 @@ html.dark {
   .settings-search-results {
     display: flex;
     flex-direction: column;
-    gap: 4px;
+    gap: 2px;
     margin: 0;
     padding: 0;
     list-style: none;
@@ -6552,8 +6973,8 @@ html.dark {
     min-width: 0;
     flex: 1 1 auto;
     overflow: hidden;
-    font-size: 0.875rem;
-    font-weight: 400;
+    font-size: 0.8125rem;
+    font-weight: 500;
     line-height: 1.25;
     color: inherit;
     text-overflow: ellipsis;
@@ -6565,7 +6986,7 @@ html.dark {
     max-width: 42%;
     overflow: hidden;
     font-size: 0.75rem;
-    font-weight: 500;
+    font-weight: 400;
     line-height: 1.25;
     color: var(--text-muted);
     text-overflow: ellipsis;
@@ -6601,8 +7022,45 @@ html.dark {
     }
   }
 
-  .settings-nav-button {
+  .settings-nav-groups {
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+  }
+
+  .settings-nav-section {
+    display: flex;
+    flex-direction: column;
+    padding-block: 0.25rem;
+  }
+
+  .settings-nav-section__header {
+    display: flex;
+    align-items: center;
+    padding: 0.25rem 0.5rem;
+    cursor: default;
+    user-select: none;
+    -webkit-user-select: none;
+  }
+
+  .settings-nav-section__title {
+    overflow: hidden;
     color: var(--text-muted);
+    font-size: 0.75rem;
+    font-weight: 600;
+    line-height: 1.3333;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .settings-nav-section__items {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+  }
+
+  .settings-nav-button {
+    color: var(--text-primary);
     border: 1px solid transparent;
     background: transparent;
   }
@@ -6610,22 +7068,20 @@ html.dark {
   .settings-nav-button:hover {
     color: var(--text-strong);
     border-color: var(--border-subtle);
-    background: var(--surface-control-hover);
+    background: var(--surface-hover);
   }
 
   .settings-nav-button.is-active {
-    color: hsl(var(--primary-foreground));
-    border-color: hsl(var(--primary) / 0.62);
-    background: hsl(var(--primary));
-    box-shadow:
-      inset 0 1px 0 var(--highlight-edge),
-      0 1px 3px hsl(var(--primary) / 0.2);
+    color: var(--text-strong);
+    border-color: var(--border-strong);
+    background: var(--surface-content);
+    box-shadow: none;
   }
 
   .settings-nav-button.is-active:hover {
-    color: hsl(var(--primary-foreground));
-    border-color: hsl(var(--primary) / 0.72);
-    background: hsl(var(--primary) / 0.94);
+    color: var(--text-strong);
+    border-color: var(--border-strong);
+    background: var(--surface-content);
   }
 
   /* Elevated "inset grouped" surface used by the Agent detail sections and the
@@ -7687,7 +8143,7 @@ html.dark {
 .agent-model-provider-catalog-list {
   display: grid;
   flex: 1 1 auto;
-  gap: 2px;
+  gap: 6px;
   min-height: 0;
   margin: 0;
   overflow-x: hidden;
@@ -8434,7 +8890,7 @@ html.host-windows :where(.legacy-design) .vu-toast-surface {
   padding: 0 3px;
   border: 1px solid var(--border-content);
   border-radius: 9999px;
-  background: var(--surface-control);
+  background: var(--surface-content);
 }
 
 :is(.settings-page, .plan-usage-page) .agent-management-bar-viewport {
@@ -8585,9 +9041,9 @@ html.host-windows :where(.legacy-design) .vu-toast-surface {
 }
 
 :is(.settings-page, .plan-usage-page) .agent-management-bar-item.is-selected {
-  border-color: hsl(var(--primary) / 0.36);
+  border-color: var(--border-subtle);
   color: var(--text-strong);
-  background: var(--surface-card-strong);
+  background: var(--surface-control);
   box-shadow: var(--shadow-card);
 }
 
@@ -8622,7 +9078,7 @@ html.host-windows :where(.legacy-design) .vu-toast-surface {
 :is(.settings-page, .plan-usage-page) .agent-management-bar-item.is-dragging {
   z-index: 3;
   cursor: grabbing;
-  background: var(--surface-card-strong);
+  background: var(--surface-control);
   box-shadow: var(--shadow-control);
 }
 
@@ -8884,12 +9340,19 @@ html.host-windows :where(.legacy-design) .vu-toast-surface {
 .settings-page .agent-detail-header-title h2 {
   min-width: 0;
   overflow: hidden;
+  color: var(--text-strong);
+  font-size: 1.25rem;
+  font-weight: 600;
+  line-height: 1.4;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
 .settings-page .agent-detail-header-copy p {
   overflow: hidden;
+  color: var(--text-muted);
+  font-size: 0.75rem;
+  line-height: 1.5;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -8970,8 +9433,9 @@ html.host-windows :where(.legacy-design) .vu-toast-surface {
 
 .settings-page .agent-section-heading h3 {
   color: var(--text-strong);
-  font-size: 14px;
+  font-size: 0.875rem;
   font-weight: 600;
+  line-height: 1.4286;
 }
 
 .settings-page .agent-section-heading-toggle {
@@ -9135,9 +9599,9 @@ html.host-windows :where(.legacy-design) .vu-toast-surface {
   min-width: 0;
   overflow-wrap: anywhere;
   color: var(--text-strong);
-  font-size: 0.875rem;
-  font-weight: 600;
-  line-height: 1.35;
+  font-size: 0.8125rem;
+  font-weight: 500;
+  line-height: 1.4286;
 }
 
 .settings-page .agent-preflight-status-icon {
@@ -9189,7 +9653,7 @@ html.host-windows :where(.legacy-design) .vu-toast-surface {
 
 .settings-page .agent-preflight-status.is-update {
   border-color: var(--border-strong);
-  background: var(--kanban-column-background);
+  background: var(--surface-control);
   color: var(--text-strong);
 }
 
@@ -9204,8 +9668,8 @@ html.host-windows :where(.legacy-design) .vu-toast-surface {
 }
 
 .settings-page button.agent-preflight-status.is-update:hover:not(:disabled) {
-  background: var(--kanban-column-background);
-  border-color: var(--text-muted);
+  background: var(--surface-control-hover);
+  border-color: var(--border-strong);
 }
 
 .settings-page button.agent-preflight-status:focus-visible {
@@ -9490,7 +9954,7 @@ html.host-windows :where(.legacy-design) .vu-toast-surface {
   gap: 3px;
   padding: 3px;
   border-radius: var(--radius);
-  background: var(--surface-control);
+  background: var(--surface-hover);
 }
 
 .settings-page .agent-auth-mode-tabs > button {
@@ -9515,11 +9979,12 @@ html.host-windows :where(.legacy-design) .vu-toast-surface {
 
 .settings-page .agent-auth-mode-tabs > button:hover:not(:disabled) {
   color: var(--text-strong);
+  background: var(--surface-hover);
 }
 
 .settings-page .agent-auth-mode-tabs > button.is-active {
-  background: var(--surface-content);
-  color: hsl(var(--primary));
+  background: var(--surface-control);
+  color: var(--text-strong);
   box-shadow: var(--shadow-control);
 }
 
@@ -10876,13 +11341,13 @@ html.host-windows :where(.legacy-design) .vu-toast-surface {
  * bars: the bars live deep inside non-flex wrappers (agent-config-surface,
  * space-y-4 stacks), where `position: sticky` does not reliably pin to the
  * scroll container in this app's rendering environment. Fixed is anchored to
- * the settings shell layout: sidebar (12 + 224px) + section padding (16px).
+ * the settings shell layout: sidebar (12 + 176px) + section padding (16px).
  */
 .settings-page .agent-settings-scroll .settings-action-bar {
   position: fixed;
   right: 16px;
   bottom: 16px;
-  left: 252px;
+  left: 204px;
   z-index: 20;
   margin: 0;
 }
@@ -11058,7 +11523,7 @@ html.host-windows :where(.legacy-design) .vu-toast-surface {
   padding: 10px 12px;
   border: 1px solid var(--border-subtle);
   border-radius: var(--radius);
-  background: var(--surface-content);
+  background: var(--surface-control);
 }
 
 .settings-page .agent-opencode-plans strong {
@@ -11201,7 +11666,7 @@ html.host-windows :where(.legacy-design) .vu-toast-surface {
   padding: 10px 12px;
   border: 1px solid var(--border-subtle);
   border-radius: var(--radius);
-  background: var(--surface-content);
+  background: var(--surface-control);
 }
 
 .settings-page .agent-codex-quick-toggle strong {
@@ -11354,6 +11819,7 @@ html.host-windows :where(.legacy-design) .vu-toast-surface {
   padding: 8px;
   border: 1px solid var(--border-subtle);
   border-radius: var(--radius);
+  background: var(--surface-control);
   color: var(--text-strong);
   font-size: 0.75rem;
   line-height: 20px;
@@ -11662,7 +12128,7 @@ html.host-windows :where(.legacy-design) .vu-toast-surface {
   flex-direction: column;
   gap: 7px;
   color: var(--text-strong);
-  font-size: 0.875rem;
+  font-size: 0.8125rem;
 }
 
 .settings-page .agent-config-grid > .agent-config-field.is-wide {
@@ -12010,7 +12476,7 @@ html.host-windows :where(.legacy-design) .vu-toast-surface {
   gap: 3px;
   padding: 3px;
   border-radius: var(--radius);
-  background: var(--surface-control);
+  background: var(--surface-content);
 }
 
 .settings-page .plugin-ecosystem-tabs > button {
@@ -12035,11 +12501,12 @@ html.host-windows :where(.legacy-design) .vu-toast-surface {
 
 .settings-page .plugin-ecosystem-tabs > button:hover {
   color: var(--text-strong);
+  background: var(--surface-hover);
 }
 
 .settings-page .plugin-ecosystem-tabs > button.is-active {
-  background: var(--surface-content);
-  color: hsl(var(--primary));
+  background: var(--surface-control);
+  color: var(--text-strong);
   box-shadow: var(--shadow-control);
 }
 
@@ -12198,37 +12665,9 @@ html.host-windows :where(.legacy-design) .vu-toast-surface {
 }
 
 .settings-page .plugin-hub-resizer {
-  position: relative;
   z-index: 1;
-  width: 9px;
   min-height: 100%;
-  margin-inline: -4px;
   border: 0;
-  outline: 0;
-  background: transparent;
-  cursor: col-resize;
-  touch-action: none;
-}
-
-.settings-page .plugin-hub-resizer::before {
-  position: absolute;
-  inset: 0 4px;
-  background: var(--border-content);
-  content: '';
-  transition:
-    inset 140ms cubic-bezier(0.22, 1, 0.36, 1),
-    background-color 140ms cubic-bezier(0.22, 1, 0.36, 1);
-}
-
-.settings-page .plugin-hub-resizer:hover::before,
-.settings-page .plugin-hub-resizer:focus-visible::before,
-.settings-page .plugin-hub-grid.is-resizing .plugin-hub-resizer::before {
-  inset-inline: 3px;
-  background: hsl(var(--primary) / 0.72);
-}
-
-.settings-page .plugin-hub-resizer:focus-visible {
-  box-shadow: inset 0 0 0 2px hsl(var(--primary) / 0.2);
 }
 
 .settings-page .plugin-hub-grid.is-resizing {
@@ -12257,8 +12696,8 @@ html.host-windows :where(.legacy-design) .vu-toast-surface {
 }
 
 .settings-page .plugin-hub-row.is-selected {
-  background: hsl(var(--primary) / 0.1);
-  color: hsl(var(--primary));
+  background: var(--surface-content);
+  color: var(--text-strong);
 }
 
 .settings-page .plugin-hub-row:focus-visible {
@@ -12357,8 +12796,8 @@ html.host-windows :where(.legacy-design) .vu-toast-surface {
 
 .settings-page .plugin-product-capabilities h4 {
   color: var(--text-strong);
-  font-size: 0.75rem;
-  font-weight: 650;
+  font-size: 0.8125rem;
+  font-weight: 600;
 }
 
 .settings-page .plugin-product-capabilities header p,
@@ -12366,7 +12805,7 @@ html.host-windows :where(.legacy-design) .vu-toast-surface {
   display: block;
   margin-top: 2px;
   color: var(--text-muted);
-  font-size: 0.6875rem;
+  font-size: 0.75rem;
   line-height: 1.45;
 }
 
@@ -12407,7 +12846,7 @@ html.host-windows :where(.legacy-design) .vu-toast-surface {
   border-radius: 999px;
   background: var(--surface-content);
   color: var(--text-default);
-  font-size: 0.6875rem;
+  font-size: 0.75rem;
 }
 
 .settings-page .plugin-product-capability-actions button {
@@ -12415,7 +12854,8 @@ html.host-windows :where(.legacy-design) .vu-toast-surface {
 }
 
 .settings-page .plugin-product-capability-actions button:hover {
-  color: hsl(var(--primary));
+  background: var(--surface-control-hover);
+  color: var(--text-strong);
 }
 
 .settings-page .plugin-developer-disclosure > button {
@@ -12425,7 +12865,7 @@ html.host-windows :where(.legacy-design) .vu-toast-surface {
   border: 0;
   background: transparent;
   color: var(--text-muted);
-  font-size: 0.6875rem;
+  font-size: 0.75rem;
   cursor: pointer;
 }
 
@@ -12451,7 +12891,7 @@ html.host-windows :where(.legacy-design) .vu-toast-surface {
   gap: 4px;
   padding: 3px;
   border-radius: var(--radius);
-  background: var(--surface-control);
+  background: var(--surface-hover);
 }
 
 .settings-page .plugin-contribution-mode-nav > button {
@@ -12461,13 +12901,13 @@ html.host-windows :where(.legacy-design) .vu-toast-surface {
   border-radius: var(--radius);
   background: transparent;
   color: var(--text-muted);
-  font-size: 0.6875rem;
+  font-size: 0.75rem;
   cursor: pointer;
 }
 
 .settings-page .plugin-contribution-mode-nav > button[aria-current='page'] {
-  background: var(--surface-content);
-  color: hsl(var(--primary));
+  background: var(--surface-control);
+  color: var(--text-strong);
   box-shadow: var(--shadow-control);
 }
 
@@ -12596,7 +13036,7 @@ html.host-windows :where(.legacy-design) .vu-toast-surface {
   outline: 0;
   background: transparent;
   color: var(--text-default);
-  font-size: 0.6875rem;
+  font-size: 0.75rem;
   font-weight: 600;
   text-align: center;
 }
@@ -12615,8 +13055,8 @@ html.host-windows :where(.legacy-design) .vu-toast-surface {
 }
 
 .settings-page .plugin-capability-rail > button.is-active {
-  background: hsl(var(--primary) / 0.1);
-  color: hsl(var(--primary));
+  background: var(--surface-content);
+  color: var(--text-strong);
 }
 
 .settings-page .plugin-capability-rail > button:focus-visible {
@@ -12649,7 +13089,7 @@ html.host-windows :where(.legacy-design) .vu-toast-surface {
 
 .settings-page .plugin-contribution-browser-header h4 {
   color: var(--text-strong);
-  font-size: 0.75rem;
+  font-size: 0.8125rem;
   font-weight: 600;
 }
 
@@ -12704,7 +13144,7 @@ html.host-windows :where(.legacy-design) .vu-toast-surface {
 }
 
 .settings-page .plugin-contribution-browser-grid > nav > button.is-selected {
-  background: hsl(var(--primary) / 0.1);
+  background: var(--surface-content);
 }
 
 .settings-page .plugin-contribution-browser-grid > nav > button:focus-visible {
@@ -12785,7 +13225,7 @@ html.host-windows :where(.legacy-design) .vu-toast-surface {
   gap: 7px;
   margin-bottom: 7px;
   color: var(--text-strong);
-  font-size: 0.75rem;
+  font-size: 0.8125rem;
   font-weight: 600;
 }
 
@@ -12953,8 +13393,8 @@ html.host-windows :where(.legacy-design) .vu-toast-surface {
 .settings-page .plugin-import-link-mode strong {
   display: block;
   color: var(--text-strong);
-  font-size: 0.75rem;
-  font-weight: 600;
+  font-size: 0.8125rem;
+  font-weight: 500;
 }
 
 .settings-page .plugin-trust-row p,
@@ -12963,7 +13403,7 @@ html.host-windows :where(.legacy-design) .vu-toast-surface {
   display: block;
   margin-top: 2px;
   color: var(--text-muted);
-  font-size: 0.6875rem;
+  font-size: 0.75rem;
   line-height: 1.45;
 }
 
@@ -13266,7 +13706,7 @@ html.host-windows :where(.legacy-design) .vu-toast-surface {
   gap: 3px;
   padding: 3px;
   border-radius: var(--radius);
-  background: var(--surface-control);
+  background: var(--surface-content);
 }
 
 .settings-page .plugin-import-ecosystem-tabs > button {
@@ -13277,14 +13717,14 @@ html.host-windows :where(.legacy-design) .vu-toast-surface {
   outline: 0;
   background: transparent;
   color: var(--text-muted);
-  font-size: 0.6875rem;
+  font-size: 0.75rem;
   font-weight: 600;
   cursor: pointer;
 }
 
 .settings-page .plugin-import-ecosystem-tabs > button.is-active {
-  background: var(--surface-content);
-  color: hsl(var(--primary));
+  background: var(--surface-control);
+  color: var(--text-strong);
   box-shadow: var(--shadow-control);
 }
 
@@ -13319,14 +13759,14 @@ html.host-windows :where(.legacy-design) .vu-toast-surface {
 .settings-page .plugin-import-method-row strong {
   display: block;
   color: var(--text-strong);
-  font-size: 0.75rem;
-  font-weight: 600;
+  font-size: 0.8125rem;
+  font-weight: 500;
 }
 
 .settings-page .plugin-import-method-row p {
   margin-top: 3px;
   color: var(--text-muted);
-  font-size: 0.6875rem;
+  font-size: 0.75rem;
   line-height: 1.5;
 }
 
@@ -13364,15 +13804,15 @@ html.host-windows :where(.legacy-design) .vu-toast-surface {
 .settings-page .plugin-cli-output > strong,
 .settings-page .plugin-cli-result strong {
   color: var(--text-strong);
-  font-size: 0.75rem;
-  font-weight: 600;
+  font-size: 0.8125rem;
+  font-weight: 500;
 }
 
 .settings-page .plugin-cli-import-heading p,
 .settings-page .plugin-cli-result p {
   margin-top: 3px;
   color: var(--text-muted);
-  font-size: 0.6875rem;
+  font-size: 0.75rem;
   line-height: 1.5;
 }
 
@@ -13384,8 +13824,8 @@ html.host-windows :where(.legacy-design) .vu-toast-surface {
 
 .settings-page .plugin-cli-command-field > span {
   color: var(--text-default);
-  font-size: 0.6875rem;
-  font-weight: 600;
+  font-size: 0.75rem;
+  font-weight: 500;
 }
 
 .settings-page .plugin-cli-command-field textarea {
@@ -13398,7 +13838,7 @@ html.host-windows :where(.legacy-design) .vu-toast-surface {
   background: var(--surface-control);
   color: var(--text-default);
   font-family: var(--font-mono, monospace);
-  font-size: 0.6875rem;
+  font-size: 0.75rem;
   line-height: 1.55;
 }
 
@@ -13449,7 +13889,7 @@ html.host-windows :where(.legacy-design) .vu-toast-surface {
   margin-top: 10px;
   padding: 9px 10px;
   border-radius: var(--radius);
-  font-size: 0.6875rem;
+  font-size: 0.75rem;
 }
 
 .settings-page .plugin-cli-result > svg {
@@ -13646,8 +14086,9 @@ html.host-windows :where(.legacy-design) .vu-toast-surface {
 .settings-page .product-plugin-detail-header h1 {
   margin: 0;
   color: var(--text-primary);
-  font-size: 1.75rem;
-  font-weight: 650;
+  font-size: 1.25rem;
+  font-weight: 600;
+  line-height: 1.4;
   letter-spacing: -0.02em;
 }
 
@@ -13655,9 +14096,9 @@ html.host-windows :where(.legacy-design) .vu-toast-surface {
   min-width: 0;
   margin-top: 2px;
   max-width: 46ch;
-  color: var(--text-secondary);
-  font-size: calc(0.875rem - 2px);
-  line-height: 1.45;
+  color: var(--text-muted);
+  font-size: 0.75rem;
+  line-height: 1.5;
 }
 
 .settings-page .product-plugin-underline-tabs {
@@ -13685,7 +14126,7 @@ html.host-windows :where(.legacy-design) .vu-toast-surface {
   box-shadow: none;
   color: var(--text-muted);
   font: inherit;
-  font-size: 0.8125rem;
+  font-size: 0.75rem;
   font-weight: 500;
 }
 
@@ -13759,12 +14200,7 @@ html.host-windows :where(.legacy-design) .vu-toast-surface {
 
 .settings-page .product-plugin-card:hover {
   border-color: var(--border-strong);
-  background: color-mix(
-    in srgb,
-    var(--text-primary) 8%,
-    var(--surface-card-strong)
-  );
-  box-shadow: var(--shadow-card);
+  background: var(--surface-hover);
 }
 
 .settings-page .product-plugin-card .product-plugin-open {
@@ -13840,7 +14276,7 @@ html.host-windows :where(.legacy-design) .vu-toast-surface {
 .settings-page .product-plugin-card-initials {
   color: var(--text-primary);
   font-size: 0.875rem;
-  font-weight: 620;
+  font-weight: 600;
   line-height: 1;
 }
 
@@ -13981,9 +14417,9 @@ html.host-windows :where(.legacy-design) .vu-toast-surface {
 .settings-page .product-plugin-detail-header p {
   max-width: 66ch;
   margin: 4px 0 0;
-  color: var(--text-secondary);
-  font-size: 13px;
-  line-height: 1.45;
+  color: var(--text-muted);
+  font-size: 0.75rem;
+  line-height: 1.5;
 }
 
 .settings-page .product-plugins-header-actions {
@@ -14110,7 +14546,7 @@ html.host-windows :where(.legacy-design) .vu-toast-surface {
 }
 
 .settings-page .product-plugin-drop-overlay > strong {
-  font-size: 13px;
+  font-size: 0.8125rem;
   font-weight: 600;
 }
 
@@ -14129,7 +14565,7 @@ html.host-windows :where(.legacy-design) .vu-toast-surface {
 }
 
 .settings-page .product-plugin-row:hover {
-  background: color-mix(in srgb, var(--accent) 5%, transparent);
+  background: var(--surface-hover);
 }
 
 .settings-page .product-plugin-open {
@@ -14221,16 +14657,16 @@ html.host-windows :where(.legacy-design) .vu-toast-surface {
 
 .settings-page .product-plugin-row-copy strong {
   color: var(--text-primary);
-  font-size: 14px;
-  font-weight: 620;
-  line-height: 1.35;
+  font-size: 0.8125rem;
+  font-weight: 500;
+  line-height: 1.4286;
 }
 
 .settings-page .product-plugin-row-summary {
   overflow: hidden;
   color: var(--text-muted);
-  font-size: 13px;
-  line-height: 1.45;
+  font-size: 0.75rem;
+  line-height: 1.5;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -14245,7 +14681,7 @@ html.host-windows :where(.legacy-design) .vu-toast-surface {
 
 .settings-page .product-plugin-installed {
   color: var(--text-secondary);
-  font-size: 13px;
+  font-size: 0.75rem;
   font-weight: 600;
   line-height: 1;
   white-space: nowrap;
@@ -14303,9 +14739,9 @@ html.host-windows :where(.legacy-design) .vu-toast-surface {
 }
 
 .settings-page .product-plugin-muted {
-  color: var(--text-secondary);
-  font-size: 12px;
-  line-height: 1.45;
+  color: var(--text-muted);
+  font-size: 0.75rem;
+  line-height: 1.5;
 }
 
 .settings-page .product-plugin-delete-data {
@@ -14314,7 +14750,7 @@ html.host-windows :where(.legacy-design) .vu-toast-surface {
   gap: 8px;
   padding: 0 4px 8px;
   color: var(--text-primary);
-  font-size: 13px;
+  font-size: 0.8125rem;
 }
 
 .settings-page .product-plugin-runtimes {
@@ -14332,8 +14768,9 @@ html.host-windows :where(.legacy-design) .vu-toast-surface {
 
 .settings-page .product-plugin-runtimes-header h2 {
   margin: 0;
-  font-size: 13px;
+  font-size: 0.875rem;
   font-weight: 600;
+  line-height: 1.4286;
 }
 
 .settings-page .product-plugin-runtime-row {
@@ -14342,7 +14779,7 @@ html.host-windows :where(.legacy-design) .vu-toast-surface {
   gap: 8px 16px;
   padding: 8px 0;
   border-top: 1px solid var(--border-content);
-  font-size: 12px;
+  font-size: 0.75rem;
   color: var(--text-secondary);
 }
 
@@ -14423,7 +14860,7 @@ html.host-windows :where(.legacy-design) .vu-toast-surface {
   height: 20px;
   padding: 0 8px;
   color: var(--text-muted);
-  font-size: 12px;
+  font-size: 0.75rem;
   font-weight: 500;
   line-height: 1;
 }
@@ -14538,8 +14975,8 @@ html.host-windows :where(.legacy-design) .vu-toast-surface {
   margin: 0;
   flex: 1;
   color: var(--text-primary);
-  font-size: 0.8125rem;
-  font-weight: 650;
+  font-size: 0.875rem;
+  font-weight: 600;
 }
 
 .settings-page .product-plugin-contents-toggle span {
@@ -14567,7 +15004,7 @@ html.host-windows :where(.legacy-design) .vu-toast-surface {
   color: var(--text-secondary);
   font-size: 0.8125rem;
   font-weight: 400;
-  line-height: 1.4;
+  line-height: 1.4286;
 }
 
 .settings-page .product-plugin-content-browser {
@@ -14624,7 +15061,7 @@ html.host-windows :where(.legacy-design) .vu-toast-surface {
   border-radius: var(--radius);
   background: transparent;
   color: var(--text-secondary);
-  font-size: 12px;
+  font-size: 0.75rem;
   text-align: left;
 }
 
@@ -14639,7 +15076,7 @@ html.host-windows :where(.legacy-design) .vu-toast-surface {
 }
 
 .settings-page .product-plugin-content-browser nav button:hover {
-  background: color-mix(in srgb, var(--text-primary) 5%, transparent);
+  background: var(--surface-hover);
   color: var(--text-primary);
 }
 
@@ -14693,8 +15130,8 @@ html.host-windows :where(.legacy-design) .vu-toast-surface {
 .settings-page .product-plugin-document > header strong {
   flex: none;
   color: var(--text-primary);
-  font-size: 14px;
-  font-weight: 650;
+  font-size: 0.875rem;
+  font-weight: 600;
 }
 
 .settings-page .product-plugin-document > header code {
@@ -14719,7 +15156,7 @@ html.host-windows :where(.legacy-design) .vu-toast-surface {
   padding: 14px;
   border-radius: var(--radius);
   background: var(--surface-raised);
-  font-size: 12px;
+  font-size: 0.75rem;
 }
 
 .settings-page .product-plugin-config-shell {
@@ -14781,8 +15218,9 @@ html.host-windows :where(.legacy-design) .vu-toast-surface {
   .product-plugin-config-copy
   strong {
   color: var(--text-strong);
-  font-size: 1rem;
+  font-size: 0.875rem;
   font-weight: 600;
+  line-height: 1.4286;
   letter-spacing: -0.01em;
 }
 
@@ -14814,18 +15252,19 @@ html.host-windows :where(.legacy-design) .vu-toast-surface {
   gap: 4px;
   min-width: 0;
   color: var(--text-primary);
-  font-size: 0.875rem;
+  font-size: 0.8125rem;
 }
 
 .settings-page .product-plugin-config-copy strong {
-  font-weight: 600;
+  font-weight: 500;
+  line-height: 1.4286;
 }
 
 .settings-page .product-plugin-config-copy small {
-  color: var(--text-secondary);
+  color: var(--text-muted);
   font-size: 0.75rem;
   font-weight: 400;
-  line-height: 1.4;
+  line-height: 1.5;
 }
 
 .settings-page .product-plugin-config-row > :last-child {
@@ -14884,7 +15323,7 @@ html.host-windows :where(.legacy-design) .vu-toast-surface {
 }
 
 .settings-page .product-plugin-agent-row__toggle:hover:not(:disabled) {
-  background: var(--surface-control);
+  background: var(--surface-hover);
 }
 
 .settings-page .product-plugin-agent-row__toggle:focus-visible {
@@ -14894,8 +15333,8 @@ html.host-windows :where(.legacy-design) .vu-toast-surface {
 
 .settings-page .product-plugin-agent-row__name {
   color: var(--text-primary);
-  font-size: 13px;
-  font-weight: 600;
+  font-size: 0.8125rem;
+  font-weight: 500;
 }
 
 .settings-page .product-plugin-agent-row__body {
@@ -14925,8 +15364,8 @@ html.host-windows :where(.legacy-design) .vu-toast-surface {
   align-items: center;
   gap: 8px;
   color: var(--text-primary);
-  font-size: 13px;
-  font-weight: 600;
+  font-size: 0.8125rem;
+  font-weight: 500;
 }
 
 .settings-page .product-plugin-dev-status i {
@@ -14954,7 +15393,7 @@ html.host-windows :where(.legacy-design) .vu-toast-surface {
 .settings-page .product-plugin-dev-docs {
   width: fit-content;
   color: var(--text-primary);
-  font-size: 0.875rem;
+  font-size: 0.75rem;
   text-decoration: underline;
   text-underline-offset: 0.16em;
 }
@@ -15114,6 +15553,8 @@ html.host-windows :where(.legacy-design) .vu-toast-surface {
 
 .canvas-surface .canvas-session-card .session-hub-card {
   height: 100%;
+  align-items: center;
+  padding: 0.375rem 0.625rem;
   background: var(--surface-content);
   border-color: color-mix(
     in oklab,
@@ -15463,10 +15904,10 @@ html.host-windows :where(.legacy-design) .vu-toast-surface {
 .session-canvas-floating-list .session-hub-resizer {
   position: absolute;
   top: 0;
-  right: 0;
+  right: 2px;
   bottom: 0;
   z-index: 20;
-  width: 8px;
+  width: 1px;
   margin: 0;
 }
 
@@ -15486,6 +15927,81 @@ html.host-windows :where(.legacy-design) .vu-toast-surface {
 
 @media (prefers-reduced-motion: reduce) {
   .canvas-surface .canvas-minimap {
+    transition: none;
+  }
+}
+
+/* One draggable pane divider: a 1px line with a centered capsule.
+   The line is the element; the capsule is ::before; ::after is the
+   11px hit target so the line can stay 1px. */
+.workspace-resize-handle {
+  position: relative;
+  width: 1px;
+  flex-shrink: 0;
+  overflow: visible;
+  background-color: var(--workspace-divider-color, hsl(var(--border) / 0.88));
+  cursor: col-resize;
+  touch-action: none;
+  transition: background-color 0.15s ease;
+}
+
+.workspace-resize-handle::before {
+  content: '';
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 4px;
+  height: 21px;
+  transform: translate(-50%, -50%);
+  border-radius: 999px;
+  background-color: var(--workspace-divider-subtle, hsl(var(--border) / 0.74));
+  box-shadow: 0 0 0 1px hsl(var(--background) / 0.88);
+  transition:
+    background-color 0.15s ease,
+    transform 0.15s ease;
+}
+
+.workspace-resize-handle::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: -5px;
+  width: 11px;
+}
+
+.workspace-resize-handle:hover,
+.workspace-resize-handle:active,
+.is-resizing .workspace-resize-handle,
+.is-resizing-terminal-list .workspace-resize-handle {
+  background-color: var(--workspace-divider-hover, hsl(var(--primary) / 0.52));
+  box-shadow: 0 0 0 1px hsl(var(--primary) / 0.12);
+}
+
+.workspace-resize-handle:hover::before,
+.workspace-resize-handle:active::before,
+.is-resizing .workspace-resize-handle::before,
+.is-resizing-terminal-list .workspace-resize-handle::before {
+  transform: translate(-50%, -50%) scaleX(1.35);
+  background-color: var(--workspace-divider-hover, hsl(var(--primary) / 0.52));
+}
+
+.workspace-resize-handle:focus-visible {
+  outline: 2px solid hsl(var(--primary) / 0.45);
+  outline-offset: 2px;
+}
+
+.diffs-file-tree-resizer {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: -4px;
+  z-index: 10;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .workspace-resize-handle,
+  .workspace-resize-handle::before {
     transition: none;
   }
 }

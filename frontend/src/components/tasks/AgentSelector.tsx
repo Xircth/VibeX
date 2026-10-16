@@ -1,7 +1,7 @@
 import { useMemo } from 'react';
 import { useOpenSettings } from '@/lib/api';
 import { useTranslation } from 'react-i18next';
-import { Bot, ArrowDown, Settings2 } from 'lucide-react';
+import { Bot, ArrowDown, Check, Settings2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import {
   DropdownMenu,
@@ -130,7 +130,6 @@ export function AgentSelector({
           side={dropdownSide}
           align="start"
           sideOffset={1}
-          avoidCollisions={false}
           className="w-60"
         >
           {agents.length === 0 ? (
@@ -146,9 +145,9 @@ export function AgentSelector({
                   onSelect={() => {
                     onChange({ executor: agentId, variant: null });
                   }}
-                  className={selectedAgent === agentId ? 'bg-accent' : ''}
+                  className="justify-between"
                 >
-                  <span className="flex items-center gap-2">
+                  <span className="flex min-w-0 items-center gap-2">
                     <AgentIcon
                       agent={agentId}
                       className="h-3.5 w-3.5"
@@ -156,8 +155,14 @@ export function AgentSelector({
                       iconDark={icons?.iconDark}
                       iconSvg={icons?.iconSvg}
                     />
-                    {displayName}
+                    <span className="truncate">{displayName}</span>
                   </span>
+                  {selectedAgent === agentId ? (
+                    <Check
+                      aria-hidden="true"
+                      className="h-3.5 w-3.5 shrink-0"
+                    />
+                  ) : null}
                 </DropdownMenuItem>
               ) : (
                 <DropdownMenuItem

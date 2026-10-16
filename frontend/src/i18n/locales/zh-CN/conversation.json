@@ -350,6 +350,10 @@
     "loadingDiff": "正在加载差异…",
     "noHeadDiff": "与 HEAD 没有差异"
   },
+  "timelineImage": {
+    "show": "查看图片",
+    "hide": "收起图片"
+  },
   "viewedImages": {
     "summary_one": "已查看 {{count}} 张图像",
     "summary_other": "已查看 {{count}} 张图像",

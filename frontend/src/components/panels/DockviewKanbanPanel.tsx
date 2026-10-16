@@ -39,9 +39,8 @@ import { TooltipProvider } from '@/components/ui/tooltip';
 import { useKanbanViews } from '@/hooks/useKanbanViews';
 import { useKanbanBoardStyle } from '@/lib/kanbanBoardStyle';
 import {
+  consumeKanbanCarouselPageKey,
   pinKanbanCarouselScroll,
-  shouldPinKanbanCarouselKey,
-  shouldSuppressKanbanCarouselPageKey,
 } from '@/lib/kanbanCarouselScroll';
 import {
   adjacentKanbanViewId,
@@ -172,6 +171,14 @@ export function KanbanBoard() {
     pinKanbanCarouselScroll(carouselShellRef.current);
   }, [currentViewId]);
 
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      consumeKanbanCarouselPageKey(event, carouselShellRef.current);
+    };
+    window.addEventListener('keydown', onKeyDown, true);
+    return () => window.removeEventListener('keydown', onKeyDown, true);
+  }, []);
+
   const getLeftArrowLabel = () => {
     const previous = views[currentIndex - 1];
     return previous
@@ -194,10 +201,7 @@ export function KanbanBoard() {
         className="kanban-shell relative h-full min-w-0 flex-1"
         onScroll={() => pinKanbanCarouselScroll(carouselShellRef.current)}
         onKeyDownCapture={(event) => {
-          if (!shouldPinKanbanCarouselKey(event.key)) return;
-          if (!shouldSuppressKanbanCarouselPageKey(event.target)) return;
-          event.preventDefault();
-          pinKanbanCarouselScroll(event.currentTarget);
+          consumeKanbanCarouselPageKey(event, event.currentTarget);
         }}
       >
         <div

@@ -47,13 +47,18 @@ describe('PluginsSettings layout', () => {
     expect(frame.get('min-height')).toBe('160px');
   });
 
-  it('paints one divider while keeping a wider drag target', () => {
+  it('paints one thin divider while keeping a wider drag target', () => {
     const grid = declarationsFor('.settings-page .plugin-hub-grid');
-    const resizer = declarationsFor('.settings-page .plugin-hub-resizer');
+    const handle = declarationsFor('.workspace-resize-handle');
+    const capsule = declarationsFor('.workspace-resize-handle::before');
+    const hit = declarationsFor('.workspace-resize-handle::after');
 
     expect(grid.get('grid-template-columns')).toMatch(/\)\s+1px\s+minmax/);
-    expect(resizer.get('width')).toBe('9px');
-    expect(resizer.get('margin-inline')).toBe('-4px');
+    expect(handle.get('width')).toBe('1px');
+    expect(capsule.get('width')).toBe('4px');
+    expect(capsule.get('height')).toBe('21px');
+    expect(capsule.get('border-radius')).toBe('999px');
+    expect(hit.get('width')).toBe('11px');
   });
 
   it('lets the preview scroll without compressing its capability rail', () => {

@@ -219,6 +219,9 @@ impl ServerApplicationDomains {
             }
             DomainCommand::ConversationTouch => self.conversation_touch(args).await,
             DomainCommand::ConversationTimelinePage => self.conversation_timeline_page(args).await,
+            DomainCommand::ConversationTimelineImage => {
+                self.conversation_timeline_image(args).await
+            }
             DomainCommand::ConversationRebindSession => {
                 self.conversation_rebind_session(args).await
             }

@@ -87,7 +87,7 @@ function ShortcutRow({
     <div className="settings-row flex items-center justify-between gap-4">
       <div className="min-w-0">
         <div className="flex flex-wrap items-center gap-2">
-          <span className="text-sm font-medium">
+          <span className="settings-row__label text-[13px] font-medium">
             {bindingLabel(t, binding.id, binding.description)}
           </span>
           {binding.scopes?.map((scope) => (
@@ -308,10 +308,10 @@ export function ShortcutSettings() {
           <div className="settings-card overflow-hidden rounded-lg border">
             <div className="settings-row flex items-center justify-between gap-4">
               <div className="min-w-0">
-                <div className="text-sm font-medium">
+                <div className="settings-row__label text-[13px] font-medium">
                   {t('shortcuts.sendLabel')}
                 </div>
-                <p className="mt-1 text-sm text-muted-foreground">
+                <p className="settings-row__description mt-1 text-xs text-muted-foreground">
                   {selectedShortcutHelper}
                 </p>
               </div>
@@ -343,7 +343,7 @@ export function ShortcutSettings() {
                 <Keyboard className="h-4 w-4 text-muted-foreground" />
                 {t('shortcuts.sectionTitle')}
               </h3>
-              <p className="mt-1 text-sm leading-5 text-muted-foreground">
+              <p className="mt-1 text-xs leading-5 text-muted-foreground">
                 {t('shortcuts.sectionDescription')}
               </p>
             </div>
@@ -393,7 +393,7 @@ export function ShortcutSettings() {
               <Keyboard className="h-4 w-4 text-muted-foreground" />
               {t('shortcuts.sequentialTitle')}
             </h3>
-            <p className="mt-1 text-sm leading-5 text-muted-foreground">
+            <p className="mt-1 text-xs leading-5 text-muted-foreground">
               {t('shortcuts.sequentialDescription')}
             </p>
           </div>
@@ -405,7 +405,7 @@ export function ShortcutSettings() {
               >
                 <div className="min-w-0">
                   <div className="flex flex-wrap items-center gap-2">
-                    <span className="text-sm">
+                    <span className="settings-row__label text-[13px] font-medium">
                       {bindingLabel(t, binding.id, binding.description)}
                     </span>
                     <span className="settings-meta-chip px-1.5 py-0.5 text-[10px]">
@@ -419,7 +419,7 @@ export function ShortcutSettings() {
               </div>
             ))}
           </div>
-          <p className="text-sm text-muted-foreground">
+          <p className="text-xs text-muted-foreground">
             {t('shortcuts.readOnlyNote')}
           </p>
         </section>

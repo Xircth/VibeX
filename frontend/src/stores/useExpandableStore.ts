@@ -76,6 +76,10 @@ export function useExpandableRevision(): number {
   return useExpandableStore((s) => s.revision);
 }
 
+export function isExpandableOpen(key: string, fallback = false): boolean {
+  return useExpandableStore.getState().expanded[key] ?? fallback;
+}
+
 export function useExpandableItems(
   keys: readonly string[]
 ): [boolean[], (key: string, expanded: boolean) => void] {

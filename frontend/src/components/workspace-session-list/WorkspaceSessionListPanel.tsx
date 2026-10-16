@@ -261,6 +261,7 @@ function WorkspaceSessionListPanel(_props: IDockviewPanelProps) {
             t('workspaceSessionList.renameFailed')
           )
         );
+        throw error;
       }
     },
     [refreshWorkspaceSessions, t]
@@ -482,9 +483,7 @@ function WorkspaceSessionListPanel(_props: IDockviewPanelProps) {
                     }
                   : undefined
               }
-              onRenameSession={(session, name) => {
-                void renameSession(session, name);
-              }}
+              onRenameSession={(session, name) => renameSession(session, name)}
               onDeleteSession={(session) => {
                 void deleteSession(session);
               }}

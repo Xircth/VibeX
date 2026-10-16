@@ -62,6 +62,7 @@ import type { ContextCompactStatusKind } from '@/lib/contextCompact';
 import { groupTurnRenderItems } from './messageTurnAggregate';
 import { collectHostDelegationPollResults } from './conversation/hostDelegation';
 import { TurnActivity, type TimelineQuestion } from './TurnActivity';
+import { CollapsibleTimelineImage } from './TimelineDecodedImage';
 import {
   STREAMING_ACTIVITY_INTERVAL_MS,
   STREAMING_ACTIVITY_VERBS,
@@ -152,10 +153,13 @@ function renderItem(
       );
     case 'image':
       return (
-        <img
+        <CollapsibleTimelineImage
           key={key}
+          imageKey={key}
           className="conv-image"
-          src={item.uri ?? `data:${item.mimeType};base64,${item.data}`}
+          data={item.data}
+          mimeType={item.mimeType}
+          uri={item.uri}
           alt=""
         />
       );
@@ -482,6 +486,8 @@ export const MessageTurnView = memo(function MessageTurnView({
   delegations = [],
   onOpenChild,
   questions = [],
+  slice = null,
+  isLastSlice = true,
 }: {
   turn: MessageTurn;
   phase?: MessageTurnPhase;
@@ -491,6 +497,12 @@ export const MessageTurnView = memo(function MessageTurnView({
   onEditRetry?: (text: string) => Promise<boolean>;
   collapseProcess?: boolean;
   workspacePath?: string | null;
+  slice?:
+    | { kind: 'process-fold'; count: number }
+    | { kind: 'block'; itemIndex: number }
+    | { kind: 'status' }
+    | null;
+  isLastSlice?: boolean;
   showInterruptedNotice?: boolean;
   contextCompact?: ContextCompactPresentation | null;
   hasTurnError?: boolean;
@@ -681,10 +693,36 @@ export const MessageTurnView = memo(function MessageTurnView({
     phase,
     hasTurnError,
   });
-  if (showStreamingStatus && items.length === 0) {
+  if (slice?.kind === 'process-fold') {
+    return (
+      <div className="conv-entry-item conv-assistant-msg conv-msg-hover group px-4 py-2 text-sm">
+        <CollapsedProcessGroup expansionKey={turn.id} count={slice.count}>
+          {() => null}
+        </CollapsedProcessGroup>
+      </div>
+    );
+  }
+  if (
+    slice?.kind === 'status' ||
+    (showStreamingStatus && items.length === 0 && !slice)
+  ) {
     return (
       <div className="conv-entry-item conv-assistant-msg conv-msg-hover group px-4 py-2 text-sm">
         <AssistantStreamingStatus hasContent={false} />
+      </div>
+    );
+  }
+  if (slice?.kind === 'block') {
+    const item = items[slice.itemIndex];
+    if (!item) return null;
+    return (
+      <div className="conv-entry-item conv-assistant-msg conv-msg-hover group px-4 py-2 text-sm">
+        <div className="conv-assistant-body">
+          {renderUnits([item])}
+          {isLastSlice && showStreamingStatus ? (
+            <AssistantStreamingStatus hasContent />
+          ) : null}
+        </div>
       </div>
     );
   }

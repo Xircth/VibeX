@@ -27,7 +27,8 @@ import type {
 
 import { createPortal } from 'react-dom';
 
-import { AstryxSelect, getMenuPosition } from '@/components/ui/astryx-select';
+import { AstryxSelect } from '@/components/ui/astryx-select';
+import { useOptionMenuPlacement } from '@/components/ui/option-menu-position';
 import { ConfirmDialog } from '@/components/dialogs/shared/ConfirmDialog';
 import { Button } from '@/components/ui/button';
 import { toast } from '@/components/ui/toast';
@@ -123,12 +124,11 @@ export function OpenCodeProviderConnections({
   const catalogRef = useRef<HTMLDivElement>(null);
   const catalogTriggerRef = useRef<HTMLDivElement>(null);
   const catalogMenuRef = useRef<HTMLDivElement>(null);
-  const [catalogMenuPosition, setCatalogMenuPosition] = useState<{
-    top: number;
-    left: number;
-    width: number;
-    maxHeight: number;
-  } | null>(null);
+  const catalogMenuPosition = useOptionMenuPlacement(
+    catalogOpen,
+    catalogTriggerRef,
+    catalogMenuRef
+  );
   const portalContainer = usePortalContainer();
   const [providerId, setProviderId] = useState('');
   const [name, setName] = useState('');
@@ -203,30 +203,6 @@ export function OpenCodeProviderConnections({
     void loadConnections();
     if (allowCreate) void loadCatalog();
   }, [allowCreate, loadCatalog, loadConnections]);
-
-  const repositionCatalogMenu = useCallback(() => {
-    if (!catalogTriggerRef.current) return;
-    setCatalogMenuPosition(
-      getMenuPosition(catalogTriggerRef.current.getBoundingClientRect())
-    );
-  }, []);
-
-  useEffect(() => {
-    if (!catalogOpen) {
-      setCatalogMenuPosition(null);
-      return;
-    }
-    repositionCatalogMenu();
-    window.addEventListener('scroll', repositionCatalogMenu, {
-      capture: true,
-      passive: true,
-    });
-    window.addEventListener('resize', repositionCatalogMenu);
-    return () => {
-      window.removeEventListener('scroll', repositionCatalogMenu, true);
-      window.removeEventListener('resize', repositionCatalogMenu);
-    };
-  }, [catalogOpen, repositionCatalogMenu]);
 
   useEffect(() => {
     if (!catalogOpen) return;

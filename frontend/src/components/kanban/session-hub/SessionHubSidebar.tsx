@@ -1336,7 +1336,7 @@ export function SessionHubSidebar({
         role="separator"
         aria-orientation="vertical"
         aria-label={t('hubSidebar.resizeList')}
-        className="session-hub-resizer relative z-10 -ml-2 w-2 shrink-0 cursor-col-resize touch-none transition-colors before:absolute before:inset-y-0 before:right-0 before:w-px before:transition-[width,background-color] before:duration-150 hover:before:w-[3px]"
+        className="workspace-resize-handle session-hub-resizer z-10"
         onPointerDown={(event) => event.stopPropagation()}
         onMouseDown={onResizeMouseDown}
       />

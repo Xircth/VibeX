@@ -18,13 +18,15 @@ describe('GeneratedImageCard', () => {
     expect(screen.getByText('正在生成图片…')).toBeInTheDocument();
   });
 
-  it('renders the image from base64 data and the revised prompt', () => {
+  it('renders the image from base64 data and the revised prompt', async () => {
     render(
       <GeneratedImageCard image={image()} revisedPrompt="a red bicycle" />
     );
 
-    const img = screen.getByRole('img', { name: 'a red bicycle' });
-    expect(img).toHaveAttribute('src', 'data:image/png;base64,AAAA');
+    expect(screen.queryByRole('img')).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: '查看图片' }));
+    const img = await screen.findByRole('img', { name: 'a red bicycle' });
+    expect(img.getAttribute('src')).toMatch(/^(blob:|data:image\/png;base64,)/);
     expect(screen.getByText('修订提示词')).toBeInTheDocument();
     expect(screen.getByText('a red bicycle')).toBeInTheDocument();
   });
@@ -42,14 +44,16 @@ describe('GeneratedImageCard', () => {
     expect(download).toHaveAttribute('download', 'generated-image.png');
   });
 
-  it('opens the preview dialog with the real image source', () => {
+  it('opens the preview dialog with the real image source', async () => {
     show.mockClear();
     render(<GeneratedImageCard image={image()} revisedPrompt="x" />);
 
+    fireEvent.click(screen.getByRole('button', { name: '查看图片' }));
+    const img = await screen.findByRole('img', { name: 'x' });
     fireEvent.click(screen.getByRole('button', { name: '预览生成图片' }));
 
     expect(show).toHaveBeenCalledWith(
-      expect.objectContaining({ imageUrl: 'data:image/png;base64,AAAA' })
+      expect.objectContaining({ imageUrl: img.getAttribute('src') })
     );
   });
 });

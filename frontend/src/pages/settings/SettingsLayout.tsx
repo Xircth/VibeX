@@ -2,8 +2,11 @@ import {
   Suspense,
   useCallback,
   useEffect,
+  useId,
+  useMemo,
   useState,
   type ComponentType,
+  type ReactNode,
 } from 'react';
 import {
   Outlet,
@@ -61,88 +64,134 @@ interface SettingsNavItem {
   anyOf?: string[];
 }
 
-const SETTINGS_NAV_ITEMS: SettingsNavItem[] = [
+interface SettingsNavGroup {
+  id: 'ai' | 'human' | 'system' | 'plugins';
+  title: string;
+  items: SettingsNavItem[];
+}
+
+const SETTINGS_NAV_GROUPS: Omit<SettingsNavGroup, 'id'>[] = [
   {
-    path: '/settings/agents',
-    labelKey: 'agents',
-    icon: Bot,
-    capability: 'application.call',
-  },
-  { path: '/settings/appearance', labelKey: 'appearance', icon: Sun },
-  {
-    path: '/settings/general',
-    labelKey: 'general',
-    icon: SlidersHorizontal,
-    capability: 'application.call',
-  },
-  {
-    path: '/settings/mcp',
-    labelKey: 'mcp',
-    icon: PlugZap,
-    capability: 'application.call',
-  },
-  {
-    path: '/settings/skills',
-    labelKey: 'skills',
-    icon: BookOpenText,
-    capability: 'application.call',
-  },
-  {
-    path: '/settings/instructions',
-    labelKey: 'instructions',
-    icon: MessageSquareText,
-    capability: 'application.call',
-  },
-  { path: '/settings/shortcuts', labelKey: 'shortcuts', icon: Keyboard },
-  {
-    path: '/settings/version-control',
-    labelKey: 'versionControl',
-    icon: GitBranch,
-    capability: 'application.call',
-  },
-  {
-    path: '/settings/worktrees',
-    labelKey: 'worktrees',
-    icon: GitFork,
-    capability: 'application.call',
+    title: 'FOR AI',
+    items: [
+      {
+        path: '/settings/agents',
+        labelKey: 'agents',
+        icon: Bot,
+        capability: 'application.call',
+      },
+      {
+        path: '/settings/skills',
+        labelKey: 'skills',
+        icon: BookOpenText,
+        capability: 'application.call',
+      },
+      {
+        path: '/settings/mcp',
+        labelKey: 'mcp',
+        icon: PlugZap,
+        capability: 'application.call',
+      },
+      {
+        path: '/settings/chat-channels',
+        labelKey: 'chatChannels',
+        icon: SendHorizontal,
+        capability: 'application.call',
+      },
+      {
+        path: '/settings/automations',
+        labelKey: 'automations',
+        icon: Clock,
+        capability: 'automation.read',
+      },
+    ],
   },
   {
-    path: '/settings/chat-channels',
-    labelKey: 'chatChannels',
-    icon: SendHorizontal,
-    capability: 'application.call',
+    title: 'FOR Human',
+    items: [
+      {
+        path: '/settings/general',
+        labelKey: 'general',
+        icon: SlidersHorizontal,
+        capability: 'application.call',
+      },
+      { path: '/settings/appearance', labelKey: 'appearance', icon: Sun },
+      {
+        path: '/settings/instructions',
+        labelKey: 'instructions',
+        icon: MessageSquareText,
+        capability: 'application.call',
+      },
+      { path: '/settings/shortcuts', labelKey: 'shortcuts', icon: Keyboard },
+      {
+        path: '/settings/version-control',
+        labelKey: 'versionControl',
+        icon: GitBranch,
+        capability: 'application.call',
+      },
+      {
+        path: '/settings/worktrees',
+        labelKey: 'worktrees',
+        icon: GitFork,
+        capability: 'application.call',
+      },
+    ],
   },
   {
-    path: '/settings/automations',
-    labelKey: 'automations',
-    icon: Clock,
-    capability: 'automation.read',
-  },
-  {
-    path: '/plugins',
-    labelKey: 'plugins',
-    icon: Puzzle,
-    capability: 'plugin.read',
-  },
-  {
-    path: '/settings/web-service',
-    labelKey: 'webService',
-    icon: Globe,
-    anyOf: ['desktop.tauri', 'device.pair'],
-  },
-  {
-    path: '/settings/logs',
-    labelKey: 'logs',
-    icon: FileText,
-    capability: 'application.call',
-  },
-  {
-    path: '/settings/system',
-    labelKey: 'system',
-    icon: Settings,
-    capability: 'application.call',
+    title: 'FOR SYSTEM',
+    items: [
+      {
+        path: '/plugins',
+        labelKey: 'plugins',
+        icon: Puzzle,
+        capability: 'plugin.read',
+      },
+      {
+        path: '/settings/web-service',
+        labelKey: 'webService',
+        icon: Globe,
+        anyOf: ['desktop.tauri', 'device.pair'],
+      },
+      {
+        path: '/settings/logs',
+        labelKey: 'logs',
+        icon: FileText,
+        capability: 'application.call',
+      },
+      {
+        path: '/settings/system',
+        labelKey: 'system',
+        icon: Settings,
+        capability: 'application.call',
+      },
+    ],
   },
 ];
+
+function SettingsNavSection({
+  title,
+  children,
+}: {
+  title: string;
+  children: ReactNode;
+}) {
+  const id = useId();
+  const titleId = `${id}-title`;
+  return (
+    <div
+      role="group"
+      aria-labelledby={titleId}
+      className="astryx-side-nav-section settings-nav-section"
+    >
+      <div className="settings-nav-section__header">
+        <span id={titleId} className="settings-nav-section__title">
+          {title}
+        </span>
+      </div>
+      <div className="settings-nav-section__items">{children}</div>
+    </div>
+  );
+}
 
 export function SettingsLayout() {
   const location = useLocation();
@@ -156,6 +205,30 @@ export function SettingsLayout() {
   const [searchQuery, setSearchQuery] = useState('');
   const highlightId = searchParams.get('highlight');
   const searching = searchQuery.trim().length > 0;
+
+  const navGroups = useMemo(() => {
+    const pluginGroup: Omit<SettingsNavGroup, 'id'> = {
+      title: 'FOR PLUGINS',
+      items: pluginPages.map((page): SettingsNavItem => {
+        const meta = contributionMetadata(page);
+        return {
+          path: `/settings/plugin/${page.pluginId}/${page.id}`,
+          label: page.label,
+          icon: contributionIconComponent(meta.icon, Puzzle),
+        };
+      }),
+    };
+
+    return [...SETTINGS_NAV_GROUPS, pluginGroup]
+      .map((group) => ({
+        ...group,
+        items: group.items.filter((item) => {
+          if (item.anyOf) return item.anyOf.some((cap) => supports(cap));
+          return !item.capability || supports(item.capability);
+        }),
+      }))
+      .filter((group) => group.items.length > 0);
+  }, [pluginPages, supports]);
 
   const navigateTo = useCallback(
     (path: string) => {
@@ -219,7 +292,7 @@ export function SettingsLayout() {
         />
       ) : null}
       <div className="flex min-h-0 flex-1">
-        <aside className="settings-sidebar m-3 w-56 shrink-0 overflow-y-auto p-2.5">
+        <aside className="settings-sidebar m-3 w-44 shrink-0 overflow-y-auto p-2.5">
           <SettingsSearch
             query={searchQuery}
             onQueryChange={setSearchQuery}
@@ -227,53 +300,42 @@ export function SettingsLayout() {
             onSelect={jumpToSetting}
           />
           {searching ? null : (
-            <nav className="space-y-1" aria-busy={capabilities === null}>
-              {(
-                [
-                  ...SETTINGS_NAV_ITEMS,
-                  ...pluginPages.map((page): SettingsNavItem => {
-                    const meta = contributionMetadata(page);
-                    return {
-                      path: `/settings/plugin/${page.pluginId}/${page.id}`,
-                      label: page.label,
-                      icon: contributionIconComponent(meta.icon, Puzzle),
-                    };
-                  }),
-                ] satisfies SettingsNavItem[]
-              )
-                .filter((item) => {
-                  if (item.anyOf)
-                    return item.anyOf.some((cap) => supports(cap));
-                  return !item.capability || supports(item.capability);
-                })
-                .map((item) => {
-                  const Icon = item.icon;
-                  const active =
-                    location.pathname === item.path ||
-                    location.pathname.startsWith(`${item.path}/`);
+            <nav
+              className="settings-nav-groups"
+              aria-busy={capabilities === null}
+            >
+              {navGroups.map((group) => (
+                <SettingsNavSection key={group.title} title={group.title}>
+                  {group.items.map((item) => {
+                    const Icon = item.icon;
+                    const active =
+                      location.pathname === item.path ||
+                      location.pathname.startsWith(`${item.path}/`);
 
-                  return (
-                    <Button
-                      key={item.path}
-                      variant="ghost"
-                      size="sm"
-                      className={cn(
-                        'settings-nav-button h-8 w-full justify-start text-sm',
-                        active && 'is-active'
-                      )}
-                      type="button"
-                      onClick={() => navigateTo(item.path)}
-                      onMouseEnter={() => preloadSettingsPath(item.path)}
-                      onFocus={() => preloadSettingsPath(item.path)}
-                      aria-current={active ? 'page' : undefined}
-                    >
-                      <span className="inline-flex items-center gap-2">
-                        <Icon className="h-4 w-4" />
-                        {item.label ?? t(`nav.${item.labelKey}`)}
-                      </span>
-                    </Button>
-                  );
-                })}
+                    return (
+                      <Button
+                        key={item.path}
+                        variant="ghost"
+                        size="sm"
+                        className={cn(
+                          'settings-nav-button h-8 w-full justify-start text-sm',
+                          active && 'is-active'
+                        )}
+                        type="button"
+                        onClick={() => navigateTo(item.path)}
+                        onMouseEnter={() => preloadSettingsPath(item.path)}
+                        onFocus={() => preloadSettingsPath(item.path)}
+                        aria-current={active ? 'page' : undefined}
+                      >
+                        <span className="inline-flex items-center gap-2">
+                          <Icon className="h-4 w-4" />
+                          {item.label ?? t(`nav.${item.labelKey}`)}
+                        </span>
+                      </Button>
+                    );
+                  })}
+                </SettingsNavSection>
+              ))}
             </nav>
           )}
         </aside>

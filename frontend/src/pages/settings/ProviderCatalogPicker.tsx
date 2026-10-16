@@ -1,3 +1,4 @@
+import { SelectorOption } from '@astryxdesign/core/Selector';
 import { Check, ChevronDown, Search } from 'lucide-react';
 import {
   useCallback,
@@ -11,7 +12,7 @@ import {
 import { createPortal } from 'react-dom';
 import { useTranslation } from 'react-i18next';
 
-import { getMenuPosition } from '@/components/ui/astryx-select';
+import { useOptionMenuPlacement } from '@/components/ui/option-menu-position';
 import { Button } from '@/components/ui/button';
 import { usePortalContainer } from '@/contexts/PortalContainerContext';
 import { NativeSurfaceOcclusionHold } from '@/contexts/WorkspaceOverlayContext';
@@ -26,8 +27,6 @@ export type ProviderCatalogPickerProps = {
   disabled?: boolean;
   onSelect: (next: ProviderCatalogTemplateView | 'custom') => void;
 };
-
-type MenuPosition = ReturnType<typeof getMenuPosition>;
 
 type Selection = { type: 'custom' } | { type: 'template'; key: string } | null;
 
@@ -83,7 +82,7 @@ export function ProviderCatalogPicker({
   const [query, setQuery] = useState('');
   const [sortByName, setSortByName] = useState(false);
   const [open, setOpen] = useState(false);
-  const [position, setPosition] = useState<MenuPosition | null>(null);
+  const position = useOptionMenuPlacement(open, triggerRef, menuRef);
   const [activeIndex, setActiveIndex] = useState(-1);
   const [selection, setSelection] = useState<Selection>(null);
 
@@ -124,32 +123,12 @@ export function ProviderCatalogPicker({
   const closeMenu = useCallback(() => {
     setOpen(false);
     setActiveIndex(-1);
-    setPosition(null);
   }, []);
 
   const openMenu = useCallback(() => {
     setOpen(true);
     setActiveIndex(customIndex >= 0 ? customIndex : firstTemplateIndex);
   }, [customIndex, firstTemplateIndex]);
-
-  const reposition = useCallback(() => {
-    if (!triggerRef.current) return;
-    setPosition(getMenuPosition(triggerRef.current.getBoundingClientRect()));
-  }, []);
-
-  useEffect(() => {
-    if (!open) return;
-    reposition();
-    window.addEventListener('scroll', reposition, {
-      capture: true,
-      passive: true,
-    });
-    window.addEventListener('resize', reposition);
-    return () => {
-      window.removeEventListener('scroll', reposition, true);
-      window.removeEventListener('resize', reposition);
-    };
-  }, [open, reposition]);
 
   useEffect(() => {
     if (!open) return;
@@ -435,6 +414,7 @@ function CatalogOption({
   onHover: () => void;
 }) {
   const { t } = useTranslation('settings');
+  const hasDescription = Boolean(endpoint || source || websiteUrl || apiKeyUrl);
   return (
     <div
       role="option"
@@ -450,43 +430,52 @@ function CatalogOption({
         if (!disabled) onHover();
       }}
     >
-      <div className="agent-model-provider-catalog-option-main">
-        <strong>{label}</strong>
-        {endpoint ? (
-          <span className="agent-model-provider-catalog-endpoint">
-            {endpoint}
-          </span>
-        ) : null}
-        {source ? (
-          <span className="agent-model-provider-catalog-source">{source}</span>
-        ) : null}
-        {websiteUrl || apiKeyUrl ? (
-          <div className="agent-model-provider-catalog-links">
-            {websiteUrl ? (
-              <a
-                href={websiteUrl}
-                rel="noopener noreferrer"
-                target="_blank"
-                onClick={(event) => event.stopPropagation()}
-                onPointerDown={(event) => event.stopPropagation()}
-              >
-                {t('agents.providerCatalogWebsite')}
-              </a>
-            ) : null}
-            {apiKeyUrl ? (
-              <a
-                href={apiKeyUrl}
-                rel="noopener noreferrer"
-                target="_blank"
-                onClick={(event) => event.stopPropagation()}
-                onPointerDown={(event) => event.stopPropagation()}
-              >
-                {t('agents.providerCatalogGetKey')}
-              </a>
-            ) : null}
-          </div>
-        ) : null}
-      </div>
+      <SelectorOption
+        className="agent-model-provider-catalog-option-main"
+        label={<strong>{label}</strong>}
+        description={
+          hasDescription ? (
+            <>
+              {endpoint ? (
+                <span className="agent-model-provider-catalog-endpoint">
+                  {endpoint}
+                </span>
+              ) : null}
+              {source ? (
+                <span className="agent-model-provider-catalog-source">
+                  {source}
+                </span>
+              ) : null}
+              {websiteUrl || apiKeyUrl ? (
+                <span className="agent-model-provider-catalog-links">
+                  {websiteUrl ? (
+                    <a
+                      href={websiteUrl}
+                      rel="noopener noreferrer"
+                      target="_blank"
+                      onClick={(event) => event.stopPropagation()}
+                      onPointerDown={(event) => event.stopPropagation()}
+                    >
+                      {t('agents.providerCatalogWebsite')}
+                    </a>
+                  ) : null}
+                  {apiKeyUrl ? (
+                    <a
+                      href={apiKeyUrl}
+                      rel="noopener noreferrer"
+                      target="_blank"
+                      onClick={(event) => event.stopPropagation()}
+                      onPointerDown={(event) => event.stopPropagation()}
+                    >
+                      {t('agents.providerCatalogGetKey')}
+                    </a>
+                  ) : null}
+                </span>
+              ) : null}
+            </>
+          ) : undefined
+        }
+      />
       {selected ? (
         <Check aria-hidden="true" className="astryx-select-option-check" />
       ) : null}

@@ -25,6 +25,9 @@ export interface SessionCanvasViewContextValue {
     session: KanbanProjectSessionRecord,
     name: string | null
   ) => Promise<void>;
+  onArchiveSession?: (
+    session: KanbanProjectSessionRecord
+  ) => void | Promise<void>;
   onDeleteSession?: (
     session: KanbanProjectSessionRecord
   ) => void | Promise<void>;

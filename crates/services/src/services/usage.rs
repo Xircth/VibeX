@@ -262,19 +262,56 @@ fn model_matches(model: &str, candidates: &[&str]) -> bool {
 
 // ============= Cost Calculation =============
 
+fn has_token_counts(usage: &ProjectUsageTokenCounts) -> bool {
+    usage.total_tokens.is_some()
+        || usage.input_tokens.is_some()
+        || usage.output_tokens.is_some()
+        || usage.cache_write_tokens.is_some()
+        || usage.cache_read_tokens.is_some()
+}
+
 fn calculate_usage_cost(usage: &ProjectUsageTokenCounts, rates: CostRates) -> Option<f64> {
-    let input = usage.input_tokens?;
-    let output = usage.output_tokens?;
-    let cache_write = usage.cache_write_tokens.unwrap_or(0);
-    let cache_read = usage.cache_read_tokens.unwrap_or(0);
-    let input_cost = (input as f64 / 1_000_000.0) * rates.input;
-    let output_cost = (output as f64 / 1_000_000.0) * rates.output;
-    let cache_write_cost = (cache_write as f64 / 1_000_000.0) * rates.cache_write;
-    let cache_read_cost = (cache_read as f64 / 1_000_000.0) * rates.cache_read;
-    Some(input_cost + output_cost + cache_write_cost + cache_read_cost)
+    if let (Some(input), Some(output)) = (usage.input_tokens, usage.output_tokens) {
+        let cache_write = usage.cache_write_tokens.unwrap_or(0);
+        let cache_read = usage.cache_read_tokens.unwrap_or(0);
+        let input_cost = (input as f64 / 1_000_000.0) * rates.input;
+        let output_cost = (output as f64 / 1_000_000.0) * rates.output;
+        let cache_write_cost = (cache_write as f64 / 1_000_000.0) * rates.cache_write;
+        let cache_read_cost = (cache_read as f64 / 1_000_000.0) * rates.cache_read;
+        return Some(input_cost + output_cost + cache_write_cost + cache_read_cost);
+    }
+    let total = usage.total_tokens?;
+    Some((total as f64 / 1_000_000.0) * rates.input)
 }
 
 fn openai_cost_rates(model: &str) -> CostRates {
+    if model_matches(model, &["gpt-6.1-sol", "gpt-6-sol", "gpt-6.1", "gpt-6"]) {
+        return CostRates {
+            input: 2.0,
+            output: 10.0,
+            cache_write: 2.5,
+            cache_read: 0.10,
+        };
+    }
+
+    if model_matches(model, &["gpt-5.6-sol", "gpt-5.6", "gpt-5-6"]) {
+        return CostRates {
+            input: 4.0,
+            output: 20.0,
+            cache_write: 5.0,
+            cache_read: 0.40,
+        };
+    }
+
+    if model_matches(model, &["gpt-5.5", "gpt-5-5"]) {
+        return CostRates {
+            input: 5.0,
+            output: 30.0,
+            cache_write: 0.0,
+            cache_read: 0.50,
+        };
+    }
+
     if model_matches(model, &["gpt-5.4-mini"]) {
         return CostRates {
             input: 0.75,
@@ -385,7 +422,17 @@ fn openai_cost_rates(model: &str) -> CostRates {
 }
 
 fn claude_cost_rates(model: &str) -> CostRates {
-    if model_matches(model, &["claude-opus-4-6", "claude-opus-4.6", "opus-4-6"]) {
+    if model_matches(
+        model,
+        &[
+            "claude-opus-5",
+            "opus-5",
+            "claude-opus-4-6",
+            "claude-opus-4.6",
+            "opus-4-6",
+            "opus-4.6",
+        ],
+    ) {
         return CostRates {
             input: 5.0,
             output: 25.0,
@@ -417,6 +464,8 @@ fn claude_cost_rates(model: &str) -> CostRates {
     if model_matches(
         model,
         &[
+            "claude-sonnet-5",
+            "sonnet-5",
             "claude-sonnet-4-6",
             "claude-sonnet-4.6",
             "claude-sonnet-4-5",
@@ -484,13 +533,102 @@ fn claude_cost_rates(model: &str) -> CostRates {
     }
 }
 
+fn grok_cost_rates(model: &str) -> CostRates {
+    if model_matches(
+        model,
+        &[
+            "grok-4-fast",
+            "grok-4-1-fast",
+            "grok-4.1-fast",
+            "grok-code-fast",
+        ],
+    ) {
+        return CostRates {
+            input: 0.20,
+            output: 0.50,
+            cache_write: 0.0,
+            cache_read: 0.05,
+        };
+    }
+
+    if model_matches(model, &["grok-4.3", "grok-4-3", "grok-4.20", "grok-4-20"]) {
+        return CostRates {
+            input: 1.25,
+            output: 2.50,
+            cache_write: 0.0,
+            cache_read: 0.20,
+        };
+    }
+
+    if model_matches(
+        model,
+        &[
+            "grok-4.7",
+            "grok-4-7",
+            "grok-4.6",
+            "grok-4-6",
+            "grok-4.5",
+            "grok-4-5",
+        ],
+    ) {
+        return CostRates {
+            input: 2.00,
+            output: 6.00,
+            cache_write: 0.0,
+            cache_read: 0.50,
+        };
+    }
+
+    if model_matches(model, &["grok-build"]) {
+        return CostRates {
+            input: 1.00,
+            output: 2.00,
+            cache_write: 0.0,
+            cache_read: 0.20,
+        };
+    }
+
+    if model_matches(model, &["grok-3-mini", "grok-2-mini"]) {
+        return CostRates {
+            input: 0.30,
+            output: 0.50,
+            cache_write: 0.0,
+            cache_read: 0.075,
+        };
+    }
+
+    CostRates {
+        input: 3.00,
+        output: 15.00,
+        cache_write: 0.0,
+        cache_read: 0.75,
+    }
+}
+
+fn gemini_cost_rates(model: &str) -> CostRates {
+    if model_matches(model, &["flash"]) {
+        return CostRates {
+            input: 0.30,
+            output: 2.50,
+            cache_write: 0.0,
+            cache_read: 0.03,
+        };
+    }
+    CostRates {
+        input: 1.25,
+        output: 10.00,
+        cache_write: 0.0,
+        cache_read: 0.125,
+    }
+}
+
 // ============= Statistics Builder =============
 
 pub fn build_project_usage_statistics(
     scope: String,
     project_id: String,
     project_name: String,
-    sessions: Vec<ProjectUsageSessionSummary>,
+    mut sessions: Vec<ProjectUsageSessionSummary>,
     provider_status: Vec<ProjectUsageProviderStatus>,
     unattributed_vendor_sessions: i64,
     now_ms: i64,
@@ -508,6 +646,13 @@ pub fn build_project_usage_statistics(
     let mut current_week = ProjectUsageWeekData::default();
     let mut last_week = ProjectUsageWeekData::default();
 
+    for session in &mut sessions {
+        if session.cost.is_none() {
+            session.cost = preferred_counts(&session.tokens)
+                .and_then(|tokens| vendor_cost_for_model(session.model.as_deref(), tokens));
+        }
+    }
+
     for session in &sessions {
         add_optional_tokens(&mut total_protocol, session.tokens.protocol.as_ref());
         add_optional_tokens(&mut total_vendor, session.tokens.vendor_log.as_ref());
@@ -518,7 +663,8 @@ pub fn build_project_usage_statistics(
                 .tokens
                 .vendor_log
                 .as_ref()
-                .and_then(|tokens| vendor_cost_for_model(session.model.as_deref(), tokens)),
+                .and_then(|tokens| vendor_cost_for_model(session.model.as_deref(), tokens))
+                .or(session.cost),
         );
 
         let day_key =
@@ -786,7 +932,18 @@ fn tokens_disagree(
 }
 
 pub fn preferred_counts(tokens: &ProjectUsageSourcedTokens) -> Option<&ProjectUsageTokenCounts> {
-    tokens.protocol.as_ref().or(tokens.vendor_log.as_ref())
+    tokens
+        .vendor_log
+        .as_ref()
+        .filter(|counts| has_token_counts(counts))
+        .or_else(|| {
+            tokens
+                .protocol
+                .as_ref()
+                .filter(|counts| has_token_counts(counts))
+        })
+        .or(tokens.protocol.as_ref())
+        .or(tokens.vendor_log.as_ref())
 }
 
 pub fn preferred_total(tokens: &ProjectUsageSourcedTokens) -> Option<i64> {
@@ -803,8 +960,69 @@ fn vendor_cost_for_model(model: Option<&str>, tokens: &ProjectUsageTokenCounts) 
     if model_matches(model, &["claude", "sonnet", "opus", "haiku"]) {
         return calculate_usage_cost(tokens, claude_cost_rates(model));
     }
-    if model_matches(model, &["gpt", "codex"]) {
+    if model_matches(model, &["gpt", "codex", "o1", "o3", "o4"]) {
         return calculate_usage_cost(tokens, openai_cost_rates(model));
+    }
+    if model_matches(model, &["grok"]) {
+        return calculate_usage_cost(tokens, grok_cost_rates(model));
+    }
+    if model_matches(model, &["gemini"]) {
+        return calculate_usage_cost(tokens, gemini_cost_rates(model));
+    }
+    if model_matches(model, &["deepseek"]) {
+        return calculate_usage_cost(
+            tokens,
+            CostRates {
+                input: 0.28,
+                output: 0.42,
+                cache_write: 0.0,
+                cache_read: 0.028,
+            },
+        );
+    }
+    if model_matches(model, &["kimi", "moonshot"]) {
+        return calculate_usage_cost(
+            tokens,
+            CostRates {
+                input: 0.60,
+                output: 2.50,
+                cache_write: 0.0,
+                cache_read: 0.10,
+            },
+        );
+    }
+    if model_matches(model, &["glm"]) {
+        return calculate_usage_cost(
+            tokens,
+            CostRates {
+                input: 0.60,
+                output: 2.20,
+                cache_write: 0.0,
+                cache_read: 0.11,
+            },
+        );
+    }
+    if model_matches(model, &["minimax"]) {
+        return calculate_usage_cost(
+            tokens,
+            CostRates {
+                input: 0.30,
+                output: 1.20,
+                cache_write: 0.375,
+                cache_read: 0.03,
+            },
+        );
+    }
+    if model_matches(model, &["qwen"]) {
+        return calculate_usage_cost(
+            tokens,
+            CostRates {
+                input: 0.40,
+                output: 1.20,
+                cache_write: 0.0,
+                cache_read: 0.04,
+            },
+        );
     }
     None
 }
@@ -835,13 +1053,18 @@ pub fn align_vendor_usage(
         if session.summary.is_none() {
             session.summary = vendor.summary.clone();
         }
-        session.tokens.vendor_log = Some(vendor.tokens.clone());
+        if has_token_counts(&vendor.tokens) {
+            session.tokens.vendor_log = Some(vendor.tokens.clone());
+        }
         session.tokens.sources_disagree = tokens_disagree(
             session.tokens.protocol.as_ref(),
             session.tokens.vendor_log.as_ref(),
         );
         if session.cost.is_none() {
-            session.cost = vendor.cost;
+            session.cost = vendor.cost.or_else(|| {
+                preferred_counts(&session.tokens)
+                    .and_then(|tokens| vendor_cost_for_model(session.model.as_deref(), tokens))
+            });
         }
     }
 
@@ -1273,12 +1496,16 @@ fn parse_grok_session(path: &Path) -> Result<Option<VendorLogUsage>, String> {
             .as_millis() as i64
     };
 
+    let model = model.unwrap_or_default();
+    let cost_model = if model.is_empty() { "grok-4.6" } else { model.as_str() };
+    let cost = calculate_usage_cost(&usage, grok_cost_rates(cost_model));
+
     Ok(Some(VendorLogUsage {
         external_session_id: session_id,
         timestamp,
-        model: model.unwrap_or_default(),
+        model,
         tokens: usage,
-        cost: None,
+        cost,
         summary: grok_summary_title(session_dir),
         provider: "grok".to_string(),
     }))

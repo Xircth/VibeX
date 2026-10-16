@@ -1583,7 +1583,7 @@ export function PluginsSettings({
                 ))}
               </nav>
               <div
-                className="plugin-hub-resizer"
+                className="workspace-resize-handle plugin-hub-resizer"
                 role="separator"
                 tabIndex={0}
                 aria-label={t('plugins.resizePanelsAria')}

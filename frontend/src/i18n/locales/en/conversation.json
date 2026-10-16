@@ -350,6 +350,10 @@
     "loadingDiff": "Loading diff…",
     "noHeadDiff": "No differences against HEAD"
   },
+  "timelineImage": {
+    "show": "Show image",
+    "hide": "Hide image"
+  },
   "viewedImages": {
     "summary_one": "Viewed {{count}} image",
     "summary_other": "Viewed {{count}} images",

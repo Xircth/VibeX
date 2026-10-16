@@ -13,6 +13,8 @@ import {
   conversationStoreReducer,
   emptyConversationStoreState,
   sideRowsForEntry,
+  TIMELINE_RETAINED_BYTE_BUDGET,
+  TIMELINE_RETAINED_ROW_LIMIT,
   timelineItemsForEntry,
   timelineTurnsForEntry,
   type ConversationStoreState,
@@ -1291,6 +1293,152 @@ describe('conversationStore (row-op dumb container)', () => {
     });
     const secondSideRows = sideRowsForEntry(entryOf(state));
     expect(secondSideRows).toBe(firstSideRows);
+  });
+
+  it('merges a tool patch by tool id and keeps streamed text', () => {
+    let state = loaded([userRow('t1', 'q', 1n)]);
+    state = conversationStoreReducer(state, {
+      type: 'row_ops',
+      batch: batch(
+        [
+          {
+            op: 'append_text',
+            row_id: 't1:assistant',
+            revision: 2n,
+            stream: 'text',
+            delta: 'hello',
+          },
+        ],
+        2n
+      ),
+    });
+    state = conversationStoreReducer(state, {
+      type: 'row_ops',
+      batch: batch(
+        [
+          {
+            op: 'patch_blocks',
+            row_id: 't1:assistant',
+            revision: 3n,
+            phase: 'streaming',
+            blocks: [
+              {
+                type: 'tool_use',
+                tool_name: 'Read',
+                tool_use_id: 'call-1',
+                input_preview: '{}',
+                meta: null,
+              },
+            ],
+          },
+        ],
+        3n
+      ),
+    });
+    const assistant = timelineTurnsForEntry(entryOf(state)).find(
+      (row) => row.turn.role === 'assistant'
+    );
+    expect(textOf(assistant?.turn.blocks ?? [])).toContain('hello');
+    expect(assistant?.turn.blocks).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          type: 'tool_use',
+          tool_use_id: 'call-1',
+          tool_name: 'Read',
+        }),
+      ])
+    );
+
+    state = conversationStoreReducer(state, {
+      type: 'row_ops',
+      batch: batch(
+        [
+          {
+            op: 'patch_blocks',
+            row_id: 't1:assistant',
+            revision: 4n,
+            phase: 'streaming',
+            blocks: [
+              {
+                type: 'tool_use',
+                tool_name: 'Read file',
+                tool_use_id: 'call-1',
+                input_preview: '{}',
+                meta: null,
+              },
+              {
+                type: 'tool_result',
+                tool_use_id: 'call-1',
+                output_preview: 'ok',
+                is_error: false,
+              },
+            ],
+          },
+        ],
+        4n
+      ),
+    });
+    const patched = timelineTurnsForEntry(entryOf(state)).find(
+      (row) => row.turn.role === 'assistant'
+    );
+    const toolUses = (patched?.turn.blocks ?? []).filter(
+      (block) => block.type === 'tool_use' && block.tool_use_id === 'call-1'
+    );
+    expect(toolUses).toEqual([
+      expect.objectContaining({ tool_name: 'Read file' }),
+    ]);
+    expect(
+      patched?.turn.blocks.some((block) => block.type === 'tool_result')
+    ).toBe(true);
+    expect(textOf(patched?.turn.blocks ?? [])).toContain('hello');
+  });
+
+  it('drops the oldest rows past the retained budget and reopens them by cursor', () => {
+    const rows = Array.from(
+      { length: TIMELINE_RETAINED_ROW_LIMIT + 1 },
+      (_, index) => userRow(`t${index}`, 'x', BigInt(index + 1))
+    );
+    const state = loaded(rows);
+    const entry = entryOf(state);
+    expect(entry.rows).toHaveLength(TIMELINE_RETAINED_ROW_LIMIT);
+    expect(entry.rows[0]?.row_id).toBe('t1:user');
+    expect(entry.olderCursor).toBe('1');
+  });
+
+  it('drops oldest rows when their payload exceeds the byte budget', () => {
+    const fat = 'x'.repeat(32 * 1024);
+    const rows = Array.from({ length: 40 }, (_, index) =>
+      userRow(`t${index}`, fat, BigInt(index + 1))
+    );
+    const state = loaded(rows);
+    const entry = entryOf(state);
+    expect(entry.rows.length).toBeLessThan(rows.length);
+    expect(entry.rows.length * fat.length).toBeLessThanOrEqual(
+      TIMELINE_RETAINED_BYTE_BUDGET
+    );
+    expect(entry.olderCursor).not.toBeNull();
+  });
+
+  it('keeps a just-loaded older page even when it exceeds the hot budget', () => {
+    const tail = Array.from(
+      { length: TIMELINE_RETAINED_ROW_LIMIT },
+      (_, index) => userRow(`tail${index}`, 'x', BigInt(index + 20))
+    );
+    let state = loaded(tail);
+    const older = Array.from({ length: 5 }, (_, index) =>
+      userRow(`old${index}`, 'y', BigInt(index + 1))
+    );
+    state = conversationStoreReducer(state, {
+      type: 'upsert_rows',
+      conversationId: CONVERSATION_ID,
+      rows: older,
+      lastSequence: entryOf(state).lastSequence,
+      protectLoaded: true,
+    });
+    const entry = entryOf(state);
+    expect(entry.rows.length).toBe(TIMELINE_RETAINED_ROW_LIMIT + 5);
+    expect(entry.rows[0]?.row_id).toBe('old0:user');
+    expect(entry.rows.at(-1)?.row_id).toBe('tail79:user');
   });
 });
 

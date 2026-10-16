@@ -1,0 +1,637 @@
+import { getInvokeErrorMessage, isCanceledError } from '@/lib/errors';
+import type {
+  AgentElicitationResponse,
+  AgentPermissionResponse,
+  AgentSessionConfigOption,
+  ConversationRowOpBatch,
+  MessageTurn,
+} from 'shared/types';
+import { listenToAgentEvents } from '@/features/agents/events';
+import { conversationApi } from './conversationApi';
+import { AGENT_BINDING_LOAD_FAILURE_NOTICE_ROW_ID } from './sessionNoticeNeedsRebind';
+import { canSkipInFlightHistoryWait } from './canSkipInFlightHistoryWait';
+import { retainConversationKeepalive } from './conversationKeepalive';
+import { listenToConversationEvents } from './events';
+import { subscribeToOptimisticConversationTurns } from './optimisticTurnEvents';
+import {
+  conversationStoreReducer,
+  emptyConversationStoreState,
+  sideRowsForEntry,
+  timelineItemsForEntry,
+  timelineTurnsForEntry,
+  type ConversationSessionModesState,
+  type ConversationStoreState,
+  type ConversationTimelineItem,
+  type ConversationTimelineTurn,
+} from './conversationStore';
+import type { TimelineRow } from 'shared/types';
+
+const EMPTY_SESSION_MODES: ConversationSessionModesState = {
+  current: null,
+  modes: [],
+};
+const EMPTY_CONFIG_OPTIONS: AgentSessionConfigOption[] = [];
+
+type Controller = {
+  stopped: boolean;
+  loadEpoch: number;
+  pendingBatches: ConversationRowOpBatch[];
+  flushFrame: number | null;
+  bindTimer: number | null;
+  cancelBindIdle: (() => void) | null;
+  loadingOlder: boolean;
+  liveStarted: boolean;
+  gapFetchedFor: bigint | null;
+  unlistenEvents?: () => void;
+  unlistenAgent?: () => void;
+  unlistenOptimistic?: () => void;
+  unsubscribeStore?: () => void;
+};
+
+type Slot = {
+  refs: number;
+  bindReady: boolean;
+  keepalive?: () => void;
+  controller: Controller | null;
+};
+
+export type ConversationTimelineView = {
+  timeline: ConversationTimelineTurn[];
+  items: ConversationTimelineItem[];
+  sideRows: TimelineRow[];
+  agentId: string | null;
+  currentTurnId: string | null;
+  steeringSupported: boolean;
+  forkSessionSupported: boolean;
+  loading: boolean;
+  error: string | null;
+  lastSequence: bigint;
+  sessionModes: ConversationSessionModesState;
+  sessionConfigOptions: AgentSessionConfigOption[];
+  sendOptimisticTurn: (turn: MessageTurn) => void;
+  removeOptimisticTurn: (turnId: string) => void;
+  refresh: () => void;
+  resetAndReload: () => Promise<void>;
+  reconnectAndReload: () => Promise<void>;
+  cancel: (reason?: string) => Promise<void>;
+  respondPermission: (
+    permissionId: string,
+    response: AgentPermissionResponse
+  ) => Promise<void>;
+  respondQuestion: (
+    questionId: string,
+    response: AgentElicitationResponse
+  ) => Promise<void>;
+  hasEarlier: boolean;
+  loadOlder: () => Promise<void>;
+  sessionBindReady: boolean;
+  connecting: boolean;
+};
+
+const listeners = new Set<() => void>();
+const slots = new Map<string, Slot>();
+const inflightBinds = new Map<string, Promise<unknown>>();
+const viewCache = new Map<
+  string,
+  {
+    entry: ConversationStoreState['byConversationId'][string] | undefined;
+    bindReady: boolean;
+    view: ConversationTimelineView;
+  }
+>();
+
+let state: ConversationStoreState = emptyConversationStoreState;
+
+const EMPTY_VIEW: ConversationTimelineView = {
+  timeline: [],
+  items: [],
+  sideRows: [],
+  agentId: null,
+  currentTurnId: null,
+  steeringSupported: false,
+  forkSessionSupported: false,
+  loading: false,
+  error: null,
+  lastSequence: 0n,
+  sessionModes: EMPTY_SESSION_MODES,
+  sessionConfigOptions: EMPTY_CONFIG_OPTIONS,
+  sendOptimisticTurn: () => undefined,
+  removeOptimisticTurn: () => undefined,
+  refresh: () => undefined,
+  resetAndReload: () => Promise.resolve(),
+  reconnectAndReload: () => Promise.resolve(),
+  cancel: () => Promise.resolve(),
+  respondPermission: () => Promise.resolve(),
+  respondQuestion: () => Promise.resolve(),
+  hasEarlier: false,
+  loadOlder: () => Promise.resolve(),
+  sessionBindReady: false,
+  connecting: false,
+};
+
+function notify(): void {
+  for (const listener of listeners) listener();
+}
+
+function dispatch(
+  action: Parameters<typeof conversationStoreReducer>[1]
+): void {
+  state = conversationStoreReducer(state, action);
+  notify();
+}
+
+export function subscribeConversationTimeline(
+  listener: () => void
+): () => void {
+  listeners.add(listener);
+  return () => {
+    listeners.delete(listener);
+  };
+}
+
+export function getConversationTimelineView(
+  conversationId: string | null
+): ConversationTimelineView {
+  if (!conversationId) return EMPTY_VIEW;
+  const entry = state.byConversationId[conversationId];
+  const bindReady = slots.get(conversationId)?.bindReady ?? false;
+  const cached = viewCache.get(conversationId);
+  if (cached && cached.entry === entry && cached.bindReady === bindReady) {
+    return cached.view;
+  }
+  const view = buildView(conversationId, entry, bindReady);
+  viewCache.set(conversationId, { entry, bindReady, view });
+  return view;
+}
+
+export function retainConversationTimeline(conversationId: string): () => void {
+  let slot = slots.get(conversationId);
+  if (!slot) {
+    slot = { refs: 0, bindReady: false, controller: null };
+    slots.set(conversationId, slot);
+  }
+  slot.refs += 1;
+  if (slot.refs === 1) {
+    startController(conversationId, slot);
+  } else if (slot.bindReady) {
+    startKeepalive(conversationId, slot);
+  }
+  let released = false;
+  return () => {
+    if (released) return;
+    released = true;
+    releaseConversationTimeline(conversationId);
+  };
+}
+
+export function resetConversationTimelineRegistryForTests(): void {
+  for (const slot of slots.values()) stopController(slot);
+  slots.clear();
+  inflightBinds.clear();
+  viewCache.clear();
+  state = emptyConversationStoreState;
+  listeners.clear();
+}
+
+function releaseConversationTimeline(conversationId: string): void {
+  const slot = slots.get(conversationId);
+  if (!slot) return;
+  slot.refs -= 1;
+  if (slot.refs > 0) return;
+  stopController(slot);
+  slots.delete(conversationId);
+  viewCache.delete(conversationId);
+  dispatch({ type: 'reset', conversationId });
+}
+
+function startController(conversationId: string, slot: Slot): void {
+  const controller: Controller = {
+    stopped: false,
+    loadEpoch: 0,
+    pendingBatches: [],
+    flushFrame: null,
+    bindTimer: null,
+    cancelBindIdle: null,
+    loadingOlder: false,
+    liveStarted: false,
+    gapFetchedFor: null,
+  };
+  slot.controller = controller;
+  controller.unlistenOptimistic = subscribeToOptimisticConversationTurns(
+    (event) => {
+      if (controller.stopped || event.conversationId !== conversationId) return;
+      if (event.type === 'add') {
+        dispatch({
+          type: 'optimistic_turn',
+          conversationId: event.conversationId,
+          turn: event.turn,
+        });
+        return;
+      }
+      dispatch({
+        type: 'remove_optimistic_turn',
+        conversationId: event.conversationId,
+        turnId: event.turnId,
+      });
+    }
+  );
+  void listenToAgentEvents((envelope) => {
+    if (controller.stopped || envelope.session_id !== conversationId) return;
+    if (envelope.event.kind !== 'session_bind_ready') return;
+    const current = slots.get(conversationId);
+    if (!current || current.refs <= 0) return;
+    current.bindReady = true;
+    notify();
+    startKeepalive(conversationId, current);
+  }).then((unsubscribe) => {
+    if (controller.stopped) {
+      unsubscribe();
+      return;
+    }
+    controller.unlistenAgent = unsubscribe;
+  });
+  controller.unsubscribeStore = subscribeConversationTimeline(() => {
+    watchGap(conversationId, controller);
+  });
+  void loadDetail(conversationId, controller);
+}
+
+function stopController(slot: Slot): void {
+  const controller = slot.controller;
+  slot.keepalive?.();
+  slot.keepalive = undefined;
+  slot.bindReady = false;
+  if (!controller) return;
+  controller.stopped = true;
+  controller.loadEpoch += 1;
+  if (controller.flushFrame != null) {
+    cancelAnimationFrame(controller.flushFrame);
+    controller.flushFrame = null;
+  }
+  controller.pendingBatches = [];
+  if (controller.bindTimer != null) {
+    window.clearTimeout(controller.bindTimer);
+    controller.bindTimer = null;
+  }
+  controller.cancelBindIdle?.();
+  controller.cancelBindIdle = null;
+  controller.unlistenEvents?.();
+  controller.unlistenAgent?.();
+  controller.unlistenOptimistic?.();
+  controller.unsubscribeStore?.();
+  slot.controller = null;
+}
+
+function loadDetail(
+  conversationId: string,
+  controller: Controller
+): Promise<void> {
+  const epoch = ++controller.loadEpoch;
+  dispatch({ type: 'load_start', conversationId });
+  return conversationApi
+    .detail(conversationId)
+    .then((detail) => {
+      if (controller.stopped || controller.loadEpoch !== epoch) return;
+      if (!detail) {
+        dispatch({
+          type: 'load_error',
+          conversationId,
+          error: 'Conversation not found',
+        });
+        return;
+      }
+      dispatch({ type: 'load_success', conversationId, detail });
+      ensureLive(conversationId, controller);
+      scheduleBind(conversationId, controller);
+    })
+    .catch((error: unknown) => {
+      if (controller.stopped || controller.loadEpoch !== epoch) return;
+      report(conversationId, error);
+    });
+}
+
+function ensureLive(conversationId: string, controller: Controller): void {
+  if (controller.liveStarted || controller.stopped) return;
+  controller.liveStarted = true;
+  void listenToConversationEvents((batch) => {
+    if (controller.stopped || batch.conversation_id !== conversationId) return;
+    controller.pendingBatches.push(batch);
+    if (controller.flushFrame != null) return;
+    controller.flushFrame = requestAnimationFrame(() => {
+      controller.flushFrame = null;
+      if (controller.stopped) return;
+      const batches = controller.pendingBatches;
+      if (batches.length === 0) return;
+      controller.pendingBatches = [];
+      for (const pending of batches) {
+        dispatch({ type: 'row_ops', batch: pending });
+      }
+    });
+  }, conversationId)
+    .then((unsubscribe) => {
+      if (controller.stopped) {
+        unsubscribe();
+        return;
+      }
+      controller.unlistenEvents = unsubscribe;
+      const current =
+        state.byConversationId[conversationId]?.lastSequence ?? 0n;
+      return conversationApi.eventsSince({
+        conversationId,
+        afterSequence: Number(current),
+        limit: 500,
+      });
+    })
+    .then((page) => {
+      if (!page || controller.stopped || page.rows.length === 0) return;
+      dispatch({
+        type: 'upsert_rows',
+        conversationId,
+        rows: page.rows,
+        lastSequence: toBigInt(page.last_sequence),
+      });
+    })
+    .catch((error: unknown) => {
+      if (controller.stopped) return;
+      report(conversationId, error);
+    });
+}
+
+function scheduleBind(conversationId: string, controller: Controller): void {
+  const slot = slots.get(conversationId);
+  if (!slot || controller.stopped || slot.bindReady) return;
+  if (inflightBinds.has(conversationId)) return;
+  if (!canBind(conversationId)) return;
+  const start = () => {
+    controller.cancelBindIdle = null;
+    controller.bindTimer = null;
+    if (controller.stopped) return;
+    const current = slots.get(conversationId);
+    if (!current || current.refs <= 0 || current.bindReady) return;
+    if (inflightBinds.has(conversationId)) return;
+    if (!canBind(conversationId)) return;
+    beginBind(conversationId);
+  };
+  const idle = window as Window & {
+    requestIdleCallback?: (
+      callback: () => void,
+      options?: { timeout: number }
+    ) => number;
+    cancelIdleCallback?: (id: number) => void;
+  };
+  if (typeof idle.requestIdleCallback === 'function') {
+    const idleId = idle.requestIdleCallback(start, { timeout: 200 });
+    controller.cancelBindIdle = () => idle.cancelIdleCallback?.(idleId);
+    return;
+  }
+  controller.bindTimer = window.setTimeout(start, 0);
+}
+
+function beginBind(conversationId: string): void {
+  if (inflightBinds.has(conversationId)) return;
+  const pending = conversationApi
+    .ensureSessionControls(conversationId, { reload: false })
+    .then((controls) => {
+      const current = slots.get(conversationId);
+      if (!current || current.refs <= 0) return;
+      dispatch({
+        type: 'session_controls_hydrated',
+        conversationId,
+        controls,
+      });
+      current.bindReady = true;
+      notify();
+      startKeepalive(conversationId, current);
+    })
+    .catch((error: unknown) => {
+      const current = slots.get(conversationId);
+      if (!current || current.refs <= 0) return;
+      if (isStaleAgentConnectionError(error)) return;
+      current.bindReady = false;
+      notify();
+      report(conversationId, error);
+    })
+    .finally(() => {
+      if (inflightBinds.get(conversationId) === pending) {
+        inflightBinds.delete(conversationId);
+      }
+    });
+  inflightBinds.set(conversationId, pending);
+}
+
+function canBind(conversationId: string): boolean {
+  const entry = state.byConversationId[conversationId];
+  const skip = canSkipInFlightHistoryWait(
+    entry?.detail?.active_binding?.capabilities
+  );
+  if (!entry?.detail && !skip) return false;
+  if (!entry?.detail || entry.error) return false;
+  if (!entry.detail.summary.workspace_id) return false;
+  return !entry.rows.some(
+    (row) => row.row_id === AGENT_BINDING_LOAD_FAILURE_NOTICE_ROW_ID
+  );
+}
+
+function startKeepalive(conversationId: string, slot: Slot): void {
+  if (slot.keepalive || !slot.bindReady || slot.refs <= 0) return;
+  slot.keepalive = retainConversationKeepalive(conversationId, (watch) =>
+    conversationApi.touch(conversationId, watch)
+  );
+}
+
+function watchGap(conversationId: string, controller: Controller): void {
+  if (controller.stopped) return;
+  const gap = state.byConversationId[conversationId]?.gap;
+  if (!gap || gap.kind !== 'gap') {
+    controller.gapFetchedFor = null;
+    return;
+  }
+  if (controller.gapFetchedFor === gap.expectedSequence) return;
+  controller.gapFetchedFor = gap.expectedSequence;
+  const afterSequence = gap.expectedSequence - 1n;
+  void conversationApi
+    .eventsSince({
+      conversationId,
+      afterSequence: Number(afterSequence),
+      limit: 500,
+    })
+    .then((page) => {
+      if (controller.stopped || page.rows.length === 0) return;
+      dispatch({
+        type: 'upsert_rows',
+        conversationId,
+        rows: page.rows,
+        lastSequence: toBigInt(page.last_sequence),
+      });
+    })
+    .catch((error: unknown) => {
+      if (controller.stopped) return;
+      report(conversationId, error);
+    });
+}
+
+function report(conversationId: string, error: unknown): void {
+  const slot = slots.get(conversationId);
+  if (!slot || slot.refs <= 0) return;
+  dispatch({
+    type: 'load_error',
+    conversationId,
+    error: conversationLoadError(error),
+  });
+}
+
+async function resetAndReload(conversationId: string): Promise<void> {
+  const controller = slots.get(conversationId)?.controller;
+  if (!controller) return;
+  if (controller.flushFrame != null) {
+    cancelAnimationFrame(controller.flushFrame);
+    controller.flushFrame = null;
+  }
+  controller.pendingBatches = [];
+  dispatch({ type: 'reset', conversationId });
+  await loadDetail(conversationId, controller);
+}
+
+async function reconnectAndReload(conversationId: string): Promise<void> {
+  const slot = slots.get(conversationId);
+  if (!slot?.controller) return;
+  slot.bindReady = false;
+  notify();
+  try {
+    const controls = await conversationApi.ensureSessionControls(
+      conversationId,
+      { reload: true }
+    );
+    const current = slots.get(conversationId);
+    if (!current || current.refs <= 0) return;
+    dispatch({
+      type: 'session_controls_hydrated',
+      conversationId,
+      controls,
+    });
+    current.bindReady = true;
+    notify();
+    startKeepalive(conversationId, current);
+    if (current.controller)
+      await loadDetail(conversationId, current.controller);
+  } catch (error: unknown) {
+    const current = slots.get(conversationId);
+    if (!current || current.refs <= 0) return;
+    current.bindReady = false;
+    notify();
+    report(conversationId, error);
+  }
+}
+
+async function loadOlder(conversationId: string): Promise<void> {
+  const controller = slots.get(conversationId)?.controller;
+  if (!controller || controller.loadingOlder || controller.stopped) return;
+  const cursor = state.byConversationId[conversationId]?.olderCursor;
+  if (!cursor) return;
+  const end = Number(cursor);
+  if (!Number.isFinite(end) || end <= 0) return;
+  const start = Math.max(0, end - 80);
+  controller.loadingOlder = true;
+  try {
+    const page = await conversationApi.timelinePage({
+      conversationId,
+      cursor: String(start),
+      limit: end - start,
+    });
+    if (controller.stopped || slots.get(conversationId)?.refs === 0) return;
+    dispatch({
+      type: 'upsert_rows',
+      conversationId,
+      rows: page.rows,
+      lastSequence: state.byConversationId[conversationId]?.lastSequence ?? 0n,
+      olderCursor: start > 0 ? String(start) : null,
+      protectLoaded: true,
+    });
+  } finally {
+    controller.loadingOlder = false;
+  }
+}
+
+function buildView(
+  conversationId: string,
+  entry: ConversationStoreState['byConversationId'][string] | undefined,
+  bindReady: boolean
+): ConversationTimelineView {
+  const timeline = timelineTurnsForEntry(entry ?? null);
+  const sideRows = sideRowsForEntry(entry ?? null);
+  const items = timelineItemsForEntry(
+    entry ?? null,
+    undefined,
+    timeline,
+    sideRows
+  );
+  const hasDetail = Boolean(entry?.detail);
+  return {
+    timeline,
+    items,
+    sideRows,
+    agentId: entry?.detail?.summary.agent_id ?? null,
+    currentTurnId: entry?.currentTurnId ?? null,
+    steeringSupported: Boolean(
+      entry?.detail?.active_binding?.capabilities.steering
+    ),
+    forkSessionSupported: Boolean(
+      entry?.detail?.active_binding?.capabilities.fork_session
+    ),
+    loading: entry?.loading ?? false,
+    error: entry?.error ?? null,
+    lastSequence: entry?.lastSequence ?? 0n,
+    sessionModes: entry?.sessionModes ?? EMPTY_SESSION_MODES,
+    sessionConfigOptions: entry?.sessionConfigOptions ?? EMPTY_CONFIG_OPTIONS,
+    sendOptimisticTurn: (turn) => {
+      dispatch({ type: 'optimistic_turn', conversationId, turn });
+    },
+    removeOptimisticTurn: (turnId) => {
+      dispatch({ type: 'remove_optimistic_turn', conversationId, turnId });
+    },
+    refresh: () => {
+      const controller = slots.get(conversationId)?.controller;
+      if (controller) void loadDetail(conversationId, controller);
+    },
+    resetAndReload: () => resetAndReload(conversationId),
+    reconnectAndReload: () => reconnectAndReload(conversationId),
+    cancel: (reason) => conversationApi.cancel({ conversationId, reason }),
+    respondPermission: (permissionId, response) =>
+      conversationApi.respondPermission({
+        conversationId,
+        permissionId,
+        response,
+      }),
+    respondQuestion: (questionId, response) =>
+      conversationApi.respondQuestion({
+        conversationId,
+        questionId,
+        response,
+      }),
+    hasEarlier: Boolean(entry?.olderCursor),
+    loadOlder: () => loadOlder(conversationId),
+    sessionBindReady: bindReady,
+    connecting:
+      hasDetail &&
+      Boolean(entry?.detail?.summary.workspace_id) &&
+      !bindReady &&
+      !entry?.error &&
+      !(entry?.rows ?? []).some(
+        (row) => row.row_id === AGENT_BINDING_LOAD_FAILURE_NOTICE_ROW_ID
+      ),
+  };
+}
+
+function conversationLoadError(error: unknown): string | null {
+  if (isCanceledError(error)) return null;
+  return getInvokeErrorMessage(error);
+}
+
+function isStaleAgentConnectionError(error: unknown): boolean {
+  const message = getInvokeErrorMessage(error) ?? '';
+  return /agent connection `.+` was not found/i.test(message);
+}
+
+function toBigInt(value: bigint | number | string): bigint {
+  return typeof value === 'bigint' ? value : BigInt(value);
+}

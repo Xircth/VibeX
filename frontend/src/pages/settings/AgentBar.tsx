@@ -32,13 +32,8 @@ import { useTranslation } from 'react-i18next';
 import type { AgentManagementView } from 'shared/types';
 
 import { Plus, RefreshCw } from 'lucide-react';
+import { HoverCard } from '@astryxdesign/core/HoverCard';
 import { Button } from '@/components/ui/button';
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipProvider,
-  TooltipTrigger,
-} from '@/components/ui/tooltip';
 import { cn } from '@/lib/utils';
 
 import { AgentManagementIcon } from '@/components/agents/AgentManagementIcon';
@@ -635,89 +630,87 @@ function AgentBarHorizontal({
   const pageStyle = { '--agent-bar-page': page } as CSSProperties;
 
   return (
-    <TooltipProvider delayDuration={180}>
-      <DndContext
-        sensors={sensors}
-        collisionDetection={collisionDetection}
-        onDragStart={handleDragStart}
-        onDragOver={handleDragOver}
-        onDragEnd={handleDragEnd}
-        onDragCancel={handleDragCancel}
+    <DndContext
+      sensors={sensors}
+      collisionDetection={collisionDetection}
+      onDragStart={handleDragStart}
+      onDragOver={handleDragOver}
+      onDragEnd={handleDragEnd}
+      onDragCancel={handleDragCancel}
+    >
+      <nav
+        aria-label={t('agents.agentListAria')}
+        className="agent-management-bar"
+        style={agentBarLayoutStyle}
       >
-        <nav
-          aria-label={t('agents.agentListAria')}
-          className="agent-management-bar"
-          style={agentBarLayoutStyle}
-        >
-          <PagerArrow
-            direction="previous"
-            label={t('agents.previousAgentPage')}
-            page={page}
-            visible={page > 0}
-            onStep={() => setRequestedPage(page - 1)}
-            onDragHover={() => flipPageWhileDragging(-1)}
-          />
-          <div className="agent-management-bar-viewport" ref={viewportRef}>
-            <SortableContext items={order} strategy={keepLayout}>
-              <div className="agent-management-bar-track" style={pageStyle}>
-                {pages.map((agentIds, index) => (
-                  <div
-                    key={index}
-                    className="agent-management-bar-page"
-                    style={{
-                      gap: `${pageGaps[index] ?? AGENT_BAR_LAYOUT.itemGap}px`,
-                    }}
-                    inert={index !== page}
-                  >
-                    {agentIds.map((agentId) => {
-                      const agent = agentById.get(agentId);
-                      if (!agent) return null;
-                      return (
-                        <AgentBarItem
-                          key={agent.agent_id}
-                          agent={agent}
-                          labelWidth={getLabelWidth(agent.agent_id)}
-                          selected={
-                            !registryOpen && selectedAgentId === agent.agent_id
-                          }
-                          onSelect={onSelect}
-                          onNudge={handleNudge}
-                        />
-                      );
-                    })}
-                  </div>
-                ))}
-              </div>
-            </SortableContext>
-          </div>
-          <AgentBarTailGroup
-            registryOpen={registryOpen}
-            refreshing={refreshing}
-            nextPageVisible={page < pages.length - 1}
-            page={page}
-            onAdd={onAdd}
-            onRefresh={onRefresh}
-            onNextPage={() => setRequestedPage(page + 1)}
-            onNextPageDragHover={() => flipPageWhileDragging(1)}
-            actions={actions}
-          />
-          <DragOverlay>
-            {activeAgent ? (
-              <div className="settings-page" style={agentBarLayoutStyle}>
-                <AgentBarMark
-                  agent={activeAgent}
-                  labelWidth={getLabelWidth(activeAgent.agent_id)}
-                  selected={
-                    !registryOpen && selectedAgentId === activeAgent.agent_id
-                  }
-                  overlay
-                />
-              </div>
-            ) : null}
-          </DragOverlay>
-        </nav>
-      </DndContext>
-    </TooltipProvider>
+        <PagerArrow
+          direction="previous"
+          label={t('agents.previousAgentPage')}
+          page={page}
+          visible={page > 0}
+          onStep={() => setRequestedPage(page - 1)}
+          onDragHover={() => flipPageWhileDragging(-1)}
+        />
+        <div className="agent-management-bar-viewport" ref={viewportRef}>
+          <SortableContext items={order} strategy={keepLayout}>
+            <div className="agent-management-bar-track" style={pageStyle}>
+              {pages.map((agentIds, index) => (
+                <div
+                  key={index}
+                  className="agent-management-bar-page"
+                  style={{
+                    gap: `${pageGaps[index] ?? AGENT_BAR_LAYOUT.itemGap}px`,
+                  }}
+                  inert={index !== page}
+                >
+                  {agentIds.map((agentId) => {
+                    const agent = agentById.get(agentId);
+                    if (!agent) return null;
+                    return (
+                      <AgentBarItem
+                        key={agent.agent_id}
+                        agent={agent}
+                        labelWidth={getLabelWidth(agent.agent_id)}
+                        selected={
+                          !registryOpen && selectedAgentId === agent.agent_id
+                        }
+                        onSelect={onSelect}
+                        onNudge={handleNudge}
+                      />
+                    );
+                  })}
+                </div>
+              ))}
+            </div>
+          </SortableContext>
+        </div>
+        <AgentBarTailGroup
+          registryOpen={registryOpen}
+          refreshing={refreshing}
+          nextPageVisible={page < pages.length - 1}
+          page={page}
+          onAdd={onAdd}
+          onRefresh={onRefresh}
+          onNextPage={() => setRequestedPage(page + 1)}
+          onNextPageDragHover={() => flipPageWhileDragging(1)}
+          actions={actions}
+        />
+        <DragOverlay>
+          {activeAgent ? (
+            <div className="settings-page" style={agentBarLayoutStyle}>
+              <AgentBarMark
+                agent={activeAgent}
+                labelWidth={getLabelWidth(activeAgent.agent_id)}
+                selected={
+                  !registryOpen && selectedAgentId === activeAgent.agent_id
+                }
+                overlay
+              />
+            </div>
+          ) : null}
+        </DragOverlay>
+      </nav>
+    </DndContext>
   );
 }
 
@@ -755,42 +748,52 @@ export function AgentBarTailGroup({
       {actions ?? (
         <>
           {onAdd ? (
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <Button
-                  size="sm"
-                  variant={registryOpen ? 'secondary' : 'ghost'}
-                  className="h-6 w-6 shrink-0 rounded-full p-0 hover:bg-transparent hover:text-foreground"
-                  aria-current={registryOpen ? 'page' : undefined}
-                  aria-label={t('agents.addAgent')}
-                  onClick={onAdd}
-                >
-                  <Plus aria-hidden="true" className="h-3.5 w-3.5" />
-                </Button>
-              </TooltipTrigger>
-              <TooltipContent>{t('agents.acpRegistry')}</TooltipContent>
-            </Tooltip>
+            <HoverCard
+              content={
+                <span className="px-2 py-1 text-xs">
+                  {t('agents.acpRegistry')}
+                </span>
+              }
+              delay={180}
+              hasHoverIndication={false}
+            >
+              <Button
+                size="sm"
+                variant={registryOpen ? 'secondary' : 'ghost'}
+                className="h-6 w-6 shrink-0 rounded-full p-0"
+                aria-current={registryOpen ? 'page' : undefined}
+                aria-label={t('agents.addAgent')}
+                onClick={onAdd}
+              >
+                <Plus aria-hidden="true" className="h-3.5 w-3.5" />
+              </Button>
+            </HoverCard>
           ) : null}
           {onRefresh ? (
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <Button
-                  size="sm"
-                  variant="ghost"
-                  className="h-6 w-6 shrink-0 rounded-full p-0 hover:bg-transparent hover:text-foreground"
-                  aria-label={t('agents.refreshStatusAria')}
-                  aria-busy={refreshing}
-                  disabled={refreshing}
-                  onClick={onRefresh}
-                >
-                  <RefreshCw
-                    aria-hidden="true"
-                    className={cn('h-3.5 w-3.5', refreshing && 'animate-spin')}
-                  />
-                </Button>
-              </TooltipTrigger>
-              <TooltipContent>{t('agents.refreshStatusAria')}</TooltipContent>
-            </Tooltip>
+            <HoverCard
+              content={
+                <span className="px-2 py-1 text-xs">
+                  {t('agents.refreshStatusAria')}
+                </span>
+              }
+              delay={180}
+              hasHoverIndication={false}
+            >
+              <Button
+                size="sm"
+                variant="ghost"
+                className="h-6 w-6 shrink-0 rounded-full p-0"
+                aria-label={t('agents.refreshStatusAria')}
+                aria-busy={refreshing}
+                disabled={refreshing}
+                onClick={onRefresh}
+              >
+                <RefreshCw
+                  aria-hidden="true"
+                  className={cn('h-3.5 w-3.5', refreshing && 'animate-spin')}
+                />
+              </Button>
+            </HoverCard>
           ) : null}
         </>
       )}
@@ -928,51 +931,55 @@ function AgentBarItem({
   const statusDescriptionId = `agent-status-${agent.agent_id}`;
 
   return (
-    <Tooltip open={isDragging ? false : undefined}>
-      <TooltipTrigger asChild>
-        <button
-          type="button"
-          ref={setNodeRef}
-          {...attributes}
-          {...dragListeners}
-          data-agent-id={agent.agent_id}
-          aria-current={selected ? 'true' : undefined}
-          aria-label={agent.display_name}
-          aria-describedby={statusDescriptionId}
-          className={cn(
-            'agent-management-bar-item',
-            selected && 'is-selected',
-            !agent.enabled && 'is-disabled',
-            isDragging && 'is-placeholder'
-          )}
-          style={{
-            transform: CSS.Transform.toString(transform),
-            transition: isDragging ? transition : undefined,
-          }}
-          onClick={() => onSelect(agent.agent_id)}
-          onKeyDown={(event) => {
-            dragKeyDown?.(event);
-            if (!event.altKey) return;
-            if (event.key === 'ArrowLeft') {
-              event.preventDefault();
-              onNudge(agent.agent_id, -1);
-            }
-            if (event.key === 'ArrowRight') {
-              event.preventDefault();
-              onNudge(agent.agent_id, 1);
-            }
-          }}
-        >
-          <AgentBarArtwork agent={agent} labelWidth={labelWidth} />
-          <span id={statusDescriptionId} className="sr-only">
-            {status}. {t('agents.reorderHint')}
-          </span>
-        </button>
-      </TooltipTrigger>
-      <TooltipContent>
-        {agent.display_name} · {status}
-      </TooltipContent>
-    </Tooltip>
+    <HoverCard
+      content={
+        <span className="px-2 py-1 text-xs">
+          {agent.display_name} · {status}
+        </span>
+      }
+      delay={180}
+      hasHoverIndication={false}
+      isEnabled={!isDragging}
+    >
+      <button
+        type="button"
+        ref={setNodeRef}
+        {...attributes}
+        {...dragListeners}
+        data-agent-id={agent.agent_id}
+        aria-current={selected ? 'true' : undefined}
+        aria-label={agent.display_name}
+        aria-describedby={statusDescriptionId}
+        className={cn(
+          'agent-management-bar-item',
+          selected && 'is-selected',
+          !agent.enabled && 'is-disabled',
+          isDragging && 'is-placeholder'
+        )}
+        style={{
+          transform: CSS.Transform.toString(transform),
+          transition: isDragging ? transition : undefined,
+        }}
+        onClick={() => onSelect(agent.agent_id)}
+        onKeyDown={(event) => {
+          dragKeyDown?.(event);
+          if (!event.altKey) return;
+          if (event.key === 'ArrowLeft') {
+            event.preventDefault();
+            onNudge(agent.agent_id, -1);
+          }
+          if (event.key === 'ArrowRight') {
+            event.preventDefault();
+            onNudge(agent.agent_id, 1);
+          }
+        }}
+      >
+        <AgentBarArtwork agent={agent} labelWidth={labelWidth} />
+        <span id={statusDescriptionId} className="sr-only">
+          {status}. {t('agents.reorderHint')}
+        </span>
+      </button>
+    </HoverCard>
   );
 }
 

@@ -33,6 +33,7 @@ import { checkAppUpdate } from '@/lib/appUpdate';
 import { getStartupPromptStep } from '@/appStartupPrompt';
 import { getAppRouteMode } from '@/appRouteMode';
 import { useLegacyDesignBodyClass } from '@/useLegacyDesignBodyClass';
+import { useOptionMenuViewportFit } from '@/components/ui/option-menu-position';
 import { isSettingsSurfacePath } from '@/lib/settingsPreload';
 import { AgentWorkbenchProvider } from '@/features/agents/useAgentWorkbench';
 import { scheduleIdleWork } from '@/lib/scheduleIdleWork';
@@ -140,6 +141,7 @@ function MainAppContent({ children }: { children: ReactNode }) {
   useRemoteHostReleaseUpdateToast();
 
   useLegacyDesignBodyClass();
+  useOptionMenuViewportFit();
 
   useEffect(() => revealDesktopWindowAfterPaint(), []);
 

@@ -49,6 +49,10 @@ describe('workspace session group layout', () => {
 
     expect(listBody.get('padding')).toBe('0 0.75rem 0.75rem');
     expect(inset.get('min-height')).toBe('0');
+    expect(inset.get('padding')).toBe('0 0.75rem');
+    expect(
+      declarationsFor(".session-hub-inset[data-expanded='true']").get('padding')
+    ).toBe('0.25rem 0.75rem 0.375rem');
   });
 });
 

@@ -146,6 +146,8 @@ fn image_block(item: &Value) -> Option<ContentBlock> {
             .unwrap_or("image/png")
             .to_string(),
         uri: None,
+        width: None,
+        height: None,
     })
 }
 

@@ -122,6 +122,10 @@ pub struct CreateProjectSessionPayload {
     pub create_workspace: Option<bool>,
     pub include_uncommitted: Option<bool>,
     pub repos: Option<Vec<ProjectSessionRepoInput>>,
+    #[serde(default)]
+    pub mode_override: Option<String>,
+    #[serde(default)]
+    pub config_overrides: Option<std::collections::BTreeMap<String, String>>,
 }
 
 fn derive_workspace_seed_title(name: Option<&str>, initial_prompt: Option<&str>) -> String {
@@ -862,6 +866,20 @@ pub async fn create_project_session(
         session.external_session_id = Some(prepared.acp_session_id);
         session.agent_id = Some(agent_id);
     }
+
+    // Same contract as the host command: the binding exists before the caller
+    // shows the conversation and establishes its ACP session.
+    conversations::remember_creation_session_controls(
+        pool,
+        session.id,
+        payload.mode_override.as_deref(),
+        payload
+            .config_overrides
+            .into_iter()
+            .flat_map(|map| map.into_iter())
+            .map(|(key, value)| agents::AgentSessionConfigOverride { key, value }),
+    )
+    .await;
 
     state
         .agent_runtime

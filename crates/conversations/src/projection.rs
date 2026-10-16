@@ -13,8 +13,8 @@ use agents::{
         ConversationPermissionView, ConversationRowOp, ConversationSessionNotice,
         ConversationTerminalView, ConversationTimeline, ConversationTimelineRow, MessageTurn,
         PlanEntry, SessionLoadFailureReason, SessionRecoveryStrategy, SessionStats, TimelineRow,
-        TimelineTextStream, TurnRole, TurnUsage, cap_json_value, cap_preview_bytes,
-        cap_timeline_preview_fields, cap_timeline_row_preview_fields,
+        TimelineTextStream, TurnRole, TurnUsage, cap_content_blocks, cap_json_value,
+        cap_preview_bytes, cap_timeline_preview_fields, cap_timeline_row_preview_fields,
     },
 };
 use db::models::{
@@ -40,9 +40,10 @@ use sqlx::{Executor, Sqlite, SqliteConnection, SqlitePool};
 use tokio::{sync::Mutex, time::Instant};
 use uuid::Uuid;
 
-// v17 attributes streaming deltas to the recorder's turn_id, which is now read from
-// the authoritative active-turn pointer instead of a cache that could go stale.
-pub const CONVERSATION_PROJECTION_VERSION: u32 = 20;
+// v21 settles Antigravity view_file (`read`) failures as `completed` with no
+// error output, matching a successful view. The bump drops snapshots folded
+// before that rule.
+pub const CONVERSATION_PROJECTION_VERSION: u32 = 21;
 pub const OPEN_TIMELINE_ROW_LIMIT: usize = 80;
 const SNAPSHOT_REFRESH_EVENT_GAP: i64 = 40;
 
@@ -712,6 +713,7 @@ impl ConversationProjector {
 
     async fn fold(pool: &SqlitePool, conversation_id: Uuid) -> Result<ProjectionFold, sqlx::Error> {
         let mut fold = Self::load_fold_from_snapshot(pool, conversation_id).await?;
+        fold.complete_antigravity_reads = antigravity_conversation(pool, conversation_id).await?;
         let tail = ConversationEventRecord::events_since(
             pool,
             conversation_id,
@@ -751,6 +753,7 @@ impl ConversationProjector {
         after_sequence: i64,
     ) -> Result<(Vec<TimelineRow>, i64), sqlx::Error> {
         let mut fold = Self::load_fold_from_snapshot(pool, conversation_id).await?;
+        fold.complete_antigravity_reads = antigravity_conversation(pool, conversation_id).await?;
         let tail = ConversationEventRecord::events_since(
             pool,
             conversation_id,
@@ -799,6 +802,8 @@ impl ConversationProjector {
 
         let conversation_id = record.conversation_id;
         let mut fold = Self::load_fold_from_snapshot(&mut *conn, conversation_id).await?;
+        fold.complete_antigravity_reads =
+            antigravity_conversation(&mut *conn, conversation_id).await?;
         if !settled && record.sequence - fold.last_sequence < SNAPSHOT_REFRESH_EVENT_GAP {
             return Ok(());
         }
@@ -884,6 +889,8 @@ impl ConversationProjector {
         let events =
             ConversationEventRecord::events_since(&mut *conn, conversation_id, 0, i64::MAX).await?;
         let mut fold = ProjectionFold::default();
+        fold.complete_antigravity_reads =
+            antigravity_conversation(&mut *conn, conversation_id).await?;
         for record in &events {
             ConversationStateApplier::apply_record(&mut *conn, record).await?;
             fold.apply(record)?;
@@ -1121,6 +1128,7 @@ impl IncrementalRowProjector {
         if fold.last_sequence > up_to_sequence {
             fold = ProjectionFold::default();
         }
+        fold.complete_antigravity_reads = antigravity_conversation(pool, conversation_id).await?;
         let tail = ConversationEventRecord::events_since(
             pool,
             conversation_id,
@@ -1181,6 +1189,7 @@ fn row_op_target_id(op: &ConversationRowOp) -> &str {
         ConversationRowOp::Upsert { row } => &row.row_id,
         ConversationRowOp::Delete { row_id, .. } => row_id,
         ConversationRowOp::AppendText { row_id, .. } => row_id,
+        ConversationRowOp::PatchBlocks { row_id, .. } => row_id,
     }
 }
 
@@ -1198,7 +1207,7 @@ pub fn extend_coalesced_row_ops(
             ConversationRowOp::Delete { row_id, .. } => {
                 ops.retain(|existing| row_op_target_id(existing) != row_id);
             }
-            ConversationRowOp::AppendText { .. } => {}
+            ConversationRowOp::AppendText { .. } | ConversationRowOp::PatchBlocks { .. } => {}
         }
         ops.push(op);
     }
@@ -1243,6 +1252,10 @@ struct ProjectionFold {
     side_rows: Vec<TimelineRow>,
     last_sequence: i64,
     auto_permission_approvals: u32,
+    /// Antigravity reports view_file failures for cascade and provider errors
+    /// that are not the read. Not part of the snapshot: set from the binding
+    /// before events are folded.
+    complete_antigravity_reads: bool,
 }
 
 /// Serializable form of [`ProjectionFold`] (turns kept in order, no map keys → portable JSON).
@@ -1389,6 +1402,16 @@ impl ProjectionFold {
         let auto_permission_approvals = &mut self.auto_permission_approvals;
         let mut deleted_rows = Vec::new();
         let mut touched_turn_rows: Option<TouchedTurnRows> = None;
+        // `Full` sends the assistant row once. Later tool, plan, content, and usage
+        // ticks send only the changed blocks so a live turn is not re-parsed whole.
+        enum AssistantEmit {
+            Full,
+            Patch {
+                blocks: Vec<ContentBlock>,
+                usage: Option<TurnUsage>,
+            },
+        }
+        let mut assistant_emit: Option<AssistantEmit> = None;
 
         match event {
             ConversationEvent::UserTurnCreated { blocks, .. } => {
@@ -1410,6 +1433,8 @@ impl ProjectionFold {
                                 data: String::new(),
                                 mime_type,
                                 uri: Some(uri),
+                                width: None,
+                                height: None,
                             }),
                             agents::conversation::ConversationInputBlock::Resource { .. } => None,
                             agents::conversation::ConversationInputBlock::Protocol { .. } => None,
@@ -1431,8 +1456,18 @@ impl ProjectionFold {
                 if let Some(turn_id) = record.turn_id.or_else(|| turn_order.last().copied()) {
                     ensure_turn(turns, turn_order, turn_id, record);
                     let turn = turns.get_mut(&turn_id).expect("turn exists");
+                    let row_existed = !turn.assistant.blocks.is_empty();
                     turn.revision = record.sequence;
                     turn.assistant.blocks.push(block);
+                    assistant_emit = Some(if row_existed {
+                        let blocks = turn.assistant.blocks.last().cloned().into_iter().collect();
+                        AssistantEmit::Patch {
+                            blocks,
+                            usage: None,
+                        }
+                    } else {
+                        AssistantEmit::Full
+                    });
                     touched_turn_rows = Some(TouchedTurnRows::AssistantOnly(turn_id));
                 }
             }
@@ -1440,6 +1475,7 @@ impl ProjectionFold {
                 if let Some(turn_id) = record.turn_id.or_else(|| turn_order.last().copied()) {
                     ensure_turn(turns, turn_order, turn_id, record);
                     let turn = turns.get_mut(&turn_id).expect("turn exists");
+                    let row_existed = !turn.assistant.blocks.is_empty();
                     turn.revision = record.sequence;
                     let plan = ContentBlock::Plan {
                         entries: entries
@@ -1461,6 +1497,22 @@ impl ProjectionFold {
                     } else {
                         turn.assistant.blocks.push(plan);
                     }
+                    assistant_emit = Some(if row_existed {
+                        let blocks = turn
+                            .assistant
+                            .blocks
+                            .iter()
+                            .find(|block| matches!(block, ContentBlock::Plan { .. }))
+                            .cloned()
+                            .into_iter()
+                            .collect();
+                        AssistantEmit::Patch {
+                            blocks,
+                            usage: None,
+                        }
+                    } else {
+                        AssistantEmit::Full
+                    });
                     touched_turn_rows = Some(TouchedTurnRows::AssistantOnly(turn_id));
                 }
             }
@@ -1468,12 +1520,35 @@ impl ProjectionFold {
                 if let Some(turn_id) = record.turn_id.or_else(|| turn_order.last().copied()) {
                     ensure_turn(turns, turn_order, turn_id, record);
                     let turn = turns.get_mut(&turn_id).expect("turn exists");
+                    let assistant_row_existed = !turn.assistant.blocks.is_empty();
                     turn.revision = record.sequence;
                     touched_turn_rows = Some(TouchedTurnRows::AssistantOnly(turn_id));
                     let call_id = tool_call.tool_call_id.clone();
+                    let patch_id = call_id.clone();
                     let observed_at = record.created_at;
+                    let existing_kind =
+                        turn.assistant.blocks.iter().find_map(|block| match block {
+                            ContentBlock::ToolUse {
+                                tool_use_id: Some(id),
+                                kind,
+                                ..
+                            } if id == &call_id => kind.clone(),
+                            _ => None,
+                        });
+                    let kind = tool_call.kind.clone().or(existing_kind);
+                    // Antigravity stamps cascade and provider errors onto view_file.
+                    // A successful view_file is `completed` with no output, so a
+                    // failed read result is settled the same way.
+                    let settle_read = self.complete_antigravity_reads
+                        && kind.as_deref() == Some("read")
+                        && tool_call.status.as_deref() == Some("failed");
+                    let reported_status = if settle_read {
+                        Some("completed".to_string())
+                    } else {
+                        tool_call.status.clone()
+                    };
                     let terminal = matches!(
-                        tool_call.status.as_deref(),
+                        reported_status.as_deref(),
                         Some("completed") | Some("failed")
                     );
 
@@ -1523,8 +1598,8 @@ impl ProjectionFold {
                             if tool_call.kind.is_some() {
                                 *kind = tool_call.kind;
                             }
-                            if tool_call.status.is_some() {
-                                *status = tool_call.status.clone();
+                            if reported_status.is_some() {
+                                *status = reported_status.clone();
                             }
                             if let Some(raw) = tool_call.raw_input {
                                 *input_preview = Some(cap_preview_bytes(raw.to_string()));
@@ -1544,7 +1619,7 @@ impl ProjectionFold {
                         }
                         None => {
                             turn.assistant.blocks.push(ContentBlock::ToolUse {
-                                status: tool_call.status.clone(),
+                                status: reported_status.clone(),
                                 tool_use_id: Some(call_id.clone()),
                                 tool_name: tool_call
                                     .title
@@ -1575,12 +1650,16 @@ impl ProjectionFold {
                         _ => None,
                     });
                     let is_error = matches!(status, Some("failed"));
-                    let output_preview = tool_call.raw_output.map(|output| {
-                        cap_preview_bytes(match output {
-                            serde_json::Value::String(text) => text,
-                            other => other.to_string(),
+                    let output_preview = if settle_read {
+                        None
+                    } else {
+                        tool_call.raw_output.map(|output| {
+                            cap_preview_bytes(match output {
+                                serde_json::Value::String(text) => text,
+                                other => other.to_string(),
+                            })
                         })
-                    });
+                    };
                     if output_preview.is_some() || terminal {
                         let existing_result =
                             turn.assistant
@@ -1597,10 +1676,15 @@ impl ProjectionFold {
                                 });
                         match existing_result {
                             Some((existing_output, existing_error)) => {
-                                if output_preview.is_some() {
-                                    *existing_output = output_preview;
+                                if settle_read {
+                                    *existing_output = None;
+                                    *existing_error = false;
+                                } else {
+                                    if output_preview.is_some() {
+                                        *existing_output = output_preview;
+                                    }
+                                    *existing_error = is_error;
                                 }
-                                *existing_error = is_error;
                             }
                             None => {
                                 turn.assistant.blocks.push(ContentBlock::ToolResult {
@@ -1612,6 +1696,31 @@ impl ProjectionFold {
                             }
                         }
                     }
+                    assistant_emit = Some(if assistant_row_existed {
+                        let blocks = turn
+                            .assistant
+                            .blocks
+                            .iter()
+                            .filter(|block| match block {
+                                ContentBlock::ToolUse {
+                                    tool_use_id: Some(id),
+                                    ..
+                                }
+                                | ContentBlock::ToolResult {
+                                    tool_use_id: Some(id),
+                                    ..
+                                } => id == &patch_id,
+                                _ => false,
+                            })
+                            .cloned()
+                            .collect();
+                        AssistantEmit::Patch {
+                            blocks,
+                            usage: None,
+                        }
+                    } else {
+                        AssistantEmit::Full
+                    });
                 }
             }
             ConversationEvent::UsageUpdated { usage } => {
@@ -1629,9 +1738,16 @@ impl ProjectionFold {
                         cost_currency: usage.cost_currency.clone(),
                     });
                     if turn.assistant.usage != next_usage {
+                        let has_blocks = !turn.assistant.blocks.is_empty();
                         turn.assistant.usage = next_usage;
                         turn.revision = record.sequence;
-                        touched_turn_rows = Some(TouchedTurnRows::AssistantOnly(turn_id));
+                        if has_blocks {
+                            assistant_emit = Some(AssistantEmit::Patch {
+                                blocks: Vec::new(),
+                                usage: turn.assistant.usage.clone(),
+                            });
+                            touched_turn_rows = Some(TouchedTurnRows::AssistantOnly(turn_id));
+                        }
                     }
                 }
             }
@@ -2248,9 +2364,23 @@ impl ProjectionFold {
                 if let Some(turn) = self.turns.get(&turn_id)
                     && !turn.assistant.blocks.is_empty()
                 {
-                    let mut row = message_row(turn, TurnRole::Assistant);
-                    cap_timeline_row_preview_fields(&mut row);
-                    ops.push(ConversationRowOp::Upsert { row });
+                    match assistant_emit {
+                        Some(AssistantEmit::Patch { mut blocks, usage }) => {
+                            cap_content_blocks(&mut blocks);
+                            ops.push(ConversationRowOp::PatchBlocks {
+                                row_id: turn.assistant.id.clone(),
+                                revision: turn.revision,
+                                phase: turn.phase.clone(),
+                                blocks,
+                                usage,
+                            });
+                        }
+                        _ => {
+                            let mut row = message_row(turn, TurnRole::Assistant);
+                            cap_timeline_row_preview_fields(&mut row);
+                            ops.push(ConversationRowOp::Upsert { row });
+                        }
+                    }
                 }
             }
             None => {}
@@ -2272,6 +2402,7 @@ impl ProjectionFold {
             side_rows,
             last_sequence,
             auto_permission_approvals: _,
+            complete_antigravity_reads: _,
         } = self;
 
         let mut rows = Vec::new();
@@ -2686,6 +2817,25 @@ fn remove_side_row(
     }
 }
 
+async fn antigravity_conversation<'e, E>(
+    executor: E,
+    conversation_id: Uuid,
+) -> Result<bool, sqlx::Error>
+where
+    E: Executor<'e, Database = Sqlite>,
+{
+    let agent_id: Option<String> = sqlx::query_scalar(
+        r#"SELECT agent_id FROM conversation_agent_bindings
+           WHERE conversation_id = ?
+           ORDER BY created_at DESC
+           LIMIT 1"#,
+    )
+    .bind(conversation_id)
+    .fetch_optional(executor)
+    .await?;
+    Ok(agent_id.as_deref() == Some("antigravity"))
+}
+
 fn reconnect_attempt_from_payload(payload: Option<&serde_json::Value>) -> (u32, u32) {
     let attempt = payload
         .and_then(|value| value.get("attempt"))
@@ -2910,6 +3060,8 @@ fn content_blocks_from_input(
                     data: String::new(),
                     mime_type: mime_type.clone(),
                     uri: Some(uri.clone()),
+                    width: None,
+                    height: None,
                 })
             }
             agents::conversation::ConversationInputBlock::Resource { .. }
@@ -5559,6 +5711,163 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn antigravity_view_file_failures_settle_as_completed_reads() {
+        let pool = setup_pool().await;
+        let (conversation_id, turn_id) = seed_turn(&pool).await;
+        let agent_id = AgentId::parse("antigravity").unwrap();
+        ConversationAgentBindingRecord::create(
+            &pool,
+            Uuid::new_v4(),
+            CreateConversationAgentBinding {
+                conversation_id,
+                agent_id: &agent_id,
+                working_dir: "C:/workspace",
+                acp_session_id: None,
+                acp_protocol_version: None,
+                runtime_version: None,
+                acp_version: None,
+                load_supported: false,
+                resume_supported: false,
+                close_supported: false,
+                terminal_supported: false,
+                additional_directories_supported: false,
+                prompt_capabilities_json:
+                    r#"{"text":true,"image":false,"audio":false,"resource":false,"resource_link":true}"#,
+                session_capabilities_json: "{}",
+                client_capabilities_json: "{}",
+                mcp_servers_json: "[]",
+                modes_json: "[]",
+                config_options_json: "[]",
+                current_mode: None,
+                config_selection_json: "{}",
+                status: db::models::conversation::BindingStatus::Ready,
+            },
+        )
+        .await
+        .expect("antigravity binding");
+
+        append_event(
+            &pool,
+            conversation_id,
+            Some(turn_id),
+            "acp",
+            ConversationEvent::ToolCallUpsert {
+                tool_call: ConversationToolCallPatch {
+                    tool_call_id: "view-1".into(),
+                    title: Some("Running view_file".into()),
+                    kind: Some("read".into()),
+                    status: Some("in_progress".into()),
+                    raw_input: Some(serde_json::json!({"AbsolutePath": "C:/workspace/index.css"})),
+                    raw_output: None,
+                    raw_output_append: None,
+                    content: None,
+                    locations: None,
+                    metadata: None,
+                    images: Vec::new(),
+                },
+            },
+            None,
+        )
+        .await;
+        append_event(
+            &pool,
+            conversation_id,
+            Some(turn_id),
+            "acp",
+            ConversationEvent::ToolCallUpsert {
+                tool_call: ConversationToolCallPatch {
+                    tool_call_id: "view-1".into(),
+                    title: Some("view-1".into()),
+                    kind: None,
+                    status: Some("failed".into()),
+                    raw_input: None,
+                    raw_output: Some(serde_json::Value::String(
+                        "Encountered retryable error from model provider: Error 502".into(),
+                    )),
+                    raw_output_append: None,
+                    content: None,
+                    locations: None,
+                    metadata: None,
+                    images: Vec::new(),
+                },
+            },
+            None,
+        )
+        .await;
+        append_event(
+            &pool,
+            conversation_id,
+            Some(turn_id),
+            "acp",
+            ConversationEvent::ToolCallUpsert {
+                tool_call: ConversationToolCallPatch {
+                    tool_call_id: "run-1".into(),
+                    title: Some("Running command".into()),
+                    kind: Some("execute".into()),
+                    status: Some("failed".into()),
+                    raw_input: Some(serde_json::json!({"command":"npm test"})),
+                    raw_output: Some(serde_json::Value::String(
+                        "error executing cascade step: scratch missing".into(),
+                    )),
+                    raw_output_append: None,
+                    content: None,
+                    locations: None,
+                    metadata: None,
+                    images: Vec::new(),
+                },
+            },
+            None,
+        )
+        .await;
+
+        let timeline = ConversationProjector::project(&pool, conversation_id)
+            .await
+            .expect("project");
+        let blocks: Vec<_> = timeline
+            .rows
+            .iter()
+            .filter_map(|row| match &row.row {
+                ConversationTimelineRow::MessageTurn { turn, .. }
+                    if turn.role == TurnRole::Assistant =>
+                {
+                    Some(&turn.blocks)
+                }
+                _ => None,
+            })
+            .flatten()
+            .collect();
+        let view_status = blocks.iter().find_map(|block| match block {
+            ContentBlock::ToolUse {
+                tool_use_id: Some(id),
+                status,
+                kind,
+                ..
+            } if id == "view-1" => Some((status.as_deref(), kind.as_deref())),
+            _ => None,
+        });
+        assert_eq!(view_status, Some((Some("completed"), Some("read"))));
+        let view_result = blocks.iter().find_map(|block| match block {
+            ContentBlock::ToolResult {
+                tool_use_id: Some(id),
+                is_error,
+                output_preview,
+                ..
+            } if id == "view-1" => Some((*is_error, output_preview.clone())),
+            _ => None,
+        });
+        assert_eq!(view_result, Some((false, None)));
+        let command_status = blocks.iter().find_map(|block| match block {
+            ContentBlock::ToolUse {
+                tool_use_id: Some(id),
+                status,
+                ..
+            } if id == "run-1" => status.as_deref(),
+            _ => None,
+        });
+        assert_eq!(command_status, Some("failed"));
+    }
+
+    #[tokio::test]
     async fn timeline_folds_tool_call_updates_into_one_block() {
         let pool = setup_pool().await;
         let (conversation_id, turn_id) = seed_turn(&pool).await;
@@ -5795,6 +6104,8 @@ mod tests {
                         data: "AAAA".into(),
                         mime_type: "image/png".into(),
                         uri: Some("assets/logo.png".into()),
+                        width: None,
+                        height: None,
                     }],
                 },
             },
@@ -5823,8 +6134,11 @@ mod tests {
             })
             .expect("tool images");
 
-        assert_eq!(images[0].data, "AAAA");
+        assert!(images[0].data.is_empty());
         assert_eq!(images[0].mime_type, "image/png");
+        assert!(images[0].uri.as_deref().is_some_and(
+            |uri| uri.starts_with("vibex-image:") && uri.len() == "vibex-image:".len() + 64
+        ));
     }
 
     #[tokio::test]
@@ -7508,42 +7822,152 @@ mod tests {
         }
         assert_eq!(
             coalesced.len(),
-            1,
-            "multiple Upserts to the same assistant turn row in one batch must coalesce to one op"
+            2,
+            "the first tool creates the assistant row; the next tool patches that row"
         );
         match &coalesced[0] {
             ConversationRowOp::Upsert { row } => match &row.row {
                 ConversationTimelineRow::MessageTurn { turn, .. } => {
                     assert_eq!(turn.role, TurnRole::Assistant);
-                    for block in &turn.blocks {
-                        match block {
-                            ContentBlock::ToolUse {
-                                meta: Some(meta), ..
-                            } => {
-                                let serialized = serde_json::to_string(meta).unwrap();
-                                assert!(
-                                    serialized.len()
-                                        <= agents::conversation::MAX_TIMELINE_PREVIEW_BYTES + 32,
-                                    "tool metadata must be capped in live projection"
-                                );
-                            }
-                            ContentBlock::ToolResult {
-                                output_preview: Some(preview),
-                                ..
-                            } => {
-                                assert!(
-                                    preview.len()
-                                        <= agents::conversation::MAX_TIMELINE_PREVIEW_BYTES + 8,
-                                    "tool output_preview must be capped in live projection"
-                                );
-                            }
-                            _ => {}
-                        }
-                    }
+                    let meta = turn.blocks.iter().find_map(|block| match block {
+                        ContentBlock::ToolUse {
+                            meta: Some(meta), ..
+                        } => Some(meta),
+                        _ => None,
+                    });
+                    let serialized = serde_json::to_string(meta.expect("capped meta")).unwrap();
+                    assert!(
+                        serialized.len() <= agents::conversation::MAX_TIMELINE_PREVIEW_BYTES + 32,
+                        "tool metadata must be capped in live projection"
+                    );
                 }
                 other => panic!("expected MessageTurn, got {other:?}"),
             },
-            other => panic!("expected Upsert, got {other:?}"),
+            other => panic!("expected creation Upsert, got {other:?}"),
+        }
+        match &coalesced[1] {
+            ConversationRowOp::PatchBlocks { blocks, .. } => {
+                assert!(blocks.iter().all(|block| matches!(
+                    block,
+                    ContentBlock::ToolUse { .. } | ContentBlock::ToolResult { .. }
+                )));
+                let preview = blocks.iter().find_map(|block| match block {
+                    ContentBlock::ToolResult {
+                        output_preview: Some(preview),
+                        ..
+                    } => Some(preview),
+                    _ => None,
+                });
+                let preview = preview.expect("patched output");
+                assert!(
+                    preview.len() <= agents::conversation::MAX_TIMELINE_PREVIEW_BYTES + 8,
+                    "tool output_preview must be capped in live projection"
+                );
+            }
+            other => panic!("expected PatchBlocks, got {other:?}"),
+        }
+    }
+
+    #[tokio::test]
+    async fn tool_update_after_text_patches_only_the_changed_blocks() {
+        let pool = setup_pool().await;
+        let (conversation_id, turn_id) = seed_turn(&pool).await;
+        let user_rec = append_event(
+            &pool,
+            conversation_id,
+            Some(turn_id),
+            "user",
+            ConversationEvent::UserTurnCreated {
+                blocks: vec![ConversationInputBlock::Text {
+                    text: "look".into(),
+                }],
+                workflow_refs: Vec::new(),
+            },
+            None,
+        )
+        .await;
+        let mut projector = IncrementalRowProjector::load(&pool, conversation_id, 0)
+            .await
+            .expect("load projector");
+        projector.apply(&user_rec).expect("apply user");
+        let text_rec = append_event(
+            &pool,
+            conversation_id,
+            Some(turn_id),
+            "acp",
+            ConversationEvent::AssistantTextDelta {
+                text: "hello".into(),
+                message_id: None,
+            },
+            None,
+        )
+        .await;
+        let text_ops = projector.apply(&text_rec).expect("apply text");
+        assert!(matches!(
+            text_ops.as_slice(),
+            [ConversationRowOp::AppendText { .. }]
+        ));
+        let tool_rec = append_event(
+            &pool,
+            conversation_id,
+            Some(turn_id),
+            "acp",
+            ConversationEvent::ToolCallUpsert {
+                tool_call: ConversationToolCallPatch {
+                    tool_call_id: "call-9".into(),
+                    title: Some("Read".into()),
+                    kind: Some("read".into()),
+                    status: Some("completed".into()),
+                    raw_input: None,
+                    raw_output: Some(serde_json::json!("ok")),
+                    raw_output_append: None,
+                    content: None,
+                    locations: None,
+                    metadata: None,
+                    images: Vec::new(),
+                },
+            },
+            None,
+        )
+        .await;
+        let tool_ops = projector.apply(&tool_rec).expect("apply tool");
+        match tool_ops.as_slice() {
+            [ConversationRowOp::PatchBlocks { blocks, .. }] => {
+                assert!(blocks.iter().all(|block| matches!(
+                    block,
+                    ContentBlock::ToolUse { .. } | ContentBlock::ToolResult { .. }
+                )));
+                assert!(
+                    !blocks
+                        .iter()
+                        .any(|block| matches!(block, ContentBlock::Text { .. }))
+                );
+            }
+            other => panic!("expected a tool patch, got {other:?}"),
+        }
+        let usage_rec = append_event(
+            &pool,
+            conversation_id,
+            Some(turn_id),
+            "acp",
+            ConversationEvent::UsageUpdated {
+                usage: ConversationUsage {
+                    input_tokens: 3,
+                    output_tokens: 4,
+                    ..ConversationUsage::default()
+                },
+            },
+            None,
+        )
+        .await;
+        let usage_ops = projector.apply(&usage_rec).expect("apply usage");
+        match usage_ops.as_slice() {
+            [ConversationRowOp::PatchBlocks { blocks, usage, .. }] => {
+                assert!(blocks.is_empty());
+                assert_eq!(usage.as_ref().map(|usage| usage.input_tokens), Some(3));
+                assert_eq!(usage.as_ref().map(|usage| usage.output_tokens), Some(4));
+            }
+            other => panic!("expected a usage patch, got {other:?}"),
         }
     }
 }

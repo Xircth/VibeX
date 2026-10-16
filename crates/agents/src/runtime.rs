@@ -2796,6 +2796,8 @@ mod tests {
                     data: "a".repeat(8_000),
                     mime_type: "image/png".to_string(),
                     uri: None,
+                    width: None,
+                    height: None,
                 }],
             },
         }));

@@ -30,11 +30,17 @@ describe('product option menus', () => {
     const selector = declarationsFor(
       ".legacy-design [popover]:has([role='listbox']) > div"
     );
+    const hovered = declarationsFor(
+      ".legacy-design [popover]:has([role='listbox']:not(.astryx-trigger-menu)) [role='option']:hover, .legacy-design [popover]:has([role='listbox']:not(.astryx-trigger-menu)) [role='option']:focus-visible"
+    );
     const selected = declarationsFor(
-      ".legacy-design [popover]:has([role='listbox']) [role='option']:hover, .legacy-design [popover]:has([role='listbox']) [role='option']:focus, .legacy-design [popover]:has([role='listbox']) [role='option'][aria-selected='true']"
+      ".legacy-design [popover]:has([role='listbox']:not(.astryx-trigger-menu)) [role='option'][aria-selected='true']"
     );
     const option = declarationsFor(
-      ".astryx-select-option:hover, .astryx-select-option[data-active='true'], .astryx-select-option[aria-selected='true']"
+      ".astryx-select-option:hover, .astryx-select-option[data-active='true']"
+    );
+    const optionSelected = declarationsFor(
+      ".astryx-select-option[aria-selected='true']"
     );
 
     expect(context.background?.value).toBe('#ffffff');
@@ -43,9 +49,12 @@ describe('product option menus', () => {
     expect(selector.background?.value).toBe('#ffffff');
     expect(selector['box-shadow']?.value).toBe('none');
     expect(selector['backdrop-filter']?.value).toBe('none');
-    expect(selected.background?.value).toBe('hsl(var(--accent))');
-    expect(selected.color?.value).toBe('hsl(var(--accent-foreground))');
+    expect(hovered.background?.value).toBe('hsl(var(--accent))');
+    expect(hovered.color?.value).toBe('hsl(var(--accent-foreground))');
+    expect(selected.background?.value).toBe('transparent');
+    expect(selected['font-weight']?.value).toBe('500');
     expect(option.background?.value).toBe('hsl(var(--accent))');
+    expect(optionSelected.background?.value).toBe('transparent');
     expect(declarationsFor('.branch-selector-menu').background).toBeUndefined();
   });
 

@@ -1,6 +1,8 @@
 import { act, renderHook, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { useConversationTimeline } from './useConversationTimeline';
+import { resetConversationTimelineRegistryForTests } from './conversationTimelineRegistry';
+import { resetConversationKeepaliveForTests } from './conversationKeepalive';
 import { publishOptimisticConversationTurn } from './optimisticTurnEvents';
 import type {
   ConversationRowOp,
@@ -179,6 +181,8 @@ describe('useConversationTimeline', () => {
   };
 
   beforeEach(() => {
+    resetConversationTimelineRegistryForTests();
+    resetConversationKeepaliveForTests();
     listeners.length = 0;
     agentEventListeners.length = 0;
     detailMock.mockReset();
@@ -352,16 +356,28 @@ describe('useConversationTimeline', () => {
     );
   });
 
-  it('does not auto-connect an inactive conversation surface', async () => {
+  it('does not load or connect an inactive conversation surface', async () => {
     detailMock.mockResolvedValue(detail());
 
     renderHook(() =>
       useConversationTimeline(CONVERSATION_ID, { active: false })
     );
 
-    await waitFor(() => expect(detailMock).toHaveBeenCalled());
+    await act(async () => {
+      await Promise.resolve();
+    });
+    expect(detailMock).not.toHaveBeenCalled();
     expect(ensureSessionControlsMock).not.toHaveBeenCalled();
     expect(touchMock).not.toHaveBeenCalled();
+  });
+
+  it('shares one detail load across panels of the same conversation', async () => {
+    detailMock.mockResolvedValue(detail());
+
+    renderHook(() => useConversationTimeline(CONVERSATION_ID));
+    renderHook(() => useConversationTimeline(CONVERSATION_ID));
+
+    await waitFor(() => expect(detailMock).toHaveBeenCalledTimes(1));
   });
 
   it('does not connect while conversation detail is still loading', async () => {

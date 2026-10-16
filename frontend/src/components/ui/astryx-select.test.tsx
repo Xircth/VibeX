@@ -253,33 +253,55 @@ describe('AstryxSelect', () => {
 });
 
 describe('getMenuPosition', () => {
-  it('opens below the trigger when there is room underneath', () => {
+  it('opens below the trigger when the list fits underneath', () => {
     const position = getMenuPosition(
-      { top: 80, bottom: 108, left: 700, width: 80 },
+      { top: 80, bottom: 108, left: 40, width: 80 },
       false,
-      900
+      900,
+      120,
+      1000
     );
     expect(position.top).toBe(112);
-    expect(position.maxHeight).toBeGreaterThan(160);
+    expect(position.maxHeight).toBe(120);
+    expect(position.top + position.maxHeight).toBeLessThanOrEqual(900);
   });
 
-  it('keeps a prefer-above menu on screen when the trigger is near the top', () => {
+  it('flips below when a prefer-above menu does not fit above the trigger', () => {
     const position = getMenuPosition(
-      { top: 80, bottom: 108, left: 700, width: 80 },
+      { top: 80, bottom: 108, left: 40, width: 80 },
       true,
-      900
+      900,
+      200,
+      1000
     );
-    expect(position.top).toBe(0);
-    expect(position.top + position.maxHeight).toBe(76);
+    expect(position.top).toBe(112);
+    expect(position.maxHeight).toBe(200);
   });
 
-  it('opens above the trigger when there is enough chrome space', () => {
+  it('opens above when that is the only side that can show the whole list', () => {
     const position = getMenuPosition(
-      { top: 220, bottom: 248, left: 700, width: 80 },
-      true,
-      900
+      { top: 700, bottom: 732, left: 40, width: 80 },
+      false,
+      760,
+      180,
+      1000
     );
-    expect(position.top).toBeGreaterThanOrEqual(0);
-    expect(position.top + position.maxHeight).toBe(216);
+    expect(position.top).toBe(516);
+    expect(position.top + position.maxHeight).toBeLessThanOrEqual(752);
+    expect(position.top).toBeGreaterThanOrEqual(8);
+  });
+
+  it('scrolls inside the viewport when the list is taller than the window', () => {
+    const position = getMenuPosition(
+      { top: 20, bottom: 48, left: 40, width: 80 },
+      false,
+      400,
+      2000,
+      1000
+    );
+    expect(position.top).toBeGreaterThanOrEqual(8);
+    expect(position.top + position.maxHeight).toBeLessThanOrEqual(392);
+    expect(position.maxHeight).toBeGreaterThan(0);
+    expect(position.maxHeight).toBeLessThan(2000);
   });
 });

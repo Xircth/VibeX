@@ -1,5 +1,6 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import {
+  consumeKanbanCarouselPageKey,
   pinKanbanCarouselScroll,
   shouldPinKanbanCarouselKey,
   shouldSuppressKanbanCarouselPageKey,
@@ -40,8 +41,35 @@ describe('kanbanCarouselScroll', () => {
 
     expect(shouldSuppressKanbanCarouselPageKey(message)).toBe(false);
     expect(shouldSuppressKanbanCarouselPageKey(canvas)).toBe(true);
+    expect(shouldSuppressKanbanCarouselPageKey(document.body)).toBe(true);
 
     conversation.remove();
     canvas.remove();
+  });
+
+  it('pins page keys aimed at the document without taking them from a field', () => {
+    const shell = { scrollLeft: 800, scrollTop: 40 };
+    const pageDown = {
+      key: 'PageDown',
+      target: document.body,
+      preventDefault: vi.fn(),
+    };
+
+    consumeKanbanCarouselPageKey(pageDown, shell);
+
+    expect(pageDown.preventDefault).toHaveBeenCalledTimes(1);
+    expect(shell).toEqual({ scrollLeft: 0, scrollTop: 0 });
+
+    const field = document.createElement('textarea');
+    const fieldEvent = {
+      key: 'PageDown',
+      target: field,
+      preventDefault: vi.fn(),
+    };
+    shell.scrollLeft = 12;
+    consumeKanbanCarouselPageKey(fieldEvent, shell);
+
+    expect(fieldEvent.preventDefault).not.toHaveBeenCalled();
+    expect(shell.scrollLeft).toBe(12);
   });
 });

@@ -416,9 +416,6 @@ function ModeRow({
                 setOpen(false);
                 onSelect(mode.id);
               }}
-              className={
-                active ? 'bg-accent text-accent-foreground' : undefined
-              }
               title={mode.description ?? undefined}
             >
               <span className="min-w-0 flex-1 truncate">{mode.label}</span>
@@ -521,9 +518,6 @@ function ChoiceRow({
                     setOpen(false);
                     onSelect(row.option.key, choice.value);
                   }}
-                  className={
-                    active ? 'bg-accent text-accent-foreground' : undefined
-                  }
                   title={choice.description ?? undefined}
                 >
                   <span className="min-w-0 flex-1 truncate">{choice.name}</span>
@@ -557,7 +551,6 @@ function ToggleRow({
         event.preventDefault();
         onSelect(row.option.key, checked ? toggleValues.off : toggleValues.on);
       }}
-      className={checked ? 'bg-accent text-accent-foreground' : undefined}
     >
       <span className="min-w-0 flex-1 truncate font-semibold">
         {row.option.label}

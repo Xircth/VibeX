@@ -24,6 +24,7 @@ import type {
 } from 'shared/types';
 import type { WorkspaceWithSession } from '@/types/attempt';
 import DisplayConversationEntry from './DisplayConversationEntry';
+import { useDecodedTimelineImage } from './TimelineDecodedImage';
 import { DelegationCard } from './conversation/DelegationCard';
 import { HostDelegationLifecycleRow } from './conversation/HostDelegationLifecycleRow';
 import {
@@ -196,11 +197,6 @@ type ViewedImage = {
   path: string;
 };
 
-function imageSource(image: ImageData): string | null {
-  if (image.data) return `data:${image.mime_type};base64,${image.data}`;
-  return image.uri ?? null;
-}
-
 function fileName(path: string): string {
   return path.split(/[\\/]/).filter(Boolean).at(-1) ?? path;
 }
@@ -241,36 +237,60 @@ function ViewedImages({
       </button>
       {expanded ? (
         <div className="flex flex-wrap gap-2 px-2 pb-2" role="list">
-          {images.map(({ key, image, path }) => {
-            const src = imageSource(image);
-            if (!src) return null;
-            return (
-              <div key={key} role="listitem">
-                <button
-                  type="button"
-                  className="h-24 w-24 overflow-hidden rounded-lg border border-border bg-muted/30 p-1 hover:border-foreground/30 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                  title={path}
-                  aria-label={t('viewedImages.preview', { path })}
-                  onClick={() =>
-                    openImagePreview({
-                      imageUrl: src,
-                      altText: path,
-                      fileName: fileName(path),
-                    })
-                  }
-                >
-                  <img
-                    src={src}
-                    alt={path}
-                    className="h-full w-full rounded-md object-contain"
-                  />
-                </button>
-              </div>
-            );
-          })}
+          {images.map(({ key, image, path }) => (
+            <ViewedImageThumb
+              key={key}
+              image={image}
+              path={path}
+              onOpen={(src) =>
+                openImagePreview({
+                  imageUrl: src,
+                  altText: path,
+                  fileName: fileName(path),
+                })
+              }
+            />
+          ))}
         </div>
       ) : null}
     </section>
+  );
+}
+
+function ViewedImageThumb({
+  image,
+  path,
+  onOpen,
+}: {
+  image: ImageData;
+  path: string;
+  onOpen: (src: string) => void;
+}) {
+  const { t } = useTranslation('conversation');
+  const src = useDecodedTimelineImage({
+    imageKey: `${path}:${image.uri ?? ''}:${image.data.slice(0, 24)}`,
+    enabled: true,
+    data: image.data,
+    mimeType: image.mime_type,
+    uri: image.uri ?? null,
+  });
+  if (!src) return null;
+  return (
+    <div role="listitem">
+      <button
+        type="button"
+        className="h-24 w-24 overflow-hidden rounded-lg border border-border bg-muted/30 p-1 hover:border-foreground/30 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+        title={path}
+        aria-label={t('viewedImages.preview', { path })}
+        onClick={() => onOpen(src)}
+      >
+        <img
+          src={src}
+          alt={path}
+          className="h-full w-full rounded-md object-contain"
+        />
+      </button>
+    </div>
   );
 }
 

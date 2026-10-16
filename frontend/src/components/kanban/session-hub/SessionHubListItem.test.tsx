@@ -1,5 +1,11 @@
 import type { ComponentProps } from 'react';
-import { fireEvent, render, screen } from '@testing-library/react';
+import {
+  act,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+} from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { KanbanProjectSessionRecord } from '@/hooks/useKanbanProjectSessions';
 import { TooltipProvider } from '@/components/ui/tooltip';
@@ -144,16 +150,31 @@ describe('SessionHubListItem', () => {
     expect(archiveButton).toHaveClass('session-hub-card-action');
   });
 
-  it('puts time, workspace, and delete on one row in canvas mode', () => {
-    renderItem({ displayMode: 'canvas' });
+  it('puts time, workspace, and archive on one row in canvas mode', () => {
+    const onArchiveSession = vi.fn();
+    const onDeleteSession = vi.fn();
+    renderItem({ displayMode: 'canvas', onArchiveSession, onDeleteSession });
 
     const workspace = screen.getByText('Main');
-    const deleteButton = screen.getByRole('button', { name: '删除会话' });
-    const row = deleteButton.parentElement?.parentElement;
+    const archiveButton = screen.getByRole('button', { name: '归档' });
+    const row = archiveButton.parentElement?.parentElement;
+    const agentIcon = screen.getByAltText('Codex');
+    const title = screen.getByText('A fairly long session name for the card');
 
-    expect(deleteButton.parentElement).not.toHaveClass('absolute');
+    expect(
+      screen.queryByRole('button', { name: '删除会话' })
+    ).not.toBeInTheDocument();
+    expect(archiveButton.parentElement).not.toHaveClass('absolute');
     expect(row).toContainElement(workspace);
     expect(row).toHaveClass('flex');
+    expect(agentIcon.closest('.session-hub-card-agent')).not.toHaveClass(
+      'absolute'
+    );
+    expect(title.parentElement).toContainElement(agentIcon);
+
+    fireEvent.click(archiveButton);
+    expect(onArchiveSession).toHaveBeenCalledTimes(1);
+    expect(onDeleteSession).not.toHaveBeenCalled();
   });
 
   it('reveals the 3 hover buttons, hides agent icon on hover, and triggers pin and archive', () => {
@@ -163,7 +184,16 @@ describe('SessionHubListItem', () => {
     const card = container.querySelector('.session-hub-card');
     expect(card).not.toBeNull();
 
-    expect(screen.getByAltText('Codex')).toBeInTheDocument();
+    const agentIcon = screen.getByAltText('Codex');
+    expect(agentIcon.closest('.session-hub-card-agent')).toHaveClass(
+      'absolute',
+      'right-3',
+      'top-1/2',
+      '-translate-y-1/2'
+    );
+    expect(
+      screen.getByText('A fairly long session name for the card').parentElement
+    ).not.toContainElement(agentIcon);
 
     fireEvent.mouseEnter(card as HTMLElement);
 
@@ -178,6 +208,61 @@ describe('SessionHubListItem', () => {
 
     fireEvent.click(screen.getByRole('button', { name: '归档' }));
     expect(onArchiveSession).toHaveBeenCalledTimes(1);
+  });
+
+  it('keeps rename open when the menu click lands on the card', async () => {
+    const onRenameSession = vi.fn();
+    const onClick = vi.fn();
+    renderItem({ onRenameSession, onClick });
+
+    fireEvent.click(screen.getByRole('button', { name: '更多操作' }));
+    fireEvent.pointerDown(screen.getByRole('menuitem', { name: '重命名会话' }));
+
+    const input = await screen.findByRole('textbox');
+    fireEvent.click(input.closest('.session-hub-card') as HTMLElement);
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+
+    expect(onRenameSession).not.toHaveBeenCalled();
+    expect(onClick).not.toHaveBeenCalled();
+    expect(screen.getByRole('textbox')).toBe(input);
+
+    fireEvent.change(input, { target: { value: '新会话名' } });
+    fireEvent.keyDown(input, { key: 'Enter' });
+    await act(async () => {
+      await Promise.resolve();
+    });
+    expect(onRenameSession).toHaveBeenCalledWith('新会话名');
+  });
+
+  it('leaves rename open when the new name fails to save', async () => {
+    const onRenameSession = vi.fn().mockRejectedValue(new Error('nope'));
+    renderItem({ onRenameSession });
+
+    fireEvent.click(screen.getByRole('button', { name: '更多操作' }));
+    fireEvent.pointerDown(screen.getByRole('menuitem', { name: '重命名会话' }));
+    const input = await screen.findByRole('textbox');
+    fireEvent.change(input, { target: { value: '新会话名' } });
+    fireEvent.keyDown(input, { key: 'Enter' });
+
+    await waitFor(() =>
+      expect(onRenameSession).toHaveBeenCalledWith('新会话名')
+    );
+    expect(screen.getByRole('textbox')).toHaveValue('新会话名');
+  });
+
+  it('cancels rename on Escape without saving', async () => {
+    const onRenameSession = vi.fn();
+    renderItem({ onRenameSession });
+
+    fireEvent.click(screen.getByRole('button', { name: '更多操作' }));
+    fireEvent.pointerDown(screen.getByRole('menuitem', { name: '重命名会话' }));
+    const input = await screen.findByRole('textbox');
+    fireEvent.keyDown(input, { key: 'Escape' });
+
+    expect(onRenameSession).not.toHaveBeenCalled();
+    expect(screen.queryByRole('textbox')).not.toBeInTheDocument();
   });
 
   it('opens the 3-dot menu with rename, copy submenus, export submenus, fork, and delete', () => {

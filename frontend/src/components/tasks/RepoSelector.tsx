@@ -1,7 +1,7 @@
 import { useState, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Button } from '@/components/ui/button.tsx';
-import { ChevronsUpDown, FolderGit } from 'lucide-react';
+import { Check, ChevronsUpDown, FolderGit } from 'lucide-react';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -67,7 +67,6 @@ function RepoSelector({
         side="bottom"
         align="start"
         sideOffset={1}
-        avoidCollisions={false}
         className="w-64"
       >
         {repos.length === 0 ? (
@@ -81,12 +80,15 @@ function RepoSelector({
               <DropdownMenuItem
                 key={repo.id}
                 onSelect={() => handleRepoSelect(repo.id)}
-                className={isSelected ? 'bg-accent text-accent-foreground' : ''}
+                className="justify-between"
               >
-                <div className="flex items-center gap-2 w-full">
+                <div className="flex min-w-0 items-center gap-2">
                   <FolderGit className="h-3.5 w-3.5 flex-shrink-0" />
                   <span className="truncate">{repo.display_name}</span>
                 </div>
+                {isSelected ? (
+                  <Check aria-hidden="true" className="h-3.5 w-3.5 shrink-0" />
+                ) : null}
               </DropdownMenuItem>
             );
           })

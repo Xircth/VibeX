@@ -114,6 +114,8 @@ export type ConversationStoreAction =
       rows: TimelineRow[];
       lastSequence: bigint;
       olderCursor?: string | null;
+      /** Older pages stay in memory even when they exceed the hot-tail budget. */
+      protectLoaded?: boolean;
     }
   | { type: 'optimistic_turn'; conversationId: string; turn: MessageTurn }
   | { type: 'remove_optimistic_turn'; conversationId: string; turnId: string }
@@ -152,7 +154,7 @@ export function conversationStoreReducer(
           ...action.detail,
           timeline: { ...action.detail.timeline, rows: [] },
         };
-        return {
+        return enforceTimelineBudget({
           ...entry,
           detail,
           rows: keepRealtimeRows ? entry.rows : reconciledTimeline.rows,
@@ -195,7 +197,7 @@ export function conversationStoreReducer(
           olderCursor: keepRealtimeRows
             ? entry.olderCursor
             : (action.detail.timeline.older_cursor ?? null),
-        };
+        });
       });
     case 'load_error':
       return updateEntry(state, action.conversationId, (entry) => ({
@@ -222,46 +224,84 @@ export function conversationStoreReducer(
       }));
     case 'row_ops':
       return updateEntry(state, action.batch.conversation_id, (entry) =>
-        applyRowOpBatch(entry, action.batch)
+        enforceTimelineBudget(applyRowOpBatch(entry, action.batch))
       );
     case 'upsert_rows':
       return updateEntry(state, action.conversationId, (entry) => {
         let rows = entry.rows;
         let liveText = entry.liveText;
         let optimisticTurns = entry.optimisticTurns;
-        const rowIndexById = new Map(
-          rows.map((row, index) => [row.row_id, index] as const)
-        );
-        for (const row of action.rows) {
-          const reconciled = reconcileOptimisticTurnAgainstUserRow(
-            optimisticTurns,
-            row
+        const protect = new Set<string>();
+        if (action.protectLoaded) {
+          const existing = new Set(rows.map((row) => row.row_id));
+          const firstRevision = rows[0] ? toBigInt(rows[0].revision) : null;
+          const older: TimelineRow[] = [];
+          const updates: TimelineRow[] = [];
+          for (const row of action.rows) {
+            protect.add(row.row_id);
+            const reconciled = reconcileOptimisticTurnAgainstUserRow(
+              optimisticTurns,
+              row
+            );
+            optimisticTurns = reconciled.optimisticTurns;
+            if (
+              !existing.has(row.row_id) &&
+              (firstRevision === null ||
+                toBigInt(row.revision) <= firstRevision)
+            ) {
+              older.push(reconciled.row);
+              existing.add(row.row_id);
+            } else {
+              updates.push(reconciled.row);
+            }
+          }
+          rows = [...older, ...rows];
+          const rowIndexById = new Map(
+            rows.map((row, index) => [row.row_id, index] as const)
           );
-          optimisticTurns = reconciled.optimisticTurns;
-          const applied = upsertRow(
+          for (const row of updates) {
+            const applied = upsertRow(rows, liveText, row, rowIndexById);
+            rows = applied.rows;
+            liveText = applied.liveText;
+          }
+        } else {
+          const rowIndexById = new Map(
+            rows.map((row, index) => [row.row_id, index] as const)
+          );
+          for (const row of action.rows) {
+            const reconciled = reconcileOptimisticTurnAgainstUserRow(
+              optimisticTurns,
+              row
+            );
+            optimisticTurns = reconciled.optimisticTurns;
+            const applied = upsertRow(
+              rows,
+              liveText,
+              reconciled.row,
+              rowIndexById
+            );
+            rows = applied.rows;
+            liveText = applied.liveText;
+          }
+        }
+        return enforceTimelineBudget(
+          {
+            ...entry,
             rows,
             liveText,
-            reconciled.row,
-            rowIndexById
-          );
-          rows = applied.rows;
-          liveText = applied.liveText;
-        }
-        return {
-          ...entry,
-          rows,
-          liveText,
-          optimisticTurns,
-          lastSequence:
-            action.lastSequence > entry.lastSequence
-              ? action.lastSequence
-              : entry.lastSequence,
-          olderCursor:
-            action.olderCursor !== undefined
-              ? action.olderCursor
-              : entry.olderCursor,
-          gap: { kind: 'none' },
-        };
+            optimisticTurns,
+            lastSequence:
+              action.lastSequence > entry.lastSequence
+                ? action.lastSequence
+                : entry.lastSequence,
+            olderCursor:
+              action.olderCursor !== undefined
+                ? action.olderCursor
+                : entry.olderCursor,
+            gap: { kind: 'none' },
+          },
+          protect
+        );
       });
     case 'optimistic_turn':
       return updateEntry(state, action.conversationId, (entry) => ({
@@ -311,6 +351,10 @@ function applyRowOpBatch(
       ) {
         currentTurnId = turnIdOfRowId(op.row.row_id) ?? currentTurnId;
       }
+    } else if (op.op === 'patch_blocks') {
+      const applied = applyPatchBlocks(rows, liveText, op, rowIndexById);
+      rows = applied.rows;
+      liveText = applied.liveText;
     } else if (op.op === 'delete') {
       const revision = toBigInt(op.revision);
       const existingIndex = rowIndexById.get(op.row_id);
@@ -389,6 +433,198 @@ function upsertRow(
     delete nextLive[incoming.row_id];
   }
   return { rows: nextRows, liveText: nextLive };
+}
+
+/** Hot tail kept in the renderer. Older rows reload through `project_row_window`. */
+export const TIMELINE_RETAINED_ROW_LIMIT = 80;
+export const TIMELINE_RETAINED_BYTE_BUDGET = 768 * 1024;
+export const TIMELINE_ROW_BLOCK_TAIL = 24;
+
+function applyPatchBlocks(
+  rows: TimelineRow[],
+  liveText: Record<string, LiveTextOverlay>,
+  op: Extract<ConversationRowOp, { op: 'patch_blocks' }>,
+  rowIndexById: Map<string, number>
+): { rows: TimelineRow[]; liveText: Record<string, LiveTextOverlay> } {
+  const revision = toBigInt(op.revision);
+  const index = rowIndexById.get(op.row_id);
+  if (index === undefined) {
+    if (revision < maxRowRevision(rows)) {
+      return { rows, liveText };
+    }
+    const nextRows = [...rows, stubAssistantRow(op)];
+    rowIndexById.set(op.row_id, nextRows.length - 1);
+    return { rows: nextRows, liveText };
+  }
+  const existing = rows[index];
+  if (
+    !existing ||
+    revision < toBigInt(existing.revision) ||
+    existing.row.kind !== 'message_turn'
+  ) {
+    return { rows, liveText };
+  }
+  const nextRows = rows.slice();
+  nextRows[index] = {
+    ...existing,
+    revision: op.revision,
+    row: {
+      ...existing.row,
+      phase: op.phase,
+      turn: {
+        ...existing.row.turn,
+        blocks: mergePatchedBlocks(existing.row.turn.blocks, op.blocks),
+        ...(op.usage ? { usage: op.usage } : {}),
+      },
+    },
+  };
+  return { rows: nextRows, liveText };
+}
+
+function stubAssistantRow(
+  op: Extract<ConversationRowOp, { op: 'patch_blocks' }>
+): TimelineRow {
+  return {
+    row_id: op.row_id,
+    revision: op.revision,
+    row: {
+      kind: 'message_turn',
+      phase: op.phase,
+      turn: {
+        id: op.row_id,
+        role: 'assistant',
+        blocks: op.blocks,
+        timestamp: '1970-01-01T00:00:00.000Z',
+        ...(op.usage ? { usage: op.usage } : {}),
+      },
+    },
+  };
+}
+
+function mergePatchedBlocks(
+  existing: ContentBlock[],
+  incoming: ContentBlock[]
+): ContentBlock[] {
+  const next = existing.slice();
+  for (const block of incoming) {
+    if (block.type === 'tool_use') {
+      const id = block.tool_use_id;
+      const match = next.findIndex(
+        (candidate) =>
+          candidate.type === 'tool_use' &&
+          Boolean(id) &&
+          candidate.tool_use_id === id
+      );
+      if (match >= 0) next[match] = block;
+      else next.push(block);
+    } else if (block.type === 'tool_result') {
+      const id = block.tool_use_id;
+      const match = next.findIndex(
+        (candidate) =>
+          candidate.type === 'tool_result' &&
+          Boolean(id) &&
+          candidate.tool_use_id === id
+      );
+      if (match >= 0) next[match] = block;
+      else next.push(block);
+    } else if (block.type === 'plan') {
+      const match = next.findIndex((candidate) => candidate.type === 'plan');
+      if (match >= 0) next[match] = block;
+      else next.push(block);
+    } else {
+      next.push(block);
+    }
+  }
+  return next;
+}
+
+function maxRowRevision(rows: TimelineRow[]): bigint {
+  let max = 0n;
+  for (const row of rows) {
+    const revision = toBigInt(row.revision);
+    if (revision > max) max = revision;
+  }
+  return max;
+}
+
+export function enforceTimelineBudget(
+  entry: ConversationStoreEntry,
+  protectIds?: ReadonlySet<string>
+): ConversationStoreEntry {
+  const protect = protectIds ?? new Set<string>();
+  let rows = entry.rows;
+  let dropped = 0;
+  const over = () =>
+    rows.length > TIMELINE_RETAINED_ROW_LIMIT ||
+    estimateRowsBytes(rows) > TIMELINE_RETAINED_BYTE_BUDGET;
+  while (rows.length > 1 && over()) {
+    const front = rows[0];
+    if (!front || protect.has(front.row_id)) break;
+    rows = rows.slice(1);
+    dropped += 1;
+  }
+  if (rows.length === 1 && over() && rows[0] && !protect.has(rows[0].row_id)) {
+    rows = [trimRowBlocks(rows[0])];
+  }
+  if (dropped === 0 && rows === entry.rows) return entry;
+  let liveText = entry.liveText;
+  if (dropped > 0) {
+    const kept = new Set(rows.map((row) => row.row_id));
+    const nextLive: Record<string, LiveTextOverlay> = {};
+    for (const [rowId, overlay] of Object.entries(liveText)) {
+      if (kept.has(rowId)) nextLive[rowId] = overlay;
+    }
+    liveText = nextLive;
+  }
+  let olderCursor = entry.olderCursor;
+  if (dropped > 0) {
+    const current = olderCursor == null ? 0 : Number(olderCursor);
+    const base = Number.isFinite(current) ? current : 0;
+    olderCursor = String(base + dropped);
+  }
+  return { ...entry, rows, liveText, olderCursor };
+}
+
+function trimRowBlocks(row: TimelineRow): TimelineRow {
+  if (row.row.kind !== 'message_turn') return row;
+  const blocks = row.row.turn.blocks;
+  if (blocks.length <= TIMELINE_ROW_BLOCK_TAIL) return row;
+  return {
+    ...row,
+    row: {
+      ...row.row,
+      turn: {
+        ...row.row.turn,
+        blocks: blocks.slice(-TIMELINE_ROW_BLOCK_TAIL),
+      },
+    },
+  };
+}
+
+function estimateRowsBytes(rows: TimelineRow[]): number {
+  let total = 0;
+  for (const row of rows) total += estimateValue(row.row);
+  return total;
+}
+
+function estimateValue(value: unknown): number {
+  if (value == null) return 0;
+  if (typeof value === 'string') return value.length;
+  if (typeof value === 'number' || typeof value === 'boolean') return 8;
+  if (typeof value === 'bigint') return 8;
+  if (Array.isArray(value)) {
+    let total = 0;
+    for (const item of value) total += estimateValue(item);
+    return total;
+  }
+  if (typeof value === 'object') {
+    let total = 0;
+    for (const item of Object.values(value as Record<string, unknown>)) {
+      total += estimateValue(item);
+    }
+    return total;
+  }
+  return 0;
 }
 
 /**
@@ -750,18 +986,6 @@ function updateEntry(
     ...state.byConversationId,
     [conversationId]: update(current),
   };
-  const keys = Object.keys(nextByConversationId);
-  if (keys.length > 5) {
-    for (const key of keys) {
-      if (
-        key !== conversationId &&
-        nextByConversationId[key]?.loading !== true
-      ) {
-        delete nextByConversationId[key];
-        if (Object.keys(nextByConversationId).length <= 5) break;
-      }
-    }
-  }
   return {
     byConversationId: nextByConversationId,
   };

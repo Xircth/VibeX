@@ -1378,7 +1378,7 @@ export type AgentPermissionOptionKind = "allow_once" | "allow_always" | "reject_
 
 export type AgentExecutionStats = { agent_type?: string | null, status?: string | null, total_duration_ms?: bigint | null, total_tokens?: bigint | null, total_tool_use_count?: number | null, lines_added?: number | null, lines_removed?: number | null, tool_calls: Array<SubAgentToolCall>, };
 
-export type ContentBlock = { "type": "text", text: string, } | { "type": "thinking", text: string, } | { "type": "image", data: string, mime_type: string, uri?: string | null, } | { "type": "image_generation", revised_prompt?: string | null, image?: ImageData | null, } | { "type": "tool_use", tool_use_id?: string | null, tool_name: string,
+export type ContentBlock = { "type": "text", text: string, } | { "type": "thinking", text: string, } | { "type": "image", data: string, mime_type: string, uri?: string | null, width?: number, height?: number, } | { "type": "image_generation", revised_prompt?: string | null, image?: ImageData | null, } | { "type": "tool_use", tool_use_id?: string | null, tool_name: string,
 /**
  * Last status reported by the Agent. Older events may omit it.
  */
@@ -1411,7 +1411,7 @@ export type ConversationDetail = { summary: ConversationSummary, turns: Array<Me
 
 export type ConversationSummary = { id: string, agent_type: AgentKind, folder_path?: string | null, folder_name?: string | null, title?: string | null, started_at: string, ended_at?: string | null, message_count: number, model?: string | null, git_branch?: string | null, parent_id?: string | null, parent_tool_use_id?: string | null, delegation_call_id?: string | null, };
 
-export type ImageData = { data: string, mime_type: string, uri?: string | null, };
+export type ImageData = { data: string, mime_type: string, uri?: string | null, width?: number, height?: number, };
 
 export type MessageTurn = { id: string, role: TurnRole, blocks: Array<ContentBlock>, timestamp: string, usage?: TurnUsage | null, duration_ms?: bigint | null, model?: string | null,
 /**
@@ -1666,7 +1666,7 @@ export type ConversationDelegationView = { delegation_id: string, parent_tool_ca
 
 export type AgentSessionConfigOverride = { key: string, value: string, };
 
-export type ConversationRowOp = { "op": "upsert", row: TimelineRow, } | { "op": "delete", row_id: string, revision: bigint, } | { "op": "append_text", row_id: string, revision: bigint, stream: TimelineTextStream, delta: string, };
+export type ConversationRowOp = { "op": "upsert", row: TimelineRow, } | { "op": "delete", row_id: string, revision: bigint, } | { "op": "append_text", row_id: string, revision: bigint, stream: TimelineTextStream, delta: string, } | { "op": "patch_blocks", row_id: string, revision: bigint, phase: string, blocks: Array<ContentBlock>, usage?: TurnUsage, };
 
 export type ConversationRowOpBatch = { conversation_id: string, last_sequence: bigint,
 /**

@@ -3,14 +3,19 @@ mod file_move;
 mod file_search;
 
 use std::{
-    collections::HashSet,
+    collections::{BTreeMap, HashSet},
     path::{Component, Path, PathBuf},
 };
 
-use agents::{AgentId, AgentSessionId, AgentTerminalId, terminal::agent_terminal_registry};
+use agents::{
+    AgentId, AgentSessionConfigOverride, AgentSessionId, AgentTerminalId,
+    terminal::agent_terminal_registry,
+};
 use application::{ApplicationError, DomainCommand};
 use base64::{Engine, engine::general_purpose::STANDARD as BASE64};
-use conversations::derive_session_display_name;
+use conversations::{
+    derive_session_display_name, remember_creation_session_controls,
+};
 use db::models::{
     conversation::DbConversationSummary,
     conversation_turn::ConversationTurnRecord,
@@ -1111,10 +1116,11 @@ impl ServerApplicationDomains {
         let mut session = Session::create(
             &self.pool,
             &CreateSession {
-                executor: payload.executor,
+                executor: payload.executor.clone(),
                 agent_id: prepared_identity
                     .as_ref()
-                    .map(|(agent_id, _)| agent_id.clone()),
+                    .map(|(agent_id, _)| agent_id.clone())
+                    .or_else(|| session_agent_id_from_executor(payload.executor.as_deref())),
                 task_id: Some(workspace.task_id),
                 name: payload.name,
                 initial_prompt: payload.initial_prompt,
@@ -1137,6 +1143,16 @@ impl ServerApplicationDomains {
             session.external_session_id = Some(prepared.acp_session_id);
             session.agent_id = Some(agent_id);
         }
+        // The binding has to exist before this returns. The UI establishes the
+        // ACP session as soon as the new conversation is shown, and that path
+        // replays the binding rather than the agent's last-used Default.
+        remember_creation_session_controls(
+            &self.pool,
+            session.id,
+            payload.mode_override.as_deref(),
+            creation_config_overrides(payload.config_overrides.as_ref()),
+        )
+        .await;
         self.conversations
             .agent_runtime
             .commit_prepared_session(AgentSessionId(session_id))
@@ -1983,6 +1999,23 @@ fn derive_workspace_seed_title(name: Option<&str>, initial_prompt: Option<&str>)
     NEW_SESSION_WORKSPACE_TITLE.to_string()
 }
 
+fn session_agent_id_from_executor(executor: Option<&str>) -> Option<AgentId> {
+    prepared_session_agent_id(executor).ok()
+}
+
+fn creation_config_overrides(
+    values: Option<&BTreeMap<String, String>>,
+) -> Vec<AgentSessionConfigOverride> {
+    values
+        .into_iter()
+        .flat_map(|map| map.iter())
+        .map(|(key, value)| AgentSessionConfigOverride {
+            key: key.clone(),
+            value: value.clone(),
+        })
+        .collect()
+}
+
 fn prepared_session_agent_id(executor: Option<&str>) -> Result<AgentId, ApplicationError> {
     let executor = executor
         .map(str::trim)
@@ -2526,6 +2559,10 @@ struct CreateProjectSessionPayload {
     include_uncommitted: Option<bool>,
     #[serde(default)]
     repos: Option<Vec<ProjectSessionRepoInput>>,
+    #[serde(default, alias = "mode_override")]
+    mode_override: Option<String>,
+    #[serde(default, alias = "config_overrides")]
+    config_overrides: Option<BTreeMap<String, String>>,
 }
 
 #[derive(Deserialize)]
@@ -2821,6 +2858,49 @@ mod tests {
         );
         assert_eq!(parsed.payload.create_workspace, Some(false));
         assert_eq!(parsed.payload.repos.unwrap()[0].target_branch, "main");
+        assert_eq!(parsed.payload.mode_override, None);
+        assert_eq!(parsed.payload.config_overrides, None);
+    }
+
+    #[test]
+    fn create_project_session_payload_keeps_the_creation_mode() {
+        let camel: PayloadArgs<CreateProjectSessionPayload> = parse(json!({
+            "payload": {
+                "projectId": "11111111-1111-1111-1111-111111111111",
+                "modeOverride": "yolo",
+                "configOverrides": { "model": "gemini-4-argon" }
+            }
+        }))
+        .expect("camelCase mode");
+        assert_eq!(camel.payload.mode_override.as_deref(), Some("yolo"));
+        assert_eq!(
+            camel
+                .payload
+                .config_overrides
+                .as_ref()
+                .and_then(|values| values.get("model"))
+                .map(String::as_str),
+            Some("gemini-4-argon")
+        );
+
+        let snake: PayloadArgs<CreateProjectSessionPayload> = parse(json!({
+            "payload": {
+                "project_id": "11111111-1111-1111-1111-111111111111",
+                "mode_override": "yolo",
+                "config_overrides": { "model": "gemini-4-argon" }
+            }
+        }))
+        .expect("snake_case mode");
+        assert_eq!(snake.payload.mode_override.as_deref(), Some("yolo"));
+        assert_eq!(
+            snake
+                .payload
+                .config_overrides
+                .as_ref()
+                .and_then(|values| values.get("model"))
+                .map(String::as_str),
+            Some("gemini-4-argon")
+        );
     }
 
     #[test]

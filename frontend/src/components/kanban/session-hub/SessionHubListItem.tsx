@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
   Archive,
@@ -10,7 +10,6 @@ import {
   Pencil,
   Pin,
   RotateCcw,
-  Trash2,
   X,
 } from 'lucide-react';
 import { toast } from '@/components/ui/toast';
@@ -28,6 +27,7 @@ import {
   TooltipTrigger,
 } from '@/components/ui/tooltip';
 import type { KanbanProjectSessionRecord } from '@/hooks/useKanbanProjectSessions';
+import { armRenameOpeningClick } from '@/lib/renameOpeningGuard';
 import { sessionTitleIsCjk } from '@/lib/sessionTitle';
 import { cn } from '@/lib/utils';
 import { writeClipboardViaBridge } from '@/vscode/bridge';
@@ -93,6 +93,9 @@ export function SessionHubListItem({
 
   const [isEditing, setIsEditing] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const openingRenameRef = useRef(false);
+  const renameInputRef = useRef<HTMLInputElement>(null);
+  const disarmRenameRef = useRef<(() => void) | null>(null);
   const [isForking, setIsForking] = useState(false);
   const [draftName, setDraftName] = useState(session.fullName);
   const [isHovered, setIsHovered] = useState(false);
@@ -104,16 +107,42 @@ export function SessionHubListItem({
   const showCanvasActions =
     isCanvasMode &&
     !isEditing &&
-    (Boolean(onDeleteSession) || showRenameControls);
+    (Boolean(onArchiveSession) || showRenameControls);
   const showDefaultHoverActions =
     !isCanvasMode && !isKanbanBoardMode && !isDeleteMode && !isEditing;
   const isHoverActionsVisible = isHovered || Boolean(contextMenu);
+  const showListAgent =
+    !isCanvasMode && !isKanbanBoardMode && !isHoverActionsVisible && !isEditing;
+  const agentBadge = (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <div
+          className={cn(
+            'session-hub-card-agent pointer-events-none flex shrink-0 items-center text-muted-foreground',
+            showListAgent && 'absolute right-3 top-1/2 z-[1] -translate-y-1/2'
+          )}
+        >
+          {agentKey ? (
+            <AgentIcon
+              agent={agentKey as ExecutorProfileId['executor']}
+              className="h-4 w-4"
+            />
+          ) : (
+            <Bot className="h-4 w-4" />
+          )}
+        </div>
+      </TooltipTrigger>
+      <TooltipContent>{getExecutorDisplayName(agentKey)}</TooltipContent>
+    </Tooltip>
+  );
 
   useEffect(() => {
     if (!isEditing) {
       setDraftName(session.fullName);
     }
   }, [isEditing, session.fullName]);
+
+  useEffect(() => () => disarmRenameRef.current?.(), []);
 
   useEffect(() => {
     if (isDeleteMode && isEditing) {
@@ -130,15 +159,35 @@ export function SessionHubListItem({
     try {
       await onRenameSession(draftName.trim() || null);
       setIsEditing(false);
+    } catch {
+      // The caller reports the failure. Leave the draft in the field.
     } finally {
       setIsSubmitting(false);
     }
   };
 
   const cancelRename = () => {
+    disarmRenameRef.current?.();
+    disarmRenameRef.current = null;
+    openingRenameRef.current = false;
     setDraftName(session.fullName);
     setIsEditing(false);
     setIsSubmitting(false);
+  };
+
+  const beginRename = () => {
+    disarmRenameRef.current?.();
+    setDraftName(session.fullName);
+    setIsEditing(true);
+    disarmRenameRef.current = armRenameOpeningClick({
+      opening: openingRenameRef,
+      focus: () => renameInputRef.current?.focus(),
+    });
+  };
+
+  const handleRenameBlur = () => {
+    if (openingRenameRef.current) return;
+    void submitRename();
   };
 
   const handleForkSession = () => {
@@ -188,12 +237,7 @@ export function SessionHubListItem({
         }
       : undefined,
     restoreLabel: t('hubListItem.moveToSessionList'),
-    onRename: onRenameSession
-      ? () => {
-          setDraftName(session.fullName);
-          setIsEditing(true);
-        }
-      : undefined,
+    onRename: onRenameSession ? beginRename : undefined,
     onCopySessionInfo: () => {
       void writeClipboardViaBridge(formatSessionInfoForCopy(session));
       toast.success(t('hubListItem.copiedSessionInfo'));
@@ -226,13 +270,13 @@ export function SessionHubListItem({
   });
 
   const canvasActionButtons = showCanvasActions ? (
-    <div className="nodrag z-[1] flex shrink-0 items-center gap-1">
-      {onDeleteSession ? (
+    <div className="nodrag z-[1] flex shrink-0 items-center gap-0.5">
+      {onArchiveSession ? (
         <Tooltip>
           <TooltipTrigger asChild>
             <button
               type="button"
-              aria-label={t('hubListItem.deleteSession')}
+              aria-label={t('hubListItem.archiveSession')}
               className="session-hub-card-action"
               onPointerDown={(event) => {
                 event.stopPropagation();
@@ -242,13 +286,13 @@ export function SessionHubListItem({
               }}
               onClick={(event) => {
                 event.stopPropagation();
-                void onDeleteSession();
+                void onArchiveSession();
               }}
             >
-              <Trash2 className="h-3.5 w-3.5" />
+              <Archive className="h-3.5 w-3.5" />
             </button>
           </TooltipTrigger>
-          <TooltipContent>{t('hubListItem.deleteSession')}</TooltipContent>
+          <TooltipContent>{t('hubListItem.archiveSession')}</TooltipContent>
         </Tooltip>
       ) : null}
 
@@ -423,7 +467,8 @@ export function SessionHubListItem({
       <div
         className={cn(
           'min-w-0 w-0 flex-1 overflow-hidden',
-          !isDeleteMode && 'pl-2'
+          !isDeleteMode && 'pl-2',
+          showListAgent && 'pr-7'
         )}
       >
         <div
@@ -434,10 +479,16 @@ export function SessionHubListItem({
         >
           {isEditing ? (
             <Input
+              ref={renameInputRef}
               value={draftName}
               onChange={(event) => setDraftName(event.target.value)}
               onClick={(event) => event.stopPropagation()}
-              onBlur={() => void submitRename()}
+              onBlur={handleRenameBlur}
+              onKeyDownCapture={(event) => {
+                if (event.key === 'Escape') {
+                  openingRenameRef.current = true;
+                }
+              }}
               onKeyDown={(event) => {
                 if (event.key === 'Enter') {
                   event.preventDefault();
@@ -505,25 +556,7 @@ export function SessionHubListItem({
             <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin text-primary" />
           ) : null}
 
-          {!isKanbanBoardMode && !isHoverActionsVisible ? (
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <div className="flex shrink-0 items-center justify-center text-muted-foreground">
-                  {agentKey ? (
-                    <AgentIcon
-                      agent={agentKey as ExecutorProfileId['executor']}
-                      className="h-4 w-4"
-                    />
-                  ) : (
-                    <Bot className="h-4 w-4" />
-                  )}
-                </div>
-              </TooltipTrigger>
-              <TooltipContent>
-                {getExecutorDisplayName(agentKey)}
-              </TooltipContent>
-            </Tooltip>
-          ) : null}
+          {isCanvasMode && !isEditing ? agentBadge : null}
         </div>
 
         {!isEditing ? (
@@ -559,6 +592,8 @@ export function SessionHubListItem({
           </div>
         ) : null}
       </div>
+
+      {showListAgent ? agentBadge : null}
 
       {defaultHoverButtons}
       {contextMenu ? (

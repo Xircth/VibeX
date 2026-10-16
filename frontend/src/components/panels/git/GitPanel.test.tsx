@@ -455,7 +455,7 @@ describe('GitBranchList', () => {
       /\.legacy-design \[popover\]:has\(\[role='listbox'\]\)\s*\{[^}]*margin-block:\s*4px !important;/
     );
     expect(css).toMatch(
-      /\.legacy-design \[popover\]:has\(\[role='listbox'\]\) \[role='listbox'\][\s\S]*?\{[^}]*display:\s*flex;[^}]*flex-direction:\s*column;[^}]*gap:\s*3px;/
+      /\.legacy-design \[popover\]:has\(\[role='listbox'\]\) \[role='listbox'\][\s\S]*?\{[^}]*display:\s*flex;[^}]*flex-direction:\s*column;[^}]*gap:\s*6px;/
     );
   });
 });

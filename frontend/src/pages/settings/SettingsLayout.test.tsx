@@ -11,6 +11,9 @@ import { SettingsLayout } from './SettingsLayout';
 
 const syncSettingsWindowTitle = vi.hoisted(() => vi.fn());
 const logoLeadsWindowChrome = vi.hoisted(() => vi.fn(() => true));
+const usePluginHostContributions = vi.hoisted(() =>
+  vi.fn<() => Array<{ pluginId: string; id: string; label: string }>>(() => [])
+);
 
 vi.mock('./syncSettingsWindowTitle', () => ({
   syncSettingsWindowTitle,
@@ -25,7 +28,7 @@ vi.mock('@/utils/platform', async (importOriginal) => {
 });
 
 vi.mock('@/hooks/usePluginHostContributions', () => ({
-  usePluginHostContributions: () => [],
+  usePluginHostContributions,
   contributionMetadata: () => ({}),
 }));
 
@@ -461,5 +464,78 @@ describe('SettingsLayout window title', () => {
     await waitFor(() => {
       expect(syncSettingsWindowTitle).toHaveBeenCalledWith('Settings');
     });
+    await act(async () => {
+      await i18n.changeLanguage('zh-CN');
+    });
+  });
+
+  it('groups sidebar navigation into FOR AI, FOR Human, FOR SYSTEM, and FOR PLUGINS', async () => {
+    usePluginHostContributions.mockReturnValue([
+      {
+        pluginId: 'vibex.computer-use',
+        id: 'computer-use',
+        label: '电脑控制',
+      },
+    ]);
+    const transport: BackendTransport = {
+      environment: 'desktop',
+      call: vi.fn(),
+      capabilities: vi.fn().mockResolvedValue({
+        server_version: '1.0.0',
+        protocol_version: '1.0',
+        minimum_client_version: '0.1.0',
+        capabilities: [
+          'application.call',
+          'automation.read',
+          'plugin.read',
+          'device.pair',
+        ],
+      }),
+    };
+
+    try {
+      render(
+        <BackendTransportProvider transport={transport}>
+          <MemoryRouter initialEntries={['/settings/general']}>
+            <Routes>
+              <Route path="/settings" element={<SettingsLayout />}>
+                <Route path="general" element={<div>General content</div>} />
+              </Route>
+            </Routes>
+          </MemoryRouter>
+        </BackendTransportProvider>
+      );
+
+      const aiGroup = await screen.findByRole('group', { name: 'FOR AI' });
+      const humanGroup = screen.getByRole('group', { name: 'FOR Human' });
+      const systemGroup = screen.getByRole('group', { name: 'FOR SYSTEM' });
+      const pluginsGroup = screen.getByRole('group', { name: 'FOR PLUGINS' });
+
+      expect(
+        Array.from(aiGroup.querySelectorAll('button')).map((b) =>
+          b.textContent?.trim()
+        )
+      ).toEqual(['Agent', 'Skill', 'MCP', '消息渠道', '自动化']);
+
+      expect(
+        Array.from(humanGroup.querySelectorAll('button')).map((b) =>
+          b.textContent?.trim()
+        )
+      ).toEqual(['常规', '外观', '快捷指令', '交互', '版本管理', '工作树']);
+
+      expect(
+        Array.from(systemGroup.querySelectorAll('button')).map((b) =>
+          b.textContent?.trim()
+        )
+      ).toEqual(['插件', '远程连接', '运行日志', '系统']);
+
+      expect(
+        Array.from(pluginsGroup.querySelectorAll('button')).map((b) =>
+          b.textContent?.trim()
+        )
+      ).toEqual(['电脑控制']);
+    } finally {
+      usePluginHostContributions.mockReturnValue([]);
+    }
   });
 });

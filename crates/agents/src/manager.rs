@@ -177,6 +177,8 @@ fn acp_tool_images(content: &[ToolCallContent]) -> Vec<crate::conversation::Imag
                     data: image.data.clone(),
                     mime_type: image.mime_type.clone(),
                     uri: image.uri.clone(),
+                    width: None,
+                    height: None,
                 }),
                 _ => None,
             },
@@ -3813,6 +3815,11 @@ impl AgentConnectionRunner {
         self.apply_mode_value(conn, &acp_session_id, session_id, mode_id)
             .await
             .map_err(|error| AgentError::Runtime(format!("session/set_mode failed: {error}")))?;
+        // The drop above stops a stale mode from being restored. The value just
+        // applied has to be guarded again, or the agent's next CurrentModeUpdate
+        // paints its default over the choice.
+        self.record_confirmed_controls(session_id, Some(mode_id), &[])
+            .await;
         Ok(self.session_controls_snapshot(session_id).await)
     }
 
@@ -3837,6 +3844,19 @@ impl AgentConnectionRunner {
             .map_err(|error| {
                 AgentError::Runtime(format!("session/set_config_option failed: {error}"))
             })?;
+        let recorded = value
+            .as_str()
+            .map(str::to_string)
+            .unwrap_or_else(|| value.to_string());
+        self.record_confirmed_controls(
+            session_id,
+            None,
+            &[AgentSessionConfigOverride {
+                key: key.to_string(),
+                value: recorded,
+            }],
+        )
+        .await;
         Ok(self.session_controls_snapshot(session_id).await)
     }
 
@@ -3845,6 +3865,33 @@ impl AgentConnectionRunner {
         if let Some(stored) = controls.get_mut(&session_id) {
             stored.asserted_config_values.remove(config_id);
         }
+    }
+
+    /// Keep values that actually settled, so one later agent push back to its
+    /// default is sent again. Values the agent rejected are not guarded.
+    async fn record_confirmed_controls(
+        &self,
+        session_id: AgentSessionId,
+        mode: Option<&str>,
+        config: &[AgentSessionConfigOverride],
+    ) {
+        let preferred = preferred_controls_map(
+            mode,
+            config
+                .iter()
+                .map(|item| (item.key.as_str(), item.value.as_str())),
+        );
+        if preferred.is_empty() {
+            return;
+        }
+        let mut controls = self.session_controls.write().await;
+        let Some(stored) = controls.get_mut(&session_id) else {
+            return;
+        };
+        let settled = agent_session_config_options_from_acp(stored.config_options.clone());
+        stored
+            .asserted_config_values
+            .extend(asserted_from_preferred(&preferred, &settled));
     }
 
     fn spawn_reassert_config_drift(
@@ -3937,6 +3984,8 @@ impl AgentConnectionRunner {
         if let Some(stored) = self.session_controls.write().await.get_mut(&session_id) {
             stored.asserted_config_values.clear();
         }
+        let confirmed_mode = mode_override.clone();
+        let confirmed_config = config_overrides.clone();
         let idle_timeout = prompt_idle_timeout();
 
         // Start each turn with a clean streaming accumulator so snapshot dedup
@@ -3960,6 +4009,8 @@ impl AgentConnectionRunner {
             .await;
             return Ok(RunPromptOutcome::Settled);
         }
+        self.record_confirmed_controls(session_id, confirmed_mode.as_deref(), &confirmed_config)
+            .await;
         let request = PromptRequest::new(
             SessionId::new(acp_session_id.clone()),
             blocks.into_iter().map(agent_block_to_acp).collect(),

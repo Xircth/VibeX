@@ -60,6 +60,8 @@ export const sessionsApi = {
     create_workspace?: boolean;
     include_uncommitted?: boolean;
     repos?: Array<{ repo_id: string; target_branch: string }>;
+    mode_override?: string | null;
+    config_overrides?: Record<string, string> | null;
   }): Promise<Session> => {
     return backendCall<Session>('create_project_session', {
       payload: {
@@ -77,6 +79,8 @@ export const sessionsApi = {
             repoId: repo.repo_id,
             targetBranch: repo.target_branch,
           })) ?? null,
+        modeOverride: data.mode_override ?? null,
+        configOverrides: data.config_overrides ?? null,
       },
     });
   },

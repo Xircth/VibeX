@@ -585,6 +585,7 @@ domain_commands! {
     WorkspaceRunArchiveScript => "run_archive_script" / "application.call",
     WorkspaceShowStash => "show_workspace_stash" / "application.call",
     ConversationTimelinePage => "conversation_timeline_page" / "conversation.read",
+    ConversationTimelineImage => "conversation_timeline_image" / "conversation.read",
     ConversationRebindSession => "conversation_rebind_session" / "conversation.write",
     ConversationTruncateToTurn => "conversation_truncate_to_turn" / "conversation.write",
     ConversationCheckpointPreview => "conversation_checkpoint_file_changes_preview" / "conversation.read",

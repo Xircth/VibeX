@@ -2,7 +2,12 @@ import { useState, useMemo, useRef, useEffect, useCallback, memo } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Virtuoso, VirtuosoHandle } from 'react-virtuoso';
 import { Button } from '@/components/ui/button.tsx';
-import { ArrowDown, GitBranch as GitBranchIcon, Search } from 'lucide-react';
+import {
+  ArrowDown,
+  Check,
+  GitBranch as GitBranchIcon,
+  Search,
+} from 'lucide-react';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -52,9 +57,8 @@ const BranchRow = memo(function BranchRow({
 }: RowProps) {
   const { t } = useTranslation(['tasks', 'common']);
   const classes =
-    (isSelected ? 'bg-accent text-accent-foreground ' : '') +
     (isDisabled ? 'opacity-50 cursor-not-allowed ' : '') +
-    (!isSelected && isHighlighted ? 'bg-accent/70 ring-2 ring-accent ' : '') +
+    (isHighlighted ? 'bg-accent text-accent-foreground ' : '') +
     'transition-none';
 
   const nameClass = branch.is_current ? 'font-medium' : '';
@@ -81,6 +85,9 @@ const BranchRow = memo(function BranchRow({
               {t('branchSelector.remote')}
             </span>
           )}
+          {isSelected ? (
+            <Check aria-hidden="true" className="h-3.5 w-3.5 shrink-0" />
+          ) : null}
         </div>
       </div>
     </DropdownMenuItem>
@@ -232,7 +239,6 @@ function BranchSelector({
           side={dropdownSide}
           align="start"
           sideOffset={4}
-          avoidCollisions={false}
           className="branch-selector-menu w-[var(--radix-dropdown-menu-trigger-width)]"
         >
           <div className="p-2">

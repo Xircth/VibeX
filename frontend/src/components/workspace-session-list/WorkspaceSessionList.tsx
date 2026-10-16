@@ -1,6 +1,7 @@
 import {
   useEffect,
   useMemo,
+  useRef,
   useState,
   type CSSProperties,
   type HTMLAttributes,
@@ -45,6 +46,7 @@ import { conversationApi } from '@/features/conversation/conversationApi';
 import { useOptionalKanbanSessionContext } from '@/contexts/KanbanSessionContext';
 import type { KanbanProjectSessionRecord } from '@/hooks/useKanbanProjectSessions';
 import { exportConversation } from '@/lib/exportConversation';
+import { armRenameOpeningClick } from '@/lib/renameOpeningGuard';
 import { sessionTitleIsCjk } from '@/lib/sessionTitle';
 import { cn } from '@/lib/utils';
 import { formatRelativeTime } from '@/utils/date';
@@ -818,6 +820,9 @@ function WorkspaceSessionRow({
   const [isHovered, setIsHovered] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const openingRenameRef = useRef(false);
+  const renameInputRef = useRef<HTMLInputElement>(null);
+  const disarmRenameRef = useRef<(() => void) | null>(null);
   const [isForking, setIsForking] = useState(false);
   const [draftName, setDraftName] = useState(title);
   const [contextMenu, setContextMenu] = useState<{
@@ -833,21 +838,43 @@ function WorkspaceSessionRow({
     }
   }, [isEditing, title]);
 
+  useEffect(() => () => disarmRenameRef.current?.(), []);
+
   const submitRename = async () => {
     if (!onRename || isSubmitting) return;
     setIsSubmitting(true);
     try {
       await onRename(draftName.trim() || null);
       setIsEditing(false);
+    } catch {
+      // The caller reports the failure. Leave the draft in the field.
     } finally {
       setIsSubmitting(false);
     }
   };
 
   const cancelRename = () => {
+    disarmRenameRef.current?.();
+    disarmRenameRef.current = null;
+    openingRenameRef.current = false;
     setDraftName(title);
     setIsEditing(false);
     setIsSubmitting(false);
+  };
+
+  const beginRename = () => {
+    disarmRenameRef.current?.();
+    setDraftName(title);
+    setIsEditing(true);
+    disarmRenameRef.current = armRenameOpeningClick({
+      opening: openingRenameRef,
+      focus: () => renameInputRef.current?.focus(),
+    });
+  };
+
+  const handleRenameBlur = () => {
+    if (openingRenameRef.current) return;
+    void submitRename();
   };
 
   const handleForkSession = () => {
@@ -897,12 +924,7 @@ function WorkspaceSessionRow({
     t,
     onRestore,
     restoreLabel: t('workspaceSessionList.restore'),
-    onRename: onRename
-      ? () => {
-          setDraftName(title);
-          setIsEditing(true);
-        }
-      : undefined,
+    onRename: onRename ? beginRename : undefined,
     onCopySessionInfo: () => {
       void writeClipboardViaBridge(
         formatSessionInfoForCopy({
@@ -999,10 +1021,16 @@ function WorkspaceSessionRow({
               )}
             </span>
             <Input
+              ref={renameInputRef}
               value={draftName}
               onChange={(event) => setDraftName(event.target.value)}
               onClick={(event) => event.stopPropagation()}
-              onBlur={() => void submitRename()}
+              onBlur={handleRenameBlur}
+              onKeyDownCapture={(event) => {
+                if (event.key === 'Escape') {
+                  openingRenameRef.current = true;
+                }
+              }}
               onKeyDown={(event) => {
                 if (event.key === 'Enter') {
                   event.preventDefault();

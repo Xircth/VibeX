@@ -2,13 +2,16 @@
 
 import * as React from 'react';
 import * as SelectPrimitive from '@radix-ui/react-select';
+import { SelectorOption } from '@astryxdesign/core/Selector';
 import { Check, ChevronDown, ChevronUp } from 'lucide-react';
+
+type SelectorOptionProps = React.ComponentProps<typeof SelectorOption>;
 
 import { cn } from '@/lib/utils';
 import {
   PRODUCT_MENU_CONTENT_CLASS,
-  PRODUCT_MENU_ITEM_CLASS,
   PRODUCT_MENU_SEPARATOR_CLASS,
+  PRODUCT_OPTION_ITEM_CLASS,
 } from '@/components/ui/product-menu-classes';
 import { usePortalContainer } from '@/contexts/PortalContainerContext';
 import {
@@ -80,41 +83,55 @@ SelectScrollDownButton.displayName =
 const SelectContent = React.forwardRef<
   React.ComponentRef<typeof SelectPrimitive.Content>,
   React.ComponentPropsWithoutRef<typeof SelectPrimitive.Content>
->(({ className, children, position = 'popper', ...props }, ref) => {
-  const container = usePortalContainer();
-  const revealed = useRevealAfterOverlayReady();
-  return (
-    <SelectPrimitive.Portal container={container}>
-      <SelectPrimitive.Content
-        ref={ref}
-        data-floating-layer="popover"
-        className={cn(
-          PRODUCT_MENU_CONTENT_CLASS,
-          'relative z-[10000] max-h-[--radix-select-content-available-height] min-w-[8rem] overflow-y-auto overflow-x-hidden p-0 outline-none data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95 data-[side=bottom]:slide-in-from-top-2 data-[side=left]:slide-in-from-right-2 data-[side=right]:slide-in-from-left-2 data-[side=top]:slide-in-from-bottom-2 origin-[--radix-select-content-transform-origin]',
-          revealed ? null : 'invisible opacity-0',
-          position === 'popper' &&
-            'data-[side=bottom]:translate-y-1 data-[side=left]:-translate-x-1 data-[side=right]:translate-x-1 data-[side=top]:-translate-y-1',
-          className
-        )}
-        position={position}
-        {...props}
-      >
-        <NativeSurfaceOcclusionHold />
-        <SelectScrollUpButton />
-        <SelectPrimitive.Viewport
+>(
+  (
+    {
+      className,
+      children,
+      position = 'popper',
+      sideOffset = 4,
+      collisionPadding = 8,
+      ...props
+    },
+    ref
+  ) => {
+    const container = usePortalContainer();
+    const revealed = useRevealAfterOverlayReady();
+    // item-aligned pins the selected row on the trigger and clips the rest.
+    const placement = position === 'item-aligned' ? 'popper' : position;
+    return (
+      <SelectPrimitive.Portal container={container}>
+        <SelectPrimitive.Content
+          ref={ref}
+          data-floating-layer="popover"
           className={cn(
-            'p-1',
-            position === 'popper' &&
-              'h-[var(--radix-select-trigger-height)] w-full min-w-[var(--radix-select-trigger-width)]'
+            PRODUCT_MENU_CONTENT_CLASS,
+            'relative z-[10000] max-h-[--radix-select-content-available-height] min-w-[8rem] overflow-y-auto overflow-x-hidden p-0 outline-none data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95 data-[side=bottom]:slide-in-from-top-2 data-[side=left]:slide-in-from-right-2 data-[side=right]:slide-in-from-left-2 data-[side=top]:slide-in-from-bottom-2 origin-[--radix-select-content-transform-origin]',
+            revealed ? null : 'invisible opacity-0',
+            className
           )}
+          position={placement}
+          sideOffset={sideOffset}
+          collisionPadding={collisionPadding}
+          {...props}
         >
-          {children}
-        </SelectPrimitive.Viewport>
-        <SelectScrollDownButton />
-      </SelectPrimitive.Content>
-    </SelectPrimitive.Portal>
-  );
-});
+          <NativeSurfaceOcclusionHold />
+          <SelectScrollUpButton />
+          <SelectPrimitive.Viewport
+            className={cn(
+              'flex flex-col p-1.5',
+              placement === 'popper' &&
+                'w-full min-w-[var(--radix-select-trigger-width)]'
+            )}
+          >
+            {children}
+          </SelectPrimitive.Viewport>
+          <SelectScrollDownButton />
+        </SelectPrimitive.Content>
+      </SelectPrimitive.Portal>
+    );
+  }
+);
 SelectContent.displayName = SelectPrimitive.Content.displayName;
 
 const SelectLabel = React.forwardRef<
@@ -123,32 +140,44 @@ const SelectLabel = React.forwardRef<
 >(({ className, ...props }, ref) => (
   <SelectPrimitive.Label
     ref={ref}
-    className={cn('py-1.5 pl-8 pr-2 text-xs font-semibold', className)}
+    className={cn('px-2.5 py-1.5 text-xs font-semibold', className)}
     {...props}
   />
 ));
 SelectLabel.displayName = SelectPrimitive.Label.displayName;
 
+type SelectItemProps = React.ComponentPropsWithoutRef<
+  typeof SelectPrimitive.Item
+> &
+  Partial<Pick<SelectorOptionProps, 'icon' | 'description' | 'endContent'>>;
+
 const SelectItem = React.forwardRef<
   React.ComponentRef<typeof SelectPrimitive.Item>,
-  React.ComponentPropsWithoutRef<typeof SelectPrimitive.Item>
->(({ className, children, ...props }, ref) => (
+  SelectItemProps
+>(({ className, children, icon, description, endContent, ...props }, ref) => (
   <SelectPrimitive.Item
     ref={ref}
     className={cn(
-      PRODUCT_MENU_ITEM_CLASS,
-      'w-full cursor-default py-1.5 pl-8 pr-2 data-[state=checked]:bg-accent data-[state=checked]:text-accent-foreground',
+      PRODUCT_OPTION_ITEM_CLASS,
+      'astryx-select-option w-full cursor-default justify-between data-[state=checked]:font-medium',
       className
     )}
     {...props}
   >
-    <span className="absolute left-2 flex h-3.5 w-3.5 items-center justify-center">
-      <SelectPrimitive.ItemIndicator>
-        <Check className="h-4 w-4" />
-      </SelectPrimitive.ItemIndicator>
-    </span>
+    <SelectorOption
+      icon={icon}
+      label={<SelectPrimitive.ItemText>{children}</SelectPrimitive.ItemText>}
+      description={description}
+      endContent={endContent}
+      className="astryx-select-option-label"
+    />
 
-    <SelectPrimitive.ItemText>{children}</SelectPrimitive.ItemText>
+    <SelectPrimitive.ItemIndicator>
+      <Check
+        aria-hidden="true"
+        className="astryx-select-option-check h-3.5 w-3.5"
+      />
+    </SelectPrimitive.ItemIndicator>
   </SelectPrimitive.Item>
 ));
 SelectItem.displayName = SelectPrimitive.Item.displayName;
@@ -176,4 +205,6 @@ export {
   SelectSeparator,
   SelectScrollUpButton,
   SelectScrollDownButton,
+  SelectorOption,
+  type SelectorOptionProps,
 };

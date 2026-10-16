@@ -251,9 +251,12 @@ export function WorktreeSelector() {
             event.preventDefault();
             handleGoToKanban();
           }}
-          className={!effectiveWorktreeId ? 'bg-accent' : ''}
+          className="justify-between"
         >
           <span className="text-xs">Kanban overview</span>
+          {!effectiveWorktreeId ? (
+            <Check aria-hidden="true" className="h-3.5 w-3.5 shrink-0" />
+          ) : null}
         </DropdownMenuItem>
 
         <DropdownMenuSeparator />
@@ -271,11 +274,7 @@ export function WorktreeSelector() {
                   event.preventDefault();
                   handleSelect(option);
                 }}
-                className={cn(
-                  'flex items-center gap-2',
-                  option.existingWorkspaceId === effectiveWorktreeId &&
-                    'bg-accent'
-                )}
+                className="flex items-center justify-between gap-2"
               >
                 <div className="min-w-0 flex-1">
                   <div className="flex items-center gap-2">
@@ -296,6 +295,12 @@ export function WorktreeSelector() {
                     {getBranchOptionDescription(option, t)}
                   </span>
                 </div>
+                {option.existingWorkspaceId === effectiveWorktreeId ? (
+                  <Check
+                    aria-hidden="true"
+                    className="h-3.5 w-3.5 shrink-0 text-foreground"
+                  />
+                ) : null}
                 <button
                   type="button"
                   className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-sm text-muted-foreground hover:bg-muted hover:text-foreground disabled:cursor-not-allowed disabled:opacity-40"

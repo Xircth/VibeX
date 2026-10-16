@@ -33,7 +33,9 @@ import { useRepoBranches } from '@/hooks/useRepoBranches';
 import { useUserSystem } from '@/components/ConfigProvider';
 import { ConfirmDialog } from '@/components/dialogs/shared/ConfirmDialog';
 import { TooltipProvider } from '@/components/ui/tooltip';
+import { toast } from '@/components/ui/toast';
 import { sessionsApi, type SessionStatus } from '@/lib/api';
+import { getSessionUiErrorMessage } from '@/lib/sessionUiErrors';
 import { useKanbanBoardStyle } from '@/lib/kanbanBoardStyle';
 import { isCreateSessionFormVisibleForProject } from '@/lib/createSessionFormVisibility';
 import {
@@ -159,7 +161,7 @@ export function KanbanSessionHub({
   sessionSlot = null,
   presentation,
 }: KanbanSessionHubProps) {
-  const { t } = useTranslation(['tasks', 'common']);
+  const { t } = useTranslation(['tasks', 'common', 'panels']);
   const queryClient = useQueryClient();
   const storedBoardStyle = useKanbanBoardStyle();
   const boardStyle = presentation ?? storedBoardStyle;
@@ -555,6 +557,27 @@ export function KanbanSessionHub({
       closeCreatePopover: () => setIsCreatePopoverOpen(false),
     });
 
+  const renameListedSession = useCallback(
+    async (session: KanbanProjectSessionRecord, name: string | null) => {
+      try {
+        await renameSessionMutation.mutateAsync({
+          sessionId: session.id,
+          name,
+          workspaceId: session.workspace.id,
+        });
+      } catch (error) {
+        toast.error(
+          getSessionUiErrorMessage(
+            error,
+            t('panels:workspaceSessionList.renameFailed')
+          )
+        );
+        throw error;
+      }
+    },
+    [renameSessionMutation, t]
+  );
+
   const sessionsWithOptimisticStatus = useMemo(
     () =>
       sessions.map((session) => {
@@ -939,7 +962,7 @@ export function KanbanSessionHub({
     nextStatus: KanbanProjectSessionRecord['status']
   ) => {
     if (session.status === nextStatus) {
-      return;
+      return false;
     }
 
     setDeleteErrorMessage(null);
@@ -955,6 +978,7 @@ export function KanbanSessionHub({
       await queryClient.invalidateQueries({
         queryKey: ['workspaceSessions', session.workspace.id],
       });
+      return true;
     } catch (error) {
       setOptimisticStatusBySessionId((current) => {
         const next = { ...current };
@@ -964,6 +988,7 @@ export function KanbanSessionHub({
       setDeleteErrorMessage(
         mapSessionErrorMessage(error, t('sessionHub.updateStatusFailed'))
       );
+      return false;
     }
   };
 
@@ -1263,13 +1288,7 @@ export function KanbanSessionHub({
       onSessionClick={handleSessionClick}
       onToggleSessionSelection={handleToggleSessionSelection}
       onDeleteSession={handleDeleteSession}
-      onRenameSession={async (session, name) => {
-        await renameSessionMutation.mutateAsync({
-          sessionId: session.id,
-          name,
-          workspaceId: session.workspace.id,
-        });
-      }}
+      onRenameSession={renameListedSession}
       onSessionStatusChange={(session, nextStatus) => {
         void handleSessionStatusChange(session, nextStatus);
       }}
@@ -1352,12 +1371,13 @@ export function KanbanSessionHub({
                   </Suspense>
                 ) : null
               }
-              onRenameSession={async (session, name) => {
-                await renameSessionMutation.mutateAsync({
-                  sessionId: session.id,
-                  name,
-                  workspaceId: session.workspace.id,
-                });
+              onRenameSession={renameListedSession}
+              onArchiveSession={async (session) => {
+                const archived = await handleSessionStatusChange(
+                  session,
+                  ARCHIVED_SESSION_STATUS
+                );
+                if (archived) canvasApiRef.current?.removeSession(session.id);
               }}
               onDeleteSession={handleDeleteSession}
               onApiReady={(api) => {

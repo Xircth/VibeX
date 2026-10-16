@@ -1688,13 +1688,12 @@ export function HostBrowserPanel({
                   <DropdownMenuItem
                     key={factor}
                     onSelect={() => applyZoom(factor)}
+                    className="justify-between"
                   >
-                    {zoom === factor ? (
-                      <Check className="h-3.5 w-3.5" />
-                    ) : (
-                      <span className="h-3.5 w-3.5" />
-                    )}
                     {Math.round(factor * 100)}%
+                    {zoom === factor ? (
+                      <Check aria-hidden="true" className="h-3.5 w-3.5" />
+                    ) : null}
                   </DropdownMenuItem>
                 ))}
               </DropdownMenuSubContent>
@@ -1709,13 +1708,12 @@ export function HostBrowserPanel({
                   <DropdownMenuItem
                     key={preset}
                     onSelect={() => applyDevice(preset)}
+                    className="justify-between"
                   >
-                    {device === preset ? (
-                      <Check className="h-3.5 w-3.5" />
-                    ) : (
-                      <span className="h-3.5 w-3.5" />
-                    )}
                     {deviceLabel(preset)}
+                    {device === preset ? (
+                      <Check aria-hidden="true" className="h-3.5 w-3.5" />
+                    ) : null}
                   </DropdownMenuItem>
                 ))}
               </DropdownMenuSubContent>

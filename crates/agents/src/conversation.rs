@@ -212,6 +212,12 @@ pub struct ImageData {
     pub mime_type: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub uri: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub width: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub height: Option<u32>,
 }
 
 /// One tool invocation recorded inside a delegated sub-agent run. Named to avoid
@@ -271,6 +277,12 @@ pub enum ContentBlock {
         mime_type: String,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         uri: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional)]
+        width: Option<u32>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional)]
+        height: Option<u32>,
     },
     /// First-class image generation (codex-acp). `image` is `None` while the
     /// generation is still in flight.
@@ -1375,6 +1387,17 @@ pub enum ConversationRowOp {
         stream: TimelineTextStream,
         delta: String,
     },
+    /// Replace or append the listed blocks on an existing assistant row.
+    /// Does not clear the row's live text overlay.
+    PatchBlocks {
+        row_id: String,
+        revision: i64,
+        phase: String,
+        blocks: Vec<ContentBlock>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional)]
+        usage: Option<TurnUsage>,
+    },
 }
 
 /// A batch of row ops for one conversation, emitted on the realtime channel.
@@ -1539,7 +1562,11 @@ fn cap_timeline_row_kind(row: &mut ConversationTimelineRow) {
     let ConversationTimelineRow::MessageTurn { turn, .. } = row else {
         return;
     };
-    for block in &mut turn.blocks {
+    cap_content_blocks(&mut turn.blocks);
+}
+
+pub fn cap_content_blocks(blocks: &mut [ContentBlock]) {
+    for block in blocks {
         cap_tool_preview_fields(block);
     }
 }
@@ -1568,6 +1595,7 @@ fn cap_tool_preview_fields(block: &mut ContentBlock) {
         }
         _ => {}
     }
+    crate::timeline_images::spill_content_block(block);
 }
 
 #[cfg(test)]

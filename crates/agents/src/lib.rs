@@ -59,6 +59,7 @@ pub mod session;
 mod session_bind_metrics;
 mod session_config_guard;
 mod session_notice;
+pub mod timeline_images;
 pub use session_notice::{
     AGENT_SESSION_NOTICE_KIND, SESSION_CONNECT_ERROR_KIND, SESSION_RECONNECT_PROGRESS_KIND,
     notice_from_diagnostic_payload as session_notice_from_diagnostic,
@@ -130,7 +131,7 @@ pub use conversation::{
     ConversationTimelinePage, ConversationTimelineRow, ConversationToolCallPatch,
     ConversationUsage, ConversationWorkflowRef, ImageData, MAX_TIMELINE_PREVIEW_BYTES, MessageTurn,
     SessionLoadFailureReason, SessionRecoveryStrategy, SessionStats, SubAgentToolCall,
-    TurnBlockedReason, TurnRole, TurnUsage, cap_json_value, cap_preview_bytes,
+    TurnBlockedReason, TurnRole, TurnUsage, cap_content_blocks, cap_json_value, cap_preview_bytes,
     cap_timeline_preview_fields, cap_timeline_row_preview_fields,
 };
 pub use cursor_auth::cursor_account_token;
@@ -287,6 +288,10 @@ pub use terminal::{
     AgentTerminalCreateRequest, AgentTerminalEnvVar, AgentTerminalExit, AgentTerminalLiveItem,
     AgentTerminalOutputSnapshot, HostTerminalSnapshot, TerminalOutputChunk, TerminalOutputRx,
     TerminalOutputTx, apply_configured_terminal_shell, configured_terminal_shell,
+};
+pub use timeline_images::{
+    TimelineImageBytes, TimelineImageError, externalize_image_data, read_timeline_image,
+    read_timeline_image_in,
 };
 pub use user_definition::{UserAgentDefinition, UserAgentInstallTarget};
 pub use user_environment::{

@@ -461,6 +461,7 @@ describe('SessionHubSidebar', () => {
     render(<Harness onResizeMouseDown={onResizeMouseDown} />);
 
     const handle = screen.getByRole('separator');
+    expect(handle).toHaveClass('workspace-resize-handle');
     expect(handle).toHaveClass('session-hub-resizer');
     fireEvent.mouseDown(handle);
     expect(onResizeMouseDown).toHaveBeenCalledTimes(1);

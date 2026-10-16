@@ -1,4 +1,4 @@
-import { ArrowDown, FolderTree } from 'lucide-react';
+import { ArrowDown, Check, FolderTree } from 'lucide-react';
 import type { TFunction } from 'i18next';
 import { useTranslation } from 'react-i18next';
 import { Button } from '@/components/ui/button';
@@ -78,16 +78,15 @@ export function WorkspaceSelector({
         side={dropdownSide}
         align="start"
         sideOffset={1}
-        avoidCollisions={false}
         className="w-80"
       >
         {options.map((option) => (
           <DropdownMenuItem
             key={option.value}
             onSelect={() => onChange(option.value)}
-            className={option.value === value ? 'bg-accent' : ''}
+            className="items-start justify-between gap-2"
           >
-            <div className="min-w-0 space-y-1">
+            <div className="min-w-0 flex-1 space-y-1">
               <div className="flex items-center gap-2">
                 <div className="truncate text-xs font-medium">
                   {option.branch}
@@ -106,6 +105,12 @@ export function WorkspaceSelector({
                 {getOptionDescription(option, t)}
               </div>
             </div>
+            {option.value === value ? (
+              <Check
+                aria-hidden="true"
+                className="mt-0.5 h-3.5 w-3.5 shrink-0"
+              />
+            ) : null}
           </DropdownMenuItem>
         ))}
       </DropdownMenuContent>

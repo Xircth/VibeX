@@ -44,6 +44,7 @@ import { cn } from '@/lib/utils';
 import { AgentManagementIcon } from '@/components/agents/AgentManagementIcon';
 import {
   AGENT_BAR_LAYOUT,
+  agentBarContentWidth,
   agentBarLayoutStyle,
   agentBarPageGap,
   agentBarPageOf,
@@ -81,6 +82,10 @@ const PAGER_DROPPABLE_ID_SET = new Set(Object.values(PAGER_DROPPABLE_IDS));
 
 /** Hovering a dragged icon over a pager arrow flips the page after this. */
 const DRAG_PAGE_DELAY_MS = 450;
+/** Onboarding cap. The settings bar stays full width and does not use this. */
+const PAGING_BAR_MAX = 440;
+/** Border (1px each side) plus the bar's 3px horizontal padding. */
+const PAGING_BAR_CHROME = 8;
 
 /**
  * Reordering is applied live from `onDragOver`, so the sortable strategy has
@@ -156,6 +161,8 @@ function AgentBarPaged({
 }: AgentBarProps) {
   const { t } = useTranslation('settings');
   const [viewportWidth, setViewportWidth] = useState(0);
+  const [railWidth, setRailWidth] = useState(0);
+  const [clipped, setClipped] = useState(false);
   const [measuredWidths, setMeasuredWidths] = useState<Record<string, number>>(
     {}
   );
@@ -167,18 +174,38 @@ function AgentBarPaged({
   const labelWidth = expandedId
     ? (measuredWidths[expandedId] ?? AGENT_BAR_LAYOUT.labelMaxWidth)
     : 0;
+  const naturalWidth = useMemo(
+    () => agentBarContentWidth(order, { expandedId, labelWidth }),
+    [order, expandedId, labelWidth]
+  );
+  const contentKey = `${orderKey}:${expandedId ?? ''}:${labelWidth}`;
+  const [fittedKey, setFittedKey] = useState(contentKey);
+  if (fittedKey !== contentKey) {
+    setFittedKey(contentKey);
+    setClipped(false);
+  }
+  const outerCap = railWidth > 0 ? Math.min(PAGING_BAR_MAX, railWidth) : 0;
+  const innerCap = Math.max(outerCap - PAGING_BAR_CHROME, 0);
+  const estimateFits = outerCap === 0 || naturalWidth <= innerCap;
+  const hug = estimateFits && !clipped;
   const paging = useMemo(
     () => ({ viewportWidth, expandedId, labelWidth }),
     [viewportWidth, expandedId, labelWidth]
   );
-  const pages = useMemo(() => agentBarPages(order, paging), [order, paging]);
+  const pages = useMemo(() => {
+    if (hug || viewportWidth <= 0) return [order];
+    return agentBarPages(order, paging);
+  }, [hug, viewportWidth, order, paging]);
   const pageGaps = useMemo(() => {
     if (pages.length === 0) return [];
+    if (hug || viewportWidth <= 0) {
+      return pages.map(() => AGENT_BAR_LAYOUT.itemGap);
+    }
     const baseGap = agentBarPageGap(pages[0] ?? [], paging);
     return pages.map((pageAgentIds, index) =>
       index === 0 ? baseGap : agentBarPageGap(pageAgentIds, paging, baseGap)
     );
-  }, [pages, paging]);
+  }, [pages, paging, hug, viewportWidth]);
   const page = Math.min(requestedPage, Math.max(pages.length - 1, 0));
   const pageStyle = { '--agent-bar-page': page } as CSSProperties;
   const alignedAgentIdRef = useRef<string | null>(null);
@@ -186,13 +213,26 @@ function AgentBarPaged({
   useLayoutEffect(() => {
     const viewport = viewportRef.current;
     if (!viewport) return;
-    const measure = () => setViewportWidth(viewport.clientWidth);
+    const measure = () => {
+      const width = viewport.clientWidth;
+      setViewportWidth(width);
+      const rail = viewport.parentElement?.parentElement;
+      const nextRail = rail?.clientWidth ?? 0;
+      setRailWidth((prev) => (prev === nextRail ? prev : nextRail));
+      if (!estimateFits || width <= 0) return;
+      const page = viewport.querySelector<HTMLElement>(
+        '.agent-management-bar-page'
+      );
+      if (page && page.scrollWidth > width + 1) setClipped(true);
+    };
     measure();
     if (typeof ResizeObserver === 'undefined') return;
     const observer = new ResizeObserver(measure);
     observer.observe(viewport);
+    const rail = viewport.parentElement?.parentElement;
+    if (rail) observer.observe(rail);
     return () => observer.disconnect();
-  }, [orderKey]);
+  }, [orderKey, hug, estimateFits]);
 
   useLayoutEffect(() => {
     const viewport = viewportRef.current;
@@ -239,7 +279,7 @@ function AgentBarPaged({
   return (
     <nav
       aria-label={t('agents.agentListAria')}
-      className="agent-management-bar"
+      className={cn('agent-management-bar', hug && 'is-hug')}
       style={agentBarLayoutStyle}
     >
       <AgentBarPagerButton

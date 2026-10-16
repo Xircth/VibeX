@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  agentBarContentWidth,
   agentBarPageGap,
   agentBarPageOf,
   agentBarPages,
@@ -84,6 +85,17 @@ describe('defaultAgentIdFromOrder', () => {
   it('uses the first icon as the default Agent', () => {
     expect(defaultAgentIdFromOrder(['pi', 'codex'], 'codex')).toBe('pi');
     expect(defaultAgentIdFromOrder([], 'codex')).toBe('codex');
+  });
+});
+
+describe('agentBarContentWidth', () => {
+  it('sums icon widths and the gaps between them, without a trailing tail gap', () => {
+    expect(
+      agentBarContentWidth(['a', 'b', 'c'], {
+        expandedId: 'b',
+        labelWidth: 40,
+      })
+    ).toBe(32 + (32 + 40 + 10) + 32 + 11 * 2);
   });
 });
 

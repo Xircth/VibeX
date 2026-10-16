@@ -216,7 +216,6 @@ export function WorkspaceFileSearchField({
         label={t('searchPanel.searchPlaceholder')}
         isLabelHidden
         size="sm"
-        width="100%"
         placeholder={t('searchPanel.searchPlaceholder')}
         value={search.query}
         onChange={search.setQuery}
@@ -225,11 +224,12 @@ export function WorkspaceFileSearchField({
         startIcon={<Icon icon="search" size="sm" />}
       />
       <Button
+        className="file-tree-search-options"
         label={t('searchPanel.searchOptions')}
         variant="ghost"
         size="sm"
         isIconOnly
-        icon={<MoreVertical size={16} />}
+        icon={<MoreVertical size={14} />}
         aria-haspopup="menu"
         onClick={openOptionsMenu}
       />

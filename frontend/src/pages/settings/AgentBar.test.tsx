@@ -336,6 +336,50 @@ describe('AgentBar', () => {
       expect(onRefresh).toHaveBeenCalledTimes(1);
     });
 
+    it('hugs a paging-only bar when the icons fit under the cap', () => {
+      viewportWidthSpy = vi
+        .spyOn(Element.prototype, 'clientWidth', 'get')
+        .mockImplementation(function (this: Element) {
+          if (this.classList.contains('agent-management-bar-viewport')) {
+            return 220;
+          }
+          if (this.classList.contains('agent-management-bar')) return 220;
+          return 800;
+        });
+      renderBar(
+        [agent('claude_code', 'Claude Code', 0), agent('grok', 'Grok', 1)],
+        'grok',
+        { pagingOnly: true }
+      );
+
+      expect(document.querySelector('.agent-management-bar')).toHaveClass(
+        'is-hug'
+      );
+      expect(
+        screen.queryByRole('button', { name: '下一页 Agent' })
+      ).not.toBeInTheDocument();
+    });
+
+    it('pages a paging-only bar once the icons pass the cap', () => {
+      viewportWidthSpy = vi
+        .spyOn(Element.prototype, 'clientWidth', 'get')
+        .mockImplementation(function (this: Element) {
+          if (this.classList.contains('agent-management-bar-viewport')) {
+            return 200;
+          }
+          if (this.classList.contains('agent-management-bar')) return 200;
+          return 800;
+        });
+      renderBar(manyAgents(14), 'vendor.agent0', { pagingOnly: true });
+
+      expect(document.querySelector('.agent-management-bar')).not.toHaveClass(
+        'is-hug'
+      );
+      expect(
+        screen.getByRole('button', { name: '下一页 Agent' })
+      ).toBeInTheDocument();
+    });
+
     it('enforces a maximum of 10 icons per page even on wide viewports', () => {
       mockViewportWidth(900);
       renderBar(manyAgents(14), 'vendor.agent0');

@@ -448,6 +448,7 @@ export function HostBrowserPanel({
       const input = root.querySelector('input');
       if (!(input instanceof HTMLInputElement)) return;
       input.spellcheck = false;
+      input.style.setProperty('font-size', '12px', 'important');
       const width = Math.ceil(tools.getBoundingClientRect().width);
       if (width < 24) return;
       input.style.paddingInlineEnd = `${width + 10}px`;
@@ -1442,10 +1443,12 @@ export function HostBrowserPanel({
             isLabelHidden
             size="sm"
             width="100%"
+            className="[&_input]:!text-[12px]"
             value={address}
             placeholder={t('browserPanel.addressPlaceholder')}
             ref={(node) => {
               node?.setAttribute('autocomplete', 'off');
+              node?.style.setProperty('font-size', '12px', 'important');
             }}
             role="combobox"
             aria-expanded={suggestOpen && suggestions.length > 0}

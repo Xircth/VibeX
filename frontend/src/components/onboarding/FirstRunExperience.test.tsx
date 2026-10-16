@@ -504,7 +504,7 @@ describe('FirstRunExperience', () => {
     ).toBeChecked();
     expect(screen.getByRole('checkbox', { name: '启用 Pi' })).not.toBeChecked();
     expect(
-      screen.getByRole('combobox', { name: '默认 Agent' })
+      screen.getByRole('combobox', { name: '默认出战的Agent' })
     ).toHaveTextContent('Claude Code');
   });
 
@@ -974,7 +974,7 @@ describe('FirstRunExperience', () => {
     );
     expect(screen.getByRole('button', { name: '重试' })).toBeEnabled();
     expect(
-      screen.queryByRole('combobox', { name: '默认 Agent' })
+      screen.queryByRole('combobox', { name: '默认出战的Agent' })
     ).not.toBeInTheDocument();
   });
 
@@ -1007,7 +1007,7 @@ describe('FirstRunExperience', () => {
     expect(screen.queryAllByRole('radio')).toHaveLength(0);
 
     const defaultAgentPicker = screen.getByRole('combobox', {
-      name: '默认 Agent',
+      name: '默认出战的Agent',
     });
     await user.click(defaultAgentPicker);
     const codexOption = screen.getByRole('option', { name: 'Codex' });
@@ -1094,7 +1094,7 @@ describe('FirstRunExperience', () => {
     await user.click(screen.getByRole('button', { name: '下一步' }));
     await screen.findByRole('checkbox', { name: '启用 Codex' });
     await user.click(screen.getByRole('checkbox', { name: '启用 Codex' }));
-    await user.click(screen.getByRole('combobox', { name: '默认 Agent' }));
+    await user.click(screen.getByRole('combobox', { name: '默认出战的Agent' }));
     await user.click(screen.getByRole('option', { name: 'Codex' }));
     await user.click(screen.getByRole('button', { name: '下一步' }));
 
@@ -1136,7 +1136,7 @@ describe('FirstRunExperience', () => {
     await user.click(screen.getByRole('button', { name: '下一步' }));
     await screen.findByRole('checkbox', { name: '启用 Codex' });
     await user.click(screen.getByRole('checkbox', { name: '启用 Codex' }));
-    await user.click(screen.getByRole('combobox', { name: '默认 Agent' }));
+    await user.click(screen.getByRole('combobox', { name: '默认出战的Agent' }));
     await user.click(screen.getByRole('option', { name: 'Codex' }));
     await user.click(screen.getByRole('button', { name: '下一步' }));
 
@@ -1191,7 +1191,7 @@ describe('FirstRunExperience', () => {
     });
 
     const defaultAgentPicker = screen.getByRole('combobox', {
-      name: '默认 Agent',
+      name: '默认出战的Agent',
     });
     await user.click(defaultAgentPicker);
     expect(
@@ -1234,22 +1234,24 @@ describe('FirstRunExperience', () => {
     expect(startButton).toBeEnabled();
     await user.click(startButton);
 
-    const prompt = screen.getByText('请选择一个默认 Agent');
+    const prompt = screen.getByText('请选择一个默认出战的Agent');
     expect(prompt).toHaveClass('onboarding-default-agent-prompt');
     expect(prompt).toHaveAttribute('role', 'alert');
-    expect(screen.getByRole('combobox', { name: '默认 Agent' })).toHaveClass(
-      'has-error'
-    );
+    expect(
+      screen.getByRole('combobox', { name: '默认出战的Agent' })
+    ).toHaveClass('has-error');
     expect(managementMock.setEnabled).not.toHaveBeenCalled();
     expect(managementMock.addAndInstall).not.toHaveBeenCalled();
     expect(onPersist).not.toHaveBeenCalled();
 
     // 选择默认 Agent 后红色提示消失，流程可继续
-    await user.click(screen.getByRole('combobox', { name: '默认 Agent' }));
+    await user.click(screen.getByRole('combobox', { name: '默认出战的Agent' }));
     await user.click(screen.getByRole('option', { name: 'Codex' }));
-    expect(screen.queryByText('请选择一个默认 Agent')).not.toBeInTheDocument();
     expect(
-      screen.getByRole('combobox', { name: '默认 Agent' })
+      screen.queryByText('请选择一个默认出战的Agent')
+    ).not.toBeInTheDocument();
+    expect(
+      screen.getByRole('combobox', { name: '默认出战的Agent' })
     ).not.toHaveClass('has-error');
   });
 
@@ -1327,7 +1329,7 @@ describe('FirstRunExperience', () => {
     await user.click(screen.getByRole('button', { name: '下一步' }));
     await screen.findByRole('checkbox', { name: '启用 Codex' });
     await user.click(screen.getByRole('checkbox', { name: '启用 Codex' }));
-    await user.click(screen.getByRole('combobox', { name: '默认 Agent' }));
+    await user.click(screen.getByRole('combobox', { name: '默认出战的Agent' }));
     await user.click(screen.getByRole('option', { name: 'Codex' }));
     await user.click(screen.getByRole('button', { name: '下一步' }));
 
@@ -1354,7 +1356,7 @@ describe('FirstRunExperience', () => {
     await user.click(screen.getByRole('button', { name: '下一步' }));
     await screen.findByRole('checkbox', { name: '启用 Codex' });
     await user.click(screen.getByRole('checkbox', { name: '启用 Codex' }));
-    await user.click(screen.getByRole('combobox', { name: '默认 Agent' }));
+    await user.click(screen.getByRole('combobox', { name: '默认出战的Agent' }));
     await user.click(screen.getByRole('option', { name: 'Codex' }));
     await user.click(screen.getByRole('button', { name: '下一步' }));
 
@@ -1503,11 +1505,12 @@ describe('FirstRunExperience', () => {
     await screen.findByRole('checkbox', { name: '启用 Claude Code' });
     await user.click(screen.getByRole('button', { name: '下一步' }));
 
-    expect(
-      await screen.findByText(
-        '当前 Agent 已完成配置，请查看其他 Agent 或继续下一步'
-      )
-    ).toBeInTheDocument();
+    const readyNotice = await screen.findByText(
+      '当前 Agent 已完成配置，请查看其他 Agent 或继续下一步'
+    );
+    expect(readyNotice.closest('.onboarding-install-guidance')).toHaveClass(
+      'settings-surface'
+    );
     expect(document.querySelector('.agent-install-lamp')).not.toBeNull();
     await user.click(screen.getByRole('button', { name: '继续' }));
 
@@ -1580,7 +1583,7 @@ describe('FirstRunExperience', () => {
     });
     await user.click(claudeToggle);
     await user.click(screen.getByRole('checkbox', { name: '启用 Codex' }));
-    await user.click(screen.getByRole('combobox', { name: '默认 Agent' }));
+    await user.click(screen.getByRole('combobox', { name: '默认出战的Agent' }));
     await user.click(screen.getByRole('option', { name: 'Codex' }));
     await user.click(screen.getByRole('button', { name: '下一步' }));
     await screen.findByRole('heading', {
@@ -1618,7 +1621,7 @@ describe('FirstRunExperience', () => {
     await user.click(screen.getByRole('button', { name: '下一步' }));
     await screen.findByRole('checkbox', { name: '启用 Codex' });
     await user.click(screen.getByRole('checkbox', { name: '启用 Codex' }));
-    await user.click(screen.getByRole('combobox', { name: '默认 Agent' }));
+    await user.click(screen.getByRole('combobox', { name: '默认出战的Agent' }));
     await user.click(screen.getByRole('option', { name: 'Codex' }));
     await user.click(screen.getByRole('button', { name: '下一步' }));
     await user.click(await screen.findByRole('button', { name: '一键修复' }));

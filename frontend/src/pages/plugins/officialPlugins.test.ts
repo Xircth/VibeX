@@ -47,6 +47,9 @@ describe('official plugin presentation', () => {
       '供应商预置'
     );
     expect(officialPluginName('vibex.science', 'fallback', t)).toBe('科学研究');
+    expect(officialPluginName('vibex-plugin-computer-use', 'fallback', t)).toBe(
+      '电脑控制'
+    );
     expect(officialPluginName('third.party', 'Drawio', t)).toBe('Drawio');
     expect(officialPluginName('vibex.browser', 'fallback', en)).toBe('Browser');
     expect(officialPluginName('vibex.office', 'fallback', en)).toBe(
@@ -81,6 +84,9 @@ describe('official plugin presentation', () => {
     );
     expect(officialPluginName('vibex.science', 'fallback', en)).toBe(
       'Scientific Research'
+    );
+    expect(officialPluginName('vibex-plugin-computer-use', 'fallback', en)).toBe(
+      'Computer Use'
     );
   });
 

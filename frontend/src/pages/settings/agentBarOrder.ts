@@ -91,6 +91,20 @@ function agentWidth(
     : itemSize;
 }
 
+/** Width of the icons and the gaps between them, with no trailing tail gap. */
+export function agentBarContentWidth(
+  agentIds: string[],
+  paging: Pick<AgentBarPaging, 'expandedId' | 'labelWidth'>
+): number {
+  if (agentIds.length === 0) return 0;
+  let used = 0;
+  for (const id of agentIds) {
+    used += agentWidth(id, { viewportWidth: 0, ...paging });
+  }
+  const gaps = Math.max(agentIds.length - 1, 0) * AGENT_BAR_LAYOUT.itemGap;
+  return used + gaps;
+}
+
 /**
  * Computes the uniform gap for a page so that the tail component at the end
  * participates in the width allocation. With `count` icons on the page, there

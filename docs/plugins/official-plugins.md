@@ -6,7 +6,7 @@
 
 详情页能关，不能当第三方快照卸掉。关掉以后，这一代对外投影按反序拆掉。已经开着的会话通常不会热拆 STDIO MCP，新开会话才干净。
 
-这些包彼此独立。Office 不依赖会话增强，会话增强也不依赖多智能体。Workflow Creator 自己带编辑页和 MCP。插件开发包只管本机写插件这件事。Remote SSH 只管把本机接到一台 SSH 上的 Host。Open Connector 管本机连接器网关和 MCP 工具。科学研究只管按领域注入科研技能。
+这些包彼此独立。Office 不依赖会话增强，会话增强也不依赖多智能体。Workflow Creator 自己带编辑页和 MCP。插件开发包只管本机写插件这件事。Remote SSH 只管把本机接到一台 SSH 上的 Host。Open Connector 管本机连接器网关和 MCP 工具。科学研究只管按领域注入科研技能。电脑控制只管你授权共享的桌面窗口。
 
 ## VibeX Office
 
@@ -230,11 +230,17 @@ Agent 看到五件 HTTP MCP 工具：`list_apps`、`list_connections`、`search_
 
 技能内容 vendored 自 [K-Dense-AI/scientific-agent-skills](https://github.com/K-Dense-AI/scientific-agent-skills)，pin 在 `9cf7d9aea7d84754db4c167ab04b299d33c444bc`。上游 163 项里收录 146 项；GPL、非商业、专有或未声明许可的 17 项未收录。许可核验见插件 `NOTICE.md` 与仓库根 `THIRD_PARTY_NOTICES.md`。
 
+## 电脑控制
+
+身份 `vibex-plugin-computer-use`，版本 `0.34.0`，产品名「电脑控制」。简介是桌面窗口与应用的感知和自动化控制：无障碍树、截图、键鼠输入、窗口级授权和全局紧急停止。源码是 git 子仓库 `assets/plugins/computer-use`（`https://github.com/Xircth/vibex-plugin-computer-use`）。
+
+启用后，新开或重新绑定的会话带上电脑控制的 MCP 和 Skill。共享按窗口、应用或全屏授予，分「仅查看」和「允许控制」。全局紧急停止会立刻撤销授权并打断正在执行的动作。窗口边缘的呼吸光带由设置里的「显示桌面共享状态指示条」控制。
+
 ## 怎么一起用
 
 常见组合很直接。
 
-写文档、表或幻灯片，开 Office。要 Agent 中途问你、读你的备注或管子会话，开会话增强。要父 Agent 把活分给另一个 Agent，开多智能体。要画或改 DAG，开 Workflow Creator。要让 Agent 帮你写插件，开插件开发。要按领域注入科研技能，开科学研究，并只打开正在用的领域。
+写文档、表或幻灯片，开 Office。要 Agent 中途问你、读你的备注或管子会话，开会话增强。要父 Agent 把活分给另一个 Agent，开多智能体。要画或改 DAG，开 Workflow Creator。要让 Agent 帮你写插件，开插件开发。要按领域注入科研技能，开科学研究，并只打开正在用的领域。要让 Agent 操作你授权的桌面窗口，开电脑控制。
 
 官方 MCP 只进启用之后的新会话或重新绑定的会话。先开插件，再开对话，少踩一次「工具清单还是旧的」这个坑。
 

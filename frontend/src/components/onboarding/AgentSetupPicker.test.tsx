@@ -171,6 +171,12 @@ describe('AgentSetupPicker icons', () => {
       /\.onboarding-agent-rail \.agent-management-bar\s*\{[^}]*max-width:\s*440px;/
     );
     expect(css).toMatch(
+      /\.agent-management-bar\.is-hug\s*\{[^}]*width:\s*max-content;/
+    );
+    expect(css).toMatch(
+      /\.onboarding-install-guidance\s*\{[^}]*align-self:\s*flex-end;/
+    );
+    expect(css).toMatch(
       /\.agent-management-bar-pager\.is-next\s*svg\s*\{[^}]*transform:\s*scaleX\(-1\);/
     );
     expect(css).not.toMatch(

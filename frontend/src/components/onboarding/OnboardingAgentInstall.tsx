@@ -459,9 +459,12 @@ export function OnboardingAgentInstall({
                       }
                     />
                   ) : (
-                    <p className="onboarding-install-guidance" role="status">
-                      {t('dialogs:onboarding.checking')}
-                    </p>
+                    <div
+                      className="settings-surface onboarding-install-guidance"
+                      role="status"
+                    >
+                      <p>{t('dialogs:onboarding.checking')}</p>
+                    </div>
                   )}
                 </>
               ) : null}
@@ -604,11 +607,13 @@ function InstallGuidance({
   const { t } = useTranslation('dialogs');
   return (
     <div
-      className={`onboarding-install-guidance is-${guidance.tone}`}
+      className={`settings-surface onboarding-install-guidance is-${guidance.tone}`}
       role={guidance.tone === 'fail' ? 'alert' : 'status'}
     >
-      <p>{guidance.message}</p>
-      {guidance.detail ? <p>{guidance.detail}</p> : null}
+      <div className="onboarding-install-guidance-copy">
+        <p>{guidance.message}</p>
+        {guidance.detail ? <p>{guidance.detail}</p> : null}
+      </div>
       {guidance.repairable && onRepair ? (
         <button
           type="button"

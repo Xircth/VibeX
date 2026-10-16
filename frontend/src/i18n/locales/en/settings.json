@@ -920,6 +920,12 @@
             "description": "Quantum computing and simulation, astronomy, materials structure, CFD/PIV/discrete-event simulation, multi-objective optimization, geospatial analysis, and lab hardware CAD. (13 Skills)"
           }
         }
+      },
+      "computerUse": {
+        "name": "Computer Use",
+        "summary": "See and control shared desktop windows: accessibility trees, screenshots, keyboard and pointer input, per-window grants, and a global emergency stop.",
+        "readme": "# Computer Use\n\nLets an Agent read and act in windows you share. Sharing is per window, per application, or the full screen, and is either view-only or allowed to control.\n\nAfter you enable it, sessions opened or rebound later receive the Computer Use MCP and Skill. The global emergency stop revokes grants and interrupts an action in progress.\n\nThe breathing aura on a shared window is controlled by Show the desktop sharing indicator in settings.",
+        "config": {}
       }
     },
     "contentTab": "Content",

@@ -500,8 +500,9 @@
 .onboarding-default-agent-field > label {
   display: block;
   margin: 0 0 7px;
-  color: hsl(var(--muted-foreground));
-  font-size: 11px;
+  color: hsl(var(--foreground));
+  font-family: inherit;
+  font-size: 12px;
   font-weight: 680;
 }
 
@@ -963,8 +964,11 @@
 }
 
 .onboarding-editor-panel label {
+  color: hsl(var(--foreground));
+  font-family: inherit;
   font-size: 12px;
   font-weight: 680;
+  line-height: normal;
 }
 
 .onboarding-experience .onboarding-editor-select,
@@ -1199,6 +1203,29 @@
   max-width: 440px;
 }
 
+/* No tail controls, so a short row must not keep the empty 440px track. */
+.onboarding-experience .onboarding-agent-rail .agent-management-bar.is-hug {
+  width: max-content;
+  max-width: min(100%, 440px);
+}
+
+.onboarding-experience
+  .onboarding-agent-rail
+  .agent-management-bar.is-hug
+  .agent-management-bar-viewport {
+  flex: 0 0 auto;
+  width: max-content;
+  max-width: 100%;
+}
+
+.onboarding-experience
+  .onboarding-agent-rail
+  .agent-management-bar.is-hug
+  .agent-management-bar-page {
+  flex: 0 0 auto;
+  width: max-content;
+}
+
 .onboarding-experience .onboarding-agent-rail .agent-management-bar-item {
   cursor: pointer;
   touch-action: auto;
@@ -1255,20 +1282,40 @@
 }
 
 .onboarding-install-guidance {
-  display: grid;
-  gap: 8px;
-  margin-top: 12px;
+  align-self: flex-end;
+  display: flex;
+  width: fit-content;
+  max-width: 100%;
+  min-width: 0;
+  align-items: center;
+  gap: 10px;
+  margin-top: 0;
+  padding: 8px 12px;
   color: var(--onboarding-ink);
   font-size: 13px;
-  line-height: 1.5;
+  line-height: 1.45;
+}
+
+.onboarding-install-guidance-copy {
+  display: grid;
+  min-width: 0;
+  gap: 4px;
 }
 
 .onboarding-install-guidance p {
   margin: 0;
 }
 
-.onboarding-install-guidance.is-pass {
+.onboarding-experience .onboarding-install-guidance.is-pass {
+  border-color: hsl(var(--success) / 0.32);
   color: hsl(var(--success));
+  background: hsl(var(--success) / 0.08);
+}
+
+.onboarding-experience .onboarding-install-guidance.is-fail {
+  border-color: hsl(var(--warning) / 0.34);
+  color: hsl(var(--warning));
+  background: hsl(var(--warning) / 0.08);
 }
 
 .onboarding-repair-button {

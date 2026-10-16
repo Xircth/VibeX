@@ -85,6 +85,9 @@ describe('FileTreePanel workspace search', () => {
     expect(field?.querySelector('.astryx-power-search')).toBeNull();
     expect(inputControl?.contains(optionsButton)).toBe(false);
     expect(field?.contains(optionsButton)).toBe(true);
+    expect(input.closest('.astryx-field')?.parentElement).toBe(field);
+    expect(field?.lastElementChild).toBe(optionsButton);
+    expect(optionsButton).toHaveClass('file-tree-search-options');
     expect(
       screen.queryByRole('button', { name: '区分大小写' })
     ).not.toBeInTheDocument();

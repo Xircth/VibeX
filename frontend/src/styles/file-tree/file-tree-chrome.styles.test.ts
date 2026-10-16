@@ -73,9 +73,25 @@ describe('file tree chrome', () => {
     const results = declarationsFor(BASE, '.file-tree-search-results');
     const css = readFileSync(resolve(process.cwd(), BASE), 'utf8');
 
+    const field = declarationsFor(
+      BASE,
+      '.file-tree-search-field > .astryx-field'
+    );
+    const input = declarationsFor(
+      BASE,
+      '.file-tree-search-input.astryx-text-input'
+    );
+    const options = declarationsFor(BASE, '.file-tree-search-options');
+
     expect(overlay.background?.value).toBe('var(--surface-card-strong)');
     expect(overlay.height).toBeUndefined();
     expect(overlay['max-height']).toBeUndefined();
+    expect(field.flex?.value).toBe('1 1 auto');
+    expect(field['min-width']?.value).toBe('0');
+    expect(input.height?.value).toBe('24px');
+    expect(options.flex?.value).toBe('0 0 auto');
+    expect(options.width?.value).toBe('24px');
+    expect(options.height?.value).toBe('24px');
     expect(results.border?.value).toBe('0');
     expect(results['border-top']).toBeUndefined();
     expect(css).toContain('@keyframes file-tree-search-expand');

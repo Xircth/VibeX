@@ -54,6 +54,10 @@ vi.mock('@/lib/backendTransport', () => ({
   backendCall,
   backendListen,
   backendEmit: vi.fn(async () => {}),
+  configuredBackendTransport: {
+    call: backendCall,
+    environment: 'desktop',
+  },
 }));
 
 vi.mock('@/lib/composerInsert', () => ({
@@ -381,6 +385,13 @@ describe('HostBrowserPanel', () => {
     const addressField = screen.getByRole('combobox', {
       name: label('address'),
     });
+    expect(addressField.parentElement?.className ?? '').toContain(
+      '[&_input]:!text-[12px]'
+    );
+    expect(addressField.style.getPropertyValue('font-size')).toBe('12px');
+    expect(addressField.style.getPropertyPriority('font-size')).toBe(
+      'important'
+    );
     const share = screen.getByRole('button', { name: label('share') });
     const pick = screen.getByRole('button', { name: label('pick') });
     const field = addressField.closest('.relative');

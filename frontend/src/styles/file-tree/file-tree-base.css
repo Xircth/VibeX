@@ -154,7 +154,7 @@
   height: 14px;
 }
 
-.file-tree-search-input {
+.file-tree-search > .file-tree-search-input {
   flex: 1 1 auto;
   min-width: 0;
   border: none;
@@ -243,7 +243,7 @@
   box-shadow: none;
 }
 
-.file-tree-search-input::placeholder {
+.file-tree-search > .file-tree-search-input::placeholder {
   color: var(--text-faint);
 }
 
@@ -1014,8 +1014,9 @@
 .file-tree-search-overlay {
   display: flex;
   align-items: center;
+  box-sizing: border-box;
   min-width: 0;
-  padding: 0;
+  padding: 0 2px 0 8px;
   background: var(--surface-card-strong);
   animation: file-tree-search-expand 180ms cubic-bezier(0.16, 1, 0.3, 1);
 }
@@ -1023,14 +1024,38 @@
 .file-tree-search-field {
   display: flex;
   align-items: center;
-  gap: 4px;
+  gap: 2px;
   width: 100%;
   min-width: 0;
 }
 
-.file-tree-search-input {
+/* Field is the flex item. A 100% width on it pushes the options button
+   past the panel's overflow clip. */
+.file-tree-search-field > .astryx-field {
   flex: 1 1 auto;
+  width: auto;
   min-width: 0;
+}
+
+.file-tree-search-input.astryx-text-input {
+  height: 24px !important;
+  min-height: 24px !important;
+  padding-block: 0 !important;
+  padding-inline: 6px !important;
+  gap: 4px !important;
+}
+
+.file-tree-search-input.astryx-text-input input {
+  font-size: 12px !important;
+  line-height: 16px !important;
+}
+
+.file-tree-search-options {
+  flex: 0 0 auto;
+  width: 24px !important;
+  height: 24px !important;
+  min-width: 24px;
+  min-height: 24px;
 }
 
 .file-tree-search-results {

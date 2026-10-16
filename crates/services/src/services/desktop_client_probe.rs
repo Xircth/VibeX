@@ -47,13 +47,13 @@ pub fn discover_desktop_client(agent_id: &str, roots: &DesktopClientRoots) -> Op
         }
     }
     for relative in spec.windows_files {
-        let candidate = roots.local_app_data.join(relative);
+        let candidate = windows_relative(&roots.local_app_data, relative);
         if candidate.is_file() {
             return Some(candidate);
         }
     }
     for (parent, executable) in spec.windows_nested {
-        let parent_dir = roots.local_app_data.join(parent);
+        let parent_dir = windows_relative(&roots.local_app_data, parent);
         let Ok(entries) = fs::read_dir(&parent_dir) else {
             continue;
         };
@@ -186,6 +186,16 @@ fn find_shortcut(programs: &std::path::Path, names: &[&str]) -> Option<PathBuf> 
         }
     }
     None
+}
+
+/// Windows install paths are written with `\`. `Path::join` keeps that
+/// character literal on Unix, so a planted `Programs/ChatGPT/ChatGPT.exe`
+/// would not match. Split either separator and join each component.
+fn windows_relative(root: &std::path::Path, relative: &str) -> PathBuf {
+    relative
+        .split(['\\', '/'])
+        .filter(|part| !part.is_empty())
+        .fold(root.to_path_buf(), |path, part| path.join(part))
 }
 
 fn file_name_is(path: &std::path::Path, names: &[&str]) -> bool {

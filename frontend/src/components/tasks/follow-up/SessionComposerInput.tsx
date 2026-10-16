@@ -34,6 +34,8 @@ import type {
 import {
   SESSION_COMPOSER_TOKEN_VARIANTS,
   SessionComposerTokenIcon,
+  appendSessionComposerTokenContents,
+  toSessionComposerChatToken,
 } from './SessionComposerStructuredText';
 import { useImageMetadata } from '@/hooks/useImageMetadata';
 import { useOpenImagePreview } from '@/hooks/useOpenImagePreview';
@@ -776,17 +778,17 @@ function ComposerTriggerMenuItem({ item }: { item: SearchableItem }) {
         aria-hidden="true"
         className={cn(
           'flex h-7 w-7 shrink-0 items-center justify-center rounded-md',
-          kind === 'slash' && 'bg-blue-500/10 text-blue-600 dark:text-blue-300',
-          kind === 'dollar' &&
-            'bg-emerald-500/10 text-emerald-700 dark:text-emerald-300',
-          (kind === 'file' ||
+          (kind === 'slash' ||
+            kind === 'file' ||
             kind === 'tag' ||
             kind === 'conversation' ||
             kind === 'commit' ||
             kind === 'project' ||
             kind === 'element' ||
             kind === 'quote') &&
-            'bg-cyan-500/10 text-cyan-700 dark:text-cyan-300',
+            'bg-blue-500/10 text-blue-600 dark:text-blue-300',
+          kind === 'dollar' &&
+            'bg-emerald-500/10 text-emerald-700 dark:text-emerald-300',
           kind === 'plugin_action' &&
             'bg-pink-500/10 text-pink-700 dark:text-pink-300',
           kind === 'agent_mention' &&
@@ -834,6 +836,7 @@ function decorateStructuredTokenElement(
   token: SessionComposerStructuredToken
 ) {
   element.dataset.tokenKind = token.kind;
+  element.dataset.variant = SESSION_COMPOSER_TOKEN_VARIANTS[token.kind];
   if (token.kind === 'element') {
     element.removeAttribute('title');
   } else if (token.title) {
@@ -1071,7 +1074,7 @@ function restoreStructuredTokens(
     );
     token.setAttribute('data-astryx-restored-token', '');
     token.contentEditable = 'false';
-    token.textContent = segment.token.label;
+    appendSessionComposerTokenContents(token, segment.token);
     decorateStructuredTokenElement(token, segment.token);
     fragment.append(token);
   }
@@ -1518,21 +1521,13 @@ export function SessionComposerInput({
     const data = item.auxiliaryData as ComposerSearchItemData | undefined;
     const insertText = data?.insertText ?? '';
     const token = getTokenFromInsertText(insertText);
+    if (token) {
+      return { ...toSessionComposerChatToken(token), value: insertText };
+    }
     return {
       value: insertText,
-      label: token?.label ?? item.label,
-      variant: token ? SESSION_COMPOSER_TOKEN_VARIANTS[token.kind] : 'neutral',
-      icon:
-        token &&
-        token.kind !== 'file' &&
-        token.kind !== 'tag' &&
-        token.kind !== 'conversation' &&
-        token.kind !== 'commit' &&
-        token.kind !== 'project' &&
-        token.kind !== 'element' &&
-        token.kind !== 'quote' ? (
-          <SessionComposerTokenIcon token={token} />
-        ) : undefined,
+      label: item.label,
+      variant: 'neutral',
     };
   }, []);
   const pluginOnSelect = useCallback((item: SearchableItem): string => {
@@ -1608,7 +1603,7 @@ export function SessionComposerInput({
   // --- Programmatic token insertion (code selection, file-reference drop) ---
 
   const insertComposerTokenAtCaret = useCallback(
-    (token: { value: string; label: string; variant?: 'cyan' }) => {
+    (token: { value: string; label: string }) => {
       const handle = composerHandleRef.current;
       if (!handle) {
         onChange(
@@ -1619,11 +1614,16 @@ export function SessionComposerInput({
       prepareEmptyComposerForTokenInsert(
         getSessionComposerEditable(composerRootRef.current)
       );
-      handle.insertToken({
-        value: token.value,
-        label: token.label,
-        variant: token.variant,
-      });
+      const structured = getTokenFromInsertText(token.value);
+      handle.insertToken(
+        structured
+          ? { ...toSessionComposerChatToken(structured), value: token.value }
+          : {
+              value: token.value,
+              label: token.label,
+              variant: 'blue',
+            }
+      );
       onChange(handle.getValue());
     },
     [onChange, value]
@@ -1644,7 +1644,6 @@ export function SessionComposerInput({
       insertComposerTokenAtCaret({
         value: token.value,
         label: token.label,
-        variant: 'cyan',
       });
       window.requestAnimationFrame(() => composerHandleRef.current?.focus());
     },

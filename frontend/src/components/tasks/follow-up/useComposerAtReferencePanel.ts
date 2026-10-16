@@ -1,4 +1,5 @@
 import {
+  createElement,
   useCallback,
   useEffect,
   useRef,
@@ -44,6 +45,10 @@ import {
   atReferenceChipLabel,
   getSessionComposerStructuredTokenSegments,
 } from './sessionComposerStructuredTokens';
+import {
+  SessionComposerTokenIcon,
+  toSessionComposerChatToken,
+} from './SessionComposerStructuredText';
 
 export type ComposerAtReferenceContext = {
   sessionId?: string;
@@ -77,14 +82,16 @@ function atReferenceItemToToken(item: AtReferenceItem): ChatComposerToken {
   const token = getSessionComposerStructuredTokenSegments(item.insertText).find(
     (segment) => segment.kind === 'token'
   );
-  const label =
-    token?.kind === 'token'
-      ? token.token.label
-      : atReferenceChipLabel(item.label);
+  if (token?.kind === 'token') {
+    return toSessionComposerChatToken(token.token);
+  }
   return {
     value: item.insertText,
-    label,
-    variant: 'cyan',
+    label: atReferenceChipLabel(item.label),
+    variant: 'blue',
+    icon: createElement(SessionComposerTokenIcon, {
+      token: { kind: 'file', value: '' },
+    }),
   };
 }
 

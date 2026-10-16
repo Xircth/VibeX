@@ -138,7 +138,7 @@ describe('UserMessage', () => {
     render(<UserMessage content="Ask [&Codex](vibex://agent/codex) next" />);
 
     const chip = screen
-      .getByText('&Codex')
+      .getByText('Codex')
       .closest('[data-testid="session-composer-token-chip"]');
 
     expect(chip).toHaveAttribute('data-token-kind', 'agent_mention');

@@ -5,9 +5,25 @@ import {
   type HTMLAttributes,
   type ReactNode,
 } from 'react';
+import { renderToStaticMarkup } from 'react-dom/server';
 import type { BadgeVariant } from '@astryxdesign/core/Badge';
-import { Command, Puzzle, Sparkles } from 'lucide-react';
-import { AgentIcon } from '@/components/agents/AgentIcon';
+import {
+  Bot,
+  Command,
+  FileIcon,
+  Folder,
+  GitCommitHorizontal,
+  Hash,
+  MessageSquare,
+  MousePointer2,
+  Puzzle,
+  Sparkles,
+  TextQuote,
+} from 'lucide-react';
+import {
+  AgentIcon,
+  getBuiltInAgentIconPaths,
+} from '@/components/agents/AgentIcon';
 import { cn } from '@/lib/utils';
 import { QuoteTokenPreview } from './QuoteTokenPreview';
 import type {
@@ -22,15 +38,15 @@ export const SESSION_COMPOSER_TOKEN_VARIANTS: Record<
 > = {
   slash: 'blue',
   dollar: 'green',
-  file: 'cyan',
-  tag: 'cyan',
+  file: 'blue',
+  tag: 'blue',
   plugin_action: 'pink',
-  element: 'cyan',
+  element: 'blue',
   agent_mention: 'purple',
-  conversation: 'cyan',
-  commit: 'cyan',
-  project: 'cyan',
-  quote: 'cyan',
+  conversation: 'blue',
+  commit: 'blue',
+  project: 'blue',
+  quote: 'blue',
 };
 
 export function getSessionComposerTokenChipTitle(
@@ -85,14 +101,84 @@ export function SessionComposerTokenIcon({
     case 'agent_mention':
       return <AgentIcon agent={token.value} className={className} />;
     case 'file':
+      return <FileIcon className={className} />;
     case 'tag':
+      return <Hash className={className} />;
     case 'conversation':
+      return <MessageSquare className={className} />;
     case 'commit':
+      return <GitCommitHorizontal className={className} />;
     case 'project':
+      return <Folder className={className} />;
     case 'element':
+      return <MousePointer2 className={className} />;
     case 'quote':
-      return null;
+      return <TextQuote className={className} />;
   }
+}
+
+export function toSessionComposerChatToken(
+  token: SessionComposerStructuredToken
+): {
+  value: string;
+  label: string;
+  variant: BadgeVariant;
+  icon: ReactNode;
+} {
+  return {
+    value: token.raw,
+    label: token.label,
+    variant: SESSION_COMPOSER_TOKEN_VARIANTS[token.kind],
+    icon: <SessionComposerTokenIcon token={token} />,
+  };
+}
+
+function restoredSessionComposerTokenIconMarkup(
+  token: SessionComposerStructuredToken
+): string {
+  if (token.kind === 'agent_mention') {
+    const paths = getBuiltInAgentIconPaths(token.value);
+    if (paths) {
+      return renderToStaticMarkup(
+        <>
+          <img
+            alt=""
+            className="h-3 w-3 shrink-0 dark:hidden"
+            src={paths.light}
+          />
+          <img
+            alt=""
+            className="h-3 w-3 shrink-0 hidden dark:block"
+            src={paths.dark}
+          />
+        </>
+      );
+    }
+    return renderToStaticMarkup(<Bot className="h-3 w-3 shrink-0" />);
+  }
+
+  return renderToStaticMarkup(
+    <SessionComposerTokenIcon token={token} className="h-3 w-3 shrink-0" />
+  );
+}
+
+export function appendSessionComposerTokenContents(
+  element: HTMLElement,
+  token: SessionComposerStructuredToken
+) {
+  element.replaceChildren();
+  const iconMarkup = restoredSessionComposerTokenIconMarkup(token);
+  if (iconMarkup) {
+    const iconHost = document.createElement('span');
+    iconHost.setAttribute('aria-hidden', 'true');
+    iconHost.className = 'session-composer-token-icon inline-flex shrink-0';
+    iconHost.innerHTML = iconMarkup;
+    element.append(iconHost);
+  }
+  const label = document.createElement('span');
+  label.className = 'session-composer-token-label truncate font-medium';
+  label.textContent = token.label;
+  element.append(label);
 }
 
 export function SessionComposerTokenChip({

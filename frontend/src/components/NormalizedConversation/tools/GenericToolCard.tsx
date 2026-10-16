@@ -180,7 +180,7 @@ export function GenericToolCard({
     ? t('genericTool.subagent')
     : isTodo
       ? t('genericTool.todo')
-      : description ?? summary.label;
+      : (description ?? summary.label);
   // The generic branch mirrors the tool name into `content`; repeating it next
   // to the label ("Write Write") carries no information — show nothing instead.
   const meaningfulInlineText =

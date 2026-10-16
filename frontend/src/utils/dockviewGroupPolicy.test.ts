@@ -57,9 +57,9 @@ describe('dockview group policy', () => {
     expect(isBottomGroup(group('restored-bottom', [PANEL_IDS.TERMINAL]))).toBe(
       false
     );
-    expect(
-      isEditorGroup(group('restored-bottom', [PANEL_IDS.TERMINAL]))
-    ).toBe(true);
+    expect(isEditorGroup(group('restored-bottom', [PANEL_IDS.TERMINAL]))).toBe(
+      true
+    );
     expect(isEditorGroup(group('group-editor-1', [PANEL_IDS.WELCOME]))).toBe(
       true
     );

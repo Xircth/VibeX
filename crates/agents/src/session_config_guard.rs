@@ -266,7 +266,7 @@ mod tests {
             Some("agent-full-access")
         );
         assert_eq!(map.get("model").map(String::as_str), Some("grok-4.7"));
-        assert!(map.get("effort").is_none());
+        assert!(!map.contains_key("effort"));
         assert!(preferred_controls_map(Some("  "), []).is_empty());
     }
 
@@ -295,8 +295,8 @@ mod tests {
         ];
         let asserted = asserted_from_preferred(&preferred, &settled);
         assert_eq!(asserted.get("model").map(String::as_str), Some("grok-4.7"));
-        assert!(asserted.get("mode").is_none());
-        assert!(asserted.get("effort").is_none());
+        assert!(!asserted.contains_key("mode"));
+        assert!(!asserted.contains_key("effort"));
     }
 
     #[test]

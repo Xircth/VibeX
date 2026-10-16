@@ -246,14 +246,16 @@ describe('text control caret clearance', () => {
     const frameDecls: Record<string, string> = {};
     const focusDecls: Record<string, string> = {};
 
+    const frameSelector =
+      ".legacy-design :is( .astryx-text-input, .astryx-textarea, .astryx-selector[data-variant='input'] )";
     parse(stylesheet).walkRules((rule) => {
       const selector = selectorOf(rule);
-      if (selector === '.legacy-design :is(.astryx-text-input, .astryx-textarea)') {
+      if (selector === frameSelector) {
         rule.walkDecls((d) => {
           frameDecls[d.prop] = d.value;
         });
       }
-      if (selector === '.legacy-design :is(.astryx-text-input, .astryx-textarea):focus-within') {
+      if (selector === `${frameSelector}:focus-within`) {
         rule.walkDecls((d) => {
           focusDecls[d.prop] = d.value;
         });

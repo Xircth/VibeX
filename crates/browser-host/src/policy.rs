@@ -138,8 +138,7 @@ fn parse_pattern(pattern: &str) -> Option<ParsedPattern> {
         match trimmed.rsplit_once(':') {
             Some((host, port_text))
                 if port_text == "*"
-                    || (!port_text.is_empty()
-                        && port_text.bytes().all(|b| b.is_ascii_digit())) =>
+                    || (!port_text.is_empty() && port_text.bytes().all(|b| b.is_ascii_digit())) =>
             {
                 (host.to_string(), Some(port_text.to_string()), false)
             }

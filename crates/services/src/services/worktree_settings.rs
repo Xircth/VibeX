@@ -196,10 +196,7 @@ async fn execute_lifecycle_command(
 
 #[cfg(test)]
 mod tests {
-    use super::{
-        ProjectWorktreeSettings, execute_lifecycle_command, normalize_settings,
-        should_prompt_cleanup,
-    };
+    use super::{ProjectWorktreeSettings, normalize_settings, should_prompt_cleanup};
 
     #[test]
     fn cleanup_prompt_appears_only_when_the_next_worktree_exceeds_the_limit() {
@@ -236,6 +233,8 @@ mod tests {
     #[cfg(unix)]
     #[tokio::test]
     async fn lifecycle_command_receives_worktree_context() {
+        use super::execute_lifecycle_command;
+
         let temp = tempfile::tempdir().expect("temp dir");
         let project_id = uuid::Uuid::new_v4();
         let workspace_id = uuid::Uuid::new_v4();

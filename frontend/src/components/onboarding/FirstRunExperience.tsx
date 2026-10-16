@@ -93,9 +93,7 @@ export function FirstRunExperience({
   const [visible, setVisible] = useState(open);
   const [step, setStep] = useState<FirstRunStep>('intro');
   const [agents, setAgents] = useState<OnboardingAgentOption[]>([]);
-  const [managedAgents, setManagedAgents] = useState<AgentManagementView[]>(
-    []
-  );
+  const [managedAgents, setManagedAgents] = useState<AgentManagementView[]>([]);
   const [enabledAgentIds, setEnabledAgentIds] = useState<Set<AgentId>>(
     () => new Set()
   );

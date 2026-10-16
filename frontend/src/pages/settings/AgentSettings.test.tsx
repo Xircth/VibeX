@@ -1868,7 +1868,8 @@ describe('AgentSettings', () => {
           label: '登录',
           label_key: 'agents.managementAction.antigravity.login.label',
           description: '在浏览器中完成 Antigravity 账号登录',
-          description_key: 'agents.managementAction.antigravity.login.description',
+          description_key:
+            'agents.managementAction.antigravity.login.description',
           available: true,
           unavailable_reason: null,
           url: null,

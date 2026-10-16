@@ -211,7 +211,10 @@ export interface PanelActions {
   showTerminal: () => void;
   toggleEditorArea: () => void;
   runInEditorGroup: (groupId: string, action: () => void) => void;
-  splitEditorPanel: (panelId: string, direction: EditorSplitDirection) => boolean;
+  splitEditorPanel: (
+    panelId: string,
+    direction: EditorSplitDirection
+  ) => boolean;
   sortEditorGroupByName: (groupId: string) => void;
   openPanelInNewEditorGroup: (panelId: string) => boolean;
   canOpenPanelInNewEditorGroup: (panelId: string) => boolean;
@@ -531,7 +534,12 @@ export function PanelActionsProvider({ children }: { children: ReactNode }) {
       normalizeEditorGroupIds(dockviewApi);
       return panel;
     },
-    [getActiveEditorGroup, getEditorGroups, getLeftGroup, normalizeEditorGroupIds]
+    [
+      getActiveEditorGroup,
+      getEditorGroups,
+      getLeftGroup,
+      normalizeEditorGroupIds,
+    ]
   );
 
   const openFilePreview = useCallback(

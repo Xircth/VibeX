@@ -526,12 +526,7 @@ export function useConversationTimeline(
   return useMemo(() => {
     const timeline = timelineTurnsForEntry(entry);
     const sideRows = sideRowsForEntry(entry);
-    const items = timelineItemsForEntry(
-      entry,
-      undefined,
-      timeline,
-      sideRows
-    );
+    const items = timelineItemsForEntry(entry, undefined, timeline, sideRows);
     return {
       timeline,
       items,
@@ -570,20 +565,19 @@ export function useConversationTimeline(
         ),
     };
   }, [
-      entry,
-      hasDetail,
-      sendOptimisticTurn,
-      removeOptimisticTurn,
-      loadDetail,
-      resetAndReload,
-      reconnectAndReload,
-      cancel,
-      respondPermission,
-      respondQuestion,
-      loadOlder,
-      sessionBindReady,
-    ]
-  );
+    entry,
+    hasDetail,
+    sendOptimisticTurn,
+    removeOptimisticTurn,
+    loadDetail,
+    resetAndReload,
+    reconnectAndReload,
+    cancel,
+    respondPermission,
+    respondQuestion,
+    loadOlder,
+    sessionBindReady,
+  ]);
 }
 
 function toBigInt(value: bigint | number | string): bigint {

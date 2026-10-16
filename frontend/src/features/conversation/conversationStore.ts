@@ -620,7 +620,10 @@ export function sideRowsForEntry(
       sideRowsByEntryRows.set(entry.rows, prev);
       return prev;
     }
-    if (lastSideRowsByConversation.size >= 32 && !lastSideRowsByConversation.has(convId)) {
+    if (
+      lastSideRowsByConversation.size >= 32 &&
+      !lastSideRowsByConversation.has(convId)
+    ) {
       const oldest = lastSideRowsByConversation.keys().next().value;
       if (oldest !== undefined) lastSideRowsByConversation.delete(oldest);
     }
@@ -750,7 +753,10 @@ function updateEntry(
   const keys = Object.keys(nextByConversationId);
   if (keys.length > 5) {
     for (const key of keys) {
-      if (key !== conversationId && nextByConversationId[key]?.loading !== true) {
+      if (
+        key !== conversationId &&
+        nextByConversationId[key]?.loading !== true
+      ) {
         delete nextByConversationId[key];
         if (Object.keys(nextByConversationId).length <= 5) break;
       }

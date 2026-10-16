@@ -160,10 +160,9 @@ pub async fn dispatch_codex_poll_device_code(
             .await
             .map_err(bad)?;
     if result.status == "success" {
-        let service =
-            services::services::agent_management::AgentManagementApplicationService::new(
-                pool.clone(),
-            );
+        let service = services::services::agent_management::AgentManagementApplicationService::new(
+            pool.clone(),
+        );
         service
             .sync_authentication(&agent_id, AgentAuthenticationStatus::Account, None)
             .await

@@ -490,7 +490,9 @@ describe('WorkspaceSessionList', () => {
 
     expect(row).toHaveClass('is-hovered');
     expect(row.querySelector('.workspace-session-title')).not.toBeNull();
-    expect(screen.getByRole('button', { name: '更多操作' })).toBeInTheDocument();
+    expect(
+      screen.getByRole('button', { name: '更多操作' })
+    ).toBeInTheDocument();
     expect(screen.getByRole('button', { name: '置顶' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: '归档' })).toBeInTheDocument();
 

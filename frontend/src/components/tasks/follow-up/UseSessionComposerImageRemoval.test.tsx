@@ -100,9 +100,7 @@ describe('useSessionComposerImageRemoval', () => {
   });
 
   it('reads the current executor profile ref when removal happens', () => {
-    const executorProfileRef = createRef() as RefObject<
-      typeof profile | null
-    >;
+    const executorProfileRef = createRef() as RefObject<typeof profile | null>;
     const { result, saveToScratch } = renderImageRemovalHook({
       initialImages: [
         {

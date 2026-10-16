@@ -690,7 +690,7 @@ export function FileTreePanel({
     [loadLazyDirectoryChildren, pumpExpandAll]
   );
 
-  const toggleAllFolders = () => {
+  const toggleAllFolders = useCallback(() => {
     if (!hasFolders) {
       return;
     }
@@ -715,7 +715,15 @@ export function FileTreePanel({
     expandAllSessionRef.current = session;
     setIsExpandingAll(true);
     pumpExpandAll();
-  };
+  }, [
+    folderPaths,
+    hasFolders,
+    pumpExpandAll,
+    setExpandedFolders,
+    showCollapseAll,
+    stopExpandAll,
+    visibleFolderPaths,
+  ]);
 
   const toggleFolder = (path: string) => {
     setExpandedFolders((prev) => toggleFileTreeFolder(prev, path));
@@ -1120,7 +1128,7 @@ export function FileTreePanel({
     setRenameError(null);
   }, []);
 
-  const openRenamePrompt = (path: string, isFolder: boolean) => {
+  const openRenamePrompt = useCallback((path: string, isFolder: boolean) => {
     setNewFileParent(null);
     setNewFolderParent(null);
     const name = path.split('/').pop() ?? path;
@@ -1132,7 +1140,7 @@ export function FileTreePanel({
     });
     setRenameName(name);
     setRenameError(null);
-  };
+  }, []);
 
   const confirmRename = async () => {
     if (!renameTarget) return;

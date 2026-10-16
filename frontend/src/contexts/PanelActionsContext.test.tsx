@@ -435,7 +435,10 @@ describe('PanelActionsContext editor placement', () => {
     const { actions, dockviewApi } = setup();
     const panel = dockviewApi.groups[0].panels[0] as unknown as {
       id: string;
-      api: { moveTo: ReturnType<typeof vi.fn>; setActive: ReturnType<typeof vi.fn> };
+      api: {
+        moveTo: ReturnType<typeof vi.fn>;
+        setActive: ReturnType<typeof vi.fn>;
+      };
       toJSON?: () => { contentComponent: string };
     };
     panel.toJSON = () => ({ contentComponent: 'preview' });
@@ -463,7 +466,12 @@ describe('PanelActionsContext editor placement', () => {
       title: 'a.ts',
       api: { moveTo: vi.fn() },
     };
-    group.panels.splice(0, group.panels.length, first as never, second as never);
+    group.panels.splice(
+      0,
+      group.panels.length,
+      first as never,
+      second as never
+    );
 
     act(() => actions?.sortEditorGroupByName(group.id));
 

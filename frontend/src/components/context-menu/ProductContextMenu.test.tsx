@@ -50,7 +50,9 @@ describe('ProductContextMenu submenu', () => {
             id: 'new-terminal',
             label: '终端',
             onSelect,
-            children: [{ id: 'shell-cmd', label: 'CMD', onSelect: () => undefined }],
+            children: [
+              { id: 'shell-cmd', label: 'CMD', onSelect: () => undefined },
+            ],
           },
         ]}
       />
@@ -71,17 +73,23 @@ describe('ProductContextMenu submenu', () => {
         x={50}
         y={50}
         onClose={onClose}
-        items={[{ id: 'test-item', label: '测试项目', onSelect: () => undefined }]}
+        items={[
+          { id: 'test-item', label: '测试项目', onSelect: () => undefined },
+        ]}
       />
     );
 
-    expect(screen.getByRole('menuitem', { name: '测试项目' })).toBeInTheDocument();
+    expect(
+      screen.getByRole('menuitem', { name: '测试项目' })
+    ).toBeInTheDocument();
 
     window.dispatchEvent(new Event('scroll'));
     window.dispatchEvent(new Event('blur'));
 
     expect(onClose).not.toHaveBeenCalled();
-    expect(screen.getByRole('menuitem', { name: '测试项目' })).toBeInTheDocument();
+    expect(
+      screen.getByRole('menuitem', { name: '测试项目' })
+    ).toBeInTheDocument();
   });
 
   it('closes strictly on Escape or clicking outside', () => {
@@ -93,7 +101,9 @@ describe('ProductContextMenu submenu', () => {
           x={50}
           y={50}
           onClose={onClose}
-          items={[{ id: 'test-item', label: '测试项目', onSelect: () => undefined }]}
+          items={[
+            { id: 'test-item', label: '测试项目', onSelect: () => undefined },
+          ]}
         />
       </div>
     );
@@ -116,7 +126,9 @@ describe('ProductContextMenu submenu', () => {
         x={50}
         y={50}
         onClose={onCloseFirst}
-        items={[{ id: 'first-item', label: '第一个菜单', onSelect: () => undefined }]}
+        items={[
+          { id: 'first-item', label: '第一个菜单', onSelect: () => undefined },
+        ]}
       />
     );
 
@@ -128,7 +140,9 @@ describe('ProductContextMenu submenu', () => {
         x={100}
         y={100}
         onClose={onCloseSecond}
-        items={[{ id: 'second-item', label: '第二个菜单', onSelect: () => undefined }]}
+        items={[
+          { id: 'second-item', label: '第二个菜单', onSelect: () => undefined },
+        ]}
       />
     );
 
@@ -145,12 +159,20 @@ describe('ProductContextMenu submenu', () => {
         x={50}
         y={50}
         onClose={() => undefined}
-        items={[{ id: 'style-item', label: '样式检查', onSelect: () => undefined }]}
+        items={[
+          { id: 'style-item', label: '样式检查', onSelect: () => undefined },
+        ]}
       />
     );
 
     const menu = screen.getByRole('menu');
-    expect(menu).toHaveClass('bg-white', 'border', 'border-border', 'shadow-none', 'text-[13px]');
+    expect(menu).toHaveClass(
+      'bg-white',
+      'border',
+      'border-border',
+      'shadow-none',
+      'text-[13px]'
+    );
     expect(menu).not.toHaveClass('tahoe-popover');
 
     const item = screen.getByRole('menuitem', { name: '样式检查' });
@@ -168,25 +190,45 @@ describe('ProductContextMenu submenu', () => {
             type: 'submenu',
             id: 'close-group',
             label: '关闭',
-            children: [{ id: 'close-others', label: '关闭其他', onSelect: () => undefined }],
+            children: [
+              {
+                id: 'close-others',
+                label: '关闭其他',
+                onSelect: () => undefined,
+              },
+            ],
           },
           {
             type: 'submenu',
             id: 'split-group',
             label: '拆分',
-            children: [{ id: 'split-down', label: '向下拆分', onSelect: () => undefined }],
+            children: [
+              {
+                id: 'split-down',
+                label: '向下拆分',
+                onSelect: () => undefined,
+              },
+            ],
           },
           {
             type: 'submenu',
             id: 'new-group',
             label: '新建',
-            children: [{ id: 'new-note', label: '笔记', onSelect: () => undefined }],
+            children: [
+              { id: 'new-note', label: '笔记', onSelect: () => undefined },
+            ],
           },
           {
             type: 'submenu',
             id: 'sort-group',
             label: '排序',
-            children: [{ id: 'sort-by-name', label: '按名称排序', onSelect: () => undefined }],
+            children: [
+              {
+                id: 'sort-by-name',
+                label: '按名称排序',
+                onSelect: () => undefined,
+              },
+            ],
           },
           {
             id: 'plain-action',
@@ -204,12 +246,16 @@ describe('ProductContextMenu submenu', () => {
     const plainItem = screen.getByRole('menuitem', { name: '普通操作' });
 
     fireEvent.mouseEnter(closeTrigger);
-    expect(screen.getByRole('menuitem', { name: '关闭其他' })).toBeInTheDocument();
+    expect(
+      screen.getByRole('menuitem', { name: '关闭其他' })
+    ).toBeInTheDocument();
 
     fireEvent.mouseLeave(closeTrigger);
     fireEvent.mouseEnter(splitTrigger);
     expect(screen.queryByRole('menuitem', { name: '关闭其他' })).toBeNull();
-    expect(screen.getByRole('menuitem', { name: '向下拆分' })).toBeInTheDocument();
+    expect(
+      screen.getByRole('menuitem', { name: '向下拆分' })
+    ).toBeInTheDocument();
 
     fireEvent.mouseLeave(splitTrigger);
     fireEvent.mouseEnter(newTrigger);
@@ -219,15 +265,19 @@ describe('ProductContextMenu submenu', () => {
     fireEvent.mouseLeave(newTrigger);
     fireEvent.mouseEnter(sortTrigger);
     expect(screen.queryByRole('menuitem', { name: '笔记' })).toBeNull();
-    expect(screen.getByRole('menuitem', { name: '按名称排序' })).toBeInTheDocument();
-    expect(screen.getAllByTestId('product-context-submenu-bridge')).toHaveLength(1);
+    expect(
+      screen.getByRole('menuitem', { name: '按名称排序' })
+    ).toBeInTheDocument();
+    expect(
+      screen.getAllByTestId('product-context-submenu-bridge')
+    ).toHaveLength(1);
 
     // Entering a regular non-submenu item immediately closes the active submenu
     fireEvent.mouseLeave(sortTrigger);
     fireEvent.mouseEnter(plainItem);
     expect(screen.queryByRole('menuitem', { name: '按名称排序' })).toBeNull();
-    expect(screen.queryAllByTestId('product-context-submenu-bridge')).toHaveLength(0);
+    expect(
+      screen.queryAllByTestId('product-context-submenu-bridge')
+    ).toHaveLength(0);
   });
 });
-
-

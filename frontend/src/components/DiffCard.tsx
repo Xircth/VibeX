@@ -1,7 +1,11 @@
 import { Diff } from 'shared/types';
 import { useTranslation } from 'react-i18next';
 import { DiffModeEnum, DiffView, SplitSide } from '@git-diff-view/react';
-import { _cacheMap, generateDiffFile, type DiffFile } from '@git-diff-view/file';
+import {
+  _cacheMap,
+  generateDiffFile,
+  type DiffFile,
+} from '@git-diff-view/file';
 import { useMemo, useState, useCallback, useEffect } from 'react';
 
 _cacheMap.setMaxLength(10);
@@ -299,8 +303,7 @@ export default function DiffCard({
   const isContentEqual =
     !isEffectivelyOmitted && oldContentSafe === newContentSafe;
 
-  const hasKnownHeaderCounts =
-    diff.additions != null && diff.deletions != null;
+  const hasKnownHeaderCounts = diff.additions != null && diff.deletions != null;
 
   const diffFile = useMemo(() => {
     if (!expanded && hasKnownHeaderCounts) return null;

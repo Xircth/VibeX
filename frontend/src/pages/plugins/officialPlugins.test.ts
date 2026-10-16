@@ -85,9 +85,9 @@ describe('official plugin presentation', () => {
     expect(officialPluginName('vibex.science', 'fallback', en)).toBe(
       'Scientific Research'
     );
-    expect(officialPluginName('vibex-plugin-computer-use', 'fallback', en)).toBe(
-      'Computer Use'
-    );
+    expect(
+      officialPluginName('vibex-plugin-computer-use', 'fallback', en)
+    ).toBe('Computer Use');
   });
 
   it('localizes official config labels without rewriting user plugins', () => {

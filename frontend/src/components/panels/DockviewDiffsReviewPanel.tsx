@@ -707,7 +707,9 @@ function DockviewDiffsReviewPanel() {
                       data-testid="changes-line-stats"
                       className="pointer-events-none absolute right-0 top-full z-20 mt-1 hidden whitespace-nowrap rounded-xl border border-border bg-popover px-2 py-1 font-mono text-[10px] text-popover-foreground group-hover/files:block"
                     >
-                      <span className="text-[hsl(var(--success))]">+{added}</span>{' '}
+                      <span className="text-[hsl(var(--success))]">
+                        +{added}
+                      </span>{' '}
                       <span className="text-destructive">-{deleted}</span>
                     </span>
                   </span>

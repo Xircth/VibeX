@@ -14,7 +14,12 @@ const operationStages: Record<
   update: ['stagePrepare', 'stageUpdate', 'stageVerify', 'stageComplete'],
   repair: ['stagePrepare', 'stageRepair', 'stageVerify', 'stageComplete'],
   rollback: ['stagePrepare', 'stageRollback', 'stageVerify', 'stageComplete'],
-  uninstall: ['stagePrepare', 'stageUninstall', 'stageCleanup', 'stageComplete'],
+  uninstall: [
+    'stagePrepare',
+    'stageUninstall',
+    'stageCleanup',
+    'stageComplete',
+  ],
   remove: ['stagePrepare', 'stageRemove', 'stageCleanup', 'stageComplete'],
   check: ['stagePrepare', 'stageCheck', 'stageSummary', 'stageComplete'],
 };
@@ -142,7 +147,10 @@ export function AgentOperationProgress({
         </div>
       ) : null}
       <div className="agent-operation-progress-footer">
-        <ol aria-label={t('agents.operationStages')} className="agent-operation-stages">
+        <ol
+          aria-label={t('agents.operationStages')}
+          className="agent-operation-stages"
+        >
           {stages.map((stage, index) => {
             const state =
               index < currentStageIndex

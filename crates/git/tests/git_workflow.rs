@@ -472,6 +472,8 @@ fn create_unicode_branch_and_list() {
 #[test]
 fn worktree_diff_permission_only_change() {
     use std::os::unix::fs::PermissionsExt;
+
+    use utils::diff::DiffChangeKind;
     let td = TempDir::new().unwrap();
     let repo_path = init_repo_main(&td);
     let s = GitService::new();

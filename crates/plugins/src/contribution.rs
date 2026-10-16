@@ -650,10 +650,10 @@ fn status_metadata(plugin: &InstalledPlugin, item: &crate::AppStatusContribution
         "refreshSeconds": item.refresh_seconds,
         "slot": item.slot,
     });
-    if let Some(remote) = overlay_dev_remote(plugin, item.remote.as_ref()) {
-        if let Some(object) = metadata.as_object_mut() {
-            object.insert("remote".to_owned(), remote);
-        }
+    if let Some(remote) = overlay_dev_remote(plugin, item.remote.as_ref())
+        && let Some(object) = metadata.as_object_mut()
+    {
+        object.insert("remote".to_owned(), remote);
     }
     metadata
 }

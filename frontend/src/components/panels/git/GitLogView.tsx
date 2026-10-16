@@ -174,15 +174,8 @@ type VirtualListItem =
   | { type: 'entry'; entry: GitLogEntry; isPushable: boolean };
 
 export const GitLogView = memo(function GitLogView(props: GitLogViewProps) {
-  const {
-    entries,
-    ahead,
-    behind,
-    loading,
-    workspaceId,
-    repoId,
-    onRefresh,
-  } = props;
+  const { entries, ahead, behind, loading, workspaceId, repoId, onRefresh } =
+    props;
   const searchInputRef = useRef<HTMLInputElement>(null);
   const [contextMenu, setContextMenu] = useState<ContextMenuState | null>(null);
   const [selectedSha, setSelectedSha] = useState<string | null>(null);

@@ -282,10 +282,10 @@ fn start_freeze_frame(webview: &WebView, tx: tokio::sync::oneshot::Sender<Option
         .map_err(|error| error.to_string())?;
         Ok::<(), String>(())
     })();
-    if result.is_err() {
-        if let Some(tx) = tx.lock().ok().and_then(|mut slot| slot.take()) {
-            let _ = tx.send(None);
-        }
+    if result.is_err()
+        && let Some(tx) = tx.lock().ok().and_then(|mut slot| slot.take())
+    {
+        let _ = tx.send(None);
     }
 }
 
@@ -1161,10 +1161,10 @@ fn attach_windows_popup_handler(
                 let mut uri = PWSTR::null();
                 args.Uri(&mut uri)?;
                 let mut url = take_uri(uri);
-                if url.is_empty() {
-                    if let Some(pending) = take_popup_url(&opener_popup) {
-                        url = pending;
-                    }
+                if url.is_empty()
+                    && let Some(pending) = take_popup_url(&opener_popup)
+                {
+                    url = pending;
                 }
                 let allowed = popup_service
                     .upgrade()
@@ -1412,6 +1412,7 @@ fn committed_url(webview: &WebView) -> Result<String, BrowserHostError> {
 }
 
 #[cfg(not(target_os = "linux"))]
+#[allow(clippy::too_many_arguments)]
 fn build_child(
     parent: &tauri::WebviewWindow,
     tab_id: &str,
@@ -1432,7 +1433,7 @@ fn build_child(
     let ipc_service = service.clone();
     let sign_in_ua = service
         .upgrade()
-        .map_or(true, |svc| svc.settings().sign_in_user_agent);
+        .is_none_or(|svc| svc.settings().sign_in_user_agent);
     let builder = {
         #[cfg(target_os = "windows")]
         {
@@ -1642,7 +1643,7 @@ impl NativeTabs for TauriNativeTabs {
             .lock()
             .ok()
             .map(|slot| slot.clone())
-            .unwrap_or_else(Weak::new);
+            .unwrap_or_default();
         self.on_main(move || {
             #[cfg(not(target_os = "linux"))]
             {
@@ -1755,45 +1756,45 @@ impl NativeTabs for TauriNativeTabs {
                         window_builder = window_builder.proxy_url(proxy);
                     }
                     let window = window_builder
-                            .on_navigation(|nav| allow_navigation(nav.as_str()))
-                            .on_page_load(move |_window, payload| {
-                                let _ = load_app.emit(
-                                    PAGE_EVENT,
-                                    BrowserPageEvent {
-                                        kind: "tab.state",
-                                        tab_id: load_id.clone(),
-                                        url: payload.url().to_string(),
-                                        title: None,
-                                        favicon: None,
-                                        loading: matches!(
-                                            payload.event(),
-                                            tauri::webview::PageLoadEvent::Started
-                                        ),
-                                    },
-                                );
-                            })
-                            .on_document_title_changed(move |_window, title| {
-                                let _ = title_app.emit(
-                                    PAGE_EVENT,
-                                    BrowserPageEvent {
-                                        kind: "tab.state",
-                                        tab_id: title_id.clone(),
-                                        url: String::new(),
-                                        title: Some(title),
-                                        favicon: None,
-                                        loading: false,
-                                    },
-                                );
-                            })
-                            .parent(&owner)
-                            .map_err(|error| {
-                                BrowserHostError::new("browser_open_failed", error.to_string())
-                            })?
-                            .data_directory(profile_dir)
-                            .build()
-                            .map_err(|error| {
-                                BrowserHostError::new("browser_open_failed", error.to_string())
-                            })?;
+                        .on_navigation(|nav| allow_navigation(nav.as_str()))
+                        .on_page_load(move |_window, payload| {
+                            let _ = load_app.emit(
+                                PAGE_EVENT,
+                                BrowserPageEvent {
+                                    kind: "tab.state",
+                                    tab_id: load_id.clone(),
+                                    url: payload.url().to_string(),
+                                    title: None,
+                                    favicon: None,
+                                    loading: matches!(
+                                        payload.event(),
+                                        tauri::webview::PageLoadEvent::Started
+                                    ),
+                                },
+                            );
+                        })
+                        .on_document_title_changed(move |_window, title| {
+                            let _ = title_app.emit(
+                                PAGE_EVENT,
+                                BrowserPageEvent {
+                                    kind: "tab.state",
+                                    tab_id: title_id.clone(),
+                                    url: String::new(),
+                                    title: Some(title),
+                                    favicon: None,
+                                    loading: false,
+                                },
+                            );
+                        })
+                        .parent(&owner)
+                        .map_err(|error| {
+                            BrowserHostError::new("browser_open_failed", error.to_string())
+                        })?
+                        .data_directory(profile_dir)
+                        .build()
+                        .map_err(|error| {
+                            BrowserHostError::new("browser_open_failed", error.to_string())
+                        })?;
                     let parsed = Url::parse(&url).map_err(|error| {
                         BrowserHostError::new("browser_bad_address", error.to_string())
                     })?;
@@ -1924,7 +1925,7 @@ impl NativeTabs for TauriNativeTabs {
             .lock()
             .ok()
             .and_then(|slot| slot.upgrade())
-            .map_or(true, |svc| svc.settings().suspend_background_tabs);
+            .is_none_or(|svc| svc.settings().suspend_background_tabs);
         self.on_main(move || {
             SURFACES.with(|slot| {
                 #[cfg(not(target_os = "linux"))]
@@ -2192,7 +2193,7 @@ impl NativeTabs for TauriNativeTabs {
             .lock()
             .ok()
             .and_then(|slot| slot.upgrade())
-            .map_or(true, |svc| svc.settings().sign_in_user_agent);
+            .is_none_or(|svc| svc.settings().sign_in_user_agent);
         self.on_main(move || {
             SURFACES.with(|slot| {
                 let mut store = slot.borrow_mut();

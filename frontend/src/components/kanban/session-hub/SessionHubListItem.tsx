@@ -96,7 +96,9 @@ export function SessionHubListItem({
   } | null>(null);
   const attention = sessionAttentionKind(session);
   const showCanvasActions =
-    isCanvasMode && !isEditing && (Boolean(onDeleteSession) || showRenameControls);
+    isCanvasMode &&
+    !isEditing &&
+    (Boolean(onDeleteSession) || showRenameControls);
   const showDefaultHoverActions =
     !isCanvasMode && !isKanbanBoardMode && !isDeleteMode && !isEditing;
   const isHoverActionsVisible = isHovered || Boolean(contextMenu);

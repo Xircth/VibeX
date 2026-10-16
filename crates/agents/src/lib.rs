@@ -75,9 +75,8 @@ pub use account_session::{
     AccountSessionConfirmation, account_label_from_codex_auth, account_label_from_document,
     account_session_from_codex_http, account_session_from_http, account_still_present,
     authentication_from_account_command, authentication_with_bound_provider,
-    confirm_account_session, extract_codex_access_token, jwt_identity,
-    official_account_present, prefer_recorded_account_over_residue, resolve_account_label,
-    resolve_observed_authentication,
+    confirm_account_session, extract_codex_access_token, jwt_identity, official_account_present,
+    prefer_recorded_account_over_residue, resolve_account_label, resolve_observed_authentication,
 };
 pub use antigravity_auth::{
     AntigravitySyncReport, AntigravitySyncStatus, apply_antigravity_env_policy,

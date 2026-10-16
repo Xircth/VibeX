@@ -50,9 +50,9 @@ describe('browserPrefsStore', () => {
         { pattern: '*.example.com', action: 'builtin' as const },
         { pattern: 'admin.example.com', action: 'block' as const },
       ];
-      expect(evaluateHostRules(rules, 'https://app.example.com/dashboard')).toBe(
-        'builtin'
-      );
+      expect(
+        evaluateHostRules(rules, 'https://app.example.com/dashboard')
+      ).toBe('builtin');
       expect(
         evaluateHostRules(rules, 'https://admin.example.com/dashboard')
       ).toBe('block');
@@ -84,10 +84,16 @@ describe('browserPrefsStore', () => {
         matchHostRule('https://example.com:443', 'http://example.com/docs')
       ).toBe(false);
       expect(
-        matchHostRule('https://*.example.com:8443', 'https://a.example.com:8443/login')
+        matchHostRule(
+          'https://*.example.com:8443',
+          'https://a.example.com:8443/login'
+        )
       ).toBe(true);
       expect(
-        matchHostRule('https://*.example.com:8443', 'http://a.example.com:8443/login')
+        matchHostRule(
+          'https://*.example.com:8443',
+          'http://a.example.com:8443/login'
+        )
       ).toBe(false);
       expect(matchHostRule('*', 'https://anywhere.test/path')).toBe(true);
       expect(matchHostRule('[::1]:8080', 'http://[::1]:8080/app')).toBe(true);
@@ -228,11 +234,7 @@ describe('browserPrefsStore', () => {
         },
       });
       expect(
-        resolveLinkOpenAction(
-          'https://localhost:5173',
-          'editor',
-          systemDefault
-        )
+        resolveLinkOpenAction('https://localhost:5173', 'editor', systemDefault)
       ).toBe('system');
     });
   });

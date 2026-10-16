@@ -1009,7 +1009,11 @@ fn authentication_key(authentication: AgentAuthenticationStatus) -> &'static str
 fn detail_account_signed_out(raw: &str) -> bool {
     serde_json::from_str::<serde_json::Value>(raw)
         .ok()
-        .and_then(|value| value.get("account_signed_out").and_then(serde_json::Value::as_bool))
+        .and_then(|value| {
+            value
+                .get("account_signed_out")
+                .and_then(serde_json::Value::as_bool)
+        })
         .unwrap_or(false)
 }
 
@@ -1170,7 +1174,11 @@ mod tests {
             .await
             .unwrap();
         service
-            .sync_authentication(&agent_id, AgentAuthenticationStatus::NotLoggedIn, Some(true))
+            .sync_authentication(
+                &agent_id,
+                AgentAuthenticationStatus::NotLoggedIn,
+                Some(true),
+            )
             .await
             .unwrap();
         assert!(service.account_signed_out(&agent_id).await.unwrap());

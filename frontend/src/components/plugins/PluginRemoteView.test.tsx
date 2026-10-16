@@ -171,10 +171,7 @@ describe('PluginRemoteView', () => {
     });
     surfaceTransport.load.mockResolvedValue({ token: 'a'.repeat(48) });
     federation.loadPluginRemote.mockResolvedValue({ default: () => null });
-    vi.stubGlobal(
-      'fetch',
-      vi.fn().mockResolvedValue({ ok: true })
-    );
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: true }));
     render(<PluginRemoteView item={statusItem} slot="status.after-mcp" />);
     await waitFor(() => {
       expect(surfaceTransport.load).toHaveBeenCalledWith(

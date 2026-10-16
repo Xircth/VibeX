@@ -181,15 +181,13 @@ async fn read_antigravity_email_from_logs() -> Option<String> {
 
     while let Ok(Some(entry)) = entries.next_entry().await {
         let path = entry.path();
-        if path.extension().and_then(|s| s.to_str()) == Some("log") {
-            if let Ok(meta) = entry.metadata().await {
-                if let Ok(modified) = meta.modified() {
-                    if modified > newest_time {
-                        newest_time = modified;
-                        newest_file = Some(path);
-                    }
-                }
-            }
+        if path.extension().and_then(|s| s.to_str()) == Some("log")
+            && let Ok(meta) = entry.metadata().await
+            && let Ok(modified) = meta.modified()
+            && modified > newest_time
+        {
+            newest_time = modified;
+            newest_file = Some(path);
         }
     }
 
@@ -234,28 +232,27 @@ pub async fn resolve_antigravity_account_label() -> Option<String> {
     let token_path = metadata::antigravity_token_path()?;
     let mut token_doc = read_json_value(token_path.clone()).await;
 
-    if let Some(doc) = &token_doc {
-        if let Some(label) = account_label_from_antigravity_token(doc) {
-            return Some(label);
-        }
+    if let Some(doc) = &token_doc
+        && let Some(label) = account_label_from_antigravity_token(doc)
+    {
+        return Some(label);
     }
 
     let mut resolved_email = read_antigravity_email_from_logs().await;
 
-    if resolved_email.is_none() {
-        if let Some(doc) = &token_doc {
-            resolved_email = refresh_antigravity_token_email(doc).await;
-        }
+    if resolved_email.is_none()
+        && let Some(doc) = &token_doc
+    {
+        resolved_email = refresh_antigravity_token_email(doc).await;
     }
 
-    if let Some(ref email) = resolved_email {
-        if let Some(ref mut doc) = token_doc {
-            if doc.is_object() {
-                doc["email"] = Value::String(email.clone());
-                if let Ok(bytes) = serde_json::to_vec_pretty(doc) {
-                    let _ = tokio::fs::write(&token_path, bytes).await;
-                }
-            }
+    if let Some(ref email) = resolved_email
+        && let Some(ref mut doc) = token_doc
+        && doc.is_object()
+    {
+        doc["email"] = Value::String(email.clone());
+        if let Ok(bytes) = serde_json::to_vec_pretty(doc) {
+            let _ = tokio::fs::write(&token_path, bytes).await;
         }
     }
 

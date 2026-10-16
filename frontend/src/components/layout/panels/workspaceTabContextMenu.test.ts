@@ -59,16 +59,15 @@ describe('buildWorkspaceTabContextMenu', () => {
       'new-review',
       'new-terminal',
     ]);
-    const terminal = created.children.find((item) => item.id === 'new-terminal');
+    const terminal = created.children.find(
+      (item) => item.id === 'new-terminal'
+    );
     expect(terminal?.type).toBe('submenu');
     if (terminal?.type !== 'submenu') return;
     expect(terminal.onSelect).toEqual(expect.any(Function));
     expect(
       terminal.children.map((item) => ('label' in item ? item.label : ''))
-    ).toEqual([
-      'PowerShell',
-      'CMD',
-    ]);
+    ).toEqual(['PowerShell', 'CMD']);
   });
 
   it('includes browser only when a host browser can be opened', () => {

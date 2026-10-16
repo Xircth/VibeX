@@ -243,9 +243,7 @@ describe('GitLogView', () => {
     expect(
       searchInput.closest('.git-log-search-input.astryx-text-input')
     ).toBeTruthy();
-    expect(
-      screen.getByRole('button', { name: 'Search commits' })
-    ).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Search commits' })).toBeTruthy();
     expect(screen.queryByText('feature/hidden-branch-header')).toBeNull();
 
     // Clicking TO PUSH section header collapses and expands its commit entries
@@ -374,9 +372,9 @@ describe('GitBranchList', () => {
       />
     );
     expect(
-      within(screen.getByTestId('git-branch-section-header-remote')).getByTestId(
-        'remote-provider-icon-gitee'
-      )
+      within(
+        screen.getByTestId('git-branch-section-header-remote')
+      ).getByTestId('remote-provider-icon-gitee')
     ).toBeTruthy();
 
     rerender(
@@ -394,9 +392,9 @@ describe('GitBranchList', () => {
       />
     );
     expect(
-      within(screen.getByTestId('git-branch-section-header-remote')).getByTestId(
-        'remote-provider-icon-default'
-      )
+      within(
+        screen.getByTestId('git-branch-section-header-remote')
+      ).getByTestId('remote-provider-icon-default')
     ).toBeTruthy();
 
     // 3. Branch groups have rounded-md background, no scope icon, and 3-level hierarchy indentation
@@ -461,5 +459,3 @@ describe('GitBranchList', () => {
     );
   });
 });
-
-

@@ -100,8 +100,7 @@ export function PluginStatusItems({
             tooltip: live[key]?.tooltip,
             refreshSeconds: positiveInteger(metadata.refreshSeconds),
             remote:
-              metadata.remote !== null &&
-              typeof metadata.remote === 'object',
+              metadata.remote !== null && typeof metadata.remote === 'object',
           },
         ];
       }),

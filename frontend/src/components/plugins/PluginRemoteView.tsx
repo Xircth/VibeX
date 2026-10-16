@@ -40,11 +40,14 @@ function remoteKey(metadata: unknown): string | null {
     return null;
   }
   const remote = (metadata as { remote?: unknown }).remote;
-  if (!remote || typeof remote !== 'object' || Array.isArray(remote)) return null;
+  if (!remote || typeof remote !== 'object' || Array.isArray(remote))
+    return null;
   const record = remote as { name?: unknown; module?: unknown };
   if (typeof record.name !== 'string' || !record.name) return null;
   const moduleName =
-    typeof record.module === 'string' && record.module ? record.module : './view';
+    typeof record.module === 'string' && record.module
+      ? record.module
+      : './view';
   return `${record.name}\n${moduleName}`;
 }
 
@@ -260,7 +263,9 @@ function PluginRemoteViewBody({
               return new Error(rec.message);
             }
           }
-          return new Error(typeof err === 'string' ? err : 'Plugin invoke failed');
+          return new Error(
+            typeof err === 'string' ? err : 'Plugin invoke failed'
+          );
         };
         dispose = mountRemoteModule(module, root, {
           pluginId: item.pluginId,
@@ -331,15 +336,7 @@ function PluginRemoteViewBody({
       revoke?.();
       unloadPluginRemote(remote.name);
     };
-  }, [
-    item.generation,
-    item.pluginId,
-    projectId,
-    remote,
-    slot,
-    surfaceId,
-    workspaceId,
-  ]);
+  }, [item, projectId, remote, slot, surfaceId, workspaceId]);
 
   const surface = useMemo(
     () => ({

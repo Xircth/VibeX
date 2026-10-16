@@ -66,6 +66,8 @@ impl NativeFileSystem for FailSecondWriteFileSystem {
 async fn native_filesystem_keeps_sensitive_documents_private() {
     use std::os::unix::fs::PermissionsExt;
 
+    use agents::TokioNativeFileSystem;
+
     let temp = tempfile::tempdir().unwrap();
     let path = temp.path().join("auth.json");
     TokioNativeFileSystem

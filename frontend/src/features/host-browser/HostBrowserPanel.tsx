@@ -1174,8 +1174,11 @@ export function HostBrowserPanel({
     }
     void dispatch('tab.navigate', { tabId: tabIdRef.current, url }).then(
       async (next) => {
-        setTab(next as BrowserTab);
-        setAddress((next as BrowserTab).url);
+        const tab = next as BrowserTab;
+        setTab(tab);
+        // A later in-page navigation is the address authority. The navigate
+        // response can resolve after that event with the URL we asked for.
+        setAddress((current) => (current === url ? tab.url : current));
         setCanGoBack(true);
         clearAgentActivity(tabIdRef.current || '');
         await syncBounds();

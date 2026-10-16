@@ -284,12 +284,7 @@ function AppContent() {
     <ClickedElementsProvider>
       <ProjectProvider>
         <HotkeysProvider
-          initiallyActiveScopes={[
-            'global',
-            'workspace',
-            'kanban',
-            'projects',
-          ]}
+          initiallyActiveScopes={['global', 'workspace', 'kanban', 'projects']}
         >
           <SequenceTrackerProvider>
             <GlobalShortcutActionBridge />

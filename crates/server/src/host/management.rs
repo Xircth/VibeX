@@ -14,8 +14,8 @@ use agents::{
     TokioNativeFileSystem, apply_built_in_auth_mode_policy, apply_codex_auth_mode,
     apply_component_versions, auth_mode_credential_env, auth_mode_kind,
     authentication_from_account_command, built_in_auth_mode_policy, compose_agent_update_check,
-    native_uses_custom_endpoint, official_api_url, plan_runtime_acp_compatibility_warning,
-    official_account_present, project_codex_auth_mode, resolve_account_label,
+    native_uses_custom_endpoint, official_account_present, official_api_url,
+    plan_runtime_acp_compatibility_warning, project_codex_auth_mode, resolve_account_label,
     resolve_built_in_auth_mode, resolve_observed_authentication, version_at_least,
 };
 use api_types::{

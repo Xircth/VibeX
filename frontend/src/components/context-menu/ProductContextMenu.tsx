@@ -440,7 +440,11 @@ function SubmenuItem({
   onClose: () => void;
 }) {
   return (
-    <div className="relative" onMouseEnter={onOpen} onMouseLeave={onScheduleClose}>
+    <div
+      className="relative"
+      onMouseEnter={onOpen}
+      onMouseLeave={onScheduleClose}
+    >
       <MenuButton
         id={item.id}
         label={item.label}
@@ -476,7 +480,11 @@ function SubmenuItem({
             style={{ fontFamily: 'var(--font-ui)' }}
             role="menu"
           >
-            <MenuItems items={item.children} onClose={onClose} itemRole={itemRole} />
+            <MenuItems
+              items={item.children}
+              onClose={onClose}
+              itemRole={itemRole}
+            />
           </div>
         </div>
       ) : null}

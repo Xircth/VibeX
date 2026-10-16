@@ -25,10 +25,11 @@ interface GitBranchListProps {
 
 export type RemoteProviderType = 'github' | 'gitee' | 'default';
 
-export function resolveRemoteProvider(remotes?: GitRemote[]): RemoteProviderType {
+export function resolveRemoteProvider(
+  remotes?: GitRemote[]
+): RemoteProviderType {
   if (!remotes || remotes.length === 0) return 'default';
-  const primaryRemote =
-    remotes.find((r) => r.name === 'origin') ?? remotes[0];
+  const primaryRemote = remotes.find((r) => r.name === 'origin') ?? remotes[0];
   const url = (primaryRemote?.url ?? '').toLowerCase();
   if (url.includes('github.com')) return 'github';
   if (url.includes('gitee.com')) return 'gitee';
@@ -539,4 +540,3 @@ export const GitBranchList = memo(function GitBranchList({
     </div>
   );
 });
-

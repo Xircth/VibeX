@@ -491,7 +491,9 @@ export function GitPanel() {
             pushLoading={pushLoading}
             commitError={commitError}
             operationError={operationError}
-            commitsAhead={gitLog.ahead || conflictStatus?.remote_commits_ahead || 0}
+            commitsAhead={
+              gitLog.ahead || conflictStatus?.remote_commits_ahead || 0
+            }
             onCommit={onCommit}
             onCommitAndPush={onCommitAndPush}
             onPush={onPush}

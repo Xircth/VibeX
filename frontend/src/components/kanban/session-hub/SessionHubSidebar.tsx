@@ -406,9 +406,7 @@ function DraggableSessionCard({
           onDeleteSession ? () => onDeleteSession(session) : undefined
         }
         onPinSession={
-          onPinSession
-            ? (pinned) => onPinSession(session, pinned)
-            : undefined
+          onPinSession ? (pinned) => onPinSession(session, pinned) : undefined
         }
         onArchiveSession={
           onArchiveSession ? () => onArchiveSession(session) : undefined

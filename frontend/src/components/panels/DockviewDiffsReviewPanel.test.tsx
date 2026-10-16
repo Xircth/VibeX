@@ -222,16 +222,16 @@ describe('DockviewDiffsReviewPanel large changes', () => {
     const { rerender, container } = render(
       <RealDiffViewSwitch visibleLabelCount={4} />
     );
-    expect(
-      container.querySelectorAll('.diff-toolbar-btn-label')
-    ).toHaveLength(4);
+    expect(container.querySelectorAll('.diff-toolbar-btn-label')).toHaveLength(
+      4
+    );
     expect(container.querySelectorAll('button svg')).toHaveLength(4);
 
     // Narrow step 1: rightmost label (4th button) hides first
     rerender(<RealDiffViewSwitch visibleLabelCount={3} />);
-    expect(
-      container.querySelectorAll('.diff-toolbar-btn-label')
-    ).toHaveLength(3);
+    expect(container.querySelectorAll('.diff-toolbar-btn-label')).toHaveLength(
+      3
+    );
     expect(
       container
         .querySelectorAll('button')[3]
@@ -241,9 +241,9 @@ describe('DockviewDiffsReviewPanel large changes', () => {
 
     // Narrow step 2: 3rd button label hides next
     rerender(<RealDiffViewSwitch visibleLabelCount={2} />);
-    expect(
-      container.querySelectorAll('.diff-toolbar-btn-label')
-    ).toHaveLength(2);
+    expect(container.querySelectorAll('.diff-toolbar-btn-label')).toHaveLength(
+      2
+    );
     expect(
       container
         .querySelectorAll('button')[2]
@@ -253,9 +253,9 @@ describe('DockviewDiffsReviewPanel large changes', () => {
 
     // Narrow step 3: 2nd button label hides next
     rerender(<RealDiffViewSwitch visibleLabelCount={1} />);
-    expect(
-      container.querySelectorAll('.diff-toolbar-btn-label')
-    ).toHaveLength(1);
+    expect(container.querySelectorAll('.diff-toolbar-btn-label')).toHaveLength(
+      1
+    );
     expect(
       container
         .querySelectorAll('button')[0]
@@ -265,9 +265,9 @@ describe('DockviewDiffsReviewPanel large changes', () => {
 
     // Narrow step 4: all labels hidden, all 4 icons still rendered
     rerender(<RealDiffViewSwitch visibleLabelCount={0} />);
-    expect(
-      container.querySelectorAll('.diff-toolbar-btn-label')
-    ).toHaveLength(0);
+    expect(container.querySelectorAll('.diff-toolbar-btn-label')).toHaveLength(
+      0
+    );
     expect(container.querySelectorAll('button svg')).toHaveLength(4);
   });
 
@@ -307,4 +307,3 @@ describe('DockviewDiffsReviewPanel large changes', () => {
     expect(expandGroup?.className).toContain('ml-auto');
   });
 });
-

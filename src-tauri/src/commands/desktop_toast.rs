@@ -48,12 +48,12 @@ fn configure_desktop_toast_window(window: &tauri::WebviewWindow) -> Result<(), S
             unsafe {
                 let _ = controller.SetIsVisible(false);
             }
-            if let Ok(core) = unsafe { controller.CoreWebView2() } {
-                if let Ok(core19) = core.cast::<ICoreWebView2_19>() {
-                    unsafe {
-                        let _ = core19
-                            .SetMemoryUsageTargetLevel(COREWEBVIEW2_MEMORY_USAGE_TARGET_LEVEL_LOW);
-                    }
+            if let Ok(core) = unsafe { controller.CoreWebView2() }
+                && let Ok(core19) = core.cast::<ICoreWebView2_19>()
+            {
+                unsafe {
+                    let _ = core19
+                        .SetMemoryUsageTargetLevel(COREWEBVIEW2_MEMORY_USAGE_TARGET_LEVEL_LOW);
                 }
             }
         });

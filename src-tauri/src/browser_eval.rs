@@ -157,10 +157,10 @@ mod windows {
                 .map_err(|error| BrowserHostError::new("browser_read_failed", error.to_string()))?;
             Ok(())
         })();
-        if let Err(error) = result {
-            if let Some(tx) = tx.lock().ok().and_then(|mut slot| slot.take()) {
-                let _ = tx.send(Err(error));
-            }
+        if let Err(error) = result
+            && let Some(tx) = tx.lock().ok().and_then(|mut slot| slot.take())
+        {
+            let _ = tx.send(Err(error));
         }
         let _ = ICoreWebView2::IID;
     }

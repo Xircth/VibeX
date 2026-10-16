@@ -241,9 +241,7 @@ describe('onboarding Agent model', () => {
         false
       )
     ).toEqual({ kind: 'login' });
-    expect(
-      onboardingContinueGate(['pass', 'pass'])
-    ).toBe('direct');
+    expect(onboardingContinueGate(['pass', 'pass'])).toBe('direct');
     expect(onboardingContinueGate(['pass', 'blocked'])).toBe('partial');
     expect(onboardingContinueGate(['blocked', 'blocked'])).toBe('none');
     expect(onboardingContinueGate([])).toBe('none');

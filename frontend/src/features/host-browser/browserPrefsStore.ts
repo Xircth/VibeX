@@ -135,11 +135,7 @@ export function validateHostRulePattern(
     }
   }
 
-  if (
-    trimmed.includes('/') ||
-    trimmed.includes('?') ||
-    trimmed.includes('#')
-  ) {
+  if (trimmed.includes('/') || trimmed.includes('?') || trimmed.includes('#')) {
     return 'path';
   }
 
@@ -196,7 +192,11 @@ export function validateHostRulePattern(
     return null;
   }
 
-  if (!/^[a-z0-9.-]+$/i.test(hostPart) || hostPart.startsWith('.') || hostPart.endsWith('.')) {
+  if (
+    !/^[a-z0-9.-]+$/i.test(hostPart) ||
+    hostPart.startsWith('.') ||
+    hostPart.endsWith('.')
+  ) {
     return 'host';
   }
 
@@ -347,7 +347,10 @@ function parseLegacySiteRules(raw: string): HostRule[] {
     const sepIndex = eqIndex > 0 ? eqIndex : colonIndex;
     if (sepIndex <= 0) continue;
     const pattern = trimmed.slice(0, sepIndex).trim();
-    const action = trimmed.slice(sepIndex + 1).trim().toLowerCase();
+    const action = trimmed
+      .slice(sepIndex + 1)
+      .trim()
+      .toLowerCase();
     if (
       (action === 'builtin' || action === 'system' || action === 'block') &&
       validateHostRulePattern(pattern) === null
@@ -374,7 +377,10 @@ export function normalizeBrowserSettings(raw: unknown): BrowserSettings {
         ? (obj.openLinks as Record<string, unknown>)
         : {};
 
-  const pickTarget = (val: unknown, fallback: LinkOpenTarget): LinkOpenTarget =>
+  const pickTarget = (
+    val: unknown,
+    fallback: LinkOpenTarget
+  ): LinkOpenTarget =>
     val === 'builtin' || val === 'system' || val === 'ask' ? val : fallback;
 
   const hostRules: HostRule[] = Array.isArray(obj.hostRules)
@@ -434,13 +440,13 @@ export function normalizeBrowserSettings(raw: unknown): BrowserSettings {
   }
 
   const candidateProfile =
-    typeof obj.newTabProfile === 'string' ? obj.newTabProfile.trim() : 'default';
+    typeof obj.newTabProfile === 'string'
+      ? obj.newTabProfile.trim()
+      : 'default';
   const newTabProfile =
     candidateProfile === 'ephemeral' ||
-    (
-      /^[A-Za-z0-9][A-Za-z0-9_-]{0,35}$/.test(candidateProfile) &&
-      profiles.some((p) => p.id === candidateProfile)
-    )
+    (/^[A-Za-z0-9][A-Za-z0-9_-]{0,35}$/.test(candidateProfile) &&
+      profiles.some((p) => p.id === candidateProfile))
       ? candidateProfile
       : 'default';
 
@@ -797,22 +803,14 @@ export async function clearBrowserProfile(
   profileId: string,
   explicitPluginId?: string | null
 ): Promise<void> {
-  await dispatchHostBrowser(
-    'profile.clear',
-    { profileId },
-    explicitPluginId
-  );
+  await dispatchHostBrowser('profile.clear', { profileId }, explicitPluginId);
 }
 
 export async function removeBrowserProfile(
   profileId: string,
   explicitPluginId?: string | null
 ): Promise<void> {
-  await dispatchHostBrowser(
-    'profile.remove',
-    { profileId },
-    explicitPluginId
-  );
+  await dispatchHostBrowser('profile.remove', { profileId }, explicitPluginId);
   await loadBrowserPrefs(explicitPluginId);
   const pluginId = await resolveHostBrowserPluginId(explicitPluginId);
   if (pluginId) {

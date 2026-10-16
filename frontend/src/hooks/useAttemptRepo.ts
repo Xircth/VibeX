@@ -43,7 +43,10 @@ export function useAttemptRepo(
 
   const effectiveSelectedRepoId = useMemo(() => {
     if (repos.length === 0) return null;
-    if (selectedRepoId !== null && repos.some((repo) => repo.id === selectedRepoId)) {
+    if (
+      selectedRepoId !== null &&
+      repos.some((repo) => repo.id === selectedRepoId)
+    ) {
       return selectedRepoId;
     }
     return repos[0].id;

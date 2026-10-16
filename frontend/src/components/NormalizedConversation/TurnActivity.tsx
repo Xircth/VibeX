@@ -675,27 +675,25 @@ export function TurnActivity({
           name: description ?? summary.label,
           additions: editStats.additions,
           deletions: editStats.deletions,
-          stats: description
-            ? undefined
-            : action.action === 'file_read' ? (
-                <FileReadStats
-                  action={action}
-                  workspacePath={workspacePath ?? attempt.container_ref}
-                />
-              ) : action.action === 'file_edit' ? (
-                <FileEditPath
-                  action={action}
-                  workspacePath={workspacePath ?? attempt.container_ref}
-                />
-              ) : action.action === 'tool' && action.tool_name === 'list_dir' ? (
-                <ToolCallTarget
-                  text={listDirPath(action.arguments) || detailText}
-                  path={listDirPath(action.arguments) || detailText}
-                  isFolder
-                />
-              ) : detailText ? (
-                <ToolCallTarget text={detailText} />
-              ) : undefined,
+          stats: description ? undefined : action.action === 'file_read' ? (
+            <FileReadStats
+              action={action}
+              workspacePath={workspacePath ?? attempt.container_ref}
+            />
+          ) : action.action === 'file_edit' ? (
+            <FileEditPath
+              action={action}
+              workspacePath={workspacePath ?? attempt.container_ref}
+            />
+          ) : action.action === 'tool' && action.tool_name === 'list_dir' ? (
+            <ToolCallTarget
+              text={listDirPath(action.arguments) || detailText}
+              path={listDirPath(action.arguments) || detailText}
+              isFolder
+            />
+          ) : detailText ? (
+            <ToolCallTarget text={detailText} />
+          ) : undefined,
           status: getToolChatStatus(toolEntry.status),
           errorMessage:
             toolEntry.status.status === 'failed'

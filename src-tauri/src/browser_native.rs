@@ -2168,15 +2168,28 @@ impl NativeTabs for TauriNativeTabs {
                             let _ = core.OpenDevToolsWindow();
                         }
                     }
-                    #[cfg(not(target_os = "windows"))]
+                    // `open_devtools` exists only while debug assertions are on.
+                    // The release manifest does not enable Tauri's devtools
+                    // feature, so a release build must not call it.
+                    #[cfg(all(not(target_os = "windows"), debug_assertions))]
                     webview.open_devtools();
+                    #[cfg(all(not(target_os = "windows"), not(debug_assertions)))]
+                    let _ = &webview;
                     Ok(())
                 }
                 #[cfg(target_os = "linux")]
                 {
-                    let store = slot.borrow();
-                    if let Some(window) = store.windows.get(&tab_id) {
-                        window.open_devtools();
+                    #[cfg(debug_assertions)]
+                    {
+                        let store = slot.borrow();
+                        if let Some(window) = store.windows.get(&tab_id) {
+                            window.open_devtools();
+                        }
+                    }
+                    #[cfg(not(debug_assertions))]
+                    {
+                        let _ = &slot;
+                        let _ = &tab_id;
                     }
                     Ok(())
                 }

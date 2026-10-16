@@ -520,6 +520,33 @@ pub fn sanitize_agent_session_title(title: &str) -> Option<String> {
     Some(line.to_string())
 }
 
+/// Collapse whitespace in a first user message so it can be used as a session
+/// name. Agents that never publish a title fall back to this full prompt.
+pub fn first_prompt_session_name(first_prompt: &str) -> Option<String> {
+    let normalized = first_prompt
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ");
+    if normalized.is_empty() {
+        None
+    } else {
+        Some(normalized)
+    }
+}
+
+/// Prefer an Agent-returned title. When the Agent does not auto-name, keep the
+/// complete first message instead of a character-clipped preview.
+pub fn derive_session_display_name(
+    session_name: Option<&str>,
+    first_prompt: Option<&str>,
+    fallback_number: usize,
+) -> String {
+    session_name
+        .and_then(sanitize_agent_session_title)
+        .or_else(|| first_prompt.and_then(first_prompt_session_name))
+        .unwrap_or_else(|| format!("新会话{fallback_number}"))
+}
+
 fn strip_host_history_title_prefix(title: &str) -> &str {
     let Some(rest) = strip_ascii_prefix_ignore_case(title, HOST_HISTORY_TITLE_PREFIX) else {
         return title;
@@ -698,6 +725,27 @@ mod tests {
         assert_eq!(
             sanitize_agent_session_title("Previous conversation notes").as_deref(),
             Some("Previous conversation notes")
+        );
+    }
+
+    #[test]
+    fn display_name_keeps_the_full_first_prompt_when_the_agent_does_not_title() {
+        assert_eq!(
+            derive_session_display_name(
+                None,
+                Some("分析下我的项目根目录，是否有不应该存在于根目录中的文件"),
+                1
+            ),
+            "分析下我的项目根目录，是否有不应该存在于根目录中的文件"
+        );
+        assert_eq!(
+            derive_session_display_name(Some("Implement auth"), Some("a much longer prompt"), 1),
+            "Implement auth"
+        );
+        assert_eq!(derive_session_display_name(None, None, 3), "新会话3");
+        assert_eq!(
+            first_prompt_session_name("  请参考附图，  对我的布局  给出建议  ").as_deref(),
+            Some("请参考附图， 对我的布局 给出建议")
         );
     }
 

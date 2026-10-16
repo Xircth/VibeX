@@ -52,6 +52,31 @@ describe('workspace session group layout', () => {
   });
 });
 
+describe('session list title and hover chrome', () => {
+  it('uses regular weight for CJK workspace session titles', () => {
+    const title = declarationsFor('.workspace-session-title');
+    const cjk = declarationsFor('.workspace-session-title.is-cjk');
+
+    expect(title.get('font-weight')).toBe('500');
+    expect(title.get('white-space')).toBe('nowrap');
+    expect(title.get('text-overflow')).toBe('ellipsis');
+    expect(cjk.get('font-weight')).toBe('400');
+  });
+
+  it('keeps the session hover card opaque with a 14px radius', () => {
+    const hover = declarationsFor('.session-card-hover-info');
+    expect(hover.get('border-radius')).toBe('var(--radius)');
+    expect(hover.get('pointer-events')).toBe('auto');
+    expect(hover.get('white-space')).toBe('normal');
+  });
+
+  it('fixes the create-session checkout banner copy at 10px', () => {
+    const text = declarationsFor('.session-create-checkout-banner-text');
+    expect(text.get('font-size')).toBe('10px');
+    expect(text.get('font-weight')).toBe('400');
+  });
+});
+
 describe('workspace session row surface', () => {
   it('keeps a 1px hairline at rest so rows stay distinct from the list', () => {
     const row = declarationsFor('.workspace-session-row');

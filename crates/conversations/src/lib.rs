@@ -77,8 +77,9 @@ pub use service::{
     fork_visible_conversation, preview_checkpoint_file_changes,
 };
 pub use session_info::{
-    SessionInfo, agent_session_title_from_patch, load_compact_transcript,
-    resolve_referenced_session, sanitize_agent_session_title, session_info_value,
+    SessionInfo, agent_session_title_from_patch, derive_session_display_name,
+    first_prompt_session_name, load_compact_transcript, resolve_referenced_session,
+    sanitize_agent_session_title, session_info_value,
 };
 pub use usage_accounting::{
     assemble_project_usage_statistics, attributed_sessions_from_rows, catch_up_usage_snapshots,

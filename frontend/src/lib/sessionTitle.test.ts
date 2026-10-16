@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { sanitizeSessionListTitle } from './sessionTitle';
+import { sanitizeSessionListTitle, sessionTitleIsCjk } from './sessionTitle';
 
 describe('sanitizeSessionListTitle', () => {
   it('keeps a normal agent-returned title', () => {
@@ -27,5 +27,11 @@ describe('sanitizeSessionListTitle', () => {
     expect(sanitizeSessionListTitle('Previous work on auth')).toBe(
       'Previous work on auth'
     );
+  });
+
+  it('detects CJK session titles for regular type weight', () => {
+    expect(sessionTitleIsCjk('请参考附图，对我')).toBe(true);
+    expect(sessionTitleIsCjk('新会话1')).toBe(true);
+    expect(sessionTitleIsCjk('Implement auth')).toBe(false);
   });
 });

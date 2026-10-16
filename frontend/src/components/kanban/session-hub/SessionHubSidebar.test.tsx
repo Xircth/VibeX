@@ -100,8 +100,9 @@ vi.mock('@/components/ui/tooltip', () => ({
   TooltipTrigger: ({ children }: { children: React.ReactNode }) => (
     <>{children}</>
   ),
-  TooltipContent: ({ children }: { children: React.ReactNode }) => (
-    <div>{children}</div>
+  TooltipContent: () => null,
+  TooltipProvider: ({ children }: { children: React.ReactNode }) => (
+    <>{children}</>
   ),
 }));
 
@@ -340,6 +341,7 @@ describe('SessionHubSidebar', () => {
       updatedAt: '2026-04-15T00:00:00.000Z',
       createdAt: '2026-04-15T00:00:00.000Z',
       firstPrompt: 'Tighten the password prompt',
+      model: null,
       fullName: 'Login review',
       shortName: 'Login',
       taskTitle: null,
@@ -501,6 +503,7 @@ describe('SessionHubSidebar', () => {
       updatedAt: '2026-04-15T00:00:00.000Z',
       createdAt: '2026-04-15T00:00:00.000Z',
       firstPrompt: null,
+      model: null,
       fullName: 'Archived Session',
       shortName: 'Archive',
       taskTitle: null,
@@ -559,6 +562,7 @@ describe('SessionHubSidebar', () => {
       updatedAt: '2026-04-15T00:00:00.000Z',
       createdAt: '2026-04-15T00:00:00.000Z',
       firstPrompt: null,
+      model: null,
       fullName: 'Workspace grouped session',
       shortName: 'Workspace',
       taskTitle: null,

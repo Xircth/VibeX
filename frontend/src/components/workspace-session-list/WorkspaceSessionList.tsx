@@ -45,9 +45,14 @@ import { conversationApi } from '@/features/conversation/conversationApi';
 import { useOptionalKanbanSessionContext } from '@/contexts/KanbanSessionContext';
 import type { KanbanProjectSessionRecord } from '@/hooks/useKanbanProjectSessions';
 import { exportConversation } from '@/lib/exportConversation';
+import { sessionTitleIsCjk } from '@/lib/sessionTitle';
 import { cn } from '@/lib/utils';
 import { formatRelativeTime } from '@/utils/date';
 import { writeClipboardViaBridge } from '@/vscode/bridge';
+import {
+  SessionCardHoverCard,
+  useSessionCardHoverDetails,
+} from '@/components/kanban/session-hub/SessionCardHoverInfo';
 import { buildSessionCardMenuItems } from '@/components/kanban/session-hub/sessionCardMenu';
 import {
   SESSION_ARCHIVE_DROP_ID,
@@ -803,6 +808,7 @@ function WorkspaceSessionRow({
   const { t } = useTranslation(['panels', 'tasks', 'common']);
   const kanbanSessions = useOptionalKanbanSessionContext();
   const title = sessionListTitle(session);
+  const hoverDetails = useSessionCardHoverDetails(session, title);
   const tone = workspaceSessionStatusTone(session);
   const statusLabel = t(STATUS_LABEL_KEY[tone]);
   const agentKey = sessionListAgentKey(session);
@@ -1036,60 +1042,67 @@ function WorkspaceSessionRow({
           </div>
         ) : (
           <>
-            <button
-              type="button"
-              aria-current={isSelected ? 'true' : undefined}
-              aria-label={
-                session.isRunning
-                  ? `${title}, ${agentName}, ${statusLabel}, ${t('workspaceSessionList.statusRunning')}`
-                  : `${title}, ${agentName}, ${statusLabel}`
-              }
-              onClick={onClick}
-              className="workspace-session-row-main"
-              {...(overlay ? {} : attributes)}
-              {...(overlay ? {} : listeners)}
-            >
-              <span className="workspace-session-icon" aria-hidden="true">
-                {agentKey ? (
-                  <AgentIcon
-                    agent={agentKey as ExecutorProfileId['executor']}
-                    className="h-4 w-4"
+            <SessionCardHoverCard details={hoverDetails} enabled={!overlay}>
+              <button
+                type="button"
+                aria-current={isSelected ? 'true' : undefined}
+                aria-label={
+                  session.isRunning
+                    ? `${title}, ${agentName}, ${statusLabel}, ${t('workspaceSessionList.statusRunning')}`
+                    : `${title}, ${agentName}, ${statusLabel}`
+                }
+                onClick={onClick}
+                className="workspace-session-row-main"
+                {...(overlay ? {} : attributes)}
+                {...(overlay ? {} : listeners)}
+              >
+                <span className="workspace-session-icon" aria-hidden="true">
+                  {agentKey ? (
+                    <AgentIcon
+                      agent={agentKey as ExecutorProfileId['executor']}
+                      className="h-4 w-4"
+                    />
+                  ) : (
+                    <Bot className="h-4 w-4 text-muted-foreground" />
+                  )}
+                  <span
+                    className={cn(
+                      'workspace-session-status',
+                      `workspace-session-status--${tone}`
+                    )}
                   />
-                ) : (
-                  <Bot className="h-4 w-4 text-muted-foreground" />
-                )}
+                </span>
                 <span
                   className={cn(
-                    'workspace-session-status',
-                    `workspace-session-status--${tone}`
+                    'workspace-session-title',
+                    sessionTitleIsCjk(title) && 'is-cjk'
                   )}
-                />
-              </span>
-              <span className="workspace-session-title" title={title}>
-                {title}
-              </span>
-              {isPinned ? (
-                <Pin
-                  data-testid="workspace-session-pinned-indicator"
-                  className="h-3 w-3 shrink-0 text-primary"
-                />
-              ) : null}
-              <span className="workspace-session-meta-idle">
-                {session.isRunning ? (
-                  <Loader2
-                    className="h-3.5 w-3.5 animate-spin text-[hsl(var(--warning))]"
-                    aria-hidden="true"
+                >
+                  {title}
+                </span>
+                {isPinned ? (
+                  <Pin
+                    data-testid="workspace-session-pinned-indicator"
+                    className="h-3 w-3 shrink-0 text-primary"
                   />
-                ) : (
-                  <span
-                    className="workspace-session-age"
-                    title={formatRelativeTime(session.updatedAt)}
-                  >
-                    {compactAge}
-                  </span>
-                )}
-              </span>
-            </button>
+                ) : null}
+                <span className="workspace-session-meta-idle">
+                  {session.isRunning ? (
+                    <Loader2
+                      className="h-3.5 w-3.5 animate-spin text-[hsl(var(--warning))]"
+                      aria-hidden="true"
+                    />
+                  ) : (
+                    <span
+                      className="workspace-session-age"
+                      title={formatRelativeTime(session.updatedAt)}
+                    >
+                      {compactAge}
+                    </span>
+                  )}
+                </span>
+              </button>
+            </SessionCardHoverCard>
             {showRowActions ? (
               <span className="workspace-session-row-actions">
                 <button

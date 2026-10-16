@@ -1,12 +1,18 @@
 import { fireEvent, render, screen } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import type { ReactElement } from 'react';
 import type { Workspace } from 'shared/types';
 import type { KanbanProjectSessionRecord } from '@/hooks/useKanbanProjectSessions';
+import { TooltipProvider } from '@/components/ui/tooltip';
 import { WorkspaceSessionList } from './WorkspaceSessionList';
 import {
   WORKSPACE_SESSION_GROUPS_COLLAPSED_KEY,
   WORKSPACE_SESSION_ORDER_KEY,
 } from './workspaceSessionListModel';
+
+function renderList(ui: ReactElement) {
+  return render(<TooltipProvider>{ui}</TooltipProvider>);
+}
 
 function workspace(overrides: Partial<Workspace> = {}): Workspace {
   return {
@@ -52,6 +58,7 @@ function session(
     updatedAt: '2026-08-17T12:00:00Z',
     createdAt: '2026-08-17T10:00:00Z',
     firstPrompt: 'Double Password Prompt on Project Login',
+    model: null,
     fullName: 'Double P',
     shortName: 'Double P',
     taskTitle: null,
@@ -77,7 +84,7 @@ describe('WorkspaceSessionList', () => {
       use_worktree: true,
     });
 
-    render(
+    renderList(
       <WorkspaceSessionList
         sessions={[
           session({
@@ -123,7 +130,7 @@ describe('WorkspaceSessionList', () => {
   });
 
   it('shows the delegated agent mark when executor is empty', () => {
-    render(
+    renderList(
       <WorkspaceSessionList
         sessions={[
           session({
@@ -149,7 +156,7 @@ describe('WorkspaceSessionList', () => {
 
   it('collapses a workspace group and remembers the choice', () => {
     const onSessionClick = vi.fn();
-    render(
+    renderList(
       <WorkspaceSessionList
         sessions={[
           session({
@@ -190,7 +197,7 @@ describe('WorkspaceSessionList', () => {
   });
 
   it('shows a running indicator instead of a compact age', () => {
-    render(
+    renderList(
       <WorkspaceSessionList
         sessions={[
           session({
@@ -218,7 +225,7 @@ describe('WorkspaceSessionList', () => {
   });
 
   it('colors a running session as in progress on the agent badge', () => {
-    render(
+    renderList(
       <WorkspaceSessionList
         sessions={[
           session({
@@ -244,7 +251,7 @@ describe('WorkspaceSessionList', () => {
 
   it('marks execution and monitor placements on the session rail', () => {
     const main = workspace({ id: 'ws-main', branch: 'main' });
-    render(
+    renderList(
       <WorkspaceSessionList
         sessions={[
           session({
@@ -274,7 +281,7 @@ describe('WorkspaceSessionList', () => {
 
   it('colors each session by its workbench status', () => {
     const main = workspace({ id: 'ws-main', branch: 'main' });
-    render(
+    renderList(
       <WorkspaceSessionList
         sessions={[
           session({
@@ -307,7 +314,7 @@ describe('WorkspaceSessionList', () => {
   });
 
   it('keeps the selected row inside the workspace rail', () => {
-    render(
+    renderList(
       <WorkspaceSessionList
         sessions={[
           session({
@@ -333,7 +340,7 @@ describe('WorkspaceSessionList', () => {
       JSON.stringify({ 'workspace-1': ['older', 'newer'] })
     );
 
-    render(
+    renderList(
       <WorkspaceSessionList
         sessions={[
           session({
@@ -365,7 +372,7 @@ describe('WorkspaceSessionList', () => {
 
   it('pins sessions at the top of their belonging workspace group without a duplicate pinned group', () => {
     const main = workspace({ id: 'ws-main', branch: 'main' });
-    render(
+    renderList(
       <WorkspaceSessionList
         sessions={[
           session({
@@ -411,7 +418,7 @@ describe('WorkspaceSessionList', () => {
   });
 
   it('hides the pinned group until a session is pinned', () => {
-    render(
+    renderList(
       <WorkspaceSessionList
         sessions={[
           session({
@@ -437,7 +444,7 @@ describe('WorkspaceSessionList', () => {
   it('shows checkboxes in delete mode instead of opening a session', () => {
     const onSessionClick = vi.fn();
     const onToggleSessionSelection = vi.fn();
-    render(
+    renderList(
       <WorkspaceSessionList
         sessions={[
           session({
@@ -466,7 +473,7 @@ describe('WorkspaceSessionList', () => {
     const onArchiveSession = vi.fn();
     const onRenameSession = vi.fn();
     const onDeleteSession = vi.fn();
-    render(
+    renderList(
       <WorkspaceSessionList
         sessions={[
           session({
@@ -532,8 +539,33 @@ describe('WorkspaceSessionList', () => {
     ).toBeInTheDocument();
   });
 
+  it('uses regular weight for Chinese titles and omits the native title tooltip', () => {
+    renderList(
+      <WorkspaceSessionList
+        sessions={[
+          session({
+            firstPrompt: '请参考附图，对我的布局给出建议',
+            name: null,
+            fullName: '请参考附图，对我',
+          }),
+        ]}
+        isLoading={false}
+        activeSessionId={null}
+        activeWorkspaceId="workspace-1"
+        onSessionClick={vi.fn()}
+      />
+    );
+
+    const title = document.querySelector(
+      '.workspace-session-title'
+    ) as HTMLElement;
+    expect(title).toHaveTextContent('请参考附图，对我的布局给出建议');
+    expect(title).toHaveClass('is-cjk');
+    expect(title).not.toHaveAttribute('title');
+  });
+
   it('keeps hover actions from covering the session title', () => {
-    render(
+    renderList(
       <WorkspaceSessionList
         sessions={[
           session({

@@ -1146,6 +1146,26 @@ describe('SessionCreationForm git initialization status', () => {
   });
 });
 
+describe('SessionCreationForm workspace checkout banner', () => {
+  it('renders the checkout hint in an Astryx warning Banner at 10px', async () => {
+    renderForm('grok', vi.fn(), 'existing_workspace', false, {
+      value: 'workspace:workspace-feature',
+      branch: 'feature/login',
+      workspace: null,
+      existingWorkspaceId: 'workspace-feature',
+      directWorkspaceId: 'workspace-feature',
+      useWorktree: false,
+      isCurrentProjectBranch: false,
+    });
+
+    const hint = await screen.findByText(
+      '选择后会先在当前项目目录 checkout 到该分支，以确保工作区正确。'
+    );
+    expect(hint).toHaveClass('session-create-checkout-banner-text');
+    expect(hint.closest('[role="alert"]')).not.toBeNull();
+  });
+});
+
 describe('SessionCreationForm uncommitted copy option', () => {
   it('offers copying uncommitted changes only for a new workspace', () => {
     const view = renderForm('codex', vi.fn(), 'new_workspace');

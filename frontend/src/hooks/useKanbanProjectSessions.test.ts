@@ -86,16 +86,17 @@ function summary(overrides: Partial<SessionSummary> = {}): SessionSummary {
     is_running: false,
     continuity_mode: 'new_session',
     pinned_at: null,
+    model: null,
     ...overrides,
   };
 }
 
 describe('buildDefaultSessionName', () => {
-  it('uses the first eight characters of the first prompt', () => {
+  it('uses the complete first prompt when the agent does not auto-name', () => {
     const t = vi.fn(() => '新会话') as unknown as TFunction<['app', 'common']>;
 
     expect(buildDefaultSessionName(summary(), t)).toEqual({
-      name: '修复会话标题功能',
+      name: '修复会话标题功能并保持手动标题',
       source: 'prompt',
       prompt: '修复会话标题功能并保持手动标题',
     });
@@ -150,7 +151,7 @@ describe('buildDefaultSessionName', () => {
         t
       )
     ).toEqual({
-      name: '修复会话标题功能',
+      name: '修复会话标题功能并保持手动标题',
       source: 'prompt',
       prompt: '修复会话标题功能并保持手动标题',
     });

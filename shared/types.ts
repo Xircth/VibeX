@@ -1243,7 +1243,7 @@ export type SessionStatus = "todo" | "inprogress" | "inreview" | "done" | "archi
 
 export type SessionContinuityMode = "new_session" | "resume_in_place";
 
-export type SessionSummary = { id: string, workspace_id: string, task_id: string | null, name: string | null, display_name: string, status: SessionStatus, executor: string | null, agent_id: AgentId | null, workspace_name: string | null, workspace_branch: string, created_at: string, updated_at: string, first_prompt: string | null, is_running: boolean, continuity_mode: SessionContinuityMode, pinned_at: string | null, };
+export type SessionSummary = { id: string, workspace_id: string, task_id: string | null, name: string | null, display_name: string, status: SessionStatus, executor: string | null, agent_id: AgentId | null, workspace_name: string | null, workspace_branch: string, created_at: string, updated_at: string, first_prompt: string | null, is_running: boolean, continuity_mode: SessionContinuityMode, pinned_at: string | null, model: string | null, };
 
 export type SlashCommandKind = "COMMAND" | "SKILL";
 

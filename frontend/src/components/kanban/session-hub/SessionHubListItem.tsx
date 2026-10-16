@@ -28,8 +28,13 @@ import {
   TooltipTrigger,
 } from '@/components/ui/tooltip';
 import type { KanbanProjectSessionRecord } from '@/hooks/useKanbanProjectSessions';
+import { sessionTitleIsCjk } from '@/lib/sessionTitle';
 import { cn } from '@/lib/utils';
 import { writeClipboardViaBridge } from '@/vscode/bridge';
+import {
+  SessionCardHoverCard,
+  useSessionCardHoverDetails,
+} from './SessionCardHoverInfo';
 import { buildSessionCardMenuItems } from './sessionCardMenu';
 import {
   INFO_TEXT_CLASS,
@@ -76,6 +81,7 @@ export function SessionHubListItem({
 }: SessionHubListItemProps) {
   const { t } = useTranslation(['tasks', 'common']);
   const kanbanSessions = useOptionalKanbanSessionContext();
+  const hoverDetails = useSessionCardHoverDetails(session, session.fullName);
   const agentKey = sessionListAgentKey(session);
   const isKanbanBoardMode = displayMode === 'kanban-board';
   const isCanvasMode = displayMode === 'canvas';
@@ -447,12 +453,18 @@ export function SessionHubListItem({
               disabled={isSubmitting}
             />
           ) : (
-            <div
-              className="min-w-0 flex-1 truncate text-[13px] font-semibold text-foreground"
-              title={session.fullName}
-            >
-              {session.fullName}
-            </div>
+            <SessionCardHoverCard details={hoverDetails}>
+              <div
+                className={cn(
+                  'session-hub-card-title min-w-0 flex-1 truncate text-[13px] text-foreground',
+                  sessionTitleIsCjk(session.fullName)
+                    ? 'font-normal'
+                    : 'font-semibold'
+                )}
+              >
+                {session.fullName}
+              </div>
+            </SessionCardHoverCard>
           )}
 
           {isEditing ? (

@@ -61,6 +61,7 @@ function session(
     updatedAt: '2026-08-17T12:00:00Z',
     createdAt: '2026-08-17T10:00:00Z',
     firstPrompt: 'Double Password Prompt on Project Login',
+    model: null,
     fullName: 'Double P',
     shortName: 'Double P',
     taskTitle: null,

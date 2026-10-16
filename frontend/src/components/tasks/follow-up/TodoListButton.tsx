@@ -44,7 +44,7 @@ export function TodoListButton({ todos }: { todos: TodoItem[] }) {
           title={t('todoListButton.title')}
           aria-label={t('todoListButton.title')}
           className={cn(
-            'composer-icon-control flex items-center justify-center rounded-md px-1.5 py-0.5 transition-colors',
+            'composer-control flex items-center justify-center rounded-md px-1.5 py-0.5 transition-colors',
             todoListState.isEmpty && 'opacity-50'
           )}
         >

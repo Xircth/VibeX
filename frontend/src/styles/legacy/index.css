@@ -6266,17 +6266,6 @@ html.dark {
     background: var(--surface-control-hover);
   }
 
-  .composer-icon-control {
-    color: var(--text-muted);
-    background: transparent;
-    border: 0;
-  }
-
-  .composer-icon-control:hover:not(:disabled) {
-    color: var(--text-strong);
-    background: transparent;
-  }
-
   .composer-config-panel {
     border: 1px solid var(--border-subtle);
     background: var(--surface-card);

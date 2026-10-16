@@ -51,6 +51,7 @@ export type OnboardingInstallRuntime = {
   ready: Set<AgentId>;
   errors: Record<string, string>;
   preflights: Record<string, AgentPreflightView>;
+  authentication: Record<string, AgentManagementView['authentication']>;
   loginFailed: Set<AgentId>;
   sequence: number;
   listeners: Set<() => void>;
@@ -63,6 +64,7 @@ export function createOnboardingInstallRuntime(): OnboardingInstallRuntime {
     ready: new Set(),
     errors: {},
     preflights: {},
+    authentication: {},
     loginFailed: new Set(),
     sequence: 0,
     listeners: new Set(),
@@ -143,6 +145,11 @@ export function OnboardingAgentInstall({
     agents[0] ??
     null;
   const selectedView = selected ? viewForOption(selected, barAgents) : null;
+  const authentication = selected
+    ? (runtime.authentication[selected.agentId] ??
+      selectedView?.authentication ??
+      'not_logged_in')
+    : 'not_logged_in';
   const operation = selected
     ? (runtime.operations[selected.agentId] ?? null)
     : null;
@@ -179,9 +186,9 @@ export function OnboardingAgentInstall({
       await Promise.all(
         pending.map(async (agent) => {
           if (!agent.needsInstallation) {
+            await loadPreflight(runtime, agent.agentId);
             runtime.ready.add(agent.agentId);
             publish(runtime);
-            await loadPreflight(runtime, agent.agentId);
             return;
           }
           try {
@@ -228,9 +235,11 @@ export function OnboardingAgentInstall({
           event.status === 'interrupted';
         if (terminal && (event.kind === 'install' || event.kind === 'repair')) {
           if (event.status === 'succeeded') {
-            runtime.ready.add(event.agent_id);
             delete runtime.errors[event.agent_id];
-            void loadPreflight(runtime, event.agent_id);
+            void loadPreflight(runtime, event.agent_id).then(() => {
+              runtime.ready.add(event.agent_id);
+              publish(runtime);
+            });
           } else if (event.status === 'failed') {
             runtime.ready.delete(event.agent_id);
             runtime.errors[event.agent_id] =
@@ -368,7 +377,7 @@ export function OnboardingAgentInstall({
                 agents={barAgents}
                 selectedAgentId={selected?.agentId ?? null}
                 registryOpen={false}
-                orientation="vertical"
+                pagingOnly
                 installReadyIds={runtime.ready}
                 onSelect={(agentId) => setSelectedAgentId(agentId as AgentId)}
                 onReorder={() => undefined}
@@ -397,7 +406,7 @@ export function OnboardingAgentInstall({
                 <>
                   <AgentAuthModeControl
                     actions={actionsByAgent[selected.agentId] ?? null}
-                    authentication={selectedView.authentication}
+                    authentication={authentication}
                     agentId={selected.agentId}
                     modelProvider={
                       selected.agentId === 'opencode' ||
@@ -414,8 +423,8 @@ export function OnboardingAgentInstall({
                           disabled={false}
                           embedded
                           signedIn={
-                            selectedView.authentication === 'account' ||
-                            selectedView.authentication === 'multiple_unknown'
+                            authentication === 'account' ||
+                            authentication === 'multiple_unknown'
                           }
                         />
                       ) : undefined
@@ -643,8 +652,13 @@ async function loadPreflight(
 ) {
   try {
     runtime.preflights[agentId] = await agentManagementApi.preflight(agentId);
-    publish(runtime);
+    const memberships = await agentManagementApi.bar();
+    const observed = memberships.find((view) => view.agent_id === agentId);
+    if (observed) {
+      runtime.authentication[agentId] = observed.authentication;
+    }
   } catch {
-    publish(runtime);
+    // The last probe stays on screen when the refresh fails.
   }
+  publish(runtime);
 }

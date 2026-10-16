@@ -1,8 +1,8 @@
 //! Official-account session status and leftover local evidence.
 //!
-//! Settings treats a completed login or logout command as the source of truth.
-//! Local files and keychain entries can outlive a banned, expired, or revoked
-//! session, so residue must not flip the signed-in badge on or off by itself.
+//! A completed logout stays signed out even when session files remain, and a
+//! completed login stays signed in when those files are missing. A probe that
+//! never recorded a logout still follows a live official-account session.
 
 use std::time::Duration;
 
@@ -10,7 +10,10 @@ use api_types::AgentAuthenticationStatus;
 use base64::Engine;
 use serde_json::Value;
 
-use crate::{AgentId, cursor_auth, metadata, profiles::ProfileManagementActionKind};
+use crate::{
+    AgentId, cursor_auth, metadata,
+    profiles::{BuiltInProfileCatalog, ProfileManagementActionKind},
+};
 
 /// Keep a recorded official-account result when disk residue disagrees.
 ///
@@ -45,15 +48,23 @@ pub fn authentication_with_bound_provider(
 }
 
 /// Combine a recorded probe, native snapshot, and bound-provider credentials.
+///
+/// `account_signed_out` is set only by a completed logout command. Without it,
+/// a live official account replaces a probe that merely defaulted to signed out.
 pub fn resolve_observed_authentication(
     recorded: AgentAuthenticationStatus,
     native: AgentAuthenticationStatus,
     bound_with_credential: bool,
+    account_signed_out: bool,
 ) -> AgentAuthenticationStatus {
-    prefer_recorded_account_over_residue(
-        recorded,
-        authentication_with_bound_provider(native, bound_with_credential),
-    )
+    let observed = authentication_with_bound_provider(native, bound_with_credential);
+    if !account_signed_out
+        && matches!(recorded, AgentAuthenticationStatus::NotLoggedIn)
+        && matches!(observed, AgentAuthenticationStatus::Account)
+    {
+        return AgentAuthenticationStatus::Account;
+    }
+    prefer_recorded_account_over_residue(recorded, observed)
 }
 
 /// Map a finished official login/logout command to the recorded session status.
@@ -440,6 +451,76 @@ async fn confirm_bearer_post(
     }
 }
 
+/// Whether the agent's official-account evidence is present on disk or in the
+/// keychain. This is the login fact; it is not an API-key credential.
+pub async fn official_account_present(
+    home: &std::path::Path,
+    agent_id: &AgentId,
+    environment: &std::collections::HashMap<String, String>,
+) -> bool {
+    if agent_id.as_str() == "cursor" {
+        return cursor_auth::cursor_account_token().await.is_some();
+    }
+    let Some(bytes) = read_account_evidence_bytes(home, agent_id, environment).await else {
+        return false;
+    };
+    serde_json::from_slice::<Value>(&bytes).is_ok_and(|value| {
+        if agent_id.as_str() == "kimi_code" && kimi_credential_is_synthetic(&value) {
+            return false;
+        }
+        BuiltInProfileCatalog::bundled()
+            .profile(agent_id)
+            .and_then(|profile| profile.account_evidence.as_ref())
+            .is_some_and(|evidence| evidence.matches(&value))
+    })
+}
+
+async fn read_account_evidence_bytes(
+    home: &std::path::Path,
+    agent_id: &AgentId,
+    environment: &std::collections::HashMap<String, String>,
+) -> Option<Vec<u8>> {
+    let evidence = BuiltInProfileCatalog::bundled()
+        .profile(agent_id)
+        .and_then(|profile| profile.account_evidence.clone())?;
+    let override_directory = evidence.directory_override_env.and_then(|name| {
+        environment
+            .get(name)
+            .filter(|value| !value.trim().is_empty())
+            .map(|value| expand_home_path(home, value))
+            .or_else(|| {
+                std::env::var_os(name)
+                    .filter(|value| !value.is_empty())
+                    .map(|value| expand_home_path(home, &value.to_string_lossy()))
+            })
+    });
+    let directory = override_directory
+        .map(|directory| directory.join(evidence.override_relative_directory))
+        .unwrap_or_else(|| home.join(evidence.home_relative_directory));
+    tokio::fs::read(directory.join(evidence.relative_file))
+        .await
+        .ok()
+}
+
+fn expand_home_path(home: &std::path::Path, value: &str) -> std::path::PathBuf {
+    let path = std::path::PathBuf::from(value.trim());
+    if path == std::path::Path::new("~") {
+        return home.to_path_buf();
+    }
+    if let Ok(relative) = path.strip_prefix("~/") {
+        return home.join(relative);
+    }
+    if path.is_relative() {
+        return home.join(path);
+    }
+    path
+}
+
+fn kimi_credential_is_synthetic(value: &Value) -> bool {
+    value.get("_vibex_synthetic").and_then(Value::as_bool) == Some(true)
+        || value.get("access_token").and_then(Value::as_str) == Some("vibex-local-gate")
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -519,6 +600,7 @@ mod tests {
                 AgentAuthenticationStatus::NotLoggedIn,
                 AgentAuthenticationStatus::NotLoggedIn,
                 true,
+                false,
             ),
             AgentAuthenticationStatus::ApiKey
         );
@@ -527,8 +609,44 @@ mod tests {
                 AgentAuthenticationStatus::Account,
                 AgentAuthenticationStatus::NotLoggedIn,
                 true,
+                false,
             ),
             AgentAuthenticationStatus::ApiKey
+        );
+    }
+
+    #[test]
+    fn a_live_official_account_replaces_an_unconfirmed_signed_out_probe() {
+        assert_eq!(
+            resolve_observed_authentication(
+                AgentAuthenticationStatus::NotLoggedIn,
+                AgentAuthenticationStatus::Account,
+                false,
+                false,
+            ),
+            AgentAuthenticationStatus::Account
+        );
+        assert_eq!(
+            resolve_observed_authentication(
+                AgentAuthenticationStatus::ApiKey,
+                AgentAuthenticationStatus::Account,
+                false,
+                false,
+            ),
+            AgentAuthenticationStatus::ApiKey
+        );
+    }
+
+    #[test]
+    fn an_explicit_sign_out_keeps_leftover_account_files_signed_out() {
+        assert_eq!(
+            resolve_observed_authentication(
+                AgentAuthenticationStatus::NotLoggedIn,
+                AgentAuthenticationStatus::Account,
+                false,
+                true,
+            ),
+            AgentAuthenticationStatus::NotLoggedIn
         );
     }
 
@@ -586,6 +704,30 @@ mod tests {
             authentication_from_account_command(ProfileManagementActionKind::Login, 1),
             None
         );
+    }
+
+    #[tokio::test]
+    async fn grok_auth_file_counts_as_an_official_account() {
+        let home = std::env::temp_dir().join(format!(
+            "vibex-grok-auth-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_nanos()
+        ));
+        let _ = tokio::fs::remove_dir_all(&home).await;
+        tokio::fs::create_dir_all(home.join(".grok")).await.unwrap();
+        let auth = home.join(".grok").join("auth.json");
+        tokio::fs::write(&auth, br#"{"session":{"auth_mode":"oidc"}}"#)
+            .await
+            .unwrap();
+        let agent = AgentId::parse("grok").unwrap();
+        let environment = std::collections::HashMap::new();
+        assert!(official_account_present(&home, &agent, &environment).await);
+        tokio::fs::write(&auth, b"{}").await.unwrap();
+        assert!(!official_account_present(&home, &agent, &environment).await);
+        let _ = tokio::fs::remove_dir_all(&home).await;
     }
 
     #[test]

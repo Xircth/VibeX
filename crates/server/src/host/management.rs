@@ -15,8 +15,8 @@ use agents::{
     apply_component_versions, auth_mode_credential_env, auth_mode_kind,
     authentication_from_account_command, built_in_auth_mode_policy, compose_agent_update_check,
     native_uses_custom_endpoint, official_api_url, plan_runtime_acp_compatibility_warning,
-    project_codex_auth_mode, resolve_account_label, resolve_built_in_auth_mode,
-    resolve_observed_authentication, version_at_least,
+    official_account_present, project_codex_auth_mode, resolve_account_label,
+    resolve_built_in_auth_mode, resolve_observed_authentication, version_at_least,
 };
 use api_types::{
     AgentAccountFlowStatus, AgentAccountFlowView, AgentAuthModeKind, AgentAuthModeOptionView,
@@ -980,9 +980,19 @@ pub async fn account_flow_status(
     let recorded = recorded_authentication(pool, &agent_id).await;
     let authentication =
         authentication_from_account_command(pending.kind, exit_code).unwrap_or(recorded);
+    let service = AgentManagementApplicationService::new(pool.clone());
     if authentication != recorded {
-        AgentManagementApplicationService::new(pool.clone())
+        service
             .sync_authentication(&agent_id, authentication, None)
+            .await
+            .map_err(internal_error)?;
+    }
+    if let Some(commanded) = authentication_from_account_command(pending.kind, exit_code) {
+        service
+            .set_account_signed_out(
+                &agent_id,
+                commanded == AgentAuthenticationStatus::NotLoggedIn,
+            )
             .await
             .map_err(internal_error)?;
     }
@@ -1680,19 +1690,21 @@ async fn observed_authentication(
     env: &HashMap<String, String>,
 ) -> AgentAuthenticationStatus {
     let recorded = recorded_authentication(pool, agent_id).await;
+    let account_signed_out = AgentManagementApplicationService::new(pool.clone())
+        .account_signed_out(agent_id)
+        .await
+        .unwrap_or(false);
     let home = match dirs::home_dir() {
         Some(home) => home,
         None => return recorded,
     };
+    let account_logged_in = official_account_present(&home, agent_id, env).await;
     let provider = NativeConfigProvider::with_environment(
         Arc::new(TokioNativeFileSystem),
         home,
         env.clone().into_iter().collect::<BTreeMap<_, _>>(),
     );
-    let native = match provider
-        .read(agent_id, recorded == AgentAuthenticationStatus::Account)
-        .await
-    {
+    let native = match provider.read(agent_id, account_logged_in).await {
         Ok(snapshot) => snapshot.authentication,
         Err(agents::NativeConfigError::Unsupported(_)) => AgentAuthenticationStatus::NotRequired,
         Err(_) => recorded,
@@ -1701,6 +1713,7 @@ async fn observed_authentication(
         recorded,
         native,
         bound_provider_has_credentials(agent_id, env).await,
+        account_signed_out,
     )
 }
 

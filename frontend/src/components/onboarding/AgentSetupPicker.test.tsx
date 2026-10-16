@@ -168,18 +168,15 @@ describe('AgentSetupPicker icons', () => {
       /\.onboarding-agent-rail\s*\{[^}]*justify-content:\s*center;/
     );
     expect(css).toMatch(
-      /\.agent-management-bar-vertical\s*\{[^}]*flex-direction:\s*row;/
+      /\.onboarding-agent-rail \.agent-management-bar\s*\{[^}]*max-width:\s*440px;/
     );
     expect(css).toMatch(
-      /\.agent-management-bar-vertical\s*\{[^}]*height:\s*calc\(var\(--agent-bar-item-size\) \+ 8px\);/
-    );
-    expect(css).toMatch(
-      /\.agent-management-bar-vertical\s*\{[^}]*border-radius:\s*9999px;/
+      /\.agent-management-bar-pager\.is-next\s*svg\s*\{[^}]*transform:\s*scaleX\(-1\);/
     );
     expect(css).not.toMatch(
       /\.agent-management-bar-label\s*\{[^}]*max-width:\s*none;/
     );
-    expect(css).toMatch(/\.onboarding-install-panels\s*\{[^}]*gap:\s*24px;/);
+    expect(css).toMatch(/\.onboarding-install-panels\s*\{[^}]*gap:\s*16px;/);
     const settingsCss = readFileSync(
       resolve(process.cwd(), 'src/styles/legacy/index.css'),
       'utf8'

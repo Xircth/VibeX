@@ -776,6 +776,36 @@ impl AgentManagementApplicationService {
         Ok(())
     }
 
+    /// A completed logout command sets this so leftover session files cannot
+    /// sign the agent back in. A completed login clears it.
+    pub async fn account_signed_out(&self, agent_id: &AgentId) -> Result<bool> {
+        let raw = sqlx::query_scalar::<_, String>(
+            "SELECT detail_json FROM agent_probe WHERE agent_id = ?",
+        )
+        .bind(agent_id.as_str())
+        .fetch_optional(&self.pool)
+        .await?;
+        Ok(raw.as_deref().is_some_and(detail_account_signed_out))
+    }
+
+    pub async fn set_account_signed_out(&self, agent_id: &AgentId, signed_out: bool) -> Result<()> {
+        let Some(raw) = sqlx::query_scalar::<_, String>(
+            "SELECT detail_json FROM agent_probe WHERE agent_id = ?",
+        )
+        .bind(agent_id.as_str())
+        .fetch_optional(&self.pool)
+        .await?
+        else {
+            return Ok(());
+        };
+        sqlx::query("UPDATE agent_probe SET detail_json = ? WHERE agent_id = ?")
+            .bind(detail_with_account_signed_out(&raw, signed_out))
+            .bind(agent_id.as_str())
+            .execute(&self.pool)
+            .await?;
+        Ok(())
+    }
+
     pub async fn record_probe(
         &self,
         agent_id: &AgentId,
@@ -976,6 +1006,28 @@ fn authentication_key(authentication: AgentAuthenticationStatus) -> &'static str
     }
 }
 
+fn detail_account_signed_out(raw: &str) -> bool {
+    serde_json::from_str::<serde_json::Value>(raw)
+        .ok()
+        .and_then(|value| value.get("account_signed_out").and_then(serde_json::Value::as_bool))
+        .unwrap_or(false)
+}
+
+fn detail_with_account_signed_out(raw: &str, signed_out: bool) -> String {
+    let mut value =
+        serde_json::from_str::<serde_json::Value>(raw).unwrap_or_else(|_| serde_json::json!({}));
+    if !value.is_object() {
+        value = serde_json::json!({});
+    }
+    let object = value.as_object_mut().expect("object");
+    if signed_out {
+        object.insert("account_signed_out".to_string(), serde_json::json!(true));
+    } else {
+        object.remove("account_signed_out");
+    }
+    value.to_string()
+}
+
 fn lifecycle_key(lifecycle: AgentLifecycleState) -> &'static str {
     match lifecycle {
         AgentLifecycleState::Retired => "retired",
@@ -1106,6 +1158,27 @@ mod tests {
         .await
         .unwrap();
         assert_eq!(changed_generation, 50);
+    }
+
+    #[tokio::test]
+    async fn explicit_sign_out_survives_a_later_authentication_probe() {
+        let pool = management_pool_with_ready_opencode().await;
+        let agent_id = AgentId::parse("opencode").unwrap();
+        let service = AgentManagementApplicationService::new(pool.clone());
+        service
+            .set_account_signed_out(&agent_id, true)
+            .await
+            .unwrap();
+        service
+            .sync_authentication(&agent_id, AgentAuthenticationStatus::NotLoggedIn, Some(true))
+            .await
+            .unwrap();
+        assert!(service.account_signed_out(&agent_id).await.unwrap());
+        service
+            .set_account_signed_out(&agent_id, false)
+            .await
+            .unwrap();
+        assert!(!service.account_signed_out(&agent_id).await.unwrap());
     }
 
     #[tokio::test]

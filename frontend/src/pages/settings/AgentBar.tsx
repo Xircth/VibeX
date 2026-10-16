@@ -65,6 +65,8 @@ type AgentBarProps = {
   onAdd?: () => void;
   onRefresh?: () => void;
   orientation?: 'horizontal' | 'vertical';
+  /** Page with the settings chevrons, without drag, add, or refresh. */
+  pagingOnly?: boolean;
   /** Agents whose ACP runtime install has finished. */
   installReadyIds?: ReadonlySet<string>;
 };
@@ -88,6 +90,9 @@ const DRAG_PAGE_DELAY_MS = 450;
 const keepLayout: SortingStrategy = () => null;
 
 export function AgentBar(props: AgentBarProps) {
+  if (props.pagingOnly) {
+    return <AgentBarPaged {...props} />;
+  }
   if (props.orientation === 'vertical') {
     return <AgentBarVertical {...props} />;
   }
@@ -138,6 +143,175 @@ function AgentBarVertical({
           </button>
         );
       })}
+    </nav>
+  );
+}
+
+function AgentBarPaged({
+  agents,
+  selectedAgentId,
+  registryOpen,
+  onSelect,
+  installReadyIds,
+}: AgentBarProps) {
+  const { t } = useTranslation('settings');
+  const [viewportWidth, setViewportWidth] = useState(0);
+  const [measuredWidths, setMeasuredWidths] = useState<Record<string, number>>(
+    {}
+  );
+  const [requestedPage, setRequestedPage] = useState(0);
+  const viewportRef = useRef<HTMLDivElement>(null);
+  const order = useMemo(
+    () => agents.map((agent) => agent.agent_id),
+    [agents]
+  );
+  const orderKey = order.join('|');
+  const expandedId = registryOpen ? null : selectedAgentId;
+  const labelWidth = expandedId
+    ? (measuredWidths[expandedId] ?? AGENT_BAR_LAYOUT.labelMaxWidth)
+    : 0;
+  const paging = useMemo(
+    () => ({ viewportWidth, expandedId, labelWidth }),
+    [viewportWidth, expandedId, labelWidth]
+  );
+  const pages = useMemo(() => agentBarPages(order, paging), [order, paging]);
+  const pageGaps = useMemo(() => {
+    if (pages.length === 0) return [];
+    const baseGap = agentBarPageGap(pages[0] ?? [], paging);
+    return pages.map((pageAgentIds, index) =>
+      index === 0 ? baseGap : agentBarPageGap(pageAgentIds, paging, baseGap)
+    );
+  }, [pages, paging]);
+  const page = Math.min(requestedPage, Math.max(pages.length - 1, 0));
+  const pageStyle = { '--agent-bar-page': page } as CSSProperties;
+  const alignedAgentIdRef = useRef<string | null>(null);
+
+  useLayoutEffect(() => {
+    const viewport = viewportRef.current;
+    if (!viewport) return;
+    const measure = () => setViewportWidth(viewport.clientWidth);
+    measure();
+    if (typeof ResizeObserver === 'undefined') return;
+    const observer = new ResizeObserver(measure);
+    observer.observe(viewport);
+    return () => observer.disconnect();
+  }, [orderKey]);
+
+  useLayoutEffect(() => {
+    const viewport = viewportRef.current;
+    if (!viewport) return;
+    const next: Record<string, number> = {};
+    viewport.querySelectorAll<HTMLElement>('[data-agent-id]').forEach((el) => {
+      const id = el.dataset.agentId;
+      const label = el.querySelector<HTMLElement>('.agent-management-bar-label');
+      const measured = label?.scrollWidth ?? 0;
+      if (!id || measured <= 0) return;
+      next[id] = Math.min(
+        Math.ceil(measured) + 1,
+        AGENT_BAR_LAYOUT.labelMaxWidth
+      );
+    });
+    setMeasuredWidths((prev) => {
+      const keys = Object.keys(next);
+      if (keys.length === 0) return prev;
+      if (keys.every((key) => prev[key] === next[key])) return prev;
+      return { ...prev, ...next };
+    });
+  }, [orderKey, page, expandedId]);
+
+  useEffect(() => {
+    if (!expandedId || order.length === 0) {
+      alignedAgentIdRef.current = expandedId;
+      return;
+    }
+    if (viewportWidth === 0) return;
+    if (alignedAgentIdRef.current === expandedId) return;
+    alignedAgentIdRef.current = expandedId;
+    const selectedPage = agentBarPageOf(pages, expandedId);
+    if (selectedPage !== null) setRequestedPage(selectedPage);
+  }, [expandedId, order.length, viewportWidth, pages]);
+
+  useEffect(() => {
+    if (pages.length > 0 && requestedPage >= pages.length) {
+      setRequestedPage(pages.length - 1);
+    }
+  }, [pages.length, requestedPage]);
+
+  return (
+    <nav
+      aria-label={t('agents.agentListAria')}
+      className="agent-management-bar"
+      style={agentBarLayoutStyle}
+    >
+      <AgentBarPagerButton
+        direction="previous"
+        label={t('agents.previousAgentPage')}
+        visible={page > 0}
+        onStep={() => setRequestedPage(page - 1)}
+      />
+      <div className="agent-management-bar-viewport" ref={viewportRef}>
+        <div className="agent-management-bar-track" style={pageStyle}>
+          {pages.map((agentIds, index) => (
+            <div
+              key={agentIds.join('|') || index}
+              className="agent-management-bar-page"
+              style={{ gap: `${pageGaps[index] ?? AGENT_BAR_LAYOUT.itemGap}px` }}
+              inert={index !== page}
+            >
+              {agentIds.map((agentId) => {
+                const agent = agents.find((item) => item.agent_id === agentId);
+                if (!agent) return null;
+                const selected = !registryOpen && selectedAgentId === agent.agent_id;
+                const ready = installReadyIds?.has(agent.agent_id) ?? false;
+                return (
+                  <button
+                    key={agent.agent_id}
+                    type="button"
+                    data-agent-id={agent.agent_id}
+                    aria-current={selected ? 'true' : undefined}
+                    aria-label={agent.display_name}
+                    className={cn(
+                      'agent-management-bar-item',
+                      selected && 'is-selected',
+                      !agent.enabled && 'is-disabled'
+                    )}
+                    onClick={() => onSelect(agent.agent_id)}
+                  >
+                    <span aria-hidden="true" className="agent-management-bar-mark">
+                      <AgentManagementIcon agent={agent} className="h-5 w-5" />
+                      {ready ? (
+                        <span
+                          aria-hidden="true"
+                          className="settings-status-lamp settings-status-dot-success agent-install-lamp"
+                        />
+                      ) : null}
+                    </span>
+                    <span
+                      aria-hidden="true"
+                      className="agent-management-bar-label"
+                      style={
+                        selected
+                          ? ({
+                              '--agent-label-width': `${labelWidth}px`,
+                            } as CSSProperties)
+                          : undefined
+                      }
+                    >
+                      {agent.display_name}
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+          ))}
+        </div>
+      </div>
+      <AgentBarPagerButton
+        direction="next"
+        label={t('agents.nextAgentPage')}
+        visible={page < pages.length - 1}
+        onStep={() => setRequestedPage(page + 1)}
+      />
     </nav>
   );
 }
@@ -587,6 +761,58 @@ export function AgentBarTailGroup({
   );
 }
 
+function AgentBarPagerButton({
+  direction,
+  label,
+  visible,
+  dropTarget = false,
+  pagerRef,
+  onStep,
+}: {
+  direction: PagerDirection;
+  label: string;
+  visible: boolean;
+  dropTarget?: boolean;
+  pagerRef?: (element: HTMLDivElement | null) => void;
+  onStep: () => void;
+}) {
+  return (
+    <div
+      ref={pagerRef}
+      className={cn(
+        'agent-management-bar-pager',
+        `is-${direction}`,
+        visible && 'is-visible'
+      )}
+    >
+      {visible ? (
+        <button
+          type="button"
+          aria-label={label}
+          className={cn(
+            'agent-management-bar-pager-button',
+            dropTarget && 'is-drop-target'
+          )}
+          onClick={(event) => {
+            event.stopPropagation();
+            onStep();
+          }}
+        >
+          <svg aria-hidden="true" fill="none" viewBox="0 0 8 12">
+            <path
+              d="M6 1.5 1.5 6 6 10.5"
+              stroke="currentColor"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              strokeWidth="1.6"
+            />
+          </svg>
+        </button>
+      ) : null}
+    </div>
+  );
+}
+
 function PagerArrow({
   direction,
   label,
@@ -614,39 +840,14 @@ function PagerArrow({
   }, [visible, isOver, page, onDragHover]);
 
   return (
-    <div
-      className={cn(
-        'agent-management-bar-pager',
-        `is-${direction}`,
-        visible && 'is-visible'
-      )}
-      ref={setNodeRef}
-    >
-      {visible ? (
-        <button
-          type="button"
-          aria-label={label}
-          className={cn(
-            'agent-management-bar-pager-button',
-            isOver && 'is-drop-target'
-          )}
-          onClick={(e) => {
-            e.stopPropagation();
-            onStep();
-          }}
-        >
-          <svg aria-hidden="true" fill="none" viewBox="0 0 8 12">
-            <path
-              d="M6 1.5 1.5 6 6 10.5"
-              stroke="currentColor"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              strokeWidth="1.6"
-            />
-          </svg>
-        </button>
-      ) : null}
-    </div>
+    <AgentBarPagerButton
+      direction={direction}
+      label={label}
+      visible={visible}
+      dropTarget={isOver}
+      pagerRef={setNodeRef}
+      onStep={onStep}
+    />
   );
 }
 

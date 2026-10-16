@@ -1421,7 +1421,7 @@ describe('FirstRunExperience', () => {
       })
     ).toBeInTheDocument();
     const detail = document.querySelector('.onboarding-install-detail');
-    const rail = detail?.querySelector('.agent-management-bar-vertical');
+    const rail = detail?.querySelector('.agent-management-bar');
     expect(detail?.firstElementChild).toHaveClass('onboarding-agent-rail');
     expect(rail).not.toBeNull();
     expect(
@@ -1429,6 +1429,59 @@ describe('FirstRunExperience', () => {
     ).toHaveTextContent('Claude Code');
     expect(document.querySelector('.onboarding-install-column')).not.toBeNull();
     expect(managementMock.addAndInstall).not.toHaveBeenCalled();
+  });
+
+  it('shows a live official Grok account after preflight refreshes the probe', async () => {
+    const user = userEvent.setup();
+    let observed = false;
+    const grok = (authentication: 'not_logged_in' | 'account') =>
+      agent({
+        agent_id: 'grok',
+        display_name: 'Grok',
+        enabled: true,
+        lifecycle: 'ready',
+        acp_version: '0.2.118',
+        authentication,
+      });
+    managementMock.bar.mockImplementation(async () => [
+      grok(observed ? 'account' : 'not_logged_in'),
+    ]);
+    managementMock.preflight.mockImplementation(async () => {
+      observed = true;
+      return {
+        agent_id: 'grok',
+        checked_at: '2026-08-04T00:00:00Z',
+        items: [],
+      };
+    });
+    managementMock.authMode.mockResolvedValue({
+      agent_id: 'grok',
+      mode: 'subscription',
+      modes: ['subscription'],
+      options: [],
+      credential_env: 'XAI_API_KEY',
+      credential_present: false,
+      account_label: 'ada@example.com',
+    });
+
+    render(
+      <HotkeysProvider>
+        <FirstRunExperience
+          open
+          initialEditor={editor}
+          initialDefaultAgentId="grok"
+          onPersist={vi.fn().mockResolvedValue(undefined)}
+          onFinish={vi.fn()}
+        />
+      </HotkeysProvider>
+    );
+
+    await user.click(screen.getByRole('button', { name: '下一步' }));
+    await screen.findByRole('checkbox', { name: '启用 Grok' });
+    await user.click(screen.getByRole('button', { name: '下一步' }));
+
+    expect(await screen.findByText('ada@example.com')).toBeInTheDocument();
+    expect(screen.queryByText('未登录官方账号')).not.toBeInTheDocument();
   });
 
   it('enters home directly after one selected agent passes preflight', async () => {

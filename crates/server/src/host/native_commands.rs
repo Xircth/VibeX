@@ -160,8 +160,16 @@ pub async fn dispatch_codex_poll_device_code(
             .await
             .map_err(bad)?;
     if result.status == "success" {
-        services::services::agent_management::AgentManagementApplicationService::new(pool.clone())
+        let service =
+            services::services::agent_management::AgentManagementApplicationService::new(
+                pool.clone(),
+            );
+        service
             .sync_authentication(&agent_id, AgentAuthenticationStatus::Account, None)
+            .await
+            .map_err(internal_error)?;
+        service
+            .set_account_signed_out(&agent_id, false)
             .await
             .map_err(internal_error)?;
         invalidate("agent-management-snapshot-invalidated");

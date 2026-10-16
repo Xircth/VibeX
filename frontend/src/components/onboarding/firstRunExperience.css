@@ -1194,33 +1194,23 @@
   justify-content: center;
 }
 
-.onboarding-experience
-  .onboarding-agent-rail
-  .agent-management-bar.agent-management-bar-vertical {
-  display: flex;
-  flex-direction: row;
-  flex-wrap: nowrap;
-  align-items: center;
-  justify-content: center;
-  width: fit-content;
-  max-width: 100%;
-  height: calc(var(--agent-bar-item-size) + 8px);
-  min-height: 0;
-  flex: none;
-  overflow: hidden;
-  padding: 0 3px;
-  border: 1px solid var(--border-content);
-  border-radius: 9999px;
-  background: var(--surface-control);
-  gap: var(--agent-bar-item-gap);
+.onboarding-experience .onboarding-agent-rail .agent-management-bar {
+  width: min(100%, 440px);
+  max-width: 440px;
 }
 
 .onboarding-experience
   .onboarding-agent-rail
-  .agent-management-bar-vertical
   .agent-management-bar-item {
   cursor: pointer;
   touch-action: auto;
+}
+
+.onboarding-experience
+  .onboarding-agent-rail
+  .agent-management-bar-pager.is-next
+  svg {
+  transform: scaleX(-1);
 }
 
 .onboarding-experience .onboarding-agent-rail .agent-management-bar-mark {
@@ -1259,7 +1249,7 @@
   width: 100%;
   min-width: 0;
   flex-direction: column;
-  gap: 24px;
+  gap: 16px;
 }
 
 .onboarding-install-panels > .onboarding-install-guidance {

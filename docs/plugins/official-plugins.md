@@ -1,6 +1,6 @@
 # VibeX 官方插件介绍
 
-官方产品包不随 VibeX 安装包发行。仓库根目录 `vibex-plugin.json` 列出官方插件身份和源码仓库；Host 从 [官方插件市场](https://vibex.xforever.xin/marketplace/) 拉取，或由用户导入 `.vxp`。本仓库 `assets/plugins/` 仍是开发用 git 子模块，不打进 Desktop / Server 发行物。
+官方产品包不随 VibeX 安装包发行，源码也不在本仓库里。仓库根目录 `vibex-plugin.json` 列出官方插件身份和源码仓库。Host 从 [官方插件市场](https://vibex.xforever.xin/marketplace/) 安装；市场没有制品时，从该文件里的仓库地址拉取。用户也可以导入 `.vxp`。
 
 发布者都是 `vibex`。引擎要求 `vibex >=0.1.3 <1.0.0`，SDK 要求 `^1.0.0`。装上不等于已经注入 Agent。市场安装后默认禁用，启用后新开会话才会带上 MCP / Skill。
 
@@ -10,7 +10,7 @@
 
 ## VibeX Office
 
-身份 `vibex.office`，当前版本 `3.0.0`，产品名 VibeX Office。一句话简介写的是在 VibeX 里创建、编辑、分析和预览 DOCX、XLSX 与 PPTX。源码是 git 子仓库 `assets/plugins/office`。
+身份 `vibex.office`，当前版本 `3.0.0`，产品名 VibeX Office。一句话简介写的是在 VibeX 里创建、编辑、分析和预览 DOCX、XLSX 与 PPTX。源码仓库登记在 `vibex-plugin.json`。
 
 这是目前最完整的一份官方包。它同时带 Skill、Workflow、文件打开器、预览和一份锁死的 Runtime。
 
@@ -55,7 +55,7 @@
 
 ## 会话增强
 
-身份 `vibex.session-enhance`，版本 `1.0.0`，产品名「会话增强」。简介是在会话里向智能体提供提问、纠偏、会话查询和控制。源码是 git 子仓库 `assets/plugins/session-enhance`。
+身份 `vibex.session-enhance`，版本 `1.0.0`，产品名「会话增强」。简介是在会话里向智能体提供提问、纠偏、会话查询和控制。源码仓库登记在 `vibex-plugin.json`。
 
 这个包没有 Worker，也没有文件页。它把 Host 自己的会话能力，通过官方 MCP 和一条 Skill 交给之后新开或重新绑定的 Agent 会话。
 
@@ -85,7 +85,7 @@ Skill `vibex-session-enhance` 写明了六种工具。
 
 ## 多智能体协同
 
-身份 `vibex.multi-agent`，版本 `1.0.0`，产品名「多智能体协同」。简介是让父 Agent 把子任务委托给其它 Agent。源码是 git 子仓库 `assets/plugins/multi-agent`。
+身份 `vibex.multi-agent`，版本 `1.0.0`，产品名「多智能体协同」。简介是让父 Agent 把子任务委托给其它 Agent。源码仓库登记在 `vibex-plugin.json`。
 
 启用后两件事一起发生。输入框可以用 `&` 点名其它已安装 Agent。之后新开或重新绑定的会话会注入 `vibex-delegation-mcp`。
 
@@ -115,7 +115,7 @@ MCP 同样走 Host 家族二进制 `vibex-mcp`，产品面是 `delegation`，协
 
 ## VibeX Workflow Creator
 
-身份 `vibex.workflow-creator`，版本 `1.0.0`，产品名 VibeX Workflow Creator。简介写的是从对话和可编辑文件页里设计、检查、调试并安全改写 `*.vibex-workflow.json`。源码是 git 子仓库 `assets/plugins/workflow-creator`。
+身份 `vibex.workflow-creator`，版本 `1.0.0`，产品名 VibeX Workflow Creator。简介写的是从对话和可编辑文件页里设计、检查、调试并安全改写 `*.vibex-workflow.json`。源码仓库登记在 `vibex-plugin.json`。
 
 这个包同时带 Skill、独立 MCP、文件打开器和一个 App 编辑页。源文件仍是创作真相。保存走产物修订，外部改过会拒绝盲覆盖。发布才生成不可变版本。Automation 钉在某个已发布版本上，不会跟着草稿走。
 
@@ -173,7 +173,7 @@ Desktop 必须在跑。Host 起回环命令网关，用托管 Node 拉起 MCP。
 
 ## 插件开发
 
-身份 `vibex.plugin-development`，版本 `1.0.0`，产品名「插件开发」。简介是让 Agent 用当前 Host 自带的 SDK 和 CLI，在本机开发、校验并链接插件。源码是 git 子仓库 `assets/plugins/plugin-development`。
+身份 `vibex.plugin-development`，版本 `1.0.0`，产品名「插件开发」。简介是让 Agent 用当前 Host 自带的 SDK 和 CLI，在本机开发、校验并链接插件。源码仓库登记在 `vibex-plugin.json`。
 
 这份包只声明 Skill `vibex-plugin-development`（触发含 `/create-skill`、`/create-plugin`）。Skill 目标是 `codex`、`claude-code`、`acp`。没有开发 MCP。首次启用默认投影给已安装、支持 Skill 的 Agent。Skill 旁的 `references/` 写清单、模板、Node stdio 入口和 CLI 链接步骤。
 
@@ -187,7 +187,7 @@ Skill 要求 Agent 先定位本机契约：VibeX 源码树用 `node packages/plu
 
 ## Remote SSH
 
-身份 `vibex.remote-ssh`，版本 `1.0.2`，产品名 Remote SSH。简介是通过 SSH 在远端安装并启动 VibeX Server，把本机接到该 Host。源码在 `assets/plugins/remote-ssh`。它和会话增强一样走官方市场分类与 Host 内嵌快照，不依赖插件开发服务。
+身份 `vibex.remote-ssh`，版本 `1.0.2`，产品名 Remote SSH。简介是通过 SSH 在远端安装并启动 VibeX Server，把本机接到该 Host。源码仓库登记在 `vibex-plugin.json`。它和会话增强一样走官方市场分类，不依赖插件开发服务。
 
 启用后，插件详情页可以填写主机、端口、用户，然后连接。Worker 用本机 `ssh` 探测架构、投递 Host family、拉起 `vibex serve`、开隧道、配对，并写入「设置 → 远程连接」。认证走系统 SSH（密钥或 ssh-agent）；没有密钥时可以在连接时填密码，可选由 Host 记住。VibeX 不保存私钥。
 
@@ -195,7 +195,7 @@ Skill 要求 Agent 先定位本机契约：VibeX 源码树用 `node packages/plu
 
 ## Open Connector
 
-身份 `vibex.open-connector`，版本 `1.0.0`，产品名 Open Connector。简介是连接第三方应用，把工具交给之后新建或重新绑定的会话。源码在 `assets/plugins/open-connector`。
+身份 `vibex.open-connector`，版本 `1.0.0`，产品名 Open Connector。简介是连接第三方应用，把工具交给之后新建或重新绑定的会话。源码仓库登记在 `vibex-plugin.json`。
 
 启用后出现中央 Tab「Open Connector」，内嵌本机 Open Connector 控制台。Worker 用 Host 锁定的官方单文件二进制在回环口拉起网关。首次启用按 GitHub Release `v1.6.3` 下载约 150–175 MiB，离线会失败。凭据在 `plugin-state/vibex.open-connector/`，不写入 `config.json`。
 
@@ -205,7 +205,7 @@ Agent 看到五件 HTTP MCP 工具：`list_apps`、`list_connections`、`search_
 
 ## 科学研究
 
-身份 `vibex.science`，版本 `1.0.0`，产品名「科学研究」。简介是 146 项科研技能，按 10 个领域分组；默认只注入「通用科研方法」13 项。源码是 git 子仓库 `assets/plugins/science`（`https://github.com/Xircth/vibex-plugin-science`）。
+身份 `vibex.science`，版本 `1.0.0`，产品名「科学研究」。简介是 146 项科研技能，按 10 个领域分组；默认只注入「通用科研方法」13 项。源码仓库登记在 `vibex-plugin.json`（`https://github.com/Xircth/vibex-plugin-science`）。
 
 这个包没有 Worker，也没有文件页。它把按领域开关的 Skill 投影给之后新开或重新绑定的 Agent 会话。
 
@@ -232,7 +232,7 @@ Agent 看到五件 HTTP MCP 工具：`list_apps`、`list_connections`、`search_
 
 ## 电脑控制
 
-身份 `vibex-plugin-computer-use`，版本 `0.34.0`，产品名「电脑控制」。简介是桌面窗口与应用的感知和自动化控制：无障碍树、截图、键鼠输入、窗口级授权和全局紧急停止。源码是 git 子仓库 `assets/plugins/computer-use`（`https://github.com/Xircth/vibex-plugin-computer-use`）。
+身份 `vibex-plugin-computer-use`，版本 `0.34.0`，产品名「电脑控制」。简介是桌面窗口与应用的感知和自动化控制：无障碍树、截图、键鼠输入、窗口级授权和全局紧急停止。源码仓库登记在 `vibex-plugin.json`（`https://github.com/Xircth/vibex-plugin-computer-use`）。
 
 启用后，新开或重新绑定的会话带上电脑控制的 MCP 和 Skill。共享按窗口、应用或全屏授予，分「仅查看」和「允许控制」。全局紧急停止会立刻撤销授权并打断正在执行的动作。窗口边缘的呼吸光带由设置里的「显示桌面共享状态指示条」控制。
 

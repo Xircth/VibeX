@@ -7,7 +7,7 @@ description: Build, migrate, test, link, debug, or package full-trust VibeX v4 p
 
 Build one user-facing product with one identity, README, root config, content tree, and lifecycle. App, Agent, Host, and Runtime are integration targets inside that product.
 
-The Host product plugin (Skill `/create-skill` and contract references) lives in the git submodule `assets/plugins/plugin-development` (`https://github.com/Xircth/vibex-plugin-development`). Edit that repository for the user-facing Skill. This Skill is the in-tree authoring procedure against the checked-out SDK and CLI.
+The Host product plugin (Skill `/create-skill` and contract references) lives in the independent repository `https://github.com/Xircth/vibex-plugin-development`, listed in `vibex-plugin.json`. Edit that repository for the user-facing Skill. This Skill is the in-tree authoring procedure against the checked-out SDK and CLI.
 
 ## Load the local contract
 

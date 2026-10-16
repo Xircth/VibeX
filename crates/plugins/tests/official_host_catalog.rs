@@ -52,21 +52,48 @@ async fn installing_the_host_does_not_auto_register_official_plugins() {
     assert!(utils::assets::existing_official_plugin_roots(data.path()).is_empty());
 }
 
-fn sample_plugin_root() -> Option<std::path::PathBuf> {
-    let dir =
-        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../assets/plugins/remote-ssh");
-    dir.join(".vibex-plugin/plugin.json")
-        .is_file()
-        .then_some(dir)
+fn write_official_package(root: &std::path::Path) {
+    let skill = root.join("contents/skills/remote/SKILL.md");
+    std::fs::create_dir_all(skill.parent().unwrap()).unwrap();
+    std::fs::create_dir_all(root.join(".vibex-plugin")).unwrap();
+    std::fs::create_dir_all(root.join("dist")).unwrap();
+    std::fs::write(
+        root.join(".vibex-plugin/plugin.json"),
+        r#"{
+          "manifestVersion":4,"apiVersion":"1.0",
+          "id":"vibex.remote-ssh","publisher":"vibex","name":"Remote SSH","version":"1.0.2",
+          "readme":"README.md",
+          "content":{"root":"contents","index":".vibex-plugin/content.index.json"},
+          "config":{"schema":{"type":"object","properties":{},"additionalProperties":false}},
+          "engines":{"vibex":">=0.1.3","pluginSdk":"^1.0.0"},
+          "integrations":[{"id":"remote","kind":"content.skill","resource":"contents/skills/remote"}]
+        }"#,
+    )
+    .unwrap();
+    std::fs::write(
+        root.join(".vibex-plugin/content.index.json"),
+        r#"{"schemaVersion":1,"items":[{"path":"contents/skills/remote/SKILL.md","kind":"skill","title":"Remote"}]}"#,
+    )
+    .unwrap();
+    std::fs::write(
+        root.join("README.md"),
+        "---\nsummary: Connect this machine to a remote Host.\n---\n# Remote SSH\n",
+    )
+    .unwrap();
+    std::fs::write(root.join("config.json"), "{}\n").unwrap();
+    std::fs::write(
+        &skill,
+        "---\nname: remote\ndescription: Connect over SSH.\n---\n# Remote\n",
+    )
+    .unwrap();
+    std::fs::write(root.join("dist/worker.mjs"), "// worker\n").unwrap();
 }
 
 #[tokio::test]
 async fn builtin_memberships_become_uninstallable_marketplace_origins() {
-    let Some(sample) = sample_plugin_root() else {
-        return;
-    };
-    let _data = tempfile::tempdir().unwrap();
-    let roots = vec![sample];
+    let sample_dir = tempfile::tempdir().unwrap();
+    write_official_package(sample_dir.path());
+    let roots = vec![sample_dir.path().to_path_buf()];
     let plane = PluginControlPlane::new(Arc::new(SqlitePluginRegistry::new(registry_pool().await)));
     let package = PluginPackage::inspect(&roots[0], PluginSourceKind::Builtin).unwrap();
     plane
@@ -91,12 +118,9 @@ async fn builtin_memberships_become_uninstallable_marketplace_origins() {
 
 #[tokio::test]
 async fn installed_official_plugin_picks_up_a_newer_package_on_disk() {
-    let Some(sample) = sample_plugin_root() else {
-        return;
-    };
     let data = tempfile::tempdir().unwrap();
     let remote = data.path().join("remote-ssh");
-    copy_dir(&sample, &remote);
+    write_official_package(&remote);
     let plane = PluginControlPlane::new(Arc::new(SqlitePluginRegistry::new(registry_pool().await)));
     let package = PluginPackage::inspect(&remote, PluginSourceKind::Marketplace).unwrap();
     plane
@@ -124,12 +148,9 @@ async fn installed_official_plugin_picks_up_a_newer_package_on_disk() {
 
 #[tokio::test]
 async fn bundled_refresh_does_not_replace_a_developer_link() {
-    let Some(sample) = sample_plugin_root() else {
-        return;
-    };
     let data = tempfile::tempdir().unwrap();
     let remote = data.path().join("remote-ssh");
-    copy_dir(&sample, &remote);
+    write_official_package(&remote);
     let linked_root = tempfile::tempdir().unwrap();
     copy_dir(&remote, linked_root.path());
     let plane = PluginControlPlane::new(Arc::new(SqlitePluginRegistry::new(registry_pool().await)));

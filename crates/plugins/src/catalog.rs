@@ -419,8 +419,7 @@ pub fn merge_offline_official(
     prepare_marketplace_page(page);
 }
 
-/// Listings from the Host-bundled `official.v1.json`. These appear even when a
-/// package was not materialized (empty submodule / incomplete rust-embed).
+/// Listings parsed from an official index payload. Callers supply the bytes.
 pub fn listings_from_official_index(json: &[u8]) -> Vec<CatalogListing> {
     let Ok(index) = serde_json::from_slice::<crate::MarketplaceIndex>(json) else {
         return Vec::new();

@@ -31,47 +31,23 @@ test('desktop browser is browser-host plus the official plugin, not CEF', () => 
   );
 
   assert.equal(exists('crates/browser-host'), true);
-  assert.equal(exists('assets/plugins/browser/.vibex-plugin/plugin.json'), true);
   assert.equal(
     exists('frontend/src/features/host-browser/HostBrowserPanel.tsx'),
     true
   );
 
-  const plugin = JSON.parse(
-    readRepoFile('assets/plugins/browser/.vibex-plugin/plugin.json')
-  );
-  assert.equal(plugin.id, 'vibex.browser');
-  assert.ok(
-    plugin.integrations.some(
-      (item) => item.kind === 'app.panel' && item.engine === 'host-browser'
-    )
-  );
-  assert.ok(
-    plugin.integrations.some((item) => item.kind === 'app.rail.section')
-  );
-  assert.ok(plugin.integrations.some((item) => item.kind === 'content.mcp'));
+  const catalog = JSON.parse(readRepoFile('vibex-plugin.json'));
+  const browser = catalog.official.find((plugin) => plugin.id === 'vibex.browser');
+  assert.ok(browser);
+  assert.match(browser.repository, /vibex-plugin-browser/);
 });
 
 test('plugin MCP uses generic host.call injection, not a browser-specific URL', () => {
-  const spec = JSON.parse(
-    readRepoFile('assets/plugins/browser/contents/mcps/browser.json')
-  );
-  assert.equal(spec.managedRuntime.source, 'runtime/mcp-server.mjs');
-  assert.equal(spec.managedRuntime.entrypoint, 'dist/mcp/mcp-server.mjs');
-  assert.equal(
-    exists('assets/plugins/browser/dist/mcp/mcp-server.mjs'),
-    true
-  );
-  const mcp = readRepoFile('assets/plugins/browser/runtime/mcp-server.mjs');
   const projections = readRepoFile(
     'crates/server/src/host/plugin_projections.rs'
   );
   const hostCall = readRepoFile('crates/plugins/src/host_call.rs');
 
-  assert.match(mcp, /VIBEX_HOST_CALL_URL/);
-  assert.match(mcp, /callHost\('browser'/);
-  assert.match(mcp, /await fetch\(url/);
-  assert.doesNotMatch(mcp, /VIBEX_BROWSER_DISPATCH/);
   assert.match(projections, /attach_host_call_env/);
   assert.match(projections, /hostFamilyBinary/);
   const agent = readRepoFile('crates/browser-host/src/agent.rs');

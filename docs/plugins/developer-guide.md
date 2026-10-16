@@ -185,7 +185,7 @@ STDIO 服务必须回答 MCP `initialize`（协议以 `2026-07-28` 为主，兼�
 
 ### 六个宿主界面槽位各自要什么
 
-`node packages/plugin-cli/dist/cli.js init x --template host-chrome` 会把这六条一次写全，删掉不需要的即可。官方参考实现在 `assets/plugins/host-chrome/`。
+`node packages/plugin-cli/dist/cli.js init x --template host-chrome` 会把这六条一次写全，删掉不需要的即可。
 
 | kind | 必填 | Host 从返回值里读什么 |
 | --- | --- | --- |
@@ -200,9 +200,9 @@ STDIO 服务必须回答 MCP `initialize`（协议以 `2026-07-28` 为主，兼�
 
 状态栏和工具栏是**只可添加**：你能加条目，不能改动或移除 VibeX 自己的指示器。
 
-`provider.model.importSource` 的 handler 返回 `{ providers: [...] }` 或直接一个数组，每项要有 `name` 和 `apiUrl`，`apiKey` 缺失时 Host 会列出但禁止勾选。导入只写预设，不会替用户绑定 Agent；绑定要走 `provider.presets.bind`，那条路径每次都弹确认框。参考实现在 `assets/plugins/provider-import/`。
+`provider.model.importSource` 的 handler 返回 `{ providers: [...] }` 或直接一个数组，每项要有 `name` 和 `apiUrl`，`apiKey` 缺失时 Host 会列出但禁止勾选。导入只写预设，不会替用户绑定 Agent；绑定要走 `provider.presets.bind`，那条路径每次都弹确认框。
 
-`provider.model.catalog` 是另一条缝：静态 JSON 模板出现在新建供应商表单顶部，点选只填表，用户仍要自己填密钥并保存。不要把无密钥模板塞进导入菜单。官方消费者是 `assets/plugins/provider-switch/`。Host 用 `provider_catalog_list` 聚合已启用插件的目录，不要和 `agent_model_provider_catalog`（探测 `/models`）或 `opencode_provider_catalog`（models.dev）搞混。
+`provider.model.catalog` 是另一条缝：静态 JSON 模板出现在新建供应商表单顶部，点选只填表，用户仍要自己填密钥并保存。不要把无密钥模板塞进导入菜单。官方插件是 `vibex.provider-switch`，源码仓库登记在 `vibex-plugin.json`。Host 用 `provider_catalog_list` 聚合已启用插件的目录，不要和 `agent_model_provider_catalog`（探测 `/models`）或 `opencode_provider_catalog`（models.dev）搞混。
 
 ## CLI
 

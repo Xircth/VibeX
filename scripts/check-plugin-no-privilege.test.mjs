@@ -193,11 +193,13 @@ test("runChecks：测试文件与 tests 目录中的 ID 引用不计违规", () 
   }
 });
 
-test("collectOfficialPlugins 缺子模块时 runChecks 报环境错误", () => {
+test("collectOfficialPlugins 没有本地包时 runChecks 仍通过", () => {
   const root = mkdtempSync(join(tmpdir(), "no-privilege-empty-"));
   try {
     assert.deepEqual(collectOfficialPlugins(root), []);
-    assert.throws(() => runChecks(root), /未发现任何官方插件包/);
+    const { plugins, violations } = runChecks(root);
+    assert.deepEqual(plugins, []);
+    assert.deepEqual(violations, []);
   } finally {
     rmSync(root, { recursive: true, force: true });
   }

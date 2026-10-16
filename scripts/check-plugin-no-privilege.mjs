@@ -268,20 +268,27 @@ export function checkHostIdBranches(rootDir, ids) {
   return violations;
 }
 
+export function officialIdsFromCatalog(rootDir) {
+  const catalogPath = join(rootDir, "vibex-plugin.json");
+  if (!existsSync(catalogPath)) return [];
+  const catalog = JSON.parse(readFileSync(catalogPath, "utf8"));
+  const official = Array.isArray(catalog.official) ? catalog.official : [];
+  return official
+    .map((plugin) => plugin?.id)
+    .filter((id) => typeof id === "string" && id.length > 0);
+}
+
 export function runChecks(rootDir) {
   const plugins = collectOfficialPlugins(rootDir);
-  if (plugins.length === 0) {
-    throw new Error(
-      "未发现任何官方插件包（assets/plugins/*/.vibex-plugin/plugin.json）。" +
-        "请先初始化子模块：git submodule update --init"
-    );
-  }
+  const ids = [
+    ...new Set([
+      ...plugins.map((plugin) => plugin.id),
+      ...officialIdsFromCatalog(rootDir),
+    ]),
+  ];
   const violations = [
     ...plugins.flatMap((plugin) => checkOfficialPluginImports(plugin)),
-    ...checkHostIdBranches(
-      rootDir,
-      plugins.map((plugin) => plugin.id)
-    ),
+    ...checkHostIdBranches(rootDir, ids),
   ];
   return { plugins, violations };
 }
@@ -307,6 +314,13 @@ function main() {
         "宿主代码不得按官方插件 ID 特判。"
     );
     process.exit(1);
+  }
+  if (plugins.length === 0) {
+    console.log(
+      "plugin:no-privilege 通过：仓库内没有官方插件包；" +
+        "宿主代码无 vibex-plugin.json 中的官方插件 ID 条件分支。"
+    );
+    return;
   }
   console.log(
     `plugin:no-privilege 通过：${plugins.length} 个官方插件包只使用公开 SDK；` +

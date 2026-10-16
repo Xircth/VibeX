@@ -208,7 +208,7 @@ Workspace-less conversation（ADR-0006）是已接受目标：`sessions.workspac
 - 执行：Full Trust（ADR-0048）。独立 Worker/App frame 提供崩溃与热更新隔离，不是安全沙箱。
 - 贡献：Agent（Skill/MCP/Hook/Workflow）、App（opener/preview/设置/命令/surface）、Host（Worker/事件）、Runtime。
 - 官方产品 MCP（启用插件后才注入后续 Agent session）：`vibex-session-mcp`、`vibex-delegation-mcp`、`vibex-workflow-mcp`、`vibex-plugin-dev-mcp`（`crates/plugins/src/official_mcp.rs`）。
-- 官方目录在仓库根 `vibex-plugin.json`（插件 ID 与仓库地址）。安装包不内嵌插件包；从 https://vibex.xforever.xin/marketplace/ 或用户 `.vxp` 安装。`assets/plugins/` 是开发用 git 子模块。`host-chrome`、`host-surface`、`provider-import` 是作者参考包，不进市场。
+- 官方目录在仓库根 `vibex-plugin.json`（插件 ID 与仓库地址）。安装包不内嵌插件包。Host 从 https://vibex.xforever.xin/marketplace/ 安装，市场没有制品时从该文件里的仓库地址拉取，用户也可以导入 `.vxp`。
 - 「一切皆插件」（ADR-0069）：L0 基座不插件化（会话核、ACP、git、DB、插件内核）；L1 Provider 缝与 L2 UI slot 按接管面总表推进。官方能力插件与第三方走同一控制面，无特权。
 
 [`docs/plugins/platform-architecture.md`](./plugins/platform-architecture.md) 仍有设计期问题陈述（`OfficeRuntime`、v2/v3 双表）。以 `crates/plugins` + ADR-0046/0047/0048/0069 为准。
@@ -263,7 +263,7 @@ PTY 不能放进 object-safe trait（向上依赖），所以桌面 `AppState.pt
 | `crates/` | Host 领域与基础设施 |
 | `shared/` | 生成的 TS 类型与 Host 命令表 |
 | `packages/` | `@vibex/plugin-sdk`、`plugin-cli`、plugin-contract |
-| `assets/plugins/` | 官方插件快照（随 Host 家族打包） |
+| `vibex-plugin.json` | 官方插件身份与源码仓库。安装走市场或该仓库地址 |
 | `mobile/android/` | Companion 配对核心 + Compose 壳 |
 | `docs/adr/` | 已接受架构决定 |
 | `docs/protocol/v1/` | Remote Protocol schema |

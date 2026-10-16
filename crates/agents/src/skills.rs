@@ -2274,14 +2274,13 @@ mod tests {
 
     #[test]
     fn bundled_plugin_development_skill_projects_into_agent_dirs() {
-        let skill = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join(
-            "../../assets/plugins/plugin-development/contents/skills/vibex-plugin-development/SKILL.md",
-        );
-        assert!(
-            skill.is_file(),
-            "plugin-development Skill is missing: {}",
-            skill.display()
-        );
+        let source = tempfile::tempdir().unwrap();
+        let skill = source.path().join("SKILL.md");
+        std::fs::write(
+            &skill,
+            "---\nname: vibex-plugin-development\ndescription: Develop a plugin.\n---\n# Develop\n",
+        )
+        .unwrap();
         let temp = tempfile::tempdir().unwrap();
         let layout = SkillHostingLayout {
             store: temp.path().join("store"),

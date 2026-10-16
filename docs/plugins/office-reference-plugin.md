@@ -1,14 +1,14 @@
 # VibeX Office reference plugin
 
-VibeX Office 是公共 Plugin v4 契约的首个 reference package。源码是 git 子仓库
-`assets/plugins/office`（`https://github.com/Xircth/vibex-plugin-office`）。它必须仅使用公开 SDK、
+VibeX Office 是公共 Plugin v4 契约的 reference package。源码仓库登记在仓库根目录
+`vibex-plugin.json`（`https://github.com/Xircth/vibex-plugin-office`）。它不在本仓库里，也不进安装包。它必须仅使用公开 SDK、
 integration、Capability Broker 和 Runtime dependency；VibeX 核心不得认识 Office 插件 ID、
 OfficeCLI 名称或 DOCX/XLSX/PPTX 扩展名。
 
 ## 产品结构
 
 ```text
-assets/plugins/office/
+./
 ├─ .vibex-plugin/
 │  ├─ plugin.json
 │  ├─ content.index.json

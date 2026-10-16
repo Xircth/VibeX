@@ -103,7 +103,7 @@ export function SessionComposerTopbar({
           <button
             type="button"
             onClick={onJumpToPreviousUserMessage}
-            className="composer-icon-control flex items-center justify-center rounded-md px-1.5 py-0.5 transition-colors disabled:cursor-not-allowed disabled:opacity-50"
+            className="composer-control flex items-center justify-center rounded-md px-1.5 py-0.5 transition-colors disabled:cursor-not-allowed disabled:opacity-50"
             aria-label={JUMP_TO_PREVIOUS_LABEL}
             disabled={!onJumpToPreviousUserMessage}
           >

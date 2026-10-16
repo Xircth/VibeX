@@ -644,6 +644,7 @@
 
   .legacy-design .session-composer-editor [data-astryx-token] {
     align-items: center;
+    gap: 0.25rem;
     vertical-align: -0.14em;
   }
 
@@ -652,6 +653,7 @@
   .legacy-design .conv-user-markdown .session-composer-token-chip {
     display: inline-flex;
     align-items: center;
+    gap: 0.25rem;
     height: 18px;
     box-sizing: border-box;
     border-radius: 999px;
@@ -662,9 +664,27 @@
     vertical-align: -0.14em;
   }
 
+  .legacy-design .session-composer-editor [data-astryx-restored-token] svg,
+  .legacy-design .session-composer-editor [data-astryx-restored-token] img,
+  .legacy-design .conv-user-markdown .session-composer-token-chip svg,
+  .legacy-design .conv-user-markdown .session-composer-token-chip img {
+    width: 12px;
+    height: 12px;
+    flex-shrink: 0;
+  }
+
   .legacy-design
     .session-composer-editor
-    [data-astryx-restored-token][data-token-kind='slash'] {
+    [data-astryx-restored-token]:is(
+      [data-token-kind='slash'],
+      [data-token-kind='file'],
+      [data-token-kind='tag'],
+      [data-token-kind='conversation'],
+      [data-token-kind='commit'],
+      [data-token-kind='project'],
+      [data-token-kind='element'],
+      [data-token-kind='quote']
+    ) {
     background: var(--color-background-blue);
     color: var(--color-text-blue);
   }
@@ -674,20 +694,6 @@
     [data-astryx-restored-token][data-token-kind='dollar'] {
     background: var(--color-background-green);
     color: var(--color-text-green);
-  }
-
-  .legacy-design
-    .session-composer-editor
-    [data-astryx-restored-token]:is(
-      [data-token-kind='file'],
-      [data-token-kind='tag'],
-      [data-token-kind='conversation'],
-      [data-token-kind='commit'],
-      [data-token-kind='element'],
-      [data-token-kind='quote']
-    ) {
-    background: var(--color-background-cyan);
-    color: var(--color-text-cyan);
   }
 
   .legacy-design
@@ -6258,6 +6264,17 @@ html.dark {
     color: var(--text-strong);
     border-color: var(--border-strong);
     background: var(--surface-control-hover);
+  }
+
+  .composer-icon-control {
+    color: var(--text-muted);
+    background: transparent;
+    border: 0;
+  }
+
+  .composer-icon-control:hover:not(:disabled) {
+    color: var(--text-strong);
+    background: transparent;
   }
 
   .composer-config-panel {

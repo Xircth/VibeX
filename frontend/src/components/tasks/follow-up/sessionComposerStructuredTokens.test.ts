@@ -362,7 +362,7 @@ describe('session composer structured commands', () => {
     expect(tokens).toEqual([
       expect.objectContaining({
         kind: 'agent_mention',
-        label: '&Codex',
+        label: 'Codex',
         value: 'codex',
         raw: '[&Codex](vibex://agent/codex)',
       }),

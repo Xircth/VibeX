@@ -976,6 +976,11 @@ describe('SessionComposerInput (Astryx)', () => {
     expect(token).not.toBeNull();
     expect(token?.textContent?.startsWith('@')).toBe(true);
     expect(token?.textContent?.match(/@/g)).toHaveLength(1);
+    expect(editor.querySelector('.astryx-badge')).toHaveAttribute(
+      'data-variant',
+      'blue'
+    );
+    expect(token?.querySelector('svg')).not.toBeNull();
   });
 
   it('restores serialized structured tokens as token chips', async () => {
@@ -991,6 +996,8 @@ describe('SessionComposerInput (Astryx)', () => {
         '[@:App.tsx](src/App.tsx)'
       );
       expect(token).toHaveTextContent('@App.tsx');
+      expect(token).toHaveAttribute('data-variant', 'blue');
+      expect(token?.querySelector('svg')).not.toBeNull();
     });
   });
 

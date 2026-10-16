@@ -26,7 +26,7 @@ export function DiffStatsBar({
   return (
     <Tooltip>
       <TooltipTrigger asChild>
-        <div className="flex items-center justify-center rounded-md border border-border/60 bg-muted/40 px-1.5 py-0.5">
+        <div className="flex items-center justify-center">
           <AgentIcon agent={executorProfile.executor} className="h-3.5 w-3.5" />
         </div>
       </TooltipTrigger>

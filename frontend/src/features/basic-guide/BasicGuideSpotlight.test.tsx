@@ -266,4 +266,118 @@ describe('BasicGuideSpotlight', () => {
         ?.getAttribute('d')
     ).toMatch(/^M /);
   });
+
+  it('rings send without a connector from the nested send button', () => {
+    mountGuideTarget('session-composer', {
+      left: 640,
+      top: 420,
+      width: 420,
+      height: 160,
+    });
+    mountGuideTarget('session-send', {
+      left: 1008,
+      top: 540,
+      width: 32,
+      height: 32,
+    });
+
+    render(
+      <BasicGuideSpotlight
+        targets={[
+          { id: 'session-composer', copyKey: 'send-hello' },
+          { id: 'session-send', shape: 'circle' },
+        ]}
+        resolveCopy={() => '在输入框中编辑「你好」，然后发送。'}
+        panelSelector="[data-basic-guide-panel]"
+      />
+    );
+
+    expect(document.querySelectorAll('.basic-guide-spotlight')).toHaveLength(2);
+    expect(
+      document.querySelector('[data-basic-guide-spotlight="session-send"]')
+    ).toHaveAttribute('data-shape', 'circle');
+    expect(
+      document.querySelectorAll('[data-basic-guide-callout]')
+    ).toHaveLength(1);
+    expect(
+      document.querySelectorAll('[data-basic-guide-connectors] path')
+    ).toHaveLength(1);
+  });
+
+  it('puts Continue under the matching idle callout', () => {
+    mountGuideTarget('kanban-execution', {
+      left: 820,
+      top: 48,
+      width: 400,
+      height: 680,
+    });
+    const onContinue = vi.fn();
+
+    render(
+      <BasicGuideSpotlight
+        targets={[{ id: 'kanban-execution', copyKey: 'kanban-execution' }]}
+        resolveCopy={() => '这是会话执行区，正在进行的对话在这里展开。'}
+        panelSelector="[data-basic-guide-panel]"
+        continueCopyKey="kanban-execution"
+        continueLabel="继续"
+        onContinue={onContinue}
+      />
+    );
+
+    const button = screen.getByRole('button', { name: '继续' });
+    expect(button).toHaveClass('basic-guide-callout__continue');
+    button.click();
+    expect(onContinue).toHaveBeenCalledTimes(1);
+  });
+
+  it('hides Continue while a callout is flying', () => {
+    mountGuideTarget('kanban-execution', {
+      left: 820,
+      top: 48,
+      width: 400,
+      height: 680,
+    });
+    const { rerender } = render(
+      <BasicGuideSpotlight
+        targets={[{ id: 'kanban-execution', copyKey: 'kanban-execution' }]}
+        resolveCopy={(key) =>
+          key === 'kanban-execution'
+            ? '这是会话执行区，正在进行的对话在这里展开。'
+            : '这是会话监控区，用来同时观察多个会话的进展。'
+        }
+        panelSelector="[data-basic-guide-panel]"
+        continueCopyKey="kanban-execution"
+        continueLabel="继续"
+        onContinue={vi.fn()}
+      />
+    );
+    expect(screen.getByRole('button', { name: '继续' })).toBeInTheDocument();
+
+    document.querySelector('[data-basic-guide="kanban-execution"]')?.remove();
+    mountGuideTarget('kanban-monitor', {
+      left: 280,
+      top: 80,
+      width: 500,
+      height: 560,
+    });
+    rerender(
+      <BasicGuideSpotlight
+        targets={[{ id: 'kanban-monitor', copyKey: 'kanban-monitor' }]}
+        resolveCopy={(key) =>
+          key === 'kanban-execution'
+            ? '这是会话执行区，正在进行的对话在这里展开。'
+            : '这是会话监控区，用来同时观察多个会话的进展。'
+        }
+        panelSelector="[data-basic-guide-panel]"
+        continueCopyKey="kanban-monitor"
+        continueLabel="继续"
+        onContinue={vi.fn()}
+      />
+    );
+
+    expect(screen.queryByRole('button', { name: '继续' })).toBeNull();
+    expect(document.querySelector('[data-basic-guide-callout]')).toHaveClass(
+      'is-moving'
+    );
+  });
 });

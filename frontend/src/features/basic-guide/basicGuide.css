@@ -169,7 +169,7 @@
 
 .basic-guide-panel {
   position: fixed;
-  left: 16px;
+  left: 60px;
   z-index: 80;
   width: max-content;
   max-width: 260px;
@@ -178,11 +178,7 @@
 
 .basic-guide-panel--bottom {
   top: auto;
-  bottom: 64px;
-}
-
-.basic-guide-panel--workspace {
-  left: 52px;
+  bottom: 60px;
 }
 
 .basic-guide-panel:has(.basic-guide-end) {
@@ -277,6 +273,33 @@
 .basic-guide-callout__copy strong {
   font-weight: 600;
   color: #111;
+}
+
+.basic-guide-callout__continue {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  margin-top: 8px;
+  height: 28px;
+  padding: 0 12px;
+  border: 0;
+  border-radius: 8px;
+  background: #111;
+  color: #fff;
+  font-size: 0.75rem;
+  font-weight: 600;
+  line-height: 1;
+  cursor: pointer;
+  pointer-events: auto;
+}
+
+.basic-guide-callout__continue:hover {
+  background: rgb(17 17 17 / 0.88);
+}
+
+.basic-guide-callout__continue:focus-visible {
+  outline: 2px solid #111;
+  outline-offset: 2px;
 }
 
 .basic-guide-action {

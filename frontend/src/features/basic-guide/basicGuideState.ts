@@ -213,6 +213,16 @@ export const SUBSTEP_META: Record<BasicGuideSubstep, SubstepMeta> = {
     targets: ['session-composer', 'session-send'],
     advance: 'auto',
     continueVisible: false,
+    spotlights: [
+      {
+        id: 'session-composer',
+        copyKey: 'send-hello',
+      },
+      {
+        id: 'session-send',
+        shape: 'circle',
+      },
+    ],
   },
   'rail-session-list': {
     mainStep: 3,
@@ -262,9 +272,19 @@ export const SUBSTEP_META: Record<BasicGuideSubstep, SubstepMeta> = {
   },
   'kanban-execution': {
     mainStep: 3,
-    targets: ['kanban-execution'],
+    targets: ['kanban-execution', 'kanban-monitor'],
     advance: 'continue',
     continueVisible: true,
+    spotlights: [
+      {
+        id: 'kanban-execution',
+        copyKey: 'kanban-execution',
+      },
+      {
+        id: 'kanban-monitor',
+        copyKey: 'kanban-monitor',
+      },
+    ],
   },
   'kanban-monitor': {
     mainStep: 3,

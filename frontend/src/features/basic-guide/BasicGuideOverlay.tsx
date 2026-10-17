@@ -21,7 +21,6 @@ import { cn } from '@/lib/utils';
 import {
   SUBSTEP_META,
   isGuideVisible,
-  isProjectRoute,
   isSettingsRoute,
   mainStepIndex,
   substepSpotlights,
@@ -49,16 +48,19 @@ export function BasicGuideOverlay() {
           targets={spotlightTargets}
           resolveCopy={(key) => t(`copy.${key}`)}
           panelSelector="[data-basic-guide-panel]"
+          continueCopyKey={
+            meta.continueVisible && meta.targets.length > 0
+              ? state.substep
+              : undefined
+          }
+          continueLabel={t('continue')}
+          onContinue={ctx.continueStep}
         />
       ) : null}
 
       {showStepPanel ? (
         <aside
-          className={cn(
-            'basic-guide-panel',
-            'basic-guide-panel--bottom',
-            isProjectRoute(location.pathname) && 'basic-guide-panel--workspace'
-          )}
+          className={cn('basic-guide-panel', 'basic-guide-panel--bottom')}
           data-basic-guide-panel
           aria-label={t('panelAria')}
         >
@@ -99,7 +101,7 @@ export function BasicGuideOverlay() {
                       {t('finish')}
                     </Button>
                   ) : null}
-                  {meta.continueVisible ? (
+                  {meta.continueVisible && meta.targets.length === 0 ? (
                     <Button
                       type="button"
                       size="sm"

@@ -184,7 +184,12 @@ export function mergeOverlapping(boxes: MeasuredTarget[]): MergedSpotlight[] {
   return items;
 }
 
-export function estimateCalloutSize(text: string): {
+export const CALLOUT_ACTION_HEIGHT = 36;
+
+export function estimateCalloutSize(
+  text: string,
+  options?: { hasAction?: boolean }
+): {
   width: number;
   height: number;
 } {
@@ -197,12 +202,13 @@ export function estimateCalloutSize(text: string): {
   const charsPerLine = Math.max(8, Math.floor(maxInner / font));
   const lines = Math.max(1, Math.ceil(plain.length / charsPerLine));
   const contentW = Math.min(maxInner, plain.length * font);
+  const action = options?.hasAction ? CALLOUT_ACTION_HEIGHT : 0;
   return {
     width: Math.min(
       CALLOUT_MAX_WIDTH,
       Math.max(CALLOUT_MIN_WIDTH, contentW + padX)
     ),
-    height: padY + lines * lineHeight,
+    height: padY + lines * lineHeight + action,
   };
 }
 
@@ -289,7 +295,7 @@ export function layoutCallouts({
   viewport,
 }: {
   boxes: MergedSpotlight[];
-  callouts: { key: string; text: string }[];
+  callouts: { key: string; text: string; hasAction?: boolean }[];
   panel: Rect | null;
   viewport: { width: number; height: number };
 }): { callouts: PlacedCallout[]; connectors: Connector[] } {
@@ -301,7 +307,9 @@ export function layoutCallouts({
     boxes.filter((box) => box.copyKeys.includes(key));
 
   callouts.forEach((item, index) => {
-    const size = estimateCalloutSize(item.text);
+    const size = estimateCalloutSize(item.text, {
+      hasAction: item.hasAction,
+    });
     const sources = sourcesFor(item.key);
     const anchor = sources[0] ??
       panel ?? {

@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 
 import {
   calloutKeysFor,
+  estimateCalloutSize,
   pairCalloutMoves,
   isCircleLike,
   layoutCallouts,
@@ -197,6 +198,51 @@ describe('spotlightGeometry', () => {
     expect(plan.callouts).toHaveLength(1);
     expect(plan.connectors).toHaveLength(1);
     expect(plan.connectors[0]?.copyKey).toBe('kanban-create-session');
+  });
+
+  it('reserves extra height when a callout has a continue action', () => {
+    const plain = estimateCalloutSize('这是会话执行区');
+    const withAction = estimateCalloutSize('这是会话执行区', {
+      hasAction: true,
+    });
+    expect(withAction.height).toBe(plain.height + 36);
+    expect(withAction.width).toBe(plain.width);
+  });
+
+  it('does not connect a nested send button to the composer explanation', () => {
+    const merged = mergeOverlapping([
+      box('session-composer', 'send-hello', {
+        left: 640,
+        top: 420,
+        width: 420,
+        height: 160,
+      }),
+      box(
+        'session-send',
+        '',
+        {
+          left: 1008,
+          top: 540,
+          width: 32,
+          height: 32,
+        },
+        { shape: 'circle' }
+      ),
+    ]);
+    expect(merged).toHaveLength(2);
+    const plan = layoutCallouts({
+      boxes: merged,
+      callouts: [
+        {
+          key: 'send-hello',
+          text: '在输入框中编辑「你好」，然后发送。',
+        },
+      ],
+      panel: { left: 60, top: 400, width: 220, height: 180 },
+      viewport: { width: 1280, height: 800 },
+    });
+    expect(plan.connectors).toHaveLength(1);
+    expect(plan.connectors[0]?.copyKey).toBe('send-hello');
   });
 
   it('places callouts without overlapping each other or the boxes', () => {

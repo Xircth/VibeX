@@ -148,10 +148,16 @@ export function BasicGuideSpotlight({
   targets,
   resolveCopy,
   panelSelector,
+  continueCopyKey,
+  continueLabel,
+  onContinue,
 }: {
   targets: readonly SpotlightTarget[];
   resolveCopy: (key: string) => string;
   panelSelector: string;
+  continueCopyKey?: string;
+  continueLabel?: string;
+  onContinue?: () => void;
 }) {
   const [boxes, setBoxes] = useState<MergedSpotlight[]>([]);
   const [panel, setPanel] = useState<Rect | null>(null);
@@ -215,11 +221,14 @@ export function BasicGuideSpotlight({
     () =>
       layoutCallouts({
         boxes,
-        callouts: copyItems,
+        callouts: copyItems.map((item) => ({
+          ...item,
+          hasAction: Boolean(continueCopyKey && item.key === continueCopyKey),
+        })),
         panel,
         viewport,
       }),
-    [boxes, copyItems, panel, viewport]
+    [boxes, copyItems, continueCopyKey, panel, viewport]
   );
 
   useEffect(() => {
@@ -319,6 +328,19 @@ export function BasicGuideSpotlight({
             className="basic-guide-callout__copy"
             text={callout.text}
           />
+          {callout.kind === 'idle' &&
+          continueCopyKey &&
+          callout.key === continueCopyKey &&
+          onContinue &&
+          continueLabel ? (
+            <button
+              type="button"
+              className="basic-guide-callout__continue"
+              onClick={onContinue}
+            >
+              {continueLabel}
+            </button>
+          ) : null}
         </div>
       ))}
       {!hideConnectors && plan.connectors.length > 0 ? (

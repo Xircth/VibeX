@@ -185,6 +185,14 @@ describe('basicGuideState', () => {
       { id: 'kanban-session-list', copyKey: 'kanban-create-session' },
       { id: 'kanban-session-list-new', shape: 'circle' },
     ]);
+    expect(substepSpotlights('send-hello')).toEqual([
+      { id: 'session-composer', copyKey: 'send-hello' },
+      { id: 'session-send', shape: 'circle' },
+    ]);
+    expect(substepSpotlights('kanban-execution')).toEqual([
+      { id: 'kanban-execution', copyKey: 'kanban-execution' },
+      { id: 'kanban-monitor', copyKey: 'kanban-monitor' },
+    ]);
     expect(substepSpotlights('configure-session-agent')[0]?.id).toBe(
       'session-agent-selector'
     );

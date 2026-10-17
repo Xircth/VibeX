@@ -27,8 +27,7 @@ export interface PastedImageWriteResult {
   markdown_path: string;
 }
 
-export type InsertPastedImagesAsMarkdownOptions = {
-  editor: MarkdownPasteEditor;
+export type WritePastedMarkdownImagesOptions = {
   files: File[];
   /** Absolute directory of the markdown file (the future `assets/` sibling). */
   assetDir: string;
@@ -42,6 +41,11 @@ export type InsertPastedImagesAsMarkdownOptions = {
   ) => Promise<PastedImageWriteResult>;
 };
 
+export type InsertPastedImagesAsMarkdownOptions =
+  WritePastedMarkdownImagesOptions & {
+    editor: MarkdownPasteEditor;
+  };
+
 /** Image MIME types that can be persisted next to a markdown file. */
 const PASTEABLE_IMAGE_TYPES = new Set([
   'image/png',
@@ -54,6 +58,31 @@ const PASTEABLE_IMAGE_TYPES = new Set([
 function markdownAlt(file: File): string {
   const stem = file.name.replace(/\.[^/.]+$/, '');
   return (stem || 'image').replace(/["\\\]]/g, '');
+}
+
+/**
+ * Save pasted images into `<assetDir>/assets/` and return markdown image
+ * references. One image becomes `![alt](assets/<name>)`.
+ */
+export async function writePastedMarkdownImages({
+  files,
+  assetDir,
+  readBase64,
+  writeAsset,
+}: WritePastedMarkdownImagesOptions): Promise<string[]> {
+  const insertions: string[] = [];
+
+  for (const file of files) {
+    if (!PASTEABLE_IMAGE_TYPES.has(file.type)) {
+      continue;
+    }
+    const extension = imageExtensionForMime(file.type);
+    const base64 = await readBase64(file);
+    const result = await writeAsset(assetDir, base64, extension);
+    insertions.push(`![${markdownAlt(file)}](assets/${result.file_name})`);
+  }
+
+  return insertions;
 }
 
 /**
@@ -72,17 +101,12 @@ export async function insertPastedImagesAsMarkdown({
   readBase64,
   writeAsset,
 }: InsertPastedImagesAsMarkdownOptions): Promise<number> {
-  const insertions: string[] = [];
-
-  for (const file of files) {
-    if (!PASTEABLE_IMAGE_TYPES.has(file.type)) {
-      continue;
-    }
-    const extension = imageExtensionForMime(file.type);
-    const base64 = await readBase64(file);
-    const result = await writeAsset(assetDir, base64, extension);
-    insertions.push(`![${markdownAlt(file)}](assets/${result.file_name})`);
-  }
+  const insertions = await writePastedMarkdownImages({
+    files,
+    assetDir,
+    readBase64,
+    writeAsset,
+  });
 
   if (insertions.length === 0) {
     return 0;

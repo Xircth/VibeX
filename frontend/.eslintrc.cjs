@@ -155,7 +155,11 @@ module.exports = {
     },
     {
       // Disable type-aware linting for config files
-      files: ['*.config.{ts,js,cjs,mjs}', '.eslintrc.cjs'],
+      files: [
+        '*.config.{ts,js,cjs,mjs}',
+        'vite.astryx-richtext-core-alias.ts',
+        '.eslintrc.cjs',
+      ],
       parserOptions: {
         project: null,
       },

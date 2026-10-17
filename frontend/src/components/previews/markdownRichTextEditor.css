@@ -1,0 +1,36 @@
+.markdown-rich-text-editor {
+  display: flex;
+  height: 100%;
+  min-height: 0;
+  flex-direction: column;
+  overflow: hidden;
+  background: var(--surface-card-strong);
+}
+
+.markdown-rich-text-editor > *,
+.markdown-rich-text-editor [data-pressable-container] {
+  display: flex;
+  min-height: 0;
+  flex: 1 1 auto;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.markdown-rich-text-editor [data-pressable-container] {
+  border: none;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+.markdown-rich-text-editor
+  [data-pressable-container]
+  > :first-child:not(:last-child) {
+  flex: 0 0 auto;
+}
+
+.markdown-rich-text-editor [data-pressable-container] > :last-child {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: auto;
+}

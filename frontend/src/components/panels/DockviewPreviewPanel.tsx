@@ -57,7 +57,10 @@ import { fileTreeApi } from '@/lib/api';
 import { fileToBase64 } from '@/lib/api/misc';
 import { fileTreeKeys } from '@/hooks/useFileTree';
 import { extractImageFilesFromClipboardData } from '@/utils/clipboard';
-import { insertPastedImagesAsMarkdown } from '@/utils/markdownImagePaste';
+import {
+  insertPastedImagesAsMarkdown,
+  writePastedMarkdownImages,
+} from '@/utils/markdownImagePaste';
 import { FilePreviewLoading } from './FilePreviewLoading';
 import { HostHtmlPreview } from '@/components/previews/HostHtmlPreview';
 import { resolveImagePreviewSource } from '@/lib/imagePreviewRegistry';
@@ -69,12 +72,24 @@ import {
 } from '@/lib/api/plugins';
 import { preloadMonacoEditor } from '@/lib/monacoPreload';
 
-const LazyMarkdown = lazy(
-  () => import('@/components/NormalizedConversation/AstryxMarkdown')
+const LazyMarkdownRichTextEditor = lazy(
+  () => import('@/components/previews/MarkdownRichTextEditor')
 );
 const LazyFileContentView = lazy(
   () => import('@/components/NormalizedConversation/FileContentView')
 );
+
+function previewMarkdownScroller(root: HTMLElement | null): HTMLElement | null {
+  if (!root) {
+    return null;
+  }
+  const frame = root.querySelector<HTMLElement>('[data-pressable-container]');
+  const body = frame?.lastElementChild;
+  if (body instanceof HTMLElement) {
+    return body;
+  }
+  return root.querySelector<HTMLElement>('[contenteditable="true"]') ?? root;
+}
 
 function getLanguageFromPath(filePath: string): string {
   const ext = filePath.split('.').pop()?.toLowerCase() ?? '';
@@ -297,6 +312,8 @@ function DockviewPreviewPanel(props: IDockviewPanelProps) {
     (draft.path === resolvedFilePath || draft.path === params.renamedFrom)
       ? draft.content
       : (content ?? '');
+  const editorContentRef = useRef(editorContent);
+  editorContentRef.current = editorContent;
   const isDirty = editorContent !== (content ?? '');
   const resolvedDisplayPath = useMemo(() => {
     if (!filePath) {
@@ -343,6 +360,50 @@ function DockviewPreviewPanel(props: IDockviewPanelProps) {
       : rootPath
     : null;
   markdownBasePathRef.current = markdownBasePath;
+  const persistEditorContent = useCallback(
+    (currentValue = editorContentRef.current) => {
+      if (!resolvedFilePath) return;
+      saveFile.mutate(
+        { path: resolvedFilePath, content: currentValue },
+        {
+          onSuccess: () => {
+            setDraft((current) =>
+              current?.path === resolvedFilePath &&
+              current.content === currentValue
+                ? null
+                : current
+            );
+          },
+        }
+      );
+    },
+    [resolvedFilePath, saveFile]
+  );
+  const pasteMarkdownImages = useCallback(
+    async (files: File[]) => {
+      const assetDir = markdownBasePathRef.current;
+      if (!assetDir) {
+        return [];
+      }
+      try {
+        const insertions = await writePastedMarkdownImages({
+          files,
+          assetDir,
+          readBase64: fileToBase64,
+          writeAsset: fileTreeApi.writePastedImageAsset,
+        });
+        if (insertions.length > 0) {
+          queryClient.invalidateQueries({ queryKey: fileTreeKeys.all });
+        }
+        return insertions;
+      } catch (error) {
+        console.error('Failed to paste image into markdown', error);
+        toast.error(t('preview.pasteImageError'));
+        return [];
+      }
+    },
+    [queryClient, t]
+  );
   const isDiffMode = mode === 'diff';
   const contentErrorMessage = useMemo(() => {
     if (!contentError) {
@@ -476,21 +537,7 @@ function DockviewPreviewPanel(props: IDockviewPanelProps) {
       editorRef.current = editor;
 
       editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyS, () => {
-        if (!resolvedFilePath) return;
-        const currentValue = editor.getValue();
-        saveFile.mutate(
-          { path: resolvedFilePath, content: currentValue },
-          {
-            onSuccess: () => {
-              setDraft((current) =>
-                current?.path === resolvedFilePath &&
-                current.content === currentValue
-                  ? null
-                  : current
-              );
-            },
-          }
-        );
+        persistEditorContent(editor.getValue());
       });
 
       if (isMd) {
@@ -549,9 +596,9 @@ function DockviewPreviewPanel(props: IDockviewPanelProps) {
       disposeEditorModel,
       isMd,
       location,
+      persistEditorContent,
       queryClient,
       resolvedFilePath,
-      saveFile,
       t,
     ]
   );
@@ -809,7 +856,9 @@ function DockviewPreviewPanel(props: IDockviewPanelProps) {
                   editor.revealLine(line);
                   return;
                 }
-                const scroller = markdownScrollRef.current;
+                const scroller = previewMarkdownScroller(
+                  markdownScrollRef.current
+                );
                 if (scroller) scroller.scrollTop = scroller.scrollHeight;
               },
             },
@@ -818,7 +867,9 @@ function DockviewPreviewPanel(props: IDockviewPanelProps) {
               label: t('common:contextMenu.jumpToTop'),
               onSelect: () => {
                 editorRef.current?.revealLine(1);
-                const scroller = markdownScrollRef.current;
+                const scroller = previewMarkdownScroller(
+                  markdownScrollRef.current
+                );
                 if (scroller) scroller.scrollTop = 0;
               },
             },
@@ -981,13 +1032,22 @@ function DockviewPreviewPanel(props: IDockviewPanelProps) {
               />
             }
           >
-            <div
-              ref={markdownScrollRef}
-              className="h-full overflow-auto px-6 py-4"
-            >
-              <LazyMarkdown
-                value={editorContent}
+            <div ref={markdownScrollRef} className="h-full min-h-0">
+              <LazyMarkdownRichTextEditor
+                key={`${resolvedFilePath}:${content ?? ''}`}
+                markdown={editorContent}
+                label={resolvedDisplayPath ?? filePath}
                 workspacePath={markdownBasePath}
+                onMarkdownChange={(value) => {
+                  if (!resolvedFilePath) return;
+                  setDraft(
+                    value === content
+                      ? null
+                      : { path: resolvedFilePath, content: value }
+                  );
+                }}
+                onSave={() => persistEditorContent()}
+                pasteImages={pasteMarkdownImages}
               />
             </div>
           </Suspense>

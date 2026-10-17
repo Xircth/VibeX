@@ -1,7 +1,9 @@
 import { defineConfig } from 'vitest/config';
 import path from 'path';
+import { astryxRichtextCoreAlias } from './vite.astryx-richtext-core-alias';
 
 export default defineConfig({
+  plugins: [astryxRichtextCoreAlias()],
   resolve: {
     alias: {
       '@': path.resolve(__dirname, './src'),
@@ -15,6 +17,11 @@ export default defineConfig({
   test: {
     globals: true,
     environment: 'jsdom',
+    server: {
+      deps: {
+        inline: ['@astryxdesign/richtext', '@astryxdesign/core-rte'],
+      },
+    },
     testTimeout: 15_000,
     setupFiles: ['./src/test/vitest.setup.ts'],
     include: [

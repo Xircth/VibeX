@@ -156,19 +156,34 @@ vi.mock('@tanstack/react-query', async (importOriginal) => {
   };
 });
 
-vi.mock('@/components/NormalizedConversation/AstryxMarkdown', () => ({
+vi.mock('@/components/previews/MarkdownRichTextEditor', () => ({
   default: ({
-    value,
+    markdown,
+    label,
     workspacePath,
+    onMarkdownChange,
+    onSave,
   }: {
-    value?: string;
-    workspacePath?: string | null;
+    markdown: string;
+    label: string;
+    workspacePath: string | null;
+    onMarkdownChange: (markdown: string) => void;
+    onSave: () => void;
   }) => (
     <div
-      data-testid="astryx-markdown"
-      data-value={value}
+      data-testid="astryx-rich-text-editor"
+      data-value={markdown}
       data-workspace-path={workspacePath ?? ''}
-    />
+    >
+      <textarea
+        aria-label={label}
+        value={markdown}
+        onChange={(event) => onMarkdownChange(event.target.value)}
+        onKeyDown={(event) => {
+          if (event.ctrlKey && event.key === 's') onSave();
+        }}
+      />
+    </div>
   ),
 }));
 
@@ -223,11 +238,11 @@ describe('DockviewPreviewPanel', () => {
   });
 
   it('uses a file-specific loading state while Monaco initializes', async () => {
-    render(<DockviewPreviewPanel {...panelProps()} />);
+    render(<DockviewPreviewPanel {...panelProps('src/main.ts')} />);
 
     await screen.findByTestId('monaco-editor');
     expect(
-      screen.getByRole('status', { name: 'Opening README.md' })
+      screen.getByRole('status', { name: 'Opening src/main.ts' })
     ).toBeVisible();
     expect(screen.queryByText('Loading...')).not.toBeInTheDocument();
   });
@@ -256,43 +271,46 @@ describe('DockviewPreviewPanel', () => {
     );
   });
 
-  it('switches Markdown source to preview on a middle click inside Monaco', async () => {
+  it('switches Markdown rich text to source and back with a middle click', async () => {
     render(<DockviewPreviewPanel {...panelProps()} />);
 
-    expect(await screen.findByRole('button', { name: 'Source' })).toBeVisible();
+    expect(
+      await screen.findByRole('button', { name: 'Preview' })
+    ).toBeVisible();
+    fireEvent.click(screen.getByRole('button', { name: 'Preview' }));
 
+    expect(await screen.findByRole('button', { name: 'Source' })).toBeVisible();
     fireEvent.mouseDown(screen.getByTestId('monaco-editor'), { button: 1 });
 
     expect(screen.getByRole('button', { name: 'Preview' })).toBeVisible();
+    expect(screen.getByTestId('astryx-rich-text-editor')).toBeVisible();
   });
 
-  it('renders markdown preview relative to the file directory', async () => {
+  it('renders markdown in the rich-text editor relative to the file directory', async () => {
     render(<DockviewPreviewPanel {...panelProps('docs/guide.md')} />);
 
-    await screen.findByRole('button', { name: 'Source' });
-    fireEvent.mouseDown(screen.getByTestId('monaco-editor'), { button: 1 });
-
-    const markdown = await screen.findByTestId('astryx-markdown');
-    expect(markdown).toHaveAttribute('data-workspace-path', '/workspace/docs');
-    expect(markdown).toHaveAttribute('data-value', '# Preview title');
+    const editor = await screen.findByTestId('astryx-rich-text-editor');
+    expect(editor).toHaveAttribute('data-workspace-path', '/workspace/docs');
+    expect(editor).toHaveAttribute('data-value', '# Preview title');
   });
 
-  it('keeps edited Markdown when switching from source to preview and back', async () => {
+  it('keeps edited Markdown when switching from the editor to source and back', async () => {
     render(<DockviewPreviewPanel {...panelProps('notes/draft.md')} />);
 
-    const source = await screen.findByRole('textbox', { name: 'File source' });
-    fireEvent.change(source, { target: { value: '# Edited content' } });
-    fireEvent.click(screen.getByRole('button', { name: 'Source' }));
-
-    expect(await screen.findByTestId('astryx-markdown')).toHaveAttribute(
-      'data-value',
-      '# Edited content'
-    );
-
+    const editor = await screen.findByRole('textbox', {
+      name: 'notes/draft.md',
+    });
+    fireEvent.change(editor, { target: { value: '# Edited content' } });
     fireEvent.click(screen.getByRole('button', { name: 'Preview' }));
+
     expect(
       await screen.findByRole('textbox', { name: 'File source' })
     ).toHaveValue('# Edited content');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Source' }));
+    expect(
+      await screen.findByTestId('astryx-rich-text-editor')
+    ).toHaveAttribute('data-value', '# Edited content');
   });
 
   it('keeps an unsaved draft when its file is renamed', async () => {
@@ -300,7 +318,7 @@ describe('DockviewPreviewPanel', () => {
       <DockviewPreviewPanel {...panelProps('notes/before.md')} />
     );
     fireEvent.change(
-      await screen.findByRole('textbox', { name: 'File source' }),
+      await screen.findByRole('textbox', { name: 'notes/before.md' }),
       {
         target: { value: '# Unsaved draft' },
       }
@@ -309,20 +327,24 @@ describe('DockviewPreviewPanel', () => {
     renamed.params.renamedFrom = '/workspace/notes/before.md';
     rerender(<DockviewPreviewPanel {...renamed} />);
     expect(
-      await screen.findByRole('textbox', { name: 'File source' })
+      await screen.findByRole('textbox', { name: 'notes/after.md' })
     ).toHaveValue('# Unsaved draft');
   });
 
   it('shows external updates after its draft has been saved', async () => {
     const props = panelProps('notes/saved.md');
     const { rerender } = render(<DockviewPreviewPanel {...props} />);
-    const source = await screen.findByRole('textbox', { name: 'File source' });
-    fireEvent.change(source, { target: { value: '# Saved draft' } });
-    fireEvent.keyDown(source, { key: 's', ctrlKey: true });
+    const editor = await screen.findByRole('textbox', {
+      name: 'notes/saved.md',
+    });
+    fireEvent.change(editor, { target: { value: '# Saved draft' } });
+    fireEvent.keyDown(editor, { key: 's', ctrlKey: true });
     expect(saveFile.mutate).toHaveBeenCalled();
     fileContent.data = '# Updated externally';
     rerender(<DockviewPreviewPanel {...props} />);
-    expect(source).toHaveValue('# Updated externally');
+    expect(
+      await screen.findByRole('textbox', { name: 'notes/saved.md' })
+    ).toHaveValue('# Updated externally');
   });
 
   it('keeps newer edits when an earlier save finishes', async () => {
@@ -334,21 +356,22 @@ describe('DockviewPreviewPanel', () => {
       };
     });
     render(<DockviewPreviewPanel {...panelProps('notes/delayed-save.md')} />);
-    const source = await screen.findByRole('textbox', { name: 'File source' });
-    fireEvent.change(source, { target: { value: '# Saved snapshot' } });
-    fireEvent.keyDown(source, { key: 's', ctrlKey: true });
-    fireEvent.change(source, { target: { value: '# Newer draft' } });
+    const editor = await screen.findByRole('textbox', {
+      name: 'notes/delayed-save.md',
+    });
+    fireEvent.change(editor, { target: { value: '# Saved snapshot' } });
+    fireEvent.keyDown(editor, { key: 's', ctrlKey: true });
+    fireEvent.change(editor, { target: { value: '# Newer draft' } });
 
     act(completeSave);
-    fireEvent.click(screen.getByRole('button', { name: 'Source' }));
-    expect(await screen.findByTestId('astryx-markdown')).toHaveAttribute(
-      'data-value',
-      '# Newer draft'
-    );
     fireEvent.click(screen.getByRole('button', { name: 'Preview' }));
     expect(
       await screen.findByRole('textbox', { name: 'File source' })
     ).toHaveValue('# Newer draft');
+    fireEvent.click(screen.getByRole('button', { name: 'Source' }));
+    expect(
+      await screen.findByTestId('astryx-rich-text-editor')
+    ).toHaveAttribute('data-value', '# Newer draft');
   });
 
   it('opens an HTML file in the rendered preview instead of its source', async () => {

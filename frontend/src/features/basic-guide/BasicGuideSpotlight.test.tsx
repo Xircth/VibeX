@@ -218,4 +218,52 @@ describe('BasicGuideSpotlight', () => {
       document.querySelector('[data-basic-guide-connectors]')
     ).toBeInTheDocument();
   });
+
+  it('rings the nested + without a second explanation', () => {
+    mountGuideTarget('kanban-session-list', {
+      left: 40,
+      top: 80,
+      width: 280,
+      height: 520,
+    });
+    mountGuideTarget('kanban-session-list-new', {
+      left: 270,
+      top: 92,
+      width: 28,
+      height: 28,
+    });
+
+    render(
+      <BasicGuideSpotlight
+        targets={[
+          {
+            id: 'kanban-session-list',
+            copyKey: 'kanban-create-session',
+          },
+          {
+            id: 'kanban-session-list-new',
+            shape: 'circle',
+          },
+        ]}
+        resolveCopy={() => '点击会话列表上的「+」，再新建一个会话。'}
+        panelSelector="[data-basic-guide-panel]"
+      />
+    );
+
+    const spots = document.querySelectorAll('.basic-guide-spotlight');
+    expect(spots).toHaveLength(2);
+    expect(
+      document.querySelector(
+        '[data-basic-guide-spotlight="kanban-session-list-new"]'
+      )
+    ).toHaveAttribute('data-shape', 'circle');
+    expect(
+      document.querySelectorAll('[data-basic-guide-callout]')
+    ).toHaveLength(1);
+    expect(
+      document
+        .querySelector('[data-basic-guide-connectors] path')
+        ?.getAttribute('d')
+    ).toMatch(/^M /);
+  });
 });

@@ -9,7 +9,7 @@ export type SpotlightShape = 'rect' | 'circle';
 
 export type SpotlightTarget = {
   id: string;
-  copyKey: string;
+  copyKey?: string;
   group?: string;
   shape?: 'auto' | 'circle' | 'rect';
 };
@@ -108,11 +108,21 @@ export function uniqueStrings(values: string[]): string[] {
   return out;
 }
 
+export function rectContains(outer: Rect, inner: Rect): boolean {
+  return (
+    inner.left >= outer.left &&
+    inner.top >= outer.top &&
+    inner.left + inner.width <= outer.left + outer.width &&
+    inner.top + inner.height <= outer.top + outer.height
+  );
+}
+
 export function padMeasured(box: MeasuredTarget): MergedSpotlight {
   const circle = isCircleLike(box, box.shape);
   const sourceIds = box.id ? [box.id] : [];
+  const copyKeys = box.copyKey ? [box.copyKey] : [];
   if (circle) {
-    const size = Math.max(box.width, box.height) + 10;
+    const size = Math.max(box.width, box.height);
     const cx = box.left + box.width / 2;
     const cy = box.top + box.height / 2;
     return {
@@ -122,7 +132,7 @@ export function padMeasured(box: MeasuredTarget): MergedSpotlight {
       height: size,
       shape: 'circle',
       sourceIds,
-      copyKeys: [box.copyKey],
+      copyKeys,
       group: box.group,
     };
   }
@@ -133,7 +143,7 @@ export function padMeasured(box: MeasuredTarget): MergedSpotlight {
     height: box.height + 8,
     shape: 'rect',
     sourceIds,
-    copyKeys: [box.copyKey],
+    copyKeys,
     group: box.group,
   };
 }
@@ -150,6 +160,7 @@ export function mergeOverlapping(boxes: MeasuredTarget[]): MergedSpotlight[] {
       for (let j = i + 1; j < items.length; j += 1) {
         const a = items[i]!;
         const b = items[j]!;
+        if (rectContains(a, b) || rectContains(b, a)) continue;
         const sameGroup = Boolean(a.group && a.group === b.group);
         const gap = gapBetween(a, b);
         const shouldMerge = sameGroup

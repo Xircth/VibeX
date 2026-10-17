@@ -243,6 +243,16 @@ export const SUBSTEP_META: Record<BasicGuideSubstep, SubstepMeta> = {
     targets: ['kanban-session-list', 'kanban-session-list-new'],
     advance: 'click',
     continueVisible: false,
+    spotlights: [
+      {
+        id: 'kanban-session-list',
+        copyKey: 'kanban-create-session',
+      },
+      {
+        id: 'kanban-session-list-new',
+        shape: 'circle',
+      },
+    ],
   },
   'kanban-click-sessions': {
     mainStep: 3,

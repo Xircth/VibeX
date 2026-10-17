@@ -181,6 +181,10 @@ describe('basicGuideState', () => {
       'select-project-global',
     ]);
     expect(substepSpotlights('click-new-session')[0]?.shape).toBe('circle');
+    expect(substepSpotlights('kanban-create-session')).toEqual([
+      { id: 'kanban-session-list', copyKey: 'kanban-create-session' },
+      { id: 'kanban-session-list-new', shape: 'circle' },
+    ]);
     expect(substepSpotlights('configure-session-agent')[0]?.id).toBe(
       'session-agent-selector'
     );

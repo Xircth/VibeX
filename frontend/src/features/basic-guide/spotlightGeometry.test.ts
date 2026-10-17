@@ -149,7 +149,54 @@ describe('spotlightGeometry', () => {
       ),
     ]);
     expect(circle?.shape).toBe('circle');
-    expect(circle?.width).toBe(circle?.height);
+    expect(circle?.width).toBe(28);
+    expect(circle?.height).toBe(28);
+    expect(circle?.left).toBe(900);
+    expect(circle?.top).toBe(12);
+  });
+
+  it('keeps a nested compact control as its own circle inside a larger box', () => {
+    const merged = mergeOverlapping([
+      box('kanban-session-list', 'kanban-create-session', {
+        left: 40,
+        top: 80,
+        width: 280,
+        height: 520,
+      }),
+      box(
+        'kanban-session-list-new',
+        '',
+        {
+          left: 270,
+          top: 92,
+          width: 28,
+          height: 28,
+        },
+        { shape: 'circle' }
+      ),
+    ]);
+    expect(merged).toHaveLength(2);
+    const plus = merged.find((item) =>
+      item.sourceIds.includes('kanban-session-list-new')
+    );
+    expect(plus?.shape).toBe('circle');
+    expect(plus?.width).toBe(28);
+    expect(plus?.copyKeys).toEqual([]);
+
+    const plan = layoutCallouts({
+      boxes: merged,
+      callouts: [
+        {
+          key: 'kanban-create-session',
+          text: '点击会话列表上的「+」，再新建一个会话。',
+        },
+      ],
+      panel: { left: 16, top: 400, width: 220, height: 180 },
+      viewport: { width: 1280, height: 800 },
+    });
+    expect(plan.callouts).toHaveLength(1);
+    expect(plan.connectors).toHaveLength(1);
+    expect(plan.connectors[0]?.copyKey).toBe('kanban-create-session');
   });
 
   it('places callouts without overlapping each other or the boxes', () => {

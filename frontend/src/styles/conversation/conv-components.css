@@ -26,6 +26,42 @@
   animation: conv-shimmer 2.2s ease-in-out infinite;
 }
 
+.conv-thread-skeleton {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  padding: 12px 0 24px;
+  pointer-events: none;
+}
+
+.conv-thread-skeleton-row {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+@keyframes conv-thread-skeleton-shimmer {
+  0% {
+    background-position: 200% 0;
+  }
+  100% {
+    background-position: -200% 0;
+  }
+}
+
+.conv-thread-skeleton-bar {
+  height: 12px;
+  border-radius: 999px;
+  background: linear-gradient(
+    110deg,
+    var(--conv-shimmer-from) 8%,
+    var(--conv-shimmer-via) 18%,
+    var(--conv-shimmer-from) 33%
+  );
+  background-size: 200% 100%;
+  animation: conv-thread-skeleton-shimmer 1.4s ease-in-out infinite;
+}
+
 @keyframes conv-spinner {
   to {
     transform: rotate(360deg);
@@ -71,7 +107,8 @@
 
 @media (prefers-reduced-motion: reduce) {
   .conv-shimmer-text,
-  .conv-spinner {
+  .conv-spinner,
+  .conv-thread-skeleton-bar {
     animation: none;
   }
 }

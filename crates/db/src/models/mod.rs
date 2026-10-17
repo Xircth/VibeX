@@ -13,6 +13,7 @@ pub mod conversation_relation;
 pub mod conversation_side_effects;
 pub mod conversation_snapshot;
 pub mod conversation_steering;
+pub mod conversation_timeline_row;
 pub mod conversation_tool;
 pub mod conversation_turn;
 pub mod conversation_usage;

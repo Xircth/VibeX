@@ -10,6 +10,7 @@ import {
   completeStep2,
   dismissEndCopy,
   isGuideVisible,
+  isKanbanGuideSurface,
   isProjectRoute,
   parsePersistedBasicGuide,
   resolveLaunchState,
@@ -118,6 +119,20 @@ describe('basicGuideState', () => {
   it('treats a project sessions URL as entering a project', () => {
     expect(isProjectRoute('/local-projects/abc/sessions')).toBe(true);
     expect(isProjectRoute('/local-projects')).toBe(false);
+  });
+
+  it('pins the step panel closer on the kanban surface', () => {
+    expect(isKanbanGuideSurface('/local-projects/abc', 'kanban')).toBe(true);
+    expect(isKanbanGuideSurface('/local-projects/abc', 'workspace')).toBe(
+      false
+    );
+    expect(
+      isKanbanGuideSurface(
+        '/local-projects/abc/workspaces/w1/sessions/s1',
+        'kanban'
+      )
+    ).toBe(false);
+    expect(isKanbanGuideSurface('/', 'kanban')).toBe(false);
   });
 
   it('rejects corrupt storage', () => {

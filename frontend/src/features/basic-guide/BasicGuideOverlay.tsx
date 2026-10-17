@@ -18,9 +18,12 @@ import { useOptionalBasicGuide } from './BasicGuideContext';
 import { GuideCopy } from './GuideCopy';
 import { cn } from '@/lib/utils';
 
+import { useLayoutStore } from '@/stores/useLayoutStore';
+
 import {
   SUBSTEP_META,
   isGuideVisible,
+  isKanbanGuideSurface,
   isSettingsRoute,
   mainStepIndex,
   substepSpotlights,
@@ -31,6 +34,7 @@ export function BasicGuideOverlay() {
   const ctx = useOptionalBasicGuide();
   const { t } = useTranslation(['basicGuide', 'common']);
   const location = useLocation();
+  const activeTab = useLayoutStore((state) => state.activeTab);
   if (!ctx || !isGuideVisible(ctx.state)) return null;
 
   const { state, exitOpen } = ctx;
@@ -40,6 +44,7 @@ export function BasicGuideOverlay() {
   const showCoaching = !showingEnd && state.substep !== 'show-end';
   const spotlightTargets = showCoaching ? substepSpotlights(state.substep) : [];
   const showStepPanel = !isSettingsRoute(location.pathname);
+  const onKanban = isKanbanGuideSurface(location.pathname, activeTab);
 
   return (
     <>
@@ -60,7 +65,11 @@ export function BasicGuideOverlay() {
 
       {showStepPanel ? (
         <aside
-          className={cn('basic-guide-panel', 'basic-guide-panel--bottom')}
+          className={cn(
+            'basic-guide-panel',
+            'basic-guide-panel--bottom',
+            onKanban && 'basic-guide-panel--kanban'
+          )}
           data-basic-guide-panel
           aria-label={t('panelAria')}
         >
@@ -90,7 +99,12 @@ export function BasicGuideOverlay() {
               </div>
             ) : (
               <>
-                <div className="basic-guide-panel__actions">
+                <AstryxStep current={current} aria-label={t('stepsAria')}>
+                  <AstryxStepItem>{t('steps.createProject')}</AstryxStepItem>
+                  <AstryxStepItem>{t('steps.createSession')}</AstryxStepItem>
+                  <AstryxStepItem>{t('steps.learnLayout')}</AstryxStepItem>
+                </AstryxStep>
+                <div className="basic-guide-panel__footer">
                   {state.substep === 'show-end' ? (
                     <Button
                       type="button"
@@ -119,23 +133,6 @@ export function BasicGuideOverlay() {
                     {t('exit')}
                   </Button>
                 </div>
-                <AstryxStep current={current} aria-label={t('stepsAria')}>
-                  <AstryxStepItem
-                    description={t('steps.createProjectDescription')}
-                  >
-                    {t('steps.createProject')}
-                  </AstryxStepItem>
-                  <AstryxStepItem
-                    description={t('steps.createSessionDescription')}
-                  >
-                    {t('steps.createSession')}
-                  </AstryxStepItem>
-                  <AstryxStepItem
-                    description={t('steps.learnLayoutDescription')}
-                  >
-                    {t('steps.learnLayout')}
-                  </AstryxStepItem>
-                </AstryxStep>
               </>
             )}
           </div>

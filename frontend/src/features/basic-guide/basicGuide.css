@@ -73,6 +73,7 @@
   font-weight: 600;
   line-height: 18px;
   color: #111;
+  white-space: nowrap;
 }
 
 .astryx-step__item[data-status='upcoming'] .astryx-step__label {
@@ -169,16 +170,20 @@
 
 .basic-guide-panel {
   position: fixed;
-  left: 48px;
+  left: 40px;
   z-index: 80;
   width: max-content;
-  max-width: 260px;
+  max-width: 220px;
   pointer-events: none;
 }
 
 .basic-guide-panel--bottom {
   top: auto;
   bottom: 30px;
+}
+
+.basic-guide-panel--kanban {
+  left: 10px;
 }
 
 .basic-guide-panel:has(.basic-guide-end) {
@@ -188,8 +193,8 @@
 .basic-guide-panel__stack {
   display: flex;
   flex-direction: column;
-  align-items: flex-start;
-  gap: 0.75rem;
+  align-items: stretch;
+  gap: 0;
   pointer-events: auto;
 }
 
@@ -223,11 +228,13 @@
   color: var(--text-strong);
 }
 
-.basic-guide-panel__actions {
+.basic-guide-panel__footer {
   display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: 0.25rem;
+  width: 100%;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 0.5rem;
+  margin-top: 0.5rem;
 }
 
 .basic-guide-spotlight {

@@ -549,6 +549,18 @@ export function isProjectRoute(pathname: string): boolean {
   return /^\/local-projects\/[^/]+/u.test(pathname);
 }
 
+export function isKanbanGuideSurface(
+  pathname: string,
+  activeTab: string
+): boolean {
+  return (
+    isProjectRoute(pathname) &&
+    !isSettingsRoute(pathname) &&
+    !/\/workspaces\//u.test(pathname) &&
+    activeTab === 'kanban'
+  );
+}
+
 export function isWelcomeRoute(pathname: string): boolean {
   return (
     pathname === '/' ||

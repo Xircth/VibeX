@@ -34,17 +34,22 @@ function declarationsFor(
 }
 
 describe('basic guide panel chrome', () => {
-  it('sits 48px from the left with an opaque gray glass frame', () => {
+  it('sits 40px from the left, 10px on kanban, with a bordered gray frame', () => {
     const panel = declarationsFor('.basic-guide-panel');
     const bottom = declarationsFor('.basic-guide-panel--bottom');
+    const kanban = declarationsFor('.basic-guide-panel--kanban');
     const frame = declarationsFor('.basic-guide-panel__stack--framed');
-    expect(panel.left).toBe('48px');
+    const footer = declarationsFor('.basic-guide-panel__footer');
+    expect(panel.left).toBe('40px');
+    expect(panel['max-width']).toBe('220px');
     expect(bottom.bottom).toBe('30px');
+    expect(kanban.left).toBe('10px');
     expect(frame.background).toBe('hsl(220 10% 86% / 0.94)');
     expect(frame['backdrop-filter']).toBe('blur(20px) saturate(1.2)');
     expect(frame['-webkit-backdrop-filter']).toBe('blur(20px) saturate(1.2)');
     expect(frame.border).toBe('1px solid #111');
     expect(frame['border-radius']).toBe('8px');
+    expect(footer['justify-content']).toBe('flex-end');
     expect(declarationsFor('.basic-guide-panel--workspace')).toEqual({});
   });
 

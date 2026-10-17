@@ -1,4 +1,4 @@
-import { render, screen, within } from '@testing-library/react';
+import { act, render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { HotkeysProvider } from 'react-hotkeys-hook';
 import { MemoryRouter } from 'react-router-dom';
@@ -10,12 +10,19 @@ import {
 } from './BasicGuideContext';
 import { BasicGuideOverlay } from './BasicGuideOverlay';
 import { ACTIVE_GUIDE, type PersistedBasicGuide } from './basicGuideState';
+import { useLayoutStore } from '@/stores/useLayoutStore';
 
 function renderOverlay(
   state: PersistedBasicGuide,
   extra?: Partial<BasicGuideContextValue>,
-  { pathname = '/' }: { pathname?: string } = {}
+  {
+    pathname = '/',
+    activeTab = 'workspace',
+  }: { pathname?: string; activeTab?: string } = {}
 ) {
+  act(() => {
+    useLayoutStore.getState().setActiveTab(activeTab);
+  });
   const value: BasicGuideContextValue = {
     state,
     continueStep: vi.fn(),
@@ -74,6 +81,9 @@ function mountGuideTarget(
 
 describe('BasicGuideOverlay', () => {
   afterEach(() => {
+    act(() => {
+      useLayoutStore.getState().setActiveTab('workspace');
+    });
     document
       .querySelectorAll('[data-basic-guide]')
       .forEach((node) => node.remove());
@@ -85,14 +95,9 @@ describe('BasicGuideOverlay', () => {
     expect(panel).toBeInTheDocument();
     expect(panel.querySelector('.dialog-surface')).toBeNull();
     expect(screen.getByText('创建或选择项目')).toBeInTheDocument();
-    expect(screen.getByText('进入工作区并创建会话')).toBeInTheDocument();
+    expect(screen.getByText('在工作区中创建会话')).toBeInTheDocument();
     expect(screen.getByText('熟悉页面构成')).toBeInTheDocument();
-    expect(
-      screen.getByText('用一个文件夹隔离会话与工作状态')
-    ).toBeInTheDocument();
-    expect(screen.getByText('选择 Agent 并发送第一条消息')).toBeInTheDocument();
-    expect(screen.getByText('了解侧栏、看板和计量统计')).toBeInTheDocument();
-    expect(panel.querySelectorAll('.astryx-step__description')).toHaveLength(3);
+    expect(panel.querySelectorAll('.astryx-step__description')).toHaveLength(0);
     expect(
       within(panel).queryByText(/项目就是一个文件夹/, { exact: false })
     ).toBeNull();
@@ -100,19 +105,23 @@ describe('BasicGuideOverlay', () => {
     const skip = screen.getByRole('button', { name: '跳过基础引导' });
     const steps = panel.querySelector('.astryx-step');
     const frame = panel.querySelector('.basic-guide-panel__stack--framed');
+    const footer = panel.querySelector('.basic-guide-panel__footer');
     expect(skip).toBeInTheDocument();
     expect(steps).toBeTruthy();
     expect(frame).toBeTruthy();
+    expect(footer).toBeTruthy();
     expect(frame?.contains(skip)).toBe(true);
     expect(frame?.contains(steps)).toBe(true);
+    expect(footer?.contains(skip)).toBe(true);
     expect(
       Boolean(
         steps &&
-          skip.compareDocumentPosition(steps) & Node.DOCUMENT_POSITION_FOLLOWING
+          steps.compareDocumentPosition(skip) & Node.DOCUMENT_POSITION_FOLLOWING
       )
     ).toBe(true);
     expect(panel.className).toMatch(/basic-guide-panel--bottom/);
     expect(panel.className).not.toMatch(/basic-guide-panel--workspace/);
+    expect(panel.className).not.toMatch(/basic-guide-panel--kanban/);
   });
 
   it('keeps the step panel pinned without a workspace offset', () => {
@@ -122,6 +131,16 @@ describe('BasicGuideOverlay', () => {
     const panel = screen.getByRole('complementary', { name: '基础引导' });
     expect(panel.className).toMatch(/basic-guide-panel--bottom/);
     expect(panel.className).not.toMatch(/basic-guide-panel--workspace/);
+    expect(panel.className).not.toMatch(/basic-guide-panel--kanban/);
+  });
+
+  it('moves the step panel to 10px on the kanban page', () => {
+    renderOverlay(ACTIVE_GUIDE, undefined, {
+      pathname: '/local-projects/abc',
+      activeTab: 'kanban',
+    });
+    const panel = screen.getByRole('complementary', { name: '基础引导' });
+    expect(panel.className).toMatch(/basic-guide-panel--kanban/);
   });
 
   it('places callout copy next to a measured box on this window', () => {

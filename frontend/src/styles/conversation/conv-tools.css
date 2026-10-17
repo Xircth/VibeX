@@ -1087,12 +1087,26 @@ button.vibex-tool-call-target-label:hover {
 
 .conv-thinking-content {
   margin-top: 6px;
-  max-height: 200lh;
+  max-height: 100lh;
   overflow-y: auto;
   overscroll-behavior: contain;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
   color: var(--conv-text-secondary, var(--text-muted));
   font-size: 0.875rem;
   line-height: 1.55;
+}
+
+.conv-thinking-content::-webkit-scrollbar {
+  display: none;
+  width: 0;
+  height: 0;
+}
+
+.conv-thinking-streaming .conv-thinking-content {
+  overflow: hidden;
+  overscroll-behavior: auto;
+  touch-action: pan-y;
 }
 
 .conv-thinking-content .conv-markdown,

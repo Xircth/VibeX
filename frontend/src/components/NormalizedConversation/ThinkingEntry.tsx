@@ -1,9 +1,17 @@
-import React from 'react';
+import React, { useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Brain, ChevronDown, Loader2 } from 'lucide-react';
 import { useExpandable } from '@/stores/useExpandableStore';
 import { AstryxMarkdown } from './AstryxMarkdown';
 import { cn } from '@/lib/utils';
+
+function conversationScrollerFrom(
+  node: EventTarget | null
+): HTMLElement | null {
+  return node instanceof Element
+    ? node.closest('[data-panel="conversation-logs"]')
+    : null;
+}
 
 export const ThinkingEntry: React.FC<{
   content: string;
@@ -29,6 +37,16 @@ export const ThinkingEntry: React.FC<{
   const [expanded, toggle] = useExpandable(
     `thinking:${expansionKey}:${isStreaming ? 'streaming' : 'finished'}`,
     isStreaming
+  );
+  const forwardWheelToConversation = useCallback(
+    (event: React.WheelEvent<HTMLDivElement>) => {
+      if (!isStreaming) return;
+      const scroller = conversationScrollerFrom(event.currentTarget);
+      if (!scroller) return;
+      scroller.scrollTop += event.deltaY;
+      event.preventDefault();
+    },
+    [isStreaming]
   );
 
   return (
@@ -75,7 +93,10 @@ export const ThinkingEntry: React.FC<{
         />
       </button>
       {expanded ? (
-        <div className="conv-thinking-content">
+        <div
+          className="conv-thinking-content"
+          onWheel={isStreaming ? forwardWheelToConversation : undefined}
+        >
           <AstryxMarkdown
             value={content}
             taskAttemptId={taskAttemptId}

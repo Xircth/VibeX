@@ -3,8 +3,11 @@
   "stepsAria": "Basic guide steps",
   "steps": {
     "createProject": "Create or choose a project",
+    "createProjectDescription": "A folder isolates sessions and work state",
     "createSession": "Open a workspace and create a session",
-    "learnLayout": "Learn the layout"
+    "createSessionDescription": "Pick an Agent and send the first message",
+    "learnLayout": "Learn the layout",
+    "learnLayoutDescription": "See the rail, board, and usage stats"
   },
   "continue": "Continue",
   "exit": "Exit guide",

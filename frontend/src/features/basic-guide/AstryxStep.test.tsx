@@ -23,6 +23,43 @@ describe('AstryxStep', () => {
     expect(items[1].querySelector('[data-indicator="radio"]')).toBeTruthy();
     expect(items[2].querySelector('[data-indicator="idle"]')).toBeTruthy();
   });
+
+  it('renders a title and description for each step', () => {
+    render(
+      <AstryxStep current={0} aria-label="基础引导步骤">
+        <AstryxStepItem description="用一个文件夹隔离会话与工作状态">
+          创建或选择项目
+        </AstryxStepItem>
+        <AstryxStepItem description="选择 Agent 并发送第一条消息">
+          进入工作区并创建会话
+        </AstryxStepItem>
+        <AstryxStepItem description="了解侧栏、看板和计量统计">
+          熟悉页面构成
+        </AstryxStepItem>
+      </AstryxStep>
+    );
+
+    const items = screen.getByRole('list').querySelectorAll('li');
+    expect(items).toHaveLength(3);
+    expect(items[0]?.querySelector('.astryx-step__label')).toHaveTextContent(
+      '创建或选择项目'
+    );
+    expect(
+      items[0]?.querySelector('.astryx-step__description')
+    ).toHaveTextContent('用一个文件夹隔离会话与工作状态');
+    expect(items[1]?.querySelector('.astryx-step__label')).toHaveTextContent(
+      '进入工作区并创建会话'
+    );
+    expect(
+      items[1]?.querySelector('.astryx-step__description')
+    ).toHaveTextContent('选择 Agent 并发送第一条消息');
+    expect(items[2]?.querySelector('.astryx-step__label')).toHaveTextContent(
+      '熟悉页面构成'
+    );
+    expect(
+      items[2]?.querySelector('.astryx-step__description')
+    ).toHaveTextContent('了解侧栏、看板和计量统计');
+  });
 });
 
 describe('AstryxStepper', () => {

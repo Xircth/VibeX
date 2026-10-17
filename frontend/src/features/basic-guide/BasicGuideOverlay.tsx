@@ -71,9 +71,21 @@ export function BasicGuideOverlay() {
             ) : (
               <>
                 <AstryxStep current={current} aria-label={t('stepsAria')}>
-                  <AstryxStepItem>{t('steps.createProject')}</AstryxStepItem>
-                  <AstryxStepItem>{t('steps.createSession')}</AstryxStepItem>
-                  <AstryxStepItem>{t('steps.learnLayout')}</AstryxStepItem>
+                  <AstryxStepItem
+                    description={t('steps.createProjectDescription')}
+                  >
+                    {t('steps.createProject')}
+                  </AstryxStepItem>
+                  <AstryxStepItem
+                    description={t('steps.createSessionDescription')}
+                  >
+                    {t('steps.createSession')}
+                  </AstryxStepItem>
+                  <AstryxStepItem
+                    description={t('steps.learnLayoutDescription')}
+                  >
+                    {t('steps.learnLayout')}
+                  </AstryxStepItem>
                 </AstryxStep>
                 <div className="basic-guide-panel__actions">
                   {state.substep === 'show-end' ? (

@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest';
+import i18n from '@/i18n';
 import type { ToolResultBlock, ToolUseBlock } from './messageTurnBlocks';
+import { getToolSummary } from './conversation-entry-utils';
 import { toolBlockToNormalizedEntry } from './messageTurnTool';
 
 function use(tool_name: string, input: unknown, kind?: string): ToolUseBlock {
@@ -128,6 +130,88 @@ describe('toolBlockToNormalizedEntry', () => {
         description: 'Audit stream',
         subagent_type: 'explore',
       },
+    });
+  });
+
+  it('maps a placeholder tool named tool with variant ListDir to 查看目录', () => {
+    void i18n.changeLanguage('zh-CN');
+    const entry = toolBlockToNormalizedEntry(
+      use('tool', {
+        variant: 'ListDir',
+        target_directory:
+          'C:\\Users\\18190\\Documents\\projects\\vibex-plugin-computer-use\\src',
+      }),
+      null,
+      null
+    );
+    expect(entry.entry_type).toMatchObject({
+      action_type: {
+        action: 'tool',
+        tool_name: 'list_dir',
+        arguments: {
+          path: 'C:\\Users\\18190\\Documents\\projects\\vibex-plugin-computer-use\\src',
+        },
+      },
+    });
+    if (entry.entry_type.type !== 'tool_use') {
+      throw new Error('expected a tool_use entry');
+    }
+    expect(getToolSummary(entry.entry_type, '').label).toBe('查看目录');
+    expect(entry.entry_type.action_type).not.toMatchObject({
+      tool_name: 'tool',
+    });
+  });
+
+  it('maps other placeholder variants through the existing tool labels', () => {
+    expect(
+      toolBlockToNormalizedEntry(
+        use('tool', { variant: 'ReadFile', target_file: 'a.ts' }),
+        null,
+        null
+      ).entry_type
+    ).toMatchObject({
+      action_type: { action: 'file_read', path: 'a.ts' },
+    });
+    expect(
+      toolBlockToNormalizedEntry(
+        use('use_tool', { variant: 'Bash', command: 'ls' }),
+        null,
+        null
+      ).entry_type
+    ).toMatchObject({
+      action_type: { action: 'command_run', command: 'ls' },
+    });
+    expect(
+      toolBlockToNormalizedEntry(
+        use('tool', { variant: 'Grep', pattern: 'foo' }),
+        null,
+        null
+      ).entry_type
+    ).toMatchObject({
+      action_type: { action: 'search', query: 'foo' },
+    });
+    expect(
+      toolBlockToNormalizedEntry(
+        use('function', {
+          variant: 'StrReplace',
+          file_path: 'a.ts',
+          old_string: 'a',
+          new_string: 'b',
+        }),
+        null,
+        null
+      ).entry_type
+    ).toMatchObject({
+      action_type: { action: 'file_edit', path: 'a.ts' },
+    });
+    expect(
+      toolBlockToNormalizedEntry(
+        use('tool', { variant: 'Widgetize', count: 1 }),
+        null,
+        null
+      ).entry_type
+    ).toMatchObject({
+      action_type: { action: 'tool', tool_name: 'Widgetize' },
     });
   });
 

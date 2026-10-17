@@ -157,9 +157,20 @@ export function conversationStoreReducer(
         // this comparison true after the file has caught up.
         const keepRealtimeRows = entry.lastSequence > detailLastSequence;
         const incomingRows = action.detail.timeline.rows;
-        const mergedRows = keepRealtimeRows
-          ? mergeOpenTimelineRows(entry.rows, incomingRows)
-          : incomingRows;
+        const retained = keepRealtimeRows
+          ? {
+              rows: mergeOpenTimelineRows(entry.rows, incomingRows),
+              liveText: entry.liveText,
+            }
+          : retainInFlightStreamingUsers(
+              entry.rows,
+              incomingRows,
+              entry.liveText
+            );
+        const mergedRows = dropSeededInitialPrompt(
+          action.conversationId,
+          retained.rows
+        );
         const reconciledTimeline = reconcileOptimisticTurnsAgainstRows(
           entry.optimisticTurns,
           mergedRows
@@ -170,14 +181,20 @@ export function conversationStoreReducer(
           ...action.detail,
           timeline: { ...action.detail.timeline, rows: [] },
         };
-        const rows = keepRealtimeRows ? mergedRows : reconciledTimeline.rows;
+        const rows = settleIdleOpenTail(
+          dropSeededInitialPrompt(
+            action.conversationId,
+            keepRealtimeRows ? mergedRows : reconciledTimeline.rows
+          ),
+          Boolean(action.detail.in_flight_user_turn_id)
+        );
         const hydrated = {
           ...entry,
           detail,
           rows,
           liveText: keepRealtimeRows
             ? entry.liveText
-            : retainStreamingLiveText(rows, entry.liveText),
+            : retainStreamingLiveText(rows, retained.liveText),
           lastSequence: keepRealtimeRows
             ? entry.lastSequence
             : detailLastSequence,
@@ -315,7 +332,7 @@ export function conversationStoreReducer(
         }
         return {
           ...entry,
-          rows,
+          rows: dropSeededInitialPrompt(action.conversationId, rows),
           liveText,
           optimisticTurns,
           lastSequence:
@@ -410,7 +427,7 @@ function applyRowOpBatch(
   const gap = detectSequenceGap(entry.lastSequence, batch);
   return {
     ...entry,
-    rows,
+    rows: dropSeededInitialPrompt(entry.conversationId, rows),
     liveText,
     currentTurnId,
     optimisticTurns,
@@ -565,8 +582,9 @@ function mergePatchedBlocks(
 }
 
 function windowPrefixHash(detail: DbConversationDetail): string | null {
-  const hash = (detail as DbConversationDetail & { prefix_hash?: string | null })
-    .prefix_hash;
+  const hash = (
+    detail as DbConversationDetail & { prefix_hash?: string | null }
+  ).prefix_hash;
   return hash ?? null;
 }
 
@@ -1136,6 +1154,151 @@ function reconcileOptimisticTurnAgainstUserRow(
       (_, index) => index !== optimisticIndex
     ),
   };
+}
+
+/**
+ * The first open of a new session can project `initial_prompt` as
+ * `{conversationId}:user` before the live user row arrives. Drop that seed
+ * once another user row carries the same text. Two real prompts that happen
+ * to match stay, because neither uses the conversation id as its row id.
+ */
+/**
+ * A transcript with no turn-end leaves its last assistant unfinished. That is
+ * the live tail while a turn is running, and a settled replay when no turn is
+ * in flight. Client rows (`…:user` / `…:assistant`) keep the phase they had.
+ */
+function settleIdleOpenTail(
+  rows: TimelineRow[],
+  turnInFlight: boolean
+): TimelineRow[] {
+  if (turnInFlight || rows.length === 0) return rows;
+  const lastIndex = rows.length - 1;
+  const last = rows[lastIndex];
+  if (
+    !last ||
+    last.row.kind !== 'message_turn' ||
+    last.row.turn.role !== 'assistant' ||
+    last.row.phase !== 'streaming' ||
+    last.row_id.endsWith(':assistant')
+  ) {
+    return rows;
+  }
+  const next = rows.slice();
+  next[lastIndex] = {
+    ...last,
+    row: { ...last.row, phase: 'settled' },
+  };
+  const previous = next[lastIndex - 1];
+  if (
+    previous &&
+    previous.row.kind === 'message_turn' &&
+    previous.row.turn.role === 'user' &&
+    previous.row.phase === 'streaming' &&
+    !previous.row_id.endsWith(':user')
+  ) {
+    next[lastIndex - 1] = {
+      ...previous,
+      row: { ...previous.row, phase: 'settled' },
+    };
+  }
+  return next;
+}
+
+function dropSeededInitialPrompt(
+  conversationId: string,
+  rows: TimelineRow[]
+): TimelineRow[] {
+  const seedId = `${conversationId}:user`;
+  const seed = rows.find((row) => row.row_id === seedId);
+  if (
+    !seed ||
+    seed.row.kind !== 'message_turn' ||
+    seed.row.turn.role !== 'user'
+  ) {
+    return rows;
+  }
+  const seedText = userTurnText(seed.row.turn);
+  const duplicated = rows.some(
+    (row) =>
+      row.row_id !== seedId &&
+      row.row.kind === 'message_turn' &&
+      row.row.turn.role === 'user' &&
+      userTurnText(row.row.turn) === seedText
+  );
+  if (!duplicated) return rows;
+  return rows.filter((row) => row.row_id !== seedId);
+}
+
+/**
+ * An equal-cursor file refresh replaces live rows. Keep a streaming user whose
+ * prompt is not in that window yet, and place it in front of an assistant that
+ * arrived without its user. A file row with the same text already counts as
+ * that prompt.
+ */
+function retainInFlightStreamingUsers(
+  localRows: TimelineRow[],
+  incomingRows: TimelineRow[],
+  liveText: Record<string, LiveTextOverlay>
+): { rows: TimelineRow[]; liveText: Record<string, LiveTextOverlay> } {
+  const unmatched = incomingRows.flatMap((row) =>
+    row.row.kind === 'message_turn' && row.row.turn.role === 'user'
+      ? [userTurnText(row.row.turn)]
+      : []
+  );
+  const retained = localRows.filter((row) => {
+    if (
+      row.row.kind !== 'message_turn' ||
+      row.row.turn.role !== 'user' ||
+      row.row.phase !== 'streaming'
+    ) {
+      return false;
+    }
+    const index = unmatched.indexOf(userTurnText(row.row.turn));
+    if (index >= 0) {
+      unmatched.splice(index, 1);
+      return false;
+    }
+    return true;
+  });
+  if (retained.length === 0) return { rows: incomingRows, liveText };
+
+  const rows = incomingRows.slice();
+  let nextLive = liveText;
+  for (const user of retained) {
+    const assistantId = user.row_id.endsWith(':user')
+      ? `${user.row_id.slice(0, -':user'.length)}:assistant`
+      : null;
+    const last = rows[rows.length - 1];
+    const previous = rows[rows.length - 2];
+    const lastIsAssistant =
+      last?.row.kind === 'message_turn' && last.row.turn.role === 'assistant';
+    const previousIsUser =
+      previous?.row.kind === 'message_turn' &&
+      previous.row.turn.role === 'user';
+    if (lastIsAssistant && !previousIsUser) {
+      rows.splice(rows.length - 1, 0, user);
+      if (assistantId && nextLive[assistantId]) {
+        nextLive = { ...nextLive };
+        delete nextLive[assistantId];
+      }
+      continue;
+    }
+    rows.push(user);
+    if (!assistantId) continue;
+    const localAssistant = localRows.find(
+      (row) =>
+        row.row_id === assistantId &&
+        row.row.kind === 'message_turn' &&
+        row.row.phase === 'streaming'
+    );
+    if (
+      localAssistant &&
+      !rows.some((row) => row.row_id === localAssistant.row_id)
+    ) {
+      rows.push(localAssistant);
+    }
+  }
+  return { rows, liveText: nextLive };
 }
 
 function userTurnText(turn: MessageTurn): string {

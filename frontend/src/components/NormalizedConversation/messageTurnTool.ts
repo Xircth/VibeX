@@ -38,6 +38,13 @@ export type ToolDisplayEntry = NormalizedEntry & {
 const OPAQUE_TOOL_ID =
   /^(call_[A-Za-z0-9]{6,}|fc_[A-Za-z0-9]{6,}|tool[-_][A-Za-z0-9]{6,}|toolu_[A-Za-z0-9]{6,}|[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$/i;
 
+/**
+ * Agents sometimes record the real tool only as `arguments.variant` and leave
+ * the call title as a placeholder (`tool`, `use_tool`). Those names are not
+ * labels; the variant is.
+ */
+const PLACEHOLDER_TOOL_NAMES = new Set(['tool', 'usetool', 'function', 'call']);
+
 function parseInput(use: ToolUseBlock): unknown {
   if (!use.input_preview) return null;
   try {
@@ -612,7 +619,15 @@ function toolActionType(
   }
 
   const obj = asRecord(parsed);
-  const name = canonicalName(toolName);
+  const reportedName = toolName.trim();
+  const reportedCanonical = canonicalName(reportedName);
+  const variant =
+    reportedCanonical.length === 0 ||
+    PLACEHOLDER_TOOL_NAMES.has(reportedCanonical)
+      ? firstString(obj, 'variant')
+      : null;
+  const name = canonicalName(variant ?? reportedName);
+  const labelName = (variant ?? reportedName).trim();
 
   const command = firstCommand(obj);
   const path = firstPath(obj);
@@ -644,11 +659,11 @@ function toolActionType(
     kind === 'execute' ||
     SHELL_NAMES.has(name) ||
     (command && !READ_NAMES.has(name) && !SEARCH_NAMES.has(name)) ||
-    (!command && looksLikeShellCommand(toolName))
+    (!command && looksLikeShellCommand(labelName))
   ) {
     return {
       ...commandResult(status, output, structuredResult),
-      command: command ?? toolName.trim(),
+      command: command ?? labelName,
     };
   }
 
@@ -738,7 +753,8 @@ function toolActionType(
   ) {
     return {
       action: 'task_create',
-      description: firstString(obj, 'description', 'title', 'name') ?? toolName,
+      description:
+        firstString(obj, 'description', 'title', 'name') ?? labelName,
       subagent_type: subagentType,
       result: structuredResult,
     };
@@ -746,7 +762,7 @@ function toolActionType(
 
   return {
     action: 'tool',
-    tool_name: displayToolName(toolName, obj),
+    tool_name: displayToolName(labelName, obj),
     arguments: (parsed ?? null) as JsonValue,
     result: structuredResult,
   };

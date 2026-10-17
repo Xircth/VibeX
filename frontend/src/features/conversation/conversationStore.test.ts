@@ -51,6 +51,18 @@ function userRow(turnId: string, text: string, revision: bigint): TimelineRow {
   });
 }
 
+function streamingUser(
+  turnId: string,
+  text: string,
+  revision: bigint
+): TimelineRow {
+  return timelineRow(`${turnId}:user`, revision, {
+    kind: 'message_turn',
+    phase: 'streaming',
+    turn: messageTurn(`${turnId}:user`, 'user', [{ type: 'text', text }]),
+  });
+}
+
 function assistantRow(
   turnId: string,
   blocks: ContentBlock[],
@@ -1060,6 +1072,133 @@ describe('conversationStore (row-op dumb container)', () => {
       'persisted',
       'optimistic',
     ]);
+  });
+
+  it('streams an open file tail only while a turn is in flight', () => {
+    const user = timelineRow('acp-1', 1n, {
+      kind: 'message_turn',
+      phase: 'streaming',
+      turn: messageTurn('acp-1', 'user', [{ type: 'text', text: 'hi' }]),
+    });
+    const assistant = timelineRow('acp-2', 2n, {
+      kind: 'message_turn',
+      phase: 'streaming',
+      turn: messageTurn('acp-2', 'assistant', [
+        { type: 'text', text: 'working' },
+      ]),
+    });
+    const idle = emptyDetail([user, assistant]);
+    idle.timeline.last_sequence = 2n;
+    const idleState = conversationStoreReducer(emptyConversationStoreState, {
+      type: 'load_success',
+      conversationId: CONVERSATION_ID,
+      detail: idle,
+    });
+    expect(
+      timelineTurnsForEntry(entryOf(idleState)).map((row) => row.phase)
+    ).toEqual(['settled', 'settled']);
+
+    const live = emptyDetail([user, assistant]);
+    live.timeline.last_sequence = 2n;
+    live.in_flight_user_turn_id = 'turn-1';
+    const liveState = conversationStoreReducer(emptyConversationStoreState, {
+      type: 'load_success',
+      conversationId: CONVERSATION_ID,
+      detail: live,
+    });
+    expect(
+      timelineTurnsForEntry(entryOf(liveState)).map((row) => row.phase)
+    ).toEqual(['streaming', 'streaming']);
+  });
+
+  it('shows the first prompt once when the session seed and the live user match', () => {
+    let state = loaded([userRow(CONVERSATION_ID, 'hello', 1n)]);
+    state = conversationStoreReducer(state, {
+      type: 'row_ops',
+      batch: batch(
+        [{ op: 'upsert', row: streamingUser('turn-1', 'hello', 2n) }],
+        2n
+      ),
+    });
+    const users = timelineTurnsForEntry(entryOf(state)).filter(
+      (row) => row.turn.role === 'user'
+    );
+    expect(users.map((row) => row.turn.id)).toEqual(['turn-1:user']);
+    expect(textOf(users[0]?.turn.blocks ?? [])).toBe('hello');
+  });
+
+  it('keeps two intentional copies of the same prompt', () => {
+    const state = loaded([
+      userRow('t1', 'same', 1n),
+      userRow('t2', 'same', 2n),
+    ]);
+    const users = timelineTurnsForEntry(entryOf(state)).filter(
+      (row) => row.turn.role === 'user'
+    );
+    expect(users.map((row) => textOf(row.turn.blocks))).toEqual([
+      'same',
+      'same',
+    ]);
+  });
+
+  it('keeps the next user visible when a file refresh starts the reply without that prompt', () => {
+    let state = loaded([
+      userRow('t1', 'first', 1n),
+      assistantRow('t1', [{ type: 'text', text: 'done' }], 2n),
+    ]);
+    state = conversationStoreReducer(state, {
+      type: 'row_ops',
+      batch: batch(
+        [{ op: 'upsert', row: streamingUser('t2', 'second', 3n) }],
+        3n
+      ),
+    });
+    state = conversationStoreReducer(state, {
+      type: 'row_ops',
+      batch: batch(
+        [
+          {
+            op: 'append_text',
+            row_id: 't2:assistant',
+            revision: 4n,
+            stream: 'text',
+            delta: 'working',
+          },
+        ],
+        3n
+      ),
+    });
+    const detail = emptyDetail([
+      userRow('acp-1', 'first', 1n),
+      assistantRow('acp-2', [{ type: 'text', text: 'done' }], 2n),
+      assistantRow(
+        'acp-3',
+        [{ type: 'text', text: 'working' }],
+        3n,
+        'streaming'
+      ),
+    ]);
+    detail.timeline.last_sequence = 3n;
+    state = conversationStoreReducer(state, {
+      type: 'load_success',
+      conversationId: CONVERSATION_ID,
+      detail,
+    });
+    const turns = timelineTurnsForEntry(entryOf(state));
+    expect(
+      turns
+        .filter((row) => row.turn.role === 'user')
+        .map((row) => textOf(row.turn.blocks))
+    ).toEqual(['first', 'second']);
+    expect(
+      turns.filter(
+        (row) =>
+          row.turn.role === 'assistant' &&
+          textOf(row.turn.blocks).includes('working')
+      )
+    ).toHaveLength(1);
+    const second = turns.find((row) => textOf(row.turn.blocks) === 'second');
+    expect(second?.phase).toBe('streaming');
   });
 
   it('does not grow a settled assistant with the next turn’s stream', () => {

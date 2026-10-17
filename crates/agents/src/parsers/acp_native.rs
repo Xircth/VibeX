@@ -451,7 +451,7 @@ pub fn project_turns(entries: &[TranscriptEntry]) -> Vec<MessageTurn> {
         match entry.k {
             EntryKind::Prompt => {
                 between_turns = false;
-                flush(&mut pending, &mut turns, &mut seq);
+                flush(&mut pending, &mut turns, &mut seq, true);
                 // A steer is a user message of its own, so it splits the turn
                 // like a prompt — the shape Claude Code's history draws, and
                 // the live view's — but the turn goes on: same prompt, same
@@ -507,7 +507,7 @@ pub fn project_turns(entries: &[TranscriptEntry]) -> Vec<MessageTurn> {
                         }
                     }
                 }
-                flush(&mut pending, &mut turns, &mut seq);
+                flush(&mut pending, &mut turns, &mut seq, true);
                 prompt_just_recorded = false;
                 turn_start_hint = None;
                 user_prose_open = false;
@@ -543,11 +543,16 @@ pub fn project_turns(entries: &[TranscriptEntry]) -> Vec<MessageTurn> {
             }
         }
     }
-    flush(&mut pending, &mut turns, &mut seq);
+    flush(&mut pending, &mut turns, &mut seq, false);
     turns
 }
 
-fn flush(pending: &mut Option<PendingTurn>, turns: &mut Vec<MessageTurn>, seq: &mut usize) {
+fn flush(
+    pending: &mut Option<PendingTurn>,
+    turns: &mut Vec<MessageTurn>,
+    seq: &mut usize,
+    closed: bool,
+) {
     let Some(p) = pending.take() else { return };
     if !p.has_content {
         return;
@@ -562,7 +567,7 @@ fn flush(pending: &mut Option<PendingTurn>, turns: &mut Vec<MessageTurn>, seq: &
             .duration_ms
             .or_else(|| p.last_at_ms.checked_sub(p.started_at_ms)),
         model: p.model,
-        completed_at: Some(epoch_ms_to_utc(p.last_at_ms)),
+        completed_at: closed.then(|| epoch_ms_to_utc(p.last_at_ms)),
     agent_message_id: None,
     });
     *seq += 1;
@@ -666,7 +671,7 @@ fn apply_update(
             let is_text = matches!(input, PromptInputBlock::Text { .. });
             let block = user_turn_block(&input);
             let coalesce = is_text && *user_prose_open;
-            flush(pending, turns, seq);
+            flush(pending, turns, seq, true);
             *turn_start_hint = Some(at_ms);
             match turns.last_mut() {
                 // Consecutive replay chunks belong to one user message.
@@ -1093,5 +1098,32 @@ mod tests {
             ContentBlock::Text { text } => assert_eq!(text, "Hello there"),
             other => panic!("{other:?}"),
         }
+    }
+
+    #[test]
+    fn an_open_transcript_leaves_the_assistant_unfinished() {
+        let open = project_turns(&[prompt(1_000, "hi"), chunk(1_100, "Hello")]);
+        assert!(open[1].completed_at.is_none());
+
+        let continued = project_turns(&[
+            prompt(1_000, "one"),
+            chunk(1_100, "A"),
+            prompt(1_200, "two"),
+            chunk(1_300, "B"),
+        ]);
+        assert!(continued[1].completed_at.is_some());
+        assert!(continued[3].completed_at.is_none());
+
+        let closed = project_turns(&[
+            prompt(1_000, "hi"),
+            chunk(1_100, "Hello"),
+            TranscriptEntry {
+                t: 1_300,
+                k: EntryKind::TurnEnd,
+                steer: false,
+                p: serde_json::json!({ "stopReason": "end_turn" }),
+            },
+        ]);
+        assert!(closed[1].completed_at.is_some());
     }
 }

@@ -810,6 +810,12 @@ function authenticationFieldIdsForMode(
   }
   if (agentId === 'antigravity' || agentId === 'gemini') {
     if (mode === 'gemini-api-key') return new Set(['antigravity_api_key']);
+    if (mode === 'oauth-business') {
+      return new Set([
+        'antigravity_cloud_project',
+        'antigravity_cloud_location',
+      ]);
+    }
     if (mode === 'agent-platform') {
       return new Set([
         'antigravity_google_api_key',

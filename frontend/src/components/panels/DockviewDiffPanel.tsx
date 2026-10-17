@@ -1,5 +1,6 @@
 import { DiffEditor, type BeforeMount } from '@monaco-editor/react';
-import { useCallback } from 'react';
+import type { editor as monacoEditor } from 'monaco-editor';
+import { useCallback, useEffect, useRef } from 'react';
 import { FileWarning, GitCompare, Image as ImageIcon } from 'lucide-react';
 import { useFileTreeStore } from '@/stores/useFileTreeStore';
 import { useFileContent, useFileAtHead } from '@/hooks/useFileContent';
@@ -72,9 +73,31 @@ function DockviewDiffPanel() {
     error: headError,
   } = useFileAtHead(shouldFetchTextDiff ? diffFilePath : null);
 
+  const diffEditorRef = useRef<monacoEditor.IStandaloneDiffEditor | null>(null);
+
   const handleDiffBeforeMount: BeforeMount = useCallback((monaco) => {
     defineAyuMonacoThemes(monaco);
   }, []);
+
+  const handleDiffMount = useCallback(
+    (editor: monacoEditor.IStandaloneDiffEditor) => {
+      diffEditorRef.current = editor;
+    },
+    []
+  );
+
+  useEffect(() => {
+    return () => {
+      if (diffEditorRef.current) {
+        if (typeof diffEditorRef.current.getModel === 'function') {
+          const model = diffEditorRef.current.getModel();
+          model?.original?.dispose?.();
+          model?.modified?.dispose?.();
+        }
+        diffEditorRef.current = null;
+      }
+    };
+  }, [diffFilePath]);
 
   // No file selected for diff
   if (!diffFilePath) {
@@ -172,6 +195,7 @@ function DockviewDiffPanel() {
                 : MONACO_THEME_AYU_LIGHT
             }
             beforeMount={handleDiffBeforeMount}
+            onMount={handleDiffMount}
             options={{
               readOnly: true,
               renderSideBySide: true,

@@ -29,52 +29,87 @@ function builtIn(agentId: string, displayName: string): AgentManagementView {
   };
 }
 
+const BUILT_IN_AGENTS = [
+  ['claude_code', 'Claude Code'],
+  ['codex', 'Codex'],
+  ['antigravity', 'Google Antigravity'],
+  ['openclaw', 'OpenClaw'],
+  ['opencode', 'OpenCode'],
+  ['cline', 'Cline'],
+  ['hermes', 'Hermes Agent'],
+  ['codebuddy', 'CodeBuddy'],
+  ['kimi_code', 'Kimi Code'],
+  ['pi', 'Pi'],
+  ['grok', 'Grok'],
+  ['cursor', 'Cursor'],
+  ['deepseek_harness', 'DeepSeek Harness'],
+  ['qoder', 'Qoder'],
+  ['mimo_code', 'MiMo Code'],
+] as const;
+
 describe('AgentManagementIcon', () => {
-  it('uses the app brand artwork for built-in Agents instead of theme-switched white assets', () => {
-    const { rerender } = render(
-      <AgentManagementIcon
-        agent={builtIn('claude_code', 'Claude Code')}
-        className="h-6 w-6"
-      />
-    );
+  it.each(BUILT_IN_AGENTS)(
+    'draws %s as an inline glyph that fills the caller box',
+    (agentId, displayName) => {
+      const { container } = render(
+        <AgentManagementIcon
+          agent={builtIn(agentId, displayName)}
+          className="h-5 w-5"
+        />
+      );
 
-    expect(screen.getByTitle('Claude Code')).toBeInTheDocument();
-    expect(document.querySelector('picture')).not.toBeInTheDocument();
+      const frame = container.firstElementChild;
+      expect(frame).toHaveClass('h-5', 'w-5');
+      expect(screen.getByTitle(displayName)).toBeInTheDocument();
+      const svg = frame!.querySelector('svg');
+      expect(svg).toHaveAttribute('width', '100%');
+      expect(svg).toHaveAttribute('height', '100%');
+      expect(container.querySelector('img, picture')).toBeNull();
+    }
+  );
 
-    rerender(
-      <AgentManagementIcon
-        agent={builtIn('codex', 'Codex')}
-        className="h-6 w-6"
-      />
-    );
-    expect(screen.getByTitle('Codex')).toBeInTheDocument();
-  });
-
-  it('does not let a registry svg hide the built-in Grok, Kimi, or Cursor marks', () => {
-    for (const [agentId, displayName, src] of [
-      ['grok', 'Grok', '/agents/grok.svg'],
-      ['kimi_code', 'Kimi Code', '/agents/kimi.svg'],
-      ['cursor', 'Cursor', '/agents/cursor-light.svg'],
+  it('does not let registry artwork hide a built-in mark', () => {
+    for (const [agentId, displayName] of [
+      ['grok', 'Grok'],
+      ['kimi_code', 'Kimi Code'],
+      ['cursor', 'Cursor'],
     ] as const) {
       const { container, unmount } = render(
         <AgentManagementIcon
           agent={{
             ...builtIn(agentId, displayName),
-            icon_light: src,
-            icon_dark: src,
             icon_svg: "<svg data-mark='registry'></svg>",
           }}
           className="h-6 w-6"
         />
       );
 
-      expect(container.querySelector('img')).toHaveAttribute('src', src);
+      expect(screen.getByTitle(displayName)).toBeInTheDocument();
       expect(container.querySelector('[data-mark="registry"]')).toBeNull();
+      expect(container.querySelector('img')).toBeNull();
       unmount();
     }
   });
 
-  it('constrains brand artwork to the wrapper outside settings pages', () => {
+  it('renders registry-only Agents from their runtime artwork', () => {
+    const { container } = render(
+      <AgentManagementIcon
+        agent={{
+          ...builtIn('vendor.agent', 'Vendor Agent'),
+          icon_light: '/vendor-light.svg',
+          icon_dark: '/vendor-dark.svg',
+        }}
+        className="h-5 w-5"
+      />
+    );
+
+    expect(container.querySelector('img')).toHaveAttribute(
+      'src',
+      '/vendor-light.svg'
+    );
+  });
+
+  it('constrains registry artwork to the wrapper outside settings pages', () => {
     const stylesheet = readFileSync(
       resolve(process.cwd(), 'src/styles/legacy/index.css'),
       'utf8'
@@ -111,5 +146,14 @@ describe('AgentManagementIcon', () => {
         selector.includes('.agent-management-svg-icon')
       )
     ).toBe(true);
+  });
+
+  it('keeps no per-Agent size calibration in the stylesheet', () => {
+    const stylesheet = readFileSync(
+      resolve(process.cwd(), 'src/styles/legacy/index.css'),
+      'utf8'
+    );
+
+    expect(stylesheet).not.toMatch(/agent-management-brand-icon\.is-/);
   });
 });

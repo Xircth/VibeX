@@ -131,8 +131,9 @@ router object 或任意 DOM selector。Host-owned component 只开放长期能�
 ### 4.1 Transport
 
 - 每个 Worker 一个 stdio framed JSON-RPC 2.0 connection；
-- 单帧、总并发、日志和二进制 payload 有硬限制；
-- 大文件只传 capability handle/stream，不 base64 塞进 JSON；
+- 单帧默认 32 MiB。插件用 `entrypoints.worker.maxFrameMiB` 改成 1 到 128。更大的 JSON（上限 128 MiB，例如图片的 base64）用 `frame.chunk` 分片，对端拼回。自造的分片格式会被拒绝，且不会因此卸载 Worker；
+- 视频等更大的二进制走 `blob.*`（单文件 4 GiB，每次 512 KiB），不进 JSON 消息；
+- 总并发、日志和二进制 payload 仍有硬限制；
 - request 有 ID、deadline、generation、invocation context；
 - cancellation 使用显式 notification；
 - Worker stderr 只进入 scoped diagnostic log，不作为 protocol；

@@ -5,7 +5,14 @@ export type ArtifactFact = {
   value: string;
 };
 
-const SEARCH_SKIP_KEYS = new Set(['query', 'q', 'pattern', 'search', 'text']);
+const SEARCH_SKIP_KEYS = new Set([
+  'query',
+  'q',
+  'pattern',
+  'search',
+  'text',
+  'description',
+]);
 
 export function splitCodeLines(content: string): string[] {
   if (!content) return [];

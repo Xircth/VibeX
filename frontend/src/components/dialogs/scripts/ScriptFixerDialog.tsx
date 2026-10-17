@@ -302,7 +302,10 @@ const ScriptFixerDialogImpl = NiceModal.create<ScriptFixerDialogProps>(
             {/* Script editor */}
             <div className="flex flex-col gap-2 flex-1 min-h-0 min-w-0">
               <Label>{t('scriptFixer.scriptEdit')}</Label>
-              <div className="bg-panel flex-1 min-h-[150px] max-h-[300px] overflow-auto border rounded-md min-w-0">
+              <div
+                data-control-frame="true"
+                className="flex-1 min-h-[150px] max-h-[300px] overflow-auto rounded-[var(--_field-radius,var(--radius-element,var(--radius)))] border border-[var(--color-border-emphasized,hsl(var(--input)))] bg-[var(--color-background-surface,var(--surface-raised-control))] transition-[border-color,box-shadow] focus-within:border-[var(--color-accent,hsl(var(--primary)))] focus-within:[box-shadow:inset_0_0_0_2px_var(--color-accent-muted,hsl(var(--primary)/0.22))] min-w-0"
+              >
                 {isLoadingRepo ? (
                   <div className="h-full flex items-center justify-center">
                     <Loader2 className="h-6 w-6 animate-spin" />
@@ -311,7 +314,7 @@ const ScriptFixerDialogImpl = NiceModal.create<ScriptFixerDialogProps>(
                   <AutoExpandingTextarea
                     value={script}
                     onChange={(e) => setScript(e.target.value)}
-                    className="font-mono text-sm p-3 border-0 min-h-full bg-panel"
+                    className="font-mono text-sm p-3 border-0 min-h-full bg-transparent focus-visible:ring-0"
                     placeholder={
                       scriptType === 'setup'
                         ? 'npm install'
@@ -351,8 +354,8 @@ const ScriptFixerDialogImpl = NiceModal.create<ScriptFixerDialogProps>(
                       </>
                     ) : hasProcessError ? (
                       <>
-                        <span className="size-2 rounded-full bg-destructive bg-error" />
-                        <span className="text-destructive text-error">
+                        <span className="size-2 rounded-full bg-destructive" />
+                        <span className="text-destructive">
                           {t('scriptFixer.failedExitCode', {
                             code: Number(latestProcess.exit_code ?? 0),
                           })}
@@ -360,7 +363,7 @@ const ScriptFixerDialogImpl = NiceModal.create<ScriptFixerDialogProps>(
                       </>
                     ) : isProcessKilled ? (
                       <>
-                        <span className="size-2 rounded-full bg-low" />
+                        <span className="size-2 rounded-full bg-muted-foreground" />
                         <span className="text-muted-foreground">
                           {t('scriptFixer.processKilled')}
                         </span>
@@ -369,7 +372,7 @@ const ScriptFixerDialogImpl = NiceModal.create<ScriptFixerDialogProps>(
                   </div>
                 )}
               </div>
-              <div className="bg-secondary py-base flex-1 border rounded-md bg-muted overflow-hidden min-w-0">
+              <div className="flex-1 border rounded-md bg-muted overflow-hidden min-w-0">
                 {latestProcess ? (
                   <div className="h-full overflow-auto px-3 py-2 font-mono text-xs">
                     {logsError ? (

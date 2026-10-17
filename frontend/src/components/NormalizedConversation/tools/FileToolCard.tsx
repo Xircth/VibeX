@@ -8,8 +8,12 @@ import { useTemporaryFlag } from '@/hooks/useTemporaryFlag';
 import type { FileOpenLocation } from '@/components/file-tree/file-tree-types';
 import { deriveRelativeFilePath } from '@/utils/filePaths';
 import { useExpandable } from '@/stores/useExpandableStore';
-import { getToolSummary } from '../conversation-entry-utils';
-import { ToolArtifact, ToolCodeSnippet } from './ToolArtifact';
+import {
+  getToolCallDescription,
+  getToolSummary,
+} from '../conversation-entry-utils';
+import { ToolArtifact } from './ToolArtifact';
+import { FileReadSnippet } from './FileReadSnippet';
 import { ToolCallTarget } from './ToolCallTarget';
 import {
   ToolCardShell,
@@ -75,6 +79,7 @@ export function FileToolCard({
   const [copied, triggerCopied] = useTemporaryFlag(1500);
   const path = (actionType?.path || entry.content).trim();
   const summary = getToolSummary(toolEntry, entry.content.trim());
+  const description = getToolCallDescription(entry);
   const displayPath = summary.detail || path;
   const canOpenPreview = path.length > 0;
   const lineRange =
@@ -155,13 +160,15 @@ export function FileToolCard({
   return (
     <ToolCardShell
       icon={<Eye className="h-3 w-3" />}
-      label={summary.label}
+      label={description ?? summary.label}
       detail={
-        <ToolCallTarget
-          text={displayPath}
-          path={path}
-          onClick={canOpenPreview ? handleOpenPreview : undefined}
-        />
+        description ? undefined : (
+          <ToolCallTarget
+            text={displayPath}
+            path={path}
+            onClick={canOpenPreview ? handleOpenPreview : undefined}
+          />
+        )
       }
       actions={isResultDetail ? undefined : actions}
       statusClassName={getToolStatusClassName(toolEntry.status)}
@@ -182,8 +189,13 @@ export function FileToolCard({
         actions={isResultDetail ? actions : undefined}
       >
         {actionType.content ? (
-          <ToolCodeSnippet
+          <FileReadSnippet
             path={path}
+            resolvedPath={
+              containerRef || /^[a-zA-Z]:[\\/]|^\//.test(path)
+                ? resolveToolFilePath(path, containerRef)
+                : null
+            }
             content={actionType.content}
             startLine={actionType.line_start ?? 1}
           />

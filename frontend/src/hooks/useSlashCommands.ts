@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo } from 'react';
 import type { ExecutorProfileId, SlashCommandDescription } from 'shared/types';
-import { useTauriPatchStream } from '@/hooks/useTauriPatchStream';
+import { usePatchStream } from '@/hooks/useTauriPatchStream';
 
 type SlashCommandsStreamState = {
   commands: SlashCommandDescription[];
@@ -57,7 +57,7 @@ export function useSlashCommands(
     isConnected,
     isInitialized,
     error: streamError,
-  } = useTauriPatchStream<SlashCommandsStreamState>({
+  } = usePatchStream<SlashCommandsStreamState>({
     subscribeCommand: 'subscribe_slash_commands_stream',
     subscribeArgs,
     eventChannel,

@@ -14,8 +14,10 @@ import { fileTreeApi } from '@/lib/api';
 import type { DirectoryChildrenResponse } from '@/lib/api';
 import { subscribeFileTreeChanges } from '@/lib/fileTreeChangeStream';
 import { FileTreePanel } from '@/components/file-tree/FileTreePanel';
+import type { FileOpenLocation } from '@/components/file-tree/file-tree-types';
 import { resolveFileTreeAbsolutePath } from '@/components/file-tree/file-tree-utils';
 import { deriveWorkspaceRootPathCandidates } from './workspaceRootPath';
+import { replaceFilePathPrefix } from '@/utils/filePaths';
 
 function stripWindowsExtendedPathPrefix(path: string): string {
   return path
@@ -64,7 +66,7 @@ function DockviewFileTreePanel(_props: IDockviewPanelProps) {
     setSelectedFilePath,
     setDiffFilePath,
   } = useFileTreeStore();
-  const { openFilePreview } = usePanelActions();
+  const { openFilePreview, renameFilePreviews } = usePanelActions();
   const { projectId, project } = useProject();
   const { data: repos } = useProjectRepos(projectId);
   const projectFolderPath =
@@ -346,11 +348,11 @@ function DockviewFileTreePanel(_props: IDockviewPanelProps) {
   }, [refreshFileTree, rootPath]);
 
   const handleOpenFile = useCallback(
-    (relativePath: string) => {
+    (relativePath: string, location?: FileOpenLocation) => {
       if (!rootPath) return;
       const absolutePath = resolveFileTreeAbsolutePath(rootPath, relativePath);
       setSelectedFilePath(absolutePath);
-      openFilePreview(absolutePath);
+      openFilePreview(absolutePath, location ? { location } : undefined);
     },
     [rootPath, setSelectedFilePath, openFilePreview]
   );
@@ -367,6 +369,21 @@ function DockviewFileTreePanel(_props: IDockviewPanelProps) {
       // User cancelled
     }
   }, [setRootPath, t]);
+
+  const handleRenamePath = (oldPath: string, newPath: string) => {
+    const remap = (path: string) =>
+      replaceFilePathPrefix(path, oldPath, newPath);
+    setFiles((paths) => paths.map(remap));
+    setDirectories((paths) => paths.map(remap));
+    setGitignoredFiles((paths) => new Set(Array.from(paths, remap)));
+    setGitignoredDirectories((paths) => new Set(Array.from(paths, remap)));
+    if (rootPath) {
+      renameFilePreviews(
+        resolveFileTreeAbsolutePath(rootPath, oldPath),
+        resolveFileTreeAbsolutePath(rootPath, newPath)
+      );
+    }
+  };
 
   const relativeRevealTarget = useMemo(() => {
     if (!rootPath || !revealTarget) {
@@ -423,6 +440,7 @@ function DockviewFileTreePanel(_props: IDockviewPanelProps) {
         gitignoredFiles={gitignoredFiles}
         gitignoredDirectories={gitignoredDirectories}
         onRefreshFiles={refreshFileTree}
+        onRenamePath={handleRenamePath}
         refreshToken={refreshToken}
         lazyLoadAllDirectories
         revealTarget={relativeRevealTarget}

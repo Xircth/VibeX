@@ -46,6 +46,8 @@ export function useGitLog({
         : await repoApi.getGitLog(repoId!);
     },
     enabled: enabled && !!repoId,
+    staleTime: 15_000,
+    placeholderData: (previousData) => previousData,
   });
 
   const refresh = useCallback(async () => {

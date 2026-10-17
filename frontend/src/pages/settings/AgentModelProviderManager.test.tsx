@@ -1327,4 +1327,49 @@ describe('AgentModelProviderManager', () => {
       source_ids: ['deepseek'],
     });
   });
+
+  it('does not mark the form dirty when opening edit until a field changes', async () => {
+    const onDirtyChange = vi.fn();
+    vi.mocked(agentManagementApi.modelProviders).mockResolvedValue({
+      agent_id: 'claude_code',
+      providers: [{ ...gateway }],
+      bound_provider_id: null,
+    });
+    vi.mocked(agentManagementApi.modelProviderCatalog).mockResolvedValue({
+      agent_id: 'claude_code',
+      source: 'live',
+      models: [],
+      default_model: null,
+      error: null,
+    });
+    const user = userEvent.setup();
+    render(
+      <AgentModelProviderManager
+        agentId="claude_code"
+        disabled={false}
+        embedded
+        onDirtyChange={onDirtyChange}
+      />
+    );
+
+    await user.click(
+      await screen.findByRole('button', { name: '编辑 Gateway' })
+    );
+    expect(onDirtyChange).not.toHaveBeenCalledWith(true);
+
+    // Clicking Back without edits closes immediately without a discard dialog.
+    await user.click(screen.getByRole('button', { name: '返回' }));
+    expect(ConfirmDialog.show).not.toHaveBeenCalled();
+    expect(
+      await screen.findByRole('button', { name: '编辑 Gateway' })
+    ).toBeVisible();
+
+    // Reopen edit and modify a field; now formDirty becomes true.
+    await user.click(screen.getByRole('button', { name: '编辑 Gateway' }));
+    await user.type(screen.getByLabelText('Provider 名称'), ' Updated');
+    expect(onDirtyChange).toHaveBeenLastCalledWith(true);
+
+    await user.click(screen.getByRole('button', { name: '返回' }));
+    expect(ConfirmDialog.show).toHaveBeenCalledOnce();
+  });
 });

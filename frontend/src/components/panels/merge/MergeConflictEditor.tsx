@@ -1,5 +1,11 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import Editor, { DiffEditor, type BeforeMount } from '@monaco-editor/react';
+import Editor, {
+  DiffEditor,
+  type BeforeMount,
+  type DiffOnMount,
+  type OnMount,
+} from '@monaco-editor/react';
+import type { editor as monacoEditor } from 'monaco-editor';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { GitMerge, Loader2 } from 'lucide-react';
 import { attemptsApi } from '@/lib/api';
@@ -67,15 +73,30 @@ export function MergeConflictEditor({
   const [saving, setSaving] = useState(false);
   const [writeError, setWriteError] = useState<string | null>(null);
   const seededPath = useRef<string | null>(null);
+  const resultEditorRef = useRef<monacoEditor.IStandaloneCodeEditor | null>(
+    null
+  );
 
   const query = useQuery({
     queryKey: ['conflictFile', workspaceId, repoId, filePath],
     queryFn: () => attemptsApi.getConflictFile(workspaceId, repoId, filePath),
     enabled: Boolean(workspaceId && repoId && filePath),
+    gcTime: 30_000,
   });
 
   useEffect(() => {
     void preloadMonacoEditor();
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      if (resultEditorRef.current) {
+        if (typeof resultEditorRef.current.getModel === 'function') {
+          resultEditorRef.current.getModel()?.dispose();
+        }
+        resultEditorRef.current = null;
+      }
+    };
   }, []);
 
   useEffect(() => {
@@ -93,6 +114,15 @@ export function MergeConflictEditor({
 
   const handleBeforeMount: BeforeMount = useCallback((monaco) => {
     defineAyuMonacoThemes(monaco);
+  }, []);
+
+  const handleResultEditorMount: OnMount = useCallback((editor) => {
+    if (resultEditorRef.current && resultEditorRef.current !== editor) {
+      if (typeof resultEditorRef.current.getModel === 'function') {
+        resultEditorRef.current.getModel()?.dispose();
+      }
+    }
+    resultEditorRef.current = editor;
   }, []);
 
   const detail = query.data;
@@ -332,6 +362,7 @@ export function MergeConflictEditor({
           value={result}
           onChange={(value) => setResult(value ?? '')}
           beforeMount={handleBeforeMount}
+          onMount={handleResultEditorMount}
           options={{
             minimap: { enabled: false },
             fontSize: 12,
@@ -361,6 +392,24 @@ function StageDiff({
   theme: string;
   onBeforeMount: BeforeMount;
 }) {
+  const diffEditorRef = useRef<monacoEditor.IStandaloneDiffEditor | null>(null);
+  const handleDiffMount: DiffOnMount = useCallback((editor) => {
+    diffEditorRef.current = editor;
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      if (diffEditorRef.current) {
+        if (typeof diffEditorRef.current.getModel === 'function') {
+          const models = diffEditorRef.current.getModel();
+          models?.original?.dispose();
+          models?.modified?.dispose();
+        }
+        diffEditorRef.current = null;
+      }
+    };
+  }, []);
+
   return (
     <div className="flex min-h-0 flex-col bg-background">
       <div className="px-3 py-1 text-[11px] text-muted-foreground">{title}</div>
@@ -376,6 +425,7 @@ function StageDiff({
           original={original}
           modified={modified}
           beforeMount={onBeforeMount}
+          onMount={handleDiffMount}
           options={{
             readOnly: true,
             renderSideBySide: true,

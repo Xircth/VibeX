@@ -1,10 +1,44 @@
 import * as React from 'react';
 import { X } from 'lucide-react';
+import { twMerge } from 'tailwind-merge';
 
 import { cn } from '@/lib/utils';
 import { useHotkeysContext } from 'react-hotkeys-hook';
 import { useKeyExit, useKeySubmit, Scope } from '@/keyboard';
 import { NativeSurfaceOcclusionHold } from '@/contexts/WorkspaceOverlayContext';
+
+interface DialogContextValue {
+  titleId?: string;
+  registerTitleId: (id: string | undefined) => void;
+}
+
+const DialogContext = React.createContext<DialogContextValue | null>(null);
+
+const SURFACE_CLASS_TOKEN_RE =
+  /^(?:(?:sm|md|lg|xl|2xl):)?(?:max-w-|min-w-|w-|p-0$|px-0$|py-0$)/;
+
+function splitDialogContentClasses(className?: string): {
+  surfaceClasses: string;
+  contentClasses: string;
+} {
+  if (!className) {
+    return { surfaceClasses: '', contentClasses: '' };
+  }
+  const surfaceTokens: string[] = [];
+  const contentTokens: string[] = [];
+  for (const token of className.trim().split(/\s+/)) {
+    if (!token) continue;
+    if (SURFACE_CLASS_TOKEN_RE.test(token)) {
+      surfaceTokens.push(token);
+    } else {
+      contentTokens.push(token);
+    }
+  }
+  return {
+    surfaceClasses: surfaceTokens.join(' '),
+    contentClasses: contentTokens.join(' '),
+  };
+}
 
 const Dialog = React.forwardRef<
   HTMLDivElement,
@@ -15,6 +49,28 @@ const Dialog = React.forwardRef<
   }
 >(({ className, open, onOpenChange, children, uncloseable, ...props }, ref) => {
   const { enableScope, disableScope } = useHotkeysContext();
+  const internalRef = React.useRef<HTMLDivElement | null>(null);
+  const [titleId, setTitleId] = React.useState<string | undefined>(undefined);
+
+  const setDialogRef = React.useCallback(
+    (node: HTMLDivElement | null) => {
+      internalRef.current = node;
+      if (typeof ref === 'function') {
+        ref(node);
+      } else if (ref) {
+        (ref as React.RefObject<HTMLDivElement | null>).current = node;
+      }
+    },
+    [ref]
+  );
+
+  const contextValue = React.useMemo<DialogContextValue>(
+    () => ({
+      titleId,
+      registerTitleId: setTitleId,
+    }),
+    [titleId]
+  );
 
   // Manage dialog scope when open/closed
   React.useEffect(() => {
@@ -66,38 +122,33 @@ const Dialog = React.forwardRef<
     (e) => {
       // Don't interfere if user is typing in textarea (allow new lines)
       const activeElement = document.activeElement as HTMLElement;
-      if (activeElement?.tagName === 'TEXTAREA') {
+      if (
+        activeElement?.tagName === 'TEXTAREA' ||
+        activeElement?.isContentEditable
+      ) {
         return;
       }
 
-      // Look for submit button or primary action button within this dialog
-      if (ref && typeof ref === 'object' && ref.current) {
-        // First try to find a submit button
-        const submitButton = ref.current.querySelector(
-          'button[type="submit"]'
-        ) as HTMLButtonElement;
-        if (submitButton && !submitButton.disabled) {
-          e?.preventDefault();
-          submitButton.click();
-          return;
-        }
+      const root = internalRef.current;
+      if (!root) return;
 
-        // If no submit button, look for primary action button
-        const buttons = Array.from(
-          ref.current.querySelectorAll('button')
-        ) as HTMLButtonElement[];
-        const primaryButton = buttons.find(
-          (btn) =>
-            !btn.disabled &&
-            !btn.textContent?.toLowerCase().includes('cancel') &&
-            !btn.textContent?.toLowerCase().includes('close') &&
-            btn.type !== 'button'
-        );
+      // 1. Explicit submit or primary dialog button
+      const explicitSubmit = root.querySelector(
+        'button[type="submit"]:not(:disabled), button[data-dialog-primary="true"]:not(:disabled)'
+      ) as HTMLButtonElement | null;
+      if (explicitSubmit) {
+        e?.preventDefault();
+        explicitSubmit.click();
+        return;
+      }
 
-        if (primaryButton) {
-          e?.preventDefault();
-          primaryButton.click();
-        }
+      // 2. Primary/destructive button inside DialogFooter (never toolbar/outline buttons in the body)
+      const footerPrimary = root.querySelector(
+        '[data-dialog-footer] button.primary-control:not(:disabled), [data-dialog-footer] button.destructive-control:not(:disabled)'
+      ) as HTMLButtonElement | null;
+      if (footerPrimary) {
+        e?.preventDefault();
+        footerPrimary.click();
       }
     },
     {
@@ -106,42 +157,69 @@ const Dialog = React.forwardRef<
     }
   );
 
+  const childContentClasses = React.useMemo(() => {
+    const collected: string[] = [];
+    React.Children.forEach(children, (child) => {
+      if (
+        React.isValidElement<{ className?: string }>(child) &&
+        (child.type === DialogContent ||
+          (child.type as { displayName?: string })?.displayName ===
+            'DialogContent')
+      ) {
+        const { surfaceClasses } = splitDialogContentClasses(
+          child.props.className
+        );
+        if (surfaceClasses) {
+          collected.push(surfaceClasses);
+        }
+      }
+    });
+    return collected.join(' ');
+  }, [children]);
+
   if (!open) return null;
 
   return (
-    <div
-      data-floating-layer="modal"
-      className="fixed inset-0 z-[9999] flex items-start justify-center p-4 overflow-y-auto"
-    >
-      <NativeSurfaceOcclusionHold />
+    <DialogContext.Provider value={contextValue}>
       <div
-        className="dialog-backdrop fixed inset-0"
-        aria-hidden="true"
-        onClick={() => (uncloseable ? {} : onOpenChange?.(false))}
-      />
-      <div
-        ref={ref}
-        role="dialog"
-        aria-modal="true"
-        className={cn(
-          'dialog-surface relative z-[9999] my-8 flex max-h-[calc(100dvh-2rem)] w-full max-w-xl flex-col gap-4 overflow-y-auto rounded-lg border p-5',
-          className
-        )}
-        {...props}
+        data-floating-layer="modal"
+        className="fixed inset-0 z-[9999] flex items-start justify-center p-4 overflow-y-auto"
       >
-        {!uncloseable && (
-          <button
-            type="button"
-            className="absolute right-4 top-4 z-10 inline-flex h-8 w-8 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-[var(--surface-control-hover)] hover:text-foreground focus:outline-none focus:ring-2 focus:ring-[var(--focus-ring)]"
-            onClick={() => onOpenChange?.(false)}
-          >
-            <X className="h-4 w-4" />
-            <span className="sr-only">Close</span>
-          </button>
-        )}
-        {children}
+        <NativeSurfaceOcclusionHold />
+        <div
+          className="dialog-backdrop fixed inset-0"
+          aria-hidden="true"
+          onClick={() => (uncloseable ? {} : onOpenChange?.(false))}
+        />
+        <div
+          ref={setDialogRef}
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby={props['aria-labelledby'] ?? titleId}
+          className={twMerge(
+            cn(
+              'dialog-surface relative z-[9999] my-8 flex max-h-[calc(100dvh-2rem)] w-full max-w-xl flex-col gap-4 overflow-y-auto rounded-lg border p-5',
+              childContentClasses,
+              className
+            )
+          )}
+          {...props}
+        >
+          {!uncloseable && (
+            <button
+              type="button"
+              aria-label="Close"
+              className="absolute right-4 top-4 z-10 inline-flex h-8 w-8 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-[var(--surface-control-hover)] hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--focus-ring)]"
+              onClick={() => onOpenChange?.(false)}
+            >
+              <X className="h-4 w-4" />
+              <span className="sr-only">Close</span>
+            </button>
+          )}
+          {children}
+        </div>
       </div>
-    </div>
+    </DialogContext.Provider>
   );
 });
 Dialog.displayName = 'Dialog';
@@ -163,16 +241,31 @@ DialogHeader.displayName = 'DialogHeader';
 const DialogTitle = React.forwardRef<
   HTMLParagraphElement,
   React.HTMLAttributes<HTMLHeadingElement>
->(({ className, ...props }, ref) => (
-  <h3
-    ref={ref}
-    className={cn(
-      'text-base font-semibold leading-6 tracking-normal',
-      className
-    )}
-    {...props}
-  />
-));
+>(({ className, id: idProp, ...props }, ref) => {
+  const generatedId = React.useId();
+  const dialogContext = React.useContext(DialogContext);
+  const resolvedId = idProp ?? `dialog-title-${generatedId}`;
+
+  React.useEffect(() => {
+    if (!dialogContext) return;
+    dialogContext.registerTitleId(resolvedId);
+    return () => {
+      dialogContext.registerTitleId(undefined);
+    };
+  }, [dialogContext, resolvedId]);
+
+  return (
+    <h3
+      ref={ref}
+      id={resolvedId}
+      className={cn(
+        'text-base font-semibold leading-6 tracking-normal',
+        className
+      )}
+      {...props}
+    />
+  );
+});
 DialogTitle.displayName = 'DialogTitle';
 
 const DialogDescription = React.forwardRef<
@@ -190,9 +283,19 @@ DialogDescription.displayName = 'DialogDescription';
 const DialogContent = React.forwardRef<
   HTMLDivElement,
   React.HTMLAttributes<HTMLDivElement>
->(({ className, ...props }, ref) => (
-  <div ref={ref} className={cn('flex flex-col gap-4', className)} {...props} />
-));
+>(({ className, ...props }, ref) => {
+  const dialogContext = React.useContext(DialogContext);
+  const effectiveClassName = dialogContext
+    ? splitDialogContentClasses(className).contentClasses
+    : className;
+  return (
+    <div
+      ref={ref}
+      className={cn('flex flex-col gap-4', effectiveClassName)}
+      {...props}
+    />
+  );
+});
 DialogContent.displayName = 'DialogContent';
 
 const DialogFooter = ({
@@ -200,6 +303,7 @@ const DialogFooter = ({
   ...props
 }: React.HTMLAttributes<HTMLDivElement>) => (
   <div
+    data-dialog-footer="true"
     className={cn(
       'flex flex-col-reverse gap-2 sm:flex-row sm:justify-end',
       className

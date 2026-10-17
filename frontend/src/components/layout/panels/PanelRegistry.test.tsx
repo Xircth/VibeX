@@ -13,6 +13,10 @@ import {
   WorkspaceDockviewTab,
 } from './PanelRegistry';
 
+vi.mock('./workspaceTabContextMenu', () => ({
+  useWorkspaceEditorTabMenu: () => null,
+}));
+
 vi.mock('@/components/panels/DockviewKanbanPanel', () => ({
   default: () => <div data-testid="kanban-panel" />,
 }));
@@ -156,6 +160,19 @@ function tabProps({
 }
 
 describe('WorkspaceDockviewTab', () => {
+  it('does not make the tab face its own drag source', () => {
+    const { props } = tabProps({
+      component: PANEL_IDS.NOTES,
+      title: 'Notes',
+    });
+
+    render(<WorkspaceDockviewTab {...props} />);
+
+    expect(screen.getByTestId('dockview-dv-default-tab')).not.toHaveAttribute(
+      'draggable'
+    );
+  });
+
   it('renders a file-tree icon for file tabs', () => {
     const { props } = tabProps({
       component: PANEL_IDS.PREVIEW,

@@ -1,5 +1,5 @@
 import {
-  type FormEvent,
+  type SyntheticEvent,
   type ReactNode,
   useEffect,
   useMemo,
@@ -50,7 +50,7 @@ export function WebTransportBootstrap({ children }: { children: ReactNode }) {
     };
   }, []);
 
-  const connect = async (event: FormEvent) => {
+  const connect = async (event: SyntheticEvent) => {
     event.preventDefault();
     const host = baseUrl.trim();
     if (!token.trim() || !host) return;

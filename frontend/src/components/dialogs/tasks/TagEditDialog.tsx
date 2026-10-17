@@ -1,8 +1,8 @@
 import { useState, useEffect } from 'react';
+import { TextArea } from '@astryxdesign/core/TextArea';
 import { TextInput } from '@astryxdesign/core/TextInput';
 import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
-import { Textarea } from '@/components/ui/textarea';
 import { Alert } from '@/components/ui/alert';
 import {
   Dialog,
@@ -154,16 +154,19 @@ const TagEditDialogImpl = NiceModal.create<TagEditDialogProps>(({ tag }) => {
                 name: formData.tag_name || 'tag_name',
               })}
             </p>
-            <Textarea
+            <TextArea
               id="tag-content"
+              label={t('tagEdit.contentLabel')}
+              isLabelHidden
               value={formData.content}
-              onChange={(e) => {
-                const value = e.target.value;
+              onChange={(value) => {
                 setFormData({ ...formData, content: value });
               }}
               placeholder={t('tagEdit.contentPlaceholder')}
               rows={6}
-              disabled={saving}
+              isDisabled={saving}
+              width="100%"
+              className="[&_textarea]:text-sm"
             />
           </div>
           {error && <Alert variant="destructive">{error}</Alert>}

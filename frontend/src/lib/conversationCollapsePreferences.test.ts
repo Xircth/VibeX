@@ -26,8 +26,8 @@ describe('conversation collapse preferences', () => {
 });
 
 describe('resolveHideModelThinking', () => {
-  it('hides thinking by default before config loads', () => {
-    expect(resolveHideModelThinking(null)).toBe(true);
+  it('shows thinking by default before config loads', () => {
+    expect(resolveHideModelThinking(null)).toBe(false);
   });
 
   it('honors an explicit opt-out', () => {

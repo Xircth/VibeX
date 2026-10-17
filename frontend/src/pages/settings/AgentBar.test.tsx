@@ -1,9 +1,9 @@
-import { fireEvent, render, screen } from '@testing-library/react';
+import { fireEvent, render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { parse } from 'postcss';
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { AgentManagementView } from 'shared/types';
 
 import { AgentBar } from './AgentBar';
@@ -35,39 +35,64 @@ function agent(
   };
 }
 
-function installAgentBarStyles() {
-  const stylesheet = readFileSync(
-    resolve(process.cwd(), 'src/styles/legacy/index.css'),
-    'utf8'
+function manyAgents(count: number) {
+  return Array.from({ length: count }, (_, index) =>
+    agent(`vendor.agent${index}`, `Agent ${index}`, index, false)
   );
-  const relevantRules: string[] = [];
-  parse(stylesheet).walkRules((rule) => {
-    if (rule.selector.includes('.agent-management')) {
-      relevantRules.push(rule.toString());
-    }
-  });
-  const style = document.createElement('style');
-  style.textContent = relevantRules.join('\n');
-  document.head.append(style);
-  return style;
+}
+
+/** jsdom has no layout; report a fixed width for the paging viewport. */
+let viewportWidthSpy: ReturnType<typeof vi.spyOn> | null = null;
+
+function mockViewportWidth(width: number) {
+  viewportWidthSpy = vi
+    .spyOn(Element.prototype, 'clientWidth', 'get')
+    .mockImplementation(function (this: Element) {
+      return this.classList.contains('agent-management-bar-viewport')
+        ? width
+        : 0;
+    });
+}
+
+function renderBar(
+  agents: AgentManagementView[],
+  selectedAgentId: string | null,
+  overrides: Partial<Parameters<typeof AgentBar>[0]> = {}
+) {
+  return render(
+    <AgentBar
+      agents={agents}
+      selectedAgentId={selectedAgentId}
+      registryOpen={false}
+      onSelect={vi.fn()}
+      onReorder={vi.fn()}
+      {...overrides}
+    />
+  );
+}
+
+function currentPage() {
+  return document
+    .querySelector<HTMLElement>('.agent-management-bar-track')!
+    .style.getPropertyValue('--agent-bar-page');
 }
 
 describe('AgentBar', () => {
+  afterEach(() => {
+    viewportWidthSpy?.mockRestore();
+    viewportWidthSpy = null;
+  });
+
   it('nudges an icon with Alt+Arrow and persists the new order', () => {
     const onReorder = vi.fn();
-    render(
-      <AgentBar
-        agents={[
-          agent('claude_code', 'Claude Code', 0),
-          agent('codex', 'Codex', 1),
-          agent('pi', 'Pi', 2),
-        ]}
-        selectedAgentId="claude_code"
-        registryOpen={false}
-        onSelect={vi.fn()}
-        onOpenRegistry={vi.fn()}
-        onReorder={onReorder}
-      />
+    renderBar(
+      [
+        agent('claude_code', 'Claude Code', 0),
+        agent('codex', 'Codex', 1),
+        agent('pi', 'Pi', 2),
+      ],
+      'claude_code',
+      { onReorder }
     );
 
     fireEvent.keyDown(screen.getByRole('button', { name: 'Codex' }), {
@@ -79,23 +104,15 @@ describe('AgentBar', () => {
       screen
         .getAllByRole('button')
         .map((control) => control.getAttribute('aria-label'))
-    ).toEqual(['Codex', 'Claude Code', 'Pi', '添加 Agent']);
+    ).toEqual(['Codex', 'Claude Code', 'Pi']);
   });
 
   it('navigates on a plain pointer click (no drag) on an agent icon', () => {
     const onSelect = vi.fn();
-    render(
-      <AgentBar
-        agents={[
-          agent('claude_code', 'Claude Code', 0),
-          agent('codex', 'Codex', 1),
-        ]}
-        selectedAgentId="claude_code"
-        registryOpen={false}
-        onSelect={onSelect}
-        onOpenRegistry={vi.fn()}
-        onReorder={vi.fn()}
-      />
+    renderBar(
+      [agent('claude_code', 'Claude Code', 0), agent('codex', 'Codex', 1)],
+      'claude_code',
+      { onSelect }
     );
 
     const codex = screen.getByRole('button', { name: 'Codex' });
@@ -105,179 +122,332 @@ describe('AgentBar', () => {
     expect(onSelect).toHaveBeenCalledWith('codex');
   });
 
-  it('keeps all Agents in one ordered strip with a sticky final add control', async () => {
+  it('keeps all Agents in one ordered strip and leaves adding to the toolbar', async () => {
     const onSelect = vi.fn();
-    render(
-      <AgentBar
-        agents={[
-          agent('claude_code', 'Claude Code', 0),
-          agent('codex', 'Codex', 1),
-          agent('opencode', 'OpenCode', 2),
-          agent('pi', 'Pi', 3),
-          agent('vendor.agent', 'Vendor Agent', 4, false),
-        ]}
-        selectedAgentId="codex"
-        registryOpen={false}
-        onSelect={onSelect}
-        onOpenRegistry={vi.fn()}
-        onReorder={vi.fn()}
-      />
+    renderBar(
+      [
+        agent('claude_code', 'Claude Code', 0),
+        agent('codex', 'Codex', 1),
+        agent('opencode', 'OpenCode', 2),
+        agent('pi', 'Pi', 3),
+        agent('vendor.agent', 'Vendor Agent', 4, false),
+      ],
+      'codex',
+      { onSelect }
     );
 
-    const controls = screen.getAllByRole('button');
     expect(
-      controls.map((control) => control.getAttribute('aria-label'))
-    ).toEqual([
-      'Claude Code',
-      'Codex',
-      'OpenCode',
-      'Pi',
-      'Vendor Agent',
-      '添加 Agent',
-    ]);
+      screen
+        .getAllByRole('button')
+        .map((control) => control.getAttribute('aria-label'))
+    ).toEqual(['Claude Code', 'Codex', 'OpenCode', 'Pi', 'Vendor Agent']);
     expect(screen.getByRole('button', { name: 'Codex' })).toHaveAttribute(
       'aria-current',
       'true'
     );
-    expect(
-      screen
-        .getByRole('button', { name: '添加 Agent' })
-        .closest('.agent-management-bar-scroll')
-    ).toBeNull();
     await userEvent.click(screen.getByRole('button', { name: 'Vendor Agent' }));
     expect(onSelect).toHaveBeenCalledWith('vendor.agent');
   });
 
-  it('calibrates brand marks and keeps a visible scrollbar below the rail', () => {
-    const style = installAgentBarStyles();
-    const rendered = render(
-      <div className="settings-page">
-        <AgentBar
-          agents={[
-            {
-              ...agent('cline', 'Cline', 0),
-              icon_light: '/agents/cline.svg',
-              icon_dark: '/agents/cline.svg',
-            },
-            {
-              ...agent('hermes', 'Hermes Agent', 1),
-              icon_light: '/agents/hermes.png',
-              icon_dark: '/agents/hermes.png',
-            },
-            {
-              ...agent('codebuddy', 'CodeBuddy', 2),
-              icon_light: '/agents/codebuddy.svg',
-              icon_dark: '/agents/codebuddy.svg',
-            },
-            {
-              ...agent('grok', 'Grok', 3),
-              icon_light: '/agents/grok.svg',
-              icon_dark: '/agents/grok.svg',
-            },
-            {
-              ...agent('cursor', 'Cursor', 4),
-              icon_light: '/agents/cursor-light.svg',
-              icon_dark: '/agents/cursor-dark.svg',
-            },
-          ]}
-          selectedAgentId="hermes"
-          registryOpen={false}
-          onSelect={vi.fn()}
-          onOpenRegistry={vi.fn()}
-          onReorder={vi.fn()}
-        />
-      </div>
+  it('shows the name beside the selected Agent icon only', () => {
+    renderBar(
+      [agent('claude_code', 'Claude Code', 0), agent('codex', 'Codex', 1)],
+      'codex'
     );
 
-    try {
-      for (const name of ['Cline', 'CodeBuddy', 'Grok']) {
-        const artwork = screen
-          .getByRole('button', { name })
-          .querySelector('img');
-        expect(artwork).not.toBeNull();
-        expect(getComputedStyle(artwork!).width).toBe('22px');
-        expect(getComputedStyle(artwork!).height).toBe('22px');
-      }
+    const selected = screen.getByRole('button', { name: 'Codex' });
+    const other = screen.getByRole('button', { name: 'Claude Code' });
+    expect(selected).toHaveClass('is-selected');
+    expect(other).not.toHaveClass('is-selected');
+    expect(
+      selected.querySelector('.agent-management-bar-label')
+    ).toHaveTextContent('Codex');
+  });
 
-      const hermesArtwork = screen
-        .getByRole('button', { name: 'Hermes Agent' })
-        .querySelector('img');
-      expect(hermesArtwork).toHaveAttribute('src', '/agents/hermes.png');
-      expect(getComputedStyle(hermesArtwork!).width).toBe('28px');
-      expect(getComputedStyle(hermesArtwork!).height).toBe('28px');
+  it('does not show the selection while the registry is open', () => {
+    renderBar([agent('codex', 'Codex', 0)], 'codex', { registryOpen: true });
 
-      const cursorArtwork = screen
-        .getByRole('button', { name: 'Cursor' })
-        .querySelector('img');
-      expect(getComputedStyle(cursorArtwork!).width).toBe('24px');
-      expect(getComputedStyle(cursorArtwork!).height).toBe('24px');
+    expect(screen.getByRole('button', { name: 'Codex' })).not.toHaveClass(
+      'is-selected'
+    );
+  });
 
-      for (const name of [
-        'Cline',
-        'Hermes Agent',
-        'CodeBuddy',
-        'Grok',
-        'Cursor',
-      ]) {
-        const button = screen.getByRole('button', { name });
-        const frame = button.querySelector('.agent-management-brand-icon');
-        const artwork = button.querySelector('img');
-        expect(frame?.tagName).toBe('SPAN');
-        expect(frame).toContainElement(artwork);
-        expect(getComputedStyle(frame!).position).toBe('relative');
-        expect(getComputedStyle(artwork!).position).toBe('absolute');
-        expect(getComputedStyle(artwork!).top).toBe('50%');
-        expect(getComputedStyle(artwork!).left).toBe('50%');
-        expect(getComputedStyle(artwork!).transform).toBe(
-          'translate(-50%, -50%)'
-        );
-      }
+  it('draws every built-in Agent from the shared glyph at the same size', () => {
+    renderBar(
+      [
+        agent('cline', 'Cline', 0),
+        agent('hermes', 'Hermes Agent', 1),
+        agent('codebuddy', 'CodeBuddy', 2),
+        agent('grok', 'Grok', 3),
+        agent('cursor', 'Cursor', 4),
+      ],
+      'hermes'
+    );
 
-      const bar = document.querySelector('.agent-management-bar');
-      const rail = document.querySelector('.agent-management-bar-surface');
-      const scroller = document.querySelector('.agent-management-bar-scroll');
-      const item = document.querySelector('.agent-management-bar-item');
-      expect(bar).not.toBeNull();
-      expect(rail).not.toBeNull();
-      expect(scroller).not.toBeNull();
-      expect(item).not.toBeNull();
-      expect(rail!.contains(scroller)).toBe(false);
-      expect(getComputedStyle(bar!).height).toBe('60px');
-      expect(getComputedStyle(scroller!).height).toBe('60px');
-      expect(getComputedStyle(rail!).bottom).toBe('8px');
-      expect(getComputedStyle(item!).height).toBe('44px');
-      expect(getComputedStyle(scroller!).paddingTop).toBe('4px');
-      const railHeight =
-        parseFloat(getComputedStyle(bar!).height) -
-        parseFloat(getComputedStyle(rail!).bottom);
-      const insetBelow =
-        railHeight -
-        parseFloat(getComputedStyle(scroller!).paddingTop) -
-        parseFloat(getComputedStyle(item!).height);
-      expect(railHeight).toBe(52);
-      expect(insetBelow).toBe(
-        parseFloat(getComputedStyle(scroller!).paddingTop)
-      );
-      expect(style.textContent).toContain(
-        '.agent-management-bar-scroll::-webkit-scrollbar'
-      );
-      expect(style.textContent).toContain('height: 8px');
-      expect(style.textContent).not.toContain('border-top-width: 10px');
-      expect(style.textContent).not.toContain(
-        'hsl(var(--border-strong) / 0.55)'
-      );
-      expect(style.textContent).toMatch(
-        /agent-management-bar-scroll::-webkit-scrollbar-track\s*,[\s\S]*background:\s*transparent;/
-      );
-      expect(style.textContent).toMatch(
-        /agent-management-bar-scroll::-webkit-scrollbar-thumb\s*{[^}]*background:\s*hsl\(var\(--muted-foreground\) \/ 0\.45\);/
-      );
-      expect(style.textContent).not.toMatch(
-        /agent-management-bar-scroll:hover::-webkit-scrollbar-thumb/
-      );
-    } finally {
-      rendered.unmount();
-      style.remove();
+    for (const name of [
+      'Cline',
+      'Hermes Agent',
+      'CodeBuddy',
+      'Grok',
+      'Cursor',
+    ]) {
+      const button = screen.getByRole('button', { name });
+      const icon = button.querySelector('svg')?.parentElement;
+      expect(icon).toHaveClass('h-5', 'w-5');
+      expect(button.querySelector('img')).toBeNull();
     }
+  });
+
+  describe('paging', () => {
+    it('shows no pager while every Agent fits', () => {
+      mockViewportWidth(900);
+      renderBar(manyAgents(6), 'vendor.agent0');
+
+      expect(
+        screen.queryByRole('button', { name: '上一页 Agent' })
+      ).not.toBeInTheDocument();
+      expect(
+        screen.queryByRole('button', { name: '下一页 Agent' })
+      ).not.toBeInTheDocument();
+    });
+
+    it('hides the left pager on the first page and the right pager on the last', async () => {
+      mockViewportWidth(400);
+      renderBar(manyAgents(14), 'vendor.agent0');
+      const next = () => screen.queryByRole('button', { name: '下一页 Agent' });
+      const previous = () =>
+        screen.queryByRole('button', { name: '上一页 Agent' });
+
+      expect(currentPage()).toBe('0');
+      expect(previous()).not.toBeInTheDocument();
+      expect(next()).toBeInTheDocument();
+
+      await userEvent.click(next()!);
+      expect(currentPage()).toBe('1');
+      expect(previous()).toBeInTheDocument();
+      expect(next()).not.toBeInTheDocument();
+
+      await userEvent.click(previous()!);
+      expect(currentPage()).toBe('0');
+    });
+
+    it('opens on the page that holds the selected Agent', () => {
+      mockViewportWidth(400);
+      renderBar(manyAgents(14), 'vendor.agent12');
+
+      expect(currentPage()).toBe('1');
+      expect(
+        screen.queryByRole('button', { name: '下一页 Agent' })
+      ).not.toBeInTheDocument();
+    });
+
+    it('keeps Agents on other pages out of keyboard and screen reader reach', () => {
+      mockViewportWidth(400);
+      renderBar(manyAgents(14), 'vendor.agent0');
+
+      const pages = document.querySelectorAll('.agent-management-bar-page');
+      expect(pages).toHaveLength(2);
+      expect(pages[0]).not.toHaveAttribute('inert');
+      expect(pages[1]).toHaveAttribute('inert');
+      expect(
+        within(pages[0] as HTMLElement).getAllByRole('button')
+      ).toHaveLength(6);
+    });
+
+    it('follows a keyboard nudge across a page boundary', () => {
+      mockViewportWidth(400);
+      const onReorder = vi.fn();
+      renderBar(manyAgents(14), 'vendor.agent0', { onReorder });
+
+      fireEvent.keyDown(screen.getByRole('button', { name: 'Agent 5' }), {
+        key: 'ArrowRight',
+        altKey: true,
+      });
+
+      expect(onReorder).toHaveBeenCalled();
+      expect(currentPage()).toBe('1');
+    });
+
+    it('keeps the actions and next-page arrow fixed in the tail outside the sliding viewport', () => {
+      mockViewportWidth(400);
+      renderBar(manyAgents(14), 'vendor.agent0', {
+        actions: <button type="button">Add Agent</button>,
+      });
+
+      const tail = document.querySelector('.agent-management-bar-tail');
+      expect(tail).toBeInTheDocument();
+      expect(
+        within(tail as HTMLElement).getByRole('button', { name: 'Add Agent' })
+      ).toBeInTheDocument();
+      expect(
+        within(tail as HTMLElement).getByRole('button', {
+          name: '下一页 Agent',
+        })
+      ).toBeInTheDocument();
+
+      const pages = Array.from(
+        document.querySelectorAll('.agent-management-bar-page')
+      );
+      for (const page of pages) {
+        expect(
+          within(page as HTMLElement).queryByRole('button', {
+            name: 'Add Agent',
+          })
+        ).not.toBeInTheDocument();
+      }
+    });
+
+    it('groups Add, Refresh, and next-page arrow into AgentBarTailGroup', () => {
+      mockViewportWidth(400);
+      const onAdd = vi.fn();
+      const onRefresh = vi.fn();
+      renderBar(manyAgents(14), 'vendor.agent0', { onAdd, onRefresh });
+
+      const tail = document.querySelector('.agent-management-bar-tail');
+      expect(tail).toBeInTheDocument();
+      expect(
+        within(tail as HTMLElement).getByRole('button', {
+          name: '添加 Agent',
+        })
+      ).toBeInTheDocument();
+      expect(
+        within(tail as HTMLElement).getByRole('button', {
+          name: '刷新 Agent 状态',
+        })
+      ).toBeInTheDocument();
+      expect(
+        within(tail as HTMLElement).getByRole('button', {
+          name: '下一页 Agent',
+        })
+      ).toBeInTheDocument();
+
+      fireEvent.click(
+        within(tail as HTMLElement).getByRole('button', {
+          name: '添加 Agent',
+        })
+      );
+      expect(onAdd).toHaveBeenCalledTimes(1);
+
+      fireEvent.click(
+        within(tail as HTMLElement).getByRole('button', {
+          name: '刷新 Agent 状态',
+        })
+      );
+      expect(onRefresh).toHaveBeenCalledTimes(1);
+    });
+
+    it('hugs a paging-only bar when the icons fit under the cap', () => {
+      viewportWidthSpy = vi
+        .spyOn(Element.prototype, 'clientWidth', 'get')
+        .mockImplementation(function (this: Element) {
+          if (this.classList.contains('agent-management-bar-viewport')) {
+            return 220;
+          }
+          if (this.classList.contains('agent-management-bar')) return 220;
+          return 800;
+        });
+      renderBar(
+        [agent('claude_code', 'Claude Code', 0), agent('grok', 'Grok', 1)],
+        'grok',
+        { pagingOnly: true }
+      );
+
+      expect(document.querySelector('.agent-management-bar')).toHaveClass(
+        'is-hug'
+      );
+      expect(
+        screen.queryByRole('button', { name: '下一页 Agent' })
+      ).not.toBeInTheDocument();
+    });
+
+    it('pages a paging-only bar once the icons pass the cap', () => {
+      viewportWidthSpy = vi
+        .spyOn(Element.prototype, 'clientWidth', 'get')
+        .mockImplementation(function (this: Element) {
+          if (this.classList.contains('agent-management-bar-viewport')) {
+            return 200;
+          }
+          if (this.classList.contains('agent-management-bar')) return 200;
+          return 800;
+        });
+      renderBar(manyAgents(14), 'vendor.agent0', { pagingOnly: true });
+
+      expect(document.querySelector('.agent-management-bar')).not.toHaveClass(
+        'is-hug'
+      );
+      expect(
+        screen.getByRole('button', { name: '下一页 Agent' })
+      ).toBeInTheDocument();
+    });
+
+    it('enforces a maximum of 10 icons per page even on wide viewports', () => {
+      mockViewportWidth(900);
+      renderBar(manyAgents(14), 'vendor.agent0');
+
+      const pages = document.querySelectorAll('.agent-management-bar-page');
+      expect(pages).toHaveLength(2);
+      expect(
+        within(pages[0] as HTMLElement).getAllByRole('button')
+      ).toHaveLength(10);
+      expect(
+        within(pages[1] as HTMLElement).getAllByRole('button')
+      ).toHaveLength(4);
+    });
+  });
+
+  describe('stylesheet', () => {
+    const stylesheet = readFileSync(
+      resolve(process.cwd(), 'src/styles/legacy/index.css'),
+      'utf8'
+    );
+    const rules: { selector: string; decls: Record<string, string> }[] = [];
+    parse(stylesheet).walkRules((rule) => {
+      if (!rule.selector.includes('.agent-management')) return;
+      const decls: Record<string, string> = {};
+      rule.walkDecls((decl) => {
+        decls[decl.prop] = decl.value;
+      });
+      rules.push({ selector: rule.selector, decls });
+    });
+    const declsFor = (selector: string) =>
+      rules.find((rule) => rule.selector.includes(selector))?.decls;
+
+    it('has no horizontal scrollbar to style or scroll', () => {
+      expect(stylesheet).not.toContain('agent-management-bar-scroll');
+      expect(stylesheet).not.toContain('agent-management-bar-surface');
+      expect(declsFor('.agent-management-bar-viewport')?.overflow).toBe(
+        'hidden'
+      );
+    });
+
+    it('draws the pager arrows as bare icons without a surface', () => {
+      const pagerRules = rules.filter((rule) =>
+        rule.selector.includes('.agent-management-bar-pager')
+      );
+      expect(pagerRules.length).toBeGreaterThan(0);
+      for (const rule of pagerRules) {
+        expect(Object.keys(rule.decls)).not.toContain('background');
+      }
+    });
+
+    it('slides pages with an eased transform', () => {
+      const track = declsFor('.agent-management-bar-track');
+      expect(track?.transition).toMatch(/^transform 260ms cubic-bezier/);
+      expect(track?.transform).toContain('--agent-bar-page');
+    });
+
+    it('stays one compact row using pill/capsule radius for bar and items', () => {
+      const bar = rules.find((rule) =>
+        /\.agent-management-bar$/.test(rule.selector.trim())
+      );
+      expect(bar?.decls.height).toBe('calc(var(--agent-bar-item-size) + 8px)');
+      expect(bar?.decls['border-radius']).toBe('9999px');
+      const item = rules.find(
+        (rule) =>
+          /\.agent-management-bar-item$/.test(rule.selector.trim()) &&
+          'border-radius' in rule.decls
+      );
+      expect(item?.decls['border-radius']).toBe('9999px');
+    });
   });
 });

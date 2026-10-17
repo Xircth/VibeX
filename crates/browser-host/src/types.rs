@@ -1,6 +1,11 @@
+use std::collections::BTreeMap;
+
 use serde::{Deserialize, Serialize};
 
-use crate::grant::{AgentGrant, GrantLevel};
+use crate::{
+    grant::{AgentGrant, GrantLevel},
+    policy::{BrowserPolicyStatus, HostRule},
+};
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
@@ -53,11 +58,47 @@ pub struct BrowserTab {
     pub origin: Option<String>,
     pub grant: Option<AgentGrant>,
     pub profile_id: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub favicon: Option<String>,
 }
 
 impl BrowserTab {
     pub fn grant_level(&self) -> GrantLevel {
         crate::grant::level_of(self.grant.as_ref())
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct BrowserProfileRecord {
+    pub id: String,
+    pub label: String,
+}
+
+impl Default for BrowserProfileRecord {
+    fn default() -> Self {
+        Self {
+            id: "default".to_owned(),
+            label: "Default".to_owned(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct BrowserProxyCapability {
+    pub supported: bool,
+    pub active: Option<String>,
+    pub source: String,
+}
+
+impl Default for BrowserProxyCapability {
+    fn default() -> Self {
+        Self {
+            supported: true,
+            active: None,
+            source: "system".to_owned(),
+        }
     }
 }
 
@@ -69,6 +110,12 @@ pub struct BrowserCapabilities {
     pub surface: String,
     pub profiles: bool,
     pub doc_guest: bool,
+    #[serde(default)]
+    pub proxy: BrowserProxyCapability,
+    #[serde(default)]
+    pub downloads_dir: Option<String>,
+    #[serde(default)]
+    pub policy: BrowserPolicyStatus,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -78,8 +125,138 @@ pub struct BrowserAction {
     pub generation: Option<String>,
     pub r#ref: Option<String>,
     pub text: Option<String>,
+    pub submit: Option<bool>,
     pub key: Option<String>,
     pub values: Option<Vec<String>>,
     pub button: Option<String>,
     pub double_click: Option<bool>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "kebab-case")]
+pub enum EvalApprovalMode {
+    #[default]
+    Ask,
+    Silent,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "kebab-case")]
+pub enum ServiceAutoOpenMode {
+    Off,
+    #[default]
+    Toast,
+    Auto,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "kebab-case")]
+pub enum SurfaceOverride {
+    #[default]
+    Auto,
+    Window,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct BrowserDefaultTargets {
+    #[serde(default = "default_target_builtin")]
+    pub transcript: String,
+    #[serde(default = "default_target_builtin")]
+    pub tool_card: String,
+    #[serde(default = "default_target_builtin")]
+    pub terminal: String,
+    #[serde(default = "default_target_builtin")]
+    pub editor: String,
+    #[serde(default = "default_target_builtin")]
+    pub notification: String,
+}
+
+fn default_target_builtin() -> String {
+    "builtin".to_owned()
+}
+
+impl Default for BrowserDefaultTargets {
+    fn default() -> Self {
+        Self {
+            transcript: default_target_builtin(),
+            tool_card: default_target_builtin(),
+            terminal: default_target_builtin(),
+            editor: default_target_builtin(),
+            notification: default_target_builtin(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct BrowserSettings {
+    #[serde(default)]
+    pub default_target: BrowserDefaultTargets,
+    #[serde(default)]
+    pub host_rules: Vec<HostRule>,
+    #[serde(default = "default_true")]
+    pub tools_enabled: bool,
+    #[serde(default = "default_grant_control")]
+    pub default_grant: GrantLevel,
+    #[serde(default = "default_true")]
+    pub eval_enabled: bool,
+    #[serde(default)]
+    pub eval_approval: EvalApprovalMode,
+    #[serde(default)]
+    pub service_auto_open: ServiceAutoOpenMode,
+    #[serde(default = "default_true")]
+    pub terminal_click_menu: bool,
+    #[serde(default = "default_true")]
+    pub devtools: bool,
+    #[serde(default)]
+    pub surface_override: SurfaceOverride,
+    #[serde(default = "default_true")]
+    pub suspend_background_tabs: bool,
+    #[serde(default = "default_true")]
+    pub sign_in_user_agent: bool,
+    #[serde(default = "default_profiles")]
+    pub profiles: Vec<BrowserProfileRecord>,
+    #[serde(default = "default_profile_id")]
+    pub new_tab_profile: String,
+    #[serde(default)]
+    pub origin_grants: BTreeMap<String, GrantLevel>,
+}
+
+fn default_true() -> bool {
+    true
+}
+
+fn default_grant_control() -> GrantLevel {
+    GrantLevel::Control
+}
+
+fn default_profiles() -> Vec<BrowserProfileRecord> {
+    vec![BrowserProfileRecord::default()]
+}
+
+fn default_profile_id() -> String {
+    "default".to_owned()
+}
+
+impl Default for BrowserSettings {
+    fn default() -> Self {
+        Self {
+            default_target: BrowserDefaultTargets::default(),
+            host_rules: Vec::new(),
+            tools_enabled: true,
+            default_grant: GrantLevel::Control,
+            eval_enabled: true,
+            eval_approval: EvalApprovalMode::Ask,
+            service_auto_open: ServiceAutoOpenMode::Toast,
+            terminal_click_menu: true,
+            devtools: true,
+            surface_override: SurfaceOverride::Auto,
+            suspend_background_tabs: true,
+            sign_in_user_agent: true,
+            profiles: default_profiles(),
+            new_tab_profile: default_profile_id(),
+            origin_grants: BTreeMap::new(),
+        }
+    }
 }

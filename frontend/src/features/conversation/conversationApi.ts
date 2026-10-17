@@ -213,9 +213,13 @@ export function createConversationApi(transport: BackendTransport) {
       }),
 
     touch: (
-      conversationId: string
+      conversationId: string,
+      watch?: boolean
     ): Promise<{ ok: boolean; idleTimeoutSecs: number }> =>
-      call('conversation_touch', { conversationId }),
+      call('conversation_touch', {
+        conversationId,
+        ...(watch === undefined ? {} : { watch }),
+      }),
 
     rebindSession: (
       conversationId: string

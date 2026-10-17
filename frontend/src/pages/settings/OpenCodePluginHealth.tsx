@@ -11,7 +11,7 @@ import {
   Trash2,
 } from 'lucide-react';
 import {
-  type FormEvent,
+  type SyntheticEvent,
   type ReactNode,
   useCallback,
   useEffect,
@@ -79,7 +79,7 @@ export function OpenCodePluginHealth({
     [summary]
   );
 
-  const add = async (event: FormEvent<HTMLFormElement>) => {
+  const add = async (event: SyntheticEvent<HTMLFormElement>) => {
     event.preventDefault();
     const next = spec.trim();
     if (!next) return;

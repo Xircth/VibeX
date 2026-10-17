@@ -399,13 +399,78 @@ const AntigravityMonoIcon = memo(function AntigravityMonoIcon({
   );
 });
 
+const CodeBuddyMonoIcon = memo(function CodeBuddyMonoIcon({
+  size = '1em',
+}: IconProps) {
+  return (
+    <svg
+      fill="currentColor"
+      height={size}
+      style={baseSvgStyle}
+      viewBox="0 0 20 20"
+      width={size}
+      xmlns="http://www.w3.org/2000/svg"
+    >
+      <title>CodeBuddy</title>
+      <path d="M12.13 1.25c.15-.14.16-.14.28-.15.18 0 .36.08.64.34.68.62 1.61 1.89 2.2 2.97l.22.42.32.16c.3.16.81.48 1.02.65.09.08.11.08.21.04.45-.18 1.09.05 1.65.6.51.49 1 1.33 1.18 2.03.03.11.06.36.07.54.04.64-.16 1.14-.55 1.37-.08.04-.08.06-.08.26.02.95-.23 1.89-.74 2.82-.58 1.04-1.6 2.11-2.98 3.12-.74.55-2.5 1.58-3.3 1.95-1.9.86-3.43 1.2-4.76 1.03-.79-.09-1.69-.41-2.22-.77-.14-.1-.16-.1-.27-.07-.57.16-1.31-.18-1.94-.88-.25-.28-.66-.98-.79-1.35-.3-.87-.25-1.65.16-2.12.11-.12.09-.33.09-.33-.04-.33-.05-.82-.04-1.14v-.3l-.43-.79c-.68-1.23-1.12-2.25-1.28-3.04-.09-.43-.09-.62.02-.77.07-.09.28-.18.54-.22.66-.12 2.09-.01 3.69.27l.16.03.36-.32c.61-.54 1.01-.84 1.75-1.31.77-.48 1.64-.89 2.62-1.2l.32-.1.17-.46c.62-1.65 1.25-2.86 1.71-3.27h0Zm-5.19 8.45c-.7.41-1.05.61-1.3.84-1.04.93-1.43 2.39-.99 3.71.11.33.31.68.71 1.39.41.71.61 1.06.83 1.32.92 1.05 2.37 1.45 3.68 1 .32-.11.68-.31 1.38-.72l4.02-2.34c.7-.41 1.05-.61 1.3-.84 1.04-.93 1.43-2.39.99-3.71-.11-.33-.31-.68-.71-1.39s-.61-1.06-.83-1.32c-.92-1.05-2.37-1.45-3.68-1-.32.11-.67.31-1.38.72l-4.02 2.34Z" />
+      <path
+        fillOpacity={0.4}
+        d="M8.02 12.13c.38-.22.87-.09 1.09.29l.86 1.5c.22.38.09.88-.29 1.09-.38.22-.86.09-1.09-.29l-.86-1.5c-.22-.38-.09-.87.29-1.09Z"
+      />
+      <path
+        fillOpacity={0.4}
+        d="M12.31 9.64c.38-.22.87-.09 1.09.29l.86 1.5c.22.38.09.87-.29 1.09s-.87.09-1.09-.29l-.86-1.5c-.22-.38-.09-.88.29-1.09Z"
+      />
+    </svg>
+  );
+});
+
+const QoderMonoIcon = memo(function QoderMonoIcon({ size = '1em' }: IconProps) {
+  return (
+    <svg
+      fill="currentColor"
+      height={size}
+      style={baseSvgStyle}
+      viewBox="0 0 16 16"
+      width={size}
+      xmlns="http://www.w3.org/2000/svg"
+    >
+      <title>Qoder</title>
+      <path d="M8 1C4.134 1 1 4.134 1 8s3.134 7 7 7c1.5 0 2.9-.47 4.05-1.28l1.12 1.12a.75.75 0 1 0 1.06-1.06l-1.12-1.12A6.97 6.97 0 0 0 15 8c0-3.866-3.134-7-7-7Zm0 2c2.761 0 5 2.239 5 5s-2.239 5-5 5-5-2.239-5-5 2.239-5 5-5Z" />
+    </svg>
+  );
+});
+
+const MimoCodeMonoIcon = memo(function MimoCodeMonoIcon({
+  size = '1em',
+}: IconProps) {
+  return (
+    <svg
+      fill="none"
+      height={size}
+      style={baseSvgStyle}
+      viewBox="2.5 2.75 11 11"
+      width={size}
+      xmlns="http://www.w3.org/2000/svg"
+    >
+      <title>MiMo Code</title>
+      <path
+        d="M3.5 12V4.5L6.4 9.2L8 6.8L9.6 9.2L12.5 4.5V12"
+        stroke="currentColor"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        strokeWidth="1.4"
+      />
+    </svg>
+  );
+});
+
 type AnyIcon = FunctionComponent<IconProps>;
 
 const COLOR_ICONS: Partial<Record<string, AnyIcon>> = {
   claude_code: ClaudeCodeColorIcon,
   codex: CodexColorIcon,
   gemini: GeminiCliColorIcon,
-  antigravity: AntigravityMonoIcon,
   openclaw: OpenClawColorIcon,
   kimi_code: KimiColorIcon,
   kimi: KimiColorIcon,
@@ -421,12 +486,23 @@ const MONO_ICONS: Partial<Record<string, AnyIcon>> = {
   grok: GrokMonoIcon,
   cursor: CursorMonoIcon,
   deepseek_harness: DeepseekHarnessMonoIcon,
+  codebuddy: CodeBuddyMonoIcon,
+  qoder: QoderMonoIcon,
+  mimo_code: MimoCodeMonoIcon,
 };
+
+export function hasAgentTypeIcon(agentType: string): boolean {
+  return (
+    Object.hasOwn(COLOR_ICONS, agentType) ||
+    Object.hasOwn(MONO_ICONS, agentType)
+  );
+}
 
 /**
  * Brand-colored agent icons plus single-color glyphs that inherit
  * `currentColor`. Keyed by Agent identity; falls back to a generic glyph for
- * unknown agents.
+ * unknown agents. Every mark is an inline SVG cropped to its glyph and sized
+ * `100%` of the caller's box, so all Agents share one visual size.
  */
 export function AgentTypeIcon({ agentType, className }: AgentTypeIconProps) {
   const ColorIcon = COLOR_ICONS[agentType];

@@ -471,6 +471,7 @@ pub fn run() {
         commands::desktop_toast::show_desktop_toast,
         commands::desktop_toast::is_main_window_focused,
         commands::desktop_toast::activate_desktop_toast,
+        commands::desktop_toast::hide_desktop_toast,
         commands::desktop_toast::desktop_toast_window_ready,
         commands::backup::backup_create,
         commands::backup::backup_inspect,

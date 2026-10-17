@@ -20,11 +20,11 @@ export function ComposerPrimaryActionButton({
   return (
     <Button
       type="button"
-      variant="ghost"
+      variant="default"
       size="icon"
       onClick={onClick}
       disabled={disabled}
-      className="h-[22.4px] w-[22.4px] shrink-0 rounded-full bg-foreground p-0 text-background shadow-none transition-[background-color,color,transform] duration-150 ease-out hover:bg-foreground/90 hover:text-background active:scale-[0.94] motion-reduce:transform-none motion-reduce:transition-none"
+      className="composer-primary-action shrink-0"
       aria-label={label}
       aria-busy={pending || undefined}
       title={label}

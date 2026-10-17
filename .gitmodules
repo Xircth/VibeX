@@ -28,3 +28,6 @@
 [submodule "assets/plugins/browser"]
 	path = assets/plugins/browser
 	url = https://github.com/Xircth/vibex-plugin-browser.git
+[submodule "assets/plugins/computer-use"]
+	path = assets/plugins/computer-use
+	url = https://github.com/Xircth/vibex-plugin-computer-use.git

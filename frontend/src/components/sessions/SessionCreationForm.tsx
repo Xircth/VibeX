@@ -3,7 +3,6 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import type { TFunction } from 'i18next';
 import { useTranslation } from 'react-i18next';
 import { Badge } from '@astryxdesign/core/Badge';
-import { TextInput } from '@astryxdesign/core/TextInput';
 import { Check, ChevronDown, History, LoaderCircle } from 'lucide-react';
 import type { ExecutorConfigs, ExecutorProfileId } from 'shared/types';
 import type { RepoBranchConfig } from '@/hooks';
@@ -15,7 +14,6 @@ import { ConversationStatusDetails } from '@/components/NormalizedConversation/c
 import { TerminalProfileControls } from '@/components/tasks/TerminalProfileControls';
 import {
   advertisedSessionConfigValues,
-  jsonValueToString,
   presentableSessionConfigOptions,
   resolvedConfigOptionChoices,
   sanitizeDependentConfigValues,
@@ -30,6 +28,7 @@ import {
   isAgentInstallLaunchError,
   splitLaunchError,
 } from '@/features/agents/sessionControlsError';
+import { sessionDefaultsWritePayload } from '@/features/agents/sessionDefaults';
 import {
   loadAgentSessionControlsCatalog,
   mergeCreateSessionControls,
@@ -89,8 +88,6 @@ interface SessionCreationFormProps {
   workspaceBranchOptions: WorkspaceBranchOption[];
   selectedWorkspaceValue: string;
   onSelectedWorkspaceValueChange: (value: string) => void;
-  sessionName: string;
-  onSessionNameChange: (value: string) => void;
   profiles: ExecutorConfigs['executors'] | null;
   selectedExecutorProfile: ExecutorProfileId | null;
   onSelectedExecutorProfileChange: (value: ExecutorProfileId) => void;
@@ -123,8 +120,6 @@ export function SessionCreationForm({
   workspaceBranchOptions,
   selectedWorkspaceValue,
   onSelectedWorkspaceValueChange,
-  sessionName,
-  onSessionNameChange,
   profiles,
   selectedExecutorProfile,
   onSelectedExecutorProfileChange,
@@ -405,22 +400,19 @@ export function SessionCreationForm({
   );
   const saveAgentDefaults = async () => {
     if (!executor) return;
-    const rawDefaults = Object.fromEntries(
-      visibleConfigOptions.flatMap((option) => {
-        const serialized = configOverrides[option.key];
-        if (serialized === undefined) return [];
-        const advertisedChoice = (option.choices ?? []).find(
-          (choice) => jsonValueToString(choice.value) === serialized
-        );
-        if (advertisedChoice) {
-          return [[option.key, advertisedChoice.value]];
-        }
-        if (typeof option.value === 'boolean') {
-          return [[option.key, serialized === 'true']];
-        }
-        return [[option.key, serialized]];
-      })
+    const advertisedOptions =
+      catalogQuery.data?.config_options &&
+      catalogQuery.data.config_options.length > 0
+        ? catalogQuery.data.config_options
+        : visibleConfigOptions;
+    const rawDefaults = sessionDefaultsWritePayload(
+      advertisedOptions,
+      configOverrides
     );
+    if (Object.keys(rawDefaults).length === 0) {
+      setDefaultsSaveState('error');
+      return;
+    }
     setDefaultsSaveState('saving');
     try {
       await agentsApi.setSessionDefaults(executor, rawDefaults);
@@ -613,18 +605,6 @@ export function SessionCreationForm({
           )}
         </>
       ) : null}
-
-      <div className="space-y-2">
-        <Label>{t('sessionCreation.sessionNameLabel')}</Label>
-        <TextInput
-          label={t('sessionCreation.sessionNameLabel')}
-          isLabelHidden
-          value={sessionName}
-          onChange={onSessionNameChange}
-          placeholder={t('sessionCreation.sessionNamePlaceholder')}
-          width="100%"
-        />
-      </div>
 
       <div className="space-y-2">
         <Label>{t('sessionCreation.codingAgent')}</Label>

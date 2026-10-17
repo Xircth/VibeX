@@ -39,12 +39,6 @@ pub struct AntigravitySyncReport {
     pub reason: Option<String>,
 }
 
-enum GcpField<'a> {
-    Keep,
-    Set(&'a str),
-    Clear,
-}
-
 pub fn recorded_auth_method(env: &HashMap<String, String>) -> Option<&str> {
     let method = env
         .get(AUTH_METHOD_ENV)
@@ -131,23 +125,11 @@ fn expand_home_prefix(value: &str, home: Option<&Path>) -> PathBuf {
     PathBuf::from(value)
 }
 
-fn gcp_field<'a>(
-    env: &'a HashMap<String, String>,
-    recorded_method: Option<&str>,
-    key: &str,
-) -> GcpField<'a> {
-    let value = env
-        .get(key)
+fn gcp_field<'a>(env: &'a HashMap<String, String>, key: &str) -> Option<&'a str> {
+    env.get(key)
         .map(String::as_str)
         .map(str::trim)
-        .filter(|value| !value.is_empty());
-    match value {
-        Some(value) => GcpField::Set(value),
-        None if matches!(recorded_method, Some("oauth-business" | "agent-platform")) => {
-            GcpField::Clear
-        }
-        None => GcpField::Keep,
-    }
+        .filter(|value| !value.is_empty())
 }
 
 pub fn sync_antigravity_settings(
@@ -194,8 +176,8 @@ pub fn sync_antigravity_settings(
         }
         (None, None) => "oauth-personal",
     };
-    let gcp_project = gcp_field(env, recorded, "GOOGLE_CLOUD_PROJECT");
-    let gcp_location = gcp_field(env, recorded, "GOOGLE_CLOUD_LOCATION");
+    let gcp_project = gcp_field(env, "GOOGLE_CLOUD_PROJECT");
+    let gcp_location = gcp_field(env, "GOOGLE_CLOUD_LOCATION");
     let updated = match merge_settings(existing, method, gcp_project, gcp_location) {
         Ok(Some(updated)) => updated,
         Ok(None) => {
@@ -227,6 +209,18 @@ pub fn sync_antigravity_settings(
     }
 }
 
+/// Applies the launch env policy and projects the chosen method into
+/// `settings.json`, exactly as a launch does, so saving a method takes effect
+/// before the next session starts.
+pub fn apply_antigravity_launch_env(env: &mut HashMap<String, String>) -> AntigravitySyncReport {
+    apply_antigravity_env_policy(env);
+    let home = env
+        .get("HOME")
+        .or_else(|| env.get("USERPROFILE"))
+        .map(PathBuf::from)
+        .or_else(dirs::home_dir);
+    sync_antigravity_settings(env, home.as_deref())
+}
 fn read_settings(path: &Path) -> Result<Option<serde_json::Value>, String> {
     let raw = match std::fs::read_to_string(path) {
         Ok(raw) => raw,
@@ -259,8 +253,8 @@ fn write_settings(acp_dir: &Path, path: &Path, value: &serde_json::Value) -> Res
 fn merge_settings(
     existing: Option<serde_json::Value>,
     method: &str,
-    gcp_project: GcpField<'_>,
-    gcp_location: GcpField<'_>,
+    gcp_project: Option<&str>,
+    gcp_location: Option<&str>,
 ) -> Result<Option<serde_json::Value>, String> {
     let mut root = match existing {
         Some(serde_json::Value::Object(map)) => serde_json::Value::Object(map),
@@ -283,12 +277,7 @@ fn merge_settings(
             .ok_or_else(|| "`auth` is not an object".to_string())?
             .insert("type".into(), serde_json::Value::String(method.to_string()));
 
-        let writes =
-            matches!(gcp_project, GcpField::Set(_)) || matches!(gcp_location, GcpField::Set(_));
-        let clears =
-            matches!(gcp_project, GcpField::Clear) || matches!(gcp_location, GcpField::Clear);
-        let clearable = clears && obj.get("gcp").is_some_and(serde_json::Value::is_object);
-        if writes || clearable {
+        if gcp_project.is_some() || gcp_location.is_some() {
             match obj.get("gcp") {
                 None | Some(serde_json::Value::Null) => {
                     obj.insert("gcp".into(), serde_json::json!({}));
@@ -300,25 +289,15 @@ fn merge_settings(
                 .get_mut("gcp")
                 .and_then(serde_json::Value::as_object_mut)
                 .ok_or_else(|| "`gcp` is not an object".to_string())?;
-            for (name, field) in [("project", &gcp_project), ("location", &gcp_location)] {
-                match field {
-                    GcpField::Set(value) => {
-                        gcp.insert(name.into(), serde_json::Value::String((*value).to_string()));
-                    }
-                    GcpField::Clear => {
-                        gcp.remove(name);
-                    }
-                    GcpField::Keep => {}
+            for (name, value) in [("project", gcp_project), ("location", gcp_location)] {
+                if let Some(value) = value {
+                    gcp.insert(name.into(), serde_json::Value::String(value.to_string()));
                 }
-            }
-            if gcp.is_empty() {
-                obj.remove("gcp");
             }
         }
     }
     Ok((root != before).then_some(root))
 }
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -410,6 +389,32 @@ mod tests {
         let parsed: serde_json::Value =
             serde_json::from_str(&std::fs::read_to_string(report.path).unwrap()).unwrap();
         assert_eq!(parsed["auth"]["type"], "oauth-personal");
+    }
+
+    #[test]
+    fn settings_sync_keeps_the_gcp_project_the_user_entered() {
+        let dir = tempfile::tempdir().unwrap();
+        let acp_dir = dir.path().join(ACP_SUBDIR);
+        std::fs::create_dir_all(&acp_dir).unwrap();
+        std::fs::write(
+            acp_dir.join("settings.json"),
+            r#"{"gcp":{"project":"acme","location":"global"}}"#,
+        )
+        .unwrap();
+        let mut runtime = env("oauth-business");
+        runtime.insert(
+            "GEMINI_HOME".to_string(),
+            dir.path().to_string_lossy().into_owned(),
+        );
+
+        let report = sync_antigravity_settings(&runtime, None);
+
+        assert_eq!(report.status, AntigravitySyncStatus::Written);
+        let parsed: serde_json::Value =
+            serde_json::from_str(&std::fs::read_to_string(report.path).unwrap()).unwrap();
+        assert_eq!(parsed["auth"]["type"], "oauth-business");
+        assert_eq!(parsed["gcp"]["project"], "acme");
+        assert_eq!(parsed["gcp"]["location"], "global");
     }
 
     #[test]

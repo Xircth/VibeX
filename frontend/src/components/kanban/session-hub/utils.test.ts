@@ -5,6 +5,7 @@ import type { WorkspaceBranchOption } from '@/lib/workspaceBranchOptions';
 import {
   UNASSIGNED_EXECUTOR,
   filterKanbanSessions,
+  formatSessionInfoForCopy,
   getBulkDeleteSessionSummary,
   getMonitorGridClassName,
   getCanCreateKanbanSession,
@@ -13,7 +14,9 @@ import {
   getExecutorFilterOptions,
   getSessionMarker,
   groupKanbanSessionsByStatus,
+  isSessionForkSupported,
   sessionAttentionKind,
+  sessionCompletesWhenViewed,
   sortSessions,
 } from './utils';
 
@@ -119,6 +122,91 @@ describe('session hub data helpers', () => {
       inreview: [],
       done: [sessions[2]],
     });
+  });
+
+  it('places pinned sessions at the top of their status group and retains pinned order when status changes', () => {
+    const unpinnedNewer = {
+      ...session('unpinned-newer', {
+        workspaceId: 'workspace-main',
+        executor: 'codex',
+        status: 'inprogress',
+      }),
+      updatedAt: '2026-05-26T12:00:00.000Z',
+      pinnedAt: null,
+    };
+    const pinnedOlder = {
+      ...session('pinned-older', {
+        workspaceId: 'workspace-main',
+        executor: 'codex',
+        status: 'inprogress',
+      }),
+      updatedAt: '2026-05-24T12:00:00.000Z',
+      pinnedAt: '2026-05-25T08:00:00.000Z',
+    };
+
+    const groupedInProgress = groupKanbanSessionsByStatus([
+      unpinnedNewer,
+      pinnedOlder,
+    ]);
+    expect(groupedInProgress.inprogress.map((item) => item.id)).toEqual([
+      'pinned-older',
+      'unpinned-newer',
+    ]);
+
+    const unpinnedReview = {
+      ...session('unpinned-review', {
+        workspaceId: 'workspace-main',
+        executor: 'codex',
+        status: 'inreview',
+      }),
+      updatedAt: '2026-05-27T12:00:00.000Z',
+      pinnedAt: null,
+    };
+    const movedToReview = {
+      ...pinnedOlder,
+      status: 'inreview' as const,
+    };
+
+    const groupedInReview = groupKanbanSessionsByStatus([
+      unpinnedReview,
+      movedToReview,
+    ]);
+    expect(groupedInReview.inreview.map((item) => item.id)).toEqual([
+      'pinned-older',
+      'unpinned-review',
+    ]);
+  });
+
+  it('checks whether a session agent supports fork', () => {
+    expect(isSessionForkSupported({ executor: 'claude_code' })).toBe(true);
+    expect(isSessionForkSupported({ executor: 'CODEX' })).toBe(true);
+    expect(isSessionForkSupported({ executor: 'deepseek_harness' })).toBe(true);
+    expect(isSessionForkSupported({ executor: 'gemini' })).toBe(false);
+    expect(isSessionForkSupported({ executor: null })).toBe(false);
+    expect(
+      isSessionForkSupported({ executor: 'gemini', forkSupported: true })
+    ).toBe(true);
+  });
+
+  it('formats session info for clipboard copy', () => {
+    expect(
+      formatSessionInfoForCopy({
+        id: 'session-42',
+        fullName: 'Auth Refactor',
+        executor: 'claude_code',
+        agentId: null,
+        workspaceDisplayLabel: 'VibeX · feat/auth',
+        workspaceName: 'VibeX',
+        branch: 'feat/auth',
+      })
+    ).toBe(
+      [
+        '会话名称: Auth Refactor',
+        'ID: session-42',
+        'Agent: Claude Code',
+        '工作区: VibeX · feat/auth',
+      ].join('\n')
+    );
   });
 
   it('sorts sessions by Agent then recency', () => {
@@ -242,7 +330,6 @@ describe('session hub data helpers', () => {
             branch: 'feature/existing',
           }),
         ],
-        sessionName: '  Ship fix  ',
         executorProfile: executorProfile('codex' as const),
         repoInputs: [{ repo_id: 'repo-1', target_branch: 'main' }],
       })
@@ -251,7 +338,7 @@ describe('session hub data helpers', () => {
       workspace_id: 'workspace-1',
       branch: null,
       executor: 'codex' as const,
-      name: 'Ship fix',
+      name: null,
       create_workspace: false,
       repos: undefined,
     });
@@ -269,7 +356,6 @@ describe('session hub data helpers', () => {
             branch: 'feature/new',
           }),
         ],
-        sessionName: '   ',
         executorProfile: executorProfile('claude_code' as const),
         repoInputs: undefined,
       })
@@ -289,7 +375,6 @@ describe('session hub data helpers', () => {
         mode: 'new_workspace',
         workspaceValue: '',
         workspaceBranchOptions: [],
-        sessionName: 'New workspace',
         executorProfile: executorProfile('codex' as const),
         repoInputs: [{ repo_id: 'repo-1', target_branch: 'feature/new' }],
       })
@@ -298,7 +383,7 @@ describe('session hub data helpers', () => {
       workspace_id: null,
       branch: null,
       executor: 'codex' as const,
-      name: 'New workspace',
+      name: null,
       create_workspace: true,
       include_uncommitted: false,
       repos: [{ repo_id: 'repo-1', target_branch: 'feature/new' }],
@@ -310,7 +395,6 @@ describe('session hub data helpers', () => {
         mode: 'new_workspace',
         workspaceValue: '',
         workspaceBranchOptions: [],
-        sessionName: 'With dirty files',
         executorProfile: executorProfile('codex' as const),
         repoInputs: [{ repo_id: 'repo-1', target_branch: 'main' }],
         includeUncommitted: true,
@@ -320,7 +404,7 @@ describe('session hub data helpers', () => {
       workspace_id: null,
       branch: null,
       executor: 'codex' as const,
-      name: 'With dirty files',
+      name: null,
       create_workspace: true,
       include_uncommitted: true,
       repos: [{ repo_id: 'repo-1', target_branch: 'main' }],
@@ -334,7 +418,6 @@ describe('session hub data helpers', () => {
         mode: 'existing_workspace',
         workspaceValue: '',
         workspaceBranchOptions: [],
-        sessionName: 'Folder session',
         executorProfile: executorProfile('codex' as const),
         repoInputs: undefined,
         projectRepoCount: 0,
@@ -344,7 +427,7 @@ describe('session hub data helpers', () => {
       workspace_id: null,
       branch: null,
       executor: 'codex' as const,
-      name: 'Folder session',
+      name: null,
       create_workspace: false,
       repos: undefined,
     });
@@ -357,7 +440,6 @@ describe('session hub data helpers', () => {
         mode: 'existing_workspace',
         workspaceValue: '',
         workspaceBranchOptions: [],
-        sessionName: '',
         executorProfile: null,
         repoInputs: undefined,
       })
@@ -369,7 +451,6 @@ describe('session hub data helpers', () => {
         mode: 'new_workspace',
         workspaceValue: '',
         workspaceBranchOptions: [],
-        sessionName: '',
         executorProfile: null,
         repoInputs: [],
       })
@@ -507,6 +588,18 @@ describe('sessionAttentionKind', () => {
     expect(
       sessionAttentionKind({ isRunning: false, status: 'inprogress' })
     ).toBe(null);
+  });
+
+  it('completes in-review sessions when they are viewed from the session list', () => {
+    expect(
+      sessionCompletesWhenViewed({ isRunning: false, status: 'inreview' })
+    ).toBe(true);
+    expect(
+      sessionCompletesWhenViewed({ isRunning: true, status: 'inreview' })
+    ).toBe(false);
+    expect(
+      sessionCompletesWhenViewed({ isRunning: false, status: 'todo' })
+    ).toBe(false);
   });
 });
 

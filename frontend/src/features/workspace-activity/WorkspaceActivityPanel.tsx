@@ -1,7 +1,13 @@
 import { useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useQuery } from '@tanstack/react-query';
-import { ArrowLeft, AlertTriangle, Flame, Terminal } from 'lucide-react';
+import {
+  ArrowLeft,
+  AlertTriangle,
+  ChevronDown,
+  Flame,
+  Terminal,
+} from 'lucide-react';
 import { conversationApi } from '@/features/conversation/conversationApi';
 import { useKanbanProjectSessions } from '@/hooks/useKanbanProjectSessions';
 import { useExecutionProcesses } from '@/hooks/useExecutionProcesses';
@@ -10,9 +16,10 @@ import { useTerminalStore } from '@/stores/useTerminalStore';
 import { SessionFlameGraph } from './SessionFlameGraph';
 import { useAppContextMenu } from '@/components/context-menu';
 import { writeClipboardViaBridge } from '@/vscode/bridge';
+import { cn } from '@/lib/utils';
 import {
+  activityChartsFromTimeline,
   activityNoticesFromRows,
-  activitySpansFromTimeline,
 } from './workspaceActivityModel';
 
 export function WorkspaceActivityPanel({
@@ -35,6 +42,7 @@ export function WorkspaceActivityPanel({
   const [selectedSessionId, setSelectedSessionId] = useState<string | null>(
     null
   );
+  const [sessionsExpanded, setSessionsExpanded] = useState(true);
 
   const workspaceSessions = useMemo(
     () =>
@@ -82,8 +90,8 @@ export function WorkspaceActivityPanel({
     enabled: Boolean(selectedSessionId),
   });
 
-  const spans = useMemo(
-    () => activitySpansFromTimeline(detail?.timeline),
+  const charts = useMemo(
+    () => activityChartsFromTimeline(detail?.timeline),
     [detail]
   );
   const notices = useMemo(() => {
@@ -112,12 +120,12 @@ export function WorkspaceActivityPanel({
         </button>
         <div className="min-h-0 flex-1 overflow-auto p-4">
           <h3 className="mb-3 text-sm font-medium">{selected.fullName}</h3>
-          {spans.length === 0 ? (
+          {charts.length === 0 ? (
             <p className="text-sm text-muted-foreground">
               {t('workspaceActivity.noSpans')}
             </p>
           ) : (
-            <SessionFlameGraph spans={spans} />
+            <SessionFlameGraph charts={charts} />
           )}
         </div>
       </div>
@@ -127,15 +135,27 @@ export function WorkspaceActivityPanel({
   return (
     <div className="min-h-0 flex-1 overflow-auto p-4">
       <section className="mb-6">
-        <h3 className="mb-2 text-sm font-medium text-foreground">
+        <button
+          type="button"
+          className="mb-2 flex w-full items-center gap-1 text-left text-sm font-medium text-foreground"
+          aria-expanded={sessionsExpanded}
+          onClick={() => setSessionsExpanded((open) => !open)}
+        >
+          <ChevronDown
+            className={cn(
+              'h-3.5 w-3.5 shrink-0 text-muted-foreground transition-transform',
+              sessionsExpanded ? '' : '-rotate-90'
+            )}
+          />
           {t('workspaceActivity.sessions')}
-        </h3>
-        {workspaceSessions.length === 0 ? (
+        </button>
+        {sessionsExpanded && workspaceSessions.length === 0 ? (
           <p className="text-sm text-muted-foreground">
             {t('workspaceActivity.emptySessions')}
           </p>
-        ) : (
-          <ul className="space-y-1">
+        ) : null}
+        {sessionsExpanded && workspaceSessions.length > 0 ? (
+          <ul className="max-h-64 space-y-1 overflow-y-auto">
             {workspaceSessions.map((session) => (
               <li key={session.id}>
                 <button
@@ -170,7 +190,7 @@ export function WorkspaceActivityPanel({
               </li>
             ))}
           </ul>
-        )}
+        ) : null}
       </section>
 
       <section className="mb-6">

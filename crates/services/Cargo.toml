@@ -1,6 +1,6 @@
 [package]
 name = "services"
-version = "0.2.8"
+version = "0.3.0"
 edition = "2024"
 
 [features]
@@ -47,4 +47,3 @@ sha2 = "0.10"
 reqwest = { workspace = true }
 toml = "0.8"
 serde_yaml = "0.9"
-which = "8.0.0"

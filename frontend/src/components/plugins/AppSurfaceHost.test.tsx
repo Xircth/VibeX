@@ -85,12 +85,14 @@ function createTransport(): AppSurfaceHostTransport & {
 }
 
 async function findSurfaceFrame(name: string) {
-  const region = await screen.findByRole('region', { name });
-  const frame = region.querySelector('iframe.plugin-app-surface-frame');
-  if (!(frame instanceof HTMLIFrameElement)) {
-    throw new Error(`missing surface frame for ${name}`);
-  }
-  return frame;
+  return waitFor(() => {
+    const region = screen.getByRole('region', { name });
+    const frame = region.querySelector('iframe.plugin-app-surface-frame');
+    if (!(frame instanceof HTMLIFrameElement)) {
+      throw new Error(`missing surface frame for ${name}`);
+    }
+    return frame;
+  });
 }
 
 function querySurfaceFrame(name: string) {

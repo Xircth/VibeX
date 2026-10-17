@@ -329,7 +329,7 @@ export function AstryxSelect({
         {hasClear && selected ? (
           <span
             role="button"
-            tabIndex={-1}
+            tabIndex={disabled ? -1 : 0}
             aria-label={ariaLabel ? `${ariaLabel}（清除）` : '清除'}
             className="astryx-select-clear"
             onClick={(event) => {
@@ -338,6 +338,7 @@ export function AstryxSelect({
             }}
             onKeyDown={(event) => {
               if (event.key === 'Enter' || event.key === ' ') {
+                event.preventDefault();
                 event.stopPropagation();
                 onChange('');
               }
@@ -356,7 +357,7 @@ export function AstryxSelect({
               role="listbox"
               aria-label={ariaLabel}
               data-floating-layer="popover"
-              className="astryx-select-menu tahoe-popover"
+              className="astryx-select-menu product-context-menu border border-border bg-white font-sans text-[13px] leading-5 text-popover-foreground shadow-none dark:bg-popover"
               style={{
                 top: position.top,
                 left: position.left,

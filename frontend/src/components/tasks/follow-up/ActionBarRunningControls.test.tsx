@@ -74,7 +74,7 @@ describe('ActionBarRunningControls', () => {
     const { rerender } = renderRunningControls({ onStopExecution });
 
     const runningStopButton = screen.getByRole('button', { name: '停止' });
-    expect(runningStopButton).toHaveClass('h-[22.4px]', 'w-[22.4px]');
+    expect(runningStopButton).toHaveClass('h-8', 'w-8');
     expect(
       runningStopButton.querySelector('.lucide-square')
     ).toBeInTheDocument();

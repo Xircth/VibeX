@@ -114,7 +114,7 @@ VibeX 插件是可安装、可启停、可配置的产品功能单元。同一�
 | Windows | Windows 10 / 11 | x64 / ARM64 | `.exe` / `.msi` | 运行安装程序并按向导完成安装。 |
 | Linux | Ubuntu 22.04 同等基线 | x64 / ARM64 | `.AppImage` / `.deb` | 运行 AppImage，或使用系统包管理器安装 deb。 |
 
-Windows 安装包包含离线 WebView2 安装器。内置浏览器使用各平台系统 WebView。
+内置浏览器使用各平台系统 WebView。Windows 10/11 已自带 WebView2，安装包不再内嵌离线运行时，仅在系统缺少时再下载。
 
 首次启动会进入引导，探测本机已有 Agent Runtime，并要求选择启用项、默认 Agent 与外部编辑器。缺失的托管组件在后台安装。账号登录、浏览器授权和 API 配置在对应 Agent 的官方流程中完成。Runtime 或 ACP 适配器异常时，在「设置 → Agent」查看版本、位置、诊断与修复操作。
 

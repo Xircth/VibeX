@@ -99,7 +99,14 @@ const BRIDGE_SCRIPT: &str = r#"
   var revokeObjectURL = URL.revokeObjectURL.bind(URL);
   URL.createObjectURL = function (blob) {
     var url = createObjectURL(blob);
-    blobs.set(url, blob);
+    if (blob && blob.type === 'application/json') {
+      if (blobs.size >= 32) {
+        var oldestKey = blobs.keys().next().value;
+        if (oldestKey !== undefined) blobs.delete(oldestKey);
+      }
+      blobs.set(url, blob);
+      window.setTimeout(function () { blobs.delete(url); }, 30000);
+    }
     return url;
   };
   URL.revokeObjectURL = function (url) {

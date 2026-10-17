@@ -53,6 +53,7 @@ impl ConversationEventPublisher for HostRowOpPublisher {
         if record.sequence <= entry.projector.last_sequence() {
             return;
         }
+        let previous_sequence = entry.last_emitted_sequence;
         let ops = match entry.projector.apply(record) {
             Ok(ops) => ops,
             Err(error) => {
@@ -61,8 +62,6 @@ impl ConversationEventPublisher for HostRowOpPublisher {
             }
         };
         let last_sequence = entry.projector.last_sequence();
-        evict_least_recently_used_projectors(&mut map, conversation_id);
-        drop(map);
 
         let mut session_modes = None;
         let mut session_config_options = None;
@@ -86,12 +85,25 @@ impl ConversationEventPublisher for HostRowOpPublisher {
             && session_config_options.is_none()
             && available_commands.is_none()
         {
+            evict_least_recently_used_projectors(&mut map, conversation_id);
             return;
         }
+        entry.last_emitted_sequence = last_sequence;
+        evict_least_recently_used_projectors(&mut map, conversation_id);
+        drop(map);
 
+        let emit_global = !ops.iter().all(|op| {
+            matches!(
+                op,
+                agents::conversation::ConversationRowOp::AppendText { .. }
+            )
+        }) || session_modes.is_some()
+            || session_config_options.is_some()
+            || available_commands.is_some();
         let batch = ConversationRowOpBatch {
             conversation_id,
             last_sequence,
+            previous_sequence: Some(previous_sequence),
             ops,
             session_modes,
             session_config_options,
@@ -99,6 +111,8 @@ impl ConversationEventPublisher for HostRowOpPublisher {
         };
         self.events
             .emit(format!("conversation-events:{conversation_id}"), &batch);
-        self.events.emit("conversation-events", &batch);
+        if emit_global {
+            self.events.emit("conversation-events", &batch);
+        }
     }
 }

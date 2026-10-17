@@ -7,8 +7,8 @@
 /* 1) THEME TOKENS scoped to .legacy-design */
 @layer base {
   .legacy-design {
-    /* 避免主题闪烁：不设置默认 color-scheme，由 CSS 变量根据 .dark 类动态设置 */
-    color-scheme: light dark;
+    /* Definite scheme: `light dark` makes WebView2 paint Win11 text fields. */
+    color-scheme: light;
     /* Ayu Light */
     --_background: 0 0% 98%;
     --_foreground: 213 10% 37%;
@@ -207,8 +207,11 @@
     /* Tahoe app-design tokens scoped to the historical legacy UI wrapper. */
     --text-strong: hsl(222 30% 16%);
     --text-primary: hsl(213 10% 30%);
+    --text-default: var(--text-primary);
     --text-muted: hsl(213 8% 45%);
+    --text-secondary: var(--text-muted);
     --text-subtle: hsl(214 7% 56%);
+    --text-tertiary: var(--text-subtle);
     --text-faint: hsl(214 6% 66%);
     --primary-control-foreground: hsl(var(--_primary-foreground));
     --switch-checked-track: hsl(213 25% 15%);
@@ -229,6 +232,9 @@
     --surface-card-strong: hsl(0 0% 100% / 0.94);
     --surface-control: hsl(220 20% 20% / 0.06);
     --surface-control-hover: hsl(220 20% 20% / 0.1);
+    --surface-control-solid: hsl(220 14% 94%);
+    --surface-control-solid-hover: hsl(220 14% 92%);
+    --surface-raised: var(--surface-raised-control);
     --surface-raised-control: hsl(220 14% 97%);
     --surface-raised-control-hover: hsl(220 14% 95%);
     --surface-hover: hsl(220 20% 20% / 0.07);
@@ -329,8 +335,11 @@
   .dark .legacy-design {
     --text-strong: #e7ebef;
     --text-primary: #c5cdd6;
+    --text-default: var(--text-primary);
     --text-muted: #8b949e;
+    --text-secondary: var(--text-muted);
     --text-subtle: hsl(215 8% 52%);
+    --text-tertiary: var(--text-subtle);
     --text-faint: hsl(211 11% 41%);
     --surface-shell: #0e1319;
     --surface-topbar: hsl(210 18% 16% / 0.55);
@@ -347,6 +356,9 @@
     --surface-card-strong: #242936;
     --surface-control: hsl(210 30% 80% / 0.07);
     --surface-control-hover: hsl(210 30% 80% / 0.12);
+    --surface-control-solid: hsl(216 18% 22%);
+    --surface-control-solid-hover: hsl(216 18% 25%);
+    --surface-raised: var(--surface-raised-control);
     --surface-raised-control: #242936;
     --surface-raised-control-hover: hsl(222 16% 22%);
     --surface-hover: hsl(210 30% 80% / 0.08);
@@ -544,17 +556,38 @@
 
   .legacy-design [data-astryx-theme] {
     --font-family-body: var(--font-ui);
+    --radius-element: var(--radius);
+    --_button-radius: var(--radius);
     --color-accent: hsl(var(--primary));
     --color-accent-muted: hsl(var(--primary) / 0.12);
     --color-text-accent: hsl(var(--primary));
     --color-icon-accent: hsl(var(--primary));
     --color-on-accent: hsl(var(--primary-foreground));
+    --color-neutral: var(--surface-raised-control);
+    --color-overlay-hover: var(--surface-control);
+    --color-overlay-pressed: var(--surface-control-hover);
+    --color-border-emphasized: light-dark(#d4d4d4, #525252);
+  }
+
+  .legacy-design.dark [data-astryx-theme],
+  .dark .legacy-design [data-astryx-theme] {
+    --color-border-emphasized: #525252;
   }
 
   .legacy-design .session-composer-attachment-drawer {
     --radius-chat: var(--radius);
     border: 1px solid var(--border-strong);
     box-shadow: var(--shadow-control);
+  }
+
+  .legacy-design .session-composer-attachment-drawer > [id],
+  .legacy-design .session-composer-attachment-drawer > [id] > div {
+    width: 100%;
+    min-width: 0;
+  }
+
+  .legacy-design .session-composer-attachment-drawer > [id] > div {
+    overflow: hidden;
   }
 
   .legacy-design .session-composer-body {
@@ -732,40 +765,6 @@
     color: inherit;
   }
 
-  /* Astryx TextInput / TextArea own the control frame. Product descendant
-     input rules must not add a second border, padding, height, or focus ring.
-     Horizontal inset lives on the pressable frame so the caret cannot sit on
-     the hairline. */
-  .legacy-design
-    :is(.astryx-text-input, .astryx-textarea)
-    [data-pressable-container] {
-    padding-inline: 10px;
-  }
-
-  .legacy-design
-    :is(.astryx-text-input, .astryx-textarea)
-    :is(input, textarea) {
-    border: 0 !important;
-    border-radius: 0 !important;
-    background: transparent !important;
-    box-shadow: none !important;
-    outline: none !important;
-    height: auto !important;
-    min-height: 0 !important;
-    max-height: none !important;
-    padding: 0 !important;
-    margin: 0 !important;
-    text-indent: 0 !important;
-  }
-
-  .legacy-design
-    .settings-page
-    :is(.astryx-text-input, .astryx-textarea)
-    :is(input, textarea) {
-    font-size: 0.75rem !important;
-    line-height: 1.25 !important;
-  }
-
   .legacy-design .browser-toolbar-over-page {
     background-color: color-mix(
       in srgb,
@@ -869,8 +868,7 @@
     @apply ring-inset;
   }
 
-  :where(.legacy-design) button:has(svg.lucide-x):focus,
-  :where(.legacy-design) button:has(svg.lucide-x):focus-visible {
+  :where(.legacy-design) button:has(svg.lucide-x):focus:not(:focus-visible) {
     outline: none !important;
     box-shadow: none !important;
   }
@@ -878,6 +876,551 @@
   .legacy-design .logo {
     @apply fill-foreground;
   }
+}
+
+/* Unlayered: WebView2 paints Fluent/Win11 widgets for native <input>
+   unless the used background is a definite opaque color and color-scheme
+   is `only light` / `only dark`. `inherit` and `light-dark()` do not
+   count. Astryx Field's own chrome (#d4d4d4, 10px) also reads as a
+   Windows text box next to Tahoe raised-controls. Paint every text
+   control with the same opaque raised fill, 14px radius, and hairline.
+   Composer stays contenteditable and is unaffected. */
+html {
+  color-scheme: only light;
+}
+
+html.dark {
+  color-scheme: only dark;
+}
+
+.legacy-design
+  :is(
+    input:not([type='checkbox']):not([type='radio']):not([type='file']):not(
+        [type='range']
+      ):not([type='color']):not([type='hidden']):not([type='button']):not(
+        [type='submit']
+      ):not([type='reset']):not([type='image']),
+    textarea
+  ) {
+  appearance: none !important;
+  -webkit-appearance: none !important;
+  color-scheme: only light;
+}
+
+.legacy-design.dark
+  :is(
+    input:not([type='checkbox']):not([type='radio']):not([type='file']):not(
+        [type='range']
+      ):not([type='color']):not([type='hidden']):not([type='button']):not(
+        [type='submit']
+      ):not([type='reset']):not([type='image']),
+    textarea
+  ),
+.dark
+  .legacy-design
+  :is(
+    input:not([type='checkbox']):not([type='radio']):not([type='file']):not(
+        [type='range']
+      ):not([type='color']):not([type='hidden']):not([type='button']):not(
+        [type='submit']
+      ):not([type='reset']):not([type='image']),
+    textarea
+  ) {
+  color-scheme: only dark;
+}
+
+.legacy-design
+  :is(
+    input:not([type='checkbox']):not([type='radio']):not([type='file']):not(
+        [type='range']
+      ):not([type='color']):not([type='hidden']):not([type='button']):not(
+        [type='submit']
+      ):not([type='reset']):not([type='image']),
+    textarea
+  ):not(
+    :where(
+      .astryx-text-input *,
+      .astryx-textarea *,
+      .settings-search-field *,
+      .plugin-search-control *,
+      .agent-registry-search *,
+      .product-plugin-search *,
+      .file-tree-search *,
+      .workspace-search-bar *,
+      .conv-user-edit-panel *,
+      [data-control-frame] *,
+      input.bg-transparent,
+      textarea.bg-transparent,
+      textarea.notes-editor
+    )
+  ) {
+  background-color: var(--surface-raised-control) !important;
+  background-image: none !important;
+}
+
+.legacy-design .settings-search-input,
+.legacy-design .settings-page .plugin-search-control > input,
+.legacy-design
+  .settings-page
+  :is(
+    input:not([type='checkbox']):not([type='radio']):not([type='file']):not(
+        [type='range']
+      ):not([type='color']):not([type='hidden']):not([type='button']):not(
+        [type='submit']
+      ):not([type='reset']):not([type='image']),
+    textarea
+  ):not(
+    :where(
+      .astryx-text-input *,
+      .astryx-textarea *,
+      .settings-search-field *,
+      .plugin-search-control *,
+      .agent-registry-search *,
+      .agent-auth-mode-secret *,
+      .product-plugin-search *,
+      .file-tree-search *,
+      .workspace-search-bar *,
+      .conv-user-edit-panel *,
+      [data-control-frame] *,
+      input.bg-transparent,
+      textarea.bg-transparent,
+      textarea.notes-editor
+    )
+  ) {
+  background: var(--surface-control-solid) !important;
+  background-color: var(--surface-control-solid) !important;
+  background-image: none !important;
+}
+
+.legacy-design .settings-search-input:hover:not(:focus):not(:focus-visible),
+.legacy-design
+  .settings-page
+  .plugin-search-control
+  > input:hover:not(:focus):not(:focus-visible) {
+  background: var(--surface-control-solid-hover) !important;
+  background-color: var(--surface-control-solid-hover) !important;
+}
+
+.legacy-design
+  :is(
+    .astryx-text-input,
+    .astryx-textarea,
+    .astryx-selector[data-variant='input']
+  ) {
+  border-width: 1px !important;
+  border-style: solid !important;
+  border-color: var(--color-border-emphasized, #d4d4d4) !important;
+  border-radius: var(
+    --_field-radius,
+    var(--radius-element, var(--radius))
+  ) !important;
+  background-color: var(--color-background-surface, #ffffff) !important;
+  box-sizing: border-box !important;
+  transition:
+    border-color 125ms ease,
+    box-shadow 125ms ease !important;
+  outline: none !important;
+}
+
+.legacy-design.dark
+  :is(
+    .astryx-text-input,
+    .astryx-textarea,
+    .astryx-selector[data-variant='input']
+  ),
+.dark
+  .legacy-design
+  :is(
+    .astryx-text-input,
+    .astryx-textarea,
+    .astryx-selector[data-variant='input']
+  ) {
+  border-color: var(--color-border-emphasized, #525252) !important;
+  background-color: var(--color-background-surface, #262626) !important;
+}
+
+.legacy-design
+  :is(
+    .astryx-text-input,
+    .astryx-textarea,
+    .astryx-selector[data-variant='input']
+  ):hover:not(:focus-within):not([aria-disabled='true']):not(:has(:disabled)) {
+  box-shadow: inset 0 0 0 2px
+    color-mix(in srgb, var(--color-border-emphasized, #d4d4d4) 30%, transparent) !important;
+}
+
+.legacy-design
+  :is(
+    .astryx-text-input,
+    .astryx-textarea,
+    .astryx-selector[data-variant='input']
+  ):focus-within {
+  border-color: var(--color-accent, hsl(var(--primary, 0 0% 9.02%))) !important;
+  box-shadow: inset 0 0 0 2px
+    var(--color-accent-muted, hsl(var(--primary, 0 0% 9.02%) / 0.12)) !important;
+}
+
+.legacy-design
+  :is(
+    .astryx-text-input,
+    .astryx-textarea,
+    .astryx-selector[data-variant='input']
+  )[data-disabled='true'],
+.legacy-design
+  :is(
+    .astryx-text-input,
+    .astryx-textarea,
+    .astryx-selector[data-variant='input']
+  ):has(:disabled) {
+  opacity: 0.5 !important;
+  border-color: var(--color-border-emphasized, #d4d4d4) !important;
+  box-shadow: none !important;
+  cursor: not-allowed !important;
+}
+
+.legacy-design :is(.astryx-text-input, .astryx-textarea) :is(input, textarea) {
+  appearance: none !important;
+  -webkit-appearance: none !important;
+  color-scheme: only light;
+  border: 0 !important;
+  border-radius: 0 !important;
+  background: transparent !important;
+  background-color: transparent !important;
+  background-image: none !important;
+  box-shadow: none !important;
+  outline: none !important;
+  min-height: 0 !important;
+  max-height: none !important;
+  padding: 0 !important;
+  margin: 0 !important;
+  text-indent: 0 !important;
+}
+
+.legacy-design
+  :is(.astryx-text-input, .astryx-textarea)
+  :is(input, textarea:not([data-auto-resize])) {
+  height: auto !important;
+}
+
+.legacy-design :is(.astryx-selector, .astryx-text-input) button {
+  border: 0 !important;
+  border-radius: 0 !important;
+  background: transparent !important;
+  background-color: transparent !important;
+  background-image: none !important;
+  box-shadow: none !important;
+  outline: none !important;
+}
+
+.legacy-design .git-log-search-input.astryx-text-input {
+  height: 24px !important;
+  min-height: 24px !important;
+  padding-block: 0 !important;
+  padding-inline: 6px !important;
+  gap: 4px !important;
+}
+
+.legacy-design .git-log-search-input.astryx-text-input input {
+  font-size: 11px !important;
+  line-height: 1 !important;
+}
+
+.legacy-design .git-log-search-input.astryx-text-input .astryx-icon {
+  width: 12px !important;
+  height: 12px !important;
+}
+
+.legacy-design .git-mode-selector.astryx-selector {
+  height: 24px !important;
+  min-height: 24px !important;
+  padding-block: 0 !important;
+  padding-inline: 8px !important;
+  gap: 6px !important;
+  font-size: 11px !important;
+  line-height: 1 !important;
+  font-weight: 400 !important;
+}
+
+.legacy-design .git-mode-selector.astryx-selector button {
+  font-size: 11px !important;
+  line-height: 1 !important;
+  font-weight: 400 !important;
+}
+
+.legacy-design .git-mode-selector.astryx-selector .astryx-icon {
+  width: 12px !important;
+  height: 12px !important;
+}
+
+.legacy-design
+  :is(.diff-view-button-group, .diff-expand-button-group)
+  .diff-toolbar-btn {
+  height: 28px !important;
+  min-height: 28px !important;
+  padding-block: 0 !important;
+  padding-inline: 8px !important;
+  font-size: 11px !important;
+  line-height: 1 !important;
+}
+
+.legacy-design .diff-view-button-group .diff-toolbar-btn[data-active='false'] {
+  color: hsl(var(--muted-foreground)) !important;
+}
+
+.legacy-design .diff-view-button-group .diff-toolbar-btn[data-active='true'] {
+  color: var(--text-strong, hsl(var(--foreground))) !important;
+}
+
+.legacy-design [popover]:has([role='listbox']) {
+  margin-block: 4px !important;
+}
+
+.legacy-design [popover]:has([role='listbox']) > div {
+  overflow: hidden;
+  border: 1px solid hsl(var(--border));
+  border-radius: var(--radius);
+  background: #ffffff;
+  color: hsl(var(--popover-foreground));
+  box-shadow: none;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+  font-family: var(--font-ui);
+  font-size: 0.8125rem;
+  line-height: 1.25rem;
+}
+
+.legacy-design.dark [popover]:has([role='listbox']) > div,
+.dark .legacy-design [popover]:has([role='listbox']) > div,
+.dark [popover]:has([role='listbox']) > div {
+  background: hsl(var(--popover));
+  color: hsl(var(--popover-foreground));
+}
+
+.legacy-design [popover]:has([role='listbox']) [role='listbox'],
+.legacy-design [popover]:has([role='listbox']) [role='listbox'] [role='group'] {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.legacy-design [popover]:has([role='listbox']) [role='option'] {
+  border-radius: var(--radius);
+  color: inherit;
+}
+
+.legacy-design [popover]:has([role='listbox']) [role='option']:hover,
+.legacy-design [popover]:has([role='listbox']) [role='option']:focus,
+.legacy-design
+  [popover]:has([role='listbox'])
+  [role='option'][aria-selected='true'] {
+  background: hsl(var(--accent));
+  color: hsl(var(--accent-foreground));
+}
+
+.legacy-design
+  [popover]:has([role='listbox'])
+  [role='option'][aria-disabled='true'],
+.legacy-design
+  [popover]:has([role='listbox'])
+  [role='option'][aria-disabled='true']:hover {
+  background: transparent;
+  color: inherit;
+  opacity: 0.5;
+}
+
+.legacy-design [popover]:has([role='listbox']) hr,
+.legacy-design [popover]:has([role='listbox']) [role='separator'] {
+  margin: 4px;
+  border: 0;
+  border-top: 1px solid hsl(var(--border) / 0.6);
+  background: transparent;
+}
+
+.legacy-design
+  :is(.astryx-button, .astryx-icon-button)[data-variant='primary']:not(
+    .primary-control
+  ) {
+  background-color: var(--color-accent, hsl(var(--primary))) !important;
+  color: var(--color-on-accent, hsl(var(--primary-foreground))) !important;
+  border-radius: var(
+    --_button-radius,
+    var(--radius-element, var(--radius))
+  ) !important;
+}
+
+.legacy-design
+  :is(.astryx-button, .astryx-icon-button)[data-variant='primary']:not(
+    .primary-control
+  ):hover:not(:disabled):not([aria-disabled='true']) {
+  opacity: 0.9;
+}
+
+.legacy-design
+  :is(.astryx-button, .astryx-icon-button)[data-variant='secondary']:not(
+    .raised-control
+  ) {
+  background-color: var(
+    --surface-control-solid,
+    var(--color-neutral, #e5e5e5)
+  ) !important;
+  color: var(--text-strong, var(--color-text-primary)) !important;
+  border-radius: var(
+    --_button-radius,
+    var(--radius-element, var(--radius))
+  ) !important;
+}
+
+.legacy-design
+  :is(.astryx-button, .astryx-icon-button)[data-variant='secondary']:not(
+    .raised-control
+  ):hover:not(:disabled):not([aria-disabled='true']) {
+  background-color: var(
+    --surface-control-solid-hover,
+    var(--color-overlay-hover)
+  ) !important;
+}
+
+.legacy-design :is(.astryx-button, .astryx-icon-button)[data-variant='ghost'] {
+  background-color: transparent !important;
+  color: var(--text-primary, var(--color-text-primary)) !important;
+  border-radius: var(
+    --_button-radius,
+    var(--radius-element, var(--radius))
+  ) !important;
+}
+
+.legacy-design
+  :is(.astryx-button, .astryx-icon-button)[data-variant='ghost']:hover:not(
+    :disabled
+  ):not([aria-disabled='true']) {
+  background-color: var(--surface-control-hover) !important;
+}
+
+.legacy-design button.composer-primary-action.astryx-button {
+  width: 22.4px;
+  height: 22.4px;
+  min-width: 22.4px;
+  min-height: 22.4px;
+  padding: 0 !important;
+  border: 0 !important;
+  border-radius: 999px !important;
+  background: hsl(var(--foreground)) !important;
+  background-color: hsl(var(--foreground)) !important;
+  color: hsl(var(--background)) !important;
+  box-shadow: none !important;
+}
+
+.legacy-design
+  button.composer-primary-action.astryx-button:hover:not(:disabled):not(
+    [aria-disabled='true']
+  ) {
+  background: hsl(var(--foreground) / 0.9) !important;
+  background-color: hsl(var(--foreground) / 0.9) !important;
+  color: hsl(var(--background)) !important;
+}
+
+.legacy-design button.composer-primary-action.astryx-button:disabled,
+.legacy-design
+  button.composer-primary-action.astryx-button[aria-disabled='true'] {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+.legacy-design
+  button.composer-primary-action.astryx-button:active:not(:disabled):not(
+    [aria-disabled='true']
+  ) {
+  transform: scale(0.94);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .legacy-design
+    button.composer-primary-action.astryx-button:active:not(:disabled):not(
+      [aria-disabled='true']
+    ) {
+    transform: none;
+  }
+}
+
+.legacy-design
+  :is(.astryx-button, .astryx-icon-button)[data-variant='destructive']:not(
+    .destructive-control
+  ) {
+  background-color: hsl(var(--destructive)) !important;
+  color: hsl(var(--destructive-foreground)) !important;
+  border-radius: var(
+    --_button-radius,
+    var(--radius-element, var(--radius))
+  ) !important;
+}
+
+.legacy-design
+  .astryx-button-group:not([data-orientation='vertical'])
+  > :is(.astryx-button, .astryx-icon-button) {
+  border-start-start-radius: 0 !important;
+  border-end-start-radius: 0 !important;
+  border-start-end-radius: 0 !important;
+  border-end-end-radius: 0 !important;
+}
+
+.legacy-design
+  .astryx-button-group:not([data-orientation='vertical'])
+  > :is(.astryx-button, .astryx-icon-button):first-child {
+  border-start-start-radius: var(
+    --_button-radius,
+    var(--radius-element, var(--radius))
+  ) !important;
+  border-end-start-radius: var(
+    --_button-radius,
+    var(--radius-element, var(--radius))
+  ) !important;
+}
+
+.legacy-design
+  .astryx-button-group:not([data-orientation='vertical'])
+  > :is(.astryx-button, .astryx-icon-button):not(:has(~ *:not([popover]))) {
+  border-start-end-radius: var(
+    --_button-radius,
+    var(--radius-element, var(--radius))
+  ) !important;
+  border-end-end-radius: var(
+    --_button-radius,
+    var(--radius-element, var(--radius))
+  ) !important;
+}
+
+.legacy-design
+  .astryx-button-group:not([data-orientation='vertical'])
+  > :is(.astryx-button, .astryx-icon-button):not(:first-child) {
+  border-inline-start-width: 1px !important;
+  border-inline-start-style: solid !important;
+  border-inline-start-color: var(
+    --border-strong,
+    var(--color-border)
+  ) !important;
+}
+
+.legacy-design.dark
+  :is(.astryx-text-input, .astryx-textarea)
+  :is(input, textarea),
+.dark
+  .legacy-design
+  :is(.astryx-text-input, .astryx-textarea)
+  :is(input, textarea) {
+  color-scheme: only dark;
+}
+
+.legacy-design input::-ms-reveal,
+.legacy-design input::-ms-clear {
+  display: none;
+}
+
+.legacy-design input[type='search']::-webkit-search-decoration,
+.legacy-design input[type='search']::-webkit-search-cancel-button,
+.legacy-design input[type='search']::-webkit-search-results-button,
+.legacy-design input[type='search']::-webkit-search-results-decoration {
+  appearance: none;
+  -webkit-appearance: none;
 }
 
 @layer components {
@@ -2216,7 +2759,7 @@
   .settings-page .settings-card kbd {
     border-width: 1px;
     border-color: var(--border-subtle);
-    background-color: var(--surface-control);
+    background-color: var(--surface-control-solid);
     box-shadow: var(--shadow-inset);
   }
 
@@ -2529,19 +3072,37 @@
   }
 
   .product-context-menu {
+    background: #ffffff;
+    border: 1px solid hsl(var(--border));
+    box-shadow: none;
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
     font-family: var(--font-ui);
     font-optical-sizing: auto;
-    font-size: 0.875rem;
-    line-height: 1.45;
-    background: var(--surface-dialog);
-    backdrop-filter: none;
-    -webkit-backdrop-filter: none;
+    font-size: 0.8125rem;
+    line-height: 1.25rem;
   }
 
-  .branch-selector-menu {
-    background: var(--surface-glass-solid);
-    backdrop-filter: none;
-    -webkit-backdrop-filter: none;
+  .legacy-design.dark .product-context-menu,
+  .dark .legacy-design .product-context-menu,
+  .dark .product-context-menu {
+    background: hsl(var(--popover));
+    border-color: hsl(var(--border));
+  }
+
+  .product-context-menu
+    :is([role='menuitem'], [role='option']).text-destructive {
+    color: hsl(var(--destructive));
+  }
+
+  .product-context-menu
+    :is([role='menuitem'], [role='option']).text-destructive:hover,
+  .product-context-menu
+    :is([role='menuitem'], [role='option']).text-destructive:focus,
+  .product-context-menu
+    :is([role='menuitem'], [role='option']).text-destructive[data-highlighted] {
+    background: hsl(var(--destructive) / 0.1);
+    color: hsl(var(--destructive));
   }
 
   .tahoe-content {
@@ -2601,6 +3162,87 @@
     box-shadow: none;
   }
 
+  :where(.astryx-button) {
+    position: relative;
+  }
+
+  @media (prefers-reduced-motion: no-preference) {
+    .astryx-button[data-astryx-pressable]:active:not(:disabled):not(
+        [aria-disabled='true']
+      ) {
+      transform: scale(0.98);
+    }
+  }
+
+  .astryx-button[data-elevation='low'] {
+    box-shadow: var(--shadow-low, var(--shadow-control));
+  }
+
+  .astryx-button[data-elevation='med'] {
+    box-shadow: var(--shadow-med, var(--shadow-card));
+  }
+
+  .astryx-button[data-elevation='high'] {
+    box-shadow: var(--shadow-high, var(--shadow-popover));
+  }
+
+  .astryx-button__spinner {
+    position: absolute;
+    inset: 0;
+    display: grid;
+    place-items: center;
+    pointer-events: none;
+  }
+
+  .astryx-button__spinner-ring {
+    width: 14px;
+    height: 14px;
+    border: 1.75px solid currentColor;
+    border-right-color: transparent;
+    border-radius: 999px;
+    animation: astryx-button-spin 650ms linear infinite;
+  }
+
+  @keyframes astryx-button-spin {
+    to {
+      transform: rotate(360deg);
+    }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .astryx-button__spinner-ring {
+      animation: none;
+    }
+  }
+
+  .astryx-button__content {
+    display: contents;
+  }
+
+  .astryx-button__content[data-loading='true'] {
+    color: transparent;
+  }
+
+  .astryx-button__icon {
+    display: inline-flex;
+    flex-shrink: 0;
+    align-items: center;
+    justify-content: center;
+  }
+
+  .astryx-button__label {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .astryx-button__end {
+    display: inline-flex;
+    flex-shrink: 0;
+    align-items: center;
+    color: inherit;
+  }
+
   select.raised-control:not([multiple]) {
     appearance: auto;
   }
@@ -2615,49 +3257,49 @@
     display: flex;
     width: 100%;
     min-width: 0;
-    height: 34px;
+    height: 32px;
     align-items: center;
     justify-content: flex-start;
     gap: 6px;
     padding: 0 10px;
-    border: 1px solid var(--border-content);
-    border-radius: var(--radius);
+    border: 1px solid var(--color-border-emphasized, var(--border-content));
+    border-radius: var(--_field-radius, var(--radius-element, var(--radius)));
     outline: none;
-    background: var(--surface-control);
+    background: var(--color-background-surface, var(--surface-control));
     color: var(--text-strong);
     font-size: 0.75rem;
     line-height: 1;
     text-align: start;
     cursor: pointer;
     transition:
-      border-color 150ms cubic-bezier(0.22, 1, 0.36, 1),
-      background-color 150ms cubic-bezier(0.22, 1, 0.36, 1),
-      box-shadow 150ms cubic-bezier(0.22, 1, 0.36, 1);
+      border-color 125ms ease,
+      background-color 125ms ease,
+      box-shadow 125ms ease;
   }
 
-  .astryx-select-trigger:hover:not([aria-disabled='true']) {
-    border-color: var(--border-strong);
-    background: var(--surface-control-hover);
+  .astryx-select-trigger:hover:not([aria-disabled='true']):not(.is-open):not(
+      :focus-visible
+    ) {
+    border-color: var(--color-border-emphasized, var(--border-strong));
+    background: var(--color-background-surface, var(--surface-control-hover));
+    box-shadow: inset 0 0 0 2px
+      color-mix(
+        in srgb,
+        var(--color-border-emphasized, var(--border-strong)) 30%,
+        transparent
+      );
   }
 
   .astryx-select-trigger:focus-visible,
   .astryx-select-trigger.is-open {
-    border-color: hsl(var(--primary));
-    box-shadow: inset 0 0 0 2px hsl(var(--primary) / 0.22);
+    border-color: var(--color-accent, hsl(var(--primary)));
+    box-shadow: inset 0 0 0 2px
+      var(--color-accent-muted, hsl(var(--primary) / 0.22));
   }
 
   .astryx-select-trigger[aria-disabled='true'] {
     cursor: not-allowed;
     opacity: 0.5;
-  }
-
-  .settings-page .agent-codex-quick-field .astryx-select-trigger,
-  .settings-page .agent-model-catalog-actions .astryx-select-trigger,
-  .settings-page .agent-model-provider-binding .astryx-select-trigger,
-  .settings-page .agent-model-provider-claude .astryx-select-trigger,
-  .settings-page .agent-model-provider-form-grid .astryx-select-trigger,
-  .settings-page .codex-default-model .astryx-select-trigger {
-    height: 32px;
   }
 
   .astryx-select--compact .astryx-select-trigger {
@@ -2698,9 +3340,15 @@
     cursor: pointer;
   }
 
-  .astryx-select-clear:hover {
+  .astryx-select-clear:hover,
+  .astryx-select-clear:focus-visible {
+    outline: none;
     color: var(--text-strong);
     background: var(--surface-control-hover);
+  }
+
+  .astryx-select-clear:focus-visible {
+    box-shadow: inset 0 0 0 1.5px var(--color-accent, hsl(var(--primary)));
   }
 
   .astryx-select-clear svg {
@@ -2727,8 +3375,10 @@
     overflow-y: auto;
     padding: 4px;
     border-radius: var(--radius);
-    color: var(--text-strong);
-    font-size: 0.75rem;
+    color: hsl(var(--popover-foreground));
+    font-family: var(--font-ui);
+    font-size: 0.8125rem;
+    line-height: 1.25rem;
   }
 
   .astryx-select-option {
@@ -2738,21 +3388,26 @@
     justify-content: space-between;
     gap: 8px;
     box-sizing: border-box;
-    padding: 6px 8px;
+    padding: 6px 10px;
     border-radius: var(--radius);
-    color: var(--text-strong);
-    font-size: 0.75rem;
-    line-height: 1.3;
+    color: inherit;
+    font-size: 0.8125rem;
+    line-height: 1.25rem;
     text-align: start;
     cursor: pointer;
   }
 
   .astryx-select-option:hover,
-  .astryx-select-option[data-active='true'] {
-    background: var(--surface-control-hover);
+  .astryx-select-option[data-active='true'],
+  .astryx-select-option[aria-selected='true'] {
+    background: hsl(var(--accent));
+    color: hsl(var(--accent-foreground));
   }
 
-  .astryx-select-option[data-disabled='true'] {
+  .astryx-select-option[data-disabled='true'],
+  .astryx-select-option[data-disabled='true']:hover {
+    background: transparent;
+    color: inherit;
     opacity: 0.5;
     cursor: not-allowed;
   }
@@ -2768,7 +3423,7 @@
     flex: 0 0 auto;
     width: 14px;
     height: 14px;
-    color: hsl(var(--primary));
+    color: currentColor;
   }
 
   .astryx-select-option-action {
@@ -4264,20 +4919,20 @@
 
   .workspace-session-row-action {
     display: inline-flex;
-    height: 1.5rem;
-    width: 1.5rem;
+    height: 1.25rem;
+    width: 1.25rem;
     align-items: center;
     justify-content: center;
     border: 0;
-    border-radius: 999px;
     background: transparent;
     color: var(--text-muted);
+    transition: color 120ms ease;
   }
 
   .workspace-session-row-action:hover,
   .workspace-session-row-action.is-active {
     color: var(--text-strong);
-    background: var(--surface-control);
+    background: transparent;
   }
 
   .workspace-session-row-action:focus-visible {
@@ -4382,18 +5037,26 @@
     background: var(--surface-active);
   }
 
-  .session-hub-card-action {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    padding: 0.125rem;
-    border: 0;
-    border-radius: 0;
+  .session-hub-card-actions {
     background: transparent;
-    color: var(--text-muted);
+    box-shadow: none;
   }
 
-  .session-hub-card-action:hover {
+  .session-hub-card-action {
+    display: inline-flex;
+    height: 1.25rem;
+    width: 1.25rem;
+    align-items: center;
+    justify-content: center;
+    padding: 0;
+    border: 0;
+    background: transparent;
+    color: var(--text-muted);
+    transition: color 120ms ease;
+  }
+
+  .session-hub-card-action:hover,
+  .session-hub-card-action.is-active {
     color: var(--text-strong);
     background: transparent;
   }
@@ -5664,7 +6327,8 @@
     border: 1px solid var(--border-content);
     border-radius: var(--radius);
     outline: 0;
-    background: var(--surface-control);
+    background: var(--surface-control-solid) !important;
+    background-color: var(--surface-control-solid) !important;
     box-shadow: var(--shadow-inset);
     color: var(--text-primary);
     font: inherit;
@@ -5675,6 +6339,11 @@
     transition:
       border-color 160ms cubic-bezier(0.22, 1, 0.36, 1),
       box-shadow 160ms cubic-bezier(0.22, 1, 0.36, 1);
+  }
+
+  .settings-search-input:hover:not(:focus):not(:focus-visible) {
+    background: var(--surface-control-solid-hover) !important;
+    background-color: var(--surface-control-solid-hover) !important;
   }
 
   .settings-search-input::placeholder {
@@ -7635,81 +8304,128 @@ html.host-windows :where(.legacy-design) .vu-toast-surface {
 :is(.settings-page, .plan-usage-page) .agent-management-bar {
   position: relative;
   display: flex;
-  height: 60px;
+  align-items: center;
+  width: 100%;
+  height: calc(var(--agent-bar-item-size) + 8px);
   min-width: 0;
-  flex: 1;
-  align-items: flex-start;
-  gap: 8px;
-}
-
-:is(.settings-page, .plan-usage-page) .agent-management-bar-surface {
-  position: absolute;
-  top: 0;
-  right: 0;
-  bottom: 8px;
-  left: 0;
+  flex: none;
+  overflow: hidden;
+  padding: 0 3px;
   border: 1px solid var(--border-content);
-  border-radius: var(--radius);
+  border-radius: 9999px;
   background: var(--surface-control);
-  pointer-events: none;
 }
 
-:is(.settings-page, .plan-usage-page) .agent-management-bar-scroll {
+:is(.settings-page, .plan-usage-page) .agent-management-bar-viewport {
   position: relative;
-  z-index: 1;
-  display: flex;
-  height: 60px;
+  height: 100%;
   min-width: 0;
-  flex: 1;
-  align-items: flex-start;
+  flex: 1 1 auto;
+  overflow: hidden;
+}
+
+:is(.settings-page, .plan-usage-page) .agent-management-bar-track {
+  display: flex;
+  height: 100%;
+  transform: translate3d(calc(var(--agent-bar-page, 0) * -100%), 0, 0);
+  transition: transform 260ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+:is(.settings-page, .plan-usage-page) .agent-management-bar-page {
+  display: flex;
+  min-width: 0;
+  flex: 0 0 100%;
+  height: 100%;
+  align-items: center;
   justify-content: flex-start;
-  gap: 20px;
-  padding: 4px 0 0 4px;
-  overflow-x: auto;
-  overflow-y: hidden;
-  overscroll-behavior-x: contain;
+  gap: var(--agent-bar-item-gap);
+  padding: 0;
+  transition: gap 220ms cubic-bezier(0.22, 1, 0.36, 1);
 }
 
-@supports not selector(::-webkit-scrollbar) {
-  :is(.settings-page, .plan-usage-page) .agent-management-bar-scroll {
-    scrollbar-width: thin;
-    scrollbar-color: hsl(var(--muted-foreground) / 0.45) transparent;
-  }
+:is(.settings-page, .plan-usage-page) .agent-management-bar-tail {
+  display: flex;
+  align-items: center;
+  height: var(--agent-bar-item-size);
+  padding: 0 3px;
+  gap: 2px;
+  flex: none;
+  border-radius: 9999px;
+  background: hsl(var(--foreground) / 0.08);
+  border: 1px solid var(--border-content);
 }
 
 :is(.settings-page, .plan-usage-page)
-  .agent-management-bar-scroll::-webkit-scrollbar {
+  .agent-management-bar-tail
+  button:not([aria-current='page']):hover {
+  background-color: transparent !important;
+  color: var(--text-strong);
+}
+
+:is(.settings-page, .plan-usage-page) .agent-management-bar-pager {
+  display: none;
+  width: var(--agent-bar-pager-width);
+  flex: 0 0 var(--agent-bar-pager-width);
+  align-items: center;
+  justify-content: center;
+}
+
+:is(.settings-page, .plan-usage-page) .agent-management-bar-pager.is-previous {
+  margin-right: 4px;
+}
+
+:is(.settings-page, .plan-usage-page)
+  .agent-management-bar-tail
+  .agent-management-bar-pager {
+  width: 22px;
+  flex: 0 0 22px;
+}
+
+:is(.settings-page, .plan-usage-page) .agent-management-bar-pager.is-visible {
+  display: flex;
+}
+
+:is(.settings-page, .plan-usage-page) .agent-management-bar-pager-button {
+  display: flex;
+  width: 100%;
+  height: var(--agent-bar-item-size);
+  align-items: center;
+  justify-content: center;
+  border-radius: 9999px;
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: color 160ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+:is(.settings-page, .plan-usage-page)
+  .agent-management-bar-tail
+  .agent-management-bar-pager-button {
+  width: 22px;
+  height: 24px;
+}
+
+:is(.settings-page, .plan-usage-page) .agent-management-bar-pager-button svg {
   width: 8px;
-  height: 8px;
-  background: transparent;
+  height: 12px;
 }
 
 :is(.settings-page, .plan-usage-page)
-  .agent-management-bar-scroll::-webkit-scrollbar-track,
+  .agent-management-bar-tail
+  .agent-management-bar-pager-button
+  svg {
+  transform: scaleX(-1);
+}
+
+:is(.settings-page, .plan-usage-page) .agent-management-bar-pager-button:hover,
 :is(.settings-page, .plan-usage-page)
-  .agent-management-bar-scroll::-webkit-scrollbar-track-piece {
-  background: transparent;
-  border: none;
-  box-shadow: none;
+  .agent-management-bar-pager-button.is-drop-target {
+  color: var(--text-strong);
 }
 
 :is(.settings-page, .plan-usage-page)
-  .agent-management-bar-scroll::-webkit-scrollbar-thumb {
-  border: none;
-  border-radius: 999px;
-  /* --border-strong is already `hsl(...)`; wrapping it in hsl() again
-     makes the thumb paint as transparent. */
-  background: hsl(var(--muted-foreground) / 0.45);
-}
-
-:is(.settings-page, .plan-usage-page)
-  .agent-management-bar-scroll::-webkit-scrollbar-thumb:hover {
-  background: hsl(var(--muted-foreground) / 0.65);
-}
-
-:is(.settings-page, .plan-usage-page)
-  .agent-management-bar-scroll::-webkit-scrollbar-corner {
-  background: transparent;
+  .agent-management-bar-pager-button:focus-visible {
+  outline: 2px solid hsl(var(--primary) / 0.55);
+  outline-offset: -2px;
 }
 
 .plan-usage-page .agent-management-bar-item {
@@ -7720,13 +8436,13 @@ html.host-windows :where(.legacy-design) .vu-toast-surface {
 :is(.settings-page, .plan-usage-page) .agent-management-bar-item {
   position: relative;
   display: flex;
-  width: 44px;
-  height: 44px;
-  flex: 0 0 44px;
+  height: var(--agent-bar-item-size);
+  min-width: var(--agent-bar-item-size);
+  flex: none;
   align-items: center;
-  justify-content: center;
+  padding: 0 5px;
   border: 1px solid transparent;
-  border-radius: var(--radius);
+  border-radius: 9999px;
   color: var(--text-muted);
   cursor: grab;
   touch-action: none;
@@ -7754,6 +8470,30 @@ html.host-windows :where(.legacy-design) .vu-toast-surface {
   box-shadow: var(--shadow-card);
 }
 
+:is(.settings-page, .plan-usage-page) .agent-management-bar-label {
+  max-width: 0;
+  margin: 0;
+  overflow: hidden;
+  opacity: 0;
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  transition:
+    max-width 220ms cubic-bezier(0.22, 1, 0.36, 1),
+    margin 220ms cubic-bezier(0.22, 1, 0.36, 1),
+    opacity 160ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+:is(.settings-page, .plan-usage-page)
+  .agent-management-bar-item.is-selected
+  .agent-management-bar-label {
+  max-width: var(--agent-label-width, var(--agent-bar-label-max));
+  margin: 0 4px 0 6px;
+  opacity: 1;
+}
+
 :is(.settings-page, .plan-usage-page) .agent-management-bar-item.is-disabled {
   opacity: 0.58;
 }
@@ -7773,19 +8513,13 @@ html.host-windows :where(.legacy-design) .vu-toast-surface {
 }
 
 @media (prefers-reduced-motion: reduce) {
-  :is(.settings-page, .plan-usage-page) .agent-management-bar-item {
+  :is(.settings-page, .plan-usage-page) .agent-management-bar-track,
+  :is(.settings-page, .plan-usage-page) .agent-management-bar-page,
+  :is(.settings-page, .plan-usage-page) .agent-management-bar-pager-button,
+  :is(.settings-page, .plan-usage-page) .agent-management-bar-item,
+  :is(.settings-page, .plan-usage-page) .agent-management-bar-label {
     transition: none !important;
   }
-}
-
-:is(.settings-page, .plan-usage-page) .agent-management-bar-add {
-  z-index: 1;
-  margin-top: 4px;
-  margin-right: 4px;
-  margin-left: auto;
-  border-left-color: var(--border-content);
-  cursor: pointer;
-  touch-action: auto;
 }
 
 .agent-settings-loading {
@@ -7841,10 +8575,10 @@ html.host-windows :where(.legacy-design) .vu-toast-surface {
 }
 
 .agent-settings-loading-refresh {
-  width: 36px;
-  height: 36px;
-  flex: 0 0 36px;
-  border-radius: var(--radius);
+  width: var(--agent-bar-item-size);
+  height: var(--agent-bar-item-size);
+  flex: 0 0 var(--agent-bar-item-size);
+  border-radius: 9999px;
 }
 
 .agent-settings-loading-copy {
@@ -7976,64 +8710,10 @@ html.host-windows :where(.legacy-design) .vu-toast-surface {
   max-height: 100%;
 }
 
-:is(.settings-page, .plan-usage-page)
-  .agent-management-brand-icon.is-cline
-  > svg,
-:is(.settings-page, .plan-usage-page)
-  .agent-management-brand-icon.is-cline
-  .agent-management-brand-artwork,
-:is(.settings-page, .plan-usage-page)
-  .agent-management-brand-icon.is-codebuddy
-  > svg,
-:is(.settings-page, .plan-usage-page)
-  .agent-management-brand-icon.is-codebuddy
-  .agent-management-brand-artwork,
-:is(.settings-page, .plan-usage-page)
-  .agent-management-brand-icon.is-kimi
-  > svg,
-:is(.settings-page, .plan-usage-page)
-  .agent-management-brand-icon.is-kimi
-  .agent-management-brand-artwork,
-:is(.settings-page, .plan-usage-page)
-  .agent-management-brand-icon.is-grok
-  > svg,
-:is(.settings-page, .plan-usage-page)
-  .agent-management-brand-icon.is-grok
-  .agent-management-brand-artwork,
-:is(.settings-page, .plan-usage-page)
-  .agent-management-brand-icon.is-deepseek
-  > svg,
-:is(.settings-page, .plan-usage-page)
-  .agent-management-brand-icon.is-deepseek
-  .agent-management-brand-artwork {
-  width: 22px;
-  height: 22px;
-}
-
-:is(.settings-page, .plan-usage-page)
-  .agent-management-brand-icon.is-hermes
-  > svg,
-:is(.settings-page, .plan-usage-page)
-  .agent-management-brand-icon.is-hermes
-  .agent-management-brand-artwork {
-  width: 28px;
-  height: 28px;
-}
-
-:is(.settings-page, .plan-usage-page)
-  .agent-management-brand-icon.is-cursor
-  > svg,
-:is(.settings-page, .plan-usage-page)
-  .agent-management-brand-icon.is-cursor
-  .agent-management-brand-artwork {
-  width: 24px;
-  height: 24px;
-}
-
 :is(.settings-page, .plan-usage-page) .agent-management-status-mark {
   position: absolute;
-  top: 6px;
-  right: 6px;
+  top: 3px;
+  left: 21px;
   width: 7px;
   height: 7px;
   border: 1px solid var(--surface-card-strong);
@@ -13464,48 +14144,6 @@ html.host-windows :where(.legacy-design) .vu-toast-surface {
   color: var(--text-tertiary);
 }
 
-.settings-page .product-plugin-context-menu {
-  position: fixed;
-  z-index: 40;
-  min-width: 160px;
-  padding: 4px;
-  border-radius: var(--radius);
-}
-
-.settings-page .product-plugin-context-menu button {
-  display: flex;
-  width: 100%;
-  height: auto;
-  min-height: 0;
-  align-items: center;
-  padding: 7px 10px;
-  border: 0;
-  border-radius: var(--radius);
-  background: transparent;
-  box-shadow: none;
-  color: var(--text-primary);
-  font-size: 13px;
-  line-height: 1.3;
-  text-align: left;
-}
-
-.settings-page .product-plugin-context-menu button:hover,
-.settings-page .product-plugin-context-menu button:focus-visible {
-  background: color-mix(in srgb, var(--accent) 10%, transparent);
-  outline: 0;
-}
-
-.settings-page .product-plugin-context-menu button.is-destructive {
-  color: hsl(var(--destructive));
-}
-
-.settings-page .product-plugin-context-menu button.is-destructive:hover,
-.settings-page
-  .product-plugin-context-menu
-  button.is-destructive:focus-visible {
-  background: hsl(var(--destructive) / 0.1);
-}
-
 .settings-page .product-plugin-loading {
   display: grid;
   padding: 0 16px;
@@ -14318,6 +14956,10 @@ html.host-windows :where(.legacy-design) .vu-toast-surface {
 .canvas-surface[data-canvas-panning] .canvas-minimap {
   opacity: 0;
   pointer-events: none;
+}
+
+.canvas-surface[data-canvas-panning] .react-flow__viewport {
+  will-change: transform;
 }
 
 .canvas-surface[data-canvas-panning] .canvas-session-card .session-hub-card,

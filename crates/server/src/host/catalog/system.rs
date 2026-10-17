@@ -1,10 +1,7 @@
 use std::{path::Path, time::Duration};
 
 use application::ApplicationError;
-use db::models::{
-    agent_management::legacy_migration::LegacyAgentMigration, execution_process::ExecutionProcess,
-    project::Project, workspace::Workspace,
-};
+use db::models::{execution_process::ExecutionProcess, project::Project, workspace::Workspace};
 use deployment::Deployment;
 use executors::profile::ExecutorConfigs;
 use serde::{Deserialize, Serialize};
@@ -753,7 +750,9 @@ pub(super) async fn clear_local_app_data(
     let _ = remove_path_if_exists(&utils::assets::profiles_path());
     let _ = remove_path_if_exists(&utils::cache_dir());
     ExecutorConfigs::reload();
-    reset_database_rows(&domains.pool).await?;
+    db::reset_local_database(&domains.pool)
+        .await
+        .map_err(internal_error)?;
     let default_config = Config::default();
     let _ = remove_path_if_exists(&utils::assets::settings_path());
     save_config_to_file(&default_config, &utils::assets::settings_path())
@@ -781,35 +780,4 @@ fn remove_path_if_exists(path: &Path) -> Result<(), ApplicationError> {
     } else {
         std::fs::remove_file(path).map_err(internal_error)
     }
-}
-
-async fn reset_database_rows(pool: &sqlx::SqlitePool) -> Result<(), ApplicationError> {
-    let mut connection = pool.acquire().await.map_err(internal_error)?;
-    sqlx::query("PRAGMA foreign_keys = OFF")
-        .execute(&mut *connection)
-        .await
-        .map_err(internal_error)?;
-    let table_names: Vec<String> = sqlx::query_scalar(
-        "SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%' AND name != '_sqlx_migrations'",
-    )
-    .fetch_all(&mut *connection)
-    .await
-    .map_err(internal_error)?;
-    for table_name in table_names {
-        let escaped = table_name.replace('"', "\"\"");
-        let statement = format!("DELETE FROM \"{escaped}\"");
-        sqlx::query(&statement)
-            .execute(&mut *connection)
-            .await
-            .map_err(internal_error)?;
-    }
-    sqlx::query("PRAGMA foreign_keys = ON")
-        .execute(&mut *connection)
-        .await
-        .map_err(internal_error)?;
-    drop(connection);
-    LegacyAgentMigration::run(pool)
-        .await
-        .map_err(internal_error)?;
-    Ok(())
 }

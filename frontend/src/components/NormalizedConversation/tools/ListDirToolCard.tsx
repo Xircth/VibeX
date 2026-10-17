@@ -2,7 +2,10 @@ import { useTranslation } from 'react-i18next';
 import type { NormalizedEntry } from 'shared/types';
 import FileIcon from '@/components/FileIcon';
 import { useExpandable } from '@/stores/useExpandableStore';
-import { getToolSummary } from '../conversation-entry-utils';
+import {
+  getToolCallDescription,
+  getToolSummary,
+} from '../conversation-entry-utils';
 import { ToolCallTarget } from './ToolCallTarget';
 import { listDirPath, parseDirectoryListing } from './toolDirListing';
 import {
@@ -51,13 +54,16 @@ export function ListDirToolCard({
     action?.result?.value ?? action?.result ?? entry.content
   );
   const summary = getToolSummary(toolEntry, path);
+  const description = getToolCallDescription(entry);
   const effectiveExpanded = forceExpanded || expanded;
 
   return (
     <ToolCardShell
-      label={t('app:entryUtils.listDir')}
+      label={description ?? t('app:entryUtils.listDir')}
       detail={
-        <ToolCallTarget text={path || summary.detail} path={path} isFolder />
+        description ? undefined : (
+          <ToolCallTarget text={path || summary.detail} path={path} isFolder />
+        )
       }
       statusClassName={getToolStatusClassName(toolEntry.status)}
       statusDotClassName={getToolStatusDotClassName(toolEntry.status)}

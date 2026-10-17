@@ -276,12 +276,15 @@ mod tests {
             rec(
                 TurnRole::Assistant,
                 vec![ContentBlock::ToolUse {
+                    status: None,
                     tool_use_id: Some("t1".into()),
                     tool_name: "read".into(),
                     kind: None,
                     input_preview: None,
                     meta: None,
                     images: Vec::new(),
+                    started_at: None,
+                    ended_at: None,
                 }],
                 3,
             ),
@@ -299,12 +302,15 @@ mod tests {
             rec(
                 TurnRole::Assistant,
                 vec![ContentBlock::ToolUse {
+                    status: None,
                     tool_use_id: Some("t1".into()),
                     tool_name: "read".into(),
                     kind: None,
                     input_preview: None,
                     meta: None,
                     images: Vec::new(),
+                    started_at: None,
+                    ended_at: None,
                 }],
                 1,
             ),

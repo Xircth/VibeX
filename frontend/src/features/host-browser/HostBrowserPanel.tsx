@@ -6,6 +6,7 @@ import {
   useState,
 } from 'react';
 import { useTranslation } from 'react-i18next';
+import { TextInput } from '@astryxdesign/core/TextInput';
 
 import {
   ArrowLeft,
@@ -40,12 +41,14 @@ import {
   NativeSurfaceOcclusionHold,
   useWorkspaceOverlay,
 } from '@/contexts/WorkspaceOverlayContext';
+import { nativeSurfaceDestinationProgress } from '@/lib/nativeSurfaceHandoff';
 import { overlayCoversSurface } from '@/lib/nativeSurfaceOverlay';
 import { requestBrowserTabOpen } from './openBrowserTab';
 import { backendCall, backendListen } from '@/lib/backendTransport';
 import { getInvokeErrorMessage } from '@/lib/errors';
 import { cn } from '@/lib/utils';
 import { open } from '@tauri-apps/plugin-shell';
+import { openInSystemBrowser } from '@/hooks/useOpenLink';
 import {
   requestComposerImageInsert,
   requestComposerTokenInsert,
@@ -71,7 +74,15 @@ import {
 } from './BrowserAgentAccess';
 import { BrowserFindBar } from './BrowserFindBar';
 import { BrowserDownloadBar, BrowserNoticeBar } from './BrowserStatusLayer';
-import { clearAgentActivity } from './browserChromeStore';
+import {
+  applyBrowserHostEvent,
+  clearAgentActivity,
+} from './browserChromeStore';
+import {
+  resolveSiteRuleAction,
+  updateBrowserSettings,
+  useBrowserPrefs,
+} from './browserPrefsStore';
 import {
   faviconForPage,
   prefetchFavicon,
@@ -211,6 +222,20 @@ function nextPaint(): Promise<void> {
   });
 }
 
+function nextFrame(): Promise<void> {
+  return new Promise((resolve) => {
+    if (typeof requestAnimationFrame !== 'function') {
+      resolve();
+      return;
+    }
+    const timer = window.setTimeout(resolve, 32);
+    requestAnimationFrame(() => {
+      window.clearTimeout(timer);
+      resolve();
+    });
+  });
+}
+
 function provisionalTitle(url: string): string | null {
   try {
     const host = new URL(url).hostname.replace(/^www\./, '');
@@ -249,6 +274,8 @@ type BrowserHostEvent = {
   tabId?: string;
   sourceTabId?: string;
   url?: string;
+  origin?: string | null;
+  grant?: { level: string } | null;
   title?: string | null;
   favicon?: string | null;
   loading?: boolean;
@@ -355,6 +382,9 @@ export function HostBrowserPanel({
 }) {
   const { t } = useTranslation('panels');
   const overlay = useWorkspaceOverlay();
+  const browserPrefs = useBrowserPrefs();
+  const browserSettingsRef = useRef(browserPrefs.settings);
+  browserSettingsRef.current = browserPrefs.settings;
   const rootRef = useRef<HTMLDivElement | null>(null);
   const hostRef = useRef<HTMLDivElement | null>(null);
   const moreRef = useRef<HTMLButtonElement | null>(null);
@@ -404,9 +434,31 @@ export function HostBrowserPanel({
   const [suggestOpen, setSuggestOpen] = useState(false);
   const [suggestIndex, setSuggestIndex] = useState(0);
   const addressDirtyRef = useRef(false);
+  const addressFieldRef = useRef<HTMLDivElement>(null);
+  const addressToolsRef = useRef<HTMLDivElement>(null);
   const suggestions = suggestBrowserAddresses(address, addressHistory);
   const hideSeqRef = useRef(0);
   const loadingRef = useRef(false);
+
+  useLayoutEffect(() => {
+    const tools = addressToolsRef.current;
+    const root = addressFieldRef.current;
+    if (!tools || !root) return;
+    const apply = () => {
+      const input = root.querySelector('input');
+      if (!(input instanceof HTMLInputElement)) return;
+      input.spellcheck = false;
+      input.style.setProperty('font-size', '12px', 'important');
+      const width = Math.ceil(tools.getBoundingClientRect().width);
+      if (width < 24) return;
+      input.style.paddingInlineEnd = `${width + 10}px`;
+    };
+    apply();
+    if (typeof ResizeObserver === 'undefined') return;
+    const observer = new ResizeObserver(apply);
+    observer.observe(tools);
+    return () => observer.disconnect();
+  }, []);
 
   const dispatch = useCallback(
     async (operation: string, input: Record<string, unknown> = {}) => {
@@ -533,6 +585,17 @@ export function HostBrowserPanel({
         Boolean(pendingUrlRef.current) && !payload.url?.trim();
       if (pageTitle && !titleIsStale) panelApi?.setTitle?.(pageTitle);
     }
+    if (payload.kind === 'tab.grant') {
+      setTab((current) => {
+        if (!current || current.tabId !== payload.tabId) return current;
+        return {
+          ...current,
+          origin: payload.origin || current.origin,
+          grant: payload.grant ?? null,
+        };
+      });
+      return;
+    }
     setTab((current) => {
       if (!current || current.tabId !== payload.tabId) return current;
       return {
@@ -564,9 +627,7 @@ export function HostBrowserPanel({
       if (bounds.visible && bounds.width >= 32 && bounds.height >= 32) {
         return bounds;
       }
-      await new Promise<void>((resolve) => {
-        requestAnimationFrame(() => resolve());
-      });
+      await nextFrame();
     }
     return measureSurface(
       hostRef.current,
@@ -575,8 +636,64 @@ export function HostBrowserPanel({
     );
   }, []);
 
+  const waitForStableSurfaceBounds = useCallback(async () => {
+    let previousSignature = '';
+    let matches = 0;
+    for (let i = 0; i < 24; i += 1) {
+      const bounds = measureSurface(hostRef.current, visibleRef.current, false);
+      const laidOut = bounds.width >= 32 && bounds.height >= 32;
+      const progress = nativeSurfaceDestinationProgress({
+        signature: boundsKey({ ...bounds, visible: true }),
+        laidOut,
+        previousSignature,
+        matches,
+      });
+      previousSignature = progress.previousSignature;
+      matches = progress.matches;
+      if (progress.ready) return bounds;
+      await nextFrame();
+    }
+    return measureSurface(hostRef.current, visibleRef.current, false);
+  }, []);
+
+  const stopForSiteRule = useCallback(
+    (url: string) => {
+      const decision = resolveSiteRuleAction(url);
+      if (decision === 'block') {
+        toast.error(t('settings:browser.rules.blockedToast'));
+        return true;
+      }
+      if (decision === 'system') {
+        void openInSystemBrowser(url);
+        return true;
+      }
+      return false;
+    },
+    [t]
+  );
+
+  const explainSiteRuleError = useCallback(
+    (url: string, cause: unknown) => {
+      const message = getInvokeErrorMessage(cause);
+      if (message.includes('browser_use_system_browser')) {
+        void openInSystemBrowser(url);
+        return true;
+      }
+      if (
+        message.includes('browser_blocked_by_policy') ||
+        message.includes('browser_navigation_blocked')
+      ) {
+        toast.error(t('settings:browser.rules.blockedToast'));
+        return true;
+      }
+      return false;
+    },
+    [t]
+  );
+
   const openTab = useCallback(
     async (url: string) => {
+      if (stopForSiteRule(url)) return;
       setError(null);
       pendingUrlRef.current = url;
       setLoading(true);
@@ -587,9 +704,21 @@ export function HostBrowserPanel({
       if (icon) panelApi?.updateParameters({ faviconUrl: icon });
       try {
         const bounds = await waitForSurfaceBounds();
+        const currentSettings = browserSettingsRef.current;
+        let initialGrant = currentSettings.defaultGrant;
+        try {
+          const origin = new URL(url).origin;
+          const remembered = currentSettings.originGrants[origin];
+          if (remembered) initialGrant = remembered;
+        } catch {
+          // keep defaultGrant
+        }
         const created = (await dispatch('tab.create', {
           url,
-          grant: 'control',
+          grant: initialGrant,
+          ...(currentSettings.newTabProfile !== 'default'
+            ? { profileId: currentSettings.newTabProfile }
+            : {}),
           ...(bounds ? { bounds } : {}),
         })) as BrowserTab;
         tabIdRef.current = created.tabId;
@@ -628,10 +757,19 @@ export function HostBrowserPanel({
         await syncBounds();
       } catch (cause) {
         setLoading(false);
+        if (explainSiteRuleError(url, cause)) return;
         setError(getInvokeErrorMessage(cause));
       }
     },
-    [dispatch, panelApi, panelId, syncBounds, waitForSurfaceBounds]
+    [
+      dispatch,
+      explainSiteRuleError,
+      panelApi,
+      panelId,
+      stopForSiteRule,
+      syncBounds,
+      waitForSurfaceBounds,
+    ]
   );
 
   useLayoutEffect(() => {
@@ -772,8 +910,13 @@ export function HostBrowserPanel({
       const seq = hideSeqRef.current;
       hideTargetRef.current = hide;
       if (!hide) {
-        occludedRef.current = false;
+        occludedRef.current = true;
         void (async () => {
+          await syncBounds();
+          if (hideSeqRef.current !== seq) return;
+          await waitForStableSurfaceBounds();
+          if (hideSeqRef.current !== seq) return;
+          occludedRef.current = false;
           await syncBounds();
           if (hideSeqRef.current !== seq) return;
           await nextPaint();
@@ -807,7 +950,7 @@ export function HostBrowserPanel({
         overlay.ackOverlayReady();
       })();
     });
-  }, [overlay, syncBounds]);
+  }, [overlay, syncBounds, waitForStableSurfaceBounds]);
 
   useEffect(() => {
     const prefetch = () => {
@@ -836,6 +979,7 @@ export function HostBrowserPanel({
     let cancelled = false;
     let unlisten: (() => void) | undefined;
     void backendListen<BrowserHostEvent>('plugin.browser', (payload) => {
+      applyBrowserHostEvent(payload);
       if (payload.kind === 'tab.open') {
         const source = payload.sourceTabId;
         if (source && tabIdRef.current && source !== tabIdRef.current) {
@@ -867,6 +1011,35 @@ export function HostBrowserPanel({
       cancelled = true;
       unlisten?.();
     };
+  }, []);
+
+  useEffect(() => {
+    const onGrantChanged = (event: Event) => {
+      const detail = (
+        event as CustomEvent<{
+          tabId?: string;
+          level?: string;
+          origin?: string | null;
+          grant?: { level: string } | null;
+        }>
+      ).detail;
+      if (!detail?.tabId || detail.tabId !== tabIdRef.current) return;
+      setTab((current) => {
+        if (!current || current.tabId !== detail.tabId) return current;
+        return {
+          ...current,
+          origin: detail.origin || current.origin,
+          grant:
+            detail.level === 'none'
+              ? null
+              : (detail.grant ??
+                (detail.level ? { level: detail.level } : null)),
+        };
+      });
+    };
+    window.addEventListener('vibex:browser-grant-changed', onGrantChanged);
+    return () =>
+      window.removeEventListener('vibex:browser-grant-changed', onGrantChanged);
   }, []);
 
   useEffect(() => {
@@ -979,6 +1152,7 @@ export function HostBrowserPanel({
 
   const goToUrl = (url: string) => {
     setSuggestOpen(false);
+    if (stopForSiteRule(url)) return;
     setError(null);
     addressDirtyRef.current = false;
     setAddress(url);
@@ -1000,14 +1174,18 @@ export function HostBrowserPanel({
     }
     void dispatch('tab.navigate', { tabId: tabIdRef.current, url }).then(
       async (next) => {
-        setTab(next as BrowserTab);
-        setAddress((next as BrowserTab).url);
+        const tab = next as BrowserTab;
+        setTab(tab);
+        // A later in-page navigation is the address authority. The navigate
+        // response can resolve after that event with the URL we asked for.
+        setAddress((current) => (current === url ? tab.url : current));
         setCanGoBack(true);
         clearAgentActivity(tabIdRef.current || '');
         await syncBounds();
       },
       (cause: unknown) => {
         setLoading(false);
+        if (explainSiteRuleError(url, cause)) return;
         setError(getInvokeErrorMessage(cause));
       }
     );
@@ -1262,77 +1440,82 @@ export function HostBrowserPanel({
             <RotateCw className="h-4 w-4" />
           )}
         </button>
-        <div className="relative mx-1 min-w-0 flex-1">
-          <div
-            className={cn(
-              'flex h-7 min-w-0 items-center gap-0.5 rounded-full border border-border/60 bg-muted/50 px-0.5 backdrop-blur-sm',
-              'focus-within:border-ring/50 focus-within:ring-2 focus-within:ring-ring/20'
-            )}
-          >
-            <input
-              value={address}
-              onChange={(event) => {
-                addressDirtyRef.current = true;
-                setAddress(event.target.value);
-                setSuggestIndex(0);
-                setSuggestOpen(true);
-              }}
-              onFocus={(event) => {
-                addressFocusedRef.current = true;
+        <div ref={addressFieldRef} className="relative mx-1 min-w-0 flex-1">
+          <TextInput
+            label={t('browserPanel.address')}
+            isLabelHidden
+            size="sm"
+            width="100%"
+            className="[&_input]:!text-[12px]"
+            value={address}
+            placeholder={t('browserPanel.addressPlaceholder')}
+            ref={(node) => {
+              node?.setAttribute('autocomplete', 'off');
+              node?.style.setProperty('font-size', '12px', 'important');
+            }}
+            role="combobox"
+            aria-expanded={suggestOpen && suggestions.length > 0}
+            aria-controls="host-browser-address-suggestions"
+            onChange={(value) => {
+              addressDirtyRef.current = true;
+              setAddress(value);
+              setSuggestIndex(0);
+              setSuggestOpen(true);
+            }}
+            onFocus={(event) => {
+              addressFocusedRef.current = true;
+              if (event.currentTarget instanceof HTMLInputElement) {
                 event.currentTarget.select();
-                setSuggestOpen(true);
-              }}
-              onBlur={() => {
-                addressFocusedRef.current = false;
-                addressDirtyRef.current = false;
-                window.setTimeout(() => setSuggestOpen(false), 120);
-              }}
-              onKeyDown={(event) => {
-                if (event.key === 'ArrowDown' && suggestions.length > 0) {
-                  event.preventDefault();
-                  setSuggestOpen(true);
-                  setSuggestIndex((index) => (index + 1) % suggestions.length);
-                  return;
-                }
-                if (event.key === 'ArrowUp' && suggestions.length > 0) {
-                  event.preventDefault();
-                  setSuggestOpen(true);
-                  setSuggestIndex(
-                    (index) =>
-                      (index - 1 + suggestions.length) % suggestions.length
-                  );
-                  return;
-                }
-                if (event.key === 'Escape') {
-                  setSuggestOpen(false);
-                  return;
-                }
-                if (
-                  !isBrowserAddressSubmitKey({
-                    key: event.key,
-                    code: event.code,
-                    shiftKey: event.shiftKey,
-                    altKey: event.altKey,
-                    metaKey: event.metaKey,
-                    ctrlKey: event.ctrlKey,
-                    isComposing: event.nativeEvent.isComposing,
-                    keyCode: event.nativeEvent.keyCode,
-                  })
-                ) {
-                  return;
-                }
+              }
+              setSuggestOpen(true);
+            }}
+            onBlur={() => {
+              addressFocusedRef.current = false;
+              addressDirtyRef.current = false;
+              window.setTimeout(() => setSuggestOpen(false), 120);
+            }}
+            onKeyDown={(event) => {
+              if (event.key === 'ArrowDown' && suggestions.length > 0) {
                 event.preventDefault();
-                navigate();
-              }}
-              spellCheck={false}
-              autoComplete="off"
-              role="combobox"
-              aria-expanded={suggestOpen && suggestions.length > 0}
-              aria-controls="host-browser-address-suggestions"
-              placeholder={t('browserPanel.addressPlaceholder')}
-              aria-label={t('browserPanel.address')}
-              className="h-full min-w-0 flex-1 bg-transparent px-1.5 text-xs text-foreground outline-none"
-            />
+                setSuggestOpen(true);
+                setSuggestIndex((index) => (index + 1) % suggestions.length);
+                return;
+              }
+              if (event.key === 'ArrowUp' && suggestions.length > 0) {
+                event.preventDefault();
+                setSuggestOpen(true);
+                setSuggestIndex(
+                  (index) =>
+                    (index - 1 + suggestions.length) % suggestions.length
+                );
+                return;
+              }
+              if (event.key === 'Escape') {
+                setSuggestOpen(false);
+                return;
+              }
+              if (
+                !isBrowserAddressSubmitKey({
+                  key: event.key,
+                  code: event.code,
+                  shiftKey: event.shiftKey,
+                  altKey: event.altKey,
+                  metaKey: event.metaKey,
+                  ctrlKey: event.ctrlKey,
+                  isComposing: event.nativeEvent.isComposing,
+                  keyCode: event.nativeEvent.keyCode,
+                })
+              ) {
+                return;
+              }
+              event.preventDefault();
+              navigate();
+            }}
+          />
+          <div
+            ref={addressToolsRef}
+            className="absolute inset-y-0 right-1 z-[1] flex items-center gap-0.5"
+          >
             <BrowserAgentActivityControl tabId={tab?.tabId ?? null} />
             <button
               type="button"
@@ -1360,16 +1543,18 @@ export function HostBrowserPanel({
             >
               <Camera className="h-3.5 w-3.5" />
             </button>
-            <button
-              type="button"
-              className={FIELD_BTN}
-              title={t('browserPanel.devtools')}
-              aria-label={t('browserPanel.devtools')}
-              disabled={!tab}
-              onClick={() => runTab('tab.devtools')}
-            >
-              <Bug className="h-3.5 w-3.5" />
-            </button>
+            {browserPrefs.settings.devtools ? (
+              <button
+                type="button"
+                className={FIELD_BTN}
+                title={t('browserPanel.devtools')}
+                aria-label={t('browserPanel.devtools')}
+                disabled={!tab}
+                onClick={() => runTab('tab.devtools')}
+              >
+                <Bug className="h-3.5 w-3.5" />
+              </button>
+            ) : null}
             <button
               type="button"
               className={cn(
@@ -1385,6 +1570,41 @@ export function HostBrowserPanel({
             >
               <MousePointerClick className="h-3.5 w-3.5" />
             </button>
+            <BrowserAgentShareControl
+              origin={tab?.origin || tab?.url}
+              grant={tab?.grant}
+              disabled={!tab}
+              onShare={(level) => {
+                const tabId = tabIdRef.current;
+                if (!tabId) return;
+                void dispatch('grant.set', { tabId, level }).then((next) => {
+                  const updated = next as BrowserTab;
+                  setTab(updated);
+                  const origin = updated.origin || tab?.origin;
+                  if (origin) {
+                    const nextGrants = {
+                      ...browserSettingsRef.current.originGrants,
+                    };
+                    if (level === 'none') {
+                      delete nextGrants[origin];
+                    } else {
+                      nextGrants[origin] = level;
+                    }
+                    void updateBrowserSettings({ originGrants: nextGrants });
+                  }
+                  window.dispatchEvent(
+                    new CustomEvent('vibex:browser-grant-changed', {
+                      detail: {
+                        tabId,
+                        level,
+                        origin: origin ?? null,
+                        grant: updated.grant ?? null,
+                      },
+                    })
+                  );
+                });
+              }}
+            />
           </div>
           {suggestOpen && suggestions.length > 0 ? (
             <div className="absolute inset-x-0 top-[calc(100%+6px)] z-[20000] overflow-hidden rounded-xl border border-border/60 bg-[var(--surface-dialog)] py-1 shadow-[0_18px_42px_hsl(220_36%_8%_/_0.2)]">
@@ -1440,18 +1660,6 @@ export function HostBrowserPanel({
             </div>
           ) : null}
         </div>
-        <BrowserAgentShareControl
-          origin={tab?.origin || tab?.url}
-          grant={tab?.grant}
-          disabled={!tab}
-          onShare={(level) => {
-            const tabId = tabIdRef.current;
-            if (!tabId) return;
-            void dispatch('grant.set', { tabId, level }).then((next) => {
-              setTab(next as BrowserTab);
-            });
-          }}
-        />
         <DropdownMenu modal={false}>
           <DropdownMenuTrigger asChild>
             <button

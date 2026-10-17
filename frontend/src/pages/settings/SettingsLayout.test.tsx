@@ -92,7 +92,7 @@ describe('SettingsLayout capability gating', () => {
     expect(status).toHaveClass('agent-settings-loading');
     expect(
       status.querySelectorAll('.agent-settings-loading-mark')
-    ).toHaveLength(7);
+    ).toHaveLength(6);
     expect(screen.queryByRole('progressbar')).not.toBeInTheDocument();
   });
 

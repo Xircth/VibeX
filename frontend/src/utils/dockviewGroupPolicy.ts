@@ -52,10 +52,10 @@ export function listLeftDockGroups<T extends DockviewGroupLike>(
 }
 
 export function isBottomGroup(group: DockviewGroupLike): boolean {
-  return (
-    group.id === GROUP_IDS.BOTTOM ||
-    group.panels.some((panel) => BOTTOM_PANEL_IDS.has(panel.id))
-  );
+  // Identity is the group id only. A terminal tab inside an editor group must
+  // stay an editor group, or every split that holds a terminal is re-locked
+  // into the retired bottom strip.
+  return group.id === GROUP_IDS.BOTTOM;
 }
 
 export function isSessionGroup(group: DockviewGroupLike): boolean {

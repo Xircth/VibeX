@@ -1759,12 +1759,7 @@ export function applyFlowGeometryChanges(
     }
 
     if (change.type === 'position' && change.position) {
-      const ancestorMoving = [...moving].some(
-        (id) =>
-          id !== instanceId &&
-          (current.parentId === id || belongsToAncestor(next, current, id))
-      );
-      if (ancestorMoving) continue;
+      if (isAncestorMoving(next, current, instanceId, moving)) continue;
       const x = change.position.x;
       const y = change.position.y;
       if (x === current.x && y === current.y) continue;
@@ -1774,6 +1769,81 @@ export function applyFlowGeometryChanges(
     }
   }
 
+  return mutated ? next : (nodes as SessionCanvasNode[]);
+}
+
+function isAncestorMoving(
+  nodes: readonly SessionCanvasNode[],
+  current: SessionCanvasNode,
+  instanceId: string,
+  moving: ReadonlySet<string>
+): boolean {
+  return [...moving].some(
+    (id) =>
+      id !== instanceId &&
+      (current.parentId === id || belongsToAncestor(nodes, current, id))
+  );
+}
+
+export function dragOverlayFromPositionChanges(
+  nodes: readonly SessionCanvasNode[],
+  changes: readonly FlowGeometryChange[],
+  previous: ReadonlyMap<string, { x: number; y: number }>,
+  snap: { dx: number; dy: number } = { dx: 0, dy: 0 }
+): ReadonlyMap<string, { x: number; y: number }> {
+  const moving = new Set<string>();
+  for (const change of changes) {
+    if (change.type !== 'position' || !change.position) continue;
+    if (change.dragging !== true) continue;
+    const id = parseCanvasNodeId(change.id);
+    if (id) moving.add(id);
+  }
+
+  let next: Map<string, { x: number; y: number }> | null = null;
+  for (const change of changes) {
+    if (change.type !== 'position' || !change.position) continue;
+    if (change.dragging !== true) continue;
+    const instanceId = parseCanvasNodeId(change.id);
+    if (!instanceId) continue;
+    const current = nodeById(nodes, instanceId);
+    if (!current) continue;
+    if (isAncestorMoving(nodes, current, instanceId, moving)) continue;
+    const x = change.position.x + snap.dx;
+    const y = change.position.y + snap.dy;
+    const prev = (next ?? previous).get(instanceId);
+    if (prev && prev.x === x && prev.y === y) continue;
+    next ??= new Map(previous);
+    next.set(instanceId, { x, y });
+  }
+  return next ?? previous;
+}
+
+export function applyAlignmentDeltaToOverlay(
+  overlay: ReadonlyMap<string, { x: number; y: number }>,
+  snap: { dx: number; dy: number }
+): ReadonlyMap<string, { x: number; y: number }> {
+  if (overlay.size === 0 || (snap.dx === 0 && snap.dy === 0)) {
+    return overlay;
+  }
+  const next = new Map<string, { x: number; y: number }>();
+  for (const [id, pos] of overlay) {
+    next.set(id, { x: pos.x + snap.dx, y: pos.y + snap.dy });
+  }
+  return next;
+}
+
+export function applyDragOverlayToCanvasNodes(
+  nodes: readonly SessionCanvasNode[],
+  overlay: ReadonlyMap<string, { x: number; y: number }>
+): SessionCanvasNode[] {
+  if (overlay.size === 0) return nodes as SessionCanvasNode[];
+  let mutated = false;
+  const next = nodes.map((node) => {
+    const pos = overlay.get(node.id);
+    if (!pos || (pos.x === node.x && pos.y === node.y)) return node;
+    mutated = true;
+    return { ...node, x: pos.x, y: pos.y };
+  });
   return mutated ? next : (nodes as SessionCanvasNode[]);
 }
 

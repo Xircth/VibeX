@@ -13,11 +13,12 @@ import { useSearchParams } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { confirmWorktreeCreation } from '@/lib/confirmWorktreeCreation';
 
-import { type ExecutorProfileId } from 'shared/types';
+import { type ExecutorProfileId, type Session } from 'shared/types';
 import { useProject } from '@/contexts/ProjectContext';
 import { useKanbanSessionContext } from '@/contexts/KanbanSessionContext';
 import { useWorktree } from '@/contexts/WorktreeContext';
 import {
+  kanbanSessionFromCreated,
   useKanbanProjectSessions,
   type KanbanProjectSessionRecord,
 } from '@/hooks/useKanbanProjectSessions';
@@ -84,6 +85,7 @@ import {
   filterKanbanSessions,
   groupKanbanSessionsByStatus,
   mapSessionErrorMessage,
+  sessionCompletesWhenViewed,
   sortSessions,
   toggleStringValue,
   type ActiveSessionStatus,
@@ -256,11 +258,9 @@ export function KanbanSessionHub({
   );
   const [createMode, setCreateMode] =
     useState<SessionCreationMode>('existing_workspace');
-  const [createSessionName, setCreateSessionName] = useState('');
   const [selectedExecutorProfile, setSelectedExecutorProfile] =
     useState<ExecutorProfileId | null>(defaultExecutorProfile);
   const createWorkspaceValueRef = useRef(createWorkspaceValue);
-  const createSessionNameRef = useRef(createSessionName);
   const selectedExecutorProfileRef = useRef(selectedExecutorProfile);
   // Latest ACP control preset picked in the create form (see SessionControlsPreset).
   const sessionControlsPresetRef = useRef<SessionControlsPreset | null>(null);
@@ -292,8 +292,13 @@ export function KanbanSessionHub({
   const [pendingCreatedSessionIds, setPendingCreatedSessionIds] = useState<
     string[]
   >([]);
+  const [pendingCreatedRecords, setPendingCreatedRecords] = useState<
+    KanbanProjectSessionRecord[]
+  >([]);
   const [optimisticStatusBySessionId, setOptimisticStatusBySessionId] =
     useState<Record<string, SessionStatus>>({});
+  const [optimisticPinnedAtBySessionId, setOptimisticPinnedAtBySessionId] =
+    useState<Record<string, string | null>>({});
   const [expandedSections, setExpandedSections] = useState<
     Record<SessionStatusKey, boolean>
   >({
@@ -339,11 +344,6 @@ export function KanbanSessionHub({
   const updateCreateWorkspaceValue = useCallback((value: string) => {
     createWorkspaceValueRef.current = value;
     setCreateWorkspaceValue(value);
-  }, []);
-
-  const updateCreateSessionName = useCallback((value: string) => {
-    createSessionNameRef.current = value;
-    setCreateSessionName(value);
   }, []);
 
   const updateSelectedExecutorProfile = useCallback(
@@ -471,6 +471,12 @@ export function KanbanSessionHub({
       );
       return next.length === current.length ? current : next;
     });
+    setPendingCreatedRecords((current) => {
+      const next = current.filter(
+        (session) => !availableSessionIds.has(session.id)
+      );
+      return next.length === current.length ? current : next;
+    });
   }, [isLoading, pendingCreatedSessionIds.length, sessions]);
 
   useEffect(() => {
@@ -483,6 +489,28 @@ export function KanbanSessionHub({
           (session) => session.id === sessionId
         );
         if (!latestSession || latestSession.status === optimisticStatus) {
+          delete next[sessionId];
+          changed = true;
+        }
+      });
+
+      return changed ? next : current;
+    });
+  }, [sessions]);
+
+  useEffect(() => {
+    setOptimisticPinnedAtBySessionId((current) => {
+      let changed = false;
+      const next = { ...current };
+
+      Object.entries(current).forEach(([sessionId, optimisticPinnedAt]) => {
+        const latestSession = sessions.find(
+          (session) => session.id === sessionId
+        );
+        if (
+          !latestSession ||
+          Boolean(latestSession.pinnedAt) === Boolean(optimisticPinnedAt)
+        ) {
           delete next[sessionId];
           changed = true;
         }
@@ -515,7 +543,6 @@ export function KanbanSessionHub({
           current.includes(sessionId) ? current : [...current, sessionId]
         );
       },
-      clearCreateSessionName: () => updateCreateSessionName(''),
       closeCreatePopover: () => setIsCreatePopoverOpen(false),
     });
 
@@ -523,17 +550,29 @@ export function KanbanSessionHub({
     () =>
       sessions.map((session) => {
         const optimisticStatus = optimisticStatusBySessionId[session.id];
-        if (!optimisticStatus || optimisticStatus === session.status) {
+        const hasOptimisticPin = Object.prototype.hasOwnProperty.call(
+          optimisticPinnedAtBySessionId,
+          session.id
+        );
+        const optimisticPinnedAt = optimisticPinnedAtBySessionId[session.id];
+        const statusChanged =
+          Boolean(optimisticStatus) && optimisticStatus !== session.status;
+        const pinChanged =
+          hasOptimisticPin && optimisticPinnedAt !== session.pinnedAt;
+
+        if (!statusChanged && !pinChanged) {
           return session;
         }
 
+        const nextStatus = optimisticStatus ?? session.status;
         return {
           ...session,
-          status: optimisticStatus,
-          isCompleted: optimisticStatus === 'done',
+          status: nextStatus,
+          isCompleted: nextStatus === 'done',
+          pinnedAt: hasOptimisticPin ? optimisticPinnedAt : session.pinnedAt,
         };
       }),
-    [optimisticStatusBySessionId, sessions]
+    [optimisticPinnedAtBySessionId, optimisticStatusBySessionId, sessions]
   );
 
   const activeSessionsWithOptimisticStatus = useMemo(
@@ -590,6 +629,21 @@ export function KanbanSessionHub({
   const groupedSessions = useMemo(() => {
     return groupKanbanSessionsByStatus(activeSessionsWithOptimisticStatus);
   }, [activeSessionsWithOptimisticStatus]);
+
+  const sessionsForCanvas = useMemo(() => {
+    if (pendingCreatedRecords.length === 0) {
+      return activeSessionsWithOptimisticStatus;
+    }
+    const liveIds = new Set(
+      activeSessionsWithOptimisticStatus.map((session) => session.id)
+    );
+    const extras = pendingCreatedRecords.filter(
+      (session) => !liveIds.has(session.id)
+    );
+    return extras.length === 0
+      ? activeSessionsWithOptimisticStatus
+      : [...extras, ...activeSessionsWithOptimisticStatus];
+  }, [activeSessionsWithOptimisticStatus, pendingCreatedRecords]);
 
   const activeWorkspacePlacement = useMemo(() => {
     if (activeWorktreeId && activeAttempt?.session?.id) {
@@ -667,7 +721,6 @@ export function KanbanSessionHub({
     if (open) {
       updateCreateWorkspaceValue(defaultWorkspaceValue);
       updateSelectedExecutorProfile(defaultExecutorProfile);
-      updateCreateSessionName('');
       setCreateMode(
         workspaceBranchOptions.length > 0
           ? 'existing_workspace'
@@ -677,6 +730,48 @@ export function KanbanSessionHub({
       setDeleteErrorMessage(null);
     } else {
       createSessionMutation.reset();
+    }
+  };
+
+  const rememberCreatedCanvasSession = (session: Session) => {
+    const workspace = workspaces.find(
+      (item) => item.id === session.workspace_id
+    );
+    const record = kanbanSessionFromCreated(
+      session,
+      workspace,
+      t('hubListItem.sessionFallback')
+    );
+    setPendingCreatedRecords((current) =>
+      current.some((item) => item.id === record.id)
+        ? current
+        : [record, ...current]
+    );
+  };
+
+  const markSessionViewedFromList = async (
+    session: KanbanProjectSessionRecord
+  ) => {
+    const completes = sessionCompletesWhenViewed(session);
+    if (completes) {
+      setOptimisticStatusBySessionId((current) => ({
+        ...current,
+        [session.id]: 'done',
+      }));
+    }
+    try {
+      await sessionsApi.markViewed(session.id);
+      await queryClient.invalidateQueries({
+        queryKey: ['workspaceSessions', session.workspace.id],
+      });
+    } catch {
+      if (completes) {
+        setOptimisticStatusBySessionId((current) => {
+          const next = { ...current };
+          delete next[session.id];
+          return next;
+        });
+      }
     }
   };
 
@@ -693,7 +788,6 @@ export function KanbanSessionHub({
     createSessionMutation.mutate(
       {
         workspaceValue: createWorkspaceValueRef.current,
-        sessionName: createSessionNameRef.current,
         executorProfile: selectedExecutorProfileRef.current,
         mode: createMode,
         sessionControls: sessionControlsPresetRef.current,
@@ -702,6 +796,7 @@ export function KanbanSessionHub({
       {
         onSuccess: (session) => {
           if (boardStyle === 'canvas') {
+            rememberCreatedCanvasSession(session);
             canvasApiRef.current?.addSession(session.id);
           }
         },
@@ -788,6 +883,7 @@ export function KanbanSessionHub({
     }
 
     if (boardStyle === 'canvas') {
+      void markSessionViewedFromList(session);
       canvasApiRef.current?.addOrFocus(session);
       return;
     }
@@ -807,12 +903,22 @@ export function KanbanSessionHub({
     session: KanbanProjectSessionRecord,
     pinned: boolean
   ) => {
+    setDeleteErrorMessage(null);
+    setOptimisticPinnedAtBySessionId((current) => ({
+      ...current,
+      [session.id]: pinned ? new Date().toISOString() : null,
+    }));
     try {
       await sessionsApi.setPinned(session.id, pinned);
       await queryClient.invalidateQueries({
         queryKey: ['workspaceSessions', session.workspace.id],
       });
     } catch (error) {
+      setOptimisticPinnedAtBySessionId((current) => {
+        const next = { ...current };
+        delete next[session.id];
+        return next;
+      });
       setDeleteErrorMessage(
         mapSessionErrorMessage(error, t('sessionHub.pinFailed'))
       );
@@ -1090,10 +1196,29 @@ export function KanbanSessionHub({
       fill={boardStyle === 'canvas' ? true : listFills}
       compactHeader={boardStyle === 'canvas'}
       isLoading={isLoading}
-      sessions={activeSessionsWithOptimisticStatus}
+      sessions={
+        boardStyle === 'canvas'
+          ? sessionsForCanvas
+          : activeSessionsWithOptimisticStatus
+      }
       archivedSessions={archivedSessionsWithOptimisticStatus}
-      groupedSessions={groupedSessions}
-      flatSessions={flatSessions}
+      groupedSessions={
+        boardStyle === 'canvas'
+          ? groupKanbanSessionsByStatus(sessionsForCanvas)
+          : groupedSessions
+      }
+      flatSessions={
+        boardStyle === 'canvas'
+          ? sortSessions(
+              filterKanbanSessions({
+                sessions: sessionsForCanvas,
+                workspaceFilterIds,
+                executorFilterValues,
+              }),
+              sortField
+            )
+          : flatSessions
+      }
       workspaces={workspaces}
       sortField={sortField}
       workspaceFilterIds={workspaceFilterIds}
@@ -1180,7 +1305,7 @@ export function KanbanSessionHub({
         <div className="session-hub-shell h-full min-h-0">
           <SessionCanvasView
             projectId={projectId ?? ''}
-            sessions={activeSessionsWithOptimisticStatus}
+            sessions={sessionsForCanvas}
             sessionsReady={!isLoading}
             listWidth={sessionListWidth}
             projectName={project?.name ?? ''}
@@ -1194,8 +1319,6 @@ export function KanbanSessionHub({
                   workspaceBranchOptions={workspaceBranchOptions}
                   createWorkspaceValue={createWorkspaceValue}
                   onCreateWorkspaceValueChange={updateCreateWorkspaceValue}
-                  createSessionName={createSessionName}
-                  onCreateSessionNameChange={updateCreateSessionName}
                   profiles={profiles}
                   selectedExecutorProfile={selectedExecutorProfile}
                   onSelectedExecutorProfileChange={

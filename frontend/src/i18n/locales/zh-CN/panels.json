@@ -109,7 +109,12 @@
     "noChangesYet": "尚未进行任何更改",
     "expandFileTree": "展开文件目录",
     "collapse": "收起",
-    "filesCount": "{{count}} 个文件"
+    "filesCount": "{{count}} 个文件",
+    "resizeFileTree": "调整变更列表宽度"
+  },
+  "notesPanel": {
+    "placeholder": "在这里记录工作区笔记",
+    "loading": "正在加载笔记…"
   },
   "webPreviewPanel": {
     "emptyTitle": "开始浏览",
@@ -126,7 +131,17 @@
     "browser": "浏览器",
     "review": "审阅",
     "note": "笔记",
-    "terminal": "终端"
+    "terminal": "终端",
+    "close": "关闭",
+    "closeCurrent": "关闭当前页",
+    "closeOthers": "关闭其他页",
+    "split": "拆分",
+    "splitDown": "向下拆分",
+    "splitLeft": "向左拆分",
+    "splitRight": "向右拆分",
+    "new": "新建",
+    "sort": "排序",
+    "sortByName": "按名称排序"
   },
   "kanbanPanel": {
     "backToBoard": "返回看板",
@@ -225,13 +240,13 @@
     "enterKeyword": "输入关键词开始搜索",
     "searching": "搜索中...",
     "resultSummary": "{{fileCount}} 个文件，{{matchCount}} 个匹配",
+    "fileCountLabel": "{{count}} 个文件",
+    "matchCountLabel": "{{count}} 个匹配",
     "searchPlaceholder": "搜索文件内容...",
     "matchCase": "区分大小写",
     "matchWholeWord": "全词匹配",
     "regex": "正则表达式",
-    "moreOptions": "更多选项",
-    "includePlaceholder": "包含的文件 (如: *.ts, src/**)",
-    "excludePlaceholder": "排除的文件 (如: node_modules, dist)",
+    "searchOptions": "搜索选项",
     "truncated": "结果过多，仅显示部分匹配",
     "noResults": "未找到匹配结果"
   },
@@ -311,7 +326,7 @@
     "emptySessions": "当前工作区没有 Agent 会话。",
     "emptyBackground": "没有后台任务。",
     "emptyNotices": "没有错误或警告。",
-    "openFlame": "查看时间跨度",
+    "openFlame": "查看会话时序图",
     "backToList": "返回",
     "noSpans": "该会话还没有可计时的事件。",
     "running": "运行中",
@@ -429,9 +444,13 @@
     "loadFailedRetry": "加载失败，点击重试",
     "newFile": "新建文件",
     "newFolder": "新建文件夹",
+    "rename": "重命名",
+    "invalidName": "请输入有效名称，不包含路径分隔符或保留字符。",
+    "renameFailed": "重命名失败：{{error}}",
     "refreshFileTree": "刷新文件树",
     "collapseAllFolders": "折叠所有文件夹",
     "expandAllFolders": "展开所有文件夹",
+    "search": "搜索",
     "copy": "复制",
     "duplicate": "创建副本",
     "copyRelativePath": "复制相对路径",

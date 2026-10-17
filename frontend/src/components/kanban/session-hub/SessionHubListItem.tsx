@@ -1,14 +1,14 @@
 import { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
+  Archive,
   Bot,
   Check,
-  FileCode,
-  FileDown,
   GitBranch,
-  GitFork,
   Loader2,
+  MoreVertical,
   Pencil,
+  Pin,
   RotateCcw,
   Trash2,
   X,
@@ -19,6 +19,7 @@ import { conversationApi } from '@/features/conversation/conversationApi';
 import { useOptionalKanbanSessionContext } from '@/contexts/KanbanSessionContext';
 import type { ExecutorProfileId } from 'shared/types';
 import { AgentIcon } from '@/components/agents/AgentIcon';
+import { ProductContextMenu } from '@/components/context-menu/ProductContextMenu';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Input } from '@/components/ui/input';
 import {
@@ -28,8 +29,11 @@ import {
 } from '@/components/ui/tooltip';
 import type { KanbanProjectSessionRecord } from '@/hooks/useKanbanProjectSessions';
 import { cn } from '@/lib/utils';
+import { writeClipboardViaBridge } from '@/vscode/bridge';
+import { buildSessionCardMenuItems } from './sessionCardMenu';
 import {
   INFO_TEXT_CLASS,
+  formatSessionInfoForCopy,
   formatTimeAgo,
   getExecutorDisplayName,
   sessionAttentionKind,
@@ -46,6 +50,8 @@ interface SessionHubListItemProps {
   onToggleSelect: () => void;
   onRenameSession?: (name: string | null) => void | Promise<void>;
   onDeleteSession?: () => void | Promise<void>;
+  onPinSession?: (pinned: boolean) => void | Promise<void>;
+  onArchiveSession?: () => void | Promise<void>;
   onRestoreFromArchive?: () => void | Promise<void>;
   displayMode?: 'default' | 'kanban-board' | 'canvas';
   dragging?: boolean;
@@ -61,6 +67,8 @@ export function SessionHubListItem({
   onToggleSelect,
   onRenameSession,
   onDeleteSession,
+  onPinSession,
+  onArchiveSession,
   onRestoreFromArchive,
   displayMode = 'default',
   dragging = false,
@@ -71,6 +79,7 @@ export function SessionHubListItem({
   const agentKey = sessionListAgentKey(session);
   const isKanbanBoardMode = displayMode === 'kanban-board';
   const isCanvasMode = displayMode === 'canvas';
+  const isPinned = Boolean(session.pinnedAt);
   const showRenameControls =
     !isDeleteMode && !isKanbanBoardMode && Boolean(onRenameSession);
   const branchHoverText = session.workspaceName || session.branch;
@@ -78,6 +87,7 @@ export function SessionHubListItem({
 
   const [isEditing, setIsEditing] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isForking, setIsForking] = useState(false);
   const [draftName, setDraftName] = useState(session.fullName);
   const [isHovered, setIsHovered] = useState(false);
   const [contextMenu, setContextMenu] = useState<{
@@ -85,8 +95,13 @@ export function SessionHubListItem({
     y: number;
   } | null>(null);
   const attention = sessionAttentionKind(session);
-  const showCardActions =
-    !isEditing && (Boolean(onDeleteSession) || showRenameControls);
+  const showCanvasActions =
+    isCanvasMode &&
+    !isEditing &&
+    (Boolean(onDeleteSession) || showRenameControls);
+  const showDefaultHoverActions =
+    !isCanvasMode && !isKanbanBoardMode && !isDeleteMode && !isEditing;
+  const isHoverActionsVisible = isHovered || Boolean(contextMenu);
 
   useEffect(() => {
     if (!isEditing) {
@@ -120,30 +135,92 @@ export function SessionHubListItem({
     setIsSubmitting(false);
   };
 
-  useEffect(() => {
-    if (!contextMenu) return;
+  const handleForkSession = () => {
+    if (isForking) return;
+    setIsForking(true);
+    void conversationApi
+      .fork(session.id)
+      .then((result) => {
+        if (result.continuity === 'history_only') {
+          toast.warning(
+            t('hubListItem.forkHistoryOnly', {
+              reason: result.continuityNote,
+            })
+          );
+        } else {
+          toast.success(t('hubListItem.forkSuccess'));
+        }
+        if (kanbanSessions?.placeForkedChild) {
+          kanbanSessions.placeForkedChild(
+            {
+              sessionId: result.conversationId,
+              workspaceId: session.workspace.id,
+            },
+            session.id
+          );
+        } else {
+          kanbanSessions?.placeCreatedSession({
+            sessionId: result.conversationId,
+            workspaceId: session.workspace.id,
+          });
+        }
+      })
+      .catch((error) =>
+        toast.error(t('hubListItem.forkFailed', { error: String(error) }))
+      )
+      .finally(() => {
+        setIsForking(false);
+      });
+  };
 
-    const closeMenu = () => setContextMenu(null);
-    window.addEventListener('click', closeMenu);
-    window.addEventListener('keydown', closeMenu);
-    return () => {
-      window.removeEventListener('click', closeMenu);
-      window.removeEventListener('keydown', closeMenu);
-    };
-  }, [contextMenu]);
+  const menuItems = buildSessionCardMenuItems({
+    session,
+    t,
+    onRestore: onRestoreFromArchive
+      ? () => {
+          void onRestoreFromArchive();
+        }
+      : undefined,
+    restoreLabel: t('hubListItem.moveToSessionList'),
+    onRename: onRenameSession
+      ? () => {
+          setDraftName(session.fullName);
+          setIsEditing(true);
+        }
+      : undefined,
+    onCopySessionInfo: () => {
+      void writeClipboardViaBridge(formatSessionInfoForCopy(session));
+      toast.success(t('hubListItem.copiedSessionInfo'));
+    },
+    onCopySessionName: () => {
+      void writeClipboardViaBridge(session.fullName);
+      toast.success(t('hubListItem.copiedSessionName'));
+    },
+    onExportHtml: () => {
+      void exportConversation(
+        session.id,
+        'html',
+        session.name ?? session.fullName ?? t('hubListItem.sessionFallback')
+      );
+    },
+    onExportMarkdown: () => {
+      void exportConversation(
+        session.id,
+        'markdown',
+        session.name ?? session.fullName ?? t('hubListItem.sessionFallback')
+      );
+    },
+    onFork: handleForkSession,
+    isForking,
+    onDelete: onDeleteSession
+      ? () => {
+          void onDeleteSession();
+        }
+      : undefined,
+  });
 
-  const actionButtons = showCardActions ? (
-    <div
-      className={cn(
-        'z-[1] flex items-center gap-1',
-        isCanvasMode
-          ? 'nodrag shrink-0'
-          : cn(
-              'absolute bottom-1.5 right-1.5 transition-opacity',
-              isHovered ? 'opacity-100' : 'pointer-events-none opacity-0'
-            )
-      )}
-    >
+  const canvasActionButtons = showCanvasActions ? (
+    <div className="nodrag z-[1] flex shrink-0 items-center gap-1">
       {onDeleteSession ? (
         <Tooltip>
           <TooltipTrigger asChild>
@@ -186,6 +263,113 @@ export function SessionHubListItem({
     </div>
   ) : null;
 
+  const defaultHoverButtons = showDefaultHoverActions ? (
+    <div
+      className={cn(
+        'session-hub-card-actions absolute right-2 top-1/2 -translate-y-1/2 z-[2] flex items-center gap-1 transition-opacity',
+        isHoverActionsVisible
+          ? 'opacity-100'
+          : 'pointer-events-none opacity-0 group-hover/session-card:pointer-events-auto group-hover/session-card:opacity-100'
+      )}
+    >
+      <button
+        type="button"
+        aria-label={t('hubListItem.moreActions')}
+        aria-haspopup="menu"
+        aria-expanded={Boolean(contextMenu)}
+        className={cn(
+          'session-hub-card-action',
+          Boolean(contextMenu) && 'is-active text-foreground'
+        )}
+        onPointerDown={(event) => {
+          event.stopPropagation();
+        }}
+        onMouseDown={(event) => {
+          event.preventDefault();
+          event.stopPropagation();
+        }}
+        onClick={(event) => {
+          event.stopPropagation();
+          const rect = event.currentTarget.getBoundingClientRect();
+          setContextMenu((current) =>
+            current ? null : { x: rect.left, y: rect.bottom + 4 }
+          );
+        }}
+      >
+        <MoreVertical className="h-3.5 w-3.5" />
+      </button>
+
+      {onRestoreFromArchive ? (
+        <button
+          type="button"
+          aria-label={t('hubListItem.moveToSessionList')}
+          className="session-hub-card-action"
+          onPointerDown={(event) => {
+            event.stopPropagation();
+          }}
+          onMouseDown={(event) => {
+            event.preventDefault();
+            event.stopPropagation();
+          }}
+          onClick={(event) => {
+            event.stopPropagation();
+            void onRestoreFromArchive();
+          }}
+        >
+          <RotateCcw className="h-3.5 w-3.5" />
+        </button>
+      ) : (
+        <>
+          <button
+            type="button"
+            aria-label={
+              isPinned
+                ? t('hubListItem.unpinSession')
+                : t('hubListItem.pinSession')
+            }
+            aria-pressed={isPinned}
+            className={cn(
+              'session-hub-card-action',
+              isPinned && 'is-active text-primary'
+            )}
+            onPointerDown={(event) => {
+              event.stopPropagation();
+            }}
+            onMouseDown={(event) => {
+              event.preventDefault();
+              event.stopPropagation();
+            }}
+            onClick={(event) => {
+              event.stopPropagation();
+              void onPinSession?.(!isPinned);
+            }}
+          >
+            <Pin className="h-3.5 w-3.5" />
+          </button>
+
+          <button
+            type="button"
+            aria-label={t('hubListItem.archiveSession')}
+            className="session-hub-card-action"
+            onPointerDown={(event) => {
+              event.stopPropagation();
+            }}
+            onMouseDown={(event) => {
+              event.preventDefault();
+              event.stopPropagation();
+            }}
+            onClick={(event) => {
+              event.stopPropagation();
+              void onArchiveSession?.();
+            }}
+          >
+            <Archive className="h-3.5 w-3.5" />
+          </button>
+        </>
+      )}
+    </div>
+  ) : null;
+
   return (
     <div
       role="button"
@@ -206,7 +390,7 @@ export function SessionHubListItem({
         }
       }}
       className={cn(
-        'session-hub-card relative box-border flex w-full max-w-full min-w-0 items-start gap-2 overflow-hidden rounded-lg px-3 py-2 text-left transition-colors duration-150',
+        'session-hub-card group/session-card relative box-border flex w-full max-w-full min-w-0 items-start gap-2 overflow-hidden rounded-lg px-3 py-2 text-left transition-colors duration-150',
         isSelected && 'is-selected',
         dragging && 'opacity-95 ring-1 ring-primary/20'
       )}
@@ -236,7 +420,12 @@ export function SessionHubListItem({
           !isDeleteMode && 'pl-2'
         )}
       >
-        <div className="flex min-w-0 items-center gap-1.5">
+        <div
+          className={cn(
+            'flex min-w-0 items-center gap-1.5',
+            showDefaultHoverActions && isHoverActionsVisible && 'pr-20'
+          )}
+        >
           {isEditing ? (
             <Input
               value={draftName}
@@ -293,11 +482,18 @@ export function SessionHubListItem({
             </>
           ) : null}
 
+          {!isEditing && isPinned && !isKanbanBoardMode ? (
+            <Pin
+              data-testid="session-pinned-indicator"
+              className="h-3 w-3 shrink-0 text-primary"
+            />
+          ) : null}
+
           {isOpening ? (
             <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin text-primary" />
           ) : null}
 
-          {!isKanbanBoardMode ? (
+          {!isKanbanBoardMode && !isHoverActionsVisible ? (
             <Tooltip>
               <TooltipTrigger asChild>
                 <div className="flex shrink-0 items-center justify-center text-muted-foreground">
@@ -322,8 +518,7 @@ export function SessionHubListItem({
           <div
             className={cn(
               'mt-0.5 flex min-w-0 max-w-full items-center gap-x-1.5 text-[10px] text-muted-foreground',
-              isCanvasMode ? 'gap-1' : 'flex-wrap gap-y-1',
-              !isCanvasMode && isHovered && showCardActions && 'pr-12'
+              isCanvasMode ? 'gap-1' : 'flex-wrap gap-y-1'
             )}
           >
             <span className={cn('shrink-0 font-medium', INFO_TEXT_CLASS)}>
@@ -348,123 +543,19 @@ export function SessionHubListItem({
                 {t('hubListItem.reviewing')}
               </span>
             ) : null}
-            {isCanvasMode && showCardActions ? actionButtons : null}
+            {isCanvasMode && showCanvasActions ? canvasActionButtons : null}
           </div>
         ) : null}
       </div>
 
-      {!isCanvasMode && showCardActions ? actionButtons : null}
+      {defaultHoverButtons}
       {contextMenu ? (
-        <div
-          className="tahoe-popover fixed z-50 min-w-40 rounded-md p-1 text-popover-foreground"
-          style={{ left: contextMenu.x, top: contextMenu.y }}
-          onClick={(event) => event.stopPropagation()}
-          onMouseDown={(event) => event.preventDefault()}
-        >
-          {onRestoreFromArchive ? (
-            <button
-              type="button"
-              className="flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-left text-xs hover:bg-accent hover:text-accent-foreground"
-              onClick={() => {
-                setContextMenu(null);
-                void onRestoreFromArchive?.();
-              }}
-            >
-              <RotateCcw className="h-3.5 w-3.5" />
-              {t('hubListItem.moveToSessionList')}
-            </button>
-          ) : null}
-          <button
-            type="button"
-            className="flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-left text-xs hover:bg-accent hover:text-accent-foreground"
-            onClick={() => {
-              setContextMenu(null);
-              void conversationApi
-                .fork(session.id)
-                .then((result) => {
-                  if (result.continuity === 'history_only') {
-                    toast.warning(
-                      t('hubListItem.forkHistoryOnly', {
-                        reason: result.continuityNote,
-                      })
-                    );
-                  }
-                  kanbanSessions?.placeForkedChild(
-                    {
-                      sessionId: result.conversationId,
-                      workspaceId: session.workspace.id,
-                    },
-                    session.id
-                  );
-                })
-                .catch((error) =>
-                  toast.error(
-                    t('hubListItem.forkFailed', { error: String(error) })
-                  )
-                );
-            }}
-          >
-            <GitFork className="h-3.5 w-3.5" />
-            {t('hubListItem.forkSession')}
-          </button>
-          <button
-            type="button"
-            className="flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-left text-xs hover:bg-accent hover:text-accent-foreground"
-            onClick={() => {
-              setContextMenu(null);
-              void exportConversation(
-                session.id,
-                'markdown',
-                session.name ?? t('hubListItem.sessionFallback')
-              );
-            }}
-          >
-            <FileDown className="h-3.5 w-3.5" />
-            {t('hubListItem.exportAsMarkdown')}
-          </button>
-          <button
-            type="button"
-            className="flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-left text-xs hover:bg-accent hover:text-accent-foreground"
-            onClick={() => {
-              setContextMenu(null);
-              void exportConversation(
-                session.id,
-                'html',
-                session.name ?? t('hubListItem.sessionFallback')
-              );
-            }}
-          >
-            <FileCode className="h-3.5 w-3.5" />
-            {t('hubListItem.exportAsHtml')}
-          </button>
-          {onRenameSession ? (
-            <button
-              type="button"
-              className="flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-left text-xs hover:bg-accent hover:text-accent-foreground"
-              onClick={() => {
-                setContextMenu(null);
-                setDraftName(session.fullName);
-                setIsEditing(true);
-              }}
-            >
-              <Pencil className="h-3.5 w-3.5" />
-              {t('common:contextMenu.rename')}
-            </button>
-          ) : null}
-          {onDeleteSession ? (
-            <button
-              type="button"
-              className="flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-left text-xs text-destructive hover:bg-destructive/10"
-              onClick={() => {
-                setContextMenu(null);
-                void onDeleteSession();
-              }}
-            >
-              <Trash2 className="h-3.5 w-3.5" />
-              {t('hubListItem.deleteSession')}
-            </button>
-          ) : null}
-        </div>
+        <ProductContextMenu
+          x={contextMenu.x}
+          y={contextMenu.y}
+          items={menuItems}
+          onClose={() => setContextMenu(null)}
+        />
       ) : null}
     </div>
   );

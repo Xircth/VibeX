@@ -1,6 +1,8 @@
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { fireEvent, render, screen } from '@testing-library/react';
+import { useState, type ReactNode } from 'react';
 import { describe, expect, it } from 'vitest';
 import { projectReferenceUri } from '@/components/tasks/follow-up/composerAtReferences';
 import {
@@ -24,6 +26,15 @@ const userMessageStyles = [
   ),
 ].join('\n');
 
+function renderWithQuery(ui: ReactNode) {
+  const queryClient = new QueryClient({
+    defaultOptions: { queries: { retry: false } },
+  });
+  return render(
+    <QueryClientProvider client={queryClient}>{ui}</QueryClientProvider>
+  );
+}
+
 function StyledUserMessage({
   dark = false,
   value,
@@ -33,15 +44,20 @@ function StyledUserMessage({
   value: string;
   workspacePath?: string;
 }) {
+  const [queryClient] = useState(
+    () => new QueryClient({ defaultOptions: { queries: { retry: false } } })
+  );
   return (
-    <div className={`legacy-design${dark ? ' dark' : ''}`}>
-      <style>{userMessageStyles}</style>
-      <div className="vibex-user-message">
-        <div className="conv-user-bubble" data-testid="styled-user-bubble">
-          <UserMessageMarkdown value={value} workspacePath={workspacePath} />
+    <QueryClientProvider client={queryClient}>
+      <div className={`legacy-design${dark ? ' dark' : ''}`}>
+        <style>{userMessageStyles}</style>
+        <div className="vibex-user-message">
+          <div className="conv-user-bubble" data-testid="styled-user-bubble">
+            <UserMessageMarkdown value={value} workspacePath={workspacePath} />
+          </div>
         </div>
       </div>
-    </div>
+    </QueryClientProvider>
   );
 }
 
@@ -324,7 +340,7 @@ describe('UserMessageMarkdown', () => {
       value: '/review',
     });
 
-    const { container } = render(
+    const { container } = renderWithQuery(
       <UserMessageMarkdown
         value={[
           '# Plain heading syntax',

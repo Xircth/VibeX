@@ -1,5 +1,5 @@
 import { useCallback, useMemo, useRef } from 'react';
-import { useTauriPatchStream } from './useTauriPatchStream';
+import { usePatchStream } from './useTauriPatchStream';
 import { scratchApi } from '@/lib/api';
 import {
   ScratchType,
@@ -53,7 +53,7 @@ export const useScratch = (
   const initialData = useCallback((): ScratchState => ({ scratch: null }), []);
 
   const { data, isConnected, isInitialized, error } =
-    useTauriPatchStream<ScratchState>({
+    usePatchStream<ScratchState>({
       subscribeCommand: 'subscribe_scratch_stream',
       subscribeArgs,
       eventChannel: `scratch-stream:${id}`,

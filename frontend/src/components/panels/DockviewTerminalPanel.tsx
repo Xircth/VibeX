@@ -61,12 +61,19 @@ function DockviewTerminalPanel(props: IDockviewPanelProps) {
     undefined;
   const hostPlatform = terminalHostPlatform(environment?.os_type);
   const defaultShell = getDefaultTerminalShell(config, environment?.os_type);
-  const editorShell = isExternalTerminalShell(defaultShell)
-    ? getPlatformDefaultTerminalShell(hostPlatform)
-    : defaultShell;
-  const terminalShellOptions = getTerminalShellOptions(hostPlatform);
   const { setOverrideUrl } = usePreviewSettings(workspaceId);
   const panelParams = (props.params ?? {}) as Partial<TerminalPanelParams>;
+  const requestedShell =
+    typeof panelParams.shell === 'string' && panelParams.shell.length > 0
+      ? panelParams.shell
+      : null;
+  const editorShell =
+    requestedShell && !isExternalTerminalShell(requestedShell)
+      ? requestedShell
+      : isExternalTerminalShell(defaultShell)
+        ? getPlatformDefaultTerminalShell(hostPlatform)
+        : defaultShell;
+  const terminalShellOptions = getTerminalShellOptions(hostPlatform);
   const editorTabId =
     panelParams.tabId ?? tabIdFromEditorTerminalPanelId(props.api.id);
   const isEditorSurface =

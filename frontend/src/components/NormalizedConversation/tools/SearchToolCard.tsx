@@ -1,15 +1,25 @@
 import { useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Check, Copy, ExternalLink, Globe, Search } from 'lucide-react';
-import type { NormalizedEntry } from 'shared/types';
+import type { ToolDisplayEntry } from '../messageTurnTool';
 import { Button } from '@/components/ui/button';
 import { useOptionalPanelActionsContext } from '@/contexts/PanelActionsContext';
 import { useOpenLink } from '@/hooks/useOpenLink';
 import { useTemporaryFlag } from '@/hooks/useTemporaryFlag';
 import { useExpandable } from '@/stores/useExpandableStore';
 import { deriveRelativeFilePath } from '@/utils/filePaths';
-import { getToolSummary } from '../conversation-entry-utils';
-import { ToolArtifact, ToolSearchHits } from './ToolArtifact';
+import {
+  getToolCallDescription,
+  getToolSummary,
+} from '../conversation-entry-utils';
+import {
+  ToolArtifact,
+  ToolSearchHits,
+  ToolProse,
+  ToolFacts,
+} from './ToolArtifact';
+import { ToolResultView } from './ToolResultView';
+import { jsonToFacts, searchArgumentFacts } from './toolArtifactModel';
 import { fileReadLocation, resolveToolFilePath } from './FileToolCard';
 import { parseSearchQuery, parseToolHitItems } from './toolHitItems';
 import {
@@ -24,7 +34,7 @@ export function SearchToolCard({
   expansionKey,
   forceExpanded = false,
 }: {
-  entry: NormalizedEntry;
+  entry: ToolDisplayEntry;
   expansionKey: string;
   forceExpanded?: boolean;
 }) {
@@ -53,6 +63,7 @@ export function SearchToolCard({
     ? (actionType?.url || entry.content).trim()
     : searchQuery;
   const summary = getToolSummary(toolEntry, entry.content.trim());
+  const description = getToolCallDescription(entry);
   const canOpenLink = isWebFetch && /^https?:\/\//i.test(detail);
   const isResultDetail = useToolCallResultDetail();
   const [copied, triggerCopied] = useTemporaryFlag(1500);
@@ -62,6 +73,8 @@ export function SearchToolCard({
     actionType?.action === 'search'
       ? parseToolHitItems(actionType.result?.value ?? actionType.result)
       : [];
+  const result =
+    actionType?.action === 'search' ? actionType.result : entry.toolResult;
 
   const handleCopy = useCallback(async () => {
     try {
@@ -133,8 +146,8 @@ export function SearchToolCard({
           <Search className="h-3 w-3" />
         )
       }
-      label={summary.label}
-      detail={detail}
+      label={description ?? summary.label}
+      detail={description ? undefined : detail}
       actions={isResultDetail ? undefined : actions}
       statusClassName={getToolStatusClassName(toolEntry.status)}
       statusDotClassName={getToolStatusDotClassName(toolEntry.status)}
@@ -150,24 +163,45 @@ export function SearchToolCard({
           titleLabel={detail}
           onTitleClick={canOpenLink ? handleOpenLink : undefined}
           actions={isResultDetail ? actions : undefined}
-        />
+        >
+          {result ? (
+            <ToolProse>
+              <ToolResultView result={result} />
+            </ToolProse>
+          ) : null}
+        </ToolArtifact>
       ) : (
-        <ToolSearchHits
-          items={resultItems}
-          onOpenUrl={openLink}
-          onOpenPath={(path, line) => {
-            const resolved = resolveToolFilePath(path);
-            const title = deriveRelativeFilePath(resolved, null) ?? path;
-            panelActions?.openFilePreview(resolved, {
-              displayPath: title,
-              title,
-              location: fileReadLocation(line, line),
-            });
-          }}
-          onOpenDirectory={(path) => {
-            panelActions?.revealInFileTree(path, { nodeType: 'folder' });
-          }}
-        />
+        <ToolArtifact>
+          <ToolFacts
+            facts={searchArgumentFacts(actionType.arguments, searchQuery)}
+          />
+          {resultItems.length > 0 ? (
+            <ToolSearchHits
+              items={resultItems}
+              onOpenUrl={openLink}
+              onOpenPath={(path, line) => {
+                const resolved = resolveToolFilePath(path);
+                const title = deriveRelativeFilePath(resolved, null) ?? path;
+                panelActions?.openFilePreview(resolved, {
+                  displayPath: title,
+                  title,
+                  location: fileReadLocation(line, line),
+                });
+              }}
+              onOpenDirectory={(path) => {
+                panelActions?.revealInFileTree(path, { nodeType: 'folder' });
+              }}
+            />
+          ) : result ? (
+            <ToolProse>
+              {result.type.type === 'json' ? (
+                <ToolFacts facts={jsonToFacts(result.value)} />
+              ) : (
+                <ToolResultView result={result} />
+              )}
+            </ToolProse>
+          ) : null}
+        </ToolArtifact>
       )}
     </ToolCardShell>
   );

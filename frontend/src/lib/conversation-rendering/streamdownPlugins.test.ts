@@ -11,12 +11,12 @@ describe('prepareConversationMarkdown', () => {
     );
   });
 
-  it('normalizes TeX delimiters outside fenced and inline code', () => {
+  it('leaves TeX delimiters in prose for math extraction and ignores fenced code', () => {
     const prepared = prepareConversationMarkdown(
       'Inline \\(a+b\\)\n\n```ts\nconst raw = "\\\\(not math\\\\)";\n```'
     );
 
-    expect(prepared).toContain('Inline $a+b$');
+    expect(prepared).toContain('Inline \\(a+b\\)');
     expect(prepared).toContain('const raw = "\\\\(not math\\\\)";');
   });
 

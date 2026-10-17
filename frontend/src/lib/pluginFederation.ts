@@ -77,7 +77,16 @@ export function isHttpRemoteEntry(entry: string): boolean {
 
 const LOAD_REMOTE_TIMEOUT_MS = 8_000;
 
-export function unloadPluginRemote(name: string): void {
+/** Live mounts of each remote name. Unregister only after the last one goes. */
+const remoteUsers = new Map<string, number>();
+
+function releaseRemote(name: string): void {
+  const next = (remoteUsers.get(name) ?? 0) - 1;
+  if (next > 0) {
+    remoteUsers.set(name, next);
+    return;
+  }
+  remoteUsers.delete(name);
   const runtime = host;
   if (!runtime || !name) return;
   const unregister = (
@@ -93,6 +102,17 @@ export function unloadPluginRemote(name: string): void {
   }
 }
 
+export function unloadPluginRemote(name: string): void {
+  if (!name) return;
+  releaseRemote(name);
+}
+
+/** Count a live mount before any async load, so cleanup can always release once. */
+export function retainPluginRemote(name: string): void {
+  if (!name) return;
+  remoteUsers.set(name, (remoteUsers.get(name) ?? 0) + 1);
+}
+
 export async function loadPluginRemote(
   remote: PluginRemoteRef
 ): Promise<RemoteModule> {
@@ -101,6 +121,13 @@ export async function loadPluginRemote(
     [{ name: remote.name, entry: remote.entry, type: 'module' }],
     { force: true }
   );
+  return await loadRegisteredRemote(runtime, remote);
+}
+
+async function loadRegisteredRemote(
+  runtime: FederationRuntime,
+  remote: PluginRemoteRef
+): Promise<RemoteModule> {
   const loaded = await Promise.race([
     runtime.loadRemote<RemoteModule>(
       `${remote.name}/${remote.module.replace(/^\.\//, '')}`

@@ -353,7 +353,7 @@ Use crisp, consistent line icons (lucide) as SF-Symbols stand-ins for system con
 
 ### Signature surfaces
 
-The **Composer Shell** (grounded, always-available action surface) and the **Agent bar** (icon-only, hover reveals the name, accent-filled when selected) are VibeX's signatures. Keep their surrounding controls quieter than the primary input and the selected agent.
+The **Composer Shell** (grounded, always-available action surface) and the **Agent bar** (one compact full-width paged row of equal-size icons; the selected agent shows its name beside its icon, the add and refresh controls follow the last icon of every page, and edge chevrons flip pages, also while dragging an icon) are VibeX's signatures. Keep their surrounding controls quieter than the primary input and the selected agent.
 
 ## 7. Accessibility (designed in, not added later)
 

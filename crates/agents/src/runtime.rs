@@ -1,5 +1,5 @@
 use std::{
-    collections::{HashMap, VecDeque},
+    collections::{HashMap, HashSet, VecDeque},
     path::PathBuf,
     sync::Arc,
     time::Duration,
@@ -249,6 +249,9 @@ pub struct AgentRuntime {
     event_sink: Arc<dyn RuntimeEventSink>,
     event_tx: broadcast::Sender<AgentEventEnvelope>,
     session_locks: EnsureSessionLocks,
+    /// Conversations whose surface is on screen. The backend bumps their
+    /// activity; the UI only adds and removes ids.
+    keepalive_sessions: Arc<Mutex<HashSet<AgentSessionId>>>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -306,15 +309,17 @@ impl AgentRuntime {
             manager_event_tx,
             driver_enabled,
         ));
+        let keepalive_sessions = Arc::new(Mutex::new(HashSet::new()));
         let runtime = Self {
             state: Arc::clone(&state),
             connection_manager: Arc::clone(&connection_manager),
             event_sink: Arc::clone(&event_sink),
             event_tx: event_tx.clone(),
             session_locks,
+            keepalive_sessions: Arc::clone(&keepalive_sessions),
         };
         Self::spawn_manager_event_pump(
-            state,
+            Arc::clone(&state),
             Arc::clone(&connection_manager),
             event_sink,
             event_tx,
@@ -326,8 +331,33 @@ impl AgentRuntime {
                 idle_timeout,
                 Duration::from_secs(crate::idle_sweep::SWEEP_INTERVAL_SECS),
             ));
+            Self::spawn_keepalive_touch(
+                keepalive_sessions,
+                state,
+                connection_manager,
+                crate::idle_sweep::touch_interval_from_idle_timeout(idle_timeout),
+            );
         }
         runtime
+    }
+
+    /// Bumps activity for on-screen conversations. No status event is emitted.
+    fn spawn_keepalive_touch(
+        sessions: Arc<Mutex<HashSet<AgentSessionId>>>,
+        state: Arc<RwLock<RuntimeState>>,
+        manager: Arc<AgentConnectionManager>,
+        interval: Duration,
+    ) {
+        tokio::spawn(async move {
+            let mut ticker = tokio::time::interval(interval);
+            ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+            ticker.tick().await;
+            loop {
+                ticker.tick().await;
+                let ids: Vec<AgentSessionId> = sessions.lock().await.iter().copied().collect();
+                touch_session_ids(&state, &manager, ids).await;
+            }
+        });
     }
 
     fn spawn_manager_event_pump(
@@ -784,7 +814,11 @@ impl AgentRuntime {
                 .collect(),
             prompts: state.prompts.values().cloned().collect(),
             permissions: active_permissions_from_events(&state.recent_events),
-            events: state.recent_events.iter().cloned().collect(),
+            // The WebView replays this list on every window load. Transcript
+            // payloads stay in `recent_events` for turn-output detection and on
+            // the conversation log; copying them into each renderer duplicated
+            // tool text and images for no workbench state.
+            events: workbench_snapshot_events(&state.recent_events),
         }
     }
 
@@ -1930,6 +1964,33 @@ impl AgentRuntime {
         self.connection_manager.touch(connection_id).await
     }
 
+    /// Remember that this conversation's surface is on screen, and bump it now.
+    /// `watch == false` only forgets the id. Neither path connects or resumes.
+    pub async fn set_session_keepalive(
+        &self,
+        session_id: AgentSessionId,
+        watch: bool,
+    ) -> AgentResult<()> {
+        if watch {
+            self.keepalive_sessions.lock().await.insert(session_id);
+            self.touch_session(session_id).await
+        } else {
+            self.keepalive_sessions.lock().await.remove(&session_id);
+            Ok(())
+        }
+    }
+
+    pub async fn touch_watched_sessions(&self) {
+        let ids: Vec<AgentSessionId> = self
+            .keepalive_sessions
+            .lock()
+            .await
+            .iter()
+            .copied()
+            .collect();
+        touch_session_ids(&self.state, &self.connection_manager, ids).await;
+    }
+
     pub async fn has_bound_acp_session(&self, session_id: AgentSessionId) -> bool {
         let connection_id = {
             let state = self.state.read().await;
@@ -2529,6 +2590,55 @@ async fn bind_acp_thread_before_prompt(
     }
 }
 
+/// Events the workbench hydrate actually folds into UI state.
+///
+/// Message chunks, tool calls, plans, terminal output, and raw ACP diagnostics
+/// are transcript. The conversation row stream is what the timeline renders.
+fn workbench_snapshot_keeps(event: &AgentEvent) -> bool {
+    !matches!(
+        event,
+        AgentEvent::MessageChunk { .. }
+            | AgentEvent::ThoughtChunk { .. }
+            | AgentEvent::ToolCall { .. }
+            | AgentEvent::ToolCallUpdate { .. }
+            | AgentEvent::Plan { .. }
+            | AgentEvent::Usage { .. }
+            | AgentEvent::TerminalCreated { .. }
+            | AgentEvent::TerminalOutput { .. }
+            | AgentEvent::Error { .. }
+            | AgentEvent::RawAcpDiagnostic { .. }
+    )
+}
+
+fn workbench_snapshot_events(
+    events: &std::collections::VecDeque<AgentEventEnvelope>,
+) -> Vec<AgentEventEnvelope> {
+    events
+        .iter()
+        .filter(|envelope| workbench_snapshot_keeps(&envelope.event))
+        .cloned()
+        .collect()
+}
+
+async fn touch_session_ids(
+    state: &RwLock<RuntimeState>,
+    manager: &AgentConnectionManager,
+    session_ids: impl IntoIterator<Item = AgentSessionId>,
+) {
+    for session_id in session_ids {
+        let connection_id = {
+            let state = state.read().await;
+            state
+                .sessions
+                .get(&session_id)
+                .map(|session| session.snapshot.connection_id)
+        };
+        if let Some(connection_id) = connection_id {
+            let _ = manager.touch(connection_id).await;
+        }
+    }
+}
+
 fn silent_turn_recovery_backoff(attempt: u32) -> Duration {
     let shift = attempt.saturating_sub(1).min(3);
     Duration::from_millis(250 * (1u64 << shift))
@@ -2561,13 +2671,147 @@ fn prompt_has_turn_output(
 
 #[cfg(test)]
 mod tests {
-    use std::{collections::BTreeMap, sync::Mutex, time::Duration};
+    use std::{
+        collections::{BTreeMap, VecDeque},
+        sync::Mutex,
+        time::Duration,
+    };
 
     use super::*;
     use crate::{
-        AgentConnectionCommand, AgentErrorEvent, AgentPermissionOption, AgentPermissionOptionKind,
-        AgentPromptFinished,
+        AgentAutoApproveMode, AgentConnectionCommand, AgentConnectionLaunch, AgentErrorEvent,
+        AgentId, AgentPermissionOption, AgentPermissionOptionKind, AgentPromptFinished,
+        AgentSessionSnapshot, AgentSessionStatus, AgentToolCall, conversation::ImageData,
     };
+
+    fn test_envelope(event: AgentEvent) -> AgentEventEnvelope {
+        AgentEventEnvelope {
+            sequence: 1,
+            workspace_id: Uuid::nil(),
+            connection_id: AgentConnectionId::new(),
+            session_id: None,
+            event,
+            created_at: Utc::now(),
+        }
+    }
+
+    #[tokio::test]
+    async fn keepalive_watch_bumps_only_registered_sessions() {
+        let runtime = AgentRuntime::new_with_driver(Arc::new(NoopEventSink), false);
+        let (snapshot, ready_rx) = runtime
+            .connection_manager
+            .register_connection(AgentConnectionLaunch {
+                connection_id: AgentConnectionId::new(),
+                agent_id: AgentId::parse("codex").unwrap(),
+                launch_lock: test_launch_lock(),
+                workspace_id: Uuid::new_v4(),
+                working_dir: std::env::temp_dir(),
+                additional_directories: Vec::new(),
+                auto_approve_mode: AgentAutoApproveMode::Off,
+                env: HashMap::new(),
+            })
+            .await;
+        ready_rx.await.unwrap().unwrap();
+
+        let session_id = AgentSessionId::new();
+        let now = Utc::now();
+        runtime.state.write().await.sessions.insert(
+            session_id,
+            RuntimeSession {
+                snapshot: AgentSessionSnapshot {
+                    id: session_id,
+                    connection_id: snapshot.connection_id,
+                    acp_session_id: String::new(),
+                    status: AgentSessionStatus::Ready,
+                    active_prompt_id: None,
+                    queued_prompt_ids: Vec::new(),
+                    created_at: now,
+                    updated_at: now,
+                },
+                queue: AgentPromptQueue::default(),
+                ownership: RuntimeSessionOwnership::Owned,
+                controls: AgentSessionControlsSnapshot::default(),
+                turn_recovery_attempts: 0,
+            },
+        );
+        let idle = Duration::from_secs(60);
+        runtime
+            .connection_manager
+            .set_last_activity_elapsed(snapshot.connection_id, idle)
+            .await;
+
+        runtime
+            .set_session_keepalive(session_id, true)
+            .await
+            .unwrap();
+        let bumped = runtime
+            .connection_manager
+            .last_activity_elapsed(snapshot.connection_id)
+            .await
+            .unwrap();
+        assert!(bumped < Duration::from_secs(5));
+
+        runtime
+            .connection_manager
+            .set_last_activity_elapsed(snapshot.connection_id, idle)
+            .await;
+        runtime.touch_watched_sessions().await;
+        let bumped_again = runtime
+            .connection_manager
+            .last_activity_elapsed(snapshot.connection_id)
+            .await
+            .unwrap();
+        assert!(bumped_again < Duration::from_secs(5));
+
+        runtime
+            .set_session_keepalive(session_id, false)
+            .await
+            .unwrap();
+        runtime
+            .connection_manager
+            .set_last_activity_elapsed(snapshot.connection_id, idle)
+            .await;
+        runtime.touch_watched_sessions().await;
+        let left_alone = runtime
+            .connection_manager
+            .last_activity_elapsed(snapshot.connection_id)
+            .await
+            .unwrap();
+        assert!(left_alone >= idle);
+    }
+
+    #[test]
+    fn workbench_snapshot_omits_transcript_payloads() {
+        let mut events = VecDeque::new();
+        events.push_back(test_envelope(AgentEvent::ToolCall {
+            tool_call: AgentToolCall {
+                id: "tool-1".to_string(),
+                title: "view".to_string(),
+                status: None,
+                content: Some("x".repeat(32_000)),
+                kind: None,
+                input_preview: None,
+                meta: None,
+                images: vec![ImageData {
+                    data: "a".repeat(8_000),
+                    mime_type: "image/png".to_string(),
+                    uri: None,
+                }],
+            },
+        }));
+        events.push_back(test_envelope(AgentEvent::ModeChanged {
+            mode_id: "ask".to_string(),
+        }));
+
+        let shipped = workbench_snapshot_events(&events);
+
+        assert_eq!(events.len(), 2);
+        assert_eq!(shipped.len(), 1);
+        assert!(matches!(
+            shipped[0].event,
+            AgentEvent::ModeChanged { ref mode_id } if mode_id == "ask"
+        ));
+    }
 
     struct RecordingSink {
         events: Mutex<Vec<AgentEventEnvelope>>,

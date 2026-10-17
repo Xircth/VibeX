@@ -27,6 +27,7 @@ import type {
   AgentElicitationResponse,
   AgentKind,
   AgentPermissionResponse,
+  AgentSessionConfigOption,
   ConversationFileChange,
   MessageTurn,
   PlanEntry,
@@ -63,8 +64,10 @@ import {
   AGENT_CONNECTION_RECOVERING_NOTICE_ROW_ID,
   AGENT_SESSION_CONNECT_ERROR_NOTICE_ROW_ID,
   AUTO_PERMISSION_NOTICE_ROW_ID,
+  isResendColdStartNotice,
   sessionNoticeNeedsRebind,
 } from '@/features/conversation/sessionNoticeNeedsRebind';
+import { nextSurfaceActive } from '@/features/conversation/surfaceActivity';
 import { sendAgentRuntimeTurn } from '@/features/agents/sendAgentRuntimeTurn';
 import { ConfirmDialog } from '@/components/dialogs';
 import {
@@ -245,16 +248,11 @@ export function isEditableUserTimelineRow(
   return row.turn.role === 'user' && row.key === lastUserRowKey;
 }
 
-export function contextCompactPresentationForRow(
-  timeline: ConversationTimelineTurn[],
-  index: number
+function buildContextCompactPresentation(
+  row: ConversationTimelineTurn,
+  userTurn: MessageTurn | undefined
 ): ContextCompactPresentation | null {
-  const row = timeline[index];
-  if (!row || row.turn.role !== 'assistant') return null;
-  const baseId = vibexTurnIdFromTimelineRowId(row.turn.id);
-  const userTurn = timeline
-    .slice(0, index)
-    .findLast((candidate) => candidate.turn.id === `${baseId}:user`)?.turn;
+  if (row.turn.role !== 'assistant') return null;
   const prompt = userTurn?.blocks
     .flatMap((block) => (block.type === 'text' ? [block.text] : []))
     .join('\n\n');
@@ -286,6 +284,45 @@ export function contextCompactPresentationForRow(
     contextTokens:
       contextTokens != null && contextTokens > 0 ? contextTokens : null,
   };
+}
+
+export function contextCompactPresentationForRow(
+  timeline: ConversationTimelineTurn[],
+  index: number
+): ContextCompactPresentation | null {
+  const row = timeline[index];
+  if (!row || row.turn.role !== 'assistant') return null;
+  const baseId = vibexTurnIdFromTimelineRowId(row.turn.id);
+  const targetUserId = `${baseId}:user`;
+  let userTurn: MessageTurn | undefined;
+  for (let i = index - 1; i >= 0; i -= 1) {
+    const candidate = timeline[i];
+    if (candidate?.turn.id === targetUserId) {
+      userTurn = candidate.turn;
+      break;
+    }
+  }
+  return buildContextCompactPresentation(row, userTurn);
+}
+
+export function buildContextCompactPresentationByRowKey(
+  timeline: ConversationTimelineTurn[]
+): Map<string, ContextCompactPresentation | null> {
+  const byRowKey = new Map<string, ContextCompactPresentation | null>();
+  const latestTurnById = new Map<string, MessageTurn>();
+
+  for (const row of timeline) {
+    if (row.turn.role === 'assistant') {
+      const baseId = vibexTurnIdFromTimelineRowId(row.turn.id);
+      const userTurn = latestTurnById.get(`${baseId}:user`);
+      byRowKey.set(row.key, buildContextCompactPresentation(row, userTurn));
+    } else {
+      byRowKey.set(row.key, null);
+    }
+    latestTurnById.set(row.turn.id, row.turn);
+  }
+
+  return byRowKey;
 }
 
 function assistantCopyText(turn: MessageTurn): string {
@@ -328,6 +365,71 @@ function latestTokenUsage(
     return { total_tokens: total, model_context_window: window };
   }
   return null;
+}
+
+export function buildLiveTurnStats(input: {
+  timeline: ConversationTimelineTurn[];
+  composerTokenUsage: TokenUsageInfo | null;
+  sessionConfigOptions?: AgentSessionConfigOption[];
+}): TurnStatsData {
+  let activeModel: string | null = null;
+  let activeTotalTokens: number | null = null;
+  let activeContextWindow: number | null = null;
+
+  for (let index = input.timeline.length - 1; index >= 0; index -= 1) {
+    const row = input.timeline[index];
+    if (!row || row.turn.role !== 'assistant') continue;
+    if (!activeModel && row.turn.model?.trim()) {
+      activeModel = row.turn.model.trim();
+    }
+    if (
+      (row.phase === 'streaming' || row.phase === 'optimistic') &&
+      row.turn.usage
+    ) {
+      const usage = row.turn.usage;
+      const breakdown =
+        Number(usage.input_tokens) +
+        Number(usage.output_tokens) +
+        Number(usage.cache_creation_input_tokens) +
+        Number(usage.cache_read_input_tokens);
+      const total =
+        usage.context_used != null ? Number(usage.context_used) : breakdown;
+      if (activeTotalTokens === null && total > 0) {
+        activeTotalTokens = total;
+      }
+      const window =
+        usage.context_window_max != null ? Number(usage.context_window_max) : 0;
+      if (activeContextWindow === null && window > 0) {
+        activeContextWindow = window;
+      }
+    }
+    if (
+      activeModel &&
+      activeTotalTokens !== null &&
+      activeContextWindow !== null
+    ) {
+      break;
+    }
+  }
+
+  if (!activeModel && input.sessionConfigOptions) {
+    const modelOption = input.sessionConfigOptions.find(
+      (option) => option.category === 'model' || option.key === 'model'
+    );
+    if (typeof modelOption?.value === 'string' && modelOption.value.trim()) {
+      activeModel = modelOption.value.trim();
+    }
+  }
+
+  return {
+    model: activeModel,
+    totalTokens:
+      activeTotalTokens ?? input.composerTokenUsage?.total_tokens ?? null,
+    contextWindow:
+      activeContextWindow ??
+      input.composerTokenUsage?.model_context_window ??
+      null,
+  };
 }
 
 /** Turn stats for a settled assistant turn, sourced from the parsed MessageTurn. */
@@ -445,30 +547,26 @@ const AgentTimelineConversation = forwardRef<
     const el = containerRef.current;
     if (!el) return;
     let seenVisible = false;
-    const update = (intersecting: boolean) => {
-      if (intersecting) {
-        seenVisible = true;
-        setSurfaceActive(document.visibilityState === 'visible');
-        return;
-      }
-      // Ignore the first 0-size miss so a layout pass doesn't disable connect.
-      if (seenVisible) {
-        setSurfaceActive(false);
-      }
+    let active = true;
+    const apply = (intersecting: boolean) => {
+      const next = nextSurfaceActive({
+        active,
+        intersecting,
+        visibilityState: document.visibilityState,
+        seenVisible,
+      });
+      seenVisible = next.seenVisible;
+      if (next.active === active) return;
+      active = next.active;
+      setSurfaceActive(next.active);
     };
     const observer = new IntersectionObserver(
-      ([entry]) => update(entry.isIntersecting),
+      ([entry]) => apply(entry.isIntersecting),
       { threshold: 0 }
     );
     observer.observe(el);
     const onVisibility = () => {
-      if (document.visibilityState !== 'visible') {
-        setSurfaceActive(false);
-        return;
-      }
-      if (seenVisible || el.getClientRects().length > 0) {
-        setSurfaceActive(true);
-      }
+      apply(el.getClientRects().length > 0);
     };
     document.addEventListener('visibilitychange', onVisibility);
     return () => {
@@ -564,8 +662,8 @@ const AgentTimelineConversation = forwardRef<
   const conversationRebindSession = useCallback(async () => {
     if (!sessionId) return;
     await conversationApi.rebindSession(sessionId);
-    await conversation.resetAndReload();
-  }, [conversation, sessionId]);
+    await conversationResetAndReload();
+  }, [conversationResetAndReload, sessionId]);
   // Stable reference for answering permission requests inline.
   const conversationRespondPermission = conversation.respondPermission;
   const [respondingPermissionId, setRespondingPermissionId] = useState<
@@ -785,25 +883,31 @@ const AgentTimelineConversation = forwardRef<
   ]);
 
   const setUserMessageHistory = entries?.setUserMessageHistory;
+  const timelineTurns = useMemo(
+    () => timeline.map((row) => row.turn),
+    [timeline]
+  );
+  const contextCompactByRowKey = useMemo(
+    () => buildContextCompactPresentationByRowKey(timeline),
+    [timeline]
+  );
   const composerUserMessageHistory = useMemo(
     () =>
-      composerMessageHistoryFromTurns(
-        timeline.map((row) => row.turn),
-        isContextCompactPrompt
-      ),
-    [timeline]
+      composerMessageHistoryFromTurns(timelineTurns, isContextCompactPrompt),
+    [timelineTurns]
   );
   useEffect(() => {
     setUserMessageHistory?.(composerUserMessageHistory);
   }, [composerUserMessageHistory, setUserMessageHistory]);
 
   const liveStats = useMemo<TurnStatsData>(
-    () => ({
-      model: null,
-      totalTokens: null,
-      contextWindow: null,
-    }),
-    []
+    () =>
+      buildLiveTurnStats({
+        timeline,
+        composerTokenUsage,
+        sessionConfigOptions: conversationSessionConfigOptions,
+      }),
+    [composerTokenUsage, conversationSessionConfigOptions, timeline]
   );
 
   const navEntries = useMemo(
@@ -852,10 +956,12 @@ const AgentTimelineConversation = forwardRef<
     [rowVirtualizer, timelineItems.length]
   );
 
+  const conversationHasEarlier = conversation.hasEarlier;
+  const conversationLoadOlder = conversation.loadOlder;
   useEffect(() => {
     if (
       !shouldLoadOlderTimelinePage({
-        hasEarlier: conversation.hasEarlier,
+        hasEarlier: conversationHasEarlier,
         isAtBottom: isAtBottomRef.current,
         scrollTop: containerRef.current?.scrollTop ?? 0,
         firstVirtualIndex: virtualRows[0]?.index,
@@ -863,8 +969,8 @@ const AgentTimelineConversation = forwardRef<
     ) {
       return;
     }
-    void conversation.loadOlder();
-  }, [conversation, virtualRows]);
+    void conversationLoadOlder();
+  }, [conversationHasEarlier, conversationLoadOlder, virtualRows]);
 
   const panelRef = useRef<HTMLDivElement | null>(null);
   const [findOpen, setFindOpen] = useState(false);
@@ -1367,6 +1473,7 @@ const AgentTimelineConversation = forwardRef<
         | undefined
     ) => {
       if (!row || row.row.kind !== 'session_notice' || !row.row.notice) return;
+      if (isResendColdStartNotice(row.row_id, row.row.notice)) return;
       if (notices.some((notice) => notice.id === row.row_id)) return;
       const notice = row.row.notice;
       notices.push({
@@ -1602,7 +1709,11 @@ const AgentTimelineConversation = forwardRef<
           <div className="flex h-full min-h-[160px] items-center justify-center text-muted-foreground">
             <div className="flex items-center gap-2 rounded-full border bg-background/90 px-3 py-1.5 text-xs shadow-sm">
               <Loader2 className="h-4 w-4 animate-spin" />
-              <span>Loading session...</span>
+              <span>
+                {t('tasks:sessionConversationView.loadingSession', {
+                  defaultValue: 'Loading session...',
+                })}
+              </span>
             </div>
           </div>
         ) : (
@@ -1612,7 +1723,7 @@ const AgentTimelineConversation = forwardRef<
               conversationThreadMaxWidthClass(widthMode, isEditorAreaVisible)
             )}
           >
-            <SubagentLifecycleProvider turns={timeline.map((row) => row.turn)}>
+            <SubagentLifecycleProvider turns={timelineTurns}>
               <div className="conv-thread-content min-w-0">
                 {conversation.connecting ? (
                   <div className="mb-2 flex justify-center text-muted-foreground">
@@ -1697,12 +1808,9 @@ const AgentTimelineConversation = forwardRef<
                             questions={timelineQuestions}
                             onOpenChild={handleOpenChild}
                             showInterruptedNotice={false}
-                            contextCompact={contextCompactPresentationForRow(
-                              timeline,
-                              timeline.findIndex(
-                                (candidate) => candidate.key === row.key
-                              )
-                            )}
+                            contextCompact={
+                              contextCompactByRowKey.get(row.key) ?? null
+                            }
                             hasTurnError={
                               turnIdsWithErrors.has(
                                 vibexTurnIdFromTimelineRowId(row.turn.id)

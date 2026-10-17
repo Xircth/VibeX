@@ -9,7 +9,10 @@ use sqlx::{
 };
 use utils::assets::asset_dir;
 
+mod local_data_reset;
 pub mod models;
+
+pub use local_data_reset::{clear_local_database_rows, reset_local_database};
 
 async fn run_migrations(pool: &Pool<Sqlite>) -> Result<(), Error> {
     // Keep this call in the DB crate so every composition embeds the same migration set.
@@ -347,6 +350,15 @@ fn sqlite_connect_options(database_path: &Path) -> SqliteConnectOptions {
         .pragma("cache_size", "-65536")
 }
 
+type AfterConnectHook = Arc<
+    dyn for<'a> Fn(
+            &'a mut SqliteConnection,
+        ) -> std::pin::Pin<
+            Box<dyn std::future::Future<Output = Result<(), Error>> + Send + 'a>,
+        > + Send
+        + Sync,
+>;
+
 #[derive(Clone)]
 pub struct DBService {
     pub pool: Pool<Sqlite>,
@@ -363,14 +375,7 @@ impl DBService {
     /// migrations and SQLite concurrency settings cannot drift by host.
     pub async fn new_at(data_dir: impl AsRef<std::path::Path>) -> Result<DBService, Error> {
         std::fs::create_dir_all(data_dir.as_ref()).map_err(Error::Io)?;
-        let options = sqlite_connect_options(&data_dir.as_ref().join("db.sqlite"));
-        let pool = SqlitePoolOptions::new()
-            .max_connections(8)
-            .min_connections(1)
-            .acquire_timeout(Duration::from_secs(30))
-            .connect_with(options)
-            .await?;
-        run_migrations(&pool).await?;
+        let pool = Self::create_pool(data_dir.as_ref(), None).await?;
         Ok(DBService { pool })
     }
 
@@ -406,19 +411,10 @@ impl DBService {
         Ok(DBService { pool })
     }
 
-    async fn create_pool<F>(
+    async fn create_pool(
         data_dir: impl AsRef<std::path::Path>,
-        after_connect: Option<Arc<F>>,
-    ) -> Result<Pool<Sqlite>, Error>
-    where
-        F: for<'a> Fn(
-                &'a mut SqliteConnection,
-            ) -> std::pin::Pin<
-                Box<dyn std::future::Future<Output = Result<(), Error>> + Send + 'a>,
-            > + Send
-            + Sync
-            + 'static,
-    {
+        after_connect: Option<AfterConnectHook>,
+    ) -> Result<Pool<Sqlite>, Error> {
         let options = sqlite_connect_options(&data_dir.as_ref().join("db.sqlite"));
         let pool_options = SqlitePoolOptions::new()
             .max_connections(8)

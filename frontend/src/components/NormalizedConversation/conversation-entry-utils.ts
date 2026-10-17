@@ -790,6 +790,41 @@ export const getToolSummary = (
       };
   }
 };
+
+function extractDescriptionFromArguments(
+  value: JsonValue | null | undefined
+): string | null {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+  const description = (value as Record<string, unknown>).description;
+  return typeof description === 'string' && description.trim().length > 0
+    ? description.trim()
+    : null;
+}
+
+export function getToolCallDescription(
+  entry:
+    | {
+        entry_type?: NormalizedEntryType;
+        toolArguments?: JsonValue | null;
+      }
+    | null
+    | undefined
+): string | null {
+  if (!entry || entry.entry_type?.type !== 'tool_use') return null;
+  const actionType = entry.entry_type.action_type;
+  if (actionType.action === 'task_create') return null;
+
+  const fromToolArguments = extractDescriptionFromArguments(
+    entry.toolArguments
+  );
+  if (fromToolArguments) return fromToolArguments;
+
+  if ('arguments' in actionType) {
+    return extractDescriptionFromArguments(actionType.arguments);
+  }
+
+  return null;
+}
 export const isPendingApprovalStatus = (
   status: ToolStatus
 ): status is Extract<ToolStatus, { status: 'pending_approval' }> =>

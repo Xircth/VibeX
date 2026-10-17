@@ -6,6 +6,21 @@ export function normalizeFilePath(path: string): string {
   return path.replace(/\\/g, '/').replace(/\/+$/, '');
 }
 
+export function replaceFilePathPrefix(
+  path: string,
+  oldPath: string,
+  newPath: string
+): string {
+  const normalized = normalizeFilePath(path);
+  const oldPrefix = normalizeFilePath(oldPath);
+  if (normalized === oldPrefix) return newPath;
+  if (!normalized.startsWith(`${oldPrefix}/`)) return path;
+  return resolveFilePathFromRoot(
+    normalized.slice(oldPrefix.length + 1),
+    newPath
+  );
+}
+
 export function resolveFilePathFromRoot(
   filePath: string,
   rootPath: string | null | undefined

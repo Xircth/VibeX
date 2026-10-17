@@ -1028,10 +1028,12 @@ fn append_managed_profile_block(path: &Path, block: &str) -> Result<(), CliExpos
 
 #[cfg(test)]
 mod tests {
+    #[cfg(unix)]
     use std::{ffi::OsStr, fs, process::Command};
 
     use super::*;
 
+    #[cfg(unix)]
     fn publish_for_test(
         home_dir: &Path,
         agent_id: &AgentId,

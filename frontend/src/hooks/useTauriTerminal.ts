@@ -15,6 +15,11 @@ import { getTerminalTheme } from '@/utils/terminalTheme';
 import type { TerminalBusyEvent } from '@/lib/workspaceTerminalTabs';
 import { createWriteQueue, type WriteQueue } from '@/lib/terminal/writeQueue';
 import { parseTerminalOutputPayload } from '@/lib/terminal/outputPayload';
+import {
+  resolveTerminalFitBox,
+  terminalGridForBox,
+  type TerminalFitMeasurements,
+} from '@/hooks/terminalFitBox';
 type UnlistenFn = () => void;
 
 function isTerminalCopyShortcut(
@@ -142,6 +147,76 @@ function hasLiveTerminalElement(
   return !!element && element.isConnected && container.contains(element);
 }
 
+function elementBox(element: Element | null): {
+  width: number;
+  height: number;
+} {
+  if (!(element instanceof HTMLElement)) {
+    return { width: 0, height: 0 };
+  }
+  return { width: element.clientWidth, height: element.clientHeight };
+}
+
+function measureTerminalFit(container: HTMLElement): TerminalFitMeasurements {
+  const panel = elementBox(container.closest('[data-panel="terminal"]'));
+  const content = elementBox(container.closest('.dv-content-container'));
+  const group = elementBox(container.closest('.dv-groupview'));
+  return {
+    containerWidth: container.clientWidth,
+    containerHeight: container.clientHeight,
+    panelWidth: panel.width,
+    panelHeight: panel.height,
+    contentWidth: content.width,
+    contentHeight: content.height,
+    groupWidth: group.width,
+  };
+}
+
+function readTerminalCell(
+  terminal: Terminal
+): { width: number; height: number } | null {
+  const cell = (
+    terminal as unknown as {
+      _core?: {
+        _renderService?: {
+          dimensions?: { css?: { cell?: { width: number; height: number } } };
+        };
+      };
+    }
+  )._core?._renderService?.dimensions?.css?.cell;
+  if (!cell || !(cell.width > 0) || !(cell.height > 0)) return null;
+  return cell;
+}
+
+function syncTerminalGridToMeasuredBox(
+  terminal: Terminal,
+  container: HTMLElement
+): void {
+  if (typeof terminal.resize !== 'function') return;
+  const cell = readTerminalCell(terminal);
+  if (!cell) return;
+  const box = resolveTerminalFitBox(measureTerminalFit(container));
+  const grid = terminalGridForBox(box, cell);
+  if (!grid) return;
+  if (grid.cols === terminal.cols && grid.rows === terminal.rows) return;
+
+  const fittedWidth = terminal.cols * cell.width;
+  const fittedHeight = terminal.rows * cell.height;
+  const grows =
+    box.width > fittedWidth + cell.width ||
+    box.height > fittedHeight + cell.height;
+  const shrinks =
+    box.width + cell.width < fittedWidth ||
+    box.height + cell.height < fittedHeight;
+  if (!grows && !shrinks) return;
+
+  try {
+    terminal.resize(grid.cols, grid.rows);
+  } catch {
+    // The terminal can be disposing while the group is resized.
+  }
+}
+
 function fitTerminalIfReady(
   fitAddon: FitAddon,
   terminal: Terminal,
@@ -158,6 +233,27 @@ function fitTerminalIfReady(
     fitAddon.fit();
   } catch {
     // The Dockview panel may be mid-layout or hidden.
+    return;
+  }
+
+  syncTerminalGridToMeasuredBox(terminal, container);
+}
+
+function observeTerminalFit(
+  observer: ResizeObserver,
+  container: HTMLElement
+): void {
+  const elements = [
+    container,
+    container.closest('[data-panel="terminal"]'),
+    container.closest('.dv-content-container'),
+    container.closest('.dv-groupview'),
+  ];
+  const seen = new Set<Element>();
+  for (const element of elements) {
+    if (!element || seen.has(element)) continue;
+    seen.add(element);
+    observer.observe(element);
   }
 }
 
@@ -652,7 +748,7 @@ export function useTauriTerminal({
           fitTerminalIfReady(fitAddonRef.current, terminal, container);
         }
       });
-      resizeObserver.observe(container);
+      observeTerminalFit(resizeObserver, container);
       resizeObserverRef.current = resizeObserver;
       errorRef.current = null;
     },

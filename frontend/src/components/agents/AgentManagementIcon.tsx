@@ -1,6 +1,9 @@
 import { Bot } from 'lucide-react';
 
-import { AgentTypeIcon } from '@/components/agents/AgentTypeIcon';
+import {
+  AgentTypeIcon,
+  hasAgentTypeIcon,
+} from '@/components/agents/AgentTypeIcon';
 import { cn } from '@/lib/utils';
 
 type IconAgent = {
@@ -10,17 +13,11 @@ type IconAgent = {
   icon_svg: string | null;
 };
 
-const AGENT_ICON_CALIBRATION_CLASS: Partial<Record<string, string>> = {
-  cline: 'is-cline',
-  hermes: 'is-hermes',
-  codebuddy: 'is-codebuddy',
-  grok: 'is-grok',
-  kimi_code: 'is-kimi',
-  kimi: 'is-kimi',
-  cursor: 'is-cursor',
-  deepseek_harness: 'is-deepseek',
-};
-
+/**
+ * Built-in Agents always render their compiled-in glyph so every mark fills
+ * the caller's box the same way; registry artwork is only for Agents the app
+ * ships no glyph for.
+ */
 export function AgentManagementIcon({
   agent,
   className,
@@ -28,21 +25,16 @@ export function AgentManagementIcon({
   agent: IconAgent;
   className?: string;
 }) {
-  const iconClassName = cn(
-    'agent-management-brand-icon',
-    AGENT_ICON_CALIBRATION_CLASS[agent.agent_id],
-    className
-  );
-
-  if (
-    agent.agent_id === 'claude_code' ||
-    agent.agent_id === 'codex' ||
-    agent.agent_id === 'opencode' ||
-    agent.agent_id === 'pi' ||
-    agent.agent_id === 'deepseek_harness'
-  ) {
-    return <AgentTypeIcon agentType={agent.agent_id} className={className} />;
+  if (hasAgentTypeIcon(agent.agent_id)) {
+    return (
+      <AgentTypeIcon
+        agentType={agent.agent_id}
+        className={cn('text-foreground', className)}
+      />
+    );
   }
+
+  const iconClassName = cn('agent-management-brand-icon', className);
 
   if (agent.icon_light || agent.icon_dark) {
     const light = agent.icon_light ?? agent.icon_dark ?? '';

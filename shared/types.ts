@@ -1265,7 +1265,7 @@ export type AgentErrorEvent = { message: string,
  */
 code?: string | null, raw?: JsonValue | null, };
 
-export type AgentEvent = { "kind": "connection_status_changed", snapshot: AgentConnectionSnapshot, } | { "kind": "session_created", snapshot: AgentSessionSnapshot, } | { "kind": "session_linked", acp_session_id: string, agent_id: AgentId, capabilities: AcpCapabilitySnapshot, } | { "kind": "session_bind_ready", acp_session_id: string, } | { "kind": "prompt_started", snapshot: AgentPromptSnapshot, } | { "kind": "message_chunk", content: AgentContentBlock, } | { "kind": "thought_chunk", content: AgentContentBlock, } | { "kind": "tool_call", tool_call: AgentToolCall, } | { "kind": "tool_call_update", update: AgentToolCallUpdate, } | { "kind": "plan", plan: AgentPlan, } | { "kind": "usage", usage: AgentUsage, } | { "kind": "session_modes", modes: Array<AgentSessionMode>, current?: string | null, } | { "kind": "mode_changed", mode_id: string, } | { "kind": "session_config_options", options: Array<AgentSessionConfigOption>, } | { "kind": "config_changed", key: string, value: JsonValue, } | { "kind": "available_commands", commands: Array<AgentAvailableCommand>, } | { "kind": "session_info_updated", patch: JsonValue, } | { "kind": "session_load_failed", reason: SessionLoadFailureReason, } | { "kind": "turn_completed", stop_reason?: string | null, } | { "kind": "session_config_stale", reason?: string | null, } | { "kind": "permission_requested", request: AgentPermissionRequest, } | { "kind": "permission_responded", permission_id: AgentPermissionId, response: AgentPermissionResponse, auto: boolean, } | { "kind": "elicitation_requested", request: AgentElicitationRequest, } | { "kind": "elicitation_responded", elicitation_id: AgentElicitationId, response: AgentElicitationResponse, } | { "kind": "terminal_created", terminal: AgentTerminalSnapshot, } | { "kind": "terminal_output", output: AgentTerminalOutput, } | { "kind": "prompt_finished", finished: AgentPromptFinished, } | { "kind": "delegation_started", delegation_id: string, parent_tool_use_id: string,
+export type AgentEvent = { "kind": "connection_status_changed", snapshot: AgentConnectionSnapshot, } | { "kind": "session_created", snapshot: AgentSessionSnapshot, } | { "kind": "session_linked", acp_session_id: string, agent_id: AgentId, capabilities: AcpCapabilitySnapshot, } | { "kind": "session_bind_ready", acp_session_id: string, } | { "kind": "prompt_started", snapshot: AgentPromptSnapshot, } | { "kind": "message_chunk", content: AgentContentBlock, } | { "kind": "thought_chunk", content: AgentContentBlock, } | { "kind": "tool_call", tool_call: AgentToolCall, } | { "kind": "tool_call_update", update: AgentToolCallUpdate, } | { "kind": "plan", plan: AgentPlan, } | { "kind": "usage", usage: AgentUsage, } | { "kind": "session_modes", modes: Array<AgentSessionMode>, current?: string | null, } | { "kind": "mode_changed", mode_id: string, } | { "kind": "session_config_options", options: Array<AgentSessionConfigOption>, } | { "kind": "config_changed", key: string, value: JsonValue, } | { "kind": "config_option_rejected", config_id: string, option_name: string, requested: string, actual: string, requested_value: string, actual_value: string, } | { "kind": "available_commands", commands: Array<AgentAvailableCommand>, } | { "kind": "session_info_updated", patch: JsonValue, } | { "kind": "session_load_failed", reason: SessionLoadFailureReason, } | { "kind": "turn_completed", stop_reason?: string | null, } | { "kind": "session_config_stale", reason?: string | null, } | { "kind": "permission_requested", request: AgentPermissionRequest, } | { "kind": "permission_responded", permission_id: AgentPermissionId, response: AgentPermissionResponse, auto: boolean, } | { "kind": "elicitation_requested", request: AgentElicitationRequest, } | { "kind": "elicitation_responded", elicitation_id: AgentElicitationId, response: AgentElicitationResponse, } | { "kind": "terminal_created", terminal: AgentTerminalSnapshot, } | { "kind": "terminal_output", output: AgentTerminalOutput, } | { "kind": "prompt_finished", finished: AgentPromptFinished, } | { "kind": "delegation_started", delegation_id: string, parent_tool_use_id: string,
 /**
  * The child's `sessions.id` — the conversation the user can open.
  */
@@ -1324,7 +1324,7 @@ export type AgentTerminalOutputSnapshot = { terminal_id: AgentTerminalId, output
 
 export type AgentTerminalSnapshot = { id: AgentTerminalId, command: string, args: Array<string>, cwd?: string | null, };
 
-export type AgentToolCall = { id: string, title: string, kind?: string | null, input_preview?: string | null, meta?: JsonValue | null, images?: Array<ImageData>, };
+export type AgentToolCall = { id: string, title: string, status?: string | null, content?: string | null, kind?: string | null, input_preview?: string | null, meta?: JsonValue | null, images?: Array<ImageData>, };
 
 export type AgentToolCallUpdate = { id: string,
 /**
@@ -1380,6 +1380,10 @@ export type AgentExecutionStats = { agent_type?: string | null, status?: string 
 
 export type ContentBlock = { "type": "text", text: string, } | { "type": "thinking", text: string, } | { "type": "image", data: string, mime_type: string, uri?: string | null, } | { "type": "image_generation", revised_prompt?: string | null, image?: ImageData | null, } | { "type": "tool_use", tool_use_id?: string | null, tool_name: string,
 /**
+ * Last status reported by the Agent. Older events may omit it.
+ */
+status?: string | null,
+/**
  * ACP tool-call kind (`execute`/`read`/`edit`/`search`/`fetch`/…),
  * preserved so the frontend can route to the right card even when the
  * agent's title is free-form prose.
@@ -1393,7 +1397,15 @@ meta?: JsonValue | null,
  * Images returned by the tool call, such as files inspected by an
  * Agent image-viewing tool.
  */
-images?: Array<ImageData>, } | { "type": "tool_result", tool_use_id?: string | null, output_preview?: string | null, is_error: boolean, agent_stats?: AgentExecutionStats | null, } | { "type": "plan", entries: Array<PlanEntry>, } | { "type": "resource", uri: string, title?: string | null, } | { "type": "protocol", content: JsonValue, };
+images?: Array<ImageData>,
+/**
+ * Wall-clock start from the first tool-call event. Missing stays missing.
+ */
+started_at?: string | null,
+/**
+ * Wall-clock end from the terminal tool-call event.
+ */
+ended_at?: string | null, } | { "type": "tool_result", tool_use_id?: string | null, output_preview?: string | null, is_error: boolean, agent_stats?: AgentExecutionStats | null, } | { "type": "plan", entries: Array<PlanEntry>, } | { "type": "resource", uri: string, title?: string | null, } | { "type": "protocol", content: JsonValue, };
 
 export type ConversationDetail = { summary: ConversationSummary, turns: Array<MessageTurn>, session_stats?: SessionStats | null, };
 
@@ -1656,7 +1668,13 @@ export type AgentSessionConfigOverride = { key: string, value: string, };
 
 export type ConversationRowOp = { "op": "upsert", row: TimelineRow, } | { "op": "delete", row_id: string, revision: bigint, } | { "op": "append_text", row_id: string, revision: bigint, stream: TimelineTextStream, delta: string, };
 
-export type ConversationRowOpBatch = { conversation_id: string, last_sequence: bigint, ops: Array<ConversationRowOp>,
+export type ConversationRowOpBatch = { conversation_id: string, last_sequence: bigint,
+/**
+ * Last sequence emitted in the immediately preceding batch for this conversation,
+ * when known by the incremental projector. Allows the frontend to distinguish
+ * skipped no-op sequences or coalesced intra-batch revisions from dropped batches.
+ */
+previous_sequence?: bigint, ops: Array<ConversationRowOp>,
 /**
  * Latest agent-advertised session modes carried in this batch, if any. Session
  * control state isn't a timeline row, so it rides alongside the row ops rather
@@ -1791,7 +1809,12 @@ export type AgentManagementErrorCode = "not_found" | "invalid_state" | "busy" | 
 
 export type AgentManagementErrorView = { code: AgentManagementErrorCode, message: string, agent_id: AgentId | null, preflight_item_id: string | null, };
 
-export type AgentManagementView = { agent_id: AgentId, display_name: string, description: string, icon_light: string | null, icon_dark: string | null, icon_svg: string | null, source: AgentSource, built_in: boolean, retired: boolean, enabled: boolean, position: number, lifecycle: AgentLifecycleState, authentication: AgentAuthenticationStatus, runtime_version: string | null, acp_version: string | null, local_runtime?: AgentLocalRuntimeView, active_operation: AgentOperationKind | null, rollback_available: boolean, settings_features?: Array<AgentSettingsFeature>, };
+export type AgentManagementView = { agent_id: AgentId, display_name: string, description: string, icon_light: string | null, icon_dark: string | null, icon_svg: string | null, source: AgentSource, built_in: boolean, retired: boolean, enabled: boolean, position: number, lifecycle: AgentLifecycleState, authentication: AgentAuthenticationStatus, runtime_version: string | null, acp_version: string | null, local_runtime?: AgentLocalRuntimeView,
+/**
+ * Installed desktop product, such as the ChatGPT app for Codex.
+ * This is not the CLI executable used to launch the Agent.
+ */
+desktop_client?: AgentLocalRuntimeView, active_operation: AgentOperationKind | null, rollback_available: boolean, settings_features?: Array<AgentSettingsFeature>, };
 
 export type AgentNativeConfigFieldView = { id: string, label: string, description: string, kind: AgentNativeConfigFieldKind, options: Array<AgentNativeConfigOptionView>, secret: boolean, path: string, present: boolean, value: string | null, masked_value: string | null, revision: string, surface: AgentNativeConfigSurface, };
 

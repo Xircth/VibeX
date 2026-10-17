@@ -13,6 +13,11 @@
     "steerEnqueuedWholeDraft": "This draft cannot ride the live channel; queued for the next turn",
     "steerUnknown": "Steering status is unknown; the message was kept to avoid sending it twice.",
     "steerRejected": "The Agent did not accept in-turn steering.",
+    "steerTurnEnded": "The current turn has already finished. Your draft was kept so you can send it as a new turn.",
+    "commands": {
+      "loading": "Loading commands...",
+      "noMatches": "No matching commands found."
+    },
     "commandSource": {
       "plugin": "Plugin",
       "skill": "Skill",
@@ -53,13 +58,28 @@
   "hubListItem": {
     "running": "In progress",
     "reviewing": "Needs review",
+    "moreActions": "More actions",
+    "pinSession": "Pin",
+    "unpinSession": "Unpin",
+    "archiveSession": "Archive",
     "deleteSession": "Delete session",
     "renameSession": "Rename session",
+    "copy": "Copy",
+    "copySessionInfo": "Session info",
+    "copySessionName": "Session name",
+    "copiedSessionInfo": "Session info copied",
+    "copiedSessionName": "Session name copied",
+    "sessionInfoName": "Session Name",
+    "sessionInfoId": "ID",
+    "sessionInfoAgent": "Agent",
+    "sessionInfoWorkspace": "Workspace",
+    "export": "Export",
     "moveToSessionList": "Move to session list",
     "forkSuccess": "Session forked",
     "forkHistoryOnly": "History copied without Agent context: {{reason}}",
     "forkFailed": "Fork failed: {{error}}",
     "forkSession": "Fork session",
+    "forkFromSession": "Fork from this session",
     "sessionFallback": "Session",
     "exportAsMarkdown": "Export as Markdown",
     "exportAsHtml": "Export as HTML"
@@ -134,18 +154,16 @@
     "workspaceBranch": "Workspace branch",
     "newWorkspaceHint": "Create a new worktree workspace based on the target branch, then create a session in it.",
     "includeUncommitted": "Copy uncommitted changes",
-    "sessionNameLabel": "Session name (optional)",
-    "sessionNamePlaceholder": "Auto-named by default",
     "codingAgent": "Coding agent",
     "controlsLoading": "Preparing session options…",
     "controlsPrepareFailed": "Failed to load session options for {{agent}}",
     "createFailed": "Could not create session",
     "agentNotInstalled": "This Agent is not installed successfully. Repair or reinstall it in Settings.",
     "viewDiagnostics": "View diagnostics",
-    "saveAgentDefaults": "Save as Agent defaults",
+    "saveAgentDefaults": "Save as defaults",
     "savingAgentDefaults": "Saving defaults…",
-    "agentDefaultsSaved": "Agent defaults saved.",
-    "agentDefaultsSaveFailed": "Could not save Agent defaults.",
+    "agentDefaultsSaved": "Defaults saved.",
+    "agentDefaultsSaveFailed": "Could not save defaults.",
     "catalogRefreshing": "Showing cached options while refreshing in the background…",
     "catalogRefreshFailed": "Cached options are shown; background refresh failed.",
     "continuePreviousSession": "Choose a previous session to continue",
@@ -379,7 +397,8 @@
     "allowDangerousOperations": "Allow dangerous operations"
   },
   "sessionConfigSelector": {
-    "fallbackLabel": "Option"
+    "fallbackLabel": "Option",
+    "optionAdjusted": "{{option}} was changed from {{requested}} to {{actual}}"
   },
   "sessionSettings": {
     "title": "This session",

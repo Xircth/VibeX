@@ -13,6 +13,11 @@
     "steerEnqueuedWholeDraft": "通道无法携带这份草稿，已加入下一轮队列",
     "steerUnknown": "纠偏送达状态未知；为避免重复注入，内容已保留。",
     "steerRejected": "Agent 未接受本次运行中纠偏。",
+    "steerTurnEnded": "当前回合已结束，草稿已保留，你可以作为新回合发送。",
+    "commands": {
+      "loading": "正在加载命令...",
+      "noMatches": "没有匹配的命令。"
+    },
     "commandSource": {
       "plugin": "插件",
       "skill": "Skill",
@@ -53,16 +58,31 @@
   "hubListItem": {
     "running": "进行中",
     "reviewing": "待检查",
+    "moreActions": "更多操作",
+    "pinSession": "置顶",
+    "unpinSession": "取消置顶",
+    "archiveSession": "归档",
     "deleteSession": "删除会话",
     "renameSession": "重命名会话",
+    "copy": "复制",
+    "copySessionInfo": "会话信息",
+    "copySessionName": "会话名称",
+    "copiedSessionInfo": "已复制会话信息",
+    "copiedSessionName": "已复制会话名称",
+    "sessionInfoName": "会话名称",
+    "sessionInfoId": "ID",
+    "sessionInfoAgent": "Agent",
+    "sessionInfoWorkspace": "工作区",
+    "export": "导出",
     "moveToSessionList": "移至会话列表",
     "forkSuccess": "已分叉会话",
     "forkHistoryOnly": "已复制历史记录，但未延续 Agent 上下文：{{reason}}",
     "forkFailed": "分叉失败：{{error}}",
     "forkSession": "分叉会话",
+    "forkFromSession": "从本会话Fork",
     "sessionFallback": "会话",
-    "exportAsMarkdown": "导出为 Markdown",
-    "exportAsHtml": "导出为 HTML"
+    "exportAsMarkdown": "导出为Markdown",
+    "exportAsHtml": "导出为HTML"
   },
   "hubMonitor": {
     "title": "会话监控区",
@@ -134,18 +154,16 @@
     "workspaceBranch": "工作区分支",
     "newWorkspaceHint": "基于 target branch 创建新的 worktree 工作区，然后在其中创建会话。",
     "includeUncommitted": "复制未提交更改",
-    "sessionNameLabel": "会话名称（可选）",
-    "sessionNamePlaceholder": "默认使用自动命名",
     "codingAgent": "编程代理",
     "controlsLoading": "正在准备会话配置…",
     "controlsPrepareFailed": "无法加载 {{agent}} 的会话配置",
     "createFailed": "无法创建会话",
     "agentNotInstalled": "该 Agent 尚未成功安装，请在设置中重新安装或修复。",
     "viewDiagnostics": "查看诊断详情",
-    "saveAgentDefaults": "保存为 Agent 默认值",
+    "saveAgentDefaults": "保存为默认值",
     "savingAgentDefaults": "正在保存默认值…",
-    "agentDefaultsSaved": "已保存 Agent 默认值。",
-    "agentDefaultsSaveFailed": "无法保存 Agent 默认值。",
+    "agentDefaultsSaved": "已保存默认值。",
+    "agentDefaultsSaveFailed": "无法保存默认值。",
     "catalogRefreshing": "正在显示缓存选项，并在后台刷新…",
     "catalogRefreshFailed": "当前显示缓存选项；后台刷新失败。",
     "continuePreviousSession": "选择先前的会话以继续",
@@ -379,7 +397,8 @@
     "allowDangerousOperations": "允许危险操作"
   },
   "sessionConfigSelector": {
-    "fallbackLabel": "选项"
+    "fallbackLabel": "选项",
+    "optionAdjusted": "{{option}}已从{{requested}}调整为{{actual}}"
   },
   "sessionSettings": {
     "title": "本次会话",

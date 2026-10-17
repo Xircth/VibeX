@@ -27,11 +27,17 @@ import {
   useGitBranches,
   useGitHubData,
   useGitPanelController,
+  type GitPanelMode,
 } from '@/hooks/git';
+import {
+  Selector,
+  SelectorOption,
+  type SelectorOptionData,
+} from '@astryxdesign/core/Selector';
 import { GitConflictSection } from './GitConflictSection';
 import { GitStagingArea } from './GitStagingArea';
 import { GitCommitBox } from './GitCommitBox';
-import { GitStashSection } from './GitStashSection';
+import { GitChangeStats } from './GitChangeStats';
 import { GitLogView } from './GitLogView';
 import { GitBranchList } from './GitBranchList';
 import { GitIssuesView } from './GitIssuesView';
@@ -42,7 +48,7 @@ import { usePanelActions } from '@/hooks/usePanelActions';
 import { useGitDiffNavigationStore } from '@/stores/useGitDiffNavigationStore';
 import { useAppContextMenu } from '@/components/context-menu';
 import { attemptsApi, projectsApi } from '@/lib/api';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   Select,
   SelectContent,
@@ -50,7 +56,34 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { useQueryClient } from '@tanstack/react-query';
+
+const GIT_PANEL_MODE_OPTIONS: SelectorOptionData[] = [
+  {
+    value: 'diff',
+    label: 'Diff',
+    icon: <ArrowLeftRight className="h-3 w-3" />,
+  },
+  {
+    value: 'log',
+    label: 'Log',
+    icon: <History className="h-3 w-3" />,
+  },
+  {
+    value: 'branches',
+    label: 'Branch',
+    icon: <GitBranchPlus className="h-3 w-3" />,
+  },
+  {
+    value: 'issues',
+    label: 'Issue',
+    icon: <CircleDot className="h-3 w-3" />,
+  },
+  {
+    value: 'prs',
+    label: 'PR',
+    icon: <GitPullRequest className="h-3 w-3" />,
+  },
+];
 
 function EmptyState() {
   return (
@@ -87,7 +120,9 @@ export function GitPanel() {
   }>();
   const effectiveWorkspaceId = activeWorktreeId ?? routeWorkspaceId ?? null;
   const { data: workspace } = useAttempt(effectiveWorkspaceId ?? undefined);
-  const { selectedRepoId } = useAttemptRepo(effectiveWorkspaceId ?? undefined);
+  const { selectedRepoId, isLoading: attemptRepoLoading } = useAttemptRepo(
+    effectiveWorkspaceId ?? undefined
+  );
   const { data: branchStatus } = useBranchStatus(
     effectiveWorkspaceId ?? undefined
   );
@@ -112,15 +147,21 @@ export function GitPanel() {
     setGitChildId(null);
   }, [projectId]);
   const selectedGitChildId = gitChildId ?? gitChildren[0]?.id ?? null;
-  const { data: childRepos = [] } = useProjectRepos(selectedGitChildId, {
-    enabled: parentHasNoGitRepo && !!selectedGitChildId,
-  });
+  const { data: childRepos = [], isLoading: childReposLoading } =
+    useProjectRepos(selectedGitChildId, {
+      enabled: parentHasNoGitRepo && !!selectedGitChildId,
+    });
   const fallbackRepoId = parentHasNoGitRepo
     ? (childRepos[0]?.id ?? null)
     : (selectedRepoId ?? projectRepos[0]?.id ?? null);
 
   const workspaceId = parentHasNoGitRepo ? null : effectiveWorkspaceId;
   const repoId = fallbackRepoId;
+  const isResolvingRepo =
+    !repoId &&
+    (Boolean(projectId && projectReposQuery.isLoading) ||
+      Boolean(effectiveWorkspaceId && attemptRepoLoading) ||
+      Boolean(parentHasNoGitRepo && (gitChildrenLoading || childReposLoading)));
   const conflictStatus = branchStatus?.find((repo) => repo.repo_id === repoId);
   const conflictOp = conflictStatus?.conflict_op ?? null;
   const conflictedFiles = conflictStatus?.conflicted_files ?? [];
@@ -151,13 +192,15 @@ export function GitPanel() {
   const { stageFile, unstageFile, revertFile, stageAll, revertAll } =
     useGitActions({ workspaceId, repoId, onSuccess: refreshStatus });
 
-  const { diffs, refresh: refreshDiffs } = useGitDiffs({ workspaceId, repoId });
-
-  useEffect(() => {
-    if (mode === 'diff' && shouldAutoPreloadDiffs(stagedFiles, unstagedFiles)) {
-      refreshDiffs();
-    }
-  }, [mode, stagedFiles, unstagedFiles, refreshDiffs]);
+  const shouldPreloadDiffs =
+    mode === 'diff' &&
+    stagedFiles.length > 0 &&
+    shouldAutoPreloadDiffs(stagedFiles, unstagedFiles);
+  const { diffs } = useGitDiffs({
+    workspaceId,
+    repoId,
+    enabled: shouldPreloadDiffs,
+  });
 
   const {
     commitMessage,
@@ -219,40 +262,14 @@ export function GitPanel() {
     revertAll();
   }, [revertAll]);
 
-  if (parentHasNoGitRepo && gitChildrenLoading && gitChildren.length === 0) {
-    return <LoadingState />;
+  if (!repoId && !isResolvingRepo && gitChildren.length === 0) {
+    return <EmptyState />;
   }
-  if (parentHasNoGitRepo && gitChildren.length > 0 && !repoId) {
-    return (
-      <div
-        className="h-full w-full flex flex-col bg-background overflow-hidden"
-        data-panel="git"
-      >
-        <div className="flex items-center gap-1 px-2 py-1 border-b border-border/30 shrink-0">
-          <Select
-            value={selectedGitChildId ?? ''}
-            onValueChange={setGitChildId}
-          >
-            <SelectTrigger className="h-7 w-[140px] text-xs">
-              <SelectValue placeholder="Git 仓库" />
-            </SelectTrigger>
-            <SelectContent>
-              {gitChildren.map((child) => (
-                <SelectItem key={child.id} value={child.id}>
-                  {child.name}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </div>
-        <LoadingState />
-      </div>
-    );
-  }
-  if (!repoId && gitChildren.length === 0) return <EmptyState />;
-  if (statusLoading && !displayedBranchName && gitChildren.length === 0) {
-    return <LoadingState />;
-  }
+
+  const isInitialDiffLoading =
+    (isResolvingRepo || statusLoading) &&
+    stagedFiles.length === 0 &&
+    unstagedFiles.length === 0;
 
   return (
     <div
@@ -288,98 +305,82 @@ export function GitPanel() {
         ]);
       }}
     >
-      {/* Header bar */}
-      <div className="flex items-center gap-1 px-2 py-1 border-b border-border/30 shrink-0">
-        {parentHasNoGitRepo && gitChildren.length > 0 ? (
-          <Select
-            value={selectedGitChildId ?? ''}
-            onValueChange={setGitChildId}
-          >
-            <SelectTrigger className="h-7 w-[140px] text-xs">
-              <SelectValue placeholder="Git 仓库" />
-            </SelectTrigger>
-            <SelectContent>
-              {gitChildren.map((child) => (
-                <SelectItem key={child.id} value={child.id}>
-                  {child.name}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        ) : (
-          <div className="flex items-center gap-1 text-xs text-foreground mr-1">
-            <GitBranch className="h-3 w-3 text-muted-foreground" />
-            <span className="font-mono font-medium truncate max-w-[120px]">
-              {displayedBranchName}
-            </span>
-          </div>
-        )}
+      {/* Row 1: Mode Selector + Fetch, Pull, Tree toggle (always visible) */}
+      <div
+        data-testid="git-panel-mode-tabs"
+        className="flex items-center gap-1.5 px-2 py-1 border-b border-border/30 shrink-0"
+      >
+        <div className="min-w-0 flex-1">
+          <Selector
+            label="Git view"
+            isLabelHidden
+            size="sm"
+            width="100%"
+            placement="below"
+            className="git-mode-selector"
+            options={GIT_PANEL_MODE_OPTIONS}
+            value={mode}
+            onChange={(nextMode) => setMode(nextMode as GitPanelMode)}
+            startIcon={
+              GIT_PANEL_MODE_OPTIONS.find((opt) => opt.value === mode)?.icon
+            }
+            renderOption={(option) => (
+              <SelectorOption
+                icon={option.icon}
+                label={
+                  <span className="text-[11px] font-normal">
+                    {option.label ?? option.value}
+                  </span>
+                }
+              />
+            )}
+          />
+        </div>
 
-        {(totalAdditions > 0 || totalDeletions > 0) && (
-          <span className="text-[10px] font-mono shrink-0">
-            {totalAdditions > 0 && (
-              <span className="text-[hsl(var(--success))]">
-                +{totalAdditions}
+        {/* Fetch / Pull / Flat-Tree toggle buttons */}
+        <div className="flex shrink-0 items-center gap-0.5">
+          <button
+            type="button"
+            className="p-1 rounded text-muted-foreground hover:text-foreground hover:bg-accent/50 transition-colors disabled:opacity-40"
+            onClick={onFetch}
+            disabled={fetchLoading}
+            title="Fetch all remotes"
+          >
+            {fetchLoading ? (
+              <Loader2 className="h-3 w-3 animate-spin" />
+            ) : (
+              <RefreshCw className="h-3 w-3" />
+            )}
+          </button>
+          <button
+            type="button"
+            className={`p-1 rounded transition-colors relative disabled:opacity-40 ${
+              gitLog.behind > 0
+                ? 'text-[hsl(var(--warning))] hover:bg-[hsl(var(--warning)/0.1)] hover:text-[hsl(var(--warning))]'
+                : 'text-muted-foreground hover:text-foreground hover:bg-accent/50'
+            }`}
+            onClick={onPull}
+            disabled={pullLoading}
+            title={
+              gitLog.behind > 0
+                ? `Pull ${gitLog.behind} commit${gitLog.behind > 1 ? 's' : ''}`
+                : 'Pull from remote'
+            }
+          >
+            {pullLoading ? (
+              <Loader2 className="h-3 w-3 animate-spin" />
+            ) : (
+              <Download className="h-3 w-3" />
+            )}
+            {gitLog.behind > 0 && (
+              <span className="absolute -right-1 -top-1 flex h-[14px] min-w-[14px] items-center justify-center rounded-full bg-[hsl(var(--warning))] px-0.5 text-[8px] font-bold leading-none text-background">
+                {gitLog.behind}
               </span>
             )}
-            {totalAdditions > 0 && totalDeletions > 0 && (
-              <span className="text-muted-foreground">/</span>
-            )}
-            {totalDeletions > 0 && (
-              <span className="text-destructive">-{totalDeletions}</span>
-            )}
-          </span>
-        )}
-
-        <div className="flex-1" />
-
-        {/* Pull/Fetch buttons (visible in diff mode) */}
-        {mode === 'diff' && (
-          <div className="flex items-center gap-0.5 mr-1">
-            <button
-              className="p-1 rounded text-muted-foreground hover:text-foreground hover:bg-accent/50 transition-colors disabled:opacity-40"
-              onClick={onFetch}
-              disabled={fetchLoading}
-              title="Fetch all remotes"
-            >
-              {fetchLoading ? (
-                <Loader2 className="h-3 w-3 animate-spin" />
-              ) : (
-                <RefreshCw className="h-3 w-3" />
-              )}
-            </button>
-            <button
-              className={`p-1 rounded transition-colors relative disabled:opacity-40 ${
-                gitLog.behind > 0
-                  ? 'text-[hsl(var(--warning))] hover:bg-[hsl(var(--warning)/0.1)] hover:text-[hsl(var(--warning))]'
-                  : 'text-muted-foreground hover:text-foreground hover:bg-accent/50'
-              }`}
-              onClick={onPull}
-              disabled={pullLoading}
-              title={
-                gitLog.behind > 0
-                  ? `Pull ${gitLog.behind} commit${gitLog.behind > 1 ? 's' : ''}`
-                  : 'Pull from remote'
-              }
-            >
-              {pullLoading ? (
-                <Loader2 className="h-3 w-3 animate-spin" />
-              ) : (
-                <Download className="h-3 w-3" />
-              )}
-              {gitLog.behind > 0 && (
-                <span className="absolute -right-1 -top-1 flex h-[14px] min-w-[14px] items-center justify-center rounded-full bg-[hsl(var(--warning))] px-0.5 text-[8px] font-bold leading-none text-background">
-                  {gitLog.behind}
-                </span>
-              )}
-            </button>
-          </div>
-        )}
-
-        {/* Flat/Tree toggle (only in diff mode) */}
-        {mode === 'diff' && (
+          </button>
           <button
-            className="p-1 rounded text-muted-foreground hover:text-foreground hover:bg-accent/50 transition-colors mr-1"
+            type="button"
+            className="p-1 rounded text-muted-foreground hover:text-foreground hover:bg-accent/50 transition-colors"
             onClick={toggleDiffListView}
             title={
               diffListView === 'flat'
@@ -393,68 +394,56 @@ export function GitPanel() {
               <LayoutList className="h-3 w-3" />
             )}
           </button>
-        )}
-
-        {/* Mode tabs */}
-        <div className="flex items-center gap-0.5 text-[10px]">
-          <button
-            className={`px-1.5 py-0.5 rounded transition-colors flex items-center gap-0.5 ${
-              mode === 'diff'
-                ? 'bg-accent text-foreground'
-                : 'text-muted-foreground hover:text-foreground'
-            }`}
-            onClick={() => setMode('diff')}
-          >
-            <ArrowLeftRight className="h-3 w-3" />
-            Diff
-          </button>
-          <button
-            className={`px-1.5 py-0.5 rounded transition-colors flex items-center gap-0.5 ${
-              mode === 'log'
-                ? 'bg-accent text-foreground'
-                : 'text-muted-foreground hover:text-foreground'
-            }`}
-            onClick={() => setMode('log')}
-          >
-            <History className="h-3 w-3" />
-            Log
-          </button>
-          <button
-            className={`px-1.5 py-0.5 rounded transition-colors flex items-center gap-0.5 ${
-              mode === 'branches'
-                ? 'bg-accent text-foreground'
-                : 'text-muted-foreground hover:text-foreground'
-            }`}
-            onClick={() => setMode('branches')}
-          >
-            <GitBranchPlus className="h-3 w-3" />
-            Branches
-          </button>
-          <span className="text-muted-foreground/30 mx-0.5">|</span>
-          <button
-            className={`px-1.5 py-0.5 rounded transition-colors flex items-center gap-0.5 ${
-              mode === 'issues'
-                ? 'bg-accent text-foreground'
-                : 'text-muted-foreground hover:text-foreground'
-            }`}
-            onClick={() => setMode('issues')}
-          >
-            <CircleDot className="h-3 w-3" />
-            Issues
-          </button>
-          <button
-            className={`px-1.5 py-0.5 rounded transition-colors flex items-center gap-0.5 ${
-              mode === 'prs'
-                ? 'bg-accent text-foreground'
-                : 'text-muted-foreground hover:text-foreground'
-            }`}
-            onClick={() => setMode('prs')}
-          >
-            <GitPullRequest className="h-3 w-3" />
-            PRs
-          </button>
         </div>
       </div>
+
+      {/* Row 2: Branch info and change stats (only in Diff mode) */}
+      {mode === 'diff' && (
+        <div
+          data-testid="git-panel-branch-toolbar"
+          className="flex items-center justify-between gap-2 px-2.5 py-1.5 border-b border-border/30 shrink-0"
+        >
+          {parentHasNoGitRepo && gitChildren.length > 0 ? (
+            <Select
+              value={selectedGitChildId ?? ''}
+              onValueChange={setGitChildId}
+            >
+              <SelectTrigger className="h-7 w-[140px] text-xs">
+                <SelectValue placeholder="Git 仓库" />
+              </SelectTrigger>
+              <SelectContent>
+                {gitChildren.map((child) => (
+                  <SelectItem key={child.id} value={child.id}>
+                    {child.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          ) : (
+            <div className="flex items-center gap-1.5 text-sm text-foreground min-w-0">
+              <GitBranch className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+              {displayedBranchName ? (
+                <span
+                  data-testid="git-diff-branch-title"
+                  className="truncate max-w-[180px] text-sm font-bold leading-tight text-foreground"
+                >
+                  {displayedBranchName}
+                </span>
+              ) : (
+                <Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground" />
+              )}
+            </div>
+          )}
+
+          {(totalAdditions > 0 || totalDeletions > 0) && (
+            <GitChangeStats
+              additions={totalAdditions}
+              deletions={totalDeletions}
+              className="ml-auto shrink-0"
+            />
+          )}
+        </div>
+      )}
 
       {/* Diff mode */}
       {mode === 'diff' && (
@@ -502,7 +491,9 @@ export function GitPanel() {
             pushLoading={pushLoading}
             commitError={commitError}
             operationError={operationError}
-            commitsAhead={gitLog.ahead}
+            commitsAhead={
+              gitLog.ahead || conflictStatus?.remote_commits_ahead || 0
+            }
             onCommit={onCommit}
             onCommitAndPush={onCommitAndPush}
             onPush={onPush}
@@ -510,30 +501,25 @@ export function GitPanel() {
 
           <div className="flex flex-1 min-h-0">
             <div className="w-full flex flex-col min-h-0 overflow-y-auto">
-              <GitStagingArea
-                stagedFiles={stagedFiles}
-                unstagedFiles={unstagedFiles}
-                selectedPath={selectedDiffPath}
-                viewMode={diffListView}
-                onSelectFile={handleSelectFile}
-                onDoubleClickFile={handleDoubleClickFile}
-                onStageFile={stageFile}
-                onUnstageFile={unstageFile}
-                onRevertFile={revertFile}
-                onStageAll={stageAll}
-                onRevertAll={handleRevertAll}
-              />
+              {isInitialDiffLoading ? (
+                <LoadingState />
+              ) : (
+                <GitStagingArea
+                  stagedFiles={stagedFiles}
+                  unstagedFiles={unstagedFiles}
+                  selectedPath={selectedDiffPath}
+                  viewMode={diffListView}
+                  onSelectFile={handleSelectFile}
+                  onDoubleClickFile={handleDoubleClickFile}
+                  onStageFile={stageFile}
+                  onUnstageFile={unstageFile}
+                  onRevertFile={revertFile}
+                  onStageAll={stageAll}
+                  onRevertAll={handleRevertAll}
+                />
+              )}
             </div>
           </div>
-
-          {workspaceId && repoId ? (
-            <GitStashSection
-              workspaceId={workspaceId}
-              repoId={repoId}
-              hasChanges={stagedFiles.length > 0 || unstagedFiles.length > 0}
-              onChanged={refreshStatus}
-            />
-          ) : null}
         </div>
       )}
 
@@ -557,6 +543,7 @@ export function GitPanel() {
       {mode === 'branches' && (
         <GitBranchList
           branches={gitBranches.branches}
+          remotes={gitBranches.remotes}
           isLoading={gitBranches.isLoading}
           error={gitBranches.error}
           onCheckout={gitBranches.checkoutBranch}

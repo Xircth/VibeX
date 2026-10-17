@@ -612,7 +612,7 @@ export function WebServiceSettings({
                     }
                     placeholder={t('webService.tokenPlaceholder')}
                     width="100%"
-                    className="[&_input]:font-mono [&_input]:text-sm"
+                    className="[&_input]:font-mono"
                   />
                   <Button
                     variant="outline"

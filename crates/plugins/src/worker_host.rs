@@ -15,10 +15,11 @@ use tokio::{
     sync::Mutex,
     time::timeout,
 };
+use vibex_plugin_sdk::protocol::{
+    FrameCodec, FrameDecode, FrameReassembler, MAX_LOGICAL_MESSAGE_BYTES,
+};
 
 use crate::PluginPackage;
-
-const MAX_PROTOCOL_FRAME_BYTES: usize = 1024 * 1024;
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -163,6 +164,7 @@ pub struct WorkerHost {
     broker: Arc<ScopedCapabilityBroker>,
     process: Mutex<WorkerProcess>,
     request_timeout: Duration,
+    frame_codec: FrameCodec,
 }
 
 enum HostedChild {
@@ -257,6 +259,10 @@ impl WorkerHost {
         let scoped_broker = Arc::new(ScopedCapabilityBroker::new(
             package, generation, grants, broker,
         )?);
+        let frame_codec = FrameCodec::new(
+            package.entrypoints.worker_max_frame_bytes,
+            MAX_LOGICAL_MESSAGE_BYTES,
+        );
         let mut process = WorkerProcess {
             child,
             stdin,
@@ -268,6 +274,7 @@ impl WorkerHost {
         let initialized = exchange(
             &mut process,
             &scoped_broker,
+            frame_codec,
             "initialize",
             json!({
                 "protocolRange": ["1.1"],
@@ -283,7 +290,11 @@ impl WorkerHost {
                 "declaredContributions": [],
                 "packageClass": package.package_class,
                 "features": [],
-                "limits": { "maxFrameBytes": MAX_PROTOCOL_FRAME_BYTES, "requestTimeoutMs": 30000 },
+                "limits": {
+                    "maxFrameBytes": frame_codec.max_frame_bytes(),
+                    "maxLogicalMessageBytes": frame_codec.max_logical_bytes(),
+                    "requestTimeoutMs": 30000
+                },
                 "runtime": {
                     "id": package.entrypoints.worker_runtime.clone().unwrap_or_else(|| "node".into()),
                     "version": "22.22.3",
@@ -303,6 +314,7 @@ impl WorkerHost {
         let response = exchange(
             &mut process,
             &scoped_broker,
+            frame_codec,
             "activate",
             json!({
                 "pluginId": package.id.as_str(),
@@ -338,6 +350,7 @@ impl WorkerHost {
             broker: scoped_broker,
             process: Mutex::new(process),
             request_timeout,
+            frame_codec,
         })
     }
 
@@ -369,6 +382,7 @@ impl WorkerHost {
         let result = exchange(
             &mut process,
             &self.broker,
+            self.frame_codec,
             "invoke",
             json!({ "handler": handler, "input": input }),
             request_timeout,
@@ -394,6 +408,7 @@ impl WorkerHost {
         let _ = exchange(
             &mut process,
             &self.broker,
+            self.frame_codec,
             "dispose",
             json!({ "reason": reason }),
             Duration::from_secs(5),
@@ -407,15 +422,30 @@ impl WorkerHost {
     }
 }
 
+/// A rejected frame is one consumed line. An image that does not fit, and a
+/// chunk sequence the host refuses, fail that call only. Unloading here is
+/// what made a split image payload kill the worker.
 fn is_fatal_exchange_error(error: &WorkerHostError) -> bool {
     matches!(
         error.code(),
-        "worker_timeout"
-            | "worker_transport_failed"
-            | "worker_closed"
-            | "worker_frame_too_large"
-            | "worker_protocol_invalid"
+        "worker_timeout" | "worker_transport_failed" | "worker_closed"
     )
+}
+
+fn worker_frame_error_code(code: &str) -> &'static str {
+    match code {
+        "frame_too_large" => "worker_frame_too_large",
+        "frame_chunk_invalid" => "worker_frame_chunk_invalid",
+        "message_too_large" => "worker_message_too_large",
+        _ => "worker_protocol_invalid",
+    }
+}
+
+fn host_frame_error_code(code: &str) -> &'static str {
+    match code {
+        "message_too_large" => "host_message_too_large",
+        _ => "host_frame_too_large",
+    }
 }
 
 /// One abnormal Worker exit, kept so the plugin detail panel can show evidence
@@ -593,7 +623,7 @@ fn hosted_worker_command(
     if runtime == "python" {
         command.arg(&entrypoint);
     } else if runtime != "native" {
-        command.arg("--max-old-space-size=128").arg(&entrypoint);
+        command.arg("--max-old-space-size=512").arg(&entrypoint);
     }
     command
         .current_dir(&package_root)
@@ -639,6 +669,7 @@ fn resolve_executable(executable: &Path) -> Result<PathBuf, WorkerHostError> {
 async fn exchange(
     process: &mut WorkerProcess,
     broker: &ScopedCapabilityBroker,
+    codec: FrameCodec,
     method: &str,
     params: Value,
     deadline: Duration,
@@ -648,8 +679,10 @@ async fn exchange(
     write_message(
         &mut process.stdin,
         &json!({ "id": request_id, "method": method, "params": params }),
+        codec,
     )
     .await?;
+    let mut frames = FrameReassembler::new(codec);
     timeout(deadline, async {
         loop {
             let line = process
@@ -660,17 +693,18 @@ async fn exchange(
                     WorkerHostError::new("worker_transport_failed", error.to_string())
                 })?
                 .ok_or_else(|| WorkerHostError::new("worker_closed", "Worker closed stdout"))?;
-            if line.len() > MAX_PROTOCOL_FRAME_BYTES {
-                return Err(WorkerHostError::new(
-                    "worker_frame_too_large",
-                    "Worker protocol frame exceeded the limit",
-                ));
-            }
-            let message: Value = serde_json::from_str(&line).map_err(|error| {
-                WorkerHostError::new("worker_protocol_invalid", error.to_string())
-            })?;
+            let message = match frames.push_line(&line) {
+                Ok(FrameDecode::NeedMore) => continue,
+                Ok(FrameDecode::Message(message)) => message,
+                Err(error) => {
+                    return Err(WorkerHostError::new(
+                        worker_frame_error_code(error.code),
+                        error.message,
+                    ));
+                }
+            };
             if message.get("method").and_then(Value::as_str) == Some("host.call") {
-                dispatch_host_call(process, broker, &message).await?;
+                dispatch_host_call(process, broker, codec, &message).await?;
                 continue;
             }
             if message.get("id").and_then(Value::as_str) != Some(&request_id) {
@@ -703,6 +737,7 @@ async fn exchange(
 async fn dispatch_host_call(
     process: &mut WorkerProcess,
     broker: &ScopedCapabilityBroker,
+    codec: FrameCodec,
     message: &Value,
 ) -> Result<(), WorkerHostError> {
     let id = message
@@ -733,26 +768,24 @@ async fn dispatch_host_call(
             "error": { "code": error.code(), "message": error.to_string() }
         }),
     };
-    write_message(&mut process.stdin, &response).await
+    write_message(&mut process.stdin, &response, codec).await
 }
 
 async fn write_message(
     stdin: &mut (dyn AsyncWrite + Unpin + Send),
     message: &Value,
+    codec: FrameCodec,
 ) -> Result<(), WorkerHostError> {
-    let mut data = serde_json::to_vec(message)
-        .map_err(|error| WorkerHostError::new("worker_protocol_invalid", error.to_string()))?;
-    if data.len() > MAX_PROTOCOL_FRAME_BYTES {
-        return Err(WorkerHostError::new(
-            "host_frame_too_large",
-            "Host protocol frame exceeded the limit",
-        ));
+    let frames = codec
+        .encode(message)
+        .map_err(|error| WorkerHostError::new(host_frame_error_code(error.code), error.message))?;
+    for mut frame in frames {
+        frame.push(b'\n');
+        stdin
+            .write_all(&frame)
+            .await
+            .map_err(|error| WorkerHostError::new("worker_transport_failed", error.to_string()))?;
     }
-    data.push(b'\n');
-    stdin
-        .write_all(&data)
-        .await
-        .map_err(|error| WorkerHostError::new("worker_transport_failed", error.to_string()))?;
     stdin
         .flush()
         .await
@@ -876,7 +909,7 @@ mod worker_host_tests {
         assert_eq!(
             command.get_args().collect::<Vec<_>>(),
             vec![
-                OsStr::new("--max-old-space-size=128"),
+                OsStr::new("--max-old-space-size=512"),
                 OsStr::new(r"C:\Users\user\AppData\Roaming\vibex\plugin\dist\worker.mjs"),
             ]
         );
@@ -902,7 +935,7 @@ mod worker_host_tests {
         assert_eq!(
             command.get_args().collect::<Vec<_>>(),
             vec![
-                OsStr::new("--max-old-space-size=128"),
+                OsStr::new("--max-old-space-size=512"),
                 OsStr::new(r"\\server\share\plugin\dist\worker.mjs"),
             ]
         );
@@ -926,6 +959,58 @@ mod worker_host_tests {
             command.get_args().collect::<Vec<_>>(),
             vec![OsStr::new(r"C:\vibex\plugin\worker.py")]
         );
+    }
+
+    #[tokio::test]
+    async fn write_message_accepts_frames_larger_than_one_mib() {
+        let mut sink = Vec::new();
+        let payload = "x".repeat(2 * 1024 * 1024);
+        write_message(
+            &mut sink,
+            &json!({ "id": "req:1", "ok": true, "result": payload }),
+            FrameCodec::protocol(),
+        )
+        .await
+        .expect("frames above 1 MiB should be accepted up to the default frame");
+        assert!(sink.len() > 2 * 1024 * 1024);
+    }
+
+    #[tokio::test]
+    async fn write_message_uses_the_worker_frame_limit() {
+        let mut sink = Vec::new();
+        let payload = "x".repeat(300);
+        let codec = FrameCodec::new(180, 64 * 1024);
+        write_message(
+            &mut sink,
+            &json!({ "id": "1", "ok": true, "result": payload }),
+            codec,
+        )
+        .await
+        .expect("payload above the worker frame splits into chunks");
+        let text = String::from_utf8(sink).expect("utf8 frames");
+        let lines: Vec<_> = text.lines().filter(|line| !line.is_empty()).collect();
+        assert!(lines.len() > 1);
+        assert!(lines.iter().all(|line| line.len() <= 180));
+    }
+
+    #[test]
+    fn an_illegal_chunk_does_not_unload_the_worker() {
+        assert!(!is_fatal_exchange_error(&WorkerHostError::new(
+            "worker_protocol_invalid",
+            "Worker response ID did not match the request",
+        )));
+        assert!(!is_fatal_exchange_error(&WorkerHostError::new(
+            "worker_frame_too_large",
+            "Worker protocol frame exceeded the limit",
+        )));
+        assert!(!is_fatal_exchange_error(&WorkerHostError::new(
+            "worker_frame_chunk_invalid",
+            "Chunk index or count does not match the sequence",
+        )));
+        assert!(is_fatal_exchange_error(&WorkerHostError::new(
+            "worker_closed",
+            "Worker closed stdout",
+        )));
     }
 
     #[test]

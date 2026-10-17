@@ -86,6 +86,8 @@ fn every_host_chrome_kind_survives_product_manifest_normalization() {
     let status = app.status_items.first().expect("status contribution");
     assert_eq!(status.text.as_deref(), Some("Idle"));
     assert_eq!(status.refresh_seconds, Some(15));
+    assert_eq!(status.slot, "status.main");
+    assert!(status.remote.is_none());
 
     let slash = app.composer_slash.first().expect("slash contribution");
     assert_eq!(slash.command, "summarize");
@@ -208,6 +210,28 @@ fn malformed_chrome_contributions_warn_instead_of_publishing() {
     ] {
         assert!(codes.contains(&expected), "missing {expected} in {codes:?}");
     }
+}
+
+#[test]
+fn status_after_mcp_keeps_its_slot_and_remote() {
+    let package = product_package(
+        r#"[{
+          "id":"computer","kind":"app.status","slot":"status.after-mcp",
+          "text":"电脑控制","icon":"monitor","handler":"surface.createSession",
+          "remote":{"name":"vibex_computer_use","entry":"dist/remoteEntry.js","module":"./view"}
+        }]"#,
+    );
+    assert!(
+        package.warnings.is_empty(),
+        "after-mcp status must be valid: {:?}",
+        package.warnings
+    );
+    let status = &package.app.status_items[0];
+    assert_eq!(status.slot, "status.after-mcp");
+    assert_eq!(status.icon.as_deref(), Some("monitor"));
+    let remote = status.remote.as_ref().expect("remote");
+    assert_eq!(remote.name, "vibex_computer_use");
+    assert_eq!(remote.module, "./view");
 }
 
 #[test]

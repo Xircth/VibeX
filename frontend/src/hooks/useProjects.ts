@@ -1,6 +1,6 @@
 import { useCallback, useMemo } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { useTauriPatchStream } from './useTauriPatchStream';
+import { usePatchStream } from './useTauriPatchStream';
 import type { Project } from 'shared/types';
 import { dateTimestamp } from '@/utils/date';
 import { listedImportedProjects } from '@/lib/importedProject';
@@ -24,7 +24,7 @@ export function useProjects(): UseProjectsResult {
   const initialData = useCallback((): ProjectsState => ({ projects: {} }), []);
 
   const { data, isConnected, isInitialized, error } =
-    useTauriPatchStream<ProjectsState>({
+    usePatchStream<ProjectsState>({
       subscribeCommand: 'subscribe_projects_stream',
       eventChannel: 'projects-stream',
       initialData,

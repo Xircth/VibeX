@@ -177,7 +177,7 @@ describe('agent workbench store', () => {
     expect(state.sessions.session?.active_prompt_id).toBeNull();
   });
 
-  it('keeps transcript events by session scope', () => {
+  it('does not retain transcript payloads in the workbench', () => {
     const message: AgentEventEnvelope = {
       sequence: 3,
       workspace_id: 'workspace',
@@ -190,9 +190,13 @@ describe('agent workbench store', () => {
       },
     };
 
-    const state = reduceAgentEvent(emptyAgentWorkbenchState(), message);
+    const state = Array.from({ length: 40 }, (_, index) => ({
+      ...message,
+      sequence: index + 1,
+    })).reduce(reduceAgentEvent, emptyAgentWorkbenchState());
 
-    expect(state.eventsByScope.session).toEqual([message]);
+    expect(state.eventsByScope).toEqual({});
+    expect(state.lastSequence).toBe(40);
   });
 
   it('hydrates session controls from snapshot events', () => {
@@ -257,7 +261,7 @@ describe('agent workbench store', () => {
     expect(state.sessionModesByScope.session?.current).toBe('ask');
     expect(state.sessionConfigOptionsByScope.session?.[0]?.key).toBe('model');
     expect(state.availableCommandsByScope.session?.[0]?.name).toBe('compact');
-    expect(state.eventsByScope.session).toEqual([modes, config, commands]);
+    expect(state.eventsByScope).toEqual({});
   });
 
   it('hydrates pending permissions from runtime snapshot', () => {
@@ -367,6 +371,54 @@ describe('agent workbench store', () => {
     ]);
   });
 
+  it('keeps session controls when a config option is rejected', () => {
+    const options: AgentEventEnvelope = {
+      sequence: 1,
+      workspace_id: 'workspace',
+      connection_id: 'connection',
+      session_id: 'session',
+      created_at: new Date().toISOString(),
+      event: {
+        kind: 'session_config_options',
+        options: [
+          {
+            key: 'mode',
+            label: 'Mode',
+            value: 'agent',
+            choices: [
+              { value: 'agent', label: 'Approve for me' },
+              { value: 'agent-full-access', label: 'Agent (full access)' },
+            ],
+          },
+        ],
+      },
+    };
+    const rejected: AgentEventEnvelope = {
+      sequence: 2,
+      workspace_id: 'workspace',
+      connection_id: 'connection',
+      session_id: 'session',
+      created_at: new Date().toISOString(),
+      event: {
+        kind: 'config_option_rejected',
+        config_id: 'mode',
+        option_name: 'Mode',
+        requested: 'Agent (full access)',
+        actual: 'Approve for me',
+        requested_value: 'agent-full-access',
+        actual_value: 'agent',
+      },
+    };
+
+    const state = reduceAgentEvent(
+      reduceAgentEvent(emptyAgentWorkbenchState(), options),
+      rejected
+    );
+
+    expect(state.sessionConfigOptionsByScope.session?.[0]?.value).toBe('agent');
+    expect(state.lastSequence).toBe(2);
+  });
+
   it('tracks permission requests until a response arrives', () => {
     const requested: AgentEventEnvelope = {
       sequence: 1,
@@ -454,5 +506,30 @@ describe('agent workbench store', () => {
     expect(state.terminals.terminal?.command).toBe('pnpm');
     expect(state.usageByScope.session).toEqual({ used: 42, limit: 100 });
     expect(state.errorsByScope.session).toEqual(['failed']);
+  });
+
+  it('keeps only the latest workbench errors for a scope', () => {
+    let state = emptyAgentWorkbenchState();
+    for (let index = 0; index < 10; index += 1) {
+      state = reduceAgentEvent(state, {
+        sequence: index + 1,
+        workspace_id: 'workspace',
+        connection_id: 'connection',
+        session_id: 'session',
+        created_at: new Date().toISOString(),
+        event: { kind: 'error', error: { message: `e${index}` } },
+      });
+    }
+
+    expect(state.errorsByScope.session).toEqual([
+      'e2',
+      'e3',
+      'e4',
+      'e5',
+      'e6',
+      'e7',
+      'e8',
+      'e9',
+    ]);
   });
 });

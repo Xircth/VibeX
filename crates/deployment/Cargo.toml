@@ -1,11 +1,10 @@
 [package]
 name = "deployment"
-version = "0.2.8"
+version = "0.3.0"
 edition = "2024"
 
 [dependencies]
 db = { path = "../db" }
-utils = { path = "../utils" }
 git = { path = "../git" }
 services = { path = "../services" }
 executors = { path = "../executors" }

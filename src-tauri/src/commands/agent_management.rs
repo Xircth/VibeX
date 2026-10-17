@@ -1347,21 +1347,7 @@ async fn detect_account_login(
     agent_id: &AgentId,
     environment: &HashMap<String, String>,
 ) -> bool {
-    if agent_id.as_str() == "cursor" {
-        return agents::cursor_account_token().await.is_some();
-    }
-    let Some(bytes) = read_account_evidence_bytes(home, agent_id, environment).await else {
-        return false;
-    };
-    serde_json::from_slice::<serde_json::Value>(&bytes).is_ok_and(|value| {
-        if agent_id.as_str() == "kimi_code" && kimi_credential_is_synthetic(&value) {
-            return false;
-        }
-        BuiltInProfileCatalog::bundled()
-            .profile(agent_id)
-            .and_then(|profile| profile.account_evidence.as_ref())
-            .is_some_and(|evidence| evidence.matches(&value))
-    })
+    agents::official_account_present(home, agent_id, environment).await
 }
 
 async fn read_account_evidence_bytes(
@@ -1779,17 +1765,6 @@ async fn read_agent_environment(
     parse_agent_env(env_json.as_deref()).map_err(internal_error)
 }
 
-fn kimi_credential_is_synthetic(value: &serde_json::Value) -> bool {
-    value
-        .get("_vibex_synthetic")
-        .and_then(serde_json::Value::as_bool)
-        == Some(true)
-        || value
-            .get("access_token")
-            .and_then(serde_json::Value::as_str)
-            == Some("vibex-local-gate")
-}
-
 async fn recorded_authentication(
     pool: &sqlx::SqlitePool,
     agent_id: &AgentId,
@@ -1816,9 +1791,15 @@ async fn recorded_account_over_residue(
     agent_id: &AgentId,
     observed: AgentAuthenticationStatus,
 ) -> AgentAuthenticationStatus {
-    agents::prefer_recorded_account_over_residue(
+    let account_signed_out = AgentManagementApplicationService::new(pool.clone())
+        .account_signed_out(agent_id)
+        .await
+        .unwrap_or(false);
+    agents::resolve_observed_authentication(
         recorded_authentication(pool, agent_id).await,
         observed,
+        false,
+        account_signed_out,
     )
 }
 

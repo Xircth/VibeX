@@ -3,10 +3,8 @@ import {
   Terminal,
   List,
   GitCompareArrows,
-  Loader2,
   StickyNote,
   Puzzle,
-  ScanSearch,
 } from 'lucide-react';
 import { usePanelActionsContext } from '@/contexts/PanelActionsContext';
 import {
@@ -16,7 +14,6 @@ import {
 import { contributionIconComponent } from '@/components/plugins/contributionIcon';
 import { useWorktree } from '@/contexts/WorktreeContext';
 import { useKanbanSessionContext } from '@/contexts/KanbanSessionContext';
-import { ExecutionProcessesProvider } from '@/contexts/ExecutionProcessesContext';
 import { ViewProcessesDialog } from '@/components/dialogs/tasks/ViewProcessesDialog';
 import { useTaskAttemptWithSession } from '@/hooks/useTaskAttempt';
 
@@ -26,8 +23,6 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from '@/components/ui/tooltip';
-import { useTauriInspector } from '@/hooks/useTauriInspector';
-
 function RightPanelSidebarContent({
   workspaceId,
   sessionId,
@@ -39,11 +34,6 @@ function RightPanelSidebarContent({
   const { openNewTerminal, openDiffPreview, openNotes, openPluginPanel } =
     usePanelActionsContext();
   const railSections = usePluginHostContributions('app_rail_section');
-  const {
-    activate: activateTauriInspector,
-    isActivating: isTauriInspectorActivating,
-    status: tauriInspectorStatus,
-  } = useTauriInspector(workspaceId);
 
   const buttons = [
     {
@@ -136,30 +126,6 @@ function RightPanelSidebarContent({
             </Tooltip>
           );
         })}
-
-        {workspaceId && (
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <button
-                onClick={() => void activateTauriInspector()}
-                disabled={isTauriInspectorActivating}
-                className="workspace-side-rail-button flex h-7 w-7 items-center justify-center disabled:cursor-not-allowed disabled:opacity-40"
-                aria-label={t('rightPanelSidebar.tauriInspectorTooltip')}
-              >
-                {isTauriInspectorActivating ? (
-                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                ) : (
-                  <ScanSearch className="h-3.5 w-3.5" />
-                )}
-              </button>
-            </TooltipTrigger>
-            <TooltipContent side="left">
-              {tauriInspectorStatus?.installed
-                ? t('rightPanelSidebar.tauriInspectorTooltip')
-                : t('rightPanelSidebar.tauriInspectorSetupTooltip')}
-            </TooltipContent>
-          </Tooltip>
-        )}
       </div>
     </TooltipProvider>
   );
@@ -175,14 +141,9 @@ export function RightPanelSidebar() {
   const effectiveSessionId = explicitSessionId ?? attempt?.session?.id;
 
   return (
-    <ExecutionProcessesProvider
-      attemptId={effectiveWorkspaceId}
+    <RightPanelSidebarContent
+      workspaceId={effectiveWorkspaceId}
       sessionId={effectiveSessionId}
-    >
-      <RightPanelSidebarContent
-        workspaceId={effectiveWorkspaceId}
-        sessionId={effectiveSessionId}
-      />
-    </ExecutionProcessesProvider>
+    />
   );
 }

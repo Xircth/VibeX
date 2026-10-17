@@ -67,8 +67,12 @@ function isExpectedRepoRemoteConfigError(cmd: string, error: unknown) {
   const normalized = message.toLowerCase();
 
   return (
-    normalized.includes('invalid repository') &&
-    normalized.includes('no remotes configured')
+    (normalized.includes('invalid repository') &&
+      normalized.includes('no remotes configured')) ||
+    normalized.includes('github cli') ||
+    normalized.includes('gh auth login') ||
+    normalized.includes('not authenticated') ||
+    normalized.includes('authentication failed')
   );
 }
 
@@ -111,14 +115,86 @@ export async function tauriInvoke<T>(
   }
 }
 
+type ChannelMultiplexer = {
+  handlers: Set<(payload: unknown) => void>;
+  unlistenPromise: Promise<UnlistenFn> | null;
+  unlistenFn: UnlistenFn | null;
+};
+
+const channelMultiplexers = new Map<string, ChannelMultiplexer>();
+
 /**
  * Wrapper around Tauri event listener that returns an unsubscribe function.
+ * Multiplexes handlers per event name so Tauri's backend only serializes and
+ * dispatches one `ExecuteScript` call per event to the WebView.
  */
 export async function tauriListen<T>(
   event: string,
   handler: (payload: T) => void
 ): Promise<UnlistenFn> {
-  return listen<T>(event, (e) => handler(e.payload));
+  let mux = channelMultiplexers.get(event);
+  if (!mux) {
+    mux = {
+      handlers: new Set(),
+      unlistenPromise: null,
+      unlistenFn: null,
+    };
+    channelMultiplexers.set(event, mux);
+  }
+
+  const wrappedHandler = (payload: unknown) => {
+    handler(payload as T);
+  };
+  mux.handlers.add(wrappedHandler);
+
+  if (!mux.unlistenPromise && !mux.unlistenFn) {
+    const currentMux = mux;
+    currentMux.unlistenPromise = listen<unknown>(event, (e) => {
+      for (const listener of Array.from(currentMux.handlers)) {
+        try {
+          listener(e.payload);
+        } catch (err) {
+          console.error(`Error in Tauri event listener for ${event}:`, err);
+        }
+      }
+    })
+      .then((unlisten) => {
+        currentMux.unlistenPromise = null;
+        if (currentMux.handlers.size === 0) {
+          channelMultiplexers.delete(event);
+          unlisten();
+        } else {
+          currentMux.unlistenFn = unlisten;
+        }
+        return unlisten;
+      })
+      .catch((err) => {
+        currentMux.unlistenPromise = null;
+        if (currentMux.handlers.size === 0) {
+          channelMultiplexers.delete(event);
+        }
+        throw err;
+      });
+  }
+
+  if (mux.unlistenPromise) {
+    await mux.unlistenPromise;
+  }
+
+  let active = true;
+  return () => {
+    if (!active) return;
+    active = false;
+    const currentMux = channelMultiplexers.get(event);
+    if (!currentMux) return;
+    currentMux.handlers.delete(wrappedHandler);
+    if (currentMux.handlers.size === 0 && currentMux.unlistenFn) {
+      const unlisten = currentMux.unlistenFn;
+      currentMux.unlistenFn = null;
+      channelMultiplexers.delete(event);
+      unlisten();
+    }
+  };
 }
 
 /**

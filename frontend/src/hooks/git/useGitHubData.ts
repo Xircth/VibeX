@@ -43,9 +43,17 @@ export function useGitHubData({
       if (result.success) {
         setIssues(result.data);
       } else {
-        setIssuesError(
-          result.error ?? result.message ?? 'Failed to load issues'
-        );
+        const rawErr = result.error ?? result.message;
+        const msg =
+          typeof rawErr === 'string'
+            ? rawErr
+            : rawErr &&
+                typeof rawErr === 'object' &&
+                'message' in rawErr &&
+                typeof (rawErr as { message?: unknown }).message === 'string'
+              ? (rawErr as { message: string }).message
+              : 'Failed to load issues';
+        setIssuesError(msg);
       }
     } catch (e) {
       setIssuesError(e instanceof Error ? e.message : 'Failed to load issues');
@@ -63,7 +71,17 @@ export function useGitHubData({
       if (result.success) {
         setPrs(result.data);
       } else {
-        setPrsError(result.error ?? result.message ?? 'Failed to load PRs');
+        const rawErr = result.error ?? result.message;
+        const msg =
+          typeof rawErr === 'string'
+            ? rawErr
+            : rawErr &&
+                typeof rawErr === 'object' &&
+                'message' in rawErr &&
+                typeof (rawErr as { message?: unknown }).message === 'string'
+              ? (rawErr as { message: string }).message
+              : 'Failed to load PRs';
+        setPrsError(msg);
       }
     } catch (e) {
       setPrsError(e instanceof Error ? e.message : 'Failed to load PRs');

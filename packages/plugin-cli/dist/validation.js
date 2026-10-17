@@ -253,6 +253,20 @@ async function validateEntrypoints(root, value, diagnostics) {
             !(await safeFile(root, value.worker.path))) {
             diagnostics.push(error("worker_entrypoint_invalid", "Worker entrypoint is invalid"));
         }
+        for (const key of Object.keys(value.worker)) {
+            if (!["path", "runtime", "protocol", "maxFrameMiB"].includes(key)) {
+                diagnostics.push(error("worker_entrypoint_invalid", `Unknown worker field ${key}`));
+            }
+        }
+        if ("maxFrameMiB" in value.worker) {
+            const frame = value.worker.maxFrameMiB;
+            if (typeof frame !== "number" ||
+                !Number.isInteger(frame) ||
+                frame < 1 ||
+                frame > 128) {
+                diagnostics.push(error("worker_entrypoint_invalid", "Worker maxFrameMiB must be an integer from 1 to 128"));
+            }
+        }
     }
     if (isObject(value.app)) {
         if (value.app.protocol !== "1.0" ||
@@ -328,6 +342,12 @@ async function validateIntegrations(root, value, diagnostics) {
                                 !(await safePath(root, managed.source))))) {
                         diagnostics.push(error("managed_mcp_invalid", "Managed MCP requires hostFamilyBinary, workerHttp handler, or a package entrypoint, protocolRevision 2026-07-28, and an optional all-compatible-agents default binding"));
                     }
+                    if (!hostFamily) {
+                        pushMcpToolsDiagnostic(diagnostics, resource, join(root, integration.resource));
+                    }
+                }
+                else if (isObject(resource)) {
+                    pushMcpToolsDiagnostic(diagnostics, resource, join(root, integration.resource));
                 }
             }
             catch {
@@ -390,15 +410,22 @@ function validateHostChrome(integration, diagnostics) {
         }
     };
     const requireSlot = (expected) => {
-        if (integration.slot !== undefined && integration.slot !== expected) {
-            diagnostics.push(error(`${kindCode(kind)}_invalid`, `${kind} slot must be ${expected}`));
+        requireSlotOneOf([expected]);
+    };
+    const requireSlotOneOf = (expected) => {
+        if (integration.slot !== undefined &&
+            !expected.includes(String(integration.slot))) {
+            diagnostics.push(error(`${kindCode(kind)}_invalid`, `${kind} slot must be ${expected.join(" or ")}`));
         }
     };
     const requireRange = (key, min, max) => {
         const value = integration[key];
         if (value === undefined)
             return;
-        if (typeof value !== "number" || !Number.isInteger(value) || value < min || value > max) {
+        if (typeof value !== "number" ||
+            !Number.isInteger(value) ||
+            value < min ||
+            value > max) {
             diagnostics.push(error(`${kindCode(kind)}_invalid`, `${kind} ${key} must be an integer between ${min} and ${max}`));
         }
     };
@@ -427,9 +454,10 @@ function validateHostChrome(integration, diagnostics) {
             requireText("handler");
             break;
         case "app.status":
-            requireSlot("status.main");
+            requireSlotOneOf(["status.main", "status.after-mcp"]);
             requireText("handler");
             requireRange("refreshSeconds", 5, 3600);
+            validateRemote(integration, diagnostics, kind);
             break;
         case "app.composer.slash": {
             requireText("title");
@@ -508,6 +536,7 @@ function validateHostChrome(integration, diagnostics) {
         case "app.settings.page":
             requireText("title");
             requireSurfaceEntry();
+            requireStringArray("allowedMethods");
             validateRemote(integration, diagnostics, kind);
             break;
         case "app.composer.action": {
@@ -749,7 +778,9 @@ function catalogUrlError(value) {
     }
     for (const key of url.searchParams.keys()) {
         const normalized = key.toLowerCase();
-        if (normalized === "token" || normalized === "api_key" || normalized === "aff") {
+        if (normalized === "token" ||
+            normalized === "api_key" ||
+            normalized === "aff") {
             return "query must not contain token, api_key, or aff";
         }
     }
@@ -822,6 +853,27 @@ function string(object, key, diagnostics) {
 }
 function isObject(value) {
     return Boolean(value) && typeof value === "object" && !Array.isArray(value);
+}
+function pushMcpToolsDiagnostic(diagnostics, resource, path) {
+    const tools = resource.tools;
+    if (!Array.isArray(tools) || tools.length === 0) {
+        diagnostics.push(warning("mcp_tools_missing", "content.mcp should declare tools so the Host MCP manager can list them before an agent connects", path));
+        return;
+    }
+    for (const tool of tools) {
+        const name = typeof tool === "string"
+            ? tool.trim()
+            : isObject(tool) && typeof tool.name === "string"
+                ? tool.name.trim()
+                : "";
+        if (!name) {
+            diagnostics.push(error("mcp_tools_invalid", "each content.mcp tools entry must be a name string or { name, group }", path));
+            return;
+        }
+    }
+}
+function warning(code, text, path) {
+    return { code, severity: "warning", message: text, path };
 }
 function error(code, text, path) {
     return { code, severity: "error", message: text, path };

@@ -74,6 +74,13 @@
       "repository": "https://github.com/Xircth/vibex-plugin-science",
       "category": "other",
       "summary": "146 项科研技能，按 10 个领域分组。默认只注入「通用科研方法」13 项，其余领域在插件配置中按需开启。"
+    },
+    {
+      "id": "vibex-plugin-computer-use",
+      "publisher": "vibex",
+      "repository": "https://github.com/Xircth/vibex-plugin-computer-use",
+      "category": "productivity",
+      "summary": "桌面窗口与应用的感知和自动化控制：无障碍树、截图、键鼠输入、窗口级授权和全局紧急停止。"
     }
   ]
 }

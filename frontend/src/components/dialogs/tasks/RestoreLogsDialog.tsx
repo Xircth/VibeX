@@ -358,8 +358,6 @@ const RestoreLogsDialogImpl = NiceModal.create<RestoreLogsDialogProps>(
                         </p>
                         <div
                           className="mt-2 w-full flex items-center cursor-pointer select-none"
-                          role="switch"
-                          aria-checked={acknowledgeUncommitted}
                           onClick={() => setAcknowledgeUncommitted((v) => !v)}
                         >
                           <div className="text-xs text-muted-foreground flex-1 min-w-0 break-words">
@@ -402,8 +400,6 @@ const RestoreLogsDialogImpl = NiceModal.create<RestoreLogsDialogProps>(
                         </p>
                         <div
                           className="mt-2 w-full flex items-center cursor-pointer select-none"
-                          role="switch"
-                          aria-checked={worktreeResetOn}
                           onClick={() => setWorktreeResetOn((v) => !v)}
                         >
                           <div className="text-xs text-muted-foreground flex-1 min-w-0 break-words">
@@ -483,7 +479,6 @@ const RestoreLogsDialogImpl = NiceModal.create<RestoreLogsDialogProps>(
                         </p>
                         <div
                           className={`mt-2 w-full flex items-center select-none cursor-pointer`}
-                          role="switch"
                           onClick={() => {
                             setWorktreeResetOn((on) => {
                               if (forceReset) return !on; // free toggle when forced
@@ -516,7 +511,6 @@ const RestoreLogsDialogImpl = NiceModal.create<RestoreLogsDialogProps>(
                         </div>
                         <div
                           className="mt-2 w-full flex items-center cursor-pointer select-none"
-                          role="switch"
                           onClick={() => {
                             setForceReset((v) => {
                               const next = !v;

@@ -52,6 +52,7 @@ import { useProjectWorktrees } from '@/hooks/useProjectWorktrees';
 import { PANEL_IDS, useLayoutStore } from '@/stores/useLayoutStore';
 import type { WorkspaceTab } from '@/stores/useLayoutStore';
 import { fallbackWorkspaceTab, pluginSurfaceId } from '@/lib/hostSurfaceIds';
+import { parkNativeSurfaceThen } from '@/lib/nativeSurfaceHandoff';
 import { useKanbanViews } from '@/hooks/useKanbanViews';
 import { usePanelActions } from '@/hooks/usePanelActions';
 import { useKanbanBoardStyle } from '@/lib/kanbanBoardStyle';
@@ -73,6 +74,7 @@ import { contributionIconComponent } from '@/components/plugins/contributionIcon
 import { createPluginControlApi } from '@/lib/api/plugins';
 import { useBackendTransport } from '@/lib/transport';
 import { logoLeadsWindowChrome } from '@/utils/platform';
+import { useWorkspaceOverlay } from '@/contexts/WorkspaceOverlayContext';
 import { MoreHorizontal } from 'lucide-react';
 
 function ToolbarDivider() {
@@ -454,6 +456,7 @@ function WorkspaceTabSwitcher() {
     enabled: Boolean(primaryRepo?.id),
   });
   const { activeTab, setActiveTab } = useLayoutStore();
+  const { setChromeOccluded, waitForOverlayReady } = useWorkspaceOverlay();
   const pluginTabs = usePluginHostContributions('app_tab');
   const kanbanViews = useKanbanViews();
   const routeTab = workspaceId || sessionId ? 'workspace' : null;
@@ -519,75 +522,84 @@ function WorkspaceTabSwitcher() {
 
   const handleTabSelect = useCallback(
     (tab: WorkspaceTab) => {
-      if (!projectId) {
-        startTransition(() => {
-          setActiveTab(tab);
-        });
-        return;
-      }
-
-      if (tab !== 'workspace') {
-        startTransition(() => {
-          setActiveTab(tab);
-          navigate(paths.projectSessions(projectId));
-        });
-        return;
-      }
-
-      const fallbackWorktree = resolveFallbackWorktree();
-      const immediateTarget = resolveWorkspaceTabNavigation({
-        projectId,
-        rightSession: effectiveActiveTab === 'kanban' ? rightSession : null,
-        fallbackWorkspaceId: fallbackWorktree?.workspace.id ?? null,
-        fallbackTaskId: fallbackWorktree?.workspace.task_id ?? null,
-      });
-      if (immediateTarget) {
-        startTransition(() => {
-          setActiveTab(tab);
-          setActiveWorktree(
-            immediateTarget.workspaceId,
-            immediateTarget.taskId
-          );
-          navigate(immediateTarget.href);
-        });
-        return;
-      }
-
-      startTransition(() => {
-        setActiveTab(tab);
-      });
-
-      const navigateToFallbackWorkspace = async () => {
-        let targetWorkspace = fallbackWorktree?.workspace ?? null;
-        if (
-          !targetWorkspace ||
-          (targetWorkspace.use_worktree && !activeWorktreeId)
-        ) {
-          try {
-            targetWorkspace = await sessionsApi.ensureProjectWorkspace({
-              project_id: projectId,
-              branch: currentProjectBranch ?? null,
-            });
-          } catch {
-            // Keep any existing fallback workspace if the project root
-            // cannot be created yet.
-          }
-        }
-
-        const targetAttemptId = targetWorkspace?.id ?? null;
-        const targetTaskId = targetWorkspace?.task_id ?? null;
-
-        if (targetAttemptId) {
-          setActiveWorktree(targetAttemptId, targetTaskId);
-          navigate(paths.projectWorkspace(projectId, targetAttemptId));
+      const commit = () => {
+        if (!projectId) {
+          startTransition(() => {
+            setActiveTab(tab);
+          });
           return;
         }
 
-        setActiveWorktree(null, null);
-        navigate(paths.projectSessions(projectId));
+        if (tab !== 'workspace') {
+          startTransition(() => {
+            setActiveTab(tab);
+            navigate(paths.projectSessions(projectId));
+          });
+          return;
+        }
+
+        const fallbackWorktree = resolveFallbackWorktree();
+        const immediateTarget = resolveWorkspaceTabNavigation({
+          projectId,
+          rightSession: effectiveActiveTab === 'kanban' ? rightSession : null,
+          fallbackWorkspaceId: fallbackWorktree?.workspace.id ?? null,
+          fallbackTaskId: fallbackWorktree?.workspace.task_id ?? null,
+        });
+        if (immediateTarget) {
+          startTransition(() => {
+            setActiveTab(tab);
+            setActiveWorktree(
+              immediateTarget.workspaceId,
+              immediateTarget.taskId
+            );
+            navigate(immediateTarget.href);
+          });
+          return;
+        }
+
+        startTransition(() => {
+          setActiveTab(tab);
+        });
+
+        const navigateToFallbackWorkspace = async () => {
+          let targetWorkspace = fallbackWorktree?.workspace ?? null;
+          if (
+            !targetWorkspace ||
+            (targetWorkspace.use_worktree && !activeWorktreeId)
+          ) {
+            try {
+              targetWorkspace = await sessionsApi.ensureProjectWorkspace({
+                project_id: projectId,
+                branch: currentProjectBranch ?? null,
+              });
+            } catch {
+              // Keep any existing fallback workspace if the project root
+              // cannot be created yet.
+            }
+          }
+
+          const targetAttemptId = targetWorkspace?.id ?? null;
+          const targetTaskId = targetWorkspace?.task_id ?? null;
+
+          if (targetAttemptId) {
+            setActiveWorktree(targetAttemptId, targetTaskId);
+            navigate(paths.projectWorkspace(projectId, targetAttemptId));
+            return;
+          }
+
+          setActiveWorktree(null, null);
+          navigate(paths.projectSessions(projectId));
+        };
+
+        void navigateToFallbackWorkspace();
       };
 
-      void navigateToFallbackWorkspace();
+      void parkNativeSurfaceThen({
+        park: tab !== 'workspace',
+        occlude: () => setChromeOccluded(true),
+        waitUntilParked: waitForOverlayReady,
+        commit,
+      });
     },
     [
       activeWorktreeId,
@@ -599,6 +611,8 @@ function WorkspaceTabSwitcher() {
       resolveFallbackWorktree,
       setActiveTab,
       setActiveWorktree,
+      setChromeOccluded,
+      waitForOverlayReady,
     ]
   );
 

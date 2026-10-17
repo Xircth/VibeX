@@ -202,8 +202,8 @@ describe('SystemSettings', () => {
         expect.objectContaining({
           auto_update_enabled: false,
           editor: expect.objectContaining({
-            remote_ssh_host: null,
-            remote_ssh_user: null,
+            remote_ssh_host: 'old-host',
+            remote_ssh_user: 'old-user',
           }),
         })
       );
@@ -272,9 +272,11 @@ describe('SystemSettings', () => {
 
   it('shows the backend detail when clearing local data fails', async () => {
     const user = userEvent.setup();
-    mocks.clearLocalData.mockRejectedValue(
-      'invalid fts5 file format (found 0, expected 4 or 5)'
-    );
+    mocks.clearLocalData.mockRejectedValue({
+      code: 'internal',
+      message: 'invalid fts5 file format (found 0, expected 4 or 5)',
+      retryable: true,
+    });
     render(<SystemSettings />);
 
     await user.click(await screen.findByRole('button', { name: '清除' }));

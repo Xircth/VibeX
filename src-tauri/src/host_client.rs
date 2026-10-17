@@ -1173,11 +1173,7 @@ fn normalize_origin(value: &str) -> Result<String, AppError> {
     };
     let mut url = Url::parse(&with_scheme)
         .map_err(|error| AppError::BadRequest(format!("invalid Host address: {error}")))?;
-    if url.scheme() == "http"
-        && url.port().is_none()
-        && !trimmed.contains(":80")
-        && url.host_str().is_some_and(utils::net::is_trusted_http_host)
-    {
+    if url.scheme() == "http" && url.port().is_none() && !trimmed.contains(":80") {
         url.set_port(Some(DEFAULT_PORT))
             .map_err(|_| AppError::BadRequest("invalid Host address".to_string()))?;
     }
@@ -1199,13 +1195,15 @@ async fn obtain_device_credential(
 
 fn pairing_token_from_input(token: &str) -> String {
     let trimmed = token.trim();
-    if let Some(payload) = trimmed.strip_prefix("vibex-pairing:")
+    let extracted = if let Some(payload) = trimmed.strip_prefix("vibex-pairing:")
         && let Ok(value) = serde_json::from_str::<serde_json::Value>(payload)
         && let Some(code) = value.get("pairing_token").and_then(|item| item.as_str())
     {
-        return code.to_string();
-    }
-    trimmed.to_string()
+        code.to_string()
+    } else {
+        trimmed.to_string()
+    };
+    remote_protocol::canonical_pairing_token(&extracted)
 }
 
 async fn redeem(
@@ -1504,6 +1502,7 @@ mod tests {
             "K7M2NPQX"
         );
         assert_eq!(pairing_token_from_input(" K7M2NPQX "), "K7M2NPQX");
+        assert_eq!(pairing_token_from_input(" k7m2npqx "), "K7M2NPQX");
     }
 
     #[test]
@@ -1588,6 +1587,14 @@ mod tests {
         assert_eq!(
             normalize_origin("http://10.0.0.4:19000").expect("origin"),
             "http://10.0.0.4:19000"
+        );
+        assert_eq!(
+            normalize_origin("47.109.140.92:13630").expect("origin"),
+            "http://47.109.140.92:13630"
+        );
+        assert_eq!(
+            normalize_origin("http://203.0.113.10").expect("origin"),
+            "http://203.0.113.10:17891"
         );
     }
 

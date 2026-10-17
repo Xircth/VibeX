@@ -49,7 +49,10 @@ import {
   type ToolResultBlock,
   type TurnRenderItem,
 } from './messageTurnBlocks';
-import { splitCollapsedTurnItems } from './messageTurnCollapse';
+import {
+  isCollapsibleProcessItem,
+  splitCollapsedTurnItems,
+} from './messageTurnCollapse';
 import { splitAssistantCommandOutput } from './conversation-entry-utils';
 import {
   AssistantCommandOutputEntry,
@@ -58,7 +61,7 @@ import {
 import type { ContextCompactStatusKind } from '@/lib/contextCompact';
 import { groupTurnRenderItems } from './messageTurnAggregate';
 import { collectHostDelegationPollResults } from './conversation/hostDelegation';
-import { TurnToolCalls, type TimelineQuestion } from './TurnToolCalls';
+import { TurnActivity, type TimelineQuestion } from './TurnActivity';
 import {
   STREAMING_ACTIVITY_INTERVAL_MS,
   STREAMING_ACTIVITY_VERBS,
@@ -433,22 +436,22 @@ function InterruptedTurnNotice({ onResend }: { onResend?: () => void }) {
 }
 
 function CollapsedProcessGroup({
-  turnId,
-  items,
-  renderUnits,
+  expansionKey,
+  count,
+  children,
 }: {
-  turnId: string;
-  items: TurnRenderItem[];
-  renderUnits: (list: TurnRenderItem[], offset: number) => ReactNode[];
+  expansionKey: string;
+  count: number;
+  children: (expanded: boolean) => ReactNode;
 }) {
   const { t } = useTranslation(['conversation', 'common']);
-  const [expanded, toggle] = useExpandable(`process:${turnId}`, false);
+  const [expanded, toggle] = useExpandable(`process:${expansionKey}`, false);
   return (
     <div className="conv-collapsed-process px-1 py-1">
       <button
         type="button"
         onClick={() => toggle()}
-        className="inline-flex items-center gap-1 text-[11px] text-muted-foreground"
+        className="inline-flex items-center gap-1 rounded-md text-xs text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
         aria-expanded={expanded}
       >
         <ChevronDown
@@ -457,13 +460,9 @@ function CollapsedProcessGroup({
             expanded ? '' : '-rotate-90'
           )}
         />
-        <span>
-          {t('messageTurnView.collapsedMessages', { count: items.length })}
-        </span>
+        <span>{t('messageTurnView.collapsedMessages', { count })}</span>
       </button>
-      {expanded ? (
-        <div className="conv-assistant-body mt-1">{renderUnits(items, 0)}</div>
-      ) : null}
+      <div className="conv-assistant-body mt-1">{children(expanded)}</div>
     </div>
   );
 }
@@ -623,23 +622,40 @@ export const MessageTurnView = memo(function MessageTurnView({
     return renderItem(item, key, context, phase === 'streaming');
   };
 
-  // Every uninterrupted run uses Astryx's aggregate, including runs of one.
-  const renderUnits = (list: TurnRenderItem[], offset: number): ReactNode[] => {
-    const pollResults = collectHostDelegationPollResults(
-      list.filter((item) => item.kind === 'tool')
-    );
+  const plannedItems = planTurnBlocks(turn.blocks);
+  const items = hideThinking
+    ? plannedItems.filter((item) => item.kind !== 'thinking')
+    : plannedItems;
+  const { prelude, rest } = collapseProcess
+    ? splitCollapsedTurnItems(items, { isStreaming: phase === 'streaming' })
+    : { prelude: [], rest: items };
+  const originalIndices = new Map(items.map((item, index) => [item, index]));
+  const processCount = prelude.filter(isCollapsibleProcessItem).length;
+  const pollResults = collectHostDelegationPollResults(
+    items.filter((item) => item.kind === 'tool')
+  );
+
+  const renderUnits = (
+    list: TurnRenderItem[],
+    showCompleted = true
+  ): ReactNode[] => {
     return groupTurnRenderItems(list).map((unit) => {
       if (unit.kind === 'single') {
-        return renderTurnItem(unit.item, `${turn.id}-${offset + unit.index}`);
+        if (!showCompleted && isCollapsibleProcessItem(unit.item)) return null;
+        const key = `${turn.id}-${originalIndices.get(unit.item)}`;
+        return renderTurnItem(unit.item, key);
       }
-      const startIndex = offset + unit.items[0].index;
+      const activityItems = unit.items.map(({ item }) => ({
+        item,
+        index: originalIndices.get(item)!,
+      }));
+      const startIndex = activityItems[0].index;
       return (
-        <TurnToolCalls
-          key={`${turn.id}-toolgroup-${startIndex}`}
+        <TurnActivity
+          key={`${turn.id}-activity-${startIndex}`}
           turnId={turn.id}
           timestamp={turn.timestamp}
-          offset={offset}
-          items={unit.items}
+          items={activityItems}
           attempt={attempt}
           task={task}
           workspacePath={resolvedWorkspacePath}
@@ -647,15 +663,20 @@ export const MessageTurnView = memo(function MessageTurnView({
           pollResults={pollResults}
           onOpenChild={onOpenChild}
           questions={questions}
+          showCompleted={showCompleted}
+          renderOtherItem={(item, index) =>
+            renderTurnItem(item, `${turn.id}-${index}`)
+          }
+          isStreaming={
+            phase === 'streaming' &&
+            !hasTurnError &&
+            activityItems.at(-1)?.index === items.length - 1
+          }
         />
       );
     });
   };
 
-  const plannedItems = planTurnBlocks(turn.blocks);
-  const items = hideThinking
-    ? plannedItems.filter((item) => item.kind !== 'thinking')
-    : plannedItems;
   const showStreamingStatus = shouldShowAssistantStreamingStatus({
     phase,
     hasTurnError,
@@ -668,27 +689,18 @@ export const MessageTurnView = memo(function MessageTurnView({
     );
   }
 
-  let body: ReactNode[];
-
-  if (collapseProcess) {
-    const { prelude, rest } = splitCollapsedTurnItems(items);
-    const restOffset = items.length - rest.length;
-    body = [
-      ...(prelude.length > 0
-        ? [
-            <CollapsedProcessGroup
-              key={`${turn.id}-collapsed`}
-              turnId={turn.id}
-              items={prelude}
-              renderUnits={renderUnits}
-            />,
-          ]
-        : []),
-      ...renderUnits(rest, restOffset),
-    ];
-  } else {
-    body = renderUnits(items, 0);
-  }
+  const body = (
+    <>
+      {processCount > 0 ? (
+        <CollapsedProcessGroup expansionKey={turn.id} count={processCount}>
+          {(expanded) => renderUnits(prelude, expanded)}
+        </CollapsedProcessGroup>
+      ) : (
+        renderUnits(prelude)
+      )}
+      {renderUnits(rest)}
+    </>
+  );
 
   return (
     <div className="conv-entry-item conv-assistant-msg conv-msg-hover group px-4 py-2 text-sm">

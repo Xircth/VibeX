@@ -146,9 +146,15 @@ export function conversationStoreReducer(
           entry.optimisticTurns,
           action.detail.timeline.rows
         );
+        // `rows` is the timeline the view renders. Keeping the same rows on
+        // `detail` duplicated the open window for as long as the card was mounted.
+        const detail = {
+          ...action.detail,
+          timeline: { ...action.detail.timeline, rows: [] },
+        };
         return {
           ...entry,
-          detail: action.detail,
+          detail,
           rows: keepRealtimeRows ? entry.rows : reconciledTimeline.rows,
           liveText: keepRealtimeRows
             ? entry.liveText
@@ -533,10 +539,14 @@ export function timelineTurnsForEntry(
       },
     ];
   });
+  const maxRowRevision = entry.rows.reduce((max, row) => {
+    const revision = toBigInt(row.revision);
+    return revision > max ? revision : max;
+  }, entry.lastSequence);
   const optimistic = entry.optimisticTurns.map((turn, index) => ({
     key: `optimistic-${turn.id}`,
     turn,
-    revision: entry.lastSequence + BigInt(index + 1),
+    revision: maxRowRevision + BigInt(index + 1),
     phase: 'optimistic' as const,
   }));
   return alignStreamingAssistantWithUserPhase(
@@ -582,10 +592,45 @@ function alignStreamingAssistantWithUserPhase(
 }
 
 /** Side rows (everything that is not a message turn), carrying their stable `row_id`. */
+const EMPTY_TIMELINE_ROWS: TimelineRow[] = [];
+const sideRowsByEntryRows = new WeakMap<TimelineRow[], TimelineRow[]>();
+const lastSideRowsByConversation = new Map<string, TimelineRow[]>();
+
 export function sideRowsForEntry(
   entry: ConversationStoreEntry | null
 ): TimelineRow[] {
-  return entry?.rows.filter((row) => row.row.kind !== 'message_turn') ?? [];
+  if (!entry || entry.rows.length === 0) return EMPTY_TIMELINE_ROWS;
+  const cached = sideRowsByEntryRows.get(entry.rows);
+  if (cached) return cached;
+
+  const filtered = entry.rows.filter((row) => row.row.kind !== 'message_turn');
+  if (filtered.length === 0) {
+    sideRowsByEntryRows.set(entry.rows, EMPTY_TIMELINE_ROWS);
+    return EMPTY_TIMELINE_ROWS;
+  }
+
+  const convId = entry.conversationId;
+  if (convId) {
+    const prev = lastSideRowsByConversation.get(convId);
+    if (
+      prev &&
+      prev.length === filtered.length &&
+      prev.every((row, index) => row === filtered[index])
+    ) {
+      sideRowsByEntryRows.set(entry.rows, prev);
+      return prev;
+    }
+    if (
+      lastSideRowsByConversation.size >= 32 &&
+      !lastSideRowsByConversation.has(convId)
+    ) {
+      const oldest = lastSideRowsByConversation.keys().next().value;
+      if (oldest !== undefined) lastSideRowsByConversation.delete(oldest);
+    }
+    lastSideRowsByConversation.set(convId, filtered);
+  }
+  sideRowsByEntryRows.set(entry.rows, filtered);
+  return filtered;
 }
 
 const INLINE_SIDE_ROW_KINDS = new Set([
@@ -600,30 +645,74 @@ const INLINE_SIDE_ROW_KINDS = new Set([
 /** Message turns and inlined side rows, ordered by revision to match the event log. */
 export function timelineItemsForEntry(
   entry: ConversationStoreEntry | null,
-  shouldInline: (row: TimelineRow) => boolean = defaultInlineSideRow
+  shouldInline: (row: TimelineRow) => boolean = defaultInlineSideRow,
+  precomputedTurns?: ConversationTimelineTurn[],
+  precomputedSideRows?: TimelineRow[]
 ): ConversationTimelineItem[] {
-  const messages = timelineTurnsForEntry(entry).map((item) => ({
+  const turns = precomputedTurns ?? timelineTurnsForEntry(entry);
+  const messages = turns.map((item) => ({
     kind: 'message' as const,
     revision: item.revision,
     item,
   }));
-  const sides = sideRowsForEntry(entry)
+  const sideRows = precomputedSideRows ?? sideRowsForEntry(entry);
+  const sortedSides = sideRows
     .filter(shouldInline)
-    .map((row) => ({
-      kind: 'side' as const,
-      revision: toBigInt(row.revision),
-      row,
-    }));
-  return [...messages, ...sides].sort((left, right) => {
-    if (left.kind === 'message' && right.kind === 'message') {
-      return 0;
+    .map((row, index) => ({
+      index,
+      item: {
+        kind: 'side' as const,
+        revision: toBigInt(row.revision),
+        row,
+      },
+    }))
+    .sort((left, right) => {
+      if (left.item.revision !== right.item.revision) {
+        return left.item.revision < right.item.revision ? -1 : 1;
+      }
+      return left.index - right.index;
+    })
+    .map((entryItem) => entryItem.item);
+
+  if (sortedSides.length === 0) {
+    return messages;
+  }
+
+  const maxSideRevision = sortedSides[sortedSides.length - 1]?.revision ?? 0n;
+  const result: ConversationTimelineItem[] = [];
+  let sideIndex = 0;
+  let runningMaxRevision = 0n;
+
+  for (const message of messages) {
+    const isOptimisticOrZeroTrailing =
+      message.item.phase === 'optimistic' ||
+      (message.revision <= 0n &&
+        (runningMaxRevision > 0n || maxSideRevision > 0n));
+    const effectiveRevision = isOptimisticOrZeroTrailing
+      ? (runningMaxRevision > maxSideRevision
+          ? runningMaxRevision
+          : maxSideRevision) + 1n
+      : message.revision > runningMaxRevision
+        ? message.revision
+        : runningMaxRevision;
+    runningMaxRevision = effectiveRevision;
+
+    while (
+      sideIndex < sortedSides.length &&
+      sortedSides[sideIndex]!.revision < effectiveRevision
+    ) {
+      result.push(sortedSides[sideIndex]!);
+      sideIndex += 1;
     }
-    if (left.revision === right.revision) {
-      if (left.kind === right.kind) return 0;
-      return left.kind === 'message' ? -1 : 1;
-    }
-    return left.revision < right.revision ? -1 : 1;
-  });
+    result.push(message);
+  }
+
+  while (sideIndex < sortedSides.length) {
+    result.push(sortedSides[sideIndex]!);
+    sideIndex += 1;
+  }
+
+  return result;
 }
 
 export function defaultInlineSideRow(row: TimelineRow): boolean {
@@ -657,11 +746,24 @@ function updateEntry(
 ): ConversationStoreState {
   const current =
     state.byConversationId[conversationId] ?? createEntry(conversationId);
+  const nextByConversationId = {
+    ...state.byConversationId,
+    [conversationId]: update(current),
+  };
+  const keys = Object.keys(nextByConversationId);
+  if (keys.length > 5) {
+    for (const key of keys) {
+      if (
+        key !== conversationId &&
+        nextByConversationId[key]?.loading !== true
+      ) {
+        delete nextByConversationId[key];
+        if (Object.keys(nextByConversationId).length <= 5) break;
+      }
+    }
+  }
   return {
-    byConversationId: {
-      ...state.byConversationId,
-      [conversationId]: update(current),
-    },
+    byConversationId: nextByConversationId,
   };
 }
 
@@ -720,6 +822,17 @@ function detectSequenceGap(
 ): ConversationGapState {
   const incomingLast = toBigInt(batch.last_sequence);
   if (lastSequence <= 0n || incomingLast <= lastSequence) {
+    return { kind: 'none' };
+  }
+  if (batch.previous_sequence != null) {
+    const previousSequence = toBigInt(batch.previous_sequence);
+    if (previousSequence > lastSequence) {
+      return {
+        kind: 'gap',
+        expectedSequence: lastSequence + 1n,
+        receivedSequence: previousSequence + 1n,
+      };
+    }
     return { kind: 'none' };
   }
   const revisions = batch.ops.map(opRevision);

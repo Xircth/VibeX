@@ -133,12 +133,16 @@ export function workspaceSessionStatusTone(session: {
   }
 }
 
-export function applyWorkspaceSessionOrder(
+function orderSessionPartition(
   sessions: KanbanProjectSessionRecord[],
-  savedOrder?: string[]
+  savedOrder: string[] | undefined,
+  fallbackCompare: (
+    left: KanbanProjectSessionRecord,
+    right: KanbanProjectSessionRecord
+  ) => number
 ): KanbanProjectSessionRecord[] {
   if (!savedOrder || savedOrder.length === 0) {
-    return [...sessions].sort(compareSessionsByRecency);
+    return [...sessions].sort(fallbackCompare);
   }
 
   const byId = new Map(sessions.map((session) => [session.id, session]));
@@ -147,7 +151,7 @@ export function applyWorkspaceSessionOrder(
 
   sessions
     .filter((session) => !savedOrder.includes(session.id))
-    .sort(compareSessionsByRecency)
+    .sort(fallbackCompare)
     .forEach((session) => {
       ordered.push(session);
       placed.add(session.id);
@@ -161,6 +165,19 @@ export function applyWorkspaceSessionOrder(
   });
 
   return ordered;
+}
+
+export function applyWorkspaceSessionOrder(
+  sessions: KanbanProjectSessionRecord[],
+  savedOrder?: string[]
+): KanbanProjectSessionRecord[] {
+  const pinned = sessions.filter((session) => Boolean(session.pinnedAt));
+  const unpinned = sessions.filter((session) => !session.pinnedAt);
+
+  return [
+    ...orderSessionPartition(pinned, savedOrder, comparePinnedSessions),
+    ...orderSessionPartition(unpinned, savedOrder, compareSessionsByRecency),
+  ];
 }
 
 export function moveSessionInOrder(
@@ -343,10 +360,23 @@ export function sortWorkspaceSessions(
   sortSpecs: SessionListSortSpec[]
 ): KanbanProjectSessionRecord[] {
   if (sortSpecs.length === 0) {
-    return [...sessions];
+    return [...sessions].sort((left, right) => {
+      const leftPinned = Boolean(left.pinnedAt);
+      const rightPinned = Boolean(right.pinnedAt);
+      if (leftPinned !== rightPinned) {
+        return leftPinned ? -1 : 1;
+      }
+      return 0;
+    });
   }
 
   return [...sessions].sort((left, right) => {
+    const leftPinned = Boolean(left.pinnedAt);
+    const rightPinned = Boolean(right.pinnedAt);
+    if (leftPinned !== rightPinned) {
+      return leftPinned ? -1 : 1;
+    }
+
     for (let index = sortSpecs.length - 1; index >= 0; index -= 1) {
       const spec = sortSpecs[index];
       if (!spec) continue;
@@ -388,6 +418,18 @@ function compareSessionsBySortKey(
         direction
       );
   }
+}
+
+function comparePinnedSessions(
+  left: KanbanProjectSessionRecord,
+  right: KanbanProjectSessionRecord
+) {
+  const pinDelta =
+    dateTimestamp(right.pinnedAt ?? 0) - dateTimestamp(left.pinnedAt ?? 0);
+  if (pinDelta !== 0) {
+    return pinDelta;
+  }
+  return compareSessionsByRecency(left, right);
 }
 
 function compareSessionsByRecency(

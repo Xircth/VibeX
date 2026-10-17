@@ -108,13 +108,23 @@ describe('workspace tab strip chrome', () => {
     expect(tab.padding?.value).toBe('0 var(--dv-tab-gap)');
   });
 
-  it('hides the native tab-strip scrollbar so overlay tracks cannot cover titles', () => {
+  it('hides the native tab-strip scrollbar without turning the strip into a scrollport', () => {
     const rules = declarationsFor(
       "[class*='dockview-theme-ayu'] .dv-scrollable > .dv-tabs-container"
     );
+    const surface = declarationsFor(
+      "[class*='dockview-theme-ayu'] .workspace-tab-surface"
+    );
+    const icon = declarationsFor(
+      "[class*='dockview-theme-ayu'] .workspace-tab-icon"
+    );
 
-    expect(rules['overflow-x']?.value).toBe('auto');
+    expect(rules['overflow-x']).toBeUndefined();
+    expect(rules.overflow).toBeUndefined();
     expect(rules['scrollbar-width']?.value).toBe('none');
+    expect(surface['user-select']?.value).toBe('none');
+    expect(surface['-webkit-user-drag']).toBeUndefined();
+    expect(icon['pointer-events']?.value).toBe('none');
   });
 
   it('keeps Dockview overlay scrollbar as a thumb without a track', () => {

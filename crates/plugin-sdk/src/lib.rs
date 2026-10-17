@@ -4,6 +4,7 @@
 //! use `--no-default-features --features isolated` so filesystem and network
 //! helpers are not compiled.
 
+pub mod blob;
 pub mod error;
 pub mod host;
 pub mod protocol;
@@ -12,6 +13,7 @@ pub mod stdio;
 pub mod testing;
 pub mod worker;
 
+pub use blob::{read_blob, write_blob};
 pub use error::PluginSdkError;
 pub use host::{HostClient, HostTransport};
 pub use protocol::{

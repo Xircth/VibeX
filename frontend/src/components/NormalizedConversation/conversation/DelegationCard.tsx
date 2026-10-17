@@ -7,13 +7,14 @@ import {
   Loader2,
   XCircle,
 } from 'lucide-react';
-import { useState, type ReactNode } from 'react';
+import { useId, useState, type ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 import type { ConversationDelegationView } from 'shared/types';
 import { AgentTypeIcon } from '@/components/agents/AgentTypeIcon';
 import { Button } from '@/components/ui/button';
 import { useBackendCapabilities, useBackendTransport } from '@/lib/transport';
 import { cn } from '@/lib/utils';
+import { useExpandableSection } from '@/stores/useExpandableStore';
 import { AstryxMarkdown } from '../AstryxMarkdown';
 
 /**
@@ -25,17 +26,23 @@ import { AstryxMarkdown } from '../AstryxMarkdown';
 export function DelegationCard({
   delegation,
   onOpenChild,
+  expansionKey,
+  onExpandedChange,
 }: {
   delegation: ConversationDelegationView;
   onOpenChild?: (childConversationId: string) => void;
+  expansionKey?: string;
+  onExpandedChange?: (expanded: boolean) => void;
 }) {
   const { t } = useTranslation(['conversation', 'common']);
   const transport = useBackendTransport();
   const { supports } = useBackendCapabilities();
   const [isCanceling, setIsCanceling] = useState(false);
   const [cancelError, setCancelError] = useState<string | null>(null);
-  const [openSection, setOpenSection] = useState<'task' | 'result' | null>(
-    null
+  const id = useId();
+  const [openSection, toggleOpenSection] = useExpandableSection(
+    expansionKey ?? id,
+    ['task', 'result']
   );
   const status = normalizeStatus(delegation.status);
   const childId = delegation.child_conversation_id ?? null;
@@ -55,7 +62,8 @@ export function DelegationCard({
   const canCancel =
     status === 'running' && childId !== null && supports('delegation.cancel');
   const toggleSection = (section: 'task' | 'result') => {
-    setOpenSection((current) => (current === section ? null : section));
+    onExpandedChange?.(openSection !== section);
+    toggleOpenSection(section);
   };
 
   const cancel = async () => {

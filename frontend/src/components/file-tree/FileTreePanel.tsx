@@ -8,6 +8,7 @@ import {
   FolderPlus,
   Plus,
   RefreshCw,
+  Search,
   SquareMinus,
 } from 'lucide-react';
 import FileIcon from '../FileIcon';
@@ -22,11 +23,20 @@ import {
   updateFileReferenceDragPointer,
 } from '../../utils/fileReferenceDrag';
 import { FilePreviewPopover } from './FilePreviewPopover';
+import { FileTreeNameInput } from './FileTreeNameInput';
+import {
+  acknowledgeFileTreeSearch,
+  subscribeFileTreeSearch,
+} from './fileTreeSearchRequest';
+import {
+  useWorkspaceTextSearch,
+  WorkspaceFileSearchField,
+  WorkspaceFileSearchResults,
+} from './WorkspaceFileSearch';
 import type { FileTreeNode, FileOpenLocation } from './file-tree-types';
 import { EMPTY_DIRECTORIES, EMPTY_SET } from './file-tree-constants';
 import {
   deriveFileTreeContextMenuHeader,
-  deriveFileTreeContextMenuPosition,
   deriveFileTreeEntries,
   deriveFileTreeGitStatusMap,
   deriveFileTreeKeyboardAction,
@@ -69,6 +79,8 @@ import {
   toggleFileTreeFolder,
 } from './file-tree-utils';
 import { ConfirmDialog } from '@/components/dialogs';
+import { ProductContextMenu } from '@/components/context-menu/ProductContextMenu';
+import type { ProductContextMenuItem } from '@/components/context-menu/contextMenuTypes';
 import { formatFileTreeStructure } from './fileTreeStructure';
 import { writeClipboardViaBridge } from '@/vscode/bridge';
 import { useLocalDesktopHost } from '@/lib/desktopShell';
@@ -97,6 +109,7 @@ export type FileTreePanelProps = {
   gitignoredFiles?: Set<string>;
   gitignoredDirectories?: Set<string>;
   onRefreshFiles?: () => void;
+  onRenamePath?: (oldPath: string, newPath: string) => void;
   refreshToken?: number;
   lazyLoadAllDirectories?: boolean;
   revealTarget?: FileTreeRevealTarget | null;
@@ -114,12 +127,67 @@ export function FileTreePanel({
   gitignoredFiles,
   gitignoredDirectories,
   onRefreshFiles,
+  onRenamePath,
   refreshToken = 0,
   lazyLoadAllDirectories = true,
   revealTarget = null,
 }: FileTreePanelProps) {
   const { t } = useTranslation(['panels', 'common']);
   const localDesktopHost = useLocalDesktopHost();
+  const [searchOpen, setSearchOpen] = useState(false);
+  const [searchFocusNonce, setSearchFocusNonce] = useState(0);
+  const search = useWorkspaceTextSearch(workspacePath || null);
+  const setSearchQuery = search.setQuery;
+
+  const closeFileSearch = useCallback(() => {
+    setSearchOpen(false);
+    setSearchQuery('');
+  }, [setSearchQuery]);
+
+  useEffect(() => {
+    return subscribeFileTreeSearch(() => {
+      setSearchOpen(true);
+      setSearchFocusNonce((value) => value + 1);
+      acknowledgeFileTreeSearch();
+    });
+  }, []);
+
+  useEffect(() => {
+    if (!searchOpen) return;
+
+    const onPointerDown = (event: PointerEvent) => {
+      const target = event.target;
+      const element =
+        target instanceof Element
+          ? target
+          : target instanceof Node
+            ? target.parentElement
+            : null;
+      if (!element) return;
+      if (element.closest('[data-file-tree-search-overlay]')) return;
+      if (element.closest('[data-file-tree-search-result]')) return;
+      if (element.closest('[data-file-tree-search-chrome]')) return;
+      if (element.closest('.product-context-menu')) return;
+      if (element.closest('.file-tree-row')) return;
+      if (element.closest('[popover]')) return;
+      if (element.closest('.astryx-typeahead-dropdown')) return;
+      closeFileSearch();
+    };
+
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape') return;
+      event.preventDefault();
+      closeFileSearch();
+    };
+
+    document.addEventListener('pointerdown', onPointerDown);
+    document.addEventListener('keydown', onKeyDown);
+    return () => {
+      document.removeEventListener('pointerdown', onPointerDown);
+      document.removeEventListener('keydown', onKeyDown);
+    };
+  }, [closeFileSearch, searchOpen]);
+
   const directoryEntries = directories ?? EMPTY_DIRECTORIES;
   const ignoredFileEntries = gitignoredFiles ?? EMPTY_SET;
   const ignoredDirectoryEntries = gitignoredDirectories ?? EMPTY_SET;
@@ -165,9 +233,7 @@ export function FileTreePanel({
     relativePath: string;
     isFolder: boolean;
   } | null>(null);
-  const [copySubmenuOpen, setCopySubmenuOpen] = useState(false);
   const panelRef = useRef<HTMLElement | null>(null);
-  const contextMenuRef = useRef<HTMLDivElement | null>(null);
   const dragCandidateRef = useRef<{
     payload: FileReferencePayload;
     startX: number;
@@ -179,10 +245,11 @@ export function FileTreePanel({
   const suppressClickPathRef = useRef<string | null>(null);
   const [newFileParent, setNewFileParent] = useState<string | null>(null);
   const [newFileName, setNewFileName] = useState('');
-  const newFileInputRef = useRef<HTMLInputElement | null>(null);
   const [newFolderParent, setNewFolderParent] = useState<string | null>(null);
   const [newFolderName, setNewFolderName] = useState('');
-  const newFolderInputRef = useRef<HTMLInputElement | null>(null);
+  const [renameTarget, setRenameTarget] = useState<FileTreeNode | null>(null);
+  const [renameName, setRenameName] = useState('');
+  const [renameError, setRenameError] = useState<string | null>(null);
   const lazyListing = useFileTreeStore(
     (state) => state.lazyListingByRoot[workspacePath] ?? EMPTY_LAZY_LISTING
   );
@@ -324,13 +391,15 @@ export function FileTreePanel({
     dragAnchorLineRef.current = null;
     dragMovedRef.current = false;
     setContextMenu(null);
-    setCopySubmenuOpen(false);
     setLoadingLazyDirectories(new Set());
     setLazyDirectoryLoadErrors(new Map());
     setNewFileParent(null);
     setNewFileName('');
     setNewFolderParent(null);
     setNewFolderName('');
+    setRenameTarget(null);
+    setRenameName('');
+    setRenameError(null);
     setDropTargetPath(null);
     setDragOverlay(null);
     dragCandidateRef.current = null;
@@ -621,7 +690,7 @@ export function FileTreePanel({
     [loadLazyDirectoryChildren, pumpExpandAll]
   );
 
-  const toggleAllFolders = () => {
+  const toggleAllFolders = useCallback(() => {
     if (!hasFolders) {
       return;
     }
@@ -646,7 +715,15 @@ export function FileTreePanel({
     expandAllSessionRef.current = session;
     setIsExpandingAll(true);
     pumpExpandAll();
-  };
+  }, [
+    folderPaths,
+    hasFolders,
+    pumpExpandAll,
+    setExpandedFolders,
+    showCollapseAll,
+    stopExpandAll,
+    visibleFolderPaths,
+  ]);
 
   const toggleFolder = (path: string) => {
     setExpandedFolders((prev) => toggleFileTreeFolder(prev, path));
@@ -846,7 +923,6 @@ export function FileTreePanel({
 
   const closeContextMenu = useCallback(() => {
     setContextMenu(null);
-    setCopySubmenuOpen(false);
   }, []);
 
   const copyAbsolutePath = useCallback(
@@ -932,6 +1008,7 @@ export function FileTreePanel({
 
   const openNewFilePrompt = useCallback(
     (parentFolder: string) => {
+      setRenameTarget(null);
       setNewFolderParent(null);
       setNewFolderName('');
       setNewFileParent(parentFolder);
@@ -942,9 +1019,6 @@ export function FileTreePanel({
       if (parentFolder) {
         void loadLazyDirectoryChildren(parentFolder);
       }
-      window.setTimeout(() => {
-        newFileInputRef.current?.focus();
-      }, 0);
     },
     [loadLazyDirectoryChildren, setExpandedFolders]
   );
@@ -991,6 +1065,7 @@ export function FileTreePanel({
 
   const openNewFolderPrompt = useCallback(
     (parentFolder: string) => {
+      setRenameTarget(null);
       setNewFileParent(null);
       setNewFileName('');
       setNewFolderParent(parentFolder);
@@ -1001,9 +1076,6 @@ export function FileTreePanel({
       if (parentFolder) {
         void loadLazyDirectoryChildren(parentFolder);
       }
-      window.setTimeout(() => {
-        newFolderInputRef.current?.focus();
-      }, 0);
     },
     [loadLazyDirectoryChildren, setExpandedFolders]
   );
@@ -1049,6 +1121,83 @@ export function FileTreePanel({
     setNewFolderParent(null);
     setNewFolderName('');
   }, []);
+
+  const cancelRename = useCallback(() => {
+    setRenameTarget(null);
+    setRenameName('');
+    setRenameError(null);
+  }, []);
+
+  const openRenamePrompt = useCallback((path: string, isFolder: boolean) => {
+    setNewFileParent(null);
+    setNewFolderParent(null);
+    const name = path.split('/').pop() ?? path;
+    setRenameTarget({
+      path,
+      name,
+      type: isFolder ? 'folder' : 'file',
+      children: [],
+    });
+    setRenameName(name);
+    setRenameError(null);
+  }, []);
+
+  const confirmRename = async () => {
+    if (!renameTarget) return;
+    const name = renameName.trim();
+    if (
+      !name ||
+      name === '.' ||
+      name === '..' ||
+      /[<>:"/\\|?*]/.test(name) ||
+      Array.from(name).some((character) => character.charCodeAt(0) < 32)
+    ) {
+      setRenameError(t('fileTreeMenu.invalidName'));
+      return;
+    }
+    if (name === renameTarget.name) {
+      cancelRename();
+      return;
+    }
+    const parent = renameTarget.path.includes('/')
+      ? renameTarget.path.slice(0, renameTarget.path.lastIndexOf('/'))
+      : '';
+    const nextPath = parent ? `${parent}/${name}` : name;
+    try {
+      await fileTreeApi.moveItem(
+        resolvePath(renameTarget.path),
+        resolvePath(nextPath)
+      );
+      const remap = (path: string) =>
+        path === renameTarget.path || path.startsWith(`${renameTarget.path}/`)
+          ? nextPath + path.slice(renameTarget.path.length)
+          : path;
+      const remapSet = (paths: Set<string>) =>
+        new Set(Array.from(paths, remap));
+      setLazyListing((current) => ({
+        files: remapSet(current.files),
+        directories: remapSet(current.directories),
+        gitignoredFiles: remapSet(current.gitignoredFiles),
+        gitignoredDirectories: remapSet(current.gitignoredDirectories),
+        loadableDirectories: remapSet(current.loadableDirectories),
+        loadedDirectories: remapSet(current.loadedDirectories),
+      }));
+      setExpandedFolders(remapSet);
+      setSelectedNodePath(nextPath);
+      setSelectedNodeType(renameTarget.type);
+      closePreview();
+      onRenamePath?.(renameTarget.path, nextPath);
+      cancelRename();
+      void loadLazyDirectoryChildren(parent, { force: true });
+      onRefreshFiles?.();
+    } catch (error) {
+      setRenameError(
+        t('fileTreeMenu.renameFailed', {
+          error: error instanceof Error ? error.message : String(error),
+        })
+      );
+    }
+  };
 
   const resolveParentFolderForNode = useCallback(
     (relativePath: string | null, nodeType: 'file' | 'folder' | null) => {
@@ -1340,7 +1489,6 @@ export function FileTreePanel({
     ) => {
       event.preventDefault();
       event.stopPropagation();
-      setCopySubmenuOpen(false);
       setContextMenu({
         x: event.clientX,
         y: event.clientY,
@@ -1351,48 +1499,142 @@ export function FileTreePanel({
     []
   );
 
-  useEffect(() => {
-    if (!contextMenu) {
-      return;
+  const fileTreeContextMenuItems = useMemo<ProductContextMenuItem[]>(() => {
+    if (!contextMenu) return [];
+
+    const items: ProductContextMenuItem[] = [
+      {
+        id: 'new-file',
+        label: t('fileTreeMenu.newFile'),
+        onSelect: () => {
+          openNewFilePrompt(contextMenuParentFolder);
+        },
+      },
+      {
+        id: 'new-folder',
+        label: t('fileTreeMenu.newFolder'),
+        onSelect: () => {
+          openNewFolderPrompt(contextMenuParentFolder);
+        },
+      },
+    ];
+
+    if (contextMenu.relativePath) {
+      items.push({
+        id: 'rename',
+        label: t('fileTreeMenu.rename'),
+        onSelect: () => {
+          openRenamePrompt(contextMenu.relativePath, contextMenu.isFolder);
+        },
+      });
+    } else {
+      items.push(
+        {
+          id: showCollapseAll ? 'collapse-all' : 'expand-all',
+          label: showCollapseAll
+            ? t('common:contextMenu.collapseAll')
+            : t('common:contextMenu.expandAll'),
+          onSelect: () => {
+            toggleAllFolders();
+          },
+        },
+        {
+          id: 'copy-tree-structure',
+          label: t('common:contextMenu.copyTreeStructure'),
+          onSelect: () => {
+            void writeClipboardViaBridge(formatFileTreeStructure(nodes));
+          },
+        },
+        {
+          id: 'copy-root-path',
+          label: t('common:contextMenu.copyRootPath'),
+          onSelect: () => {
+            void copyAbsolutePath('');
+          },
+        }
+      );
     }
 
-    const handlePointerDown = (event: PointerEvent) => {
-      if (
-        contextMenuRef.current &&
-        event.target instanceof Node &&
-        contextMenuRef.current.contains(event.target)
-      ) {
-        return;
+    const copyChildren: ProductContextMenuItem[] = [];
+    if (contextMenu.relativePath && !contextMenu.isFolder) {
+      copyChildren.push({
+        id: 'duplicate',
+        label: t('fileTreeMenu.duplicate'),
+        onSelect: () => {
+          void duplicateItem(contextMenu.relativePath);
+        },
+      });
+    }
+    copyChildren.push(
+      {
+        id: 'copy-relative-path',
+        label: t('fileTreeMenu.copyRelativePath'),
+        onSelect: () => {
+          void copyRelativePath(contextMenu.relativePath);
+        },
+      },
+      {
+        id: 'copy-absolute-path',
+        label: t('fileTreeMenu.copyAbsolutePath'),
+        onSelect: () => {
+          void copyAbsolutePath(contextMenu.relativePath);
+        },
       }
+    );
 
-      closeContextMenu();
-    };
-
-    const handleEscape = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') {
-        closeContextMenu();
-      }
-    };
-
-    const handleWindowChange = () => {
-      closeContextMenu();
-    };
-
-    window.addEventListener('pointerdown', handlePointerDown);
-    window.addEventListener('keydown', handleEscape);
-    window.addEventListener('resize', handleWindowChange);
-    window.addEventListener('scroll', handleWindowChange, {
-      capture: true,
-      passive: true,
+    items.push({
+      id: 'copy',
+      type: 'submenu',
+      label: t('fileTreeMenu.copy'),
+      children: copyChildren,
     });
 
-    return () => {
-      window.removeEventListener('pointerdown', handlePointerDown);
-      window.removeEventListener('keydown', handleEscape);
-      window.removeEventListener('resize', handleWindowChange);
-      window.removeEventListener('scroll', handleWindowChange, true);
-    };
-  }, [closeContextMenu, contextMenu]);
+    if (localDesktopHost) {
+      items.push({
+        id: 'open-in-file-manager',
+        label: t('fileTreeMenu.openInFileManager'),
+        onSelect: () => {
+          void openInFileManager(
+            contextMenu.relativePath,
+            contextMenu.isFolder
+          );
+        },
+      });
+    }
+
+    if (contextMenu.relativePath) {
+      items.push({
+        id: 'delete-sep',
+        type: 'separator',
+      });
+      items.push({
+        id: 'delete',
+        label: t('common:delete'),
+        danger: true,
+        onSelect: () => {
+          void trashItem(contextMenu.relativePath, contextMenu.isFolder);
+        },
+      });
+    }
+
+    return items;
+  }, [
+    contextMenu,
+    contextMenuParentFolder,
+    copyAbsolutePath,
+    copyRelativePath,
+    duplicateItem,
+    localDesktopHost,
+    nodes,
+    openInFileManager,
+    openNewFilePrompt,
+    openNewFolderPrompt,
+    openRenamePrompt,
+    showCollapseAll,
+    t,
+    toggleAllFolders,
+    trashItem,
+  ]);
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
@@ -1433,14 +1675,29 @@ export function FileTreePanel({
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [selectedNodePath, selectedNodeType, trashItem, copyAbsolutePath]);
 
-  const renderInlineNewInput = (type: 'file' | 'folder', depth: number) => {
+  const renderInlineNewInput = (
+    type: 'file' | 'folder',
+    depth: number,
+    rename = false
+  ) => {
     const isFile = type === 'file';
     const inputConfig = getFileTreeInlineNewInputConfig(type);
-    const inputRef = isFile ? newFileInputRef : newFolderInputRef;
-    const name = isFile ? newFileName : newFolderName;
-    const setName = isFile ? setNewFileName : setNewFolderName;
-    const doConfirm = isFile ? confirmNewFile : confirmNewFolder;
-    const doCancel = isFile ? cancelNewFile : cancelNewFolder;
+    const name = rename ? renameName : isFile ? newFileName : newFolderName;
+    const setName = rename
+      ? setRenameName
+      : isFile
+        ? setNewFileName
+        : setNewFolderName;
+    const doConfirm = rename
+      ? confirmRename
+      : isFile
+        ? confirmNewFile
+        : confirmNewFolder;
+    const doCancel = rename
+      ? cancelRename
+      : isFile
+        ? cancelNewFile
+        : cancelNewFolder;
 
     return (
       <div key={`__inline-new-${type}`} className="file-tree-row-wrap">
@@ -1456,29 +1713,24 @@ export function FileTreePanel({
               isOpen={false}
             />
           </span>
-          <input
-            ref={inputRef}
-            className="file-tree-inline-input"
+          <FileTreeNameInput
+            label={t(
+              rename
+                ? 'fileTreeMenu.rename'
+                : isFile
+                  ? 'fileTreeMenu.newFile'
+                  : 'fileTreeMenu.newFolder'
+            )}
             value={name}
             placeholder={inputConfig.fallbackName}
-            onChange={(e) => setName(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === 'Escape') {
-                e.preventDefault();
-                doCancel();
-              }
-              if (e.key === 'Enter') {
-                e.preventDefault();
-                void doConfirm();
-              }
+            selectName={rename}
+            error={rename ? renameError : null}
+            onChange={(value) => {
+              setName(value);
+              if (rename) setRenameError(null);
             }}
-            onBlur={() => {
-              if (name.trim()) {
-                void doConfirm();
-                return;
-              }
-              doCancel();
-            }}
+            onConfirm={doConfirm}
+            onCancel={doCancel}
           />
         </div>
       </div>
@@ -1510,90 +1762,96 @@ export function FileTreePanel({
     });
     return (
       <div key={node.path}>
-        <div className="file-tree-row-wrap">
-          <button
-            type="button"
-            className={rowClassName}
-            style={{ paddingLeft: `${depth * 10}px` }}
-            onClick={(event) => {
-              if (suppressClickPathRef.current === node.path) {
-                suppressClickPathRef.current = null;
-                event.preventDefault();
-                return;
-              }
-              setSelectedNodePath(node.path);
-              setSelectedNodeType(node.type);
-              if (isFolder) {
-                if (canExpand) {
-                  const shouldExpand = !expandedFolders.has(node.path);
-                  toggleFolder(node.path);
-                  if (shouldExpand && isLazyFolder) {
-                    void loadLazyDirectoryChildren(node.path);
-                  }
-                }
-                return;
-              }
-              if (onOpenFile) {
-                onOpenFile(node.path);
-              } else {
-                openPreview(node.path, event.currentTarget);
-              }
-            }}
-            onContextMenu={(event) => {
-              setSelectedNodePath(node.path);
-              setSelectedNodeType(node.type);
-              void showContextMenu(event, node.path, isFolder);
-            }}
-            onPointerDown={(event) =>
-              beginPointerDrag(
-                {
-                  fileName: node.name,
-                  relativePath: node.path,
-                  kind: isFolder ? 'directory' : 'file',
-                },
-                event
-              )
-            }
-            data-file-tree-drop-path={isFolder ? node.path : undefined}
-          >
-            {isFolder && canExpand ? (
-              <span
-                className={`file-tree-chevron${isExpanded ? ' is-open' : ''}`}
-              >
-                {'>'}
-              </span>
-            ) : (
-              <span className="file-tree-spacer" aria-hidden />
-            )}
-            <span className="file-tree-icon" aria-hidden>
-              <FileIcon
-                filePath={node.name}
-                isFolder={isFolder}
-                isOpen={isExpanded}
-              />
-            </span>
-            <span className={`file-tree-name${gitStatusClass}`}>
-              {node.name}
-            </span>
-          </button>
-          {onInsertText && (
+        {renameTarget?.path === node.path ? (
+          renderInlineNewInput(node.type, depth, true)
+        ) : (
+          <div className="file-tree-row-wrap">
             <button
               type="button"
-              className={`ghost icon-button file-tree-action${selectedNodePath === node.path ? ' is-visible' : ''}`}
-              onMouseDown={(event) => {
-                event.stopPropagation();
-              }}
+              className={rowClassName}
+              style={{ paddingLeft: `${depth * 10}px` }}
               onClick={(event) => {
-                event.stopPropagation();
-                onInsertText(getFileTreeMentionText(node.path, node.type));
+                if (suppressClickPathRef.current === node.path) {
+                  suppressClickPathRef.current = null;
+                  event.preventDefault();
+                  return;
+                }
+                setSelectedNodePath(node.path);
+                setSelectedNodeType(node.type);
+                if (isFolder) {
+                  if (canExpand) {
+                    const shouldExpand = !expandedFolders.has(node.path);
+                    toggleFolder(node.path);
+                    if (shouldExpand && isLazyFolder) {
+                      void loadLazyDirectoryChildren(node.path);
+                    }
+                  }
+                  return;
+                }
+                if (onOpenFile) {
+                  onOpenFile(node.path);
+                } else {
+                  openPreview(node.path, event.currentTarget);
+                }
               }}
-              aria-label={t('fileTreeMenu.referenceNode', { name: node.name })}
-              title={t('fileTreeMenu.referenceToChat')}
+              onContextMenu={(event) => {
+                setSelectedNodePath(node.path);
+                setSelectedNodeType(node.type);
+                void showContextMenu(event, node.path, isFolder);
+              }}
+              onPointerDown={(event) =>
+                beginPointerDrag(
+                  {
+                    fileName: node.name,
+                    relativePath: node.path,
+                    kind: isFolder ? 'directory' : 'file',
+                  },
+                  event
+                )
+              }
+              data-file-tree-drop-path={isFolder ? node.path : undefined}
             >
-              <Plus size={10} aria-hidden />
+              {isFolder && canExpand ? (
+                <span
+                  className={`file-tree-chevron${isExpanded ? ' is-open' : ''}`}
+                >
+                  {'>'}
+                </span>
+              ) : (
+                <span className="file-tree-spacer" aria-hidden />
+              )}
+              <span className="file-tree-icon" aria-hidden>
+                <FileIcon
+                  filePath={node.name}
+                  isFolder={isFolder}
+                  isOpen={isExpanded}
+                />
+              </span>
+              <span className={`file-tree-name${gitStatusClass}`}>
+                {node.name}
+              </span>
             </button>
-          )}
-        </div>
+            {onInsertText && (
+              <button
+                type="button"
+                className={`ghost icon-button file-tree-action${selectedNodePath === node.path ? ' is-visible' : ''}`}
+                onMouseDown={(event) => {
+                  event.stopPropagation();
+                }}
+                onClick={(event) => {
+                  event.stopPropagation();
+                  onInsertText(getFileTreeMentionText(node.path, node.type));
+                }}
+                aria-label={t('fileTreeMenu.referenceNode', {
+                  name: node.name,
+                })}
+                title={t('fileTreeMenu.referenceToChat')}
+              >
+                <Plus size={10} aria-hidden />
+              </button>
+            )}
+          </div>
+        )}
         {isFolder &&
           isExpanded &&
           !(isLazyFolder && node.children.length === 0) &&
@@ -1643,93 +1901,115 @@ export function FileTreePanel({
   return (
     <aside className="diff-panel file-tree-panel" ref={panelRef}>
       <div className="file-tree-top-zone">
-        <div className="file-tree-root-row">
-          <div className="file-tree-root-wrap">
-            <button
-              type="button"
-              className={`file-tree-row is-folder is-root${selectedNodePath === '' ? ' is-selected' : ''}${dropTargetPath === '' ? ' is-drop-target' : ''}`}
-              data-file-tree-drop-path=""
-              aria-expanded="true"
-              onClick={() => {
-                if (suppressClickPathRef.current === '') {
-                  suppressClickPathRef.current = null;
-                  return;
+        {searchOpen ? (
+          <div
+            className="file-tree-search-overlay"
+            data-file-tree-search-overlay=""
+          >
+            <WorkspaceFileSearchField
+              search={search}
+              autoFocus
+              focusNonce={searchFocusNonce}
+            />
+          </div>
+        ) : (
+          <div className="file-tree-root-row">
+            <div className="file-tree-root-wrap">
+              <button
+                type="button"
+                className={`file-tree-row is-folder is-root${selectedNodePath === '' ? ' is-selected' : ''}${dropTargetPath === '' ? ' is-drop-target' : ''}`}
+                data-file-tree-drop-path=""
+                aria-expanded="true"
+                onClick={() => {
+                  if (suppressClickPathRef.current === '') {
+                    suppressClickPathRef.current = null;
+                    return;
+                  }
+                  setSelectedNodePath('');
+                  setSelectedNodeType('folder');
+                }}
+                onContextMenu={(event) => {
+                  setSelectedNodePath('');
+                  setSelectedNodeType('folder');
+                  void showContextMenu(event, '', true);
+                }}
+                onPointerDown={(event) =>
+                  beginPointerDrag(
+                    {
+                      fileName: workspaceRootLabel,
+                      relativePath: '',
+                      kind: 'directory',
+                    },
+                    event
+                  )
                 }
-                setSelectedNodePath('');
-                setSelectedNodeType('folder');
-              }}
-              onContextMenu={(event) => {
-                setSelectedNodePath('');
-                setSelectedNodeType('folder');
-                void showContextMenu(event, '', true);
-              }}
-              onPointerDown={(event) =>
-                beginPointerDrag(
-                  {
-                    fileName: workspaceRootLabel,
-                    relativePath: '',
-                    kind: 'directory',
-                  },
-                  event
-                )
-              }
-            >
-              <span className="file-tree-name">{workspaceRootLabel}</span>
-            </button>
+              >
+                <span className="file-tree-name">{workspaceRootLabel}</span>
+              </button>
+            </div>
+            <div className="file-tree-root-actions">
+              <button
+                type="button"
+                className="ghost icon-button file-tree-root-action"
+                onClick={() => openNewFilePrompt(selectedParentFolder)}
+                aria-label={t('fileTreeMenu.newFile')}
+                title={t('fileTreeMenu.newFile')}
+              >
+                <FilePlus size={14} aria-hidden />
+              </button>
+              <button
+                type="button"
+                className="ghost icon-button file-tree-root-action"
+                onClick={() => openNewFolderPrompt(selectedParentFolder)}
+                aria-label={t('fileTreeMenu.newFolder')}
+                title={t('fileTreeMenu.newFolder')}
+              >
+                <FolderPlus size={14} aria-hidden />
+              </button>
+              <button
+                type="button"
+                className="ghost icon-button file-tree-root-action"
+                onClick={() => onRefreshFiles?.()}
+                disabled={!onRefreshFiles}
+                aria-label={t('fileTreeMenu.refreshFileTree')}
+                title={t('fileTreeMenu.refreshFileTree')}
+              >
+                <RefreshCw
+                  size={14}
+                  aria-hidden
+                  className={isLoading ? 'animate-spin' : undefined}
+                />
+              </button>
+              <button
+                type="button"
+                className="ghost icon-button file-tree-root-action"
+                onClick={toggleAllFolders}
+                disabled={!hasFolders}
+                aria-label={
+                  showCollapseAll
+                    ? t('fileTreeMenu.collapseAllFolders')
+                    : t('fileTreeMenu.expandAllFolders')
+                }
+                title={
+                  showCollapseAll
+                    ? t('fileTreeMenu.collapseAllFolders')
+                    : t('fileTreeMenu.expandAllFolders')
+                }
+              >
+                <SquareMinus size={14} aria-hidden />
+              </button>
+              <button
+                type="button"
+                className="ghost icon-button file-tree-root-action"
+                onClick={() => setSearchOpen(true)}
+                aria-label={t('fileTreeMenu.search')}
+                title={t('fileTreeMenu.search')}
+              >
+                <Search size={14} aria-hidden />
+              </button>
+            </div>
           </div>
-          <div className="file-tree-root-actions">
-            <button
-              type="button"
-              className="ghost icon-button file-tree-root-action"
-              onClick={() => openNewFilePrompt(selectedParentFolder)}
-              aria-label={t('fileTreeMenu.newFile')}
-              title={t('fileTreeMenu.newFile')}
-            >
-              <FilePlus size={14} aria-hidden />
-            </button>
-            <button
-              type="button"
-              className="ghost icon-button file-tree-root-action"
-              onClick={() => openNewFolderPrompt(selectedParentFolder)}
-              aria-label={t('fileTreeMenu.newFolder')}
-              title={t('fileTreeMenu.newFolder')}
-            >
-              <FolderPlus size={14} aria-hidden />
-            </button>
-            <button
-              type="button"
-              className="ghost icon-button file-tree-root-action"
-              onClick={() => onRefreshFiles?.()}
-              disabled={!onRefreshFiles}
-              aria-label={t('fileTreeMenu.refreshFileTree')}
-              title={t('fileTreeMenu.refreshFileTree')}
-            >
-              <RefreshCw
-                size={14}
-                aria-hidden
-                className={isLoading ? 'animate-spin' : undefined}
-              />
-            </button>
-            <button
-              type="button"
-              className="ghost icon-button file-tree-root-action"
-              onClick={toggleAllFolders}
-              disabled={!hasFolders}
-              aria-label={
-                showCollapseAll
-                  ? t('fileTreeMenu.collapseAllFolders')
-                  : t('fileTreeMenu.expandAllFolders')
-              }
-              title={
-                showCollapseAll
-                  ? t('fileTreeMenu.collapseAllFolders')
-                  : t('fileTreeMenu.expandAllFolders')
-              }
-            >
-              <SquareMinus size={14} aria-hidden />
-            </button>
-          </div>
-        </div>
+        )}
       </div>
       <div
         className="file-tree-list"
@@ -1747,7 +2027,12 @@ export function FileTreePanel({
           void showContextMenu(event, '', true);
         }}
       >
-        {showLoading ? (
+        {searchOpen && search.isSearchMode ? (
+          <WorkspaceFileSearchResults
+            search={search}
+            onOpenFile={(path, location) => onOpenFile?.(path, location)}
+          />
+        ) : showLoading ? (
           <div className="file-tree-skeleton">
             {Array.from({ length: 8 }).map((_, index) => (
               <div
@@ -1765,181 +2050,16 @@ export function FileTreePanel({
           </>
         )}
       </div>
-      {contextMenu
-        ? createPortal(
-            <div
-              ref={contextMenuRef}
-              className="fixed z-[10050] min-w-[220px] overflow-visible rounded-xl border border-border/80 bg-popover/95 p-1.5 text-popover-foreground shadow-2xl backdrop-blur-md"
-              style={deriveFileTreeContextMenuPosition({
-                x: contextMenu.x,
-                y: contextMenu.y,
-                viewportWidth: window.innerWidth,
-                viewportHeight: window.innerHeight,
-              })}
-            >
-              <div className="px-2.5 pb-1.5 pt-1 text-[11px] text-muted-foreground">
-                <div className="truncate font-medium text-foreground">
-                  {contextMenuHeader?.title}
-                </div>
-                {contextMenuHeader?.subtitle ? (
-                  <div className="truncate">{contextMenuHeader.subtitle}</div>
-                ) : null}
-              </div>
-
-              <button
-                type="button"
-                className="flex w-full items-center rounded-lg px-2.5 py-2 text-left text-sm transition-colors hover:bg-muted/70"
-                onPointerDown={(event) => {
-                  event.preventDefault();
-                  event.stopPropagation();
-                  closeContextMenu();
-                  openNewFilePrompt(contextMenuParentFolder);
-                }}
-              >
-                <span>{t('fileTreeMenu.newFile')}</span>
-              </button>
-              <button
-                type="button"
-                className="flex w-full items-center rounded-lg px-2.5 py-2 text-left text-sm transition-colors hover:bg-muted/70"
-                onPointerDown={(event) => {
-                  event.preventDefault();
-                  event.stopPropagation();
-                  closeContextMenu();
-                  openNewFolderPrompt(contextMenuParentFolder);
-                }}
-              >
-                <span>{t('fileTreeMenu.newFolder')}</span>
-              </button>
-              {!contextMenu.relativePath ? (
-                <>
-                  <button
-                    type="button"
-                    className="flex w-full items-center rounded-lg px-2.5 py-2 text-left text-sm transition-colors hover:bg-muted/70"
-                    onPointerDown={(event) => {
-                      event.preventDefault();
-                      event.stopPropagation();
-                      closeContextMenu();
-                      toggleAllFolders();
-                    }}
-                  >
-                    <span>
-                      {showCollapseAll
-                        ? t('common:contextMenu.collapseAll')
-                        : t('common:contextMenu.expandAll')}
-                    </span>
-                  </button>
-                  <button
-                    type="button"
-                    className="flex w-full items-center rounded-lg px-2.5 py-2 text-left text-sm transition-colors hover:bg-muted/70"
-                    onPointerDown={(event) => {
-                      event.preventDefault();
-                      event.stopPropagation();
-                      closeContextMenu();
-                      void writeClipboardViaBridge(
-                        formatFileTreeStructure(nodes)
-                      );
-                    }}
-                  >
-                    <span>{t('common:contextMenu.copyTreeStructure')}</span>
-                  </button>
-                  <button
-                    type="button"
-                    className="flex w-full items-center rounded-lg px-2.5 py-2 text-left text-sm transition-colors hover:bg-muted/70"
-                    onPointerDown={(event) => {
-                      event.preventDefault();
-                      event.stopPropagation();
-                      closeContextMenu();
-                      void copyAbsolutePath('');
-                    }}
-                  >
-                    <span>{t('common:contextMenu.copyRootPath')}</span>
-                  </button>
-                </>
-              ) : null}
-              <div className="relative">
-                <button
-                  type="button"
-                  className="flex w-full items-center rounded-lg px-2.5 py-2 text-left text-sm transition-colors hover:bg-muted/70"
-                  onMouseEnter={() => setCopySubmenuOpen(true)}
-                  onFocus={() => setCopySubmenuOpen(true)}
-                  onClick={(event) => {
-                    event.stopPropagation();
-                    setCopySubmenuOpen((prev) => !prev);
-                  }}
-                >
-                  <span>{t('fileTreeMenu.copy')}</span>
-                </button>
-                {copySubmenuOpen ? (
-                  <div className="absolute left-full top-0 z-10 ml-1 min-w-[220px] overflow-visible rounded-xl border border-border/80 bg-popover/95 p-1.5 text-popover-foreground shadow-2xl backdrop-blur-md">
-                    {contextMenu.relativePath && !contextMenu.isFolder ? (
-                      <button
-                        type="button"
-                        className="flex w-full items-center rounded-lg px-2.5 py-2 text-left text-sm transition-colors hover:bg-muted/70"
-                        onClick={() => {
-                          closeContextMenu();
-                          void duplicateItem(contextMenu.relativePath);
-                        }}
-                      >
-                        <span>{t('fileTreeMenu.duplicate')}</span>
-                      </button>
-                    ) : null}
-                    <button
-                      type="button"
-                      className="flex w-full items-center rounded-lg px-2.5 py-2 text-left text-sm transition-colors hover:bg-muted/70"
-                      onClick={() => {
-                        closeContextMenu();
-                        void copyRelativePath(contextMenu.relativePath);
-                      }}
-                    >
-                      <span>{t('fileTreeMenu.copyRelativePath')}</span>
-                    </button>
-                    <button
-                      type="button"
-                      className="flex w-full items-center rounded-lg px-2.5 py-2 text-left text-sm transition-colors hover:bg-muted/70"
-                      onClick={() => {
-                        closeContextMenu();
-                        void copyAbsolutePath(contextMenu.relativePath);
-                      }}
-                    >
-                      <span>{t('fileTreeMenu.copyAbsolutePath')}</span>
-                    </button>
-                  </div>
-                ) : null}
-              </div>
-              {localDesktopHost ? (
-                <button
-                  type="button"
-                  className="flex w-full items-center rounded-lg px-2.5 py-2 text-left text-sm transition-colors hover:bg-muted/70"
-                  onClick={() => {
-                    closeContextMenu();
-                    void openInFileManager(
-                      contextMenu.relativePath,
-                      contextMenu.isFolder
-                    );
-                  }}
-                >
-                  <span>{t('fileTreeMenu.openInFileManager')}</span>
-                </button>
-              ) : null}
-              {contextMenu.relativePath ? (
-                <button
-                  type="button"
-                  className="mt-1 flex w-full items-center rounded-lg px-2.5 py-2 text-left text-sm text-destructive transition-colors hover:bg-destructive/10"
-                  onClick={() => {
-                    closeContextMenu();
-                    void trashItem(
-                      contextMenu.relativePath,
-                      contextMenu.isFolder
-                    );
-                  }}
-                >
-                  <span>{t('common:delete')}</span>
-                </button>
-              ) : null}
-            </div>,
-            document.body
-          )
-        : null}
+      {contextMenu ? (
+        <ProductContextMenu
+          x={contextMenu.x}
+          y={contextMenu.y}
+          header={contextMenuHeader ?? undefined}
+          items={fileTreeContextMenuItems}
+          itemRole="button"
+          onClose={closeContextMenu}
+        />
+      ) : null}
       {previewPath && previewAnchor
         ? createPortal(
             <FilePreviewPopover

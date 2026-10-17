@@ -244,6 +244,28 @@ export function reconcilePendingMode(
   return pending;
 }
 
+/** Agent settled a different value; stop overlaying the refused pick. */
+export function dropPendingModeAfterRejection(
+  rejection: { config_id: string; requested_value: string },
+  pending: string | null
+): string | null {
+  if (!pending) return pending;
+  if (rejection.config_id === 'mode' || pending === rejection.requested_value) {
+    return null;
+  }
+  return pending;
+}
+
+export function dropPendingConfigValueAfterRejection(
+  configId: string,
+  values: Record<string, string>
+): Record<string, string> {
+  if (!(configId in values)) return values;
+  const next = { ...values };
+  delete next[configId];
+  return next;
+}
+
 export function areConfigValuesEqual(
   left: Record<string, string>,
   right: Record<string, string>

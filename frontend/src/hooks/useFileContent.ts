@@ -19,6 +19,7 @@ export function useFileContent(path: string | null) {
     queryFn: () => fileTreeApi.readFile(path!),
     enabled: !!path,
     staleTime: 2_000,
+    gcTime: 30_000,
     retry: false,
     meta: {
       suppressGlobalError: true,
@@ -34,6 +35,7 @@ export function useFileAtHead(path: string | null) {
     queryKey: fileContentKeys.headByPath(path),
     queryFn: () => fileTreeApi.getFileAtHead(path!),
     enabled: !!path,
+    gcTime: 30_000,
     retry: false,
     meta: {
       suppressGlobalError: true,
@@ -61,6 +63,7 @@ export function useBinaryAssetPreview(path: string | null) {
     queryFn: () => fileTreeApi.readBinaryAsset(path!),
     enabled: !!path,
     staleTime: 30_000,
+    gcTime: 15_000,
     retry: false,
     meta: {
       suppressGlobalError: true,
@@ -107,8 +110,13 @@ export function useSaveFile() {
   return useMutation({
     mutationFn: ({ path, content }: { path: string; content: string }) =>
       fileTreeApi.saveFile(path, content),
+    onMutate: ({ path }) =>
+      queryClient.cancelQueries({ queryKey: fileContentKeys.byPath(path) }),
     onSuccess: (_data, variables) => {
-      // Invalidate the file content cache for the saved file
+      queryClient.setQueryData(
+        fileContentKeys.byPath(variables.path),
+        variables.content
+      );
       queryClient.invalidateQueries({
         queryKey: fileContentKeys.byPath(variables.path),
       });

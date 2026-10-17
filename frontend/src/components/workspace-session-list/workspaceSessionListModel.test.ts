@@ -194,7 +194,7 @@ describe('groupWorkspaceSessions', () => {
     ]);
   });
 
-  it('keeps pinned sessions in workspace recency order', () => {
+  it('places pinned sessions at the top of their workspace group', () => {
     const main = workspace({ id: 'ws-main', branch: 'main', name: null });
     const groups = groupWorkspaceSessions([
       session({
@@ -211,8 +211,8 @@ describe('groupWorkspaceSessions', () => {
     ]);
 
     expect(groups[0]?.sessions.map((item) => item.id)).toEqual([
-      'newer',
       'pinned',
+      'newer',
     ]);
   });
 

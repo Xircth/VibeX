@@ -14,9 +14,9 @@ use agents::{
     TokioNativeFileSystem, apply_built_in_auth_mode_policy, apply_codex_auth_mode,
     apply_component_versions, auth_mode_credential_env, auth_mode_kind,
     authentication_from_account_command, built_in_auth_mode_policy, compose_agent_update_check,
-    native_uses_custom_endpoint, official_api_url, plan_runtime_acp_compatibility_warning,
-    project_codex_auth_mode, resolve_account_label, resolve_built_in_auth_mode,
-    resolve_observed_authentication, version_at_least,
+    native_uses_custom_endpoint, official_account_present, official_api_url,
+    plan_runtime_acp_compatibility_warning, project_codex_auth_mode, resolve_account_label,
+    resolve_built_in_auth_mode, resolve_observed_authentication, version_at_least,
 };
 use api_types::{
     AgentAccountFlowStatus, AgentAccountFlowView, AgentAuthModeKind, AgentAuthModeOptionView,
@@ -832,6 +832,12 @@ pub async fn run_action(
             ApplicationError::bad_request(format!("Agent `{agent_id}` 不支持动作 `{action_id}`"))
         })?;
 
+    if action.kind == ProfileManagementActionKind::Login
+        && agents::AgentKind::Antigravity.matches_id(agent_id.as_str())
+    {
+        return start_antigravity_login(pool, agent_id, action).await;
+    }
+
     if let Some(url) = action.url {
         utils::browser::open_browser(url)
             .await
@@ -883,6 +889,73 @@ pub async fn run_action(
     })
 }
 
+/// Signs in to Antigravity by running its ACP server until the browser OAuth
+/// it starts completes. The result reaches the UI through the same account-flow
+/// exit file a terminal action writes, so the frontend watches both alike.
+async fn start_antigravity_login(
+    pool: &SqlitePool,
+    agent_id: AgentId,
+    action: &agents::ProfileManagementAction,
+) -> Result<AgentManagementActionReceipt, ApplicationError> {
+    if let Some(pending) = account_flow::peek_account_flow(&agent_id) {
+        let is_finished =
+            if let Ok(contents) = tokio::fs::read_to_string(&pending.result_path).await {
+                account_flow::parse_account_flow_exit(&contents).is_some()
+            } else {
+                false
+            };
+        if is_finished {
+            account_flow::take_account_flow(&agent_id);
+            let _ = tokio::fs::remove_file(&pending.result_path).await;
+        } else {
+            return Err(ApplicationError::conflict(
+                "登录正在进行，请先在浏览器中完成",
+            ));
+        }
+    }
+    let mut environment = read_agent_environment(pool, &agent_id).await?;
+    let program = resolve_management_action_program(pool, &agent_id, action, &environment)
+        .await
+        .ok_or_else(|| {
+            ApplicationError::bad_request(format!(
+                "未找到 {}；请重新安装或修复此 Agent。",
+                management_program_names(action)
+            ))
+        })?;
+    let report = agents::apply_antigravity_launch_env(&mut environment);
+    if let (agents::AntigravitySyncStatus::Skipped, Some(reason)) = (report.status, report.reason) {
+        return Err(ApplicationError::bad_request(format!(
+            "无法写入 Antigravity 登录设置：{reason}"
+        )));
+    }
+    let cwd =
+        dirs::home_dir().ok_or_else(|| ApplicationError::internal("home directory missing"))?;
+    let result_path = account_flow::account_flow_result_path(&agent_id);
+    let _ = tokio::fs::remove_file(&result_path).await;
+    account_flow::register_account_flow(&agent_id, action.id, action.kind, result_path.clone());
+    let receipt = AgentManagementActionReceipt {
+        agent_id,
+        action_id: action.id.to_string(),
+        launched: true,
+    };
+    tokio::spawn(async move {
+        let outcome = agents::run_antigravity_login(
+            &program.path,
+            &program.args,
+            &environment,
+            &cwd,
+            agents::ANTIGRAVITY_LOGIN_TIMEOUT,
+        )
+        .await;
+        if let Err(reason) = &outcome {
+            tracing::warn!(%reason, "Antigravity sign-in failed");
+        }
+        let exit_code = i32::from(outcome.is_err());
+        let _ = tokio::fs::write(&result_path, format!("{exit_code}\n")).await;
+    });
+    Ok(receipt)
+}
+
 pub async fn account_flow_status(
     pool: &SqlitePool,
     agent_id: AgentId,
@@ -907,9 +980,19 @@ pub async fn account_flow_status(
     let recorded = recorded_authentication(pool, &agent_id).await;
     let authentication =
         authentication_from_account_command(pending.kind, exit_code).unwrap_or(recorded);
+    let service = AgentManagementApplicationService::new(pool.clone());
     if authentication != recorded {
-        AgentManagementApplicationService::new(pool.clone())
+        service
             .sync_authentication(&agent_id, authentication, None)
+            .await
+            .map_err(internal_error)?;
+    }
+    if let Some(commanded) = authentication_from_account_command(pending.kind, exit_code) {
+        service
+            .set_account_signed_out(
+                &agent_id,
+                commanded == AgentAuthenticationStatus::NotLoggedIn,
+            )
             .await
             .map_err(internal_error)?;
     }
@@ -986,6 +1069,16 @@ pub async fn auth_mode_set(
     }
     apply_built_in_auth_mode_policy(&agent_id, &mut env);
     persist_agent_environment(pool, &agent_id, &env).await?;
+    if agents::AgentKind::Antigravity.matches_id(agent_id.as_str()) {
+        let report = agents::apply_antigravity_launch_env(&mut env.clone());
+        if let (agents::AntigravitySyncStatus::Skipped, Some(reason)) =
+            (report.status, report.reason)
+        {
+            return Err(ApplicationError::bad_request(format!(
+                "无法写入 Antigravity 认证设置：{reason}"
+            )));
+        }
+    }
     let _ = persist_observed_authentication(pool, &agent_id).await;
     with_account_label(project_auth_mode_view(pool, agent_id, &env).await?).await
 }
@@ -1602,34 +1695,30 @@ async fn observed_authentication(
     env: &HashMap<String, String>,
 ) -> AgentAuthenticationStatus {
     let recorded = recorded_authentication(pool, agent_id).await;
+    let account_signed_out = AgentManagementApplicationService::new(pool.clone())
+        .account_signed_out(agent_id)
+        .await
+        .unwrap_or(false);
     let home = match dirs::home_dir() {
         Some(home) => home,
         None => return recorded,
     };
+    let account_logged_in = official_account_present(&home, agent_id, env).await;
     let provider = NativeConfigProvider::with_environment(
         Arc::new(TokioNativeFileSystem),
         home,
         env.clone().into_iter().collect::<BTreeMap<_, _>>(),
     );
-    let native = match provider
-        .read(agent_id, recorded == AgentAuthenticationStatus::Account)
-        .await
-    {
+    let native = match provider.read(agent_id, account_logged_in).await {
         Ok(snapshot) => snapshot.authentication,
         Err(agents::NativeConfigError::Unsupported(_)) => AgentAuthenticationStatus::NotRequired,
         Err(_) => recorded,
     };
-    if agent_id.as_str() == "omp" {
-        return agents::omp_live_account(
-            recorded,
-            native,
-            bound_provider_has_credentials(agent_id, env).await,
-        );
-    }
     resolve_observed_authentication(
         recorded,
         native,
         bound_provider_has_credentials(agent_id, env).await,
+        account_signed_out,
     )
 }
 

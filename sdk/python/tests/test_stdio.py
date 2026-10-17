@@ -44,6 +44,7 @@ class StdioProtocolTests(unittest.IsolatedAsyncioTestCase):
             }
         )
         initialized = await outbound.get()
+        self.assertEqual(session.frame_limits.max_frame_bytes, 1048576)
         self.assertEqual(initialized["result"]["protocolVersion"], "1.1")
         self.assertEqual(initialized["result"]["sdkVersion"], "1.0.0")
         self.assertEqual(initialized["result"]["registrations"], ["echo.run"])
@@ -114,6 +115,124 @@ class StdioProtocolTests(unittest.IsolatedAsyncioTestCase):
         )
         response = await outbound.get()
         self.assertEqual(response["error"]["code"], "protocol_unsupported")
+        await session.close()
+
+    async def test_accepts_frames_larger_than_one_mib(self) -> None:
+        import json
+        from vibex_plugin.stdio import MAX_FRAME_BYTES
+
+        self.assertGreaterEqual(MAX_FRAME_BYTES, 32 * 1024 * 1024)
+        outbound: asyncio.Queue[dict] = asyncio.Queue()
+        session = PluginWorkerSession(
+            define_plugin_worker(lambda registrar, _env: registrar.handle("hello", lambda v, _e: v)),
+            outbound.put,
+        )
+        await session.handle_message(
+            {
+                "id": "1",
+                "method": "activate",
+                "params": {
+                    "pluginId": "echo",
+                    "pluginVersion": "1.0.0",
+                    "generation": 1,
+                    "packageClass": "full-trust",
+                    "grantedCapabilities": ["*"],
+                },
+            }
+        )
+        await outbound.get()
+        large_payload = "x" * (2 * 1024 * 1024)
+        await session.handle_line(
+            json.dumps(
+                {
+                    "id": "2",
+                    "method": "invoke",
+                    "params": {"handler": "hello", "input": large_payload},
+                }
+            )
+        )
+        response = await asyncio.wait_for(outbound.get(), timeout=5)
+        self.assertEqual(response["id"], "2")
+        self.assertEqual(response["ok"], True)
+        self.assertEqual(len(response["result"]), 2 * 1024 * 1024)
+        await session.close()
+
+    async def test_reassembles_a_chunked_image_and_continues(self) -> None:
+        import json
+
+        from vibex_plugin.frame import FrameLimits, encode_message
+
+        outbound: asyncio.Queue[dict] = asyncio.Queue()
+        session = PluginWorkerSession(
+            define_plugin_worker(lambda registrar, _env: registrar.handle("draw", lambda value, _e: value)),
+            outbound.put,
+        )
+        await session.handle_message(
+            {
+                "id": "1",
+                "method": "activate",
+                "params": {
+                    "pluginId": "studio.draw",
+                    "pluginVersion": "1.0.0",
+                    "generation": 1,
+                    "packageClass": "full-trust",
+                    "grantedCapabilities": ["*"],
+                },
+            }
+        )
+        await outbound.get()
+        await session.handle_line(
+            json.dumps({"id": "chunk:0", "method": "image.chunk", "params": {"index": 0, "data": "AAAA"}})
+        )
+        rejected = await outbound.get()
+        self.assertEqual(rejected["error"]["code"], "protocol_invalid")
+        image = "A" * 4000
+        frames = encode_message(
+            {"id": "2", "method": "invoke", "params": {"handler": "draw", "input": {"data": image}}},
+            FrameLimits(max_frame_bytes=180, max_logical_bytes=64 * 1024),
+        )
+        self.assertGreater(len(frames), 1)
+        for frame in frames:
+            await session.handle_line(frame)
+        response = await asyncio.wait_for(outbound.get(), timeout=5)
+        self.assertEqual(response["ok"], True)
+        self.assertEqual(response["result"]["data"], image)
+        await session.close()
+
+    async def test_advertised_frame_limit_rejects_a_larger_line(self) -> None:
+        outbound: asyncio.Queue[dict] = asyncio.Queue()
+        session = PluginWorkerSession(
+            define_plugin_worker(lambda registrar, _env: registrar.handle("draw", lambda value, _e: value)),
+            outbound.put,
+        )
+        await session.handle_message(
+            {
+                "id": "1",
+                "method": "initialize",
+                "params": {
+                    "protocolRange": ["1.1"],
+                    "hostVersion": "0.2.8",
+                    "pluginIdentity": {"publisher": "studio", "id": "draw"},
+                    "packageVersion": "1.0.0",
+                    "packageDigest": "sha256:test",
+                    "generationId": 1,
+                    "declaredContributions": [],
+                    "packageClass": "full-trust",
+                    "features": [],
+                    "limits": {"maxFrameBytes": 1024 * 1024, "requestTimeoutMs": 30000},
+                    "runtime": {
+                        "id": "python",
+                        "version": "3.12",
+                        "target": "test",
+                        "digest": "sha256:host",
+                    },
+                },
+            }
+        )
+        self.assertEqual((await outbound.get())["ok"], True)
+        await session.handle_line("x" * (1024 * 1024 + 32))
+        rejected = await outbound.get()
+        self.assertEqual(rejected["error"]["code"], "worker_frame_too_large")
         await session.close()
 
     async def test_isolated_exports_worker_not_fs_helpers(self) -> None:

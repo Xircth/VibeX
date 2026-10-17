@@ -1,5 +1,7 @@
 import { useTranslation } from 'react-i18next';
 
+import { agentBarLayoutStyle } from './agentBarOrder';
+
 export function AgentSettingsLoading() {
   const { t } = useTranslation('settings');
 
@@ -10,21 +12,28 @@ export function AgentSettingsLoading() {
       aria-busy="true"
       aria-label={t('agents.loadingAgent')}
     >
-      <div className="flex shrink-0 items-center gap-2" aria-hidden="true">
-        <nav className="agent-management-bar">
-          <span className="agent-management-bar-surface" />
-          <div className="agent-management-bar-scroll">
-            {Array.from({ length: 6 }, (_, index) => (
-              <span
-                className="agent-management-bar-item agent-settings-loading-mark"
-                key={index}
-              />
-            ))}
+      <nav
+        className="agent-management-bar"
+        style={agentBarLayoutStyle}
+        aria-hidden="true"
+      >
+        <div className="agent-management-bar-viewport">
+          <div className="agent-management-bar-track">
+            <div className="agent-management-bar-page">
+              {Array.from({ length: 6 }, (_, index) => (
+                <span
+                  className="agent-management-bar-item agent-settings-loading-mark"
+                  key={index}
+                />
+              ))}
+            </div>
           </div>
-          <span className="agent-management-bar-item agent-management-bar-add agent-settings-loading-mark" />
-        </nav>
-        <span className="agent-settings-loading-refresh" />
-      </div>
+        </div>
+        <div className="agent-management-bar-tail">
+          <span className="agent-settings-loading-refresh" />
+          <span className="agent-settings-loading-refresh" />
+        </div>
+      </nav>
 
       <header className="agent-detail-header" aria-hidden="true">
         <div className="agent-detail-header-identity">

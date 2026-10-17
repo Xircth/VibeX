@@ -54,6 +54,10 @@ vi.mock('@/lib/backendTransport', () => ({
   backendCall,
   backendListen,
   backendEmit: vi.fn(async () => {}),
+  configuredBackendTransport: {
+    call: backendCall,
+    environment: 'desktop',
+  },
 }));
 
 vi.mock('@/lib/composerInsert', () => ({
@@ -208,7 +212,7 @@ describe('HostBrowserPanel', () => {
     ).toBeInTheDocument();
   });
 
-  it('keeps the shared-access chip outside the address field', async () => {
+  it('keeps the shared-access avatar inside the address field', async () => {
     const user = userEvent.setup();
     backendCall.mockResolvedValue({
       tabId: 'tab-share',
@@ -227,8 +231,23 @@ describe('HostBrowserPanel', () => {
     const shared = await screen.findByRole('button', {
       name: i18n.t('browserPanel.sharedControl', { ns: 'panels' }),
     });
+    const pick = screen.getByRole('button', {
+      name: i18n.t('browserPanel.pick', { ns: 'panels' }),
+    });
+    const field = screen.getByRole('combobox').closest('.relative');
+    expect(field?.contains(shared)).toBe(true);
+    expect(field?.contains(pick)).toBe(true);
     expect(
-      screen.getByRole('combobox').closest('.relative')?.contains(shared)
+      pick.compareDocumentPosition(shared) & Node.DOCUMENT_POSITION_FOLLOWING
+    ).toBeTruthy();
+    expect(shared.textContent?.trim()).toBe('');
+    expect(shared.className).not.toMatch(/hover:bg/);
+    expect(
+      field?.contains(
+        screen.getByRole('button', {
+          name: i18n.t('browserPanel.more', { ns: 'panels' }),
+        })
+      )
     ).toBe(false);
   });
 
@@ -366,8 +385,32 @@ describe('HostBrowserPanel', () => {
     const addressField = screen.getByRole('combobox', {
       name: label('address'),
     });
+    expect(addressField.parentElement?.className ?? '').toContain(
+      '[&_input]:!text-[12px]'
+    );
+    expect(addressField.style.getPropertyValue('font-size')).toBe('12px');
+    expect(addressField.style.getPropertyPriority('font-size')).toBe(
+      'important'
+    );
     const share = screen.getByRole('button', { name: label('share') });
-    expect(addressField.closest('.relative')?.contains(share)).toBe(false);
+    const pick = screen.getByRole('button', { name: label('pick') });
+    const field = addressField.closest('.relative');
+    expect(field?.contains(share)).toBe(true);
+    expect(
+      pick.compareDocumentPosition(share) & Node.DOCUMENT_POSITION_FOLLOWING
+    ).toBeTruthy();
+    expect(
+      screen
+        .getByRole('button', { name: label('screenshot') })
+        .compareDocumentPosition(
+          screen.getByRole('button', { name: label('devtools') })
+        ) & Node.DOCUMENT_POSITION_FOLLOWING
+    ).toBeTruthy();
+    expect(
+      screen
+        .getByRole('button', { name: label('devtools') })
+        .compareDocumentPosition(pick) & Node.DOCUMENT_POSITION_FOLLOWING
+    ).toBeTruthy();
   });
 
   it('applies load-finished events that arrive before tab.create returns', async () => {
@@ -619,7 +662,7 @@ describe('HostBrowserPanel', () => {
     });
   });
 
-  it('suggests only URLs, with visited rows last and titled', async () => {
+  it('suggests visited URLs before the unmatched site, with titles', async () => {
     const user = userEvent.setup();
     window.localStorage.setItem(
       ADDRESS_HISTORY_KEY,
@@ -648,9 +691,10 @@ describe('HostBrowserPanel', () => {
     );
     await user.type(screen.getByRole('combobox'), 'github');
     const options = await screen.findAllByRole('option');
-    expect(options).toHaveLength(2);
     expect(options[0]).toHaveTextContent('xintaofei/codeg');
     expect(options[1]).toHaveTextContent('Xircth/VibeX');
+    expect(options.at(-1)).toHaveTextContent('github.com');
+    expect(options.length).toBeGreaterThanOrEqual(3);
     expect(options[0].querySelector('img')?.getAttribute('src')).toBe(
       'https://github.com/favicon.ico'
     );
@@ -948,7 +992,7 @@ describe('HostBrowserPanel', () => {
     );
   });
 
-  it('freezes a page screenshot before hiding the native surface under an overlay', async () => {
+  it('parks the native page behind a freeze-frame before chrome covers it', async () => {
     const user = userEvent.setup();
     backendCall.mockImplementation(
       (_command: string, args: { input?: { operation?: string } }) => {
@@ -982,7 +1026,188 @@ describe('HostBrowserPanel', () => {
         })
       )
     );
+    backendCall.mockClear();
     overlayOcclusion.fire({ hide: true, rects: [] });
+    await waitFor(() => {
+      const frame = screen
+        .getByTestId('host-browser-surface')
+        .querySelector('img');
+      expect(frame).toHaveAttribute('src', 'data:image/png;base64,ZmFrZQ==');
+    });
+    await waitFor(() =>
+      expect(backendCall).toHaveBeenCalledWith(
+        'plugin_invoke_contribution',
+        expect.objectContaining({
+          input: expect.objectContaining({
+            operation: 'surface.set',
+            input: expect.objectContaining({
+              bounds: expect.objectContaining({ visible: false }),
+            }),
+          }),
+        })
+      )
+    );
+    const freezeIndex = backendCall.mock.calls.findIndex(
+      ([, args]) => args?.input?.operation === 'surface.freeze'
+    );
+    const hideIndex = backendCall.mock.calls.findIndex(
+      ([, args]) =>
+        args?.input?.operation === 'surface.set' &&
+        args?.input?.input?.bounds?.visible === false
+    );
+    expect(freezeIndex).toBeGreaterThanOrEqual(0);
+    expect(hideIndex).toBeGreaterThan(freezeIndex);
+  });
+
+  it('keeps the freeze-frame up until the destination slot is stable', async () => {
+    const user = userEvent.setup();
+    backendCall.mockImplementation(
+      (_command: string, args: { input?: { operation?: string } }) => {
+        if (args?.input?.operation === 'tab.create') {
+          return Promise.resolve({
+            tabId: 'tab-1',
+            url: 'https://github.com/',
+            title: 'GitHub',
+            grant: { level: 'none' },
+          });
+        }
+        if (args?.input?.operation === 'surface.freeze') {
+          return Promise.resolve({ mime: 'image/png', data: 'ZmFrZQ==' });
+        }
+        return Promise.resolve({ ok: true, messages: [] });
+      }
+    );
+    render(
+      <HostBrowserPanel
+        pluginId="vibex.browser"
+        panelVisible
+        requestedUrl={null}
+      />
+    );
+    await user.type(screen.getByRole('combobox'), 'github.com{enter}');
+    await waitFor(() =>
+      expect(backendCall).toHaveBeenCalledWith(
+        'plugin_invoke_contribution',
+        expect.objectContaining({
+          input: expect.objectContaining({ operation: 'tab.create' }),
+        })
+      )
+    );
+    const surface = screen.getByTestId('host-browser-surface');
+    const rectAt = (width: number) =>
+      ({
+        x: 40,
+        y: 80,
+        width,
+        height: 700,
+        top: 80,
+        left: 40,
+        right: 40 + width,
+        bottom: 780,
+        toJSON() {
+          return this;
+        },
+      }) as DOMRect;
+    let slotWidth = 1200;
+    surface.getBoundingClientRect = () => rectAt(slotWidth);
+    overlayOcclusion.fire({ hide: true, rects: [] });
+    await waitFor(() =>
+      expect(
+        screen.getByTestId('host-browser-surface').querySelector('img')
+      ).toHaveAttribute('src', 'data:image/png;base64,ZmFrZQ==')
+    );
+    backendCall.mockClear();
+    slotWidth = 800;
+    overlayOcclusion.fire({ hide: false, rects: [] });
+    expect(
+      screen.getByTestId('host-browser-surface').querySelector('img')
+    ).toHaveAttribute('src', 'data:image/png;base64,ZmFrZQ==');
+    await waitFor(
+      () =>
+        expect(backendCall).toHaveBeenCalledWith(
+          'plugin_invoke_contribution',
+          expect.objectContaining({
+            input: expect.objectContaining({
+              operation: 'surface.set',
+              input: expect.objectContaining({
+                bounds: expect.objectContaining({
+                  visible: true,
+                  width: 800,
+                }),
+              }),
+            }),
+          })
+        ),
+      { timeout: 2000 }
+    );
+    const shown = backendCall.mock.calls.filter(
+      ([, args]) =>
+        args?.input?.operation === 'surface.set' &&
+        args?.input?.input?.bounds?.visible === true
+    );
+    expect(
+      shown.some(([, args]) => args?.input?.input?.bounds?.width === 1200)
+    ).toBe(false);
+    await waitFor(() =>
+      expect(
+        screen.getByTestId('host-browser-surface').querySelector('img')
+      ).toBeNull()
+    );
+  });
+
+  it('freezes a page screenshot before hiding the native surface under a popover', async () => {
+    const user = userEvent.setup();
+    backendCall.mockImplementation(
+      (_command: string, args: { input?: { operation?: string } }) => {
+        if (args?.input?.operation === 'tab.create') {
+          return Promise.resolve({
+            tabId: 'tab-1',
+            url: 'https://github.com/',
+            title: 'GitHub',
+            grant: { level: 'none' },
+          });
+        }
+        if (args?.input?.operation === 'surface.freeze') {
+          return Promise.resolve({ mime: 'image/png', data: 'ZmFrZQ==' });
+        }
+        return Promise.resolve({ ok: true, messages: [] });
+      }
+    );
+    render(
+      <HostBrowserPanel
+        pluginId="vibex.browser"
+        panelVisible
+        requestedUrl={null}
+      />
+    );
+    await user.type(screen.getByRole('combobox'), 'github.com{enter}');
+    await waitFor(() =>
+      expect(backendCall).toHaveBeenCalledWith(
+        'plugin_invoke_contribution',
+        expect.objectContaining({
+          input: expect.objectContaining({ operation: 'tab.create' }),
+        })
+      )
+    );
+    const surface = screen.getByTestId('host-browser-surface');
+    surface.getBoundingClientRect = () =>
+      ({
+        x: 400,
+        y: 80,
+        width: 800,
+        height: 500,
+        top: 80,
+        left: 400,
+        right: 1200,
+        bottom: 580,
+        toJSON() {
+          return this;
+        },
+      }) as DOMRect;
+    overlayOcclusion.fire({
+      hide: false,
+      rects: [{ x: 420, y: 100, width: 200, height: 180 }],
+    });
     await waitFor(() =>
       expect(backendCall).toHaveBeenCalledWith(
         'plugin_invoke_contribution',
@@ -1046,7 +1271,25 @@ describe('HostBrowserPanel', () => {
         })
       )
     );
-    overlayOcclusion.fire({ hide: true, rects: [] });
+    const surface = screen.getByTestId('host-browser-surface');
+    surface.getBoundingClientRect = () =>
+      ({
+        x: 400,
+        y: 80,
+        width: 800,
+        height: 500,
+        top: 80,
+        left: 400,
+        right: 1200,
+        bottom: 580,
+        toJSON() {
+          return this;
+        },
+      }) as DOMRect;
+    overlayOcclusion.fire({
+      hide: false,
+      rects: [{ x: 420, y: 100, width: 200, height: 180 }],
+    });
     await waitFor(() =>
       expect(backendCall).toHaveBeenCalledWith(
         'plugin_invoke_contribution',
@@ -1096,7 +1339,26 @@ describe('HostBrowserPanel', () => {
         })
       )
     );
-    overlayOcclusion.fire({ hide: true, rects: [] });
+    const surface = screen.getByTestId('host-browser-surface');
+    surface.getBoundingClientRect = () =>
+      ({
+        x: 400,
+        y: 80,
+        width: 800,
+        height: 500,
+        top: 80,
+        left: 400,
+        right: 1200,
+        bottom: 580,
+        toJSON() {
+          return this;
+        },
+      }) as DOMRect;
+    const popover = {
+      hide: false,
+      rects: [{ x: 420, y: 100, width: 200, height: 180 }],
+    };
+    overlayOcclusion.fire(popover);
     await waitFor(() =>
       expect(
         screen.getByTestId('host-browser-surface').querySelector('img')
@@ -1109,7 +1371,7 @@ describe('HostBrowserPanel', () => {
       ).toBeNull()
     );
     backendCall.mockClear();
-    overlayOcclusion.fire({ hide: true, rects: [] });
+    overlayOcclusion.fire(popover);
     await waitFor(() =>
       expect(
         screen.getByTestId('host-browser-surface').querySelector('img')

@@ -9,7 +9,7 @@ import type {
   PluginControlItem,
 } from './plugins';
 
-const MAX_SURFACE_DOCUMENT_BYTES = 2_000_000;
+const MAX_SURFACE_DOCUMENT_BYTES = 16 * 1024 * 1024;
 
 function missingCommand(cause: unknown, command: string) {
   const message = cause instanceof Error ? cause.message : String(cause);

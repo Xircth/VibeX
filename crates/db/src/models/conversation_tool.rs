@@ -31,7 +31,7 @@ pub struct UpsertConversationToolCall<'a> {
     pub tool_call_id: &'a str,
     pub title: Option<&'a str>,
     pub kind: Option<&'a str>,
-    pub status: &'a str,
+    pub status: Option<&'a str>,
     pub raw_input_json: Option<&'a str>,
     pub raw_output_json: Option<&'a str>,
     pub content_json: Option<&'a str>,
@@ -64,18 +64,23 @@ impl ConversationToolCallRecord {
     where
         E: Executor<'e, Database = Sqlite>,
     {
+        // The protocol uses in_progress; this table has a closed status vocabulary.
+        let status = input.status.map(|status| match status {
+            "pending" | "running" | "completed" | "failed" | "cancelled" => status,
+            _ => "running",
+        });
         sqlx::query_as::<_, Self>(&format!(
             r#"INSERT INTO conversation_tool_calls (
                    id, conversation_id, turn_id, tool_call_id, title, kind,
                    status, raw_input_json, raw_output_json, content_json,
                    locations_json, metadata_json, images_json
                )
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+               VALUES (?, ?, ?, ?, ?, ?, COALESCE(?, 'running'), ?, ?, ?, ?, ?, ?)
                ON CONFLICT(conversation_id, tool_call_id) DO UPDATE SET
                    turn_id = excluded.turn_id,
                    title = COALESCE(excluded.title, conversation_tool_calls.title),
                    kind = COALESCE(excluded.kind, conversation_tool_calls.kind),
-                   status = excluded.status,
+                   status = COALESCE(?, conversation_tool_calls.status),
                    raw_input_json = COALESCE(excluded.raw_input_json, conversation_tool_calls.raw_input_json),
                    raw_output_json = COALESCE(excluded.raw_output_json, conversation_tool_calls.raw_output_json),
                    content_json = COALESCE(excluded.content_json, conversation_tool_calls.content_json),
@@ -91,13 +96,14 @@ impl ConversationToolCallRecord {
         .bind(input.tool_call_id)
         .bind(input.title)
         .bind(input.kind)
-        .bind(input.status)
+        .bind(status)
         .bind(input.raw_input_json)
         .bind(input.raw_output_json)
         .bind(input.content_json)
         .bind(input.locations_json)
         .bind(input.metadata_json)
         .bind(input.images_json)
+        .bind(status)
         .fetch_one(executor)
         .await
     }

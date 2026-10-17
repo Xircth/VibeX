@@ -1,5 +1,7 @@
 import { memo, useCallback } from 'react';
-import { Plus, Minus, Undo2 } from 'lucide-react';
+import { Eye, Plus, Minus, Undo2 } from 'lucide-react';
+import { ButtonGroup } from '@astryxdesign/core/ButtonGroup';
+import { IconButton } from '@astryxdesign/core/IconButton';
 import type { GitFileStatusEntry } from 'shared/types';
 import FileIcon from '@/components/FileIcon';
 import { GitStatusBadge } from './GitStatusBadge';
@@ -12,7 +14,9 @@ interface GitFileRowProps {
   section: FileSection;
   isActive: boolean;
   isSelected?: boolean;
+  indentPx?: number;
   onSelect: (path: string, e?: React.MouseEvent) => void;
+  onReviewFile?: (path: string) => void;
   onDoubleClick?: (path: string) => void;
   onContextMenu?: (path: string, e: React.MouseEvent) => void;
   onStageFile?: (path: string) => void;
@@ -31,7 +35,9 @@ export const GitFileRow = memo(function GitFileRow({
   section,
   isActive,
   isSelected = false,
+  indentPx = 0,
   onSelect,
+  onReviewFile,
   onDoubleClick,
   onContextMenu,
   onStageFile,
@@ -59,9 +65,10 @@ export const GitFileRow = memo(function GitFileRow({
 
   return (
     <div
-      className={`group cursor-pointer border-b border-border/20 px-2 py-1.5 text-xs hover:bg-accent/50 ${
+      className={`group flex min-h-[38px] cursor-pointer items-center gap-2 rounded-md px-2 py-1 text-xs transition-colors hover:bg-accent/50 ${
         highlight ? 'bg-accent/60' : ''
       }${isSelected ? ' ring-1 ring-inset ring-ring/30' : ''}`}
+      style={indentPx > 0 ? { paddingLeft: `${8 + indentPx}px` } : undefined}
       role="button"
       tabIndex={0}
       onClick={handleClick}
@@ -70,68 +77,84 @@ export const GitFileRow = memo(function GitFileRow({
       onKeyDown={(e) => {
         if (e.key === 'Enter' || e.key === ' ') onSelect(file.path);
       }}
-      title={file.path}
       data-section={section}
       data-status={file.status}
     >
-      <div className="flex min-w-0 items-start gap-2">
+      <FileIcon filePath={name} className="shrink-0 self-center" />
+      <div className="flex min-w-0 flex-1 flex-col justify-center self-center">
+        <div className="truncate text-xs font-bold leading-tight text-foreground">
+          {name}
+        </div>
+        <div className="truncate text-[10px] leading-tight text-muted-foreground/90">
+          {file.path.replace(/\\/g, '/')}
+        </div>
+      </div>
+      <div className="ml-auto flex h-5 shrink-0 items-center justify-end gap-1.5 self-center">
         <GitStatusBadge status={file.status} />
-        <FileIcon filePath={name} className="mt-[1px]" />
-        <div className="min-w-0 flex-1">
-          <div className="flex min-w-0 items-center gap-2">
-            <span className="min-w-0 flex-1 truncate font-mono text-xs leading-tight text-foreground">
-              {name}
-            </span>
-            <div className="ml-auto flex shrink-0 items-center justify-end gap-1">
-              <GitChangeStats
-                additions={file.additions}
-                deletions={file.deletions}
-              />
+        <GitChangeStats
+          additions={file.additions}
+          deletions={file.deletions}
+          className="group-hover:hidden"
+        />
 
-              {/* Hover action buttons */}
-              <div className="hidden shrink-0 items-center justify-end gap-0.5 group-hover:flex">
-                {section === 'unstaged' && (
-                  <>
-                    <button
-                      className="rounded p-0.5 text-muted-foreground hover:bg-background hover:text-foreground"
-                      onClick={(e) => {
-                        stop(e);
-                        onStageFile?.(file.path);
-                      }}
-                      title="Stage"
-                    >
-                      <Plus className="h-3 w-3" />
-                    </button>
-                    <button
-                      className="rounded p-0.5 text-muted-foreground hover:bg-background hover:text-destructive"
-                      onClick={(e) => {
-                        stop(e);
-                        onRevertFile?.(file.path);
-                      }}
-                      title="Discard changes"
-                    >
-                      <Undo2 className="h-3 w-3" />
-                    </button>
-                  </>
-                )}
-                {section === 'staged' && (
-                  <button
-                    className="rounded p-0.5 text-muted-foreground hover:bg-background hover:text-foreground"
-                    onClick={(e) => {
-                      stop(e);
-                      onUnstageFile?.(file.path);
-                    }}
-                    title="Unstage"
-                  >
-                    <Minus className="h-3 w-3" />
-                  </button>
-                )}
-              </div>
-            </div>
-          </div>
-          <div className="truncate text-[10px] leading-tight text-muted-foreground/90">
-            {file.path.replace(/\\/g, '/')}
-          </div>
+        {/* Hover action button group */}
+        <div
+          className="hidden h-5 shrink-0 items-center group-hover:inline-flex"
+          onClick={stop}
+          onDoubleClick={stop}
+        >
+          <ButtonGroup label="File actions" size="sm">
+            <IconButton
+              label="Review"
+              variant="secondary"
+              size="sm"
+              className="!h-5 !w-5 [&_svg]:!h-3 [&_svg]:!w-3"
+              icon={<Eye className="h-3 w-3" />}
+              onClick={(e) => {
+                stop(e);
+                (onReviewFile ?? onSelect)(file.path);
+              }}
+            />
+            {section === 'unstaged' && (
+              <>
+                <IconButton
+                  label="Stage"
+                  variant="secondary"
+                  size="sm"
+                  className="!h-5 !w-5 [&_svg]:!h-3 [&_svg]:!w-3"
+                  icon={<Plus className="h-3 w-3" />}
+                  onClick={(e) => {
+                    stop(e);
+                    onStageFile?.(file.path);
+                  }}
+                />
+                <IconButton
+                  label="Discard Changes"
+                  variant="secondary"
+                  size="sm"
+                  className="!h-5 !w-5 hover:!text-destructive [&_svg]:!h-3 [&_svg]:!w-3"
+                  icon={<Undo2 className="h-3 w-3" />}
+                  onClick={(e) => {
+                    stop(e);
+                    onRevertFile?.(file.path);
+                  }}
+                />
+              </>
+            )}
+            {section === 'staged' && (
+              <IconButton
+                label="Unstage"
+                variant="secondary"
+                size="sm"
+                className="!h-5 !w-5 [&_svg]:!h-3 [&_svg]:!w-3"
+                icon={<Minus className="h-3 w-3" />}
+                onClick={(e) => {
+                  stop(e);
+                  onUnstageFile?.(file.path);
+                }}
+              />
+            )}
+          </ButtonGroup>
         </div>
       </div>
     </div>

@@ -9,7 +9,7 @@ use std::{
 use agents::{
     AgentAuthenticationStatus, AgentId, BoundaryError, ConfigApplyEffect, NativeConfigFilePatch,
     NativeConfigFormat, NativeConfigPatch, NativeConfigProvider, NativeConfigSaveError,
-    NativeFileMetadata, NativeFileMutation, NativeFileSystem, TokioNativeFileSystem,
+    NativeFileMetadata, NativeFileMutation, NativeFileSystem,
 };
 use async_trait::async_trait;
 use support::management::MemoryNativeFileSystem;
@@ -65,6 +65,8 @@ impl NativeFileSystem for FailSecondWriteFileSystem {
 #[tokio::test]
 async fn native_filesystem_keeps_sensitive_documents_private() {
     use std::os::unix::fs::PermissionsExt;
+
+    use agents::TokioNativeFileSystem;
 
     let temp = tempfile::tempdir().unwrap();
     let path = temp.path().join("auth.json");

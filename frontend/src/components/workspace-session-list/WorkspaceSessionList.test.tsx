@@ -363,7 +363,7 @@ describe('WorkspaceSessionList', () => {
     expect(titles[1]).toMatch(/Newer session prompt/);
   });
 
-  it('mirrors pinned sessions in a pinned group without reordering the workspace', () => {
+  it('pins sessions at the top of their belonging workspace group without a duplicate pinned group', () => {
     const main = workspace({ id: 'ws-main', branch: 'main' });
     render(
       <WorkspaceSessionList
@@ -392,14 +392,14 @@ describe('WorkspaceSessionList', () => {
 
     expect(
       screen
-        .getAllByRole('button', { name: '置顶' })
+        .queryAllByRole('button', { name: '置顶' })
         .some((button) =>
           button.classList.contains('workspace-session-group-header')
         )
-    ).toBe(true);
+    ).toBe(false);
     expect(
       screen.getAllByRole('button', { name: /Pinned session prompt/ })
-    ).toHaveLength(2);
+    ).toHaveLength(1);
 
     const titles = screen
       .getAllByRole('button')
@@ -408,7 +408,6 @@ describe('WorkspaceSessionList', () => {
 
     expect(titles[0]).toMatch(/Pinned session prompt/);
     expect(titles[1]).toMatch(/Newer session prompt/);
-    expect(titles[2]).toMatch(/Pinned session prompt/);
   });
 
   it('hides the pinned group until a session is pinned', () => {
@@ -427,8 +426,12 @@ describe('WorkspaceSessionList', () => {
     );
 
     expect(
-      screen.queryByRole('button', { name: '置顶' })
-    ).not.toBeInTheDocument();
+      screen
+        .queryAllByRole('button', { name: '置顶' })
+        .some((button) =>
+          button.classList.contains('workspace-session-group-header')
+        )
+    ).toBe(false);
   });
 
   it('shows checkboxes in delete mode instead of opening a session', () => {
@@ -458,8 +461,9 @@ describe('WorkspaceSessionList', () => {
     expect(onSessionClick).not.toHaveBeenCalled();
   });
 
-  it('reveals pin, edit, and delete actions on hover instead of archive', () => {
+  it('reveals 3-dot, pin, and archive actions on hover and opens the 3-dot options menu', () => {
     const onPinSession = vi.fn();
+    const onArchiveSession = vi.fn();
     const onRenameSession = vi.fn();
     const onDeleteSession = vi.fn();
     render(
@@ -467,6 +471,7 @@ describe('WorkspaceSessionList', () => {
         sessions={[
           session({
             firstPrompt: 'Compare codeg vs custom APP',
+            executor: 'claude_code',
           }),
         ]}
         isLoading={false}
@@ -474,6 +479,7 @@ describe('WorkspaceSessionList', () => {
         activeWorkspaceId="workspace-1"
         onSessionClick={vi.fn()}
         onPinSession={onPinSession}
+        onArchiveSession={onArchiveSession}
         onRenameSession={onRenameSession}
         onDeleteSession={onDeleteSession}
       />
@@ -484,7 +490,11 @@ describe('WorkspaceSessionList', () => {
 
     expect(row).toHaveClass('is-hovered');
     expect(row.querySelector('.workspace-session-title')).not.toBeNull();
-    expect(screen.queryByRole('button', { name: '归档' })).toBeNull();
+    expect(
+      screen.getByRole('button', { name: '更多操作' })
+    ).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '置顶' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '归档' })).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole('button', { name: '置顶' }));
     expect(onPinSession).toHaveBeenCalledWith(
@@ -492,12 +502,31 @@ describe('WorkspaceSessionList', () => {
       true
     );
 
-    fireEvent.click(screen.getByRole('button', { name: '删除会话' }));
+    fireEvent.click(screen.getByRole('button', { name: '归档' }));
+    expect(onArchiveSession).toHaveBeenCalledWith(
+      expect.objectContaining({ id: 'session-1' })
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: '更多操作' }));
+    expect(
+      screen.getByRole('menuitem', { name: '重命名会话' })
+    ).toBeInTheDocument();
+    expect(screen.getByRole('menuitem', { name: '复制' })).toBeInTheDocument();
+    expect(screen.getByRole('menuitem', { name: '导出' })).toBeInTheDocument();
+    expect(
+      screen.getByRole('menuitem', { name: '从本会话Fork' })
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole('menuitem', { name: '删除会话' })
+    ).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('menuitem', { name: '删除会话' }));
     expect(onDeleteSession).toHaveBeenCalledWith(
       expect.objectContaining({ id: 'session-1' })
     );
 
-    fireEvent.click(screen.getByRole('button', { name: '编辑' }));
+    fireEvent.click(screen.getByRole('button', { name: '更多操作' }));
+    fireEvent.click(screen.getByRole('menuitem', { name: '重命名会话' }));
     expect(
       screen.getByDisplayValue('Compare codeg vs custom APP')
     ).toBeInTheDocument();

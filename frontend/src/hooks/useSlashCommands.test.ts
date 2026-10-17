@@ -1,16 +1,16 @@
 import { renderHook } from '@testing-library/react';
 
-const { useTauriPatchStream } = vi.hoisted(() => ({
-  useTauriPatchStream: vi.fn(),
+const { usePatchStream } = vi.hoisted(() => ({
+  usePatchStream: vi.fn(),
 }));
 
-vi.mock('@/hooks/useTauriPatchStream', () => ({ useTauriPatchStream }));
+vi.mock('@/hooks/useTauriPatchStream', () => ({ usePatchStream }));
 
 import { useSlashCommands } from './useSlashCommands';
 
 describe('useSlashCommands', () => {
   it('does not synthesize Agent commands when runtime discovery has not initialized', () => {
-    useTauriPatchStream.mockReturnValue({
+    usePatchStream.mockReturnValue({
       data: undefined,
       isConnected: false,
       isInitialized: false,
@@ -27,7 +27,7 @@ describe('useSlashCommands', () => {
   });
 
   it('shows every command actually advertised by the Agent runtime', () => {
-    useTauriPatchStream.mockReturnValue({
+    usePatchStream.mockReturnValue({
       data: {
         commands: [
           {
@@ -54,7 +54,7 @@ describe('useSlashCommands', () => {
   });
 
   it('listens on the Host slash-command stream channel', () => {
-    useTauriPatchStream.mockReturnValue({
+    usePatchStream.mockReturnValue({
       data: undefined,
       isConnected: false,
       isInitialized: false,
@@ -68,7 +68,7 @@ describe('useSlashCommands', () => {
       })
     );
 
-    expect(useTauriPatchStream).toHaveBeenCalledWith(
+    expect(usePatchStream).toHaveBeenCalledWith(
       expect.objectContaining({
         eventChannel: 'slash-commands-stream:codex:default:ws-1:repo-1',
       })

@@ -235,26 +235,68 @@ fn catalog_controls_if_fresh(
     if record.is_stale_at(now, CAPABILITY_CATALOG_TTL) {
         return None;
     }
+    catalog_controls_for_defaults(record)
+}
+
+fn catalog_controls_for_defaults(
+    record: AgentCapabilityCatalogRecord,
+) -> Option<AgentSessionControlsSnapshot> {
     serde_json::from_str(&record.controls_json).ok()
+}
+
+async fn read_matching_capability_catalog_record(
+    pool: &SqlitePool,
+    agent_id: &AgentId,
+) -> Result<Option<AgentCapabilityCatalogRecord>, ConversationServiceError> {
+    let launch = match resolve_agent_runtime_launch_settings(pool, agent_id).await {
+        Ok(launch) => launch,
+        Err(_) => return Ok(None),
+    };
+    let fingerprint = open_capability_catalog_fingerprint(pool, &launch.launch_lock).await?;
+    AgentCapabilityCatalogRecord::find_matching(pool, agent_id.as_str(), &fingerprint)
+        .await
+        .map_err(|error| ConversationServiceError::Internal(error.to_string()))
 }
 
 pub async fn read_matching_open_capability_catalog(
     pool: &SqlitePool,
     agent_id: &AgentId,
 ) -> Result<Option<AgentSessionControlsSnapshot>, ConversationServiceError> {
-    let launch = match resolve_agent_runtime_launch_settings(pool, agent_id).await {
-        Ok(launch) => launch,
-        Err(_) => return Ok(None),
-    };
-    let fingerprint = open_capability_catalog_fingerprint(pool, &launch.launch_lock).await?;
-    let Some(record) =
-        AgentCapabilityCatalogRecord::find_matching(pool, agent_id.as_str(), &fingerprint)
-            .await
-            .map_err(|error| ConversationServiceError::Internal(error.to_string()))?
-    else {
+    let Some(record) = read_matching_capability_catalog_record(pool, agent_id).await? else {
         return Ok(None);
     };
     Ok(catalog_controls_if_fresh(record, Utc::now()))
+}
+
+/// Last matching catalog for this Agent fingerprint, including TTL-expired
+/// rows. Saving defaults must not fail only because the probe cache aged out
+/// while a live session is still advertising the same options.
+pub async fn read_matching_capability_catalog_for_defaults(
+    pool: &SqlitePool,
+    agent_id: &AgentId,
+) -> Result<Option<AgentSessionControlsSnapshot>, ConversationServiceError> {
+    let Some(record) = read_matching_capability_catalog_record(pool, agent_id).await? else {
+        return Ok(None);
+    };
+    Ok(catalog_controls_for_defaults(record))
+}
+
+pub async fn load_capability_catalog_for_session_defaults(
+    pool: &SqlitePool,
+    agent_runtime: &AgentRuntime,
+    agent_id: &AgentId,
+) -> Result<AgentSessionControlsSnapshot, ConversationServiceError> {
+    if let Some(snapshot) = read_matching_capability_catalog_for_defaults(pool, agent_id).await? {
+        return Ok(snapshot);
+    }
+    refresh_open_capability_catalog(pool, agent_runtime, agent_id).await?;
+    read_matching_capability_catalog_for_defaults(pool, agent_id)
+        .await?
+        .ok_or_else(|| {
+            ConversationServiceError::Conflict(
+                "Agent capability catalog is unavailable; refresh it before saving defaults".into(),
+            )
+        })
 }
 
 pub async fn capability_catalog_is_fresh(
@@ -351,6 +393,24 @@ pub async fn refresh_open_capability_catalog(
         });
     capability_probe_result(persist_result, discard_result, directory_result)?;
     Ok(true)
+}
+
+/// Persist live session controls as the matching capability catalog so
+/// "save as defaults" can validate against what the Agent is advertising
+/// after an ACP update, without waiting for a separate probe.
+pub async fn record_open_capability_catalog(
+    pool: &SqlitePool,
+    agent_id: &AgentId,
+    launch_lock: &SessionLaunchLock,
+    controls: &AgentSessionControlsSnapshot,
+) -> Result<(), ConversationServiceError> {
+    let fingerprint = open_capability_catalog_fingerprint(pool, launch_lock).await?;
+    let controls_json = serde_json::to_string(controls)
+        .map_err(|error| ConversationServiceError::Internal(error.to_string()))?;
+    AgentCapabilityCatalogRecord::replace(pool, agent_id.as_str(), &fingerprint, &controls_json)
+        .await
+        .map_err(|error| ConversationServiceError::Internal(error.to_string()))?;
+    Ok(())
 }
 
 async fn persist_capability_catalog(
@@ -604,5 +664,20 @@ mod tests {
             refresh_error_code: None,
         };
         assert!(catalog_controls_if_fresh(record, now).is_none());
+    }
+
+    #[test]
+    fn matching_catalog_still_validates_defaults_after_ttl() {
+        let now = Utc::now();
+        let record = AgentCapabilityCatalogRecord {
+            agent_type: "antigravity".to_string(),
+            fingerprint: "fingerprint".to_string(),
+            generation: 2,
+            controls_json: serde_json::to_string(&AgentSessionControlsSnapshot::default()).unwrap(),
+            retrieved_at: (now - Duration::minutes(11)).to_rfc3339(),
+            refresh_error_code: None,
+        };
+        assert!(catalog_controls_if_fresh(record.clone(), now).is_none());
+        assert!(catalog_controls_for_defaults(record).is_some());
     }
 }

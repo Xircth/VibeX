@@ -114,7 +114,7 @@ The desktop app is the default entry. The installer includes the Server and the 
 | Windows | Windows 10 / 11 | x64 / ARM64 | `.exe` / `.msi` | Run the installer and follow the setup wizard. |
 | Linux | Ubuntu 22.04 equivalent | x64 / ARM64 | `.AppImage` / `.deb` | Run the AppImage, or install the deb with the system package manager. |
 
-Windows installers include the offline WebView2 installer. The built-in browser uses the system WebView on each platform.
+The built-in browser uses the system WebView on each platform. Windows 10/11 already ship WebView2; the installer downloads it only if it is missing.
 
 First launch runs onboarding, probes local agent runtimes, and asks for enabled agents, a default agent, and an external editor. Missing managed components install in the background. Account login, browser authorization, and API configuration stay in each agent's official flow. When a runtime or ACP adapter is unhealthy, Settings → Agents shows version, location, diagnostics, and the available repair action.
 

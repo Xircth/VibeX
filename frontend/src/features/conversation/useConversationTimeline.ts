@@ -19,6 +19,7 @@ import { listenToAgentEvents } from '@/features/agents/events';
 import { conversationApi } from './conversationApi';
 import { AGENT_BINDING_LOAD_FAILURE_NOTICE_ROW_ID } from './sessionNoticeNeedsRebind';
 import { canSkipInFlightHistoryWait } from './canSkipInFlightHistoryWait';
+import { retainConversationKeepalive } from './conversationKeepalive';
 import { listenToConversationEvents } from './events';
 import { subscribeToOptimisticConversationTurns } from './optimisticTurnEvents';
 import {
@@ -303,33 +304,11 @@ export function useConversationTimeline(
   }, [conversationId, hasDetail, isActive, reportLoadError]);
 
   useEffect(() => {
-    if (!isActive || !conversationId || !hasDetail) return;
-    let intervalMs = 30_000;
-    let timer: ReturnType<typeof setInterval> | null = null;
-    const touch = () => {
-      void conversationApi
-        .touch(conversationId)
-        .then((result) => {
-          const idleSecs = result?.idleTimeoutSecs ?? 0;
-          if (idleSecs > 0) {
-            const next = Math.min(30_000, (idleSecs * 1000) / 2);
-            if (next !== intervalMs && next > 0) {
-              intervalMs = next;
-              if (timer) clearInterval(timer);
-              timer = setInterval(touch, intervalMs);
-            }
-          }
-        })
-        .catch(() => {
-          /* keepalive is best-effort */
-        });
-    };
-    touch();
-    timer = setInterval(touch, intervalMs);
-    return () => {
-      if (timer) clearInterval(timer);
-    };
-  }, [conversationId, hasDetail, isActive]);
+    if (!isActive || !conversationId || !sessionBindReady) return;
+    return retainConversationKeepalive(conversationId, (watch) =>
+      conversationApi.touch(conversationId, watch)
+    );
+  }, [conversationId, isActive, sessionBindReady]);
 
   useEffect(() => {
     if (!conversationId || !hasDetail) return;
@@ -544,11 +523,14 @@ export function useConversationTimeline(
     [conversationId]
   );
 
-  return useMemo(
-    () => ({
-      timeline: timelineTurnsForEntry(entry),
-      items: timelineItemsForEntry(entry),
-      sideRows: sideRowsForEntry(entry),
+  return useMemo(() => {
+    const timeline = timelineTurnsForEntry(entry);
+    const sideRows = sideRowsForEntry(entry);
+    const items = timelineItemsForEntry(entry, undefined, timeline, sideRows);
+    return {
+      timeline,
+      items,
+      sideRows,
       agentId: entry?.detail?.summary.agent_id ?? null,
       currentTurnId: entry?.currentTurnId ?? null,
       steeringSupported: Boolean(
@@ -581,22 +563,21 @@ export function useConversationTimeline(
         !(entry?.rows ?? []).some(
           (row) => row.row_id === AGENT_BINDING_LOAD_FAILURE_NOTICE_ROW_ID
         ),
-    }),
-    [
-      entry,
-      hasDetail,
-      sendOptimisticTurn,
-      removeOptimisticTurn,
-      loadDetail,
-      resetAndReload,
-      reconnectAndReload,
-      cancel,
-      respondPermission,
-      respondQuestion,
-      loadOlder,
-      sessionBindReady,
-    ]
-  );
+    };
+  }, [
+    entry,
+    hasDetail,
+    sendOptimisticTurn,
+    removeOptimisticTurn,
+    loadDetail,
+    resetAndReload,
+    reconnectAndReload,
+    cancel,
+    respondPermission,
+    respondQuestion,
+    loadOlder,
+    sessionBindReady,
+  ]);
 }
 
 function toBigInt(value: bigint | number | string): bigint {

@@ -32,9 +32,13 @@ pub async fn subscribe_diff_stream(
         .await?
         .ok_or_else(|| AppError::NotFound(format!("Workspace {} not found", workspace_id)))?;
 
-    let channel = format!("diff-stream:{}", workspace_id);
-    let deployment = state.deployment.clone();
     let stats = stats_only.unwrap_or(false);
+    let channel = if stats {
+        format!("diff-stream:{workspace_id}:stats")
+    } else {
+        format!("diff-stream:{workspace_id}")
+    };
+    let deployment = state.deployment.clone();
 
     tokio::spawn(async move {
         match deployment.container().stream_diff(&workspace, stats).await {

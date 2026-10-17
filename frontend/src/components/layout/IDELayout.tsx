@@ -11,7 +11,6 @@ import {
 } from 'react';
 import { createPortal } from 'react-dom';
 import { useParams } from 'react-router-dom';
-import { useTranslation } from 'react-i18next';
 import {
   DockviewReact,
   type DockviewApi,
@@ -49,6 +48,7 @@ import {
 import { useWorktree } from '@/contexts/WorktreeContext';
 import { useAgentLongRunningTerminals } from '@/hooks/useAgentLongRunningTerminals';
 import { useWorkspaceOverlay } from '@/contexts/WorkspaceOverlayContext';
+import { chromeHidesNativeSurface } from '@/lib/nativeSurfaceHandoff';
 import { BrowserEvalConfirm } from '@/features/host-browser/BrowserEvalConfirm';
 import { KeepAliveSurface } from '@/components/layout/KeepAliveSurface';
 import {
@@ -62,6 +62,7 @@ import {
 import {
   dismissEmptyEditorColumn,
   ensureWelcomeEditorGroup,
+  installEditorColumnWidthRebalance,
   setColumnVisible,
   setLeftDockVisible,
   setColumnsVisible,
@@ -72,6 +73,15 @@ import {
   shouldDismissEditorColumnAfterPanelRemoval,
 } from '@/utils/lastPreviewTabLayout';
 import { DEFAULT_TERMINAL_PANEL_HEIGHT } from '@/lib/terminalPreferences';
+import {
+  isTerminalShelfGroup,
+  isTerminalShelfOpen,
+  terminalShelfGroupId,
+} from '@/lib/terminalShelf';
+import {
+  releaseLegacyTerminalZones,
+  rememberTerminalShelfFromApi,
+} from '@/utils/terminalZoneRelease';
 import {
   ACTIVITY_RAIL_PANEL_TITLES,
   getDefaultActivityRailPanelId,
@@ -101,7 +111,6 @@ import {
   isLeftGroup,
   isSessionGroup,
   isPlaceholderPanelId,
-  isSplittableEditorPanel,
   LEFT_PANEL_IDS,
   SESSION_PANEL_IDS,
 } from '@/utils/dockviewGroupPolicy';
@@ -137,18 +146,10 @@ function defaultSessionWidth(gridWidth: number): number {
 }
 
 type DockviewGroup = NonNullable<ReturnType<DockviewApi['getGroup']>>;
-type DockviewPanel = NonNullable<ReturnType<DockviewApi['getPanel']>>;
 
 interface IDELayoutProps {
   rightPanelContent?: ReactNode;
   toolbarContent?: ReactNode;
-}
-
-interface TabContextMenuState {
-  x: number;
-  y: number;
-  panelId: string;
-  title: string;
 }
 
 const LazyKanbanBoard = lazy(() =>
@@ -238,16 +239,12 @@ function getEditorGroups(api: DockviewApi): DockviewGroup[] {
 }
 
 function normalizeGroupIds(api: DockviewApi) {
+  releaseLegacyTerminalZones(api);
+  rememberTerminalShelfFromApi(api);
+
   const leftGroup = getLeftGroup(api);
   if (leftGroup) {
     (leftGroup as { id: string }).id = GROUP_IDS.LEFT;
-  }
-
-  const bottomGroup = getBottomGroup(api);
-  if (bottomGroup) {
-    (bottomGroup as { id: string }).id = GROUP_IDS.BOTTOM;
-    bottomGroup.locked = 'no-drop-target';
-    hideGroupHeader(bottomGroup);
   }
 
   const rightGroup = getRightGroup(api);
@@ -314,28 +311,6 @@ function buildDefaultLayout(api: DockviewApi) {
     rightGroup.api.setVisible(false);
   }
 
-  const bottomGroup = api.addGroup({
-    id: GROUP_IDS.BOTTOM,
-    referencePanel: welcomePanel,
-    direction: 'below',
-    locked: 'no-drop-target',
-    initialHeight: DEFAULT_TERMINAL_PANEL_HEIGHT,
-  });
-
-  bottomGroup.locked = 'no-drop-target';
-  api.addPanel({
-    id: PANEL_IDS.TERMINAL,
-    component: PANEL_IDS.TERMINAL,
-    title: 'Terminal',
-    renderer: 'onlyWhenVisible',
-    position: {
-      referenceGroup: bottomGroup,
-      direction: 'within',
-    },
-    inactive: true,
-  });
-  bottomGroup.api.setVisible(false);
-
   normalizeGroupIds(api);
   settleDockviewGroupWidths([
     { group: leftGroup, width: defaultDockWidth(api.width) },
@@ -366,38 +341,10 @@ function dismissEditorColumnAfterLastTab(api: DockviewApi): void {
   normalizeGroupIds(api);
 }
 
-function resolvePanelFromTabElement(
-  api: DockviewApi,
-  tabElement: HTMLElement
-): DockviewPanel | undefined {
-  for (const group of getEditorGroups(api)) {
-    const groupElement = getGroupElement(group);
-    if (!groupElement || !groupElement.contains(tabElement)) {
-      continue;
-    }
-
-    const tabsContainer = groupElement.querySelector('.dv-tabs-container');
-    if (!tabsContainer) {
-      continue;
-    }
-
-    const tabs = Array.from(tabsContainer.querySelectorAll(':scope > .dv-tab'));
-    const index = tabs.indexOf(tabElement);
-    if (index < 0) {
-      continue;
-    }
-
-    return group.panels[index];
-  }
-
-  return undefined;
-}
-
 export function IDELayout({
   rightPanelContent,
   toolbarContent,
 }: IDELayoutProps) {
-  const { t } = useTranslation(['panels', 'common']);
   useAgentLongRunningTerminals();
   const { workspaceId, sessionId } = useParams<{
     workspaceId?: string;
@@ -405,7 +352,6 @@ export function IDELayout({
   }>();
   const apiRef = useRef<DockviewApi | null>(null);
   const dockviewRootRef = useRef<HTMLDivElement>(null);
-  const tabContextMenuRef = useRef<HTMLDivElement>(null);
   const { activeWorktreeId } = useWorktree();
   const {
     serializedLayout,
@@ -440,8 +386,6 @@ export function IDELayout({
   const prevSerializedLayoutRef = useRef(serializedLayout);
   const appliedArrangementRef = useRef<LayoutArrangement | null>(null);
   const lastSelfHealAtRef = useRef(0);
-  const [tabContextMenu, setTabContextMenu] =
-    useState<TabContextMenuState | null>(null);
   // Detached element hosting the session (C zone) content; the workspace
   // dockview panel and the kanban session slot re-parent it between them.
   const [sessionContentHost] = useState<HTMLDivElement | null>(() => {
@@ -451,11 +395,7 @@ export function IDELayout({
     return element;
   });
 
-  const {
-    setDockviewApi,
-    openPanelInNewEditorGroup,
-    canOpenPanelInNewEditorGroup,
-  } = usePanelActionsContext();
+  const { setDockviewApi } = usePanelActionsContext();
 
   const autoOpenCreatedPreviews = useAutoOpenCreatedPreviews();
   useAutoOpenCreatedFilePreviews({
@@ -640,11 +580,14 @@ export function IDELayout({
 
   const hideWorkspaceZonesForKanban = useCallback((api: DockviewApi) => {
     const bottomGroup = getBottomGroup(api);
-    if (bottomGroup) {
+    const shelfId = terminalShelfGroupId();
+    const shelf = shelfId ? api.getGroup(shelfId) : undefined;
+    const terminalGroup = bottomGroup ?? shelf;
+    if (terminalGroup) {
       if (terminalVisibleBeforeKanbanRef.current === null) {
-        terminalVisibleBeforeKanbanRef.current = bottomGroup.api.isVisible;
+        terminalVisibleBeforeKanbanRef.current = terminalGroup.api.isVisible;
       }
-      bottomGroup.api.setVisible(false);
+      terminalGroup.api.setVisible(false);
     }
     setLeftDockVisible(api, getLayoutArrangement(), false);
   }, []);
@@ -688,61 +631,16 @@ export function IDELayout({
 
       setLeftDockVisible(api, getLayoutArrangement(), true);
 
-      let bottomGroup = getBottomGroup(api);
-      const hadBottomGroup = !!bottomGroup;
-      const wasTerminalVisible = bottomGroup?.api.isVisible ?? false;
-      if (!bottomGroup) {
-        const editorGroup =
-          getEditorGroups(api)[0] ?? recreateWelcomeEditorGroup(api);
-        const referencePanel = editorGroup?.panels[0];
-        if (!referencePanel) return;
-
-        bottomGroup = api.addGroup({
-          id: GROUP_IDS.BOTTOM,
-          referencePanel,
-          direction: 'below',
-          locked: 'no-drop-target',
-          initialHeight: DEFAULT_TERMINAL_PANEL_HEIGHT,
-        });
-      }
-
-      bottomGroup.locked = 'no-drop-target';
-      if (!api.getPanel(PANEL_IDS.TERMINAL)) {
-        api.addPanel({
-          id: PANEL_IDS.TERMINAL,
-          component: PANEL_IDS.TERMINAL,
-          title: 'Terminal',
-          position: {
-            referenceGroup: GROUP_IDS.BOTTOM,
-            direction: 'within',
-          },
-          inactive: true,
-        });
-      }
-
-      // The terminal toggle owns the zone's visibility — ensure must not
-      // force-show it. Only restore the pre-kanban state when returning
-      // from the kanban page (which force-hides the strip).
       const restoredFromKanban = terminalVisibleBeforeKanbanRef.current;
       terminalVisibleBeforeKanbanRef.current = null;
-      const shouldShowTerminal = hadBottomGroup
-        ? (restoredFromKanban ?? wasTerminalVisible)
-        : false;
-      if (bottomGroup.api.isVisible !== shouldShowTerminal) {
-        bottomGroup.api.setVisible(shouldShowTerminal);
-      }
-      if (shouldShowTerminal) {
-        const terminalPanel = api.getPanel(PANEL_IDS.TERMINAL);
-        if (terminalPanel && !terminalPanel.api.isVisible) {
-          terminalPanel.api.setActive();
-        }
-        if (slotOfZone(getLayoutArrangement(), 'terminal') === 'bottom') {
-          try {
-            bottomGroup.api.setSize({ height: DEFAULT_TERMINAL_PANEL_HEIGHT });
-          } catch {
-            // Ignore size restoration failures during layout transitions.
-          }
-        }
+      const shelfId = terminalShelfGroupId();
+      const shelf = shelfId ? api.getGroup(shelfId) : undefined;
+      if (
+        shelf &&
+        restoredFromKanban !== null &&
+        shelf.api.isVisible !== restoredFromKanban
+      ) {
+        shelf.api.setVisible(restoredFromKanban);
       }
       normalizeGroupIds(api);
     },
@@ -931,39 +829,6 @@ export function IDELayout({
       const removePanelDisposable = api.onDidRemovePanel((panel) => {
         if (isResettingRef.current) return;
 
-        if (panel.id === PANEL_IDS.TERMINAL) {
-          let bottomGroup = getBottomGroup(api);
-          if (!bottomGroup) {
-            const editorGroup =
-              getEditorGroups(api)[0] ?? recreateWelcomeEditorGroup(api);
-            const referencePanel = editorGroup?.panels[0];
-            if (!referencePanel) return;
-
-            bottomGroup = api.addGroup({
-              id: GROUP_IDS.BOTTOM,
-              referencePanel,
-              direction: 'below',
-              locked: 'no-drop-target',
-              initialHeight: DEFAULT_TERMINAL_PANEL_HEIGHT,
-            });
-          }
-
-          bottomGroup.locked = 'no-drop-target';
-          api.addPanel({
-            id: PANEL_IDS.TERMINAL,
-            component: PANEL_IDS.TERMINAL,
-            title: 'Terminal',
-            position: {
-              referenceGroup: GROUP_IDS.BOTTOM,
-              direction: 'within',
-            },
-            inactive: true,
-          });
-          bottomGroup.api.setVisible(false);
-          normalizeGroupIds(api);
-          return;
-        }
-
         if (panel.id === PANEL_IDS.AI_CHAT) {
           const rightGroup = ensureSessionPanel(api);
           if (rightGroup) {
@@ -998,6 +863,9 @@ export function IDELayout({
         if (!isResettingRef.current) {
           normalizeGroupIds(api);
         }
+      });
+      const columnWidthRebalance = installEditorColumnWidthRebalance(api, {
+        shouldRebalance: () => !isResettingRef.current,
       });
 
       const layoutDisposable = api.onDidLayoutChange(() => {
@@ -1077,6 +945,7 @@ export function IDELayout({
         removePanelDisposable.dispose();
         normalizeGroupsDisposable.dispose();
         removeGroupDisposable.dispose();
+        columnWidthRebalance.dispose();
         layoutDisposable.dispose();
 
         if (layoutChangeTimerRef.current) {
@@ -1116,25 +985,21 @@ export function IDELayout({
     }
   }, [rebuildDefaultLayout, serializedLayout]);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     const api = apiRef.current;
     if (!api) return;
     if (effectiveActiveTab !== 'workspace') return;
     if (isWorkspaceEditorAreaCollapsed) return;
 
-    const frame = requestAnimationFrame(() => {
-      try {
-        ensureWorkspacePanelsVisible(api);
-      } catch (error) {
-        console.warn(
-          'Failed to restore workspace panels, rebuilding layout.',
-          error
-        );
-        rebuildDefaultLayout(api);
-      }
-    });
-
-    return () => cancelAnimationFrame(frame);
+    try {
+      ensureWorkspacePanelsVisible(api);
+    } catch (error) {
+      console.warn(
+        'Failed to restore workspace panels, rebuilding layout.',
+        error
+      );
+      rebuildDefaultLayout(api);
+    }
   }, [
     effectiveActiveTab,
     effectiveWorkspaceId,
@@ -1145,7 +1010,7 @@ export function IDELayout({
 
   // Surfaces that declare hidesBottomDock replace the dock/workspace/terminal
   // zones; only the session zone stays interactive next to them.
-  useEffect(() => {
+  useLayoutEffect(() => {
     const api = apiRef.current;
     if (!api || !hidesBottomDock) return;
 
@@ -1168,7 +1033,9 @@ export function IDELayout({
   }, [arrangement, applyArrangement]);
 
   // Session zone visibility follows the store flag and content availability.
-  useEffect(() => {
+  // Layout-phase so the native browser host measures the destination split
+  // before the HWND is allowed to paint.
+  useLayoutEffect(() => {
     const api = apiRef.current;
     if (!api) return;
 
@@ -1203,6 +1070,9 @@ export function IDELayout({
 
     const editorUpdates = getEditorGroups(api).flatMap((group) => {
       if (group.api.isVisible) return [];
+      if (isTerminalShelfGroup(group.id) && !isTerminalShelfOpen()) {
+        return [];
+      }
       const hasContent = group.panels.some(
         (panel) => !isPlaceholderPanelId(panel.id)
       );
@@ -1232,79 +1102,42 @@ export function IDELayout({
     }),
     [effectiveActiveTab, rightPanelContent, sessionContentHost]
   );
-  useEffect(() => {
-    const root = dockviewRootRef.current;
-    if (!root) return;
-
-    const handleContextMenu = (event: MouseEvent) => {
-      const api = apiRef.current;
-      const target = event.target as HTMLElement | null;
-      const tabElement = target?.closest('.dv-tab') as HTMLElement | null;
-
-      if (!api || !tabElement) {
-        return;
-      }
-
-      const panel = resolvePanelFromTabElement(api, tabElement);
-      if (!panel || !isSplittableEditorPanel(panel)) {
-        return;
-      }
-
-      event.preventDefault();
-      setTabContextMenu({
-        x: event.clientX,
-        y: event.clientY,
-        panelId: panel.id,
-        title: panel.title ?? panel.id,
-      });
-    };
-
-    root.addEventListener('contextmenu', handleContextMenu);
-    return () => root.removeEventListener('contextmenu', handleContextMenu);
-  }, []);
-
-  useEffect(() => {
-    if (!tabContextMenu) return;
-
-    const dismiss = () => setTabContextMenu(null);
-    const handleMouseDown = (event: MouseEvent) => {
-      const target = event.target as Node | null;
-      if (target && tabContextMenuRef.current?.contains(target)) {
-        return;
-      }
-      dismiss();
-    };
-    const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') {
-        dismiss();
-      }
-    };
-
-    window.addEventListener('mousedown', handleMouseDown);
-    window.addEventListener('resize', dismiss);
-    window.addEventListener('scroll', dismiss, {
-      capture: true,
-      passive: true,
-    });
-    window.addEventListener('keydown', handleKeyDown);
-
-    return () => {
-      window.removeEventListener('mousedown', handleMouseDown);
-      window.removeEventListener('resize', dismiss);
-      window.removeEventListener('scroll', dismiss, true);
-      window.removeEventListener('keydown', handleKeyDown);
-    };
-  }, [tabContextMenu]);
-
   useWorkspaceShortcuts();
 
   const { setChromeOccluded } = useWorkspaceOverlay();
   useLayoutEffect(() => {
-    const occlude =
-      tabContextMenu !== null || effectiveActiveTab !== 'workspace';
-    setChromeOccluded(occlude);
+    if (chromeHidesNativeSurface(effectiveActiveTab)) {
+      setChromeOccluded(true);
+      return;
+    }
+    const api = apiRef.current;
+    if (api && !isWorkspaceEditorAreaCollapsed) {
+      try {
+        ensureWorkspacePanelsVisible(api);
+      } catch {
+        // HostBrowserPanel still waits for a stable destination slot.
+      }
+      const shouldShow = isRightPanelVisible && !!rightPanelContent;
+      const rightGroup =
+        getRightGroup(api) ??
+        (shouldShow ? ensureSessionPanel(api) : undefined);
+      if (rightGroup) {
+        setColumnVisible(api, getLayoutArrangement(), rightGroup, shouldShow);
+      }
+    }
+    setChromeOccluded(false);
+  }, [
+    effectiveActiveTab,
+    ensureSessionPanel,
+    ensureWorkspacePanelsVisible,
+    isRightPanelVisible,
+    isWorkspaceEditorAreaCollapsed,
+    rightPanelContent,
+    setChromeOccluded,
+  ]);
+  useLayoutEffect(() => {
     return () => setChromeOccluded(false);
-  }, [effectiveActiveTab, setChromeOccluded, tabContextMenu]);
+  }, [setChromeOccluded]);
 
   return (
     <div className="workspace-shell relative flex h-full w-full flex-col">
@@ -1367,31 +1200,6 @@ export function IDELayout({
                   />
                 </div>
               ) : null}
-
-              {tabContextMenu && (
-                <div
-                  ref={tabContextMenuRef}
-                  className="fixed z-50 min-w-56 rounded-md border border-border bg-popover p-1 shadow-lg"
-                  style={{ left: tabContextMenu.x, top: tabContextMenu.y }}
-                >
-                  <div className="px-2 py-1 text-xs text-muted-foreground">
-                    {tabContextMenu.title}
-                  </div>
-                  <button
-                    type="button"
-                    className="flex w-full items-center rounded-sm px-2 py-1.5 text-left text-sm transition-colors hover:bg-accent disabled:cursor-not-allowed disabled:opacity-50"
-                    disabled={
-                      !canOpenPanelInNewEditorGroup(tabContextMenu.panelId)
-                    }
-                    onClick={() => {
-                      openPanelInNewEditorGroup(tabContextMenu.panelId);
-                      setTabContextMenu(null);
-                    }}
-                  >
-                    {t('ideLayout.openInNewEditorGroup')}
-                  </button>
-                </div>
-              )}
             </div>
           </RightPanelSlotContext.Provider>
 

@@ -1,5 +1,5 @@
 import { act, renderHook } from '@testing-library/react';
-import { type MutableRefObject, type RefObject } from 'react';
+import { type RefObject } from 'react';
 import { describe, expect, it, vi } from 'vitest';
 import { type ExecutorProfileId } from 'shared/types';
 import { useSessionComposerSessionCallbacks } from './useSessionComposerSessionCallbacks';
@@ -30,7 +30,7 @@ function renderSessionCallbacks({
 } = {}) {
   const profileRef =
     executorProfileRef ??
-    ({ current: null } as MutableRefObject<ExecutorProfileId | null>);
+    ({ current: null } as RefObject<ExecutorProfileId | null>);
   const hook = renderHook(() =>
     useSessionComposerSessionCallbacks({
       workspaceId,
@@ -82,7 +82,7 @@ describe('useSessionComposerSessionCallbacks', () => {
   });
 
   it('remembers created-session executor profile and forwards the parent callback', () => {
-    const profileRef: MutableRefObject<ExecutorProfileId | null> = {
+    const profileRef: RefObject<ExecutorProfileId | null> = {
       current: null,
     };
     profileRef.current = planProfile;
@@ -105,7 +105,7 @@ describe('useSessionComposerSessionCallbacks', () => {
   });
 
   it('skips created-session profile memory for missing or executor-less profiles', () => {
-    const profileRef: MutableRefObject<ExecutorProfileId | null> = {
+    const profileRef: RefObject<ExecutorProfileId | null> = {
       current: null,
     };
     profileRef.current = { variant: 'PLAN' } as ExecutorProfileId;

@@ -51,19 +51,9 @@
   z-index: 8;
   display: flex;
   flex-direction: column;
-  gap: 8px;
-  padding-bottom: 8px;
-  background: color-mix(
-    in srgb,
-    var(--surface-right-panel, transparent) 84%,
-    transparent
-  );
-  backdrop-filter: blur(6px);
-}
-
-.app.reduced-transparency .file-tree-top-zone {
-  backdrop-filter: none;
   background: transparent;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
 }
 
 .file-tree-tool-row {
@@ -164,7 +154,7 @@
   height: 14px;
 }
 
-.file-tree-search-input {
+.file-tree-search > .file-tree-search-input {
   flex: 1 1 auto;
   min-width: 0;
   border: none;
@@ -253,7 +243,7 @@
   box-shadow: none;
 }
 
-.file-tree-search-input::placeholder {
+.file-tree-search > .file-tree-search-input::placeholder {
   color: var(--text-faint);
 }
 
@@ -379,6 +369,26 @@
     transparent
   );
   backdrop-filter: blur(6px);
+}
+
+.app.reduced-transparency .workspace-search-header {
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+  background: var(
+    --surface-right-panel,
+    var(--surface-panel, var(--surface-card-strong))
+  );
+}
+
+@media (prefers-reduced-transparency: reduce) {
+  .workspace-search-header {
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+    background: var(
+      --surface-right-panel,
+      var(--surface-panel, var(--surface-card-strong))
+    );
+  }
 }
 
 .workspace-search-body {
@@ -646,11 +656,13 @@
   width: 100%;
   min-width: 0;
   max-width: none;
-  padding: 5px 8px 5px 2px;
+  min-height: 24px;
+  padding: 0 8px 0 12px;
   border: none;
   border-radius: 0;
   background: transparent;
   font-size: 12px;
+  line-height: 24px;
   font-weight: 700;
 }
 
@@ -665,6 +677,9 @@
 .file-tree-chevron {
   width: 14px;
   height: 14px;
+  /* Opposing margins move only the glyph, not the icon column. */
+  margin-left: 4px;
+  margin-right: -4px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -994,4 +1009,178 @@
   min-width: 0;
   overflow-wrap: break-word;
   word-break: break-word;
+}
+
+.file-tree-search-overlay {
+  display: flex;
+  align-items: center;
+  box-sizing: border-box;
+  min-width: 0;
+  padding: 0 2px 0 8px;
+  background: var(--surface-card-strong);
+  animation: file-tree-search-expand 180ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.file-tree-search-field {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  width: 100%;
+  min-width: 0;
+}
+
+/* Field is the flex item. A 100% width on it pushes the options button
+   past the panel's overflow clip. */
+.file-tree-search-field > .astryx-field {
+  flex: 1 1 auto;
+  width: auto;
+  min-width: 0;
+}
+
+.file-tree-search-input.astryx-text-input {
+  height: 24px !important;
+  min-height: 24px !important;
+  padding-block: 0 !important;
+  padding-inline: 6px !important;
+  gap: 4px !important;
+}
+
+.file-tree-search-input.astryx-text-input input {
+  font-size: 12px !important;
+  line-height: 16px !important;
+}
+
+.file-tree-search-options {
+  flex: 0 0 auto;
+  width: 24px !important;
+  height: 24px !important;
+  min-width: 24px;
+  min-height: 24px;
+}
+
+.file-tree-search-results {
+  border: 0;
+}
+
+.file-tree-search-summary {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 28px;
+  padding: 4px 8px;
+  border: 0;
+}
+
+.file-tree-search-summary-count {
+  display: inline-flex;
+  align-items: center;
+  min-height: 20px;
+  padding: 0 8px;
+  border-radius: var(--radius);
+  background: var(--surface-hover);
+  color: var(--text-strong);
+  font-size: 12px;
+  line-height: 16px;
+}
+
+.file-tree-search-limit {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0 8px 4px;
+  padding: 4px 8px;
+  border-radius: var(--radius);
+  background: hsl(var(--warning) / 0.12);
+  color: hsl(var(--warning));
+  font-size: 12px;
+  line-height: 16px;
+}
+
+.file-tree-search-limit-mark {
+  width: 6px;
+  height: 6px;
+  flex: 0 0 auto;
+  border-radius: var(--radius);
+  background: currentColor;
+}
+
+.file-tree-search-file,
+.file-tree-search-match {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  min-height: 24px;
+  padding: 2px 8px;
+  border: 0;
+  background: transparent;
+  color: var(--text-strong);
+  text-align: left;
+  font-size: 14px;
+  line-height: 20px;
+}
+
+.file-tree-search-file:hover,
+.file-tree-search-match:hover {
+  background: var(--surface-hover);
+}
+
+.file-tree-search-chevron {
+  flex: 0 0 auto;
+  color: var(--text-muted);
+}
+
+.file-tree-search-chevron.is-expanded {
+  transform: rotate(90deg);
+}
+
+.file-tree-search-path,
+.file-tree-search-match-preview {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.file-tree-search-match {
+  padding-left: 28px;
+}
+
+.file-tree-search-match-location {
+  flex: 0 0 auto;
+  width: 4.5rem;
+  color: var(--text-muted);
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.file-tree-search-match-preview {
+  color: var(--text-muted);
+}
+
+.file-tree-search-status {
+  padding: 12px 8px;
+  color: var(--text-muted);
+  font-size: 12px;
+  line-height: 16px;
+  text-align: center;
+}
+
+.file-tree-search-status.is-error {
+  color: hsl(var(--destructive));
+}
+
+@keyframes file-tree-search-expand {
+  from {
+    clip-path: inset(0 0 0 72%);
+  }
+  to {
+    clip-path: inset(0);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .file-tree-search-overlay {
+    animation: none;
+  }
 }

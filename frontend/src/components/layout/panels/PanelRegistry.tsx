@@ -37,6 +37,7 @@ import { Loader } from '@/components/ui/loader';
 import { PANEL_IDS, type PanelId } from '@/stores/useLayoutStore';
 import { confirmDiscardMergePanel } from '@/components/panels/merge/mergePanelDirty';
 import { useAppContextMenu } from '@/components/context-menu';
+import { useWorkspaceEditorTabMenu } from '@/components/layout/panels/workspaceTabContextMenu';
 
 type DockviewPanelModule = {
   default: ComponentType<IDockviewPanelProps>;
@@ -360,23 +361,27 @@ export function WorkspaceDockviewTab({
     return () => disposable.dispose();
   }, [api]);
 
+  const closeTab = React.useCallback(() => {
+    if (
+      api.component === PANEL_IDS.MERGE &&
+      !confirmDiscardMergePanel(api.id)
+    ) {
+      return;
+    }
+    if (closeActionOverride) {
+      closeActionOverride();
+    } else {
+      api.close();
+    }
+  }, [api, closeActionOverride]);
   const onClose = React.useCallback(
     (event: React.PointerEvent | React.MouseEvent) => {
       event.preventDefault();
-      if (
-        api.component === PANEL_IDS.MERGE &&
-        !confirmDiscardMergePanel(api.id)
-      ) {
-        return;
-      }
-      if (closeActionOverride) {
-        closeActionOverride();
-      } else {
-        api.close();
-      }
+      closeTab();
     },
-    [api, closeActionOverride]
+    [closeTab]
   );
+  const editorTabMenu = useWorkspaceEditorTabMenu(api, closeTab);
 
   return (
     <div
@@ -385,6 +390,10 @@ export function WorkspaceDockviewTab({
       title={title}
       className="dv-default-tab workspace-tab-surface"
       onContextMenu={(event) => {
+        if (editorTabMenu) {
+          editorTabMenu.open(event.nativeEvent);
+          return;
+        }
         const group = api.group;
         const panels = group?.panels ?? [];
         const index = panels.findIndex((panel) => panel.id === api.id);

@@ -23,7 +23,8 @@ use chrono::{DateTime, Utc};
 use db::models::{
     agent_management::SessionDefaultRepository,
     conversation::{
-        BindingStatus, ConversationAgentBindingRecord, ConversationRecord, CreateConversationRecord,
+        BindingStatus, ConversationAgentBindingRecord, ConversationRecord,
+        CreateConversationAgentBinding, CreateConversationRecord,
     },
     conversation_event::AppendConversationEvent,
     conversation_side_effects::ConversationPermissionRecord,
@@ -2124,78 +2125,13 @@ impl ConversationSessionService {
         mode: Option<&str>,
         config_overrides: &[AgentSessionConfigOverride],
     ) {
-        let config_selection_json = (!config_overrides.is_empty())
-            .then(|| {
-                serde_json::to_string(
-                    &config_overrides
-                        .iter()
-                        .map(|ovr| {
-                            (
-                                ovr.key.clone(),
-                                serde_json::Value::String(ovr.value.clone()),
-                            )
-                        })
-                        .collect::<serde_json::Map<_, _>>(),
-                )
-                .ok()
-            })
-            .flatten();
-        if mode.is_none() && config_selection_json.is_none() {
-            return;
-        }
-        let pool = &self.ctx.deployment.db().pool;
-        if let Err(error) = ConversationAgentBindingRecord::update_session_controls_selection(
-            pool,
+        persist_confirmed_session_controls(
+            &self.ctx.deployment.db().pool,
             conversation_id,
             mode,
-            config_selection_json.as_deref(),
+            config_overrides,
         )
-        .await
-        {
-            tracing::warn!(
-                %conversation_id,
-                %error,
-                "failed to remember the conversation's session-control selection"
-            );
-        }
-        // Last-used per Agent, same store new sessions already read (CodeG
-        // `selector-prefs` per agentType). A rejected upsert must not fail the pick.
-        if let Ok(Some(binding)) =
-            ConversationAgentBindingRecord::latest_for_conversation(pool, conversation_id).await
-        {
-            let repo = SessionDefaultRepository::new(pool.clone());
-            if let Some(mode) = mode.filter(|mode| !mode.is_empty())
-                && let Err(error) = repo
-                    .upsert(
-                        &binding.agent_id,
-                        "mode",
-                        &serde_json::Value::String(mode.to_string()).to_string(),
-                    )
-                    .await
-            {
-                tracing::warn!(
-                    %conversation_id,
-                    agent_id = %binding.agent_id,
-                    %error,
-                    "failed to remember the agent's last-used session mode"
-                );
-            }
-            for override_item in config_overrides {
-                let value_json = serde_json::Value::String(override_item.value.clone()).to_string();
-                if let Err(error) = repo
-                    .upsert(&binding.agent_id, &override_item.key, &value_json)
-                    .await
-                {
-                    tracing::warn!(
-                        %conversation_id,
-                        agent_id = %binding.agent_id,
-                        option_id = %override_item.key,
-                        %error,
-                        "failed to remember the agent's last-used session config"
-                    );
-                }
-            }
-        }
+        .await;
     }
 
     async fn resolved_session_control_preferences(
@@ -2370,6 +2306,20 @@ impl ConversationSessionService {
         self.ctx
             .agent_runtime
             .touch_session(AgentSessionId(conversation_id))
+            .await
+            .map_err(Into::into)
+    }
+
+    /// `watch` registers the on-screen surface. The runtime repeats the bump.
+    /// Forgetting the id does not disconnect the agent.
+    pub async fn set_session_keepalive(
+        &self,
+        conversation_id: Uuid,
+        watch: bool,
+    ) -> Result<(), ConversationServiceError> {
+        self.ctx
+            .agent_runtime
+            .set_session_keepalive(AgentSessionId(conversation_id), watch)
             .await
             .map_err(Into::into)
     }
@@ -2563,6 +2513,20 @@ impl ConversationSessionService {
             }
             Err(error) => return Err(error.into()),
         };
+        if let Err(error) = crate::record_open_capability_catalog(
+            pool,
+            &agent_id,
+            &launch_settings.launch_lock,
+            &controls,
+        )
+        .await
+        {
+            tracing::warn!(
+                %error,
+                agent_id = %agent_id,
+                "failed to record live capability catalog"
+            );
+        }
         self.ctx
             .agent_runtime
             .commit_prepared_session(runtime_session_id)
@@ -4146,6 +4110,162 @@ fn conversation_input_blocks_with_display_text(
     visible
 }
 
+/// Persist a confirmed mode / config selection so the next `session/resume`
+/// can replay it before the agent defaults reach the UI (ADR-0071 §4).
+///
+/// Best-effort. A missing binding or a rejected last-used upsert must not fail
+/// the control change that already succeeded.
+async fn persist_confirmed_session_controls(
+    pool: &SqlitePool,
+    conversation_id: Uuid,
+    mode: Option<&str>,
+    config_overrides: &[AgentSessionConfigOverride],
+) {
+    let config_selection_json = (!config_overrides.is_empty())
+        .then(|| {
+            serde_json::to_string(
+                &config_overrides
+                    .iter()
+                    .map(|ovr| {
+                        (
+                            ovr.key.clone(),
+                            serde_json::Value::String(ovr.value.clone()),
+                        )
+                    })
+                    .collect::<serde_json::Map<_, _>>(),
+            )
+            .ok()
+        })
+        .flatten();
+    if mode.is_none() && config_selection_json.is_none() {
+        return;
+    }
+    // Live sessions are not given a binding until import or fork. Without a row,
+    // the update below matches nothing and a cold resume replays only the agent
+    // default (Antigravity: Default + Gemini 3.8 Flash).
+    if let Err(error) = ensure_conversation_binding_for_controls(pool, conversation_id).await {
+        tracing::warn!(
+            %conversation_id,
+            %error,
+            "failed to open a binding for the confirmed session controls"
+        );
+    }
+    if let Err(error) = ConversationAgentBindingRecord::update_session_controls_selection(
+        pool,
+        conversation_id,
+        mode,
+        config_selection_json.as_deref(),
+    )
+    .await
+    {
+        tracing::warn!(
+            %conversation_id,
+            %error,
+            "failed to remember the conversation's session-control selection"
+        );
+    }
+    // Last-used per Agent, same store new sessions already read (CodeG
+    // `selector-prefs` per agentType). A rejected upsert must not fail the pick.
+    if let Ok(Some(binding)) =
+        ConversationAgentBindingRecord::latest_for_conversation(pool, conversation_id).await
+    {
+        let repo = SessionDefaultRepository::new(pool.clone());
+        if let Some(mode) = mode.filter(|mode| !mode.is_empty())
+            && let Err(error) = repo
+                .upsert(
+                    &binding.agent_id,
+                    "mode",
+                    &serde_json::Value::String(mode.to_string()).to_string(),
+                )
+                .await
+        {
+            tracing::warn!(
+                %conversation_id,
+                agent_id = %binding.agent_id,
+                %error,
+                "failed to remember the agent's last-used session mode"
+            );
+        }
+        for override_item in config_overrides {
+            let value_json = serde_json::Value::String(override_item.value.clone()).to_string();
+            if let Err(error) = repo
+                .upsert(&binding.agent_id, &override_item.key, &value_json)
+                .await
+            {
+                tracing::warn!(
+                    %conversation_id,
+                    agent_id = %binding.agent_id,
+                    option_id = %override_item.key,
+                    %error,
+                    "failed to remember the agent's last-used session config"
+                );
+            }
+        }
+    }
+}
+
+/// Open the conversation's binding when a confirmed selection arrives before any
+/// other writer. Resume resolves the workspace itself, so this row only has to
+/// carry the agent and the ACP id the session already stored.
+async fn ensure_conversation_binding_for_controls(
+    pool: &SqlitePool,
+    conversation_id: Uuid,
+) -> Result<(), sqlx::Error> {
+    if ConversationAgentBindingRecord::latest_for_conversation(pool, conversation_id)
+        .await?
+        .is_some()
+    {
+        return Ok(());
+    }
+    let Some(session) = Session::find_by_id(pool, conversation_id).await? else {
+        return Ok(());
+    };
+    let Some(agent_id) = session.agent_id else {
+        return Ok(());
+    };
+    let acp_session_id = session
+        .external_session_id
+        .filter(|id| !is_placeholder_acp_session_id(id));
+    let restored = acp_session_id.is_some();
+    // A missing binding shows agent mentions. Recording an empty MCP list would
+    // look like a session that started before delegation was delivered and hide
+    // them (ADR-0065). This row does not decide which servers the process gets.
+    let mcp_servers_json = r#"["vibex-delegation-mcp"]"#;
+    ConversationAgentBindingRecord::create(
+        pool,
+        Uuid::new_v4(),
+        CreateConversationAgentBinding {
+            conversation_id,
+            agent_id: &agent_id,
+            working_dir: "",
+            acp_session_id: acp_session_id.as_deref(),
+            acp_protocol_version: None,
+            runtime_version: None,
+            acp_version: None,
+            load_supported: restored,
+            resume_supported: restored,
+            close_supported: false,
+            terminal_supported: false,
+            additional_directories_supported: false,
+            prompt_capabilities_json: "{}",
+            session_capabilities_json: "{}",
+            client_capabilities_json: "{}",
+            mcp_servers_json,
+            modes_json: "[]",
+            config_options_json: "[]",
+            current_mode: None,
+            config_selection_json: "{}",
+            status: if restored {
+                BindingStatus::Ready
+            } else {
+                BindingStatus::Connecting
+            },
+        },
+    )
+    .await?;
+    Ok(())
+}
+
 /// What a freshly established session still needs in order to match the
 /// conversation's remembered selection.
 #[derive(Debug, Default, PartialEq, Eq)]
@@ -4374,6 +4494,7 @@ mod tests {
         },
     };
     use db::models::{
+        agent_management::SessionDefaultRepository,
         conversation::{
             ConversationAgentBindingRecord, ConversationRecord, CreateConversationRecord,
         },
@@ -4394,9 +4515,9 @@ mod tests {
         checkpoint_before_files, checkpoint_file_change_summary, checkpoint_turn_file_changes,
         conversation_input_blocks_with_display_text, diff_to_conversation_file_change,
         ensure_conversation_has_no_in_flight_turn, host_started_at, is_zombie_in_flight_turn,
-        known_acp_session_id, merge_user_prompt_overrides, prune_unreferenced_turn_lock,
-        resume_external_session_id, session_control_preferences, session_control_replay_plan,
-        turn_predates_this_host,
+        known_acp_session_id, merge_user_prompt_overrides, persist_confirmed_session_controls,
+        prune_unreferenced_turn_lock, resume_external_session_id, session_control_preferences,
+        session_control_replay_plan, turn_predates_this_host,
     };
 
     #[test]
@@ -4492,6 +4613,123 @@ mod tests {
                 .map(|item| (item.key.as_str(), item.value.as_str()))
                 .collect::<Vec<_>>(),
             vec![("model", "opus")]
+        );
+    }
+
+    /// Antigravity cold resume advertises Default and Gemini 3.8 Flash. A live
+    /// conversation often has no binding row, so YOLO and Gemini 4 Argon chosen
+    /// in the composer were never stored and the next resume painted the
+    /// agent's defaults.
+    #[tokio::test]
+    async fn confirmed_yolo_and_gemini_4_argon_survive_a_bindingless_resume() {
+        let pool = migrated_pool().await;
+        let conversation = ConversationRecord::create(
+            &pool,
+            Uuid::new_v4(),
+            CreateConversationRecord {
+                workspace_id: Uuid::new_v4(),
+                task_id: None,
+                title: Some("Antigravity"),
+                initial_prompt: None,
+                status: Some(SessionStatus::InProgress),
+                executor: Some("antigravity"),
+            },
+        )
+        .await
+        .expect("create conversation");
+        let antigravity = AgentId::parse("antigravity").expect("agent id");
+        Session::update_agent_metadata(
+            &pool,
+            conversation.id,
+            Some("agy-session-1"),
+            Some(&antigravity),
+        )
+        .await
+        .expect("store agent id");
+        SessionDefaultRepository::new(pool.clone())
+            .upsert(
+                &antigravity,
+                "thinking_level",
+                &serde_json::Value::String("high".into()).to_string(),
+            )
+            .await
+            .expect("seed thinking level");
+
+        persist_confirmed_session_controls(&pool, conversation.id, Some("yolo"), &[]).await;
+        persist_confirmed_session_controls(
+            &pool,
+            conversation.id,
+            None,
+            &[AgentSessionConfigOverride {
+                key: "model".into(),
+                value: "gemini-4-argon".into(),
+            }],
+        )
+        .await;
+
+        let binding =
+            ConversationAgentBindingRecord::latest_for_conversation(&pool, conversation.id)
+                .await
+                .expect("read binding")
+                .expect("confirmed Antigravity controls create a conversation binding");
+        let bindings =
+            ConversationAgentBindingRecord::list_for_conversation(&pool, conversation.id)
+                .await
+                .expect("list bindings");
+        assert_eq!(
+            bindings.len(),
+            1,
+            "each confirmed pick updates the same binding"
+        );
+        assert_eq!(binding.acp_session_id.as_deref(), Some("agy-session-1"));
+        assert!(
+            binding.mcp_servers_json.contains("vibex-delegation-mcp"),
+            "remembering controls must not hide agent mentions"
+        );
+        let defaults = SessionDefaultRepository::new(pool.clone())
+            .list_for_agent(&antigravity)
+            .await
+            .expect("list defaults")
+            .into_iter()
+            .filter_map(|record| {
+                serde_json::from_str(&record.value_json)
+                    .ok()
+                    .map(|value| (record.option_id, value))
+            })
+            .collect::<Vec<_>>();
+        let prefs = session_control_preferences(Some(&binding), &defaults);
+        assert_eq!(prefs.mode.as_deref(), Some("yolo"));
+        let mut config = prefs
+            .config
+            .iter()
+            .map(|item| (item.key.as_str(), item.value.as_str()))
+            .collect::<Vec<_>>();
+        config.sort();
+        assert_eq!(
+            config,
+            vec![("model", "gemini-4-argon"), ("thinking_level", "high"),]
+        );
+
+        let resumed_defaults = agents::AgentSessionControlsSnapshot {
+            current_mode: Some("default".into()),
+            config_options: vec![
+                config_option("model", "gemini-3.8-flash"),
+                config_option("thinking_level", "high"),
+            ],
+            ..Default::default()
+        };
+        let plan = session_control_replay_plan(
+            prefs.mode.clone(),
+            prefs.config.clone(),
+            &resumed_defaults,
+        );
+        assert_eq!(plan.mode.as_deref(), Some("yolo"));
+        assert_eq!(
+            plan.config_overrides
+                .iter()
+                .map(|item| (item.key.as_str(), item.value.as_str()))
+                .collect::<Vec<_>>(),
+            vec![("model", "gemini-4-argon")]
         );
     }
 

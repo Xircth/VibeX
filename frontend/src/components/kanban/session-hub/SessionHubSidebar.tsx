@@ -344,6 +344,8 @@ function DraggableSessionCard({
   onToggleSessionSelection,
   onRenameSession,
   onDeleteSession,
+  onPinSession,
+  onArchiveSession,
 }: {
   session: KanbanProjectSessionRecord;
   status: ActiveSessionStatus;
@@ -359,6 +361,13 @@ function DraggableSessionCard({
     name: string | null
   ) => Promise<void>;
   onDeleteSession?: (
+    session: KanbanProjectSessionRecord
+  ) => void | Promise<void>;
+  onPinSession?: (
+    session: KanbanProjectSessionRecord,
+    pinned: boolean
+  ) => void | Promise<void>;
+  onArchiveSession?: (
     session: KanbanProjectSessionRecord
   ) => void | Promise<void>;
 }) {
@@ -396,6 +405,12 @@ function DraggableSessionCard({
         onDeleteSession={
           onDeleteSession ? () => onDeleteSession(session) : undefined
         }
+        onPinSession={
+          onPinSession ? (pinned) => onPinSession(session, pinned) : undefined
+        }
+        onArchiveSession={
+          onArchiveSession ? () => onArchiveSession(session) : undefined
+        }
         dragging={isDragging}
         isOpening={openingSessionId === session.id}
       />
@@ -421,7 +436,14 @@ function renderSessionList(
   onDeleteSession?: (
     session: KanbanProjectSessionRecord
   ) => void | Promise<void>,
-  onRestoreArchivedSession?: (session: KanbanProjectSessionRecord) => void
+  onRestoreArchivedSession?: (session: KanbanProjectSessionRecord) => void,
+  onPinSession?: (
+    session: KanbanProjectSessionRecord,
+    pinned: boolean
+  ) => void | Promise<void>,
+  onArchiveSession?: (
+    session: KanbanProjectSessionRecord
+  ) => void | Promise<void>
 ) {
   return (
     <div className="w-full max-w-full min-w-0 space-y-1.5">
@@ -440,6 +462,8 @@ function renderSessionList(
             onToggleSessionSelection={onToggleSessionSelection}
             onRenameSession={onRenameSession}
             onDeleteSession={onDeleteSession}
+            onPinSession={onPinSession}
+            onArchiveSession={onArchiveSession}
           />
         ) : (
           <SessionHubListItem
@@ -457,6 +481,14 @@ function renderSessionList(
             onRenameSession={(name) => onRenameSession(session, name)}
             onDeleteSession={
               onDeleteSession ? () => onDeleteSession(session) : undefined
+            }
+            onPinSession={
+              onPinSession
+                ? (pinned) => onPinSession(session, pinned)
+                : undefined
+            }
+            onArchiveSession={
+              onArchiveSession ? () => onArchiveSession(session) : undefined
             }
             onRestoreFromArchive={
               onRestoreArchivedSession
@@ -1202,7 +1234,11 @@ export function SessionHubSidebar({
                       onSessionClick,
                       onToggleSessionSelection,
                       onRenameSession,
-                      onDeleteSession
+                      onDeleteSession,
+                      undefined,
+                      onPinSession,
+                      (session) =>
+                        onSessionStatusChange(session, ARCHIVED_SESSION_STATUS)
                     )
                   ) : (
                     <div className="session-hub-drop-zone rounded-xl border-dashed px-4 py-6 text-center text-sm text-muted-foreground">
@@ -1251,7 +1287,14 @@ export function SessionHubSidebar({
                                 onSessionClick,
                                 onToggleSessionSelection,
                                 onRenameSession,
-                                onDeleteSession
+                                onDeleteSession,
+                                undefined,
+                                onPinSession,
+                                (session) =>
+                                  onSessionStatusChange(
+                                    session,
+                                    ARCHIVED_SESSION_STATUS
+                                  )
                               )
                             : null}
                         </div>

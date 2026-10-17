@@ -1,22 +1,29 @@
 use std::{
     collections::HashMap,
     sync::{Arc, Mutex},
-    time::{SystemTime, UNIX_EPOCH},
+    time::{Duration, SystemTime, UNIX_EPOCH},
 };
 
 use async_trait::async_trait;
+use base64::Engine as _;
 use serde_json::{Value, json};
+use tokio::sync::Notify;
 use url::Url;
 use uuid::Uuid;
 
 use crate::{
-    agent::{self, SnapshotRequest},
+    agent::{self, SnapshotRequest, SnapshotViewport},
+    capture::{self, CaptureFormat, CaptureRegion, CaptureRequest},
     confirm::{AskRefused, EvalConsent},
+    console::{ConsoleLevel, ConsoleLine, ConsoleQuery, ConsoleRing, ConsoleSource},
     error::BrowserHostError,
     eval::{self, BadCode},
     grant::{AgentGrant, GrantLevel, origin_of},
-    policy::{self, HostRuleAction},
-    types::{BrowserAction, BrowserBounds, BrowserCapabilities, BrowserTab},
+    policy::{self, BrowserPolicy, HostRule, HostRuleAction},
+    types::{
+        BrowserAction, BrowserBounds, BrowserCapabilities, BrowserProfileRecord,
+        BrowserProxyCapability, BrowserSettings, BrowserTab, EvalApprovalMode, SurfaceOverride,
+    },
 };
 
 #[async_trait]
@@ -49,6 +56,32 @@ pub trait NativeTabs: Send + Sync {
         _tab_id: &str,
     ) -> Result<Option<crate::FrozenFrame>, BrowserHostError> {
         Ok(None)
+    }
+    async fn capture_png(&self, tab_id: &str) -> Result<Vec<u8>, BrowserHostError> {
+        if let Some(frame) = self.freeze_frame(tab_id).await? {
+            return base64::engine::general_purpose::STANDARD
+                .decode(frame.data.trim())
+                .map_err(|error| BrowserHostError::new("browser_read_failed", error.to_string()));
+        }
+        Err(BrowserHostError::new(
+            "browser_unavailable",
+            "screenshots are not available on this surface",
+        ))
+    }
+    async fn clear_profile(&self, _profile_id: &str) -> Result<(), BrowserHostError> {
+        Ok(())
+    }
+    async fn remove_profile(&self, _profile_id: &str) -> Result<(), BrowserHostError> {
+        Ok(())
+    }
+    fn downloads_dir(&self) -> Option<String> {
+        None
+    }
+    fn proxy_capability(&self) -> BrowserProxyCapability {
+        BrowserProxyCapability::default()
+    }
+    fn supports_page_load_events(&self) -> bool {
+        false
     }
     fn notify(&self, _payload: Value) {}
     async fn stop(&self, tab_id: &str) -> Result<(), BrowserHostError> {
@@ -148,6 +181,7 @@ struct TabRecord {
     /// Standing share for this tab. Origin changes rebind the grant; only
     /// `grant.set` or a `none` default turns sharing off.
     share_level: GrantLevel,
+    console: ConsoleRing,
 }
 
 pub struct BrowserService {
@@ -156,6 +190,9 @@ pub struct BrowserService {
     evals: EvalConsent,
     native: Arc<dyn NativeTabs>,
     available: bool,
+    policy: BrowserPolicy,
+    settings: Mutex<BrowserSettings>,
+    load_notify: Notify,
 }
 
 impl BrowserService {
@@ -166,11 +203,120 @@ impl BrowserService {
             evals: EvalConsent::new(),
             native,
             available,
+            policy: BrowserPolicy::load(),
+            settings: Mutex::new(BrowserSettings::default()),
+            load_notify: Notify::new(),
         }
     }
 
     pub fn unavailable() -> Self {
         Self::new(Arc::new(UnavailableNative), false)
+    }
+
+    pub fn policy(&self) -> &BrowserPolicy {
+        &self.policy
+    }
+
+    pub fn settings(&self) -> BrowserSettings {
+        self.settings
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .clone()
+    }
+
+    pub fn apply_settings(&self, mut next: BrowserSettings) -> BrowserSettings {
+        next.host_rules
+            .retain(|rule| policy::valid_pattern(&rule.pattern));
+        if !next.profiles.iter().any(|p| p.id == "default") {
+            next.profiles.insert(0, BrowserProfileRecord::default());
+        }
+        if next.new_tab_profile != "ephemeral"
+            && !next.profiles.iter().any(|p| p.id == next.new_tab_profile)
+        {
+            next.new_tab_profile = "default".to_owned();
+        }
+        self.policy.set_user_rules(next.host_rules.clone());
+        *self.settings.lock().unwrap_or_else(|p| p.into_inner()) = next.clone();
+        next
+    }
+
+    pub fn can_navigate(&self, raw_url: &str) -> bool {
+        if !self.policy.enabled() {
+            return false;
+        }
+        let Ok(parsed) = Url::parse(raw_url) else {
+            return false;
+        };
+        if !(policy::navigation_allowed(&parsed) || policy::subframe_navigation_allowed(&parsed)) {
+            return false;
+        }
+        !self.policy.blocked(&parsed)
+    }
+
+    /// A site rule says this URL must leave the built-in browser.
+    pub fn prefers_system_browser(&self, raw_url: &str) -> bool {
+        let Ok(parsed) = Url::parse(raw_url) else {
+            return false;
+        };
+        self.policy
+            .rule_for(&parsed)
+            .is_some_and(|rule| rule.action == HostRuleAction::System)
+    }
+
+    pub fn begin_navigation(&self, tab_id: &str, url: &str) -> bool {
+        if !self.can_navigate(url) {
+            return false;
+        }
+        if let Ok(parsed) = Url::parse(url)
+            && policy::navigation_allowed(&parsed)
+            && let Some(record) = self.tabs.lock().expect("browser tabs").get_mut(tab_id)
+        {
+            record.tab.loading = parsed.as_str() != "about:blank";
+        }
+        true
+    }
+
+    pub fn push_console_line(&self, tab_id: &str, line: ConsoleLine) {
+        if let Some(record) = self.tabs.lock().expect("browser tabs").get_mut(tab_id) {
+            record.console.push(line);
+        }
+    }
+
+    pub fn update_chrome(
+        &self,
+        tab_id: &str,
+        url: Option<&str>,
+        title: Option<&str>,
+        favicon: Option<&str>,
+    ) {
+        let mut tabs = self.tabs.lock().expect("browser tabs");
+        let Some(record) = tabs.get_mut(tab_id) else {
+            return;
+        };
+        if let Some(title) = title.map(str::trim).filter(|t| !t.is_empty()) {
+            record.tab.title = title.to_owned();
+        }
+        if let Some(favicon) = favicon.map(str::trim).filter(|f| !f.is_empty()) {
+            record.tab.favicon = Some(favicon.to_owned());
+        }
+        if let Some(url) = url.map(str::trim).filter(|u| !u.is_empty())
+            && let Ok(parsed) = Url::parse(url)
+            && policy::navigation_allowed(&parsed)
+            && !self.policy.blocked(&parsed)
+        {
+            let next_origin = origin_of(&parsed);
+            if let Some(origin) = next_origin
+                && record.tab.origin.as_deref() != Some(origin.as_str())
+            {
+                record.tab.origin = Some(origin);
+                Self::apply_grant(&mut record.tab, record.share_level);
+                record.console.clear();
+            }
+            if record.tab.url != url {
+                record.tab.url = url.to_owned();
+                record.nav_epoch = record.nav_epoch.saturating_add(1);
+            }
+        }
     }
 
     fn claim(&self, plugin_id: &str) -> Result<(), BrowserHostError> {
@@ -217,6 +363,7 @@ impl BrowserService {
             origin: parsed.as_ref().and_then(origin_of),
             grant: None,
             profile_id,
+            favicon: None,
         };
         let share_level = GrantLevel::Control;
         Self::apply_grant(&mut tab, share_level);
@@ -232,6 +379,7 @@ impl BrowserService {
                 incarnation: 1,
                 nav_epoch: 0,
                 share_level,
+                console: ConsoleRing::default(),
             },
         );
         tab
@@ -239,9 +387,11 @@ impl BrowserService {
 
     pub fn commit_url(&self, tab_id: &str, url: &str) {
         let Ok(parsed) = Url::parse(url) else {
+            self.load_notify.notify_waiters();
             return;
         };
-        if !policy::navigation_allowed(&parsed) {
+        if !policy::navigation_allowed(&parsed) || self.policy.blocked(&parsed) {
+            self.load_notify.notify_waiters();
             return;
         }
         let mut tabs = self.tabs.lock().expect("browser tabs");
@@ -249,29 +399,76 @@ impl BrowserService {
             record.tab.loading = false;
             let next_origin = origin_of(&parsed);
             let Some(origin) = next_origin else {
+                drop(tabs);
+                self.load_notify.notify_waiters();
                 return;
             };
             if record.tab.origin.as_deref() != Some(origin.as_str()) {
                 record.tab.origin = Some(origin);
                 Self::apply_grant(&mut record.tab, record.share_level);
+                record.console.clear();
+            }
+            if record.tab.url != url {
+                record.console.clear();
             }
             record.tab.url = url.to_owned();
             record.nav_epoch = record.nav_epoch.saturating_add(1);
         }
+        drop(tabs);
+        self.load_notify.notify_waiters();
     }
 
     pub fn capabilities(&self) -> BrowserCapabilities {
+        let settings = self.settings();
+        let default_surface = if cfg!(target_os = "linux") {
+            "window"
+        } else {
+            "child"
+        };
+        let surface = match settings.surface_override {
+            SurfaceOverride::Window => "window",
+            SurfaceOverride::Auto => default_surface,
+        };
         BrowserCapabilities {
-            available: self.available,
+            available: self.available && self.policy.enabled(),
             platform: std::env::consts::OS.to_owned(),
-            surface: if cfg!(target_os = "linux") {
-                "window".into()
-            } else {
-                "child".into()
-            },
+            surface: surface.into(),
             profiles: true,
             doc_guest: !cfg!(target_os = "linux"),
+            proxy: self.native.proxy_capability(),
+            downloads_dir: self.native.downloads_dir(),
+            policy: self.policy.status(),
         }
+    }
+
+    fn enforce_url_policy(&self, parsed: &Url) -> Result<(), BrowserHostError> {
+        if !self.policy.enabled() {
+            return Err(BrowserHostError::new(
+                "browser_disabled_by_policy",
+                "the built-in browser is disabled by administrator policy",
+            ));
+        }
+        if let Some(rule) = self.policy.rule_for(parsed) {
+            if rule.action == HostRuleAction::Block {
+                return Err(BrowserHostError::new(
+                    "browser_blocked_by_policy",
+                    format!(
+                        "navigation to {} is blocked by site rules (matching {})",
+                        parsed, rule.pattern
+                    ),
+                ));
+            }
+            if rule.action == HostRuleAction::System {
+                return Err(BrowserHostError::new(
+                    "browser_use_system_browser",
+                    format!(
+                        "site rules open {} in the system browser (matching {})",
+                        parsed, rule.pattern
+                    ),
+                ));
+            }
+        }
+        Ok(())
     }
 
     async fn create_tab(
@@ -296,19 +493,34 @@ impl BrowserService {
                 "only http(s) addresses or about:blank can open in a tab",
             ));
         }
-        let _ = HostRuleAction::Builtin;
+        self.enforce_url_policy(&parsed)?;
         let tab_id = Uuid::new_v4().to_string();
-        let profile_id = profile_id.unwrap_or("default").to_owned();
+        let settings = self.settings();
+        let profile_id = profile_id
+            .filter(|id| !id.trim().is_empty())
+            .unwrap_or(&settings.new_tab_profile)
+            .to_owned();
         self.native.open(&tab_id, url, &bounds, &profile_id).await?;
-        let share_level = grant.unwrap_or(GrantLevel::Control);
+        let origin = origin_of(&parsed);
+        let share_level = if !settings.tools_enabled {
+            GrantLevel::None
+        } else {
+            grant.unwrap_or_else(|| {
+                origin
+                    .as_deref()
+                    .and_then(|o| settings.origin_grants.get(o).copied())
+                    .unwrap_or(settings.default_grant)
+            })
+        };
         let mut tab = BrowserTab {
             tab_id: tab_id.clone(),
             url: url.to_owned(),
             title: parsed.host_str().unwrap_or("Browser").to_owned(),
-            loading: true,
-            origin: origin_of(&parsed),
+            loading: parsed.as_str() != "about:blank",
+            origin,
             grant: None,
             profile_id,
+            favicon: None,
         };
         Self::apply_grant(&mut tab, share_level);
         self.tabs.lock().expect("browser tabs").insert(
@@ -319,9 +531,60 @@ impl BrowserService {
                 incarnation: 1,
                 nav_epoch: 0,
                 share_level,
+                console: ConsoleRing::default(),
             },
         );
         Ok(tab)
+    }
+
+    async fn wait_for_tab_settle(&self, tab_id: &str, max_wait: Duration) {
+        if !self.native.supports_page_load_events() {
+            return;
+        }
+        let deadline = tokio::time::Instant::now() + max_wait;
+        loop {
+            let notified = self.load_notify.notified();
+            let is_loading = {
+                let tabs = self.tabs.lock().expect("browser tabs");
+                tabs.get(tab_id).is_some_and(|record| record.tab.loading)
+            };
+            if !is_loading {
+                break;
+            }
+            let now = tokio::time::Instant::now();
+            if now >= deadline {
+                break;
+            }
+            if tokio::time::timeout(deadline - now, notified)
+                .await
+                .is_err()
+            {
+                break;
+            }
+        }
+        // Give SPA routers / DOMContentLoaded listeners a brief grace window to render.
+        tokio::time::sleep(Duration::from_millis(60)).await;
+        if let Ok(raw) = self
+            .native
+            .eval(
+                tab_id,
+                "JSON.stringify({ url: String(location.href || ''), title: String(document.title || '') })",
+            )
+            .await
+        {
+            let decoded = agent::decode_eval_result(&raw);
+            if let Ok(val) = serde_json::from_str::<Value>(&decoded) {
+                let page_url = val.get("url").and_then(Value::as_str);
+                let page_title = val.get("title").and_then(Value::as_str);
+                self.update_chrome(tab_id, page_url, page_title, None);
+            }
+        }
+        {
+            let mut tabs = self.tabs.lock().expect("browser tabs");
+            if let Some(record) = tabs.get_mut(tab_id) {
+                record.tab.loading = false;
+            }
+        }
     }
 
     fn tab(&self, tab_id: &str) -> Result<BrowserTab, BrowserHostError> {
@@ -331,6 +594,27 @@ impl BrowserService {
             .get(tab_id)
             .map(|record| record.tab.clone())
             .ok_or_else(|| BrowserHostError::new("browser_no_such_tab", format!("no tab {tab_id}")))
+    }
+
+    fn resolve_tab_id(&self, explicit: Option<&str>) -> Result<String, BrowserHostError> {
+        if let Some(tab_id) = explicit.map(str::trim).filter(|id| !id.is_empty()) {
+            let _ = self.tab(tab_id)?;
+            return Ok(tab_id.to_owned());
+        }
+        let tabs = self.tabs.lock().expect("browser tabs");
+        if tabs.len() == 1 {
+            return Ok(tabs.keys().next().expect("single tab").clone());
+        }
+        if tabs.is_empty() {
+            return Err(BrowserHostError::new(
+                "browser_no_such_tab",
+                "no browser tab is open; open a tab first",
+            ));
+        }
+        Err(BrowserHostError::new(
+            "browser_invalid",
+            "more than one browser tab is open; pass tabId (see browser_list_tabs)",
+        ))
     }
 
     fn require_grant(
@@ -361,6 +645,29 @@ impl BrowserService {
             ));
         }
         Ok(())
+    }
+
+    fn ensure_tools(&self) -> Result<(), BrowserHostError> {
+        if self.settings().tools_enabled {
+            Ok(())
+        } else {
+            Err(BrowserHostError::new(
+                "browser_tools_disabled",
+                "Agent browser tools are disabled in Settings → Browser.",
+            ))
+        }
+    }
+
+    fn ensure_eval(&self) -> Result<(), BrowserHostError> {
+        self.ensure_tools()?;
+        if self.settings().eval_enabled {
+            Ok(())
+        } else {
+            Err(BrowserHostError::new(
+                "browser_eval_disabled",
+                "Running page JavaScript is disabled in Settings → Browser.",
+            ))
+        }
     }
 
     fn note_activity(&self, tab_id: &str, action: &str, outcome: &str) {
@@ -397,6 +704,116 @@ pub async fn dispatch(
     match operation {
         "capabilities" => serde_json::to_value(service.capabilities())
             .map_err(|error| BrowserHostError::new("browser_invalid", error.to_string())),
+        "settings.get" => serde_json::to_value(service.settings())
+            .map_err(|error| BrowserHostError::new("browser_invalid", error.to_string())),
+        "settings.set" => {
+            let current = service.settings();
+            let mut merged = serde_json::to_value(&current)
+                .map_err(|error| BrowserHostError::new("browser_invalid", error.to_string()))?;
+            if let (Some(base), Some(patch)) = (merged.as_object_mut(), input.as_object()) {
+                for (k, v) in patch {
+                    base.insert(k.clone(), v.clone());
+                }
+            }
+            let next: BrowserSettings = serde_json::from_value(merged)
+                .map_err(|error| BrowserHostError::new("browser_invalid", error.to_string()))?;
+            let saved = service.apply_settings(next);
+            serde_json::to_value(saved)
+                .map_err(|error| BrowserHostError::new("browser_invalid", error.to_string()))
+        }
+        "policy.setRules" => {
+            let rules: Vec<HostRule> = input
+                .get("rules")
+                .cloned()
+                .map(serde_json::from_value)
+                .transpose()
+                .map_err(|error| BrowserHostError::new("browser_invalid", error.to_string()))?
+                .unwrap_or_default();
+            let mut settings = service.settings();
+            settings.host_rules = rules;
+            service.apply_settings(settings);
+            serde_json::to_value(service.policy.status())
+                .map_err(|error| BrowserHostError::new("browser_invalid", error.to_string()))
+        }
+        "profile.list" => {
+            let settings = service.settings();
+            Ok(json!({
+                "profiles": settings.profiles,
+                "newTabProfile": settings.new_tab_profile,
+            }))
+        }
+        "profile.create" => {
+            let label = required_string(&input, "label")?;
+            let mut settings = service.settings();
+            let base_slug = slugify_profile_id(
+                input
+                    .get("id")
+                    .and_then(Value::as_str)
+                    .unwrap_or(label.as_str()),
+            );
+            let mut candidate = base_slug.clone();
+            let mut seq = 2usize;
+            while settings.profiles.iter().any(|p| p.id == candidate) {
+                candidate = format!("{base_slug}-{seq}");
+                seq += 1;
+            }
+            let record = BrowserProfileRecord {
+                id: candidate,
+                label,
+            };
+            settings.profiles.push(record.clone());
+            service.apply_settings(settings);
+            serde_json::to_value(record)
+                .map_err(|error| BrowserHostError::new("browser_invalid", error.to_string()))
+        }
+        "profile.clear" => {
+            let profile_id = required_string(&input, "profileId")?;
+            let tab_ids: Vec<String> = {
+                let tabs = service.tabs.lock().expect("browser tabs");
+                tabs.values()
+                    .filter(|record| record.tab.profile_id == profile_id)
+                    .map(|record| record.tab.tab_id.clone())
+                    .collect()
+            };
+            for tab_id in tab_ids {
+                let _ = service.native.close(&tab_id).await;
+                let mut tabs = service.tabs.lock().expect("browser tabs");
+                tabs.remove(&tab_id);
+            }
+            service.native.clear_profile(&profile_id).await?;
+            Ok(json!({ "cleared": true, "profileId": profile_id }))
+        }
+        "profile.remove" => {
+            let profile_id = required_string(&input, "profileId")?;
+            if profile_id == "default" {
+                return Err(BrowserHostError::new(
+                    "browser_invalid",
+                    "the default profile cannot be removed",
+                ));
+            }
+            let tab_ids: Vec<String> = {
+                let tabs = service.tabs.lock().expect("browser tabs");
+                tabs.values()
+                    .filter(|record| record.tab.profile_id == profile_id)
+                    .map(|record| record.tab.tab_id.clone())
+                    .collect()
+            };
+            for tab_id in tab_ids {
+                let _ = service.native.close(&tab_id).await;
+                let mut tabs = service.tabs.lock().expect("browser tabs");
+                tabs.remove(&tab_id);
+            }
+            let mut settings = service.settings();
+            settings.profiles.retain(|p| p.id != profile_id);
+            let saved = service.apply_settings(settings);
+            service.native.remove_profile(&profile_id).await?;
+            Ok(json!({
+                "removed": true,
+                "profileId": profile_id,
+                "profiles": saved.profiles,
+                "newTabProfile": saved.new_tab_profile,
+            }))
+        }
         "tab.create" => {
             let url = input.get("url").and_then(Value::as_str);
             let profile_id = input.get("profileId").and_then(Value::as_str);
@@ -411,6 +828,10 @@ pub async fn dispatch(
                 .and_then(Value::as_str)
                 .and_then(|value| serde_json::from_value(Value::String(value.to_string())).ok());
             let open_in_ui = !bounds.visible || bounds.width < 32.0 || bounds.height < 32.0;
+            let wait_for_load = input
+                .get("waitForLoad")
+                .and_then(Value::as_bool)
+                .unwrap_or(open_in_ui);
             let tab = service.create_tab(url, profile_id, bounds, grant).await?;
             if open_in_ui {
                 service.native.notify(json!({
@@ -419,27 +840,33 @@ pub async fn dispatch(
                     "tabId": tab.tab_id,
                 }));
             }
-            serde_json::to_value(tab)
+            if wait_for_load && tab.url != "about:blank" {
+                service
+                    .wait_for_tab_settle(&tab.tab_id, Duration::from_millis(3500))
+                    .await;
+            }
+            let final_tab = service.tab(&tab.tab_id).unwrap_or(tab);
+            serde_json::to_value(final_tab)
                 .map_err(|error| BrowserHostError::new("browser_invalid", error.to_string()))
         }
         "tab.close" => {
             let tab_id = required_string(&input, "tabId")?;
             service.native.close(&tab_id).await?;
-            service.tabs.lock().expect("browser tabs").remove(&tab_id);
-            Ok(json!({ "ok": true }))
+            {
+                let mut tabs = service.tabs.lock().expect("browser tabs");
+                tabs.remove(&tab_id);
+            }
+            Ok(json!({ "ok": true, "tabId": tab_id }))
         }
         "tab.list" => {
-            let tabs: Vec<BrowserTab> = service
-                .tabs
-                .lock()
-                .expect("browser tabs")
-                .values()
-                .map(|record| record.tab.clone())
-                .collect();
+            let tabs: Vec<BrowserTab> = {
+                let guard = service.tabs.lock().expect("browser tabs");
+                guard.values().map(|record| record.tab.clone()).collect()
+            };
             Ok(json!({ "tabs": tabs }))
         }
         "tab.navigate" => {
-            let tab_id = required_string(&input, "tabId")?;
+            let tab_id = service.resolve_tab_id(input.get("tabId").and_then(Value::as_str))?;
             let url = required_string(&input, "url")?;
             let parsed = Url::parse(&url)
                 .map_err(|error| BrowserHostError::new("browser_bad_address", error.to_string()))?;
@@ -449,19 +876,32 @@ pub async fn dispatch(
                     "this address cannot load in a tab",
                 ));
             }
+            service.enforce_url_policy(&parsed)?;
             let _ = service.tab(&tab_id)?;
             service.native.navigate(&tab_id, &url).await?;
-            let mut tabs = service.tabs.lock().expect("browser tabs");
-            if let Some(record) = tabs.get_mut(&tab_id) {
-                let next_origin = origin_of(&parsed);
-                if record.tab.origin.as_deref() != next_origin.as_deref() {
-                    record.tab.origin = next_origin;
-                    BrowserService::apply_grant(&mut record.tab, record.share_level);
+            {
+                let mut tabs = service.tabs.lock().expect("browser tabs");
+                if let Some(record) = tabs.get_mut(&tab_id) {
+                    let next_origin = origin_of(&parsed);
+                    if record.tab.origin.as_deref() != next_origin.as_deref() {
+                        record.tab.origin = next_origin;
+                        BrowserService::apply_grant(&mut record.tab, record.share_level);
+                    }
+                    record.tab.url = url;
+                    record.tab.loading = parsed.as_str() != "about:blank";
+                    record.console.clear();
+                    record.nav_epoch = record.nav_epoch.saturating_add(1);
                 }
-                record.tab.url = url;
-                record.nav_epoch = record.nav_epoch.saturating_add(1);
             }
-            drop(tabs);
+            let wait_for_load = input
+                .get("waitForLoad")
+                .and_then(Value::as_bool)
+                .unwrap_or(false);
+            if wait_for_load && parsed.as_str() != "about:blank" {
+                service
+                    .wait_for_tab_settle(&tab_id, Duration::from_millis(3500))
+                    .await;
+            }
             serde_json::to_value(service.tab(&tab_id)?)
                 .map_err(|error| BrowserHostError::new("browser_invalid", error.to_string()))
         }
@@ -480,6 +920,12 @@ pub async fn dispatch(
         "tab.reload" => {
             let tab_id = required_string(&input, "tabId")?;
             let _ = service.tab(&tab_id)?;
+            {
+                let mut tabs = service.tabs.lock().expect("browser tabs");
+                if let Some(record) = tabs.get_mut(&tab_id) {
+                    record.console.clear();
+                }
+            }
             service.native.reload(&tab_id).await?;
             Ok(json!({ "ok": true }))
         }
@@ -525,6 +971,12 @@ pub async fn dispatch(
             }
         }
         "tab.devtools" => {
+            if !service.settings().devtools {
+                return Err(BrowserHostError::new(
+                    "browser_devtools_disabled",
+                    "developer tools are disabled in browser settings",
+                ));
+            }
             let tab_id = required_string(&input, "tabId")?;
             let _ = service.tab(&tab_id)?;
             service.native.open_devtools(&tab_id).await?;
@@ -547,7 +999,14 @@ pub async fn dispatch(
                 )
                 .await
                 .unwrap_or_else(|_| "{}".into());
-            Ok(serde_json::from_str(&raw).unwrap_or_else(|_| json!({})))
+            let value: Value = serde_json::from_str(&raw).unwrap_or_else(|_| json!({}));
+            service.update_chrome(
+                &tab_id,
+                value.get("url").and_then(Value::as_str),
+                value.get("title").and_then(Value::as_str),
+                value.get("favicon").and_then(Value::as_str),
+            );
+            Ok(value)
         }
         "tab.title" => {
             let tab_id = required_string(&input, "tabId")?;
@@ -558,6 +1017,7 @@ pub async fn dispatch(
                 .await
                 .unwrap_or_default();
             let title = crate::agent::decode_eval_result(&raw).trim().to_owned();
+            service.update_chrome(&tab_id, None, Some(&title), None);
             Ok(json!({ "title": title }))
         }
         "tab.device" => {
@@ -582,8 +1042,11 @@ pub async fn dispatch(
                 .map_err(|error| BrowserHostError::new("browser_invalid", error.to_string()))?;
             let _ = service.tab(&tab_id)?;
             service.native.set_bounds(&tab_id, &bounds).await?;
-            if let Some(record) = service.tabs.lock().expect("browser tabs").get_mut(&tab_id) {
-                record.bounds = bounds;
+            {
+                let mut tabs = service.tabs.lock().expect("browser tabs");
+                if let Some(record) = tabs.get_mut(&tab_id) {
+                    record.bounds = bounds;
+                }
             }
             Ok(json!({ "ok": true }))
         }
@@ -607,17 +1070,49 @@ pub async fn dispatch(
             } else {
                 Some(AgentGrant {
                     level,
-                    origin,
+                    origin: origin.clone(),
                     granted_at: now_ms(),
                 })
             };
-            serde_json::to_value(&record.tab)
-                .map_err(|error| BrowserHostError::new("browser_invalid", error.to_string()))
+            let result = serde_json::to_value(&record.tab)
+                .map_err(|error| BrowserHostError::new("browser_invalid", error.to_string()))?;
+            drop(tabs);
+            let mut settings = service.settings();
+            if level == GrantLevel::None {
+                settings.origin_grants.remove(&origin);
+            } else {
+                settings.origin_grants.insert(origin.clone(), level);
+            }
+            service.apply_settings(settings);
+            service.native.notify(json!({
+                "kind": "tab.grant",
+                "tabId": tab_id,
+                "origin": origin,
+                "level": level,
+                "grant": result.get("grant").cloned().unwrap_or(Value::Null),
+            }));
+            Ok(result)
         }
-        "snapshot" => snapshot(service, &input).await,
-        "act" => act(service, &input).await,
+        "snapshot" => {
+            service.ensure_tools()?;
+            snapshot(service, &input).await
+        }
+        "act" => {
+            service.ensure_tools()?;
+            act(service, &input).await
+        }
+        "console.read" => {
+            service.ensure_tools()?;
+            console_read(service, &input)
+        }
+        "console.push" => console_push(service, &input),
+        "screenshot" | "tab.capture" => {
+            service.ensure_tools()?;
+            screenshot(service, &input).await
+        }
         "eval.request" => {
-            let tab_id = required_string(&input, "tabId")?;
+            service.ensure_eval()?;
+            let tab_id = service.resolve_tab_id(input.get("tabId").and_then(Value::as_str))?;
             let code = required_string(&input, "code")?;
             eval::validate_code(&code).map_err(|bad| {
                 BrowserHostError::new(
@@ -633,7 +1128,8 @@ pub async fn dispatch(
             eval_ask(service, &tab, &code).await
         }
         "eval.run" => {
-            let tab_id = required_string(&input, "tabId")?;
+            service.ensure_eval()?;
+            let tab_id = service.resolve_tab_id(input.get("tabId").and_then(Value::as_str))?;
             let code = required_string(&input, "code")?;
             eval::validate_code(&code).map_err(|bad| {
                 BrowserHostError::new(
@@ -646,7 +1142,8 @@ pub async fn dispatch(
             })?;
             let tab = service.tab(&tab_id)?;
             service.require_grant(&tab, GrantLevel::Control, "eval")?;
-            eval_run(service, &tab, &code).await
+            let silent = service.settings().eval_approval == EvalApprovalMode::Silent;
+            eval_run(service, &tab, &code, silent).await
         }
         "eval.decide" => {
             let request_id = required_string(&input, "requestId")?;
@@ -790,9 +1287,14 @@ window.__codegPicker && window.__codegPicker.start({id_json});
 }
 
 async fn snapshot(service: &BrowserService, input: &Value) -> Result<Value, BrowserHostError> {
-    let tab_id = required_string(input, "tabId")?;
+    let tab_id = service.resolve_tab_id(input.get("tabId").and_then(Value::as_str))?;
     let tab = service.tab(&tab_id)?;
     service.require_grant(&tab, GrantLevel::Read, "read")?;
+    if tab.loading && tab.url != "about:blank" {
+        service
+            .wait_for_tab_settle(&tab_id, Duration::from_millis(2500))
+            .await;
+    }
     let max_chars = input
         .get("maxChars")
         .and_then(Value::as_u64)
@@ -819,20 +1321,23 @@ async fn snapshot(service: &BrowserService, input: &Value) -> Result<Value, Brow
         probed
     };
     let page = agent::parse_snapshot(&raw)?;
+    service.update_chrome(&tab_id, Some(&page.url), Some(&page.title), None);
     service.note_activity(&tab_id, "read", "done");
     Ok(json!({
         "tabId": tab_id,
         "generation": page.generation,
         "url": page.url,
         "title": page.title,
+        "viewport": page.viewport,
         "snapshot": page.tree,
+        "tree": page.tree,
         "refsCount": page.refs_count,
         "truncated": page.truncated,
     }))
 }
 
 async fn act(service: &BrowserService, input: &Value) -> Result<Value, BrowserHostError> {
-    let tab_id = required_string(input, "tabId")?;
+    let tab_id = service.resolve_tab_id(input.get("tabId").and_then(Value::as_str))?;
     let tab = service.tab(&tab_id)?;
     let action: BrowserAction = serde_json::from_value(input.clone())
         .map_err(|error| BrowserHostError::new("browser_invalid", error.to_string()))?;
@@ -859,6 +1364,19 @@ async fn act(service: &BrowserService, input: &Value) -> Result<Value, BrowserHo
             "act requires a snapshot ref",
         ));
     }
+    let current_epoch = {
+        let tabs = service.tabs.lock().expect("browser tabs");
+        let record = tabs.get(&tab_id).ok_or_else(|| {
+            BrowserHostError::new("browser_no_such_tab", format!("no tab {tab_id}"))
+        })?;
+        agent::epoch(record.incarnation, record.nav_epoch)
+    };
+    if generation.split('.').count() == 4 && !agent::ref_is_current(generation, &current_epoch) {
+        return Err(BrowserHostError::new(
+            "browser_stale_ref",
+            "the page has navigated since that snapshot; take a new snapshot",
+        ));
+    }
     let payload = agent::action_payload(&action)?;
     let raw = service
         .native
@@ -868,15 +1386,206 @@ async fn act(service: &BrowserService, input: &Value) -> Result<Value, BrowserHo
         )
         .await?;
     let outcome = agent::parse_act(&raw)?;
+    if !outcome.url.is_empty() {
+        service.update_chrome(&tab_id, Some(&outcome.url), None, None);
+    }
     let ok = outcome.ok && outcome.error.is_none();
     service.note_activity(&tab_id, kind, if ok { "done" } else { "failed" });
     Ok(json!({
         "tabId": tab_id,
         "ok": ok,
         "url": outcome.url,
+        "scrolled": outcome.scrolled,
         "fidelity": "synthetic",
         "error": outcome.error,
     }))
+}
+
+fn console_read(service: &BrowserService, input: &Value) -> Result<Value, BrowserHostError> {
+    let tab_id = service.resolve_tab_id(input.get("tabId").and_then(Value::as_str))?;
+    let tab = service.tab(&tab_id)?;
+    service.require_grant(&tab, GrantLevel::Read, "read")?;
+    let since = input.get("since").and_then(Value::as_u64).unwrap_or(0);
+    let min_level = match input
+        .get("minLevel")
+        .or_else(|| input.get("level"))
+        .and_then(Value::as_str)
+    {
+        Some(raw) => Some(ConsoleLevel::parse(raw).ok_or_else(|| {
+            BrowserHostError::new("browser_invalid", format!("unknown console level {raw:?}"))
+        })?),
+        None => None,
+    };
+    let limit = input
+        .get("limit")
+        .and_then(Value::as_u64)
+        .map(|n| n as usize);
+    let query = ConsoleQuery {
+        since,
+        min_level,
+        limit,
+    };
+    let read = {
+        let tabs = service.tabs.lock().expect("browser tabs");
+        let record = tabs.get(&tab_id).ok_or_else(|| {
+            BrowserHostError::new("browser_no_such_tab", format!("no tab {tab_id}"))
+        })?;
+        let origin = record.tab.origin.as_deref().unwrap_or("");
+        record.console.read(&record.tab.url, origin, &query)
+    };
+    service.note_activity(&tab_id, "read", "done");
+    serde_json::to_value(read)
+        .map_err(|error| BrowserHostError::new("browser_invalid", error.to_string()))
+}
+
+fn console_push(service: &BrowserService, input: &Value) -> Result<Value, BrowserHostError> {
+    let tab_id = required_string(input, "tabId")?;
+    let level_raw = input.get("level").and_then(Value::as_str).unwrap_or("log");
+    let level = ConsoleLevel::parse(level_raw).unwrap_or(ConsoleLevel::Log);
+    let source = input
+        .get("source")
+        .and_then(Value::as_str)
+        .map(ConsoleSource::parse)
+        .unwrap_or(ConsoleSource::Console);
+    let text = input
+        .get("text")
+        .and_then(Value::as_str)
+        .unwrap_or("")
+        .to_owned();
+    let url = input.get("url").and_then(Value::as_str).map(str::to_owned);
+    let line = input
+        .get("line")
+        .and_then(Value::as_u64)
+        .and_then(|n| u32::try_from(n).ok());
+    let column = input
+        .get("column")
+        .and_then(Value::as_u64)
+        .and_then(|n| u32::try_from(n).ok());
+    let at = input
+        .get("at")
+        .and_then(Value::as_i64)
+        .unwrap_or_else(now_ms);
+    service.push_console_line(
+        &tab_id,
+        ConsoleLine {
+            level,
+            source,
+            text,
+            url,
+            line,
+            column,
+            at,
+            top: true,
+            frame_origin: None,
+        },
+    );
+    Ok(json!({ "ok": true }))
+}
+
+async fn screenshot(service: &BrowserService, input: &Value) -> Result<Value, BrowserHostError> {
+    let tab_id = service.resolve_tab_id(input.get("tabId").and_then(Value::as_str))?;
+    let tab = service.tab(&tab_id)?;
+    service.require_grant(&tab, GrantLevel::Read, "read")?;
+    if tab.loading && tab.url != "about:blank" {
+        service
+            .wait_for_tab_settle(&tab_id, Duration::from_millis(2000))
+            .await;
+    }
+    let generation = input
+        .get("generation")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(str::to_owned);
+    let target = input
+        .get("ref")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(str::to_owned);
+    if generation.is_some() != target.is_some() {
+        return Err(BrowserHostError::new(
+            "browser_invalid",
+            "element screenshot requires both generation and ref",
+        ));
+    }
+    let max_width = input
+        .get("maxWidth")
+        .and_then(Value::as_u64)
+        .and_then(|n| u32::try_from(n).ok());
+    let format = match input.get("format").and_then(Value::as_str) {
+        Some(raw) => CaptureFormat::parse(raw).ok_or_else(|| {
+            BrowserHostError::new(
+                "browser_invalid",
+                format!("unknown screenshot format {raw:?}"),
+            )
+        })?,
+        None => CaptureFormat::Png,
+    };
+    let request = CaptureRequest {
+        generation: generation.clone(),
+        target: target.clone(),
+        max_width,
+        format,
+    };
+    let (url, viewport, region) = if let (Some(gen_token), Some(r)) = (&generation, &target) {
+        let current_epoch = {
+            let tabs = service.tabs.lock().expect("browser tabs");
+            let record = tabs.get(&tab_id).ok_or_else(|| {
+                BrowserHostError::new("browser_no_such_tab", format!("no tab {tab_id}"))
+            })?;
+            agent::epoch(record.incarnation, record.nav_epoch)
+        };
+        if gen_token.split('.').count() == 4 && !agent::ref_is_current(gen_token, &current_epoch) {
+            return Err(BrowserHostError::new(
+                "browser_stale_ref",
+                "the page has navigated since that snapshot; take a new snapshot",
+            ));
+        }
+        let raw = service
+            .native
+            .eval(&tab_id, &agent::rect_call(gen_token, r))
+            .await?;
+        let rect = agent::parse_rect(&raw)?;
+        if rect.scrolled {
+            tokio::time::sleep(Duration::from_millis(50)).await;
+        }
+        (
+            if rect.url.is_empty() {
+                tab.url.clone()
+            } else {
+                rect.url
+            },
+            rect.viewport.unwrap_or_default(),
+            Some(CaptureRegion {
+                x: rect.x,
+                y: rect.y,
+                width: rect.width,
+                height: rect.height,
+            }),
+        )
+    } else {
+        let vp = match service.native.eval(&tab_id, agent::viewport_call()).await {
+            Ok(raw) => agent::parse_viewport(&raw)
+                .map(|ans| {
+                    let url = if ans.url.is_empty() {
+                        tab.url.clone()
+                    } else {
+                        ans.url
+                    };
+                    (url, ans.viewport)
+                })
+                .unwrap_or_else(|_| (tab.url.clone(), SnapshotViewport::default())),
+            Err(_) => (tab.url.clone(), SnapshotViewport::default()),
+        };
+        (vp.0, vp.1, None)
+    };
+    let png_bytes = service.native.capture_png(&tab_id).await?;
+    let captured = capture::finish_capture(&png_bytes, url, &viewport, region, &request)
+        .map_err(|error| BrowserHostError::new("browser_read_failed", error))?;
+    service.note_activity(&tab_id, "read", "done");
+    serde_json::to_value(captured)
+        .map_err(|error| BrowserHostError::new("browser_invalid", error.to_string()))
 }
 
 async fn eval_ask(
@@ -924,45 +1633,48 @@ async fn eval_run(
     service: &BrowserService,
     tab: &BrowserTab,
     code: &str,
+    silent: bool,
 ) -> Result<Value, BrowserHostError> {
-    let request_id = Uuid::new_v4().to_string();
-    let rx = service
-        .evals
-        .arm(&tab.tab_id, request_id.clone())
-        .map_err(|refused| {
-            BrowserHostError::new(
-                match refused {
-                    AskRefused::Busy => "browser_eval_busy",
-                    AskRefused::CoolingDown => "browser_eval_busy",
-                },
-                "another snippet is waiting for approval",
-            )
-        })?;
-    let expires_at = now_ms() + crate::confirm::EVAL_CONFIRM_TIMEOUT.as_millis() as i64;
-    let plugin_id = service.occupant.lock().expect("browser occupant").clone();
-    service.native.notify(json!({
-        "kind": "eval.request",
-        "pluginId": plugin_id,
-        "requestId": request_id,
-        "tabId": tab.tab_id,
-        "origin": tab.origin,
-        "title": tab.title,
-        "code": code,
-        "expiresAt": expires_at,
-    }));
-    let allow = match tokio::time::timeout(crate::confirm::EVAL_CONFIRM_TIMEOUT, rx).await {
-        Ok(Ok(value)) => value,
-        Ok(Err(_)) | Err(_) => {
-            service.evals.abandon(&request_id);
-            false
+    if !silent {
+        let request_id = Uuid::new_v4().to_string();
+        let rx = service
+            .evals
+            .arm(&tab.tab_id, request_id.clone())
+            .map_err(|refused| {
+                BrowserHostError::new(
+                    match refused {
+                        AskRefused::Busy => "browser_eval_busy",
+                        AskRefused::CoolingDown => "browser_eval_busy",
+                    },
+                    "another snippet is waiting for approval",
+                )
+            })?;
+        let expires_at = now_ms() + crate::confirm::EVAL_CONFIRM_TIMEOUT.as_millis() as i64;
+        let plugin_id = service.occupant.lock().expect("browser occupant").clone();
+        service.native.notify(json!({
+            "kind": "eval.request",
+            "pluginId": plugin_id,
+            "requestId": request_id,
+            "tabId": tab.tab_id,
+            "origin": tab.origin,
+            "title": tab.title,
+            "code": code,
+            "expiresAt": expires_at,
+        }));
+        let allow = match tokio::time::timeout(crate::confirm::EVAL_CONFIRM_TIMEOUT, rx).await {
+            Ok(Ok(value)) => value,
+            Ok(Err(_)) | Err(_) => {
+                service.evals.abandon(&request_id);
+                false
+            }
+        };
+        if !allow {
+            service.note_activity(&tab.tab_id, "eval", "refused");
+            return Err(BrowserHostError::new(
+                "browser_eval_declined",
+                "the snippet was not approved. Do not send the same snippet again.",
+            ));
         }
-    };
-    if !allow {
-        service.note_activity(&tab.tab_id, "eval", "refused");
-        return Err(BrowserHostError::new(
-            "browser_eval_declined",
-            "the snippet was not approved. Do not send the same snippet again.",
-        ));
     }
     let raw = service
         .native
@@ -994,6 +1706,23 @@ async fn eval_run(
         "result": outcome,
     }))
     .map_err(|error| BrowserHostError::new("browser_invalid", error.to_string()))
+}
+
+fn slugify_profile_id(raw: &str) -> String {
+    let mut slug = String::new();
+    for ch in raw.trim().chars() {
+        if ch.is_ascii_alphanumeric() {
+            slug.push(ch.to_ascii_lowercase());
+        } else if (ch == '-' || ch == '_' || ch.is_whitespace()) && !slug.ends_with('-') {
+            slug.push('-');
+        }
+    }
+    let trimmed = slug.trim_matches('-');
+    if trimmed.is_empty() {
+        "profile".to_owned()
+    } else {
+        trimmed.chars().take(40).collect()
+    }
 }
 
 fn required_string(input: &Value, key: &str) -> Result<String, BrowserHostError> {
@@ -1573,5 +2302,270 @@ mod tests {
         let script = native.last.lock().expect("eval").clone();
         assert!(script.contains("__codegSend"));
         assert!(script.contains("__codegPicker.start"));
+    }
+
+    #[tokio::test]
+    async fn settings_profiles_and_host_rules_are_enforced() {
+        let service = BrowserService::new(Arc::new(MemoryNative), true);
+        let updated = dispatch(
+            &service,
+            "vibex.browser",
+            "settings.set",
+            json!({
+                "hostRules": [
+                    { "pattern": "blocked.example", "action": "block" }
+                ],
+                "evalEnabled": true,
+                "evalApproval": "silent"
+            }),
+        )
+        .await
+        .expect("settings.set");
+        assert_eq!(updated["evalEnabled"], true);
+        assert_eq!(updated["evalApproval"], "silent");
+
+        let blocked = dispatch(
+            &service,
+            "vibex.browser",
+            "tab.create",
+            json!({ "url": "https://blocked.example/path" }),
+        )
+        .await
+        .expect_err("blocked domain refused");
+        assert_eq!(blocked.code(), "browser_blocked_by_policy");
+
+        let created_profile = dispatch(
+            &service,
+            "vibex.browser",
+            "profile.create",
+            json!({ "label": "Work Account" }),
+        )
+        .await
+        .expect("profile.create");
+        assert_eq!(created_profile["id"], "work-account");
+        assert_eq!(created_profile["label"], "Work Account");
+
+        let listed = dispatch(&service, "vibex.browser", "profile.list", json!({}))
+            .await
+            .expect("profile.list");
+        assert_eq!(listed["profiles"].as_array().unwrap().len(), 2);
+
+        let default_remove = dispatch(
+            &service,
+            "vibex.browser",
+            "profile.remove",
+            json!({ "profileId": "default" }),
+        )
+        .await
+        .expect_err("default profile cannot be removed");
+        assert_eq!(default_remove.code(), "browser_invalid");
+
+        let removed = dispatch(
+            &service,
+            "vibex.browser",
+            "profile.remove",
+            json!({ "profileId": "work-account" }),
+        )
+        .await
+        .expect("profile.remove");
+        assert_eq!(removed["removed"], true);
+        assert_eq!(removed["profiles"].as_array().unwrap().len(), 1);
+    }
+
+    #[tokio::test]
+    async fn settings_page_values_reach_tab_create_and_agent_tools() {
+        let service = BrowserService::new(Arc::new(MemoryNative), true);
+        let updated = dispatch(
+            &service,
+            "vibex.browser",
+            "settings.set",
+            json!({
+                "newTabProfile": "ephemeral",
+                "defaultGrant": "read",
+                "hostRules": [
+                    { "pattern": "https://*.example.com:8443", "action": "system" },
+                    { "pattern": "blocked.example", "action": "block" }
+                ]
+            }),
+        )
+        .await
+        .expect("settings.set");
+        assert_eq!(updated["newTabProfile"], "ephemeral");
+        assert_eq!(updated["defaultGrant"], "read");
+        assert_eq!(updated["devtools"], true);
+        assert_eq!(updated["evalEnabled"], true);
+        assert_eq!(updated["hostRules"].as_array().unwrap().len(), 2);
+
+        let tab = dispatch(
+            &service,
+            "vibex.browser",
+            "tab.create",
+            json!({ "url": "https://example.test/" }),
+        )
+        .await
+        .expect("open");
+        assert_eq!(tab["grant"]["level"], "read");
+        assert_eq!(tab["profileId"], "ephemeral");
+
+        let external = dispatch(
+            &service,
+            "vibex.browser",
+            "tab.navigate",
+            json!({ "tabId": tab["tabId"], "url": "https://a.example.com:8443/login" }),
+        )
+        .await
+        .expect_err("system rule");
+        assert_eq!(external.code(), "browser_use_system_browser");
+
+        dispatch(
+            &service,
+            "vibex.browser",
+            "settings.set",
+            json!({ "toolsEnabled": false, "evalEnabled": false }),
+        )
+        .await
+        .expect("disable tools");
+        let unshared = dispatch(
+            &service,
+            "vibex.browser",
+            "tab.create",
+            json!({ "url": "https://example.test/next", "grant": "control" }),
+        )
+        .await
+        .expect("open unshared");
+        assert!(unshared["grant"].is_null());
+        let refused = dispatch(
+            &service,
+            "vibex.browser",
+            "snapshot",
+            json!({ "tabId": unshared["tabId"] }),
+        )
+        .await
+        .expect_err("tools off");
+        assert_eq!(refused.code(), "browser_tools_disabled");
+
+        dispatch(
+            &service,
+            "vibex.browser",
+            "settings.set",
+            json!({ "toolsEnabled": true, "evalEnabled": false, "defaultGrant": "control" }),
+        )
+        .await
+        .expect("eval off");
+        let shared = dispatch(
+            &service,
+            "vibex.browser",
+            "tab.create",
+            json!({ "url": "https://example.test/eval" }),
+        )
+        .await
+        .expect("open shared");
+        let eval_off = dispatch(
+            &service,
+            "vibex.browser",
+            "eval.run",
+            json!({
+                "tabId": shared["tabId"],
+                "code": "1+1",
+                "evalApproval": "silent"
+            }),
+        )
+        .await
+        .expect_err("eval disabled");
+        assert_eq!(eval_off.code(), "browser_eval_disabled");
+
+        dispatch(
+            &service,
+            "vibex.browser",
+            "settings.set",
+            json!({ "evalEnabled": true, "evalApproval": "silent" }),
+        )
+        .await
+        .expect("silent eval");
+        let ran = dispatch(
+            &service,
+            "vibex.browser",
+            "eval.run",
+            json!({
+                "tabId": shared["tabId"],
+                "code": "1+1",
+                "evalApproval": "ask"
+            }),
+        )
+        .await
+        .expect("setting silent wins over the request");
+        assert_eq!(ran["tabId"], shared["tabId"]);
+    }
+
+    #[tokio::test]
+    async fn console_ring_reads_and_clears_on_navigation() {
+        let service = BrowserService::new(Arc::new(MemoryNative), true);
+        let tab = dispatch(
+            &service,
+            "vibex.browser",
+            "tab.create",
+            json!({ "url": "https://example.test/" }),
+        )
+        .await
+        .expect("open");
+        let tab_id = tab["tabId"].as_str().unwrap();
+
+        dispatch(
+            &service,
+            "vibex.browser",
+            "console.push",
+            json!({
+                "tabId": tab_id,
+                "level": "warn",
+                "text": "deprecation warning",
+                "line": 12
+            }),
+        )
+        .await
+        .expect("push warn");
+        dispatch(
+            &service,
+            "vibex.browser",
+            "console.push",
+            json!({
+                "tabId": tab_id,
+                "level": "error",
+                "source": "error",
+                "text": "ReferenceError: x is not defined",
+                "line": 42
+            }),
+        )
+        .await
+        .expect("push error");
+
+        let errors_only = dispatch(
+            &service,
+            "vibex.browser",
+            "console.read",
+            json!({ "tabId": tab_id, "minLevel": "error" }),
+        )
+        .await
+        .expect("read errors");
+        let entries = errors_only["entries"].as_array().unwrap();
+        assert_eq!(entries.len(), 1);
+        assert_eq!(entries[0]["text"], "ReferenceError: x is not defined");
+
+        dispatch(
+            &service,
+            "vibex.browser",
+            "tab.navigate",
+            json!({ "tabId": tab_id, "url": "https://example.test/next" }),
+        )
+        .await
+        .expect("navigate");
+        let after_nav = dispatch(
+            &service,
+            "vibex.browser",
+            "console.read",
+            json!({ "tabId": tab_id }),
+        )
+        .await
+        .expect("read after nav");
+        assert_eq!(after_nav["entries"].as_array().unwrap().len(), 0);
     }
 }

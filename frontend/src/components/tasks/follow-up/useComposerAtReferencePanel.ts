@@ -256,6 +256,23 @@ async function loadCommits(
   }
 }
 
+const AT_REFERENCE_SEARCH_DEBOUNCE_MS = 120;
+
+function measureComposerAnchorRect(
+  composerRoot: HTMLDivElement | null,
+  editable?: HTMLElement | null
+): { left: number; top: number; width: number } | null {
+  const target = editable ?? getEditor(composerRoot);
+  if (!target) return null;
+  const rect = target.getBoundingClientRect();
+  const rootRect = composerRoot?.getBoundingClientRect();
+  return {
+    left: rootRect?.left ?? rect.left,
+    top: rect.top,
+    width: rootRect?.width ?? rect.width,
+  };
+}
+
 export function useComposerAtReferencePanel({
   composerRootRef,
   composerHandleRef,
@@ -275,14 +292,39 @@ export function useComposerAtReferencePanel({
   const requestRef = useRef(0);
   const searchedQueryRef = useRef<string | null>(null);
   const pinnedTabRef = useRef<AtReferenceTab | null>(null);
+  const projectsCacheRef = useRef<Promise<AtReferenceProject[]> | null>(null);
+  const searchDebounceTimerRef = useRef<number | null>(null);
   const panelRef = useRef<PanelState | null>(null);
   panelRef.current = panel;
 
+  const clearDebounceTimer = useCallback(() => {
+    if (searchDebounceTimerRef.current != null) {
+      window.clearTimeout(searchDebounceTimerRef.current);
+      searchDebounceTimerRef.current = null;
+    }
+  }, []);
+
   const close = useCallback(() => {
+    clearDebounceTimer();
+    requestRef.current += 1;
     pinnedTabRef.current = null;
     triggerStartRef.current = -1;
     searchedQueryRef.current = null;
+    projectsCacheRef.current = null;
     setPanel(null);
+  }, [clearDebounceTimer]);
+
+  useEffect(() => {
+    return () => {
+      clearDebounceTimer();
+    };
+  }, [clearDebounceTimer]);
+
+  const loadSessionProjects = useCallback((): Promise<AtReferenceProject[]> => {
+    if (!projectsCacheRef.current) {
+      projectsCacheRef.current = loadProjects().catch(() => []);
+    }
+    return projectsCacheRef.current;
   }, []);
 
   const search = useCallback(
@@ -305,7 +347,7 @@ export function useComposerAtReferencePanel({
             }
           }),
           loadHosts(t('composer.atReference.localHost')).catch(() => []),
-          loadProjects().catch(() => []),
+          loadSessionProjects(),
         ]);
       if (requestId !== requestRef.current) return;
       const groups = buildAtReferenceGroups(query, {
@@ -340,38 +382,84 @@ export function useComposerAtReferencePanel({
         };
       });
     },
-    [context, t]
+    [context, loadSessionProjects, t]
   );
 
   const openOrUpdate = useCallback(
     (query: string, triggerStart: number, editable: HTMLElement) => {
       triggerStartRef.current = triggerStart;
+      const anchor = measureComposerAnchorRect(
+        composerRootRef.current,
+        editable
+      );
       if (
         panelRef.current &&
         searchedQueryRef.current === query &&
         panelRef.current.query === query
       ) {
+        if (
+          anchor &&
+          (panelRef.current.left !== anchor.left ||
+            panelRef.current.top !== anchor.top ||
+            panelRef.current.width !== anchor.width)
+        ) {
+          setPanel((current) =>
+            current ? { ...current, ...anchor } : current
+          );
+        }
         return;
       }
+      searchedQueryRef.current = query;
       const rect = editable.getBoundingClientRect();
-      const width =
-        composerRootRef.current?.getBoundingClientRect().width ?? rect.width;
       setPanel((current) => ({
         query,
         groups: current?.groups ?? EMPTY_GROUPS,
         activeTab: current?.activeTab ?? 'file',
         selectedIndex: current?.query === query ? current.selectedIndex : 0,
-        loading: searchedQueryRef.current !== query,
+        loading: true,
         pinnedTab: pinnedTabRef.current,
-        left:
-          composerRootRef.current?.getBoundingClientRect().left ?? rect.left,
-        top: rect.top,
-        width,
+        left: anchor?.left ?? rect.left,
+        top: anchor?.top ?? rect.top,
+        width: anchor?.width ?? rect.width,
       }));
-      void search(query);
+      clearDebounceTimer();
+      if (query.trim() === '') {
+        void search(query);
+      } else {
+        searchDebounceTimerRef.current = window.setTimeout(() => {
+          searchDebounceTimerRef.current = null;
+          void search(query);
+        }, AT_REFERENCE_SEARCH_DEBOUNCE_MS);
+      }
     },
-    [composerRootRef, search]
+    [clearDebounceTimer, composerRootRef, search]
   );
+
+  const isOpen = panel != null;
+  useEffect(() => {
+    if (!isOpen) return undefined;
+    const syncPosition = () => {
+      const anchor = measureComposerAnchorRect(composerRootRef.current);
+      if (!anchor) return;
+      setPanel((current) => {
+        if (!current) return current;
+        if (
+          current.left === anchor.left &&
+          current.top === anchor.top &&
+          current.width === anchor.width
+        ) {
+          return current;
+        }
+        return { ...current, ...anchor };
+      });
+    };
+    window.addEventListener('resize', syncPosition);
+    window.addEventListener('scroll', syncPosition, true);
+    return () => {
+      window.removeEventListener('resize', syncPosition);
+      window.removeEventListener('scroll', syncPosition, true);
+    };
+  }, [composerRootRef, isOpen]);
 
   const detect = useCallback(() => {
     if (disabled) {
@@ -402,7 +490,10 @@ export function useComposerAtReferencePanel({
     if (!editor) return undefined;
     const onInput = () => detect();
     const onKeyUp = (event: KeyboardEvent) => {
-      if (panelRef.current && isAtReferenceNavigationKey(event.key)) {
+      if (
+        event.key === 'Escape' ||
+        (panelRef.current && isAtReferenceNavigationKey(event.key))
+      ) {
         return;
       }
       detect();

@@ -30,6 +30,7 @@ export const CONTRIBUTION_ICONS = [
     "link",
     "list",
     "message-square",
+    "monitor",
     "package",
     "play",
     "plug",

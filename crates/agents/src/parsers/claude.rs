@@ -105,6 +105,7 @@ fn block_from_item(item: &Value) -> Option<ContentBlock> {
                 return Some(ContentBlock::Plan { entries });
             }
             Some(ContentBlock::ToolUse {
+                status: None,
                 kind: None,
                 tool_use_id: item.get("id").and_then(Value::as_str).map(str::to_string),
                 tool_name: name.to_string(),
@@ -113,6 +114,8 @@ fn block_from_item(item: &Value) -> Option<ContentBlock> {
                 input_preview: item.get("input").map(|input| input.to_string()),
                 meta: None,
                 images: Vec::new(),
+                started_at: None,
+                ended_at: None,
             })
         }
         "tool_result" => Some(ContentBlock::ToolResult {

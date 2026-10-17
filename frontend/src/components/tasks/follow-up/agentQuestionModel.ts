@@ -20,6 +20,9 @@ export type QuestionChoice = {
 export type QuestionTab = {
   id: string;
   fieldName: string | null;
+  /** Schema property that carries the typed answer when the agent offers a
+   *  dedicated free-text companion for this question. */
+  customFieldName: string | null;
   header: string;
   question: string;
   multiSelect: boolean;
@@ -35,6 +38,8 @@ export type QuestionAnswerState = {
 
 const QUESTION_TOOL_NAME =
   /(ask_user_question|(^|[_-])(ask|question|request_user_input)([_-]|$))/i;
+
+const CUSTOM_FIELD_SUFFIX = '_custom';
 
 export function isQuestionToolName(toolName: string): boolean {
   return QUESTION_TOOL_NAME.test(toolName);
@@ -75,6 +80,7 @@ export function questionTabsFromRequest(
         {
           id: readString(question.id) || `question-${index + 1}`,
           fieldName: null,
+          customFieldName: null,
           header: readString(question.header) || `Question ${index + 1}`,
           question: prompt,
           multiSelect:
@@ -89,29 +95,35 @@ export function questionTabsFromRequest(
 
   const properties = asObject(root?.properties);
   if (properties && Object.keys(properties).length > 0) {
-    return Object.entries(properties).map(([name, rawProperty], index) => {
-      const property = asObject(rawProperty) ?? {};
+    const companions = customAnswerCompanions(properties, root?.required);
+    const names = Object.keys(properties).filter(
+      (name) => !companions.has(name)
+    );
+    const companionByQuestion = new Map(
+      [...companions].map(([companion, question]) => [question, companion])
+    );
+    return names.map((name, index) => {
+      const property = asObject(properties[name]) ?? {};
       const rawType = readString(property.type);
       const valueType =
         rawType === 'number' || rawType === 'integer' || rawType === 'boolean'
           ? rawType
           : 'string';
       const isArray = rawType === 'array';
+      const title = readString(property.title);
+      const description = readString(property.description);
       return {
         id: name,
         fieldName: name,
-        header: readString(property.title) || `Question ${index + 1}`,
+        customFieldName: companionByQuestion.get(name) ?? null,
+        header: title || `Question ${index + 1}`,
         question:
-          readString(property.description) ||
-          readString(property.title) ||
+          description ||
+          (names.length === 1 ? request.prompt || title : title) ||
           request.prompt,
         multiSelect: isArray,
         valueType,
-        choices: isArray
-          ? parseSchemaChoices(asObject(property.items) ?? {})
-          : valueType === 'boolean'
-            ? [booleanChoice(true, 'Yes'), booleanChoice(false, 'No')]
-            : parseSchemaChoices(property),
+        choices: schemaPropertyChoices(property, rawType),
       };
     });
   }
@@ -120,6 +132,7 @@ export function questionTabsFromRequest(
     {
       id: 'answer',
       fieldName: 'answer',
+      customFieldName: null,
       header: request.prompt,
       question: request.prompt,
       multiSelect: false,
@@ -267,13 +280,23 @@ export function responseContent(
   for (const question of questions) {
     const answer = state[question.id];
     const fieldName = question.fieldName ?? question.id;
-    if (answer?.customActive && answer.customText.trim()) {
-      const customValue = parseCustomValue(
-        answer.customText.trim(),
-        question.valueType
-      );
+    const customText =
+      answer?.customActive && answer.customText.trim()
+        ? answer.customText.trim()
+        : '';
+    if (customText && question.customFieldName) {
+      if (question.multiSelect) {
+        content[fieldName] = answer?.selected ?? [];
+      } else if (answer?.selected.length) {
+        content[fieldName] = answer.selected[0];
+      }
+      content[question.customFieldName] = customText;
+      continue;
+    }
+    if (customText) {
+      const customValue = parseCustomValue(customText, question.valueType);
       content[fieldName] = question.multiSelect
-        ? [...answer.selected, customValue]
+        ? [...(answer?.selected ?? []), customValue]
         : customValue;
       continue;
     }
@@ -282,6 +305,49 @@ export function responseContent(
       : (answer?.selected[0] ?? '');
   }
   return content;
+}
+
+/**
+ * Agents such as Claude Code pair every select question `<id>` with an
+ * optional free-text field `<id>_custom` for "my own answer". Both belong to
+ * one question, so the companion is returned (keyed by its own name) instead
+ * of becoming a question of its own. A required or unpaired text field is a
+ * real question and is never folded.
+ */
+function customAnswerCompanions(
+  properties: Record<string, unknown>,
+  required: unknown
+): Map<string, string> {
+  const requiredNames = new Set(stringList(required));
+  const companions = new Map<string, string>();
+  for (const [name, rawProperty] of Object.entries(properties)) {
+    if (!name.endsWith(CUSTOM_FIELD_SUFFIX) || requiredNames.has(name))
+      continue;
+    const questionName = name.slice(0, -CUSTOM_FIELD_SUFFIX.length);
+    const question = asObject(properties[questionName]);
+    const companion = asObject(rawProperty);
+    if (!question || !companion) continue;
+    const questionType = readString(question.type);
+    if (questionType !== 'string' && questionType !== 'array') continue;
+    if (schemaPropertyChoices(question, questionType).length === 0) continue;
+    if (readString(companion.type) !== 'string') continue;
+    if (parseSchemaChoices(companion).length > 0) continue;
+    companions.set(name, questionName);
+  }
+  return companions;
+}
+
+function schemaPropertyChoices(
+  property: Record<string, unknown>,
+  rawType: string
+): QuestionChoice[] {
+  if (rawType === 'array') {
+    return parseSchemaChoices(asObject(property.items) ?? {});
+  }
+  if (rawType === 'boolean') {
+    return [booleanChoice(true, 'Yes'), booleanChoice(false, 'No')];
+  }
+  return parseSchemaChoices(property);
 }
 
 function answerStateFromLabels(
@@ -297,7 +363,21 @@ function answerStateFromLabels(
         (index === 0 && labelsById.size === 0 && fallbackAnswer
           ? [fallbackAnswer]
           : []);
-      return [question.id, answerStateFromQuestionLabels(question, labels)];
+      const state = answerStateFromQuestionLabels(question, labels);
+      const typed = question.customFieldName
+        ? (labelsById.get(question.customFieldName) ?? [])
+        : [];
+      if (typed.length === 0) return [question.id, state];
+      return [
+        question.id,
+        {
+          ...state,
+          customActive: true,
+          customText: [state.customText, ...typed]
+            .filter((text) => text)
+            .join('\n'),
+        },
+      ];
     })
   );
 }

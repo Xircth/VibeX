@@ -512,9 +512,14 @@
 
 .session-composer-attachment-row {
   display: flex;
-  flex-wrap: nowrap;
+  flex-wrap: wrap;
+  align-items: flex-start;
   gap: 8px;
-  overflow-x: auto;
+  width: 100%;
+  min-width: 0;
+  max-height: 11rem;
+  overflow-x: hidden;
+  overflow-y: auto;
 }
 
 @media (prefers-reduced-motion: reduce) {

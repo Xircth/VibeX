@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import {
@@ -32,7 +32,11 @@ import {
   importedProjectName,
   orderImportedProjects,
 } from '@/lib/importedProject';
-import { useAppContextMenu } from '@/components/context-menu';
+import {
+  ProductContextMenu,
+  type ProductContextMenuItem,
+  useAppContextMenu,
+} from '@/components/context-menu';
 
 function WelcomeSection({
   title,
@@ -170,32 +174,6 @@ export function WelcomePage() {
   const [isDeletingProject, setIsDeletingProject] = useState(false);
   const [dropActive, setDropActive] = useState(false);
   const openingDroppedFolderRef = useRef(false);
-
-  const contextMenuStyle = useMemo(() => {
-    if (!contextMenu || typeof window === 'undefined') {
-      return null;
-    }
-
-    return {
-      left: Math.max(12, Math.min(contextMenu.x, window.innerWidth - 220)),
-      top: Math.max(12, Math.min(contextMenu.y, window.innerHeight - 120)),
-    };
-  }, [contextMenu]);
-
-  useEffect(() => {
-    if (!contextMenu) {
-      return;
-    }
-
-    const closeMenu = () => setContextMenu(null);
-    window.addEventListener('click', closeMenu);
-    window.addEventListener('blur', closeMenu);
-
-    return () => {
-      window.removeEventListener('click', closeMenu);
-      window.removeEventListener('blur', closeMenu);
-    };
-  }, [contextMenu]);
 
   const openExistingFolder = useCallback(
     async (initialFolderPath?: string) => {
@@ -498,47 +476,49 @@ export function WelcomePage() {
         </WelcomeSection>
       </div>
 
-      {contextMenu && contextMenuStyle ? (
-        <div
-          className="fixed z-[1000] min-w-[180px] rounded-xl border border-border/70 bg-popover p-1 text-popover-foreground shadow-lg"
-          style={contextMenuStyle}
-          onContextMenu={(event) => event.preventDefault()}
-        >
-          <button
-            type="button"
-            className="flex w-full items-center rounded-lg px-3 py-2 text-left text-sm text-foreground transition-colors hover:bg-muted/70"
-            onClick={handleOpenFromContextMenu}
-          >
-            {t('welcomePage.open')}
-          </button>
-          {!contextMenu.isGit && !contextMenu.isHome ? (
-            <button
-              type="button"
-              className="flex w-full items-center rounded-lg px-3 py-2 text-left text-sm text-foreground transition-colors hover:bg-muted/70"
-              onClick={() => {
-                const target = contextMenu;
-                setContextMenu(null);
-                void initProjectGitWithPrompt({
-                  id: target.projectId,
-                  name: target.projectName,
-                  is_git: target.isGit,
-                });
-              }}
-            >
-              {t('welcomePage.initGit')}
-            </button>
-          ) : null}
-          {contextMenu.isHome ? null : (
-            <button
-              type="button"
-              className="flex w-full items-center rounded-lg px-3 py-2 text-left text-sm text-foreground transition-colors hover:bg-muted/70 disabled:cursor-not-allowed disabled:opacity-60"
-              onClick={() => void handleDeleteFromContextMenu()}
-              disabled={isDeletingProject}
-            >
-              {t('welcomePage.confirmDelete')}
-            </button>
-          )}
-        </div>
+      {contextMenu ? (
+        <ProductContextMenu
+          x={contextMenu.x}
+          y={contextMenu.y}
+          onClose={() => setContextMenu(null)}
+          items={[
+            {
+              id: 'open',
+              label: t('welcomePage.open'),
+              onSelect: handleOpenFromContextMenu,
+            },
+            ...(!contextMenu.isGit && !contextMenu.isHome
+              ? [
+                  {
+                    id: 'init-git',
+                    label: t('welcomePage.initGit'),
+                    onSelect: () => {
+                      const target = contextMenu;
+                      setContextMenu(null);
+                      void initProjectGitWithPrompt({
+                        id: target.projectId,
+                        name: target.projectName,
+                        is_git: target.isGit,
+                      });
+                    },
+                  } satisfies ProductContextMenuItem,
+                ]
+              : []),
+            ...(!contextMenu.isHome
+              ? [
+                  {
+                    id: 'delete',
+                    label: t('welcomePage.confirmDelete'),
+                    danger: true,
+                    disabled: isDeletingProject,
+                    onSelect: () => {
+                      void handleDeleteFromContextMenu();
+                    },
+                  } satisfies ProductContextMenuItem,
+                ]
+              : []),
+          ]}
+        />
       ) : null}
     </div>
   );

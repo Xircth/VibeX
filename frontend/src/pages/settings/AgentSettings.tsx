@@ -1,4 +1,3 @@
-import { RefreshCw } from 'lucide-react';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import type {
@@ -21,7 +20,6 @@ import type {
 } from 'shared/types';
 
 import { useUserSystem } from '@/components/ConfigProvider';
-import { Button } from '@/components/ui/button';
 import { toast } from '@/components/ui/toast';
 import { AgentUpdateConfirmDialog } from '@/components/dialogs/settings/AgentUpdateConfirmDialog';
 import { ConfirmDialog } from '@/components/dialogs/shared/ConfirmDialog';
@@ -63,11 +61,14 @@ import { SettingsSection as CollapsibleSettingsSection } from './SettingsSection
 import { AgentLockedSurface } from './SettingsUi';
 import { UserAgentDefinitionPanel } from './UserAgentDefinitionPanel';
 import {
+  isAuthPreflightItem,
   mergePreflightItems,
   overlayAuthPreflightItems,
+  presentPreflightItems,
   readPreflightSnapshot,
   writePreflightSnapshot,
 } from './agentPreflightSnapshot';
+import { agentProvisioningAction } from './agentProvisioning';
 
 export function AgentSettings() {
   const { t } = useTranslation(['settings', 'common']);
@@ -198,15 +199,11 @@ export function AgentSettings() {
     updateCheck: new Map<AgentId, AgentUpdateCheckView>(),
   });
 
-  useEffect(() => {
-    if (!configDirty) return;
-    const warn = (event: BeforeUnloadEvent) => event.preventDefault();
-    window.addEventListener('beforeunload', warn);
-    return () => window.removeEventListener('beforeunload', warn);
-  }, [configDirty]);
+  const configDirtyRef = useRef(configDirty);
+  configDirtyRef.current = configDirty;
 
   const confirmDiscardConfig = useCallback(async () => {
-    if (!configDirty) return true;
+    if (!configDirtyRef.current) return true;
     const result = await ConfirmDialog.show({
       title: t('settings:agents.unsavedConfigTitle'),
       message: t('settings:agents.unsavedConfigMessage'),
@@ -215,9 +212,64 @@ export function AgentSettings() {
       variant: 'destructive',
     });
     if (result !== 'confirmed') return false;
+    configDirtyRef.current = false;
     setDirtySources({});
     return true;
-  }, [configDirty, t]);
+  }, [t]);
+
+  useEffect(() => {
+    if (!configDirty) return;
+    const currentHref = window.location.href;
+    const warn = (event: BeforeUnloadEvent) => event.preventDefault();
+    const handleSidebarClick = (event: MouseEvent) => {
+      if (!configDirtyRef.current) return;
+      const target = event.target;
+      if (!(target instanceof Element)) return;
+      const navTarget = target.closest<HTMLElement>(
+        '.settings-sidebar a[href], .settings-sidebar .settings-nav-button, .settings-sidebar .settings-search-result'
+      );
+      if (!navTarget) return;
+      if (
+        navTarget.getAttribute('aria-current') === 'page' ||
+        navTarget.classList.contains('is-active')
+      ) {
+        return;
+      }
+      event.preventDefault();
+      event.stopPropagation();
+      void (async () => {
+        if (!(await confirmDiscardConfig())) return;
+        const fallbackAnchorNav = (e: MouseEvent) => {
+          if (navTarget instanceof HTMLAnchorElement && !e.defaultPrevented) {
+            e.preventDefault();
+            const href = navTarget.getAttribute('href');
+            if (href) window.history.pushState(null, '', href);
+          }
+        };
+        window.addEventListener('click', fallbackAnchorNav, { once: true });
+        navTarget.click();
+        window.removeEventListener('click', fallbackAnchorNav);
+      })();
+    };
+    const handlePopState = () => {
+      if (!configDirtyRef.current) return;
+      const nextHref = window.location.href;
+      window.history.pushState(null, '', currentHref);
+      void (async () => {
+        if (await confirmDiscardConfig()) {
+          window.history.replaceState(null, '', nextHref);
+        }
+      })();
+    };
+    window.addEventListener('beforeunload', warn);
+    document.addEventListener('click', handleSidebarClick, true);
+    window.addEventListener('popstate', handlePopState);
+    return () => {
+      window.removeEventListener('beforeunload', warn);
+      document.removeEventListener('click', handleSidebarClick, true);
+      window.removeEventListener('popstate', handlePopState);
+    };
+  }, [configDirty, confirmDiscardConfig]);
 
   useEffect(() => {
     setNativePluginsExpanded(false);
@@ -485,31 +537,42 @@ export function AgentSettings() {
     }
   }, []);
 
-  const runPreflight = useCallback(
+  const inspectAgent = useCallback(
     async (options?: { notify?: boolean }) => {
-      if (!selectedAgentId) return;
+      if (!selectedAgentId) return null;
       const watchId = ++inspectGeneration.current;
       setChecking(true);
       try {
         const report = await agentManagementApi.preflight(selectedAgentId);
-        if (inspectGeneration.current !== watchId) return;
+        if (inspectGeneration.current !== watchId) return null;
         writePreflightSnapshot(report);
         setPreflight(report);
         setChecking(false);
-        await management.refresh();
-        if (inspectGeneration.current !== watchId) return;
+        const agents = await management.refresh();
+        if (inspectGeneration.current !== watchId) return null;
         if (options?.notify !== false) {
           toast.success(t('settings:agents.preflightComplete'));
         }
-        await applyBackgroundUpdateCheck(selectedAgentId);
+        const comparison = await applyBackgroundUpdateCheck(selectedAgentId);
+        const agent =
+          agents.find((entry) => entry.agent_id === selectedAgentId) ?? null;
+        return { report, agent, comparison };
       } catch (error) {
-        if (inspectGeneration.current !== watchId) return;
+        if (inspectGeneration.current !== watchId) return null;
         toast.error(errorMessage(error, t('settings:agents.preflightFailed')));
+        return null;
       } finally {
         if (inspectGeneration.current === watchId) setChecking(false);
       }
     },
     [applyBackgroundUpdateCheck, management, selectedAgentId, t]
+  );
+
+  const runPreflight = useCallback(
+    async (options?: { notify?: boolean }) => {
+      await inspectAgent(options);
+    },
+    [inspectAgent]
   );
 
   const liveOperation =
@@ -633,38 +696,65 @@ export function AgentSettings() {
       const deadline = Date.now() + 15 * 60 * 1000;
       let sawPending = false;
       let completedAction: string | null = null;
-      while (Date.now() < deadline) {
-        if (authWatchGeneration.current !== watchId) return;
-        if (!completedAction) {
-          let flow;
-          try {
-            flow = await agentManagementApi.accountFlow(agentId);
-          } catch {
-            return;
-          }
-          if (flow.status === 'pending') {
-            sawPending = true;
-          } else if (flow.status === 'succeeded') {
-            completedAction = flow.action_id ?? expectedAction ?? 'login';
-          } else if (flow.status === 'failed') {
-            toast.error(t('settings:agents.accountFlowCommandFailed'));
-            return;
-          } else if (!expectPending && !sawPending) {
-            return;
-          } else if (expectPending && flow.status === 'idle') {
-            completedAction = expectedAction ?? 'login';
-          }
-        }
-        if (completedAction) {
-          const authentication = await refreshAuthentication();
+      let consecutiveErrors = 0;
+      try {
+        while (Date.now() < deadline) {
           if (authWatchGeneration.current !== watchId) return;
-          if (accountSessionMatchesAction(completedAction, authentication)) {
-            return;
+          if (!completedAction) {
+            let flow;
+            try {
+              flow = await agentManagementApi.accountFlow(agentId);
+              consecutiveErrors = 0;
+            } catch (error) {
+              consecutiveErrors += 1;
+              if ((!expectPending && !sawPending) || consecutiveErrors >= 3) {
+                if (expectPending || sawPending) {
+                  toast.error(
+                    errorMessage(
+                      error,
+                      t('settings:agents.accountFlowCommandFailed')
+                    )
+                  );
+                }
+                return;
+              }
+              await new Promise((resolve) => {
+                window.setTimeout(resolve, 1000);
+              });
+              continue;
+            }
+            if (authWatchGeneration.current !== watchId) return;
+            if (flow.status === 'pending') {
+              sawPending = true;
+              if (flow.action_id) {
+                setActionRunning(flow.action_id);
+              }
+            } else if (flow.status === 'succeeded') {
+              completedAction = flow.action_id ?? expectedAction ?? 'login';
+            } else if (flow.status === 'failed') {
+              toast.error(t('settings:agents.accountFlowCommandFailed'));
+              return;
+            } else if (!expectPending && !sawPending) {
+              return;
+            } else if (expectPending && flow.status === 'idle') {
+              completedAction = expectedAction ?? 'login';
+            }
           }
+          if (completedAction) {
+            const authentication = await refreshAuthentication();
+            if (authWatchGeneration.current !== watchId) return;
+            if (accountSessionMatchesAction(completedAction, authentication)) {
+              return;
+            }
+          }
+          await new Promise((resolve) => {
+            window.setTimeout(resolve, 1000);
+          });
         }
-        await new Promise((resolve) => {
-          window.setTimeout(resolve, 1000);
-        });
+      } finally {
+        if (authWatchGeneration.current === watchId) {
+          setActionRunning(null);
+        }
       }
     },
     [refreshAuthentication, t]
@@ -672,6 +762,7 @@ export function AgentSettings() {
 
   useEffect(() => {
     authWatchGeneration.current += 1;
+    setActionRunning(null);
     return () => {
       authWatchGeneration.current += 1;
     };
@@ -685,6 +776,7 @@ export function AgentSettings() {
   const runManagementAction = useCallback(
     async (actionId: string) => {
       if (!selectedAgentId) return;
+      const watchIdAtStart = authWatchGeneration.current;
       setActionRunning(actionId);
       try {
         await agentManagementApi.runAction(selectedAgentId, actionId);
@@ -694,36 +786,27 @@ export function AgentSettings() {
         toast.success(
           actionId === 'subscription'
             ? t('settings:agents.subscriptionOpened')
-            : t('settings:agents.terminalFlowStarted')
+            : selectedAgentId === 'antigravity' && actionId === 'login'
+              ? t('settings:agents.browserLoginStarted')
+              : t('settings:agents.terminalFlowStarted')
         );
+        if (actionId === 'login' || actionId === 'logout') {
+          await watchAccountFlow(selectedAgentId, true, actionId);
+        }
       } catch (error) {
         toast.error(
           errorMessage(error, t('settings:agents.accountFlowFailed'))
         );
-        return;
       } finally {
-        setActionRunning(null);
+        if (
+          authWatchGeneration.current === watchIdAtStart ||
+          (actionId !== 'login' && actionId !== 'logout')
+        ) {
+          setActionRunning(null);
+        }
       }
-      if (actionId !== 'login' && actionId !== 'logout') return;
-      await watchAccountFlow(selectedAgentId, true, actionId);
     },
     [selectedAgentId, t, watchAccountFlow]
-  );
-
-  const setEnabled = useCallback(
-    async (enabled: boolean) => {
-      if (!selectedAgentId) return;
-      try {
-        management.mergeAgent(
-          await agentManagementApi.setEnabled(selectedAgentId, enabled)
-        );
-      } catch (error) {
-        toast.error(
-          errorMessage(error, t('settings:agents.enableUpdateFailed'))
-        );
-      }
-    },
-    [management, selectedAgentId, t]
   );
 
   const reorder = useCallback(
@@ -864,6 +947,50 @@ export function AgentSettings() {
       toast.error(errorMessage(error, t('settings:agents.updateStartFailed')));
     }
   }, [selectedAgentId, t]);
+
+  const setEnabled = useCallback(
+    async (enabled: boolean) => {
+      if (!selectedAgentId) return;
+      try {
+        management.mergeAgent(
+          await agentManagementApi.setEnabled(selectedAgentId, enabled)
+        );
+      } catch (error) {
+        toast.error(
+          errorMessage(error, t('settings:agents.enableUpdateFailed'))
+        );
+        return;
+      }
+      if (!enabled) return;
+      const inspected = await inspectAgent({ notify: false });
+      if (!inspected?.agent || inspected.agent.active_operation) return;
+      const { report, agent, comparison } = inspected;
+      const action = agentProvisioningAction(
+        agent,
+        presentPreflightItems(report.items).filter(
+          (item) => !isAuthPreflightItem(item)
+        )
+      );
+      if (action === 'install') return queueInstall();
+      if (action === 'repair') return queueRepair();
+      const acpItem = report.items.find((item) => item.id === 'acp');
+      if (
+        comparison?.update_available ||
+        (comparison && agentHasAcpUpdate(comparison, acpItem?.version))
+      ) {
+        await applyUpdate();
+      }
+    },
+    [
+      applyUpdate,
+      inspectAgent,
+      management,
+      queueInstall,
+      queueRepair,
+      selectedAgentId,
+      t,
+    ]
+  );
 
   const applyPreflightItemUpdate = useCallback(
     async (itemId: string) => {
@@ -1169,6 +1296,10 @@ export function AgentSettings() {
                 )
               : undefined
           }
+          configurationOnAccount={(mode) =>
+            selectedAgent.agent_id === 'antigravity' &&
+            mode === 'oauth-business'
+          }
           modelProvider={
             selectedAgent.agent_id === 'opencode' ||
             selectedAgent.agent_id === 'mimo_code' ? (
@@ -1229,45 +1360,29 @@ export function AgentSettings() {
 
   return (
     <div className="agent-settings-scroll flex h-full min-h-0 flex-col gap-4 overflow-y-auto pb-24">
-      <div className="flex shrink-0 items-center gap-2">
-        <AgentBar
-          agents={sortAgentsForBar(
-            management.state.agents,
-            userConfig?.executor_profile.executor ?? null
-          )}
-          selectedAgentId={management.state.selectedAgentId}
-          registryOpen={registryOpen}
-          onSelect={(agentId) =>
-            void (async () => {
-              if (!(await confirmDiscardConfig())) return;
-              management.select(agentId);
-              setRegistryOpen(false);
-            })()
-          }
-          onOpenRegistry={() =>
-            void (async () => {
-              if (await confirmDiscardConfig()) setRegistryOpen(true);
-            })()
-          }
-          onReorder={(order) => void reorder(order)}
-        />
-        <Button
-          size="sm"
-          variant="ghost"
-          className="h-9 w-9 shrink-0 p-0"
-          aria-label={t('settings:agents.refreshStatusAria')}
-          aria-busy={management.loading}
-          disabled={management.loading}
-          onClick={() => void management.refreshFresh().catch(() => undefined)}
-        >
-          <RefreshCw
-            aria-hidden="true"
-            className={`h-3.5 w-3.5 ${
-              management.loading ? 'animate-spin' : ''
-            }`}
-          />
-        </Button>
-      </div>
+      <AgentBar
+        agents={sortAgentsForBar(
+          management.state.agents,
+          userConfig?.executor_profile.executor ?? null
+        )}
+        selectedAgentId={management.state.selectedAgentId}
+        registryOpen={registryOpen}
+        refreshing={management.loading}
+        onSelect={(agentId) =>
+          void (async () => {
+            if (!(await confirmDiscardConfig())) return;
+            management.select(agentId);
+            setRegistryOpen(false);
+          })()
+        }
+        onReorder={(order) => void reorder(order)}
+        onAdd={() =>
+          void (async () => {
+            if (await confirmDiscardConfig()) setRegistryOpen(true);
+          })()
+        }
+        onRefresh={() => void management.refreshFresh().catch(() => undefined)}
+      />
 
       {registryOpen ? (
         <AgentRegistryViewPanel

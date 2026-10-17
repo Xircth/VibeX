@@ -25,6 +25,7 @@ vi.mock('@/contexts/PanelActionsContext', () => ({
 
 vi.mock('@/stores/useLayoutStore', () => ({
   PANEL_IDS: {
+    FILE_TREE: 'file-tree',
     PREVIEW: 'preview',
     SEARCH: 'search',
     TERMINAL: 'terminal',
@@ -42,6 +43,10 @@ import {
   type ShortcutActionEventDetail,
 } from '@/keyboard';
 import { useWorkspaceShortcuts } from './useWorkspaceShortcuts';
+import {
+  acknowledgeFileTreeSearch,
+  subscribeFileTreeSearch,
+} from '@/components/file-tree/fileTreeSearchRequest';
 
 function dispatchShortcut(actionId: string) {
   window.dispatchEvent(
@@ -72,5 +77,27 @@ describe('useWorkspaceShortcuts', () => {
     expect(mocks.openOrFocusPanel).toHaveBeenCalledWith('preview', 'Preview');
     expect(mocks.toggleFileTree).toHaveBeenCalledOnce();
     expect(mocks.toggleRightPanel).toHaveBeenCalledOnce();
+  });
+
+  it('opens file-tree search on Ctrl+Shift+F', () => {
+    const seen = vi.fn();
+    const stop = subscribeFileTreeSearch(seen);
+    mocks.isPanelOpen.mockReturnValue(false);
+    renderHook(() => useWorkspaceShortcuts());
+
+    act(() => {
+      window.dispatchEvent(
+        new KeyboardEvent('keydown', {
+          key: 'f',
+          ctrlKey: true,
+          shiftKey: true,
+        })
+      );
+    });
+
+    expect(mocks.toggleFileTree).toHaveBeenCalledOnce();
+    expect(seen).toHaveBeenCalled();
+    stop();
+    acknowledgeFileTreeSearch();
   });
 });

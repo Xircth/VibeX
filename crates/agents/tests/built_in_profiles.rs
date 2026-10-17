@@ -515,7 +515,7 @@ fn codeg_account_action_matrix_is_complete() {
     for (agent_id, expected) in [
         ("claude_code", &["login", "logout", "subscription"][..]),
         ("codex", &["login", "logout", "subscription"][..]),
-        ("antigravity", &[][..]),
+        ("antigravity", &["login"][..]),
         ("openclaw", &["onboard"][..]),
         ("opencode", &["login", "logout"][..]),
         ("cline", &["login"][..]),

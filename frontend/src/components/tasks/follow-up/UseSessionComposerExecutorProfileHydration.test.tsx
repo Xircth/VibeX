@@ -1,5 +1,5 @@
 import { renderHook } from '@testing-library/react';
-import { useRef, useState, type MutableRefObject } from 'react';
+import { useRef, useState, type RefObject } from 'react';
 import { describe, expect, it, vi } from 'vitest';
 import { type ExecutorProfileId } from 'shared/types';
 import { useSessionComposerExecutorProfileHydration } from './useSessionComposerExecutorProfileHydration';
@@ -56,7 +56,7 @@ function renderProfileHook(initialProps: {
         selectedExecutorProfile,
         effectiveExecutorProfile,
         executorProfileRef:
-          executorProfileRef as MutableRefObject<ExecutorProfileId | null>,
+          executorProfileRef as RefObject<ExecutorProfileId | null>,
       };
     },
     { initialProps }

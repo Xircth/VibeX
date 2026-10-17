@@ -1,8 +1,8 @@
 //! Official-account session status and leftover local evidence.
 //!
-//! Settings treats a completed login or logout command as the source of truth.
-//! Local files and keychain entries can outlive a banned, expired, or revoked
-//! session, so residue must not flip the signed-in badge on or off by itself.
+//! A completed logout stays signed out even when session files remain, and a
+//! completed login stays signed in when those files are missing. A probe that
+//! never recorded a logout still follows a live official-account session.
 
 use std::time::Duration;
 
@@ -10,7 +10,10 @@ use api_types::AgentAuthenticationStatus;
 use base64::Engine;
 use serde_json::Value;
 
-use crate::{AgentId, cursor_auth, metadata, profiles::ProfileManagementActionKind};
+use crate::{
+    AgentId, cursor_auth, metadata,
+    profiles::{BuiltInProfileCatalog, ProfileManagementActionKind},
+};
 
 /// Keep a recorded official-account result when disk residue disagrees.
 ///
@@ -45,30 +48,23 @@ pub fn authentication_with_bound_provider(
 }
 
 /// Combine a recorded probe, native snapshot, and bound-provider credentials.
+///
+/// `account_signed_out` is set only by a completed logout command. Without it,
+/// a live official account replaces a probe that merely defaulted to signed out.
 pub fn resolve_observed_authentication(
     recorded: AgentAuthenticationStatus,
     native: AgentAuthenticationStatus,
     bound_with_credential: bool,
+    account_signed_out: bool,
 ) -> AgentAuthenticationStatus {
-    prefer_recorded_account_over_residue(
-        recorded,
-        authentication_with_bound_provider(native, bound_with_credential),
-    )
-}
-
-/// OMP's `agent.db` oauth row is the live account, not leftover `auth.json`.
-/// A default signed-out probe must not hide a login that happened outside VibeX.
-pub fn omp_live_account(
-    recorded: AgentAuthenticationStatus,
-    native: AgentAuthenticationStatus,
-    bound_with_credential: bool,
-) -> AgentAuthenticationStatus {
-    if recorded == AgentAuthenticationStatus::NotLoggedIn
-        && native == AgentAuthenticationStatus::Account
+    let observed = authentication_with_bound_provider(native, bound_with_credential);
+    if !account_signed_out
+        && matches!(recorded, AgentAuthenticationStatus::NotLoggedIn)
+        && matches!(observed, AgentAuthenticationStatus::Account)
     {
         return AgentAuthenticationStatus::Account;
     }
-    resolve_observed_authentication(recorded, native, bound_with_credential)
+    prefer_recorded_account_over_residue(recorded, observed)
 }
 
 /// Map a finished official login/logout command to the recorded session status.
@@ -134,6 +130,7 @@ pub async fn resolve_account_label(agent_id: &AgentId) -> Option<String> {
         }
         "cursor" => jwt_identity(cursor_auth::cursor_account_token().await?.as_str()),
         "grok" => account_label_from_grok_auth(&read_json_value(grok_auth_path()?).await?),
+        "antigravity" | "gemini" => resolve_antigravity_account_label().await,
         _ => None,
     }
 }
@@ -144,6 +141,122 @@ pub fn account_label_from_codex_auth(auth: &Value) -> Option<String> {
         .and_then(Value::as_str)
         .and_then(jwt_identity)
         .or_else(|| account_label_from_document(auth))
+}
+
+pub fn account_label_from_antigravity_token(value: &Value) -> Option<String> {
+    identity_from_value(value)
+        .or_else(|| {
+            value
+                .get("id_token")
+                .and_then(Value::as_str)
+                .and_then(jwt_identity)
+        })
+        .or_else(|| account_label_from_document(value))
+}
+
+pub fn extract_email_from_antigravity_log(content: &str) -> Option<String> {
+    for line in content.lines().rev() {
+        if let Some(pos) = line.find("OAuth: authenticated successfully as ") {
+            let email = line[pos + "OAuth: authenticated successfully as ".len()..].trim();
+            if !email.is_empty() && email.contains('@') {
+                return Some(email.to_string());
+            }
+        }
+        if let Some(pos) = line.find("applyAuthResult: email=") {
+            let rest = &line[pos + "applyAuthResult: email=".len()..];
+            let email = rest.split(',').next().unwrap_or("").trim();
+            if !email.is_empty() && email.contains('@') {
+                return Some(email.to_string());
+            }
+        }
+    }
+    None
+}
+
+async fn read_antigravity_email_from_logs() -> Option<String> {
+    let log_dir = metadata::gemini_home()?.join("antigravity-cli").join("log");
+    let mut entries = tokio::fs::read_dir(log_dir).await.ok()?;
+    let mut newest_file = None;
+    let mut newest_time = std::time::SystemTime::UNIX_EPOCH;
+
+    while let Ok(Some(entry)) = entries.next_entry().await {
+        let path = entry.path();
+        if path.extension().and_then(|s| s.to_str()) == Some("log")
+            && let Ok(meta) = entry.metadata().await
+            && let Ok(modified) = meta.modified()
+            && modified > newest_time
+        {
+            newest_time = modified;
+            newest_file = Some(path);
+        }
+    }
+
+    let file_path = newest_file?;
+    let content = tokio::fs::read_to_string(file_path).await.ok()?;
+    extract_email_from_antigravity_log(&content)
+}
+
+async fn refresh_antigravity_token_email(doc: &Value) -> Option<String> {
+    let refresh_token = doc.get("refresh_token").and_then(Value::as_str)?;
+    let client_id = doc.get("client_id").and_then(Value::as_str)?;
+    let client_secret = doc
+        .get("client_secret")
+        .and_then(Value::as_str)
+        .unwrap_or("");
+    let token_uri = doc
+        .get("token_uri")
+        .and_then(Value::as_str)
+        .unwrap_or("https://oauth2.googleapis.com/token");
+
+    let client = reqwest::Client::builder()
+        .timeout(Duration::from_secs(CONFIRM_TIMEOUT_SECS))
+        .build()
+        .ok()?;
+
+    let params = [
+        ("grant_type", "refresh_token"),
+        ("refresh_token", refresh_token),
+        ("client_id", client_id),
+        ("client_secret", client_secret),
+    ];
+
+    let response = client.post(token_uri).form(&params).send().await.ok()?;
+    if !response.status().is_success() {
+        return None;
+    }
+    let res_json = response.json::<Value>().await.ok()?;
+    account_label_from_antigravity_token(&res_json)
+}
+
+pub async fn resolve_antigravity_account_label() -> Option<String> {
+    let token_path = metadata::antigravity_token_path()?;
+    let mut token_doc = read_json_value(token_path.clone()).await;
+
+    if let Some(doc) = &token_doc
+        && let Some(label) = account_label_from_antigravity_token(doc)
+    {
+        return Some(label);
+    }
+
+    let mut resolved_email = read_antigravity_email_from_logs().await;
+
+    if resolved_email.is_none()
+        && let Some(doc) = &token_doc
+    {
+        resolved_email = refresh_antigravity_token_email(doc).await;
+    }
+
+    if let Some(ref email) = resolved_email
+        && let Some(ref mut doc) = token_doc
+        && doc.is_object()
+    {
+        doc["email"] = Value::String(email.clone());
+        if let Ok(bytes) = serde_json::to_vec_pretty(doc) {
+            let _ = tokio::fs::write(&token_path, bytes).await;
+        }
+    }
+
+    resolved_email
 }
 
 pub fn account_label_from_document(value: &Value) -> Option<String> {
@@ -335,6 +448,76 @@ async fn confirm_bearer_post(
     }
 }
 
+/// Whether the agent's official-account evidence is present on disk or in the
+/// keychain. This is the login fact; it is not an API-key credential.
+pub async fn official_account_present(
+    home: &std::path::Path,
+    agent_id: &AgentId,
+    environment: &std::collections::HashMap<String, String>,
+) -> bool {
+    if agent_id.as_str() == "cursor" {
+        return cursor_auth::cursor_account_token().await.is_some();
+    }
+    let Some(bytes) = read_account_evidence_bytes(home, agent_id, environment).await else {
+        return false;
+    };
+    serde_json::from_slice::<Value>(&bytes).is_ok_and(|value| {
+        if agent_id.as_str() == "kimi_code" && kimi_credential_is_synthetic(&value) {
+            return false;
+        }
+        BuiltInProfileCatalog::bundled()
+            .profile(agent_id)
+            .and_then(|profile| profile.account_evidence.as_ref())
+            .is_some_and(|evidence| evidence.matches(&value))
+    })
+}
+
+async fn read_account_evidence_bytes(
+    home: &std::path::Path,
+    agent_id: &AgentId,
+    environment: &std::collections::HashMap<String, String>,
+) -> Option<Vec<u8>> {
+    let evidence = BuiltInProfileCatalog::bundled()
+        .profile(agent_id)
+        .and_then(|profile| profile.account_evidence.clone())?;
+    let override_directory = evidence.directory_override_env.and_then(|name| {
+        environment
+            .get(name)
+            .filter(|value| !value.trim().is_empty())
+            .map(|value| expand_home_path(home, value))
+            .or_else(|| {
+                std::env::var_os(name)
+                    .filter(|value| !value.is_empty())
+                    .map(|value| expand_home_path(home, &value.to_string_lossy()))
+            })
+    });
+    let directory = override_directory
+        .map(|directory| directory.join(evidence.override_relative_directory))
+        .unwrap_or_else(|| home.join(evidence.home_relative_directory));
+    tokio::fs::read(directory.join(evidence.relative_file))
+        .await
+        .ok()
+}
+
+fn expand_home_path(home: &std::path::Path, value: &str) -> std::path::PathBuf {
+    let path = std::path::PathBuf::from(value.trim());
+    if path == std::path::Path::new("~") {
+        return home.to_path_buf();
+    }
+    if let Ok(relative) = path.strip_prefix("~/") {
+        return home.join(relative);
+    }
+    if path.is_relative() {
+        return home.join(path);
+    }
+    path
+}
+
+fn kimi_credential_is_synthetic(value: &Value) -> bool {
+    value.get("_vibex_synthetic").and_then(Value::as_bool) == Some(true)
+        || value.get("access_token").and_then(Value::as_str) == Some("vibex-local-gate")
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -356,26 +539,6 @@ mod tests {
         assert_eq!(
             account_session_from_http(200, r#"{"id":"user"}"#),
             AccountSessionConfirmation::Confirmed
-        );
-    }
-
-    #[test]
-    fn omp_oauth_outside_vibex_counts_as_signed_in() {
-        assert_eq!(
-            omp_live_account(
-                AgentAuthenticationStatus::NotLoggedIn,
-                AgentAuthenticationStatus::Account,
-                false,
-            ),
-            AgentAuthenticationStatus::Account
-        );
-        assert_eq!(
-            resolve_observed_authentication(
-                AgentAuthenticationStatus::NotLoggedIn,
-                AgentAuthenticationStatus::Account,
-                false,
-            ),
-            AgentAuthenticationStatus::NotLoggedIn
         );
     }
 
@@ -434,6 +597,7 @@ mod tests {
                 AgentAuthenticationStatus::NotLoggedIn,
                 AgentAuthenticationStatus::NotLoggedIn,
                 true,
+                false,
             ),
             AgentAuthenticationStatus::ApiKey
         );
@@ -442,8 +606,44 @@ mod tests {
                 AgentAuthenticationStatus::Account,
                 AgentAuthenticationStatus::NotLoggedIn,
                 true,
+                false,
             ),
             AgentAuthenticationStatus::ApiKey
+        );
+    }
+
+    #[test]
+    fn a_live_official_account_replaces_an_unconfirmed_signed_out_probe() {
+        assert_eq!(
+            resolve_observed_authentication(
+                AgentAuthenticationStatus::NotLoggedIn,
+                AgentAuthenticationStatus::Account,
+                false,
+                false,
+            ),
+            AgentAuthenticationStatus::Account
+        );
+        assert_eq!(
+            resolve_observed_authentication(
+                AgentAuthenticationStatus::ApiKey,
+                AgentAuthenticationStatus::Account,
+                false,
+                false,
+            ),
+            AgentAuthenticationStatus::ApiKey
+        );
+    }
+
+    #[test]
+    fn an_explicit_sign_out_keeps_leftover_account_files_signed_out() {
+        assert_eq!(
+            resolve_observed_authentication(
+                AgentAuthenticationStatus::NotLoggedIn,
+                AgentAuthenticationStatus::Account,
+                false,
+                true,
+            ),
+            AgentAuthenticationStatus::NotLoggedIn
         );
     }
 
@@ -501,6 +701,30 @@ mod tests {
             authentication_from_account_command(ProfileManagementActionKind::Login, 1),
             None
         );
+    }
+
+    #[tokio::test]
+    async fn grok_auth_file_counts_as_an_official_account() {
+        let home = std::env::temp_dir().join(format!(
+            "vibex-grok-auth-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_nanos()
+        ));
+        let _ = tokio::fs::remove_dir_all(&home).await;
+        tokio::fs::create_dir_all(home.join(".grok")).await.unwrap();
+        let auth = home.join(".grok").join("auth.json");
+        tokio::fs::write(&auth, br#"{"session":{"auth_mode":"oidc"}}"#)
+            .await
+            .unwrap();
+        let agent = AgentId::parse("grok").unwrap();
+        let environment = std::collections::HashMap::new();
+        assert!(official_account_present(&home, &agent, &environment).await);
+        tokio::fs::write(&auth, b"{}").await.unwrap();
+        assert!(!official_account_present(&home, &agent, &environment).await);
+        let _ = tokio::fs::remove_dir_all(&home).await;
     }
 
     #[test]
@@ -579,6 +803,45 @@ mod tests {
                 "tokens": {}
             })),
             None
+        );
+    }
+
+    #[test]
+    fn extracts_email_from_antigravity_token_document() {
+        assert_eq!(
+            account_label_from_antigravity_token(&serde_json::json!({
+                "email": "user@gmail.com",
+                "refresh_token": "token123"
+            })),
+            Some("user@gmail.com".to_string())
+        );
+
+        assert_eq!(
+            account_label_from_antigravity_token(&serde_json::json!({
+                "oauthAccount": { "email": "account@gmail.com" }
+            })),
+            Some("account@gmail.com".to_string())
+        );
+    }
+
+    #[test]
+    fn extracts_email_from_antigravity_cli_log() {
+        let log = r#"
+I1011 14:53:09.766535     319 auth.go:157] ChainedAuth: authenticated via keyring (effective: keyring)
+I1011 14:53:09.766535     319 server_oauth.go:204] applyAuthResult: email=dev@google.com, authMethod=consumer, quotaProject=
+I1011 14:53:09.766535     319 server_oauth.go:209] OAuth: authenticated successfully as dev@google.com
+"#;
+        assert_eq!(
+            extract_email_from_antigravity_log(log),
+            Some("dev@google.com".to_string())
+        );
+
+        let log2 = r#"
+I1011 14:53:09.766535     319 server_oauth.go:204] applyAuthResult: email=engineer@example.com, authMethod=consumer
+"#;
+        assert_eq!(
+            extract_email_from_antigravity_log(log2),
+            Some("engineer@example.com".to_string())
         );
     }
 }

@@ -30,6 +30,8 @@ interface SectionHeaderProps {
   count: number;
   icon: React.ReactNode;
   actions: React.ReactNode;
+  collapsed: boolean;
+  onToggle: () => void;
 }
 
 const SectionHeader = memo(function SectionHeader({
@@ -37,15 +39,35 @@ const SectionHeader = memo(function SectionHeader({
   count,
   icon,
   actions,
+  collapsed,
+  onToggle,
 }: SectionHeaderProps) {
   return (
-    <div className="flex items-center justify-between px-2 py-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+    <div
+      role="button"
+      tabIndex={0}
+      aria-expanded={!collapsed}
+      data-testid={`git-section-header-${label.toLowerCase()}`}
+      className="my-0.5 flex cursor-pointer select-none items-center justify-between rounded-md bg-muted/60 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground transition-colors hover:bg-muted/80"
+      onClick={onToggle}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault();
+          onToggle();
+        }
+      }}
+    >
       <div className="flex items-center gap-1.5">
         {icon}
         <span>{label}</span>
         <span className="text-muted-foreground/60">({count})</span>
       </div>
-      <div className="flex items-center gap-0.5">{actions}</div>
+      <div
+        className="flex items-center gap-0.5"
+        onClick={(e) => e.stopPropagation()}
+      >
+        {actions}
+      </div>
     </div>
   );
 });
@@ -78,6 +100,8 @@ export const GitStagingArea = memo(function GitStagingArea({
   const [selectedPaths, setSelectedPaths] = useState<Set<string>>(new Set());
   const [lastClickedPath, setLastClickedPath] = useState<string | null>(null);
   const [contextMenu, setContextMenu] = useState<ContextMenuState | null>(null);
+  const [stagedCollapsed, setStagedCollapsed] = useState(false);
+  const [changesCollapsed, setChangesCollapsed] = useState(false);
 
   // Multi-select click handler
   const handleFileClick = useCallback(
@@ -185,10 +209,10 @@ export const GitStagingArea = memo(function GitStagingArea({
   const hasMultiSelection = selectedPaths.size > 1;
 
   return (
-    <div className="flex flex-col min-h-0">
+    <div className="flex flex-col gap-1.5 px-1.5 py-1 min-h-0">
       {/* Batch action bar */}
       {hasMultiSelection && (
-        <div className="flex items-center gap-1 px-2 py-1 bg-accent/20 border-b border-border/30 text-[10px] text-muted-foreground">
+        <div className="flex items-center gap-1 rounded-md px-2 py-1 bg-accent/20 border border-border/30 text-[10px] text-muted-foreground">
           <span>{selectedPaths.size} files selected</span>
           <div className="flex-1" />
           <button
@@ -229,13 +253,15 @@ export const GitStagingArea = memo(function GitStagingArea({
 
       {/* Staged section */}
       {stagedFiles.length > 0 && (
-        <div className="flex flex-col">
+        <div className="flex flex-col gap-0.5">
           <SectionHeader
             label="Staged"
             count={stagedFiles.length}
             icon={
               <CheckCircle2 className="h-3 w-3 text-[hsl(var(--success))]" />
             }
+            collapsed={stagedCollapsed}
+            onToggle={() => setStagedCollapsed((prev) => !prev)}
             actions={
               <button
                 className="p-0.5 rounded hover:bg-background text-muted-foreground hover:text-foreground"
@@ -246,46 +272,53 @@ export const GitStagingArea = memo(function GitStagingArea({
               </button>
             }
           />
-          {viewMode === 'tree' ? (
-            <GitFileTree
-              files={stagedFiles}
-              section="staged"
-              selectedPath={selectedPath}
-              selectedPaths={selectedPaths}
-              onSelectFile={handleFileClick}
-              onDoubleClick={onDoubleClickFile}
-              onContextMenu={(path, e) => handleContextMenu(path, 'staged', e)}
-              onUnstageFile={onUnstageFile}
-            />
-          ) : (
-            <div className="flex flex-col">
-              {stagedFiles.map((file) => (
-                <GitFileRow
-                  key={`staged-${file.path}`}
-                  file={file}
-                  section="staged"
-                  isActive={selectedPath === file.path}
-                  isSelected={selectedPaths.has(file.path)}
-                  onSelect={handleFileClick}
-                  onDoubleClick={onDoubleClickFile}
-                  onContextMenu={(path, e) =>
-                    handleContextMenu(path, 'staged', e)
-                  }
-                  onUnstageFile={onUnstageFile}
-                />
-              ))}
-            </div>
-          )}
+          {!stagedCollapsed &&
+            (viewMode === 'tree' ? (
+              <GitFileTree
+                files={stagedFiles}
+                section="staged"
+                selectedPath={selectedPath}
+                selectedPaths={selectedPaths}
+                onSelectFile={handleFileClick}
+                onReviewFile={onSelectFile}
+                onDoubleClick={onDoubleClickFile}
+                onContextMenu={(path, e) =>
+                  handleContextMenu(path, 'staged', e)
+                }
+                onUnstageFile={onUnstageFile}
+              />
+            ) : (
+              <div className="flex flex-col gap-0.5">
+                {stagedFiles.map((file) => (
+                  <GitFileRow
+                    key={`staged-${file.path}`}
+                    file={file}
+                    section="staged"
+                    isActive={selectedPath === file.path}
+                    isSelected={selectedPaths.has(file.path)}
+                    onSelect={handleFileClick}
+                    onReviewFile={onSelectFile}
+                    onDoubleClick={onDoubleClickFile}
+                    onContextMenu={(path, e) =>
+                      handleContextMenu(path, 'staged', e)
+                    }
+                    onUnstageFile={onUnstageFile}
+                  />
+                ))}
+              </div>
+            ))}
         </div>
       )}
 
       {/* Unstaged section */}
       {unstagedFiles.length > 0 && (
-        <div className="flex flex-col">
+        <div className="flex flex-col gap-0.5">
           <SectionHeader
             label="Changes"
             count={unstagedFiles.length}
             icon={<SquarePen className="h-3 w-3 text-[hsl(var(--warning))]" />}
+            collapsed={changesCollapsed}
+            onToggle={() => setChangesCollapsed((prev) => !prev)}
             actions={
               <>
                 <button
@@ -305,40 +338,43 @@ export const GitStagingArea = memo(function GitStagingArea({
               </>
             }
           />
-          {viewMode === 'tree' ? (
-            <GitFileTree
-              files={unstagedFiles}
-              section="unstaged"
-              selectedPath={selectedPath}
-              selectedPaths={selectedPaths}
-              onSelectFile={handleFileClick}
-              onDoubleClick={onDoubleClickFile}
-              onContextMenu={(path, e) =>
-                handleContextMenu(path, 'unstaged', e)
-              }
-              onStageFile={onStageFile}
-              onRevertFile={handleRevertFile}
-            />
-          ) : (
-            <div className="flex flex-col">
-              {unstagedFiles.map((file) => (
-                <GitFileRow
-                  key={`unstaged-${file.path}`}
-                  file={file}
-                  section="unstaged"
-                  isActive={selectedPath === file.path}
-                  isSelected={selectedPaths.has(file.path)}
-                  onSelect={handleFileClick}
-                  onDoubleClick={onDoubleClickFile}
-                  onContextMenu={(path, e) =>
-                    handleContextMenu(path, 'unstaged', e)
-                  }
-                  onStageFile={onStageFile}
-                  onRevertFile={handleRevertFile}
-                />
-              ))}
-            </div>
-          )}
+          {!changesCollapsed &&
+            (viewMode === 'tree' ? (
+              <GitFileTree
+                files={unstagedFiles}
+                section="unstaged"
+                selectedPath={selectedPath}
+                selectedPaths={selectedPaths}
+                onSelectFile={handleFileClick}
+                onReviewFile={onSelectFile}
+                onDoubleClick={onDoubleClickFile}
+                onContextMenu={(path, e) =>
+                  handleContextMenu(path, 'unstaged', e)
+                }
+                onStageFile={onStageFile}
+                onRevertFile={handleRevertFile}
+              />
+            ) : (
+              <div className="flex flex-col gap-0.5">
+                {unstagedFiles.map((file) => (
+                  <GitFileRow
+                    key={`unstaged-${file.path}`}
+                    file={file}
+                    section="unstaged"
+                    isActive={selectedPath === file.path}
+                    isSelected={selectedPaths.has(file.path)}
+                    onSelect={handleFileClick}
+                    onReviewFile={onSelectFile}
+                    onDoubleClick={onDoubleClickFile}
+                    onContextMenu={(path, e) =>
+                      handleContextMenu(path, 'unstaged', e)
+                    }
+                    onStageFile={onStageFile}
+                    onRevertFile={handleRevertFile}
+                  />
+                ))}
+              </div>
+            ))}
         </div>
       )}
 

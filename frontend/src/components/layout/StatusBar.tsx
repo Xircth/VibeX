@@ -29,6 +29,7 @@ export function StatusBar() {
         <PluginStatusItems />
         <AttentionInboxBadge />
         <StatusBarMcp />
+        <PluginStatusItems placement="after-mcp" />
         <BackgroundTaskCountBadge />
         <UpdateAvailableBadge />
         <AutomationFailureBadge />

@@ -791,12 +791,15 @@ fn map_agent_event(
                 tool_call_id: tool_call.id.clone(),
                 title: Some(tool_call.title.clone()),
                 kind: tool_call.kind.clone(),
-                status: Some("running".to_string()),
+                status: tool_call
+                    .status
+                    .clone()
+                    .or_else(|| Some("running".to_string())),
                 raw_input: tool_call
                     .input_preview
                     .as_ref()
                     .map(|preview| parse_json_payload(preview)),
-                raw_output: None,
+                raw_output: tool_call.content.as_deref().map(parse_json_payload),
                 raw_output_append: None,
                 content: None,
                 locations: None,
@@ -1051,6 +1054,7 @@ fn map_agent_event(
         | AgentEvent::PromptStarted { .. }
         | AgentEvent::ModeChanged { .. }
         | AgentEvent::ConfigChanged { .. }
+        | AgentEvent::ConfigOptionRejected { .. }
         | AgentEvent::SessionBindReady { .. } => None,
     }
 }
@@ -1240,6 +1244,8 @@ mod tests {
         };
         let envelope = envelope(AgentEvent::ToolCall {
             tool_call: AgentToolCall {
+                status: Some("completed".to_string()),
+                content: Some(r#"{"ok":true}"#.to_string()),
                 id: "tool-1".to_string(),
                 title: "Edit file".to_string(),
                 kind: Some("edit".to_string()),
@@ -1254,6 +1260,8 @@ mod tests {
             mapped,
             Some(ConversationEvent::ToolCallUpsert { tool_call })
                 if tool_call.metadata == Some(metadata) && tool_call.images == vec![image]
+                    && tool_call.status.as_deref() == Some("completed")
+                    && tool_call.raw_output == Some(serde_json::json!({ "ok": true }))
         ));
     }
 

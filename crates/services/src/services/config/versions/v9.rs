@@ -47,7 +47,7 @@ fn default_ai_message_default_collapsed() -> bool {
 }
 
 fn default_hide_model_thinking() -> bool {
-    true
+    false
 }
 
 fn default_auto_update_enabled() -> bool {
@@ -316,16 +316,16 @@ mod tests {
     }
 
     #[test]
-    fn conversation_content_defaults_to_collapsed() {
+    fn conversation_content_defaults_to_collapsed_with_visible_thinking() {
         let config = Config::default();
 
         assert!(config.files_changed_default_collapsed);
         assert!(config.ai_message_default_collapsed);
-        assert!(config.hide_model_thinking);
+        assert!(!config.hide_model_thinking);
     }
 
     #[test]
-    fn missing_conversation_collapse_preferences_use_enabled_defaults() {
+    fn missing_conversation_preferences_keep_thinking_visible() {
         let mut saved = serde_json::to_value(Config::default()).expect("serialize config");
         let saved_object = saved.as_object_mut().expect("config object");
         saved_object.remove("files_changed_default_collapsed");
@@ -336,7 +336,7 @@ mod tests {
 
         assert!(loaded.files_changed_default_collapsed);
         assert!(loaded.ai_message_default_collapsed);
-        assert!(loaded.hide_model_thinking);
+        assert!(!loaded.hide_model_thinking);
     }
 
     #[test]

@@ -424,6 +424,9 @@ describe('useConversationTimeline', () => {
       })
     );
     await waitFor(() => expect(result.current.sessionBindReady).toBe(true));
+    await waitFor(() =>
+      expect(touchMock).toHaveBeenCalledWith(CONVERSATION_ID, true)
+    );
   });
 
   it('reconnects the agent session before reloading without resetting rows', async () => {

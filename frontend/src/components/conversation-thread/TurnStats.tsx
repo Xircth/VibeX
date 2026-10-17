@@ -5,7 +5,6 @@ import {
   Clock3,
   Copy,
   CornerUpLeft,
-  Cpu,
   Gauge,
   GitFork,
   Timer,
@@ -93,7 +92,6 @@ export function TurnStats({
   onForkFromHere,
   forkDisabled = false,
   forkDisabledReason = 'busy',
-  live = false,
   className,
 }: TurnStatsProps) {
   const { t } = useTranslation(['conversation', 'common']);
@@ -103,15 +101,9 @@ export function TurnStats({
   const tokenText = formatTokenCount(stats?.totalTokens);
   const elapsedText = formatTurnDuration(stats?.elapsedMs);
   const completedAtText = formatCompletionTime(stats?.completedAt);
-  const modelText = stats?.model?.trim() || null;
   const stopReasonText = stats?.stopReason?.trim() || null;
   const hasStats = Boolean(
-    modelText ||
-      tokenText ||
-      elapsedText ||
-      completedAtText ||
-      stopReasonText ||
-      live
+    tokenText || elapsedText || completedAtText || stopReasonText
   );
 
   const handleCopy = useCallback(async () => {
@@ -183,20 +175,6 @@ export function TurnStats({
           ) : null}
         </div>
         <div className="conv-turn-stats-items">
-          {live ? (
-            <StatItem
-              icon={Gauge}
-              label={t('turnStats.statusLabel')}
-              value={t('turnStats.generating')}
-            />
-          ) : null}
-          {modelText ? (
-            <StatItem
-              icon={Cpu}
-              label={t('turnStats.modelLabel')}
-              value={modelText}
-            />
-          ) : null}
           {tokenText ? (
             <StatItem icon={Gauge} label="Token" value={tokenText} hideLabel />
           ) : null}

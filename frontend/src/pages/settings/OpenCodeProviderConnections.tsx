@@ -12,7 +12,7 @@ import {
   Upload,
 } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import type { FormEvent, ReactNode } from 'react';
+import type { SyntheticEvent, ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 import type {
   AgentId,
@@ -384,7 +384,7 @@ export function OpenCodeProviderConnections({
     );
   };
 
-  const connect = async (event: FormEvent<HTMLFormElement>) => {
+  const connect = async (event: SyntheticEvent<HTMLFormElement>) => {
     event.preventDefault();
     const id = providerId.trim().toLowerCase();
     if (!id || (credentialRequired && !apiKey.trim())) {
@@ -932,7 +932,7 @@ export function OpenCodeProviderConnections({
         ? createPortal(
             <div
               ref={catalogMenuRef}
-              className="agent-model-provider-catalog-menu tahoe-popover opencode-provider-catalog-menu"
+              className="agent-model-provider-catalog-menu product-context-menu opencode-provider-catalog-menu border border-border bg-white font-sans text-[13px] leading-5 text-popover-foreground shadow-none dark:bg-popover"
               style={{
                 top: catalogMenuPosition.top,
                 left: catalogMenuPosition.left,

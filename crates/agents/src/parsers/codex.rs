@@ -85,6 +85,7 @@ fn record_from_item(value: &Value) -> Option<ParsedRecord> {
             let block = match plan_entries_from_codex_args(payload.get("arguments")) {
                 Some(entries) if is_plan_tool(name) => ContentBlock::Plan { entries },
                 _ => ContentBlock::ToolUse {
+                    status: None,
                     kind: None,
                     tool_use_id: payload
                         .get("call_id")
@@ -96,6 +97,8 @@ fn record_from_item(value: &Value) -> Option<ParsedRecord> {
                     input_preview: payload.get("arguments").map(codex_tool_input),
                     meta: None,
                     images: Vec::new(),
+                    started_at: None,
+                    ended_at: None,
                 },
             };
             (TurnRole::Assistant, block)

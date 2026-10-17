@@ -109,7 +109,12 @@
     "noChangesYet": "No changes yet",
     "expandFileTree": "Expand file tree",
     "collapse": "Collapse",
-    "filesCount": "{{count}} files"
+    "filesCount": "{{count}} files",
+    "resizeFileTree": "Resize changes"
+  },
+  "notesPanel": {
+    "placeholder": "Write workspace notes here...",
+    "loading": "Loading notes..."
   },
   "webPreviewPanel": {
     "emptyTitle": "Start browsing",
@@ -126,7 +131,17 @@
     "browser": "Browser",
     "review": "Review",
     "note": "Note",
-    "terminal": "Terminal"
+    "terminal": "Terminal",
+    "close": "Close",
+    "closeCurrent": "Close tab",
+    "closeOthers": "Close other tabs",
+    "split": "Split",
+    "splitDown": "Split down",
+    "splitLeft": "Split left",
+    "splitRight": "Split right",
+    "new": "New",
+    "sort": "Sort",
+    "sortByName": "Sort by name"
   },
   "kanbanPanel": {
     "backToBoard": "Back to board",
@@ -225,13 +240,13 @@
     "enterKeyword": "Enter a keyword to start searching",
     "searching": "Searching...",
     "resultSummary": "{{fileCount}} files, {{matchCount}} matches",
+    "fileCountLabel": "{{count}} files",
+    "matchCountLabel": "{{count}} matches",
     "searchPlaceholder": "Search file contents...",
     "matchCase": "Match case",
     "matchWholeWord": "Match whole word",
     "regex": "Regular expression",
-    "moreOptions": "More options",
-    "includePlaceholder": "Files to include (e.g. *.ts, src/**)",
-    "excludePlaceholder": "Files to exclude (e.g. node_modules, dist)",
+    "searchOptions": "Search options",
     "truncated": "Too many results, showing partial matches only",
     "noResults": "No matching results found"
   },
@@ -311,7 +326,7 @@
     "emptySessions": "No agent sessions in this workspace.",
     "emptyBackground": "No background tasks.",
     "emptyNotices": "No errors or warnings.",
-    "openFlame": "Show timeline",
+    "openFlame": "View session timeline",
     "backToList": "Back",
     "noSpans": "This session has no timed events yet.",
     "running": "Running",
@@ -429,9 +444,13 @@
     "loadFailedRetry": "Failed to load, click to retry",
     "newFile": "New File",
     "newFolder": "New Folder",
+    "rename": "Rename",
+    "invalidName": "Enter a valid name without path separators or reserved characters.",
+    "renameFailed": "Could not rename: {{error}}",
     "refreshFileTree": "Refresh file tree",
     "collapseAllFolders": "Collapse all folders",
     "expandAllFolders": "Expand all folders",
+    "search": "Search",
     "copy": "Copy",
     "duplicate": "Duplicate",
     "copyRelativePath": "Copy relative path",

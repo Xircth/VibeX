@@ -1,8 +1,14 @@
 import { Diff } from 'shared/types';
 import { useTranslation } from 'react-i18next';
 import { DiffModeEnum, DiffView, SplitSide } from '@git-diff-view/react';
-import { generateDiffFile, type DiffFile } from '@git-diff-view/file';
+import {
+  _cacheMap,
+  generateDiffFile,
+  type DiffFile,
+} from '@git-diff-view/file';
 import { useMemo, useState, useCallback, useEffect } from 'react';
+
+_cacheMap.setMaxLength(10);
 import { useUserSystem } from '@/components/ConfigProvider';
 import { getHighLightLanguageFromPath } from '@/utils/extToLanguage';
 import { getActualTheme } from '@/utils/theme';
@@ -41,6 +47,11 @@ import { useProject } from '@/contexts/ProjectContext';
 import { useOptionalPanelActionsContext } from '@/contexts/PanelActionsContext';
 import { useLocalDesktopHost } from '@/lib/desktopShell';
 import { getFilePreviewKind } from '@/utils/filePreviewKind';
+import {
+  generatedDiffDropsDeletions,
+  headerChangeCounts,
+  streamContentsAreUsable,
+} from '@/components/diff/diffCardContent';
 
 type Props = {
   diff: Diff;
@@ -220,12 +231,16 @@ export default function DiffCard({
       } else {
         setForcedNewContent('');
       }
-      // Load old (HEAD) content — empty for added files
+      // Old side is the diff merge-base when the workspace and repo are known.
+      // Empty for added files.
       if (headRelPath && diff.change !== 'added') {
         const oldContent =
           uniqueBasePaths.length > 0
             ? await loadFromCandidates(headRelPath, (path) =>
-                fileTreeApi.getFileAtHead(path)
+                fileTreeApi.getFileAtHead(path, {
+                  workspaceId: selectedAttempt?.id,
+                  repoId: diff.repoId,
+                })
               )
             : null;
         setForcedOldContent(oldContent ?? '');
@@ -260,14 +275,17 @@ export default function DiffCard({
     shouldForceLoadTextContent,
   ]);
 
-  // Build a diff from raw contents so the viewer can expand beyond hunks.
-  // If content was force-loaded, use that instead of stream payload content.
-  const oldContentSafe =
-    shouldForceLoadTextContent && forcedOldContent !== null
+  // Stream contents win. Force-load only fills a real gap, and never from a
+  // snapshot that drops deletions the git stats already counted.
+  const usingStream = canForceLoadTextContent && streamContentsAreUsable(diff);
+  const oldContentSafe = usingStream
+    ? (diff.oldContent ?? '')
+    : forcedOldContent !== null
       ? forcedOldContent
       : (diff.oldContent ?? '');
-  const newContentSafe =
-    shouldForceLoadTextContent && forcedNewContent !== null
+  const newContentSafe = usingStream
+    ? (diff.newContent ?? '')
+    : forcedNewContent !== null
       ? forcedNewContent
       : (diff.newContent ?? '');
 
@@ -285,7 +303,10 @@ export default function DiffCard({
   const isContentEqual =
     !isEffectivelyOmitted && oldContentSafe === newContentSafe;
 
+  const hasKnownHeaderCounts = diff.additions != null && diff.deletions != null;
+
   const diffFile = useMemo(() => {
+    if (!expanded && hasKnownHeaderCounts) return null;
     if (isEffectivelyOmitted) return null;
     if (isContentEqual) return null;
     try {
@@ -301,12 +322,25 @@ export default function DiffCard({
         diffOptions
       );
       file.initRaw();
+      if (
+        generatedDiffDropsDeletions(
+          diff.deletions,
+          file.deletionLength ?? 0,
+          usingStream
+        )
+      ) {
+        file._destroy?.();
+        return null;
+      }
       return file;
     } catch (e) {
       console.error('Failed to build diff for view', e);
       return null;
     }
   }, [
+    diff.deletions,
+    expanded,
+    hasKnownHeaderCounts,
     isContentEqual,
     isEffectivelyOmitted,
     oldName,
@@ -316,14 +350,26 @@ export default function DiffCard({
     oldContentSafe,
     newContentSafe,
     diffOptions,
+    usingStream,
   ]);
 
-  const add = isEffectivelyOmitted
-    ? (diff.additions ?? 0)
-    : (diffFile?.additionLength ?? 0);
-  const del = isEffectivelyOmitted
-    ? (diff.deletions ?? 0)
-    : (diffFile?.deletionLength ?? 0);
+  useEffect(() => {
+    return () => {
+      diffFile?._destroy?.();
+    };
+  }, [diffFile]);
+
+  const headerCounts = headerChangeCounts(
+    diff,
+    diffFile
+      ? {
+          additions: diffFile.additionLength ?? 0,
+          deletions: diffFile.deletionLength ?? 0,
+        }
+      : null
+  );
+  const add = headerCounts.additions;
+  const del = headerCounts.deletions;
 
   // Review functionality
   const commentsForFile = useMemo(
@@ -467,8 +513,12 @@ export default function DiffCard({
   const expandable = true;
 
   return (
-    <div className="my-4 overflow-hidden rounded-xl border border-border/70 bg-card shadow-sm">
-      <div className="sticky top-0 z-[5] flex items-center border-b border-border/70 bg-muted/20 px-4 py-2 backdrop-blur supports-[backdrop-filter]:bg-background/80">
+    <div className="my-2 overflow-clip rounded-xl border border-border/60 bg-muted/20">
+      <div
+        className={`sticky top-0 z-[5] flex items-center bg-transparent px-4 py-2 ${
+          expanded ? 'border-b border-border/60' : ''
+        }`}
+      >
         {expandable && (
           <Button
             variant="ghost"

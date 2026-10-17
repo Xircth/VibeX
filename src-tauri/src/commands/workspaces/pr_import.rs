@@ -46,13 +46,17 @@ pub async fn create_workspace_from_pr(
         }
     };
 
-    let remote = match payload.remote_name {
-        Some(ref name) => GitRemote {
-            url: state.deployment.git().get_remote_url(&repo.path, name)?,
-            name: name.clone(),
-        },
-        None => state.deployment.git().get_default_remote(&repo.path)?,
-    };
+    let git = state.deployment.git().clone();
+    let repo_path = repo.path.clone();
+    let remote_name = payload.remote_name.clone();
+    let remote = crate::error::spawn_blocking_into(move || match remote_name {
+        Some(name) => Ok(GitRemote {
+            url: git.get_remote_url(&repo_path, &name)?,
+            name,
+        }),
+        None => git.get_default_remote(&repo_path),
+    })
+    .await?;
 
     let target_branch_ref = format!("{}/{}", remote.name, payload.base_branch);
 

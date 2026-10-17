@@ -6,6 +6,7 @@ import {
   dismissEmptyEditorColumn,
   ensureWelcomeEditorGroup,
   isEditorColumnCrushed,
+  revealEditorColumnForTerminal,
   shouldPersistSessionColumnWidth,
 } from './dockviewEditorGroup';
 import { isEditorGroup } from './dockviewGroupPolicy';
@@ -202,7 +203,9 @@ describe('ensureWelcomeEditorGroup', () => {
     });
 
     expect(dismissed?.api.isVisible).toBe(false);
-    expect(Math.round(fileTree.api.width)).toBeLessThan(280);
+    expect(
+      Math.abs(Math.round(fileTree.api.width) - dockWidthBeforeClose)
+    ).toBeLessThan(8);
     expect(Math.round(session.api.width)).toBeGreaterThan(1000);
     expect(shouldPersistSessionColumnWidth(api)).toBe(false);
 
@@ -219,6 +222,33 @@ describe('ensureWelcomeEditorGroup', () => {
     }
 
     expect(filePanel.group.api.isVisible).toBe(true);
+    api.dispose();
+  });
+
+  it('reveals a normal-width editor column when no tab bar is visible', () => {
+    const api = createApi();
+    const { welcome, fileTree, session } = buildWorkspace(api);
+    const dockBefore = Math.round(fileTree.api.width);
+    api.removePanel(welcome);
+    dismissEmptyEditorColumn(api, {
+      arrangement: DEFAULT_LAYOUT_ARRANGEMENT,
+      sessionWidth: 434,
+      dockWidth: dockBefore,
+    });
+
+    const revealed = revealEditorColumnForTerminal(api, {
+      arrangement: DEFAULT_LAYOUT_ARRANGEMENT,
+      sessionWidth: 434,
+      dockWidth: dockBefore,
+    });
+
+    expect(revealed?.api.isVisible).toBe(true);
+    expect(Math.round(revealed!.api.width)).toBeGreaterThan(400);
+    expect(Math.abs(Math.round(fileTree.api.width) - dockBefore)).toBeLessThan(
+      8
+    );
+    expect(Math.round(session.api.width)).toBeLessThan(700);
+    expect(shouldPersistSessionColumnWidth(api)).toBe(true);
     api.dispose();
   });
 

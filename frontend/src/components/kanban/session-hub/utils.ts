@@ -53,6 +53,13 @@ export function sessionAttentionKind(session: {
   return null;
 }
 
+export function sessionCompletesWhenViewed(session: {
+  isRunning?: boolean;
+  status?: SessionStatus | string | null;
+}): boolean {
+  return sessionAttentionKind(session) === 'review';
+}
+
 export type ActiveSessionStatus = Exclude<SessionStatus, 'archived'>;
 export const ARCHIVED_SESSION_STATUS: SessionStatus = 'archived';
 export const SESSION_ARCHIVE_DROP_ID = 'session-archive-drop';
@@ -157,6 +164,53 @@ export function sessionListAgentKey(session: {
   executor: string | null;
 }): string | null {
   return session.agentId || session.executor || null;
+}
+
+const FORK_SUPPORTED_AGENT_KEYS = new Set([
+  'claude_code',
+  'claude-code',
+  'codex',
+  'deepseek_harness',
+  'deepseek-harness',
+]);
+
+export function isSessionForkSupported(session: {
+  agentId?: string | null;
+  executor: string | null;
+  forkSupported?: boolean | null;
+}): boolean {
+  if (typeof session.forkSupported === 'boolean') {
+    return session.forkSupported;
+  }
+  const key = sessionListAgentKey(session)?.trim().toLowerCase();
+  if (!key) return false;
+  return FORK_SUPPORTED_AGENT_KEYS.has(key);
+}
+
+export function formatSessionInfoForCopy(
+  session: Pick<
+    KanbanProjectSessionRecord,
+    | 'id'
+    | 'fullName'
+    | 'agentId'
+    | 'executor'
+    | 'workspaceDisplayLabel'
+    | 'workspaceName'
+    | 'branch'
+  >
+): string {
+  const agentLabel = getExecutorDisplayName(sessionListAgentKey(session));
+  const workspaceLabel =
+    session.workspaceDisplayLabel ||
+    session.workspaceName ||
+    session.branch ||
+    '-';
+  return [
+    `${i18n.t('tasks:hubListItem.sessionInfoName')}: ${session.fullName}`,
+    `${i18n.t('tasks:hubListItem.sessionInfoId')}: ${session.id}`,
+    `${i18n.t('tasks:hubListItem.sessionInfoAgent')}: ${agentLabel}`,
+    `${i18n.t('tasks:hubListItem.sessionInfoWorkspace')}: ${workspaceLabel}`,
+  ].join('\n');
 }
 
 export function mapSessionErrorMessage(error: unknown, fallback: string) {
@@ -277,6 +331,24 @@ export function groupKanbanSessionsByStatus(
     groups[session.status as ActiveSessionStatus].push(session);
   });
 
+  SESSION_STATUS_ORDER.forEach((status) => {
+    groups[status].sort((left, right) => {
+      const leftPinned = Boolean(left.pinnedAt);
+      const rightPinned = Boolean(right.pinnedAt);
+      if (leftPinned !== rightPinned) {
+        return leftPinned ? -1 : 1;
+      }
+      if (leftPinned && rightPinned) {
+        return (
+          dateTimestamp(right.pinnedAt ?? 0) -
+            dateTimestamp(left.pinnedAt ?? 0) ||
+          dateTimestamp(right.updatedAt) - dateTimestamp(left.updatedAt)
+        );
+      }
+      return 0;
+    });
+  });
+
   return groups;
 }
 
@@ -350,7 +422,6 @@ export function getCanCreateKanbanSession({
 export function getCreateProjectSessionRequest({
   projectId,
   workspaceValue,
-  sessionName,
   executorProfile,
   mode,
   workspaceBranchOptions,
@@ -360,7 +431,6 @@ export function getCreateProjectSessionRequest({
 }: {
   projectId: string | null | undefined;
   workspaceValue: string;
-  sessionName: string;
   executorProfile: ExecutorProfileId | null;
   mode: KanbanSessionCreationMode;
   workspaceBranchOptions: WorkspaceBranchOption[];
@@ -378,7 +448,7 @@ export function getCreateProjectSessionRequest({
       workspace_id: null,
       branch: null,
       executor: executorProfile?.executor ?? undefined,
-      name: sessionName.trim() || null,
+      name: null,
       create_workspace: false,
       repos: undefined,
     };
@@ -402,7 +472,7 @@ export function getCreateProjectSessionRequest({
     workspace_id: workspaceSelection.workspaceId,
     branch: workspaceSelection.branch,
     executor: executorProfile?.executor ?? undefined,
-    name: sessionName.trim() || null,
+    name: null,
     create_workspace: mode === 'new_workspace',
     ...(mode === 'new_workspace'
       ? { include_uncommitted: Boolean(includeUncommitted) }

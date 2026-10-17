@@ -31,10 +31,6 @@
   opacity: 0.5;
 }
 
-.file-tree-row.is-gitignored .file-tree-name {
-  font-style: italic;
-}
-
 .file-tree-toggle.is-active {
   color: var(--text-emphasis);
   background: var(--surface-active);
@@ -44,24 +40,17 @@
 /* Inline new file/folder input */
 
 .file-tree-inline-new-row {
-  background: color-mix(in srgb, var(--surface-active) 40%, transparent);
-  border-color: var(--border-accent);
+  cursor: default;
 }
 
-.file-tree-inline-input {
-  flex: 1;
-  min-width: 0;
-  border: none;
-  outline: none;
+.file-tree-row.file-tree-inline-new-row,
+.file-tree-row-wrap:hover .file-tree-inline-new-row {
   background: transparent;
-  color: var(--text-strong);
-  font-size: 11px;
-  font-family: var(--code-font-family);
-  padding: 0;
-  line-height: 1.4;
+  border-color: transparent;
 }
 
-.file-tree-inline-input::placeholder {
-  color: var(--text-dim);
-  font-style: italic;
+.file-tree-name-input,
+.file-tree-name-input::placeholder {
+  font-family: var(--font-ui);
+  font-style: normal;
 }

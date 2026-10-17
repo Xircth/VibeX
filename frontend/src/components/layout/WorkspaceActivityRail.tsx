@@ -34,7 +34,6 @@ import { cn } from '@/lib/utils';
 import {
   type ActivityRailItemId,
   moveActivityRailItem,
-  nudgeActivityRailItem,
   setActivityRailOrder,
   useActivityRailOrder,
 } from '@/lib/activityRailOrder';
@@ -206,7 +205,12 @@ export function WorkspaceActivityRail({
 
   const handleNudge = useCallback(
     (itemId: ActivityRailItemId, direction: -1 | 1) => {
-      persistOrder(nudgeActivityRailItem(order, itemId, direction));
+      if (itemId === PANEL_IDS.SEARCH) return;
+      const visible = order.filter((id) => id !== PANEL_IDS.SEARCH);
+      const from = visible.indexOf(itemId);
+      const target = from < 0 ? undefined : visible[from + direction];
+      if (!target) return;
+      persistOrder(moveActivityRailItem(order, itemId, target));
     },
     [order, persistOrder]
   );
@@ -225,18 +229,23 @@ export function WorkspaceActivityRail({
         onDragEnd={handleDragEnd}
         onDragCancel={handleDragCancel}
       >
-        <SortableContext items={order} strategy={verticalListSortingStrategy}>
-          {order.map((itemId) => (
-            <ActivityRailItem
-              key={itemId}
-              itemId={itemId}
-              label={labels[itemId]}
-              Icon={RAIL_ICONS[itemId]}
-              active={isPanelOpen(itemId)}
-              onSelect={toggles[itemId]}
-              onNudge={handleNudge}
-            />
-          ))}
+        <SortableContext
+          items={order.filter((itemId) => itemId !== PANEL_IDS.SEARCH)}
+          strategy={verticalListSortingStrategy}
+        >
+          {order
+            .filter((itemId) => itemId !== PANEL_IDS.SEARCH)
+            .map((itemId) => (
+              <ActivityRailItem
+                key={itemId}
+                itemId={itemId}
+                label={labels[itemId]}
+                Icon={RAIL_ICONS[itemId]}
+                active={isPanelOpen(itemId)}
+                onSelect={toggles[itemId]}
+                onNudge={handleNudge}
+              />
+            ))}
         </SortableContext>
         <DragOverlay dropAnimation={null}>
           {activeId ? (

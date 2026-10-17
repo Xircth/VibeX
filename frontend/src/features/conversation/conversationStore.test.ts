@@ -129,6 +129,7 @@ describe('conversationStore (row-op dumb container)', () => {
     expect(turns.map((row) => [row.turn.role, row.phase])).toEqual([
       ['user', 'persisted'],
     ]);
+    expect(entryOf(state).detail?.timeline.rows).toEqual([]);
   });
 
   it('hydrates session-config summary fields from conversation detail', () => {
@@ -1166,6 +1167,130 @@ describe('conversationStore (row-op dumb container)', () => {
         item.kind === 'message' ? item.item.turn.role : item.row.row.kind
       )
     ).toEqual(['user', 'terminal_summary', 'assistant']);
+  });
+
+  it('deterministically interleaves messages and side rows without inverting message order across optimistic and revision-0 turns', () => {
+    const terminalEarly: TimelineRow = timelineRow('term:early', 10n, {
+      kind: 'terminal_summary',
+      terminal: {
+        terminal_id: 't-early',
+        command: 'pwd',
+        status: 'exited',
+        output_summary: '/repo',
+        output_truncated: false,
+      },
+    });
+    const terminalMid: TimelineRow = timelineRow('term:mid', 55n, {
+      kind: 'terminal_summary',
+      terminal: {
+        terminal_id: 't-mid',
+        command: 'git status',
+        status: 'exited',
+        output_summary: 'clean',
+        output_truncated: false,
+      },
+    });
+    const zeroRevisionTrailingUser: TimelineRow = timelineRow('t2:user', 0n, {
+      kind: 'message_turn',
+      phase: 'optimistic',
+      turn: messageTurn('t2:user', 'user', [
+        { type: 'text', text: 'zero-rev' },
+      ]),
+    });
+    let state = loaded([
+      userRow('t1', 'first', 50n),
+      assistantRow('t1', [{ type: 'text', text: 'first-reply' }], 20n),
+      terminalMid,
+      terminalEarly,
+      zeroRevisionTrailingUser,
+    ]);
+    state = conversationStoreReducer(state, {
+      type: 'optimistic_turn',
+      conversationId: CONVERSATION_ID,
+      turn: messageTurn('optimistic-3', 'user', [
+        { type: 'text', text: 'optimistic-follow-up' },
+      ]),
+    });
+
+    const items = timelineItemsForEntry(entryOf(state));
+    expect(
+      items.map((item) =>
+        item.kind === 'message'
+          ? `${item.item.turn.role}:${textOf(item.item.turn.blocks)}`
+          : `side:${item.row.row_id}`
+      )
+    ).toEqual([
+      'side:term:early',
+      'user:first',
+      'assistant:first-reply',
+      'side:term:mid',
+      'user:zero-rev',
+      'user:optimistic-follow-up',
+      'assistant:',
+    ]);
+  });
+
+  it('does not trigger a false sequence gap when previous_sequence matches local cursor across coalesced or no-op sequences', () => {
+    let state = loaded([userRow('t1', 'q', 1n)]);
+    expect(entryOf(state).lastSequence).toBe(1n);
+    state = conversationStoreReducer(state, {
+      type: 'row_ops',
+      batch: batch(
+        [
+          {
+            op: 'upsert',
+            row: assistantRow(
+              't1',
+              [{ type: 'text', text: 'coalesced' }],
+              15n,
+              'streaming'
+            ),
+          },
+        ],
+        15n,
+        { previous_sequence: 1n }
+      ),
+    });
+    expect(entryOf(state).gap).toEqual({ kind: 'none' });
+    expect(entryOf(state).lastSequence).toBe(15n);
+  });
+
+  it('preserves sideRowsForEntry array identity across streaming message row updates', () => {
+    const permission: TimelineRow = timelineRow('perm:p1', 2n, {
+      kind: 'permission_request',
+      request: {
+        permission_id: 'p1',
+        title: 'Allow?',
+        status: 'pending',
+        details: null,
+        options: [],
+      },
+    });
+    let state = loaded([
+      userRow('t1', 'q', 1n),
+      permission,
+      assistantRow('t1', [{ type: 'text', text: 'hel' }], 3n, 'streaming'),
+    ]);
+    const firstSideRows = sideRowsForEntry(entryOf(state));
+    state = conversationStoreReducer(state, {
+      type: 'row_ops',
+      batch: batch(
+        [
+          {
+            op: 'upsert',
+            row: assistantRow(
+              't1',
+              [{ type: 'text', text: 'hello' }],
+              4n,
+              'streaming'
+            ),
+          },
+        ],
+        4n
+      ),
+    });
+    const secondSideRows = sideRowsForEntry(entryOf(state));
+    expect(secondSideRows).toBe(firstSideRows);
   });
 });
 

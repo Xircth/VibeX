@@ -85,6 +85,7 @@ impl PluginHostCall {
         let _ = self.endpoint.set(url);
         let router = Router::new()
             .route("/host-call", post(handle_host_call))
+            .layer(axum::extract::DefaultBodyLimit::max(32 * 1024 * 1024))
             .with_state(Arc::clone(&self));
         tokio::spawn(async move {
             if let Err(error) = axum::serve(listener, router).await {

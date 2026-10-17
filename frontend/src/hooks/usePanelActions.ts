@@ -12,6 +12,7 @@ import { PANEL_IDS } from '@/stores/useLayoutStore';
 export function usePanelActions() {
   const {
     openFilePreview,
+    renameFilePreviews,
     openDiffPreview,
     openDiffPreviewAtPath,
     openMergePanel,
@@ -27,6 +28,7 @@ export function usePanelActions() {
 
   return {
     openFilePreview,
+    renameFilePreviews,
     openDiffPreview,
     openDiffPreviewAtPath,
     openMergePanel,

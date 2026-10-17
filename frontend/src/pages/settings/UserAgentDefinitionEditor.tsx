@@ -4,7 +4,7 @@ import {
   useMemo,
   useRef,
   useState,
-  type FormEvent,
+  type SyntheticEvent,
   type ReactNode,
 } from 'react';
 import { useTranslation } from 'react-i18next';
@@ -154,7 +154,7 @@ export function UserAgentDefinitionEditor({
     return () => onDirtyChange?.(false);
   }, [dirty, onDirtyChange]);
 
-  const submit = (event: FormEvent<HTMLFormElement>) => {
+  const submit = (event: SyntheticEvent<HTMLFormElement>) => {
     event.preventDefault();
     onSubmit(request);
   };

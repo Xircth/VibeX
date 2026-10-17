@@ -291,12 +291,85 @@ pub(super) async fn github_status(args: Value) -> Result<Value, ApplicationError
     serialize(github_status_for(host_from_args(&args)).await?)
 }
 
-pub(super) async fn open_login(_args: Value) -> Result<Value, ApplicationError> {
-    let _ = resolve_gh_path()
+pub(super) async fn open_login(args: Value) -> Result<Value, ApplicationError> {
+    let args: HostArgs = parse(args).unwrap_or(HostArgs {
+        host: None,
+        username: None,
+    });
+    let gh_path = resolve_gh_path()
         .await
         .ok_or_else(|| ApplicationError::bad_request("GitHub CLI is not installed."))?;
-    Err(ApplicationError::bad_request(
-        "GitHub login requires an interactive Host terminal.",
+    let gh_command = quote_terminal_program(&gh_path);
+    let host = host_from_args(&args);
+
+    let command = if host == DEFAULT_GITHUB_HOST {
+        format!("{gh_command} auth login --web --git-protocol https")
+    } else {
+        format!(
+            "{gh_command} auth login --web --git-protocol https --hostname {}",
+            quote_terminal_argument(&host)
+        )
+    };
+
+    spawn_visible_terminal(&command).map_err(|error| {
+        ApplicationError::bad_request(format!(
+            "GitHub login requires an interactive Host terminal ({error})."
+        ))
+    })?;
+    Ok(Value::Null)
+}
+
+fn quote_terminal_program(path: &Path) -> String {
+    quote_terminal_argument(&path.to_string_lossy())
+}
+
+#[cfg(windows)]
+fn quote_terminal_argument(value: &str) -> String {
+    format!("\"{}\"", value.replace('%', "%%").replace('"', "\"\""))
+}
+
+#[cfg(not(windows))]
+fn quote_terminal_argument(value: &str) -> String {
+    format!("'{}'", value.replace('\'', "'\"'\"'"))
+}
+
+#[cfg(target_os = "windows")]
+fn spawn_visible_terminal(command: &str) -> std::io::Result<()> {
+    std::process::Command::new("cmd")
+        .args(["/C", "start", "", "cmd", "/K", command])
+        .spawn()
+        .map(|_| ())
+}
+
+#[cfg(target_os = "macos")]
+fn spawn_visible_terminal(command: &str) -> std::io::Result<()> {
+    let script = format!(
+        "tell application \"Terminal\" to do script \"{}\"",
+        command.replace('\\', "\\\\").replace('"', "\\\"")
+    );
+    std::process::Command::new("osascript")
+        .args(["-e", &script])
+        .spawn()
+        .map(|_| ())
+}
+
+#[cfg(all(unix, not(target_os = "macos")))]
+fn spawn_visible_terminal(command: &str) -> std::io::Result<()> {
+    let run = format!("{command}; exec $SHELL");
+    for terminal in ["x-terminal-emulator", "gnome-terminal", "konsole", "xterm"] {
+        if which::which(terminal).is_ok()
+            && std::process::Command::new(terminal)
+                .args(["-e", "sh", "-lc", &run])
+                .spawn()
+                .map(|_| ())
+                .is_ok()
+        {
+            return Ok(());
+        }
+    }
+    Err(std::io::Error::new(
+        std::io::ErrorKind::NotFound,
+        "no supported terminal emulator found",
     ))
 }
 

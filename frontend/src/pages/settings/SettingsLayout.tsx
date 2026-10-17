@@ -235,16 +235,14 @@ export function SettingsLayout() {
               {(
                 [
                   ...SETTINGS_NAV_ITEMS,
-                  ...pluginPages.map(
-                    (page): SettingsNavItem => ({
+                  ...pluginPages.map((page): SettingsNavItem => {
+                    const meta = contributionMetadata(page);
+                    return {
                       path: `/settings/plugin/${page.pluginId}/${page.id}`,
                       label: page.label,
-                      icon: contributionIconComponent(
-                        contributionMetadata(page).icon,
-                        Puzzle
-                      ),
-                    })
-                  ),
+                      icon: contributionIconComponent(meta.icon, Puzzle),
+                    };
+                  }),
                 ] satisfies SettingsNavItem[]
               )
                 .filter((item) => {

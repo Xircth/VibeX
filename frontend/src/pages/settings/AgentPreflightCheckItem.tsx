@@ -18,6 +18,62 @@ type AgentPreflightCheckItemProps = {
 
 type CheckStatus = AgentPreflightItemView['status'];
 
+export function humanizePreflightId(value: string): string {
+  const known: Record<string, string> = {
+    runtime: 'Runtime',
+    acp: 'ACP adapter',
+    node: 'Node.js',
+    npm: 'npm',
+    uv: 'uv',
+    python: 'Python',
+    archive: 'Archive support',
+    authentication: 'Authentication',
+    membership: 'Runtime entry',
+  };
+  const leaf = value.split('.').at(-1) ?? value;
+  if (known[leaf]) return known[leaf];
+  return leaf
+    .split(/[_-]+/u)
+    .filter(Boolean)
+    .map((word) => `${word[0]?.toUpperCase() ?? ''}${word.slice(1)}`)
+    .join(' ');
+}
+
+export function AgentPreflightCard({
+  item,
+  busy = false,
+  onUpdate,
+}: {
+  item: AgentPreflightItemView;
+  busy?: boolean;
+  onUpdate?: () => void;
+}) {
+  const { t, i18n } = useTranslation('settings');
+  const passed = item.status === 'pass';
+  const warning = item.status === 'warning';
+  const english = i18n.resolvedLanguage?.startsWith('en') ?? false;
+  const label = english ? humanizePreflightId(item.id) : item.label;
+  const detail =
+    english && item.detail && /[\u3400-\u9fff]/u.test(item.detail)
+      ? passed
+        ? t('agents.preflightDetailPass', { label })
+        : warning
+          ? t('agents.preflightDetailWarning', { label })
+          : item.repairable
+            ? t('agents.preflightDetailRepairable', { label })
+            : t('agents.preflightDetailFail', { label })
+      : item.detail;
+  return (
+    <AgentPreflightCheckItem
+      busy={busy}
+      detail={detail}
+      item={item}
+      label={label}
+      onUpdate={onUpdate}
+    />
+  );
+}
+
 export function AgentPreflightCheckItem({
   item,
   label,

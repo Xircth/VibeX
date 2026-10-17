@@ -13,17 +13,15 @@
     allow(dead_code, unused_imports, unused_variables)
 )]
 
+#[cfg(target_os = "macos")]
+use std::sync::atomic::AtomicU64;
 #[cfg(any(target_os = "macos", target_os = "windows"))]
-use std::sync::atomic::AtomicBool;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::{
     cell::RefCell,
     collections::HashMap,
     path::PathBuf,
-    sync::{
-        Arc, Mutex, OnceLock, Weak,
-        atomic::{AtomicU64, Ordering},
-        mpsc,
-    },
+    sync::{Arc, Mutex, OnceLock, Weak, mpsc},
     thread::ThreadId,
     time::{Duration, Instant},
 };
@@ -33,8 +31,10 @@ use browser_host::{BrowserBounds, BrowserHostError, BrowserService, FrozenFrame,
 use serde::Serialize;
 use serde_json::{Value, json};
 use tauri::{Emitter, Manager};
+#[cfg(target_os = "macos")]
+use tauri_runtime_wry::wry::NewWindowResponse;
 use tauri_runtime_wry::wry::{
-    self, NewWindowFeatures, NewWindowResponse, PageLoadEvent, Rect, WebView, WebViewBuilder,
+    self, NewWindowFeatures, PageLoadEvent, Rect, WebView, WebViewBuilder,
     dpi::{LogicalPosition, LogicalSize},
 };
 use url::Url;
@@ -44,10 +44,15 @@ struct NativeSurfaces {
     views: HashMap<String, WebView>,
     #[cfg(target_os = "windows")]
     contexts: HashMap<String, wry::WebContext>,
+    #[cfg(target_os = "windows")]
+    tab_profiles: HashMap<String, String>,
     #[cfg(target_os = "linux")]
     windows: HashMap<String, tauri::WebviewWindow>,
     devices: HashMap<String, String>,
     last_bounds: HashMap<String, BrowserBounds>,
+    /// Proxy URL frozen for a profile's webview environment. WebView2 rejects
+    /// a second environment on the same data directory when the arguments differ.
+    profile_proxy: HashMap<String, Option<String>>,
 }
 
 thread_local! {
@@ -56,14 +61,18 @@ thread_local! {
         views: HashMap::new(),
         #[cfg(target_os = "windows")]
         contexts: HashMap::new(),
+        #[cfg(target_os = "windows")]
+        tab_profiles: HashMap::new(),
         #[cfg(target_os = "linux")]
         windows: HashMap::new(),
         devices: HashMap::new(),
         last_bounds: HashMap::new(),
+        profile_proxy: HashMap::new(),
     });
 }
 
 static MAIN_THREAD: OnceLock<ThreadId> = OnceLock::new();
+#[cfg(target_os = "macos")]
 static POPUP_SEQ: AtomicU64 = AtomicU64::new(0);
 static GESTURES: OnceLock<Mutex<HashMap<String, Instant>>> = OnceLock::new();
 static PENDING_POPUPS: OnceLock<Mutex<HashMap<String, (String, Instant)>>> = OnceLock::new();
@@ -85,6 +94,7 @@ fn mark_gesture(tab_id: &str) {
     }
 }
 
+#[cfg(target_os = "macos")]
 fn recent_gesture(tab_id: &str) -> bool {
     gestures()
         .lock()
@@ -169,6 +179,7 @@ impl TauriNativeTabs {
             .join(profile_id)
     }
 
+    #[cfg(target_os = "macos")]
     fn data_store_identifier(profile_id: &str) -> [u8; 16] {
         const NAMESPACE_URL: uuid::Uuid = uuid::Uuid::from_bytes([
             0x6b, 0xa7, 0xb8, 0x11, 0x9d, 0xad, 0x11, 0xd1, 0x80, 0xb4, 0x00, 0xc0, 0x4f, 0xd4,
@@ -271,10 +282,10 @@ fn start_freeze_frame(webview: &WebView, tx: tokio::sync::oneshot::Sender<Option
         .map_err(|error| error.to_string())?;
         Ok::<(), String>(())
     })();
-    if result.is_err() {
-        if let Some(tx) = tx.lock().ok().and_then(|mut slot| slot.take()) {
-            let _ = tx.send(None);
-        }
+    if result.is_err()
+        && let Some(tx) = tx.lock().ok().and_then(|mut slot| slot.take())
+    {
+        let _ = tx.send(None);
     }
 }
 
@@ -364,13 +375,18 @@ fn start_freeze_frame(webview: &WebView, tx: tokio::sync::oneshot::Sender<Option
 }
 
 fn wry_bounds(bounds: &BrowserBounds) -> Rect {
+    let (w, h) = if !bounds.visible && (bounds.width < 32.0 || bounds.height < 32.0) {
+        (1280.0, 800.0)
+    } else {
+        (bounds.width.max(1.0), bounds.height.max(1.0))
+    };
     Rect {
         position: LogicalPosition::new(bounds.x, bounds.y).into(),
-        size: LogicalSize::new(bounds.width.max(1.0), bounds.height.max(1.0)).into(),
+        size: LogicalSize::new(w, h).into(),
     }
 }
 
-fn apply_user_agent(webview: &WebView, device: &str) {
+fn apply_user_agent(webview: &WebView, device: &str, sign_in_ua: bool) {
     #[cfg(target_os = "macos")]
     {
         use objc2_foundation::NSString;
@@ -382,16 +398,141 @@ fn apply_user_agent(webview: &WebView, device: &str) {
             "tablet" => Some(NSString::from_str(
                 "Mozilla/5.0 (iPad; CPU OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1",
             )),
+            _ if sign_in_ua => Some(NSString::from_str(safari_user_agent())),
             _ => None,
         };
         unsafe {
             webview.webview().setCustomUserAgent(ua.as_deref());
         }
     }
-    #[cfg(not(target_os = "macos"))]
+    #[cfg(target_os = "windows")]
     {
-        let _ = (webview, device);
+        use tauri_runtime_wry::wry::WebViewExtWindows;
+        use webview2_com::Microsoft::Web::WebView2::Win32::ICoreWebView2Settings2;
+        use windows::core::{Interface, PCWSTR};
+
+        let ua_str = match device {
+            "phone" => Some(
+                "Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/133.0.0.0 Mobile Safari/537.36",
+            ),
+            "tablet" => Some(
+                "Mozilla/5.0 (Linux; Android 14; Pixel Tablet) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/133.0.0.0 Safari/537.36",
+            ),
+            _ if sign_in_ua => Some(windows_chrome_user_agent()),
+            _ => None,
+        };
+        if let Some(ua) = ua_str {
+            let mut wide: Vec<u16> = ua.encode_utf16().collect();
+            wide.push(0);
+            unsafe {
+                if let Ok(settings) = webview.webview().Settings()
+                    && let Ok(settings2) = settings.cast::<ICoreWebView2Settings2>()
+                {
+                    let _ = settings2.SetUserAgent(PCWSTR(wide.as_ptr()));
+                }
+            }
+        }
     }
+    #[cfg(not(any(target_os = "macos", target_os = "windows")))]
+    {
+        let _ = (webview, device, sign_in_ua);
+    }
+}
+
+fn ephemeral_profile_dir() -> PathBuf {
+    std::env::temp_dir().join("vibex-browser-ephemeral")
+}
+
+fn open_system_browser(url: &str) {
+    let url = url.to_owned();
+    tauri::async_runtime::spawn(async move {
+        let _ = utils::browser::open_browser(&url).await;
+    });
+}
+
+/// Proxy inherited from the process environment (VibeX system-proxy settings
+/// write these before the browser starts). Returns `http://host:port` or
+/// `socks5://host:port`.
+fn inherited_proxy_url() -> Option<String> {
+    for key in [
+        "HTTPS_PROXY",
+        "https_proxy",
+        "HTTP_PROXY",
+        "http_proxy",
+        "ALL_PROXY",
+        "all_proxy",
+    ] {
+        let Ok(value) = std::env::var(key) else {
+            continue;
+        };
+        if let Some(url) = canonical_proxy_url(value.trim()) {
+            return Some(url);
+        }
+    }
+    None
+}
+
+fn canonical_proxy_url(raw: &str) -> Option<String> {
+    let trimmed = raw.trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+    let (socks, rest) = if let Some(rest) = trimmed
+        .strip_prefix("socks5://")
+        .or_else(|| trimmed.strip_prefix("socks://"))
+    {
+        (true, rest)
+    } else if let Some(rest) = trimmed
+        .strip_prefix("http://")
+        .or_else(|| trimmed.strip_prefix("https://"))
+    {
+        (false, rest)
+    } else {
+        (false, trimmed)
+    };
+    let rest = rest.split(['/', '?', '#']).next().unwrap_or(rest);
+    let rest = rest.rsplit('@').next().unwrap_or(rest);
+    let (host, port) = if let Some(host) = rest.strip_prefix('[') {
+        let (addr, after) = host.split_once(']')?;
+        (addr, after.strip_prefix(':')?)
+    } else {
+        rest.rsplit_once(':')?
+    };
+    let port_num: u16 = port.parse().ok()?;
+    if host.is_empty() || port_num == 0 {
+        return None;
+    }
+    let scheme = if socks { "socks5" } else { "http" };
+    Some(format!("{scheme}://{host}:{port_num}"))
+}
+
+fn proxy_config_from_url(raw: &str) -> Option<wry::ProxyConfig> {
+    let url = canonical_proxy_url(raw)?;
+    let socks = url.starts_with("socks5://");
+    let rest = url
+        .trim_start_matches("socks5://")
+        .trim_start_matches("http://");
+    let (host, port) = rest.rsplit_once(':')?;
+    let endpoint = wry::ProxyEndpoint {
+        host: host.to_owned(),
+        port: port.to_owned(),
+    };
+    Some(if socks {
+        wry::ProxyConfig::Socks5(endpoint)
+    } else {
+        wry::ProxyConfig::Http(endpoint)
+    })
+}
+
+fn profile_proxy_url(store: &mut NativeSurfaces, profile_id: &str) -> Option<String> {
+    if let Some(cached) = store.profile_proxy.get(profile_id) {
+        return cached.clone();
+    }
+    let resolved = inherited_proxy_url();
+    store
+        .profile_proxy
+        .insert(profile_id.to_owned(), resolved.clone());
+    resolved
 }
 
 fn map_wry(error: wry::Error) -> BrowserHostError {
@@ -631,6 +772,85 @@ const PAGE_NAV_SCRIPT: &str = r#"
 })();
 "#;
 
+const PAGE_CONSOLE_SCRIPT: &str = r#"
+(() => {
+  if (window.__vibexConsoleHooked) return;
+  window.__vibexConsoleHooked = true;
+  function send(payload) {
+    var msg = 'vibex:' + JSON.stringify({ kind: 'console', payload: payload });
+    try {
+      if (window.ipc && typeof window.ipc.postMessage === 'function') {
+        window.ipc.postMessage(msg);
+        return;
+      }
+    } catch (e) {}
+    try {
+      if (window.chrome && window.chrome.webview && typeof window.chrome.webview.postMessage === 'function') {
+        window.chrome.webview.postMessage(msg);
+      }
+    } catch (e) {}
+  }
+  function formatArg(arg) {
+    if (arg === null) return 'null';
+    if (arg === undefined) return 'undefined';
+    if (typeof arg === 'string') return arg;
+    if (arg instanceof Error) return (arg.stack || (arg.name + ': ' + arg.message));
+    try {
+      return JSON.stringify(arg);
+    } catch (e) {
+      try { return String(arg); } catch (e2) { return '[object]'; }
+    }
+  }
+  ['debug', 'log', 'info', 'warn', 'error'].forEach(function (level) {
+    var orig = console[level];
+    if (typeof orig !== 'function') return;
+    console[level] = function () {
+      try {
+        var parts = [];
+        for (var i = 0; i < arguments.length; i++) parts.push(formatArg(arguments[i]));
+        send({
+          level: level,
+          source: 'console',
+          text: parts.join(' '),
+          url: String(location.href || ''),
+          at: Date.now()
+        });
+      } catch (e) {}
+      return orig.apply(this, arguments);
+    };
+  });
+  window.addEventListener('error', function (event) {
+    try {
+      var text = event && event.error && event.error.stack
+        ? String(event.error.stack)
+        : String((event && event.message) || 'Uncaught Error');
+      send({
+        level: 'error',
+        source: 'error',
+        text: text,
+        url: String((event && event.filename) || location.href || ''),
+        line: event && typeof event.lineno === 'number' ? event.lineno : undefined,
+        column: event && typeof event.colno === 'number' ? event.colno : undefined,
+        at: Date.now()
+      });
+    } catch (e) {}
+  }, true);
+  window.addEventListener('unhandledrejection', function (event) {
+    try {
+      var reason = event ? event.reason : undefined;
+      var text = 'UnhandledPromiseRejection: ' + formatArg(reason);
+      send({
+        level: 'error',
+        source: 'unhandled-rejection',
+        text: text,
+        url: String(location.href || ''),
+        at: Date.now()
+      });
+    } catch (e) {}
+  }, true);
+})();
+"#;
+
 /// WKWebView's own UA stops at `(KHTML, like Gecko)` — no `Version/… Safari/…`.
 /// Baidu sniffs that as "engine, no browser" and returns a five-line document
 /// that `location.replace`s https→http; WebKit upgrades it back to https and
@@ -638,6 +858,11 @@ const PAGE_NAV_SCRIPT: &str = r#"
 #[cfg(target_os = "macos")]
 fn safari_user_agent() -> &'static str {
     "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.3 Safari/605.1.15"
+}
+
+#[cfg(target_os = "windows")]
+fn windows_chrome_user_agent() -> &'static str {
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/133.0.0.0 Safari/537.36"
 }
 
 fn emit_tab_state(app: &tauri::AppHandle, tab_id: &str, url: &str, loading: bool) {
@@ -654,6 +879,7 @@ fn emit_tab_state(app: &tauri::AppHandle, tab_id: &str, url: &str, loading: bool
     );
 }
 
+#[cfg(target_os = "macos")]
 fn emit_tab_open(app: &tauri::AppHandle, tab_id: &str, url: &str, source_tab_id: &str) {
     let _ = app.emit(
         PAGE_EVENT,
@@ -699,7 +925,12 @@ fn parse_page_ipc(body: &str) -> Option<Value> {
     }
 }
 
-fn dispatch_page_ipc(app: &tauri::AppHandle, tab_id: &str, value: &Value) {
+fn dispatch_page_ipc(
+    app: &tauri::AppHandle,
+    service: &Weak<BrowserService>,
+    tab_id: &str,
+    value: &Value,
+) {
     match value.get("kind").and_then(Value::as_str) {
         Some("gesture") => mark_gesture(tab_id),
         Some("pick") => {
@@ -712,6 +943,53 @@ fn dispatch_page_ipc(app: &tauri::AppHandle, tab_id: &str, value: &Value) {
                 }),
             );
         }
+        Some("console") => {
+            let payload = value.get("payload").cloned().unwrap_or(Value::Null);
+            if let Some(svc) = service.upgrade() {
+                let level = payload
+                    .get("level")
+                    .and_then(Value::as_str)
+                    .and_then(browser_host::ConsoleLevel::parse)
+                    .unwrap_or(browser_host::ConsoleLevel::Log);
+                let source = payload
+                    .get("source")
+                    .and_then(Value::as_str)
+                    .map(browser_host::ConsoleSource::parse)
+                    .unwrap_or(browser_host::ConsoleSource::Console);
+                let text = payload
+                    .get("text")
+                    .and_then(Value::as_str)
+                    .unwrap_or("")
+                    .to_owned();
+                let url = payload
+                    .get("url")
+                    .and_then(Value::as_str)
+                    .map(str::to_owned);
+                let line = payload
+                    .get("line")
+                    .and_then(Value::as_u64)
+                    .and_then(|n| u32::try_from(n).ok());
+                let column = payload
+                    .get("column")
+                    .and_then(Value::as_u64)
+                    .and_then(|n| u32::try_from(n).ok());
+                let at = payload.get("at").and_then(Value::as_i64).unwrap_or(0);
+                svc.push_console_line(
+                    tab_id,
+                    browser_host::ConsoleLine {
+                        level,
+                        source,
+                        text,
+                        url,
+                        line,
+                        column,
+                        at,
+                        top: true,
+                        frame_origin: None,
+                    },
+                );
+            }
+        }
         Some("navigate") => {
             let payload = value.get("payload").cloned().unwrap_or(Value::Null);
             let url = payload
@@ -723,13 +1001,26 @@ fn dispatch_page_ipc(app: &tauri::AppHandle, tab_id: &str, value: &Value) {
                 .get("newTab")
                 .and_then(Value::as_bool)
                 .unwrap_or(true);
-            if !allow_navigation(&url) {
+            if service
+                .upgrade()
+                .is_some_and(|svc| svc.prefers_system_browser(&url))
+            {
+                open_system_browser(&url);
+                return;
+            }
+            let allowed = service
+                .upgrade()
+                .map_or_else(|| allow_navigation(&url), |svc| svc.can_navigate(&url));
+            if !allowed {
                 return;
             }
             if new_tab {
                 remember_popup_url(tab_id, &url);
                 emit_tab_open_url(app, &url, tab_id);
             } else {
+                if let Some(svc) = service.upgrade() {
+                    svc.update_chrome(tab_id, Some(&url), None, None);
+                }
                 let _ = app.emit(
                     PAGE_EVENT,
                     json!({
@@ -742,14 +1033,23 @@ fn dispatch_page_ipc(app: &tauri::AppHandle, tab_id: &str, value: &Value) {
         }
         Some("chrome") => {
             let payload = value.get("payload").cloned().unwrap_or(Value::Null);
+            let url = payload.get("url").and_then(Value::as_str);
+            let title = payload.get("title").and_then(Value::as_str);
+            let favicon = payload
+                .get("favicon")
+                .and_then(Value::as_str)
+                .filter(|value| !value.is_empty());
+            if let Some(svc) = service.upgrade() {
+                svc.update_chrome(tab_id, url, title, favicon);
+            }
             let _ = app.emit(
                 PAGE_EVENT,
                 json!({
                     "kind": "tab.chrome",
                     "tabId": tab_id,
-                    "url": payload.get("url").and_then(Value::as_str).unwrap_or(""),
-                    "title": payload.get("title").and_then(Value::as_str),
-                    "favicon": payload.get("favicon").and_then(Value::as_str).filter(|value| !value.is_empty()),
+                    "url": url.unwrap_or(""),
+                    "title": title,
+                    "favicon": favicon,
                 }),
             );
         }
@@ -770,6 +1070,7 @@ fn emit_tab_open_payload(app: &tauri::AppHandle, payload: Value) {
     let _ = app.emit(PAGE_EVENT, payload);
 }
 
+#[cfg(target_os = "macos")]
 fn fallback_open_or_deny(
     app: &tauri::AppHandle,
     opener_id: &str,
@@ -793,20 +1094,14 @@ fn fallback_open_or_deny(
     NewWindowResponse::Deny
 }
 
-#[cfg(target_os = "windows")]
-type AdoptedView = webview2_com::Microsoft::Web::WebView2::Win32::ICoreWebView2;
 #[cfg(target_os = "macos")]
 type AdoptedView = objc2::rc::Retained<objc2_web_kit::WKWebView>;
-
-#[cfg(target_os = "windows")]
-struct SendCoreWebView(AdoptedView);
-#[cfg(target_os = "windows")]
-unsafe impl Send for SendCoreWebView {}
 
 /// Codeg `surface_child::new_window_handler`: build a child webview from the
 /// opener's environment, register it, and hand the platform view back so the
 /// engine navigates it. Deny cancels `window.open` / `target=_blank` with no
 /// visible tab.
+#[cfg(target_os = "macos")]
 fn emit_popup_denied(app: &tauri::AppHandle, opener_id: &str, url: &str, reason: &str) {
     let _ = app.emit(
         PAGE_EVENT,
@@ -819,6 +1114,14 @@ fn emit_popup_denied(app: &tauri::AppHandle, opener_id: &str, url: &str, reason:
     );
 }
 
+#[cfg(target_os = "windows")]
+static EVENT_TOKENS: OnceLock<Mutex<HashMap<String, (i64, i64)>>> = OnceLock::new();
+
+#[cfg(target_os = "windows")]
+fn event_tokens() -> &'static Mutex<HashMap<String, (i64, i64)>> {
+    EVENT_TOKENS.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
 /// WebView2 raises this on the UI thread. wry 0.54 then hops to a worker
 /// and waits for `Create`, which deadlocks the deferral. Attach this instead:
 /// handle the request here, tell the Host to open a tab, and mark it handled.
@@ -826,6 +1129,7 @@ fn emit_popup_denied(app: &tauri::AppHandle, opener_id: &str, url: &str, reason:
 fn attach_windows_popup_handler(
     webview: &WebView,
     app: tauri::AppHandle,
+    service: Weak<BrowserService>,
     opener_id: String,
 ) -> Result<(), BrowserHostError> {
     use tauri_runtime_wry::wry::WebViewExtWindows;
@@ -844,7 +1148,10 @@ fn attach_windows_popup_handler(
     let core = webview.webview();
     let app_popup = app.clone();
     let opener_popup = opener_id.clone();
+    let token_tab_id = opener_id.clone();
+    let popup_service = service.clone();
     let mut token = 0i64;
+    let mut msg_token = 0i64;
     unsafe {
         core.add_NewWindowRequested(
             &NewWindowRequestedEventHandler::create(Box::new(move |_, args| {
@@ -854,12 +1161,15 @@ fn attach_windows_popup_handler(
                 let mut uri = PWSTR::null();
                 args.Uri(&mut uri)?;
                 let mut url = take_uri(uri);
-                if url.is_empty() {
-                    if let Some(pending) = take_popup_url(&opener_popup) {
-                        url = pending;
-                    }
+                if url.is_empty()
+                    && let Some(pending) = take_popup_url(&opener_popup)
+                {
+                    url = pending;
                 }
-                if url != "about:blank" && allow_navigation(&url) {
+                let allowed = popup_service
+                    .upgrade()
+                    .map_or_else(|| allow_navigation(&url), |svc| svc.can_navigate(&url));
+                if url != "about:blank" && allowed {
                     emit_tab_open_url(&app_popup, &url, &opener_popup);
                 }
                 let _ = args.SetHandled(true);
@@ -868,7 +1178,6 @@ fn attach_windows_popup_handler(
             &mut token,
         )
         .map_err(|error| BrowserHostError::new("browser_open_failed", error.to_string()))?;
-        let mut msg_token = 0i64;
         core.add_WebMessageReceived(
             &WebMessageReceivedEventHandler::create(Box::new(move |_, args| {
                 let Some(args) = args else {
@@ -885,7 +1194,7 @@ fn attach_windows_popup_handler(
                     take_uri(json)
                 };
                 if let Some(value) = parse_page_ipc(&text) {
-                    dispatch_page_ipc(&app, &opener_id, &value);
+                    dispatch_page_ipc(&app, &service, &opener_id, &value);
                 }
                 Ok(())
             })),
@@ -893,9 +1202,13 @@ fn attach_windows_popup_handler(
         )
         .map_err(|error| BrowserHostError::new("browser_open_failed", error.to_string()))?;
     }
+    if let Ok(mut tokens) = event_tokens().lock() {
+        tokens.insert(token_tab_id, (token, msg_token));
+    }
     Ok(())
 }
 
+#[cfg(target_os = "macos")]
 fn handle_new_window(
     app: &tauri::AppHandle,
     owner: &tauri::WebviewWindow,
@@ -915,69 +1228,39 @@ fn handle_new_window(
             take_popup_url(opener_id).unwrap_or_else(|| "about:blank".to_owned())
         }
     } else {
-        url.clone()
+        url
     };
-    if !allow_navigation(&open_url) {
+    if service
+        .upgrade()
+        .is_some_and(|svc| svc.prefers_system_browser(&open_url))
+    {
+        open_system_browser(&open_url);
+        return NewWindowResponse::Deny;
+    }
+    let allowed = service.upgrade().map_or_else(
+        || allow_navigation(&open_url),
+        |svc| svc.can_navigate(&open_url),
+    );
+    if !allowed {
         emit_popup_denied(app, opener_id, &open_url, "blocked-scheme");
         return NewWindowResponse::Deny;
     }
-    // http(s) links become a Host tab. Creating a child WebView2 from wry's
-    // Windows worker deadlocks the NewWindowRequested deferral, and emitting
-    // from that worker never reaches the UI. Deny the engine window and
-    // open the URL ourselves on the main thread — the same outcome as a
-    // browser tab, without opener.
     if open_url != "about:blank" {
         return fallback_open_or_deny(app, opener_id, &open_url, "opened-as-tab");
     }
-    let gesture_ok = recent_gesture(opener_id) || cfg!(target_os = "windows");
-    if !gesture_ok {
+    if !recent_gesture(opener_id) {
         return fallback_open_or_deny(app, opener_id, &open_url, "no-gesture");
     }
-    #[cfg(not(target_os = "linux"))]
     if on_main_thread() {
         return adopt_popup(
             app, owner, opener_id, profile_id, service, &open_url, &features,
         )
         .unwrap_or_else(|_| fallback_open_or_deny(app, opener_id, &open_url, "create-failed"));
     }
-    #[cfg(target_os = "windows")]
-    {
-        let (tx, rx) = mpsc::channel();
-        let app = app.clone();
-        let deny_app = app.clone();
-        let owner = owner.clone();
-        let opener_owned = opener_id.to_owned();
-        let profile_id = profile_id.to_owned();
-        let deny_opener = opener_owned.clone();
-        let deny_url = open_url.clone();
-        let adopt_url = open_url.clone();
-        let _ = app.clone().run_on_main_thread(move || {
-            remember_main_thread();
-            let result = adopt_popup_view(
-                &app,
-                &owner,
-                &opener_owned,
-                &profile_id,
-                service,
-                &adopt_url,
-                &features,
-            )
-            .map(SendCoreWebView);
-            let _ = tx.send(result);
-        });
-        return match rx.recv_timeout(Duration::from_millis(400)) {
-            Ok(Ok(SendCoreWebView(webview))) => NewWindowResponse::Create { webview },
-            _ => fallback_open_or_deny(&deny_app, &deny_opener, &deny_url, "create-failed"),
-        };
-    }
-    #[cfg(not(target_os = "windows"))]
-    {
-        let _ = (owner, profile_id, service, url, features);
-        fallback_open_or_deny(app, opener_id, &open_url, "create-failed")
-    }
+    fallback_open_or_deny(app, opener_id, &open_url, "create-failed")
 }
 
-#[cfg(not(target_os = "linux"))]
+#[cfg(target_os = "macos")]
 fn adopt_popup(
     app: &tauri::AppHandle,
     owner: &tauri::WebviewWindow,
@@ -991,7 +1274,7 @@ fn adopt_popup(
     Ok(NewWindowResponse::Create { webview })
 }
 
-#[cfg(not(target_os = "linux"))]
+#[cfg(target_os = "macos")]
 fn adopt_popup_view(
     app: &tauri::AppHandle,
     owner: &tauri::WebviewWindow,
@@ -1028,50 +1311,25 @@ fn adopt_popup_view(
             .unwrap_or_default();
         bounds.visible = false;
         let label = TauriNativeTabs::label(&tab_id);
-        let webview = {
-            #[cfg(target_os = "windows")]
-            {
-                build_child(
-                    owner,
-                    &tab_id,
-                    &label,
-                    &bounds,
-                    profile_id,
-                    app,
-                    service.clone(),
-                    None,
-                    Some(features),
-                )?
-            }
-            #[cfg(target_os = "macos")]
-            {
-                build_child(
-                    owner,
-                    &tab_id,
-                    &label,
-                    &bounds,
-                    profile_id,
-                    app,
-                    service.clone(),
-                    Some(features),
-                )?
-            }
-        };
+        let proxy = profile_proxy_url(&mut store, profile_id);
+        let webview = build_child(
+            owner,
+            &tab_id,
+            &label,
+            &bounds,
+            profile_id,
+            app,
+            service.clone(),
+            Some(features),
+            proxy.as_deref(),
+        )?;
         let _ = webview.set_visible(false);
         store.last_bounds.insert(tab_id.clone(), bounds.clone());
         store.views.insert(tab_id.clone(), webview);
         let platform = {
+            use tauri_runtime_wry::wry::WebViewExtMacOS;
             let webview = store.views.get(&tab_id).expect("inserted popup");
-            #[cfg(target_os = "windows")]
-            {
-                use tauri_runtime_wry::wry::WebViewExtWindows;
-                webview.webview()
-            }
-            #[cfg(target_os = "macos")]
-            {
-                use tauri_runtime_wry::wry::WebViewExtMacOS;
-                objc2::rc::Retained::into_super(webview.webview())
-            }
+            objc2::rc::Retained::into_super(webview.webview())
         };
         if let Some(service) = service.upgrade() {
             service.adopt_tab(
@@ -1096,18 +1354,26 @@ fn page_handlers(
 ) {
     let load_app = app.clone();
     let load_id = tab_id.clone();
-    let load_service = service;
+    let load_service = service.clone();
     let title_app = app;
     let title_id = tab_id;
+    let title_service = service;
     (
         move |event, url| {
             let loading = matches!(event, PageLoadEvent::Started);
-            if !loading && let Some(service) = load_service.upgrade() {
-                service.commit_url(&load_id, &url);
+            if let Some(service) = load_service.upgrade() {
+                if loading {
+                    service.begin_navigation(&load_id, &url);
+                } else {
+                    service.commit_url(&load_id, &url);
+                }
             }
             emit_tab_state(&load_app, &load_id, &url, loading);
         },
         move |title| {
+            if let Some(service) = title_service.upgrade() {
+                service.update_chrome(&title_id, None, Some(&title), None);
+            }
             let _ = title_app.emit(
                 PAGE_EVENT,
                 BrowserPageEvent {
@@ -1146,6 +1412,7 @@ fn committed_url(webview: &WebView) -> Result<String, BrowserHostError> {
 }
 
 #[cfg(not(target_os = "linux"))]
+#[allow(clippy::too_many_arguments)]
 fn build_child(
     parent: &tauri::WebviewWindow,
     tab_id: &str,
@@ -1156,17 +1423,17 @@ fn build_child(
     service: Weak<BrowserService>,
     #[cfg(target_os = "windows")] context: Option<&mut wry::WebContext>,
     popup: Option<&NewWindowFeatures>,
+    proxy: Option<&str>,
 ) -> Result<WebView, BrowserHostError> {
     let (on_load, on_title) = page_handlers(app.clone(), tab_id.to_owned(), service.clone());
     let nav_id = tab_id.to_owned();
     let nav_service = service.clone();
-    let popup_app = app.clone();
-    let popup_owner = parent.clone();
-    let popup_opener = tab_id.to_owned();
-    let popup_profile = profile_id.to_owned();
-    let popup_service = service.clone();
     let ipc_app = app.clone();
     let ipc_id = tab_id.to_owned();
+    let ipc_service = service.clone();
+    let sign_in_ua = service
+        .upgrade()
+        .is_none_or(|svc| svc.settings().sign_in_user_agent);
     let builder = {
         #[cfg(target_os = "windows")]
         {
@@ -1187,17 +1454,30 @@ fn build_child(
         .with_bounds(wry_bounds(bounds))
         .with_visible(bounds.visible)
         .with_focused(false)
-        .with_devtools(cfg!(debug_assertions))
+        .with_devtools(true)
         .with_hotkeys_zoom(true)
         .with_initialization_script(OVERLAY_SCROLLBAR_SCRIPT)
+        .with_initialization_script(PAGE_CONSOLE_SCRIPT)
         .with_initialization_script(PAGE_CHROME_SCRIPT)
         .with_initialization_script(PAGE_NAV_SCRIPT);
+    if profile_id == "ephemeral" {
+        builder = builder.with_incognito(true);
+    }
+    if let Some(config) = proxy.and_then(proxy_config_from_url) {
+        builder = builder.with_proxy_config(config);
+    }
     let started_app = app.clone();
     let started_id = tab_id.to_owned();
     let done_app = app.clone();
     let done_id = tab_id.to_owned();
+    let downloads_dir = app.path().download_dir().ok();
     builder = builder
         .with_download_started_handler(move |url, path: &mut PathBuf| {
+            if let Some(dir) = downloads_dir.as_ref()
+                && let Some(name) = path.file_name()
+            {
+                *path = dir.join(name);
+            }
             let file_name = path
                 .file_name()
                 .and_then(|name| name.to_str())
@@ -1236,13 +1516,16 @@ fn build_child(
             );
         });
     #[cfg(target_os = "macos")]
-    {
+    if sign_in_ua {
         builder = builder.with_user_agent(safari_user_agent());
     }
     #[cfg(target_os = "windows")]
     {
         use tauri_runtime_wry::wry::{ScrollBarStyle, WebViewBuilderExtWindows};
         builder = builder.with_scroll_bar_style(ScrollBarStyle::FluentOverlay);
+        if sign_in_ua {
+            builder = builder.with_user_agent(windows_chrome_user_agent());
+        }
         if let Some(features) = popup {
             builder = builder.with_environment(features.opener.environment.clone());
         }
@@ -1258,26 +1541,47 @@ fn build_child(
     let nav_app = app.clone();
     let nav_emit_id = tab_id.to_owned();
     let mut builder = builder.with_navigation_handler(move |url| {
-        if !allow_navigation(&url) {
+        if nav_service
+            .upgrade()
+            .is_some_and(|svc| svc.prefers_system_browser(&url))
+        {
+            open_system_browser(&url);
+            let _ = nav_app.emit(
+                PAGE_EVENT,
+                json!({
+                    "kind": "navigation.external",
+                    "tabId": nav_emit_id,
+                    "url": url,
+                }),
+            );
+            return false;
+        }
+        let allowed = nav_service.upgrade().map_or_else(
+            || allow_navigation(&url),
+            |svc| svc.begin_navigation(&nav_id, &url),
+        );
+        if !allowed {
             let _ = nav_app.emit(
                 PAGE_EVENT,
                 json!({
                     "kind": "navigation.blocked",
                     "tabId": nav_emit_id,
                     "url": url,
-                    "reason": "scheme",
+                    "reason": "policy",
                 }),
             );
             return false;
         }
-        if let Some(service) = nav_service.upgrade() {
-            service.commit_url(&nav_id, &url);
-        }
         emit_tab_state(&nav_app, &nav_emit_id, &url, true);
         true
     });
-    #[cfg(not(target_os = "windows"))]
+    #[cfg(target_os = "macos")]
     {
+        let popup_app = app.clone();
+        let popup_owner = parent.clone();
+        let popup_opener = tab_id.to_owned();
+        let popup_profile = profile_id.to_owned();
+        let popup_service = service.clone();
         builder = builder.with_new_window_req_handler(move |url, features| {
             handle_new_window(
                 &popup_app,
@@ -1290,41 +1594,27 @@ fn build_child(
             )
         });
     }
-    #[cfg(target_os = "windows")]
-    {
-        let _ = (
-            &popup_app,
-            &popup_owner,
-            &popup_opener,
-            &popup_profile,
-            &popup_service,
-        );
-    }
     builder = builder
         .with_ipc_handler(move |request| {
             let Some(value) = parse_page_ipc(request.body()) else {
                 return;
             };
-            dispatch_page_ipc(&ipc_app, &ipc_id, &value);
+            dispatch_page_ipc(&ipc_app, &ipc_service, &ipc_id, &value);
         })
         .with_on_page_load_handler(on_load)
         .with_document_title_changed_handler(on_title);
     #[cfg(target_os = "macos")]
     {
-        if popup.is_none() {
+        if popup.is_none() && profile_id != "ephemeral" {
             use tauri_runtime_wry::wry::WebViewBuilderExtDarwin;
             builder = builder
                 .with_data_store_identifier(TauriNativeTabs::data_store_identifier(profile_id));
         }
     }
-    #[cfg(not(target_os = "macos"))]
-    {
-        let _ = profile_id;
-    }
     let webview = builder.build_as_child(parent).map_err(map_wry)?;
     #[cfg(target_os = "windows")]
     {
-        attach_windows_popup_handler(&webview, app.clone(), tab_id.to_owned())?;
+        attach_windows_popup_handler(&webview, app.clone(), service, tab_id.to_owned())?;
     }
     Ok(webview)
 }
@@ -1353,7 +1643,7 @@ impl NativeTabs for TauriNativeTabs {
             .lock()
             .ok()
             .map(|slot| slot.clone())
-            .unwrap_or_else(Weak::new);
+            .unwrap_or_default();
         self.on_main(move || {
             #[cfg(not(target_os = "linux"))]
             {
@@ -1365,10 +1655,15 @@ impl NativeTabs for TauriNativeTabs {
                     let label = Self::label(&tab_id);
                     #[cfg(target_os = "windows")]
                     let profile_dir = {
-                        let dir = Self::profile_dir(&profile_id);
+                        let dir = if profile_id == "ephemeral" {
+                            ephemeral_profile_dir()
+                        } else {
+                            Self::profile_dir(&profile_id)
+                        };
                         let _ = std::fs::create_dir_all(&dir);
                         dir
                     };
+                    let proxy = profile_proxy_url(&mut store, &profile_id);
                     let webview = {
                         #[cfg(target_os = "windows")]
                         {
@@ -1386,6 +1681,7 @@ impl NativeTabs for TauriNativeTabs {
                                 service.clone(),
                                 Some(context),
                                 None,
+                                proxy.as_deref(),
                             )?
                         }
                         #[cfg(not(target_os = "windows"))]
@@ -1399,9 +1695,14 @@ impl NativeTabs for TauriNativeTabs {
                                 &app,
                                 service.clone(),
                                 None,
+                                proxy.as_deref(),
                             )?
                         }
                     };
+                    #[cfg(target_os = "windows")]
+                    store
+                        .tab_profiles
+                        .insert(tab_id.clone(), profile_id.clone());
                     store.last_bounds.insert(tab_id.clone(), bounds.clone());
                     store.views.insert(tab_id.clone(), webview);
                     let webview = store.views.get(&tab_id).expect("inserted");
@@ -1428,57 +1729,72 @@ impl NativeTabs for TauriNativeTabs {
                     }
                     let label = Self::label(&tab_id);
                     let blank = Url::parse("about:blank").expect("blank");
-                    let profile_dir = Self::profile_dir(&profile_id);
+                    let ephemeral = profile_id == "ephemeral";
+                    let profile_dir = if ephemeral {
+                        ephemeral_profile_dir()
+                    } else {
+                        Self::profile_dir(&profile_id)
+                    };
                     let _ = std::fs::create_dir_all(&profile_dir);
+                    let proxy = profile_proxy_url(&mut store, &profile_id)
+                        .as_deref()
+                        .and_then(|raw| Url::parse(raw).ok());
                     let load_app = app.clone();
                     let load_id = tab_id.clone();
                     let title_app = app.clone();
                     let title_id = tab_id.clone();
-                    let window =
+                    let mut window_builder =
                         WebviewWindowBuilder::new(&app, &label, WebviewUrl::External(blank))
                             .title("Browser")
                             .inner_size(bounds.width.max(480.0), bounds.height.max(320.0))
                             .focused(false)
-                            .devtools(cfg!(debug_assertions))
-                            .on_navigation(|nav| allow_navigation(nav.as_str()))
-                            .on_page_load(move |_window, payload| {
-                                let _ = load_app.emit(
-                                    PAGE_EVENT,
-                                    BrowserPageEvent {
-                                        kind: "tab.state",
-                                        tab_id: load_id.clone(),
-                                        url: payload.url().to_string(),
-                                        title: None,
-                                        favicon: None,
-                                        loading: matches!(
-                                            payload.event(),
-                                            tauri::webview::PageLoadEvent::Started
-                                        ),
-                                    },
-                                );
-                            })
-                            .on_document_title_changed(move |_window, title| {
-                                let _ = title_app.emit(
-                                    PAGE_EVENT,
-                                    BrowserPageEvent {
-                                        kind: "tab.state",
-                                        tab_id: title_id.clone(),
-                                        url: String::new(),
-                                        title: Some(title),
-                                        favicon: None,
-                                        loading: false,
-                                    },
-                                );
-                            })
-                            .parent(&owner)
-                            .map_err(|error| {
-                                BrowserHostError::new("browser_open_failed", error.to_string())
-                            })?
-                            .data_directory(profile_dir)
-                            .build()
-                            .map_err(|error| {
-                                BrowserHostError::new("browser_open_failed", error.to_string())
-                            })?;
+                            .devtools(true);
+                    if ephemeral {
+                        window_builder = window_builder.incognito(true);
+                    }
+                    if let Some(proxy) = proxy {
+                        window_builder = window_builder.proxy_url(proxy);
+                    }
+                    let window = window_builder
+                        .on_navigation(|nav| allow_navigation(nav.as_str()))
+                        .on_page_load(move |_window, payload| {
+                            let _ = load_app.emit(
+                                PAGE_EVENT,
+                                BrowserPageEvent {
+                                    kind: "tab.state",
+                                    tab_id: load_id.clone(),
+                                    url: payload.url().to_string(),
+                                    title: None,
+                                    favicon: None,
+                                    loading: matches!(
+                                        payload.event(),
+                                        tauri::webview::PageLoadEvent::Started
+                                    ),
+                                },
+                            );
+                        })
+                        .on_document_title_changed(move |_window, title| {
+                            let _ = title_app.emit(
+                                PAGE_EVENT,
+                                BrowserPageEvent {
+                                    kind: "tab.state",
+                                    tab_id: title_id.clone(),
+                                    url: String::new(),
+                                    title: Some(title),
+                                    favicon: None,
+                                    loading: false,
+                                },
+                            );
+                        })
+                        .parent(&owner)
+                        .map_err(|error| {
+                            BrowserHostError::new("browser_open_failed", error.to_string())
+                        })?
+                        .data_directory(profile_dir)
+                        .build()
+                        .map_err(|error| {
+                            BrowserHostError::new("browser_open_failed", error.to_string())
+                        })?;
                     let parsed = Url::parse(&url).map_err(|error| {
                         BrowserHostError::new("browser_bad_address", error.to_string())
                     })?;
@@ -1504,8 +1820,9 @@ impl NativeTabs for TauriNativeTabs {
                         BrowserHostError::new("browser_no_such_tab", format!("no surface {tab_id}"))
                     })?;
                     if let Some(bounds) = store.last_bounds.get(&tab_id) {
-                        let mut shown = bounds.clone();
-                        shown.visible = true;
+                        let shown = bounds.clone();
+                        let should_show =
+                            shown.visible && shown.width >= 32.0 && shown.height >= 32.0;
                         let placed = device_bounds(
                             &shown,
                             store
@@ -1515,7 +1832,7 @@ impl NativeTabs for TauriNativeTabs {
                                 .unwrap_or("desktop"),
                         );
                         webview.set_bounds(wry_bounds(&placed)).map_err(map_wry)?;
-                        webview.set_visible(true).map_err(map_wry)?;
+                        webview.set_visible(should_show).map_err(map_wry)?;
                     }
                     webview.load_url(&url).map_err(map_wry)
                 }
@@ -1538,12 +1855,49 @@ impl NativeTabs for TauriNativeTabs {
 
     async fn close(&self, tab_id: &str) -> Result<(), BrowserHostError> {
         let tab_id = tab_id.to_owned();
+        if let Ok(mut map) = gestures().lock() {
+            map.remove(&tab_id);
+        }
+        if let Ok(mut map) = pending_popups().lock() {
+            map.remove(&tab_id);
+        }
         self.on_main(move || {
             SURFACES.with(|slot| {
                 let mut store = slot.borrow_mut();
                 #[cfg(not(target_os = "linux"))]
                 {
-                    store.views.remove(&tab_id);
+                    if let Some(webview) = store.views.remove(&tab_id) {
+                        #[cfg(target_os = "windows")]
+                        {
+                            use tauri_runtime_wry::wry::WebViewExtWindows;
+                            if let Some((new_win_token, msg_token)) = event_tokens()
+                                .lock()
+                                .ok()
+                                .and_then(|mut tokens| tokens.remove(&tab_id))
+                            {
+                                let core = webview.webview();
+                                unsafe {
+                                    let _ = core.remove_NewWindowRequested(new_win_token);
+                                    let _ = core.remove_WebMessageReceived(msg_token);
+                                }
+                            }
+                        }
+                        let _ = webview.set_visible(false);
+                        let _ = webview.load_url("about:blank");
+                    }
+                    #[cfg(target_os = "windows")]
+                    if let Some(profile_id) = store.tab_profiles.remove(&tab_id)
+                        && !store
+                            .tab_profiles
+                            .values()
+                            .any(|active| active == &profile_id)
+                    {
+                        store.contexts.remove(&profile_id);
+                        store.profile_proxy.remove(&profile_id);
+                        if profile_id == "ephemeral" {
+                            let _ = std::fs::remove_dir_all(ephemeral_profile_dir());
+                        }
+                    }
                 }
                 #[cfg(target_os = "linux")]
                 {
@@ -1565,11 +1919,19 @@ impl NativeTabs for TauriNativeTabs {
     ) -> Result<(), BrowserHostError> {
         let tab_id = tab_id.to_owned();
         let bounds = bounds.clone();
+        #[cfg(not(target_os = "linux"))]
+        let suspend_bg = self
+            .service
+            .lock()
+            .ok()
+            .and_then(|slot| slot.upgrade())
+            .is_none_or(|svc| svc.settings().suspend_background_tabs);
         self.on_main(move || {
             SURFACES.with(|slot| {
                 #[cfg(not(target_os = "linux"))]
                 {
                     let mut store = slot.borrow_mut();
+                    let prev_visible = store.last_bounds.get(&tab_id).map(|b| b.visible);
                     if store.last_bounds.get(&tab_id) == Some(&bounds) {
                         return Ok(());
                     }
@@ -1586,7 +1948,51 @@ impl NativeTabs for TauriNativeTabs {
                         return Ok(());
                     };
                     webview.set_bounds(wry_bounds(&placed)).map_err(map_wry)?;
-                    webview.set_visible(bounds.visible).map_err(map_wry)
+                    webview.set_visible(bounds.visible).map_err(map_wry)?;
+                    if prev_visible != Some(bounds.visible) {
+                        if !bounds.visible && suspend_bg {
+                            #[cfg(target_os = "windows")]
+                            {
+                                use tauri_runtime_wry::wry::WebViewExtWindows;
+                                use webview2_com::Microsoft::Web::WebView2::Win32::{
+                                    COREWEBVIEW2_MEMORY_USAGE_TARGET_LEVEL_LOW, ICoreWebView2_19,
+                                };
+                                use windows::core::Interface;
+                                let core = webview.webview();
+                                if let Ok(core19) = core.cast::<ICoreWebView2_19>() {
+                                    unsafe {
+                                        let _ = core19.SetMemoryUsageTargetLevel(
+                                            COREWEBVIEW2_MEMORY_USAGE_TARGET_LEVEL_LOW,
+                                        );
+                                    }
+                                }
+                            }
+                            let _ = webview.evaluate_script(
+                                r#"(function(){try{document.querySelectorAll('video,audio').forEach(function(m){if(!m.paused){m.dataset.vibexSuspended='1';m.pause();}});window.__vibexTabSuspended=true;}catch(e){}})()"#,
+                            );
+                        } else if bounds.visible {
+                            #[cfg(target_os = "windows")]
+                            {
+                                use tauri_runtime_wry::wry::WebViewExtWindows;
+                                use webview2_com::Microsoft::Web::WebView2::Win32::{
+                                    COREWEBVIEW2_MEMORY_USAGE_TARGET_LEVEL_NORMAL, ICoreWebView2_19,
+                                };
+                                use windows::core::Interface;
+                                let core = webview.webview();
+                                if let Ok(core19) = core.cast::<ICoreWebView2_19>() {
+                                    unsafe {
+                                        let _ = core19.SetMemoryUsageTargetLevel(
+                                            COREWEBVIEW2_MEMORY_USAGE_TARGET_LEVEL_NORMAL,
+                                        );
+                                    }
+                                }
+                            }
+                            let _ = webview.evaluate_script(
+                                r#"(function(){try{if(window.__vibexTabSuspended){window.__vibexTabSuspended=false;document.querySelectorAll('video[data-vibex-suspended="1"],audio[data-vibex-suspended="1"]').forEach(function(m){delete m.dataset.vibexSuspended;m.play().catch(function(){});});}}catch(e){}})()"#,
+                            );
+                        }
+                    }
+                    Ok(())
                 }
                 #[cfg(target_os = "linux")]
                 {
@@ -1743,7 +2149,7 @@ impl NativeTabs for TauriNativeTabs {
         let tab_id = tab_id.to_owned();
         self.on_main(move || {
             SURFACES.with(|slot| {
-                #[cfg(all(not(target_os = "linux"), debug_assertions))]
+                #[cfg(not(target_os = "linux"))]
                 {
                     #[cfg(target_os = "macos")]
                     prefer_detached_inspector();
@@ -1751,13 +2157,40 @@ impl NativeTabs for TauriNativeTabs {
                     let webview = store.views.get(&tab_id).ok_or_else(|| {
                         BrowserHostError::new("browser_no_such_tab", format!("no surface {tab_id}"))
                     })?;
+                    #[cfg(target_os = "windows")]
+                    {
+                        use tauri_runtime_wry::wry::WebViewExtWindows;
+                        unsafe {
+                            let core = webview.webview();
+                            if let Ok(settings) = core.Settings() {
+                                let _ = settings.SetAreDevToolsEnabled(true);
+                            }
+                            let _ = core.OpenDevToolsWindow();
+                        }
+                    }
+                    // `open_devtools` exists only while debug assertions are on.
+                    // The release manifest does not enable Tauri's devtools
+                    // feature, so a release build must not call it.
+                    #[cfg(all(not(target_os = "windows"), debug_assertions))]
                     webview.open_devtools();
+                    #[cfg(all(not(target_os = "windows"), not(debug_assertions)))]
+                    let _ = &webview;
                     Ok(())
                 }
-                #[cfg(not(all(not(target_os = "linux"), debug_assertions)))]
+                #[cfg(target_os = "linux")]
                 {
-                    let _ = tab_id;
-                    let _ = slot;
+                    #[cfg(debug_assertions)]
+                    {
+                        let store = slot.borrow();
+                        if let Some(window) = store.windows.get(&tab_id) {
+                            window.open_devtools();
+                        }
+                    }
+                    #[cfg(not(debug_assertions))]
+                    {
+                        let _ = &slot;
+                        let _ = &tab_id;
+                    }
                     Ok(())
                 }
             })
@@ -1767,6 +2200,13 @@ impl NativeTabs for TauriNativeTabs {
     async fn set_device(&self, tab_id: &str, device: &str) -> Result<(), BrowserHostError> {
         let tab_id = tab_id.to_owned();
         let device = device.to_owned();
+        #[cfg(not(target_os = "linux"))]
+        let sign_in_ua = self
+            .service
+            .lock()
+            .ok()
+            .and_then(|slot| slot.upgrade())
+            .is_none_or(|svc| svc.settings().sign_in_user_agent);
         self.on_main(move || {
             SURFACES.with(|slot| {
                 let mut store = slot.borrow_mut();
@@ -1782,7 +2222,7 @@ impl NativeTabs for TauriNativeTabs {
                     let Some(webview) = store.views.get(&tab_id) else {
                         return Ok(());
                     };
-                    apply_user_agent(webview, &device);
+                    apply_user_agent(webview, &device, sign_in_ua);
                     webview.set_bounds(wry_bounds(&placed)).map_err(map_wry)?;
                     Ok(())
                 }
@@ -1841,6 +2281,169 @@ impl NativeTabs for TauriNativeTabs {
             FREEZE_IN_FLIGHT.store(false, Ordering::SeqCst);
             Ok(frame)
         }
+    }
+
+    async fn capture_png(&self, tab_id: &str) -> Result<Vec<u8>, BrowserHostError> {
+        #[cfg(not(any(target_os = "macos", target_os = "windows")))]
+        {
+            let _ = tab_id;
+            Err(BrowserHostError::new(
+                "browser_unavailable",
+                "screenshots are not available on this surface",
+            ))
+        }
+        #[cfg(any(target_os = "macos", target_os = "windows"))]
+        {
+            let tab_id = tab_id.to_owned();
+            let (tx, rx) = tokio::sync::oneshot::channel();
+            self.on_main(move || {
+                SURFACES.with(|slot| {
+                    let store = slot.borrow();
+                    let webview = store.views.get(&tab_id).ok_or_else(|| {
+                        BrowserHostError::new("browser_no_such_tab", format!("no surface {tab_id}"))
+                    })?;
+                    start_freeze_frame(webview, tx);
+                    Ok(())
+                })
+            })?;
+            let frame = tokio::time::timeout(Duration::from_secs(3), rx)
+                .await
+                .map_err(|_| {
+                    BrowserHostError::new("browser_read_failed", "screenshot capture timed out")
+                })?
+                .map_err(|_| {
+                    BrowserHostError::new("browser_read_failed", "screenshot capture cancelled")
+                })?
+                .ok_or_else(|| {
+                    BrowserHostError::new(
+                        "browser_read_failed",
+                        "the browser engine could not capture a screenshot",
+                    )
+                })?;
+            base64::Engine::decode(
+                &base64::engine::general_purpose::STANDARD,
+                frame.data.trim(),
+            )
+            .map_err(|error| BrowserHostError::new("browser_read_failed", error.to_string()))
+        }
+    }
+
+    async fn clear_profile(&self, profile_id: &str) -> Result<(), BrowserHostError> {
+        let profile_id = profile_id.to_owned();
+        self.on_main(move || {
+            SURFACES.with(|slot| {
+                #[cfg(target_os = "windows")]
+                {
+                    let mut store = slot.borrow_mut();
+                    store.contexts.remove(&profile_id);
+                    store.profile_proxy.remove(&profile_id);
+                    let dir = if profile_id == "ephemeral" {
+                        ephemeral_profile_dir()
+                    } else {
+                        Self::profile_dir(&profile_id)
+                    };
+                    let _ = std::fs::remove_dir_all(&dir);
+                    if profile_id != "ephemeral" {
+                        let _ = std::fs::create_dir_all(&dir);
+                    }
+                }
+                #[cfg(target_os = "linux")]
+                {
+                    let mut store = slot.borrow_mut();
+                    store.profile_proxy.remove(&profile_id);
+                    let dir = if profile_id == "ephemeral" {
+                        ephemeral_profile_dir()
+                    } else {
+                        Self::profile_dir(&profile_id)
+                    };
+                    let _ = std::fs::remove_dir_all(&dir);
+                    if profile_id != "ephemeral" {
+                        let _ = std::fs::create_dir_all(&dir);
+                    }
+                }
+                #[cfg(target_os = "macos")]
+                {
+                    let mut store = slot.borrow_mut();
+                    store.profile_proxy.remove(&profile_id);
+                }
+                Ok(())
+            })
+        })
+    }
+
+    async fn remove_profile(&self, profile_id: &str) -> Result<(), BrowserHostError> {
+        let profile_id = profile_id.to_owned();
+        self.on_main(move || {
+            SURFACES.with(|slot| {
+                #[cfg(target_os = "windows")]
+                {
+                    let mut store = slot.borrow_mut();
+                    store.contexts.remove(&profile_id);
+                    store.profile_proxy.remove(&profile_id);
+                    let dir = if profile_id == "ephemeral" {
+                        ephemeral_profile_dir()
+                    } else {
+                        Self::profile_dir(&profile_id)
+                    };
+                    let _ = std::fs::remove_dir_all(&dir);
+                }
+                #[cfg(target_os = "linux")]
+                {
+                    let mut store = slot.borrow_mut();
+                    store.profile_proxy.remove(&profile_id);
+                    let dir = if profile_id == "ephemeral" {
+                        ephemeral_profile_dir()
+                    } else {
+                        Self::profile_dir(&profile_id)
+                    };
+                    let _ = std::fs::remove_dir_all(&dir);
+                }
+                #[cfg(target_os = "macos")]
+                {
+                    let mut store = slot.borrow_mut();
+                    store.profile_proxy.remove(&profile_id);
+                }
+                Ok(())
+            })
+        })
+    }
+
+    fn downloads_dir(&self) -> Option<String> {
+        self.app
+            .path()
+            .download_dir()
+            .ok()
+            .map(|p| p.to_string_lossy().into_owned())
+    }
+
+    fn proxy_capability(&self) -> browser_host::BrowserProxyCapability {
+        for key in [
+            "HTTPS_PROXY",
+            "https_proxy",
+            "HTTP_PROXY",
+            "http_proxy",
+            "ALL_PROXY",
+            "all_proxy",
+        ] {
+            if let Ok(value) = std::env::var(key)
+                && !value.trim().is_empty()
+            {
+                return browser_host::BrowserProxyCapability {
+                    supported: true,
+                    active: Some(value.trim().to_owned()),
+                    source: "environment".to_owned(),
+                };
+            }
+        }
+        browser_host::BrowserProxyCapability {
+            supported: true,
+            active: None,
+            source: "system".to_owned(),
+        }
+    }
+
+    fn supports_page_load_events(&self) -> bool {
+        true
     }
 
     fn notify(&self, payload: Value) {

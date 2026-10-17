@@ -1,4 +1,4 @@
-import { memo, useMemo } from 'react';
+import { memo, useMemo, useState } from 'react';
 import {
   CircleDot,
   CheckCircle2,
@@ -6,10 +6,12 @@ import {
   ExternalLink,
   RefreshCw,
   Loader2,
-  AlertCircle,
+  Github,
 } from 'lucide-react';
 import type { GitHubIssueInfo } from 'shared/types';
+import { Button } from '@/components/ui/button';
 import { getGitHostErrorPresentation } from '@/lib/gitHostUiErrors';
+import { GitHubCliSetupModal } from './GitHubCliSetupModal';
 
 interface GitIssuesViewProps {
   issues: GitHubIssueInfo[];
@@ -34,7 +36,8 @@ function formatTimeAgo(dateStr: string): string {
 }
 
 function IssueRow({ issue }: { issue: GitHubIssueInfo }) {
-  const isOpen = issue.state.toUpperCase() === 'OPEN';
+  const isOpen = (issue.state ?? '').toUpperCase() === 'OPEN';
+  const labels = issue.labels ?? [];
 
   return (
     <button
@@ -59,7 +62,7 @@ function IssueRow({ issue }: { issue: GitHubIssueInfo }) {
               #{String(issue.number)}
             </span>
             <span className="text-[10px] text-muted-foreground">
-              {issue.author.login}
+              {issue.author?.login ?? ''}
             </span>
             <span className="text-[10px] text-muted-foreground">
               {formatTimeAgo(issue.created_at)}
@@ -71,9 +74,9 @@ function IssueRow({ issue }: { issue: GitHubIssueInfo }) {
               </span>
             )}
           </div>
-          {issue.labels.length > 0 && (
+          {labels.length > 0 && (
             <div className="flex flex-wrap gap-1 mt-1">
-              {issue.labels.map((label) => (
+              {labels.map((label) => (
                 <span
                   key={label.name}
                   className="text-[9px] px-1.5 py-0.5 rounded-full font-medium"
@@ -102,13 +105,14 @@ export const GitIssuesView = memo(function GitIssuesView({
   onSetIssueState,
   onRefresh,
 }: GitIssuesViewProps) {
+  const [setupModalOpen, setSetupModalOpen] = useState(false);
   const errorPresentation = useMemo(
     () => getGitHostErrorPresentation(error, 'Issues'),
     [error]
   );
 
   return (
-    <div className="flex flex-col h-full">
+    <div className="flex flex-col h-full min-h-0">
       {/* Filter bar */}
       <div className="flex items-center gap-1 px-2 py-1 border-b border-border/30 shrink-0">
         <div className="flex items-center gap-0.5 text-[10px]">
@@ -128,6 +132,15 @@ export const GitIssuesView = memo(function GitIssuesView({
         </div>
         <div className="flex-1" />
         <button
+          type="button"
+          className="p-1 rounded text-muted-foreground hover:text-foreground hover:bg-accent/50 transition-colors"
+          onClick={() => setSetupModalOpen(true)}
+          title="GitHub CLI 设置与登录"
+        >
+          <Github className="h-3 w-3" />
+        </button>
+        <button
+          type="button"
           className="p-1 rounded text-muted-foreground hover:text-foreground hover:bg-accent/50 transition-colors disabled:opacity-40"
           onClick={onRefresh}
           disabled={isLoading}
@@ -142,24 +155,44 @@ export const GitIssuesView = memo(function GitIssuesView({
       </div>
 
       {/* Content */}
-      <div className="flex-1 overflow-y-auto">
-        {errorPresentation && (
-          <div className="mx-2 mt-2 rounded-md border border-[hsl(var(--warning)/0.3)] bg-[hsl(var(--warning)/0.1)] px-3 py-2 text-[11px] text-[hsl(var(--warning))]">
-            <div className="flex items-start gap-2">
-              <AlertCircle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
-              <div className="min-w-0 space-y-1">
-                <p className="font-medium">{errorPresentation.title}</p>
-                {errorPresentation.hint ? (
-                  <p className="whitespace-pre-line text-[hsl(var(--warning)/0.86)]">
-                    {errorPresentation.hint}
-                  </p>
-                ) : null}
-              </div>
-            </div>
+      <div className="flex-1 overflow-y-auto min-h-0">
+        {isLoading && issues.length === 0 ? (
+          <div className="h-full flex items-center justify-center text-muted-foreground text-xs">
+            <Loader2 className="h-4 w-4 animate-spin mr-1.5" />
+            Loading issues...
           </div>
-        )}
-
-        {!isLoading && !errorPresentation && issues.length === 0 && (
+        ) : issues.length > 0 ? (
+          issues.map((issue) => (
+            <IssueRow key={Number(issue.number)} issue={issue} />
+          ))
+        ) : errorPresentation ? (
+          <div className="h-full flex flex-col items-center justify-center px-4 text-center">
+            <CircleDot className="h-7 w-7 text-muted-foreground/35 mb-2" />
+            <p className="text-xs font-medium text-foreground">
+              暂无可用 Issue
+            </p>
+            <p className="mt-1 text-[11px] text-muted-foreground leading-relaxed">
+              {errorPresentation.requiresGhSetup
+                ? '未检测到可用的 GitHub CLI (gh) 或尚未登录 GitHub 账号。请完成安装与登录后查看 Issue。'
+                : errorPresentation.title}
+            </p>
+            {!errorPresentation.requiresGhSetup && errorPresentation.hint && (
+              <p className="mt-1 text-[10px] text-muted-foreground/80 leading-relaxed">
+                {errorPresentation.hint}
+              </p>
+            )}
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              className="mt-3 h-7 px-2.5 text-xs gap-1.5"
+              onClick={() => setSetupModalOpen(true)}
+            >
+              <Github className="h-3.5 w-3.5" />
+              <span>安装 / 登录 GitHub CLI</span>
+            </Button>
+          </div>
+        ) : (
           <div className="h-full flex items-center justify-center text-muted-foreground text-xs">
             <div className="text-center space-y-1">
               <CircleDot className="h-6 w-6 opacity-40 mx-auto" />
@@ -167,17 +200,13 @@ export const GitIssuesView = memo(function GitIssuesView({
             </div>
           </div>
         )}
-
-        {isLoading && issues.length === 0 && !errorPresentation && (
-          <div className="h-full flex items-center justify-center text-muted-foreground text-xs">
-            Loading issues...
-          </div>
-        )}
-
-        {issues.map((issue) => (
-          <IssueRow key={Number(issue.number)} issue={issue} />
-        ))}
       </div>
+
+      <GitHubCliSetupModal
+        open={setupModalOpen}
+        onOpenChange={setSetupModalOpen}
+        onConfigured={onRefresh}
+      />
     </div>
   );
 });

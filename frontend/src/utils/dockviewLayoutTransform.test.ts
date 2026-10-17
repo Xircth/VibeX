@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { Orientation, type SerializedDockview } from 'dockview';
+import { Orientation, type SerializedDockview } from 'dockview-core';
 import { DEFAULT_LAYOUT_ARRANGEMENT } from '@/lib/layoutArrangement';
 import { arrangeSerializedLayout } from './dockviewLayoutTransform';
 

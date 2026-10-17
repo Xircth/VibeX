@@ -33,13 +33,15 @@ export function ExternalEditorPicker({
   compact = false,
   selectTriggerClassName,
   selectContentClassName,
+  label,
 }: {
-  value: EditorConfig;
+  value: EditorConfig | null;
   onChange: (editor: EditorConfig) => void;
   className?: string;
   compact?: boolean;
   selectTriggerClassName?: string;
   selectContentClassName?: string;
+  label?: string;
 }) {
   const { t } = useTranslation(['settings', 'common']);
   const options = useMemo<EditorOption[]>(
@@ -102,9 +104,11 @@ export function ExternalEditorPicker({
     };
   }, [options]);
 
-  const selected = options.find((option) => option.value === value.editor_type);
+  const selected = options.find(
+    (option) => option.value === value?.editor_type
+  );
   const selectedAvailability =
-    value.editor_type === EditorType.CUSTOM
+    !value || value.editor_type === EditorType.CUSTOM
       ? null
       : availability[value.editor_type];
 
@@ -113,7 +117,7 @@ export function ExternalEditorPicker({
       <div className="settings-row">
         <div>
           <Label htmlFor="external-editor-picker">
-            {t('general.externalEditorLabel')}
+            {label ?? t('general.externalEditorLabel')}
           </Label>
           {!compact ? (
             <p className="settings-row__description">
@@ -124,15 +128,18 @@ export function ExternalEditorPicker({
           ) : null}
         </div>
         <Select
-          value={value.editor_type}
-          onValueChange={(editorType) =>
+          value={value?.editor_type ?? ''}
+          onValueChange={(editorType) => {
             onChange({
-              ...value,
               editor_type: editorType as EditorType,
               custom_command:
-                editorType === EditorType.CUSTOM ? value.custom_command : null,
-            })
-          }
+                editorType === EditorType.CUSTOM
+                  ? (value?.custom_command ?? null)
+                  : null,
+              remote_ssh_host: value?.remote_ssh_host ?? null,
+              remote_ssh_user: value?.remote_ssh_user ?? null,
+            });
+          }}
         >
           <SelectTrigger
             id="external-editor-picker"
@@ -176,7 +183,7 @@ export function ExternalEditorPicker({
         </Select>
       </div>
 
-      {!compact && selected && value.editor_type !== EditorType.CUSTOM ? (
+      {!compact && selected && value?.editor_type !== EditorType.CUSTOM ? (
         <p className="text-[11px] text-muted-foreground">
           {t('general.commandLabel')}
           <code className="font-mono">{selected.hint}</code>
@@ -188,7 +195,7 @@ export function ExternalEditorPicker({
         </p>
       ) : null}
 
-      {value.editor_type === EditorType.CUSTOM ? (
+      {value?.editor_type === EditorType.CUSTOM ? (
         <div className="settings-row settings-row--stacked">
           <div>
             <Label htmlFor="custom-editor-command">

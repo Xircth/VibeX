@@ -19,6 +19,7 @@
     "chatChannels": "消息渠道",
     "automations": "自动化",
     "plugins": "插件",
+    "browser": "浏览器",
     "webService": "远程连接",
     "logs": "运行日志",
     "system": "系统"
@@ -919,6 +920,12 @@
             "description": "量子计算与量子系统模拟、天文与天体物理、材料结构分析、CFD/PIV/离散事件仿真、多目标工程优化、地理空间与遥感、实验硬件 CAD。（13 项技能）"
           }
         }
+      },
+      "computerUse": {
+        "name": "电脑控制",
+        "summary": "桌面窗口与应用的感知和自动化控制：无障碍树、截图、键鼠输入、窗口级授权和全局紧急停止。",
+        "readme": "# 电脑控制\n\n让 Agent 在你共享的窗口里查看和操作桌面。共享按窗口、应用或全屏授予，分「仅查看」和「允许控制」。\n\n启用后，新开或重新绑定的会话会带上电脑控制的 MCP 和 Skill。全局紧急停止会立刻撤销授权并打断正在执行的动作。\n\n窗口边缘的呼吸光带由设置里的「显示桌面共享状态指示条」控制。",
+        "config": {}
       }
     },
     "contentTab": "内容",
@@ -2162,6 +2169,9 @@
     "saveFile": "保存文件",
     "agentListAria": "Agent 列表",
     "addAgent": "添加 Agent",
+    "previousAgentPage": "上一页 Agent",
+    "nextAgentPage": "下一页 Agent",
+    "reorderHint": "拖动，或按住 Alt 加方向键调整顺序。",
     "acpRegistry": "ACP 注册表",
     "registryRefreshCached": "注册表刷新失败，已继续使用上次成功缓存。",
     "registryLoadFailed": "无法读取 ACP 注册表",
@@ -2178,6 +2188,7 @@
     "preflightFailed": "预检查失败",
     "subscriptionOpened": "已打开官方订阅页面。",
     "terminalFlowStarted": "已在终端启动官方流程。",
+    "browserLoginStarted": "已启动官方登录，请在浏览器中完成。",
     "accountFlowFailed": "无法启动账号管理流程",
     "accountFlowCommandFailed": "官方登录或退出命令未成功完成。",
     "enableUpdateFailed": "更新启用状态失败",
@@ -2286,7 +2297,12 @@
           "description": "打开 ChatGPT 官方套餐页面。"
         }
       },
-      "antigravity": {},
+      "antigravity": {
+        "login": {
+          "label": "登录",
+          "description": "在浏览器中完成 Antigravity 账号登录。"
+        }
+      },
       "gemini": {
         "login": {
           "label": "登录 Google",
@@ -2827,5 +2843,111 @@
     "clearLocalDataTitle": "清除 VibeX 本地数据",
     "clearLocalDataLabel": "清除本机配置和缓存",
     "saveSettings": "保存设置"
+  },
+  "browser": {
+    "links": {
+      "title": "链接打开方式",
+      "description": "按点击来源配置 http(s) 链接在内置浏览器还是系统默认浏览器中打开。",
+      "transcript": "对话消息中的链接",
+      "toolCard": "工具卡片与预览链接",
+      "terminal": "终端输出中的链接",
+      "editor": "代码编辑器中的链接",
+      "notification": "通知与横幅中的链接",
+      "targetBuiltin": "内置浏览器",
+      "targetSystem": "系统默认浏览器",
+      "targetAsk": "每次询问"
+    },
+    "rules": {
+      "title": "站点规则",
+      "description": "按域名或主机规律覆盖默认打开方式。企业策略规则优先于个人规则。更具体的主机优先；同一范围时，拦截优先于系统浏览器，系统浏览器优先于内置浏览器。",
+      "policyManaged": "已加载企业策略文件",
+      "policyRule": "策略锁定",
+      "patternPlaceholder": "例如 *.corp.internal、localhost:3000 或 https://*.example.com:8443",
+      "actionBuiltin": "内置浏览器打开",
+      "actionSystem": "系统浏览器打开",
+      "actionBlock": "拦截访问",
+      "blockedToast": "该站点已被站点规则拦截",
+      "addRule": "添加规则",
+      "empty": "暂未配置个人站点规则。",
+      "removeRule": "删除规则",
+      "errors": {
+        "empty": "请输入域名或站点匹配规则",
+        "path": "站点规则仅匹配主机名与可选端口，不支持路径、查询参数或锚点",
+        "scheme": "协议仅支持 http:// 或 https://",
+        "port": "端口必须是 1–65535 的数字或 *",
+        "wildcard": "通配符仅支持 *，或作为前缀的 *.example.com",
+        "host": "请输入有效的主机名、IPv4 或 [IPv6] 地址",
+        "duplicate": "该匹配规则与动作已存在"
+      }
+    },
+    "agent": {
+      "title": "Agent 浏览器控制 (MCP)",
+      "description": "管理 Agent 通过 MCP 读取、点击、输入、截图与执行页面脚本的权限边界。",
+      "toolsEnabled": "启用 Agent 浏览器 MCP 工具",
+      "toolsEnabledHint": "关闭后，Agent 将无法调用内置浏览器的快照、交互与控制台工具。",
+      "defaultGrant": "新标签页默认共享权限",
+      "defaultGrantHint": "打开新标签页时授予 Agent 的初始访问级别，可在地址栏随时按标签页调整。",
+      "grantControl": "可交互控制（读取 + 点击/输入）",
+      "grantRead": "仅读取（快照/截图/控制台）",
+      "grantNone": "不共享（需手动授权）",
+      "evalEnabled": "允许执行页面 JavaScript (browser_eval)",
+      "evalEnabledHint": "允许 Agent 在已授予控制权限的页面上下文中执行任意脚本。",
+      "evalApproval": "JavaScript 执行审批方式",
+      "evalApprovalAsk": "每次在浏览器面板中确认",
+      "evalApprovalSilent": "已授权控制页面自动放行",
+      "rememberedOrigins": "已记住的站点权限",
+      "rememberedOriginsCount": "已记住 {{count}} 个站点的访问权限",
+      "clearOrigins": "清空站点权限",
+      "originsCleared": "已清空记住的站点权限"
+    },
+    "services": {
+      "title": "本地开发服务与终端协同",
+      "serviceAutoOpen": "检测到本地开发服务端口时",
+      "serviceAutoOpenHint": "当终端或任务启动 localhost / 127.0.0.1 Web 服务时的响应方式。",
+      "serviceOff": "不自动处理",
+      "serviceToast": "弹出提示卡片",
+      "serviceAuto": "自动在内置浏览器中打开",
+      "terminalClickMenu": "终端链接 Alt + 点击显示打开菜单",
+      "terminalClickMenuHint": "按住 Alt 点击终端 URL 时，可临时选择内置浏览器或系统浏览器。"
+    },
+    "runtime": {
+      "title": "基础设置",
+      "defaultLinkTarget": "链接默认打开方式",
+      "defaultLinkTargetHint": "点击工作区中的 http(s) 链接时使用的浏览器。",
+      "defaultLinkBuiltin": "内置浏览器",
+      "defaultLinkSystem": "默认浏览器",
+      "devtools": "显示开发者工具 (DevTools) 按钮",
+      "surfaceOverride": "浏览器承载模式",
+      "surfaceAuto": "自动（平台原生子视图嵌入）",
+      "surfaceWindow": "独立窗口模式",
+      "suspendBackgroundTabs": "后台隐藏标签页自动冻结降耗",
+      "suspendBackgroundTabsHint": "面板隐藏或被遮挡时保留静态帧并暂停高刷同步。",
+      "signInUserAgent": "OAuth 登录兼容 User-Agent",
+      "signInUserAgentHint": "使用标准桌面浏览器标识，减少第三方登录页面的嵌入式 WebView 拦截（新开标签页生效）。",
+      "activeSurfaceMode": "当前渲染后端",
+      "surfaceModeChildWebview": "原生子 WebView (Child WebView)",
+      "surfaceModeExternalWindow": "外部窗口 (External Window)",
+      "proxyNote": "网络代理继承",
+      "downloadsDir": "默认下载目录"
+    },
+    "profiles": {
+      "title": "浏览器配置文件与数据隔离",
+      "description": "不同配置文件拥有独立的 Cookie、LocalStorage 与登录态。",
+      "newTabProfile": "新标签页默认配置文件",
+      "defaultBadge": "默认",
+      "ephemeralBadge": "临时会话",
+      "ephemeralName": "临时无痕会话 (ephemeral)",
+      "clearData": "清除数据",
+      "confirmClear": "确认清除",
+      "cancel": "取消",
+      "deleteProfile": "删除",
+      "createPlaceholder": "输入新配置文件名称（字母、数字、-、_）",
+      "createButton": "新建配置",
+      "invalidName": "配置名称需为 1–36 位字母或数字，可包含 - 或 _",
+      "created": "已创建配置文件 {{name}}",
+      "cleared": "已清除 {{name}} 的浏览器缓存与会话数据",
+      "removed": "已删除配置文件 {{name}}",
+      "actionFailed": "配置文件操作失败"
+    }
   }
 }

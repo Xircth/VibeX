@@ -1,6 +1,6 @@
-import { fireEvent, render, screen } from '@testing-library/react';
+import { act, fireEvent, render, screen } from '@testing-library/react';
 import type { IDockviewPanelProps } from 'dockview-react';
-import { useState, type ReactNode } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   registerImagePreviewSource,
@@ -10,6 +10,7 @@ import {
 import DockviewPreviewPanel from './DockviewPreviewPanel';
 
 const api = vi.hoisted(() => ({ resolveFileOpener: vi.fn() }));
+const saveFile = vi.hoisted(() => ({ mutate: vi.fn() }));
 const platform = vi.hoisted(() => ({ isTauriDesktopShell: vi.fn(() => true) }));
 const fileContent = vi.hoisted(() => ({
   data: '# Preview title' as string | undefined,
@@ -54,18 +55,62 @@ vi.mock('@/components/previews/PluginArtifactEditor', () => ({
 vi.mock('@monaco-editor/react', () => {
   function MockMonacoEditor({
     defaultValue,
+    value,
+    onChange,
+    onMount,
     loading = 'Loading...',
   }: {
     defaultValue?: string;
+    value?: string;
+    onChange?: (value: string) => void;
+    onMount?: (
+      editor: {
+        addCommand: (key: number, callback: () => void) => void;
+        getValue: () => string;
+        getDomNode: () => HTMLDivElement | null;
+        deltaDecorations: () => string[];
+      },
+      monaco: { KeyMod: { CtrlCmd: number }; KeyCode: { KeyS: number } }
+    ) => void;
     loading?: ReactNode;
   }) {
-    const [modelValue] = useState(defaultValue);
+    const [modelValue, setModelValue] = useState(defaultValue);
+    const valueRef = useRef('');
+    valueRef.current = value ?? modelValue ?? '';
+    const rootRef = useRef<HTMLDivElement>(null);
+    const saveCommand = useRef<() => void>(() => {});
+    const mountRef = useRef(onMount);
+    useEffect(() => {
+      mountRef.current?.(
+        {
+          addCommand: (_key, callback) => {
+            saveCommand.current = callback;
+          },
+          getValue: () => valueRef.current,
+          getDomNode: () => rootRef.current,
+          deltaDecorations: () => [],
+        },
+        { KeyMod: { CtrlCmd: 1 }, KeyCode: { KeyS: 2 } }
+      );
+    }, []);
     return (
       <div
+        ref={rootRef}
         data-testid="monaco-editor"
-        data-model-value={modelValue}
+        data-model-value={value ?? modelValue}
         onMouseDown={(event) => event.stopPropagation()}
       >
+        <textarea
+          aria-label="File source"
+          value={value ?? modelValue ?? ''}
+          onChange={(event) => {
+            setModelValue(event.target.value);
+            onChange?.(event.target.value);
+          }}
+          onKeyDown={(event) => {
+            if (event.ctrlKey && event.key === 's') saveCommand.current();
+          }}
+        />
         {loading}
       </div>
     );
@@ -86,9 +131,7 @@ vi.mock('@/hooks/useFileContent', () => ({
     isLoading: false,
     error: null,
   }),
-  useSaveFile: () => ({
-    mutate: vi.fn(),
-  }),
+  useSaveFile: () => saveFile,
 }));
 
 vi.mock('@/components/ThemeProvider', () => ({
@@ -146,6 +189,10 @@ describe('DockviewPreviewPanel', () => {
     fileContent.data = '# Preview title';
     fileContent.isLoading = false;
     fileContent.error = null;
+    saveFile.mutate.mockReset().mockImplementation((variables, callbacks) => {
+      fileContent.data = variables.content;
+      callbacks?.onSuccess?.();
+    });
   });
 
   it('resolves transient conversation images without serializing their data', () => {
@@ -228,6 +275,80 @@ describe('DockviewPreviewPanel', () => {
     const markdown = await screen.findByTestId('astryx-markdown');
     expect(markdown).toHaveAttribute('data-workspace-path', '/workspace/docs');
     expect(markdown).toHaveAttribute('data-value', '# Preview title');
+  });
+
+  it('keeps edited Markdown when switching from source to preview and back', async () => {
+    render(<DockviewPreviewPanel {...panelProps('notes/draft.md')} />);
+
+    const source = await screen.findByRole('textbox', { name: 'File source' });
+    fireEvent.change(source, { target: { value: '# Edited content' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Source' }));
+
+    expect(await screen.findByTestId('astryx-markdown')).toHaveAttribute(
+      'data-value',
+      '# Edited content'
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: 'Preview' }));
+    expect(
+      await screen.findByRole('textbox', { name: 'File source' })
+    ).toHaveValue('# Edited content');
+  });
+
+  it('keeps an unsaved draft when its file is renamed', async () => {
+    const { rerender } = render(
+      <DockviewPreviewPanel {...panelProps('notes/before.md')} />
+    );
+    fireEvent.change(
+      await screen.findByRole('textbox', { name: 'File source' }),
+      {
+        target: { value: '# Unsaved draft' },
+      }
+    );
+    const renamed = panelProps('notes/after.md');
+    renamed.params.renamedFrom = '/workspace/notes/before.md';
+    rerender(<DockviewPreviewPanel {...renamed} />);
+    expect(
+      await screen.findByRole('textbox', { name: 'File source' })
+    ).toHaveValue('# Unsaved draft');
+  });
+
+  it('shows external updates after its draft has been saved', async () => {
+    const props = panelProps('notes/saved.md');
+    const { rerender } = render(<DockviewPreviewPanel {...props} />);
+    const source = await screen.findByRole('textbox', { name: 'File source' });
+    fireEvent.change(source, { target: { value: '# Saved draft' } });
+    fireEvent.keyDown(source, { key: 's', ctrlKey: true });
+    expect(saveFile.mutate).toHaveBeenCalled();
+    fileContent.data = '# Updated externally';
+    rerender(<DockviewPreviewPanel {...props} />);
+    expect(source).toHaveValue('# Updated externally');
+  });
+
+  it('keeps newer edits when an earlier save finishes', async () => {
+    let completeSave: () => void = () => {};
+    saveFile.mutate.mockImplementationOnce((variables, callbacks) => {
+      completeSave = () => {
+        fileContent.data = variables.content;
+        callbacks.onSuccess();
+      };
+    });
+    render(<DockviewPreviewPanel {...panelProps('notes/delayed-save.md')} />);
+    const source = await screen.findByRole('textbox', { name: 'File source' });
+    fireEvent.change(source, { target: { value: '# Saved snapshot' } });
+    fireEvent.keyDown(source, { key: 's', ctrlKey: true });
+    fireEvent.change(source, { target: { value: '# Newer draft' } });
+
+    act(completeSave);
+    fireEvent.click(screen.getByRole('button', { name: 'Source' }));
+    expect(await screen.findByTestId('astryx-markdown')).toHaveAttribute(
+      'data-value',
+      '# Newer draft'
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'Preview' }));
+    expect(
+      await screen.findByRole('textbox', { name: 'File source' })
+    ).toHaveValue('# Newer draft');
   });
 
   it('opens an HTML file in the rendered preview instead of its source', async () => {

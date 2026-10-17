@@ -68,7 +68,7 @@ pub fn host_settings_window_title(base: &str, host_name: &str) -> String {
 }
 
 pub fn is_local_desktop_window(label: &str) -> bool {
-    host_app_window_label(label).is_none()
+    label != "desktop-toast" && host_app_window_label(label).is_none()
 }
 
 pub fn host_family_event_labels(window_label: &str) -> Vec<String> {
@@ -154,7 +154,9 @@ mod tests {
         assert!(is_local_desktop_window("main"));
         assert!(is_local_desktop_window("settings"));
         assert!(is_local_desktop_window("app-local-1"));
-        assert!(is_local_desktop_window("desktop-toast"));
+        // The toast is a local overlay, but it must not take the tray icon
+        // or the host event bus.
+        assert!(!is_local_desktop_window("desktop-toast"));
         assert!(!is_local_desktop_window("host-abc"));
         assert!(!is_local_desktop_window("settings-host-abc"));
     }

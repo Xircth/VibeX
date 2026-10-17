@@ -28,8 +28,9 @@ pub use bundle::{
 };
 pub use capability_catalog::{
     capability_catalog_is_fresh, invalidate_open_capability_catalog,
-    open_capability_catalog_fingerprint, read_matching_open_capability_catalog,
-    refresh_open_capability_catalog,
+    load_capability_catalog_for_session_defaults, open_capability_catalog_fingerprint,
+    read_matching_capability_catalog_for_defaults, read_matching_open_capability_catalog,
+    record_open_capability_catalog, refresh_open_capability_catalog,
 };
 pub use export::{render_html, render_markdown};
 pub use host::{
@@ -48,7 +49,7 @@ pub use projection::{
     CONVERSATION_PROJECTION_VERSION, CachedRowProjector, ConversationEventAppender,
     ConversationProjector, ConversationRowProjectors, ConversationRowWindow,
     ConversationStateApplier, IncrementalRowProjector, OPEN_TIMELINE_ROW_LIMIT,
-    OpenConversationProjection, evict_least_recently_used_projectors,
+    OpenConversationProjection, evict_least_recently_used_projectors, extend_coalesced_row_ops,
 };
 pub use relation::{
     ConversationChildSummaryView, ConversationRelationControl, ConversationRelationView,

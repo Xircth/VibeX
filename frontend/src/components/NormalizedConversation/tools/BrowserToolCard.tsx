@@ -4,9 +4,13 @@ import {
   ToolCardShell,
   getToolStatusClassName,
   getToolStatusDotClassName,
+  useToolCallResultDetail,
 } from './ToolCardShell';
-import { ToolArtifact, ToolFacts, ToolProse } from './ToolArtifact';
+import { ToolArtifact, ToolFacts, ToolCodeSnippet } from './ToolArtifact';
 import { useExpandable } from '@/stores/useExpandableStore';
+import { ToolResultView } from './ToolResultView';
+import { jsonToFacts } from './toolArtifactModel';
+import { getToolCallDescription } from '../conversation-entry-utils';
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
@@ -42,30 +46,26 @@ export function BrowserToolCard({
     `browser-tool:${expansionKey}`,
     false
   );
-  const effectiveExpanded = forceExpanded || expanded;
-  const facts = [
-    typeof args.tabId === 'string' ? { key: 'tab', value: args.tabId } : null,
-    typeof args.ref === 'string' ? { key: 'ref', value: args.ref } : null,
-    typeof args.url === 'string' ? { key: 'url', value: args.url } : null,
-  ].filter((item): item is { key: string; value: string } => Boolean(item));
+  const isResultDetail = useToolCallResultDetail();
+  const effectiveExpanded = forceExpanded || isResultDetail || expanded;
+  const facts = jsonToFacts(action?.arguments, {
+    skipKeys: ['code', 'description'],
+  });
   const code = typeof args.code === 'string' ? args.code : '';
-  const resultText =
-    typeof result?.value === 'string'
-      ? result.value
-      : result?.value
-        ? JSON.stringify(result.value)
-        : entry.content;
   const name = action?.tool_name || toolEntry?.tool_name || 'browser';
+  const description = getToolCallDescription(entry);
   return (
     <ToolCardShell
       icon={<Globe className="h-3 w-3" />}
-      label={name.replace(/^.*browser_/, 'browser_')}
+      label={description ?? name.replace(/^.*browser_/, 'browser_')}
       detail={
-        typeof args.url === 'string'
-          ? args.url
-          : typeof args.tabId === 'string'
-            ? args.tabId
-            : undefined
+        description
+          ? undefined
+          : typeof args.url === 'string'
+            ? args.url
+            : typeof args.tabId === 'string'
+              ? args.tabId
+              : undefined
       }
       statusClassName={getToolStatusClassName(toolEntry?.status)}
       statusDotClassName={getToolStatusDotClassName(toolEntry?.status)}
@@ -78,11 +78,13 @@ export function BrowserToolCard({
         <ToolArtifact>
           {facts.length > 0 ? <ToolFacts facts={facts} /> : null}
           {code ? (
-            <ToolProse>
-              <pre className="whitespace-pre-wrap text-xs">{code}</pre>
-            </ToolProse>
+            <ToolCodeSnippet language="javascript" content={code} />
           ) : null}
-          {resultText ? <ToolProse>{resultText}</ToolProse> : null}
+          {result?.type.type === 'json' ? (
+            <ToolFacts facts={jsonToFacts(result.value)} />
+          ) : (
+            <ToolResultView result={result} />
+          )}
         </ToolArtifact>
       ) : null}
     </ToolCardShell>

@@ -28,18 +28,24 @@ type Props = {
  * - Extract additions/deletions for display
  * - Decide whether to hide line numbers based on backend data
  */
-function processUnifiedDiff(unifiedDiff: string, hasLineNumbers: boolean) {
+function processUnifiedDiff(
+  unifiedDiff: string,
+  hasLineNumbers: boolean,
+  shouldParseHunks: boolean
+) {
   // Hide line numbers when backend says they are unreliable
   const hideNums = !hasLineNumbers;
-  let isValidDiff;
+  let isValidDiff = false;
   const { additions, deletions } = parseDiffStats(unifiedDiff);
 
-  try {
-    const parsed = parseInstance.parse(unifiedDiff);
-    isValidDiff = parsed.hunks.length > 0;
-  } catch (err) {
-    console.error('Failed to parse diff hunks:', err);
-    isValidDiff = false;
+  if (shouldParseHunks) {
+    try {
+      const parsed = parseInstance.parse(unifiedDiff);
+      isValidDiff = parsed.hunks.length > 0;
+    } catch (err) {
+      console.error('Failed to parse diff hunks:', err);
+      isValidDiff = false;
+    }
   }
 
   return {
@@ -86,8 +92,8 @@ function EditDiffRenderer({
 
   const theme = getActualTheme(config?.theme);
   const { hunks, hideLineNumbers, additions, deletions, isValidDiff } = useMemo(
-    () => processUnifiedDiff(unifiedDiff, hasLineNumbers),
-    [unifiedDiff, hasLineNumbers]
+    () => processUnifiedDiff(unifiedDiff, hasLineNumbers, effectiveExpanded),
+    [unifiedDiff, hasLineNumbers, effectiveExpanded]
   );
 
   const hasDiff = unifiedDiff.trim().length > 0;
@@ -111,7 +117,7 @@ function EditDiffRenderer({
   return (
     <ToolArtifact
       badge={isResultDetail ? undefined : badge}
-      title={isResultDetail ? undefined : path}
+      title={path}
       titleLabel={path}
       onTitleClick={
         isResultDetail
@@ -129,13 +135,13 @@ function EditDiffRenderer({
                   : { displayPath: path, title: path }
               )
       }
-      additions={isResultDetail || !hasDiff ? undefined : additions}
-      deletions={isResultDetail || !hasDiff ? undefined : deletions}
+      additions={!hasDiff ? undefined : additions}
+      deletions={!hasDiff ? undefined : deletions}
       expandable={!isResultDetail && hasDiff}
       expanded={effectiveExpanded}
       onToggle={() => setExpanded()}
     >
-      {hasDiff ? (
+      {effectiveExpanded && hasDiff ? (
         isValidDiff ? (
           <div className={hideLineNumbers ? 'edit-diff-hide-nums' : undefined}>
             <DiffView

@@ -1,4 +1,5 @@
 mod file_listing;
+mod file_move;
 mod file_search;
 
 use std::{
@@ -463,7 +464,19 @@ impl ServerApplicationDomains {
             }
             DomainCommand::FileAtHead => {
                 let args: FileAtHeadArgs = parse(args)?;
-                serialize(file_at_head_content(&args.file_path)?)
+                let revision = match (args.workspace_id, args.repo_id) {
+                    (Some(workspace_id), Some(repo_id)) => Some(
+                        diff_base_revision(
+                            &self.pool,
+                            self.deployment.git(),
+                            workspace_id,
+                            repo_id,
+                        )
+                        .await?,
+                    ),
+                    _ => None,
+                };
+                serialize(file_at_head_content(&args.file_path, revision.as_deref())?)
             }
             DomainCommand::TerminalCreate => self.create_terminal(args).await,
             DomainCommand::TerminalWrite => self.write_terminal(args).await,
@@ -1161,13 +1174,14 @@ impl ServerApplicationDomains {
                 "root path is not a directory",
             ));
         }
-        let git_map = build_git_status_map(&root);
-        serialize(walk_file_tree(
-            &root,
-            args.depth.unwrap_or(10),
-            0,
-            &git_map,
-        )?)
+        let depth = args.depth.unwrap_or(10);
+        let entries = tokio::task::spawn_blocking(move || {
+            let git_map = build_git_status_map(&root);
+            walk_file_tree(&root, depth, 0, &git_map)
+        })
+        .await
+        .map_err(|error| ApplicationError::internal(error.to_string()))??;
+        serialize(entries)
     }
 
     async fn list_directory_children(&self, args: Value) -> Result<Value, ApplicationError> {
@@ -1269,32 +1283,7 @@ impl ServerApplicationDomains {
         let args: MoveArgs = parse(args)?;
         let source = self.sandbox_existing_path(&args.path).await?;
         let dest = sanitize_absolute(&args.new_path)?;
-        if source == dest {
-            return serialize(dest.to_string_lossy().into_owned());
-        }
-        if dest.exists() {
-            return Err(ApplicationError::conflict(format!(
-                "Destination already exists: {}",
-                dest.display()
-            )));
-        }
-        let dest_parent = dest.parent().ok_or_else(|| {
-            ApplicationError::bad_request("Destination must include a parent directory")
-        })?;
-        if !dest_parent.exists() {
-            return Err(ApplicationError::not_found(format!(
-                "Destination parent does not exist: {}",
-                dest_parent.display()
-            )));
-        }
-        if source.is_dir() && dest.starts_with(&source) {
-            return Err(ApplicationError::bad_request(
-                "Cannot move a directory into itself",
-            ));
-        }
-        tokio::fs::rename(&source, &dest)
-            .await
-            .map_err(internal_error)?;
+        file_move::move_item_at_paths(&source, &dest).await?;
         serialize(dest.to_string_lossy().into_owned())
     }
 
@@ -2057,7 +2046,50 @@ fn map_workspace_git_error(error: impl std::fmt::Display) -> ApplicationError {
     }
 }
 
-fn file_at_head_content(file_path: &str) -> Result<String, ApplicationError> {
+async fn diff_base_revision(
+    pool: &sqlx::SqlitePool,
+    git: &git::GitService,
+    workspace_id: Uuid,
+    repo_id: Uuid,
+) -> Result<String, ApplicationError> {
+    let workspace = Workspace::find_by_id(pool, workspace_id)
+        .await
+        .map_err(internal_error)?
+        .ok_or_else(|| {
+            ApplicationError::not_found(format!("Workspace {workspace_id} not found"))
+        })?;
+    let repo = Repo::find_by_id(pool, repo_id)
+        .await
+        .map_err(internal_error)?
+        .ok_or_else(|| ApplicationError::not_found(format!("Repo {repo_id} not found")))?;
+    let links = WorkspaceRepo::find_by_workspace_id(pool, workspace_id)
+        .await
+        .map_err(internal_error)?;
+    let target_branch = links
+        .into_iter()
+        .find(|link| link.repo_id == repo_id)
+        .map(|link| link.target_branch)
+        .ok_or_else(|| {
+            ApplicationError::bad_request(format!(
+                "Workspace {workspace_id} has no target branch for repo {repo_id}"
+            ))
+        })?;
+    let git = git.clone();
+    let repo_path = repo.path.clone();
+    let branch = workspace.branch.clone();
+    tokio::task::spawn_blocking(move || {
+        git.get_base_commit(&repo_path, &branch, &target_branch)
+            .map(|commit| commit.to_string())
+            .map_err(|error| ApplicationError::internal(error.to_string()))
+    })
+    .await
+    .map_err(|error| ApplicationError::internal(error.to_string()))?
+}
+
+fn file_at_head_content(
+    file_path: &str,
+    revision: Option<&str>,
+) -> Result<String, ApplicationError> {
     let path = sanitize_absolute(file_path)?;
     let repo = git2::Repository::discover(&path)
         .map_err(|error| ApplicationError::internal(format!("Failed to open git repo: {error}")))?;
@@ -2070,17 +2102,28 @@ fn file_at_head_content(file_path: &str) -> Result<String, ApplicationError> {
             "File {file_path} is not within the repository working directory"
         ))
     })?;
-    let commit = repo
-        .head()
-        .and_then(|head| head.peel_to_commit())
-        .map_err(|error| ApplicationError::internal(format!("Failed to get HEAD: {error}")))?;
+    let commit = match revision {
+        Some(revision) => {
+            let oid = git2::Oid::from_str(revision).map_err(|error| {
+                ApplicationError::bad_request(format!("Invalid commit {revision}: {error}"))
+            })?;
+            repo.find_commit(oid).map_err(|error| {
+                ApplicationError::not_found(format!("Commit {revision} was not found: {error}"))
+            })?
+        }
+        None => repo
+            .head()
+            .and_then(|head| head.peel_to_commit())
+            .map_err(|error| ApplicationError::internal(format!("Failed to get HEAD: {error}")))?,
+    };
+    let label = revision.unwrap_or("HEAD");
     let tree = commit.tree().map_err(|error| {
         ApplicationError::internal(format!("Failed to get commit tree: {error}"))
     })?;
     let git_path = relative.to_string_lossy().replace('\\', "/");
-    let tree_entry = tree
-        .get_path(Path::new(&git_path))
-        .map_err(|_| ApplicationError::not_found(format!("File not found in HEAD: {git_path}")))?;
+    let tree_entry = tree.get_path(Path::new(&git_path)).map_err(|_| {
+        ApplicationError::not_found(format!("File not found in {label}: {git_path}"))
+    })?;
     let blob = repo
         .find_blob(tree_entry.id())
         .map_err(|error| ApplicationError::internal(format!("Failed to read blob: {error}")))?;
@@ -2590,6 +2633,10 @@ struct MoveArgs {
 #[serde(rename_all = "camelCase")]
 struct FileAtHeadArgs {
     file_path: String,
+    #[serde(default)]
+    workspace_id: Option<Uuid>,
+    #[serde(default)]
+    repo_id: Option<Uuid>,
 }
 
 #[derive(Deserialize)]

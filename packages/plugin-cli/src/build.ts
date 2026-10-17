@@ -78,6 +78,7 @@ export async function buildPlugin(root: string) {
       format: "esm",
       platform: "browser",
       target: "es2022",
+      jsx: "automatic",
       alias: sdkAliases(),
       write: false,
       loader: {
@@ -183,5 +184,10 @@ export function sdkAliases() {
     "@vibex/plugin-sdk/testing": require.resolve("@vibex/plugin-sdk/testing"),
     "@vibex/plugin-sdk/protocol": require.resolve("@vibex/plugin-sdk/protocol"),
     "@vibex/plugin-sdk/stdio": require.resolve("@vibex/plugin-sdk/stdio"),
+    react: require.resolve("react"),
+    "react-dom": require.resolve("react-dom"),
+    "react-dom/client": require.resolve("react-dom/client"),
+    "react/jsx-runtime": require.resolve("react/jsx-runtime"),
+    "react/jsx-dev-runtime": require.resolve("react/jsx-dev-runtime"),
   };
 }

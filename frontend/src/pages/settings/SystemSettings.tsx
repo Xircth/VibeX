@@ -34,6 +34,7 @@ import {
 } from '@/lib/api';
 import { useWindowProjectsStore } from '@/stores/useWindowProjectsStore';
 import { ConversationBundlePanel } from '@/features/conversation/ConversationBundle';
+import { getInvokeErrorMessage } from '@/lib/errors';
 import { SETTINGS_CHANGED_EVENT } from '@/lib/frontendPreferences';
 import { useLocalDesktopHost } from '@/lib/desktopShell';
 
@@ -124,8 +125,6 @@ function sanitizeDraft(draft: SystemSettingsConfig): SystemSettingsConfig {
     ...draft,
     editor: {
       ...draft.editor,
-      remote_ssh_host: null,
-      remote_ssh_user: null,
     },
   };
 }
@@ -487,13 +486,8 @@ export function SystemSettings() {
         window.setTimeout(() => window.location.reload(), 700);
       }
     } catch (error) {
-      const message =
-        error instanceof Error
-          ? error.message
-          : typeof error === 'string'
-            ? error
-            : t('system.clearLocalDataFailed');
-      toast.error(message, {
+      const message = getInvokeErrorMessage(error).trim();
+      toast.error(message || t('system.clearLocalDataFailed'), {
         id: toastId,
       });
     } finally {

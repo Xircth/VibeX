@@ -172,8 +172,8 @@ UI 只读取通过 Host 验证并返回的索引与文档，不在客户端扫�
   "entrypoints": {
     "worker": {
       "path": "dist/worker.mjs",
-      "format": "javascript-esm",
-      "protocol": "1.0"
+      "runtime": "node",
+      "protocol": "1.1"
     }
   },
   "dependencies": [],
@@ -183,6 +183,7 @@ UI 只读取通过 Host 验证并返回的索引与文档，不在客户端扫�
 
 `readme` 固定为根 `README.md`，`content.root` 固定为 `contents`；配置文件按约定固定为根
 `config.json`，不再提供可改路径的 manifest 字段。固定约定避免同一种产品概念出现多套路径配置。
+Worker 的 `maxFrameMiB` 可选，不写就是 32，范围是 1 到 128。
 
 ### integrations
 

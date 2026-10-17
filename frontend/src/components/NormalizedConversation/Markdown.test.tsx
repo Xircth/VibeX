@@ -619,6 +619,41 @@ $$`);
     );
   });
 
+  it('renders MathJax \\[ \\] display math instead of stripping TeX commands', async () => {
+    const { container } =
+      renderMarkdown(String.raw`假设三段轨迹的持续时间分别为：
+
+\[
+T_0 = 2\text{s} \qquad T_1 = 3s \qquad T_2 = s
+\]`);
+
+    await waitFor(() => {
+      expect(container.querySelector('.katex-display')).toBeInTheDocument();
+    });
+    expect(container.querySelector('.katex-error')).toBeNull();
+    expect(container.querySelector('.katex-html')?.textContent).not.toContain(
+      'qquad'
+    );
+    expect(container.querySelector('.katex-html')?.textContent).not.toContain(
+      'text{s}'
+    );
+  });
+
+  it('renders a bare align environment through KaTeX', async () => {
+    const { container } = renderMarkdown(String.raw`\begin{aligned}
+T_0 &= 2\text{s} \\
+T_1 &= 3s
+\end{aligned}`);
+
+    await waitFor(() => {
+      expect(container.querySelector('.katex-display')).toBeInTheDocument();
+    });
+    expect(container.querySelector('.katex-error')).toBeNull();
+    expect(container.querySelector('.katex-html')?.textContent).not.toContain(
+      'begin{aligned}'
+    );
+  });
+
   it('renders user soft breaks without changing paragraph spacing globally', () => {
     const { container } = renderMarkdown('first line\nsecond line', {
       softBreaks: true,

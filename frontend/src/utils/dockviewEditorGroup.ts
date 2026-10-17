@@ -20,6 +20,7 @@ import {
   SESSION_PANEL_IDS,
 } from '@/utils/dockviewGroupPolicy';
 import { syncDockviewGroupRegistry } from '@/utils/dockviewHelpers';
+import { gridLocationFromElement } from '@/utils/dockviewEditorSplit';
 import {
   DEFAULT_SESSION_PANEL_WIDTH,
   settleDockviewGroupWidths,
@@ -73,6 +74,162 @@ function getEditorGroups(api: DockviewApi) {
 
 function isSideColumn(slot: ReturnType<typeof slotOfZone>): boolean {
   return slot !== 'center' && slot !== 'bottom';
+}
+
+interface EditorColumnWidth {
+  id: string;
+  width: number;
+  editor: boolean;
+  /** Groups with the same parent path share one split. */
+  parentPath: string;
+  /** That split assigns width. A vertical stack assigns height instead. */
+  sharesWidth: boolean;
+  index: number;
+}
+
+/**
+ * Dockview's root split is horizontal. A group's location length is odd when
+ * its parent split sizes children by width (root children are [i], a nested
+ * horizontal row is [branch, row, i]).
+ */
+function columnSharesWidth(location: readonly number[]): boolean {
+  return location.length % 2 === 1;
+}
+
+function captureEditorColumnWidths(api: DockviewApi): EditorColumnWidth[] {
+  const columns: EditorColumnWidth[] = [];
+  for (const group of api.groups) {
+    if (!group.api.isVisible || !(group.api.width > 0)) continue;
+    let location: number[];
+    try {
+      location = gridLocationFromElement(group.element);
+    } catch {
+      continue;
+    }
+    columns.push({
+      id: group.id,
+      width: group.api.width,
+      editor: isEditorGroup(group),
+      parentPath: location.slice(0, -1).join('.'),
+      sharesWidth: columnSharesWidth(location),
+      index: location[location.length - 1] ?? 0,
+    });
+  }
+  return columns;
+}
+
+/**
+ * Closing the last editor column removes it from [A | B | C]. Dockview then
+ * hands B's width to every flexible sibling, which lands on the left dock.
+ * Keep the dock and give that width to the session column.
+ */
+function assignDismissedEditorWidthToSession(
+  api: DockviewApi,
+  snapshot: readonly EditorColumnWidth[],
+  removed: EditorColumnWidth
+): void {
+  const visible = snapshot
+    .filter(
+      (column) =>
+        column.id !== removed.id &&
+        column.sharesWidth &&
+        column.parentPath === removed.parentPath
+    )
+    .flatMap((column) => {
+      const group = api.getGroup(column.id);
+      return group?.api.isVisible ? [{ column, group }] : [];
+    });
+  const session = visible.find(({ group }) => isSessionGroup(group));
+  if (!session) return;
+
+  settleDockviewGroupWidths(
+    visible.map(({ column, group }) => ({
+      group,
+      width:
+        group.id === session.group.id
+          ? column.width + removed.width
+          : column.width,
+    }))
+  );
+}
+
+/**
+ * Dockview gives a removed view's size to every flexible sibling, so closing
+ * an editor column in [A | B1 | B2 | C] also resizes A and C. Put that width
+ * back and share it equally across the editor columns that remain in the row.
+ * With no editor column left, the released width goes to the session.
+ */
+function rebalanceEditorColumnsAfterRemoval(
+  api: DockviewApi,
+  snapshot: readonly EditorColumnWidth[],
+  removedGroupId: string
+): void {
+  const removed = snapshot.find((column) => column.id === removedGroupId);
+  if (!removed?.editor || !removed.sharesWidth) return;
+
+  const row = snapshot.filter(
+    (column) =>
+      column.editor &&
+      column.sharesWidth &&
+      column.parentPath === removed.parentPath
+  );
+  const survivors = row
+    .filter((column) => column.id !== removedGroupId)
+    .sort((a, b) => a.index - b.index)
+    .flatMap((column) => {
+      const group = api.getGroup(column.id);
+      return group?.api.isVisible ? [group] : [];
+    });
+  if (survivors.length === 0) {
+    assignDismissedEditorWidthToSession(api, snapshot, removed);
+    return;
+  }
+
+  const total = row.reduce((sum, column) => sum + column.width, 0);
+  const base = Math.floor(total / survivors.length);
+  let remainder = total - base * survivors.length;
+  const targets: Array<{ group: DockviewGroup; width: number }> = [];
+
+  for (const column of snapshot) {
+    if (column.editor || column.id === removedGroupId) continue;
+    if (!column.sharesWidth || column.parentPath !== removed.parentPath) {
+      continue;
+    }
+    const group = api.getGroup(column.id);
+    if (!group?.api.isVisible) continue;
+    targets.push({ group, width: column.width });
+  }
+
+  for (const group of survivors) {
+    const extra = remainder > 0 ? 1 : 0;
+    remainder -= extra;
+    targets.push({ group, width: base + extra });
+  }
+
+  settleDockviewGroupWidths(targets);
+}
+
+export function installEditorColumnWidthRebalance(
+  api: DockviewApi,
+  options?: { shouldRebalance?: () => boolean }
+): { dispose(): void } {
+  let snapshot = captureEditorColumnWidths(api);
+  const layoutDisposable = api.onDidLayoutChange(() => {
+    snapshot = captureEditorColumnWidths(api);
+  });
+  const removeDisposable = api.onDidRemoveGroup((group) => {
+    const shouldRebalance = options?.shouldRebalance?.() ?? true;
+    if (shouldRebalance) {
+      rebalanceEditorColumnsAfterRemoval(api, snapshot, group.id);
+    }
+    snapshot = captureEditorColumnWidths(api);
+  });
+  return {
+    dispose() {
+      layoutDisposable.dispose();
+      removeDisposable.dispose();
+    },
+  };
 }
 
 export function groupForZone(
@@ -138,7 +295,23 @@ export function settleSlotColumnWidths(
     }
   }
 
-  if (center?.api.isVisible && right?.api.isVisible && snapshot.centerVisible) {
+  const centerHidden =
+    snapshot.centerVisible && (!center || !center.api.isVisible);
+  if (centerHidden && right?.api.isVisible) {
+    const dockWidth = left?.api.isVisible
+      ? snapshot.left && snapshot.left > 0
+        ? snapshot.left
+        : left.api.width
+      : 0;
+    targets.push({
+      group: right,
+      width: Math.max(MIN_RIGHT_PANEL_WIDTH, api.width - dockWidth),
+    });
+  } else if (
+    center?.api.isVisible &&
+    right?.api.isVisible &&
+    snapshot.centerVisible
+  ) {
     const width =
       snapshot.right && snapshot.right > 0 ? snapshot.right : right.api.width;
     if (width > 0) {
@@ -293,6 +466,31 @@ export function restoreFlexibleEditorColumn(
   }
 
   settleDockviewGroupWidths(targets);
+}
+
+/**
+ * Show the editor column at its flexible width before the first terminal tab
+ * is added. A hidden anchor is still crushed, so width is restored only after
+ * the group is visible.
+ */
+export function revealEditorColumnForTerminal(
+  api: DockviewApi,
+  options: EnsureWelcomeEditorGroupOptions
+): DockviewGroup | undefined {
+  const group = ensureWelcomeEditorGroup(api, options);
+  if (!group) return undefined;
+  if (!group.api.isVisible) {
+    group.api.setVisible(true);
+  }
+  if (isEditorColumnCrushed(api)) {
+    restoreFlexibleEditorColumn(
+      api,
+      options.arrangement,
+      options.sessionWidth,
+      options.dockWidth
+    );
+  }
+  return group;
 }
 
 /**

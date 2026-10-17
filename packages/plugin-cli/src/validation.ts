@@ -361,6 +361,29 @@ async function validateEntrypoints(
         error("worker_entrypoint_invalid", "Worker entrypoint is invalid"),
       );
     }
+    for (const key of Object.keys(value.worker)) {
+      if (!["path", "runtime", "protocol", "maxFrameMiB"].includes(key)) {
+        diagnostics.push(
+          error("worker_entrypoint_invalid", `Unknown worker field ${key}`),
+        );
+      }
+    }
+    if ("maxFrameMiB" in value.worker) {
+      const frame = value.worker.maxFrameMiB;
+      if (
+        typeof frame !== "number" ||
+        !Number.isInteger(frame) ||
+        frame < 1 ||
+        frame > 128
+      ) {
+        diagnostics.push(
+          error(
+            "worker_entrypoint_invalid",
+            "Worker maxFrameMiB must be an integer from 1 to 128",
+          ),
+        );
+      }
+    }
   }
   if (isObject(value.app)) {
     if (
@@ -455,8 +478,7 @@ async function validateIntegrations(
           const managed = resource.managedRuntime;
           const hostFamily =
             isObject(managed) && managed.kind === "hostFamilyBinary";
-          const workerHttp =
-            isObject(managed) && managed.kind === "workerHttp";
+          const workerHttp = isObject(managed) && managed.kind === "workerHttp";
           const packaged =
             isObject(managed) &&
             typeof managed.entrypoint === "string" &&
@@ -611,16 +633,30 @@ function validateHostChrome(
     }
   };
   const requireSlot = (expected: string) => {
-    if (integration.slot !== undefined && integration.slot !== expected) {
+    requireSlotOneOf([expected]);
+  };
+  const requireSlotOneOf = (expected: readonly string[]) => {
+    if (
+      integration.slot !== undefined &&
+      !expected.includes(String(integration.slot))
+    ) {
       diagnostics.push(
-        error(`${kindCode(kind)}_invalid`, `${kind} slot must be ${expected}`),
+        error(
+          `${kindCode(kind)}_invalid`,
+          `${kind} slot must be ${expected.join(" or ")}`,
+        ),
       );
     }
   };
   const requireRange = (key: string, min: number, max: number) => {
     const value = integration[key];
     if (value === undefined) return;
-    if (typeof value !== "number" || !Number.isInteger(value) || value < min || value > max) {
+    if (
+      typeof value !== "number" ||
+      !Number.isInteger(value) ||
+      value < min ||
+      value > max
+    ) {
       diagnostics.push(
         error(
           `${kindCode(kind)}_invalid`,
@@ -666,14 +702,17 @@ function validateHostChrome(
       requireText("handler");
       break;
     case "app.status":
-      requireSlot("status.main");
+      requireSlotOneOf(["status.main", "status.after-mcp"]);
       requireText("handler");
       requireRange("refreshSeconds", 5, 3600);
+      validateRemote(integration, diagnostics, kind);
       break;
     case "app.composer.slash": {
       requireText("title");
       requireText("prompt");
-      const command = String(integration.command ?? integration.id ?? "").replace(/^\/+/, "");
+      const command = String(
+        integration.command ?? integration.id ?? "",
+      ).replace(/^\/+/, "");
       if (!/^[a-z0-9-]+$/.test(command)) {
         diagnostics.push(
           error(
@@ -725,7 +764,10 @@ function validateHostChrome(
         position !== "center"
       ) {
         diagnostics.push(
-          error("app_panel_invalid", "app.panel defaultPosition must be left or center"),
+          error(
+            "app_panel_invalid",
+            "app.panel defaultPosition must be left or center",
+          ),
         );
       }
       if (
@@ -734,7 +776,10 @@ function validateHostChrome(
         typeof integration.multiInstance !== "boolean"
       ) {
         diagnostics.push(
-          error("app_panel_invalid", "app.panel multiInstance must be a boolean"),
+          error(
+            "app_panel_invalid",
+            "app.panel multiInstance must be a boolean",
+          ),
         );
       }
       validateRemote(integration, diagnostics, kind);
@@ -759,7 +804,10 @@ function validateHostChrome(
       }
       if (typeof opens.id !== "string" || !opens.id.trim()) {
         diagnostics.push(
-          error("app_rail_section_invalid", "app.rail.section opens.id is required"),
+          error(
+            "app_rail_section_invalid",
+            "app.rail.section opens.id is required",
+          ),
         );
       }
       if (
@@ -781,6 +829,7 @@ function validateHostChrome(
     case "app.settings.page":
       requireText("title");
       requireSurfaceEntry();
+      requireStringArray("allowedMethods");
       validateRemote(integration, diagnostics, kind);
       break;
     case "app.composer.action": {
@@ -1165,7 +1214,11 @@ function catalogUrlError(value: string) {
   }
   for (const key of url.searchParams.keys()) {
     const normalized = key.toLowerCase();
-    if (normalized === "token" || normalized === "api_key" || normalized === "aff") {
+    if (
+      normalized === "token" ||
+      normalized === "api_key" ||
+      normalized === "aff"
+    ) {
       return "query must not contain token, api_key, or aff";
     }
   }

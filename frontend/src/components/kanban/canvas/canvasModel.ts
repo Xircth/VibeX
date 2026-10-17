@@ -90,6 +90,53 @@ export interface RecentSessionLike {
 }
 
 const NO_ALIGNMENT: AlignmentResult = { dx: 0, dy: 0, guides: [] };
+const EMPTY_SESSION_IDS: ReadonlySet<string> = new Set();
+
+export function setsEqual<T>(
+  left: ReadonlySet<T>,
+  right: ReadonlySet<T>
+): boolean {
+  if (left === right) return true;
+  if (left.size !== right.size) return false;
+  for (const value of left) {
+    if (!right.has(value)) return false;
+  }
+  return true;
+}
+
+export function reuseSetIfEqual<T>(
+  previous: ReadonlySet<T>,
+  next: ReadonlySet<T>
+): ReadonlySet<T> {
+  return setsEqual(previous, next) ? previous : next;
+}
+
+export function stringListsEqual(
+  left: readonly string[],
+  right: readonly string[]
+): boolean {
+  if (left === right) return true;
+  if (left.length !== right.length) return false;
+  return left.every((value, index) => value === right[index]);
+}
+
+export function reuseStringListIfEqual(
+  previous: readonly string[],
+  next: readonly string[]
+): readonly string[] {
+  return stringListsEqual(previous, next) ? previous : next;
+}
+
+export function unionSessionIds(
+  left: ReadonlySet<string>,
+  right: ReadonlySet<string>
+): ReadonlySet<string> {
+  if (right.size === 0) return left;
+  if (left.size === 0) return right;
+  const next = new Set(left);
+  for (const id of right) next.add(id);
+  return reuseSetIfEqual(left, next);
+}
 
 export function canvasNodeId(instanceId: string): string {
   return `session-${instanceId}`;
@@ -541,22 +588,27 @@ export function pruneMissingSessions(
   nodes: readonly SessionCanvasNode[],
   liveIds: ReadonlySet<string>
 ): SessionCanvasNode[] {
-  return nodes.filter(
+  const kept = nodes.filter(
     (node) => node.kind === 'group' || liveIds.has(node.sessionId)
   );
+  return kept.length === nodes.length ? (nodes as SessionCanvasNode[]) : kept;
 }
 
 export function displayedCanvasNodes(
   nodes: readonly SessionCanvasNode[],
   liveIds: ReadonlySet<string>,
-  sessionsReady: boolean
+  sessionsReady: boolean,
+  heldSessionIds: ReadonlySet<string> = EMPTY_SESSION_IDS
 ): SessionCanvasNode[] {
-  if (!sessionsReady) return [...nodes];
+  if (!sessionsReady) return nodes as SessionCanvasNode[];
+  const effectiveLiveIds = unionSessionIds(liveIds, heldSessionIds);
   const hasStoredSessions = nodes.some(
     (node) => node.kind !== 'group' && node.sessionId.length > 0
   );
-  if (liveIds.size === 0 && hasStoredSessions) return [...nodes];
-  return pruneMissingSessions(nodes, liveIds);
+  if (effectiveLiveIds.size === 0 && hasStoredSessions) {
+    return nodes as SessionCanvasNode[];
+  }
+  return pruneMissingSessions(nodes, effectiveLiveIds);
 }
 
 export function preferLiveKanbanSessions<T>(
@@ -642,4 +694,22 @@ export function reuseUnchangedFlowNode<T extends ReusableFlowNode>(
     return previous;
   }
   return dataUnchanged ? { ...next, data: previous.data } : next;
+}
+
+export function applyDragOverlayToFlowNode<T extends ReusableFlowNode>(
+  node: T,
+  overlay: ReadonlyMap<string, { x: number; y: number }>
+): T {
+  const instanceId = parseCanvasNodeId(node.id);
+  if (!instanceId) return node;
+  const pos = overlay.get(instanceId);
+  if (!pos) return node;
+  if (pos.x === node.position.x && pos.y === node.position.y) return node;
+  return { ...node, position: pos };
+}
+
+export function canvasHasLiveSurfaces(
+  nodes: readonly SessionCanvasNode[]
+): boolean {
+  return nodes.some((node) => node.kind !== 'group' && node.expanded);
 }

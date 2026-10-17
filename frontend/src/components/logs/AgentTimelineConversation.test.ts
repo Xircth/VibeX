@@ -4,6 +4,8 @@ import type { ConversationTimelineTurn } from '@/features/conversation/conversat
 import { composerMessageHistoryFromTurns } from '@/components/tasks/follow-up/sessionComposerHistory';
 import { isContextCompactPrompt } from '@/lib/contextCompact';
 import {
+  buildContextCompactPresentationByRowKey,
+  buildLiveTurnStats,
   contextCompactPresentationForRow,
   conversationThreadMaxWidthClass,
   getLatestTimelinePlanEntries,
@@ -191,6 +193,15 @@ describe('AgentTimelineConversation context compaction projection', () => {
       durationMs: 1840,
       contextTokens: 42300,
     });
+    expect(
+      buildContextCompactPresentationByRowKey([user, assistant]).get(
+        assistant.key
+      )
+    ).toEqual({
+      status: 'success',
+      durationMs: 1840,
+      contextTokens: 42300,
+    });
   });
 
   it('marks failed, cancelled, and interrupted compact turns as failed', () => {
@@ -204,18 +215,64 @@ describe('AgentTimelineConversation context compaction projection', () => {
       expect(
         contextCompactPresentationForRow([user, assistant], 1)?.status
       ).toBe('failed');
+      expect(
+        buildContextCompactPresentationByRowKey([user, assistant]).get(
+          assistant.key
+        )?.status
+      ).toBe('failed');
     }
   });
 
   it('does not invent metrics for ordinary assistant turns', () => {
+    const ordinaryTimeline = [
+      row('ordinary-user', 'user', 'settled'),
+      row('ordinary-ai', 'assistant', 'settled'),
+    ];
+    expect(contextCompactPresentationForRow(ordinaryTimeline, 1)).toBeNull();
     expect(
-      contextCompactPresentationForRow(
-        [
-          row('ordinary-user', 'user', 'settled'),
-          row('ordinary-ai', 'assistant', 'settled'),
-        ],
-        1
+      buildContextCompactPresentationByRowKey(ordinaryTimeline).get(
+        'ordinary-ai'
       )
     ).toBeNull();
+  });
+});
+
+describe('buildLiveTurnStats', () => {
+  it('populates model and token usage from active turn and session config options without inventing zeroes', () => {
+    const streaming = row('turn-1', 'assistant', 'streaming');
+    expect(
+      buildLiveTurnStats({
+        timeline: [streaming],
+        composerTokenUsage: {
+          total_tokens: 18500,
+          model_context_window: 200000,
+        },
+        sessionConfigOptions: [
+          {
+            key: 'model',
+            label: 'Model',
+            category: 'model',
+            value: 'claude-sonnet-4-5',
+            choices: [],
+          },
+        ],
+      })
+    ).toEqual({
+      model: 'claude-sonnet-4-5',
+      totalTokens: 18500,
+      contextWindow: 200000,
+    });
+
+    expect(
+      buildLiveTurnStats({
+        timeline: [],
+        composerTokenUsage: null,
+        sessionConfigOptions: [],
+      })
+    ).toEqual({
+      model: null,
+      totalTokens: null,
+      contextWindow: null,
+    });
   });
 });

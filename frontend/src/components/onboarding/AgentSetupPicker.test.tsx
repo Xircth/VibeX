@@ -104,28 +104,95 @@ describe('AgentSetupPicker icons', () => {
       expect(getComputedStyle(frame).overflow).toBe('hidden');
     }
 
-    const cursorArtwork = screen
-      .getByRole('checkbox', { name: '启用 Cursor' })
-      .closest('article')
-      ?.querySelector('.onboarding-agent-icon img');
-    const codebuddyArtwork = screen
-      .getByRole('checkbox', { name: '启用 CodeBuddy' })
-      .closest('article')
-      ?.querySelector('.onboarding-agent-icon img');
-    const codexArtwork = screen
-      .getByRole('checkbox', { name: '启用 Codex' })
-      .closest('article')
-      ?.querySelector('.onboarding-agent-icon svg');
+    const artworks = ['Cursor', 'CodeBuddy', 'Codex'].map((name) =>
+      screen
+        .getByRole('checkbox', { name: `启用 ${name}` })
+        .closest('article')
+        ?.querySelector('.onboarding-agent-icon svg')
+    );
 
-    expect(cursorArtwork).toHaveAttribute('src', '/agents/cursor-light.svg');
-    expect(codebuddyArtwork).toHaveAttribute('src', '/agents/codebuddy.svg');
-    expect(codexArtwork).not.toBeNull();
+    for (const artwork of artworks) {
+      expect(artwork).not.toBeNull();
+      expect(getComputedStyle(artwork!).width).toBe('24px');
+      expect(getComputedStyle(artwork!).height).toBe('24px');
+    }
+    expect(document.querySelector('.onboarding-agent-icon img')).toBeNull();
+  });
 
-    expect(getComputedStyle(cursorArtwork!).width).toBe('24px');
-    expect(getComputedStyle(cursorArtwork!).height).toBe('24px');
-    expect(getComputedStyle(codebuddyArtwork!).width).toBe('24px');
-    expect(getComputedStyle(codebuddyArtwork!).height).toBe('24px');
-    expect(getComputedStyle(codexArtwork!).width).toBe('24px');
-    expect(getComputedStyle(codexArtwork!).height).toBe('24px');
+  it('separates the agent list from a lighter panel without painting selected rows', () => {
+    const css = readFileSync(
+      resolve(
+        process.cwd(),
+        'src/components/onboarding/firstRunExperience.css'
+      ),
+      'utf8'
+    );
+    expect(css).toMatch(
+      /\.onboarding-agent-panel\s*\{[^}]*background:\s*var\(--surface-dialog\);/
+    );
+    expect(css).toMatch(
+      /\.onboarding-agent-list\s*\{[^}]*background:\s*var\(--surface-card-strong\);/
+    );
+    expect(css).toMatch(
+      /\.dark \.onboarding-agent-list\s*\{[^}]*background:\s*var\(--surface-card\);/
+    );
+    expect(css).toMatch(
+      /\.onboarding-editor-panel\s*\{[^}]*background:\s*var\(--surface-dialog\);/
+    );
+    expect(css).toMatch(
+      /\.onboarding-experience \.onboarding-editor-select,\s*\.onboarding-experience \.onboarding-editor-options\s*\{[^}]*background:\s*var\(--surface-card-strong\);/
+    );
+    expect(css).not.toMatch(
+      /\.onboarding-agent-row\.is-enabled\s*\{[^}]*background:/
+    );
+  });
+
+  it('centers a horizontal agent rail inside the install detail', () => {
+    const css = readFileSync(
+      resolve(
+        process.cwd(),
+        'src/components/onboarding/firstRunExperience.css'
+      ),
+      'utf8'
+    );
+    expect(css).toMatch(
+      /\.onboarding-install-step\s*\{[^}]*align-content:\s*safe center;/
+    );
+    expect(css).toMatch(
+      /\.onboarding-install-step\s*\{[^}]*padding:\s*88px 32px 48px;/
+    );
+    expect(css).toMatch(
+      /\.onboarding-install-column\s*\{[^}]*width:\s*min\(1120px,/
+    );
+    expect(css).toMatch(
+      /\.onboarding-agent-rail\s*\{[^}]*justify-content:\s*center;/
+    );
+    expect(css).toMatch(
+      /\.onboarding-agent-rail \.agent-management-bar\s*\{[^}]*max-width:\s*440px;/
+    );
+    expect(css).toMatch(
+      /\.agent-management-bar\.is-hug\s*\{[^}]*width:\s*max-content;/
+    );
+    expect(css).toMatch(
+      /\.onboarding-install-guidance\s*\{[^}]*align-self:\s*flex-end;/
+    );
+    expect(css).toMatch(
+      /\.agent-management-bar-pager\.is-next\s*svg\s*\{[^}]*transform:\s*scaleX\(-1\);/
+    );
+    expect(css).not.toMatch(
+      /\.agent-management-bar-label\s*\{[^}]*max-width:\s*none;/
+    );
+    expect(css).toMatch(/\.onboarding-install-panels\s*\{[^}]*gap:\s*16px;/);
+    const settingsCss = readFileSync(
+      resolve(process.cwd(), 'src/styles/legacy/index.css'),
+      'utf8'
+    );
+    expect(settingsCss).toMatch(
+      /\.agent-management-bar-label\s*\{[^}]*max-width:\s*0;/
+    );
+    expect(settingsCss).toMatch(
+      /\.agent-management-bar-item\.is-selected\s+\.agent-management-bar-label\s*\{[^}]*opacity:\s*1;/
+    );
+    expect(css).toMatch(/@keyframes onboarding-install-dot/);
   });
 });

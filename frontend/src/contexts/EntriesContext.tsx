@@ -80,8 +80,8 @@ function planEntriesEqual(a: PlanEntry[], b: PlanEntry[]): boolean {
     const other = b[index];
     return (
       entry.content === other?.content &&
-      entry.status === other.status &&
-      entry.priority === other.priority
+      entry.status === other?.status &&
+      (entry.priority ?? null) === (other?.priority ?? null)
     );
   });
 }
@@ -96,9 +96,9 @@ function sessionModesEqual(
   return a.modes.every((mode, index) => {
     const other = b.modes[index];
     return (
-      mode.id === other.id &&
-      mode.label === other.label &&
-      mode.description === other.description
+      mode.id === other?.id &&
+      mode.label === other?.label &&
+      (mode.description ?? null) === (other?.description ?? null)
     );
   });
 }
@@ -180,14 +180,18 @@ export const EntriesProvider = ({
 
   useEffect(() => {
     if (!runtimeKey) {
-      const nextValue = EMPTY_RUNTIME_VALUE;
-      localValueRef.current = nextValue;
-      setLocalValue(nextValue);
+      if (localValueRef.current !== EMPTY_RUNTIME_VALUE) {
+        localValueRef.current = EMPTY_RUNTIME_VALUE;
+        setLocalValue(EMPTY_RUNTIME_VALUE);
+      }
       return;
     }
 
     const sync = () => {
       const nextValue = getRuntimeValue(runtimeKey);
+      if (localValueRef.current === nextValue) {
+        return;
+      }
       localValueRef.current = nextValue;
       setLocalValue(nextValue);
     };
@@ -198,6 +202,12 @@ export const EntriesProvider = ({
 
   const setEntries = useCallback(
     (newEntries: PatchTypeWithKey[]) => {
+      if (
+        localValueRef.current.entries === newEntries ||
+        (localValueRef.current.entries.length === 0 && newEntries.length === 0)
+      ) {
+        return;
+      }
       const nextValue = {
         ...localValueRef.current,
         entries: newEntries,
@@ -246,9 +256,13 @@ export const EntriesProvider = ({
       if (sessionModesEqual(localValueRef.current.sessionModes, modes)) {
         return;
       }
+      const normalizedModes =
+        modes.current === null && modes.modes.length === 0
+          ? EMPTY_SESSION_MODES
+          : modes;
       const nextValue = {
         ...localValueRef.current,
-        sessionModes: modes,
+        sessionModes: normalizedModes,
       };
       localValueRef.current = nextValue;
 
@@ -274,7 +288,8 @@ export const EntriesProvider = ({
       }
       const nextValue = {
         ...localValueRef.current,
-        sessionConfigOptions: options,
+        sessionConfigOptions:
+          options.length === 0 ? EMPTY_SESSION_CONFIG_OPTIONS : options,
       };
       localValueRef.current = nextValue;
 
@@ -297,7 +312,8 @@ export const EntriesProvider = ({
       }
       const nextValue = {
         ...localValueRef.current,
-        conversationPlanEntries: entries,
+        conversationPlanEntries:
+          entries.length === 0 ? EMPTY_CONVERSATION_PLAN_ENTRIES : entries,
       };
       localValueRef.current = nextValue;
 
@@ -384,6 +400,9 @@ export const EntriesProvider = ({
   );
 
   const reset = useCallback(() => {
+    if (localValueRef.current === EMPTY_RUNTIME_VALUE) {
+      return;
+    }
     localValueRef.current = EMPTY_RUNTIME_VALUE;
 
     if (runtimeKey) {

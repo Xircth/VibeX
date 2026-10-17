@@ -17,6 +17,7 @@ pub struct AgentManagementRuntimeState {
     built_in_probes: Mutex<HashSet<AgentId>>,
     local_runtimes: Mutex<HashMap<AgentId, LocalRuntimeEvidence>>,
     acp_adapters: Mutex<HashMap<AgentId, LocalRuntimeEvidence>>,
+    desktop_clients: Mutex<HashMap<AgentId, LocalRuntimeEvidence>>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -80,6 +81,7 @@ impl AgentManagementRuntimeState {
         self.built_in_probes.lock().await.clear();
         self.local_runtimes.lock().await.clear();
         self.acp_adapters.lock().await.clear();
+        self.desktop_clients.lock().await.clear();
     }
 
     pub async fn begin_local_runtime_discovery(&self, total: u32) {
@@ -160,6 +162,26 @@ impl AgentManagementRuntimeState {
     pub async fn acp_adapters(&self) -> HashMap<AgentId, LocalRuntimeEvidence> {
         self.acp_adapters.lock().await.clone()
     }
+
+    pub async fn replace_desktop_client(
+        &self,
+        agent_id: AgentId,
+        evidence: Option<LocalRuntimeEvidence>,
+    ) {
+        let mut desktop_clients = self.desktop_clients.lock().await;
+        match evidence {
+            Some(evidence) => {
+                desktop_clients.insert(agent_id, evidence);
+            }
+            None => {
+                desktop_clients.remove(&agent_id);
+            }
+        }
+    }
+
+    pub async fn desktop_clients(&self) -> HashMap<AgentId, LocalRuntimeEvidence> {
+        self.desktop_clients.lock().await.clone()
+    }
 }
 
 pub fn local_runtime_discovery_progress_view(
@@ -190,9 +212,17 @@ pub async fn overlay_local_runtime_evidence(
 ) {
     let local_runtimes = runtime.local_runtimes().await;
     let acp_adapters = runtime.acp_adapters().await;
+    let desktop_clients = runtime.desktop_clients().await;
     for view in views {
         view.local_runtime =
             local_runtimes
+                .get(&view.agent_id)
+                .map(|evidence| AgentLocalRuntimeView {
+                    path: evidence.path.display().to_string(),
+                    version: evidence.version.clone(),
+                });
+        view.desktop_client =
+            desktop_clients
                 .get(&view.agent_id)
                 .map(|evidence| AgentLocalRuntimeView {
                     path: evidence.path.display().to_string(),
@@ -326,6 +356,28 @@ mod tests {
         assert!(runtime.should_probe_built_in(&claude, false).await);
         assert!(runtime.local_runtime(&claude).await.is_none());
         assert!(runtime.acp_adapters().await.is_empty());
+        assert!(runtime.desktop_clients().await.is_empty());
+    }
+
+    #[tokio::test]
+    async fn desktop_client_evidence_does_not_replace_the_cli_runtime() {
+        let runtime = AgentManagementRuntimeState::default();
+        let codex = agents::AgentId::parse("codex").unwrap();
+        runtime
+            .replace_desktop_client(
+                codex.clone(),
+                Some(LocalRuntimeEvidence {
+                    path: r"C:\Users\developer\AppData\Local\Programs\ChatGPT\ChatGPT.exe".into(),
+                    version: None,
+                }),
+            )
+            .await;
+
+        assert!(runtime.local_runtime(&codex).await.is_none());
+        assert_eq!(runtime.desktop_clients().await.len(), 1);
+
+        runtime.reset().await;
+        assert!(runtime.desktop_clients().await.is_empty());
     }
 
     #[tokio::test]

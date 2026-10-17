@@ -196,6 +196,7 @@ impl crate::CapabilityBroker for HostCapabilityBroker {
                 | "agent"
                 | "conversation"
                 | "browser"
+                | "blob"
                 | "app"
                 | "plugin.self"
                 | "provider.presets"
@@ -234,6 +235,7 @@ impl crate::CapabilityBroker for HostCapabilityBroker {
                 "artifact_not_found",
                 "Artifact text is only available on an editor surface session",
             )),
+            "blob" => crate::blob_store::dispatch_plugin_blob(plugin_id, operation, &input),
             "log" => Ok(json!({})),
             "plugin.self" if operation == "doctor" => Ok(json!({
                 "pluginId": plugin_id,
@@ -313,10 +315,10 @@ impl HostCapabilityBroker {
             .map_err(|error| broker_error("runtime_spawn_failed", error))?;
         let document = serde_json::to_vec(&input)
             .map_err(|error| broker_error("runtime_input_invalid", error))?;
-        if document.len() > 1024 * 1024 {
+        if document.len() > 16 * 1024 * 1024 {
             return Err(broker_error(
                 "runtime_input_too_large",
-                "Runtime input exceeds 1 MiB",
+                "Runtime input exceeds 16 MiB",
             ));
         }
         if let Some(mut stdin) = child.stdin.take() {
@@ -329,7 +331,7 @@ impl HostCapabilityBroker {
             .await
             .map_err(|_| broker_error("runtime_timeout", "Runtime execution timed out"))?
             .map_err(|error| broker_error("runtime_failed", error))?;
-        if output.stdout.len() > 4 * 1024 * 1024 || output.stderr.len() > 256 * 1024 {
+        if output.stdout.len() > 32 * 1024 * 1024 || output.stderr.len() > 1024 * 1024 {
             return Err(broker_error(
                 "runtime_output_too_large",
                 "Runtime output exceeds the Host limit",

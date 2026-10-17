@@ -1,6 +1,6 @@
 import { useCallback, useMemo } from 'react';
 import type { Workspace, WorkspaceWithStatus } from 'shared/types';
-import { useTauriPatchStream } from './useTauriPatchStream';
+import { usePatchStream } from './useTauriPatchStream';
 import { dateTimestamp } from '@/utils/date';
 
 type ProjectWorkspacesState = {
@@ -26,7 +26,7 @@ export function useProjectWorkspacesStream(
   );
 
   const { data, isConnected, isInitialized, error } =
-    useTauriPatchStream<ProjectWorkspacesState>({
+    usePatchStream<ProjectWorkspacesState>({
       subscribeCommand: 'subscribe_project_workspaces_stream',
       subscribeArgs,
       eventChannel: `project-workspaces-stream:${projectId}`,

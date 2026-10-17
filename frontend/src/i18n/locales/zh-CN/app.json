@@ -46,7 +46,7 @@
   "diffViewSwitch": {
     "inlineView": "内联视图",
     "splitView": "分割视图",
-    "ignoreWhitespace": "忽略空格更改",
+    "ignoreWhitespace": "忽略空格",
     "wrapText": "自动换行"
   },
   "projectCard": {

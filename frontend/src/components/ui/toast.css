@@ -426,6 +426,12 @@
   }
 }
 
+.reduced-transparency .vu-toast-surface {
+  background: var(--surface-popover);
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+
 @media (prefers-reduced-transparency: reduce) {
   .vu-toast-surface {
     background: var(--surface-popover);

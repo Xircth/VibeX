@@ -71,8 +71,6 @@ function CreateSessionOverlay({
   workspaceBranchOptions,
   createWorkspaceValue,
   setCreateWorkspaceValue,
-  createSessionName,
-  setCreateSessionName,
   profiles,
   selectedExecutorProfile,
   setSelectedExecutorProfile,
@@ -93,8 +91,6 @@ function CreateSessionOverlay({
   workspaceBranchOptions: WorkspaceBranchOption[];
   createWorkspaceValue: string;
   setCreateWorkspaceValue: (value: string) => void;
-  createSessionName: string;
-  setCreateSessionName: (value: string) => void;
   profiles: ReturnType<typeof useUserSystem>['profiles'];
   selectedExecutorProfile: ExecutorProfileId | null;
   setSelectedExecutorProfile: (value: ExecutorProfileId | null) => void;
@@ -132,8 +128,6 @@ function CreateSessionOverlay({
           workspaceBranchOptions={workspaceBranchOptions}
           selectedWorkspaceValue={createWorkspaceValue}
           onSelectedWorkspaceValueChange={setCreateWorkspaceValue}
-          sessionName={createSessionName}
-          onSessionNameChange={setCreateSessionName}
           profiles={profiles}
           selectedExecutorProfile={selectedExecutorProfile}
           onSelectedExecutorProfileChange={setSelectedExecutorProfile}
@@ -293,7 +287,6 @@ export function RightPanelContent() {
   >(null);
   const [createMode, setCreateMode] =
     useState<SessionCreationMode>('existing_workspace');
-  const [createSessionName, setCreateSessionName] = useState('');
   const [createWorkspaceValue, setCreateWorkspaceValue] = useState(
     defaultWorkspaceValue
   );
@@ -429,7 +422,7 @@ export function RightPanelContent() {
         workspace_id: workspaceSelection.workspaceId,
         branch: workspaceSelection.branch,
         executor: selectedExecutorProfile?.executor ?? undefined,
-        name: createSessionName.trim() || null,
+        name: null,
         create_workspace: isGitProject && createMode === 'new_workspace',
         include_uncommitted:
           isGitProject && createMode === 'new_workspace'
@@ -484,7 +477,6 @@ export function RightPanelContent() {
         sessionId: newSession.id,
         workspaceId: newSession.workspace_id,
       });
-      setCreateSessionName('');
       setIsCreateOverlayOpen(false);
     },
   });
@@ -498,7 +490,6 @@ export function RightPanelContent() {
         sessionControlsPresetRef.current = null;
         setCreateWorkspaceValue(defaultWorkspaceValue);
         setSelectedExecutorProfile(defaultExecutorProfile);
-        setCreateSessionName('');
         setCreateMode(
           canUseExistingWorkspace ? 'existing_workspace' : 'new_workspace'
         );
@@ -624,8 +615,6 @@ export function RightPanelContent() {
     workspaceBranchOptions,
     createWorkspaceValue,
     setCreateWorkspaceValue,
-    createSessionName,
-    setCreateSessionName,
     profiles,
     selectedExecutorProfile,
     setSelectedExecutorProfile,

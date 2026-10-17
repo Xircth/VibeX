@@ -29,7 +29,26 @@ export type TurnRenderItem =
 
 type ToolRenderItem = Extract<TurnRenderItem, { kind: 'tool' }>;
 
+const planTurnBlocksCache = new WeakMap<
+  ContentBlock[],
+  {
+    length: number;
+    lastBlock: ContentBlock | undefined;
+    items: TurnRenderItem[];
+  }
+>();
+
 export function planTurnBlocks(blocks: ContentBlock[]): TurnRenderItem[] {
+  const lastBlock = blocks[blocks.length - 1];
+  const cached = planTurnBlocksCache.get(blocks);
+  if (
+    cached &&
+    cached.length === blocks.length &&
+    cached.lastBlock === lastBlock
+  ) {
+    return cached.items;
+  }
+
   const toolUseIds = new Set<string>();
   const resultByToolId = new Map<string, ToolResultBlock>();
   for (const block of blocks) {
@@ -136,5 +155,10 @@ export function planTurnBlocks(blocks: ContentBlock[]): TurnRenderItem[] {
       }
     }
   }
+  planTurnBlocksCache.set(blocks, {
+    length: blocks.length,
+    lastBlock,
+    items,
+  });
   return items;
 }

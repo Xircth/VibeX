@@ -19,6 +19,7 @@
     "chatChannels": "Chat channels",
     "automations": "Automations",
     "plugins": "Plugins",
+    "browser": "Browser",
     "webService": "Remote connection",
     "logs": "Runtime logs",
     "system": "System"
@@ -919,6 +920,12 @@
             "description": "Quantum computing and simulation, astronomy, materials structure, CFD/PIV/discrete-event simulation, multi-objective optimization, geospatial analysis, and lab hardware CAD. (13 Skills)"
           }
         }
+      },
+      "computerUse": {
+        "name": "Computer Use",
+        "summary": "See and control shared desktop windows: accessibility trees, screenshots, keyboard and pointer input, per-window grants, and a global emergency stop.",
+        "readme": "# Computer Use\n\nLets an Agent read and act in windows you share. Sharing is per window, per application, or the full screen, and is either view-only or allowed to control.\n\nAfter you enable it, sessions opened or rebound later receive the Computer Use MCP and Skill. The global emergency stop revokes grants and interrupts an action in progress.\n\nThe breathing aura on a shared window is controlled by Show the desktop sharing indicator in settings.",
+        "config": {}
       }
     },
     "contentTab": "Content",
@@ -2165,6 +2172,9 @@
     "saveFile": "Save file",
     "agentListAria": "Agent list",
     "addAgent": "Add Agent",
+    "previousAgentPage": "Previous Agents",
+    "nextAgentPage": "Next Agents",
+    "reorderHint": "Drag, or press Alt with an arrow key, to reorder.",
     "acpRegistry": "ACP registry",
     "registryRefreshCached": "Registry refresh failed; continuing with the last successful cache.",
     "registryLoadFailed": "Unable to load the ACP registry",
@@ -2181,6 +2191,7 @@
     "preflightFailed": "Preflight checks failed",
     "subscriptionOpened": "The official subscription page was opened.",
     "terminalFlowStarted": "The official flow was started in a terminal.",
+    "browserLoginStarted": "The official login was started; please complete it in your browser.",
     "accountFlowFailed": "Unable to start the account-management flow",
     "accountFlowCommandFailed": "The official login or logout command did not finish successfully.",
     "enableUpdateFailed": "Unable to update the enabled state",
@@ -2289,7 +2300,12 @@
           "description": "Open the official ChatGPT plan page."
         }
       },
-      "antigravity": {},
+      "antigravity": {
+        "login": {
+          "label": "Sign in",
+          "description": "Complete the Antigravity account sign-in in your browser."
+        }
+      },
       "gemini": {
         "login": {
           "label": "Sign in with Google",
@@ -2830,5 +2846,111 @@
     "clearLocalDataTitle": "Clear VibeX local data",
     "clearLocalDataLabel": "Clear local configuration and cache",
     "saveSettings": "Save settings"
+  },
+  "browser": {
+    "links": {
+      "title": "Where links open",
+      "description": "Choose whether http(s) links from each surface open in the built-in browser or the system default browser.",
+      "transcript": "Conversation transcript links",
+      "toolCard": "Tool cards and preview links",
+      "terminal": "Terminal output links",
+      "editor": "Code editor links",
+      "notification": "Notification and banner links",
+      "targetBuiltin": "Built-in browser",
+      "targetSystem": "System default browser",
+      "targetAsk": "Ask every time"
+    },
+    "rules": {
+      "title": "Site rules",
+      "description": "Override the default opener by domain or host pattern. Managed policy rules run before personal rules. A more specific host wins. At the same specificity, block wins over the system browser, and the system browser wins over the built-in browser.",
+      "policyManaged": "Managed enterprise policy loaded",
+      "policyRule": "Policy",
+      "patternPlaceholder": "e.g. *.corp.internal, localhost:3000, or https://*.example.com:8443",
+      "actionBuiltin": "Open in built-in browser",
+      "actionSystem": "Open in system browser",
+      "actionBlock": "Block navigation",
+      "blockedToast": "This site is blocked by a site rule",
+      "addRule": "Add rule",
+      "empty": "No custom site rules configured.",
+      "removeRule": "Remove rule",
+      "errors": {
+        "empty": "Enter a hostname or site pattern",
+        "path": "Site rules match hostnames and optional ports only (no path, query, or hash)",
+        "scheme": "Scheme must be http:// or https://",
+        "port": "Port must be 1–65535 or *",
+        "wildcard": "Wildcards are only supported as * or a leading *.example.com prefix",
+        "host": "Enter a valid hostname, IPv4, or [IPv6] address",
+        "duplicate": "A rule with this pattern and action already exists"
+      }
+    },
+    "agent": {
+      "title": "Agent browser control (MCP)",
+      "description": "Control how agents inspect, interact with, capture, and run scripts in built-in browser tabs via MCP.",
+      "toolsEnabled": "Enable Agent Browser MCP tools",
+      "toolsEnabledHint": "When disabled, agents cannot read snapshots, click, type, or read console logs from built-in browser tabs.",
+      "defaultGrant": "Default share level for new tabs",
+      "defaultGrantHint": "Initial permission granted to agents when opening a new tab; adjustable per tab from the address bar.",
+      "grantControl": "Interactive control (Read + Click/Type)",
+      "grantRead": "Read only (Snapshot/Screenshot/Console)",
+      "grantNone": "Not shared (Manual approval required)",
+      "evalEnabled": "Allow page JavaScript execution (browser_eval)",
+      "evalEnabledHint": "Allows agents to execute arbitrary scripts inside tabs with interactive control.",
+      "evalApproval": "JavaScript approval mode",
+      "evalApprovalAsk": "Confirm in the browser panel each time",
+      "evalApprovalSilent": "Run automatically on control-granted tabs",
+      "rememberedOrigins": "Remembered site permissions",
+      "rememberedOriginsCount": "{{count}} remembered site permissions",
+      "clearOrigins": "Clear site permissions",
+      "originsCleared": "Cleared remembered site permissions"
+    },
+    "services": {
+      "title": "Local dev services & terminal",
+      "serviceAutoOpen": "When a local dev server port is detected",
+      "serviceAutoOpenHint": "How VibeX reacts when a terminal or task starts a localhost / 127.0.0.1 web server.",
+      "serviceOff": "Do nothing",
+      "serviceToast": "Show toast notification",
+      "serviceAuto": "Open automatically in built-in browser",
+      "terminalClickMenu": "Show open menu on Alt + click in terminal",
+      "terminalClickMenuHint": "Hold Alt when clicking a terminal URL to choose between the built-in and system browser."
+    },
+    "runtime": {
+      "title": "Basic settings",
+      "defaultLinkTarget": "Default link opener",
+      "defaultLinkTargetHint": "Browser used when an http(s) link is opened from the workspace.",
+      "defaultLinkBuiltin": "Built-in browser",
+      "defaultLinkSystem": "Default browser",
+      "devtools": "Show DevTools button in toolbar",
+      "surfaceOverride": "Browser surface mode",
+      "surfaceAuto": "Auto (Native embedded child WebView)",
+      "surfaceWindow": "Separate window",
+      "suspendBackgroundTabs": "Freeze hidden background tabs",
+      "suspendBackgroundTabsHint": "Retain a static frame and pause high-frequency bounds sync while hidden or occluded.",
+      "signInUserAgent": "OAuth sign-in compatible User-Agent",
+      "signInUserAgentHint": "Use a standard desktop browser User-Agent to prevent third-party OAuth blocks (applies to new tabs).",
+      "activeSurfaceMode": "Active rendering backend",
+      "surfaceModeChildWebview": "Native Child WebView",
+      "surfaceModeExternalWindow": "External Window",
+      "proxyNote": "Network proxy inheritance",
+      "downloadsDir": "Default downloads directory"
+    },
+    "profiles": {
+      "title": "Browser profiles & data isolation",
+      "description": "Each profile maintains isolated cookies, localStorage, and sign-in sessions.",
+      "newTabProfile": "Default profile for new tabs",
+      "defaultBadge": "Default",
+      "ephemeralBadge": "Ephemeral",
+      "ephemeralName": "Ephemeral session (ephemeral)",
+      "clearData": "Clear data",
+      "confirmClear": "Confirm clear",
+      "cancel": "Cancel",
+      "deleteProfile": "Delete",
+      "createPlaceholder": "New profile name (letters, digits, -, _)",
+      "createButton": "Create profile",
+      "invalidName": "Profile name must be 1–36 letters or digits (may include - or _)",
+      "created": "Created profile {{name}}",
+      "cleared": "Cleared browsing data for {{name}}",
+      "removed": "Removed profile {{name}}",
+      "actionFailed": "Profile operation failed"
+    }
   }
 }

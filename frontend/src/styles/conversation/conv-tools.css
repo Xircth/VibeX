@@ -50,7 +50,7 @@
   background: transparent;
 }
 
-.composer-session-popover.tahoe-popover {
+.composer-session-popover {
   display: flex;
   width: 18rem;
   max-height: min(
@@ -498,6 +498,19 @@ button.conv-tool-artifact-title:hover {
   padding: 0 10px 0 0;
 }
 
+.conv-tool-code-line.is-inspected {
+  background: var(--conv-surface-control);
+}
+
+.conv-tool-code-line.without-line-numbers {
+  grid-template-columns: minmax(0, 1fr);
+  padding-inline: 10px;
+}
+
+.conv-tool-terminal-command {
+  border-bottom: 1px solid var(--conv-border-subtle);
+}
+
 .conv-tool-code-num {
   color: var(--conv-text-tertiary);
   font-variant-numeric: tabular-nums;
@@ -734,6 +747,11 @@ button.conv-tool-artifact-title:hover {
 .astryx-chat-tool-calls [role='button']:hover,
 .astryx-chat-tool-calls [role='button']:focus-visible {
   background: var(--conv-surface-control) !important;
+}
+
+.vibex-tool-call-batch > [role='button']:hover,
+.vibex-tool-call-batch > [role='button']:focus-visible {
+  background: transparent !important;
 }
 
 .astryx-chat-tool-calls [role='button'][aria-expanded='true'] + div {
@@ -1013,9 +1031,9 @@ button.vibex-tool-call-target-label:hover {
   align-items: center;
   gap: 6px;
   cursor: pointer;
-  font-size: 13px;
+  font-size: 0.75rem;
   font-weight: 500;
-  color: var(--conv-text-tertiary);
+  color: var(--conv-text-secondary);
   user-select: none;
   background: transparent;
   border: none;
@@ -1024,7 +1042,13 @@ button.vibex-tool-call-target-label:hover {
 }
 
 .conv-thinking-header:hover {
-  color: var(--conv-text-secondary, var(--text-muted));
+  color: var(--conv-text-primary);
+}
+
+.conv-thinking-header:focus-visible {
+  outline: 2px solid hsl(var(--ring));
+  outline-offset: 2px;
+  border-radius: var(--radius);
 }
 
 .conv-thinking-chevron {
@@ -1048,18 +1072,56 @@ button.vibex-tool-call-target-label:hover {
 .conv-thinking-content {
   margin-top: 6px;
   color: var(--conv-text-secondary, var(--text-muted));
-  font-size: 13px;
+  font-size: 0.875rem;
   line-height: 1.55;
 }
 
-.conv-thinking-group {
-  opacity: 0.82;
+.conv-thinking-content .conv-markdown,
+.conv-thinking-content .conv-markdown [data-astryx-theme],
+.conv-thinking-content
+  .conv-markdown
+  :where(p, li, h1, h2, h3, h4, h5, h6, strong, em),
+.conv-thinking-content .conv-markdown :not(pre) > code {
+  --color-text-primary: var(--conv-text-secondary, var(--text-muted));
+  --color-text-secondary: var(--conv-text-tertiary, var(--text-faint));
+  --color-icon-primary: var(--conv-text-secondary, var(--text-muted));
+  color: var(--conv-text-secondary, var(--text-muted));
 }
 
-.conv-thinking-group-content {
-  border-top: 1px dashed var(--conv-border-subtle);
-  margin-top: 8px;
-  padding-top: 8px;
+.conv-activity-header {
+  display: flex;
+  width: 100%;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 0;
+  border: 0;
+  border-radius: var(--radius);
+  background: transparent;
+  color: var(--conv-text-secondary);
+  font: inherit;
+  font-size: 0.875rem;
+  text-align: left;
+  cursor: pointer;
+}
+
+.conv-activity-header > span {
+  flex: 1;
+  min-width: 0;
+}
+
+.conv-activity-header:hover {
+  color: var(--conv-text-primary);
+}
+
+.conv-activity-header:focus-visible {
+  outline: 2px solid hsl(var(--ring));
+  outline-offset: 2px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .conv-thinking-chevron {
+    transition: none;
+  }
 }
 
 .permission-request-preview-wrap {
@@ -1090,18 +1152,17 @@ button.vibex-tool-call-target-label:hover {
 }
 
 .conv-thinking-count {
-  margin-left: auto;
   display: inline-flex;
   min-width: 18px;
   height: 18px;
   align-items: center;
   justify-content: center;
   padding: 0 5px;
-  border-radius: 999px;
-  background: rgba(127, 127, 127, 0.12);
-  color: var(--conv-text-tertiary);
-  font-size: 10px;
-  font-weight: 600;
+  border-radius: var(--radius);
+  background: var(--surface-control);
+  color: var(--conv-text-secondary);
+  font-size: 0.75rem;
+  font-variant-numeric: tabular-nums;
 }
 
 /* =========================================

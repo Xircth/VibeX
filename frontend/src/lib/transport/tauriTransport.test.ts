@@ -132,4 +132,41 @@ describe('TauriTransport application command adapter', () => {
       'Backend returned a non-JSON-safe conversation sequence'
     );
   });
+
+  it('unlistens immediately when a patch_stream iterator is closed while awaiting events and separates statsOnly diff channel', async () => {
+    const unlisten = vi.fn();
+    tauriListen.mockResolvedValue(unlisten);
+    tauriInvoke.mockResolvedValue({
+      operation_id: '0195d6f4-8c37-7b28-a982-6a9e60142f55',
+      data: null,
+    });
+
+    const events = new TauriTransport().subscribe({
+      subscription_id: 'sub-diff-stats',
+      resource: 'patch_stream',
+      stream: 'diff',
+      args: { workspaceId: 'ws-1', statsOnly: true },
+    });
+
+    const iterator = events[Symbol.asyncIterator]();
+    const pendingNext = iterator.next();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(tauriListen).toHaveBeenCalledWith(
+      'diff-stream:ws-1:stats',
+      expect.any(Function)
+    );
+    expect(tauriListen).not.toHaveBeenCalledWith(
+      'diff-stream:ws-1',
+      expect.any(Function)
+    );
+    expect(unlisten).not.toHaveBeenCalled();
+
+    await iterator.return?.();
+    await expect(pendingNext).resolves.toEqual({
+      value: undefined,
+      done: true,
+    });
+    expect(unlisten).toHaveBeenCalledTimes(1);
+  });
 });

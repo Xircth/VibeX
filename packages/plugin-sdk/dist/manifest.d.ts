@@ -69,6 +69,11 @@ export interface McpIntegrationManifest extends IntegrationBase {
     kind: "content.mcp";
     resource: string;
 }
+/** One tool the Host MCP manager lists before an agent session connects. */
+export interface PluginMcpToolDeclaration {
+    name: string;
+    group?: string;
+}
 /** Package-relative MCP process supervised and credentialed by the VibeX Host. */
 export interface ManagedMcpRuntimeResource {
     managedRuntime: {
@@ -83,6 +88,8 @@ export interface ManagedMcpRuntimeResource {
         protocolRevision: "2026-07-28";
         defaultBinding?: "all-compatible-agents";
     };
+    /** Required for packaged/static/workerHttp MCP so the status bar can list tools. */
+    tools?: Array<string | PluginMcpToolDeclaration>;
 }
 export interface WorkflowIntegrationManifest extends IntegrationBase {
     kind: "workflow.binding";
@@ -130,7 +137,7 @@ export interface AppSurfaceIntegrationManifest extends IntegrationBase {
  * Mirrored by `@vibex/plugin-contract/catalog/icons` and the Rust
  * `CONTRIBUTION_ICONS`; all three are asserted equal by tests.
  */
-export declare const CONTRIBUTION_ICONS: readonly ["activity", "alert-triangle", "bell", "bookmark", "bot", "calendar", "chart-bar", "check-circle", "clock", "cloud", "code", "database", "file-text", "filter", "flag", "folder", "gauge", "git-branch", "globe", "info", "key", "layers", "link", "list", "message-square", "package", "play", "plug", "puzzle", "refresh-cw", "search", "settings", "shield", "sparkles", "star", "tag", "terminal", "timer", "user", "zap"];
+export declare const CONTRIBUTION_ICONS: readonly ["activity", "alert-triangle", "bell", "bookmark", "bot", "calendar", "chart-bar", "check-circle", "clock", "cloud", "code", "database", "file-text", "filter", "flag", "folder", "gauge", "git-branch", "globe", "info", "key", "layers", "link", "list", "message-square", "monitor", "package", "play", "plug", "puzzle", "refresh-cw", "search", "settings", "shield", "sparkles", "star", "tag", "terminal", "timer", "user", "zap"];
 export type ContributionIcon = (typeof CONTRIBUTION_ICONS)[number];
 export interface CommandIntegrationManifest extends IntegrationBase {
     kind: "app.command";
@@ -149,7 +156,12 @@ export interface ToolbarIntegrationManifest extends IntegrationBase {
 }
 export interface StatusIntegrationManifest extends IntegrationBase {
     kind: "app.status";
-    slot?: "status.main";
+    /**
+     * `status.main` (default) sits left of the MCP status icon and shows
+     * icon plus text. `status.after-mcp` is an icon button immediately to the
+     * right of that MCP icon; `text` is its tooltip.
+     */
+    slot?: "status.main" | "status.after-mcp";
     /** Text shown before the first refresh, and the only text when static. */
     text?: string;
     icon?: ContributionIcon;
@@ -157,6 +169,11 @@ export interface StatusIntegrationManifest extends IntegrationBase {
     handler: string;
     /** 5–3600. Omit for a static item. */
     refreshSeconds?: number;
+    /**
+     * When set on `status.after-mcp`, clicking the icon opens this remote
+     * instead of invoking `handler`.
+     */
+    remote?: RemoteModuleManifest;
 }
 export interface ComposerSlashIntegrationManifest extends IntegrationBase {
     kind: "app.composer.slash";
@@ -320,6 +337,8 @@ export interface SettingsPageIntegrationManifest extends IntegrationBase {
     icon?: ContributionIcon;
     handler: "surface.createSession";
     remote?: RemoteModuleManifest;
+    engine?: string;
+    allowedMethods?: string[];
 }
 export interface ComposerActionIntegrationManifest extends IntegrationBase {
     kind: "app.composer.action";

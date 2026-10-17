@@ -1,15 +1,17 @@
-import { memo, useMemo } from 'react';
+import { memo, useMemo, useState } from 'react';
 import {
   GitPullRequest,
   ExternalLink,
   RefreshCw,
   Loader2,
-  AlertCircle,
   GitBranch,
   ArrowRight,
+  Github,
 } from 'lucide-react';
 import type { OpenPrInfo } from 'shared/types';
+import { Button } from '@/components/ui/button';
 import { getGitHostErrorPresentation } from '@/lib/gitHostUiErrors';
+import { GitHubCliSetupModal } from './GitHubCliSetupModal';
 
 interface GitPRsViewProps {
   prs: OpenPrInfo[];
@@ -24,6 +26,7 @@ export const GitPRsView = memo(function GitPRsView({
   error,
   onRefresh,
 }: GitPRsViewProps) {
+  const [setupModalOpen, setSetupModalOpen] = useState(false);
   const errorPresentation = useMemo(
     () => getGitHostErrorPresentation(error, 'PRs'),
     [error]
@@ -45,6 +48,15 @@ export const GitPRsView = memo(function GitPRsView({
           {prs.length} open
         </span>
         <button
+          type="button"
+          className="p-0.5 rounded text-muted-foreground hover:text-foreground hover:bg-accent/50 transition-colors"
+          onClick={() => setSetupModalOpen(true)}
+          title="GitHub CLI 设置与登录"
+        >
+          <Github className="h-3 w-3" />
+        </button>
+        <button
+          type="button"
           className="p-0.5 rounded text-muted-foreground hover:text-foreground hover:bg-accent/50 transition-colors"
           onClick={onRefresh}
           title="Refresh"
@@ -57,23 +69,6 @@ export const GitPRsView = memo(function GitPRsView({
           )}
         </button>
       </div>
-
-      {/* Error */}
-      {errorPresentation && (
-        <div className="mx-2 mt-2 rounded-md border border-[hsl(var(--warning)/0.3)] bg-[hsl(var(--warning)/0.1)] px-3 py-2 text-[11px] text-[hsl(var(--warning))]">
-          <div className="flex items-start gap-2">
-            <AlertCircle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
-            <div className="min-w-0 space-y-1">
-              <p className="font-medium">{errorPresentation.title}</p>
-              {errorPresentation.hint ? (
-                <p className="whitespace-pre-line text-[hsl(var(--warning)/0.86)]">
-                  {errorPresentation.hint}
-                </p>
-              ) : null}
-            </div>
-          </div>
-        </div>
-      )}
 
       {/* Content */}
       <div className="flex-1 overflow-y-auto min-h-0">
@@ -123,13 +118,46 @@ export const GitPRsView = memo(function GitPRsView({
               </button>
             ))}
           </div>
-        ) : !errorPresentation ? (
+        ) : errorPresentation ? (
+          <div className="flex flex-col items-center justify-center h-full px-4 text-center">
+            <GitPullRequest className="h-7 w-7 text-muted-foreground/35 mb-2" />
+            <p className="text-xs font-medium text-foreground">
+              暂无可用 Pull Request
+            </p>
+            <p className="mt-1 text-[11px] text-muted-foreground leading-relaxed">
+              {errorPresentation.requiresGhSetup
+                ? '未检测到可用的 GitHub CLI (gh) 或尚未登录 GitHub 账号。请完成安装与登录后查看 PR。'
+                : errorPresentation.title}
+            </p>
+            {!errorPresentation.requiresGhSetup && errorPresentation.hint && (
+              <p className="mt-1 text-[10px] text-muted-foreground/80 leading-relaxed">
+                {errorPresentation.hint}
+              </p>
+            )}
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              className="mt-3 h-7 px-2.5 text-xs gap-1.5"
+              onClick={() => setSetupModalOpen(true)}
+            >
+              <Github className="h-3.5 w-3.5" />
+              <span>安装 / 登录 GitHub CLI</span>
+            </Button>
+          </div>
+        ) : (
           <div className="flex flex-col items-center justify-center h-full text-muted-foreground">
             <GitPullRequest className="h-6 w-6 opacity-30 mb-2" />
             <span className="text-xs">No open pull requests</span>
           </div>
-        ) : null}
+        )}
       </div>
+
+      <GitHubCliSetupModal
+        open={setupModalOpen}
+        onOpenChange={setSetupModalOpen}
+        onConfigured={onRefresh}
+      />
     </div>
   );
 });

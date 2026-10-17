@@ -71,7 +71,8 @@ export interface AppSurfaceDescriptor {
     | 'app.settings.page'
     | 'app.panel'
     | 'app.tab'
-    | 'app.kanban.view';
+    | 'app.kanban.view'
+    | 'status.after-mcp';
   artifactPath?: string;
 }
 

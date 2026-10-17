@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { attemptsApi, repoApi } from '@/lib/api';
 import { dateTimestamp } from '@/utils/date';
-import type { GitBranch } from 'shared/types';
+import type { GitBranch, GitRemote } from 'shared/types';
 
 interface UseGitBranchesOptions {
   workspaceId: string | null;
@@ -11,6 +11,7 @@ interface UseGitBranchesOptions {
 
 interface UseGitBranchesReturn {
   branches: GitBranch[];
+  remotes: GitRemote[];
   isLoading: boolean;
   error: string | null;
   refresh: () => void;
@@ -25,6 +26,7 @@ export function useGitBranches({
   enabled = true,
 }: UseGitBranchesOptions): UseGitBranchesReturn {
   const [branches, setBranches] = useState<GitBranch[]>([]);
+  const [remotes, setRemotes] = useState<GitRemote[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -33,7 +35,12 @@ export function useGitBranches({
     setIsLoading(true);
     setError(null);
     try {
-      const result = await repoApi.getBranches(repoId);
+      const [result, remoteList] = await Promise.all([
+        repoApi.getBranches(repoId),
+        repoApi.listRemotes
+          ? repoApi.listRemotes(repoId).catch(() => [] as GitRemote[])
+          : Promise.resolve([] as GitRemote[]),
+      ]);
       const sorted = [...result].sort((a, b) => {
         if (a.is_current && !b.is_current) return -1;
         if (!a.is_current && b.is_current) return 1;
@@ -42,6 +49,7 @@ export function useGitBranches({
         );
       });
       setBranches(sorted);
+      setRemotes(remoteList);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     } finally {
@@ -114,6 +122,7 @@ export function useGitBranches({
 
   return {
     branches,
+    remotes,
     isLoading,
     error,
     refresh,

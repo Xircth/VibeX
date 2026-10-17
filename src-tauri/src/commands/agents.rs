@@ -447,14 +447,12 @@ pub async fn agent_set_session_defaults(
     let valid = if request.defaults.is_empty() {
         BTreeMap::new()
     } else {
-        let catalog = read_matching_open_capability_catalog_for_pool(pool, &request.agent_id)
-            .await?
-            .ok_or_else(|| {
-                AppError::Conflict(
-                    "Agent capability catalog is unavailable; refresh it before saving defaults"
-                        .to_string(),
-                )
-            })?;
+        let catalog = conversations::load_capability_catalog_for_session_defaults(
+            pool,
+            &state.agent_runtime,
+            &request.agent_id,
+        )
+        .await?;
         let validation =
             agents::validate_session_defaults(request.defaults, &catalog.config_options);
         if !validation.stale_ids.is_empty() {

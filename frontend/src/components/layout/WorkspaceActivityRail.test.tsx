@@ -43,7 +43,7 @@ describe('WorkspaceActivityRail', () => {
     mocks.persistFrontendPreference.mockReset();
   });
 
-  it('renders the four workspace panels in default order', () => {
+  it('renders the workspace panels in default order', () => {
     render(
       <WorkspaceActivityRail isEditorAreaVisible onToggleEditorArea={vi.fn()} />
     );
@@ -54,7 +54,7 @@ describe('WorkspaceActivityRail', () => {
         .getAllByRole('button')
         .filter((button) => button.getAttribute('aria-label'))
         .map((button) => button.getAttribute('aria-label'))
-    ).toEqual(['文件', 'Git', '搜索 (Ctrl+Shift+F)', '会话列表']);
+    ).toEqual(['文件', 'Git', '会话列表']);
     expect(
       screen.queryByRole('button', { name: '取消分割' })
     ).not.toBeInTheDocument();
@@ -92,7 +92,7 @@ describe('WorkspaceActivityRail', () => {
         .getAllByRole('button')
         .filter((button) => button.getAttribute('aria-label'))
         .map((button) => button.getAttribute('aria-label'))
-    ).toEqual(['会话列表', '文件', 'Git', '搜索 (Ctrl+Shift+F)']);
+    ).toEqual(['会话列表', '文件', 'Git']);
     expect(getDefaultActivityRailPanelId()).toBe(PANEL_IDS.SESSION_LIST);
   });
 });

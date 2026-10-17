@@ -52,13 +52,35 @@ export async function invokeAsResult<T, E>(
     const data = await backendCall<T>(cmd, args);
     return { success: true, data };
   } catch (error) {
-    // Tauri errors come as strings or objects
-    const errorStr = typeof error === 'string' ? error : JSON.stringify(error);
+    const errorStr =
+      typeof error === 'string'
+        ? error
+        : error instanceof Error
+          ? error.message
+          : typeof error === 'object' &&
+              error !== null &&
+              'message' in error &&
+              typeof (error as { message?: unknown }).message === 'string'
+            ? (error as { message: string }).message
+            : JSON.stringify(error);
     let errorData: E | undefined;
-    try {
-      errorData = typeof error === 'string' ? JSON.parse(error) : (error as E);
-    } catch {
-      errorData = undefined;
+    if (typeof error === 'string') {
+      try {
+        errorData = JSON.parse(error) as E;
+      } catch {
+        errorData = undefined;
+      }
+    } else if (error instanceof Error) {
+      const details =
+        'details' in error
+          ? (error as { details?: unknown }).details
+          : 'error_data' in error
+            ? (error as { error_data?: unknown }).error_data
+            : undefined;
+      errorData =
+        details !== undefined && details !== null ? (details as E) : undefined;
+    } else {
+      errorData = error as E;
     }
     return { success: false, error: errorData, message: errorStr };
   }

@@ -112,9 +112,13 @@ export function DesktopToastWindow() {
   }, []);
 
   const closeWindow = useCallback(async () => {
-    await getCurrentWindow()
-      .hide()
-      .catch(() => {});
+    try {
+      await desktopShellCall('hide_desktop_toast');
+    } catch {
+      await getCurrentWindow()
+        .hide()
+        .catch(() => {});
+    }
   }, []);
 
   const scheduleRemoval = useCallback(

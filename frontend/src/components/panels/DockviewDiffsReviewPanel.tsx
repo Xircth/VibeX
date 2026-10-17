@@ -18,8 +18,13 @@ import { useAttempt } from '@/hooks/useAttempt';
 import { useDiffStream } from '@/hooks/useDiffStream';
 import { useDiffSummary } from '@/hooks/useDiffSummary';
 import DiffCard from '@/components/DiffCard';
-import DiffViewSwitch from '@/components/DiffViewSwitch';
+import DiffViewSwitch, {
+  DIFF_VIEW_BUTTON_COUNT,
+  computeDiffViewVisibleLabelCount,
+} from '@/components/DiffViewSwitch';
 import { DiffFileTree } from '@/components/diff/DiffFileTree';
+import { Button as AstryxButton } from '@astryxdesign/core/Button';
+import { ButtonGroup as AstryxButtonGroup } from '@astryxdesign/core/ButtonGroup';
 import { useCommitDiffStore } from '@/stores/useCommitDiffStore';
 import { useGitDiffNavigationStore } from '@/stores/useGitDiffNavigationStore';
 import type { Diff, DiffChangeKind } from 'shared/types';
@@ -94,6 +99,26 @@ function formatTimestamp(timestamp: number): string {
   return new Date(timestamp * 1000).toLocaleString();
 }
 
+export function formatCommitBody(body: string): string {
+  return body
+    .replace(/\r\n/g, '\n')
+    .split(/\n{2,}/)
+    .map((paragraph) => {
+      const lines = paragraph.split('\n');
+      const isStructured = lines.some((line) =>
+        /^\s*([-*+]|\d+[.)]|#|>|\s{2,})\s/.test(line)
+      );
+      if (isStructured) {
+        return lines.join('\n');
+      }
+      return lines
+        .map((line) => line.trim())
+        .filter(Boolean)
+        .join(' ');
+    })
+    .join('\n\n');
+}
+
 function DockviewDiffsReviewPanel() {
   const { t } = useTranslation(['panels', 'common']);
   const { openSurfaceMenu } = useAppContextMenu();
@@ -147,6 +172,7 @@ function DockviewDiffsReviewPanel() {
   const [collapsedIds, setCollapsedIds] = useState<Set<string>>(new Set());
   const [processedIds, setProcessedIds] = useState<Set<string>>(new Set());
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const [sidebarWidth, setSidebarWidth] = useState(240);
   const [loadingTimedOut, setLoadingTimedOut] = useState(false);
   const [stickyFileId, setStickyFileId] = useState<string | null>(null);
   const [selectedFileId, setSelectedFileId] = useState<string | null>(null);
@@ -189,6 +215,39 @@ function DockviewDiffsReviewPanel() {
 
   const diffRefs = useRef<Map<string, HTMLDivElement>>(new Map());
   const scrollContainerRef = useRef<HTMLDivElement>(null);
+  const toolbarRef = useRef<HTMLDivElement>(null);
+  const [visibleLabelCount, setVisibleLabelCount] = useState<number>(
+    DIFF_VIEW_BUTTON_COUNT
+  );
+  const [expandIconOnly, setExpandIconOnly] = useState(false);
+
+  useEffect(() => {
+    const el = toolbarRef.current;
+    if (!el || typeof ResizeObserver === 'undefined') return;
+    const updateLayout = (rawWidth: number) => {
+      if (rawWidth <= 0) {
+        setVisibleLabelCount(DIFF_VIEW_BUTTON_COUNT);
+        setExpandIconOnly(false);
+        return;
+      }
+      // Subtract horizontal padding (px-3 => 24px)
+      const innerWidth = Math.max(0, rawWidth - 24);
+      // Reserve space for the right-side Expand/Collapse All button when present
+      const reservedForExpand = isLargeChangeSet ? 0 : 84;
+      const availableForGroup = Math.max(0, innerWidth - reservedForExpand);
+      const nextCount = computeDiffViewVisibleLabelCount(availableForGroup);
+      setVisibleLabelCount(nextCount);
+      setExpandIconOnly(!isLargeChangeSet && innerWidth < 196);
+    };
+    updateLayout(el.getBoundingClientRect().width);
+    const observer = new ResizeObserver((entries) => {
+      for (const entry of entries) {
+        updateLayout(entry.contentRect.width);
+      }
+    });
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [diffs.length, isLargeChangeSet]);
 
   // Auto-collapse large/deleted diffs
   useEffect(() => {
@@ -398,11 +457,14 @@ function DockviewDiffsReviewPanel() {
       }}
     >
       {/* Left: Diff content */}
-      <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden rounded-xl border border-border/60 bg-background">
+      <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-background">
         {/* Commit info header (only in commit mode) */}
         {isCommitMode && commitInfo && (
-          <div className="shrink-0 border-b border-border bg-muted/20">
-            <div className="px-3 py-2.5 space-y-1.5">
+          <div
+            data-testid="commit-diff-info-card"
+            className="mx-3 mb-2.5 shrink-0 rounded-xl border border-border/60 bg-muted/20"
+          >
+            <div className="px-3.5 py-2.5 space-y-1.5">
               {/* Title row with close button */}
               <div className="flex items-start gap-2">
                 <div className="flex-1 min-w-0">
@@ -421,8 +483,11 @@ function DockviewDiffsReviewPanel() {
 
               {/* Body (if any) */}
               {commitInfo.body && (
-                <div className="text-xs text-muted-foreground whitespace-pre-wrap leading-relaxed max-h-20 overflow-y-auto">
-                  {commitInfo.body}
+                <div
+                  data-testid="commit-diff-body"
+                  className="w-full max-w-none text-xs text-muted-foreground whitespace-pre-line leading-relaxed max-h-24 overflow-y-auto"
+                >
+                  {formatCommitBody(commitInfo.body)}
                 </div>
               )}
 
@@ -455,38 +520,56 @@ function DockviewDiffsReviewPanel() {
           </div>
         )}
 
-        {/* Header toolbar */}
         {diffs.length > 0 && (
-          <div className="shrink-0 flex items-center gap-2 px-3 h-[33px] border-b border-border bg-muted/30">
-            <span className="text-xs text-muted-foreground flex items-center gap-1.5">
-              <span>
-                {t('diffsReviewPanel.filesChanged', { count: fileCount })}
-              </span>
-              <span className="font-mono text-[hsl(var(--success))]">
-                +{added}
-              </span>
-              <span className="font-mono text-destructive">-{deleted}</span>
-            </span>
-            <div className="ml-auto flex items-center gap-1">
-              <DiffViewSwitch />
-              {!isLargeChangeSet && (
-                <button
-                  onClick={handleCollapseAll}
-                  className="p-1 rounded hover:bg-accent text-muted-foreground"
-                  title={
+          <div
+            ref={toolbarRef}
+            className="diff-review-toolbar flex shrink-0 items-start justify-between gap-2 px-3 pb-1.5 pt-0"
+          >
+            <DiffViewSwitch visibleLabelCount={visibleLabelCount} />
+            {!isLargeChangeSet && (
+              <AstryxButtonGroup
+                label={
+                  allCollapsed
+                    ? t('diffsReviewPanel.expandAll')
+                    : t('diffsReviewPanel.collapseAll')
+                }
+                size="sm"
+                className="diff-expand-button-group ml-auto shrink-0"
+              >
+                <AstryxButton
+                  label={
                     allCollapsed
                       ? t('diffsReviewPanel.expandAll')
                       : t('diffsReviewPanel.collapseAll')
                   }
+                  type="button"
+                  size="sm"
+                  variant="primary"
+                  onClick={handleCollapseAll}
+                  tooltip={
+                    allCollapsed
+                      ? t('diffsReviewPanel.expandAll')
+                      : t('diffsReviewPanel.collapseAll')
+                  }
+                  className="diff-toolbar-btn"
                 >
-                  {allCollapsed ? (
-                    <ChevronsDown className="h-3.5 w-3.5" />
-                  ) : (
-                    <ChevronsUp className="h-3.5 w-3.5" />
-                  )}
-                </button>
-              )}
-            </div>
+                  <span className="inline-flex items-center gap-1">
+                    {allCollapsed ? (
+                      <ChevronsDown className="h-3 w-3 shrink-0" />
+                    ) : (
+                      <ChevronsUp className="h-3 w-3 shrink-0" />
+                    )}
+                    {!expandIconOnly && (
+                      <span className="diff-toolbar-btn-label whitespace-nowrap text-[11px]">
+                        {allCollapsed
+                          ? t('diffsReviewPanel.expandAll')
+                          : t('diffsReviewPanel.collapseAll')}
+                      </span>
+                    )}
+                  </span>
+                </AstryxButton>
+              </AstryxButtonGroup>
+            )}
           </div>
         )}
 
@@ -549,6 +632,7 @@ function DockviewDiffsReviewPanel() {
                   <div
                     key={id}
                     data-diff-id={id}
+                    className="first:[&>div]:mt-0"
                     ref={(el) => {
                       if (el) diffRefs.current.set(id, el);
                       else diffRefs.current.delete(id);
@@ -572,31 +656,71 @@ function DockviewDiffsReviewPanel() {
       {/* Right: Changes directory sidebar */}
       {diffs.length > 0 && (
         <div
-          className={`shrink-0 overflow-hidden rounded-xl border border-border/60 bg-muted/20 flex flex-col transition-[width] duration-150 ${
-            sidebarCollapsed ? 'w-8' : 'w-60'
+          className={`relative shrink-0 overflow-hidden rounded-xl border border-border/60 bg-muted/20 flex flex-col ${
+            sidebarCollapsed ? 'w-8' : ''
           }`}
+          style={sidebarCollapsed ? undefined : { width: sidebarWidth }}
         >
+          {sidebarCollapsed ? null : (
+            <div
+              role="separator"
+              aria-orientation="vertical"
+              aria-label={t('diffsReviewPanel.resizeFileTree')}
+              className="absolute inset-y-0 left-0 z-10 w-1.5 cursor-col-resize"
+              onPointerDown={(event) => {
+                event.preventDefault();
+                const startX = event.clientX;
+                const startWidth = sidebarWidth;
+                const onMove = (move: PointerEvent) => {
+                  const next = startWidth + startX - move.clientX;
+                  setSidebarWidth(Math.min(480, Math.max(160, next)));
+                };
+                const onUp = () => {
+                  window.removeEventListener('pointermove', onMove);
+                  window.removeEventListener('pointerup', onUp);
+                };
+                window.addEventListener('pointermove', onMove);
+                window.addEventListener('pointerup', onUp);
+              }}
+            />
+          )}
           {sidebarCollapsed ? (
             <button
               onClick={() => setSidebarCollapsed(false)}
-              className="h-8 flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-accent/50 border-b border-border"
+              className="h-7 flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-accent/50"
               title={t('diffsReviewPanel.expandFileTree')}
             >
               <PanelRightOpen className="h-3.5 w-3.5" />
             </button>
           ) : (
             <>
-              <div className="flex items-center h-[33px] px-2.5 border-b border-border">
-                <span className="text-xs font-medium text-muted-foreground flex-1">
+              <div className="flex items-center gap-1.5 h-7 px-2.5">
+                <span className="inline-flex items-center text-xs font-bold text-foreground leading-none">
                   {isCommitMode ? 'Changed Files' : 'Changes'}
                 </span>
-                <button
-                  onClick={() => setSidebarCollapsed(true)}
-                  className="p-0.5 rounded hover:bg-accent text-muted-foreground"
-                  title={t('diffsReviewPanel.collapse')}
-                >
-                  <PanelRightClose className="h-3.5 w-3.5" />
-                </button>
+                <div className="ml-auto flex items-center gap-1.5">
+                  <span className="group/files relative inline-flex items-center">
+                    <span className="inline-flex items-center text-xs text-muted-foreground leading-none">
+                      {fileCount} Files
+                    </span>
+                    <span
+                      data-testid="changes-line-stats"
+                      className="pointer-events-none absolute right-0 top-full z-20 mt-1 hidden whitespace-nowrap rounded-xl border border-border bg-popover px-2 py-1 font-mono text-[10px] text-popover-foreground group-hover/files:block"
+                    >
+                      <span className="text-[hsl(var(--success))]">
+                        +{added}
+                      </span>{' '}
+                      <span className="text-destructive">-{deleted}</span>
+                    </span>
+                  </span>
+                  <button
+                    onClick={() => setSidebarCollapsed(true)}
+                    className="inline-flex items-center justify-center p-0.5 rounded hover:bg-accent text-muted-foreground"
+                    title={t('diffsReviewPanel.collapse')}
+                  >
+                    <PanelRightClose className="h-3.5 w-3.5" />
+                  </button>
+                </div>
               </div>
               <div className="flex-1 overflow-y-auto py-1">
                 <DiffFileTree
@@ -618,17 +742,6 @@ function DockviewDiffsReviewPanel() {
                   }
                   onFileClick={(id) => scrollToFile(id)}
                 />
-              </div>
-              {/* Summary footer */}
-              <div className="shrink-0 flex items-center gap-1.5 px-2.5 py-1.5 border-t border-border text-[10px] text-muted-foreground">
-                <span>
-                  {t('diffsReviewPanel.filesCount', { count: fileCount })}
-                </span>
-                <span className="text-muted-foreground/40">·</span>
-                <span className="font-mono text-[hsl(var(--success))]">
-                  +{added}
-                </span>
-                <span className="font-mono text-destructive">-{deleted}</span>
               </div>
             </>
           )}

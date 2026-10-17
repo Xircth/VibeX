@@ -52,12 +52,13 @@ test('installed desktop identity stays distinct from the development instance', 
   );
 });
 
-test('Windows installer is self-contained for WebView2', () => {
+test('Windows installer does not embed the offline WebView2 runtime', () => {
   const config = readJson('src-tauri/tauri.windows.conf.json');
+  const mode = config.bundle?.windows?.webviewInstallMode?.type;
 
-  assert.equal(
-    config.bundle?.windows?.webviewInstallMode?.type,
-    'offlineInstaller'
+  assert.ok(
+    mode === undefined || mode === 'downloadBootstrapper',
+    `expected Tauri default / downloadBootstrapper, got ${mode}`
   );
 });
 

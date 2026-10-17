@@ -12,20 +12,11 @@ export function useMediaQuery(query: string): boolean {
     const mql = window.matchMedia(query);
     const handler = (e: MediaQueryListEvent) => setMatches(e.matches);
 
-    if (mql.addEventListener) {
-      mql.addEventListener('change', handler);
-    } else {
-      mql.addListener(handler);
-    }
-
+    mql.addEventListener('change', handler);
     setMatches(mql.matches);
 
     return () => {
-      if (mql.removeEventListener) {
-        mql.removeEventListener('change', handler);
-      } else {
-        mql.removeListener(handler);
-      }
+      mql.removeEventListener('change', handler);
     };
   }, [query]);
 

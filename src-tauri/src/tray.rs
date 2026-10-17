@@ -20,12 +20,51 @@ pub fn show_main_window(app: &AppHandle) {
     if let Some(main) = app.get_webview_window("main") {
         let _ = main.unminimize();
         let _ = main.show();
+        #[cfg(target_os = "windows")]
+        {
+            use webview2_com::Microsoft::Web::WebView2::Win32::{
+                COREWEBVIEW2_MEMORY_USAGE_TARGET_LEVEL_NORMAL, ICoreWebView2_19,
+            };
+            use windows::core::Interface;
+            let _ = main.with_webview(|platform| {
+                let controller = platform.controller();
+                unsafe {
+                    if let Ok(core) = controller.CoreWebView2()
+                        && let Ok(core19) = core.cast::<ICoreWebView2_19>()
+                    {
+                        let _ = core19.SetMemoryUsageTargetLevel(
+                            COREWEBVIEW2_MEMORY_USAGE_TARGET_LEVEL_NORMAL,
+                        );
+                    }
+                    let _ = controller.SetIsVisible(true);
+                }
+            });
+        }
         let _ = main.set_focus();
     }
 }
 
 pub fn hide_main_window(app: &AppHandle) {
     if let Some(main) = app.get_webview_window("main") {
+        #[cfg(target_os = "windows")]
+        {
+            use webview2_com::Microsoft::Web::WebView2::Win32::{
+                COREWEBVIEW2_MEMORY_USAGE_TARGET_LEVEL_LOW, ICoreWebView2_19,
+            };
+            use windows::core::Interface;
+            let _ = main.with_webview(|platform| {
+                let controller = platform.controller();
+                unsafe {
+                    let _ = controller.SetIsVisible(false);
+                    if let Ok(core) = controller.CoreWebView2()
+                        && let Ok(core19) = core.cast::<ICoreWebView2_19>()
+                    {
+                        let _ = core19
+                            .SetMemoryUsageTargetLevel(COREWEBVIEW2_MEMORY_USAGE_TARGET_LEVEL_LOW);
+                    }
+                }
+            });
+        }
         let _ = main.hide();
     }
 }

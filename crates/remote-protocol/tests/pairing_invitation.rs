@@ -1,7 +1,7 @@
 use remote_protocol::{
     CONNECTION_CODE_LEN, DevicePermissionPreset, PAIRING_TTL_DEFAULT_SECONDS, PairingChallenge,
-    PairingId, PairingInvitationPayload, ReachabilityOrigin, is_connection_code,
-    is_loopback_origin, is_public_plaintext_http_origin, issue_connection_code,
+    PairingId, PairingInvitationPayload, ReachabilityOrigin, canonical_pairing_token,
+    is_connection_code, is_loopback_origin, is_public_plaintext_http_origin, issue_connection_code,
     origin_allows_plaintext_http, parse_pairing_ttl_seconds, resolve_pairing_ttl_seconds,
 };
 
@@ -36,6 +36,11 @@ fn invitation_encodes_host_identity_and_drops_loopback() {
 
 #[test]
 fn connection_code_is_eight_unambiguous_characters() {
+    assert_eq!(canonical_pairing_token(" k7m2npqx "), "K7M2NPQX");
+    assert_eq!(
+        canonical_pairing_token("vbx_pair_secret"),
+        "vbx_pair_secret"
+    );
     let code = issue_connection_code();
     assert_eq!(code.len(), CONNECTION_CODE_LEN);
     assert!(is_connection_code(&code));
@@ -79,7 +84,7 @@ fn loopback_origin_detection_covers_ipv4_and_localhost() {
 }
 
 #[test]
-fn invitation_drops_published_plaintext_http_origin() {
+fn invitation_keeps_a_checked_public_http_tunnel() {
     let challenge = PairingChallenge {
         pairing_id: PairingId::from_uuid(
             uuid::Uuid::parse_str("0195d6f4-8c37-7b28-a982-6a9e60142f55").expect("id"),
@@ -99,9 +104,16 @@ fn invitation_drops_published_plaintext_http_origin() {
         ],
     );
     let invitation = payload.encode();
-    assert!(!invitation.contains("http://47.109.140.92:13630"));
+    assert!(invitation.contains("http://47.109.140.92:13630"));
+    assert!(
+        payload
+            .reachability
+            .iter()
+            .any(|item| item.origin == "http://47.109.140.92:13630" && item.kind == "published")
+    );
     assert!(invitation.contains("https://gate.example.ts.net"));
     assert!(invitation.contains("http://192.168.1.20:17891"));
+    assert!(!invitation.contains("127.0.0.1"));
     assert!(is_connection_code(&payload.pairing_token));
 }
 

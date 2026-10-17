@@ -2,6 +2,7 @@ import { memo } from 'react';
 
 interface GitStatusBadgeProps {
   status: string;
+  className?: string;
 }
 
 const STATUS_META: Record<
@@ -11,31 +12,27 @@ const STATUS_META: Record<
   A: {
     label: 'A',
     title: 'Added',
-    className:
-      'border-[hsl(var(--success)/0.3)] bg-[hsl(var(--success)/0.1)] text-[hsl(var(--success))]',
+    className: 'text-[hsl(var(--success))]',
   },
   M: {
     label: 'M',
     title: 'Modified',
-    className:
-      'border-[hsl(var(--warning)/0.3)] bg-[hsl(var(--warning)/0.1)] text-[hsl(var(--warning))]',
+    className: 'text-[hsl(var(--warning))]',
   },
   D: {
     label: 'D',
     title: 'Deleted',
-    className:
-      'border-[hsl(var(--destructive)/0.3)] bg-[hsl(var(--destructive)/0.1)] text-destructive',
+    className: 'text-destructive',
   },
   R: {
     label: 'R',
     title: 'Renamed',
-    className:
-      'border-[hsl(var(--info)/0.3)] bg-[hsl(var(--info)/0.1)] text-[hsl(var(--info))]',
+    className: 'text-[hsl(var(--info))]',
   },
   U: {
     label: 'U',
     title: 'Untracked',
-    className: 'border-border/40 bg-muted/20 text-muted-foreground',
+    className: 'text-muted-foreground',
   },
 };
 
@@ -46,17 +43,18 @@ function normalizeStatus(status: string): string {
 
 export const GitStatusBadge = memo(function GitStatusBadge({
   status,
+  className = '',
 }: GitStatusBadgeProps) {
   const normalized = normalizeStatus(status);
   const meta = STATUS_META[normalized] ?? {
     label: normalized,
     title: normalized,
-    className: 'text-muted-foreground bg-muted/20 border-border/40',
+    className: 'text-muted-foreground',
   };
 
   return (
     <span
-      className={`inline-flex h-4 min-w-6 shrink-0 items-center justify-center rounded border px-1 text-[10px] font-semibold leading-none ${meta.className}`}
+      className={`inline-flex shrink-0 items-center justify-center text-[11px] font-bold leading-none ${meta.className} ${className}`}
       title={meta.title}
     >
       {meta.label}

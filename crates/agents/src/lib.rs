@@ -6,6 +6,7 @@
 
 mod account_session;
 mod antigravity_auth;
+mod antigravity_login;
 mod auth_mode;
 pub mod auth_status;
 pub mod capability;
@@ -59,6 +60,7 @@ pub mod registry_client;
 pub mod runtime;
 pub mod session;
 mod session_bind_metrics;
+mod session_config_guard;
 mod session_notice;
 pub use session_notice::{
     AGENT_SESSION_NOTICE_KIND, SESSION_CONNECT_ERROR_KIND, SESSION_RECONNECT_PROGRESS_KIND,
@@ -76,13 +78,15 @@ pub use account_session::{
     AccountSessionConfirmation, account_label_from_codex_auth, account_label_from_document,
     account_session_from_codex_http, account_session_from_http, account_still_present,
     authentication_from_account_command, authentication_with_bound_provider,
-    confirm_account_session, extract_codex_access_token, jwt_identity, omp_live_account,
+    confirm_account_session, extract_codex_access_token, jwt_identity, official_account_present,
     prefer_recorded_account_over_residue, resolve_account_label, resolve_observed_authentication,
 };
 pub use antigravity_auth::{
     AntigravitySyncReport, AntigravitySyncStatus, apply_antigravity_env_policy,
-    recorded_auth_method, resolve_gemini_home, resolve_gemini_home_from, sync_antigravity_settings,
+    apply_antigravity_launch_env, recorded_auth_method, resolve_gemini_home,
+    resolve_gemini_home_from, sync_antigravity_settings,
 };
+pub use antigravity_login::{LOGIN_TIMEOUT as ANTIGRAVITY_LOGIN_TIMEOUT, run_antigravity_login};
 pub use api_types::{
     AgentAuthenticationStatus, AgentId, AgentKind, AgentLifecycleState, UserAgentDistributionKind,
 };

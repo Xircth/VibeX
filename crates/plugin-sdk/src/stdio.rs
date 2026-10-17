@@ -18,8 +18,9 @@ use crate::{
     error::PluginSdkError,
     host::{HostClient, HostTransport},
     protocol::{
-        InitializeParams, MAX_FRAME_BYTES, PLUGIN_API_VERSION, PLUGIN_PROTOCOL_VERSION,
-        PLUGIN_SDK_VERSION, PluginContext, WireInbound, error_response, ok_response,
+        FrameCodec, FrameDecode, FrameReassembler, InitializeParams, PLUGIN_API_VERSION,
+        PLUGIN_PROTOCOL_VERSION, PLUGIN_SDK_VERSION, PluginContext, WireInbound, error_response,
+        ok_response,
     },
     worker::{
         ActivatedPluginWorker, PluginWorkerDefinition, StderrLogger, WorkerLog,
@@ -36,6 +37,7 @@ struct SessionState {
     host_sequence: AtomicU64,
     current_request: Mutex<String>,
     outbound: mpsc::UnboundedSender<Value>,
+    codec: Mutex<FrameCodec>,
 }
 
 impl SessionState {
@@ -91,6 +93,7 @@ pub struct WorkerSession {
     state: Arc<SessionState>,
     worker: Mutex<Option<Arc<ActivatedPluginWorker>>>,
     outbound_rx: Mutex<Option<mpsc::UnboundedReceiver<Value>>>,
+    frames: Mutex<FrameReassembler>,
 }
 
 impl WorkerSession {
@@ -103,9 +106,11 @@ impl WorkerSession {
                 host_sequence: AtomicU64::new(0),
                 current_request: Mutex::new("unknown".to_owned()),
                 outbound,
+                codec: Mutex::new(FrameCodec::protocol()),
             }),
             worker: Mutex::new(None),
             outbound_rx: Mutex::new(Some(outbound_rx)),
+            frames: Mutex::new(FrameReassembler::protocol()),
         }
     }
 
@@ -122,25 +127,32 @@ impl WorkerSession {
     }
 
     pub async fn handle_line(&self, line: &str) {
-        let trimmed = line.trim();
-        if trimmed.is_empty() {
-            return;
-        }
-        if trimmed.len() > MAX_FRAME_BYTES {
-            self.emit(error_response(
-                "unknown",
-                "worker_frame_too_large",
-                "Worker protocol frame exceeded the limit",
-            ));
-            return;
-        }
-        let inbound: WireInbound = match serde_json::from_str(trimmed) {
+        let decoded = self
+            .frames
+            .lock()
+            .expect("frame reassembler")
+            .push_line(line);
+        let value = match decoded {
+            Ok(FrameDecode::NeedMore) => return,
+            Ok(FrameDecode::Message(value)) => value,
+            Err(error) => {
+                let code = match error.code {
+                    "frame_too_large" => "worker_frame_too_large",
+                    "frame_chunk_invalid" => "worker_frame_chunk_invalid",
+                    "message_too_large" => "worker_message_too_large",
+                    _ => "protocol_invalid",
+                };
+                self.emit(error_response("unknown", code, error.message));
+                return;
+            }
+        };
+        let inbound: WireInbound = match serde_json::from_value(value) {
             Ok(value) => value,
             Err(_) => {
                 self.emit(error_response(
                     "unknown",
                     "protocol_invalid",
-                    "Invalid JSON message",
+                    "Protocol message must be an object",
                 ));
                 return;
             }
@@ -227,6 +239,16 @@ impl WorkerSession {
                 "Host protocol range does not include 1.1",
             ));
         }
+        let codec = FrameCodec::from_advertised(
+            params.limits.max_frame_bytes,
+            params.limits.max_logical_message_bytes,
+        )
+        .map_err(|error| PluginSdkError::new(error.code, error.message))?;
+        *self.state.codec.lock().expect("frame codec") = codec;
+        self.frames
+            .lock()
+            .expect("frame reassembler")
+            .set_codec(codec);
         let worker = self.ensure_worker(PluginContext::from_initialize(&params))?;
         self.emit(ok_response(
             id,
@@ -334,10 +356,15 @@ pub async fn run_stdio_plugin_worker(
     let session = Arc::new(WorkerSession::new(definition));
     install_panic_hook(Arc::clone(&session.state));
     let mut outbound = session.take_outbound();
-    let mut stdout = tokio::io::stdout();
+    let state = Arc::clone(&session.state);
     let writer = tokio::spawn(async move {
+        let mut stdout = tokio::io::stdout();
         while let Some(message) = outbound.recv().await {
-            if write_stdout_line(&mut stdout, &message).await.is_err() {
+            let codec = *state.codec.lock().expect("frame codec");
+            if write_stdout_line(&mut stdout, &message, codec)
+                .await
+                .is_err()
+            {
                 break;
             }
         }
@@ -371,10 +398,25 @@ pub fn run_stdio_plugin_worker_blocking(
 async fn write_stdout_line(
     stdout: &mut tokio::io::Stdout,
     message: &Value,
+    codec: FrameCodec,
 ) -> Result<(), io::Error> {
-    let mut data = serde_json::to_vec(message).map_err(io::Error::other)?;
-    data.push(b'\n');
-    stdout.write_all(&data).await?;
+    let frames = match codec.encode(message) {
+        Ok(frames) => frames,
+        Err(error) => {
+            let id = message
+                .get("id")
+                .and_then(Value::as_str)
+                .unwrap_or("unknown");
+            vec![
+                serde_json::to_vec(&error_response(id, error.code, error.message))
+                    .map_err(io::Error::other)?,
+            ]
+        }
+    };
+    for mut frame in frames {
+        frame.push(b'\n');
+        stdout.write_all(&frame).await?;
+    }
     stdout.flush().await
 }
 
@@ -390,4 +432,153 @@ fn install_panic_hook(state: Arc<SessionState>) {
         }
         previous(info);
     }));
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::define_plugin_worker;
+
+    #[tokio::test]
+    async fn handle_line_accepts_frames_larger_than_one_mib() {
+        let definition = define_plugin_worker(|registrar, _env| {
+            registrar.handle("echo", |input, _env| async move { Ok(input) });
+        });
+        let session = WorkerSession::new(definition);
+        let mut outbound = session.take_outbound();
+
+        session
+            .handle_line(
+                &json!({
+                    "id": "1",
+                    "method": "activate",
+                    "params": {
+                        "pluginId": "demo.echo",
+                        "pluginVersion": "1.0.0",
+                        "generation": 1,
+                        "packageClass": "full-trust",
+                        "grantedCapabilities": ["*"]
+                    }
+                })
+                .to_string(),
+            )
+            .await;
+        let activated = outbound.recv().await.expect("activate response");
+        assert_eq!(activated.get("ok"), Some(&Value::Bool(true)));
+
+        let large_payload = "x".repeat(2 * 1024 * 1024);
+        session
+            .handle_line(
+                &json!({
+                    "id": "2",
+                    "method": "invoke",
+                    "params": {
+                        "handler": "echo",
+                        "input": large_payload
+                    }
+                })
+                .to_string(),
+            )
+            .await;
+        let response = outbound.recv().await.expect("invoke response");
+        assert_eq!(response.get("ok"), Some(&Value::Bool(true)));
+        assert_eq!(
+            response.get("result").and_then(Value::as_str).map(str::len),
+            Some(2 * 1024 * 1024)
+        );
+    }
+
+    #[tokio::test]
+    async fn handle_line_reassembles_a_chunked_image_invoke() {
+        let definition = define_plugin_worker(|registrar, _env| {
+            registrar.handle("draw", |input, _env| async move { Ok(input) });
+        });
+        let session = WorkerSession::new(definition);
+        let mut outbound = session.take_outbound();
+        session
+            .handle_line(
+                &json!({
+                    "id": "1",
+                    "method": "activate",
+                    "params": {
+                        "pluginId": "demo.draw",
+                        "pluginVersion": "1.0.0",
+                        "generation": 1,
+                        "packageClass": "full-trust",
+                        "grantedCapabilities": ["*"]
+                    }
+                })
+                .to_string(),
+            )
+            .await;
+        let _ = outbound.recv().await.expect("activate response");
+
+        let image = "A".repeat(4_000);
+        let invoke = json!({
+            "id": "2",
+            "method": "invoke",
+            "params": {
+                "handler": "draw",
+                "input": { "data": image }
+            }
+        });
+        let frames = FrameCodec::new(180, 64 * 1024)
+            .encode(&invoke)
+            .expect("chunk the image invoke");
+        assert!(frames.len() > 1);
+        for frame in frames {
+            session
+                .handle_line(std::str::from_utf8(&frame).expect("utf8"))
+                .await;
+        }
+        let response = outbound.recv().await.expect("invoke response");
+        assert_eq!(response["ok"], json!(true));
+        assert_eq!(
+            response["result"]["data"].as_str().map(str::len),
+            Some(4_000)
+        );
+    }
+
+    #[tokio::test]
+    async fn initialize_adopts_the_advertised_frame_limit() {
+        let definition = define_plugin_worker(|registrar, _env| {
+            registrar.handle("draw", |input, _env| async move { Ok(input) });
+        });
+        let session = WorkerSession::new(definition);
+        let mut outbound = session.take_outbound();
+        session
+            .handle_line(
+                &json!({
+                    "id": "1",
+                    "method": "initialize",
+                    "params": {
+                        "protocolRange": ["1.1"],
+                        "hostVersion": "0.2.8",
+                        "pluginIdentity": { "publisher": "studio", "id": "draw" },
+                        "packageVersion": "1.0.0",
+                        "packageDigest": "sha256:test",
+                        "generationId": 1,
+                        "declaredContributions": [],
+                        "packageClass": "full-trust",
+                        "features": [],
+                        "limits": { "maxFrameBytes": 1024 * 1024, "requestTimeoutMs": 30000 },
+                        "runtime": {
+                            "id": "node",
+                            "version": "22.22.3",
+                            "target": "test",
+                            "digest": "sha256:host"
+                        }
+                    }
+                })
+                .to_string(),
+            )
+            .await;
+        let initialized = outbound.recv().await.expect("initialize response");
+        assert_eq!(initialized["ok"], json!(true));
+
+        let oversized = "x".repeat(1024 * 1024 + 32);
+        session.handle_line(&oversized).await;
+        let rejected = outbound.recv().await.expect("frame rejection");
+        assert_eq!(rejected["error"]["code"], json!("worker_frame_too_large"));
+    }
 }

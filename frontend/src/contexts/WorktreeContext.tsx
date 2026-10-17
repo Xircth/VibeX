@@ -89,3 +89,7 @@ export function useWorktree(): WorktreeState {
   if (!ctx) throw new Error('useWorktree must be used within WorktreeProvider');
   return ctx;
 }
+
+export function useOptionalWorktree(): WorktreeState | null {
+  return useContext(WorktreeContext);
+}

@@ -43,24 +43,37 @@ export const GitDiscardDialog = memo(function GitDiscardDialog({
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-[hsl(220_42%_4%_/_0.58)] backdrop-blur-[2px]"
+      data-floating-layer="modal"
+      className="fixed inset-0 z-50 flex items-center justify-center"
       onKeyDown={handleKeyDown}
-      onClick={(e) => {
-        if (e.target === e.currentTarget && !loading) onCancel();
-      }}
-      role="dialog"
-      aria-modal="true"
     >
       <NativeSurfaceOcclusionHold />
-      <div className="modal-surface border border-border rounded-lg shadow-xl w-[340px] max-h-[80vh] flex flex-col animate-in fade-in zoom-in-95 duration-150">
+      <div
+        className="dialog-backdrop fixed inset-0"
+        aria-hidden="true"
+        onClick={() => {
+          if (!loading) onCancel();
+        }}
+      />
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="git-discard-dialog-title"
+        className="modal-surface relative z-10 border border-border rounded-lg shadow-xl w-[340px] max-h-[80vh] flex flex-col animate-in fade-in zoom-in-95 duration-150"
+      >
         {/* Header */}
         <div className="flex items-center gap-2 px-4 py-3 border-b border-border/50">
           <AlertTriangle className="h-4 w-4 text-destructive shrink-0" />
-          <span className="text-sm font-medium text-foreground flex-1">
+          <span
+            id="git-discard-dialog-title"
+            className="text-sm font-medium text-foreground flex-1"
+          >
             {title}
           </span>
           <button
-            className="p-0.5 rounded hover:bg-accent text-muted-foreground hover:text-foreground"
+            type="button"
+            aria-label="Close"
+            className="p-0.5 rounded hover:bg-accent text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--focus-ring)]"
             onClick={onCancel}
             disabled={loading}
           >

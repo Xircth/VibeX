@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useId } from 'react';
 import {
   Bot,
   CheckCircle2,
@@ -9,6 +9,7 @@ import {
 import { useTranslation } from 'react-i18next';
 import { AgentTypeIcon } from '@/components/agents/AgentTypeIcon';
 import { cn } from '@/lib/utils';
+import { useExpandableSection } from '@/stores/useExpandableStore';
 import { AstryxMarkdown } from '../AstryxMarkdown';
 import type { ToolResultBlock, ToolUseBlock } from '../messageTurnBlocks';
 import {
@@ -24,22 +25,29 @@ export function SubagentCard({
   result,
   lifecycle = [],
   parentAgentId = null,
+  expansionKey,
+  onExpandedChange,
 }: {
   use: ToolUseBlock;
   result: ToolResultBlock | null;
   lifecycle?: SubagentLifecycleEvent[];
   parentAgentId?: string | null;
+  expansionKey?: string;
+  onExpandedChange?: (expanded: boolean) => void;
 }) {
   const { t } = useTranslation('conversation');
   const model = applySubagentLifecycle(
     buildSubagentCardModel(use, result, parentAgentId),
     lifecycle
   );
-  const [openSection, setOpenSection] = useState<'prompt' | 'result' | null>(
-    null
+  const id = useId();
+  const [openSection, toggleOpenSection] = useExpandableSection(
+    expansionKey ?? id,
+    ['prompt', 'result']
   );
   const toggleSection = (section: 'prompt' | 'result') => {
-    setOpenSection((current) => (current === section ? null : section));
+    onExpandedChange?.(openSection !== section);
+    toggleOpenSection(section);
   };
   const durationLabel =
     model.durationMs != null ? formatDurationLabel(model.durationMs, t) : null;

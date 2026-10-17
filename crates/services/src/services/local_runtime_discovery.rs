@@ -7,8 +7,11 @@ use api_types::AgentDiscoveryProgressView;
 use futures::StreamExt;
 use sqlx::SqlitePool;
 
-use super::agent_management_runtime::{
-    AgentManagementRuntimeState, LocalRuntimeEvidence, local_runtime_discovery_progress_view,
+use super::{
+    agent_management_runtime::{
+        AgentManagementRuntimeState, LocalRuntimeEvidence, local_runtime_discovery_progress_view,
+    },
+    desktop_client_probe::{current_desktop_client_roots, discover_desktop_client},
 };
 
 const MAX_CONCURRENT_LOCAL_RUNTIME_PROBES: usize = 12;
@@ -43,6 +46,7 @@ pub async fn discover_built_in_local_runtimes(
         }
     }
     let candidates = BuiltInProfileCatalog::bundled().profiles().to_vec();
+    let desktop_roots = Arc::new(current_desktop_client_roots());
     runtime
         .begin_local_runtime_discovery(u32::try_from(candidates.len()).unwrap_or(u32::MAX))
         .await;
@@ -51,6 +55,7 @@ pub async fn discover_built_in_local_runtimes(
         let pool = pool.clone();
         let runtime = Arc::clone(&runtime);
         let on_progress = Arc::clone(&on_progress);
+        let desktop_roots = Arc::clone(&desktop_roots);
         async move {
             let local_runtime = match discover_profile_local_runtime(&pool, &profile).await {
                 Ok(evidence) => Some(evidence),
@@ -85,10 +90,18 @@ pub async fn discover_built_in_local_runtimes(
             runtime
                 .replace_acp_adapter(profile.agent_id.clone(), acp_adapter.clone())
                 .await;
+            let desktop_client = discover_desktop_client(profile.agent_id.as_str(), &desktop_roots)
+                .map(|path| LocalRuntimeEvidence {
+                    path,
+                    version: None,
+                });
+            runtime
+                .replace_desktop_client(profile.agent_id.clone(), desktop_client.clone())
+                .await;
             runtime
                 .record_local_runtime_discovery(
                     profile.agent_id.clone(),
-                    acp_adapter.is_some() || local_runtime.is_some(),
+                    acp_adapter.is_some() || local_runtime.is_some() || desktop_client.is_some(),
                 )
                 .await;
             emit_progress(&runtime, &on_progress).await;

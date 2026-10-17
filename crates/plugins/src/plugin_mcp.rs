@@ -50,8 +50,14 @@ pub fn admit_plugin_mcp(
             SESSION_FEAT_ALL
         };
         advertised_mcp_tools(product, features)
+    } else if config.get("toolsEnabled").and_then(Value::as_bool) == Some(false) {
+        Vec::new()
     } else {
+        let eval_enabled = config.get("evalEnabled").and_then(Value::as_bool) != Some(false);
         advertised_tools_from_spec(spec)
+            .into_iter()
+            .filter(|tool| eval_enabled || tool.name != "browser_eval")
+            .collect()
     };
     let server_id = official_product_mcp_name(spec)
         .map(str::to_owned)

@@ -17,11 +17,6 @@ vi.mock('@/contexts/KanbanSessionContext', () => ({
   useKanbanSessionContext: () => ({ visibleRightSession: null }),
 }));
 
-vi.mock('@/contexts/ExecutionProcessesContext', () => ({
-  ExecutionProcessesProvider: ({ children }: { children: React.ReactNode }) =>
-    children,
-}));
-
 vi.mock('@/contexts/PanelActionsContext', () => ({
   usePanelActionsContext: () => ({
     openNewTerminal: vi.fn(),
@@ -38,14 +33,6 @@ vi.mock('@/hooks/useTaskAttempt', () => ({
 
 vi.mock('@/hooks/useDevServer', () => ({
   useDevServer: () => ({ runningDevServers: [], devServerProcesses: [] }),
-}));
-
-vi.mock('@/hooks/useTauriInspector', () => ({
-  useTauriInspector: () => ({
-    activate: vi.fn(),
-    isActivating: false,
-    status: null,
-  }),
 }));
 
 vi.mock('@/components/dialogs/tasks/ViewProcessesDialog', () => ({
@@ -117,6 +104,14 @@ describe('RightPanelSidebar', () => {
     expect(
       screen.getByRole('button', { name: '打开终端' })
     ).toBeInTheDocument();
+    expect(
+      screen.queryByRole('button', { name: '在运行中的 Tauri App 内点选元素' })
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole('button', {
+        name: 'Select elements in the running Tauri App',
+      })
+    ).not.toBeInTheDocument();
   });
 
   it('hides plugin-only rail buttons on WebUI', async () => {

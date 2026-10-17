@@ -401,12 +401,7 @@ fn plugin_templates(plugin: &InstalledPlugin) -> Vec<ContributionTemplate> {
                 id: item.id.clone(),
                 kind: ContributionKind::Status,
                 label: item.text.clone().unwrap_or_else(|| item.id.clone()),
-                metadata: json!({
-                    "text": item.text,
-                    "icon": item.icon,
-                    "handler": item.handler,
-                    "refreshSeconds": item.refresh_seconds,
-                }),
+                metadata: status_metadata(plugin, item),
             }),
     );
     templates.extend(
@@ -584,7 +579,10 @@ fn plugin_templates(plugin: &InstalledPlugin) -> Vec<ContributionTemplate> {
                     &page.handler,
                     false,
                     page.remote.as_ref(),
-                    json!({}),
+                    json!({
+                        "engine": page.engine,
+                        "allowedMethods": page.allowed_methods,
+                    }),
                 ),
             }),
     );
@@ -642,6 +640,22 @@ fn plugin_templates(plugin: &InstalledPlugin) -> Vec<ContributionTemplate> {
         }
     }));
     templates
+}
+
+fn status_metadata(plugin: &InstalledPlugin, item: &crate::AppStatusContribution) -> Value {
+    let mut metadata = json!({
+        "text": item.text,
+        "icon": item.icon,
+        "handler": item.handler,
+        "refreshSeconds": item.refresh_seconds,
+        "slot": item.slot,
+    });
+    if let Some(remote) = overlay_dev_remote(plugin, item.remote.as_ref())
+        && let Some(object) = metadata.as_object_mut()
+    {
+        object.insert("remote".to_owned(), remote);
+    }
+    metadata
 }
 
 fn structure_surface_metadata(

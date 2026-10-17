@@ -1,14 +1,26 @@
-import { createInterface } from 'node:readline';
-import { VIBEX_PLUGIN_API_VERSION, VIBEX_PLUGIN_PROTOCOL_VERSION } from './protocol.js';
-import { activatePluginWorker, PluginSdkError, } from './worker.js';
+import { createInterface } from "node:readline";
+import { FrameReassembler, ProtocolFrameError, VIBEX_PLUGIN_API_VERSION, VIBEX_PLUGIN_PROTOCOL_VERSION, encodeProtocolMessage, frameLimitsFromAdvertised, protocolFrameLimits, } from "./protocol.js";
+import { activatePluginWorker, PluginSdkError, } from "./worker.js";
 export async function runStdioPluginWorker(definition) {
     const input = createInterface({ input: process.stdin, crlfDelay: Infinity });
     let worker = null;
     let hostSequence = 0;
     const hostPending = new Map();
     const inFlight = new Set();
+    const limits = protocolFrameLimits();
+    const frames = new FrameReassembler(limits);
     const send = (message) => {
-        process.stdout.write(`${JSON.stringify(message)}\n`);
+        let encoded;
+        try {
+            encoded = encodeProtocolMessage(message, limits);
+        }
+        catch (error) {
+            const code = error instanceof ProtocolFrameError ? error.code : "worker_failed";
+            const errorMessage = error instanceof Error ? error.message : String(error);
+            encoded = [JSON.stringify(errorResponse(message.id, code, errorMessage))];
+        }
+        for (const frame of encoded)
+            process.stdout.write(`${frame}\n`);
     };
     const host = {
         call(capability, operation, value = null) {
@@ -17,24 +29,29 @@ export async function runStdioPluginWorker(definition) {
                 hostPending.set(id, { resolve, reject });
                 send({
                     id,
-                    method: 'host.call',
+                    method: "host.call",
                     params: { capability, operation, input: value },
                 });
             });
         },
     };
     for await (const line of input) {
-        if (!line.trim())
-            continue;
         let message;
         try {
-            message = JSON.parse(line);
+            const decoded = frames.pushLine(line);
+            if (decoded.kind === "skip")
+                continue;
+            message = decoded.message;
         }
-        catch {
-            send(errorResponse('unknown', 'protocol_invalid', 'Invalid JSON message'));
+        catch (error) {
+            const code = error instanceof ProtocolFrameError
+                ? workerFrameErrorCode(error.code)
+                : "protocol_invalid";
+            const errorMessage = error instanceof Error ? error.message : String(error);
+            send(errorResponse("unknown", code, errorMessage));
             continue;
         }
-        if ('ok' in message && hostPending.has(message.id)) {
+        if ("ok" in message && hostPending.has(message.id)) {
             const pending = hostPending.get(message.id);
             hostPending.delete(message.id);
             if (message.ok)
@@ -43,15 +60,23 @@ export async function runStdioPluginWorker(definition) {
                 pending.reject(new PluginSdkError(message.error.code, message.error.message));
             continue;
         }
-        if (!('method' in message)) {
-            send(errorResponse(message.id, 'protocol_invalid', 'Unknown protocol message'));
+        if (!("method" in message)) {
+            send(errorResponse(message.id, "protocol_invalid", "Unknown protocol message"));
             continue;
         }
         try {
             switch (message.method) {
-                case 'initialize': {
-                    if (!message.params.protocolRange.includes('1.1')) {
-                        throw new PluginSdkError('protocol_unsupported', 'Host protocol range does not include 1.1');
+                case "initialize": {
+                    if (!message.params.protocolRange.includes("1.1")) {
+                        throw new PluginSdkError("protocol_unsupported", "Host protocol range does not include 1.1");
+                    }
+                    const advertised = message.params.limits;
+                    if (advertised?.maxFrameBytes != null ||
+                        advertised?.maxLogicalMessageBytes != null) {
+                        const next = frameLimitsFromAdvertised(advertised.maxFrameBytes ?? limits.maxFrameBytes, advertised.maxLogicalMessageBytes);
+                        limits.maxFrameBytes = next.maxFrameBytes;
+                        limits.maxLogicalBytes = next.maxLogicalBytes;
+                        frames.setLimits(limits);
                     }
                     send({
                         id: message.id,
@@ -65,17 +90,17 @@ export async function runStdioPluginWorker(definition) {
                     });
                     break;
                 }
-                case 'activate': {
+                case "activate": {
                     if (worker) {
-                        throw new PluginSdkError('worker_active', 'Plugin worker is already active');
+                        throw new PluginSdkError("worker_active", "Plugin worker is already active");
                     }
                     worker = await activatePluginWorker(definition, {
                         context: {
                             pluginId: message.params.pluginId,
                             pluginVersion: message.params.pluginVersion,
                             generation: message.params.generation,
-                            packageClass: message.params.packageClass ?? 'full-trust',
-                            grantedCapabilities: message.params.grantedCapabilities ?? ['*'],
+                            packageClass: message.params.packageClass ?? "full-trust",
+                            grantedCapabilities: message.params.grantedCapabilities ?? ["*"],
                         },
                         host,
                         log: createStderrLogger(),
@@ -87,9 +112,9 @@ export async function runStdioPluginWorker(definition) {
                     });
                     break;
                 }
-                case 'invoke': {
+                case "invoke": {
                     if (!worker) {
-                        throw new PluginSdkError('worker_inactive', 'Plugin worker is not active');
+                        throw new PluginSdkError("worker_inactive", "Plugin worker is not active");
                     }
                     const activeWorker = worker;
                     const request = message;
@@ -99,7 +124,7 @@ export async function runStdioPluginWorker(definition) {
                         .invoke(request.params.handler, request.params.input)
                         .then((result) => send({ id: request.id, ok: true, result }))
                         .catch((error) => {
-                        const code = error instanceof PluginSdkError ? error.code : 'worker_failed';
+                        const code = error instanceof PluginSdkError ? error.code : "worker_failed";
                         const errorMessage = error instanceof Error ? error.message : String(error);
                         send(errorResponse(request.id, code, errorMessage));
                     });
@@ -107,19 +132,25 @@ export async function runStdioPluginWorker(definition) {
                     void invocation.finally(() => inFlight.delete(invocation));
                     break;
                 }
-                case 'dispose': {
+                case "dispose": {
                     await worker?.dispose();
                     worker = null;
                     send({ id: message.id, ok: true, result: null });
                     break;
                 }
-                case 'ping':
-                    send({ id: message.id, ok: true, result: { apiVersion: '1.0' } });
+                case "ping":
+                    send({ id: message.id, ok: true, result: { apiVersion: "1.0" } });
                     break;
+                default: {
+                    const method = String(message.method ?? "");
+                    throw new PluginSdkError("protocol_invalid", `Unknown method ${method}`);
+                }
             }
         }
         catch (error) {
-            const code = error instanceof PluginSdkError ? error.code : 'worker_failed';
+            const code = error instanceof PluginSdkError || error instanceof ProtocolFrameError
+                ? error.code
+                : "worker_failed";
             const errorMessage = error instanceof Error ? error.message : String(error);
             send(errorResponse(message.id, code, errorMessage));
         }
@@ -127,7 +158,19 @@ export async function runStdioPluginWorker(definition) {
     await Promise.allSettled(inFlight);
     await worker?.dispose();
     for (const pending of hostPending.values()) {
-        pending.reject(new PluginSdkError('host_closed', 'Host connection closed'));
+        pending.reject(new PluginSdkError("host_closed", "Host connection closed"));
+    }
+}
+function workerFrameErrorCode(code) {
+    switch (code) {
+        case "frame_too_large":
+            return "worker_frame_too_large";
+        case "frame_chunk_invalid":
+            return "worker_frame_chunk_invalid";
+        case "message_too_large":
+            return "worker_message_too_large";
+        default:
+            return "protocol_invalid";
     }
 }
 function errorResponse(id, code, message) {
@@ -138,9 +181,9 @@ function createStderrLogger() {
         process.stderr.write(`${JSON.stringify({ level, message, fields: fields ?? null })}\n`);
     };
     return {
-        debug: (message, fields) => write('debug', message, fields),
-        info: (message, fields) => write('info', message, fields),
-        warn: (message, fields) => write('warn', message, fields),
-        error: (message, fields) => write('error', message, fields),
+        debug: (message, fields) => write("debug", message, fields),
+        info: (message, fields) => write("info", message, fields),
+        warn: (message, fields) => write("warn", message, fields),
+        error: (message, fields) => write("error", message, fields),
     };
 }

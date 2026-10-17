@@ -4,7 +4,9 @@ import type { AgentManagementView, AgentRegistryViewRow } from 'shared/types';
 import {
   buildOnboardingAgentOptions,
   classifyOnboardingInstallResult,
+  describeOnboardingPreflight,
   normalizeOnboardingAgentSelection,
+  onboardingContinueGate,
 } from './onboardingAgentModel';
 
 function managed(
@@ -164,6 +166,85 @@ describe('onboarding Agent model', () => {
       runtimeInstalled: false,
       needsInstallation: true,
     });
+  });
+
+  it('treats a desktop client as present and still installs the ACP adapter', () => {
+    const options = buildOnboardingAgentOptions(
+      [
+        managed({
+          agent_id: 'codex',
+          display_name: 'Codex',
+          desktop_client: {
+            path: 'C:\\Users\\developer\\AppData\\Local\\Programs\\ChatGPT\\ChatGPT.exe',
+            version: null,
+          },
+        }),
+      ],
+      []
+    );
+
+    expect(options[0]).toMatchObject({
+      agentId: 'codex',
+      runtimeInstalled: true,
+      needsInstallation: true,
+    });
+  });
+
+  it('describes preflight results and the continue gate', () => {
+    expect(describeOnboardingPreflight([], false)).toEqual({ kind: 'pending' });
+    expect(
+      describeOnboardingPreflight(
+        [{ id: 'acp', status: 'pass', label: 'ACP 适配器' }],
+        false
+      )
+    ).toEqual({ kind: 'pass' });
+    expect(
+      describeOnboardingPreflight(
+        [
+          {
+            id: 'acp',
+            status: 'fail',
+            label: 'ACP 适配器',
+            repairable: true,
+          },
+          { id: 'authentication', status: 'fail', repairable: true },
+        ],
+        false
+      )
+    ).toEqual({
+      kind: 'runtime',
+      target: 'ACP 适配器',
+      repairable: true,
+    });
+    expect(
+      describeOnboardingPreflight(
+        [
+          {
+            id: 'authentication',
+            status: 'fail',
+            detail: '当前鉴权模式 `subscription` 尚未就绪。',
+            repairable: true,
+          },
+        ],
+        false
+      )
+    ).toEqual({ kind: 'auth' });
+    expect(
+      describeOnboardingPreflight(
+        [{ id: 'authentication', status: 'pass' }],
+        true
+      )
+    ).toEqual({ kind: 'login' });
+    expect(
+      describeOnboardingPreflight(
+        [{ id: 'authentication', status: 'fail', detail: '登录失败' }],
+        false
+      )
+    ).toEqual({ kind: 'login' });
+    expect(onboardingContinueGate(['pass', 'pass'])).toBe('direct');
+    expect(onboardingContinueGate(['pass', 'blocked'])).toBe('partial');
+    expect(onboardingContinueGate(['blocked', 'blocked'])).toBe('none');
+    expect(onboardingContinueGate([])).toBe('none');
   });
 
   it('skips another install when an ACP adapter is already present', () => {

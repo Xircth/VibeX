@@ -254,18 +254,6 @@
   word-break: break-all;
 }
 
-.diff-tailwindcss-wrapper .rounded-\[0\.2em\] {
-  border-radius: var(--radius);
-}
-
-.diff-tailwindcss-wrapper .rounded-\[2px\] {
-  border-radius: var(--radius);
-}
-
-.diff-tailwindcss-wrapper .rounded-md {
-  border-radius: var(--radius);
-}
-
 .diff-tailwindcss-wrapper .border-l-\[1px\] {
   border-left-width: 1px;
 }
@@ -415,8 +403,9 @@
   text-align: right;
 }
 
-.diff-tailwindcss-wrapper .diff-style-root tr {
-  content-visibility: auto;
+.diff-tailwindcss-wrapper .diff-style-root tr,
+.diff-tailwindcss-wrapper tr {
+  content-visibility: visible;
 }
 
 .diff-tailwindcss-wrapper .hover\:scale-110:hover {

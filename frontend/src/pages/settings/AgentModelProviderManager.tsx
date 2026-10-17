@@ -79,6 +79,22 @@ const CLAUDE_MODEL_FIELDS = [
 
 type Surface = 'list' | 'form';
 
+interface ProviderFormSnapshot {
+  id: string | null;
+  name: string;
+  apiUrl: string;
+  apiKey: string;
+  model: string;
+}
+
+const EMPTY_FORM_SNAPSHOT: ProviderFormSnapshot = {
+  id: null,
+  name: '',
+  apiUrl: '',
+  apiKey: '',
+  model: '',
+};
+
 function customModelVerified(state: CustomModelTestState | undefined) {
   return typeof state === 'object' && state.ok;
 }
@@ -116,6 +132,8 @@ export function AgentModelProviderManager({
   const [apiUrl, setApiUrl] = useState('');
   const [apiKey, setApiKey] = useState('');
   const [model, setModel] = useState('');
+  const [initialForm, setInitialForm] =
+    useState<ProviderFormSnapshot>(EMPTY_FORM_SNAPSHOT);
   const [detectedCatalog, setDetectedCatalog] =
     useState<AgentModelCatalogView | null>(null);
   const [detectingModels, setDetectingModels] = useState(false);
@@ -157,7 +175,14 @@ export function AgentModelProviderManager({
   const [endpointCandidates, setEndpointCandidates] = useState<string[]>([]);
   const [websiteUrl, setWebsiteUrl] = useState<string | null>(null);
   const [apiKeyUrl, setApiKeyUrl] = useState<string | null>(null);
-  const formDirty = Boolean(id || name || apiUrl || apiKey || model);
+  const formOpen = surface === 'form';
+  const formDirty =
+    formOpen &&
+    (id !== initialForm.id ||
+      name !== initialForm.name ||
+      apiUrl !== initialForm.apiUrl ||
+      apiKey !== initialForm.apiKey ||
+      model !== initialForm.model);
 
   useEffect(() => {
     onDirtyChange?.(formDirty);
@@ -219,6 +244,7 @@ export function AgentModelProviderManager({
     setApiUrl('');
     setApiKey('');
     setModel('');
+    setInitialForm(EMPTY_FORM_SNAPSHOT);
     setDetectedCatalog(null);
     setDetectionError(null);
     setCustomModelTests({});
@@ -253,8 +279,16 @@ export function AgentModelProviderManager({
     setApiUrl(provider.api_url);
     setApiKey(provider.api_key);
     setModel(provider.model);
+    setInitialForm({
+      id: provider.id,
+      name: provider.name,
+      apiUrl: provider.api_url,
+      apiKey: provider.api_key,
+      model: provider.model,
+    });
     setDetectedCatalog(null);
     setDetectionError(null);
+    setCustomModelTests({});
     setSurface('form');
     if (provider.api_url.trim() && provider.api_key.trim()) {
       void detectModels(

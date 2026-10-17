@@ -33,12 +33,74 @@ export interface KanbanProjectSessionRecord {
   isRunning: boolean;
   isErrored: boolean;
   pinnedAt: string | null;
+  forkSupported?: boolean;
 }
 
 function truncateSessionName(name: string, length = 7) {
   const chars = Array.from(name);
   if (chars.length <= length) return name;
   return chars.slice(0, length).join('');
+}
+
+function workspaceStubForCreatedSession(
+  session: Session,
+  workspace: Workspace | undefined
+): Workspace {
+  if (workspace) return workspace;
+  return {
+    id: session.workspace_id,
+    project_id: '',
+    task_id: session.task_id ?? '',
+    parent_workspace_id: null,
+    container_ref: null,
+    branch: '',
+    use_worktree: false,
+    agent_working_dir: null,
+    setup_completed_at: null,
+    created_at: session.created_at,
+    updated_at: session.updated_at,
+    archived: false,
+    pinned: false,
+    name: null,
+  };
+}
+
+/** Card/list record for a session that exists on the server but is not in the live query yet. */
+export function kanbanSessionFromCreated(
+  session: Session,
+  workspace: Workspace | undefined,
+  fallbackName: string
+): KanbanProjectSessionRecord {
+  const workspaceRecord = workspaceStubForCreatedSession(session, workspace);
+  const fullName = session.name?.trim() || fallbackName;
+  const workspaceLabel = workspaceRecord.name || workspaceRecord.branch;
+  return {
+    id: session.id,
+    placement: {
+      sessionId: session.id,
+      workspaceId: session.workspace_id,
+    },
+    workspace: workspaceRecord,
+    task: null,
+    taskId: session.task_id,
+    name: session.name,
+    status: session.status,
+    branch: workspaceRecord.branch,
+    workspaceName: workspaceLabel,
+    workspaceDisplayLabel: workspaceLabel,
+    executor: session.executor,
+    agentId: session.agent_id,
+    updatedAt: session.updated_at,
+    createdAt: session.created_at,
+    firstPrompt: session.initial_prompt,
+    fullName,
+    shortName: truncateSessionName(fullName),
+    taskTitle: null,
+    isCompleted: session.status === 'done',
+    isRunning: false,
+    isErrored: false,
+    pinnedAt: null,
+  };
 }
 
 const SESSION_PLACEHOLDERS = new Set([

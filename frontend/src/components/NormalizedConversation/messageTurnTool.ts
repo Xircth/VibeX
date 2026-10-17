@@ -3,9 +3,22 @@ import type {
   FileChange,
   JsonValue,
   NormalizedEntry,
+  ToolResult,
 } from 'shared/types';
 import type { ToolResultBlock, ToolUseBlock } from './messageTurnBlocks';
 import i18n from '@/i18n';
+import {
+  normalizeToolDiff,
+  parseApplyPatch,
+  replacementDiff,
+} from './tools/toolEditDiff';
+import type { FileEditPreview } from './tools/toolEditDiff';
+
+export type ToolDisplayEntry = NormalizedEntry & {
+  fileEdits?: FileEditPreview[];
+  toolResult?: ToolResult | null;
+  toolArguments?: JsonValue | null;
+};
 
 /**
  * Adapts a unified-timeline tool block (the normalized `ContentBlock`
@@ -60,6 +73,8 @@ const OUTPUT_TEXT_KEYS = [
   'stdout',
   'stderr',
   'output',
+  'combinedOutput',
+  'formatted_output',
   'text',
   'FileContent',
   'file_content',
@@ -78,6 +93,11 @@ function extractOutputParts(value: unknown, depth = 0): string[] {
   if (typeof value !== 'object') return [];
 
   const record = value as Record<string, unknown>;
+  if ('stdout' in record || 'stderr' in record) {
+    return ['stdout', 'stderr'].flatMap((key) =>
+      extractOutputParts(record[key], depth + 1)
+    );
+  }
   for (const key of OUTPUT_TEXT_KEYS) {
     const parts = extractOutputParts(record[key], depth + 1);
     if (parts.length > 0) return parts;
@@ -85,16 +105,14 @@ function extractOutputParts(value: unknown, depth = 0): string[] {
   return [];
 }
 
-function extractOutputText(preview: string | null): string | null {
+function extractOutputText(
+  preview: string | null,
+  result: ToolResult | null
+): string | null {
   if (!preview) return preview;
-  try {
-    const parsed: unknown = JSON.parse(preview);
-    if (typeof parsed === 'string') return parsed;
-    const parts = extractOutputParts(parsed);
-    if (parts.length > 0) return parts.join('\n');
-  } catch {
-    // Not JSON — already plain text.
-  }
+  if (typeof result?.value === 'string') return result.value;
+  const parts = extractOutputParts(result?.value);
+  if (parts.length > 0) return parts.join('\n');
   return preview;
 }
 
@@ -114,6 +132,10 @@ const FILE_PATH_KEYS = [
   'abs_path',
   'filepath',
   'filePath',
+  'absolute_path',
+  'absolutePath',
+  'AbsolutePath',
+  'TargetFile',
 ];
 
 const LINE_NUMBER_PREFIX = /^(?: {0,3}(\d+)(?:→|[|:]\s?|\t))/;
@@ -219,13 +241,15 @@ function readRange(obj: Record<string, unknown>): {
     'line_start',
     'start_line',
     'startLine',
+    'StartLine',
     'line'
   );
   const explicitEnd = firstNonNegativeInteger(
     obj,
     'line_end',
     'end_line',
-    'endLine'
+    'endLine',
+    'EndLine'
   );
   const offset = firstNonNegativeInteger(obj, 'offset');
   const limit = firstNonNegativeInteger(
@@ -258,6 +282,8 @@ function firstCommand(obj: Record<string, unknown>): string | null {
     'script',
     'shell_command',
     'commandLine',
+    'command_line',
+    'CommandLine',
   ]) {
     const value = obj[key];
     if (typeof value === 'string' && value.trim().length > 0) return value;
@@ -386,94 +412,68 @@ function patchPayload(parsed: unknown, raw: string | null): string | null {
   return null;
 }
 
-/** Path from an apply_patch header: `*** Add|Update|Delete File: <path>`. */
-function patchPath(patch: string): string | null {
-  const match = patch.match(/^\*\*\* (?:Add|Update|Delete) File: (.+)$/m);
-  return match ? match[1].trim() : null;
-}
-
 /**
  * Turn whatever edit payload a tool carried into a unified-diff FileChange so
- * the rich inline-diff card renders. EditDiffRenderer tolerates a non-standard
- * diff (it falls back to a readable <pre>), so a synthesized hunk is safe.
+ * the rich inline-diff card renders. Fragment line numbers are not file positions.
  */
 function editChanges(
-  obj: Record<string, unknown>,
-  parsed: unknown,
-  raw: string | null
+  obj: Record<string, unknown>
 ): { path: string; changes: FileChange[] } | null {
-  // 1) apply_patch envelope (Codex) — keep the patch verbatim; path from header.
-  const patch = patchPayload(parsed, raw);
-  if (patch) {
-    const path = patchPath(patch);
-    if (path) {
-      return {
-        path,
-        changes: [
-          { action: 'edit', unified_diff: patch, has_line_numbers: false },
-        ],
-      };
-    }
-  }
-
   const path = firstPath(obj);
   if (!path) return null;
 
-  // 2) A ready-made unified diff/patch field — render it directly.
   const diff = firstString(obj, 'unified_diff', 'diff', 'patch');
   if (diff) {
     return {
       path,
       changes: [
-        { action: 'edit', unified_diff: diff, has_line_numbers: false },
-      ],
-    };
-  }
-
-  // 3) old/new replacement — synthesize a hunk from the two sides.
-  const oldStr = firstString(obj, 'old_string', 'old_str', 'oldText', 'old');
-  const newStr = firstString(
-    obj,
-    'new_string',
-    'new_str',
-    'newText',
-    'new',
-    'replacement'
-  );
-  if (oldStr != null || newStr != null) {
-    const removed = (oldStr ?? '').split('\n').map((line) => `-${line}`);
-    const added = (newStr ?? '').split('\n').map((line) => `+${line}`);
-    return {
-      path,
-      changes: [
         {
           action: 'edit',
-          unified_diff: ['@@', ...removed, ...added].join('\n'),
+          unified_diff: normalizeToolDiff(path, diff),
           has_line_numbers: false,
         },
       ],
     };
   }
 
-  // 4) Full-file write — present the new contents as added lines.
-  const content = firstString(
+  const oldStr = firstText(
     obj,
-    'content',
-    'contents',
-    'new_content',
-    'text'
+    'old_string',
+    'old_str',
+    'oldText',
+    'old_text',
+    'old'
   );
-  if (content != null) {
-    const added = content
-      .split('\n')
-      .map((line) => `+${line}`)
-      .join('\n');
+  const newStr = firstText(
+    obj,
+    'new_string',
+    'new_str',
+    'newText',
+    'new_text',
+    'new',
+    'replacement'
+  );
+  if (oldStr != null || newStr != null) {
     return {
       path,
       changes: [
         {
           action: 'edit',
-          unified_diff: `@@\n${added}`,
+          unified_diff: replacementDiff(path, oldStr ?? '', newStr ?? ''),
+          has_line_numbers: false,
+        },
+      ],
+    };
+  }
+
+  const content = firstText(obj, 'content', 'contents', 'new_content', 'text');
+  if (content != null) {
+    return {
+      path,
+      changes: [
+        {
+          action: 'edit',
+          unified_diff: replacementDiff(path, '', content),
           has_line_numbers: false,
         },
       ],
@@ -491,7 +491,10 @@ function editChanges(
 
 /** Normalize a tool/kind name for set membership (drops spaces, _, -, dots). */
 function canonicalName(toolName: string): string {
-  return toolName.replace(/[\s._-]/g, '').toLowerCase();
+  return toolName
+    .replace(/^Running\s+/i, '')
+    .replace(/[\s._-]/g, '')
+    .toLowerCase();
 }
 
 /**
@@ -513,8 +516,15 @@ type CommandRunAction = Extract<ActionType, { action: 'command_run' }>;
 
 function commandResult(
   status: 'created' | 'success' | 'failed',
-  output: string | null
+  output: string | null,
+  toolResult: ToolResult | null
 ): CommandRunAction {
+  const record = asRecord(toolResult?.value);
+  const reportedCode = record.exit_code ?? record.exitCode;
+  const exitCode =
+    typeof reportedCode === 'number' && Number.isInteger(reportedCode)
+      ? reportedCode
+      : null;
   return {
     action: 'command_run',
     category: 'other',
@@ -525,10 +535,56 @@ function commandResult(
           ? { exit_status: null, output }
           : null
         : {
-            exit_status: { type: 'success', success: status === 'success' },
+            exit_status:
+              exitCode != null
+                ? { type: 'exit_code', code: exitCode }
+                : { type: 'success', success: status === 'success' },
             output,
           },
   };
+}
+
+function firstText(
+  obj: Record<string, unknown>,
+  ...keys: string[]
+): string | null {
+  for (const key of keys) {
+    if (typeof obj[key] === 'string') return obj[key];
+  }
+  return null;
+}
+
+function fileEditPreviews(
+  parsed: unknown,
+  raw: string | null
+): FileEditPreview[] {
+  const patch = patchPayload(parsed, raw);
+  if (patch) return parseApplyPatch(patch);
+  const obj = asRecord(parsed);
+  const members = obj.edits ?? obj.changes;
+  if (Array.isArray(members)) {
+    return members.flatMap((member) => {
+      const record = asRecord(member);
+      const edit = editChanges({ file_path: firstPath(obj), ...record });
+      return edit ? [edit] : [];
+    });
+  }
+  const edit = editChanges(obj);
+  return edit ? [edit] : [];
+}
+
+export function toolResultFromPreview(
+  preview: string | null
+): ToolResult | null {
+  if (preview == null) return null;
+  try {
+    const value: JsonValue = JSON.parse(preview);
+    return typeof value === 'string'
+      ? { type: { type: 'markdown' }, value }
+      : { type: { type: 'json' }, value };
+  } catch {
+    return { type: { type: 'markdown' }, value: preview };
+  }
 }
 
 function toolActionType(
@@ -537,7 +593,9 @@ function toolActionType(
   parsed: unknown,
   output: string | null,
   status: 'created' | 'success' | 'failed',
-  rawInput: string | null
+  rawInput: string | null,
+  structuredResult: ToolResult | null,
+  getFileEdits: () => FileEditPreview[]
 ): ActionType {
   // A bare-string input (not a JSON object) is, for exec-style tools, the
   // command itself — render it as a terminal card instead of a generic one.
@@ -547,7 +605,10 @@ function toolActionType(
     !parsed.includes(PATCH_SENTINEL) &&
     (kind == null || kind === 'execute' || kind === 'other')
   ) {
-    return { ...commandResult(status, output), command: parsed.trim() };
+    return {
+      ...commandResult(status, output, structuredResult),
+      command: parsed.trim(),
+    };
   }
 
   const obj = asRecord(parsed);
@@ -558,14 +619,7 @@ function toolActionType(
   const dirPath =
     firstStringDeep(obj, 'target_directory', 'directory', 'dir') ??
     (LIST_DIR_NAMES.has(name) ? path : null);
-  const parsedOutput = (() => {
-    if (!output) return null;
-    try {
-      return JSON.parse(output);
-    } catch {
-      return null;
-    }
-  })();
+  const parsedOutput = structuredResult?.value;
   const outputRecord = asRecord(parsedOutput);
   const query =
     firstStringDeep(obj, 'pattern', 'query', 'q', 'glob', 'regex') ??
@@ -573,6 +627,15 @@ function toolActionType(
       ? firstStringDeep(outputRecord, 'pattern', 'query', 'q')
       : null);
   const url = firstUrl(obj);
+
+  if (/(^|__)browser_/.test(toolName)) {
+    return {
+      action: 'tool',
+      tool_name: toolName,
+      arguments: (parsed ?? null) as JsonValue,
+      result: structuredResult,
+    };
+  }
 
   // Command — by ACP kind first (agents' titles are free-form prose, so the
   // declared kind is the reliable signal), then by name, by a `command` field,
@@ -584,7 +647,7 @@ function toolActionType(
     (!command && looksLikeShellCommand(toolName))
   ) {
     return {
-      ...commandResult(status, output),
+      ...commandResult(status, output, structuredResult),
       command: command ?? toolName.trim(),
     };
   }
@@ -613,10 +676,7 @@ function toolActionType(
       action: 'search',
       query: query ?? '',
       arguments: (parsed ?? null) as JsonValue,
-      result:
-        output != null
-          ? { type: { type: 'markdown' }, value: output }
-          : undefined,
+      result: structuredResult ?? undefined,
     };
   }
 
@@ -635,7 +695,7 @@ function toolActionType(
       looksLikeEdit(obj) ||
       patchPayload(parsed, rawInput))
   ) {
-    const edit = editChanges(obj, parsed, rawInput);
+    const edit = getFileEdits()[0];
     if (edit)
       return { action: 'file_edit', path: edit.path, changes: edit.changes };
   }
@@ -644,14 +704,16 @@ function toolActionType(
   if ((isReadTool || path) && !looksLikeEdit(obj) && path) {
     const stripped = output != null ? stripNumberedFileLines(output) : null;
     const range = readRange(obj);
-    const lineStart = stripped?.startLine ?? range.line_start;
+    const outputRange = readRange(asRecord(structuredResult?.value));
+    const lineStart =
+      stripped?.startLine ?? outputRange.line_start ?? range.line_start;
     const snippetLines = stripped?.content
       ? stripped.content.split(/\r?\n/).length
       : 0;
     const lineEnd =
       stripped?.startLine != null && snippetLines > 0
         ? stripped.startLine + snippetLines - 1
-        : range.line_end;
+        : (outputRange.line_end ?? range.line_end);
 
     return {
       action: 'file_read',
@@ -678,8 +740,7 @@ function toolActionType(
       action: 'task_create',
       description: firstString(obj, 'description', 'title', 'name') ?? toolName,
       subagent_type: subagentType,
-      result:
-        output != null ? { type: { type: 'markdown' }, value: output } : null,
+      result: structuredResult,
     };
   }
 
@@ -687,8 +748,7 @@ function toolActionType(
     action: 'tool',
     tool_name: displayToolName(toolName, obj),
     arguments: (parsed ?? null) as JsonValue,
-    result:
-      output != null ? { type: { type: 'markdown' }, value: output } : null,
+    result: structuredResult,
   };
 }
 
@@ -707,17 +767,76 @@ function displayToolName(
   return i18n.t('app:turnTool.toolCall');
 }
 
+type CachedToolEntry = {
+  status: string | null | undefined;
+  toolName: string;
+  inputPreview: string | null | undefined;
+  resultRef: ToolResultBlock | null;
+  outputPreview: string | null | undefined;
+  isError: boolean | undefined;
+  timestamp: string | null;
+  language: string;
+  entry: ToolDisplayEntry;
+};
+
+const toolEntryByUseRef = new WeakMap<ToolUseBlock, CachedToolEntry>();
+const toolEntryByKey = new Map<string, CachedToolEntry>();
+const MAX_TOOL_ENTRY_CACHE_SIZE = 512;
+
 export function toolBlockToNormalizedEntry(
   use: ToolUseBlock,
   result: ToolResultBlock | null,
   timestamp: string | null
-): NormalizedEntry {
-  const output = extractOutputText(result?.output_preview ?? null);
-  const statusKind: 'created' | 'success' | 'failed' = result
-    ? result.is_error
-      ? 'failed'
-      : 'success'
-    : 'created';
+): ToolDisplayEntry {
+  const language = i18n.language ?? '';
+  const outputPreview = result?.output_preview ?? null;
+  const isError = result?.is_error;
+
+  const refHit = toolEntryByUseRef.get(use);
+  if (
+    refHit &&
+    refHit.status === use.status &&
+    refHit.toolName === use.tool_name &&
+    refHit.inputPreview === use.input_preview &&
+    (refHit.resultRef === result ||
+      (refHit.outputPreview === outputPreview && refHit.isError === isError)) &&
+    refHit.timestamp === timestamp &&
+    refHit.language === language
+  ) {
+    return refHit.entry;
+  }
+
+  const cacheKey = use.tool_use_id
+    ? `${use.tool_use_id}:${use.status ?? ''}:${timestamp ?? ''}:${language}`
+    : null;
+  if (cacheKey) {
+    const keyHit = toolEntryByKey.get(cacheKey);
+    if (
+      keyHit &&
+      keyHit.toolName === use.tool_name &&
+      keyHit.inputPreview === use.input_preview &&
+      keyHit.outputPreview === outputPreview &&
+      keyHit.isError === isError
+    ) {
+      toolEntryByUseRef.set(use, keyHit);
+      return keyHit.entry;
+    }
+  }
+
+  const toolResult = toolResultFromPreview(outputPreview);
+  const output = extractOutputText(outputPreview, toolResult);
+  const statusKind: 'created' | 'success' | 'failed' =
+    use.status != null
+      ? use.status === 'completed'
+        ? 'success'
+        : use.status === 'failed'
+          ? 'failed'
+          : 'created'
+      : result
+        ? result.is_error
+          ? 'failed'
+          : 'success'
+        : 'created';
   const status =
     statusKind === 'created'
       ? ({ status: 'created' } as const)
@@ -726,14 +845,20 @@ export function toolBlockToNormalizedEntry(
         : ({ status: 'success' } as const);
 
   const parsed = parseInput(use);
+  let editPreviews: FileEditPreview[] | null = null;
+  const getFileEdits = () =>
+    (editPreviews ??= fileEditPreviews(parsed, use.input_preview ?? null));
   const actionType = toolActionType(
     use.tool_name,
     use.kind ?? null,
     parsed,
     output,
     statusKind,
-    use.input_preview ?? null
+    use.input_preview ?? null,
+    toolResult,
+    getFileEdits
   );
+  const fileEdits = actionType.action === 'file_edit' ? getFileEdits() : [];
 
   // Inline content used as a fallback label/detail by the rich cards.
   const content =
@@ -749,9 +874,12 @@ export function toolBlockToNormalizedEntry(
               ? ''
               : use.tool_name;
 
-  return {
+  const entry: ToolDisplayEntry = {
     timestamp,
     content,
+    ...(fileEdits.length > 0 ? { fileEdits } : {}),
+    toolResult,
+    toolArguments: (parsed ?? null) as JsonValue,
     entry_type: {
       type: 'tool_use',
       tool_name: use.tool_name,
@@ -759,4 +887,31 @@ export function toolBlockToNormalizedEntry(
       status,
     },
   };
+
+  const cachedRecord: CachedToolEntry = {
+    status: use.status,
+    toolName: use.tool_name,
+    inputPreview: use.input_preview,
+    resultRef: result,
+    outputPreview,
+    isError,
+    timestamp,
+    language,
+    entry,
+  };
+  toolEntryByUseRef.set(use, cachedRecord);
+  if (cacheKey) {
+    if (
+      toolEntryByKey.size >= MAX_TOOL_ENTRY_CACHE_SIZE &&
+      !toolEntryByKey.has(cacheKey)
+    ) {
+      const oldestKey = toolEntryByKey.keys().next().value;
+      if (oldestKey !== undefined) {
+        toolEntryByKey.delete(oldestKey);
+      }
+    }
+    toolEntryByKey.set(cacheKey, cachedRecord);
+  }
+
+  return entry;
 }

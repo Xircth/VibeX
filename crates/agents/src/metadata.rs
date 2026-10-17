@@ -40,6 +40,16 @@ pub fn codex_auth_path() -> Option<std::path::PathBuf> {
     codex_home().map(|home| home.join("auth.json"))
 }
 
+pub fn gemini_home() -> Option<std::path::PathBuf> {
+    std::env::var_os("GEMINI_HOME")
+        .map(std::path::PathBuf::from)
+        .or_else(|| dirs::home_dir().map(|home| home.join(".gemini")))
+}
+
+pub fn antigravity_token_path() -> Option<std::path::PathBuf> {
+    gemini_home().map(|home| home.join("antigravity-acp").join("acp_token.json"))
+}
+
 pub fn opencode_config_path() -> Option<std::path::PathBuf> {
     let dir = opencode_config_dir()?;
     let json = dir.join("opencode.json");

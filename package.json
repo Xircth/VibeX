@@ -67,10 +67,23 @@
       "postcss": "8.5.28",
       "rollup": "4.63.1",
       "source-map-js": "1.2.2",
-      "undici": "7.29.1"
+      "undici": "7.29.1",
+      "@astryxdesign/richtext>@astryxdesign/core": "0.7.1"
     },
     "patchedDependencies": {
       "@astryxdesign/core@0.3.0": "patches/@astryxdesign__core@0.3.0.patch"
+    },
+    "packageExtensions": {
+      "@astryxdesign/richtext": {
+        "dependencies": {
+          "@astryxdesign/core": "0.7.1"
+        }
+      }
+    },
+    "peerDependencyRules": {
+      "allowedVersions": {
+        "@astryxdesign/core": "0.3.0 || 0.7.1"
+      }
     }
   },
   "packageManager": "pnpm@10.13.1"

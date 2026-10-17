@@ -3,6 +3,7 @@ import react from '@vitejs/plugin-react';
 import path from 'path';
 import pkg from './package.json';
 import { createManualChunks } from './vite.manualChunks';
+import { astryxRichtextCoreAlias } from './vite.astryx-richtext-core-alias';
 
 function createFilteredLogger() {
   const logger = createLogger();
@@ -37,6 +38,7 @@ export default defineConfig({
     __APP_VERSION__: JSON.stringify(pkg.version),
   },
   plugins: [
+    astryxRichtextCoreAlias(),
     {
       name: 'react-refresh-preamble',
       apply: 'serve',
@@ -107,6 +109,7 @@ window.__vite_plugin_react_preamble_installed__ = true;`,
   },
   optimizeDeps: {
     include: ['lucide-react', '@module-federation/runtime'],
+    exclude: ['@astryxdesign/richtext'],
   },
   build: {
     sourcemap: process.env.VITE_SOURCEMAP === 'true',

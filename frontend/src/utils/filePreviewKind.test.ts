@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  defaultRenderedPreview,
   getFilePreviewKind,
   isAutoPreviewPath,
   isBinaryContentError,
@@ -35,6 +36,11 @@ describe('filePreviewKind', () => {
     expect(getFilePreviewKind('C:/repo/docs/spec.docx')).toBe('binary');
     expect(getFilePreviewKind('C:/repo/docs/data.xlsx')).toBe('binary');
     expect(getFilePreviewKind('C:/repo/docs/deck.PPTX')).toBe('binary');
+  });
+
+  it('opens markdown in the rich-text editor and HTML rendered', () => {
+    expect(defaultRenderedPreview('markdown')).toBe(true);
+    expect(defaultRenderedPreview('html')).toBe(true);
   });
 
   it('auto-opens only the files that render without an editor', () => {

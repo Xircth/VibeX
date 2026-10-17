@@ -253,8 +253,12 @@ describe('GeneralSettings Agent model catalogs', () => {
     const { updateAndSaveConfig } = renderSettings();
 
     const filesChangedToggle = await screen.findByRole('switch', {
-      name: '`files changed` 默认折叠',
+      name: '折叠文件更改',
     });
+    expect(
+      screen.getByText('会话完成后的文件更改列表自动折叠。')
+    ).toBeInTheDocument();
+    expect(screen.queryByText('链接打开方式')).not.toBeInTheDocument();
     const aiMessageToggle = screen.getByRole('switch', {
       name: 'AI 消息默认折叠',
     });

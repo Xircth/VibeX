@@ -238,7 +238,9 @@ describe('DockviewPreviewPanel', () => {
       fileContent.data = variables.content;
       callbacks?.onSuccess?.();
     });
-    useEditorSettingsStore.setState({ markdownPreviewMode: 'preview' });
+    useEditorSettingsStore.setState({
+      markdownPreviewMode: 'richtext',
+    });
   });
 
   it('resolves transient conversation images without serializing their data', () => {
@@ -302,48 +304,45 @@ describe('DockviewPreviewPanel', () => {
     );
   });
 
-  it('opens markdown in the preview view by default', async () => {
+  it('opens markdown in the rich-text view by default', async () => {
     render(<DockviewPreviewPanel {...panelProps('docs/readme.md')} />);
 
-    const preview = await screen.findByTestId('astryx-markdown');
-    expect(preview).toHaveAttribute('data-value', '# Preview title');
-    expect(preview).toHaveAttribute('data-workspace-path', '/workspace/docs');
-    expect(preview).toHaveClass('markdown-file-prose');
-    expect(
-      screen.queryByTestId('astryx-rich-text-editor')
-    ).not.toBeInTheDocument();
+    const editor = await screen.findByTestId('astryx-rich-text-editor');
+    expect(editor).toHaveAttribute('data-value', '# Preview title');
+    expect(editor).toHaveAttribute('data-workspace-path', '/workspace/docs');
+    expect(screen.queryByTestId('astryx-markdown')).not.toBeInTheDocument();
     expect(screen.queryByTestId('monaco-editor')).not.toBeInTheDocument();
     expect(
       screen.getByRole('radiogroup', { name: 'Markdown默认预览方式' })
     ).toHaveClass('astryx-segmented-control');
-    expect(screen.getByRole('radio', { name: 'Preview' })).toBeChecked();
+    expect(screen.getByRole('radio', { name: 'RichText' })).toBeChecked();
+    expect(screen.getByRole('radio', { name: 'Preview' })).toBeVisible();
     expect(screen.getByRole('radio', { name: 'Source' })).toBeVisible();
-    expect(screen.getByRole('radio', { name: 'RichText' })).toBeVisible();
   });
 
   it('opens markdown in the configured default view', async () => {
-    useEditorSettingsStore.getState().setMarkdownPreviewMode('richtext');
+    useEditorSettingsStore.getState().setMarkdownPreviewMode('preview');
     render(<DockviewPreviewPanel {...panelProps('docs/configured.md')} />);
 
-    expect(await screen.findByTestId('astryx-rich-text-editor')).toBeVisible();
-    expect(screen.queryByTestId('astryx-markdown')).not.toBeInTheDocument();
+    expect(await screen.findByTestId('astryx-markdown')).toBeVisible();
+    expect(
+      screen.queryByTestId('astryx-rich-text-editor')
+    ).not.toBeInTheDocument();
   });
 
   it('cycles markdown views with a middle click', async () => {
     render(<DockviewPreviewPanel {...panelProps('notes/cycle.md')} />);
 
-    fireEvent.mouseDown(await screen.findByTestId('astryx-markdown'), {
+    fireEvent.mouseDown(await screen.findByTestId('astryx-rich-text-editor'), {
       button: 1,
     });
+    expect(await screen.findByTestId('astryx-markdown')).toBeVisible();
+
+    fireEvent.mouseDown(screen.getByTestId('astryx-markdown'), { button: 1 });
     expect(await screen.findByTestId('monaco-editor')).toBeVisible();
 
     fireEvent.mouseDown(screen.getByTestId('monaco-editor'), { button: 1 });
     expect(await screen.findByTestId('astryx-rich-text-editor')).toBeVisible();
-
-    fireEvent.mouseDown(screen.getByTestId('astryx-rich-text-editor'), {
-      button: 1,
-    });
-    expect(await screen.findByTestId('astryx-markdown')).toBeVisible();
   });
 
   it('renders markdown in the rich-text editor relative to the file directory', async () => {

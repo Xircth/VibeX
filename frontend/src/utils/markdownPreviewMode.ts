@@ -6,11 +6,9 @@ export const MARKDOWN_PREVIEW_MODES = [
 
 export type MarkdownPreviewMode = (typeof MARKDOWN_PREVIEW_MODES)[number];
 
-export const DEFAULT_MARKDOWN_PREVIEW_MODE: MarkdownPreviewMode = 'preview';
+export const DEFAULT_MARKDOWN_PREVIEW_MODE: MarkdownPreviewMode = 'richtext';
 
-export function parseMarkdownPreviewMode(
-  value: unknown
-): MarkdownPreviewMode {
+export function parseMarkdownPreviewMode(value: unknown): MarkdownPreviewMode {
   return MARKDOWN_PREVIEW_MODES.includes(value as MarkdownPreviewMode)
     ? (value as MarkdownPreviewMode)
     : DEFAULT_MARKDOWN_PREVIEW_MODE;

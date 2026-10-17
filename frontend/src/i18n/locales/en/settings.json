@@ -103,6 +103,10 @@
       "label": "App theme",
       "hint": "Dark mode (Ayu Mirage) is tuned for code-dense sessions."
     },
+    "basics": {
+      "title": "Basic appearance",
+      "description": "Accent color, interface zoom, monospace font, and display language."
+    },
     "accent": {
       "title": "Accent color",
       "description": "Used for primary buttons, selection, and focus. Applies instantly and is remembered.",
@@ -110,16 +114,6 @@
       "hex": "Hex",
       "picker": "Choose accent color",
       "hue": "Hue"
-    },
-    "appIcon": {
-      "title": "Application icon",
-      "description": "Choose the standard framed icon or the standalone mark.",
-      "label": "Icon style",
-      "hint": "The light and dark versions switch automatically with the theme.",
-      "styles": {
-        "default": "Standard",
-        "lite": "Standalone mark"
-      }
     },
     "zoom": {
       "title": "Interface zoom",
@@ -145,11 +139,6 @@
       "label": "Display mode",
       "status": "Status groups",
       "workspace": "Workspace groups"
-    },
-    "autoOpenCreatedPreviews": {
-      "title": "New file previews",
-      "description": "Open the preview of a newly created SVG or HTML file while the workspace page is on screen.",
-      "label": "Open previews automatically"
     },
     "kanbanBoardStyle": {
       "title": "Session board style",

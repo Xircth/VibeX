@@ -9,7 +9,6 @@ const mocks = vi.hoisted(() => ({
   config: { theme: 'SYSTEM' as Config['theme'] } as Config,
   updateAndSaveConfig: vi.fn(),
   setTheme: vi.fn(),
-  setAppIconStyle: vi.fn(),
   backendEmit: vi.fn(),
   setUiZoom: vi.fn(),
   setMonoFont: vi.fn(),
@@ -30,13 +29,6 @@ vi.mock('@/components/ConfigProvider', () => ({
 
 vi.mock('@/components/ThemeProvider', () => ({
   useTheme: () => ({ setTheme: mocks.setTheme, resolvedTheme: 'light' }),
-}));
-
-vi.mock('@/lib/appIcon', () => ({
-  APP_ICON_STYLES: ['default', 'lite'],
-  getAppIconStyle: () => 'default',
-  resolveAppLogo: () => '/app-logo-light-default.png',
-  setAppIconStyle: mocks.setAppIconStyle,
 }));
 
 vi.mock('@/lib/backendTransport', () => ({
@@ -118,18 +110,41 @@ describe('AppearanceSettings', () => {
     mocks.backendEmit.mockResolvedValue(undefined);
   });
 
-  it('shows the accent color setting', () => {
+  it('groups accent, zoom, font, and language under basic appearance', () => {
     render(<AppearanceSettings />);
-    expect(screen.getByRole('heading', { name: '强调色' })).toBeInTheDocument();
+    expect(
+      screen.getByRole('heading', { name: '基础外观' })
+    ).toBeInTheDocument();
+    expect(screen.getByText('强调色')).toBeInTheDocument();
+    expect(screen.getByText('缩放比例')).toBeInTheDocument();
+    expect(screen.getByText('等宽字体')).toBeInTheDocument();
+    expect(screen.getByText('界面语言')).toBeInTheDocument();
+    expect(
+      screen.queryByRole('heading', { name: '强调色' })
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole('heading', { name: '界面缩放' })
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole('heading', { name: '等宽字体' })
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole('heading', { name: '语言' })
+    ).not.toBeInTheDocument();
+  });
+
+  it('does not offer app icon or new-file preview settings', () => {
+    render(<AppearanceSettings />);
+    expect(screen.queryByText('应用图标')).not.toBeInTheDocument();
+    expect(screen.queryByText('新增文件预览')).not.toBeInTheDocument();
+    expect(screen.queryByText('自动打开预览')).not.toBeInTheDocument();
   });
 
   it('renders visual theme choice cards (Light, Dark, System) instead of a combobox', () => {
     render(<AppearanceSettings />);
     const group = screen.getByRole('radiogroup', { name: '应用主题' });
     expect(group).toBeInTheDocument();
-    expect(
-      screen.getByRole('checkbox', { name: 'Light' })
-    ).not.toBeChecked();
+    expect(screen.getByRole('checkbox', { name: 'Light' })).not.toBeChecked();
     expect(screen.getByRole('checkbox', { name: 'Dark' })).not.toBeChecked();
     expect(screen.getByRole('checkbox', { name: 'System' })).toBeChecked();
   });
@@ -137,19 +152,17 @@ describe('AppearanceSettings', () => {
   it('applies immediate display preferences and persists the theme on save', async () => {
     const user = userEvent.setup();
     render(<AppearanceSettings />);
-    const selects = screen.getAllByRole('combobox');
-
-    await user.click(selects[1]);
+    await user.click(screen.getByRole('combobox', { name: '缩放比例' }));
     const zoomOption = screen.getByRole('option', { name: '110%' });
     expect(zoomOption.querySelector('.astryx-selector-option')).not.toBeNull();
     await user.click(zoomOption);
     expect(mocks.setUiZoom).toHaveBeenCalledWith(1.1);
 
-    await user.click(selects[2]);
+    await user.click(screen.getByRole('combobox', { name: '等宽字体' }));
     await user.click(screen.getByRole('option', { name: 'Menlo' }));
     expect(mocks.setMonoFont).toHaveBeenCalledWith('menlo');
 
-    await user.click(selects[3]);
+    await user.click(screen.getByRole('combobox', { name: '界面语言' }));
     await user.click(screen.getByRole('option', { name: 'English' }));
     expect(mocks.setUiLanguage).toHaveBeenCalledWith('en');
 
@@ -168,25 +181,12 @@ describe('AppearanceSettings', () => {
     });
   });
 
-  it('applies and remembers the selected application icon style', async () => {
-    const user = userEvent.setup();
-    render(<AppearanceSettings />);
-
-    expect(screen.getByText('应用图标')).toBeInTheDocument();
-    const selects = screen.getAllByRole('combobox');
-    await user.click(selects[0]);
-    await user.click(screen.getByRole('option', { name: '纯标记' }));
-
-    expect(mocks.setAppIconStyle).toHaveBeenCalledWith('lite');
-  });
-
   it('applies the Kanban session list grouping immediately', async () => {
     const user = userEvent.setup();
     render(<AppearanceSettings />);
 
     expect(screen.getByText('Kanban 会话列表')).toBeInTheDocument();
-    const selects = screen.getAllByRole('combobox');
-    await user.click(selects[4]);
+    await user.click(screen.getByRole('combobox', { name: '显示方式' }));
     await user.click(screen.getByRole('option', { name: '工作区分组视图' }));
 
     expect(mocks.setKanbanSessionListView).toHaveBeenCalledWith('workspace');
@@ -197,8 +197,7 @@ describe('AppearanceSettings', () => {
     render(<AppearanceSettings />);
 
     expect(screen.getByText('会话看板样式')).toBeInTheDocument();
-    const selects = screen.getAllByRole('combobox');
-    await user.click(selects[5]);
+    await user.click(screen.getByRole('combobox', { name: '看板样式' }));
     await user.click(screen.getByRole('option', { name: '无限画布' }));
 
     expect(mocks.setKanbanBoardStyle).toHaveBeenCalledWith('canvas');

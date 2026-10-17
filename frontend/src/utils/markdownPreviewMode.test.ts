@@ -6,7 +6,8 @@ import {
 } from './markdownPreviewMode';
 
 describe('markdownPreviewMode', () => {
-  it('parses known modes and falls back to preview', () => {
+  it('parses known modes and falls back to rich text', () => {
+    expect(DEFAULT_MARKDOWN_PREVIEW_MODE).toBe('richtext');
     expect(parseMarkdownPreviewMode('source')).toBe('source');
     expect(parseMarkdownPreviewMode('richtext')).toBe('richtext');
     expect(parseMarkdownPreviewMode('preview')).toBe('preview');

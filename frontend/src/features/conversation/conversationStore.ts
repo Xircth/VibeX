@@ -16,6 +16,10 @@ import {
   getSessionComposerStructuredTokens,
   serializeSessionComposerBackendMessage,
 } from '@/components/tasks/follow-up/sessionComposerStructuredTokens';
+import {
+  mergeOpenTimelineRows,
+  preferLoadedOlderCursor,
+} from './timelinePaging';
 
 /**
  * Dumb-container conversation store (消灭双投影).
@@ -144,9 +148,13 @@ export function conversationStoreReducer(
         // If live row ops have advanced past the reloaded projection, keep them —
         // otherwise a slow `conversation_detail` response would rewind the timeline.
         const keepRealtimeRows = entry.lastSequence > detailLastSequence;
+        const mergedRows = mergeOpenTimelineRows(
+          entry.rows,
+          action.detail.timeline.rows
+        );
         const reconciledTimeline = reconcileOptimisticTurnsAgainstRows(
           entry.optimisticTurns,
-          action.detail.timeline.rows
+          mergedRows
         );
         // `rows` is the timeline the view renders. Keeping the same rows on
         // `detail` duplicated the open window for as long as the card was mounted.
@@ -154,13 +162,14 @@ export function conversationStoreReducer(
           ...action.detail,
           timeline: { ...action.detail.timeline, rows: [] },
         };
+        const rows = keepRealtimeRows ? mergedRows : reconciledTimeline.rows;
         const hydrated = {
           ...entry,
           detail,
-          rows: keepRealtimeRows ? entry.rows : reconciledTimeline.rows,
+          rows,
           liveText: keepRealtimeRows
             ? entry.liveText
-            : retainStreamingLiveText(reconciledTimeline.rows, entry.liveText),
+            : retainStreamingLiveText(rows, entry.liveText),
           lastSequence: keepRealtimeRows
             ? entry.lastSequence
             : detailLastSequence,
@@ -194,15 +203,15 @@ export function conversationStoreReducer(
             action.detail.available_commands !== null
               ? action.detail.available_commands
               : entry.availableCommands,
-          olderCursor: keepRealtimeRows
-            ? entry.olderCursor
-            : (action.detail.timeline.older_cursor ?? null),
+          olderCursor: preferLoadedOlderCursor(
+            entry.olderCursor,
+            action.detail.timeline.older_cursor,
+            entry.rows.length > 0
+          ),
         };
-        if (keepRealtimeRows) {
-          return enforceTimelineBudget(hydrated);
-        }
-        // Keep the open window on screen. Byte-budget amputation here left only
-        // the last fat turn, then a later page dumped the rest in one paint.
+        // Keep already-paged rows on screen. A tail reload used to replace them
+        // with the open window, and an unprotected budget pass dropped fat history
+        // until the user scrolled to page it back.
         const protect = new Set(hydrated.rows.map((row) => row.row_id));
         return enforceTimelineBudget(hydrated, protect);
       });

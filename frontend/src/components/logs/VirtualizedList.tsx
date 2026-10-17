@@ -246,6 +246,33 @@ export function wheelDetachesConversationFollow(deltaY: number): boolean {
   return deltaY < 0;
 }
 
+/**
+ * When older rows are prepended, grow scrollTop by the extra content so the
+ * rows already on screen stay put. Following the tail, or switching sessions,
+ * leaves scrollTop alone — those paths pin or reset the viewport themselves.
+ */
+export function scrollTopAfterPrepend(input: {
+  followTail: boolean;
+  sessionChanged: boolean;
+  previousFirstKey: string | null;
+  nextFirstKey: string | null;
+  previousTotalSize: number;
+  nextTotalSize: number;
+  scrollTop: number;
+}): number {
+  if (input.followTail || input.sessionChanged) return input.scrollTop;
+  if (
+    input.previousFirstKey == null ||
+    input.nextFirstKey == null ||
+    input.previousFirstKey === input.nextFirstKey
+  ) {
+    return input.scrollTop;
+  }
+  const delta = input.nextTotalSize - input.previousTotalSize;
+  if (delta <= 0) return input.scrollTop;
+  return input.scrollTop + delta;
+}
+
 export function isConversationExpansionToggle(
   target: EventTarget | null
 ): boolean {

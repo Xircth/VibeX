@@ -41,6 +41,7 @@ type Controller = {
   bindTimer: number | null;
   cancelBindIdle: (() => void) | null;
   loadingOlder: boolean;
+  loadOlderPromise: Promise<void> | null;
   liveStarted: boolean;
   gapFetchedFor: bigint | null;
   unlistenEvents?: () => void;
@@ -214,6 +215,7 @@ function startController(conversationId: string, slot: Slot): void {
     bindTimer: null,
     cancelBindIdle: null,
     loadingOlder: false,
+    loadOlderPromise: null,
     liveStarted: false,
     gapFetchedFor: null,
   };
@@ -540,30 +542,42 @@ async function prefetchOlder(
 
 async function loadOlder(conversationId: string): Promise<void> {
   const controller = slots.get(conversationId)?.controller;
-  if (!controller || controller.loadingOlder || controller.stopped) return;
+  if (!controller || controller.stopped) return;
+  if (controller.loadOlderPromise) {
+    await controller.loadOlderPromise;
+    return;
+  }
   const pageWindow = nextOlderTimelinePage(
     state.byConversationId[conversationId]?.olderCursor
   );
   if (!pageWindow) return;
   controller.loadingOlder = true;
-  try {
-    const page = await conversationApi.timelinePage({
-      conversationId,
-      cursor: String(pageWindow.start),
-      limit: pageWindow.limit,
-    });
-    if (controller.stopped || slots.get(conversationId)?.refs === 0) return;
-    dispatch({
-      type: 'upsert_rows',
-      conversationId,
-      rows: page.rows,
-      lastSequence: state.byConversationId[conversationId]?.lastSequence ?? 0n,
-      olderCursor: pageWindow.start > 0 ? String(pageWindow.start) : null,
-      protectLoaded: true,
-    });
-  } finally {
-    controller.loadingOlder = false;
-  }
+  const pending = (async () => {
+    try {
+      const page = await conversationApi.timelinePage({
+        conversationId,
+        cursor: String(pageWindow.start),
+        limit: pageWindow.limit,
+      });
+      if (controller.stopped || slots.get(conversationId)?.refs === 0) return;
+      dispatch({
+        type: 'upsert_rows',
+        conversationId,
+        rows: page.rows,
+        lastSequence:
+          state.byConversationId[conversationId]?.lastSequence ?? 0n,
+        olderCursor: pageWindow.start > 0 ? String(pageWindow.start) : null,
+        protectLoaded: true,
+      });
+    } finally {
+      controller.loadingOlder = false;
+      if (controller.loadOlderPromise === pending) {
+        controller.loadOlderPromise = null;
+      }
+    }
+  })();
+  controller.loadOlderPromise = pending;
+  await pending;
 }
 
 function buildView(

@@ -30,6 +30,7 @@ Application Core，也不削弱流式输出、虚拟列表、事件持久化、�
 - 流式事件落库间隔目前为 80 ms；不能恢复为每 8 ms 写一次数据库。
 - Agent 持久化 channel 容量为 8192，UI broadcast 和 recent-events 也有界。
 - 打开会话使用最近 16 行的 `project_open`；更早记录由前端按 16 行一页追加并立即绘制。
+  已绘出的更早页在尾窗重载时保留，预取等待进行中的 `loadOlder` 而不是停掉。
   时间线分页 API 上限为 200。`conversation_timeline_rows` 是打开与分页的派生读模型，
   `fold_json` 只给 IncrementalRowProjector 续折。前端打开路径先画会话壳和时间线骨架，
   再填入尾窗，随后渐进补齐更早回合。

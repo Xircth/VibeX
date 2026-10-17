@@ -75,6 +75,10 @@ import {
 } from '@/utils/lastPreviewTabLayout';
 import { DEFAULT_TERMINAL_PANEL_HEIGHT } from '@/lib/terminalPreferences';
 import {
+  addSessionPanelWithoutStealingFocus,
+  revealSessionPanelWithoutStealingFocus,
+} from '@/utils/dockviewSessionPanel';
+import {
   isTerminalShelfGroup,
   isTerminalShelfOpen,
   terminalShelfGroupId,
@@ -299,16 +303,7 @@ function buildDefaultLayout(api: DockviewApi) {
     initialWidth: defaultSessionWidth(api.width),
   });
 
-  api.addPanel({
-    id: PANEL_IDS.AI_CHAT,
-    component: PANEL_IDS.AI_CHAT,
-    title: 'Sessions',
-    position: {
-      referenceGroup: rightGroup,
-      direction: 'within',
-    },
-    inactive: true,
-  });
+  addSessionPanelWithoutStealingFocus(api, rightGroup);
   rightGroup.locked = 'no-drop-target';
   if (!useLayoutStore.getState().isRightPanelVisible) {
     rightGroup.api.setVisible(false);
@@ -677,17 +672,11 @@ export function IDELayout({
       });
     }
 
-    if (!api.getPanel(PANEL_IDS.AI_CHAT)) {
-      api.addPanel({
-        id: PANEL_IDS.AI_CHAT,
-        component: PANEL_IDS.AI_CHAT,
-        title: 'Sessions',
-        position: {
-          referenceGroup: rightGroup.id,
-          direction: 'within',
-        },
-        inactive: true,
-      });
+    const sessionPanel = api.getPanel(PANEL_IDS.AI_CHAT);
+    if (sessionPanel) {
+      revealSessionPanelWithoutStealingFocus(sessionPanel);
+    } else {
+      addSessionPanelWithoutStealingFocus(api, rightGroup);
     }
 
     rightGroup.locked = 'no-drop-target';
@@ -1052,8 +1041,9 @@ export function IDELayout({
     if (!api) return;
 
     const shouldShow = isRightPanelVisible && !!rightPanelContent;
-    const rightGroup =
-      getRightGroup(api) ?? (shouldShow ? ensureSessionPanel(api) : undefined);
+    const rightGroup = shouldShow
+      ? (ensureSessionPanel(api) ?? getRightGroup(api))
+      : getRightGroup(api);
     if (!rightGroup) return;
 
     setColumnVisible(api, getLayoutArrangement(), rightGroup, shouldShow);
@@ -1130,9 +1120,9 @@ export function IDELayout({
         // HostBrowserPanel still waits for a stable destination slot.
       }
       const shouldShow = isRightPanelVisible && !!rightPanelContent;
-      const rightGroup =
-        getRightGroup(api) ??
-        (shouldShow ? ensureSessionPanel(api) : undefined);
+      const rightGroup = shouldShow
+        ? (ensureSessionPanel(api) ?? getRightGroup(api))
+        : getRightGroup(api);
       if (rightGroup) {
         setColumnVisible(api, getLayoutArrangement(), rightGroup, shouldShow);
       }

@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react';
+import { useLayoutEffect, useRef } from 'react';
 import type { IDockviewPanelProps } from 'dockview-react';
 import { MessageSquare } from 'lucide-react';
 import { useRightPanelSlot } from '@/contexts/RightPanelSlotContext';
@@ -17,7 +17,7 @@ function DockviewAIChatPanel(_props: IDockviewPanelProps) {
   const { host, placement } = useRightPanelSlot();
   const containerRef = useRef<HTMLDivElement>(null);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (!host || placement !== 'workspace') return;
 
     const container = containerRef.current;

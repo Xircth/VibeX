@@ -216,6 +216,106 @@ export function conversationOpenPinState(input: {
   };
 }
 
+export type ConversationFollowIntent = 'attach' | 'detach' | 'keep';
+
+/**
+ * Manual scrolling wins over stick-to-bottom. An upward user scroll detaches
+ * immediately, including inside the near-bottom band. Re-attach only when the
+ * user's own downward scroll lands in that band.
+ */
+export function conversationFollowIntent(input: {
+  trustedUserScroll: boolean;
+  previousScrollTop: number;
+  scrollTop: number;
+  nearBottom: boolean;
+  attached: boolean;
+}): ConversationFollowIntent {
+  if (!input.trustedUserScroll) return 'keep';
+  if (input.scrollTop < input.previousScrollTop - 1) return 'detach';
+  if (
+    !input.attached &&
+    input.nearBottom &&
+    input.scrollTop > input.previousScrollTop + 1
+  ) {
+    return 'attach';
+  }
+  return 'keep';
+}
+
+export function wheelDetachesConversationFollow(deltaY: number): boolean {
+  return deltaY < 0;
+}
+
+export function isConversationExpansionToggle(
+  target: EventTarget | null
+): boolean {
+  if (!(target instanceof Element)) return false;
+  const control = target.closest('button, [role="button"]');
+  return control?.hasAttribute('aria-expanded') ?? false;
+}
+
+export function conversationTailFollowAction(input: {
+  attached: boolean;
+  sessionChanged: boolean;
+  expansionChanged: boolean;
+  settlePassesRemaining: number;
+  itemCount: number;
+  nearBottom: boolean;
+}): {
+  action: 'pin' | 'release';
+  attached: boolean;
+  settlePassesRemaining: number;
+} {
+  if (input.sessionChanged) {
+    const pin = conversationOpenPinState({
+      settlePassesRemaining: CONVERSATION_OPEN_SETTLE_PASSES,
+      itemCount: input.itemCount,
+      nearBottom: true,
+    });
+    return {
+      action: pin.pinned ? 'pin' : 'release',
+      attached: true,
+      settlePassesRemaining: pin.settlePassesRemaining,
+    };
+  }
+  if (input.expansionChanged || !input.attached) {
+    return {
+      action: 'release',
+      attached: false,
+      settlePassesRemaining: 0,
+    };
+  }
+  const pin = conversationOpenPinState({
+    settlePassesRemaining: input.settlePassesRemaining,
+    itemCount: input.itemCount,
+    nearBottom: input.nearBottom,
+  });
+  return {
+    action: pin.pinned ? 'pin' : 'release',
+    attached: pin.pinned,
+    settlePassesRemaining: pin.settlePassesRemaining,
+  };
+}
+
+type CancelableVirtualizerScroll = {
+  scrollState?: unknown;
+  rafId?: number | null;
+  targetWindow?: { cancelAnimationFrame: (handle: number) => void } | null;
+};
+
+/** Stop TanStack's scroll reconcile. It otherwise re-scrolls while a row grows. */
+export function cancelVirtualizerFollowScroll(
+  virtualizer: object | null | undefined
+): void {
+  if (!virtualizer) return;
+  const pending = virtualizer as CancelableVirtualizerScroll;
+  if (pending.rafId != null) {
+    pending.targetWindow?.cancelAnimationFrame(pending.rafId);
+  }
+  pending.rafId = null;
+  pending.scrollState = null;
+}
+
 export function pendingAgentPermissionsFromEvents(
   events: AgentEventEnvelope[]
 ): PendingAgentPermission[] {

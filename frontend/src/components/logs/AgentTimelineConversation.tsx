@@ -7,6 +7,7 @@ import {
   useMemo,
   useRef,
   useState,
+  type UIEvent,
 } from 'react';
 import { Loader2 } from 'lucide-react';
 import { ConversationFindBar } from '@/components/NormalizedConversation/conversation/ConversationFindBar';
@@ -21,7 +22,7 @@ import { exportConversation } from '@/lib/exportConversation';
 import { requestCreateSessionInExecutionArea } from '@/lib/requestCreateSession';
 import { writeClipboardViaBridge } from '@/vscode/bridge';
 
-import { useVirtualizer } from '@tanstack/react-virtual';
+import { elementScroll, useVirtualizer } from '@tanstack/react-virtual';
 import { useQueryClient } from '@tanstack/react-query';
 import type {
   AgentElicitationResponse,
@@ -118,18 +119,23 @@ import { cn } from '@/lib/utils';
 import { isContextCompactPrompt } from '@/lib/contextCompact';
 import { composerMessageHistoryFromTurns } from '@/components/tasks/follow-up/sessionComposerHistory';
 import { useLayoutStore } from '@/stores/useLayoutStore';
+import { bindConversationSummaryMarquee } from './conversationSummaryMarquee';
 import {
   CONVERSATION_OPEN_SETTLE_PASSES,
   ESTIMATED_CONVERSATION_ROW_HEIGHT,
-  conversationOpenPinState,
+  cancelVirtualizerFollowScroll,
+  conversationFollowIntent,
+  conversationTailFollowAction,
   findPreviousUserMessageVirtualIndex,
   findViewportAnchorVirtualIndex,
   getVirtualRowTranslateY,
+  isConversationExpansionToggle,
   isConversationNearBottom,
   measureScrollMargin,
   measureUnscaledBlockHeight,
   observeUnscaledElementRect,
   scheduleMeasuredScrollToIndex,
+  wheelDetachesConversationFollow,
   type VirtualizedListRef,
 } from './VirtualizedList';
 
@@ -587,8 +593,15 @@ const AgentTimelineConversation = forwardRef<
   const [activeIndex, setActiveIndex] = useState<number | null>(null);
   const isAtBottomRef = useRef(true);
   const openSettlePassesRef = useRef(CONVERSATION_OPEN_SETTLE_PASSES);
+  const followTailRef = useRef(true);
+  const lastScrollTopRef = useRef(0);
+  const programmaticScrollDepthRef = useRef(0);
+  const smoothFollowRef = useRef(false);
+  const seenExpansionRef = useRef<number | null>(null);
+  const expansionInViewRef = useRef(false);
 
   const sessionId = attempt.session?.id ?? null;
+  const sessionPinRef = useRef(sessionId);
   // Absolute workspace root for resolving clickable file paths in messages.
   // Non-worktree workspaces leave container_ref null, so fall back to the repo
   // path — otherwise a relative "README.md" can't be opened in a preview tab.
@@ -956,6 +969,19 @@ const AgentTimelineConversation = forwardRef<
     [activeIndex, navEntries]
   );
 
+  const runProgrammaticScroll = useCallback((action: () => void) => {
+    programmaticScrollDepthRef.current += 1;
+    try {
+      action();
+    } finally {
+      queueMicrotask(() => {
+        programmaticScrollDepthRef.current = Math.max(
+          0,
+          programmaticScrollDepthRef.current - 1
+        );
+      });
+    }
+  }, []);
   const rowVirtualizer = useVirtualizer<HTMLDivElement, HTMLDivElement>({
     count: virtualEntries.length,
     getScrollElement: () => containerRef.current,
@@ -965,6 +991,11 @@ const AgentTimelineConversation = forwardRef<
     scrollMargin,
     observeElementRect: observeUnscaledElementRect,
     measureElement: measureUnscaledBlockHeight,
+    scrollToFn: (offset, options, instance) => {
+      runProgrammaticScroll(() => {
+        elementScroll(offset, options, instance);
+      });
+    },
   });
   const virtualRows = rowVirtualizer.getVirtualItems();
   const totalSize = rowVirtualizer.getTotalSize();
@@ -1057,6 +1088,7 @@ const AgentTimelineConversation = forwardRef<
   }, []);
 
   const updateAtBottomState = useCallback(() => {
+    if (!followTailRef.current) return;
     if (openSettlePassesRef.current > 0) return;
     const container = containerRef.current;
     if (!container) return;
@@ -1079,33 +1111,79 @@ const AgentTimelineConversation = forwardRef<
     setActiveIndex((current) => (current === next ? current : next));
   }, [rowVirtualizer, virtualEntries]);
 
-  const handleScroll = useCallback(() => {
-    updateAtBottomState();
-    updateActiveIndex();
-  }, [updateActiveIndex, updateAtBottomState]);
-
   const detachFromBottom = useCallback(() => {
+    cancelVirtualizerFollowScroll(rowVirtualizer);
+    const container = containerRef.current;
+    if (container && smoothFollowRef.current) {
+      smoothFollowRef.current = false;
+      runProgrammaticScroll(() => {
+        container.scrollTo({ top: container.scrollTop, behavior: 'auto' });
+      });
+    }
+    followTailRef.current = false;
+    openSettlePassesRef.current = 0;
     if (!isAtBottomRef.current) return;
     isAtBottomRef.current = false;
     onAtBottomChange?.(false);
-  }, [onAtBottomChange]);
+  }, [onAtBottomChange, rowVirtualizer, runProgrammaticScroll]);
 
-  const scrollToBottom = useCallback(
+  const pinToBottom = useCallback(
     (behavior: ScrollBehavior) => {
       const container = containerRef.current;
       if (!container) return;
-      if (virtualEntries.length > 0) {
-        rowVirtualizer.scrollToIndex(virtualEntries.length - 1, {
-          align: 'end',
-          behavior,
-        });
-      } else {
-        container.scrollTo({ top: container.scrollHeight, behavior });
-      }
+      smoothFollowRef.current = behavior === 'smooth';
+      cancelVirtualizerFollowScroll(rowVirtualizer);
+      runProgrammaticScroll(() => {
+        const top = container.scrollHeight;
+        if (behavior === 'smooth') {
+          container.scrollTo({ top, behavior });
+        } else {
+          container.scrollTop = top;
+        }
+      });
+      lastScrollTopRef.current = container.scrollTop;
+    },
+    [rowVirtualizer, runProgrammaticScroll]
+  );
+
+  const scrollToBottom = useCallback(
+    (behavior: ScrollBehavior) => {
+      followTailRef.current = true;
+      openSettlePassesRef.current = 0;
       isAtBottomRef.current = true;
       onAtBottomChange?.(true);
+      pinToBottom(behavior);
     },
-    [onAtBottomChange, rowVirtualizer, virtualEntries.length]
+    [onAtBottomChange, pinToBottom]
+  );
+
+  const handleScroll = useCallback(
+    (event: UIEvent<HTMLDivElement>) => {
+      const container = containerRef.current;
+      if (!container) return;
+      const previous = lastScrollTopRef.current;
+      const scrollTop = container.scrollTop;
+      lastScrollTopRef.current = scrollTop;
+      const intent = conversationFollowIntent({
+        trustedUserScroll:
+          event.nativeEvent.isTrusted &&
+          programmaticScrollDepthRef.current === 0,
+        previousScrollTop: previous,
+        scrollTop,
+        nearBottom: isConversationNearBottom(container),
+        attached: followTailRef.current,
+      });
+      if (intent === 'detach') {
+        detachFromBottom();
+      } else if (intent === 'attach') {
+        followTailRef.current = true;
+        isAtBottomRef.current = true;
+        onAtBottomChange?.(true);
+      }
+      updateAtBottomState();
+      updateActiveIndex();
+    },
+    [detachFromBottom, onAtBottomChange, updateActiveIndex, updateAtBottomState]
   );
 
   const scrollToIndex = useCallback(
@@ -1146,27 +1224,59 @@ const AgentTimelineConversation = forwardRef<
     updateActiveIndex();
   }, [updateActiveIndex, virtualRows]);
 
-  // Stick to the bottom as the conversation grows, unless the user scrolled up.
+  // Pin scrollTop while the tail is followed. scrollToIndex starts TanStack's
+  // reconcile loop, which repeats the scroll for as long as the last row grows.
   useLayoutEffect(() => {
-    const next = conversationOpenPinState({
+    const sessionChanged = sessionPinRef.current !== sessionId;
+    sessionPinRef.current = sessionId;
+    const expansionChanged =
+      expansionInViewRef.current &&
+      seenExpansionRef.current !== null &&
+      seenExpansionRef.current !== expandableRevision;
+    expansionInViewRef.current = false;
+    seenExpansionRef.current = expandableRevision;
+    const decision = conversationTailFollowAction({
+      attached: followTailRef.current,
+      sessionChanged,
+      expansionChanged,
       settlePassesRemaining: openSettlePassesRef.current,
       itemCount: virtualEntries.length,
       nearBottom: isAtBottomRef.current,
     });
-    openSettlePassesRef.current = next.settlePassesRemaining;
-    if (virtualEntries.length === 0) {
-      if (isAtBottomRef.current !== next.pinned) {
-        isAtBottomRef.current = next.pinned;
-        onAtBottomChange?.(next.pinned);
+    followTailRef.current = decision.attached;
+    openSettlePassesRef.current = decision.settlePassesRemaining;
+    if (decision.action === 'release') {
+      if (expansionChanged) {
+        detachFromBottom();
+      } else {
+        cancelVirtualizerFollowScroll(rowVirtualizer);
+        if (isAtBottomRef.current && !decision.attached) {
+          isAtBottomRef.current = false;
+          onAtBottomChange?.(false);
+        }
       }
       return;
     }
-    if (next.pinned) {
-      isAtBottomRef.current = true;
-      onAtBottomChange?.(true);
-      scrollToBottom('auto');
+    if (virtualEntries.length === 0) {
+      if (!isAtBottomRef.current) {
+        isAtBottomRef.current = true;
+        onAtBottomChange?.(true);
+      }
+      return;
     }
-  }, [onAtBottomChange, scrollToBottom, virtualEntries.length, totalSize]);
+    isAtBottomRef.current = true;
+    onAtBottomChange?.(true);
+    pinToBottom('auto');
+  }, [
+    detachFromBottom,
+    expandableRevision,
+    onAtBottomChange,
+    pinToBottom,
+    rowVirtualizer,
+    sessionId,
+    totalSize,
+    virtualEntries.length,
+  ]);
 
   useImperativeHandle(
     ref,
@@ -1212,11 +1322,11 @@ const AgentTimelineConversation = forwardRef<
     ]
   );
 
-  useLayoutEffect(() => {
-    isAtBottomRef.current = true;
-    openSettlePassesRef.current = CONVERSATION_OPEN_SETTLE_PASSES;
-    onAtBottomChange?.(true);
-  }, [onAtBottomChange, sessionId]);
+  useEffect(() => {
+    const root = containerRef.current;
+    if (!root) return;
+    return bindConversationSummaryMarquee(root);
+  }, []);
 
   // Inline turn stats are sourced from the parsed MessageTurn / live usage.
   const handleForkFromTurn = useCallback(
@@ -1647,6 +1757,22 @@ const AgentTimelineConversation = forwardRef<
         )}
         data-panel="conversation-logs"
         onScroll={handleScroll}
+        onClickCapture={(event) => {
+          if (isConversationExpansionToggle(event.target)) {
+            expansionInViewRef.current = true;
+          }
+        }}
+        onKeyDownCapture={(event) => {
+          if (event.key !== 'Enter' && event.key !== ' ') return;
+          if (isConversationExpansionToggle(event.target)) {
+            expansionInViewRef.current = true;
+          }
+        }}
+        onWheel={(event) => {
+          if (wheelDetachesConversationFollow(event.deltaY)) {
+            detachFromBottom();
+          }
+        }}
         onContextMenu={(event) => {
           const rowEl = (event.target as HTMLElement | null)?.closest(
             '[data-index]'

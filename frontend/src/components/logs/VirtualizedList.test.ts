@@ -1,16 +1,21 @@
 import { describe, expect, it } from 'vitest';
 import {
   CONVERSATION_OPEN_SETTLE_PASSES,
+  cancelVirtualizerFollowScroll,
+  conversationFollowIntent,
   conversationOpenPinState,
+  conversationTailFollowAction,
   findPreviousUserMessageVirtualIndex,
   findViewportAnchorVirtualIndex,
   getDistanceFromConversationBottom,
   getVirtualRowTranslateY,
+  isConversationExpansionToggle,
   isConversationNearBottom,
   measureScrollMargin,
   measureUnscaledBlockHeight,
   scheduleMeasuredScrollToIndex,
   unscaledElementRect,
+  wheelDetachesConversationFollow,
   ESTIMATED_CONVERSATION_ROW_HEIGHT,
   pendingAgentPermissionsFromEvents,
   pendingAgentPermissionsForSession,
@@ -100,6 +105,142 @@ describe('conversation bottom distance', () => {
         nearBottom: false,
       })
     ).toEqual({ pinned: false, settlePassesRemaining: 0 });
+  });
+
+  it('lets an upward scroll inside the near-bottom band release the tail', () => {
+    expect(
+      isConversationNearBottom({
+        scrollHeight: 1200,
+        scrollTop: 755,
+        clientHeight: 400,
+      })
+    ).toBe(true);
+    expect(
+      conversationFollowIntent({
+        trustedUserScroll: true,
+        previousScrollTop: 770,
+        scrollTop: 755,
+        nearBottom: true,
+        attached: true,
+      })
+    ).toBe('detach');
+  });
+
+  it('reattaches only after a downward user scroll returns to the bottom', () => {
+    expect(
+      conversationFollowIntent({
+        trustedUserScroll: true,
+        previousScrollTop: 400,
+        scrollTop: 520,
+        nearBottom: false,
+        attached: false,
+      })
+    ).toBe('keep');
+    expect(
+      conversationFollowIntent({
+        trustedUserScroll: true,
+        previousScrollTop: 700,
+        scrollTop: 760,
+        nearBottom: true,
+        attached: false,
+      })
+    ).toBe('attach');
+  });
+
+  it('ignores programmatic and downward-only movement while attached', () => {
+    expect(
+      conversationFollowIntent({
+        trustedUserScroll: false,
+        previousScrollTop: 800,
+        scrollTop: 640,
+        nearBottom: false,
+        attached: true,
+      })
+    ).toBe('keep');
+    expect(wheelDetachesConversationFollow(-12)).toBe(true);
+    expect(wheelDetachesConversationFollow(12)).toBe(false);
+  });
+
+  it('releases the tail when the open conversation expands, without ending open settle early', () => {
+    expect(
+      conversationTailFollowAction({
+        attached: true,
+        sessionChanged: false,
+        expansionChanged: true,
+        settlePassesRemaining: 4,
+        itemCount: 12,
+        nearBottom: true,
+      })
+    ).toEqual({
+      action: 'release',
+      attached: false,
+      settlePassesRemaining: 0,
+    });
+    expect(
+      conversationTailFollowAction({
+        attached: true,
+        sessionChanged: false,
+        expansionChanged: false,
+        settlePassesRemaining: CONVERSATION_OPEN_SETTLE_PASSES,
+        itemCount: 8,
+        nearBottom: false,
+      })
+    ).toEqual({
+      action: 'pin',
+      attached: true,
+      settlePassesRemaining: CONVERSATION_OPEN_SETTLE_PASSES - 1,
+    });
+  });
+
+  it('starts a new session pinned even if the previous one was released', () => {
+    expect(
+      conversationTailFollowAction({
+        attached: false,
+        sessionChanged: true,
+        expansionChanged: true,
+        settlePassesRemaining: 0,
+        itemCount: 6,
+        nearBottom: false,
+      })
+    ).toEqual({
+      action: 'pin',
+      attached: true,
+      settlePassesRemaining: CONVERSATION_OPEN_SETTLE_PASSES - 1,
+    });
+  });
+
+  it('treats only the expanded control itself as a conversation expansion toggle', () => {
+    const header = document.createElement('div');
+    header.setAttribute('role', 'button');
+    header.setAttribute('aria-expanded', 'false');
+    const icon = document.createElement('span');
+    header.appendChild(icon);
+    const nested = document.createElement('button');
+    nested.textContent = 'src/0.ts';
+    header.appendChild(nested);
+
+    expect(isConversationExpansionToggle(icon)).toBe(true);
+    expect(isConversationExpansionToggle(nested)).toBe(false);
+    expect(isConversationExpansionToggle(null)).toBe(false);
+  });
+
+  it('cancels a virtualizer follow that is still reconciling', () => {
+    const canceled: number[] = [];
+    const virtualizer = {
+      rafId: 7 as number | null,
+      scrollState: { index: 3 },
+      targetWindow: {
+        cancelAnimationFrame(handle: number) {
+          canceled.push(handle);
+        },
+      },
+    };
+
+    cancelVirtualizerFollowScroll(virtualizer);
+
+    expect(canceled).toEqual([7]);
+    expect(virtualizer.rafId).toBeNull();
+    expect(virtualizer.scrollState).toBeNull();
   });
 
   it('offsets virtual rows by the measured scroll margin', () => {

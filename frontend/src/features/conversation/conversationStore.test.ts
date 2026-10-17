@@ -1522,7 +1522,7 @@ describe('conversationStore (row-op dumb container)', () => {
     });
 
     const turns = timelineTurnsForEntry(entryOf(state));
-    expect(turns.some((row) => row.turn.id === 'old:user')).toBe(false);
+    expect(turns.some((row) => row.turn.id === 'old:user')).toBe(true);
     const user = turns.find((row) => row.turn.id === 'live:user');
     const assistant = turns.find((row) => row.turn.id === 'live:assistant');
     expect(user?.turn.blocks).toEqual([
@@ -1545,6 +1545,49 @@ describe('conversationStore (row-op dumb container)', () => {
     expect(textOf(assistant?.turn.blocks ?? [])).toBe(
       'already streamed and more'
     );
+  });
+
+  it('keeps already-rendered history turns while a later turn is streaming over budget', () => {
+    const fat = 'x'.repeat(32 * 1024);
+    const liveBlocks: ContentBlock[] = Array.from(
+      { length: 40 },
+      (_, index) => ({
+        type: 'tool_use' as const,
+        tool_name: 'Read',
+        tool_use_id: `live-${index}`,
+        input_preview: fat,
+        meta: null,
+      })
+    );
+    liveBlocks.push({ type: 'text', text: 'streaming now' });
+    const state = loaded([
+      userRow('t1', 'first question', 1n),
+      assistantRow(
+        't1',
+        [{ type: 'text', text: 'first answer' }],
+        2n,
+        'settled'
+      ),
+      userRow('t2', 'second question', 3n),
+      assistantRow(
+        't2',
+        [{ type: 'text', text: 'second answer' }],
+        4n,
+        'settled'
+      ),
+      userRow('t3', 'third question', 5n),
+      assistantRow('t3', liveBlocks, 6n, 'streaming'),
+    ]);
+    const turns = timelineTurnsForEntry(entryOf(state));
+    expect(turns.map((row) => row.turn.id)).toEqual([
+      't1:user',
+      't1:assistant',
+      't2:user',
+      't2:assistant',
+      't3:user',
+      't3:assistant',
+    ]);
+    expect(entryOf(state).olderCursor).toBeNull();
   });
 
   it('does not amputate a leftover settled turn that exceeds the byte budget', () => {

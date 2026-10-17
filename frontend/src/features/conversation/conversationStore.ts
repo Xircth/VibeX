@@ -436,9 +436,9 @@ function upsertRow(
 }
 
 /** Hot tail of *settled* history kept in the renderer. Older rows reload
- * through `project_row_window`. An in-flight turn is outside this budget.
- * Whole rows may drop; a leftover row is never amputated, because trimmed
- * blocks have no cursor to reload. */
+ * through `project_row_window`. While a turn is streaming the loaded window
+ * stays put: dropping it and paging it back unmounts history and jumps the
+ * viewport to the earliest remaining user message. */
 export const TIMELINE_RETAINED_ROW_LIMIT = 80;
 export const TIMELINE_RETAINED_BYTE_BUDGET = 768 * 1024;
 
@@ -553,6 +553,7 @@ export function enforceTimelineBudget(
   entry: ConversationStoreEntry,
   protectIds?: ReadonlySet<string>
 ): ConversationStoreEntry {
+  if (hasStreamingTimeline(entry)) return entry;
   const protect = new Set(protectIds ?? []);
   for (const rowId of inFlightProtectIds(entry)) protect.add(rowId);
   let rows = entry.rows;
@@ -1081,6 +1082,15 @@ function turnIdOfRowId(rowId: string): string | null {
 function turnPrefixOfRowId(rowId: string): string | null {
   const match = /^(.*?):(user|assistant|steer)(?::|$)/.exec(rowId);
   return match?.[1] ?? null;
+}
+
+function hasStreamingTimeline(entry: ConversationStoreEntry): boolean {
+  if (Object.keys(entry.liveText).length > 0) return true;
+  return entry.rows.some(
+    (row) =>
+      row.row.kind === 'message_turn' &&
+      (row.row.phase === 'streaming' || row.row.phase === 'optimistic')
+  );
 }
 
 function inFlightProtectIds(entry: ConversationStoreEntry): Set<string> {

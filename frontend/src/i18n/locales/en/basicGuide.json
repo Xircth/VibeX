@@ -10,11 +10,11 @@
     "learnLayoutDescription": "See the rail, board, and usage stats"
   },
   "continue": "Continue",
-  "exit": "Exit guide",
+  "exit": "Skip basic guide",
   "finish": "Done",
-  "exitTitle": "Exit the basic guide",
-  "exitMessage": "Exit the guide now? You can restart it later from **Settings → General** with **Restart basic guide**.",
-  "exitConfirm": "Exit",
+  "exitTitle": "Skip the basic guide",
+  "exitMessage": "Skip the guide now? You can restart it later from **Settings → General** with **Restart basic guide**.",
+  "exitConfirm": "Skip",
   "endCopy": "Find more tips in the docs or community. Vibing~~~",
   "copy": {
     "select-project-create": "In VibeX, create or choose a **project** to continue. A **project** is a folder that isolates Agent sessions and work state.",

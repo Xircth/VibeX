@@ -8,7 +8,7 @@ import { readLocalStorage, writeLocalStorage } from '@/lib/safeStorage';
  */
 export const ACCENT_COLOR_KEY = 'vibex:accent-color' as const;
 export const ACCENT_COLOR_CHANGED_EVENT = 'vibex:accent-color-changed';
-export const DEFAULT_ACCENT_COLOR = '#171717';
+export const DEFAULT_ACCENT_COLOR = '#1b1b1b';
 export const DEFAULT_DARK_ACCENT_COLOR = '#e7ebef';
 export const HANGAR_COLOR = '#0e1319';
 export const ACCENT_HSL_VAR = '--accent-hsl';

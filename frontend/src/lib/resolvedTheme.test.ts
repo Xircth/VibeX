@@ -32,7 +32,7 @@ describe('resolvedTheme', () => {
     applyResolvedThemeClass('light');
     expect(
       document.documentElement.style.getPropertyValue('--accent-hsl')
-    ).toBe('0 0% 9.02%');
+    ).toBe('0 0% 10.59%');
 
     applyResolvedThemeClass('dark');
     expect(

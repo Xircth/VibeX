@@ -5,7 +5,7 @@ register: product
 platform: Tauri desktop (React + Tailwind + Radix). macOS Tahoe is the visual target; Windows and Linux degrade gracefully.
 colors:
   # One user-configurable accent, reserved for state (selected / focused / primary / live).
-  primary: "#171717"
+  primary: "#1B1B1B"
   primary-foreground: "#ffffff"
   primary-control-foreground: "#ffffff"
   switch-checked-track: "#1d2530"
@@ -181,7 +181,7 @@ VibeX is a Tauri app (React + Tailwind + Radix), so "native" is an aesthetic and
 
 - Dense information, quiet surfaces, visible state.
 - Glass is structural, not decorative — chrome only, never content.
-- One user-configurable accent (default Ink `#171717` in light, Pearl Ink `#E7EBEF` in dark), used only for selected / focused / primary / live.
+- One user-configurable accent (default Ink `#1B1B1B` in light, Pearl Ink `#E7EBEF` in dark), used only for selected / focused / primary / live.
 - Light mode is the primary working scene; dark mode is a first-class night scene: Tahoe glass over Hangar, opaque Ayu Mirage content.
 - Hierarchy is expressed by grouping and spacing; remove any background, border, or internal rule added purely for emphasis.
 
@@ -223,7 +223,7 @@ A restrained, system-adaptive neutral palette with one user-configurable accent 
 
 ### Accent
 
-- **Ink** (`--primary`, `#171717`): the default light accent. Used for the selected sidebar row, focus rings, primary buttons, active navigation, live state, and drag targets. Accent-filled states use a contrasting control-foreground (white on this default).
+- **Ink** (`--primary`, `#1B1B1B`): the default light accent. Used for the selected sidebar row, focus rings, primary buttons, active navigation, live state, and drag targets. Accent-filled states use a contrasting control-foreground (white on this default).
 - **Pearl Ink** (`--primary` in dark, `#E7EBEF`): the reciprocal night default — graphite inverted to pearl, with Hangar `#0E1319` on fill. Custom accents keep hue and lift lightness only until the fill stays visible on Hangar. Users change the hex in Settings → Appearance.
 
 ### Semantic status
@@ -250,7 +250,7 @@ Astryx `theme-neutral` chrome follows the same night scene: Hangar body, Mirage 
 
 **The System-Adaptive Rule.** Surfaces are built from tinted-neutral tokens that flip with light/dark and strengthen under `prefers-contrast: more`. Avoid pure `#000`/`#fff` and hard-coded hex; reach for the tokens.
 
-**The Honor-The-Accent Rule.** Treat the Appearance accent as the user's system accent: selection, focus, and primary actions follow it. The default is Ink `#171717` in light and Pearl Ink `#E7EBEF` in dark.
+**The Honor-The-Accent Rule.** Treat the Appearance accent as the user's system accent: selection, focus, and primary actions follow it. The default is Ink `#1B1B1B` in light and Pearl Ink `#E7EBEF` in dark.
 
 ## 4. Typography
 

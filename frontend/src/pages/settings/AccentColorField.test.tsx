@@ -5,7 +5,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import '@/i18n';
 
 const mocks = vi.hoisted(() => ({
-  getAccentColor: vi.fn(() => '#171717'),
+  getAccentColor: vi.fn(() => '#1b1b1b'),
   setAccentColor: vi.fn(),
 }));
 
@@ -22,7 +22,7 @@ import { AccentColorField } from './AccentColorField';
 
 describe('AccentColorField', () => {
   beforeEach(() => {
-    mocks.getAccentColor.mockReturnValue('#171717');
+    mocks.getAccentColor.mockReturnValue('#1b1b1b');
     mocks.setAccentColor.mockReset();
     mocks.setAccentColor.mockImplementation((hex: string) => {
       mocks.getAccentColor.mockReturnValue(
@@ -36,7 +36,7 @@ describe('AccentColorField', () => {
     render(<AccentColorField />);
 
     const hex = screen.getByRole('textbox', { name: '色值' });
-    expect(hex).toHaveValue('#171717');
+    expect(hex).toHaveValue('#1b1b1b');
 
     await user.clear(hex);
     await user.type(hex, '#3f6cc4');

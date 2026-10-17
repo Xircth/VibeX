@@ -11,7 +11,7 @@
   --conv-user-code-border: rgb(0 0 0 / 0.1);
   --conv-user-bubble-radius: var(--radius);
 
-  --conv-thinking-border: hsl(var(--primary, 0 0% 9.02%) / 0.42);
+  --conv-thinking-border: hsl(var(--primary, 0 0% 10.59%) / 0.42);
   --conv-thinking-bg: var(--surface-control);
 
   --conv-tool-success: hsl(var(--success));
@@ -26,11 +26,11 @@
   --conv-text-primary: var(--text-strong);
   --conv-text-secondary: var(--text-muted);
   --conv-text-tertiary: var(--text-faint);
-  --conv-tool-icon: hsl(var(--primary, 0 0% 9.02%));
+  --conv-tool-icon: hsl(var(--primary, 0 0% 10.59%));
 
-  --conv-shimmer-from: hsl(var(--primary, 0 0% 9.02%) / 0.14);
-  --conv-shimmer-via: hsl(var(--primary, 0 0% 9.02%) / 0.38);
-  --conv-shimmer-to: hsl(var(--primary, 0 0% 9.02%) / 0.14);
+  --conv-shimmer-from: hsl(var(--primary, 0 0% 10.59%) / 0.14);
+  --conv-shimmer-via: hsl(var(--primary, 0 0% 10.59%) / 0.38);
+  --conv-shimmer-to: hsl(var(--primary, 0 0% 10.59%) / 0.14);
 
   --conv-code-bg: var(--surface-control);
   --conv-code-text: var(--text-strong);

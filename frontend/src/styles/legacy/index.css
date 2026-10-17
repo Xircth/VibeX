@@ -12,7 +12,7 @@
     /* Ayu Light */
     --_background: 0 0% 98%;
     --_foreground: 213 10% 37%;
-    --_primary: var(--accent-hsl, 0 0% 9.02%);
+    --_primary: var(--accent-hsl, 0 0% 10.59%);
     --_primary-foreground: var(--accent-foreground-hsl, 0 0% 100%);
     --_secondary: 0 0% 94%;
     --_secondary-foreground: 213 10% 37%;
@@ -1067,9 +1067,9 @@ html.dark {
     .astryx-textarea,
     .astryx-selector[data-variant='input']
   ):focus-within {
-  border-color: var(--color-accent, hsl(var(--primary, 0 0% 9.02%))) !important;
+  border-color: var(--color-accent, hsl(var(--primary, 0 0% 10.59%))) !important;
   box-shadow: inset 0 0 0 2px
-    var(--color-accent-muted, hsl(var(--primary, 0 0% 9.02%) / 0.12)) !important;
+    var(--color-accent-muted, hsl(var(--primary, 0 0% 10.59%) / 0.12)) !important;
 }
 
 .legacy-design

@@ -17,7 +17,7 @@ describe('Ayu Monaco themes', () => {
       expect.objectContaining({
         colors: expect.objectContaining({
           'editor.background': '#FAFAFA',
-          'editor.selectionBackground': '#17171733',
+          'editor.selectionBackground': '#1B1B1B33',
         }),
       })
     );

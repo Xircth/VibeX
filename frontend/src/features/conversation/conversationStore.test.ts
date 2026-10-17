@@ -1480,6 +1480,73 @@ describe('conversationStore (row-op dumb container)', () => {
     expect(entry.olderCursor).not.toBeNull();
   });
 
+  it('keeps the in-flight turn when its streaming payload exceeds the hot budget', () => {
+    const fat = 'x'.repeat(32 * 1024);
+    const blocks: ContentBlock[] = [
+      { type: 'thinking', text: 'planning the work' },
+      {
+        type: 'tool_use',
+        tool_name: 'Read',
+        tool_use_id: 'call-early',
+        input_preview: fat,
+        meta: null,
+      },
+      ...Array.from({ length: 40 }, (_, index) => ({
+        type: 'tool_use' as const,
+        tool_name: 'Read',
+        tool_use_id: `call-${index}`,
+        input_preview: fat,
+        meta: null,
+      })),
+      { type: 'text', text: 'already streamed' },
+    ];
+    let state = loaded([
+      userRow('old', 'previous question', 1n),
+      userRow('live', 'please continue', 2n),
+      assistantRow('live', blocks, 3n, 'streaming'),
+    ]);
+    state = conversationStoreReducer(state, {
+      type: 'row_ops',
+      batch: batch(
+        [
+          {
+            op: 'append_text',
+            row_id: 'live:assistant',
+            revision: 4n,
+            stream: 'text',
+            delta: ' and more',
+          },
+        ],
+        4n
+      ),
+    });
+
+    const turns = timelineTurnsForEntry(entryOf(state));
+    expect(turns.some((row) => row.turn.id === 'old:user')).toBe(false);
+    const user = turns.find((row) => row.turn.id === 'live:user');
+    const assistant = turns.find((row) => row.turn.id === 'live:assistant');
+    expect(user?.turn.blocks).toEqual([
+      expect.objectContaining({ type: 'text', text: 'please continue' }),
+    ]);
+    expect(assistant?.phase).toBe('streaming');
+    expect(
+      assistant?.turn.blocks.some(
+        (block) =>
+          block.type === 'thinking' && block.text === 'planning the work'
+      )
+    ).toBe(true);
+    expect(
+      assistant?.turn.blocks.some(
+        (block) =>
+          block.type === 'tool_use' && block.tool_use_id === 'call-early'
+      )
+    ).toBe(true);
+    expect(assistant?.turn.blocks.length).toBe(blocks.length);
+    expect(textOf(assistant?.turn.blocks ?? [])).toBe(
+      'already streamed and more'
+    );
+  });
+
   it('keeps a just-loaded older page even when it exceeds the hot budget', () => {
     const tail = Array.from(
       { length: TIMELINE_RETAINED_ROW_LIMIT },

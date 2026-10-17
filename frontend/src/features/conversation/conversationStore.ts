@@ -435,7 +435,10 @@ function upsertRow(
   return { rows: nextRows, liveText: nextLive };
 }
 
-/** Hot tail kept in the renderer. Older rows reload through `project_row_window`. */
+/** Hot tail of *settled* history kept in the renderer. Older rows reload
+ * through `project_row_window`. An in-flight turn is outside this budget:
+ * dropping or amputating it makes already-visible stream content vanish
+ * while `append_text` keeps going. */
 export const TIMELINE_RETAINED_ROW_LIMIT = 80;
 export const TIMELINE_RETAINED_BYTE_BUDGET = 768 * 1024;
 export const TIMELINE_ROW_BLOCK_TAIL = 24;
@@ -551,7 +554,8 @@ export function enforceTimelineBudget(
   entry: ConversationStoreEntry,
   protectIds?: ReadonlySet<string>
 ): ConversationStoreEntry {
-  const protect = protectIds ?? new Set<string>();
+  const protect = new Set(protectIds ?? []);
+  for (const rowId of inFlightProtectIds(entry)) protect.add(rowId);
   let rows = entry.rows;
   let dropped = 0;
   const over = () =>
@@ -1091,6 +1095,38 @@ function opRevision(op: ConversationRowOp): bigint {
 function turnIdOfRowId(rowId: string): string | null {
   const suffix = ':user';
   return rowId.endsWith(suffix) ? rowId.slice(0, -suffix.length) : null;
+}
+
+/** `${turn}:user` | `${turn}:assistant` | `${turn}:assistant:N` | `${turn}:steer:{id}` */
+function turnPrefixOfRowId(rowId: string): string | null {
+  const match = /^(.*?):(user|assistant|steer)(?::|$)/.exec(rowId);
+  return match?.[1] ?? null;
+}
+
+function inFlightProtectIds(entry: ConversationStoreEntry): Set<string> {
+  const turnIds = new Set<string>();
+  if (entry.currentTurnId) turnIds.add(entry.currentTurnId);
+  for (const rowId of Object.keys(entry.liveText)) {
+    const turnId = turnPrefixOfRowId(rowId);
+    if (turnId) turnIds.add(turnId);
+  }
+  for (const row of entry.rows) {
+    if (
+      row.row.kind !== 'message_turn' ||
+      (row.row.phase !== 'streaming' && row.row.phase !== 'optimistic')
+    ) {
+      continue;
+    }
+    const turnId = turnPrefixOfRowId(row.row_id);
+    if (turnId) turnIds.add(turnId);
+  }
+  const ids = new Set<string>();
+  for (const row of entry.rows) {
+    if (entry.liveText[row.row_id]) ids.add(row.row_id);
+    const turnId = turnPrefixOfRowId(row.row_id);
+    if (turnId && turnIds.has(turnId)) ids.add(row.row_id);
+  }
+  return ids;
 }
 
 function reconcileOptimisticTurns(

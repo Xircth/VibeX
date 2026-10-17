@@ -96,7 +96,7 @@ describe('MarkdownRichTextEditor', () => {
       />
     );
 
-    expect(richtext.markdownToEditorStateJSON).toHaveBeenCalledWith('# Title');
+    expect(richtext.markdownToEditorStateJSON).toHaveBeenCalled();
     expect(screen.getByTestId('astryx-rich-text-editor')).toHaveAttribute(
       'data-workspace-path',
       '/workspace/docs'

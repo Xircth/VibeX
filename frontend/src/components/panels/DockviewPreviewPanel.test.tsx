@@ -207,10 +207,7 @@ vi.mock('@/components/previews/MarkdownRichTextEditor', () => ({
 
 async function chooseMarkdownView(label: string) {
   const user = userEvent.setup();
-  await user.click(
-    await screen.findByRole('combobox', { name: 'Markdown默认预览方式' })
-  );
-  await user.click(await screen.findByRole('option', { name: label }));
+  await user.click(await screen.findByRole('radio', { name: label }));
 }
 
 function panelProps(filePath = 'README.md'): IDockviewPanelProps {
@@ -313,8 +310,11 @@ describe('DockviewPreviewPanel', () => {
     ).not.toBeInTheDocument();
     expect(screen.queryByTestId('monaco-editor')).not.toBeInTheDocument();
     expect(
-      screen.getByRole('combobox', { name: 'Markdown默认预览方式' })
-    ).toHaveTextContent('预览视图');
+      screen.getByRole('radiogroup', { name: 'Markdown默认预览方式' })
+    ).toBeVisible();
+    expect(screen.getByRole('radio', { name: 'Preview' })).toBeChecked();
+    expect(screen.getByRole('radio', { name: 'Source' })).toBeVisible();
+    expect(screen.getByRole('radio', { name: 'RichText' })).toBeVisible();
   });
 
   it('opens markdown in the configured default view', async () => {
@@ -344,7 +344,7 @@ describe('DockviewPreviewPanel', () => {
 
   it('renders markdown in the rich-text editor relative to the file directory', async () => {
     render(<DockviewPreviewPanel {...panelProps('docs/guide.md')} />);
-    await chooseMarkdownView('富文本预览编辑视图');
+    await chooseMarkdownView('RichText');
 
     const editor = await screen.findByTestId('astryx-rich-text-editor');
     expect(editor).toHaveAttribute('data-workspace-path', '/workspace/docs');
@@ -353,19 +353,19 @@ describe('DockviewPreviewPanel', () => {
 
   it('keeps edited Markdown when switching from the editor to source and back', async () => {
     render(<DockviewPreviewPanel {...panelProps('notes/draft.md')} />);
-    await chooseMarkdownView('富文本预览编辑视图');
+    await chooseMarkdownView('RichText');
 
     const editor = await screen.findByRole('textbox', {
       name: 'notes/draft.md',
     });
     fireEvent.change(editor, { target: { value: '# Edited content' } });
-    await chooseMarkdownView('源码视图');
+    await chooseMarkdownView('Source');
 
     expect(
       await screen.findByRole('textbox', { name: 'File source' })
     ).toHaveValue('# Edited content');
 
-    await chooseMarkdownView('富文本预览编辑视图');
+    await chooseMarkdownView('RichText');
     expect(
       await screen.findByTestId('astryx-rich-text-editor')
     ).toHaveAttribute('data-value', '# Edited content');
@@ -375,7 +375,7 @@ describe('DockviewPreviewPanel', () => {
     const { rerender } = render(
       <DockviewPreviewPanel {...panelProps('notes/before.md')} />
     );
-    await chooseMarkdownView('富文本预览编辑视图');
+    await chooseMarkdownView('RichText');
     fireEvent.change(
       await screen.findByRole('textbox', { name: 'notes/before.md' }),
       {
@@ -393,7 +393,7 @@ describe('DockviewPreviewPanel', () => {
   it('shows external updates after its draft has been saved', async () => {
     const props = panelProps('notes/saved.md');
     const { rerender } = render(<DockviewPreviewPanel {...props} />);
-    await chooseMarkdownView('富文本预览编辑视图');
+    await chooseMarkdownView('RichText');
     const editor = await screen.findByRole('textbox', {
       name: 'notes/saved.md',
     });
@@ -416,7 +416,7 @@ describe('DockviewPreviewPanel', () => {
       };
     });
     render(<DockviewPreviewPanel {...panelProps('notes/delayed-save.md')} />);
-    await chooseMarkdownView('富文本预览编辑视图');
+    await chooseMarkdownView('RichText');
     const editor = await screen.findByRole('textbox', {
       name: 'notes/delayed-save.md',
     });
@@ -425,11 +425,11 @@ describe('DockviewPreviewPanel', () => {
     fireEvent.change(editor, { target: { value: '# Newer draft' } });
 
     act(completeSave);
-    await chooseMarkdownView('源码视图');
+    await chooseMarkdownView('Source');
     expect(
       await screen.findByRole('textbox', { name: 'File source' })
     ).toHaveValue('# Newer draft');
-    await chooseMarkdownView('富文本预览编辑视图');
+    await chooseMarkdownView('RichText');
     expect(
       await screen.findByTestId('astryx-rich-text-editor')
     ).toHaveAttribute('data-value', '# Newer draft');

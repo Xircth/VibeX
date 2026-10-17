@@ -19,6 +19,7 @@ export function SessionComposerFrame({
     <div
       className="agent-question-composer-stack relative z-10 mx-3 mb-3 mt-2 shrink-0"
       data-testid="session-composer-stack"
+      data-basic-guide="session-composer"
       data-has-overlay={overlay ? 'true' : undefined}
     >
       {status}

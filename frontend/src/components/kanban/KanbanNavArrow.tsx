@@ -21,6 +21,7 @@ export function KanbanNavArrow({ side, label, onClick }: KanbanNavArrowProps) {
       <button
         type="button"
         data-side={side}
+        data-basic-guide={side === 'right' ? 'kanban-next-page' : undefined}
         onClick={onClick}
         aria-label={label}
         className="kanban-nav-arrow"

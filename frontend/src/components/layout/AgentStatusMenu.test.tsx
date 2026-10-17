@@ -155,4 +155,94 @@ describe('AgentStatusMenu', () => {
     fireEvent.click(updateButton);
     expect(onOpenAgentSettings).toHaveBeenCalledWith('claude_code');
   });
+
+  it('shows connector, auth, and Agent ready details', () => {
+    const onOpenAgentSettings = vi.fn();
+    render(
+      <AgentStatusMenu
+        agents={[
+          agent({
+            agent_id: 'grok',
+            display_name: 'Grok',
+            acp_version: '1.0.0',
+            authentication: 'account',
+          }),
+        ]}
+        defaultAgentId="grok"
+        preflightPassedIds={new Set(['grok'])}
+        onOpenAgentSettings={onOpenAgentSettings}
+      />
+    );
+
+    fireEvent.mouseEnter(
+      screen.getByRole('button', { name: /默认 Agent：Grok/ })
+    );
+
+    expect(screen.getByRole('button', { name: '已登录' })).toBeInTheDocument();
+    expect(screen.getByText('Agent 可用')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: '连接器可用' }));
+    expect(onOpenAgentSettings).toHaveBeenCalledWith('grok');
+  });
+
+  it('shows the ACP stepper while an install is running', () => {
+    render(
+      <AgentStatusMenu
+        agents={[
+          agent({
+            agent_id: 'grok',
+            display_name: 'Grok',
+            lifecycle: 'installing',
+            authentication: 'not_logged_in',
+            acp_version: null,
+          }),
+        ]}
+        defaultAgentId="grok"
+        operations={{
+          grok: {
+            operationId: 'op-1',
+            kind: 'install',
+            status: 'running',
+            progressPercent: 20,
+            message: null,
+            sequence: 1,
+          },
+        }}
+      />
+    );
+
+    fireEvent.mouseEnter(
+      screen.getByRole('button', { name: /默认 Agent：Grok/ })
+    );
+
+    expect(screen.getByLabelText('ACP 安装进度')).toBeInTheDocument();
+    expect(screen.getByText('下载')).toBeInTheDocument();
+    expect(screen.getByText('安装')).toBeInTheDocument();
+    expect(screen.getByText('检查')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '未登录' })).toBeInTheDocument();
+  });
+
+  it('shows the ACP stepper from lifecycle when operations are missing', () => {
+    render(
+      <AgentStatusMenu
+        agents={[
+          agent({
+            agent_id: 'grok',
+            display_name: 'Grok',
+            lifecycle: 'installing',
+            authentication: 'not_logged_in',
+            acp_version: null,
+          }),
+        ]}
+        defaultAgentId="grok"
+      />
+    );
+
+    fireEvent.mouseEnter(
+      screen.getByRole('button', { name: /默认 Agent：Grok/ })
+    );
+
+    expect(screen.getByText('下载')).toBeInTheDocument();
+    expect(screen.getByText('安装')).toBeInTheDocument();
+    expect(screen.getByText('检查')).toBeInTheDocument();
+  });
 });

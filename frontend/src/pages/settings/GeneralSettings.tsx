@@ -50,6 +50,9 @@ import {
 import { terminalHostPlatform } from '@/utils/platform';
 import { useEditorSettingsStore } from '@/stores/useEditorSettingsStore';
 import { toPrettyCase } from '@/utils/string';
+import { useOptionalBasicGuide } from '@/features/basic-guide';
+import { restartBasicGuide } from '@/features/basic-guide/basicGuideState';
+import { writeBasicGuide } from '@/features/basic-guide/basicGuideStorage';
 import { SettingsActionBar, SettingsSection } from './SettingsUi';
 
 const DEFAULT_PROMPT_ENHANCEMENT_PROMPT = `You are PromptEnhance (PE).
@@ -78,6 +81,7 @@ function cloneConfig(config: Config): Config {
 export function GeneralSettings() {
   const { t } = useTranslation(['settings', 'common']);
   const { config, environment, loading, updateAndSaveConfig } = useUserSystem();
+  const basicGuide = useOptionalBasicGuide();
   const localDesktopHost = useLocalDesktopHost();
 
   const [draft, setDraft] = useState<Config | null>(() =>
@@ -164,6 +168,19 @@ export function GeneralSettings() {
 
   return (
     <div className="settings-content">
+      <div className="mb-4 flex justify-end">
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          onClick={() => {
+            if (basicGuide) basicGuide.restart();
+            else writeBasicGuide(restartBasicGuide());
+          }}
+        >
+          {t('general.restartBasicGuide')}
+        </Button>
+      </div>
       <div className="settings-sections">
         <SettingsSection
           icon={Terminal}

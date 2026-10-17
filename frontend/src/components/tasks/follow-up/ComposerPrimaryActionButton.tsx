@@ -25,6 +25,7 @@ export function ComposerPrimaryActionButton({
       onClick={onClick}
       disabled={disabled}
       className="composer-primary-action shrink-0"
+      data-basic-guide={action === 'send' ? 'session-send' : undefined}
       aria-label={label}
       aria-busy={pending || undefined}
       title={label}

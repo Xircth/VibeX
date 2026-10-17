@@ -1,0 +1,226 @@
+.astryx-step {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.astryx-step--vertical {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+}
+
+.astryx-step__item {
+  position: relative;
+  display: grid;
+  grid-template-columns: 1.25rem minmax(0, 1fr);
+  column-gap: 0.625rem;
+  min-height: 1.75rem;
+}
+
+.astryx-step__indicator {
+  z-index: 1;
+  display: flex;
+  height: 1.25rem;
+  width: 1.25rem;
+  align-items: center;
+  justify-content: center;
+  border-radius: 999px;
+  border: 1px solid var(--border-strong);
+  background: var(--surface-card-strong);
+  color: var(--text-muted);
+  font-size: 0.6875rem;
+  font-weight: 600;
+  line-height: 1;
+}
+
+.astryx-step__item[data-status='current'] .astryx-step__indicator {
+  border-color: hsl(var(--primary));
+  background: hsl(var(--primary));
+  color: var(--primary-control-foreground);
+}
+
+.astryx-step__item[data-status='completed'] .astryx-step__indicator {
+  border-color: hsl(var(--success));
+  background: hsl(var(--success));
+  color: #fff;
+}
+
+.astryx-step__body {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  padding-bottom: 0.85rem;
+}
+
+.astryx-step__item:last-child .astryx-step__body {
+  padding-bottom: 0;
+}
+
+.astryx-step__label {
+  font-size: 0.8125rem;
+  font-weight: 600;
+  line-height: 1.25rem;
+  color: var(--text-strong);
+}
+
+.astryx-step__item[data-status='upcoming'] .astryx-step__label {
+  font-weight: 500;
+  color: var(--text-muted);
+}
+
+.astryx-step__separator {
+  position: absolute;
+  left: 0.5625rem;
+  top: 1.25rem;
+  bottom: 0.15rem;
+  width: 1px;
+  background: var(--border-strong);
+}
+
+.astryx-step__item:last-child .astryx-step__separator {
+  display: none;
+}
+
+.astryx-stepper {
+  display: flex;
+  align-items: center;
+  gap: 0;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.astryx-stepper__item {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+}
+
+.astryx-stepper__trigger {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  border: 0;
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 10px;
+  line-height: 1;
+  padding: 0;
+}
+
+.astryx-stepper__trigger--button {
+  cursor: pointer;
+  border-radius: 999px;
+}
+
+.astryx-stepper__trigger--button:hover {
+  color: var(--text-strong);
+}
+
+.astryx-stepper__dot {
+  height: 0.375rem;
+  width: 0.375rem;
+  border-radius: 999px;
+  background: var(--border-strong);
+}
+
+.astryx-stepper__item[data-status='current'] .astryx-stepper__dot {
+  background: hsl(var(--primary));
+}
+
+.astryx-stepper__item[data-status='completed'] .astryx-stepper__dot {
+  background: hsl(var(--success));
+}
+
+.astryx-stepper__item[data-status='current'] .astryx-stepper__label,
+.astryx-stepper__item[data-status='completed'] .astryx-stepper__label {
+  color: var(--text-strong);
+}
+
+.astryx-stepper__separator {
+  width: 0.5rem;
+  height: 1px;
+  margin: 0 0.2rem;
+  background: var(--border-strong);
+}
+
+.basic-guide-panel {
+  position: fixed;
+  left: 16px;
+  top: 50%;
+  z-index: 80;
+  width: 220px;
+  transform: translateY(-50%);
+  pointer-events: auto;
+}
+
+.basic-guide-panel--workspace {
+  left: 52px;
+}
+
+.basic-guide-panel--settings {
+  left: 196px;
+}
+
+.basic-guide-panel__card {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  padding: 0.875rem 0.875rem 0.75rem;
+  border-radius: var(--radius);
+  border: 1px solid var(--border-subtle);
+  background: var(--surface-card-strong);
+  box-shadow: var(--shadow-popover);
+}
+
+.basic-guide-panel__copy {
+  margin: 0;
+  font-size: 0.8125rem;
+  line-height: 1.45;
+  color: var(--text-primary);
+}
+
+.basic-guide-panel__copy strong {
+  font-weight: 600;
+  color: var(--text-strong);
+}
+
+.basic-guide-panel__actions {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.25rem;
+}
+
+.basic-guide-spotlight {
+  position: fixed;
+  z-index: 70;
+  pointer-events: none;
+  border-radius: 10px;
+  box-shadow:
+    0 0 0 1.5px hsl(var(--primary) / 0.85),
+    0 0 0 6px hsl(var(--primary) / 0.12);
+}
+
+.basic-guide-connectors {
+  position: fixed;
+  inset: 0;
+  z-index: 69;
+  pointer-events: none;
+}
+
+.basic-guide-end {
+  display: block;
+  width: 100%;
+  margin: 0;
+  border: 0;
+  padding: 0;
+  background: transparent;
+  text-align: left;
+  font-size: 0.875rem;
+  line-height: 1.5;
+  font-weight: 500;
+  color: var(--text-strong);
+  cursor: pointer;
+}

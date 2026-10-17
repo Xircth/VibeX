@@ -1621,6 +1621,7 @@
     "editorCustomCommand": "Custom command",
     "modelsRefreshed": "Model list refreshed",
     "modelsRefreshFailed": "Failed to load the model list, please try again later",
+    "restartBasicGuide": "Restart basic guide",
     "saveGeneralFailed": "Unable to save general settings.",
     "settingsSaved": "Settings saved",
     "generalSettingsUpdated": "General settings updated.",

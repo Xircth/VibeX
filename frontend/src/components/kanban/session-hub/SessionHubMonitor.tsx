@@ -21,7 +21,11 @@ export function SessionHubMonitor({
   const monitorGridClassName = getMonitorGridClassName(monitorRecords.length);
 
   return (
-    <section className="flex h-full min-w-0 flex-1 flex-col bg-background">
+    <section
+      className="flex h-full min-w-0 flex-1 flex-col bg-background"
+      data-basic-guide="kanban-monitor"
+      data-monitor-count={monitorRecords.length}
+    >
       <div className="session-hub-monitor-inner flex min-h-0 flex-1 flex-col">
         <div
           className={cn(

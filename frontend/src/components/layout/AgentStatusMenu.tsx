@@ -1,15 +1,21 @@
-import { useId, useMemo, useState } from 'react';
+import { useEffect, useId, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import type { AgentLifecycleState, AgentManagementView } from 'shared/types';
 
 import { AgentManagementIcon } from '@/components/agents/AgentManagementIcon';
+import type { AgentOperationState } from '@/features/agent-management';
 import { isEnabledInstalledAgent } from '@/features/agents/operationalAgent';
+import { AstryxStepper, AstryxStepperItem } from '@/features/basic-guide';
+import { BASIC_GUIDE_OPEN_AGENT_STATUS_EVENT } from '@/features/basic-guide/basicGuideState';
+import { presentAgentStatusRow } from '@/features/basic-guide/agentStatusPresentation';
 import { cn } from '@/lib/utils';
 
 type AgentStatusMenuProps = {
   agents: AgentManagementView[];
   defaultAgentId: string | null;
   updatableAgentIds?: ReadonlySet<string>;
+  operations?: Record<string, AgentOperationState>;
+  preflightPassedIds?: ReadonlySet<string>;
   onOpenAgentSettings?: (agentId: string) => void;
 };
 
@@ -37,10 +43,32 @@ export function AgentStatusMenu({
   agents,
   defaultAgentId,
   updatableAgentIds,
+  operations,
+  preflightPassedIds,
   onOpenAgentSettings,
 }: AgentStatusMenuProps) {
   const { t } = useTranslation(['statusbar', 'settings']);
   const [open, setOpen] = useState(false);
+  const [forcedOpen, setForcedOpen] = useState(false);
+
+  useEffect(() => {
+    const onForceOpen = () => {
+      setForcedOpen(true);
+      setOpen(true);
+    };
+    window.addEventListener(BASIC_GUIDE_OPEN_AGENT_STATUS_EVENT, onForceOpen);
+    return () =>
+      window.removeEventListener(
+        BASIC_GUIDE_OPEN_AGENT_STATUS_EVENT,
+        onForceOpen
+      );
+  }, []);
+
+  const menuOpen = open || forcedOpen;
+  const closeMenu = () => {
+    setOpen(false);
+    setForcedOpen(false);
+  };
   const menuId = useId();
   const enabledAgents = useMemo(
     () => agents.filter(isEnabledInstalledAgent),
@@ -74,15 +102,18 @@ export function AgentStatusMenu({
   return (
     <div
       className="relative flex h-5 items-center"
+      data-basic-guide="agent-status-menu"
       onMouseEnter={() => setOpen(true)}
-      onMouseLeave={() => setOpen(false)}
+      onMouseLeave={() => {
+        if (!forcedOpen) setOpen(false);
+      }}
       onFocusCapture={() => setOpen(true)}
       onBlurCapture={(event) => {
-        if (!event.currentTarget.contains(event.relatedTarget)) setOpen(false);
+        if (!event.currentTarget.contains(event.relatedTarget)) closeMenu();
       }}
       onKeyDown={(event) => {
         if (event.key === 'Escape') {
-          setOpen(false);
+          closeMenu();
           event.currentTarget.querySelector('button')?.focus();
         }
       }}
@@ -90,7 +121,7 @@ export function AgentStatusMenu({
       <button
         type="button"
         aria-controls={menuId}
-        aria-expanded={open}
+        aria-expanded={menuOpen}
         aria-label={triggerAria}
         className="flex h-5 items-center gap-1 rounded-full border border-border/60 bg-background/50 px-1.5 text-foreground/85 outline-none transition-colors hover:border-border hover:bg-accent/70 hover:text-foreground focus-visible:ring-1 focus-visible:ring-ring"
         onClick={() => setOpen(true)}
@@ -113,9 +144,9 @@ export function AgentStatusMenu({
         ) : null}
       </button>
 
-      {open && (
+      {menuOpen && (
         <div className="absolute bottom-full right-0 z-50 pb-1.5">
-          <div className="product-context-menu max-h-[min(24rem,calc(100vh-3rem))] min-w-56 overflow-y-auto rounded-md border border-border bg-white p-1 font-sans text-[13px] leading-5 text-popover-foreground shadow-none dark:bg-popover animate-in fade-in-0 slide-in-from-bottom-1 motion-reduce:animate-none">
+          <div className="product-context-menu max-h-[min(24rem,calc(100vh-3rem))] min-w-72 overflow-y-auto rounded-md border border-border bg-white p-1 font-sans text-[13px] leading-5 text-popover-foreground shadow-none dark:bg-popover animate-in fade-in-0 slide-in-from-bottom-1 motion-reduce:animate-none">
             <div
               id={menuId}
               role="list"
@@ -129,56 +160,109 @@ export function AgentStatusMenu({
                 const canUpdate = Boolean(
                   updatableAgentIds?.has(agent.agent_id)
                 );
+                const row = presentAgentStatusRow(
+                  agent,
+                  operations?.[agent.agent_id],
+                  null
+                );
+                const agentAvailable = Boolean(
+                  preflightPassedIds?.has(agent.agent_id)
+                );
+                const openSettings = () => {
+                  onOpenAgentSettings?.(agent.agent_id);
+                  closeMenu();
+                };
                 return (
                   <div
                     key={agent.agent_id}
                     role="listitem"
                     aria-label={agent.display_name}
-                    className="flex min-h-8 items-center gap-2 rounded-md px-2 py-1 text-xs"
+                    className="flex min-h-8 flex-col gap-1 rounded-md px-2 py-1 text-xs"
                   >
-                    <span className="relative flex h-5 w-5 shrink-0 items-center justify-center">
-                      <AgentManagementIcon agent={agent} className="h-4 w-4" />
-                      <span
-                        aria-hidden="true"
-                        className={cn(
-                          'absolute -bottom-0.5 -right-0.5 h-2 w-2 rounded-full ring-2 ring-popover',
-                          statusDotClass(agent.lifecycle)
-                        )}
-                      />
-                    </span>
-                    <span className="min-w-0 flex-1 truncate font-medium text-foreground">
-                      {agent.display_name}
-                    </span>
-                    {isDefault && (
-                      <span className="rounded bg-primary/10 px-1 py-0.5 text-[9px] font-medium text-primary">
-                        {t('agentStatus.defaultBadge', { ns: 'statusbar' })}
+                    <div className="flex items-center gap-2">
+                      <span className="relative flex h-5 w-5 shrink-0 items-center justify-center">
+                        <AgentManagementIcon
+                          agent={agent}
+                          className="h-4 w-4"
+                        />
+                        <span
+                          aria-hidden="true"
+                          className={cn(
+                            'absolute -bottom-0.5 -right-0.5 h-2 w-2 rounded-full ring-2 ring-popover',
+                            statusDotClass(agent.lifecycle)
+                          )}
+                        />
                       </span>
-                    )}
-                    <span className="shrink-0 text-[10px] text-muted-foreground">
-                      {statusLabel(agent)}
-                    </span>
-                    {canUpdate ? (
-                      onOpenAgentSettings ? (
+                      <span className="min-w-0 flex-1 truncate font-medium text-foreground">
+                        {agent.display_name}
+                      </span>
+                      {isDefault && (
+                        <span className="rounded bg-primary/10 px-1 py-0.5 text-[9px] font-medium text-primary">
+                          {t('agentStatus.defaultBadge', { ns: 'statusbar' })}
+                        </span>
+                      )}
+                      {canUpdate ? (
+                        onOpenAgentSettings ? (
+                          <button
+                            type="button"
+                            className="shrink-0 rounded-full px-1.5 py-0.5 text-[10px] font-medium text-primary outline-none transition-colors hover:bg-primary/10 focus-visible:ring-1 focus-visible:ring-ring"
+                            onClick={openSettings}
+                          >
+                            {t('agentStatus.updateAvailable', {
+                              ns: 'statusbar',
+                            })}
+                          </button>
+                        ) : (
+                          <span className="shrink-0 text-[10px] font-medium text-primary">
+                            {t('agentStatus.updateAvailable', {
+                              ns: 'statusbar',
+                            })}
+                          </span>
+                        )
+                      ) : null}
+                    </div>
+                    <div className="flex flex-wrap items-center gap-1.5 pl-7">
+                      {row.showStepper ? (
+                        <AstryxStepper
+                          current={row.stepperIndex}
+                          onStepClick={() => openSettings()}
+                        >
+                          <AstryxStepperItem>
+                            {t('agentStatus.acpDownload', { ns: 'statusbar' })}
+                          </AstryxStepperItem>
+                          <AstryxStepperItem>
+                            {t('agentStatus.acpInstall', { ns: 'statusbar' })}
+                          </AstryxStepperItem>
+                          <AstryxStepperItem>
+                            {t('agentStatus.acpCheck', { ns: 'statusbar' })}
+                          </AstryxStepperItem>
+                        </AstryxStepper>
+                      ) : row.connectorAvailable ? (
                         <button
                           type="button"
-                          className="shrink-0 rounded-full px-1.5 py-0.5 text-[10px] font-medium text-primary outline-none transition-colors hover:bg-primary/10 focus-visible:ring-1 focus-visible:ring-ring"
-                          onClick={() => {
-                            onOpenAgentSettings(agent.agent_id);
-                            setOpen(false);
-                          }}
+                          className="rounded-full px-1.5 py-0.5 text-[10px] font-medium text-foreground outline-none hover:bg-accent/70 focus-visible:ring-1 focus-visible:ring-ring"
+                          onClick={openSettings}
                         >
-                          {t('agentStatus.updateAvailable', {
-                            ns: 'statusbar',
-                          })}
+                          {t('agentStatus.connectorReady', { ns: 'statusbar' })}
                         </button>
-                      ) : (
-                        <span className="shrink-0 text-[10px] font-medium text-primary">
-                          {t('agentStatus.updateAvailable', {
-                            ns: 'statusbar',
-                          })}
+                      ) : null}
+                      <button
+                        type="button"
+                        className="rounded-full px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground outline-none hover:bg-accent/70 hover:text-foreground focus-visible:ring-1 focus-visible:ring-ring"
+                        onClick={openSettings}
+                      >
+                        {row.loggedIn
+                          ? t('agentStatus.loggedIn', { ns: 'statusbar' })
+                          : t('agentStatus.loggedOut', { ns: 'statusbar' })}
+                      </button>
+                      {row.connectorAvailable &&
+                      row.loggedIn &&
+                      agentAvailable ? (
+                        <span className="rounded-full bg-primary/10 px-1.5 py-0.5 text-[10px] font-medium text-primary">
+                          {t('agentStatus.agentReady', { ns: 'statusbar' })}
                         </span>
-                      )
-                    ) : null}
+                      ) : null}
+                    </div>
                   </div>
                 );
               })}

@@ -134,6 +134,9 @@ export function SessionMonitorCard({
                       : 'nodrag nopan h-6 w-6 rounded-full bg-transparent text-[var(--primary-control-foreground)] hover:bg-transparent hover:text-[var(--primary-control-foreground)]'
                   }
                   aria-label={primaryLabel}
+                  data-basic-guide={
+                    isCanvas ? undefined : 'kanban-move-to-execution'
+                  }
                   onClick={(event) => {
                     event.stopPropagation();
                     primaryAction(session);

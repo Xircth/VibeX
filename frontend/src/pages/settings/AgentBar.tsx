@@ -112,6 +112,7 @@ function AgentBarVertical({
       aria-label={t('agents.agentListAria')}
       className="agent-management-bar agent-management-bar-vertical"
       style={agentBarLayoutStyle}
+      data-basic-guide="settings-agent-bar"
     >
       {agents.map((agent) => {
         const selected = !registryOpen && selectedAgentId === agent.agent_id;
@@ -276,6 +277,7 @@ function AgentBarPaged({
       aria-label={t('agents.agentListAria')}
       className={cn('agent-management-bar', hug && 'is-hug')}
       style={agentBarLayoutStyle}
+      data-basic-guide="settings-agent-bar"
     >
       <AgentBarPagerButton
         direction="previous"
@@ -642,6 +644,7 @@ function AgentBarHorizontal({
         aria-label={t('agents.agentListAria')}
         className="agent-management-bar"
         style={agentBarLayoutStyle}
+        data-basic-guide="settings-agent-bar"
       >
         <PagerArrow
           direction="previous"

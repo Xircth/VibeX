@@ -625,6 +625,13 @@ function WorkspaceTabSwitcher() {
           <button
             key={tab.key}
             onClick={() => handleTabSelect(tab.key)}
+            data-basic-guide={
+              tab.key === 'kanban'
+                ? 'toolbar-kanban'
+                : tab.key === 'workspace'
+                  ? 'toolbar-workspace'
+                  : undefined
+            }
             className={cn(
               'workspace-tab-button flex h-6 items-center gap-1.5 rounded px-2.5 text-xs font-medium transition-colors',
               isActive && 'is-active'
@@ -803,6 +810,7 @@ export function Toolbar() {
                       className="workspace-toolbar-button h-7 w-7"
                       onClick={handleCreateSession}
                       aria-label="Create new session"
+                      data-basic-guide="toolbar-new-session"
                     >
                       <Plus className="h-3.5 w-3.5" />
                     </Button>
@@ -827,6 +835,7 @@ export function Toolbar() {
                   className="workspace-toolbar-button h-7 w-7"
                   onClick={handleOpenSettings}
                   aria-label="Settings"
+                  data-basic-guide="open-settings"
                 >
                   <Settings className="h-3.5 w-3.5" />
                 </Button>

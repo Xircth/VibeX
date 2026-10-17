@@ -3,7 +3,6 @@ import { SelectableCard } from '@astryxdesign/core/SelectableCard';
 import {
   Infinity as InfinityIcon,
   LayoutGrid,
-  ListTree,
   Loader2,
   Monitor,
   Moon,
@@ -410,70 +409,66 @@ export function AppearanceSettings() {
         </SettingsSection>
 
         <SettingsSection
-          icon={ListTree}
-          title={t('appearance.kanbanSessionList.title')}
-          description={t('appearance.kanbanSessionList.description')}
-        >
-          <div className="settings-row">
-            <div>
-              <Label>{t('appearance.kanbanSessionList.label')}</Label>
-            </div>
-            <Select
-              value={kanbanSessionListView}
-              onValueChange={(value) => {
-                const next = value as KanbanSessionListView;
-                setKanbanSessionListViewState(next);
-                setKanbanSessionListView(next);
-              }}
-            >
-              <SelectTrigger
-                className="w-56"
-                aria-label={t('appearance.kanbanSessionList.label')}
-              >
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent align="start">
-                {KANBAN_SESSION_LIST_VIEWS.map((view) => (
-                  <SelectItem key={view} value={view}>
-                    {t(`appearance.kanbanSessionList.${view}`)}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-        </SettingsSection>
-
-        <SettingsSection
           icon={InfinityIcon}
           title={t('appearance.kanbanBoardStyle.title')}
           description={t('appearance.kanbanBoardStyle.description')}
         >
-          <div className="settings-row">
-            <div>
-              <Label>{t('appearance.kanbanBoardStyle.label')}</Label>
-            </div>
-            <Select
-              value={kanbanBoardStyle}
-              onValueChange={(value) => {
-                const next = value as KanbanBoardStyle;
-                setKanbanBoardStyleState(next);
-                setKanbanBoardStyle(next);
-              }}
-            >
-              <SelectTrigger
-                className="w-56"
-                aria-label={t('appearance.kanbanBoardStyle.label')}
+          <div className="space-y-4">
+            <div className="settings-row">
+              <div>
+                <Label>{t('appearance.kanbanSessionList.label')}</Label>
+              </div>
+              <Select
+                value={kanbanSessionListView}
+                onValueChange={(value) => {
+                  const next = value as KanbanSessionListView;
+                  setKanbanSessionListViewState(next);
+                  setKanbanSessionListView(next);
+                }}
               >
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent align="start">
-                {KANBAN_BOARD_STYLES.map((style) => (
-                  <SelectItem key={style} value={style}>
-                    {t(`appearance.kanbanBoardStyle.${style}`)}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+                <SelectTrigger
+                  className="w-56"
+                  aria-label={t('appearance.kanbanSessionList.label')}
+                >
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent align="start">
+                  {KANBAN_SESSION_LIST_VIEWS.map((view) => (
+                    <SelectItem key={view} value={view}>
+                      {t(`appearance.kanbanSessionList.${view}`)}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div className="settings-row">
+              <div>
+                <Label>{t('appearance.kanbanBoardStyle.label')}</Label>
+              </div>
+              <Select
+                value={kanbanBoardStyle}
+                onValueChange={(value) => {
+                  const next = value as KanbanBoardStyle;
+                  setKanbanBoardStyleState(next);
+                  setKanbanBoardStyle(next);
+                }}
+              >
+                <SelectTrigger
+                  className="w-56"
+                  aria-label={t('appearance.kanbanBoardStyle.label')}
+                >
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent align="start">
+                  {KANBAN_BOARD_STYLES.map((style) => (
+                    <SelectItem key={style} value={style}>
+                      {t(`appearance.kanbanBoardStyle.${style}`)}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
           </div>
         </SettingsSection>
 

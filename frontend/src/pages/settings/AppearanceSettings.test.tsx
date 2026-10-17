@@ -181,12 +181,26 @@ describe('AppearanceSettings', () => {
     });
   });
 
+  it('groups Kanban session list and board layout under session board style', () => {
+    render(<AppearanceSettings />);
+    expect(
+      screen.getByRole('heading', { name: '会话看板样式' })
+    ).toBeInTheDocument();
+    expect(screen.getByText('看板会话列表')).toBeInTheDocument();
+    expect(screen.getByText('看板布局类型')).toBeInTheDocument();
+    expect(
+      screen.queryByRole('heading', { name: 'Kanban 会话列表' })
+    ).not.toBeInTheDocument();
+    expect(screen.queryByText('Kanban 会话列表')).not.toBeInTheDocument();
+    expect(screen.queryByText('显示方式')).not.toBeInTheDocument();
+    expect(screen.queryByText('看板样式')).not.toBeInTheDocument();
+  });
+
   it('applies the Kanban session list grouping immediately', async () => {
     const user = userEvent.setup();
     render(<AppearanceSettings />);
 
-    expect(screen.getByText('Kanban 会话列表')).toBeInTheDocument();
-    await user.click(screen.getByRole('combobox', { name: '显示方式' }));
+    await user.click(screen.getByRole('combobox', { name: '看板会话列表' }));
     await user.click(screen.getByRole('option', { name: '工作区分组视图' }));
 
     expect(mocks.setKanbanSessionListView).toHaveBeenCalledWith('workspace');
@@ -196,8 +210,7 @@ describe('AppearanceSettings', () => {
     const user = userEvent.setup();
     render(<AppearanceSettings />);
 
-    expect(screen.getByText('会话看板样式')).toBeInTheDocument();
-    await user.click(screen.getByRole('combobox', { name: '看板样式' }));
+    await user.click(screen.getByRole('combobox', { name: '看板布局类型' }));
     await user.click(screen.getByRole('option', { name: '无限画布' }));
 
     expect(mocks.setKanbanBoardStyle).toHaveBeenCalledWith('canvas');

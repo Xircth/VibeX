@@ -45,7 +45,7 @@ use uuid::Uuid;
 // error output, matching a successful view. The bump drops snapshots folded
 // before that rule.
 pub const CONVERSATION_PROJECTION_VERSION: u32 = 21;
-pub const OPEN_TIMELINE_ROW_LIMIT: usize = 80;
+pub const OPEN_TIMELINE_ROW_LIMIT: usize = 16;
 const SNAPSHOT_REFRESH_EVENT_GAP: i64 = 40;
 
 pub struct OpenConversationProjection {

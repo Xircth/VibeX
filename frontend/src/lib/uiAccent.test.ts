@@ -40,8 +40,10 @@ describe('uiAccent', () => {
     document.documentElement.classList.remove('light', 'dark');
   });
 
-  it('defaults to graphite #171717 and ignores invalid stored values', () => {
+  it('defaults to ink #1b1b1b and ignores invalid stored values', () => {
+    expect(DEFAULT_ACCENT_COLOR).toBe('#1b1b1b');
     expect(getAccentColor()).toBe(DEFAULT_ACCENT_COLOR);
+    expect(parseAccentColor('#1B1B1B')).toBe('#1b1b1b');
     expect(parseAccentColor('#171717')).toBe('#171717');
     expect(parseAccentColor('#abc')).toBe('#aabbcc');
     expect(parseAccentColor('3F6CC4')).toBe('#3f6cc4');
@@ -54,14 +56,15 @@ describe('uiAccent', () => {
   });
 
   it('converts the default accent to HSL components and white foreground', () => {
+    expect(hexToHslComponents('#1b1b1b')).toBe('0 0% 10.59%');
+    expect(accentForegroundHsl('#1b1b1b')).toBe('0 0% 100%');
     expect(hexToHslComponents('#171717')).toBe('0 0% 9.02%');
-    expect(accentForegroundHsl('#171717')).toBe('0 0% 100%');
     expect(hexToHslComponents('#3F6CC4')).toBe('219.7 52.99% 50.78%');
     expect(accentForegroundHsl('#f5f5f5')).toBe('0 0% 9.02%');
   });
 
   it('round-trips hex through HSV for saturated and gray colors', () => {
-    expect(hsvToHex(hexToHsv('#171717'))).toBe('#171717');
+    expect(hsvToHex(hexToHsv('#1b1b1b'))).toBe('#1b1b1b');
     expect(hsvToHex(hexToHsv('#3f6cc4'))).toBe('#3f6cc4');
     expect(hsvToHex(hexToHsv('#ff0000'))).toBe('#ff0000');
   });
@@ -112,9 +115,12 @@ describe('uiAccent', () => {
     expect(localStorage.getItem(ACCENT_COLOR_KEY)).toBeNull();
   });
 
-  it('maps the graphite default to Pearl Ink in dark and keeps custom hues', () => {
-    expect(resolveAccentForTheme('#171717', 'light')).toBe('#171717');
-    expect(resolveAccentForTheme('#171717', 'dark')).toBe(
+  it('maps the ink default to Pearl Ink in dark and keeps custom hues', () => {
+    expect(resolveAccentForTheme('#1b1b1b', 'light')).toBe('#1b1b1b');
+    expect(resolveAccentForTheme('#1b1b1b', 'dark')).toBe(
+      DEFAULT_DARK_ACCENT_COLOR
+    );
+    expect(resolveAccentForTheme('#171717', 'dark')).not.toBe(
       DEFAULT_DARK_ACCENT_COLOR
     );
     expect(resolveAccentForTheme('#3f6cc4', 'dark')).toBe('#3f6cc4');

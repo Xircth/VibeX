@@ -112,7 +112,7 @@
 }
 
 .markdown-file-prose a:not(#\#):not(#\#):not(#\#):not(#\#) {
-  color: var(--conv-tool-icon, hsl(var(--primary, 0 0% 9.02%)));
+  color: var(--conv-tool-icon, hsl(var(--primary, 0 0% 10.59%)));
   text-decoration: underline;
   text-underline-offset: 2px;
 }

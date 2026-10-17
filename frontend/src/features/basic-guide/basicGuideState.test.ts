@@ -20,6 +20,7 @@ import {
   skipBasicGuide,
   startBasicGuide,
   clickAdvancesSubstep,
+  substepSpotlights,
 } from './basicGuideState';
 
 describe('basicGuideState', () => {
@@ -122,9 +123,9 @@ describe('basicGuideState', () => {
   });
 
   it('returns to the welcome page when step 1 is unfinished', () => {
-    expect(shouldForceWelcome(ACTIVE_GUIDE, '/local-projects/abc/sessions')).toBe(
-      true
-    );
+    expect(
+      shouldForceWelcome(ACTIVE_GUIDE, '/local-projects/abc/sessions')
+    ).toBe(true);
     expect(shouldForceWelcome(ACTIVE_GUIDE, '/local-projects')).toBe(false);
     expect(
       shouldForceWelcome(
@@ -156,6 +157,35 @@ describe('basicGuideState', () => {
     ).toBe(false);
   });
 
+  it('migrates the old configure-session substep to the agent selector', () => {
+    const parsed = parsePersistedBasicGuide(
+      JSON.stringify({
+        phase: 'active',
+        reachedStep: 1,
+        substep: 'configure-session',
+        endCopy: 'none',
+      })
+    );
+    expect(parsed?.substep).toBe('configure-session-agent');
+  });
+
+  it('splits session coaching into agent then config spotlights', () => {
+    expect(
+      substepSpotlights('select-project').map((item) => item.copyKey)
+    ).toEqual([
+      'select-project-create',
+      'select-project-create',
+      'select-project-global',
+    ]);
+    expect(substepSpotlights('click-new-session')[0]?.shape).toBe('circle');
+    expect(substepSpotlights('configure-session-agent')[0]?.id).toBe(
+      'session-agent-selector'
+    );
+    expect(substepSpotlights('configure-session-config')[0]?.id).toBe(
+      'session-config'
+    );
+  });
+
   it('advances usage and kanban clicks only on the coached control', () => {
     expect(
       clickAdvancesSubstep('kanban-create-session', 'kanban-session-list-new')
@@ -166,10 +196,12 @@ describe('basicGuideState', () => {
     expect(
       clickAdvancesSubstep('usage-nav-overview', 'usage-nav-folders')
     ).toBe(false);
-    expect(clickAdvancesSubstep('usage-nav-overview', 'usage-nav-overview')).toBe(
+    expect(
+      clickAdvancesSubstep('usage-nav-overview', 'usage-nav-overview')
+    ).toBe(true);
+    expect(clickAdvancesSubstep('need-agent', 'open-settings')).toBe(false);
+    expect(clickAdvancesSubstep('need-agent', 'settings-nav-agents')).toBe(
       true
     );
-    expect(clickAdvancesSubstep('need-agent', 'open-settings')).toBe(false);
-    expect(clickAdvancesSubstep('need-agent', 'settings-nav-agents')).toBe(true);
   });
 });

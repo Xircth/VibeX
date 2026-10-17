@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react';
+import { render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { HotkeysProvider } from 'react-hotkeys-hook';
 import { MemoryRouter } from 'react-router-dom';
@@ -44,16 +44,31 @@ function renderOverlay(
 }
 
 describe('BasicGuideOverlay', () => {
-  it('keeps the three steps on the left and shows exit under the copy', () => {
+  it('keeps the three steps on the left without a card, copy on the page', () => {
     renderOverlay(ACTIVE_GUIDE);
-    expect(screen.getByRole('complementary', { name: '基础引导' })).toBeInTheDocument();
+    const panel = screen.getByRole('complementary', { name: '基础引导' });
+    expect(panel).toBeInTheDocument();
+    expect(panel.querySelector('.dialog-surface')).toBeNull();
+    expect(panel.querySelector('.basic-guide-panel__card')).toBeNull();
     expect(screen.getByText('创建或选择项目')).toBeInTheDocument();
     expect(screen.getByText('进入工作区并创建会话')).toBeInTheDocument();
     expect(screen.getByText('熟悉页面构成')).toBeInTheDocument();
     expect(
-      screen.getByText(/需要先创建或选择一个/, { exact: false })
+      within(panel).queryByText(/项目就是一个文件夹/, { exact: false })
+    ).toBeNull();
+    expect(
+      document.querySelector(
+        '[data-basic-guide-callout="select-project-create"]'
+      )
+    ).toHaveTextContent('项目就是一个文件夹');
+    expect(
+      document.querySelector(
+        '[data-basic-guide-callout="select-project-global"]'
+      )
+    ).toHaveTextContent('用户文件夹');
+    expect(
+      screen.getByRole('button', { name: '直接退出' })
     ).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: '直接退出' })).toBeInTheDocument();
   });
 
   it('shows the finish button without coaching copy', () => {
@@ -67,7 +82,9 @@ describe('BasicGuideOverlay', () => {
     expect(
       screen.queryByText('熟悉完页面后，点击结束即可。')
     ).not.toBeInTheDocument();
-    expect(screen.getByRole('button', { name: '直接退出' })).toBeInTheDocument();
+    expect(
+      screen.getByRole('button', { name: '直接退出' })
+    ).toBeInTheDocument();
   });
 
   it('asks for confirmation before exiting to Settings → General', async () => {

@@ -23,6 +23,7 @@ import {
 import { BasicGuideContext } from './BasicGuideContext';
 import {
   BASIC_GUIDE_OPEN_AGENT_STATUS_EVENT,
+  BASIC_GUIDE_SESSION_AGENT_EVENT,
   SUBSTEP_META,
   type BasicGuideSubstep,
   type PersistedBasicGuide,
@@ -32,6 +33,7 @@ import {
   completeStep2,
   dismissEndCopy,
   clickAdvancesSubstep,
+  isConfigureSessionSubstep,
   isProjectRoute,
   isSettingsAgentsRoute,
   isSettingsRoute,
@@ -44,7 +46,11 @@ import {
   skipBasicGuide,
   startBasicGuide,
 } from './basicGuideState';
-import { readBasicGuide, subscribeBasicGuide, writeBasicGuide } from './basicGuideStorage';
+import {
+  readBasicGuide,
+  subscribeBasicGuide,
+  writeBasicGuide,
+} from './basicGuideStorage';
 
 function hasAvailableAgent(
   agents: Array<{ enabled: boolean; lifecycle: string }>
@@ -161,11 +167,7 @@ export function BasicGuideProvider({ children }: { children: ReactNode }) {
     previousPathRef.current = location.pathname;
     const current = stateRef.current;
     if (
-      !shouldCompleteStep1OnRoute(
-        current,
-        previousPathname,
-        location.pathname
-      )
+      !shouldCompleteStep1OnRoute(current, previousPathname, location.pathname)
     ) {
       return;
     }
@@ -216,7 +218,7 @@ export function BasicGuideProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     const current = stateRef.current;
     if (current.phase !== 'active') return;
-    if (current.substep !== 'configure-session') return;
+    if (!isConfigureSessionSubstep(current.substep)) return;
     if (sessionCreateHrefLooksOpen(location.search)) {
       sawCreateFormRef.current = true;
       return;
@@ -224,23 +226,41 @@ export function BasicGuideProvider({ children }: { children: ReactNode }) {
     if (!sawCreateFormRef.current) return;
 
     const tryAdvance = () => {
-      if (stateRef.current.substep !== 'configure-session') return;
+      if (!isConfigureSessionSubstep(stateRef.current.substep)) return;
       if (sessionCreateHrefLooksOpen(window.location.search)) return;
       if (document.querySelector('[data-basic-guide="session-composer"]')) {
-        goNext('configure-session');
+        persist(advanceGuide(stateRef.current, 'send-hello'));
       }
     };
     tryAdvance();
     const observer = new MutationObserver(tryAdvance);
     observer.observe(document.body, { childList: true, subtree: true });
     return () => observer.disconnect();
-  }, [goNext, location.pathname, location.search, state.substep]);
+  }, [location.pathname, location.search, persist, state.substep]);
+
+  useEffect(() => {
+    const onAgentPicked = () => {
+      const current = stateRef.current;
+      if (current.phase !== 'active') return;
+      if (current.substep !== 'configure-session-agent') return;
+      goNext('configure-session-agent');
+    };
+    window.addEventListener(BASIC_GUIDE_SESSION_AGENT_EVENT, onAgentPicked);
+    return () => {
+      window.removeEventListener(
+        BASIC_GUIDE_SESSION_AGENT_EVENT,
+        onAgentPicked
+      );
+    };
+  }, [goNext]);
 
   useEffect(() => {
     const current = stateRef.current;
     if (current.phase !== 'active') return;
     if (current.substep !== 'kanban-click-sessions') return;
-    const monitor = document.querySelector('[data-basic-guide="kanban-monitor"]');
+    const monitor = document.querySelector(
+      '[data-basic-guide="kanban-monitor"]'
+    );
     const count = Number(monitor?.getAttribute('data-monitor-count') ?? '0');
     if (count > 0) goNext('kanban-click-sessions');
   }, [goNext, location.pathname, state.substep]);

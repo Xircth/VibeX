@@ -40,6 +40,12 @@ function collectItems(children: ReactNode): StepChild[] {
   return items;
 }
 
+function indicatorKind(status: AstryxStepStatus): 'done' | 'radio' | 'idle' {
+  if (status === 'completed') return 'done';
+  if (status === 'current') return 'radio';
+  return 'idle';
+}
+
 export function AstryxStep({
   current = 0,
   orientation = 'vertical',
@@ -72,7 +78,6 @@ export function AstryxStep({
             : index === current
               ? 'current'
               : 'upcoming');
-        const number = index + 1;
         return (
           <li
             key={index}
@@ -80,11 +85,15 @@ export function AstryxStep({
             data-status={status}
             aria-current={status === 'current' ? 'step' : undefined}
           >
-            <span className="astryx-step__indicator" aria-hidden="true">
+            <span
+              className="astryx-step__indicator"
+              aria-hidden="true"
+              data-indicator={indicatorKind(status)}
+            >
               {status === 'completed' ? (
-                <Check className="h-3 w-3" strokeWidth={2.5} />
+                <Check className="h-2.5 w-2.5" strokeWidth={3} />
               ) : (
-                number
+                <span className="astryx-step__dot" />
               )}
             </span>
             <span className="astryx-step__body">

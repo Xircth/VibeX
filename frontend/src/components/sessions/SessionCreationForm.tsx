@@ -23,6 +23,7 @@ import {
 } from '@/components/tasks/follow-up/SessionConfigOptionSelectors';
 import { SessionSettingsSummary } from '@/components/tasks/follow-up/SessionSettingsSummary';
 import { agentsApi } from '@/features/agents/api';
+import { BASIC_GUIDE_SESSION_AGENT_EVENT } from '@/features/basic-guide/basicGuideState';
 import { openAgentDiagnostics } from '@/features/agent-management/agentSettingsFocus';
 import {
   invokeErrorText,
@@ -616,18 +617,26 @@ export function SessionCreationForm({
 
       <div className="space-y-2">
         <Label>{t('sessionCreation.codingAgent')}</Label>
-        <TerminalProfileControls
-          profiles={profiles}
-          selectedProfile={selectedExecutorProfile}
-          onChange={onSelectedExecutorProfileChange}
-          disabled={isSubmitting}
-          dropdownSide={dropdownSide}
-          suppressAcpManagedControls={true}
-          className={cn('w-full', compact && 'min-w-0')}
-        />
+        <div data-basic-guide="session-agent-selector" className="w-full">
+          <TerminalProfileControls
+            profiles={profiles}
+            selectedProfile={selectedExecutorProfile}
+            onChange={(profile) => {
+              onSelectedExecutorProfileChange(profile);
+              window.dispatchEvent(new Event(BASIC_GUIDE_SESSION_AGENT_EVENT));
+            }}
+            disabled={isSubmitting}
+            dropdownSide={dropdownSide}
+            suppressAcpManagedControls={true}
+            className={cn('w-full', compact && 'min-w-0')}
+          />
+        </div>
         {hasControls && activeControls ? (
           <>
-            <div className="flex flex-wrap items-center gap-2">
+            <div
+              className="flex flex-wrap items-center gap-2"
+              data-basic-guide="session-config"
+            >
               <SessionSettingsSummary
                 sessionModes={{
                   current: activeControls.current_mode ?? null,

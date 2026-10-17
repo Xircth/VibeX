@@ -63,16 +63,35 @@ pub struct WindowedHistory {
 }
 
 pub fn rows_from_turns(turns: &[MessageTurn]) -> Vec<TimelineRow> {
+    let open_assistant = turns.len().checked_sub(1).filter(|index| {
+        let turn = &turns[*index];
+        matches!(turn.role, TurnRole::Assistant)
+            && turn.completed_at.is_none()
+            && !turn.blocks.is_empty()
+    });
+    let open_user = open_assistant.and_then(|index| {
+        index
+            .checked_sub(1)
+            .filter(|user_index| matches!(turns[*user_index].role, TurnRole::User))
+    });
     turns
         .iter()
-        .map(|turn| TimelineRow {
-            row_id: turn.id.clone(),
-            revision: turn.timestamp.timestamp_millis().max(0),
-            row: ConversationTimelineRow::MessageTurn {
-                turn: turn.clone(),
-                phase: "settled".to_string(),
-                fork_point_status: None,
-            },
+        .enumerate()
+        .map(|(index, turn)| {
+            let phase = if Some(index) == open_assistant || Some(index) == open_user {
+                "streaming"
+            } else {
+                "settled"
+            };
+            TimelineRow {
+                row_id: turn.id.clone(),
+                revision: turn.timestamp.timestamp_millis().max(0),
+                row: ConversationTimelineRow::MessageTurn {
+                    turn: turn.clone(),
+                    phase: phase.to_string(),
+                    fork_point_status: None,
+                },
+            }
         })
         .collect()
 }
@@ -747,6 +766,32 @@ mod tests {
             completed_at: None,
             agent_message_id: None,
         }
+    }
+
+    fn row_phase(row: &TimelineRow) -> &str {
+        match &row.row {
+            ConversationTimelineRow::MessageTurn { phase, .. } => phase,
+            other => panic!("expected a message turn, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn open_assistant_tail_streams_with_the_user_before_it() {
+        let user = turn(TurnRole::User, "second", 1_700_000_010);
+        let mut assistant = turn(TurnRole::Assistant, "working", 1_700_000_011);
+        assistant.completed_at = None;
+        let rows = rows_from_turns(&[user.clone(), assistant]);
+        assert_eq!(row_phase(&rows[0]), "streaming");
+        assert_eq!(row_phase(&rows[1]), "streaming");
+
+        let mut closed = turn(TurnRole::Assistant, "done", 1_700_000_012);
+        closed.completed_at = Some(Utc.timestamp_opt(1_700_000_012, 0).unwrap());
+        let settled = rows_from_turns(&[user.clone(), closed]);
+        assert_eq!(row_phase(&settled[0]), "settled");
+        assert_eq!(row_phase(&settled[1]), "settled");
+
+        let lone = rows_from_turns(&[user]);
+        assert_eq!(row_phase(&lone[0]), "settled");
     }
 
     #[test]

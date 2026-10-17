@@ -31,6 +31,7 @@ use db::models::{
     },
     conversation_snapshot::ConversationProjectionSnapshotRecord,
     conversation_steering::ConversationSteeringRecord,
+    conversation_timeline_row::{ConversationTimelineRowRecord, NewConversationTimelineRow},
     conversation_tool::{ConversationToolCallRecord, UpsertConversationToolCall},
     conversation_turn::ConversationTurnRecord,
     session::Session,
@@ -680,14 +681,24 @@ impl ConversationProjector {
     }
 
     /// Open-conversation window: last `limit` rows on the wire, stats from the
-    /// full fold so truncated history is not treated as the session total.
+    /// materialized snapshot so truncated history is not treated as the session total.
     pub async fn project_open(
         pool: &SqlitePool,
         conversation_id: Uuid,
         limit: usize,
     ) -> Result<OpenConversationProjection, sqlx::Error> {
+        if let Some(open) = Self::try_materialized_open(pool, conversation_id, limit).await? {
+            let timeline = annotate_fork_points(pool, open.timeline).await?;
+            return Ok(OpenConversationProjection {
+                timeline,
+                session_stats: open.session_stats,
+            });
+        }
         let fold = Self::fold(pool, conversation_id).await?;
         let session_stats = fold.session_stats();
+        if let Err(error) = Self::persist_fold_to_pool(pool, conversation_id, &fold).await {
+            tracing::warn!("conversation timeline row persist failed: {error}");
+        }
         let timeline =
             annotate_fork_points(pool, fold.into_open_timeline(conversation_id, limit)).await?;
         Ok(OpenConversationProjection {
@@ -703,9 +714,18 @@ impl ConversationProjector {
         start: usize,
         limit: usize,
     ) -> Result<ConversationRowWindow, sqlx::Error> {
-        let mut window = Self::fold(pool, conversation_id)
-            .await?
-            .into_row_window(start, limit);
+        if let Some(mut window) =
+            Self::try_materialized_window(pool, conversation_id, start, limit).await?
+        {
+            let (fork_session, agent_kind) = fork_capability(pool, conversation_id).await?;
+            annotate_fork_point_rows(&mut window.rows, fork_session, agent_kind);
+            return Ok(window);
+        }
+        let fold = Self::fold(pool, conversation_id).await?;
+        if let Err(error) = Self::persist_fold_to_pool(pool, conversation_id, &fold).await {
+            tracing::warn!("conversation timeline row persist failed: {error}");
+        }
+        let mut window = fold.into_row_window(start, limit);
         let (fork_session, agent_kind) = fork_capability(pool, conversation_id).await?;
         annotate_fork_point_rows(&mut window.rows, fork_session, agent_kind);
         Ok(window)
@@ -752,6 +772,11 @@ impl ConversationProjector {
         conversation_id: Uuid,
         after_sequence: i64,
     ) -> Result<(Vec<TimelineRow>, i64), sqlx::Error> {
+        if let Some(page) =
+            Self::try_materialized_rows_since(pool, conversation_id, after_sequence).await?
+        {
+            return Ok(page);
+        }
         let mut fold = Self::load_fold_from_snapshot(pool, conversation_id).await?;
         fold.complete_antigravity_reads = antigravity_conversation(pool, conversation_id).await?;
         let tail = ConversationEventRecord::events_since(
@@ -875,6 +900,7 @@ impl ConversationProjector {
             "conversation_terminals",
             "conversation_file_changes",
             "conversation_usage_snapshots",
+            "conversation_timeline_rows",
         ] {
             sqlx::query(&format!("DELETE FROM {table} WHERE conversation_id = ?"))
                 .bind(conversation_id)
@@ -888,9 +914,11 @@ impl ConversationProjector {
 
         let events =
             ConversationEventRecord::events_since(&mut *conn, conversation_id, 0, i64::MAX).await?;
-        let mut fold = ProjectionFold::default();
-        fold.complete_antigravity_reads =
-            antigravity_conversation(&mut *conn, conversation_id).await?;
+        let mut fold = ProjectionFold {
+            complete_antigravity_reads: antigravity_conversation(&mut *conn, conversation_id)
+                .await?,
+            ..ProjectionFold::default()
+        };
         for record in &events {
             ConversationStateApplier::apply_record(&mut *conn, record).await?;
             fold.apply(record)?;
@@ -1083,24 +1111,170 @@ impl ConversationProjector {
         Ok(())
     }
 
-    async fn persist_snapshot<'e, E>(
-        executor: E,
+    async fn persist_fold_to_pool(
+        pool: &SqlitePool,
         conversation_id: Uuid,
         fold: &ProjectionFold,
-    ) -> Result<(), sqlx::Error>
-    where
-        E: Executor<'e, Database = Sqlite>,
-    {
+    ) -> Result<(), sqlx::Error> {
+        let mut conn = pool.acquire().await?;
+        Self::persist_snapshot(&mut conn, conversation_id, fold).await
+    }
+
+    async fn persist_snapshot(
+        conn: &mut SqliteConnection,
+        conversation_id: Uuid,
+        fold: &ProjectionFold,
+    ) -> Result<(), sqlx::Error> {
+        let rows = fold.timeline_rows();
+        let session_stats_json = fold
+            .session_stats()
+            .map(|stats| serde_json::to_string(&stats))
+            .transpose()
+            .map_err(json_decode_error)?;
         let fold_json =
             serde_json::to_string(&fold.to_snapshot_state()).map_err(json_decode_error)?;
+        let encoded: Vec<(i64, String, i64, String)> = rows
+            .iter()
+            .enumerate()
+            .map(|(index, row)| {
+                serde_json::to_string(row)
+                    .map(|row_json| (index as i64, row.row_id.clone(), row.revision, row_json))
+                    .map_err(json_decode_error)
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+        let stored: Vec<NewConversationTimelineRow<'_>> = encoded
+            .iter()
+            .map(
+                |(sort_index, row_id, revision, row_json)| NewConversationTimelineRow {
+                    sort_index: *sort_index,
+                    row_id,
+                    revision: *revision,
+                    row_json,
+                },
+            )
+            .collect();
+        ConversationTimelineRowRecord::replace_all(conn, conversation_id, &stored).await?;
         ConversationProjectionSnapshotRecord::upsert(
-            executor,
+            &mut *conn,
             conversation_id,
             CONVERSATION_PROJECTION_VERSION as i64,
             fold.last_sequence,
             &fold_json,
+            rows.len() as i64,
+            session_stats_json.as_deref(),
         )
         .await
+    }
+
+    async fn try_materialized_open(
+        pool: &SqlitePool,
+        conversation_id: Uuid,
+        limit: usize,
+    ) -> Result<Option<OpenConversationProjection>, sqlx::Error> {
+        let Some(snapshot) = Self::usable_snapshot(pool, conversation_id).await? else {
+            return Ok(None);
+        };
+        if snapshot.total_rows <= 0 {
+            return Ok(None);
+        }
+        let bounded = limit.max(1) as i64;
+        let records =
+            ConversationTimelineRowRecord::list_tail(pool, conversation_id, bounded).await?;
+        let expected = snapshot.total_rows.min(bounded);
+        if records.len() as i64 != expected {
+            return Ok(None);
+        }
+        let rows = decode_timeline_row_records(&records)?;
+        let truncated = snapshot.total_rows > rows.len() as i64;
+        let start = snapshot.total_rows.saturating_sub(rows.len() as i64);
+        let mut timeline = ConversationTimeline {
+            conversation_id,
+            projection_version: CONVERSATION_PROJECTION_VERSION,
+            last_sequence: snapshot.last_sequence,
+            rows,
+            truncated_from_start: truncated,
+            older_cursor: truncated.then(|| start.to_string()),
+        };
+        cap_timeline_preview_fields(&mut timeline);
+        let session_stats = decode_session_stats(snapshot.session_stats_json.as_deref())?;
+        Ok(Some(OpenConversationProjection {
+            timeline,
+            session_stats,
+        }))
+    }
+
+    async fn try_materialized_window(
+        pool: &SqlitePool,
+        conversation_id: Uuid,
+        start: usize,
+        limit: usize,
+    ) -> Result<Option<ConversationRowWindow>, sqlx::Error> {
+        let Some(snapshot) = Self::usable_snapshot(pool, conversation_id).await? else {
+            return Ok(None);
+        };
+        if snapshot.total_rows <= 0 {
+            return Ok(None);
+        }
+        let bounded_limit = limit.max(1) as i64;
+        let records = ConversationTimelineRowRecord::list_range(
+            pool,
+            conversation_id,
+            start as i64,
+            bounded_limit,
+        )
+        .await?;
+        let mut rows = decode_timeline_row_records(&records)?;
+        for row in &mut rows {
+            cap_timeline_row_preview_fields(row);
+        }
+        Ok(Some(ConversationRowWindow {
+            rows,
+            last_sequence: snapshot.last_sequence,
+            projection_version: CONVERSATION_PROJECTION_VERSION,
+            total_rows: snapshot.total_rows as usize,
+        }))
+    }
+
+    async fn try_materialized_rows_since(
+        pool: &SqlitePool,
+        conversation_id: Uuid,
+        after_sequence: i64,
+    ) -> Result<Option<(Vec<TimelineRow>, i64)>, sqlx::Error> {
+        let Some(snapshot) = Self::usable_snapshot(pool, conversation_id).await? else {
+            return Ok(None);
+        };
+        if snapshot.total_rows <= 0 {
+            return Ok(None);
+        }
+        let latest = latest_event_sequence(pool, conversation_id).await?;
+        if latest > snapshot.last_sequence {
+            return Ok(None);
+        }
+        let records = ConversationTimelineRowRecord::list_changed_since(
+            pool,
+            conversation_id,
+            after_sequence,
+        )
+        .await?;
+        let mut rows = decode_timeline_row_records(&records)?;
+        for row in &mut rows {
+            cap_timeline_row_preview_fields(row);
+        }
+        Ok(Some((rows, snapshot.last_sequence)))
+    }
+
+    async fn usable_snapshot(
+        pool: &SqlitePool,
+        conversation_id: Uuid,
+    ) -> Result<Option<ConversationProjectionSnapshotRecord>, sqlx::Error> {
+        match ConversationProjectionSnapshotRecord::find(pool, conversation_id).await? {
+            Some(snapshot)
+                if snapshot.projection_version == CONVERSATION_PROJECTION_VERSION as i64 =>
+            {
+                Ok(Some(snapshot))
+            }
+            _ => Ok(None),
+        }
     }
 }
 
@@ -2395,67 +2569,20 @@ impl ProjectionFold {
         Ok(ops)
     }
 
-    fn collect_rows(self) -> (Vec<TimelineRow>, i64) {
-        let ProjectionFold {
-            mut turns,
-            turn_order,
-            side_rows,
-            last_sequence,
-            auto_permission_approvals: _,
-            complete_antigravity_reads: _,
-        } = self;
-
+    fn timeline_rows(&self) -> Vec<TimelineRow> {
         let mut rows = Vec::new();
-        for turn_id in turn_order {
-            if let Some(turn) = turns.remove(&turn_id) {
-                let ProjectedTurn {
-                    user,
-                    assistant,
-                    prefix_segments,
-                    phase,
-                    revision,
-                    ..
-                } = turn;
-                if !user.blocks.is_empty() {
-                    rows.push(TimelineRow {
-                        row_id: user.id.clone(),
-                        revision,
-                        row: ConversationTimelineRow::MessageTurn {
-                            turn: user,
-                            phase: phase.clone(),
-                            fork_point_status: None,
-                        },
-                    });
-                }
-                for segment in prefix_segments {
-                    if segment.blocks.is_empty() {
-                        continue;
-                    }
-                    rows.push(TimelineRow {
-                        row_id: segment.id.clone(),
-                        revision,
-                        row: ConversationTimelineRow::MessageTurn {
-                            turn: segment,
-                            phase: phase.clone(),
-                            fork_point_status: None,
-                        },
-                    });
-                }
-                if !assistant.blocks.is_empty() {
-                    rows.push(TimelineRow {
-                        row_id: assistant.id.clone(),
-                        revision,
-                        row: ConversationTimelineRow::MessageTurn {
-                            turn: assistant,
-                            phase,
-                            fork_point_status: None,
-                        },
-                    });
-                }
+        for turn_id in &self.turn_order {
+            if let Some(turn) = self.turns.get(turn_id) {
+                rows.extend(message_rows(turn));
             }
         }
-        rows.extend(side_rows);
-        (rows, last_sequence)
+        rows.extend(self.side_rows.iter().cloned());
+        rows
+    }
+
+    fn collect_rows(self) -> (Vec<TimelineRow>, i64) {
+        let last_sequence = self.last_sequence;
+        (self.timeline_rows(), last_sequence)
     }
 
     fn into_timeline(self, conversation_id: Uuid) -> ConversationTimeline {
@@ -3242,6 +3369,32 @@ fn json_decode_error(error: serde_json::Error) -> sqlx::Error {
     sqlx::Error::Decode(Box::new(error))
 }
 
+fn decode_timeline_row_records(
+    records: &[ConversationTimelineRowRecord],
+) -> Result<Vec<TimelineRow>, sqlx::Error> {
+    records
+        .iter()
+        .map(|record| serde_json::from_str(&record.row_json).map_err(json_decode_error))
+        .collect()
+}
+
+fn decode_session_stats(json: Option<&str>) -> Result<Option<SessionStats>, sqlx::Error> {
+    json.map(|value| serde_json::from_str(value).map_err(json_decode_error))
+        .transpose()
+}
+
+async fn latest_event_sequence(
+    pool: &SqlitePool,
+    conversation_id: Uuid,
+) -> Result<i64, sqlx::Error> {
+    sqlx::query_scalar::<_, i64>(
+        "SELECT COALESCE(MAX(sequence), 0) FROM conversation_events WHERE conversation_id = ?",
+    )
+    .bind(conversation_id)
+    .fetch_one(pool)
+    .await
+}
+
 fn event_revision(revision: u64) -> Result<i64, sqlx::Error> {
     i64::try_from(revision)
         .map_err(|_| projection_conflict(format!("input revision {revision} exceeds i64")))
@@ -3793,6 +3946,8 @@ mod tests {
             3,
             record.sequence,
             &skipped_artifact_snapshot,
+            0,
+            None,
         )
         .await
         .expect("seed stale v3 snapshot");
@@ -4240,6 +4395,8 @@ mod tests {
             i64::from(CONVERSATION_PROJECTION_VERSION) - 1,
             1,
             &fold_json,
+            0,
+            None,
         )
         .await
         .expect("persist stale snapshot");
@@ -5200,6 +5357,95 @@ mod tests {
         assert_eq!(window.total_rows, full.rows.len());
         assert_eq!(window.rows.len(), 3);
         assert_eq!(window.rows[0].row_id, full.rows[2].row_id);
+    }
+
+    #[tokio::test]
+    async fn project_open_and_row_window_read_materialized_rows_without_fold_json() {
+        let pool = setup_pool().await;
+        let (conversation_id, _) = seed_turn(&pool).await;
+        for index in 0..12 {
+            let turn = ConversationTurnRecord::create_pending(
+                &pool,
+                Uuid::new_v4(),
+                CreateConversationTurn {
+                    conversation_id,
+                    prompt_id: Some("prompt-1"),
+                    text_preview: Some("hello"),
+                    input_blocks_json: "[]",
+                },
+            )
+            .await
+            .expect("create turn");
+            append_event(
+                &pool,
+                conversation_id,
+                Some(turn.id),
+                "user",
+                ConversationEvent::UserTurnCreated {
+                    blocks: vec![ConversationInputBlock::Text {
+                        text: format!("turn {index}"),
+                    }],
+                    workflow_refs: Vec::new(),
+                },
+                None,
+            )
+            .await;
+            append_event(
+                &pool,
+                conversation_id,
+                Some(turn.id),
+                "runtime",
+                ConversationEvent::TurnCompleted { stop_reason: None },
+                None,
+            )
+            .await;
+        }
+
+        let full = ConversationProjector::project(&pool, conversation_id)
+            .await
+            .expect("full project");
+        let snapshot = ConversationProjectionSnapshotRecord::find(&pool, conversation_id)
+            .await
+            .expect("load snapshot")
+            .expect("snapshot after settle");
+        assert!(
+            snapshot.total_rows > 5,
+            "settle must persist open-window metadata"
+        );
+        let blank = serde_json::to_string(&ProjectionSnapshotState {
+            last_sequence: snapshot.last_sequence,
+            ..ProjectionSnapshotState::default()
+        })
+        .expect("blank fold");
+        sqlx::query(
+            "UPDATE conversation_projection_snapshots SET fold_json = ? WHERE conversation_id = ?",
+        )
+        .bind(&blank)
+        .bind(conversation_id)
+        .execute(&pool)
+        .await
+        .expect("wipe fold json");
+
+        let open = ConversationProjector::project_open(&pool, conversation_id, 5)
+            .await
+            .expect("open from row table");
+        assert_eq!(open.timeline.rows.len(), 5);
+        assert!(open.timeline.truncated_from_start);
+        assert_eq!(
+            open.timeline.rows.last().map(|row| row.row_id.as_str()),
+            full.rows.last().map(|row| row.row_id.as_str())
+        );
+        let window = ConversationProjector::project_row_window(&pool, conversation_id, 2, 3)
+            .await
+            .expect("window from row table");
+        assert_eq!(window.total_rows, full.rows.len());
+        assert_eq!(window.rows.len(), 3);
+        assert_eq!(window.rows[0].row_id, full.rows[2].row_id);
+        let (changed, last_sequence) = ConversationProjector::rows_since(&pool, conversation_id, 0)
+            .await
+            .expect("rows since from row table");
+        assert_eq!(last_sequence, snapshot.last_sequence);
+        assert_eq!(changed.len(), full.rows.len());
     }
 
     #[tokio::test]

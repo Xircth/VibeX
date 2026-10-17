@@ -1,7 +1,8 @@
 import { useEffect, useLayoutEffect, useMemo, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useTranslation } from 'react-i18next';
-import { Bot, Loader2, X } from 'lucide-react';
+import { Bot, X } from 'lucide-react';
+import { ConversationTimelineSkeleton } from '@/components/logs/ConversationTimelineSkeleton';
 import type {
   AgentElicitationResponse,
   AgentPermissionResponse,
@@ -181,12 +182,7 @@ export function ChildConversationViewer({
         >
           <div className="h-full overflow-y-auto px-2 py-3">
             {conversation.loading && messages.length === 0 ? (
-              <div className="flex min-h-[160px] items-center justify-center text-muted-foreground">
-                <div className="flex items-center gap-2 rounded-full border bg-background/90 px-3 py-1.5 text-xs shadow-sm">
-                  <Loader2 className="h-4 w-4 animate-spin motion-reduce:animate-none" />
-                  <span>{t('childViewer.loading')}</span>
-                </div>
-              </div>
+              <ConversationTimelineSkeleton label={t('childViewer.loading')} />
             ) : stream.length === 0 && leftoverSideRows.length === 0 ? (
               <div className="grid min-h-[160px] place-items-center text-xs text-muted-foreground">
                 {conversation.error ?? t('childViewer.empty')}

@@ -14,6 +14,7 @@ import { PermissionRequestCard } from '@/components/NormalizedConversation/conve
 import { QuestionRequestCard } from '@/components/NormalizedConversation/conversation/QuestionRequestCard';
 import { TurnErrorCard } from '@/components/NormalizedConversation/conversation/TurnErrorCard';
 import { MessageTurnView } from '@/components/NormalizedConversation/MessageTurnView';
+import { ConversationTimelineSkeleton } from '@/components/logs/ConversationTimelineSkeleton';
 import { useConversationTimeline } from '@/features/conversation/useConversationTimeline';
 import { toast } from '@/components/ui/toast';
 import { resolveConversationCollapsePreferences } from '@/lib/conversationCollapsePreferences';
@@ -95,9 +96,9 @@ export function WorkflowStepConversation({
             {t('studio.conversationPending')}
           </div>
         ) : conversation.loading && messages.length === 0 ? (
-          <div className="grid min-h-28 place-items-center text-xs text-muted-foreground">
-            {t('studio.conversationLoading')}
-          </div>
+          <ConversationTimelineSkeleton
+            label={t('studio.conversationLoading')}
+          />
         ) : messages.length === 0 ? (
           <div className="grid min-h-28 place-items-center text-xs text-muted-foreground">
             {t('studio.noMessages')}

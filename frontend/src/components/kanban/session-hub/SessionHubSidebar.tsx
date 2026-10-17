@@ -773,6 +773,7 @@ export function SessionHubSidebar({
         isSearchExpanded && 'hidden'
       )}
       aria-label={t('hubSidebar.newSession')}
+      data-basic-guide="kanban-session-list-new"
       onClick={onCreateSessionRequested}
     >
       <Plus className={SESSION_LIST_ACTION_ICON_CLASS} />
@@ -787,6 +788,7 @@ export function SessionHubSidebar({
           fill ? 'min-w-0 flex-1' : 'shrink-0'
         )}
         style={{ width: fill ? '100%' : `${width}px` }}
+        data-basic-guide="kanban-session-list"
       >
         <div className="space-y-2 px-2.5 pb-1 pt-1.5">
           <div

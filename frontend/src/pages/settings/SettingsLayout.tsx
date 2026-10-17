@@ -326,6 +326,11 @@ export function SettingsLayout() {
                         onMouseEnter={() => preloadSettingsPath(item.path)}
                         onFocus={() => preloadSettingsPath(item.path)}
                         aria-current={active ? 'page' : undefined}
+                        data-basic-guide={
+                          item.path === '/settings/agents'
+                            ? 'settings-nav-agents'
+                            : undefined
+                        }
                       >
                         <span className="inline-flex items-center gap-2">
                           <Icon className="h-4 w-4" />

@@ -141,6 +141,7 @@ export function KanbanSessionSlot({
     <div
       className={cn('flex h-full', fill ? 'min-w-0 flex-1' : 'shrink-0')}
       data-panel="kanban-session-slot"
+      data-basic-guide="kanban-execution"
       data-slot-side={side}
     >
       {handleSide === 'left' && handle}

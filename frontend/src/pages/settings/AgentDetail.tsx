@@ -188,7 +188,10 @@ export function AgentDetail({
           </div>
         </div>
         <div className="agent-detail-header-actions">
-          <label className="agent-detail-enable">
+          <label
+            className="agent-detail-enable"
+            data-basic-guide="settings-agent-enable"
+          >
             <span>{t('agents.enable')}</span>
             <Switch
               aria-label={t('agents.enableAgent')}
@@ -230,7 +233,7 @@ export function AgentDetail({
         </div>
       </header>
 
-      {authentication}
+      <div data-basic-guide="settings-agent-auth">{authentication}</div>
 
       <section
         aria-labelledby="agent-preflight-heading"

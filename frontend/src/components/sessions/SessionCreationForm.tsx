@@ -514,6 +514,7 @@ export function SessionCreationForm({
   return (
     <form
       className={cn('space-y-4', className)}
+      data-basic-guide="session-form"
       onSubmit={(event) => {
         event.preventDefault();
         onSubmit({

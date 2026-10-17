@@ -104,6 +104,27 @@ function renderSettings(
   return { ...render(<GeneralSettings />), updateAndSaveConfig };
 }
 
+describe('GeneralSettings basic guide', () => {
+  beforeEach(() => {
+    userSystemMock.useUserSystem.mockReturnValue({
+      config: promptEnhancementConfig('opencode/minimax-m2.5-free'),
+      loading: false,
+      updateAndSaveConfig: vi.fn().mockResolvedValue(true),
+    });
+    configApiMock.checkEditorAvailability.mockResolvedValue({
+      available: true,
+    });
+    agentManagementApiMock.bar.mockResolvedValue([]);
+  });
+
+  it('puts Restart basic guide at the top of General settings', () => {
+    render(<GeneralSettings />);
+    expect(
+      screen.getByRole('button', { name: '重新开始基础引导' })
+    ).toBeInTheDocument();
+  });
+});
+
 describe('GeneralSettings Agent model catalogs', () => {
   beforeEach(() => {
     for (const fn of Object.values(configApiMock)) {

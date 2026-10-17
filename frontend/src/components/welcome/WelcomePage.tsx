@@ -60,17 +60,20 @@ function WelcomeAction({
   label,
   onClick,
   loading,
+  guideId,
 }: {
   icon: LucideIcon;
   label: string;
   onClick: () => void;
   loading?: boolean;
+  guideId?: string;
 }) {
   const { t } = useTranslation(['app', 'common']);
   return (
     <button
       onClick={onClick}
       disabled={loading}
+      data-basic-guide={guideId}
       className="group flex w-full items-center gap-2.5 rounded px-2 py-1.5 text-left text-sm text-foreground transition-colors hover:bg-muted/60 hover:text-foreground disabled:cursor-not-allowed disabled:opacity-60"
     >
       {loading ? (
@@ -109,6 +112,7 @@ function RecentProjectItem({
     <button
       onClick={onClick}
       onContextMenu={onContextMenu}
+      data-basic-guide={project.is_home ? 'welcome-global-project' : undefined}
       className="group flex w-full items-center gap-3 rounded px-2 py-1.5 text-left text-sm transition-colors hover:bg-muted/60"
       style={{ paddingLeft: `${8 + depth * 12}px` }}
       title={t('welcomePage.recentProjectTooltip')}
@@ -417,6 +421,7 @@ export function WelcomePage() {
               className="h-8 w-8"
               onClick={openSettings}
               aria-label="Settings"
+              data-basic-guide="open-settings"
             >
               <Settings className="h-4 w-4" />
             </Button>
@@ -435,11 +440,13 @@ export function WelcomePage() {
             icon={Plus}
             label={t('welcomePage.createNewProject')}
             onClick={handleCreateProject}
+            guideId="welcome-create-project"
           />
           <WelcomeAction
             icon={FolderOpen}
             label={t('welcomePage.selectFolder')}
             onClick={handleOpenFolder}
+            guideId="welcome-select-folder"
           />
           <WelcomeAction
             icon={GitBranch}

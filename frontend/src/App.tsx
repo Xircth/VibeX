@@ -71,6 +71,14 @@ const MainAppRoutes = lazy(() =>
 );
 
 import { AppContextMenuHost } from '@/components/context-menu';
+import {
+  BasicGuideOverlay,
+  BasicGuideProvider,
+  readBasicGuide,
+  skipBasicGuide,
+  startBasicGuide,
+  writeBasicGuide,
+} from '@/features/basic-guide';
 
 function ThemedToaster() {
   const { resolvedTheme } = useTheme();
@@ -107,6 +115,9 @@ function MainAppContent({ children }: { children: ReactNode }) {
       // The guide stays mounted only while onboarding is unacknowledged.
       // Saving the choices here must not dismiss it; acknowledgement waits
       // until the user skips or leaves the install step.
+      if (skipped) {
+        writeBasicGuide(skipBasicGuide());
+      }
       await updateAndSaveConfig(
         skipped
           ? {
@@ -129,8 +140,13 @@ function MainAppContent({ children }: { children: ReactNode }) {
     void updateAndSaveConfig({
       disclaimer_acknowledged: true,
       onboarding_acknowledged: true,
+    }).then(() => {
+      const current = readBasicGuide();
+      if (current?.phase !== 'completed') {
+        writeBasicGuide(startBasicGuide(current));
+      }
+      navigate('/local-projects', { replace: true });
     });
-    navigate('/local-projects', { replace: true });
   }, [navigate, updateAndSaveConfig]);
 
   // Track previous path for back navigation
@@ -311,7 +327,10 @@ function AppContent() {
             <GlobalShortcutActionBridge />
             <PluginContributionBridge />
             <AppContextMenuHost>
-              <MainAppContent>{routes}</MainAppContent>
+              <BasicGuideProvider>
+                <MainAppContent>{routes}</MainAppContent>
+                <BasicGuideOverlay />
+              </BasicGuideProvider>
             </AppContextMenuHost>
             <SequenceIndicator />
           </SequenceTrackerProvider>

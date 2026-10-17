@@ -132,7 +132,7 @@ const DEFAULT_LAYOUT_SNAPSHOT: LayoutSnapshot = {
   isKanbanListVisible: true,
   isKanbanMonitorVisible: true,
   isKanbanSessionVisible: true,
-  activeTab: 'kanban',
+  activeTab: 'workspace',
 };
 
 function clampSessionWidth(width: number): number {

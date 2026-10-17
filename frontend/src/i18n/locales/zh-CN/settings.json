@@ -1621,6 +1621,7 @@
     "editorCustomCommand": "自定义命令",
     "modelsRefreshed": "模型列表已刷新",
     "modelsRefreshFailed": "读取模型列表失败，请稍后重试",
+    "restartBasicGuide": "重新开始基础引导",
     "saveGeneralFailed": "无法保存常规设置。",
     "settingsSaved": "设置已保存",
     "generalSettingsUpdated": "常规设置已更新。",

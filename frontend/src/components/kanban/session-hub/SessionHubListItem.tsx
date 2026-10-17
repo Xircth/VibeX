@@ -425,6 +425,8 @@ export function SessionHubListItem({
       role="button"
       tabIndex={0}
       aria-busy={isOpening || undefined}
+      data-basic-guide="kanban-session-item"
+      data-session-id={session.id}
       onClick={onClick}
       onContextMenu={(event) => {
         event.preventDefault();

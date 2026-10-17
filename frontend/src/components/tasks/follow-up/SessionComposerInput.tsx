@@ -76,6 +76,7 @@ import {
   type ComposerInsertDetail,
 } from '@/lib/composerInsert';
 import { useOptionalUserSystem } from '@/components/ConfigProvider';
+import { useBasicGuideHelloSeed } from '@/features/basic-guide/useBasicGuideHelloSeed';
 import { useComposerSelectionStore } from '@/stores/useComposerSelectionStore';
 import {
   extractImageFilesFromClipboardData,
@@ -1109,6 +1110,7 @@ export function SessionComposerInput({
   onAttachImages,
 }: SessionComposerInputProps) {
   const { t } = useTranslation('tasks');
+  useBasicGuideHelloSeed(value, onChange);
   const sendShortcut =
     useOptionalUserSystem()?.config?.send_message_shortcut ?? 'Enter';
   const {

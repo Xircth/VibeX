@@ -2260,13 +2260,17 @@ export function KanbanUsageDashboard() {
 
       <div className="relative flex min-h-0 flex-1">
         <div className="absolute left-10 top-1/2 z-10 -translate-y-1/2">
-          <div className="kanban-usage-tab-rail flex flex-col gap-1 px-1 py-2">
+          <div
+            className="kanban-usage-tab-rail flex flex-col gap-1 px-1 py-2"
+            data-basic-guide="usage-nav"
+          >
             {tabs.map((tab) => (
               <button
                 key={tab.key}
                 type="button"
                 title={tab.label}
                 aria-label={tab.label}
+                data-basic-guide={`usage-nav-${tab.key}`}
                 className={cn(
                   'kanban-usage-tab flex items-center justify-center rounded-md px-2 py-3 transition-colors',
                   activeTab === tab.key ? tab.activeColor : ''
@@ -2312,6 +2316,7 @@ export function KanbanUsageDashboard() {
               <section
                 aria-label={t('usageDashboard.summaryRegion')}
                 className="kanban-usage-summary"
+                data-basic-guide="usage-overview-cards"
               >
                 <UsageSummaryPrimary
                   title={t('usageDashboard.tokenAndCacheTitle')}

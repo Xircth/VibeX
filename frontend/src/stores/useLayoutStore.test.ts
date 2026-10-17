@@ -35,8 +35,8 @@ describe('useLayoutStore', () => {
       expect(useLayoutStore.getState().rightPanelWidth).toBe(434);
     });
 
-    it('should have kanban as active tab by default', () => {
-      expect(useLayoutStore.getState().activeTab).toBe('kanban');
+    it('should have workspace as active tab by default', () => {
+      expect(useLayoutStore.getState().activeTab).toBe('workspace');
     });
 
     it('should have null serialized layout by default', () => {

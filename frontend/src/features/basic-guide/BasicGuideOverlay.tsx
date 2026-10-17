@@ -22,6 +22,7 @@ import {
   isProjectRoute,
   isSettingsRoute,
   mainStepIndex,
+  substepSpotlights,
 } from './basicGuideState';
 import './basicGuide.css';
 
@@ -35,15 +36,15 @@ export function BasicGuideOverlay() {
   const showingEnd = state.endCopy !== 'none';
   const meta = SUBSTEP_META[state.substep];
   const current = showingEnd ? 3 : mainStepIndex(state.substep);
-  const copyKey = showingEnd ? 'endCopy' : `copy.${state.substep}`;
+  const showCoaching = !showingEnd && state.substep !== 'show-end';
+  const spotlightTargets = showCoaching ? substepSpotlights(state.substep) : [];
 
   return (
     <>
-      {!showingEnd &&
-      state.substep !== 'show-end' &&
-      meta.targets.length > 0 ? (
+      {showCoaching ? (
         <BasicGuideSpotlight
-          targetIds={meta.targets}
+          targets={spotlightTargets}
+          resolveCopy={(key) => t(`copy.${key}`)}
           panelSelector="[data-basic-guide-panel]"
         />
       ) : null}
@@ -57,7 +58,7 @@ export function BasicGuideOverlay() {
         data-basic-guide-panel
         aria-label={t('panelAria')}
       >
-        <div className="basic-guide-panel__card dialog-surface">
+        <div className="basic-guide-panel__stack">
           {showingEnd ? (
             <button
               type="button"
@@ -73,12 +74,6 @@ export function BasicGuideOverlay() {
                 <AstryxStepItem>{t('steps.createSession')}</AstryxStepItem>
                 <AstryxStepItem>{t('steps.learnLayout')}</AstryxStepItem>
               </AstryxStep>
-              {state.substep !== 'show-end' ? (
-                <GuideCopy
-                  className="basic-guide-panel__copy"
-                  text={t(copyKey)}
-                />
-              ) : null}
               <div className="basic-guide-panel__actions">
                 {state.substep === 'show-end' ? (
                   <Button
@@ -125,7 +120,10 @@ export function BasicGuideOverlay() {
           <DialogHeader>
             <DialogTitle>{t('exitTitle')}</DialogTitle>
           </DialogHeader>
-          <GuideCopy className="basic-guide-panel__copy" text={t('exitMessage')} />
+          <GuideCopy
+            className="basic-guide-panel__copy"
+            text={t('exitMessage')}
+          />
           <DialogFooter>
             <Button type="button" variant="outline" onClick={ctx.cancelExit}>
               {t('common:cancel')}

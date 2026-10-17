@@ -19,6 +19,9 @@ describe('AstryxStep', () => {
     expect(items[0]).toHaveAttribute('data-status', 'completed');
     expect(items[1]).toHaveAttribute('aria-current', 'step');
     expect(items[2]).toHaveAttribute('data-status', 'upcoming');
+    expect(items[0].querySelector('[data-indicator="done"]')).toBeTruthy();
+    expect(items[1].querySelector('[data-indicator="radio"]')).toBeTruthy();
+    expect(items[2].querySelector('[data-indicator="idle"]')).toBeTruthy();
   });
 });
 

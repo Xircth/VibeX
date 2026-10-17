@@ -1,8 +1,14 @@
+import type { SpotlightTarget } from './spotlightGeometry';
+
 export const BASIC_GUIDE_STORAGE_KEY = 'vibex:basic-guide';
 export const BASIC_GUIDE_CHANGED_EVENT = 'vibex:basic-guide-changed';
 export const BASIC_GUIDE_OPEN_AGENT_STATUS_EVENT =
   'vibex:basic-guide-open-agent-status';
+export const BASIC_GUIDE_SESSION_AGENT_EVENT =
+  'vibex:basic-guide-session-agent';
 export const BASIC_GUIDE_HELLO = '你好';
+
+export type GuideSpotlightTarget = SpotlightTarget;
 
 export type BasicGuidePhase = 'idle' | 'active' | 'completed';
 export type BasicGuideReachedStep = 0 | 1 | 2;
@@ -17,7 +23,8 @@ export type BasicGuideSubstep =
   | 'settings-agent-auth'
   | 'return-main'
   | 'click-new-session'
-  | 'configure-session'
+  | 'configure-session-agent'
+  | 'configure-session-config'
   | 'send-hello'
   | 'rail-session-list'
   | 'rail-file-tree'
@@ -61,7 +68,8 @@ export const SUBSTEP_ORDER: readonly BasicGuideSubstep[] = [
   'settings-agent-auth',
   'return-main',
   'click-new-session',
-  'configure-session',
+  'configure-session-agent',
+  'configure-session-config',
   'send-hello',
   'rail-session-list',
   'rail-file-tree',
@@ -96,24 +104,40 @@ export type GuideStepTarget = {
   required?: boolean;
 };
 
-export const SUBSTEP_META: Record<
-  BasicGuideSubstep,
-  {
-    mainStep: 1 | 2 | 3;
-    targets: readonly string[];
-    advance: BasicGuideAdvance;
-    continueVisible: boolean;
-  }
-> = {
+type SubstepMeta = {
+  mainStep: 1 | 2 | 3;
+  targets: readonly string[];
+  advance: BasicGuideAdvance;
+  continueVisible: boolean;
+  spotlights?: readonly GuideSpotlightTarget[];
+};
+
+export const SUBSTEP_META: Record<BasicGuideSubstep, SubstepMeta> = {
   'select-project': {
     mainStep: 1,
     targets: [
-      'welcome-select-folder',
       'welcome-create-project',
+      'welcome-select-folder',
       'welcome-global-project',
     ],
     advance: 'route',
     continueVisible: false,
+    spotlights: [
+      {
+        id: 'welcome-create-project',
+        copyKey: 'select-project-create',
+        group: 'welcome-start',
+      },
+      {
+        id: 'welcome-select-folder',
+        copyKey: 'select-project-create',
+        group: 'welcome-start',
+      },
+      {
+        id: 'welcome-global-project',
+        copyKey: 'select-project-global',
+      },
+    ],
   },
   'need-agent': {
     mainStep: 2,
@@ -156,10 +180,23 @@ export const SUBSTEP_META: Record<
     targets: ['toolbar-new-session'],
     advance: 'click',
     continueVisible: false,
+    spotlights: [
+      {
+        id: 'toolbar-new-session',
+        copyKey: 'click-new-session',
+        shape: 'circle',
+      },
+    ],
   },
-  'configure-session': {
+  'configure-session-agent': {
     mainStep: 2,
-    targets: ['session-form'],
+    targets: ['session-agent-selector'],
+    advance: 'auto',
+    continueVisible: true,
+  },
+  'configure-session-config': {
+    mainStep: 2,
+    targets: ['session-config'],
     advance: 'auto',
     continueVisible: true,
   },
@@ -322,8 +359,14 @@ export function parsePersistedBasicGuide(
       return null;
     }
     if (!isReachedStep(parsed.reachedStep)) return null;
-    const substep = isSubstep(parsed.substep)
-      ? parsed.substep
+    const rawSubstep: string =
+      typeof parsed.substep === 'string' ? String(parsed.substep) : '';
+    const migratedSubstep =
+      rawSubstep === 'configure-session'
+        ? 'configure-session-agent'
+        : rawSubstep;
+    const substep = isSubstep(migratedSubstep)
+      ? migratedSubstep
       : 'select-project';
     const endCopy =
       parsed.endCopy === 'finished' || parsed.endCopy === 'exited'
@@ -384,7 +427,9 @@ export function mainStepIndex(substep: BasicGuideSubstep): 0 | 1 | 2 {
   return (SUBSTEP_META[substep].mainStep - 1) as 0 | 1 | 2;
 }
 
-export function reachedStepAfter(substep: BasicGuideSubstep): BasicGuideReachedStep {
+export function reachedStepAfter(
+  substep: BasicGuideSubstep
+): BasicGuideReachedStep {
   const main = SUBSTEP_META[substep].mainStep;
   if (main <= 1) return 0;
   if (main === 2) return 1;
@@ -467,7 +512,9 @@ export function isGuideVisible(state: PersistedBasicGuide): boolean {
 
 export function sessionCreateHrefLooksOpen(search: string): boolean {
   const params = new URLSearchParams(search);
-  return params.get('newSession') === '1' || params.get('createSession') === '1';
+  return (
+    params.get('newSession') === '1' || params.get('createSession') === '1'
+  );
 }
 
 export function isProjectRoute(pathname: string): boolean {
@@ -516,6 +563,26 @@ export function shouldCompleteStep1OnRoute(
     isWelcomeRoute(previousPathname) &&
     isProjectRoute(pathname)
   );
+}
+
+export function isConfigureSessionSubstep(substep: BasicGuideSubstep): boolean {
+  return (
+    substep === 'configure-session-agent' ||
+    substep === 'configure-session-config'
+  );
+}
+
+export function substepSpotlights(
+  substep: BasicGuideSubstep
+): GuideSpotlightTarget[] {
+  const meta = SUBSTEP_META[substep];
+  if (meta.spotlights && meta.spotlights.length > 0) {
+    return [...meta.spotlights];
+  }
+  if (meta.targets.length > 0) {
+    return meta.targets.map((id) => ({ id, copyKey: substep }));
+  }
+  return [{ id: '', copyKey: substep }];
 }
 
 export function clickAdvancesSubstep(

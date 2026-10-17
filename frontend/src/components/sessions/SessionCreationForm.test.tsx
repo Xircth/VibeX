@@ -268,6 +268,13 @@ describe('SessionCreationForm agent capability catalog controls', () => {
     ).not.toBeInTheDocument();
   });
 
+  it('exposes the agent selector for the basic guide', () => {
+    renderForm('grok', vi.fn());
+    expect(
+      document.querySelector('[data-basic-guide="session-agent-selector"]')
+    ).toBeInTheDocument();
+  });
+
   it('does not recommend switching away from a non-worktree project branch', async () => {
     renderForm('codex', vi.fn(), 'existing_workspace', false, {
       ...WORKSPACE_OPTION,

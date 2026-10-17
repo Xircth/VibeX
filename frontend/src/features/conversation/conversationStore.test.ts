@@ -1467,6 +1467,70 @@ describe('conversationStore (row-op dumb container)', () => {
     expect(entry.rows.at(-1)?.row_id).toBe('t39:user');
   });
 
+  it('keeps paged history when a later open-window load_success arrives', () => {
+    const tail = [userRow('t16', 'tail', 16n), userRow('t17', 'latest', 17n)];
+    let detail = emptyDetail(tail);
+    detail.timeline.last_sequence = 17n;
+    detail.timeline.older_cursor = '16';
+    detail.timeline.truncated_from_start = true;
+    let state = conversationStoreReducer(emptyConversationStoreState, {
+      type: 'load_success',
+      conversationId: CONVERSATION_ID,
+      detail,
+    });
+    state = conversationStoreReducer(state, {
+      type: 'upsert_rows',
+      conversationId: CONVERSATION_ID,
+      rows: [userRow('t0', 'first', 1n), userRow('t1', 'second', 2n)],
+      lastSequence: 17n,
+      olderCursor: '0',
+      protectLoaded: true,
+    });
+    detail = emptyDetail(tail);
+    detail.timeline.last_sequence = 17n;
+    detail.timeline.older_cursor = '16';
+    detail.timeline.truncated_from_start = true;
+    state = conversationStoreReducer(state, {
+      type: 'load_success',
+      conversationId: CONVERSATION_ID,
+      detail,
+    });
+    expect(entryOf(state).rows.map((row) => row.row_id)).toEqual([
+      't0:user',
+      't1:user',
+      't16:user',
+      't17:user',
+    ]);
+    expect(entryOf(state).olderCursor).toBe('0');
+  });
+
+  it('does not amputate fat history on a keepRealtimeRows reload', () => {
+    const fat = 'x'.repeat(32 * 1024);
+    const rows = Array.from({ length: 40 }, (_, index) =>
+      userRow(`t${index}`, fat, BigInt(index + 1))
+    );
+    let state = loaded(rows);
+    state = conversationStoreReducer(state, {
+      type: 'row_ops',
+      batch: batch(
+        [{ op: 'upsert', row: userRow('t39', `${fat}!`, 41n) }],
+        50n
+      ),
+    });
+    const detail = emptyDetail(rows.slice(-16));
+    detail.timeline.last_sequence = 40n;
+    detail.timeline.older_cursor = '24';
+    detail.timeline.truncated_from_start = true;
+    state = conversationStoreReducer(state, {
+      type: 'load_success',
+      conversationId: CONVERSATION_ID,
+      detail,
+    });
+    expect(entryOf(state).rows).toHaveLength(40);
+    expect(entryOf(state).rows[0]?.row_id).toBe('t0:user');
+    expect(entryOf(state).rows.at(-1)?.row_id).toBe('t39:user');
+  });
+
   it('keeps hydrated history when a later idle row-op arrives', () => {
     const fat = 'x'.repeat(32 * 1024);
     const rows = Array.from({ length: 40 }, (_, index) =>

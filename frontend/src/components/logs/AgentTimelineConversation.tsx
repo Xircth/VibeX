@@ -136,6 +136,7 @@ import {
   measureUnscaledBlockHeight,
   observeUnscaledElementRect,
   scheduleMeasuredScrollToIndex,
+  scrollTopAfterPrepend,
   wheelDetachesConversationFollow,
   type VirtualizedListRef,
 } from './VirtualizedList';
@@ -174,6 +175,14 @@ export function shouldLoadOlderTimelinePage(input: {
     input.scrollTop <= LOAD_OLDER_SCROLL_TOP_PX &&
     input.firstVirtualIndex === 0
   );
+}
+
+function firstTimelineItemKey(
+  items: ConversationTimelineItem[]
+): string | null {
+  const item = items[0];
+  if (!item) return null;
+  return item.kind === 'message' ? item.item.key : item.row.row_id;
 }
 
 interface AgentTimelineConversationProps {
@@ -603,6 +612,8 @@ const AgentTimelineConversation = forwardRef<
 
   const sessionId = attempt.session?.id ?? null;
   const sessionPinRef = useRef(sessionId);
+  const previousFirstKeyRef = useRef<string | null>(null);
+  const previousTotalSizeRef = useRef(0);
   // Absolute workspace root for resolving clickable file paths in messages.
   // Non-worktree workspaces leave container_ref null, so fall back to the repo
   // path — otherwise a relative "README.md" can't be opened in a preview tab.
@@ -1229,6 +1240,26 @@ const AgentTimelineConversation = forwardRef<
   // reconcile loop, which repeats the scroll for as long as the last row grows.
   useLayoutEffect(() => {
     const sessionChanged = sessionPinRef.current !== sessionId;
+    const firstKey = firstTimelineItemKey(timelineItems);
+    const container = containerRef.current;
+    if (container) {
+      const nextTop = scrollTopAfterPrepend({
+        followTail: followTailRef.current,
+        sessionChanged,
+        previousFirstKey: previousFirstKeyRef.current,
+        nextFirstKey: firstKey,
+        previousTotalSize: previousTotalSizeRef.current,
+        nextTotalSize: totalSize,
+        scrollTop: container.scrollTop,
+      });
+      if (nextTop !== container.scrollTop) {
+        runProgrammaticScroll(() => {
+          container.scrollTop = nextTop;
+        });
+      }
+    }
+    previousFirstKeyRef.current = firstKey;
+    previousTotalSizeRef.current = totalSize;
     sessionPinRef.current = sessionId;
     const expansionChanged =
       expansionInViewRef.current &&
@@ -1274,7 +1305,9 @@ const AgentTimelineConversation = forwardRef<
     onAtBottomChange,
     pinToBottom,
     rowVirtualizer,
+    runProgrammaticScroll,
     sessionId,
+    timelineItems,
     totalSize,
     virtualEntries.length,
   ]);

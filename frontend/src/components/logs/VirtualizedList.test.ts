@@ -10,6 +10,7 @@ import {
   getDistanceFromConversationBottom,
   getVirtualRowTranslateY,
   isConversationExpansionToggle,
+  scrollTopAfterPrepend,
   isConversationNearBottom,
   measureScrollMargin,
   measureUnscaledBlockHeight,
@@ -245,6 +246,34 @@ describe('conversation bottom distance', () => {
 
   it('offsets virtual rows by the measured scroll margin', () => {
     expect(getVirtualRowTranslateY(512, 96)).toBe('translateY(416px)');
+  });
+
+  it('keeps the viewport on the same rows when older history is prepended', () => {
+    expect(
+      scrollTopAfterPrepend({
+        followTail: false,
+        sessionChanged: false,
+        previousFirstKey: 'turn:t16',
+        nextFirstKey: 'turn:t0',
+        previousTotalSize: 2000,
+        nextTotalSize: 2800,
+        scrollTop: 640,
+      })
+    ).toBe(1440);
+  });
+
+  it('does not shift scroll while the open path is following the tail', () => {
+    expect(
+      scrollTopAfterPrepend({
+        followTail: true,
+        sessionChanged: false,
+        previousFirstKey: 'turn:t16',
+        nextFirstKey: 'turn:t0',
+        previousTotalSize: 2000,
+        nextTotalSize: 2800,
+        scrollTop: 1960,
+      })
+    ).toBe(1960);
   });
 });
 

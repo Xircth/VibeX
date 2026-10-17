@@ -1,3 +1,5 @@
+@import './markdownFileProse.css';
+
 .markdown-rich-text-editor {
   display: flex;
   height: 100%;
@@ -24,33 +26,17 @@
   box-shadow: none;
 }
 
-.markdown-rich-text-editor [contenteditable]:not(#\#):not(#\#):not(#\#) {
-  line-height: 1.7;
-}
-
-.markdown-rich-text-editor
-  [contenteditable]
-  :is(p, li, h1, h2, h3, h4, h5, h6):not(#\#):not(#\#):not(#\#) {
-  line-height: 1.7;
-}
-
-.markdown-rich-text-editor hr:not(#\#):not(#\#):not(#\#):not(#\#) {
-  border: none;
-  border-top: 1px solid var(--border-strong, hsl(var(--border)));
-  height: 0;
-  margin-block: 0.75em;
-  width: 100%;
-  max-width: none;
-}
-
 .markdown-rich-text-editor
   [data-pressable-container]
   > :first-child:not(:last-child) {
   flex: 0 0 auto;
 }
 
-.markdown-rich-text-editor [data-pressable-container] > :last-child {
+.markdown-rich-text-editor
+  [data-pressable-container]
+  > :last-child:not(#\#):not(#\#):not(#\#):not(#\#) {
   flex: 1 1 auto;
   min-height: 0;
   overflow: auto;
+  padding: 1rem 1.5rem;
 }

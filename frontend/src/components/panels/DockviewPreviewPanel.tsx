@@ -83,6 +83,7 @@ import {
   type ResolvedPluginFileOpener,
 } from '@/lib/api/plugins';
 import { preloadMonacoEditor } from '@/lib/monacoPreload';
+import '@/components/previews/markdownFileProse.css';
 
 const LazyMarkdownRichTextEditor = lazy(
   () => import('@/components/previews/MarkdownRichTextEditor')
@@ -1188,6 +1189,7 @@ function DockviewPreviewPanel(props: IDockviewPanelProps) {
               className="h-full overflow-auto px-6 py-4"
             >
               <LazyMarkdown
+                className="markdown-file-prose"
                 value={editorContent}
                 workspacePath={markdownBasePath}
               />

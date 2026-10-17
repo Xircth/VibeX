@@ -101,6 +101,11 @@ describe('MarkdownRichTextEditor', () => {
       'data-workspace-path',
       '/workspace/docs'
     );
+    expect(screen.getByTestId('astryx-rich-text-editor')).toHaveClass(
+      'markdown-rich-text-editor',
+      'conv-markdown',
+      'markdown-file-prose'
+    );
     expect(screen.getByRole('textbox', { name: 'notes.md' })).toHaveValue(
       '# Title'
     );

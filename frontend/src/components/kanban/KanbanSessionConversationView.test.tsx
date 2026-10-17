@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { fireEvent, render, screen } from '@testing-library/react';
+import { render, screen } from '@testing-library/react';
 import { forwardRef, StrictMode, useState, type ReactNode } from 'react';
 import { MemoryRouter } from 'react-router-dom';
 import { describe, expect, it, vi } from 'vitest';
@@ -257,7 +257,7 @@ describe('KanbanSessionConversationView', () => {
     );
   });
 
-  it('shows a standalone new-session button when a workspace has no existing sessions', () => {
+  it('requests the create-session form when a workspace has no existing sessions', () => {
     const startNewSession = vi.fn();
     const onCreateSessionRequested = vi.fn();
     useWorkspaceSessionsMock.mockReturnValue({
@@ -300,14 +300,10 @@ describe('KanbanSessionConversationView', () => {
       </MemoryRouter>
     );
 
-    const button = screen.getByRole('button', { name: '新建会话' });
-    expect(screen.queryByTestId('virtualized-list')).not.toBeInTheDocument();
-    expect(screen.queryByTestId('follow-up-section')).not.toBeInTheDocument();
-
-    fireEvent.click(button);
-
     expect(onCreateSessionRequested).toHaveBeenCalledTimes(1);
     expect(startNewSession).not.toHaveBeenCalled();
+    expect(screen.queryByTestId('virtualized-list')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('follow-up-section')).not.toBeInTheDocument();
   });
 
   it('routes new-session URL requests through the overlay callback', async () => {

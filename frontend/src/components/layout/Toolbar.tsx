@@ -1,4 +1,4 @@
-import { useNavigate, useParams } from 'react-router-dom';
+import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { sessionsApi, useOpenSettings } from '@/lib/api';
 import { useMemo, useCallback, useEffect, startTransition } from 'react';
@@ -35,10 +35,8 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from '@/components/ui/tooltip';
-import {
-  resolveCreateSessionHref,
-  resolveWorkspaceTabNavigation,
-} from '@/lib/createSessionHref';
+import { resolveWorkspaceTabNavigation } from '@/lib/createSessionHref';
+import { requestCreateSessionInExecutionArea } from '@/lib/requestCreateSession';
 import { HomeLogoMenu } from '@/components/layout/HomeLogoMenu';
 import { paths } from '@/lib/paths';
 import { useProject } from '@/contexts/ProjectContext';
@@ -652,10 +650,8 @@ export function Toolbar() {
     workspaceId?: string;
     sessionId?: string;
   }>();
-  const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
   const { projectId, project } = useProject();
-  const { activeWorktreeId } = useWorktree();
-  const { rightSession } = useKanbanSessionContext();
   const handleOpenInEditor = useOpenProjectInEditor(project || null);
   const { data: repos } = useProjectRepos(projectId);
   const isSingleRepoProject = repos?.length === 1;
@@ -681,19 +677,7 @@ export function Toolbar() {
   const handleCreateSession = () => {
     if (!projectId) return;
 
-    if (!isWorkspaceTab) {
-      useLayoutStore.getState().setKanbanSessionVisible(true);
-    }
-
-    navigate(
-      resolveCreateSessionHref({
-        projectId,
-        isWorkspaceTab,
-        workspaceId,
-        activeWorktreeId,
-        rightSessionWorkspaceId: rightSession?.workspaceId,
-      })
-    );
+    requestCreateSessionInExecutionArea(setSearchParams, searchParams);
   };
 
   const handleOpenInIDE = () => {

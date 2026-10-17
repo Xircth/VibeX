@@ -4,7 +4,6 @@ import { useParams, useSearchParams } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { Loader2, X } from 'lucide-react';
 import { BranchInfoHeader } from '@/components/layout/BranchInfoHeader';
-import { RightPanelNewSessionPrompt } from '@/components/layout/RightPanelNewSessionPrompt';
 import { KanbanSessionConversationView } from '@/components/kanban/KanbanSessionConversationView';
 import { useUserSystem } from '@/components/ConfigProvider';
 import { useKanbanSessionContext } from '@/contexts/KanbanSessionContext';
@@ -42,7 +41,11 @@ import {
 import { getSessionUiErrorMessage } from '@/lib/sessionUiErrors';
 import { paths } from '@/lib/paths';
 import { confirmWorktreeCreation } from '@/lib/confirmWorktreeCreation';
-import { isCreateSessionFormVisibleForProject } from '@/lib/createSessionFormVisibility';
+import {
+  isCreateSessionFormVisibleForProject,
+  shouldRenderExecutionCreateSessionForm,
+} from '@/lib/createSessionFormVisibility';
+import { executionConversationSurface } from '@/lib/workspaceSurface';
 import { useNavigateWithSearch } from '@/hooks/useNavigateWithSearch';
 
 const MAINLINE_BRANCH_NAMES = new Set(['main', 'master']);
@@ -84,6 +87,7 @@ function CreateSessionOverlay({
   createError,
   onSubmitCreate,
   onClose,
+  dismissible = true,
   onSessionControlsPresetChange,
 }: {
   createMode: SessionCreationMode;
@@ -104,6 +108,7 @@ function CreateSessionOverlay({
   createError: unknown;
   onSubmitCreate: (input?: { includeUncommitted?: boolean }) => void;
   onClose: () => void;
+  dismissible?: boolean;
   onSessionControlsPresetChange?: (
     preset: SessionControlsPreset | null
   ) => void;
@@ -112,13 +117,15 @@ function CreateSessionOverlay({
   return (
     <div className="absolute inset-0 z-10 flex items-center justify-center bg-background/70 p-6 backdrop-blur-md">
       <div className="relative w-full max-w-[360px] rounded-xl border border-border/70 bg-background/95 p-4 shadow-xl">
-        <button
-          className="absolute right-2 top-2 z-10 rounded-sm opacity-70 ring-offset-background transition-opacity hover:opacity-100 focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2"
-          onClick={onClose}
-        >
-          <X className="h-4 w-4" />
-          <span className="sr-only">Close</span>
-        </button>
+        {dismissible ? (
+          <button
+            className="absolute right-2 top-2 z-10 rounded-sm opacity-70 ring-offset-background transition-opacity hover:opacity-100 focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2"
+            onClick={onClose}
+          >
+            <X className="h-4 w-4" />
+            <span className="sr-only">Close</span>
+          </button>
+        ) : null}
         <SessionCreationForm
           title={t('rightPanelContent.newSession')}
           gitInitIncomplete={gitInitIncomplete}
@@ -146,7 +153,7 @@ function CreateSessionOverlay({
               : null
           }
           onSubmit={onSubmitCreate}
-          onCancel={onClose}
+          onCancel={dismissible ? onClose : undefined}
           dropdownSide="top"
         />
       </div>
@@ -192,8 +199,16 @@ export function RightPanelContent() {
     visibleRightSession?.sessionId ?? sessionId;
   const bindExecutionConversation = kanbanBindsExecutionConversation(
     activeViewId,
-    isWorkspaceRoute ? 'workspace' : 'kanban'
+    executionConversationSurface(workspaceId, sessionId, effectiveActiveTab)
   );
+  const showEmptyCreateForm = shouldRenderExecutionCreateSessionForm({
+    bindsExecutionConversation: bindExecutionConversation,
+    isSessionPending: isRightSessionPending,
+    hasVisibleSession: showRightSession,
+    hasWorkspaceConversation: Boolean(
+      isWorkspaceRoute && workspaceExecutionWorkspaceId
+    ),
+  });
   const fallbackWorkspaceId =
     activeWorktreeId ?? visibleRightSession?.workspaceId ?? workspaceId;
   const queryClient = useQueryClient();
@@ -306,7 +321,7 @@ export function RightPanelContent() {
     reset: resetRepoBranchSelection,
   } = useRepoBranchSelection({
     repos,
-    enabled: isCreateOverlayVisible,
+    enabled: isCreateOverlayVisible || showEmptyCreateForm,
   });
 
   useEffect(() => {
@@ -538,6 +553,19 @@ export function RightPanelContent() {
   }, [handleCreateOverlayOpenChange]);
 
   useEffect(() => {
+    if (!showEmptyCreateForm || isCreateOverlayOpen || !effectiveProjectId) {
+      return;
+    }
+
+    openCreateSessionOverlay();
+  }, [
+    effectiveProjectId,
+    isCreateOverlayOpen,
+    openCreateSessionOverlay,
+    showEmptyCreateForm,
+  ]);
+
+  useEffect(() => {
     if (searchParams.get('newSession') !== '1') {
       return;
     }
@@ -641,6 +669,7 @@ export function RightPanelContent() {
       createSessionMutation.mutate(input);
     },
     onClose: () => handleCreateOverlayOpenChange(false),
+    dismissible: !showEmptyCreateForm,
     onSessionControlsPresetChange: handleSessionControlsPresetChange,
   };
 
@@ -675,15 +704,11 @@ export function RightPanelContent() {
                   </p>
                 </div>
               </div>
-            ) : bindExecutionConversation ? (
-              <RightPanelNewSessionPrompt
-                onCreateSession={openCreateSessionOverlay}
-              />
             ) : null}
 
-            {isCreateOverlayVisible ? (
+            {isCreateOverlayVisible || showEmptyCreateForm ? (
               <CreateSessionOverlay
-                key={createOverlayProjectId ?? 'create-session'}
+                key={effectiveProjectId ?? 'create-session'}
                 {...overlayProps}
               />
             ) : null}

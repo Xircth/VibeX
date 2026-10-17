@@ -1,6 +1,10 @@
 import { describe, expect, it } from 'vitest';
 
-import { isWorkspaceSurfaceActive } from './workspaceSurface';
+import { kanbanBindsExecutionConversation } from './kanbanViews';
+import {
+  executionConversationSurface,
+  isWorkspaceSurfaceActive,
+} from './workspaceSurface';
 
 describe('isWorkspaceSurfaceActive', () => {
   it('treats a workspace or session route as the workspace surface', () => {
@@ -19,6 +23,32 @@ describe('isWorkspaceSurfaceActive', () => {
     );
     expect(
       isWorkspaceSurfaceActive(undefined, undefined, 'plugin:acme/tab')
+    ).toBe(false);
+  });
+});
+
+describe('executionConversationSurface', () => {
+  it('keeps the workspace execution conversation bound before a workspace is routed', () => {
+    expect(
+      executionConversationSurface(undefined, undefined, 'workspace')
+    ).toBe('workspace');
+    expect(
+      kanbanBindsExecutionConversation(
+        'builtin:canvas',
+        executionConversationSurface(undefined, undefined, 'workspace')
+      )
+    ).toBe(true);
+  });
+
+  it('unbinds the hidden kanban execution slot on canvas', () => {
+    expect(executionConversationSurface(undefined, undefined, 'kanban')).toBe(
+      'kanban'
+    );
+    expect(
+      kanbanBindsExecutionConversation(
+        'builtin:canvas',
+        executionConversationSurface(undefined, undefined, 'kanban')
+      )
     ).toBe(false);
   });
 });

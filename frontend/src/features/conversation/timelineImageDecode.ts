@@ -80,7 +80,8 @@ export function resetTimelineImagesForTests(): void {
 
 export function objectUrlForBytes(bytes: Uint8Array, mimeType: string): string {
   if (typeof URL !== 'undefined' && typeof URL.createObjectURL === 'function') {
-    return URL.createObjectURL(new Blob([bytes], { type: mimeType }));
+    const payload = Uint8Array.from(bytes);
+    return URL.createObjectURL(new Blob([payload], { type: mimeType }));
   }
   let binary = '';
   for (const byte of bytes) binary += String.fromCharCode(byte);

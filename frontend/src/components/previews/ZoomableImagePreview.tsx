@@ -37,6 +37,7 @@ import {
   fileFromAnnotatedImage,
   hitTestAnnotation,
   imagePointToViewport,
+  isMarkAnnotation,
   isMarkKind,
   moveAnnotation,
   trianglePoints,
@@ -985,7 +986,7 @@ export function ZoomableImagePreview({
         markKind={markKind}
         color={selected?.color ?? color}
         strokeWidth={
-          selected && isMarkKind(selected.kind)
+          selected && isMarkAnnotation(selected)
             ? selected.strokeWidth
             : strokeWidth
         }

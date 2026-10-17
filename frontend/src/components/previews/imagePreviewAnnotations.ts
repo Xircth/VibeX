@@ -190,6 +190,12 @@ export function isMarkKind(value: string): value is MarkKind {
   return value === 'rect' || value === 'ellipse' || value === 'triangle';
 }
 
+export function isMarkAnnotation(
+  annotation: Annotation
+): annotation is RectAnnotation | EllipseAnnotation | TriangleAnnotation {
+  return isMarkKind(annotation.kind);
+}
+
 export function trianglePoints(annotation: {
   x: number;
   y: number;

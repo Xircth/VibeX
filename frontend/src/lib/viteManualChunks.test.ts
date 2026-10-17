@@ -1,3 +1,5 @@
+// @ts-nocheck — vite.manualChunks.ts lives in the node project; tsc
+// does not emit its .d.ts during `tsc --noEmit`.
 import { describe, expect, it } from 'vitest';
 import { createManualChunks } from '../../vite.manualChunks';
 

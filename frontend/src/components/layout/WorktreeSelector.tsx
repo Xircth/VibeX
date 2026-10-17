@@ -18,7 +18,6 @@ import { useProjectRepos } from '@/hooks';
 import { useRepoBranches } from '@/hooks/useRepoBranches';
 import { useProjectWorktrees } from '@/hooks/useProjectWorktrees';
 import { useTaskAttempt } from '@/hooks/useTaskAttempt';
-import { cn } from '@/lib/utils';
 import { paths } from '@/lib/paths';
 import { useLayoutStore } from '@/stores/useLayoutStore';
 import { deriveWorkspaceRootPath } from '@/components/panels/workspaceRootPath';

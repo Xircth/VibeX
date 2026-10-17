@@ -72,6 +72,37 @@ interface SettingsNavGroup {
 
 const SETTINGS_NAV_GROUPS: Omit<SettingsNavGroup, 'id'>[] = [
   {
+    title: 'FOR Human',
+    items: [
+      {
+        path: '/settings/general',
+        labelKey: 'general',
+        icon: SlidersHorizontal,
+        capability: 'application.call',
+      },
+      { path: '/settings/appearance', labelKey: 'appearance', icon: Sun },
+      {
+        path: '/settings/instructions',
+        labelKey: 'instructions',
+        icon: MessageSquareText,
+        capability: 'application.call',
+      },
+      { path: '/settings/shortcuts', labelKey: 'shortcuts', icon: Keyboard },
+      {
+        path: '/settings/version-control',
+        labelKey: 'versionControl',
+        icon: GitBranch,
+        capability: 'application.call',
+      },
+      {
+        path: '/settings/worktrees',
+        labelKey: 'worktrees',
+        icon: GitFork,
+        capability: 'application.call',
+      },
+    ],
+  },
+  {
     title: 'FOR AI',
     items: [
       {
@@ -103,37 +134,6 @@ const SETTINGS_NAV_GROUPS: Omit<SettingsNavGroup, 'id'>[] = [
         labelKey: 'automations',
         icon: Clock,
         capability: 'automation.read',
-      },
-    ],
-  },
-  {
-    title: 'FOR Human',
-    items: [
-      {
-        path: '/settings/general',
-        labelKey: 'general',
-        icon: SlidersHorizontal,
-        capability: 'application.call',
-      },
-      { path: '/settings/appearance', labelKey: 'appearance', icon: Sun },
-      {
-        path: '/settings/instructions',
-        labelKey: 'instructions',
-        icon: MessageSquareText,
-        capability: 'application.call',
-      },
-      { path: '/settings/shortcuts', labelKey: 'shortcuts', icon: Keyboard },
-      {
-        path: '/settings/version-control',
-        labelKey: 'versionControl',
-        icon: GitBranch,
-        capability: 'application.call',
-      },
-      {
-        path: '/settings/worktrees',
-        labelKey: 'worktrees',
-        icon: GitFork,
-        capability: 'application.call',
       },
     ],
   },

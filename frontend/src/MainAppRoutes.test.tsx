@@ -211,10 +211,10 @@ describe('MainAppRoutes', () => {
     expect(screen.queryByTestId('ide-layout')).not.toBeInTheDocument();
   });
 
-  it('redirects settings index to agent settings', async () => {
+  it('redirects settings index to general settings', async () => {
     renderAt('/settings');
 
-    expect(await screen.findByTestId('settings-agents')).toBeInTheDocument();
+    expect(await screen.findByTestId('settings-general')).toBeInTheDocument();
     expect(screen.getByTestId('settings-layout')).toBeInTheDocument();
     expect(screen.queryByTestId('project-rail')).not.toBeInTheDocument();
   });

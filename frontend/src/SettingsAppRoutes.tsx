@@ -92,7 +92,7 @@ export function SettingsAppRoutes() {
         }
       >
         <Route path="/settings/*">
-          <Route index element={<Navigate to="agents" replace />} />
+          <Route index element={<Navigate to="general" replace />} />
           <Route path="agents" element={<AgentSettings />} />
           <Route path="appearance" element={<AppearanceSettings />} />
           <Route path="general" element={<GeneralSettings />} />

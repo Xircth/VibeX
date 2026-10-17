@@ -469,7 +469,7 @@ describe('SettingsLayout window title', () => {
     });
   });
 
-  it('groups sidebar navigation into FOR AI, FOR Human, FOR SYSTEM, and FOR PLUGINS', async () => {
+  it('groups sidebar navigation into FOR Human, FOR AI, FOR SYSTEM, and FOR PLUGINS', async () => {
     usePluginHostContributions.mockReturnValue([
       {
         pluginId: 'vibex.computer-use',
@@ -506,10 +506,21 @@ describe('SettingsLayout window title', () => {
         </BackendTransportProvider>
       );
 
-      const aiGroup = await screen.findByRole('group', { name: 'FOR AI' });
-      const humanGroup = screen.getByRole('group', { name: 'FOR Human' });
+      const humanGroup = await screen.findByRole('group', {
+        name: 'FOR Human',
+      });
+      const aiGroup = screen.getByRole('group', { name: 'FOR AI' });
       const systemGroup = screen.getByRole('group', { name: 'FOR SYSTEM' });
       const pluginsGroup = screen.getByRole('group', { name: 'FOR PLUGINS' });
+
+      expect(
+        screen
+          .getAllByRole('group')
+          .map(
+            (group) =>
+              group.querySelector('.settings-nav-section__title')?.textContent
+          )
+      ).toEqual(['FOR Human', 'FOR AI', 'FOR SYSTEM', 'FOR PLUGINS']);
 
       expect(
         Array.from(aiGroup.querySelectorAll('button')).map((b) =>

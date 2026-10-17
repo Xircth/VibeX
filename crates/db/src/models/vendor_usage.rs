@@ -56,6 +56,16 @@ impl VendorUsageSessionRecord {
     where
         E: Executor<'e, Database = Sqlite>,
     {
+        Self::list_since(executor, 0).await
+    }
+
+    pub async fn list_since<'e, E>(
+        executor: E,
+        cutoff_time_ms: i64,
+    ) -> Result<Vec<Self>, sqlx::Error>
+    where
+        E: Executor<'e, Database = Sqlite>,
+    {
         sqlx::query_as::<_, Self>(
             r#"SELECT provider,
                       external_session_id,
@@ -70,8 +80,11 @@ impl VendorUsageSessionRecord {
                       cost,
                       summary,
                       scanned_at_ms
-               FROM vendor_usage_sessions"#,
+               FROM vendor_usage_sessions
+               WHERE ? <= 0 OR timestamp >= ?"#,
         )
+        .bind(cutoff_time_ms)
+        .bind(cutoff_time_ms)
         .fetch_all(executor)
         .await
     }

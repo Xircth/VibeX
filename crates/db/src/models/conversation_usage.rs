@@ -168,10 +168,12 @@ impl ConversationUsageSnapshotRecord {
 
     /// Sessions that belong to a project (or every project when `project_id` is
     /// `None`), joined to workspaces and the usage snapshot. Attribution is the
-    /// workspace relation, never a path match.
+    /// workspace relation, never a path match. `cutoff_time_ms <= 0` means no
+    /// date bound.
     pub async fn list_attributed<'e, E>(
         executor: E,
         project_id: Option<Uuid>,
+        cutoff_time_ms: i64,
     ) -> Result<Vec<ConversationUsageAttributionRow>, sqlx::Error>
     where
         E: Executor<'e, Database = Sqlite>,
@@ -183,10 +185,13 @@ impl ConversationUsageSnapshotRecord {
                LEFT JOIN conversation_usage_snapshots u ON u.conversation_id = s.id
                WHERE s.deleted_at IS NULL
                  AND (? IS NULL OR w.project_id = ?)
+                 AND (? <= 0 OR unixepoch(s.updated_at) >= (? / 1000))
                ORDER BY s.updated_at DESC, s.created_at DESC"#
         ))
         .bind(project_id)
         .bind(project_id)
+        .bind(cutoff_time_ms)
+        .bind(cutoff_time_ms)
         .fetch_all(executor)
         .await
     }
@@ -208,11 +213,14 @@ impl StaleUsageEventRow {
     {
         sqlx::query_as::<_, Self>(
             r#"SELECT e.conversation_id, e.sequence, e.normalized_json, e.created_at
-               FROM conversation_events e
-               LEFT JOIN conversation_usage_snapshots s
-                   ON s.conversation_id = e.conversation_id
-               WHERE e.event_kind = 'usage_updated'
-                 AND (s.conversation_id IS NULL OR e.sequence > s.last_sequence)
+               FROM sessions s
+               LEFT JOIN conversation_usage_snapshots snap
+                   ON snap.conversation_id = s.id
+               INNER JOIN conversation_events e
+                   ON e.conversation_id = s.id
+                  AND e.event_kind = 'usage_updated'
+                  AND e.sequence > COALESCE(snap.last_sequence, 0)
+               WHERE s.deleted_at IS NULL
                ORDER BY e.conversation_id, e.sequence"#,
         )
         .fetch_all(executor)

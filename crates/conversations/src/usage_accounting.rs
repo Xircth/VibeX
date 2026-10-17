@@ -87,13 +87,27 @@ struct SessionModelBackfillRow {
 /// `session_config_options_updated`; fold the latest one so the dashboard
 /// does not group those sessions as `unprovided`.
 async fn backfill_missing_session_models(conn: &mut SqliteConnection) -> Result<(), sqlx::Error> {
+    let missing: Option<(i64,)> = sqlx::query_as(
+        r#"SELECT 1
+           FROM sessions
+           WHERE deleted_at IS NULL
+             AND (model IS NULL OR trim(model) = '')
+           LIMIT 1"#,
+    )
+    .fetch_optional(&mut *conn)
+    .await?;
+    if missing.is_none() {
+        return Ok(());
+    }
+
     let rows = sqlx::query_as::<_, SessionModelBackfillRow>(
         r#"SELECT e.conversation_id, e.normalized_json
-           FROM conversation_events e
-           INNER JOIN sessions s ON s.id = e.conversation_id
+           FROM sessions s
+           INNER JOIN conversation_events e
+               ON e.conversation_id = s.id
+              AND e.event_kind = 'session_config_options_updated'
            WHERE s.deleted_at IS NULL
              AND (s.model IS NULL OR trim(s.model) = '')
-             AND e.event_kind = 'session_config_options_updated'
            ORDER BY e.conversation_id, e.sequence DESC"#,
     )
     .fetch_all(&mut *conn)
@@ -307,10 +321,11 @@ pub async fn assemble_project_usage_statistics(
     cutoff_time: i64,
     now_ms: i64,
 ) -> Result<ProjectUsageStatistics, sqlx::Error> {
-    catch_up_usage_snapshots(pool).await?;
-    let provider_status = sync_vendor_usage_logs(pool).await?;
-    let vendor_logs = load_vendor_usage_logs(pool).await?;
-    let rows = ConversationUsageSnapshotRecord::list_attributed(pool, project_uuid).await?;
+    let (provider_status, _) =
+        tokio::try_join!(sync_vendor_usage_logs(pool), catch_up_usage_snapshots(pool),)?;
+    let vendor_logs = load_vendor_usage_logs(pool, cutoff_time).await?;
+    let rows =
+        ConversationUsageSnapshotRecord::list_attributed(pool, project_uuid, cutoff_time).await?;
     let mut sessions = attributed_sessions_from_rows(rows, cutoff_time);
     let unattributed_vendor_sessions = align_vendor_usage(&mut sessions, &vendor_logs);
     sessions.sort_by(|a, b| b.timestamp.cmp(&a.timestamp));
@@ -337,19 +352,10 @@ pub async fn sync_vendor_usage_logs_with_roots(
 ) -> Result<Vec<ProjectUsageProviderStatus>, sqlx::Error> {
     let _guard = VENDOR_SYNC.lock().await;
     let known = VendorUsageFileRecord::list(pool).await?;
-    let mut known_map: HashMap<String, (i64, i64)> = known
+    let known_map: HashMap<String, (i64, i64)> = known
         .into_iter()
         .map(|row| (row.path, (row.mtime_ms, row.size)))
         .collect();
-    for session in VendorUsageSessionRecord::list_all(pool).await? {
-        if session.provider == "grok"
-            && (session.cost.is_none()
-                || session.total_tokens.is_none()
-                || session.external_session_id.len() > 36)
-        {
-            known_map.remove(&session.source_path);
-        }
-    }
     let scan = tokio::task::spawn_blocking(move || scan_changed_vendor_logs(&roots, &known_map))
         .await
         .map_err(|error| sqlx::Error::Protocol(error.to_string()))?;
@@ -404,8 +410,11 @@ pub async fn sync_vendor_usage_logs_with_roots(
     Ok(provider_status)
 }
 
-async fn load_vendor_usage_logs(pool: &SqlitePool) -> Result<Vec<VendorLogUsage>, sqlx::Error> {
-    Ok(VendorUsageSessionRecord::list_all(pool)
+async fn load_vendor_usage_logs(
+    pool: &SqlitePool,
+    cutoff_time: i64,
+) -> Result<Vec<VendorLogUsage>, sqlx::Error> {
+    Ok(VendorUsageSessionRecord::list_since(pool, cutoff_time)
         .await?
         .into_iter()
         .map(|row| VendorLogUsage {
@@ -643,7 +652,7 @@ mod tests {
 mod vendor_sync_tests {
     use std::str::FromStr;
 
-    use db::models::vendor_usage::VendorUsageSessionRecord;
+    use db::models::vendor_usage::{VendorUsageFileRecord, VendorUsageSessionRecord};
     use sqlx::{
         SqlitePool,
         sqlite::{SqliteConnectOptions, SqlitePoolOptions},
@@ -722,6 +731,68 @@ mod vendor_sync_tests {
                 .map(|status| status.sessions_scanned),
             Some(1)
         );
+    }
+
+    #[tokio::test]
+    async fn vendor_sync_does_not_force_reread_stale_grok_rows() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let session_dir = dir
+            .path()
+            .join("sessions")
+            .join("%2Fproj")
+            .join("019f96d5-aaaa-bbbb-cccc-ddddeeee0001");
+        std::fs::create_dir_all(&session_dir).expect("session dir");
+        std::fs::write(
+            session_dir.join("summary.json"),
+            r#"{"current_model_id":"grok-4.6","generated_title":"Fix usage"}"#,
+        )
+        .expect("summary");
+        std::fs::write(
+            session_dir.join("updates.jsonl"),
+            concat!(
+                r#"{"method":"session/update","params":{"sessionId":"s","update":{"sessionUpdate":"turn_completed","usage":{"inputTokens":10,"outputTokens":2}}},"timestamp":1783584019}"#,
+                "\n"
+            ),
+        )
+        .expect("updates");
+
+        let pool = pool().await;
+        let roots = VendorLogRoots {
+            claude_projects: None,
+            codex_sessions: None,
+            grok_sessions: Some(dir.path().join("sessions")),
+        };
+        sync_vendor_usage_logs_with_roots(&pool, roots.clone())
+            .await
+            .expect("first sync");
+        let first = VendorUsageFileRecord::list(&pool).await.expect("files");
+        assert_eq!(first.len(), 1);
+        let first_scanned_at = first[0].scanned_at_ms;
+
+        sqlx::query(
+            r#"UPDATE vendor_usage_sessions
+               SET cost = NULL,
+                   total_tokens = NULL,
+                   external_session_id = 'grok-session-id-longer-than-thirty-six-chars'"#,
+        )
+        .execute(&pool)
+        .await
+        .expect("stale grok row");
+
+        sync_vendor_usage_logs_with_roots(&pool, roots)
+            .await
+            .expect("second sync");
+        let second = VendorUsageFileRecord::list(&pool).await.expect("files");
+        assert_eq!(second[0].scanned_at_ms, first_scanned_at);
+        let stored = VendorUsageSessionRecord::list_all(&pool)
+            .await
+            .expect("sessions");
+        assert_eq!(
+            stored[0].external_session_id,
+            "grok-session-id-longer-than-thirty-six-chars"
+        );
+        assert!(stored[0].cost.is_none());
+        assert!(stored[0].total_tokens.is_none());
     }
 
     async fn insert_session(pool: &SqlitePool, id: Uuid) {

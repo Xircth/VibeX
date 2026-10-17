@@ -88,4 +88,25 @@ describe('conversation tool-call typography', () => {
     expect(rules['font-weight']?.value).toBe('400');
     expect(rules['line-height']?.value).toBe('1.7');
   });
+
+  it('shrinks only the grouped tool-call summary', () => {
+    const label = declarationsFor(
+      ".vibex-tool-call-batch > [role='button'] > span:nth-child(2)"
+    );
+
+    expect(label['--text-supporting-size']?.value).toBe('12px');
+    expect(label['--text-supporting-leading']?.value).toBe('1.5');
+    expect(label['white-space']?.value).toBe('nowrap');
+    expect(label.overflow?.value).toBe('hidden');
+    expect(label['min-width']?.value).toBe('0');
+  });
+
+  it('keeps mixed activity summaries on one clipped line', () => {
+    const label = declarationsFor('.conv-activity-header > span');
+
+    expect(label['white-space']?.value).toBe('nowrap');
+    expect(label.overflow?.value).toBe('hidden');
+    expect(label['min-width']?.value).toBe('0');
+    expect(label.flex?.value).toBe('1');
+  });
 });

@@ -20,7 +20,12 @@ describe('ThinkingEntry', () => {
       />
     );
 
-    expect(screen.getByText('思考')).toBeInTheDocument();
+    expect(screen.getByText('正在思考中...')).toHaveClass('conv-shimmer-text');
+    expect(screen.queryByText('思考')).not.toBeInTheDocument();
+    expect(document.querySelector('.conv-thinking-spinner')).toHaveClass(
+      'animate-spin'
+    );
+    expect(document.querySelector('.conv-thinking-icon')).toBeNull();
     await waitFor(() =>
       expect(
         screen.getByRole('button', { name: '收起思考' }).parentElement
@@ -38,9 +43,28 @@ describe('ThinkingEntry', () => {
     );
 
     expect(screen.queryByText('checking the plan')).not.toBeInTheDocument();
+    expect(screen.getByText('思考')).toBeInTheDocument();
+    expect(screen.queryByText('正在思考中...')).not.toBeInTheDocument();
+    expect(document.querySelector('.conv-thinking-icon')).not.toBeNull();
+    expect(document.querySelector('.conv-thinking-spinner')).toBeNull();
     expect(
       screen.getByRole('button', { name: '展开思考' })
     ).toBeInTheDocument();
+  });
+
+  it('shows the settled brain label when thinking is paused before it finishes', () => {
+    render(
+      <ThinkingEntry
+        content="partial thought"
+        expansionKey="paused-thought"
+        isStreaming={false}
+      />
+    );
+
+    expect(screen.getByText('思考')).toBeInTheDocument();
+    expect(screen.queryByText('正在思考中...')).not.toBeInTheDocument();
+    expect(document.querySelector('.conv-thinking-icon')).not.toBeNull();
+    expect(document.querySelector('.conv-thinking-spinner')).toBeNull();
   });
 
   it('keeps a user-expanded finished thought open across content updates', () => {
@@ -68,10 +92,16 @@ describe('ThinkingEntry', () => {
 
   it('sizes thinking labels to the conversation body without bolding', () => {
     expect(convToolsStyles).toMatch(
-      /\.conv-thinking-header\s*\{[^}]*font-size:\s*13px;[^}]*font-weight:\s*400;/
+      /\.conv-thinking-header\s*\{[^}]*font-family:\s*var\(--font-ui\);[^}]*font-size:\s*13px;[^}]*font-weight:\s*400;/
     );
     expect(convToolsStyles).not.toMatch(
       /\.conv-thinking-label\s*\{[^}]*font-weight:\s*700/
+    );
+  });
+
+  it('caps thinking content at 200 lines and scrolls the existing block', () => {
+    expect(convToolsStyles).toMatch(
+      /\.conv-thinking-content\s*\{[^}]*max-height:\s*200lh;[^}]*overflow-y:\s*auto;/
     );
   });
 

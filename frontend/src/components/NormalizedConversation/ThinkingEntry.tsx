@@ -1,6 +1,6 @@
 import React from 'react';
 import { useTranslation } from 'react-i18next';
-import { Brain, ChevronDown } from 'lucide-react';
+import { Brain, ChevronDown, Loader2 } from 'lucide-react';
 import { useExpandable } from '@/stores/useExpandableStore';
 import { AstryxMarkdown } from './AstryxMarkdown';
 import { cn } from '@/lib/utils';
@@ -45,8 +45,25 @@ export const ThinkingEntry: React.FC<{
         aria-expanded={expanded}
         aria-label={expanded ? t('thinking.collapse') : t('thinking.expand')}
       >
-        <Brain className="conv-thinking-icon h-3.5 w-3.5 shrink-0" />
-        <span>{t('thinking.label')}</span>
+        {isStreaming ? (
+          <Loader2
+            aria-hidden="true"
+            className="conv-thinking-spinner h-3.5 w-3.5 shrink-0 animate-spin motion-reduce:animate-none"
+          />
+        ) : (
+          <Brain
+            aria-hidden="true"
+            className="conv-thinking-icon h-3.5 w-3.5 shrink-0"
+          />
+        )}
+        <span
+          className={cn(
+            'conv-thinking-label',
+            isStreaming && 'conv-shimmer-text'
+          )}
+        >
+          {isStreaming ? t('thinking.streaming') : t('thinking.label')}
+        </span>
         {count > 1 ? (
           <span className="conv-thinking-count">{count}</span>
         ) : null}

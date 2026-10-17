@@ -70,6 +70,7 @@
   },
   "thinking": {
     "label": "Thinking",
+    "streaming": "Thinking...",
     "expand": "Show thinking",
     "collapse": "Hide thinking"
   },
@@ -310,6 +311,9 @@
     "toolMark": "Mark",
     "toolMarkRect": "Rectangle",
     "toolMarkEllipse": "Circle",
+    "toolMarkTriangle": "Triangle",
+    "markType": "Type",
+    "markColor": "Color",
     "toolBrush": "Brush",
     "toolText": "Insert text",
     "undo": "Undo",

@@ -295,7 +295,7 @@ describe('conversation tool cards', () => {
     };
     const { rerender } = render(<MessageTurnView {...props} turn={turn} />);
     const batch = screen.getByRole('button', {
-      name: '已读 1 个文件、已改 1 个文件',
+      name: '已折叠 3 条消息',
     });
     expect(batch).toHaveAttribute('aria-expanded', 'false');
     expect(screen.queryByText('denied.ts')).not.toBeInTheDocument();

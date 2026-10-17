@@ -70,6 +70,7 @@
   },
   "thinking": {
     "label": "思考",
+    "streaming": "正在思考中...",
     "expand": "展开思考",
     "collapse": "收起思考"
   },
@@ -310,6 +311,9 @@
     "toolMark": "记号",
     "toolMarkRect": "矩形",
     "toolMarkEllipse": "圆形",
+    "toolMarkTriangle": "三角形",
+    "markType": "类型",
+    "markColor": "颜色",
     "toolBrush": "涂抹",
     "toolText": "插入文本",
     "undo": "后退",

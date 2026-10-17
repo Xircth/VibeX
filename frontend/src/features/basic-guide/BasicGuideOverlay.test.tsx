@@ -71,12 +71,11 @@ describe('BasicGuideOverlay', () => {
       .forEach((node) => node.remove());
   });
 
-  it('keeps the three steps on the left without a card', () => {
+  it('frames skip and steps in a raised bottom-left stack', () => {
     renderOverlay(ACTIVE_GUIDE);
     const panel = screen.getByRole('complementary', { name: '基础引导' });
     expect(panel).toBeInTheDocument();
     expect(panel.querySelector('.dialog-surface')).toBeNull();
-    expect(panel.querySelector('.basic-guide-panel__card')).toBeNull();
     expect(screen.getByText('创建或选择项目')).toBeInTheDocument();
     expect(screen.getByText('进入工作区并创建会话')).toBeInTheDocument();
     expect(screen.getByText('熟悉页面构成')).toBeInTheDocument();
@@ -90,14 +89,18 @@ describe('BasicGuideOverlay', () => {
       within(panel).queryByText(/项目就是一个文件夹/, { exact: false })
     ).toBeNull();
     expect(document.querySelector('[data-basic-guide-callout]')).toBeNull();
-    const exit = screen.getByRole('button', { name: '直接退出' });
+    const skip = screen.getByRole('button', { name: '跳过基础引导' });
     const steps = panel.querySelector('.astryx-step');
-    expect(exit).toBeInTheDocument();
+    const frame = panel.querySelector('.basic-guide-panel__stack--framed');
+    expect(skip).toBeInTheDocument();
     expect(steps).toBeTruthy();
+    expect(frame).toBeTruthy();
+    expect(frame?.contains(skip)).toBe(true);
+    expect(frame?.contains(steps)).toBe(true);
     expect(
       Boolean(
         steps &&
-          exit.compareDocumentPosition(steps) & Node.DOCUMENT_POSITION_FOLLOWING
+          skip.compareDocumentPosition(steps) & Node.DOCUMENT_POSITION_FOLLOWING
       )
     ).toBe(true);
     expect(panel.className).toMatch(/basic-guide-panel--bottom/);
@@ -161,7 +164,7 @@ describe('BasicGuideOverlay', () => {
       screen.queryByText('熟悉完页面后，点击结束即可。')
     ).not.toBeInTheDocument();
     expect(
-      screen.getByRole('button', { name: '直接退出' })
+      screen.getByRole('button', { name: '跳过基础引导' })
     ).toBeInTheDocument();
   });
 
@@ -169,11 +172,14 @@ describe('BasicGuideOverlay', () => {
     const user = userEvent.setup();
     const { value } = renderOverlay(ACTIVE_GUIDE, { exitOpen: true });
     expect(
-      screen.getByText(/是否确认直接退出引导/, { exact: false })
+      screen.getByText(/是否确认跳过基础引导/, { exact: false })
     ).toBeInTheDocument();
     expect(screen.getByText('设置-常规')).toBeInTheDocument();
     expect(screen.getByText('重新开始基础引导')).toBeInTheDocument();
-    await user.click(screen.getByRole('button', { name: '确认退出' }));
+    expect(
+      screen.getByRole('heading', { name: '跳过基础引导' })
+    ).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: '确认跳过' }));
     expect(value.confirmExit).toHaveBeenCalled();
   });
 
@@ -198,5 +204,8 @@ describe('BasicGuideOverlay', () => {
     ).toBeNull();
     await user.click(screen.getByRole('button', { name: '关闭' }));
     expect(value.dismissEnd).toHaveBeenCalled();
+    expect(
+      document.querySelector('.basic-guide-panel__stack--framed')
+    ).toBeNull();
   });
 });

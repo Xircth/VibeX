@@ -10,11 +10,11 @@
     "learnLayoutDescription": "了解侧栏、看板和计量统计"
   },
   "continue": "继续",
-  "exit": "直接退出",
+  "exit": "跳过基础引导",
   "finish": "结束",
-  "exitTitle": "退出基础引导",
-  "exitMessage": "是否确认直接退出引导，退出后可在**设置-常规**中点击**重新开始基础引导**",
-  "exitConfirm": "确认退出",
+  "exitTitle": "跳过基础引导",
+  "exitMessage": "是否确认跳过基础引导，跳过后可在**设置-常规**中点击**重新开始基础引导**",
+  "exitConfirm": "确认跳过",
   "endCopy": "更多使用技巧请查看官方文档或社区，Vibing~~~",
   "copy": {
     "select-project-create": "在 VibeX 中，需要先创建或选择一个**项目**以继续，**项目**就是一个文件夹，用于隔离 Agent 会话与工作状态",

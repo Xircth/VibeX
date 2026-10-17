@@ -62,7 +62,12 @@ export function BasicGuideOverlay() {
           data-basic-guide-panel
           aria-label={t('panelAria')}
         >
-          <div className="basic-guide-panel__stack">
+          <div
+            className={cn(
+              'basic-guide-panel__stack',
+              !showingEnd && 'basic-guide-panel__stack--framed'
+            )}
+          >
             {showingEnd ? (
               <div
                 className="basic-guide-callout basic-guide-end"

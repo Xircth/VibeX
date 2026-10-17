@@ -1,4 +1,27 @@
-import { paths } from '@/lib/paths';
+import {
+  parseProjectSessionRoute,
+  parseProjectWorkspaceRoute,
+  paths,
+  splitRouteParts,
+} from '@/lib/paths';
+
+export function preserveCreateSessionQuery(
+  href: string,
+  searchParams: URLSearchParams
+): string {
+  if (
+    searchParams.get('newSession') !== '1' &&
+    searchParams.get('createSession') !== '1'
+  ) {
+    return href;
+  }
+
+  const { pathname, search, hash } = splitRouteParts(href);
+  const nextSearchParams = new URLSearchParams(search);
+  nextSearchParams.set('newSession', '1');
+  const nextSearch = nextSearchParams.toString();
+  return `${pathname}${nextSearch ? `?${nextSearch}` : ''}${hash}`;
+}
 
 export function resolveCreateSessionHref({
   projectId,
@@ -26,11 +49,13 @@ export function resolveCreateSessionHref({
 
 export function resolveWorkspaceTabNavigation({
   projectId,
+  lastRoute,
   rightSession,
   fallbackWorkspaceId,
   fallbackTaskId,
 }: {
   projectId: string;
+  lastRoute?: string | null;
   rightSession?: {
     workspaceId: string;
     sessionId: string;
@@ -42,6 +67,19 @@ export function resolveWorkspaceTabNavigation({
   taskId: string | null;
   href: string;
 } | null {
+  const lastSession = lastRoute ? parseProjectSessionRoute(lastRoute) : null;
+  if (lastSession && lastSession.projectId === projectId) {
+    return {
+      workspaceId: lastSession.workspaceId,
+      taskId: null,
+      href: paths.projectSession(
+        projectId,
+        lastSession.workspaceId,
+        lastSession.sessionId
+      ),
+    };
+  }
+
   if (rightSession) {
     return {
       workspaceId: rightSession.workspaceId,
@@ -51,6 +89,17 @@ export function resolveWorkspaceTabNavigation({
         rightSession.workspaceId,
         rightSession.sessionId
       ),
+    };
+  }
+
+  const lastWorkspace = lastRoute
+    ? parseProjectWorkspaceRoute(lastRoute)
+    : null;
+  if (lastWorkspace && lastWorkspace.projectId === projectId) {
+    return {
+      workspaceId: lastWorkspace.workspaceId,
+      taskId: null,
+      href: paths.projectWorkspace(projectId, lastWorkspace.workspaceId),
     };
   }
 

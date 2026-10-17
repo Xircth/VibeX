@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useProjectSwitcher } from '@/hooks/useProjectSwitcher';
+import { paths } from '@/lib/paths';
 import { useTranslation } from 'react-i18next';
 import {
   AppWindow,
@@ -169,7 +170,7 @@ type ProjectContextMenuState = {
 export function WelcomePage() {
   const { t } = useTranslation(['app', 'common']);
   const { openSurfaceMenu } = useAppContextMenu();
-  const navigate = useNavigate();
+  const switchProject = useProjectSwitcher();
   const openSettings = useOpenSettings();
   const tauriClient = useTauriClient();
   const { projects, isLoading } = useProjects();
@@ -186,16 +187,22 @@ export function WelcomePage() {
         initialFolderPath,
       });
       if (result?.status === 'saved' && result.project) {
-        navigate(`/local-projects/${result.project.id}/sessions`);
+        switchProject(
+          result.project.id,
+          paths.projectSessions(result.project.id)
+        );
       }
     },
-    [navigate]
+    [switchProject]
   );
 
   const handleCreateProject = async () => {
     const result = await ProjectFormDialog.show({});
     if (result?.status === 'saved' && result.project) {
-      navigate(`/local-projects/${result.project.id}/sessions`);
+      switchProject(
+        result.project.id,
+        paths.projectSessions(result.project.id)
+      );
     }
   };
 
@@ -265,7 +272,7 @@ export function WelcomePage() {
         name,
         repositories: [{ display_name: name, git_repo_path: result.repo.path }],
       });
-      navigate(`/local-projects/${project.id}/sessions`);
+      switchProject(project.id, paths.projectSessions(project.id));
     } catch (error) {
       toast.error(
         t('welcomePage.createProjectFailed', { error: String(error) })
@@ -275,9 +282,9 @@ export function WelcomePage() {
 
   const handleProjectClick = useCallback(
     (projectId: string) => {
-      navigate(`/local-projects/${projectId}/sessions`);
+      switchProject(projectId, paths.projectSessions(projectId));
     },
-    [navigate]
+    [switchProject]
   );
 
   const handleProjectContextMenu = useCallback(

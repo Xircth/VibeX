@@ -10,7 +10,7 @@ export const paths = {
     `/local-projects/${projectId}/workspaces/${workspaceId}/full`,
 };
 
-function splitRouteParts(route: string) {
+export function splitRouteParts(route: string) {
   const hashIndex = route.indexOf('#');
   const hash = hashIndex >= 0 ? route.slice(hashIndex) : '';
   const pathAndSearch = hashIndex >= 0 ? route.slice(0, hashIndex) : route;
@@ -53,4 +53,40 @@ export function normalizeProjectRoute(route: string) {
   }
 
   return route;
+}
+
+export function parseProjectSessionRoute(route: string): {
+  projectId: string;
+  workspaceId: string;
+  sessionId: string;
+} | null {
+  const { pathname } = splitRouteParts(route);
+  const match = pathname.match(
+    /^\/local-projects\/([^/]+)\/workspaces\/([^/]+)\/sessions\/([^/]+)$/
+  );
+  if (!match) {
+    return null;
+  }
+  return {
+    projectId: match[1],
+    workspaceId: match[2],
+    sessionId: match[3],
+  };
+}
+
+export function parseProjectWorkspaceRoute(route: string): {
+  projectId: string;
+  workspaceId: string;
+} | null {
+  const { pathname } = splitRouteParts(route);
+  const match = pathname.match(
+    /^\/local-projects\/([^/]+)\/workspaces\/([^/]+)$/
+  );
+  if (!match) {
+    return null;
+  }
+  return {
+    projectId: match[1],
+    workspaceId: match[2],
+  };
 }

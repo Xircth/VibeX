@@ -42,6 +42,7 @@ import {
 import { useBackendTransport } from '@/lib/transport';
 import { findHostBrowserContribution } from '@/features/host-browser/hostBrowserEngine';
 import { applyBrowserHostEvent } from '@/features/host-browser/browserChromeStore';
+import { BROWSER_HOST_EVENT } from '@/features/host-browser/browserHostEvent';
 import {
   ensureBrowserTabOpenBridge,
   setBrowserTabOpenHandler,
@@ -1702,7 +1703,7 @@ export function PanelActionsProvider({ children }: { children: ReactNode }) {
       state?: string;
       fileName?: string;
       path?: string | null;
-    }>('plugin.browser', (payload) => {
+    }>(BROWSER_HOST_EVENT, (payload) => {
       applyBrowserHostEvent(payload);
     }).then((unlisten) => {
       if (disposed) unlisten();

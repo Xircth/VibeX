@@ -135,7 +135,7 @@ fn on_main_thread() -> bool {
     MAIN_THREAD.get() == Some(&std::thread::current().id())
 }
 
-const PAGE_EVENT: &str = "plugin.browser";
+const PAGE_EVENT: &str = "plugin:browser";
 
 #[derive(Clone, Serialize)]
 #[serde(rename_all = "camelCase")]

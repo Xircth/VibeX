@@ -26,6 +26,8 @@ import { useTranslation } from 'react-i18next';
 import { useOpenProjectInEditor } from '@/hooks/useOpenProjectInEditor';
 import { useLocalDesktopHost } from '@/lib/desktopShell';
 import { useNavigateWithSearch, useProjectRepos } from '@/hooks';
+import { useProjectSwitcher } from '@/hooks/useProjectSwitcher';
+import { paths } from '@/lib/paths';
 import { ConfirmDialog } from '@/components/dialogs/shared/ConfirmDialog';
 import { projectsApi } from '@/lib/api';
 import { initProjectGitWithPrompt } from '@/lib/initProjectGit';
@@ -43,6 +45,7 @@ type Props = {
 function ProjectCard({ project, isFocused, setError, onEdit }: Props) {
   const { t } = useTranslation(['app', 'panels', 'common']);
   const navigate = useNavigateWithSearch();
+  const switchProject = useProjectSwitcher();
   const ref = useRef<HTMLDivElement>(null);
   const handleOpenInEditor = useOpenProjectInEditor(project);
   const { data: repos } = useProjectRepos(project.id);
@@ -91,7 +94,9 @@ function ProjectCard({ project, isFocused, setError, onEdit }: Props) {
   return (
     <Card
       className={`hover:shadow-md transition-shadow cursor-pointer focus:ring-2 focus:ring-primary outline-none border`}
-      onClick={() => navigate(`/local-projects/${project.id}/sessions`)}
+      onClick={() =>
+        switchProject(project.id, paths.projectSessions(project.id))
+      }
       tabIndex={isFocused ? 0 : -1}
       ref={ref}
     >

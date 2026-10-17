@@ -1,4 +1,5 @@
 import { backendListen } from '@/lib/backendTransport';
+import { BROWSER_HOST_EVENT } from './browserHostEvent';
 
 export type BrowserTabOpenRequest = {
   url?: string | null;
@@ -85,7 +86,7 @@ export function ensureBrowserTabOpenBridge(): void {
     tabId?: string;
     nativeTabId?: string;
     sourceTabId?: string;
-  }>('plugin.browser', (payload) => {
+  }>(BROWSER_HOST_EVENT, (payload) => {
     if (payload?.kind !== 'tab.open') return;
     requestBrowserTabOpen({
       url: payload.url,

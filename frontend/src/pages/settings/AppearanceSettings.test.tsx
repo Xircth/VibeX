@@ -17,6 +17,7 @@ const mocks = vi.hoisted(() => ({
   setKanbanArrangement: vi.fn(),
   setKanbanSessionListView: vi.fn(),
   setKanbanBoardStyle: vi.fn(),
+  setSettingsNavFloat: vi.fn(),
 }));
 
 vi.mock('@/components/ConfigProvider', () => ({
@@ -91,6 +92,12 @@ vi.mock('@/lib/kanbanBoardStyle', () => ({
   setKanbanBoardStyle: mocks.setKanbanBoardStyle,
 }));
 
+vi.mock('@/lib/settingsNavFloat', () => ({
+  getSettingsNavFloat: () => true,
+  setSettingsNavFloat: mocks.setSettingsNavFloat,
+  useSettingsNavFloat: () => true,
+}));
+
 vi.mock('./LayoutArrangementSchematic', () => ({
   WorkspaceLayoutSchematic: () => <div>workspace schematic</div>,
   KanbanLayoutSchematic: () => <div>kanban schematic</div>,
@@ -119,6 +126,7 @@ describe('AppearanceSettings', () => {
     expect(screen.getByText('缩放比例')).toBeInTheDocument();
     expect(screen.getByText('等宽字体')).toBeInTheDocument();
     expect(screen.getByText('界面语言')).toBeInTheDocument();
+    expect(screen.getByText('设置菜单悬浮')).toBeInTheDocument();
     expect(
       screen.queryByRole('heading', { name: '强调色' })
     ).not.toBeInTheDocument();
@@ -214,5 +222,21 @@ describe('AppearanceSettings', () => {
     await user.click(screen.getByRole('option', { name: '无限画布' }));
 
     expect(mocks.setKanbanBoardStyle).toHaveBeenCalledWith('canvas');
+  });
+
+  it('floats the settings menu by default and applies the choice immediately', async () => {
+    const user = userEvent.setup();
+    render(<AppearanceSettings />);
+
+    const toggle = screen.getByRole('switch', { name: '设置菜单悬浮' });
+    expect(toggle).toBeChecked();
+    expect(
+      screen.getByText(
+        '使用圆角悬浮组件显示设置菜单。关闭后左侧菜单直接平铺在背景上。'
+      )
+    ).toBeInTheDocument();
+
+    await user.click(toggle);
+    expect(mocks.setSettingsNavFloat).toHaveBeenCalledWith(false);
   });
 });

@@ -23,6 +23,7 @@ import {
 import { useTheme } from '@/components/ThemeProvider';
 import { useUserSystem } from '@/components/ConfigProvider';
 import { Label } from '@/components/ui/label';
+import { Switch } from '@/components/ui/switch';
 import {
   Select,
   SelectContent,
@@ -52,6 +53,10 @@ import {
   setKanbanBoardStyle,
   type KanbanBoardStyle,
 } from '@/lib/kanbanBoardStyle';
+import {
+  getSettingsNavFloat,
+  setSettingsNavFloat,
+} from '@/lib/settingsNavFloat';
 import { AccentColorField } from './AccentColorField';
 import { SettingsActionBar, SettingsSection } from './SettingsUi';
 import {
@@ -192,6 +197,9 @@ export function AppearanceSettings() {
     useState<KanbanSessionListView>(() => getKanbanSessionListView());
   const [kanbanBoardStyle, setKanbanBoardStyleState] =
     useState<KanbanBoardStyle>(() => getKanbanBoardStyle());
+  const [settingsNavFloat, setSettingsNavFloatState] = useState<boolean>(() =>
+    getSettingsNavFloat()
+  );
   const savedWorkspaceArrangement = useLayoutArrangement();
   const savedKanbanArrangement = useKanbanArrangement();
   const [workspaceArrangementDraft, setWorkspaceArrangementDraft] = useState(
@@ -404,6 +412,26 @@ export function AppearanceSettings() {
                   ))}
                 </SelectContent>
               </Select>
+            </div>
+
+            <div className="settings-row">
+              <div>
+                <Label htmlFor="settings-nav-float" className="cursor-pointer">
+                  {t('appearance.navFloat.label')}
+                </Label>
+                <p className="settings-row__description">
+                  {t('appearance.navFloat.hint')}
+                </p>
+              </div>
+              <Switch
+                id="settings-nav-float"
+                className="settings-switch"
+                checked={settingsNavFloat}
+                onCheckedChange={(checked: boolean) => {
+                  setSettingsNavFloatState(checked);
+                  setSettingsNavFloat(checked);
+                }}
+              />
             </div>
           </div>
         </SettingsSection>

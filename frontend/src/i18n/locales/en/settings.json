@@ -105,7 +105,7 @@
     },
     "basics": {
       "title": "Basic appearance",
-      "description": "Accent color, interface zoom, monospace font, and display language."
+      "description": "Accent color, interface zoom, monospace font, display language, and floating settings menu."
     },
     "accent": {
       "title": "Accent color",
@@ -132,6 +132,10 @@
       "description": "Choose the interface display language. Applies instantly and is remembered.",
       "label": "Interface language",
       "hint": "Bilingual coverage is progressive — some screens are still Chinese-only and will be completed over time."
+    },
+    "navFloat": {
+      "label": "Floating settings menu",
+      "hint": "Show the settings menu in a rounded floating panel. Turn off to lay it flat on the window background."
     },
     "kanbanSessionList": {
       "label": "Kanban session list",

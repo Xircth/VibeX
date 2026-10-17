@@ -6851,6 +6851,15 @@ html.dark {
     box-shadow: var(--shadow-sidebar);
   }
 
+  .settings-sidebar.settings-sidebar--flush {
+    border: none;
+    border-radius: 0;
+    background: transparent;
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+    box-shadow: none;
+  }
+
   .settings-search {
     display: flex;
     flex-direction: column;

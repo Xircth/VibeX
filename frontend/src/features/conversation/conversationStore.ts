@@ -436,12 +436,11 @@ function upsertRow(
 }
 
 /** Hot tail of *settled* history kept in the renderer. Older rows reload
- * through `project_row_window`. An in-flight turn is outside this budget:
- * dropping or amputating it makes already-visible stream content vanish
- * while `append_text` keeps going. */
+ * through `project_row_window`. An in-flight turn is outside this budget.
+ * Whole rows may drop; a leftover row is never amputated, because trimmed
+ * blocks have no cursor to reload. */
 export const TIMELINE_RETAINED_ROW_LIMIT = 80;
 export const TIMELINE_RETAINED_BYTE_BUDGET = 768 * 1024;
-export const TIMELINE_ROW_BLOCK_TAIL = 24;
 
 function applyPatchBlocks(
   rows: TimelineRow[],
@@ -567,9 +566,6 @@ export function enforceTimelineBudget(
     rows = rows.slice(1);
     dropped += 1;
   }
-  if (rows.length === 1 && over() && rows[0] && !protect.has(rows[0].row_id)) {
-    rows = [trimRowBlocks(rows[0])];
-  }
   if (dropped === 0 && rows === entry.rows) return entry;
   let liveText = entry.liveText;
   if (dropped > 0) {
@@ -587,22 +583,6 @@ export function enforceTimelineBudget(
     olderCursor = String(base + dropped);
   }
   return { ...entry, rows, liveText, olderCursor };
-}
-
-function trimRowBlocks(row: TimelineRow): TimelineRow {
-  if (row.row.kind !== 'message_turn') return row;
-  const blocks = row.row.turn.blocks;
-  if (blocks.length <= TIMELINE_ROW_BLOCK_TAIL) return row;
-  return {
-    ...row,
-    row: {
-      ...row.row,
-      turn: {
-        ...row.row.turn,
-        blocks: blocks.slice(-TIMELINE_ROW_BLOCK_TAIL),
-      },
-    },
-  };
 }
 
 function estimateRowsBytes(rows: TimelineRow[]): number {

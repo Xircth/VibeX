@@ -9,6 +9,23 @@ const STYLESHEET = resolve(
 );
 
 describe('markdown rich text editor chrome', () => {
+  it('shrinks with the tab instead of overflowing it', () => {
+    const css = readFileSync(STYLESHEET, 'utf8');
+    const decls: Record<string, string> = {};
+    parse(css).walkRules((rule: Rule) => {
+      const selector = rule.selector.replace(/\s+/g, ' ').trim();
+      if (selector !== '.markdown-rich-text-editor') {
+        return;
+      }
+      rule.walkDecls((declaration) => {
+        decls[declaration.prop] = declaration.value;
+      });
+    });
+    expect(decls['min-width']).toBe('0');
+    expect(decls.width).toBe('100%');
+    expect(decls.overflow).toBe('hidden');
+  });
+
   it('pads the editing surface like the Preview pane', () => {
     const css = readFileSync(STYLESHEET, 'utf8');
     const matches: string[] = [];

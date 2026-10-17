@@ -78,6 +78,46 @@
   box-shadow: none;
 }
 
+.image-preview-mark-options {
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr);
+  align-items: center;
+  column-gap: 8px;
+  padding-block: 4px;
+}
+
+.image-preview-mark-row {
+  display: contents;
+}
+
+.image-preview-mark-row-label {
+  padding: 6px 0 6px 12px;
+  color: var(--text-muted, hsl(var(--muted-foreground)));
+  font-size: 0.75rem;
+  font-weight: 500;
+  line-height: 1.33;
+}
+
+.image-preview-mark-row-control {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 4px;
+  padding: 6px 12px 6px 0;
+}
+
+.image-preview-mark-slider {
+  width: 100%;
+  min-width: 0;
+}
+
+.image-preview-mark-rule {
+  grid-column: 1 / -1;
+  height: 1px;
+  margin-inline: 12px;
+  background: var(--border-subtle, hsl(var(--border)));
+}
+
 .image-preview-hex-input {
   color-scheme: only light;
 }
@@ -87,6 +127,7 @@
 }
 
 .image-preview-text-editor {
+  appearance: none;
   position: absolute;
   z-index: 5;
   margin: 0;
@@ -94,14 +135,12 @@
   overflow: hidden;
   border: 1px dashed currentColor;
   border-radius: 0;
-  background: hsl(var(--background) / 0.92);
+  background: var(--surface-dialog);
   padding: 0;
   outline: none;
   color-scheme: only light;
 }
 
-@media (prefers-reduced-transparency: reduce) {
-  .image-preview-text-editor {
-    background: hsl(var(--background));
-  }
+.dark .image-preview-text-editor {
+  color-scheme: only dark;
 }

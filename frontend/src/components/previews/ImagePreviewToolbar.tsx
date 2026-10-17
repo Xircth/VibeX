@@ -9,6 +9,7 @@ import {
   Redo2,
   ScanSearch,
   Square,
+  Triangle,
   Type,
   Undo2,
 } from 'lucide-react';
@@ -36,10 +37,9 @@ import {
   MARK_PRESET_COLORS,
   parseAnnotationColor,
   type AnnotationTool,
+  type MarkKind,
 } from './imagePreviewAnnotations';
 import { SCALE_PRESETS } from './imagePreviewViewport';
-
-type MarkKind = Extract<AnnotationTool, 'rect' | 'ellipse'>;
 
 type ImagePreviewToolbarProps = {
   annotate: boolean;
@@ -111,7 +111,8 @@ export function ImagePreviewToolbar({
     }
     return percents;
   }, [zoomPercent]);
-  const markActive = tool === 'rect' || tool === 'ellipse';
+  const markActive =
+    tool === 'rect' || tool === 'ellipse' || tool === 'triangle';
 
   return (
     <TooltipProvider delayDuration={280} disableHoverableContent>
@@ -152,11 +153,7 @@ export function ImagePreviewToolbar({
                           aria-pressed={markActive}
                           onClick={() => onToolChange(markKind)}
                         >
-                          {markKind === 'ellipse' ? (
-                            <Circle className="h-4 w-4" />
-                          ) : (
-                            <Square className="h-4 w-4" />
-                          )}
+                          <MarkKindGlyph kind={markKind} />
                         </button>
                       </PopoverTrigger>
                     </TooltipTrigger>
@@ -167,9 +164,10 @@ export function ImagePreviewToolbar({
                   <PopoverContent
                     side="top"
                     align="center"
+                    onCloseAutoFocus={(event) => event.preventDefault()}
                     className={cn(
                       PRODUCT_MENU_CONTENT_CLASS,
-                      'image-preview-toolbar-popover w-56 p-2'
+                      'image-preview-toolbar-popover image-preview-mark-popover w-60 p-0'
                     )}
                   >
                     <MarkOptions
@@ -214,6 +212,7 @@ export function ImagePreviewToolbar({
                   <PopoverContent
                     side="top"
                     align="center"
+                    onCloseAutoFocus={(event) => event.preventDefault()}
                     className={cn(
                       PRODUCT_MENU_CONTENT_CLASS,
                       'image-preview-toolbar-popover w-56 p-2'
@@ -261,6 +260,7 @@ export function ImagePreviewToolbar({
                   <PopoverContent
                     side="top"
                     align="center"
+                    onCloseAutoFocus={(event) => event.preventDefault()}
                     className={cn(
                       PRODUCT_MENU_CONTENT_CLASS,
                       'image-preview-toolbar-popover w-56 p-2'
@@ -347,6 +347,17 @@ export function ImagePreviewToolbar({
   );
 }
 
+function MarkKindGlyph({ kind }: { kind: MarkKind }) {
+  switch (kind) {
+    case 'ellipse':
+      return <Circle className="h-4 w-4" />;
+    case 'triangle':
+      return <Triangle className="h-4 w-4" />;
+    case 'rect':
+      return <Square className="h-4 w-4" />;
+  }
+}
+
 function MarkOptions({
   markKind,
   color,
@@ -364,8 +375,8 @@ function MarkOptions({
 }) {
   const { t } = useTranslation('conversation');
   return (
-    <div className="flex flex-col gap-2">
-      <div className="flex items-center gap-1">
+    <div className="image-preview-mark-options">
+      <MarkOptionRow label={t('imagePreview.markType')}>
         <ToolbarIconButton
           label={t('imagePreview.toolMarkRect')}
           active={markKind === 'rect'}
@@ -380,20 +391,81 @@ function MarkOptions({
         >
           <Circle className="h-4 w-4" />
         </ToolbarIconButton>
-      </div>
-      <RangeControl
-        label={t('imagePreview.strokeWidth')}
-        value={strokeWidth}
-        min={2}
-        max={20}
-        onChange={onStrokeWidthChange}
-      />
-      <ColorField color={color} onColorChange={onColorChange} />
+        <ToolbarIconButton
+          label={t('imagePreview.toolMarkTriangle')}
+          active={markKind === 'triangle'}
+          onClick={() => onMarkKindChange('triangle')}
+        >
+          <Triangle className="h-4 w-4" />
+        </ToolbarIconButton>
+      </MarkOptionRow>
+      <div className="image-preview-mark-rule" role="separator" />
+      <MarkOptionRow label={t('imagePreview.strokeWidth')}>
+        <input
+          type="range"
+          min={2}
+          max={20}
+          value={strokeWidth}
+          aria-label={t('imagePreview.strokeWidth')}
+          className="image-preview-mark-slider h-1 accent-primary"
+          onChange={(event) => onStrokeWidthChange(Number(event.target.value))}
+        />
+      </MarkOptionRow>
+      <div className="image-preview-mark-rule" role="separator" />
+      <MarkOptionRow label={t('imagePreview.markColor')}>
+        <ColorSwatches color={color} onColorChange={onColorChange} />
+      </MarkOptionRow>
+      <div className="image-preview-mark-rule" role="separator" />
+      <MarkOptionRow label={t('imagePreview.colorHex')}>
+        <HexColorInput color={color} onColorChange={onColorChange} />
+      </MarkOptionRow>
     </div>
   );
 }
 
-function ColorField({
+function MarkOptionRow({
+  label,
+  children,
+}: {
+  label: string;
+  children: ReactNode;
+}) {
+  return (
+    <div className="image-preview-mark-row">
+      <span className="image-preview-mark-row-label">{label}</span>
+      <div className="image-preview-mark-row-control">{children}</div>
+    </div>
+  );
+}
+
+function ColorSwatches({
+  color,
+  onColorChange,
+}: {
+  color: string;
+  onColorChange: (color: string) => void;
+}) {
+  return (
+    <div className="flex items-center gap-1.5">
+      {MARK_PRESET_COLORS.map((preset) => (
+        <button
+          key={preset}
+          type="button"
+          aria-label={preset}
+          aria-pressed={color.toLowerCase() === preset}
+          className={cn(
+            'h-6 w-6 rounded-full border border-border',
+            color.toLowerCase() === preset && 'ring-2 ring-foreground/70'
+          )}
+          style={{ backgroundColor: preset }}
+          onClick={() => onColorChange(preset)}
+        />
+      ))}
+    </div>
+  );
+}
+
+function HexColorInput({
   color,
   onColorChange,
 }: {
@@ -418,39 +490,37 @@ function ColorField({
   };
 
   return (
+    <input
+      value={hex}
+      spellCheck={false}
+      aria-label={t('imagePreview.colorHex')}
+      className="image-preview-hex-input raised-control h-7 min-w-0 flex-1 rounded-[var(--radius)] px-2 font-mono text-xs text-foreground"
+      onChange={(event) => setHex(event.target.value)}
+      onBlur={commitHex}
+      onKeyDown={(event) => {
+        if (event.key === 'Enter') {
+          event.preventDefault();
+          commitHex();
+        }
+      }}
+    />
+  );
+}
+
+function ColorField({
+  color,
+  onColorChange,
+}: {
+  color: string;
+  onColorChange: (color: string) => void;
+}) {
+  const { t } = useTranslation('conversation');
+  return (
     <div className="flex flex-col gap-1.5">
-      <div className="flex items-center gap-1.5">
-        {MARK_PRESET_COLORS.map((preset) => (
-          <button
-            key={preset}
-            type="button"
-            aria-label={preset}
-            aria-pressed={color.toLowerCase() === preset}
-            className={cn(
-              'h-6 w-6 rounded-full border border-border',
-              color.toLowerCase() === preset && 'ring-2 ring-foreground/70'
-            )}
-            style={{ backgroundColor: preset }}
-            onClick={() => onColorChange(preset)}
-          />
-        ))}
-      </div>
+      <ColorSwatches color={color} onColorChange={onColorChange} />
       <label className="flex items-center gap-1.5 text-xs text-muted-foreground">
         <span>{t('imagePreview.colorHex')}</span>
-        <input
-          value={hex}
-          spellCheck={false}
-          aria-label={t('imagePreview.colorHex')}
-          className="image-preview-hex-input raised-control h-7 min-w-0 flex-1 rounded-[var(--radius)] px-2 font-mono text-xs text-foreground"
-          onChange={(event) => setHex(event.target.value)}
-          onBlur={commitHex}
-          onKeyDown={(event) => {
-            if (event.key === 'Enter') {
-              event.preventDefault();
-              commitHex();
-            }
-          }}
-        />
+        <HexColorInput color={color} onColorChange={onColorChange} />
       </label>
     </div>
   );

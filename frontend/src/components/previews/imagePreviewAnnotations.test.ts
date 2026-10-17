@@ -6,6 +6,8 @@ import {
   createBrushAnnotation,
   createRectAnnotation,
   createTextAnnotation,
+  createTriangleAnnotation,
+  trianglePoints,
   drawAnnotations,
   fileFromAnnotatedImage,
   hitTestAnnotation,
@@ -111,6 +113,20 @@ describe('image preview annotations', () => {
     expect(hitTestAnnotation([text, rect], { x: 10, y: 10 })).toBeNull();
   });
 
+  it('hit-tests a triangle from its bounding box', () => {
+    const triangle = createTriangleAnnotation({
+      id: 'tri-1',
+      start: { x: 0, y: 0 },
+      end: { x: 100, y: 80 },
+      color: '#ff3b30',
+      strokeWidth: 4,
+    });
+    const [apex] = trianglePoints(triangle);
+    expect(apex).toEqual({ x: 50, y: 0 });
+    expect(hitTestAnnotation([triangle], { x: 50, y: 40 })).toBe('tri-1');
+    expect(hitTestAnnotation([triangle], { x: 4, y: 4 })).toBeNull();
+  });
+
   it('keeps a tiny drag from becoming a mark', () => {
     const rect = createRectAnnotation({
       id: 'box-1',
@@ -153,6 +169,7 @@ describe('image preview annotations', () => {
       save: vi.fn(),
       restore: vi.fn(),
       beginPath: vi.fn(),
+      closePath: vi.fn(),
       strokeRect: vi.fn(),
       ellipse: vi.fn(),
       stroke: vi.fn(),
@@ -173,6 +190,13 @@ describe('image preview annotations', () => {
         color: '#ff3b30',
         strokeWidth: 4,
       }),
+      createTriangleAnnotation({
+        id: 'tri-1',
+        start: { x: 60, y: 20 },
+        end: { x: 100, y: 80 },
+        color: '#34c759',
+        strokeWidth: 3,
+      }),
       createBrushAnnotation({
         id: 'stroke-1',
         point: { x: 12, y: 18 },
@@ -191,6 +215,7 @@ describe('image preview annotations', () => {
     drawAnnotations(ctx, annotations);
 
     expect(ctx.strokeRect).toHaveBeenCalledWith(10, 20, 40, 60);
+    expect(ctx.closePath).toHaveBeenCalled();
     expect(ctx.fillText).toHaveBeenCalledWith('hello', 80, expect.any(Number));
     expect(ANNOTATION_BRUSH_OPACITY).toBeGreaterThan(0);
     expect(ANNOTATION_BRUSH_OPACITY).toBeLessThan(1);
@@ -222,6 +247,7 @@ describe('image preview annotations', () => {
       save: vi.fn(),
       restore: vi.fn(),
       beginPath: vi.fn(),
+      closePath: vi.fn(),
       strokeRect: vi.fn(),
       ellipse: vi.fn(),
       stroke: vi.fn(),

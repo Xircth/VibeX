@@ -19,7 +19,9 @@ export type Point = {
   y: number;
 };
 
-export type AnnotationTool = 'view' | 'rect' | 'ellipse' | 'brush' | 'text';
+export type MarkKind = 'rect' | 'ellipse' | 'triangle';
+
+export type AnnotationTool = 'view' | MarkKind | 'brush' | 'text';
 
 type AnnotationBase = {
   id: string;
@@ -37,6 +39,15 @@ export type RectAnnotation = AnnotationBase & {
 
 export type EllipseAnnotation = AnnotationBase & {
   kind: 'ellipse';
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  strokeWidth: number;
+};
+
+export type TriangleAnnotation = AnnotationBase & {
+  kind: 'triangle';
   x: number;
   y: number;
   width: number;
@@ -62,6 +73,7 @@ export type TextAnnotation = AnnotationBase & {
 export type Annotation =
   | RectAnnotation
   | EllipseAnnotation
+  | TriangleAnnotation
   | BrushAnnotation
   | TextAnnotation;
 
@@ -125,6 +137,70 @@ export function createEllipseAnnotation({
     strokeWidth,
     ...rectFromPoints(start, end),
   };
+}
+
+export function createTriangleAnnotation({
+  id,
+  start,
+  end,
+  color,
+  strokeWidth,
+}: {
+  id: string;
+  start: Point;
+  end: Point;
+  color: string;
+  strokeWidth: number;
+}): TriangleAnnotation {
+  return {
+    id,
+    kind: 'triangle',
+    color,
+    strokeWidth,
+    ...rectFromPoints(start, end),
+  };
+}
+
+export function createMarkAnnotation({
+  kind,
+  id,
+  start,
+  end,
+  color,
+  strokeWidth,
+}: {
+  kind: MarkKind;
+  id: string;
+  start: Point;
+  end: Point;
+  color: string;
+  strokeWidth: number;
+}): RectAnnotation | EllipseAnnotation | TriangleAnnotation {
+  switch (kind) {
+    case 'ellipse':
+      return createEllipseAnnotation({ id, start, end, color, strokeWidth });
+    case 'triangle':
+      return createTriangleAnnotation({ id, start, end, color, strokeWidth });
+    case 'rect':
+      return createRectAnnotation({ id, start, end, color, strokeWidth });
+  }
+}
+
+export function isMarkKind(value: string): value is MarkKind {
+  return value === 'rect' || value === 'ellipse' || value === 'triangle';
+}
+
+export function trianglePoints(annotation: {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}): [Point, Point, Point] {
+  return [
+    { x: annotation.x + annotation.width / 2, y: annotation.y },
+    { x: annotation.x, y: annotation.y + annotation.height },
+    { x: annotation.x + annotation.width, y: annotation.y + annotation.height },
+  ];
 }
 
 export function createBrushAnnotation({
@@ -373,6 +449,17 @@ export function drawAnnotations(
         Math.PI * 2
       );
       ctx.stroke();
+    } else if (annotation.kind === 'triangle') {
+      const [apex, left, right] = trianglePoints(annotation);
+      ctx.strokeStyle = annotation.color;
+      ctx.lineWidth = annotation.strokeWidth;
+      ctx.lineJoin = 'miter';
+      ctx.beginPath();
+      ctx.moveTo(apex.x, apex.y);
+      ctx.lineTo(left.x, left.y);
+      ctx.lineTo(right.x, right.y);
+      ctx.closePath();
+      ctx.stroke();
     } else if (annotation.kind === 'stroke') {
       drawBrushStroke(ctx, annotation);
     } else {
@@ -462,6 +549,9 @@ function annotationContains(annotation: Annotation, point: Point) {
   if (annotation.kind === 'ellipse') {
     return pointInEllipse(point, annotation);
   }
+  if (annotation.kind === 'triangle') {
+    return pointInTriangle(point, trianglePoints(annotation));
+  }
   return pointInRect(point, annotation);
 }
 
@@ -475,6 +565,27 @@ function pointInRect(
     point.y >= rect.y &&
     point.y <= rect.y + rect.height
   );
+}
+
+function pointInTriangle(
+  point: Point,
+  [apex, left, right]: [Point, Point, Point]
+) {
+  const area =
+    (left.y - right.y) * (apex.x - right.x) +
+    (right.x - left.x) * (apex.y - right.y);
+  if (area === 0) {
+    return false;
+  }
+  const s =
+    ((left.y - right.y) * (point.x - right.x) +
+      (right.x - left.x) * (point.y - right.y)) /
+    area;
+  const t =
+    ((right.y - apex.y) * (point.x - right.x) +
+      (apex.x - right.x) * (point.y - right.y)) /
+    area;
+  return s >= 0 && t >= 0 && s + t <= 1;
 }
 
 function pointInEllipse(point: Point, ellipse: EllipseAnnotation) {

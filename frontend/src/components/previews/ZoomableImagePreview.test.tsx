@@ -1,3 +1,4 @@
+import { StrictMode } from 'react';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import i18n from '@/i18n';
@@ -84,6 +85,13 @@ function stage() {
 
 function viewport() {
   return screen.getByTestId('image-preview-viewport');
+}
+
+function clickImage(clientX: number, clientY: number, pointerId = 3) {
+  const target = viewport();
+  fireEvent.pointerDown(target, { pointerId, clientX, clientY });
+  fireEvent.pointerUp(target, { pointerId, clientX, clientY });
+  fireEvent.click(target, { pointerId, clientX, clientY });
 }
 
 describe('ZoomableImagePreview', () => {
@@ -266,6 +274,54 @@ describe('ZoomableImagePreview', () => {
     expect(Number(rect.getAttribute('height'))).toBeGreaterThan(4);
   });
 
+  it('opens a text box after choosing insert text and clicking the image', async () => {
+    render(
+      <StrictMode>
+        <ZoomableImagePreview
+          src="asset://localhost/place-text.png"
+          alt="text"
+        />
+      </StrictMode>
+    );
+    await waitFor(() => {
+      expect(stage()).toHaveStyle({ width: '120px' });
+    });
+
+    fireEvent.click(screen.getByRole('button', { name: 'Insert text' }));
+    expect(screen.getByRole('button', { name: 'Insert text' })).toHaveAttribute(
+      'aria-pressed',
+      'true'
+    );
+    clickImage(400, 200);
+
+    const field = await screen.findByPlaceholderText('Text');
+    await waitFor(() => {
+      expect(field).toBeInTheDocument();
+      expect(screen.getByPlaceholderText('Text')).toBeInTheDocument();
+    });
+  });
+
+  it('dismisses an empty text box after the placing click', async () => {
+    render(
+      <ZoomableImagePreview
+        src="asset://localhost/dismiss-text.png"
+        alt="text"
+      />
+    );
+    await waitFor(() => {
+      expect(stage()).toHaveStyle({ width: '120px' });
+    });
+
+    fireEvent.click(screen.getByRole('button', { name: 'Insert text' }));
+    clickImage(400, 200);
+
+    const field = await screen.findByPlaceholderText('Text');
+    await waitFor(() => {
+      fireEvent.blur(field);
+      expect(screen.queryByPlaceholderText('Text')).not.toBeInTheDocument();
+    });
+  });
+
   it('shows a text-box border only while dragging it', async () => {
     render(
       <ZoomableImagePreview src="asset://localhost/text.png" alt="text" />
@@ -275,12 +331,7 @@ describe('ZoomableImagePreview', () => {
     });
 
     fireEvent.click(screen.getByRole('button', { name: 'Insert text' }));
-    fireEvent.pointerDown(viewport(), {
-      pointerId: 3,
-      clientX: 400,
-      clientY: 200,
-    });
-    fireEvent.pointerUp(viewport(), { pointerId: 3 });
+    clickImage(400, 200);
 
     const field = await screen.findByPlaceholderText('Text');
     fireEvent.change(field, { target: { value: 'note' } });
@@ -494,6 +545,44 @@ describe('ZoomableImagePreview', () => {
       return node as SVGEllipseElement;
     });
     expect(Number(ellipse.getAttribute('rx'))).toBeGreaterThan(2);
+  });
+
+  it('lays out mark options in labeled rows and draws a triangle', async () => {
+    render(
+      <ZoomableImagePreview
+        src="asset://localhost/triangle.png"
+        alt="triangle"
+      />
+    );
+    await waitFor(() => {
+      expect(stage()).toHaveStyle({ width: '120px' });
+    });
+
+    fireEvent.click(screen.getByRole('button', { name: 'Mark' }));
+    expect(screen.getByText('Type')).toBeInTheDocument();
+    expect(screen.getByText('Color')).toBeInTheDocument();
+    expect(screen.getAllByRole('separator')).toHaveLength(3);
+    fireEvent.click(screen.getByRole('button', { name: 'Triangle' }));
+    fireEvent.pointerDown(viewport(), {
+      pointerId: 8,
+      clientX: 400,
+      clientY: 100,
+    });
+    fireEvent.pointerMove(viewport(), {
+      pointerId: 8,
+      clientX: 460,
+      clientY: 400,
+    });
+    fireEvent.pointerUp(viewport(), { pointerId: 8 });
+
+    const polygon = await waitFor(() => {
+      const node = screen
+        .getByTestId('image-preview-annotation-layer')
+        .querySelector('polygon');
+      expect(node).not.toBeNull();
+      return node as SVGPolygonElement;
+    });
+    expect(polygon.getAttribute('points')?.split(' ')).toHaveLength(3);
   });
 
   it('hides annotation tools when annotate is disabled', () => {

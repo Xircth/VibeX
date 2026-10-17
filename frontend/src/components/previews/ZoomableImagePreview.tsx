@@ -28,8 +28,7 @@ import {
   applyAnnotationStyle,
   annotationHasArea,
   createBrushAnnotation,
-  createEllipseAnnotation,
-  createRectAnnotation,
+  createMarkAnnotation,
   createTextAnnotation,
   DEFAULT_ANNOTATION_COLOR,
   DEFAULT_BRUSH_SIZE,
@@ -38,11 +37,14 @@ import {
   fileFromAnnotatedImage,
   hitTestAnnotation,
   imagePointToViewport,
+  isMarkKind,
   moveAnnotation,
+  trianglePoints,
   textAnnotationHeight,
   viewportPointToImage,
   type Annotation,
   type AnnotationTool,
+  type MarkKind,
   type Point,
 } from './imagePreviewAnnotations';
 import {
@@ -90,6 +92,11 @@ type PointerSession =
   | {
       type: 'file-drag';
       pointerId: number;
+    }
+  | {
+      type: 'text-place';
+      pointerId: number;
+      point: Point;
     };
 
 type ZoomableImagePreviewProps = {
@@ -148,6 +155,8 @@ export function ZoomableImagePreview({
   const sessionRef = useRef<PointerSession | null>(null);
   const longPressTimerRef = useRef<number | null>(null);
   const textInputRef = useRef<HTMLTextAreaElement | null>(null);
+  const suppressTextBlurRef = useRef(false);
+  const textPlaceTimerRef = useRef<number | null>(null);
   const ghostUrlRef = useRef<string | null>(null);
   const draftRef = useRef<Annotation | null>(null);
   const annotationsRef = useRef<Annotation[]>([]);
@@ -160,7 +169,7 @@ export function ZoomableImagePreview({
   const [offset, setOffset] = useState<Offset>({ x: 0, y: 0 });
   const [isDragging, setIsDragging] = useState(false);
   const [tool, setTool] = useState<AnnotationTool>('view');
-  const [markKind, setMarkKind] = useState<'rect' | 'ellipse'>('rect');
+  const [markKind, setMarkKind] = useState<MarkKind>('rect');
   const [annotations, setAnnotations] = useState<Annotation[]>([]);
   const historyRef = useRef<Annotation[][]>([[]]);
   const historyIndexRef = useRef(0);
@@ -512,6 +521,31 @@ export function ZoomableImagePreview({
     setTextOpen(false);
   };
 
+  const clearTextPlaceTimer = () => {
+    if (textPlaceTimerRef.current !== null) {
+      window.clearTimeout(textPlaceTimerRef.current);
+      textPlaceTimerRef.current = null;
+    }
+  };
+
+  const openTextEditor = (id: string) => {
+    clearTextPlaceTimer();
+    suppressTextBlurRef.current = true;
+    setEditingTextId(id);
+    textPlaceTimerRef.current = window.setTimeout(() => {
+      textPlaceTimerRef.current = null;
+      textInputRef.current?.focus();
+      suppressTextBlurRef.current = false;
+    }, 0);
+  };
+
+  useEffect(() => {
+    return () => {
+      clearTextPlaceTimer();
+      suppressTextBlurRef.current = false;
+    };
+  }, []);
+
   const imagePointFromPointer = (event: {
     clientX: number;
     clientY: number;
@@ -641,20 +675,17 @@ export function ZoomableImagePreview({
     }
 
     if (view.annotate && view.tool !== 'view') {
-      const id = createAnnotationId();
       if (view.tool === 'text') {
-        const annotation = createTextAnnotation({
-          id,
+        sessionRef.current = {
+          type: 'text-place',
+          pointerId: event.pointerId,
           point,
-          color: view.color,
-          fontSize: view.fontSize,
-        });
-        setAnnotations((current) => [...current, annotation]);
-        setSelectedId(id);
-        setEditingTextId(id);
-        sessionRef.current = null;
+        };
+        event.preventDefault();
+        event.currentTarget.setPointerCapture?.(event.pointerId);
         return;
       }
+      const id = createAnnotationId();
       const nextDraft =
         view.tool === 'brush'
           ? createBrushAnnotation({
@@ -663,15 +694,17 @@ export function ZoomableImagePreview({
               color: view.color,
               size: view.brushSize,
             })
-          : view.tool === 'ellipse'
-            ? createEllipseAnnotation({
+          : isMarkKind(view.tool)
+            ? createMarkAnnotation({
+                kind: view.tool,
                 id,
                 start: point,
                 end: point,
                 color: view.color,
                 strokeWidth: view.strokeWidth,
               })
-            : createRectAnnotation({
+            : createMarkAnnotation({
+                kind: 'rect',
                 id,
                 start: point,
                 end: point,
@@ -773,24 +806,17 @@ export function ZoomableImagePreview({
         if (current.kind === 'stroke') {
           return appendBrushPoint(current, point);
         }
-        if (current.kind === 'text') {
+        if (current.kind === 'text' || !isMarkKind(current.kind)) {
           return current;
         }
-        return current.kind === 'ellipse'
-          ? createEllipseAnnotation({
-              id: current.id,
-              start: session.start,
-              end: point,
-              color: current.color,
-              strokeWidth: current.strokeWidth,
-            })
-          : createRectAnnotation({
-              id: current.id,
-              start: session.start,
-              end: point,
-              color: current.color,
-              strokeWidth: current.strokeWidth,
-            });
+        return createMarkAnnotation({
+          kind: current.kind,
+          id: current.id,
+          start: session.start,
+          end: point,
+          color: current.color,
+          strokeWidth: current.strokeWidth,
+        });
       });
       return;
     }
@@ -868,12 +894,32 @@ export function ZoomableImagePreview({
           (annotation) => annotation.id === session.id
         );
         if (target?.kind === 'text') {
-          setEditingTextId(target.id);
+          openTextEditor(target.id);
         }
       } else {
         commitAnnotations(annotationsRef.current);
       }
       setDraggingAnnotationId(null);
+    }
+
+    if (session.type === 'text-place') {
+      const id = createAnnotationId();
+      const annotation = createTextAnnotation({
+        id,
+        point: session.point,
+        color: viewRef.current.color,
+        fontSize: viewRef.current.fontSize,
+      });
+      const next = [...annotationsRef.current, annotation];
+      annotationsRef.current = next;
+      setAnnotations(next);
+      setSelectedId(id);
+      suppressTextBlurRef.current = true;
+      clearTextPlaceTimer();
+      textPlaceTimerRef.current = window.setTimeout(() => {
+        textPlaceTimerRef.current = null;
+        openTextEditor(id);
+      }, 0);
     }
 
     sessionRef.current = null;
@@ -939,7 +985,7 @@ export function ZoomableImagePreview({
         markKind={markKind}
         color={selected?.color ?? color}
         strokeWidth={
-          selected && (selected.kind === 'rect' || selected.kind === 'ellipse')
+          selected && isMarkKind(selected.kind)
             ? selected.strokeWidth
             : strokeWidth
         }
@@ -953,7 +999,7 @@ export function ZoomableImagePreview({
         textOpen={textOpen}
         onToolChange={(nextTool) => {
           setTool(nextTool);
-          if (nextTool === 'rect' || nextTool === 'ellipse') {
+          if (isMarkKind(nextTool)) {
             setMarkKind(nextTool);
           }
         }}
@@ -1067,6 +1113,20 @@ export function ZoomableImagePreview({
                     />
                   );
                 }
+                if (annotation.kind === 'triangle') {
+                  return (
+                    <polygon
+                      key={annotation.id}
+                      points={trianglePoints(annotation)
+                        .map((point) => `${point.x},${point.y}`)
+                        .join(' ')}
+                      fill="none"
+                      stroke={annotation.color}
+                      strokeWidth={annotation.strokeWidth}
+                      strokeLinejoin="miter"
+                    />
+                  );
+                }
                 if (annotation.kind === 'stroke') {
                   const [first, ...rest] = annotation.points;
                   if (!first) {
@@ -1177,9 +1237,14 @@ export function ZoomableImagePreview({
             onPointerDown={(event) => event.stopPropagation()}
             onPointerUp={(event) => event.stopPropagation()}
             onBlur={() => {
-              setEditingTextId(null);
+              if (suppressTextBlurRef.current) {
+                textInputRef.current?.focus();
+                return;
+              }
+              const id = editingText.id;
+              setEditingTextId((current) => (current === id ? null : current));
               const current = annotationsRef.current.find(
-                (item) => item.id === editingText.id
+                (item) => item.id === id
               );
               if (
                 !current ||
@@ -1187,7 +1252,7 @@ export function ZoomableImagePreview({
                 current.text.trim().length === 0
               ) {
                 const next = annotationsRef.current.filter(
-                  (item) => item.id !== editingText.id
+                  (item) => item.id !== id
                 );
                 annotationsRef.current = next;
                 setAnnotations(next);

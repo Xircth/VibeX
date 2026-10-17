@@ -9,7 +9,6 @@
     "connectorReady": "Connector ready",
     "loggedIn": "Signed in",
     "loggedOut": "Signed out",
-    "agentReady": "Agent ready",
     "acpDownload": "Download",
     "acpInstall": "Install",
     "acpCheck": "Check",

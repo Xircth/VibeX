@@ -9,7 +9,6 @@
     "connectorReady": "连接器可用",
     "loggedIn": "已登录",
     "loggedOut": "未登录",
-    "agentReady": "Agent 可用",
     "acpDownload": "下载",
     "acpInstall": "安装",
     "acpCheck": "检查",

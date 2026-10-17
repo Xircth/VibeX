@@ -15,7 +15,6 @@ type AgentStatusMenuProps = {
   defaultAgentId: string | null;
   updatableAgentIds?: ReadonlySet<string>;
   operations?: Record<string, AgentOperationState>;
-  preflightPassedIds?: ReadonlySet<string>;
   onOpenAgentSettings?: (agentId: string) => void;
 };
 
@@ -44,7 +43,6 @@ export function AgentStatusMenu({
   defaultAgentId,
   updatableAgentIds,
   operations,
-  preflightPassedIds,
   onOpenAgentSettings,
 }: AgentStatusMenuProps) {
   const { t } = useTranslation(['statusbar', 'settings']);
@@ -153,7 +151,7 @@ export function AgentStatusMenu({
               aria-label={t('agentStatus.enabledAgentsAria', {
                 ns: 'statusbar',
               })}
-              className="flex flex-col"
+              className="grid grid-cols-[auto_auto_auto_auto_minmax(0,1fr)_auto] items-center"
             >
               {enabledAgents.map((agent) => {
                 const isDefault = agent.agent_id === defaultAgent.agent_id;
@@ -162,11 +160,7 @@ export function AgentStatusMenu({
                 );
                 const row = presentAgentStatusRow(
                   agent,
-                  operations?.[agent.agent_id],
-                  null
-                );
-                const agentAvailable = Boolean(
-                  preflightPassedIds?.has(agent.agent_id)
+                  operations?.[agent.agent_id]
                 );
                 const openSettings = () => {
                   onOpenAgentSettings?.(agent.agent_id);
@@ -177,7 +171,7 @@ export function AgentStatusMenu({
                     key={agent.agent_id}
                     role="listitem"
                     aria-label={agent.display_name}
-                    className="flex min-h-8 items-center gap-2 whitespace-nowrap rounded-md px-2 py-1 text-xs"
+                    className="col-span-full grid grid-cols-subgrid min-h-8 items-center gap-x-2 whitespace-nowrap rounded-md px-2 py-1 text-xs"
                   >
                     <span className="relative flex h-5 w-5 shrink-0 items-center justify-center">
                       <AgentManagementIcon agent={agent} className="h-4 w-4" />
@@ -189,7 +183,7 @@ export function AgentStatusMenu({
                         )}
                       />
                     </span>
-                    <span className="shrink-0 font-medium text-foreground">
+                    <span className="font-medium text-foreground">
                       {agent.display_name}
                     </span>
                     {row.showStepper ? (
@@ -210,41 +204,35 @@ export function AgentStatusMenu({
                     ) : row.connectorAvailable ? (
                       <button
                         type="button"
-                        className="shrink-0 rounded-full px-1.5 py-0.5 text-[10px] font-medium text-foreground outline-none hover:bg-accent/70 focus-visible:ring-1 focus-visible:ring-ring"
+                        className="justify-self-start rounded-full px-1.5 py-0.5 text-[10px] font-medium leading-4 text-foreground outline-none hover:bg-accent/70 focus-visible:ring-1 focus-visible:ring-ring"
                         onClick={openSettings}
                       >
                         {t('agentStatus.connectorReady', { ns: 'statusbar' })}
                       </button>
-                    ) : null}
+                    ) : (
+                      <span />
+                    )}
                     <button
                       type="button"
-                      className="shrink-0 rounded-full px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground outline-none hover:bg-accent/70 hover:text-foreground focus-visible:ring-1 focus-visible:ring-ring"
+                      className="justify-self-start rounded-full px-1.5 py-0.5 text-[10px] font-medium leading-4 text-muted-foreground outline-none hover:bg-accent/70 hover:text-foreground focus-visible:ring-1 focus-visible:ring-ring"
                       onClick={openSettings}
                     >
                       {row.loggedIn
                         ? t('agentStatus.loggedIn', { ns: 'statusbar' })
                         : t('agentStatus.loggedOut', { ns: 'statusbar' })}
                     </button>
-                    {row.connectorAvailable &&
-                    row.loggedIn &&
-                    agentAvailable ? (
-                      <span className="shrink-0 rounded-full bg-primary/10 px-1.5 py-0.5 text-[10px] font-medium text-primary">
-                        {t('agentStatus.agentReady', { ns: 'statusbar' })}
-                      </span>
-                    ) : null}
-                    {isDefault && (
-                      <span className="ml-auto shrink-0 rounded bg-primary/10 px-1 py-0.5 text-[9px] font-medium text-primary">
+                    {isDefault ? (
+                      <span className="justify-self-end rounded bg-primary/10 px-1 py-0.5 text-[10px] font-medium leading-4 text-primary">
                         {t('agentStatus.defaultBadge', { ns: 'statusbar' })}
                       </span>
+                    ) : (
+                      <span />
                     )}
                     {canUpdate ? (
                       onOpenAgentSettings ? (
                         <button
                           type="button"
-                          className={cn(
-                            'shrink-0 rounded-full px-1.5 py-0.5 text-[10px] font-medium text-primary outline-none transition-colors hover:bg-primary/10 focus-visible:ring-1 focus-visible:ring-ring',
-                            !isDefault && 'ml-auto'
-                          )}
+                          className="justify-self-end rounded-full px-1.5 py-0.5 text-[10px] font-medium leading-4 text-primary outline-none transition-colors hover:bg-primary/10 focus-visible:ring-1 focus-visible:ring-ring"
                           onClick={openSettings}
                         >
                           {t('agentStatus.updateAvailable', {
@@ -252,18 +240,15 @@ export function AgentStatusMenu({
                           })}
                         </button>
                       ) : (
-                        <span
-                          className={cn(
-                            'shrink-0 text-[10px] font-medium text-primary',
-                            !isDefault && 'ml-auto'
-                          )}
-                        >
+                        <span className="justify-self-end text-[10px] font-medium leading-4 text-primary">
                           {t('agentStatus.updateAvailable', {
                             ns: 'statusbar',
                           })}
                         </span>
                       )
-                    ) : null}
+                    ) : (
+                      <span />
+                    )}
                   </div>
                 );
               })}

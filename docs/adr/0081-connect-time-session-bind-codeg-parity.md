@@ -13,11 +13,10 @@ adoption 记录钉住 `549add8d3ba07f31464c9cddde8ba7a7478eed14`
 （`docs/third-party/codeg-adoption.md`）。行为以 **live checkout** 为准；钉住
 commit 与 HEAD 已漂移，实施时以本 ADR 引用的 live 路径与函数为准。
 
-本 ADR 只改会话**建立时机与边界**，不引入新的 actor / event bus，不重写
-event-sourcing。Conversation 事件日志仍是 UI transcript 权威
-（[ADR-0044](0044-conversation-control-plane-and-durable-inputs.md) /
-[ADR-0071](0071-conversation-turn-integrity.md)）。Codeg 的磁盘 transcript
-对 VibeX 只是适配映射，不是存储模型。
+本 ADR 只改会话**建立时机与边界**，不引入新的 actor / event bus。
+UI transcript 以 JSONL / vendor 文件为权威，见
+[ADR-0082](0082-jsonl-transcript-window.md)。连接、resume 与 prompt 的
+边界仍以本 ADR 为准。
 
 未经本 ADR 落盘，不得开始编码。实现必须可按本文件验收。
 

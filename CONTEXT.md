@@ -53,7 +53,7 @@ Glossary of domain terms. Keep entries implementation-free; link decisions to AD
 
 ## Conversation domain
 
-- **Conversation（会话）** — 用户与一个 agent 之间的持久对话。其完整历史由事件日志权威记录，与任何 agent 进程的存活无关。
+- **Conversation（会话）** — 用户与一个 agent 之间的持久对话。用户看见的历史以 JSONL 或 vendor 会话文件为权威，与任何 agent 进程的存活无关。见 [ADR-0082](docs/adr/0082-jsonl-transcript-window.md)。
 - **Conversation panel（会话面板）** — 在 Server-bound window 中呈现一个 Conversation 的唯一 Dockview 视图；同一窗口重复打开只聚焦已有面板，关闭或移动面板只改变布局，不取消在途 Turn，也不删除 Conversation。
 - **Conversation draft（会话草稿）** — 属于 Server 上某个 Conversation、可由已授权设备继续编辑的未提交 Composer 内容；每次保存基于 revision，冲突必须保留服务器版本与本机版本，不能静默覆盖。
 - **Session auxiliary capability（会话辅助能力）** — Composer 与时间线周围的用量、计划、目标、压缩、草稿与查找只呈现 Agent 或用户明确给出的事实；缺失保持缺失，不得从自由文本或本地化文案反推，也不得把未知填成零或成功。见 [ADR-0058](docs/adr/0058-session-auxiliary-capability-honesty.md)。
@@ -70,8 +70,8 @@ Glossary of domain terms. Keep entries implementation-free; link decisions to AD
 - **Session resume（会话恢复）** — 将会话的上下文重载进一个新拉起的 agent 进程。恢复的是**上下文**，永远不是在途 turn 的生成过程。是否可恢复取决于 agent 的能力位。
 - **Session rebind（会话重绑定）** — 旧 Agent session 无法继续加载时，经用户确认后为既有 Conversation 建立新的冷启动 Agent session；VibeX 历史保持不变，Agent 侧隐藏上下文不连续，后续交接内容由用户明确控制。
 - **Recovery（启动恢复）** — 宿主启动时对上一次进程生命周期遗留状态的协调：将孤立的在途 turn 判定为 Interrupted，使会话回到可发起新 turn 的状态。
-- **Event log（事件日志）** — 会话的权威、仅追加的历史记录。会话的一切状态都是事件的推论。
-- **Projection（投影）** — 从事件日志折叠出的派生读模型。投影永远可以从事件重建，本身不是权威。
+- **Event log（事件日志）** — 会话控制面与实时 row-op 的仅追加记录。它不是用户看见的历史；那份历史见 [ADR-0082](docs/adr/0082-jsonl-transcript-window.md)。
+- **Projection（投影）** — 从 transcript 或事件日志折叠出的派生读模型。投影永远可以从它的权威重建，本身不是权威。
 - **Timeline row（时间线行）** — 投影的最小单元：时间线上一个可独立更新的条目（一条消息、一次工具调用、一次权限请求等）。前端渲染的唯一输入。
 - **Revision（行修订号）** — 单个时间线行的单调版本号，用于增量更新的幂等去重。
 - **Snapshot（投影快照）** — 投影在某个事件序号处的物化缓存，纯粹是重放的加速手段，可随时丢弃重建。

@@ -258,6 +258,12 @@ impl ConversationAgentEventRecorder {
             if let Some(publisher) = &self.event_publisher {
                 publisher.publish(&record).await;
             }
+            crate::jsonl_history::mirror_appended_event(
+                &self.pool,
+                mapped.conversation_id,
+                &mapped.event,
+            )
+            .await;
 
             // A terminal Turn makes the conversation idle. Pump the next durable
             // input on a separate task: this recorder owns the Agent event

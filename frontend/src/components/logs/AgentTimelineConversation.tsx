@@ -161,28 +161,18 @@ export function conversationThreadMaxWidthClass(
     : 'max-w-6xl';
 }
 
-const LOAD_OLDER_SCROLL_TOP_PX = 64;
+export const LOAD_OLDER_THRESHOLD_PX = 240;
 
 export function shouldLoadOlderTimelinePage(input: {
   hasEarlier: boolean;
   isAtBottom: boolean;
   scrollTop: number;
-  firstVirtualIndex: number | undefined;
+  previousScrollTop: number;
 }): boolean {
-  return (
-    input.hasEarlier &&
-    !input.isAtBottom &&
-    input.scrollTop <= LOAD_OLDER_SCROLL_TOP_PX &&
-    input.firstVirtualIndex === 0
-  );
-}
-
-function firstTimelineItemKey(
-  items: ConversationTimelineItem[]
-): string | null {
-  const item = items[0];
-  if (!item) return null;
-  return item.kind === 'message' ? item.item.key : item.row.row_id;
+  const crossedDownward =
+    input.previousScrollTop > LOAD_OLDER_THRESHOLD_PX &&
+    input.scrollTop <= LOAD_OLDER_THRESHOLD_PX;
+  return input.hasEarlier && !input.isAtBottom && crossedDownward;
 }
 
 interface AgentTimelineConversationProps {
@@ -612,7 +602,7 @@ const AgentTimelineConversation = forwardRef<
 
   const sessionId = attempt.session?.id ?? null;
   const sessionPinRef = useRef(sessionId);
-  const previousFirstKeyRef = useRef<string | null>(null);
+  const previousPrependEpochRef = useRef(0);
   const previousTotalSizeRef = useRef(0);
   // Absolute workspace root for resolving clickable file paths in messages.
   // Non-worktree workspaces leave container_ref null, so fall back to the repo
@@ -1028,19 +1018,6 @@ const AgentTimelineConversation = forwardRef<
 
   const conversationHasEarlier = conversation.hasEarlier;
   const conversationLoadOlder = conversation.loadOlder;
-  useEffect(() => {
-    if (
-      !shouldLoadOlderTimelinePage({
-        hasEarlier: conversationHasEarlier,
-        isAtBottom: isAtBottomRef.current,
-        scrollTop: containerRef.current?.scrollTop ?? 0,
-        firstVirtualIndex: virtualRows[0]?.index,
-      })
-    ) {
-      return;
-    }
-    void conversationLoadOlder();
-  }, [conversationHasEarlier, conversationLoadOlder, virtualRows]);
 
   const panelRef = useRef<HTMLDivElement | null>(null);
   const [findOpen, setFindOpen] = useState(false);
@@ -1192,10 +1169,29 @@ const AgentTimelineConversation = forwardRef<
         isAtBottomRef.current = true;
         onAtBottomChange?.(true);
       }
+      if (
+        event.nativeEvent.isTrusted &&
+        programmaticScrollDepthRef.current === 0 &&
+        shouldLoadOlderTimelinePage({
+          hasEarlier: conversationHasEarlier,
+          isAtBottom: isAtBottomRef.current,
+          scrollTop,
+          previousScrollTop: previous,
+        })
+      ) {
+        void conversationLoadOlder();
+      }
       updateAtBottomState();
       updateActiveIndex();
     },
-    [detachFromBottom, onAtBottomChange, updateActiveIndex, updateAtBottomState]
+    [
+      conversationHasEarlier,
+      conversationLoadOlder,
+      detachFromBottom,
+      onAtBottomChange,
+      updateActiveIndex,
+      updateAtBottomState,
+    ]
   );
 
   const scrollToIndex = useCallback(
@@ -1240,14 +1236,14 @@ const AgentTimelineConversation = forwardRef<
   // reconcile loop, which repeats the scroll for as long as the last row grows.
   useLayoutEffect(() => {
     const sessionChanged = sessionPinRef.current !== sessionId;
-    const firstKey = firstTimelineItemKey(timelineItems);
+    const prepended =
+      conversation.olderTurnsPrependEpoch > previousPrependEpochRef.current;
     const container = containerRef.current;
     if (container) {
       const nextTop = scrollTopAfterPrepend({
         followTail: followTailRef.current,
         sessionChanged,
-        previousFirstKey: previousFirstKeyRef.current,
-        nextFirstKey: firstKey,
+        prepended,
         previousTotalSize: previousTotalSizeRef.current,
         nextTotalSize: totalSize,
         scrollTop: container.scrollTop,
@@ -1258,7 +1254,7 @@ const AgentTimelineConversation = forwardRef<
         });
       }
     }
-    previousFirstKeyRef.current = firstKey;
+    previousPrependEpochRef.current = conversation.olderTurnsPrependEpoch;
     previousTotalSizeRef.current = totalSize;
     sessionPinRef.current = sessionId;
     const expansionChanged =
@@ -1306,8 +1302,8 @@ const AgentTimelineConversation = forwardRef<
     pinToBottom,
     rowVirtualizer,
     runProgrammaticScroll,
+    conversation.olderTurnsPrependEpoch,
     sessionId,
-    timelineItems,
     totalSize,
     virtualEntries.length,
   ]);
@@ -1936,6 +1932,21 @@ const AgentTimelineConversation = forwardRef<
                     <WorkflowRunCard runId={sessionId} />
                   ) : null}
 
+                  {conversation.hasEarlier ? (
+                    <div className="mb-3 flex justify-center">
+                      <button
+                        type="button"
+                        className="rounded-full border bg-background/90 px-3 py-1.5 text-xs text-muted-foreground"
+                        onClick={() => {
+                          void conversation.loadOlder();
+                        }}
+                      >
+                        {t('conversation:timeline.loadEarlier', {
+                          defaultValue: '更早的消息',
+                        })}
+                      </button>
+                    </div>
+                  ) : null}
                   <TimelineImagePanel>
                     <div
                       ref={virtualListRef}

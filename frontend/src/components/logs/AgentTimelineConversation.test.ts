@@ -47,27 +47,35 @@ describe('shouldLoadOlderTimelinePage', () => {
       shouldLoadOlderTimelinePage({
         hasEarlier: true,
         isAtBottom: true,
-        scrollTop: 0,
-        firstVirtualIndex: 0,
+        scrollTop: 80,
+        previousScrollTop: 400,
       })
     ).toBe(false);
   });
 
-  it('pages older history only after the user scrolls to the top', () => {
+  it('pages older history when the user scrolls down across the threshold', () => {
     expect(
       shouldLoadOlderTimelinePage({
         hasEarlier: true,
         isAtBottom: false,
-        scrollTop: 8,
-        firstVirtualIndex: 0,
+        scrollTop: 200,
+        previousScrollTop: 400,
       })
     ).toBe(true);
     expect(
       shouldLoadOlderTimelinePage({
         hasEarlier: true,
         isAtBottom: false,
-        scrollTop: 240,
-        firstVirtualIndex: 0,
+        scrollTop: 200,
+        previousScrollTop: 180,
+      })
+    ).toBe(false);
+    expect(
+      shouldLoadOlderTimelinePage({
+        hasEarlier: true,
+        isAtBottom: false,
+        scrollTop: 8,
+        previousScrollTop: 8,
       })
     ).toBe(false);
   });

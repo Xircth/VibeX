@@ -7,6 +7,10 @@ decision-makers:
 
 # Conversation Turn 完整性：取消、恢复回放、连接隔离与终态可达
 
+`session/load` 的历史回放不再把事件日志当 UI transcript。已有 JSONL 时不把
+回放再录一遍。见 [ADR-0082](0082-jsonl-transcript-window.md)。Turn 终态与
+「不自动重发」不变。
+
 用户在一次连续使用中报告了七个现象：第二轮把第一轮的 AI 消息重新吐一遍并粘成
 「AI 消息 AB」、点中断中断不了同时内存涨到 4 GB 以上、重发消息报
 `CHECK constraint failed: status IN (...)`、中断过的对话稍后仍给出输出、Mode 从

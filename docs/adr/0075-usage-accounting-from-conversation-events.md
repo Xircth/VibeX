@@ -7,6 +7,9 @@ decision-makers:
 
 # 计量以 conversation_event 为归属权威，厂商日志降级为分项 token 的补充来源
 
+UI transcript 已改由 [ADR-0082](0082-jsonl-transcript-window.md) 规定。
+本 ADR 的归属目标不变：用量仍按会话归属，缺失保持缺失。
+
 Token 报告改从 VibeX 自己的事件日志出账，并补上按目录与按 Agent 的维度。厂商
 日志不删，但它从「唯一事实来源」降级为「分项 token 的补充证据」，且必须按会话
 标识对齐，不再按路径字符串猜归属。

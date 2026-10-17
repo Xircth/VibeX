@@ -148,22 +148,46 @@ const conversationDetailInflight = new Map<
   Promise<DbConversationDetail | null>
 >();
 
+export type ConversationDetailWindow = {
+  tailTurns?: number;
+  fromIndex?: number;
+};
+
+function detailInflightKey(
+  conversationId: string,
+  window?: ConversationDetailWindow
+): string {
+  if (window?.fromIndex != null) {
+    return `${conversationId}:from:${window.fromIndex}`;
+  }
+  if (window?.tailTurns != null) {
+    return `${conversationId}:tail:${window.tailTurns}`;
+  }
+  return conversationId;
+}
+
 function fetchConversationDetail(
   call: <T>(command: string, args?: Record<string, unknown>) => Promise<T>,
-  conversationId: string
+  conversationId: string,
+  window?: ConversationDetailWindow
 ): Promise<DbConversationDetail | null> {
-  const existing = conversationDetailInflight.get(conversationId);
+  const key = detailInflightKey(conversationId, window);
+  const existing = conversationDetailInflight.get(key);
   if (existing) {
     return existing;
   }
-  const pending = call<DbConversationDetail | null>('conversation_detail', {
-    conversationId,
-  }).finally(() => {
-    if (conversationDetailInflight.get(conversationId) === pending) {
-      conversationDetailInflight.delete(conversationId);
+  const args: Record<string, unknown> = { conversationId };
+  if (window?.fromIndex != null) args.fromIndex = window.fromIndex;
+  if (window?.tailTurns != null) args.tailTurns = window.tailTurns;
+  const pending = call<DbConversationDetail | null>(
+    'conversation_detail',
+    args
+  ).finally(() => {
+    if (conversationDetailInflight.get(key) === pending) {
+      conversationDetailInflight.delete(key);
     }
   });
-  conversationDetailInflight.set(conversationId, pending);
+  conversationDetailInflight.set(key, pending);
   return pending;
 }
 
@@ -194,9 +218,12 @@ export function createConversationApi(transport: BackendTransport) {
       callApplicationCommand(transport, 'conversation_output', {
         conversationId,
       }),
-    // Conversation detail (metadata + projected timeline) from the durable event log.
-    detail: (conversationId: string): Promise<DbConversationDetail | null> =>
-      fetchConversationDetail(call, conversationId),
+    // Windowed transcript. `fromIndex` keeps a scrolled suffix; omitted means the tail.
+    detail: (
+      conversationId: string,
+      window?: ConversationDetailWindow
+    ): Promise<DbConversationDetail | null> =>
+      fetchConversationDetail(call, conversationId, window),
     prefetchDetail: (conversationId: string): void => {
       void fetchConversationDetail(call, conversationId).catch(() => undefined);
     },

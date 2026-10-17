@@ -1,5 +1,9 @@
 # 会话分叉：复制事件到分叉点，而非引用父日志
 
+子会话的可见历史是父 transcript 的文件副本，按
+[ADR-0082](0082-jsonl-transcript-window.md) 读取。分叉不复制
+`conversation_events`。独立副本语义不变：亲子不共享读取。
+
 Fork 产生一个**完全独立**的新 Conversation：把父会话的事件日志复制到分叉点（写入新会话自己的 sequence 空间与幂等键域），亲子关系只作为展示元数据保留（`forked_from_conversation_id` + `fork_point_turn`），不参与任何读写路径。父会话存在在途 turn 时拒绝 fork（不复制半成品 turn）。agent 侧上下文按 Session resume 语义接入：支持 `session/load` 的 agent 恢复到分叉点上下文，不支持者以导入语义冷启动并向用户明示。
 
 决定于 2026-07-04 的会话能力对抗性审查。

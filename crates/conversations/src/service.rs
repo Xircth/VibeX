@@ -41,7 +41,7 @@ use executors::profile::ExecutorProfileId;
 use git::{Commit, DiffTarget};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
-use sqlx::{SqliteConnection, SqlitePool};
+use sqlx::SqlitePool;
 use tokio::sync::Mutex;
 use ts_rs::TS;
 use uuid::Uuid;
@@ -313,7 +313,13 @@ pub async fn create_fork_conversation(
         }
     };
     drop(conn);
-    copy_conversation_history(pool, input.parent_conversation_id, input.id, None).await?;
+    crate::jsonl_history::copy_transcript_snapshot(
+        pool,
+        input.parent_conversation_id,
+        input.id,
+        None,
+    )
+    .await?;
     Ok(input.id)
 }
 
@@ -381,272 +387,14 @@ pub async fn fork_visible_conversation(
     };
     drop(conn);
 
-    let copied =
-        copy_conversation_history(pool, input.source_id, child_id, input.until_turn_id).await?;
-    Ok((child_id, copied))
-}
-
-async fn copy_conversation_history(
-    pool: &SqlitePool,
-    source_id: Uuid,
-    destination_id: Uuid,
-    until_turn_id: Option<Uuid>,
-) -> Result<usize, ConversationServiceError> {
-    let allowed_turns = match until_turn_id {
-        Some(until_turn_id) => Some(turn_ids_up_to(pool, source_id, until_turn_id).await?),
-        None => None,
-    };
-    let events = db::models::conversation_event::ConversationEventRecord::events_since(
+    let copied = crate::jsonl_history::copy_transcript_snapshot(
         pool,
-        source_id,
-        0,
-        i64::MAX,
+        input.source_id,
+        child_id,
+        input.until_turn_id,
     )
     .await?;
-    let cutoff_sequence = allowed_turns.as_ref().map(|allowed| {
-        events
-            .iter()
-            .filter(|record| {
-                record
-                    .turn_id
-                    .is_some_and(|turn_id| allowed.contains(&turn_id))
-            })
-            .map(|record| record.sequence)
-            .max()
-            .unwrap_or(0)
-    });
-    let mut conn = pool.acquire().await?;
-    sqlx::query("BEGIN IMMEDIATE").execute(&mut *conn).await?;
-    let copied = async {
-        let mut turn_map = HashMap::new();
-        let mut steering_id_map = HashMap::new();
-        let mut steering_operation_map = HashMap::new();
-        let mut count = 0usize;
-        for record in events {
-            if let Some(cutoff) = cutoff_sequence
-                && record.sequence > cutoff
-            {
-                continue;
-            }
-            if let (Some(allowed), Some(turn_id)) = (allowed_turns.as_ref(), record.turn_id)
-                && !allowed.contains(&turn_id)
-            {
-                continue;
-            }
-            let event: ConversationEvent = serde_json::from_str(&record.normalized_json)?;
-            if matches!(
-                event,
-                ConversationEvent::ConversationRelationCreated { .. }
-                    | ConversationEvent::ConversationCreated { .. }
-                    | ConversationEvent::ConversationInput { .. }
-            ) {
-                continue;
-            }
-            let new_turn_id = if let Some(old_turn_id) = record.turn_id {
-                Some(
-                    ensure_copied_turn(
-                        &mut conn,
-                        destination_id,
-                        old_turn_id,
-                        &event,
-                        &mut turn_map,
-                    )
-                    .await?,
-                )
-            } else {
-                None
-            };
-            let event = remap_copied_event(
-                event,
-                &turn_map,
-                new_turn_id,
-                &mut steering_id_map,
-                &mut steering_operation_map,
-            );
-            let normalized_json = serde_json::to_string(&event)?;
-            let copy_key = format!(
-                "fork-copy:{destination_id}:{}",
-                record
-                    .idempotency_key
-                    .as_deref()
-                    .map(str::to_owned)
-                    .unwrap_or_else(|| record.sequence.to_string())
-            );
-            ConversationEventAppender::append_and_apply(
-                &mut conn,
-                AppendConversationEvent {
-                    id: Uuid::new_v4(),
-                    conversation_id: destination_id,
-                    turn_id: new_turn_id,
-                    binding_id: None,
-                    connection_id: record.connection_id.as_deref(),
-                    prompt_id: record.prompt_id.as_deref(),
-                    source: "import",
-                    event_kind: &record.event_kind,
-                    normalized_json: &normalized_json,
-                    raw_json: record.raw_json.as_deref(),
-                    idempotency_key: Some(&copy_key),
-                },
-            )
-            .await?;
-            count += 1;
-        }
-        Ok::<_, ConversationServiceError>(count)
-    }
-    .await;
-    match copied {
-        Ok(count) => {
-            sqlx::query("COMMIT").execute(&mut *conn).await?;
-            Ok(count)
-        }
-        Err(error) => {
-            let _ = sqlx::query("ROLLBACK").execute(&mut *conn).await;
-            Err(error)
-        }
-    }
-}
-
-async fn turn_ids_up_to(
-    pool: &SqlitePool,
-    conversation_id: Uuid,
-    until_turn_id: Uuid,
-) -> Result<BTreeSet<Uuid>, ConversationServiceError> {
-    let turns = ConversationTurnRecord::list_for_conversation(pool, conversation_id).await?;
-    let mut allowed = BTreeSet::new();
-    let mut found = false;
-    for turn in turns {
-        allowed.insert(turn.id);
-        if turn.id == until_turn_id {
-            found = true;
-            break;
-        }
-    }
-    if !found {
-        return Err(ConversationServiceError::NotFound(format!(
-            "Turn {until_turn_id} not found"
-        )));
-    }
-    Ok(allowed)
-}
-
-fn mapped_uuid(map: &mut HashMap<Uuid, Uuid>, old: Uuid) -> Uuid {
-    *map.entry(old).or_insert_with(Uuid::new_v4)
-}
-
-fn mapped_turn_id(turn_map: &HashMap<Uuid, Uuid>, new_turn_id: Option<Uuid>, old: Uuid) -> Uuid {
-    turn_map.get(&old).copied().or(new_turn_id).unwrap_or(old)
-}
-
-fn remap_copied_event(
-    event: ConversationEvent,
-    turn_map: &HashMap<Uuid, Uuid>,
-    new_turn_id: Option<Uuid>,
-    steering_id_map: &mut HashMap<Uuid, Uuid>,
-    steering_operation_map: &mut HashMap<Uuid, Uuid>,
-) -> ConversationEvent {
-    match event {
-        ConversationEvent::ConversationSteering { event } => {
-            ConversationEvent::ConversationSteering {
-                event: remap_copied_steering(
-                    event,
-                    turn_map,
-                    new_turn_id,
-                    steering_id_map,
-                    steering_operation_map,
-                ),
-            }
-        }
-        other => other,
-    }
-}
-
-fn remap_copied_steering(
-    event: agents::ConversationSteeringEvent,
-    turn_map: &HashMap<Uuid, Uuid>,
-    new_turn_id: Option<Uuid>,
-    steering_id_map: &mut HashMap<Uuid, Uuid>,
-    steering_operation_map: &mut HashMap<Uuid, Uuid>,
-) -> agents::ConversationSteeringEvent {
-    match event {
-        agents::ConversationSteeringEvent::Requested {
-            steering_id,
-            operation_id,
-            expected_turn_id,
-            payload_digest,
-            blocks,
-            principal,
-        } => agents::ConversationSteeringEvent::Requested {
-            steering_id: mapped_uuid(steering_id_map, steering_id),
-            operation_id: mapped_uuid(steering_operation_map, operation_id),
-            expected_turn_id: mapped_turn_id(turn_map, new_turn_id, expected_turn_id),
-            payload_digest,
-            blocks,
-            principal,
-        },
-        agents::ConversationSteeringEvent::Accepted {
-            steering_id,
-            expected_turn_id,
-        } => agents::ConversationSteeringEvent::Accepted {
-            steering_id: mapped_uuid(steering_id_map, steering_id),
-            expected_turn_id: mapped_turn_id(turn_map, new_turn_id, expected_turn_id),
-        },
-        agents::ConversationSteeringEvent::Rejected {
-            steering_id,
-            expected_turn_id,
-            code,
-            message,
-        } => agents::ConversationSteeringEvent::Rejected {
-            steering_id: mapped_uuid(steering_id_map, steering_id),
-            expected_turn_id: mapped_turn_id(turn_map, new_turn_id, expected_turn_id),
-            code,
-            message,
-        },
-        agents::ConversationSteeringEvent::Unknown {
-            steering_id,
-            expected_turn_id,
-            message,
-        } => agents::ConversationSteeringEvent::Unknown {
-            steering_id: mapped_uuid(steering_id_map, steering_id),
-            expected_turn_id: mapped_turn_id(turn_map, new_turn_id, expected_turn_id),
-            message,
-        },
-    }
-}
-
-async fn ensure_copied_turn(
-    conn: &mut SqliteConnection,
-    conversation_id: Uuid,
-    old_turn_id: Uuid,
-    event: &ConversationEvent,
-    turn_map: &mut HashMap<Uuid, Uuid>,
-) -> Result<Uuid, ConversationServiceError> {
-    if let Some(existing) = turn_map.get(&old_turn_id) {
-        return Ok(*existing);
-    }
-    let new_turn_id = Uuid::new_v4();
-    let text_preview = match event {
-        ConversationEvent::UserTurnCreated { blocks, .. } => blocks.iter().find_map(|block| {
-            if let agents::conversation::ConversationInputBlock::Text { text } = block {
-                Some(text.as_str())
-            } else {
-                None
-            }
-        }),
-        _ => None,
-    };
-    ConversationTurnRecord::create_pending_on_connection(
-        conn,
-        new_turn_id,
-        CreateConversationTurn {
-            conversation_id,
-            prompt_id: None,
-            text_preview,
-            input_blocks_json: "[]",
-        },
-    )
-    .await?;
-    turn_map.insert(old_turn_id, new_turn_id);
-    Ok(new_turn_id)
+    Ok((child_id, copied))
 }
 
 pub async fn create_workflow_conversation(

@@ -1,11 +1,7 @@
 import { act, renderHook, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { useConversationTimeline } from './useConversationTimeline';
-import {
-  getConversationTimelineView,
-  resetConversationTimelineRegistryForTests,
-  subscribeConversationTimeline,
-} from './conversationTimelineRegistry';
+import { resetConversationTimelineRegistryForTests } from './conversationTimelineRegistry';
 import { TIMELINE_OLDER_PAGE_SIZE } from './timelinePaging';
 import { resetConversationKeepaliveForTests } from './conversationKeepalive';
 import { publishOptimisticConversationTurn } from './optimisticTurnEvents';
@@ -286,7 +282,7 @@ describe('useConversationTimeline', () => {
 
     rerender({ id: 'conversation-2' });
     await waitFor(() =>
-      expect(detailMock).toHaveBeenCalledWith('conversation-2')
+      expect(detailMock).toHaveBeenCalledWith('conversation-2', undefined)
     );
     await waitFor(() => expect(result.current.timeline).toHaveLength(0));
 
@@ -347,7 +343,7 @@ describe('useConversationTimeline', () => {
     await waitFor(() => expect(result.current.sessionBindReady).toBe(true));
   });
 
-  it('shows each older page as it arrives instead of waiting for the rest', async () => {
+  it('shows each older page when the user asks for it', async () => {
     let resolveFirst: (value: {
       conversation_id: string;
       projection_version: number;
@@ -390,6 +386,12 @@ describe('useConversationTimeline', () => {
     expect(result.current.timeline.map((row) => row.turn.id)).toEqual([
       't-tail:assistant',
     ]);
+    expect(timelinePageMock).not.toHaveBeenCalled();
+
+    let firstPage: Promise<void> = Promise.resolve();
+    act(() => {
+      firstPage = result.current.loadOlder();
+    });
     await waitFor(() => expect(timelinePageMock).toHaveBeenCalledTimes(1));
     expect(timelinePageMock).toHaveBeenCalledWith({
       conversationId: CONVERSATION_ID,
@@ -405,6 +407,7 @@ describe('useConversationTimeline', () => {
         next_cursor: String(TIMELINE_OLDER_PAGE_SIZE),
         rows: [userRow('t-mid', 'earlier', 40n)],
       });
+      await firstPage;
     });
 
     await waitFor(() =>
@@ -413,10 +416,16 @@ describe('useConversationTimeline', () => {
         't-tail:assistant',
       ])
     );
-    await waitFor(() => expect(timelinePageMock).toHaveBeenCalledTimes(2));
+    expect(timelinePageMock).toHaveBeenCalledTimes(1);
     expect(
       result.current.timeline.some((row) => row.turn.id === 't-early:user')
     ).toBe(false);
+
+    let secondPage: Promise<void> = Promise.resolve();
+    act(() => {
+      secondPage = result.current.loadOlder();
+    });
+    await waitFor(() => expect(timelinePageMock).toHaveBeenCalledTimes(2));
 
     await act(async () => {
       resolveSecond({
@@ -437,7 +446,7 @@ describe('useConversationTimeline', () => {
     );
   });
 
-  it('keeps paging older history when loadOlder overlaps an in-flight page', async () => {
+  it('shares one request when loadOlder overlaps an in-flight page', async () => {
     let resolveFirst: (value: {
       conversation_id: string;
       projection_version: number;
@@ -445,20 +454,12 @@ describe('useConversationTimeline', () => {
       next_cursor: string | null;
       rows: TimelineRow[];
     }) => void = () => {};
-    let resolveSecond: typeof resolveFirst = () => {};
-    timelinePageMock
-      .mockImplementationOnce(
-        () =>
-          new Promise((resolve) => {
-            resolveFirst = resolve;
-          })
-      )
-      .mockImplementationOnce(
-        () =>
-          new Promise((resolve) => {
-            resolveSecond = resolve;
-          })
-      );
+    timelinePageMock.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          resolveFirst = resolve;
+        })
+    );
 
     detailMock.mockResolvedValue({
       ...detail(),
@@ -472,18 +473,16 @@ describe('useConversationTimeline', () => {
       },
     });
 
-    const unsubscribe = subscribeConversationTimeline(() => {
-      const view = getConversationTimelineView(CONVERSATION_ID);
-      if (view.hasEarlier && view.timeline.length === 1) {
-        void view.loadOlder();
-      }
-    });
-
     const { result } = renderHook(() =>
       useConversationTimeline(CONVERSATION_ID)
     );
 
     await waitFor(() => expect(result.current.loading).toBe(false));
+    let firstPage: Promise<void> = Promise.resolve();
+    act(() => {
+      firstPage = result.current.loadOlder();
+      void result.current.loadOlder();
+    });
     await waitFor(() => expect(timelinePageMock).toHaveBeenCalledTimes(1));
 
     await act(async () => {
@@ -494,46 +493,29 @@ describe('useConversationTimeline', () => {
         next_cursor: String(TIMELINE_OLDER_PAGE_SIZE),
         rows: [userRow('t-mid', 'earlier', 40n)],
       });
+      await firstPage;
     });
 
-    await waitFor(() => expect(timelinePageMock).toHaveBeenCalledTimes(2));
-
-    await act(async () => {
-      resolveSecond({
-        conversation_id: CONVERSATION_ID,
-        projection_version: 2,
-        cursor: '0',
-        next_cursor: null,
-        rows: [userRow('t-early', 'first', 1n)],
-      });
-    });
-
+    expect(timelinePageMock).toHaveBeenCalledTimes(1);
     await waitFor(() =>
       expect(result.current.timeline.map((row) => row.turn.id)).toEqual([
-        't-early:user',
         't-mid:user',
         't-tail:assistant',
       ])
     );
-    unsubscribe();
   });
 
-  it('keeps paged history when a later detail reload only returns the open tail', async () => {
-    timelinePageMock
-      .mockResolvedValueOnce({
-        conversation_id: CONVERSATION_ID,
-        projection_version: 2,
-        cursor: String(TIMELINE_OLDER_PAGE_SIZE),
-        next_cursor: String(TIMELINE_OLDER_PAGE_SIZE),
-        rows: [userRow('t-mid', 'earlier', 40n)],
-      })
-      .mockResolvedValueOnce({
-        conversation_id: CONVERSATION_ID,
-        projection_version: 2,
-        cursor: '0',
-        next_cursor: null,
-        rows: [userRow('t-early', 'first', 1n)],
-      });
+  it('refreshes from the loaded window start instead of the open tail', async () => {
+    timelinePageMock.mockResolvedValueOnce({
+      conversation_id: CONVERSATION_ID,
+      projection_version: 2,
+      cursor: '0',
+      next_cursor: null,
+      rows: [
+        userRow('t-early', 'first', 1n),
+        userRow('t-mid', 'earlier', 40n),
+      ],
+    });
 
     const openDetail = {
       ...detail(),
@@ -542,16 +524,36 @@ describe('useConversationTimeline', () => {
         ...detail().timeline,
         last_sequence: 80n,
         truncated_from_start: true,
-        older_cursor: String(TIMELINE_OLDER_PAGE_SIZE * 2),
+        older_cursor: String(TIMELINE_OLDER_PAGE_SIZE),
         rows: [assistantRow('t-tail', 'latest', 80n)],
       },
     };
-    detailMock.mockResolvedValue(openDetail);
+    const fullDetail = {
+      ...openDetail,
+      timeline: {
+        ...openDetail.timeline,
+        truncated_from_start: false,
+        older_cursor: null,
+        rows: [
+          userRow('t-early', 'first', 1n),
+          userRow('t-mid', 'earlier', 40n),
+          assistantRow('t-tail', 'latest', 80n),
+        ],
+      },
+    };
+    detailMock.mockImplementation(
+      async (_conversationId: string, window?: { fromIndex?: number }) =>
+        window?.fromIndex === 0 ? fullDetail : openDetail
+    );
 
     const { result } = renderHook(() =>
       useConversationTimeline(CONVERSATION_ID)
     );
 
+    await waitFor(() => expect(result.current.loading).toBe(false));
+    await act(async () => {
+      await result.current.loadOlder();
+    });
     await waitFor(() =>
       expect(result.current.timeline.map((row) => row.turn.id)).toEqual([
         't-early:user',
@@ -564,6 +566,9 @@ describe('useConversationTimeline', () => {
       result.current.refresh();
     });
     await waitFor(() => expect(detailMock).toHaveBeenCalledTimes(2));
+    expect(detailMock).toHaveBeenLastCalledWith(CONVERSATION_ID, {
+      fromIndex: 0,
+    });
     await waitFor(() => expect(result.current.loading).toBe(false));
     expect(result.current.timeline.map((row) => row.turn.id)).toEqual([
       't-early:user',
@@ -715,7 +720,9 @@ describe('useConversationTimeline', () => {
     expect(ensureSessionControlsMock).toHaveBeenCalledWith(CONVERSATION_ID, {
       reload: true,
     });
-    expect(detailMock).toHaveBeenCalledWith(CONVERSATION_ID);
+    expect(detailMock).toHaveBeenCalledWith(CONVERSATION_ID, {
+      fromIndex: 0,
+    });
     expect(result.current.timeline).toHaveLength(1);
   });
 

@@ -92,6 +92,12 @@ export type ConversationStoreEntry = {
   /** Agent-advertised slash/skill catalog. `null` until the first update. */
   availableCommands: AgentAvailableCommand[] | null;
   olderCursor: string | null;
+  /** Fingerprint of the turns above `olderCursor`, from the last window response. */
+  prefixHash: string | null;
+  /** The loaded rows begin at transcript index 0. */
+  loadedToStart: boolean;
+  /** Increments when an older page is prepended, so scroll compensation is not keyed off the first row id. */
+  olderTurnsPrependEpoch: number;
 };
 
 export type ConversationStoreState = {
@@ -145,13 +151,13 @@ export function conversationStoreReducer(
         const detailLastSequence = toBigInt(
           action.detail.timeline.last_sequence
         );
-        // If live row ops have advanced past the reloaded projection, keep them —
-        // otherwise a slow `conversation_detail` response would rewind the timeline.
+        // A slow detail response must not rewind row-ops that already rendered.
+        // Otherwise the server window replaces the loaded rows.
         const keepRealtimeRows = entry.lastSequence > detailLastSequence;
-        const mergedRows = mergeOpenTimelineRows(
-          entry.rows,
-          action.detail.timeline.rows
-        );
+        const incomingRows = action.detail.timeline.rows;
+        const mergedRows = keepRealtimeRows
+          ? mergeOpenTimelineRows(entry.rows, incomingRows)
+          : incomingRows;
         const reconciledTimeline = reconcileOptimisticTurnsAgainstRows(
           entry.optimisticTurns,
           mergedRows
@@ -203,17 +209,21 @@ export function conversationStoreReducer(
             action.detail.available_commands !== null
               ? action.detail.available_commands
               : entry.availableCommands,
-          olderCursor: preferLoadedOlderCursor(
-            entry.olderCursor,
-            action.detail.timeline.older_cursor,
-            entry.rows.length > 0
-          ),
+          olderCursor: keepRealtimeRows
+            ? preferLoadedOlderCursor(
+                entry.olderCursor,
+                action.detail.timeline.older_cursor,
+                entry.rows.length > 0
+              )
+            : (action.detail.timeline.older_cursor ?? null),
+          prefixHash: keepRealtimeRows
+            ? (windowPrefixHash(action.detail) ?? entry.prefixHash)
+            : windowPrefixHash(action.detail),
+          loadedToStart: keepRealtimeRows
+            ? entry.loadedToStart
+            : action.detail.timeline.older_cursor == null,
         };
-        // Keep already-paged rows on screen. A tail reload used to replace them
-        // with the open window, and an unprotected budget pass dropped fat history
-        // until the user scrolled to page it back.
-        const protect = new Set(hydrated.rows.map((row) => row.row_id));
-        return enforceTimelineBudget(hydrated, protect);
+        return hydrated;
       });
     case 'load_error':
       return updateEntry(state, action.conversationId, (entry) => ({
@@ -240,9 +250,7 @@ export function conversationStoreReducer(
       }));
     case 'row_ops': {
       return updateEntry(state, action.batch.conversation_id, (entry) => {
-        const next = applyRowOpBatch(entry, action.batch);
-        const protect = new Set(next.rows.map((row) => row.row_id));
-        return enforceTimelineBudget(next, protect);
+        return applyRowOpBatch(entry, action.batch);
       });
     }
     case 'upsert_rows':
@@ -250,14 +258,13 @@ export function conversationStoreReducer(
         let rows = entry.rows;
         let liveText = entry.liveText;
         let optimisticTurns = entry.optimisticTurns;
-        const protect = new Set(entry.rows.map((row) => row.row_id));
+        let prepended = 0;
         if (action.protectLoaded) {
           const existing = new Set(rows.map((row) => row.row_id));
           const firstRevision = rows[0] ? toBigInt(rows[0].revision) : null;
           const older: TimelineRow[] = [];
           const updates: TimelineRow[] = [];
           for (const row of action.rows) {
-            protect.add(row.row_id);
             const reconciled = reconcileOptimisticTurnAgainstUserRow(
               optimisticTurns,
               row
@@ -270,6 +277,7 @@ export function conversationStoreReducer(
             ) {
               older.push(reconciled.row);
               existing.add(row.row_id);
+              prepended += 1;
             } else {
               updates.push(reconciled.row);
             }
@@ -303,24 +311,26 @@ export function conversationStoreReducer(
             liveText = applied.liveText;
           }
         }
-        return enforceTimelineBudget(
-          {
-            ...entry,
-            rows,
-            liveText,
-            optimisticTurns,
-            lastSequence:
-              action.lastSequence > entry.lastSequence
-                ? action.lastSequence
-                : entry.lastSequence,
-            olderCursor:
-              action.olderCursor !== undefined
-                ? action.olderCursor
-                : entry.olderCursor,
-            gap: { kind: 'none' },
-          },
-          protect
-        );
+        return {
+          ...entry,
+          rows,
+          liveText,
+          optimisticTurns,
+          lastSequence:
+            action.lastSequence > entry.lastSequence
+              ? action.lastSequence
+              : entry.lastSequence,
+          olderCursor:
+            action.olderCursor !== undefined
+              ? action.olderCursor
+              : entry.olderCursor,
+          olderTurnsPrependEpoch:
+            entry.olderTurnsPrependEpoch + (prepended > 0 ? 1 : 0),
+          loadedToStart:
+            entry.loadedToStart ||
+            (action.olderCursor !== undefined && action.olderCursor == null),
+          gap: { kind: 'none' },
+        };
       });
     case 'optimistic_turn':
       return updateEntry(state, action.conversationId, (entry) => ({
@@ -454,13 +464,6 @@ function upsertRow(
   return { rows: nextRows, liveText: nextLive };
 }
 
-/** Hot tail of *settled* history kept in the renderer. Older rows reload
- * through `project_row_window`. While a turn is streaming the loaded window
- * stays put: dropping it and paging it back unmounts history and jumps the
- * viewport to the earliest remaining user message. */
-export const TIMELINE_RETAINED_ROW_LIMIT = 80;
-export const TIMELINE_RETAINED_BYTE_BUDGET = 768 * 1024;
-
 function applyPatchBlocks(
   rows: TimelineRow[],
   liveText: Record<string, LiveTextOverlay>,
@@ -559,6 +562,12 @@ function mergePatchedBlocks(
   return next;
 }
 
+function windowPrefixHash(detail: DbConversationDetail): string | null {
+  const hash = (detail as DbConversationDetail & { prefix_hash?: string | null })
+    .prefix_hash;
+  return hash ?? null;
+}
+
 function maxRowRevision(rows: TimelineRow[]): bigint {
   let max = 0n;
   for (const row of rows) {
@@ -566,70 +575,6 @@ function maxRowRevision(rows: TimelineRow[]): bigint {
     if (revision > max) max = revision;
   }
   return max;
-}
-
-export function enforceTimelineBudget(
-  entry: ConversationStoreEntry,
-  protectIds?: ReadonlySet<string>
-): ConversationStoreEntry {
-  if (hasStreamingTimeline(entry)) return entry;
-  const protect = new Set(protectIds ?? []);
-  for (const rowId of inFlightProtectIds(entry)) protect.add(rowId);
-  let rows = entry.rows;
-  if (rows[0] && protect.has(rows[0].row_id)) return entry;
-  let dropped = 0;
-  const over = () =>
-    rows.length > TIMELINE_RETAINED_ROW_LIMIT ||
-    estimateRowsBytes(rows) > TIMELINE_RETAINED_BYTE_BUDGET;
-  while (rows.length > 1 && over()) {
-    const front = rows[0];
-    if (!front || protect.has(front.row_id)) break;
-    rows = rows.slice(1);
-    dropped += 1;
-  }
-  if (dropped === 0 && rows === entry.rows) return entry;
-  let liveText = entry.liveText;
-  if (dropped > 0) {
-    const kept = new Set(rows.map((row) => row.row_id));
-    const nextLive: Record<string, LiveTextOverlay> = {};
-    for (const [rowId, overlay] of Object.entries(liveText)) {
-      if (kept.has(rowId)) nextLive[rowId] = overlay;
-    }
-    liveText = nextLive;
-  }
-  let olderCursor = entry.olderCursor;
-  if (dropped > 0) {
-    const current = olderCursor == null ? 0 : Number(olderCursor);
-    const base = Number.isFinite(current) ? current : 0;
-    olderCursor = String(base + dropped);
-  }
-  return { ...entry, rows, liveText, olderCursor };
-}
-
-function estimateRowsBytes(rows: TimelineRow[]): number {
-  let total = 0;
-  for (const row of rows) total += estimateValue(row.row);
-  return total;
-}
-
-function estimateValue(value: unknown): number {
-  if (value == null) return 0;
-  if (typeof value === 'string') return value.length;
-  if (typeof value === 'number' || typeof value === 'boolean') return 8;
-  if (typeof value === 'bigint') return 8;
-  if (Array.isArray(value)) {
-    let total = 0;
-    for (const item of value) total += estimateValue(item);
-    return total;
-  }
-  if (typeof value === 'object') {
-    let total = 0;
-    for (const item of Object.values(value as Record<string, unknown>)) {
-      total += estimateValue(item);
-    }
-    return total;
-  }
-  return 0;
 }
 
 /**
@@ -985,6 +930,9 @@ function createEntry(conversationId: string): ConversationStoreEntry {
     sessionConfigOptions: [],
     availableCommands: null,
     olderCursor: null,
+    prefixHash: null,
+    loadedToStart: false,
+    olderTurnsPrependEpoch: 0,
   };
 }
 
@@ -1099,46 +1047,6 @@ function turnIdOfRowId(rowId: string): string | null {
 }
 
 /** `${turn}:user` | `${turn}:assistant` | `${turn}:assistant:N` | `${turn}:steer:{id}` */
-function turnPrefixOfRowId(rowId: string): string | null {
-  const match = /^(.*?):(user|assistant|steer)(?::|$)/.exec(rowId);
-  return match?.[1] ?? null;
-}
-
-function hasStreamingTimeline(entry: ConversationStoreEntry): boolean {
-  if (Object.keys(entry.liveText).length > 0) return true;
-  return entry.rows.some(
-    (row) =>
-      row.row.kind === 'message_turn' &&
-      (row.row.phase === 'streaming' || row.row.phase === 'optimistic')
-  );
-}
-
-function inFlightProtectIds(entry: ConversationStoreEntry): Set<string> {
-  const turnIds = new Set<string>();
-  if (entry.currentTurnId) turnIds.add(entry.currentTurnId);
-  for (const rowId of Object.keys(entry.liveText)) {
-    const turnId = turnPrefixOfRowId(rowId);
-    if (turnId) turnIds.add(turnId);
-  }
-  for (const row of entry.rows) {
-    if (
-      row.row.kind !== 'message_turn' ||
-      (row.row.phase !== 'streaming' && row.row.phase !== 'optimistic')
-    ) {
-      continue;
-    }
-    const turnId = turnPrefixOfRowId(row.row_id);
-    if (turnId) turnIds.add(turnId);
-  }
-  const ids = new Set<string>();
-  for (const row of entry.rows) {
-    if (entry.liveText[row.row_id]) ids.add(row.row_id);
-    const turnId = turnPrefixOfRowId(row.row_id);
-    if (turnId && turnIds.has(turnId)) ids.add(row.row_id);
-  }
-  return ids;
-}
-
 function reconcileOptimisticTurns(
   optimisticTurns: MessageTurn[],
   timeline: ConversationTimeline

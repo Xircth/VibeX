@@ -12,10 +12,7 @@ import { formatSessionComposerCommand } from '@/components/tasks/follow-up/sessi
 import {
   conversationStoreReducer,
   emptyConversationStoreState,
-  enforceTimelineBudget,
   sideRowsForEntry,
-  TIMELINE_RETAINED_BYTE_BUDGET,
-  TIMELINE_RETAINED_ROW_LIMIT,
   timelineItemsForEntry,
   timelineTurnsForEntry,
   type ConversationStoreState,
@@ -1467,7 +1464,7 @@ describe('conversationStore (row-op dumb container)', () => {
     expect(entry.rows.at(-1)?.row_id).toBe('t39:user');
   });
 
-  it('keeps paged history when a later open-window load_success arrives', () => {
+  it('replaces paged rows when a later tail window arrives', () => {
     const tail = [userRow('t16', 'tail', 16n), userRow('t17', 'latest', 17n)];
     let detail = emptyDetail(tail);
     detail.timeline.last_sequence = 17n;
@@ -1496,12 +1493,10 @@ describe('conversationStore (row-op dumb container)', () => {
       detail,
     });
     expect(entryOf(state).rows.map((row) => row.row_id)).toEqual([
-      't0:user',
-      't1:user',
       't16:user',
       't17:user',
     ]);
-    expect(entryOf(state).olderCursor).toBe('0');
+    expect(entryOf(state).olderCursor).toBe('16');
   });
 
   it('does not amputate fat history on a keepRealtimeRows reload', () => {
@@ -1548,28 +1543,14 @@ describe('conversationStore (row-op dumb container)', () => {
     expect(entryOf(state).rows[0]?.row_id).toBe('t0:user');
   });
 
-  it('drops the oldest rows past the retained budget and reopens them by cursor', () => {
-    const rows = Array.from(
-      { length: TIMELINE_RETAINED_ROW_LIMIT + 1 },
-      (_, index) => userRow(`t${index}`, 'x', BigInt(index + 1))
+  it('keeps every loaded row instead of trimming a retain budget', () => {
+    const rows = Array.from({ length: 81 }, (_, index) =>
+      userRow(`t${index}`, 'x', BigInt(index + 1))
     );
-    const trimmed = enforceTimelineBudget(entryOf(loaded(rows)));
-    expect(trimmed.rows).toHaveLength(TIMELINE_RETAINED_ROW_LIMIT);
-    expect(trimmed.rows[0]?.row_id).toBe('t1:user');
-    expect(trimmed.olderCursor).toBe('1');
-  });
-
-  it('drops oldest rows when their payload exceeds the byte budget', () => {
-    const fat = 'x'.repeat(32 * 1024);
-    const rows = Array.from({ length: 40 }, (_, index) =>
-      userRow(`t${index}`, fat, BigInt(index + 1))
-    );
-    const trimmed = enforceTimelineBudget(entryOf(loaded(rows)));
-    expect(trimmed.rows.length).toBeLessThan(rows.length);
-    expect(trimmed.rows.length * fat.length).toBeLessThanOrEqual(
-      TIMELINE_RETAINED_BYTE_BUDGET
-    );
-    expect(trimmed.olderCursor).not.toBeNull();
+    const entry = entryOf(loaded(rows));
+    expect(entry.rows).toHaveLength(81);
+    expect(entry.rows[0]?.row_id).toBe('t0:user');
+    expect(entry.olderCursor).toBeNull();
   });
 
   it('keeps the in-flight turn when its streaming payload exceeds the hot budget', () => {
@@ -1707,10 +1688,9 @@ describe('conversationStore (row-op dumb container)', () => {
     expect(textOf(assistant?.turn.blocks ?? [])).toBe('final answer');
   });
 
-  it('keeps a just-loaded older page even when it exceeds the hot budget', () => {
-    const tail = Array.from(
-      { length: TIMELINE_RETAINED_ROW_LIMIT },
-      (_, index) => userRow(`tail${index}`, 'x', BigInt(index + 20))
+  it('keeps a prepended older page in front of the open window', () => {
+    const tail = Array.from({ length: 4 }, (_, index) =>
+      userRow(`tail${index}`, 'x', BigInt(index + 20))
     );
     let state = loaded(tail);
     const older = Array.from({ length: 5 }, (_, index) =>
@@ -1724,9 +1704,10 @@ describe('conversationStore (row-op dumb container)', () => {
       protectLoaded: true,
     });
     const entry = entryOf(state);
-    expect(entry.rows.length).toBe(TIMELINE_RETAINED_ROW_LIMIT + 5);
+    expect(entry.rows.length).toBe(9);
     expect(entry.rows[0]?.row_id).toBe('old0:user');
-    expect(entry.rows.at(-1)?.row_id).toBe('tail79:user');
+    expect(entry.rows.at(-1)?.row_id).toBe('tail3:user');
+    expect(entry.olderTurnsPrependEpoch).toBe(1);
   });
 });
 

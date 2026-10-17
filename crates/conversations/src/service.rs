@@ -601,13 +601,21 @@ pub trait ConversationHost: Send + Sync {
     }
 }
 
-/// Receives a durable conversation event immediately after its append transaction
-/// commits. The desktop shell uses this boundary to publish row operations before
-/// orchestration can trigger any causally-later Agent work; headless compositions
-/// can keep the default no-op implementation and serve projections on demand.
+/// Receives a conversation event at the recorder boundary. `publish` runs after a
+/// durable append. `publish_unpersisted` folds a transcript delta that was written
+/// to the JSONL file and not inserted into `conversation_events`. The default
+/// forwards to `publish`, which is only correct for a publisher that applies the
+/// record it is given. A publisher that re-reads the durable tail must override it.
 #[async_trait::async_trait]
 pub trait ConversationEventPublisher: Send + Sync {
     async fn publish(&self, record: &db::models::conversation_event::ConversationEventRecord);
+
+    async fn publish_unpersisted(
+        &self,
+        record: &db::models::conversation_event::ConversationEventRecord,
+    ) {
+        self.publish(record).await;
+    }
 }
 
 #[derive(Debug, Default)]

@@ -1329,6 +1329,24 @@ impl IncrementalRowProjector {
     pub fn last_sequence(&self) -> i64 {
         self.fold.last_sequence
     }
+
+    /// Fold every durable event, including ones written after the snapshot.
+    pub async fn load_through_latest(
+        pool: &SqlitePool,
+        conversation_id: Uuid,
+    ) -> Result<Self, sqlx::Error> {
+        let max_sequence = ConversationEventRecord::max_sequence(pool, conversation_id).await?;
+        Self::load(pool, conversation_id, max_sequence).await
+    }
+}
+
+#[cfg(test)]
+impl IncrementalRowProjector {
+    fn at_sequence(sequence: i64) -> Self {
+        let mut fold = ProjectionFold::default();
+        fold.last_sequence = sequence;
+        Self { fold }
+    }
 }
 
 /// How many conversations keep a warm [`IncrementalRowProjector`]. Each holds that
@@ -1337,9 +1355,15 @@ impl IncrementalRowProjector {
 const MAX_CACHED_ROW_PROJECTORS: usize = 8;
 
 /// A cached projector plus the recency used to bound the cache.
+///
+/// `db_cursor` is the last SQLite sequence folded into this process. Transcript
+/// deltas advance `projector.last_sequence()` without moving `db_cursor`, so the
+/// next durable event (turn completed, checkpoint) is still applied.
 pub struct CachedRowProjector {
     pub projector: IncrementalRowProjector,
     pub last_emitted_sequence: i64,
+    pub db_cursor: i64,
+    has_unpersisted: bool,
     last_used: Instant,
 }
 
@@ -1349,12 +1373,48 @@ impl CachedRowProjector {
         Self {
             projector,
             last_emitted_sequence,
+            db_cursor: last_emitted_sequence,
+            has_unpersisted: false,
             last_used: Instant::now(),
         }
     }
 
     pub fn touch(&mut self) {
         self.last_used = Instant::now();
+    }
+
+    pub fn has_unpersisted(&self) -> bool {
+        self.has_unpersisted
+    }
+
+    /// Fold one durable event. `None` means this sequence was already consumed.
+    /// When in-memory deltas have passed the SQLite sequence, the event is
+    /// renumbered so the fold does not drop it.
+    pub fn apply_persisted(
+        &mut self,
+        record: &ConversationEventRecord,
+    ) -> Result<Option<Vec<ConversationRowOp>>, sqlx::Error> {
+        if record.sequence <= self.db_cursor {
+            return Ok(None);
+        }
+        self.db_cursor = record.sequence;
+        self.has_unpersisted = false;
+        let mut folded = record.clone();
+        if folded.sequence <= self.projector.last_sequence() {
+            folded.sequence = self.projector.last_sequence().saturating_add(1);
+        }
+        Ok(Some(self.projector.apply(&folded)?))
+    }
+
+    /// Fold one transcript delta. The database cursor stays put.
+    pub fn apply_unpersisted(
+        &mut self,
+        record: &ConversationEventRecord,
+    ) -> Result<Vec<ConversationRowOp>, sqlx::Error> {
+        let mut folded = record.clone();
+        folded.sequence = self.projector.last_sequence().saturating_add(1);
+        self.has_unpersisted = true;
+        self.projector.apply(&folded)
     }
 }
 
@@ -1405,7 +1465,7 @@ pub fn evict_least_recently_used_projectors(
     while cache.len() > MAX_CACHED_ROW_PROJECTORS {
         let Some(oldest) = cache
             .iter()
-            .filter(|(id, _)| **id != keep)
+            .filter(|(id, entry)| **id != keep && !entry.has_unpersisted)
             .min_by_key(|(_, entry)| entry.last_used)
             .map(|(id, _)| *id)
         else {
@@ -3428,12 +3488,13 @@ mod tests {
         AgentSessionConfigOption, AgentSessionId,
         conversation::{
             AgentPromptCapabilities, ConversationArtifactReference, ConversationDelegation,
-            ConversationDelegationResult, ConversationError, ConversationFeedbackRequest,
-            ConversationFeedbackResponse, ConversationFileChange, ConversationFileChangeSummary,
-            ConversationInputBlock, ConversationInputEvent, ConversationInputPayload,
-            ConversationPermissionRequest, ConversationPermissionResponse, ConversationPlanEntry,
-            ConversationQuestionRequest, ConversationQuestionResponse, ConversationTerminalPatch,
-            ConversationToolCallPatch, ConversationUsage, SessionRecoveryStrategy,
+            ConversationDelegationResult, ConversationError, ConversationEvent,
+            ConversationFeedbackRequest, ConversationFeedbackResponse, ConversationFileChange,
+            ConversationFileChangeSummary, ConversationInputBlock, ConversationInputEvent,
+            ConversationInputPayload, ConversationPermissionRequest,
+            ConversationPermissionResponse, ConversationPlanEntry, ConversationQuestionRequest,
+            ConversationQuestionResponse, ConversationTerminalPatch, ConversationToolCallPatch,
+            ConversationUsage, SessionRecoveryStrategy,
         },
     };
     use db::models::{
@@ -3448,6 +3509,59 @@ mod tests {
 
     use super::*;
     use crate::{CreateDelegatedConversation, create_delegated_conversation};
+
+    fn record_of(
+        conversation_id: Uuid,
+        sequence: i64,
+        event: ConversationEvent,
+    ) -> ConversationEventRecord {
+        ConversationEventRecord {
+            id: Uuid::new_v4(),
+            conversation_id,
+            turn_id: None,
+            binding_id: None,
+            connection_id: None,
+            prompt_id: None,
+            sequence,
+            source: "acp".into(),
+            event_kind: "test".into(),
+            event_version: CURRENT_EVENT_VERSION,
+            normalized_json: serde_json::to_string(&event).expect("event json"),
+            raw_json: None,
+            idempotency_key: None,
+            created_at: chrono::Utc::now(),
+        }
+    }
+
+    #[test]
+    fn unpersisted_delta_does_not_hide_the_next_database_event() {
+        let conversation_id = Uuid::new_v4();
+        let mut cached = CachedRowProjector::new(IncrementalRowProjector::at_sequence(4));
+        cached
+            .apply_unpersisted(&record_of(
+                conversation_id,
+                0,
+                ConversationEvent::AssistantTextDelta {
+                    text: "hi".into(),
+                    message_id: None,
+                },
+            ))
+            .expect("delta");
+        assert_eq!(cached.db_cursor, 4);
+        assert_eq!(cached.projector.last_sequence(), 5);
+        assert!(cached.has_unpersisted());
+
+        cached
+            .apply_persisted(&record_of(
+                conversation_id,
+                5,
+                ConversationEvent::TurnCompleted { stop_reason: None },
+            ))
+            .expect("completed");
+        assert_eq!(cached.db_cursor, 5);
+        assert_eq!(cached.projector.last_sequence(), 6);
+        assert!(!cached.has_unpersisted());
+    }
 
     async fn setup_pool() -> SqlitePool {
         let options = SqliteConnectOptions::from_str("sqlite::memory:")

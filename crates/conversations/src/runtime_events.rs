@@ -17,9 +17,10 @@ use agents::{
         ConversationToolCallPatch, ConversationUsage,
     },
 };
+use chrono::Utc;
 use db::models::{
     conversation::{BindingStatus, ConversationAgentBindingRecord, DbConversationSummary},
-    conversation_event::AppendConversationEvent,
+    conversation_event::{AppendConversationEvent, CURRENT_EVENT_VERSION, ConversationEventRecord},
     conversation_turn::ConversationTurnRecord,
     session::Session,
 };
@@ -225,6 +226,19 @@ impl ConversationAgentEventRecorder {
         let mut batch = RecordedConversationBatch::default();
         for mapped in records {
             let normalized_json = serde_json::to_string(&mapped.event)?;
+            if crate::jsonl_history::is_transcript_delta(&mapped.event) {
+                if let Some(publisher) = &self.event_publisher {
+                    let record = ephemeral_record(&mapped, &normalized_json);
+                    publisher.publish_unpersisted(&record).await;
+                }
+                crate::jsonl_history::mirror_appended_event(
+                    &self.pool,
+                    mapped.conversation_id,
+                    &mapped.event,
+                )
+                .await;
+                continue;
+            }
             let Some(record) = append_mapped_event(&self.pool, &mapped, &normalized_json).await?
             else {
                 continue;
@@ -334,6 +348,28 @@ impl ConversationAgentEventRecorder {
         event: &AgentEvent,
     ) -> Result<Option<Uuid>, sqlx::Error> {
         resolve_agent_event_turn_id(&self.pool, conversation_id, event).await
+    }
+}
+
+fn ephemeral_record(
+    mapped: &MappedConversationEventRecord,
+    normalized_json: &str,
+) -> ConversationEventRecord {
+    ConversationEventRecord {
+        id: Uuid::new_v4(),
+        conversation_id: mapped.conversation_id,
+        turn_id: mapped.turn_id,
+        binding_id: None,
+        connection_id: Some(mapped.connection_id.clone()),
+        prompt_id: None,
+        sequence: 0,
+        source: mapped.source.to_string(),
+        event_kind: mapped.event_kind.clone(),
+        event_version: CURRENT_EVENT_VERSION,
+        normalized_json: normalized_json.to_string(),
+        raw_json: Some(mapped.raw_json.clone()),
+        idempotency_key: Some(mapped.idempotency_key.clone()),
+        created_at: Utc::now(),
     }
 }
 

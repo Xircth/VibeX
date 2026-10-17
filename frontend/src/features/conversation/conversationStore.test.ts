@@ -1499,6 +1499,36 @@ describe('conversationStore (row-op dumb container)', () => {
     expect(entryOf(state).olderCursor).toBe('16');
   });
 
+  it('replaces rows from the file when the database cursor matches and keeps the overlay', () => {
+    let state = loaded([userRow('t1', 'q', 4n)]);
+    state = conversationStoreReducer(state, {
+      type: 'row_ops',
+      batch: batch(
+        [
+          {
+            op: 'append_text',
+            row_id: 't1:assistant',
+            revision: 5n,
+            stream: 'text',
+            delta: 'hello',
+          },
+        ],
+        4n
+      ),
+    });
+    const detail = emptyDetail([userRow('acp-1', 'q', 1n)]);
+    detail.timeline.last_sequence = 4n;
+    state = conversationStoreReducer(state, {
+      type: 'load_success',
+      conversationId: CONVERSATION_ID,
+      detail,
+    });
+    expect(entryOf(state).rows.map((row) => row.row_id)).toEqual([
+      'acp-1:user',
+    ]);
+    expect(entryOf(state).liveText['t1:assistant']?.text).toBe('hello');
+  });
+
   it('does not amputate fat history on a keepRealtimeRows reload', () => {
     const fat = 'x'.repeat(32 * 1024);
     const rows = Array.from({ length: 40 }, (_, index) =>

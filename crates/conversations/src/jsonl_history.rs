@@ -1,27 +1,31 @@
-//! UI transcript reads. The file under `acp-transcripts/` is the history the
-//! window protocol slices. `conversation_events` is still appended so the live
-//! row-op publisher can fold the in-flight turn; open and older-page reads do
-//! not fold those events.
+//! UI transcript. The file under `acp-transcripts/` is the history the window
+//! protocol slices, and content deltas are appended there instead of
+//! `conversation_events`. Open and older-page reads do not fold the event log.
 
-use agents::acp_transcript::{
-    self, EntryKind, TranscriptEntry, TranscriptHeader, record_entry, safe_component,
-    vibex_acp_transcripts_root,
+use agents::{
+    AgentKind,
+    acp_transcript::{
+        self, EntryKind, TranscriptEntry, TranscriptHeader, safe_component,
+        vibex_acp_transcripts_root,
+    },
+    conversation::{
+        ContentBlock, ConversationEvent, ConversationInputBlock, ConversationTimeline,
+        ConversationTimelineRow, MessageTurn, SessionStats, TimelineRow, TurnRole, TurnUsage,
+    },
+    parsers::{acp_native::project_turns, loader::load_import_conversation_detail},
 };
-use agents::conversation::{
-    ContentBlock, ConversationEvent, ConversationInputBlock, ConversationTimeline,
-    ConversationTimelineRow, MessageTurn, SessionStats, TimelineRow, TurnRole, TurnUsage,
-};
-use agents::parsers::acp_native::project_turns;
-use agents::parsers::loader::load_import_conversation_detail;
-use agents::AgentKind;
 use chrono::{DateTime, Utc};
-use db::models::conversation::DbConversationSummary;
+use db::models::{
+    conversation::DbConversationSummary, conversation_event::ConversationEventRecord,
+};
 use serde_json::Value;
 use sqlx::SqlitePool;
 use uuid::Uuid;
 
-use crate::projection::{CONVERSATION_PROJECTION_VERSION, ConversationProjector};
-use crate::turn_window::{self, TurnWindowReq, WindowMeta};
+use crate::{
+    projection::{CONVERSATION_PROJECTION_VERSION, ConversationProjector},
+    turn_window::{self, TurnWindowReq, WindowMeta},
+};
 
 const TAIL_TURNS_DEFAULT: usize = 120;
 
@@ -32,6 +36,19 @@ pub fn uses_acp_transcript(kind: Option<AgentKind>) -> bool {
     !matches!(
         kind,
         Some(AgentKind::ClaudeCode | AgentKind::Codex | AgentKind::Cline | AgentKind::Openclaw)
+    )
+}
+
+/// Content that lives in the transcript file. These events are not inserted
+/// into `conversation_events`; the live projector folds them in memory.
+pub fn is_transcript_delta(event: &ConversationEvent) -> bool {
+    matches!(
+        event,
+        ConversationEvent::AssistantTextDelta { .. }
+            | ConversationEvent::AssistantReasoningDelta { .. }
+            | ConversationEvent::AssistantContentAppended { .. }
+            | ConversationEvent::PlanUpdated { .. }
+            | ConversationEvent::ToolCallUpsert { .. }
     )
 }
 
@@ -74,6 +91,28 @@ pub fn timeline_from_window(
     }
 }
 
+pub async fn load_all_turns(
+    pool: &SqlitePool,
+    conversation_id: Uuid,
+) -> Result<Option<Vec<MessageTurn>>, sqlx::Error> {
+    isolate_test_transcripts();
+    let Some(summary) = DbConversationSummary::find_by_id(pool, conversation_id).await? else {
+        return Ok(None);
+    };
+    Ok(Some(load_turns(pool, &summary).await?))
+}
+
+pub fn timeline_from_turns(conversation_id: Uuid, turns: &[MessageTurn]) -> ConversationTimeline {
+    ConversationTimeline {
+        conversation_id,
+        projection_version: CONVERSATION_PROJECTION_VERSION,
+        last_sequence: 0,
+        rows: rows_from_turns(turns),
+        truncated_from_start: false,
+        older_cursor: None,
+    }
+}
+
 /// Cargo test binaries live in `target/.../deps`. Redirect their transcript
 /// files so a migration cannot write into the user data directory.
 fn isolate_test_transcripts() {
@@ -91,10 +130,8 @@ fn isolate_test_transcripts() {
         if !in_deps {
             return;
         }
-        let dir = std::env::temp_dir().join(format!(
-            "vibex-acp-transcripts-{}",
-            std::process::id()
-        ));
+        let dir =
+            std::env::temp_dir().join(format!("vibex-acp-transcripts-{}", std::process::id()));
         unsafe {
             std::env::set_var("VIBEX_TRANSCRIPTS_ROOT", dir);
         }
@@ -115,7 +152,7 @@ pub async fn load_window(
     let slice = all.get(offset..).unwrap_or(&[]).to_vec();
     let meta = turn_window::window_meta(&all, offset);
     let session_stats = session_stats_of(&all);
-    let last_sequence = max_sequence(pool, conversation_id).await?;
+    let last_sequence = ConversationEventRecord::max_sequence(pool, conversation_id).await?;
     Ok(Some(WindowedHistory {
         turns: slice,
         offset,
@@ -165,9 +202,7 @@ async fn load_turns(
     let (agent_dir, session_id) = transcript_identity(summary, kind);
     if let Some(kind) = kind.filter(|kind| !uses_acp_transcript(Some(*kind))) {
         if let Some(external) = summary.external_session_id.as_deref() {
-            if let Ok(Some(detail)) =
-                load_import_conversation_detail(kind, external, None)
-            {
+            if let Ok(Some(detail)) = load_import_conversation_detail(kind, external, None) {
                 if !detail.turns.is_empty() {
                     return Ok(detail.turns);
                 }
@@ -250,10 +285,7 @@ fn write_migrated_transcript(
         agent_dir,
         session_id,
         "",
-        summary
-            .created_at
-            .timestamp_millis()
-            .max(0) as u64,
+        summary.created_at.timestamp_millis().max(0) as u64,
     );
     let mut lines = String::new();
     if let Ok(json) = serde_json::to_string(&header) {
@@ -397,7 +429,12 @@ fn prompt_blocks(turn: &MessageTurn) -> Vec<Value> {
             ContentBlock::Text { text } => {
                 blocks.push(serde_json::json!({ "type": "text", "text": text }));
             }
-            ContentBlock::Image { data, mime_type, uri, .. } => {
+            ContentBlock::Image {
+                data,
+                mime_type,
+                uri,
+                ..
+            } => {
                 blocks.push(serde_json::json!({
                     "type": "image",
                     "data": data,
@@ -465,7 +502,9 @@ fn update_payload(block: &ContentBlock) -> Option<Value> {
 
 fn raw_input(preview: &Option<String>) -> Value {
     match preview {
-        Some(text) => serde_json::from_str(text).unwrap_or_else(|_| serde_json::json!({ "text": text })),
+        Some(text) => {
+            serde_json::from_str(text).unwrap_or_else(|_| serde_json::json!({ "text": text }))
+        }
         None => Value::Null,
     }
 }
@@ -518,19 +557,10 @@ fn session_stats_of(turns: &[MessageTurn]) -> Option<SessionStats> {
     })
 }
 
-async fn max_sequence(pool: &SqlitePool, conversation_id: Uuid) -> Result<i64, sqlx::Error> {
-    let value = sqlx::query_scalar::<_, Option<i64>>(
-        "SELECT MAX(sequence) FROM conversation_events WHERE conversation_id = ?",
-    )
-    .bind(conversation_id)
-    .fetch_one(pool)
-    .await?;
-    Ok(value.unwrap_or(0))
-}
-
-/// Append one content event to an existing JSONL transcript. No-op until
-/// migration has created the file, so the first open still encodes the whole
-/// event projection once.
+/// Append one transcript line. The first prompt creates the file, so a later
+/// open is not waiting on a migration that only runs while the file is absent.
+/// Prompt and turn-end wait up to two seconds, matching Codeg. Streamed updates
+/// do not: a wedged disk must not stall the turn.
 pub async fn mirror_appended_event(
     pool: &SqlitePool,
     conversation_id: Uuid,
@@ -552,13 +582,22 @@ pub async fn mirror_appended_event(
     let Some(path) = acp_transcript::transcript_path_in(&root, &agent_dir, &session_id) else {
         return;
     };
-    if !path.is_file() {
-        return;
-    }
     let Some((entry_kind, payload)) = mirror_payload(event) else {
         return;
     };
-    drop(record_entry(&agent_dir, &session_id, entry_kind, payload));
+    if !path.is_file() {
+        let header = TranscriptHeader::new(
+            &agent_dir,
+            &session_id,
+            "",
+            summary.created_at.timestamp_millis().max(0) as u64,
+        );
+        drop(acp_transcript::record_header_in(&root, &agent_dir, &header));
+    }
+    let ack = acp_transcript::record_entry_in(&root, &agent_dir, &session_id, entry_kind, payload);
+    if matches!(entry_kind, EntryKind::Prompt | EntryKind::TurnEnd) {
+        let _ = tokio::time::timeout(std::time::Duration::from_secs(2), ack).await;
+    }
 }
 
 fn mirror_payload(event: &ConversationEvent) -> Option<(EntryKind, Value)> {
@@ -581,7 +620,11 @@ fn mirror_payload(event: &ConversationEvent) -> Option<(EntryKind, Value)> {
                             "mimeType": mime_type,
                             "title": title,
                         }),
-                        ConversationInputBlock::Resource { uri, title, mime_type } => {
+                        ConversationInputBlock::Resource {
+                            uri,
+                            title,
+                            mime_type,
+                        } => {
                             serde_json::json!({
                                 "type": "resource_link",
                                 "uri": uri,
@@ -672,7 +715,10 @@ pub fn default_tail() -> TurnWindowReq {
     TurnWindowReq::Tail(TAIL_TURNS_DEFAULT)
 }
 
-pub fn parse_window(tail_turns: Option<u32>, from_index: Option<u32>) -> Result<TurnWindowReq, String> {
+pub fn parse_window(
+    tail_turns: Option<u32>,
+    from_index: Option<u32>,
+) -> Result<TurnWindowReq, String> {
     match (tail_turns, from_index) {
         (Some(_), Some(_)) => Err("tailTurns and fromIndex are mutually exclusive".to_string()),
         (None, Some(index)) => Ok(TurnWindowReq::FromIndex(index as usize)),
@@ -683,8 +729,9 @@ pub fn parse_window(tail_turns: Option<u32>, from_index: Option<u32>) -> Result<
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use chrono::TimeZone;
+
+    use super::*;
 
     fn turn(role: TurnRole, text: &str, secs: i64) -> MessageTurn {
         MessageTurn {
@@ -718,6 +765,23 @@ mod tests {
             ContentBlock::Text { text } => assert_eq!(text, "hi there"),
             other => panic!("{other:?}"),
         }
+    }
+
+    #[test]
+    fn transcript_deltas_skip_the_event_log() {
+        assert!(is_transcript_delta(
+            &ConversationEvent::AssistantTextDelta {
+                text: "a".into(),
+                message_id: None,
+            }
+        ));
+        assert!(is_transcript_delta(&ConversationEvent::PlanUpdated {
+            entries: Vec::new(),
+        }));
+        assert!(!is_transcript_delta(&ConversationEvent::TurnCompleted {
+            stop_reason: None
+        }));
+        assert!(!is_transcript_delta(&ConversationEvent::UserTurnQueued));
     }
 
     #[test]

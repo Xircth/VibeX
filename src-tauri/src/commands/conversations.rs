@@ -1,7 +1,8 @@
 //! Conversation commands.
 //!
 //! Open and older-page history come from the JSONL or vendor transcript.
-//! `conversation_events` still carries live row-ops and session controls.
+//! Content deltas are appended to that file. `conversation_events` still
+//! carries turn boundaries, session controls, and usage.
 
 use agents::{
     AgentAvailableCommand, AgentElicitationResponse, AgentId, AgentPermissionResponse,
@@ -959,7 +960,10 @@ async fn export_title_and_timeline(
         .and_then(|summary| summary.title)
         .filter(|title| !title.trim().is_empty())
         .unwrap_or_else(|| "会话".to_string());
-    let timeline = ConversationProjector::project(pool, id).await?;
+    let turns = jsonl_history::load_all_turns(pool, id)
+        .await?
+        .unwrap_or_default();
+    let timeline = jsonl_history::timeline_from_turns(id, &turns);
     Ok((title, timeline))
 }
 

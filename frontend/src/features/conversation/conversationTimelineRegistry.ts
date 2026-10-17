@@ -375,22 +375,6 @@ function ensureLive(conversationId: string, controller: Controller): void {
         return;
       }
       controller.unlistenEvents = unsubscribe;
-      const current =
-        state.byConversationId[conversationId]?.lastSequence ?? 0n;
-      return conversationApi.eventsSince({
-        conversationId,
-        afterSequence: Number(current),
-        limit: 500,
-      });
-    })
-    .then((page) => {
-      if (!page || controller.stopped || page.rows.length === 0) return;
-      dispatch({
-        type: 'upsert_rows',
-        conversationId,
-        rows: page.rows,
-        lastSequence: toBigInt(page.last_sequence),
-      });
     })
     .catch((error: unknown) => {
       if (controller.stopped) return;
@@ -489,26 +473,7 @@ function watchGap(conversationId: string, controller: Controller): void {
   }
   if (controller.gapFetchedFor === gap.expectedSequence) return;
   controller.gapFetchedFor = gap.expectedSequence;
-  const afterSequence = gap.expectedSequence - 1n;
-  void conversationApi
-    .eventsSince({
-      conversationId,
-      afterSequence: Number(afterSequence),
-      limit: 500,
-    })
-    .then((page) => {
-      if (controller.stopped || page.rows.length === 0) return;
-      dispatch({
-        type: 'upsert_rows',
-        conversationId,
-        rows: page.rows,
-        lastSequence: toBigInt(page.last_sequence),
-      });
-    })
-    .catch((error: unknown) => {
-      if (controller.stopped) return;
-      report(conversationId, error);
-    });
+  void loadDetail(conversationId, controller);
 }
 
 function report(conversationId: string, error: unknown): void {

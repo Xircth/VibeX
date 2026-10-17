@@ -49,6 +49,15 @@ impl conversations::ConversationEventPublisher for AppConversationEventPublisher
         )
         .await;
     }
+
+    async fn publish_unpersisted(&self, record: &ConversationEventRecord) {
+        crate::events::emit_unpersisted_row_op(
+            &self.row_projectors,
+            &self.deployment.db().pool,
+            record,
+        )
+        .await;
+    }
 }
 
 #[async_trait::async_trait]

@@ -23,8 +23,6 @@ describe('GeneratedImageCard', () => {
       <GeneratedImageCard image={image()} revisedPrompt="a red bicycle" />
     );
 
-    expect(screen.queryByRole('img')).not.toBeInTheDocument();
-    fireEvent.click(screen.getByRole('button', { name: '查看图片' }));
     const img = await screen.findByRole('img', { name: 'a red bicycle' });
     expect(img.getAttribute('src')).toMatch(/^(blob:|data:image\/png;base64,)/);
     expect(screen.getByText('修订提示词')).toBeInTheDocument();
@@ -48,7 +46,6 @@ describe('GeneratedImageCard', () => {
     show.mockClear();
     render(<GeneratedImageCard image={image()} revisedPrompt="x" />);
 
-    fireEvent.click(screen.getByRole('button', { name: '查看图片' }));
     const img = await screen.findByRole('img', { name: 'x' });
     fireEvent.click(screen.getByRole('button', { name: '预览生成图片' }));
 

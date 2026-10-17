@@ -1,6 +1,6 @@
 import type { TurnRenderItem } from './messageTurnBlocks';
 
-/** Blocks kept mounted while a turn is still streaming. The rest stay folded. */
+/** Process cards kept mounted while a turn is still streaming. Markdown stays. */
 export const STREAMING_VISIBLE_TAIL = 2;
 
 export function isCollapsibleProcessItem(item: TurnRenderItem): boolean {
@@ -14,20 +14,17 @@ export function splitCollapsedTurnItems(
   prelude: TurnRenderItem[];
   rest: TurnRenderItem[];
 } {
+  if (options?.isStreaming) {
+    return streamingTail(items);
+  }
+
   const lastMarkdownIndex = items.reduce(
     (acc, item, index) => (item.kind === 'markdown' ? index : acc),
     -1
   );
 
   if (lastMarkdownIndex < 0) {
-    if (!options?.isStreaming) {
-      return { prelude: items, rest: [] };
-    }
-    return streamingTail(items, -1);
-  }
-
-  if (options?.isStreaming) {
-    return streamingTail(items, lastMarkdownIndex);
+    return { prelude: items, rest: [] };
   }
 
   const visible = items[lastMarkdownIndex];
@@ -45,37 +42,36 @@ export function splitCollapsedTurnItems(
   };
 }
 
-function streamingTail(
-  items: TurnRenderItem[],
-  lastMarkdownIndex: number
-): { prelude: TurnRenderItem[]; rest: TurnRenderItem[] } {
-  if (lastMarkdownIndex < 0) {
-    if (items.length <= STREAMING_VISIBLE_TAIL) {
-      return { prelude: [], rest: items };
-    }
-    const splitAt = items.length - STREAMING_VISIBLE_TAIL;
-    return {
-      prelude: items.slice(0, splitAt),
-      rest: items.slice(splitAt),
-    };
-  }
-
-  const visible = items[lastMarkdownIndex];
-  const visibleText = visible?.kind === 'markdown' ? visible.text.trim() : '';
-  const before = items.slice(0, lastMarkdownIndex).filter((item) => {
-    if (item.kind !== 'markdown' || visibleText.length === 0) {
-      return true;
-    }
-    return item.text.trim() !== visibleText;
+function streamingTail(items: TurnRenderItem[]): {
+  prelude: TurnRenderItem[];
+  rest: TurnRenderItem[];
+} {
+  const lastMarkdown = [...items]
+    .reverse()
+    .find((item) => item.kind === 'markdown');
+  const lastText =
+    lastMarkdown?.kind === 'markdown' ? lastMarkdown.text.trim() : '';
+  const processIndices: number[] = [];
+  items.forEach((item, index) => {
+    if (item.kind !== 'markdown') processIndices.push(index);
   });
-  const after = items.slice(lastMarkdownIndex + 1);
-  const keptAfter =
-    after.length > STREAMING_VISIBLE_TAIL
-      ? after.slice(after.length - STREAMING_VISIBLE_TAIL)
-      : after;
-  const overflowAfter = after.slice(0, after.length - keptAfter.length);
-  return {
-    prelude: [...before, ...overflowAfter],
-    rest: visible ? [visible, ...keptAfter] : keptAfter,
-  };
+  const visibleProcess = new Set(processIndices.slice(-STREAMING_VISIBLE_TAIL));
+  const prelude: TurnRenderItem[] = [];
+  const rest: TurnRenderItem[] = [];
+  items.forEach((item, index) => {
+    if (item.kind === 'markdown') {
+      if (
+        item !== lastMarkdown &&
+        lastText.length > 0 &&
+        item.text.trim() === lastText
+      ) {
+        return;
+      }
+      rest.push(item);
+      return;
+    }
+    if (visibleProcess.has(index)) rest.push(item);
+    else prelude.push(item);
+  });
+  return { prelude, rest };
 }

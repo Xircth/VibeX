@@ -1,6 +1,5 @@
 import { createContext, useContext, useEffect, useId, useState } from 'react';
 import type { ReactNode } from 'react';
-import { useTranslation } from 'react-i18next';
 import { conversationApi } from '@/features/conversation/conversationApi';
 import {
   claimTimelineImage,
@@ -96,26 +95,12 @@ export function CollapsibleTimelineImage({
   className?: string;
   alt: string;
 }) {
-  const { t } = useTranslation('conversation');
-  const [open, setOpen] = useState(false);
   const src = useDecodedTimelineImage({
     imageKey,
-    enabled: open,
+    enabled: true,
     data,
     mimeType,
     uri,
   });
-  return (
-    <div>
-      <button
-        type="button"
-        className="inline-flex items-center gap-1 rounded-md text-xs text-muted-foreground"
-        aria-expanded={open}
-        onClick={() => setOpen((value) => !value)}
-      >
-        {open ? t('timelineImage.hide') : t('timelineImage.show')}
-      </button>
-      {src ? <img className={className} src={src} alt={alt} /> : null}
-    </div>
-  );
+  return src ? <img className={className} src={src} alt={alt} /> : null;
 }

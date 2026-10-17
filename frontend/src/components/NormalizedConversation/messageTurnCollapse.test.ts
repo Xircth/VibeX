@@ -67,25 +67,51 @@ describe('splitCollapsedTurnItems', () => {
     expect(
       splitCollapsedTurnItems(withFirstMarkdown, { isStreaming: true })
     ).toEqual({
-      prelude: toolOnly,
-      rest: [markdown('first stage')],
+      prelude: [],
+      rest: withFirstMarkdown,
     });
 
     const withMoreTools = [...withFirstMarkdown, tool('grep')];
     expect(
       splitCollapsedTurnItems(withMoreTools, { isStreaming: true })
     ).toEqual({
-      prelude: toolOnly,
-      rest: [markdown('first stage'), tool('grep')],
+      prelude: [tool('bash')],
+      rest: [tool('read'), markdown('first stage'), tool('grep')],
     });
 
     const withSecondMarkdown = [...withMoreTools, markdown('second stage')];
-    expect(
-      splitCollapsedTurnItems(withSecondMarkdown, { isStreaming: true })
-    ).toEqual({
-      prelude: [...toolOnly, markdown('first stage'), tool('grep')],
-      rest: [markdown('second stage')],
+    const second = splitCollapsedTurnItems(withSecondMarkdown, {
+      isStreaming: true,
     });
+    expect(second.rest).toEqual(
+      expect.arrayContaining([
+        markdown('first stage'),
+        markdown('second stage'),
+      ])
+    );
+    expect(
+      second.prelude.some(
+        (item) => item.kind === 'markdown' && item.text === 'first stage'
+      )
+    ).toBe(false);
+  });
+
+  it('keeps earlier distinct markdown visible while a later stream continues', () => {
+    const items = [
+      tool('bash'),
+      tool('ls'),
+      markdown('already on screen'),
+      tool('read'),
+      markdown('new stream'),
+    ];
+    const split = splitCollapsedTurnItems(items, { isStreaming: true });
+    expect(split.prelude).toEqual([tool('bash')]);
+    expect(split.rest).toEqual([
+      tool('ls'),
+      markdown('already on screen'),
+      tool('read'),
+      markdown('new stream'),
+    ]);
   });
 
   it('folds a streaming tool run down to a two-block tail', () => {

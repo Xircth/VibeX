@@ -20,7 +20,7 @@ export function GeneratedImageCard({
 }) {
   const { t } = useTranslation(['conversation', 'common']);
   const openImagePreview = useOpenImagePreview();
-  const [open, setOpen] = useState(false);
+  const [open, setOpen] = useState(true);
   const hosted =
     image?.uri && /^https?:\/\//i.test(image.uri) ? image.uri : null;
   const decoded = useDecodedTimelineImage({

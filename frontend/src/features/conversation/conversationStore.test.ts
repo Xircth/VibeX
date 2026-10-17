@@ -1547,6 +1547,31 @@ describe('conversationStore (row-op dumb container)', () => {
     );
   });
 
+  it('does not amputate a leftover settled turn that exceeds the byte budget', () => {
+    const fat = 'x'.repeat(32 * 1024);
+    const blocks: ContentBlock[] = [
+      { type: 'thinking', text: 'planning the work' },
+      ...Array.from({ length: 40 }, (_, index) => ({
+        type: 'tool_use' as const,
+        tool_name: 'Read',
+        tool_use_id: `call-${index}`,
+        input_preview: fat,
+        meta: null,
+      })),
+      { type: 'text', text: 'final answer' },
+    ];
+    const state = loaded([assistantRow('solo', blocks, 1n, 'settled')]);
+    const assistant = timelineTurnsForEntry(entryOf(state))[0];
+    expect(assistant?.turn.blocks).toHaveLength(blocks.length);
+    expect(
+      assistant?.turn.blocks.some(
+        (block) =>
+          block.type === 'thinking' && block.text === 'planning the work'
+      )
+    ).toBe(true);
+    expect(textOf(assistant?.turn.blocks ?? [])).toBe('final answer');
+  });
+
   it('keeps a just-loaded older page even when it exceeds the hot budget', () => {
     const tail = Array.from(
       { length: TIMELINE_RETAINED_ROW_LIMIT },

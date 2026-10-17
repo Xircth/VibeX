@@ -1,6 +1,8 @@
 import { useLocation } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 
+import { X } from 'lucide-react';
+
 import { Button } from '@/components/ui/button';
 import {
   Dialog,
@@ -54,6 +56,7 @@ export function BasicGuideOverlay() {
         <aside
           className={cn(
             'basic-guide-panel',
+            'basic-guide-panel--bottom',
             isProjectRoute(location.pathname) && 'basic-guide-panel--workspace'
           )}
           data-basic-guide-panel
@@ -61,32 +64,25 @@ export function BasicGuideOverlay() {
         >
           <div className="basic-guide-panel__stack">
             {showingEnd ? (
-              <button
-                type="button"
-                className="basic-guide-end"
-                onClick={ctx.dismissEnd}
+              <div
+                className="basic-guide-callout basic-guide-end"
+                data-basic-guide-callout="end"
               >
-                {t('endCopy')}
-              </button>
+                <button
+                  type="button"
+                  className="basic-guide-end__close"
+                  aria-label={t('common:close')}
+                  onClick={ctx.dismissEnd}
+                >
+                  <X className="h-3.5 w-3.5" strokeWidth={2.25} />
+                </button>
+                <GuideCopy
+                  className="basic-guide-callout__copy"
+                  text={t('endCopy')}
+                />
+              </div>
             ) : (
               <>
-                <AstryxStep current={current} aria-label={t('stepsAria')}>
-                  <AstryxStepItem
-                    description={t('steps.createProjectDescription')}
-                  >
-                    {t('steps.createProject')}
-                  </AstryxStepItem>
-                  <AstryxStepItem
-                    description={t('steps.createSessionDescription')}
-                  >
-                    {t('steps.createSession')}
-                  </AstryxStepItem>
-                  <AstryxStepItem
-                    description={t('steps.learnLayoutDescription')}
-                  >
-                    {t('steps.learnLayout')}
-                  </AstryxStepItem>
-                </AstryxStep>
                 <div className="basic-guide-panel__actions">
                   {state.substep === 'show-end' ? (
                     <Button
@@ -110,14 +106,29 @@ export function BasicGuideOverlay() {
                   ) : null}
                   <Button
                     type="button"
-                    variant="ghost"
-                    size="sm"
-                    className="h-7 px-1.5 text-muted-foreground"
+                    variant="outline"
                     onClick={ctx.requestExit}
                   >
                     {t('exit')}
                   </Button>
                 </div>
+                <AstryxStep current={current} aria-label={t('stepsAria')}>
+                  <AstryxStepItem
+                    description={t('steps.createProjectDescription')}
+                  >
+                    {t('steps.createProject')}
+                  </AstryxStepItem>
+                  <AstryxStepItem
+                    description={t('steps.createSessionDescription')}
+                  >
+                    {t('steps.createSession')}
+                  </AstryxStepItem>
+                  <AstryxStepItem
+                    description={t('steps.learnLayoutDescription')}
+                  >
+                    {t('steps.learnLayout')}
+                  </AstryxStepItem>
+                </AstryxStep>
               </>
             )}
           </div>

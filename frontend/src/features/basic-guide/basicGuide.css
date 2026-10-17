@@ -170,16 +170,23 @@
 .basic-guide-panel {
   position: fixed;
   left: 16px;
-  top: 50%;
   z-index: 80;
   width: max-content;
   max-width: 260px;
-  transform: translateY(-50%);
   pointer-events: none;
+}
+
+.basic-guide-panel--bottom {
+  top: auto;
+  bottom: 16px;
 }
 
 .basic-guide-panel--workspace {
   left: 52px;
+}
+
+.basic-guide-panel:has(.basic-guide-end) {
+  max-width: none;
 }
 
 .basic-guide-panel__stack {
@@ -281,21 +288,36 @@
 }
 
 .basic-guide-end {
-  display: block;
-  width: 100%;
-  max-width: 240px;
-  margin: 0;
-  border: 1px solid #111;
-  border-radius: 8px;
-  padding: 10px 12px;
-  background: #fff;
-  text-align: left;
-  font-size: 0.875rem;
-  line-height: 1.5;
-  font-weight: 500;
+  position: relative;
+  pointer-events: auto;
+  width: max-content;
+  max-width: none;
+  padding: 10px 32px 10px 12px;
+}
+
+.basic-guide-end .basic-guide-callout__copy {
+  white-space: nowrap;
+}
+
+.basic-guide-end__close {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  display: inline-flex;
+  height: 20px;
+  width: 20px;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  border-radius: 4px;
+  padding: 0;
+  background: transparent;
   color: #111;
   cursor: pointer;
-  pointer-events: auto;
+}
+
+.basic-guide-end__close:hover {
+  background: rgb(17 17 17 / 0.08);
 }
 
 @keyframes basic-guide-breathe {

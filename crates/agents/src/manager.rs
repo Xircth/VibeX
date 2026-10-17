@@ -1487,6 +1487,10 @@ struct AgentConnectionRunner {
     grok_subagent: Arc<Mutex<GrokSubagentTracker>>,
     grok_mcp: Arc<Mutex<GrokMcpTracker>>,
     pending_session_id: Arc<Mutex<Option<AgentSessionId>>>,
+    /// ACP session id whose `session/load` replay may be written. Set only
+    /// after `claim_replay_transcript` creates the file, cleared when the
+    /// load request returns. Absent means the replay is drained, not stored.
+    replay_hydrate: Arc<Mutex<Option<String>>>,
     /// CodeG-style connect preferences: applied after the agent advertises
     /// controls and before the first `SessionModes` / `SessionConfigOptions` event.
     preferred_controls: Arc<RwLock<HashMap<AgentSessionId, crate::SessionControlPreferences>>>,
@@ -1634,6 +1638,7 @@ impl AgentConnectionRunner {
             grok_subagent: Arc::new(Mutex::new(GrokSubagentTracker::default())),
             grok_mcp: Arc::new(Mutex::new(GrokMcpTracker::default())),
             pending_session_id: Arc::new(Mutex::new(None)),
+            replay_hydrate: Arc::new(Mutex::new(None)),
             preferred_controls: Arc::new(RwLock::new(HashMap::new())),
             status: Arc::new(Mutex::new(AgentConnectionStatus::Connecting)),
             handshake_started: Instant::now(),
@@ -3014,8 +3019,10 @@ impl AgentConnectionRunner {
                 .await,
             );
             *self.pending_session_id.lock().await = Some(session_id);
+            self.begin_load_replay(&external_session_id).await;
             self.emit_connection_status(AgentConnectionStatus::Recovering, None, Some(session_id));
             let result = conn.send_request(request).block_task().await;
+            self.end_load_replay().await;
             *self.pending_session_id.lock().await = None;
             result
         } else if let Some(error) = resume_auth_error {
@@ -3132,6 +3139,7 @@ impl AgentConnectionRunner {
             .new_acp_session(conn, working_dir, session_id, companion_capabilities)
             .await
             .map_err(|error| map_acp_session_error("ACP session/new after load failed", error))?;
+        self.record_continuation_header(&acp_session_id, failed_sid);
         Ok((
             acp_session_id,
             Some(crate::conversation::SessionRecoveryStrategy::CreatedNewSession),
@@ -3233,6 +3241,49 @@ impl AgentConnectionRunner {
         .await;
         *self.pending_session_id.lock().await = None;
         Ok(acp_session_id)
+    }
+
+    async fn begin_load_replay(&self, external_session_id: &str) {
+        if !records_acp_jsonl(self.snapshot.agent_id.as_str()) {
+            return;
+        }
+        let agent_dir = jsonl_agent_dir(self.snapshot.agent_id.as_str());
+        if !crate::acp_transcript::safe_component(external_session_id) {
+            return;
+        }
+        let header = crate::acp_transcript::TranscriptHeader::new(
+            self.snapshot.agent_id.as_str(),
+            external_session_id,
+            &self.snapshot.working_dir.to_string_lossy(),
+            crate::acp_transcript::now_epoch_ms(),
+        );
+        if !crate::acp_transcript::claim_replay_transcript(&agent_dir, external_session_id, &header)
+        {
+            return;
+        }
+        *self.replay_hydrate.lock().await = Some(external_session_id.to_string());
+    }
+
+    async fn end_load_replay(&self) {
+        *self.replay_hydrate.lock().await = None;
+    }
+
+    fn record_continuation_header(&self, new_session_id: &str, previous_session_id: &str) {
+        if !records_acp_jsonl(self.snapshot.agent_id.as_str()) {
+            return;
+        }
+        let agent_dir = jsonl_agent_dir(self.snapshot.agent_id.as_str());
+        if !crate::acp_transcript::safe_component(new_session_id) {
+            return;
+        }
+        let header = crate::acp_transcript::TranscriptHeader::new(
+            self.snapshot.agent_id.as_str(),
+            new_session_id,
+            &self.snapshot.working_dir.to_string_lossy(),
+            crate::acp_transcript::now_epoch_ms(),
+        )
+        .continuing(previous_session_id);
+        let _ = crate::acp_transcript::claim_replay_transcript(&agent_dir, new_session_id, &header);
     }
 
     async fn emit_session_linked(&self, session_id: AgentSessionId, acp_session_id: String) {
@@ -4815,6 +4866,23 @@ impl AcpClientBridge {
         }
     }
 
+    async fn record_hydrated_update(&self, acp_session_id: &str, update: &SessionUpdate) {
+        let target = self.apply.replay_hydrate.lock().await.clone();
+        if target.as_deref() != Some(acp_session_id) {
+            return;
+        }
+        let agent_dir = jsonl_agent_dir(self.agent_id.as_str());
+        let Ok(payload) = serde_json::to_value(update) else {
+            return;
+        };
+        drop(crate::acp_transcript::record_entry(
+            &agent_dir,
+            acp_session_id,
+            crate::acp_transcript::EntryKind::Update,
+            payload,
+        ));
+    }
+
     /// Pass a streaming text chunk through snapshot de-duplication, returning the
     /// content to emit (or `None` to drop a redundant full-message replay).
     async fn gate_stream_chunk(
@@ -5326,12 +5394,13 @@ impl AcpClientBridge {
             && (is_session_transcript_update(&args.update)
                 || session_update_is_end_turn_usage(&args.update))
         {
-            // The session does not exist yet, so this is `session/load` /
-            // `session/resume` replaying the agent's stored transcript, not live
-            // turn output. The Host's event log is the authoritative history
-            // (ADR-0044) — re-recording the replay would duplicate every message
-            // and, with no in-flight Turn to own it, attribute it to whichever Turn
-            // happens to be latest. Session controls still pass through below.
+            // Unbound notifications are `session/load` / `session/resume`
+            // replaying history. They must not become a live turn. Record the
+            // replay only when this load claimed an empty transcript file.
+            if is_session_transcript_update(&args.update) {
+                self.record_hydrated_update(&acp_session_id, &args.update)
+                    .await;
+            }
             return Ok(());
         }
         if !matches!(args.update, SessionUpdate::UsageUpdate(_)) {
@@ -5838,6 +5907,29 @@ fn mapped_resume_action(mapped: Option<&str>, requested: &str) -> MappedResume {
 /// Whether a `session/update` carries conversation transcript content (as opposed to
 /// session control state). Only transcript content is replayed by `session/load` and
 /// `session/resume`, and only it must be gated during session establishment.
+fn records_acp_jsonl(agent_id: &str) -> bool {
+    !matches!(
+        crate::AgentKind::from_lenient(agent_id),
+        Some(
+            crate::AgentKind::ClaudeCode
+                | crate::AgentKind::Codex
+                | crate::AgentKind::Cline
+                | crate::AgentKind::Openclaw
+        )
+    )
+}
+
+fn jsonl_agent_dir(agent_id: &str) -> String {
+    let raw = crate::AgentKind::from_lenient(agent_id)
+        .map(|kind| kind.as_str().to_string())
+        .unwrap_or_else(|| agent_id.to_string());
+    if crate::acp_transcript::safe_component(&raw) {
+        raw
+    } else {
+        "session".to_string()
+    }
+}
+
 fn is_session_transcript_update(update: &SessionUpdate) -> bool {
     matches!(
         update,

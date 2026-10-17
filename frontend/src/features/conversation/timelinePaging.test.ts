@@ -16,9 +16,9 @@ describe('nextOlderTimelinePage', () => {
   });
 
   it('pages backward in small chunks instead of the whole remaining history', () => {
-    expect(TIMELINE_OLDER_PAGE_SIZE).toBe(16);
-    expect(nextOlderTimelinePage('80')).toEqual({ start: 64, limit: 16 });
-    expect(nextOlderTimelinePage('16')).toEqual({ start: 0, limit: 16 });
+    expect(TIMELINE_OLDER_PAGE_SIZE).toBe(120);
+    expect(nextOlderTimelinePage('200')).toEqual({ start: 80, limit: 120 });
+    expect(nextOlderTimelinePage('120')).toEqual({ start: 0, limit: 120 });
     expect(nextOlderTimelinePage('10')).toEqual({ start: 0, limit: 10 });
   });
 });

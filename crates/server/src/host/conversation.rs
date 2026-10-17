@@ -12,8 +12,8 @@ use application::ApplicationError;
 use conversations::{
     CONVERSATION_PROJECTION_VERSION, ConversationBundleError, ConversationForkResult,
     ConversationImportResult, ConversationProjector, ConversationRelationControl,
-    CreateConversationRelation, ForkVisibleConversation, OPEN_TIMELINE_ROW_LIMIT,
-    export_conversation_bundle, fork_visible_conversation, import_conversation_bundle,
+    CreateConversationRelation, ForkVisibleConversation, export_conversation_bundle,
+    fork_visible_conversation, import_conversation_bundle, jsonl_history,
     preview_checkpoint_file_changes, render_html, render_markdown,
 };
 use db::models::{
@@ -37,6 +37,14 @@ pub struct HostConversationDetail {
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub turns: Vec<MessageTurn>,
     pub timeline: ConversationTimeline,
+    #[serde(default)]
+    pub turns_offset: u32,
+    #[serde(default)]
+    pub turns_total: u32,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub prefix_hash: Option<String>,
+    #[serde(default)]
+    pub user_turns_before_offset: u32,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub active_binding: Option<HostConversationActiveBinding>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -132,9 +140,21 @@ struct EventsSinceArgs {
 
 impl ServerApplicationDomains {
     pub(crate) async fn conversation_detail(&self, args: Value) -> Result<Value, ApplicationError> {
-        let args: ConversationIdArgs = parse(args)?;
+        #[derive(Deserialize)]
+        #[serde(rename_all = "camelCase")]
+        struct DetailArgs {
+            #[serde(alias = "sessionId", alias = "session_id", alias = "conversation_id")]
+            conversation_id: String,
+            #[serde(default)]
+            tail_turns: Option<u32>,
+            #[serde(default)]
+            from_index: Option<u32>,
+        }
+        let args: DetailArgs = parse(args)?;
         let id = parse_uuid(&args.conversation_id)?;
-        serialize(load_conversation_detail(&self.pool, id).await?)
+        let request = jsonl_history::parse_window(args.tail_turns, args.from_index)
+            .map_err(ApplicationError::bad_request)?;
+        serialize(load_conversation_detail(&self.pool, id, request).await?)
     }
 
     pub(crate) async fn conversation_events_since(
@@ -222,23 +242,27 @@ impl ServerApplicationDomains {
             .as_deref()
             .and_then(|value| value.parse::<usize>().ok())
             .unwrap_or(0);
-        let bounded_limit = args.limit.unwrap_or(100).clamp(1, 200);
-        let window = ConversationProjector::project_row_window(
-            &self.pool,
-            conversation_id,
-            start,
-            bounded_limit,
-        )
-        .await
-        .map_err(internal_error)?;
-        let next_index = start + window.rows.len();
-        let next_cursor = (next_index < window.total_rows).then(|| next_index.to_string());
+        let bounded_limit = args
+            .limit
+            .unwrap_or(100)
+            .clamp(1, conversations::turn_window::MAX_WINDOW_TURNS);
+        let page = jsonl_history::load_page(&self.pool, conversation_id, start, bounded_limit)
+            .await
+            .map_err(internal_error)?;
+        let (cursor, next_cursor, rows) = match page {
+            Some(page) => (
+                Some(page.start.to_string()),
+                page.next_cursor.map(|index| index.to_string()),
+                jsonl_history::rows_from_turns(&page.turns),
+            ),
+            None => (args.cursor, None, Vec::new()),
+        };
         serialize(json!({
             "conversation_id": conversation_id,
-            "projection_version": window.projection_version,
-            "cursor": args.cursor,
+            "projection_version": CONVERSATION_PROJECTION_VERSION,
+            "cursor": cursor,
             "next_cursor": next_cursor,
-            "rows": window.rows,
+            "rows": rows,
         }))
     }
 
@@ -711,6 +735,7 @@ async fn export_title_and_timeline(
 pub async fn load_conversation_detail(
     pool: &SqlitePool,
     id: Uuid,
+    request: conversations::turn_window::TurnWindowReq,
 ) -> Result<Option<HostConversationDetail>, ApplicationError> {
     let Some(summary) = DbConversationSummary::find_by_id(pool, id)
         .await
@@ -718,11 +743,19 @@ pub async fn load_conversation_detail(
     else {
         return Ok(None);
     };
-    let open = ConversationProjector::project_open(pool, id, OPEN_TIMELINE_ROW_LIMIT)
+    let history = jsonl_history::load_window(pool, id, request)
         .await
-        .map_err(internal_error)?;
-    let timeline = open.timeline;
-    let session_stats = open.session_stats;
+        .map_err(internal_error)?
+        .unwrap_or_else(|| jsonl_history::WindowedHistory {
+            turns: Vec::new(),
+            offset: 0,
+            total: 0,
+            meta: conversations::turn_window::window_meta(&[], 0),
+            session_stats: None,
+            last_sequence: 0,
+        });
+    let timeline = jsonl_history::timeline_from_window(id, &history);
+    let session_stats = history.session_stats.clone();
     let current_turn = current_turn_for_conversation(pool, id).await?;
     let in_flight_user_turn_id = current_turn.as_ref().and_then(|turn| {
         matches!(
@@ -733,8 +766,12 @@ pub async fn load_conversation_detail(
     });
     Ok(Some(HostConversationDetail {
         summary,
-        turns: Vec::new(),
+        turns: history.turns,
         timeline,
+        turns_offset: history.offset as u32,
+        turns_total: history.total as u32,
+        prefix_hash: Some(history.meta.prefix_hash),
+        user_turns_before_offset: history.meta.user_before as u32,
         active_binding: active_binding_for_conversation(pool, id).await?,
         current_turn,
         projection_version: CONVERSATION_PROJECTION_VERSION,
@@ -889,6 +926,10 @@ mod tests {
                 updated_at: now,
             },
             turns: Vec::new(),
+            turns_offset: 0,
+            turns_total: 0,
+            prefix_hash: None,
+            user_turns_before_offset: 0,
             timeline: ConversationTimeline {
                 conversation_id: Uuid::nil(),
                 projection_version: CONVERSATION_PROJECTION_VERSION,

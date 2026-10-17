@@ -400,7 +400,7 @@ mod tests {
     use std::str::FromStr;
 
     use agents::conversation::{
-        ConversationEvent, ConversationInputBlock, ConversationTimelineRow,
+        ConversationEvent, ConversationInputBlock,
     };
     use db::models::{
         conversation::{ConversationRecord, CreateConversationRecord},
@@ -638,20 +638,22 @@ mod tests {
         .await
         .expect("fork");
         assert!(count >= 2);
-        let timeline = ConversationProjector::project(&pool, child_id)
-            .await
-            .expect("child timeline");
-        let texts: Vec<String> = timeline
-            .rows
+        let history = crate::jsonl_history::load_window(
+            &pool,
+            child_id,
+            crate::jsonl_history::default_tail(),
+        )
+        .await
+        .expect("child window")
+        .expect("child history");
+        let texts: Vec<String> = history
+            .turns
             .iter()
-            .filter_map(|row| match &row.row {
-                ConversationTimelineRow::MessageTurn { turn, .. } => {
-                    turn.blocks.iter().find_map(|block| match block {
-                        agents::conversation::ContentBlock::Text { text } => Some(text.clone()),
-                        _ => None,
-                    })
-                }
-                _ => None,
+            .filter_map(|turn| {
+                turn.blocks.iter().find_map(|block| match block {
+                    agents::conversation::ContentBlock::Text { text } => Some(text.clone()),
+                    _ => None,
+                })
             })
             .collect();
         assert!(texts.iter().any(|text| text == "hello" || text == "hi"));
@@ -727,20 +729,22 @@ mod tests {
         )
         .await
         .expect("fork");
-        let timeline = ConversationProjector::project(&pool, child_id)
-            .await
-            .expect("child timeline");
-        let texts: Vec<String> = timeline
-            .rows
+        let history = crate::jsonl_history::load_window(
+            &pool,
+            child_id,
+            crate::jsonl_history::default_tail(),
+        )
+        .await
+        .expect("child window")
+        .expect("child history");
+        let texts: Vec<String> = history
+            .turns
             .iter()
-            .filter_map(|row| match &row.row {
-                ConversationTimelineRow::MessageTurn { turn, .. } => {
-                    turn.blocks.iter().find_map(|block| match block {
-                        agents::conversation::ContentBlock::Text { text } => Some(text.clone()),
-                        _ => None,
-                    })
-                }
-                _ => None,
+            .filter_map(|turn| {
+                turn.blocks.iter().find_map(|block| match block {
+                    agents::conversation::ContentBlock::Text { text } => Some(text.clone()),
+                    _ => None,
+                })
             })
             .collect();
         assert!(texts.iter().any(|text| text == "steer now"));

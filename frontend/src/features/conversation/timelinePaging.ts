@@ -1,7 +1,7 @@
 import type { TimelineRow } from 'shared/types';
 
-/** Rows fetched per older-history page so each paint is incremental. */
-export const TIMELINE_OLDER_PAGE_SIZE = 16;
+/** Turns fetched per older-history page. Matches the open tail of 120. */
+export const TIMELINE_OLDER_PAGE_SIZE = 120;
 
 export function nextOlderTimelinePage(
   olderCursor: string | null | undefined

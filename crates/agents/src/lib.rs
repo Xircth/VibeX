@@ -47,6 +47,8 @@ pub mod metadata;
 pub mod native_config;
 pub mod npm_registry;
 pub mod operations;
+pub mod acp_tool_projection;
+pub mod acp_transcript;
 pub mod parsers;
 pub mod permissions;
 mod pi_commands;

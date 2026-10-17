@@ -254,18 +254,12 @@ export function wheelDetachesConversationFollow(deltaY: number): boolean {
 export function scrollTopAfterPrepend(input: {
   followTail: boolean;
   sessionChanged: boolean;
-  previousFirstKey: string | null;
-  nextFirstKey: string | null;
+  prepended: boolean;
   previousTotalSize: number;
   nextTotalSize: number;
   scrollTop: number;
 }): number {
-  if (input.followTail || input.sessionChanged) return input.scrollTop;
-  if (
-    input.previousFirstKey == null ||
-    input.nextFirstKey == null ||
-    input.previousFirstKey === input.nextFirstKey
-  ) {
+  if (input.followTail || input.sessionChanged || !input.prepended) {
     return input.scrollTop;
   }
   const delta = input.nextTotalSize - input.previousTotalSize;

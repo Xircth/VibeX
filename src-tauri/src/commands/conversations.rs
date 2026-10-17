@@ -1,7 +1,7 @@
-//! Conversation read/write commands backed by the VibeX event log.
+//! Conversation commands.
 //!
-//! Agent transcript files are import inputs only. Product conversation detail is
-//! rebuilt from `conversation_events` through the DB projector.
+//! Open and older-page history come from the JSONL or vendor transcript.
+//! `conversation_events` still carries live row-ops and session controls.
 
 use agents::{
     AgentAvailableCommand, AgentElicitationResponse, AgentId, AgentPermissionResponse,
@@ -21,7 +21,7 @@ use automation::{
 };
 use conversations::{
     CONVERSATION_PROJECTION_VERSION, ConversationEventAppender, ConversationProjector,
-    OPEN_TIMELINE_ROW_LIMIT, workbench_status,
+    jsonl_history, workbench_status,
 };
 use db::models::{
     conversation::{
@@ -62,6 +62,17 @@ pub struct DbConversationDetail {
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub turns: Vec<MessageTurn>,
     pub timeline: ConversationTimeline,
+    /// Index of `timeline.rows[0]` in the full transcript.
+    #[serde(default)]
+    pub turns_offset: u32,
+    /// Turn count of the full transcript, including turns above the window.
+    #[serde(default)]
+    pub turns_total: u32,
+    /// Fingerprint of the turns above the window.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub prefix_hash: Option<String>,
+    #[serde(default)]
+    pub user_turns_before_offset: u32,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub active_binding: Option<ConversationActiveBinding>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -259,7 +270,7 @@ pub async fn conversation_detail_core(
                 .map_err(AppError::from)
         },
         async {
-            ConversationProjector::project_open(pool, id, OPEN_TIMELINE_ROW_LIMIT)
+            jsonl_history::load_window(pool, id, jsonl_history::default_tail())
                 .await
                 .map_err(AppError::from)
         },
@@ -272,8 +283,16 @@ pub async fn conversation_detail_core(
     let Some(summary) = summary else {
         return Ok(None);
     };
-    let timeline = open.timeline;
-    let session_stats = open.session_stats;
+    let history = open.unwrap_or_else(|| jsonl_history::WindowedHistory {
+        turns: Vec::new(),
+        offset: 0,
+        total: 0,
+        meta: conversations::turn_window::window_meta(&[], 0),
+        session_stats: None,
+        last_sequence: 0,
+    });
+    let timeline = jsonl_history::timeline_from_window(id, &history);
+    let session_stats = history.session_stats.clone();
     let in_flight_user_turn_id = current_turn.as_ref().and_then(|turn| {
         matches!(
             turn.status.as_str(),
@@ -283,8 +302,12 @@ pub async fn conversation_detail_core(
     });
     Ok(Some(DbConversationDetail {
         summary,
-        turns: Vec::new(),
+        turns: history.turns,
         timeline,
+        turns_offset: history.offset as u32,
+        turns_total: history.total as u32,
+        prefix_hash: Some(history.meta.prefix_hash),
+        user_turns_before_offset: history.meta.user_before as u32,
         active_binding,
         current_turn,
         projection_version: CONVERSATION_PROJECTION_VERSION,
@@ -523,19 +546,23 @@ pub async fn conversation_timeline_page_core(
         .as_deref()
         .and_then(|value| value.parse::<usize>().ok())
         .unwrap_or(0);
-    let bounded_limit = limit.clamp(1, 200);
-    let window =
-        ConversationProjector::project_row_window(pool, conversation_id, start, bounded_limit)
-            .await?;
-    let next_index = start + window.rows.len();
-    let next_cursor = (next_index < window.total_rows).then(|| next_index.to_string());
-
+    let bounded_limit = limit.clamp(1, conversations::turn_window::MAX_WINDOW_TURNS);
+    let Some(page) = jsonl_history::load_page(pool, conversation_id, start, bounded_limit).await?
+    else {
+        return Ok(ConversationTimelinePage {
+            conversation_id,
+            projection_version: CONVERSATION_PROJECTION_VERSION,
+            cursor,
+            next_cursor: None,
+            rows: Vec::new(),
+        });
+    };
     Ok(ConversationTimelinePage {
         conversation_id,
-        projection_version: window.projection_version,
-        cursor,
-        next_cursor,
-        rows: window.rows,
+        projection_version: CONVERSATION_PROJECTION_VERSION,
+        cursor: Some(page.start.to_string()),
+        next_cursor: page.next_cursor.map(|index| index.to_string()),
+        rows: jsonl_history::rows_from_turns(&page.turns),
     })
 }
 
@@ -1620,9 +1647,11 @@ mod tests {
             .expect("conversation");
 
         assert_eq!(detail.timeline.last_sequence, 2);
-        assert!(detail.turns.is_empty());
+        assert_eq!(detail.turns.len(), 2);
         assert!(!detail.timeline.truncated_from_start);
         assert_eq!(detail.timeline.rows.len(), 2);
+        assert_eq!(detail.turns_total, 2);
+        assert_eq!(detail.turns_offset, 0);
         assert_eq!(detail.projection_version, CONVERSATION_PROJECTION_VERSION);
     }
 

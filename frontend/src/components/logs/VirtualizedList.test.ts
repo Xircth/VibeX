@@ -253,8 +253,7 @@ describe('conversation bottom distance', () => {
       scrollTopAfterPrepend({
         followTail: false,
         sessionChanged: false,
-        previousFirstKey: 'turn:t16',
-        nextFirstKey: 'turn:t0',
+        prepended: true,
         previousTotalSize: 2000,
         nextTotalSize: 2800,
         scrollTop: 640,
@@ -267,8 +266,7 @@ describe('conversation bottom distance', () => {
       scrollTopAfterPrepend({
         followTail: true,
         sessionChanged: false,
-        previousFirstKey: 'turn:t16',
-        nextFirstKey: 'turn:t0',
+        prepended: true,
         previousTotalSize: 2000,
         nextTotalSize: 2800,
         scrollTop: 1960,

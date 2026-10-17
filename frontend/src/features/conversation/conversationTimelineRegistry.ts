@@ -86,6 +86,7 @@ export type ConversationTimelineView = {
   ) => Promise<void>;
   hasEarlier: boolean;
   loadOlder: () => Promise<void>;
+  olderTurnsPrependEpoch: number;
   sessionBindReady: boolean;
   connecting: boolean;
 };
@@ -127,6 +128,7 @@ const EMPTY_VIEW: ConversationTimelineView = {
   respondQuestion: () => Promise.resolve(),
   hasEarlier: false,
   loadOlder: () => Promise.resolve(),
+  olderTurnsPrependEpoch: 0,
   sessionBindReady: false,
   connecting: false,
 };
@@ -285,15 +287,35 @@ function stopController(slot: Slot): void {
   slot.controller = null;
 }
 
+const TAIL_TURNS = 120;
+
+function prefixHashOf(
+  detail: { prefix_hash?: string | null } | null | undefined
+): string | null {
+  return detail?.prefix_hash ?? null;
+}
+
 function loadDetail(
   conversationId: string,
   controller: Controller
 ): Promise<void> {
   const epoch = ++controller.loadEpoch;
+  const loaded = state.byConversationId[conversationId];
+  const fromIndexRaw =
+    loaded?.olderCursor != null ? Number(loaded.olderCursor) : Number.NaN;
+  const fromIndex = loaded?.loadedToStart
+    ? 0
+    : Number.isFinite(fromIndexRaw) && fromIndexRaw > 0
+      ? fromIndexRaw
+      : undefined;
+  const storedHash = loaded?.prefixHash ?? null;
   dispatch({ type: 'load_start', conversationId });
-  return conversationApi
-    .detail(conversationId)
-    .then((detail) => {
+  const requested = conversationApi.detail(
+    conversationId,
+    fromIndex != null ? { fromIndex } : undefined
+  );
+  return requested
+    .then(async (detail) => {
       if (controller.stopped || controller.loadEpoch !== epoch) return;
       if (!detail) {
         dispatch({
@@ -303,10 +325,25 @@ function loadDetail(
         });
         return;
       }
-      dispatch({ type: 'load_success', conversationId, detail });
+      let resolved = detail;
+      const returnedHash = prefixHashOf(
+        detail as { prefix_hash?: string | null }
+      );
+      if (
+        fromIndex != null &&
+        storedHash &&
+        returnedHash &&
+        returnedHash !== storedHash
+      ) {
+        const tail = await conversationApi.detail(conversationId, {
+          tailTurns: TAIL_TURNS,
+        });
+        if (controller.stopped || controller.loadEpoch !== epoch) return;
+        if (tail) resolved = tail;
+      }
+      dispatch({ type: 'load_success', conversationId, detail: resolved });
       ensureLive(conversationId, controller);
       scheduleBind(conversationId, controller);
-      void prefetchOlder(conversationId, controller);
     })
     .catch((error: unknown) => {
       if (controller.stopped || controller.loadEpoch !== epoch) return;
@@ -527,19 +564,6 @@ async function reconnectAndReload(conversationId: string): Promise<void> {
   }
 }
 
-async function prefetchOlder(
-  conversationId: string,
-  controller: Controller
-): Promise<void> {
-  while (!controller.stopped) {
-    const before = state.byConversationId[conversationId]?.olderCursor ?? null;
-    if (nextOlderTimelinePage(before) == null) return;
-    await loadOlder(conversationId);
-    const after = state.byConversationId[conversationId]?.olderCursor ?? null;
-    if (after === before) return;
-  }
-}
-
 async function loadOlder(conversationId: string): Promise<void> {
   const controller = slots.get(conversationId)?.controller;
   if (!controller || controller.stopped) return;
@@ -560,13 +584,20 @@ async function loadOlder(conversationId: string): Promise<void> {
         limit: pageWindow.limit,
       });
       if (controller.stopped || slots.get(conversationId)?.refs === 0) return;
+      const reportedStart =
+        page.cursor != null && page.cursor !== ''
+          ? Number(page.cursor)
+          : pageWindow.start;
+      const start = Number.isFinite(reportedStart)
+        ? reportedStart
+        : pageWindow.start;
       dispatch({
         type: 'upsert_rows',
         conversationId,
         rows: page.rows,
         lastSequence:
           state.byConversationId[conversationId]?.lastSequence ?? 0n,
-        olderCursor: pageWindow.start > 0 ? String(pageWindow.start) : null,
+        olderCursor: start > 0 ? String(start) : null,
         protectLoaded: true,
       });
     } finally {
@@ -638,6 +669,7 @@ function buildView(
       }),
     hasEarlier: Boolean(entry?.olderCursor),
     loadOlder: () => loadOlder(conversationId),
+    olderTurnsPrependEpoch: entry?.olderTurnsPrependEpoch ?? 0,
     sessionBindReady: bindReady,
     connecting:
       hasDetail &&

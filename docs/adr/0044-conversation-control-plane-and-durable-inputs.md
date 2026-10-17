@@ -7,6 +7,10 @@ decision-makers:
 
 # 会话控制面统一持久输入、运行中纠偏与父子关系
 
+UI transcript 的权威已改为 JSONL / vendor 文件，见
+[ADR-0082](0082-jsonl-transcript-window.md)。本 ADR 的控制面（持久输入、
+纠偏、取消、父子导航）不变。
+
 VibeX 将 Conversation 的创建、输入、纠偏、等待、取消和父子导航收敛到同一个
 Application Core 会话控制面。普通输入先成为持久领域事实，再由每个 Conversation 的
 单消费者调度器在空闲时创建真实 Turn；运行中纠偏是独立、能力驱动且不得静默降级的

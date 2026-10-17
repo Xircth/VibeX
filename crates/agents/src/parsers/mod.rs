@@ -7,6 +7,7 @@
 //!
 //! VibeX-authored. The on-disk session formats are the agents' own.
 
+pub mod acp_native;
 pub mod claude;
 pub mod cline;
 pub mod codex;

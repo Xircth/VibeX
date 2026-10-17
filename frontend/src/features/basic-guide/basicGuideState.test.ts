@@ -20,6 +20,9 @@ import {
   skipBasicGuide,
   startBasicGuide,
   clickAdvancesSubstep,
+  conversationIdFromPathname,
+  nextSubstep,
+  shouldCompleteStep2FromAgentOutput,
   substepSpotlights,
 } from './basicGuideState';
 
@@ -184,6 +187,66 @@ describe('basicGuideState', () => {
     expect(substepSpotlights('configure-session-config')[0]?.id).toBe(
       'session-config'
     );
+    expect(substepSpotlights('submit-session')[0]?.id).toBe(
+      'session-create-submit'
+    );
+    expect(nextSubstep('configure-session-config')).toBe('submit-session');
+    expect(
+      clickAdvancesSubstep('configure-session-config', 'session-config')
+    ).toBe(true);
+  });
+
+  it('reads a session id from the workspace session route', () => {
+    expect(
+      conversationIdFromPathname('/local-projects/p1/workspaces/w1/sessions/s1')
+    ).toBe('s1');
+    expect(
+      conversationIdFromPathname('/local-projects/p1/sessions')
+    ).toBeNull();
+  });
+
+  it('completes step 2 from agent output on any live session, including a later one', () => {
+    const midConfig = {
+      phase: 'active' as const,
+      reachedStep: 1 as const,
+      substep: 'configure-session-config' as const,
+      endCopy: 'none' as const,
+    };
+    const sendHello = {
+      ...midConfig,
+      substep: 'send-hello' as const,
+    };
+    const append = { ops: [{ op: 'append_text' }] };
+    const assistantUpsert = {
+      ops: [
+        {
+          op: 'upsert',
+          row: { row: { kind: 'message_turn', turn: { role: 'assistant' } } },
+        },
+      ],
+    };
+    const userUpsert = {
+      ops: [
+        {
+          op: 'upsert',
+          row: { row: { kind: 'message_turn', turn: { role: 'user' } } },
+        },
+      ],
+    };
+    expect(shouldCompleteStep2FromAgentOutput(midConfig, append)).toBe(true);
+    expect(shouldCompleteStep2FromAgentOutput(sendHello, append)).toBe(true);
+    expect(shouldCompleteStep2FromAgentOutput(sendHello, assistantUpsert)).toBe(
+      true
+    );
+    expect(shouldCompleteStep2FromAgentOutput(sendHello, userUpsert)).toBe(
+      false
+    );
+    expect(
+      shouldCompleteStep2FromAgentOutput(
+        { ...sendHello, phase: 'completed' },
+        append
+      )
+    ).toBe(false);
   });
 
   it('advances usage and kanban clicks only on the coached control', () => {

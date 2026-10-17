@@ -273,6 +273,9 @@ describe('SessionCreationForm agent capability catalog controls', () => {
     expect(
       document.querySelector('[data-basic-guide="session-agent-selector"]')
     ).toBeInTheDocument();
+    expect(
+      document.querySelector('[data-basic-guide="session-create-submit"]')
+    ).toBeInTheDocument();
   });
 
   it('does not recommend switching away from a non-worktree project branch', async () => {

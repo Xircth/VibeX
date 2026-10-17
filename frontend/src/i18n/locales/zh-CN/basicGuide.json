@@ -25,6 +25,7 @@
     "click-new-session": "首先，点击此按钮以创建会话",
     "configure-session-agent": "请先**选择**本次会话使用的 Agent",
     "configure-session-config": "再**选择**其使用的权限、模型、工作强度",
+    "submit-session": "点击按钮以完成会话创建",
     "send-hello": "在输入框中编辑「你好」，然后发送。Agent 开始回复后即可进入下一步。",
     "rail-session-list": "这是会话列表，打开后可查看当前工作区的会话。",
     "rail-file-tree": "这是文件树，用来浏览和打开项目文件。",

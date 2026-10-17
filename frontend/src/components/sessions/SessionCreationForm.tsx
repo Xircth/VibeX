@@ -860,6 +860,7 @@ export function SessionCreationForm({
         ) : null}
         <Button
           type="submit"
+          data-basic-guide="session-create-submit"
           disabled={
             !canSubmit || isSubmitting || Boolean(executor && !activeControls)
           }

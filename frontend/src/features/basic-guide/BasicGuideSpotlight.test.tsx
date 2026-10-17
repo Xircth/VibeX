@@ -59,4 +59,42 @@ describe('BasicGuideSpotlight', () => {
       'is-idle'
     );
   });
+
+  it('draws a connector from the box to the callout', () => {
+    const target = document.createElement('div');
+    target.dataset.basicGuide = 'welcome-global-project';
+    document.body.appendChild(target);
+    vi.spyOn(target, 'getBoundingClientRect').mockReturnValue({
+      x: 400,
+      y: 300,
+      top: 300,
+      left: 400,
+      width: 360,
+      height: 36,
+      bottom: 336,
+      right: 760,
+      toJSON() {
+        return {};
+      },
+    } as DOMRect);
+
+    render(
+      <BasicGuideSpotlight
+        targets={[
+          {
+            id: 'welcome-global-project',
+            copyKey: 'select-project-global',
+          },
+        ]}
+        resolveCopy={() => '全局则是您的用户文件夹'}
+        panelSelector="[data-basic-guide-panel]"
+      />
+    );
+
+    const svg = document.querySelector('[data-basic-guide-connectors]');
+    expect(svg).toBeInTheDocument();
+    const path = svg?.querySelector('path');
+    expect(path?.getAttribute('d')).toMatch(/^M /);
+    expect(path?.getAttribute('stroke')).toBe('#111');
+  });
 });

@@ -81,6 +81,12 @@ describe('BasicGuideOverlay', () => {
     expect(screen.getByText('进入工作区并创建会话')).toBeInTheDocument();
     expect(screen.getByText('熟悉页面构成')).toBeInTheDocument();
     expect(
+      screen.getByText('用一个文件夹隔离会话与工作状态')
+    ).toBeInTheDocument();
+    expect(screen.getByText('选择 Agent 并发送第一条消息')).toBeInTheDocument();
+    expect(screen.getByText('了解侧栏、看板和计量统计')).toBeInTheDocument();
+    expect(panel.querySelectorAll('.astryx-step__description')).toHaveLength(3);
+    expect(
       within(panel).queryByText(/项目就是一个文件夹/, { exact: false })
     ).toBeNull();
     expect(document.querySelector('[data-basic-guide-callout]')).toBeNull();

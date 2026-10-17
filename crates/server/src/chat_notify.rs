@@ -80,6 +80,10 @@ impl ConversationEventPublisher for ChatDeliveryPublisher {
         self.inner.publish(record).await;
         notify_conversation_record(record).await;
     }
+
+    async fn publish_unpersisted(&self, record: &ConversationEventRecord) {
+        self.inner.publish_unpersisted(record).await;
+    }
 }
 
 pub async fn notify_conversation_record(record: &ConversationEventRecord) {

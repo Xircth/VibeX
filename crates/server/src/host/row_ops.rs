@@ -50,18 +50,16 @@ impl ConversationEventPublisher for HostRowOpPublisher {
             .get_mut(&conversation_id)
             .expect("projector present after insert");
         entry.touch();
-        if record.sequence <= entry.projector.last_sequence() {
-            return;
-        }
-        let previous_sequence = entry.last_emitted_sequence;
-        let ops = match entry.projector.apply(record) {
-            Ok(ops) => ops,
+        let previous_sequence = entry.db_cursor;
+        let ops = match entry.apply_persisted(record) {
+            Ok(Some(ops)) => ops,
+            Ok(None) => return,
             Err(error) => {
                 tracing::warn!(sequence = record.sequence, %error, "row-op emit: fold failed");
                 return;
             }
         };
-        let last_sequence = entry.projector.last_sequence();
+        let last_sequence = entry.db_cursor;
 
         let mut session_modes = None;
         let mut session_config_options = None;
@@ -114,5 +112,49 @@ impl ConversationEventPublisher for HostRowOpPublisher {
         if emit_global {
             self.events.emit("conversation-events", &batch);
         }
+    }
+
+    async fn publish_unpersisted(&self, record: &ConversationEventRecord) {
+        let conversation_id = record.conversation_id;
+        let mut map = self.projectors.lock().await;
+        if let std::collections::hash_map::Entry::Vacant(entry) = map.entry(conversation_id) {
+            match IncrementalRowProjector::load_through_latest(&self.pool, conversation_id).await {
+                Ok(projector) => {
+                    entry.insert(CachedRowProjector::new(projector));
+                }
+                Err(error) => {
+                    tracing::warn!(%conversation_id, %error, "row-op emit: projector load failed");
+                    return;
+                }
+            }
+        }
+        let entry = map
+            .get_mut(&conversation_id)
+            .expect("projector present after insert");
+        entry.touch();
+        let cursor = entry.db_cursor;
+        let ops = match entry.apply_unpersisted(record) {
+            Ok(ops) => ops,
+            Err(error) => {
+                tracing::warn!(%error, "row-op emit: unpersisted fold failed");
+                return;
+            }
+        };
+        evict_least_recently_used_projectors(&mut map, conversation_id);
+        drop(map);
+        if ops.is_empty() {
+            return;
+        }
+        let batch = ConversationRowOpBatch {
+            conversation_id,
+            last_sequence: cursor,
+            previous_sequence: Some(cursor),
+            ops,
+            session_modes: None,
+            session_config_options: None,
+            available_commands: None,
+        };
+        self.events
+            .emit(format!("conversation-events:{conversation_id}"), &batch);
     }
 }

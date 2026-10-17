@@ -1,8 +1,6 @@
-//! Full-text search over conversations, backed by a standalone SQLite FTS5
-//! table (`conversation_fts`). The index is kept fresh from the projection: it
-//! is re-derived whenever a turn settles or the timeline is truncated, and rows
-//! are removed when a conversation is deleted. A startup backfill indexes any
-//! conversations missing from the table (e.g. after the migration first runs).
+//! Conversation search matches the session title (`sessions.name`), the same
+//! shape as Codeg's title-contains search. The FTS table is still written when
+//! a turn settles; it is not the search source.
 
 use agents::conversation::{ContentBlock, ConversationTimeline, ConversationTimelineRow, TurnRole};
 use serde::Serialize;
@@ -118,30 +116,43 @@ pub async fn delete_from_index(
     Ok(())
 }
 
-/// Run a full-text search, most-relevant first. `workspace_id`, when set,
-/// restricts to one workspace.
+fn like_contains(query: &str) -> Option<String> {
+    let trimmed = query.trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+    let escaped = trimmed
+        .replace('\\', "\\\\")
+        .replace('%', "\\%")
+        .replace('_', "\\_");
+    Some(format!("%{escaped}%"))
+}
+
+/// Title-contains search, most recently updated first. `workspace_id`, when set,
+/// restricts to one workspace. Deleted conversations are hidden.
 pub async fn search_conversations(
     conn: &mut SqliteConnection,
     query: &str,
     workspace_id: Option<Uuid>,
     limit: i64,
 ) -> Result<Vec<ConversationSearchHit>, sqlx::Error> {
-    let Some(match_expr) = to_fts_match_query(query) else {
+    let Some(pattern) = like_contains(query) else {
         return Ok(Vec::new());
     };
     let sql = format!(
-        "SELECT conversation_id, workspace_id, title, \
-                snippet(conversation_fts, 0, '[', ']', '…', 12) AS snippet \
-         FROM conversation_fts \
-         WHERE conversation_fts MATCH ?1 {} \
-         ORDER BY rank LIMIT ?2",
+        "SELECT id AS conversation_id, workspace_id, name AS title, \
+                COALESCE(name, '') AS snippet \
+         FROM sessions \
+         WHERE deleted_at IS NULL AND name LIKE ?1 ESCAPE '\\' {} \
+         ORDER BY pinned_at IS NULL, pinned_at DESC, updated_at DESC \
+         LIMIT ?2",
         if workspace_id.is_some() {
             "AND workspace_id = ?3"
         } else {
             ""
         }
     );
-    let mut q = sqlx::query(&sql).bind(match_expr).bind(limit);
+    let mut q = sqlx::query(&sql).bind(pattern).bind(limit);
     if let Some(workspace_id) = workspace_id {
         q = q.bind(workspace_id);
     }
@@ -240,7 +251,9 @@ mod tests {
 mod integration_tests {
     use std::str::FromStr;
 
-    use db::models::conversation::{ConversationRecord, CreateConversationRecord};
+    use db::models::conversation::{
+        ConversationRecord, CreateConversationRecord, DbConversationSummary,
+    };
     use sqlx::{
         SqlitePool,
         sqlite::{SqliteConnectOptions, SqlitePoolOptions},
@@ -285,26 +298,25 @@ mod integration_tests {
     }
 
     #[tokio::test]
-    async fn reindex_then_search_finds_filters_and_misses() {
+    async fn title_search_finds_filters_and_ignores_body() {
         let pool = pool().await;
         let ws = Uuid::new_v4();
-        let conv = seed(&pool, ws, Some("登录修复")).await;
+        let conv = seed(&pool, ws, Some("修复登录页面")).await;
+        let other = seed(&pool, ws, Some("其他事项")).await;
         let mut conn = pool.acquire().await.unwrap();
 
-        reindex_conversation(&mut conn, conv, "修复登录页面的空指针 bug")
+        reindex_conversation(&mut conn, other, "空指针 bug")
             .await
             .unwrap();
 
-        // Substring CJK match (trigram, >= 3 chars).
         let hits = search_conversations(&mut conn, "修复登录", None, 10)
             .await
             .unwrap();
         assert_eq!(hits.len(), 1);
         assert_eq!(hits[0].conversation_id, conv);
-        assert_eq!(hits[0].title.as_deref(), Some("登录修复"));
+        assert_eq!(hits[0].title.as_deref(), Some("修复登录页面"));
         assert!(!hits[0].snippet.is_empty());
 
-        // Workspace filter.
         assert!(
             search_conversations(&mut conn, "修复登录", Some(Uuid::new_v4()), 10)
                 .await
@@ -318,8 +330,12 @@ mod integration_tests {
                 .len(),
             1
         );
-
-        // No match.
+        assert!(
+            search_conversations(&mut conn, "空指针", None, 10)
+                .await
+                .unwrap()
+                .is_empty()
+        );
         assert!(
             search_conversations(&mut conn, "不存在词组xyz", None, 10)
                 .await
@@ -329,24 +345,30 @@ mod integration_tests {
     }
 
     #[tokio::test]
-    async fn reindex_is_idempotent_and_delete_removes() {
+    async fn title_search_is_one_row_and_hides_deleted() {
         let pool = pool().await;
-        let conv = seed(&pool, Uuid::new_v4(), None).await;
+        let conv = seed(&pool, Uuid::new_v4(), Some("hello world")).await;
         let mut conn = pool.acquire().await.unwrap();
-
-        reindex_conversation(&mut conn, conv, "hello world")
-            .await
-            .unwrap();
-        // Re-index the same conversation with new text — no duplicate rows.
-        reindex_conversation(&mut conn, conv, "hello brave world")
-            .await
-            .unwrap();
         let hits = search_conversations(&mut conn, "hello", None, 10)
             .await
             .unwrap();
         assert_eq!(hits.len(), 1);
+        drop(conn);
 
-        delete_from_index(&mut conn, conv).await.unwrap();
+        DbConversationSummary::set_title(&pool, conv, "hello brave world")
+            .await
+            .unwrap();
+        let mut conn = pool.acquire().await.unwrap();
+        let hits = search_conversations(&mut conn, "hello", None, 10)
+            .await
+            .unwrap();
+        assert_eq!(hits.len(), 1);
+        drop(conn);
+
+        DbConversationSummary::soft_delete(&pool, conv)
+            .await
+            .unwrap();
+        let mut conn = pool.acquire().await.unwrap();
         assert!(
             search_conversations(&mut conn, "hello", None, 10)
                 .await

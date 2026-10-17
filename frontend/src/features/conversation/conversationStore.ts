@@ -152,7 +152,9 @@ export function conversationStoreReducer(
           action.detail.timeline.last_sequence
         );
         // A slow detail response must not rewind row-ops that already rendered.
-        // Otherwise the server window replaces the loaded rows.
+        // Otherwise the server window replaces the loaded rows. Unpersisted
+        // transcript chunks report the database cursor, so they do not keep
+        // this comparison true after the file has caught up.
         const keepRealtimeRows = entry.lastSequence > detailLastSequence;
         const incomingRows = action.detail.timeline.rows;
         const mergedRows = keepRealtimeRows

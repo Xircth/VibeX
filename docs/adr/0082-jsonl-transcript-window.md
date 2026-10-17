@@ -25,15 +25,23 @@ decision-makers:
 3. 前端不再预取全部历史，也不再按 80 行 / 768KiB 裁掉已加载行。更早一页
    120 回合。用户向下跨过距顶 240px 时加载一页；短列表用「更早的消息」。
    刷新带着已加载窗口的起点；前缀指纹不一致时回到尾部 120 回合。
-4. `conversation_events` 继续保存实时 row-op 与会话控制（mode、config、
-   commands、权限）。实时投影器按已持久化的事件序号折叠，因此内容事件
-   仍写入这张表。打开和翻页不再把这张表当成历史。表暂不 DROP，以便
-   revert 后仍能读到旧数据。
+4. 实时屏幕上的内容增量（助手文本、思考、内容块、计划和工具调用）不写入
+   `conversation_events`。它们立刻追加到 JSONL；文件不存在时先写 header。
+   进程内投影器发出 row-op，并另记数据库游标，避免内存序号挡住随后落库的
+   Turn 终态。流式更新不等待磁盘；prompt 与 turn end 最多等 2 秒。
+   `UserTurnCreated`、Turn 终态、权限、排队输入、会话控制（mode、config、
+   commands）和 `UsageUpdated` 仍写入这张表。用量看板仍读
+   `conversation_usage_snapshots`，本变更不引入 `token_usage_turn`。
+   打开和翻页不读这张表。序号缺口改为重新读取文件窗口，不再用
+   `events_since` 回补。搜索按 `sessions.name` 包含匹配。Markdown / HTML
+   导出读取完整 transcript。表暂不 DROP。`project_open` 仍只服务于自身
+   测试，不在打开路径上。
 
 ## Consequences
 
-- 屏幕上的历史与实时 row-op 在一次刷新后以 JSONL 为准。未刷出的最后一秒
-  仍可能只存在于 row-op，这与 Codeg 的 best-effort writer 相同。
+- 屏幕上的历史在一次刷新后以 JSONL 为准。流式的最后一秒仍可能只在内存
+  row-op 里，这与 Codeg 的 best-effort writer 相同。插件 `events_since`
+  读的是事件日志，因此看不到未落库的内容增量。
 - 没有 vendor 解析器的内置 Agent 走 JSONL，不继续为它们维持第二套历史读路径。
 - ADR-0044、ADR-0071、ADR-0075、ADR-0081 里「事件日志是 UI transcript」的
   句子由本 ADR 取代。控制面与计量归属目标不变。

@@ -198,7 +198,6 @@ describe('useConversationTimeline', () => {
     touchMock.mockReset();
     touchMock.mockResolvedValue({ ok: true, idleTimeoutSecs: 180 });
     eventsSinceMock.mockReset();
-    // The hook backfills rows once on subscribe; default to "nothing changed".
     eventsSinceMock.mockResolvedValue(rowPage([], 0n));
     timelinePageMock.mockReset();
     timelinePageMock.mockResolvedValue({
@@ -577,7 +576,7 @@ describe('useConversationTimeline', () => {
     ]);
   });
 
-  it('backfills from the loaded sequence instead of dumping the full timeline', async () => {
+  it('does not backfill the event log after the file window loads', async () => {
     detailMock.mockResolvedValue({
       ...detail(),
       summary: { ...detail().summary, message_count: 8n },
@@ -590,15 +589,12 @@ describe('useConversationTimeline', () => {
       },
     });
 
-    renderHook(() => useConversationTimeline(CONVERSATION_ID));
-
-    await waitFor(() =>
-      expect(eventsSinceMock).toHaveBeenCalledWith({
-        conversationId: CONVERSATION_ID,
-        afterSequence: 80,
-        limit: 500,
-      })
+    const { result } = renderHook(() =>
+      useConversationTimeline(CONVERSATION_ID)
     );
+
+    await waitFor(() => expect(result.current.loading).toBe(false));
+    expect(eventsSinceMock).not.toHaveBeenCalled();
   });
 
   it('does not load or connect an inactive conversation surface', async () => {
@@ -910,7 +906,7 @@ describe('useConversationTimeline', () => {
     );
   });
 
-  it('backfills changed rows on subscribe', async () => {
+  it('does not add event-log rows on subscribe', async () => {
     detailMock.mockResolvedValue(detail());
     eventsSinceMock.mockResolvedValue(
       rowPage(
@@ -924,32 +920,28 @@ describe('useConversationTimeline', () => {
     );
 
     await waitFor(() => expect(result.current.loading).toBe(false));
-    await waitFor(() =>
-      expect(eventsSinceMock).toHaveBeenCalledWith({
-        conversationId: CONVERSATION_ID,
-        afterSequence: 0,
-        limit: 500,
-      })
-    );
-    await waitFor(() => expect(result.current.timeline).toHaveLength(2));
-    expect(result.current.timeline.map((row) => row.turn.role)).toEqual([
-      'user',
-      'assistant',
-    ]);
+    expect(eventsSinceMock).not.toHaveBeenCalled();
+    expect(result.current.timeline).toHaveLength(0);
   });
 
-  it('backfills rows when a live batch skips sequences', async () => {
-    detailMock.mockResolvedValue({
+  it('reloads the file window when a live batch skips sequences', async () => {
+    const opened = {
       ...detail(),
       timeline: {
         ...detail().timeline,
         last_sequence: 1n,
         rows: [userRow('t1', 'q', 1n)],
       },
-    });
-    eventsSinceMock
-      .mockResolvedValueOnce(rowPage([], 1n))
-      .mockResolvedValueOnce(rowPage([assistantRow('t1', 'hello', 6n)], 6n));
+    };
+    const reloaded = {
+      ...detail(),
+      timeline: {
+        ...detail().timeline,
+        last_sequence: 6n,
+        rows: [userRow('t1', 'q', 1n), assistantRow('t1', 'hello', 6n)],
+      },
+    };
+    detailMock.mockResolvedValueOnce(opened).mockResolvedValue(reloaded);
 
     const { result } = renderHook(() =>
       useConversationTimeline(CONVERSATION_ID)
@@ -976,13 +968,8 @@ describe('useConversationTimeline', () => {
       flushFrames();
     });
 
-    await waitFor(() =>
-      expect(eventsSinceMock).toHaveBeenCalledWith({
-        conversationId: CONVERSATION_ID,
-        afterSequence: 1,
-        limit: 500,
-      })
-    );
+    await waitFor(() => expect(detailMock).toHaveBeenCalledTimes(2));
+    expect(eventsSinceMock).not.toHaveBeenCalled();
   });
 
   it('accumulates streamed text deltas into one assistant bubble', async () => {

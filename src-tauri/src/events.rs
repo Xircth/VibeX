@@ -34,11 +34,10 @@ pub use conversations::ConversationRowProjectors;
 /// This is the single realtime path to the frontend (消灭双投影): the frontend consumes
 /// `ConversationRowOpBatch` and never folds raw events. It feeds the conversation's
 /// cached incremental projector so ops are produced in O(1) amortized (no per-frame
-/// re-projection). `after_sequence` seeds a missing projector; once active, the
-/// projector's own cursor is authoritative so a later notifier cannot skip or overtake
-/// an earlier committed event. Best-effort — a dropped batch is self-healed by the hook's
-/// subscribe-time row backfill (`rows_since`) and by a full reload (`conversation_detail`),
-/// both of which reproject from the same fold.
+/// re-projection). `after_sequence` seeds a missing projector. Once active, the
+/// database cursor — not the fold sequence — decides which durable rows are new.
+/// Transcript deltas advance the fold without moving that cursor. Best-effort — a
+/// dropped batch is healed by reloading the transcript window.
 pub async fn emit_conversation_row_ops_after(
     _app: &AppHandle,
     projectors: &ConversationRowProjectors,
@@ -56,7 +55,7 @@ pub async fn emit_conversation_row_ops_after(
     let mut map = projectors.lock().await;
     let publish_after = map
         .get(&conversation_id)
-        .map(|entry| entry.projector.last_sequence())
+        .map(|entry| entry.db_cursor)
         .unwrap_or(after_sequence);
     let new_records =
         match ConversationEventRecord::events_since(pool, conversation_id, publish_after, 2000)
@@ -71,10 +70,6 @@ pub async fn emit_conversation_row_ops_after(
     if new_records.is_empty() {
         return;
     }
-    let last_sequence = new_records
-        .last()
-        .map(|record| record.sequence)
-        .unwrap_or(publish_after);
 
     // Session control state (modes / config options) is not a timeline row, so carry
     // the latest of each in the batch rather than on a separate channel.
@@ -117,32 +112,33 @@ pub async fn emit_conversation_row_ops_after(
     let should_emit = {
         let entry = map.get_mut(&conversation_id).expect("projector present");
         entry.touch();
-        let previous_sequence = entry.last_emitted_sequence;
+        let previous_sequence = entry.db_cursor;
         for record in &new_records {
-            if record.sequence <= entry.projector.last_sequence() {
-                continue;
-            }
-            match entry.projector.apply(record) {
-                Ok(record_ops) => conversations::extend_coalesced_row_ops(&mut ops, record_ops),
+            match entry.apply_persisted(record) {
+                Ok(Some(record_ops)) => {
+                    conversations::extend_coalesced_row_ops(&mut ops, record_ops)
+                }
+                Ok(None) => {}
                 Err(error) => {
                     tracing::warn!(sequence = record.sequence, %error, "row-op emit: fold failed")
                 }
             }
         }
+        let last_sequence = entry.db_cursor;
         let will_emit = !(ops.is_empty()
             && session_modes.is_none()
             && session_config_options.is_none()
             && available_commands.is_none()
             && !queue_changed);
         if will_emit {
-            entry.last_emitted_sequence = entry.projector.last_sequence().max(last_sequence);
-            Some(previous_sequence)
+            entry.last_emitted_sequence = last_sequence;
+            Some((previous_sequence, last_sequence))
         } else {
             None
         }
     };
 
-    if let Some(previous_sequence) = should_emit {
+    if let Some((previous_sequence, last_sequence)) = should_emit {
         let emit_global = !ops.iter().all(|op| {
             matches!(
                 op,
@@ -204,6 +200,61 @@ pub async fn emit_conversation_row_ops_after(
             },
         );
     }
+}
+
+/// Fold one transcript delta that was not inserted. The database cursor stays
+/// put, and the batch reports that cursor so a later file refresh can replace
+/// the window once streaming text has settled.
+pub async fn emit_unpersisted_row_op(
+    projectors: &ConversationRowProjectors,
+    pool: &SqlitePool,
+    record: &ConversationEventRecord,
+) {
+    let conversation_id = record.conversation_id;
+    let mut map = projectors.lock().await;
+    if let std::collections::hash_map::Entry::Vacant(entry) = map.entry(conversation_id) {
+        match IncrementalRowProjector::load_through_latest(pool, conversation_id).await {
+            Ok(projector) => {
+                entry.insert(CachedRowProjector::new(projector));
+            }
+            Err(error) => {
+                tracing::warn!(%conversation_id, %error, "row-op emit: projector load failed");
+                return;
+            }
+        }
+    }
+    let mut ops = Vec::new();
+    let cursor = {
+        let entry = map.get_mut(&conversation_id).expect("projector present");
+        entry.touch();
+        let cursor = entry.db_cursor;
+        match entry.apply_unpersisted(record) {
+            Ok(record_ops) => conversations::extend_coalesced_row_ops(&mut ops, record_ops),
+            Err(error) => {
+                tracing::warn!(%error, "row-op emit: unpersisted fold failed");
+                return;
+            }
+        }
+        cursor
+    };
+    evict_least_recently_used_projectors(&mut map, conversation_id);
+    drop(map);
+    if ops.is_empty() {
+        return;
+    }
+    let batch = ConversationRowOpBatch {
+        conversation_id,
+        last_sequence: cursor,
+        previous_sequence: Some(cursor),
+        ops,
+        session_modes: None,
+        session_config_options: None,
+        available_commands: None,
+    };
+    crate::host_bus::bus().emit(
+        format!("{}:{conversation_id}", channels::CONVERSATION_EVENTS),
+        &batch,
+    );
 }
 
 #[derive(Clone, Serialize)]

@@ -726,9 +726,11 @@ async fn export_title_and_timeline(
         .and_then(|summary| summary.title)
         .filter(|title| !title.trim().is_empty())
         .unwrap_or_else(|| "会话".to_string());
-    let timeline = ConversationProjector::project(pool, conversation_id)
+    let turns = jsonl_history::load_all_turns(pool, conversation_id)
         .await
-        .map_err(internal_error)?;
+        .map_err(internal_error)?
+        .unwrap_or_default();
+    let timeline = jsonl_history::timeline_from_turns(conversation_id, &turns);
     Ok((title, timeline))
 }
 

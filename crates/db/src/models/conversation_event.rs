@@ -167,6 +167,19 @@ impl ConversationEventRecord {
             .collect())
     }
 
+    pub async fn max_sequence(
+        pool: &SqlitePool,
+        conversation_id: Uuid,
+    ) -> Result<i64, sqlx::Error> {
+        let value = sqlx::query_scalar::<_, Option<i64>>(
+            "SELECT MAX(sequence) FROM conversation_events WHERE conversation_id = ?",
+        )
+        .bind(conversation_id)
+        .fetch_one(pool)
+        .await?;
+        Ok(value.unwrap_or(0))
+    }
+
     pub async fn events_since<'e, E>(
         executor: E,
         conversation_id: Uuid,

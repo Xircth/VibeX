@@ -435,7 +435,10 @@ describe('KanbanUsageDashboard', () => {
 
     const trendLineSvg = screen.getByTestId('usage-trend-line-chart');
     expect(trendLineSvg).toBeInTheDocument();
-    expect(trendLineSvg.querySelector('polyline')).not.toBeNull();
+    expect(trendLineSvg.querySelector('polyline')).toHaveAttribute(
+      'stroke',
+      'var(--usage-blue-fg)'
+    );
 
     const metricPills = modelsCard.querySelectorAll(
       '.kanban-usage-metric-pill'

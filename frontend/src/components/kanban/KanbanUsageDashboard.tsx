@@ -2492,7 +2492,7 @@ export function KanbanUsageDashboard() {
                             >
                               <polyline
                                 fill="none"
-                                stroke="hsl(var(--warning))"
+                                stroke="var(--usage-blue-fg)"
                                 strokeWidth="2"
                                 strokeLinecap="round"
                                 strokeLinejoin="round"
@@ -2594,7 +2594,7 @@ export function KanbanUsageDashboard() {
                                   </span>
                                   <span
                                     aria-hidden="true"
-                                    className="pointer-events-none absolute left-1/2 z-20 h-2 w-2 -translate-x-1/2 translate-y-1/2 rounded-full border border-background bg-[hsl(var(--warning))] shadow-xs transition-transform duration-150 group-hover:scale-125"
+                                    className="pointer-events-none absolute left-1/2 z-20 h-2 w-2 -translate-x-1/2 translate-y-1/2 rounded-full border border-background bg-[var(--usage-blue-fg)] shadow-xs transition-transform duration-150 group-hover:scale-125"
                                     style={{
                                       bottom: `${Math.min(98, Math.max(totalTokens > 0 ? 3 : 1, totalHeight))}%`,
                                     }}
@@ -3259,7 +3259,7 @@ export function KanbanUsageDashboard() {
 
             <div className="flex items-center justify-between gap-4">
               <span className="flex items-center gap-1.5 text-muted-foreground">
-                <span className="h-2 w-2.5 shrink-0 rounded-full bg-[hsl(var(--warning))]" />
+                <span className="h-2 w-2.5 shrink-0 rounded-full bg-[var(--usage-blue-fg)]" />
                 {t('usageDashboard.trendLine')}
               </span>
               <span className="font-mono tabular-nums text-muted-foreground">

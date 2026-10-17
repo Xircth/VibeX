@@ -97,4 +97,23 @@ describe('BasicGuideSpotlight', () => {
     expect(path?.getAttribute('d')).toMatch(/^M /);
     expect(path?.getAttribute('stroke')).toBe('#111');
   });
+
+  it('does not render copy when the matching box is not on this page', () => {
+    render(
+      <BasicGuideSpotlight
+        targets={[
+          {
+            id: 'welcome-create-project',
+            copyKey: 'select-project-create',
+          },
+        ]}
+        resolveCopy={() => '项目就是一个文件夹'}
+        panelSelector="[data-basic-guide-panel]"
+      />
+    );
+
+    expect(document.querySelector('.basic-guide-spotlight')).toBeNull();
+    expect(document.querySelector('[data-basic-guide-callout]')).toBeNull();
+    expect(screen.queryByText('项目就是一个文件夹')).toBeNull();
+  });
 });

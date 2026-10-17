@@ -118,11 +118,22 @@ describe('GeneralSettings basic guide', () => {
     agentManagementApiMock.bar.mockResolvedValue([]);
   });
 
-  it('puts Restart basic guide at the top of General settings', () => {
-    render(<GeneralSettings />);
+  it('puts Restart basic guide at the bottom-right of General settings', () => {
+    const { container } = render(<GeneralSettings />);
+    const button = screen.getByRole('button', { name: '重新开始基础引导' });
+    const content = container.querySelector('.settings-content');
+    const sections = content?.querySelector('.settings-sections');
+    expect(button).toBeInTheDocument();
+    expect(sections).toBeTruthy();
     expect(
-      screen.getByRole('button', { name: '重新开始基础引导' })
-    ).toBeInTheDocument();
+      Boolean(
+        sections &&
+          button.compareDocumentPosition(sections) &
+            Node.DOCUMENT_POSITION_PRECEDING
+      )
+    ).toBe(true);
+    expect(button.closest('.flex')?.className).toMatch(/justify-end/);
+    expect(content?.children[1]).toContainElement(button);
   });
 });
 
@@ -321,9 +332,7 @@ describe('GeneralSettings Agent model catalogs', () => {
     expect(trigger).toHaveTextContent('预览视图');
 
     await user.click(trigger);
-    await user.click(
-      await screen.findByRole('option', { name: '源码视图' })
-    );
+    await user.click(await screen.findByRole('option', { name: '源码视图' }));
     expect(useEditorSettingsStore.getState().markdownPreviewMode).toBe(
       'source'
     );

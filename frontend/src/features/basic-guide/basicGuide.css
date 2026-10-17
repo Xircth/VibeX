@@ -177,10 +177,6 @@
   left: 52px;
 }
 
-.basic-guide-panel--settings {
-  left: 196px;
-}
-
 .basic-guide-panel__stack {
   display: flex;
   flex-direction: column;
@@ -213,11 +209,11 @@
   z-index: 70;
   pointer-events: none;
   box-sizing: border-box;
-  border: 2px solid #111;
-  outline: 2px solid #111;
-  outline-offset: -2px;
+  border: 1px solid #111;
+  outline: 1px solid #111;
+  outline-offset: -1px;
   border-radius: 8px;
-  box-shadow: 0 0 0 2px #111;
+  box-shadow: 0 0 0 1px #111;
   animation: basic-guide-breathe 2.4s ease-in-out infinite;
 }
 
@@ -292,13 +288,13 @@
   0%,
   100% {
     box-shadow:
-      0 0 0 2px #111,
-      0 0 0 2px rgb(17 17 17 / 0);
+      0 0 0 1px #111,
+      0 0 0 1px rgb(17 17 17 / 0);
   }
   50% {
     box-shadow:
-      0 0 0 2px #111,
-      0 0 0 5px rgb(17 17 17 / 0.22);
+      0 0 0 1px #111,
+      0 0 0 4px rgb(17 17 17 / 0.22);
   }
 }
 

@@ -175,19 +175,6 @@ export function GeneralSettings() {
 
   return (
     <div className="settings-content">
-      <div className="mb-4 flex justify-end">
-        <Button
-          type="button"
-          variant="outline"
-          size="sm"
-          onClick={() => {
-            if (basicGuide) basicGuide.restart();
-            else writeBasicGuide(restartBasicGuide());
-          }}
-        >
-          {t('general.restartBasicGuide')}
-        </Button>
-      </div>
       <div className="settings-sections">
         <SettingsSection
           icon={Terminal}
@@ -707,12 +694,27 @@ export function GeneralSettings() {
         <PluginSettingsSections />
       </div>
 
-      <SettingsActionBar
-        dirty={dirty}
-        saving={saving}
-        onDiscard={handleReset}
-        onSave={handleSave}
-      />
+      <div className="mt-auto flex flex-col gap-3">
+        <SettingsActionBar
+          dirty={dirty}
+          saving={saving}
+          onDiscard={handleReset}
+          onSave={handleSave}
+        />
+        <div className="flex justify-end">
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={() => {
+              if (basicGuide) basicGuide.restart();
+              else writeBasicGuide(restartBasicGuide());
+            }}
+          >
+            {t('general.restartBasicGuide')}
+          </Button>
+        </div>
+      </div>
 
       <ImportLocalSessionsDialog
         open={importOpen}

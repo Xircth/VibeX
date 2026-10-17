@@ -384,11 +384,6 @@ export function curvePath(
   return `M ${from.x.toFixed(1)} ${from.y.toFixed(1)} C ${midX.toFixed(1)} ${from.y.toFixed(1)}, ${midX.toFixed(1)} ${to.y.toFixed(1)}, ${to.x.toFixed(1)} ${to.y.toFixed(1)}`;
 }
 
-export function calloutKeysFor(
-  boxes: MergedSpotlight[],
-  targets: readonly SpotlightTarget[]
-): string[] {
-  const fromBoxes = uniqueStrings(boxes.flatMap((box) => box.copyKeys));
-  if (fromBoxes.length > 0) return fromBoxes;
-  return uniqueStrings(targets.map((target) => target.copyKey));
+export function calloutKeysFor(boxes: MergedSpotlight[]): string[] {
+  return uniqueStrings(boxes.flatMap((box) => box.copyKeys));
 }

@@ -2,7 +2,7 @@ import { render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { HotkeysProvider } from 'react-hotkeys-hook';
 import { MemoryRouter } from 'react-router-dom';
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import {
   BasicGuideContext,
@@ -13,7 +13,8 @@ import { ACTIVE_GUIDE, type PersistedBasicGuide } from './basicGuideState';
 
 function renderOverlay(
   state: PersistedBasicGuide,
-  extra?: Partial<BasicGuideContextValue>
+  extra?: Partial<BasicGuideContextValue>,
+  { pathname = '/' }: { pathname?: string } = {}
 ) {
   const value: BasicGuideContextValue = {
     state,
@@ -33,7 +34,7 @@ function renderOverlay(
     value,
     ...render(
       <HotkeysProvider initiallyActiveScopes={['dialog']}>
-        <MemoryRouter>
+        <MemoryRouter initialEntries={[pathname]}>
           <BasicGuideContext.Provider value={value}>
             <BasicGuideOverlay />
           </BasicGuideContext.Provider>
@@ -43,8 +44,34 @@ function renderOverlay(
   };
 }
 
+function mountGuideTarget(id: string) {
+  const node = document.createElement('button');
+  node.dataset.basicGuide = id;
+  document.body.appendChild(node);
+  vi.spyOn(node, 'getBoundingClientRect').mockReturnValue({
+    x: 420,
+    y: 180,
+    top: 180,
+    left: 420,
+    width: 280,
+    height: 36,
+    bottom: 216,
+    right: 700,
+    toJSON() {
+      return {};
+    },
+  } as DOMRect);
+  return node;
+}
+
 describe('BasicGuideOverlay', () => {
-  it('keeps the three steps on the left without a card, copy on the page', () => {
+  afterEach(() => {
+    document
+      .querySelectorAll('[data-basic-guide]')
+      .forEach((node) => node.remove());
+  });
+
+  it('keeps the three steps on the left without a card', () => {
     renderOverlay(ACTIVE_GUIDE);
     const panel = screen.getByRole('complementary', { name: '基础引导' });
     expect(panel).toBeInTheDocument();
@@ -56,6 +83,15 @@ describe('BasicGuideOverlay', () => {
     expect(
       within(panel).queryByText(/项目就是一个文件夹/, { exact: false })
     ).toBeNull();
+    expect(document.querySelector('[data-basic-guide-callout]')).toBeNull();
+    expect(
+      screen.getByRole('button', { name: '直接退出' })
+    ).toBeInTheDocument();
+  });
+
+  it('places callout copy next to a measured box on this window', () => {
+    mountGuideTarget('welcome-create-project');
+    renderOverlay(ACTIVE_GUIDE);
     expect(
       document.querySelector(
         '[data-basic-guide-callout="select-project-create"]'
@@ -65,10 +101,38 @@ describe('BasicGuideOverlay', () => {
       document.querySelector(
         '[data-basic-guide-callout="select-project-global"]'
       )
-    ).toHaveTextContent('用户文件夹');
+    ).toBeNull();
+  });
+
+  it('hides the step panel on the settings window', () => {
+    renderOverlay(ACTIVE_GUIDE, undefined, {
+      pathname: '/settings/general',
+    });
     expect(
-      screen.getByRole('button', { name: '直接退出' })
-    ).toBeInTheDocument();
+      screen.queryByRole('complementary', { name: '基础引导' })
+    ).toBeNull();
+    expect(screen.queryByText('创建或选择项目')).toBeNull();
+    expect(document.querySelector('[data-basic-guide-callout]')).toBeNull();
+  });
+
+  it('keeps callout copy on settings only when that window has the box', () => {
+    mountGuideTarget('settings-agent-bar');
+    renderOverlay(
+      {
+        phase: 'active',
+        reachedStep: 1,
+        substep: 'settings-agent-icon',
+        endCopy: 'none',
+      },
+      undefined,
+      { pathname: '/settings/agents' }
+    );
+    expect(
+      screen.queryByRole('complementary', { name: '基础引导' })
+    ).toBeNull();
+    expect(
+      document.querySelector('[data-basic-guide-callout="settings-agent-icon"]')
+    ).toHaveTextContent('先点选一个 Agent');
   });
 
   it('shows the finish button without coaching copy', () => {

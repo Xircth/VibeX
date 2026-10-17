@@ -38,6 +38,7 @@ export function BasicGuideOverlay() {
   const current = showingEnd ? 3 : mainStepIndex(state.substep);
   const showCoaching = !showingEnd && state.substep !== 'show-end';
   const spotlightTargets = showCoaching ? substepSpotlights(state.substep) : [];
+  const showStepPanel = !isSettingsRoute(location.pathname);
 
   return (
     <>
@@ -49,66 +50,67 @@ export function BasicGuideOverlay() {
         />
       ) : null}
 
-      <aside
-        className={cn(
-          'basic-guide-panel',
-          isSettingsRoute(location.pathname) && 'basic-guide-panel--settings',
-          isProjectRoute(location.pathname) && 'basic-guide-panel--workspace'
-        )}
-        data-basic-guide-panel
-        aria-label={t('panelAria')}
-      >
-        <div className="basic-guide-panel__stack">
-          {showingEnd ? (
-            <button
-              type="button"
-              className="basic-guide-end"
-              onClick={ctx.dismissEnd}
-            >
-              {t('endCopy')}
-            </button>
-          ) : (
-            <>
-              <AstryxStep current={current} aria-label={t('stepsAria')}>
-                <AstryxStepItem>{t('steps.createProject')}</AstryxStepItem>
-                <AstryxStepItem>{t('steps.createSession')}</AstryxStepItem>
-                <AstryxStepItem>{t('steps.learnLayout')}</AstryxStepItem>
-              </AstryxStep>
-              <div className="basic-guide-panel__actions">
-                {state.substep === 'show-end' ? (
-                  <Button
-                    type="button"
-                    size="sm"
-                    data-basic-guide="guide-finish"
-                    onClick={ctx.finish}
-                  >
-                    {t('finish')}
-                  </Button>
-                ) : null}
-                {meta.continueVisible ? (
-                  <Button
-                    type="button"
-                    size="sm"
-                    variant="outline"
-                    onClick={ctx.continueStep}
-                  >
-                    {t('continue')}
-                  </Button>
-                ) : null}
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="sm"
-                  className="h-7 px-1.5 text-muted-foreground"
-                  onClick={ctx.requestExit}
-                >
-                  {t('exit')}
-                </Button>
-              </div>
-            </>
+      {showStepPanel ? (
+        <aside
+          className={cn(
+            'basic-guide-panel',
+            isProjectRoute(location.pathname) && 'basic-guide-panel--workspace'
           )}
-        </div>
-      </aside>
+          data-basic-guide-panel
+          aria-label={t('panelAria')}
+        >
+          <div className="basic-guide-panel__stack">
+            {showingEnd ? (
+              <button
+                type="button"
+                className="basic-guide-end"
+                onClick={ctx.dismissEnd}
+              >
+                {t('endCopy')}
+              </button>
+            ) : (
+              <>
+                <AstryxStep current={current} aria-label={t('stepsAria')}>
+                  <AstryxStepItem>{t('steps.createProject')}</AstryxStepItem>
+                  <AstryxStepItem>{t('steps.createSession')}</AstryxStepItem>
+                  <AstryxStepItem>{t('steps.learnLayout')}</AstryxStepItem>
+                </AstryxStep>
+                <div className="basic-guide-panel__actions">
+                  {state.substep === 'show-end' ? (
+                    <Button
+                      type="button"
+                      size="sm"
+                      data-basic-guide="guide-finish"
+                      onClick={ctx.finish}
+                    >
+                      {t('finish')}
+                    </Button>
+                  ) : null}
+                  {meta.continueVisible ? (
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      onClick={ctx.continueStep}
+                    >
+                      {t('continue')}
+                    </Button>
+                  ) : null}
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    className="h-7 px-1.5 text-muted-foreground"
+                    onClick={ctx.requestExit}
+                  >
+                    {t('exit')}
+                  </Button>
+                </div>
+              </>
+            )}
+          </div>
+        </aside>
+      ) : null}
 
       <Dialog
         open={exitOpen}

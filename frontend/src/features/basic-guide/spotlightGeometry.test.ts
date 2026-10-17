@@ -202,15 +202,23 @@ describe('spotlightGeometry', () => {
     }
   });
 
-  it('still exposes copy keys when targets are not measured yet', () => {
+  it('does not expose copy keys until a box is measured on this window', () => {
+    expect(calloutKeysFor([])).toEqual([]);
+  });
+
+  it('returns copy keys from measured boxes only', () => {
     expect(
-      calloutKeysFor(
-        [],
-        [
-          { id: 'welcome-create-project', copyKey: 'select-project-create' },
-          { id: 'welcome-global-project', copyKey: 'select-project-global' },
-        ]
-      )
-    ).toEqual(['select-project-create', 'select-project-global']);
+      calloutKeysFor([
+        {
+          left: 40,
+          top: 80,
+          width: 200,
+          height: 36,
+          shape: 'rect',
+          sourceIds: ['welcome-create-project'],
+          copyKeys: ['select-project-create'],
+        },
+      ])
+    ).toEqual(['select-project-create']);
   });
 });

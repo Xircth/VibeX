@@ -107,11 +107,11 @@ export function BasicGuideSpotlight({
   }, [targetKey]);
 
   const copyItems = useMemo(() => {
-    const keys = calloutKeysFor(boxes, targets);
+    const keys = calloutKeysFor(boxes);
     return keys
       .map((key) => ({ key, text: resolveCopy(key) }))
       .filter((item) => item.text.trim().length > 0);
-  }, [boxes, resolveCopy, targets]);
+  }, [boxes, resolveCopy]);
 
   const plan = useMemo(
     () =>

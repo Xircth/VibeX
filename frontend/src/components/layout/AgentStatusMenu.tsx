@@ -146,7 +146,7 @@ export function AgentStatusMenu({
 
       {menuOpen && (
         <div className="absolute bottom-full right-0 z-50 pb-1.5">
-          <div className="product-context-menu max-h-[min(24rem,calc(100vh-3rem))] min-w-72 overflow-y-auto rounded-md border border-border bg-white p-1 font-sans text-[13px] leading-5 text-popover-foreground shadow-none dark:bg-popover animate-in fade-in-0 slide-in-from-bottom-1 motion-reduce:animate-none">
+          <div className="product-context-menu w-max max-h-[min(24rem,calc(100vh-3rem))] min-w-72 max-w-[min(40rem,calc(100vw-1.5rem))] overflow-y-auto rounded-md border border-border bg-white p-1 font-sans text-[13px] leading-5 text-popover-foreground shadow-none dark:bg-popover animate-in fade-in-0 slide-in-from-bottom-1 motion-reduce:animate-none">
             <div
               id={menuId}
               role="list"
@@ -177,92 +177,93 @@ export function AgentStatusMenu({
                     key={agent.agent_id}
                     role="listitem"
                     aria-label={agent.display_name}
-                    className="flex min-h-8 flex-col gap-1 rounded-md px-2 py-1 text-xs"
+                    className="flex min-h-8 items-center gap-2 whitespace-nowrap rounded-md px-2 py-1 text-xs"
                   >
-                    <div className="flex items-center gap-2">
-                      <span className="relative flex h-5 w-5 shrink-0 items-center justify-center">
-                        <AgentManagementIcon
-                          agent={agent}
-                          className="h-4 w-4"
-                        />
-                        <span
-                          aria-hidden="true"
-                          className={cn(
-                            'absolute -bottom-0.5 -right-0.5 h-2 w-2 rounded-full ring-2 ring-popover',
-                            statusDotClass(agent.lifecycle)
-                          )}
-                        />
-                      </span>
-                      <span className="min-w-0 flex-1 truncate font-medium text-foreground">
-                        {agent.display_name}
-                      </span>
-                      {isDefault && (
-                        <span className="rounded bg-primary/10 px-1 py-0.5 text-[9px] font-medium text-primary">
-                          {t('agentStatus.defaultBadge', { ns: 'statusbar' })}
-                        </span>
-                      )}
-                      {canUpdate ? (
-                        onOpenAgentSettings ? (
-                          <button
-                            type="button"
-                            className="shrink-0 rounded-full px-1.5 py-0.5 text-[10px] font-medium text-primary outline-none transition-colors hover:bg-primary/10 focus-visible:ring-1 focus-visible:ring-ring"
-                            onClick={openSettings}
-                          >
-                            {t('agentStatus.updateAvailable', {
-                              ns: 'statusbar',
-                            })}
-                          </button>
-                        ) : (
-                          <span className="shrink-0 text-[10px] font-medium text-primary">
-                            {t('agentStatus.updateAvailable', {
-                              ns: 'statusbar',
-                            })}
-                          </span>
-                        )
-                      ) : null}
-                    </div>
-                    <div className="flex flex-wrap items-center gap-1.5 pl-7">
-                      {row.showStepper ? (
-                        <AstryxStepper
-                          current={row.stepperIndex}
-                          onStepClick={() => openSettings()}
-                        >
-                          <AstryxStepperItem>
-                            {t('agentStatus.acpDownload', { ns: 'statusbar' })}
-                          </AstryxStepperItem>
-                          <AstryxStepperItem>
-                            {t('agentStatus.acpInstall', { ns: 'statusbar' })}
-                          </AstryxStepperItem>
-                          <AstryxStepperItem>
-                            {t('agentStatus.acpCheck', { ns: 'statusbar' })}
-                          </AstryxStepperItem>
-                        </AstryxStepper>
-                      ) : row.connectorAvailable ? (
-                        <button
-                          type="button"
-                          className="rounded-full px-1.5 py-0.5 text-[10px] font-medium text-foreground outline-none hover:bg-accent/70 focus-visible:ring-1 focus-visible:ring-ring"
-                          onClick={openSettings}
-                        >
-                          {t('agentStatus.connectorReady', { ns: 'statusbar' })}
-                        </button>
-                      ) : null}
+                    <span className="relative flex h-5 w-5 shrink-0 items-center justify-center">
+                      <AgentManagementIcon agent={agent} className="h-4 w-4" />
+                      <span
+                        aria-hidden="true"
+                        className={cn(
+                          'absolute -bottom-0.5 -right-0.5 h-2 w-2 rounded-full ring-2 ring-popover',
+                          statusDotClass(agent.lifecycle)
+                        )}
+                      />
+                    </span>
+                    <span className="shrink-0 font-medium text-foreground">
+                      {agent.display_name}
+                    </span>
+                    {row.showStepper ? (
+                      <AstryxStepper
+                        current={row.stepperIndex}
+                        onStepClick={() => openSettings()}
+                      >
+                        <AstryxStepperItem>
+                          {t('agentStatus.acpDownload', { ns: 'statusbar' })}
+                        </AstryxStepperItem>
+                        <AstryxStepperItem>
+                          {t('agentStatus.acpInstall', { ns: 'statusbar' })}
+                        </AstryxStepperItem>
+                        <AstryxStepperItem>
+                          {t('agentStatus.acpCheck', { ns: 'statusbar' })}
+                        </AstryxStepperItem>
+                      </AstryxStepper>
+                    ) : row.connectorAvailable ? (
                       <button
                         type="button"
-                        className="rounded-full px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground outline-none hover:bg-accent/70 hover:text-foreground focus-visible:ring-1 focus-visible:ring-ring"
+                        className="shrink-0 rounded-full px-1.5 py-0.5 text-[10px] font-medium text-foreground outline-none hover:bg-accent/70 focus-visible:ring-1 focus-visible:ring-ring"
                         onClick={openSettings}
                       >
-                        {row.loggedIn
-                          ? t('agentStatus.loggedIn', { ns: 'statusbar' })
-                          : t('agentStatus.loggedOut', { ns: 'statusbar' })}
+                        {t('agentStatus.connectorReady', { ns: 'statusbar' })}
                       </button>
-                      {row.connectorAvailable &&
-                      row.loggedIn &&
-                      agentAvailable ? (
-                        <span className="rounded-full bg-primary/10 px-1.5 py-0.5 text-[10px] font-medium text-primary">
-                          {t('agentStatus.agentReady', { ns: 'statusbar' })}
+                    ) : null}
+                    <button
+                      type="button"
+                      className="shrink-0 rounded-full px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground outline-none hover:bg-accent/70 hover:text-foreground focus-visible:ring-1 focus-visible:ring-ring"
+                      onClick={openSettings}
+                    >
+                      {row.loggedIn
+                        ? t('agentStatus.loggedIn', { ns: 'statusbar' })
+                        : t('agentStatus.loggedOut', { ns: 'statusbar' })}
+                    </button>
+                    {row.connectorAvailable &&
+                    row.loggedIn &&
+                    agentAvailable ? (
+                      <span className="shrink-0 rounded-full bg-primary/10 px-1.5 py-0.5 text-[10px] font-medium text-primary">
+                        {t('agentStatus.agentReady', { ns: 'statusbar' })}
+                      </span>
+                    ) : null}
+                    {isDefault && (
+                      <span className="ml-auto shrink-0 rounded bg-primary/10 px-1 py-0.5 text-[9px] font-medium text-primary">
+                        {t('agentStatus.defaultBadge', { ns: 'statusbar' })}
+                      </span>
+                    )}
+                    {canUpdate ? (
+                      onOpenAgentSettings ? (
+                        <button
+                          type="button"
+                          className={cn(
+                            'shrink-0 rounded-full px-1.5 py-0.5 text-[10px] font-medium text-primary outline-none transition-colors hover:bg-primary/10 focus-visible:ring-1 focus-visible:ring-ring',
+                            !isDefault && 'ml-auto'
+                          )}
+                          onClick={openSettings}
+                        >
+                          {t('agentStatus.updateAvailable', {
+                            ns: 'statusbar',
+                          })}
+                        </button>
+                      ) : (
+                        <span
+                          className={cn(
+                            'shrink-0 text-[10px] font-medium text-primary',
+                            !isDefault && 'ml-auto'
+                          )}
+                        >
+                          {t('agentStatus.updateAvailable', {
+                            ns: 'statusbar',
+                          })}
                         </span>
-                      ) : null}
-                    </div>
+                      )
+                    ) : null}
                   </div>
                 );
               })}

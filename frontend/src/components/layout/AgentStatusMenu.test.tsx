@@ -180,6 +180,12 @@ describe('AgentStatusMenu', () => {
 
     expect(screen.getByRole('button', { name: '已登录' })).toBeInTheDocument();
     expect(screen.getByText('Agent 可用')).toBeInTheDocument();
+    const row = screen.getByRole('listitem', { name: /Grok/ });
+    const name = within(row).getByText('Grok', { selector: 'span' });
+    const connector = within(row).getByRole('button', { name: '连接器可用' });
+    expect(name.parentElement).toBe(row);
+    expect(connector.parentElement).toBe(row);
+    expect(row.className).not.toMatch(/flex-col/);
     fireEvent.click(screen.getByRole('button', { name: '连接器可用' }));
     expect(onOpenAgentSettings).toHaveBeenCalledWith('grok');
   });

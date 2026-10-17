@@ -7,14 +7,12 @@ import {
   type LexicalEditor,
 } from 'lexical';
 import { useLexicalComposerContext } from '@lexical/react/LexicalComposerContext';
-import {
-  RichTextEditor,
-  RichTextEditorToolbar,
-  editorStateJSONToMarkdown,
-  markdownToEditorStateJSON,
-  type RichTextEditorRef,
-} from '@astryxdesign/richtext';
+import { RichTextEditor, RichTextEditorToolbar } from '@astryxdesign/richtext';
 import { extractImageFilesFromClipboardData } from '@/utils/clipboard';
+import {
+  markdownToRichTextState,
+  richTextStateToMarkdown,
+} from '@/utils/markdownRichTextState';
 import './markdownRichTextEditor.css';
 
 export type MarkdownRichTextEditorProps = {
@@ -28,15 +26,15 @@ export type MarkdownRichTextEditorProps = {
 
 function toEditorState(markdown: string): string {
   try {
-    return markdownToEditorStateJSON(markdown);
+    return markdownToRichTextState(markdown);
   } catch {
-    return markdownToEditorStateJSON('');
+    return markdownToRichTextState('');
   }
 }
 
 function markdownFromEditor(editor: LexicalEditor): string {
   try {
-    return editorStateJSONToMarkdown(
+    return richTextStateToMarkdown(
       JSON.stringify(editor.getEditorState().toJSON())
     );
   } catch {
@@ -96,14 +94,11 @@ export function MarkdownRichTextEditor({
   onSave,
   pasteImages,
 }: MarkdownRichTextEditorProps) {
-  const editorRef = useRef<RichTextEditorRef>(null);
   const defaultValue = useRef(toEditorState(markdown)).current;
 
   const handleChange = useCallback(
     (_state: unknown, editor: LexicalEditor) => {
-      const next =
-        editorRef.current?.getMarkdown() ?? markdownFromEditor(editor);
-      onMarkdownChange(next);
+      onMarkdownChange(markdownFromEditor(editor));
     },
     [onMarkdownChange]
   );
@@ -127,7 +122,6 @@ export function MarkdownRichTextEditor({
       onKeyDown={handleKeyDown}
     >
       <RichTextEditor
-        ref={editorRef}
         label={label}
         isLabelHidden
         defaultValue={defaultValue}

@@ -72,12 +72,9 @@ import {
   type MarkdownPreviewMode,
 } from '@/utils/markdownPreviewMode';
 import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select';
+  SegmentedControl,
+  SegmentedControlItem,
+} from '@astryxdesign/core/SegmentedControl';
 import { resolveImagePreviewSource } from '@/lib/imagePreviewRegistry';
 import { PluginFilePreview } from '@/components/previews/PluginFilePreview';
 import { PluginArtifactEditor } from '@/components/previews/PluginArtifactEditor';
@@ -567,9 +564,7 @@ function DockviewPreviewPanel(props: IDockviewPanelProps) {
   const showingMarkdownPreview = isMd && markdownView === 'preview';
   const showingMarkdownRichtext = isMd && markdownView === 'richtext';
   const showingSource =
-    showingMarkdownSource ||
-    (isHtml && !isRendered) ||
-    (!isMd && !isHtml);
+    showingMarkdownSource || (isHtml && !isRendered) || (!isMd && !isHtml);
 
   const handleMouseDown = useCallback(
     (event: React.MouseEvent) => {
@@ -892,30 +887,20 @@ function DockviewPreviewPanel(props: IDockviewPanelProps) {
             {t('preview.switchToDiffView')}
           </button>
         ) : canToggleView && isMd ? (
-          <Select
+          <SegmentedControl
+            className="shrink-0"
             value={markdownView}
-            onValueChange={(value) =>
+            onChange={(value) =>
               setMarkdownView(parseMarkdownPreviewMode(value))
             }
+            label={t('settings:general.markdownPreviewMode')}
+            size="sm"
+            layout="hug"
           >
-            <SelectTrigger
-              className="!h-auto !w-auto shrink-0 gap-1 px-1.5 py-0.5 text-[10px]"
-              aria-label={t('settings:general.markdownPreviewMode')}
-            >
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent align="end">
-              <SelectItem value="preview">
-                {t('settings:general.markdownPreviewModePreview')}
-              </SelectItem>
-              <SelectItem value="source">
-                {t('settings:general.markdownPreviewModeSource')}
-              </SelectItem>
-              <SelectItem value="richtext">
-                {t('settings:general.markdownPreviewModeRichtext')}
-              </SelectItem>
-            </SelectContent>
-          </Select>
+            <SegmentedControlItem value="source" label="Source" />
+            <SegmentedControlItem value="preview" label="Preview" />
+            <SegmentedControlItem value="richtext" label="RichText" />
+          </SegmentedControl>
         ) : canToggleView ? (
           <button
             className="raised-control flex select-none items-center gap-1 px-1.5 py-0.5 text-[10px]"
@@ -1160,9 +1145,7 @@ function DockviewPreviewPanel(props: IDockviewPanelProps) {
             description={contentErrorMessage}
           />
         ) : showingMarkdownRichtext ? (
-          <PreviewSubviewErrorBoundary
-            key={resolvedFilePath ?? filePath}
-          >
+          <PreviewSubviewErrorBoundary key={resolvedFilePath ?? filePath}>
             <Suspense
               fallback={
                 <FilePreviewLoading

@@ -43,6 +43,7 @@ import { paths } from '@/lib/paths';
 import { confirmWorktreeCreation } from '@/lib/confirmWorktreeCreation';
 import {
   isCreateSessionFormVisibleForProject,
+  resolveDefaultCreateSessionMode,
   shouldRenderExecutionCreateSessionForm,
 } from '@/lib/createSessionFormVisibility';
 import { executionConversationSurface } from '@/lib/workspaceSurface';
@@ -212,12 +213,14 @@ export function RightPanelContent() {
   const fallbackWorkspaceId =
     activeWorktreeId ?? visibleRightSession?.workspaceId ?? workspaceId;
   const queryClient = useQueryClient();
-  const { data: repos = [] } = useProjectRepos(effectiveProjectId);
+  const { data: repos = [], isPending: isReposPending } =
+    useProjectRepos(effectiveProjectId);
   const isGitProject = Boolean(project?.is_git);
   const primaryRepo = repos[0];
-  const { data: primaryRepoBranches = [] } = useRepoBranches(primaryRepo?.id, {
-    enabled: Boolean(primaryRepo?.id),
-  });
+  const { data: primaryRepoBranches = [], isPending: isBranchesPending } =
+    useRepoBranches(primaryRepo?.id, {
+      enabled: Boolean(primaryRepo?.id),
+    });
   const { worktrees, isLoading: isLoadingWorktrees } =
     useProjectWorktrees(effectiveProjectId);
   const { data: fallbackWorkspace } = useTaskAttempt(fallbackWorkspaceId);
@@ -278,6 +281,7 @@ export function RightPanelContent() {
             : [activeWorktreeId],
         lastActiveWorkspaceId,
         mainlineWorkspaceValue,
+        preferCurrentProjectBranch: true,
       }),
     [
       activeWorktreeId,
@@ -291,6 +295,16 @@ export function RightPanelContent() {
   );
 
   const canUseExistingWorkspace = workspaceBranchOptions.length > 0;
+  const isWorkspaceOptionsReady = isGitProject
+    ? !isLoadingWorktrees &&
+      !isReposPending &&
+      (!primaryRepo || !isBranchesPending)
+    : true;
+  const defaultCreateMode = resolveDefaultCreateSessionMode({
+    isGitProject,
+    isWorkspaceOptionsReady,
+    hasExistingWorkspace: canUseExistingWorkspace,
+  });
 
   const defaultExecutorProfile = useMemo<ExecutorProfileId | null>(
     () => config?.executor_profile ?? getFirstAvailableProfile(profiles),
@@ -300,8 +314,9 @@ export function RightPanelContent() {
   const [createOverlayProjectId, setCreateOverlayProjectId] = useState<
     string | null
   >(null);
-  const [createMode, setCreateMode] =
-    useState<SessionCreationMode>('existing_workspace');
+  const [userCreateMode, setUserCreateMode] =
+    useState<SessionCreationMode | null>(null);
+  const createMode = userCreateMode ?? defaultCreateMode;
   const [createWorkspaceValue, setCreateWorkspaceValue] = useState(
     defaultWorkspaceValue
   );
@@ -334,16 +349,6 @@ export function RightPanelContent() {
       setCreateWorkspaceValue(defaultWorkspaceValue);
     }
   }, [createWorkspaceValue, defaultWorkspaceValue, workspaceBranchOptions]);
-
-  useEffect(() => {
-    if (!isCreateOverlayVisible || isLoadingWorktrees) {
-      return;
-    }
-
-    if (!canUseExistingWorkspace) {
-      setCreateMode('new_workspace');
-    }
-  }, [canUseExistingWorkspace, isCreateOverlayVisible, isLoadingWorktrees]);
 
   useEffect(() => {
     if (selectedExecutorProfile) {
@@ -509,9 +514,7 @@ export function RightPanelContent() {
         sessionControlsPresetRef.current = null;
         setCreateWorkspaceValue(defaultWorkspaceValue);
         setSelectedExecutorProfile(defaultExecutorProfile);
-        setCreateMode(
-          canUseExistingWorkspace ? 'existing_workspace' : 'new_workspace'
-        );
+        setUserCreateMode(null);
         resetRepoBranchSelection();
         return;
       }
@@ -519,7 +522,6 @@ export function RightPanelContent() {
       createSessionMutation.reset();
     },
     [
-      canUseExistingWorkspace,
       createSessionMutation,
       defaultExecutorProfile,
       defaultWorkspaceValue,
@@ -643,7 +645,7 @@ export function RightPanelContent() {
 
   const overlayProps = {
     createMode,
-    setCreateMode,
+    setCreateMode: setUserCreateMode,
     workspaceBranchOptions,
     createWorkspaceValue,
     setCreateWorkspaceValue,

@@ -262,4 +262,15 @@ describe('resolveCreateWorkspaceDefault', () => {
       })
     ).toBe('workspace:wt-feature');
   });
+
+  it('on first project entry prefers the current branch project folder over the last worktree', () => {
+    expect(
+      resolveCreateWorkspaceDefault({
+        options,
+        preferredWorkspaceIds: [undefined, undefined, undefined],
+        lastActiveWorkspaceId: 'wt-feature',
+        preferCurrentProjectBranch: true,
+      })
+    ).toBe('branch:main');
+  });
 });

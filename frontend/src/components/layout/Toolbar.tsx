@@ -1,7 +1,13 @@
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { sessionsApi, useOpenSettings } from '@/lib/api';
-import { useMemo, useCallback, useEffect, startTransition } from 'react';
+import {
+  useMemo,
+  useCallback,
+  useEffect,
+  useRef,
+  startTransition,
+} from 'react';
 import { Button } from '@/components/ui/button';
 import {
   DropdownMenu,
@@ -62,7 +68,10 @@ import {
 import { cn } from '@/lib/utils';
 import { useRepoBranches } from '@/hooks/useRepoBranches';
 import { useWorkspaceBranchStatus } from '@/hooks/useWorkspaceBranchStatus';
-import { resolveDefaultProjectWorkspace } from '@/lib/workspaceDefault';
+import {
+  resolveDefaultProjectWorkspace,
+  shouldBindDefaultGitWorkspace,
+} from '@/lib/workspaceDefault';
 import { WorktreeSelector } from '@/components/layout/WorktreeSelector';
 import {
   contributionMetadata,
@@ -448,7 +457,9 @@ function WorkspaceTabSwitcher() {
     sessionId?: string;
   }>();
   const { data: repos } = useProjectRepos(projectId);
-  const { worktrees } = useProjectWorktrees(projectId);
+  const { worktrees, isLoading: isLoadingWorktrees } =
+    useProjectWorktrees(projectId);
+  const isGitProject = Boolean(project?.is_git);
   const primaryRepo = repos?.[0];
   const { data: primaryRepoBranches = [] } = useRepoBranches(primaryRepo?.id, {
     enabled: Boolean(primaryRepo?.id),
@@ -518,6 +529,78 @@ function WorkspaceTabSwitcher() {
     return worktrees.find((item) => item.workspace.id === selected.id) ?? null;
   }, [activeWorktreeId, currentProjectBranch, worktrees]);
 
+  const bindDefaultGitWorkspace = useCallback(async () => {
+    if (!projectId) {
+      return;
+    }
+
+    const fallbackWorktree = resolveFallbackWorktree();
+    let targetWorkspace = fallbackWorktree?.workspace ?? null;
+    if (
+      !targetWorkspace ||
+      (targetWorkspace.use_worktree && !activeWorktreeId)
+    ) {
+      try {
+        targetWorkspace = await sessionsApi.ensureProjectWorkspace({
+          project_id: projectId,
+          branch: currentProjectBranch ?? null,
+        });
+      } catch {
+        // Keep any existing fallback workspace if the project root
+        // cannot be created yet.
+      }
+    }
+
+    const targetAttemptId = targetWorkspace?.id ?? null;
+    const targetTaskId = targetWorkspace?.task_id ?? null;
+
+    if (targetAttemptId) {
+      setActiveWorktree(targetAttemptId, targetTaskId);
+      navigate(paths.projectWorkspace(projectId, targetAttemptId));
+      return;
+    }
+
+    setActiveWorktree(null, null);
+    navigate(paths.projectSessions(projectId));
+  }, [
+    activeWorktreeId,
+    currentProjectBranch,
+    navigate,
+    projectId,
+    resolveFallbackWorktree,
+    setActiveWorktree,
+  ]);
+
+  const defaultGitWorkspaceBindRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (
+      !shouldBindDefaultGitWorkspace({
+        isWorkspaceSurface: effectiveActiveTab === 'workspace',
+        isGitProject,
+        routeWorkspaceId: workspaceId,
+        routeSessionId: sessionId,
+      })
+    ) {
+      return;
+    }
+    if (isLoadingWorktrees) {
+      return;
+    }
+    if (defaultGitWorkspaceBindRef.current === projectId) {
+      return;
+    }
+    defaultGitWorkspaceBindRef.current = projectId ?? null;
+    void bindDefaultGitWorkspace();
+  }, [
+    bindDefaultGitWorkspace,
+    effectiveActiveTab,
+    isGitProject,
+    isLoadingWorktrees,
+    projectId,
+    sessionId,
+    workspaceId,
+  ]);
+
   const handleTabSelect = useCallback(
     (tab: WorkspaceTab) => {
       const commit = () => {
@@ -559,37 +642,7 @@ function WorkspaceTabSwitcher() {
           setActiveTab(tab);
         });
 
-        const navigateToFallbackWorkspace = async () => {
-          let targetWorkspace = fallbackWorktree?.workspace ?? null;
-          if (
-            !targetWorkspace ||
-            (targetWorkspace.use_worktree && !activeWorktreeId)
-          ) {
-            try {
-              targetWorkspace = await sessionsApi.ensureProjectWorkspace({
-                project_id: projectId,
-                branch: currentProjectBranch ?? null,
-              });
-            } catch {
-              // Keep any existing fallback workspace if the project root
-              // cannot be created yet.
-            }
-          }
-
-          const targetAttemptId = targetWorkspace?.id ?? null;
-          const targetTaskId = targetWorkspace?.task_id ?? null;
-
-          if (targetAttemptId) {
-            setActiveWorktree(targetAttemptId, targetTaskId);
-            navigate(paths.projectWorkspace(projectId, targetAttemptId));
-            return;
-          }
-
-          setActiveWorktree(null, null);
-          navigate(paths.projectSessions(projectId));
-        };
-
-        void navigateToFallbackWorkspace();
+        void bindDefaultGitWorkspace();
       };
 
       void parkNativeSurfaceThen({
@@ -600,8 +653,7 @@ function WorkspaceTabSwitcher() {
       });
     },
     [
-      activeWorktreeId,
-      currentProjectBranch,
+      bindDefaultGitWorkspace,
       effectiveActiveTab,
       navigate,
       projectId,

@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   isCreateSessionFormVisibleForProject,
+  resolveDefaultCreateSessionMode,
   shouldRenderExecutionCreateSessionForm,
 } from './createSessionFormVisibility';
 
@@ -101,5 +102,54 @@ describe('shouldRenderExecutionCreateSessionForm', () => {
         hasWorkspaceConversation: false,
       })
     ).toBe(false);
+  });
+});
+
+describe('resolveDefaultCreateSessionMode', () => {
+  it('keeps a git project on existing workspace while options are still loading', () => {
+    expect(
+      resolveDefaultCreateSessionMode({
+        isGitProject: true,
+        isWorkspaceOptionsReady: false,
+        hasExistingWorkspace: false,
+      })
+    ).toBe('existing_workspace');
+  });
+
+  it('uses existing workspace once a git project has the project-root branch', () => {
+    expect(
+      resolveDefaultCreateSessionMode({
+        isGitProject: true,
+        isWorkspaceOptionsReady: true,
+        hasExistingWorkspace: true,
+      })
+    ).toBe('existing_workspace');
+  });
+
+  it('falls back to a new workspace only after a git project has no existing option', () => {
+    expect(
+      resolveDefaultCreateSessionMode({
+        isGitProject: true,
+        isWorkspaceOptionsReady: true,
+        hasExistingWorkspace: false,
+      })
+    ).toBe('new_workspace');
+  });
+
+  it('does not use git workspace modes for a plain directory project', () => {
+    expect(
+      resolveDefaultCreateSessionMode({
+        isGitProject: false,
+        isWorkspaceOptionsReady: false,
+        hasExistingWorkspace: false,
+      })
+    ).toBe('existing_workspace');
+    expect(
+      resolveDefaultCreateSessionMode({
+        isGitProject: false,
+        isWorkspaceOptionsReady: true,
+        hasExistingWorkspace: false,
+      })
+    ).toBe('existing_workspace');
   });
 });

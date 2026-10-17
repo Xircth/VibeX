@@ -1,6 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import type { Workspace } from 'shared/types';
-import { resolveDefaultProjectWorkspace } from './workspaceDefault';
+import {
+  resolveDefaultProjectWorkspace,
+  shouldBindDefaultGitWorkspace,
+} from './workspaceDefault';
 
 const now = '2026-08-31T00:00:00.000Z';
 
@@ -23,6 +26,39 @@ function workspace(overrides: Partial<Workspace>): Workspace {
     ...overrides,
   };
 }
+
+describe('shouldBindDefaultGitWorkspace', () => {
+  it('binds the project-root current branch on first git project entry', () => {
+    expect(
+      shouldBindDefaultGitWorkspace({
+        isWorkspaceSurface: true,
+        isGitProject: true,
+      })
+    ).toBe(true);
+  });
+
+  it('leaves a routed workspace or a plain directory project unbound', () => {
+    expect(
+      shouldBindDefaultGitWorkspace({
+        isWorkspaceSurface: true,
+        isGitProject: true,
+        routeWorkspaceId: 'ws-1',
+      })
+    ).toBe(false);
+    expect(
+      shouldBindDefaultGitWorkspace({
+        isWorkspaceSurface: true,
+        isGitProject: false,
+      })
+    ).toBe(false);
+    expect(
+      shouldBindDefaultGitWorkspace({
+        isWorkspaceSurface: false,
+        isGitProject: true,
+      })
+    ).toBe(false);
+  });
+});
 
 describe('resolveDefaultProjectWorkspace', () => {
   it('prefers the project folder on the current branch over a worktree', () => {

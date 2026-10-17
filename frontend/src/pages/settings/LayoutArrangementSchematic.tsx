@@ -1,3 +1,4 @@
+import type { ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
   DndContext,
@@ -9,20 +10,15 @@ import {
   type DragEndEvent,
 } from '@dnd-kit/core';
 import { CSS } from '@dnd-kit/utilities';
-import { RotateCcw } from 'lucide-react';
-import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 import {
-  DEFAULT_KANBAN_ARRANGEMENT,
-  DEFAULT_LAYOUT_ARRANGEMENT,
   KANBAN_ZONE_LETTERS,
   ZONE_LETTERS,
-  arrangementsEqual,
   swapArrangementSlots,
   type KanbanArrangement,
   type KanbanSlot,
   type LayoutArrangement,
-  type LayoutSlot,
+  type LayoutZone,
 } from '@/lib/layoutArrangement';
 
 /**
@@ -30,6 +26,43 @@ import {
  * zone onto another slot swaps them in the *draft* value; nothing is
  * persisted until the settings action bar saves it.
  */
+
+type WorkspaceColumnSlot = 'left' | 'center' | 'right';
+
+const WORKSPACE_COLUMN_SLOTS: readonly WorkspaceColumnSlot[] = [
+  'left',
+  'center',
+  'right',
+];
+
+const WORKSPACE_COLUMN_ZONES: readonly Exclude<LayoutZone, 'terminal'>[] = [
+  'dock',
+  'workspace',
+  'session',
+];
+
+function workspaceColumnArrangement(
+  arrangement: LayoutArrangement
+): Record<'left' | 'center' | 'right', Exclude<LayoutZone, 'terminal'>> {
+  const columns = {
+    left: arrangement.left,
+    center: arrangement.center,
+    right: arrangement.right,
+  };
+  const missing = WORKSPACE_COLUMN_ZONES.filter(
+    (zone) => !Object.values(columns).includes(zone)
+  );
+  const next = { ...columns };
+  for (const slot of WORKSPACE_COLUMN_SLOTS) {
+    if (next[slot] === 'terminal') {
+      next[slot] = missing.shift() ?? 'workspace';
+    }
+  }
+  return next as Record<
+    'left' | 'center' | 'right',
+    Exclude<LayoutZone, 'terminal'>
+  >;
+}
 
 function ZoneChip({
   slot,
@@ -104,6 +137,24 @@ function useSchematicSensors() {
   );
 }
 
+function ThreeColumnFrame({
+  children,
+  onDragEnd,
+}: {
+  children: ReactNode;
+  onDragEnd: (event: DragEndEvent) => void;
+}) {
+  const sensors = useSchematicSensors();
+
+  return (
+    <DndContext sensors={sensors} onDragEnd={onDragEnd}>
+      <div className="flex h-44 w-full gap-1.5 rounded-lg border border-border bg-background/60 p-1.5">
+        {children}
+      </div>
+    </DndContext>
+  );
+}
+
 interface WorkspaceLayoutSchematicProps {
   value: LayoutArrangement;
   onChange: (next: LayoutArrangement) => void;
@@ -114,51 +165,41 @@ export function WorkspaceLayoutSchematic({
   onChange,
 }: WorkspaceLayoutSchematicProps) {
   const { t } = useTranslation('settings');
-  const sensors = useSchematicSensors();
+
+  const columns = workspaceColumnArrangement(value);
 
   const handleDragEnd = (event: DragEndEvent) => {
-    const source = event.active.data.current?.slot as LayoutSlot | undefined;
-    const target = event.over?.id as LayoutSlot | undefined;
+    const source = event.active.data.current?.slot as
+      | WorkspaceColumnSlot
+      | undefined;
+    const target = event.over?.id as WorkspaceColumnSlot | undefined;
     if (!source || !target || source === target) return;
+    if (
+      !WORKSPACE_COLUMN_SLOTS.includes(source) ||
+      !WORKSPACE_COLUMN_SLOTS.includes(target)
+    ) {
+      return;
+    }
 
-    onChange(swapArrangementSlots(value, source, target));
+    const swapped = swapArrangementSlots(columns, source, target);
+    onChange({ ...swapped, bottom: 'terminal' });
   };
 
-  const cell = (slot: LayoutSlot, className: string) => (
+  const cell = (slot: WorkspaceColumnSlot, className: string) => (
     <SlotCell
       slot={slot}
-      letter={ZONE_LETTERS[value[slot]]}
-      label={t(`appearance.layout.zones.${value[slot]}`)}
+      letter={ZONE_LETTERS[columns[slot]]}
+      label={t(`appearance.layout.zones.${columns[slot]}`)}
       className={className}
     />
   );
 
   return (
-    <div className="flex flex-col gap-2">
-      <DndContext sensors={sensors} onDragEnd={handleDragEnd}>
-        <div className="flex h-40 w-full max-w-md gap-1.5 rounded-lg border border-border bg-background/60 p-1.5">
-          {cell('left', 'w-[18%]')}
-          <div className="flex min-w-0 flex-1 flex-col gap-1.5">
-            {cell('center', 'min-h-0 flex-1')}
-            {cell('bottom', 'h-[30%]')}
-          </div>
-          {cell('right', 'w-[24%]')}
-        </div>
-      </DndContext>
-
-      <div className="flex justify-end">
-        <Button
-          type="button"
-          variant="outline"
-          size="sm"
-          onClick={() => onChange(DEFAULT_LAYOUT_ARRANGEMENT)}
-          disabled={arrangementsEqual(value, DEFAULT_LAYOUT_ARRANGEMENT)}
-        >
-          <RotateCcw className="mr-1.5 h-3.5 w-3.5" />
-          {t('appearance.layout.reset')}
-        </Button>
-      </div>
-    </div>
+    <ThreeColumnFrame onDragEnd={handleDragEnd}>
+      {cell('left', 'w-[26%]')}
+      {cell('center', 'min-w-0 flex-1')}
+      {cell('right', 'w-[24%]')}
+    </ThreeColumnFrame>
   );
 }
 
@@ -172,7 +213,6 @@ export function KanbanLayoutSchematic({
   onChange,
 }: KanbanLayoutSchematicProps) {
   const { t } = useTranslation('settings');
-  const sensors = useSchematicSensors();
 
   const handleDragEnd = (event: DragEndEvent) => {
     const source = event.active.data.current?.slot as KanbanSlot | undefined;
@@ -192,27 +232,10 @@ export function KanbanLayoutSchematic({
   );
 
   return (
-    <div className="flex flex-col gap-2">
-      <DndContext sensors={sensors} onDragEnd={handleDragEnd}>
-        <div className="flex h-28 w-full max-w-md gap-1.5 rounded-lg border border-border bg-background/60 p-1.5">
-          {cell('left', 'w-[26%]')}
-          {cell('center', 'min-w-0 flex-1')}
-          {cell('right', 'w-[24%]')}
-        </div>
-      </DndContext>
-
-      <div className="flex justify-end">
-        <Button
-          type="button"
-          variant="outline"
-          size="sm"
-          onClick={() => onChange(DEFAULT_KANBAN_ARRANGEMENT)}
-          disabled={arrangementsEqual(value, DEFAULT_KANBAN_ARRANGEMENT)}
-        >
-          <RotateCcw className="mr-1.5 h-3.5 w-3.5" />
-          {t('appearance.layout.reset')}
-        </Button>
-      </div>
-    </div>
+    <ThreeColumnFrame onDragEnd={handleDragEnd}>
+      {cell('left', 'w-[26%]')}
+      {cell('center', 'min-w-0 flex-1')}
+      {cell('right', 'w-[24%]')}
+    </ThreeColumnFrame>
   );
 }

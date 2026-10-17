@@ -191,8 +191,11 @@ describe('basicGuideState', () => {
     ]);
     expect(substepSpotlights('kanban-execution')).toEqual([
       { id: 'kanban-execution', copyKey: 'kanban-execution' },
+    ]);
+    expect(substepSpotlights('kanban-monitor')).toEqual([
       { id: 'kanban-monitor', copyKey: 'kanban-monitor' },
     ]);
+    expect(nextSubstep('kanban-execution')).toBe('kanban-monitor');
     expect(substepSpotlights('configure-session-agent')[0]?.id).toBe(
       'session-agent-selector'
     );

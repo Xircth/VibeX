@@ -262,7 +262,7 @@ describe('BasicGuideOverlay', () => {
     ).toHaveLength(1);
   });
 
-  it('shows the monitor with the execution area and continues from the callout', async () => {
+  it('coaches the execution area first, with Continue on its callout', async () => {
     const user = userEvent.setup();
     mountGuideTarget('kanban-execution', {
       left: 820,
@@ -290,16 +290,61 @@ describe('BasicGuideOverlay', () => {
     ).toBeInTheDocument();
     expect(
       document.querySelector('[data-basic-guide-spotlight="kanban-monitor"]')
-    ).toBeInTheDocument();
+    ).toBeNull();
     expect(
       document.querySelector('[data-basic-guide-callout="kanban-execution"]')
     ).toHaveTextContent('这是会话执行区');
     expect(
       document.querySelector('[data-basic-guide-callout="kanban-monitor"]')
-    ).toHaveTextContent('这是会话监控区');
+    ).toBeNull();
     const continueButton = within(
       document.querySelector(
         '[data-basic-guide-callout="kanban-execution"]'
+      ) as HTMLElement
+    ).getByRole('button', { name: '继续' });
+    expect(continueButton).toHaveClass('basic-guide-callout__continue');
+    await user.click(continueButton);
+    expect(value.continueStep).toHaveBeenCalled();
+  });
+
+  it('coaches the monitor area next, with Continue on its callout', async () => {
+    const user = userEvent.setup();
+    mountGuideTarget('kanban-execution', {
+      left: 820,
+      top: 48,
+      width: 400,
+      height: 680,
+    });
+    mountGuideTarget('kanban-monitor', {
+      left: 280,
+      top: 80,
+      width: 500,
+      height: 560,
+    });
+    const { value } = renderOverlay({
+      phase: 'active',
+      reachedStep: 2,
+      substep: 'kanban-monitor',
+      endCopy: 'none',
+    });
+
+    const panel = screen.getByRole('complementary', { name: '基础引导' });
+    expect(within(panel).queryByRole('button', { name: '继续' })).toBeNull();
+    expect(
+      document.querySelector('[data-basic-guide-spotlight="kanban-monitor"]')
+    ).toBeInTheDocument();
+    expect(
+      document.querySelector('[data-basic-guide-spotlight="kanban-execution"]')
+    ).toBeNull();
+    expect(
+      document.querySelector('[data-basic-guide-callout="kanban-monitor"]')
+    ).toHaveTextContent('这是会话监控区');
+    expect(
+      document.querySelector('[data-basic-guide-callout="kanban-execution"]')
+    ).toBeNull();
+    const continueButton = within(
+      document.querySelector(
+        '[data-basic-guide-callout="kanban-monitor"]'
       ) as HTMLElement
     ).getByRole('button', { name: '继续' });
     expect(continueButton).toHaveClass('basic-guide-callout__continue');

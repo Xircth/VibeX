@@ -5,7 +5,6 @@ import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { EditorType, SoundFile, type Config } from 'shared/types';
 
-import { useEditorSettingsStore } from '@/stores/useEditorSettingsStore';
 import { GeneralSettings } from './GeneralSettings';
 
 const configApiMock = vi.hoisted(() => ({
@@ -65,6 +64,15 @@ vi.mock('@/features/history-import/useLocalHistoryImportJob', () => ({
     log: [],
   }),
 }));
+
+vi.mock('@/lib/desktopShell', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/lib/desktopShell')>();
+  return {
+    ...actual,
+    useLocalDesktopHost: () => true,
+    isLocalDesktopHost: () => true,
+  };
+});
 
 function promptEnhancementConfig(model: string): Config {
   return {
@@ -248,35 +256,89 @@ describe('GeneralSettings Agent model catalogs', () => {
     ).toHaveTextContent('仅当应用失焦时');
   });
 
-  it('enables conversation collapse preferences by default and persists opt-out', async () => {
-    const user = userEvent.setup();
-    const { updateAndSaveConfig } = renderSettings();
+  it('groups composer utilities, basics, sessions, and crash reports', () => {
+    renderSettings();
 
-    const filesChangedToggle = await screen.findByRole('switch', {
-      name: '折叠文件更改',
-    });
     expect(
-      screen.getByText('会话完成后的文件更改列表自动折叠。')
+      screen.getByRole('heading', { name: '实用功能' })
     ).toBeInTheDocument();
-    expect(screen.queryByText('链接打开方式')).not.toBeInTheDocument();
-    const aiMessageToggle = screen.getByRole('switch', {
-      name: 'AI 消息默认折叠',
-    });
-    expect(filesChangedToggle).toBeChecked();
-    expect(aiMessageToggle).toBeChecked();
+    expect(
+      screen.getByRole('heading', { name: '基础功能' })
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole('heading', { name: '会话功能' })
+    ).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: '通知' })).toBeInTheDocument();
 
-    await user.click(filesChangedToggle);
-    await user.click(aiMessageToggle);
-    await user.click(screen.getByRole('button', { name: '保存' }));
+    expect(
+      screen.getByRole('switch', { name: '提示词优化' })
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText(
+        '在会话输入框Composer中添加提示词优化按钮，建议选择Flash模型+Low强度'
+      )
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole('switch', { name: '手动压缩上下文' })
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText(
+        '在会话输入框Composer中添加手动压缩按钮，部分Agent可能无效'
+      )
+    ).toBeInTheDocument();
+    expect(screen.getByText('外部查看器')).toBeInTheDocument();
+    expect(
+      screen.getByRole('switch', { name: '创建时Fork已有会话' })
+    ).toBeInTheDocument();
+    expect(screen.getByText('本地会话导入')).toBeInTheDocument();
+    expect(
+      screen.getByRole('switch', { name: '启动时提示未处理的崩溃报告' })
+    ).toBeInTheDocument();
 
-    await waitFor(() => {
-      expect(updateAndSaveConfig).toHaveBeenCalledWith(
-        expect.objectContaining({
-          files_changed_default_collapsed: false,
-          ai_message_default_collapsed: false,
-        })
-      );
-    });
+    expect(
+      screen.queryByRole('heading', { name: '终端' })
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole('heading', { name: '外部编辑器' })
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole('heading', { name: '提示词优化' })
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole('heading', { name: '压缩上下文' })
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole('heading', { name: '会话创建' })
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole('heading', { name: '本地对话' })
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole('heading', { name: '崩溃报告' })
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole('heading', { name: '预览' })
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole('combobox', { name: 'Markdown默认预览方式' })
+    ).not.toBeInTheDocument();
+  });
+
+  it('hides prompt-enhancement Agent config until the toggle is on', async () => {
+    const user = userEvent.setup();
+    renderSettings('unused', { prompt_enhancement_enabled: false });
+
+    expect(
+      screen.queryByRole('combobox', { name: 'Agent' })
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByText('使用自定义优化提示词')
+    ).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole('switch', { name: '提示词优化' }));
+
+    expect(screen.getByRole('combobox', { name: 'Agent' })).toBeInTheDocument();
+    expect(screen.getByText('使用自定义优化提示词')).toBeInTheDocument();
   });
 
   it('keeps compact-context opt-in and persists it when enabled', async () => {
@@ -284,7 +346,7 @@ describe('GeneralSettings Agent model catalogs', () => {
     const { updateAndSaveConfig } = renderSettings();
 
     const toggle = await screen.findByRole('switch', {
-      name: '启用压缩上下文按钮',
+      name: '手动压缩上下文',
     });
     expect(toggle).not.toBeChecked();
 
@@ -303,7 +365,7 @@ describe('GeneralSettings Agent model catalogs', () => {
     const { updateAndSaveConfig } = renderSettings();
 
     const toggle = await screen.findByRole('switch', {
-      name: '创建会话时允许选择先前的会话以继续',
+      name: '创建时Fork已有会话',
     });
     expect(toggle).not.toBeChecked();
 
@@ -321,33 +383,8 @@ describe('GeneralSettings Agent model catalogs', () => {
     const user = userEvent.setup();
     renderSettings();
 
-    expect(screen.getByText('本地对话')).toBeInTheDocument();
+    expect(screen.getByText('本地会话导入')).toBeInTheDocument();
     await user.click(screen.getByRole('button', { name: '导入' }));
     expect(screen.getByText('import-dialog')).toBeInTheDocument();
-  });
-
-  it('lets the user pick the Markdown default view', async () => {
-    const user = userEvent.setup();
-    useEditorSettingsStore.setState({ markdownPreviewMode: 'preview' });
-    renderSettings();
-
-    const trigger = screen.getByRole('combobox', {
-      name: 'Markdown默认预览方式',
-    });
-    expect(trigger).toHaveTextContent('预览视图');
-
-    await user.click(trigger);
-    await user.click(await screen.findByRole('option', { name: '源码视图' }));
-    expect(useEditorSettingsStore.getState().markdownPreviewMode).toBe(
-      'source'
-    );
-
-    await user.click(trigger);
-    await user.click(
-      await screen.findByRole('option', { name: '富文本预览编辑视图' })
-    );
-    expect(useEditorSettingsStore.getState().markdownPreviewMode).toBe(
-      'richtext'
-    );
   });
 });

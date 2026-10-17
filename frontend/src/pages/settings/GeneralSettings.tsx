@@ -1,15 +1,10 @@
 import { useCallback, useEffect, useState } from 'react';
 import {
-  Archive,
   Bell,
-  Bug,
-  Code2,
-  Eye,
   History,
   Lightbulb,
   Loader2,
   Terminal,
-  Type,
   Volume2,
 } from 'lucide-react';
 import { toast } from '@/components/ui/toast';
@@ -24,7 +19,6 @@ import { AgentSessionConfigPicker } from '@/components/settings/AgentSessionConf
 import { ExternalEditorPicker } from '@/components/settings/ExternalEditorPicker';
 import { useUserSystem } from '@/components/ConfigProvider';
 import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import {
   Select,
@@ -37,14 +31,11 @@ import { Switch } from '@/components/ui/switch';
 import { Textarea } from '@/components/ui/textarea';
 import { configApi } from '@/lib/api';
 import { useLocalDesktopHost } from '@/lib/desktopShell';
-import { DEFAULT_COLLAPSE_PREFERENCES } from '@/lib/conversationCollapsePreferences';
 import {
   getDefaultTerminalShell,
   getTerminalShellOptions,
 } from '@/lib/terminalPreferences';
 import { terminalHostPlatform } from '@/utils/platform';
-import { useEditorSettingsStore } from '@/stores/useEditorSettingsStore';
-import { type MarkdownPreviewMode } from '@/utils/markdownPreviewMode';
 import { toPrettyCase } from '@/utils/string';
 import { useOptionalBasicGuide } from '@/features/basic-guide';
 import { restartBasicGuide } from '@/features/basic-guide/basicGuideState';
@@ -85,18 +76,6 @@ export function GeneralSettings() {
   );
   const [saving, setSaving] = useState(false);
   const [dirty, setDirty] = useState(false);
-  const previewFontSize = useEditorSettingsStore(
-    (state) => state.previewFontSize
-  );
-  const setPreviewFontSize = useEditorSettingsStore(
-    (state) => state.setPreviewFontSize
-  );
-  const markdownPreviewMode = useEditorSettingsStore(
-    (state) => state.markdownPreviewMode
-  );
-  const setMarkdownPreviewMode = useEditorSettingsStore(
-    (state) => state.setMarkdownPreviewMode
-  );
 
   const [importOpen, setImportOpen] = useState(false);
   const importJob = useLocalHistoryImportJob();
@@ -173,62 +152,61 @@ export function GeneralSettings() {
       <div className="settings-sections">
         <SettingsSection
           icon={Terminal}
-          title={t('general.terminalTitle')}
-          description={t('general.terminalDescription')}
-        >
-          <div className="settings-row">
-            <div>
-              <Label>{t('general.defaultTerminal')}</Label>
-              <p className="settings-row__description">
-                {t('general.defaultTerminalDescription')}
-              </p>
-            </div>
-            <Select
-              value={getDefaultTerminalShell(draft, environment?.os_type)}
-              onValueChange={(value) =>
-                updateDraft({ default_terminal_shell: value })
-              }
-            >
-              <SelectTrigger className="!w-40">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent align="start">
-                {terminalShellOptions.map((option) => (
-                  <SelectItem key={option.value} value={option.value}>
-                    {option.label}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-        </SettingsSection>
-
-        {localDesktopHost ? (
-          <SettingsSection
-            icon={Code2}
-            title={t('general.externalEditorTitle')}
-            description={t('general.externalEditorDescription')}
-          >
-            <ExternalEditorPicker
-              value={draft.editor}
-              onChange={(editor) => updateDraft({ editor })}
-            />
-          </SettingsSection>
-        ) : null}
-
-        <SettingsSection
-          icon={Lightbulb}
-          title={t('general.promptEnhancementTitle')}
-          description={t('general.promptEnhancementDescription')}
+          title={t('general.basicFeaturesTitle')}
         >
           <div className="space-y-4">
             <div className="settings-row">
-              <Label
-                htmlFor="prompt-enhancement-enabled"
-                className="cursor-pointer"
+              <div>
+                <Label>{t('general.defaultTerminal')}</Label>
+                <p className="settings-row__description">
+                  {t('general.defaultTerminalDescription')}
+                </p>
+              </div>
+              <Select
+                value={getDefaultTerminalShell(draft, environment?.os_type)}
+                onValueChange={(value) =>
+                  updateDraft({ default_terminal_shell: value })
+                }
               >
-                {t('general.enablePromptEnhancement')}
-              </Label>
+                <SelectTrigger className="!w-40">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent align="start">
+                  {terminalShellOptions.map((option) => (
+                    <SelectItem key={option.value} value={option.value}>
+                      {option.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+
+            {localDesktopHost ? (
+              <ExternalEditorPicker
+                value={draft.editor}
+                onChange={(editor) => updateDraft({ editor })}
+              />
+            ) : null}
+          </div>
+        </SettingsSection>
+
+        <SettingsSection
+          icon={Lightbulb}
+          title={t('general.utilityFeaturesTitle')}
+        >
+          <div className="space-y-4">
+            <div className="settings-row">
+              <div>
+                <Label
+                  htmlFor="prompt-enhancement-enabled"
+                  className="cursor-pointer"
+                >
+                  {t('general.enablePromptEnhancement')}
+                </Label>
+                <p className="settings-row__description">
+                  {t('general.enablePromptEnhancementHint')}
+                </p>
+              </div>
               <Switch
                 id="prompt-enhancement-enabled"
                 className="settings-switch"
@@ -239,155 +217,149 @@ export function GeneralSettings() {
               />
             </div>
 
-            <AgentSessionConfigPicker
-              agentId={draft.prompt_enhancement_agent_id ?? ''}
-              selectedModeId={draft.prompt_enhancement_mode ?? null}
-              pendingConfigValues={
-                draft.prompt_enhancement_session_config as Record<
-                  string,
-                  string
-                >
-              }
-              agentLabel={t('general.promptEnhancementAgent')}
-              onAgentChange={(value) =>
-                updateDraft({
-                  prompt_enhancement_agent_id: value,
-                  prompt_enhancement_mode: null,
-                  prompt_enhancement_session_config: {},
-                })
-              }
-              onSelectMode={(modeId) =>
-                updateDraft({ prompt_enhancement_mode: modeId })
-              }
-              onSelectConfigValue={(key, value) =>
-                updateDraft({
-                  prompt_enhancement_session_config: {
-                    ...draft.prompt_enhancement_session_config,
-                    [key]: value,
-                  },
-                })
-              }
-            />
-
-            <div className="space-y-2">
-              <div className="settings-row">
-                <Label
-                  htmlFor="use-custom-pe-prompt"
-                  className="cursor-pointer"
-                >
-                  {t('general.useCustomPrompt')}
-                </Label>
-                <Switch
-                  id="use-custom-pe-prompt"
-                  className="settings-switch"
-                  checked={draft.prompt_enhancement_prompt != null}
-                  onCheckedChange={(checked: boolean) =>
+            {draft.prompt_enhancement_enabled ? (
+              <>
+                <AgentSessionConfigPicker
+                  agentId={draft.prompt_enhancement_agent_id ?? ''}
+                  selectedModeId={draft.prompt_enhancement_mode ?? null}
+                  pendingConfigValues={
+                    draft.prompt_enhancement_session_config as Record<
+                      string,
+                      string
+                    >
+                  }
+                  agentLabel={t('general.promptEnhancementAgent')}
+                  onAgentChange={(value) =>
                     updateDraft({
-                      prompt_enhancement_prompt: checked
-                        ? DEFAULT_PROMPT_ENHANCEMENT_PROMPT
-                        : null,
+                      prompt_enhancement_agent_id: value,
+                      prompt_enhancement_mode: null,
+                      prompt_enhancement_session_config: {},
+                    })
+                  }
+                  onSelectMode={(modeId) =>
+                    updateDraft({ prompt_enhancement_mode: modeId })
+                  }
+                  onSelectConfigValue={(key, value) =>
+                    updateDraft({
+                      prompt_enhancement_session_config: {
+                        ...draft.prompt_enhancement_session_config,
+                        [key]: value,
+                      },
                     })
                   }
                 />
+
+                <div className="space-y-2">
+                  <div className="settings-row">
+                    <Label
+                      htmlFor="use-custom-pe-prompt"
+                      className="cursor-pointer"
+                    >
+                      {t('general.useCustomPrompt')}
+                    </Label>
+                    <Switch
+                      id="use-custom-pe-prompt"
+                      className="settings-switch"
+                      checked={draft.prompt_enhancement_prompt != null}
+                      onCheckedChange={(checked: boolean) =>
+                        updateDraft({
+                          prompt_enhancement_prompt: checked
+                            ? DEFAULT_PROMPT_ENHANCEMENT_PROMPT
+                            : null,
+                        })
+                      }
+                    />
+                  </div>
+                  <Textarea
+                    value={
+                      draft.prompt_enhancement_prompt ??
+                      DEFAULT_PROMPT_ENHANCEMENT_PROMPT
+                    }
+                    disabled={draft.prompt_enhancement_prompt == null}
+                    onChange={(event) =>
+                      updateDraft({
+                        prompt_enhancement_prompt: event.target.value,
+                      })
+                    }
+                    placeholder={t('general.customPromptPlaceholder')}
+                    className={`min-h-32 font-mono text-sm ${
+                      draft.prompt_enhancement_prompt == null
+                        ? 'cursor-not-allowed opacity-50'
+                        : ''
+                    }`}
+                  />
+                  <p className="settings-row__description">
+                    {t('general.customPromptHint')}
+                  </p>
+                </div>
+              </>
+            ) : null}
+
+            <div className="settings-row">
+              <div>
+                <Label
+                  htmlFor="compact-context-enabled"
+                  className="cursor-pointer"
+                >
+                  {t('general.enableCompactContext')}
+                </Label>
+                <p className="settings-row__description">
+                  {t('general.enableCompactContextHint')}
+                </p>
               </div>
-              <Textarea
-                value={
-                  draft.prompt_enhancement_prompt ??
-                  DEFAULT_PROMPT_ENHANCEMENT_PROMPT
+              <Switch
+                id="compact-context-enabled"
+                className="settings-switch"
+                checked={draft.compact_context_enabled ?? false}
+                onCheckedChange={(checked: boolean) =>
+                  updateDraft({ compact_context_enabled: checked })
                 }
-                disabled={draft.prompt_enhancement_prompt == null}
-                onChange={(event) =>
-                  updateDraft({
-                    prompt_enhancement_prompt: event.target.value,
-                  })
-                }
-                placeholder={t('general.customPromptPlaceholder')}
-                className={`min-h-32 font-mono text-sm ${
-                  draft.prompt_enhancement_prompt == null
-                    ? 'cursor-not-allowed opacity-50'
-                    : ''
-                }`}
               />
-              <p className="settings-row__description">
-                {t('general.customPromptHint')}
-              </p>
             </div>
-          </div>
-        </SettingsSection>
-
-        <SettingsSection
-          icon={Archive}
-          title={t('general.compactContextTitle')}
-          description={t('general.compactContextDescription')}
-        >
-          <div className="settings-row">
-            <div>
-              <Label
-                htmlFor="compact-context-enabled"
-                className="cursor-pointer"
-              >
-                {t('general.enableCompactContext')}
-              </Label>
-              <p className="settings-row__description">
-                {t('general.enableCompactContextHint')}
-              </p>
-            </div>
-            <Switch
-              id="compact-context-enabled"
-              className="settings-switch"
-              checked={draft.compact_context_enabled ?? false}
-              onCheckedChange={(checked: boolean) =>
-                updateDraft({ compact_context_enabled: checked })
-              }
-            />
           </div>
         </SettingsSection>
 
         <SettingsSection
           icon={History}
-          title={t('general.sessionContinuationTitle')}
-          description={t('general.sessionContinuationDescription')}
+          title={t('general.sessionFeaturesTitle')}
         >
-          <div className="settings-row">
-            <div>
-              <Label
-                htmlFor="previous-session-continuation-enabled"
-                className="cursor-pointer"
-              >
-                {t('general.enablePreviousSessionContinuation')}
-              </Label>
-              <p className="settings-row__description">
-                {t('general.enablePreviousSessionContinuationHint')}
-              </p>
+          <div className="space-y-4">
+            <div className="settings-row">
+              <div>
+                <Label
+                  htmlFor="previous-session-continuation-enabled"
+                  className="cursor-pointer"
+                >
+                  {t('general.enablePreviousSessionContinuation')}
+                </Label>
+                <p className="settings-row__description">
+                  {t('general.enablePreviousSessionContinuationHint')}
+                </p>
+              </div>
+              <Switch
+                id="previous-session-continuation-enabled"
+                className="settings-switch"
+                checked={draft.previous_session_continuation_enabled ?? false}
+                onCheckedChange={(checked: boolean) =>
+                  updateDraft({ previous_session_continuation_enabled: checked })
+                }
+              />
             </div>
-            <Switch
-              id="previous-session-continuation-enabled"
-              className="settings-switch"
-              checked={draft.previous_session_continuation_enabled ?? false}
-              onCheckedChange={(checked: boolean) =>
-                updateDraft({ previous_session_continuation_enabled: checked })
-              }
-            />
-          </div>
-        </SettingsSection>
 
-        <SettingsSection
-          icon={History}
-          title={t('general.importLocalSessionsTitle')}
-        >
-          <div className="settings-row">
-            <div>
-              <Label>{t('general.importLocalSessions')}</Label>
+            <div className="settings-row">
+              <div>
+                <Label>{t('general.importLocalSessions')}</Label>
+              </div>
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => setImportOpen(true)}
+              >
+                {t('general.importLocalSessionsAction')}
+              </Button>
             </div>
-            <Button
-              type="button"
-              variant="outline"
-              onClick={() => setImportOpen(true)}
-            >
-              {t('general.importLocalSessionsAction')}
-            </Button>
+            <LocalHistoryImportStatus job={importJob} />
           </div>
-          <LocalHistoryImportStatus job={importJob} />
         </SettingsSection>
 
         <SettingsSection
@@ -501,15 +473,7 @@ export function GeneralSettings() {
                 </SelectContent>
               </Select>
             </div>
-          </div>
-        </SettingsSection>
 
-        <SettingsSection
-          icon={Bug}
-          title={t('general.crashReportsTitle')}
-          description={t('general.crashReportsDescription')}
-        >
-          <div className="space-y-3">
             <div className="settings-row">
               <div>
                 <Label
@@ -528,132 +492,6 @@ export function GeneralSettings() {
                 checked={draft.crash_reports_enabled}
                 onCheckedChange={(checked: boolean) =>
                   updateDraft({ crash_reports_enabled: checked })
-                }
-              />
-            </div>
-          </div>
-        </SettingsSection>
-
-        <SettingsSection
-          icon={Eye}
-          title={t('general.previewTitle')}
-          description={t('general.previewDescription')}
-        >
-          <div className="space-y-4">
-            <div className="settings-row">
-              <div className="flex items-center gap-2">
-                <Type className="h-3.5 w-3.5 text-muted-foreground" />
-                <div>
-                  <Label>{t('general.previewFontSize')}</Label>
-                  <p className="settings-row__description">
-                    {t('general.currentFontSize', { size: previewFontSize })}
-                  </p>
-                </div>
-              </div>
-              <div className="settings-inline-group">
-                <Input
-                  type="number"
-                  min={10}
-                  max={24}
-                  value={previewFontSize}
-                  onChange={(event) =>
-                    setPreviewFontSize(Number(event.target.value))
-                  }
-                  className="w-24"
-                />
-                <span className="text-sm text-muted-foreground">px</span>
-              </div>
-            </div>
-
-            <div className="settings-row">
-              <div>
-                <Label htmlFor="markdown-preview-mode">
-                  {t('general.markdownPreviewMode')}
-                </Label>
-              </div>
-              <Select
-                value={markdownPreviewMode}
-                onValueChange={(value: MarkdownPreviewMode) =>
-                  setMarkdownPreviewMode(value)
-                }
-              >
-                <SelectTrigger
-                  id="markdown-preview-mode"
-                  className="!w-56"
-                  aria-label={t('general.markdownPreviewMode')}
-                >
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent align="end">
-                  <SelectItem value="preview">
-                    {t('general.markdownPreviewModePreview')}
-                  </SelectItem>
-                  <SelectItem value="source">
-                    {t('general.markdownPreviewModeSource')}
-                  </SelectItem>
-                  <SelectItem value="richtext">
-                    {t('general.markdownPreviewModeRichtext')}
-                  </SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-
-            <div className="settings-row">
-              <div>
-                <Label>{t('general.filesChangedCollapsed')}</Label>
-                <p className="settings-row__description">
-                  {t('general.filesChangedCollapsedHint')}
-                </p>
-              </div>
-              <Switch
-                className="settings-switch"
-                aria-label={t('general.filesChangedCollapsed')}
-                checked={
-                  draft.files_changed_default_collapsed ??
-                  DEFAULT_COLLAPSE_PREFERENCES.filesChangedCollapsed
-                }
-                onCheckedChange={(checked) =>
-                  updateDraft({ files_changed_default_collapsed: checked })
-                }
-              />
-            </div>
-
-            <div className="settings-row">
-              <div>
-                <Label>{t('general.aiMessageCollapsed')}</Label>
-                <p className="settings-row__description">
-                  {t('general.aiMessageCollapsedHint')}
-                </p>
-              </div>
-              <Switch
-                className="settings-switch"
-                aria-label={t('general.aiMessageCollapsed')}
-                checked={
-                  draft.ai_message_default_collapsed ??
-                  DEFAULT_COLLAPSE_PREFERENCES.aiMessagesCollapsed
-                }
-                onCheckedChange={(checked) =>
-                  updateDraft({ ai_message_default_collapsed: checked })
-                }
-              />
-            </div>
-
-            <div className="settings-row">
-              <div>
-                <Label>{t('general.hideModelThinking')}</Label>
-                <p className="settings-row__description">
-                  {t('general.hideModelThinkingHint')}
-                </p>
-              </div>
-              <Switch
-                className="settings-switch"
-                aria-label={t('general.hideModelThinking')}
-                checked={
-                  draft.hide_model_thinking ??
-                  DEFAULT_COLLAPSE_PREFERENCES.hideModelThinking
-                }
-                onCheckedChange={(checked) =>
-                  updateDraft({ hide_model_thinking: checked })
                 }
               />
             </div>

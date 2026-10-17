@@ -3,6 +3,7 @@ import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { ThemeMode, type Config } from 'shared/types';
 
+import { useEditorSettingsStore } from '@/stores/useEditorSettingsStore';
 import { AppearanceSettings } from './AppearanceSettings';
 
 const mocks = vi.hoisted(() => ({
@@ -238,5 +239,93 @@ describe('AppearanceSettings', () => {
 
     await user.click(toggle);
     expect(mocks.setSettingsNavFloat).toHaveBeenCalledWith(false);
+  });
+
+  it('places preview settings before page layout', () => {
+    render(<AppearanceSettings />);
+
+    const preview = screen.getByRole('heading', { name: '预览' });
+    const layout = screen.getByRole('heading', { name: '页面布局' });
+    expect(
+      preview.compareDocumentPosition(layout) & Node.DOCUMENT_POSITION_FOLLOWING
+    ).toBeTruthy();
+    expect(
+      screen.getByRole('combobox', { name: 'Markdown默认预览方式' })
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole('switch', { name: '折叠文件更改' })
+    ).toBeInTheDocument();
+  });
+
+  it('lets the user pick the Markdown default view', async () => {
+    const user = userEvent.setup();
+    useEditorSettingsStore.setState({ markdownPreviewMode: 'preview' });
+    render(<AppearanceSettings />);
+
+    const trigger = screen.getByRole('combobox', {
+      name: 'Markdown默认预览方式',
+    });
+    expect(trigger).toHaveTextContent('预览视图');
+
+    await user.click(trigger);
+    await user.click(await screen.findByRole('option', { name: '源码视图' }));
+    expect(useEditorSettingsStore.getState().markdownPreviewMode).toBe(
+      'source'
+    );
+
+    await user.click(trigger);
+    await user.click(
+      await screen.findByRole('option', { name: '富文本预览编辑视图' })
+    );
+    expect(useEditorSettingsStore.getState().markdownPreviewMode).toBe(
+      'richtext'
+    );
+  });
+
+  it('enables conversation collapse preferences by default and persists opt-out', async () => {
+    const user = userEvent.setup();
+    render(<AppearanceSettings />);
+
+    const filesChangedToggle = screen.getByRole('switch', {
+      name: '折叠文件更改',
+    });
+    expect(
+      screen.getByText('会话完成后的文件更改列表自动折叠。')
+    ).toBeInTheDocument();
+    const aiMessageToggle = screen.getByRole('switch', {
+      name: 'AI 消息默认折叠',
+    });
+    expect(filesChangedToggle).toBeChecked();
+    expect(aiMessageToggle).toBeChecked();
+
+    await user.click(filesChangedToggle);
+    await user.click(aiMessageToggle);
+    await user.click(screen.getByRole('button', { name: '保存' }));
+
+    await waitFor(() => {
+      expect(mocks.updateAndSaveConfig).toHaveBeenCalledWith(
+        expect.objectContaining({
+          files_changed_default_collapsed: false,
+          ai_message_default_collapsed: false,
+        })
+      );
+    });
+  });
+
+  it('switches the ABC layout preview between workspace and kanban', async () => {
+    const user = userEvent.setup();
+    render(<AppearanceSettings />);
+
+    expect(screen.getByText('workspace schematic')).toBeInTheDocument();
+    expect(screen.queryByText('kanban schematic')).not.toBeInTheDocument();
+    expect(screen.queryByText('Workspace 页面')).not.toBeInTheDocument();
+    expect(screen.queryByText('Kanban 页面')).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole('button', { name: '恢复默认' })
+    ).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole('radio', { name: '看板' }));
+    expect(screen.getByText('kanban schematic')).toBeInTheDocument();
+    expect(screen.queryByText('workspace schematic')).not.toBeInTheDocument();
   });
 });

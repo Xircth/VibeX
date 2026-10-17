@@ -1,6 +1,11 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { SelectableCard } from '@astryxdesign/core/SelectableCard';
 import {
+  SegmentedControl,
+  SegmentedControlItem,
+} from '@astryxdesign/core/SegmentedControl';
+import {
+  Eye,
   Infinity as InfinityIcon,
   LayoutGrid,
   Loader2,
@@ -8,6 +13,7 @@ import {
   Moon,
   Palette,
   Sun,
+  Type,
 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { ThemeMode, type Config } from 'shared/types';
@@ -22,6 +28,7 @@ import {
 } from '@/lib/uiLanguage';
 import { useTheme } from '@/components/ThemeProvider';
 import { useUserSystem } from '@/components/ConfigProvider';
+import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
 import {
@@ -57,6 +64,9 @@ import {
   getSettingsNavFloat,
   setSettingsNavFloat,
 } from '@/lib/settingsNavFloat';
+import { DEFAULT_COLLAPSE_PREFERENCES } from '@/lib/conversationCollapsePreferences';
+import { useEditorSettingsStore } from '@/stores/useEditorSettingsStore';
+import { type MarkdownPreviewMode } from '@/utils/markdownPreviewMode';
 import { AccentColorField } from './AccentColorField';
 import { SettingsActionBar, SettingsSection } from './SettingsUi';
 import {
@@ -208,6 +218,21 @@ export function AppearanceSettings() {
   const [kanbanArrangementDraft, setKanbanArrangementDraft] = useState(
     savedKanbanArrangement
   );
+  const [layoutPage, setLayoutPage] = useState<'workspace' | 'kanban'>(
+    'workspace'
+  );
+  const previewFontSize = useEditorSettingsStore(
+    (state) => state.previewFontSize
+  );
+  const setPreviewFontSize = useEditorSettingsStore(
+    (state) => state.setPreviewFontSize
+  );
+  const markdownPreviewMode = useEditorSettingsStore(
+    (state) => state.markdownPreviewMode
+  );
+  const setMarkdownPreviewMode = useEditorSettingsStore(
+    (state) => state.setMarkdownPreviewMode
+  );
 
   useEffect(() => {
     if (config) {
@@ -224,8 +249,28 @@ export function AppearanceSettings() {
   }, [savedKanbanArrangement]);
 
   const hasUnsavedChanges = useMemo(() => {
+    if (!config || !draft) {
+      return (
+        !arrangementsEqual(
+          workspaceArrangementDraft,
+          savedWorkspaceArrangement
+        ) || !arrangementsEqual(kanbanArrangementDraft, savedKanbanArrangement)
+      );
+    }
     return (
-      (!!config && !!draft && draft.theme !== config.theme) ||
+      draft.theme !== config.theme ||
+      (draft.files_changed_default_collapsed ??
+        DEFAULT_COLLAPSE_PREFERENCES.filesChangedCollapsed) !==
+        (config.files_changed_default_collapsed ??
+          DEFAULT_COLLAPSE_PREFERENCES.filesChangedCollapsed) ||
+      (draft.ai_message_default_collapsed ??
+        DEFAULT_COLLAPSE_PREFERENCES.aiMessagesCollapsed) !==
+        (config.ai_message_default_collapsed ??
+          DEFAULT_COLLAPSE_PREFERENCES.aiMessagesCollapsed) ||
+      (draft.hide_model_thinking ??
+        DEFAULT_COLLAPSE_PREFERENCES.hideModelThinking) !==
+        (config.hide_model_thinking ??
+          DEFAULT_COLLAPSE_PREFERENCES.hideModelThinking) ||
       !arrangementsEqual(
         workspaceArrangementDraft,
         savedWorkspaceArrangement
@@ -243,6 +288,10 @@ export function AppearanceSettings() {
 
   const updateTheme = useCallback((theme: ThemeMode) => {
     setDraft((previous) => (previous ? { ...previous, theme } : previous));
+  }, []);
+
+  const updateDraft = useCallback((patch: Partial<Config>) => {
+    setDraft((previous) => (previous ? { ...previous, ...patch } : previous));
   }, []);
 
   const handleSave = async () => {
@@ -501,37 +550,174 @@ export function AppearanceSettings() {
         </SettingsSection>
 
         <SettingsSection
+          icon={Eye}
+          title={t('general.previewTitle')}
+          description={t('general.previewDescription')}
+        >
+          <div className="space-y-4">
+            <div className="settings-row">
+              <div className="flex items-center gap-2">
+                <Type className="h-3.5 w-3.5 text-muted-foreground" />
+                <div>
+                  <Label>{t('general.previewFontSize')}</Label>
+                  <p className="settings-row__description">
+                    {t('general.currentFontSize', { size: previewFontSize })}
+                  </p>
+                </div>
+              </div>
+              <div className="settings-inline-group">
+                <Input
+                  type="number"
+                  min={10}
+                  max={24}
+                  value={previewFontSize}
+                  onChange={(event) =>
+                    setPreviewFontSize(Number(event.target.value))
+                  }
+                  className="w-24"
+                />
+                <span className="text-sm text-muted-foreground">px</span>
+              </div>
+            </div>
+
+            <div className="settings-row">
+              <div>
+                <Label htmlFor="markdown-preview-mode">
+                  {t('general.markdownPreviewMode')}
+                </Label>
+              </div>
+              <Select
+                value={markdownPreviewMode}
+                onValueChange={(value: MarkdownPreviewMode) =>
+                  setMarkdownPreviewMode(value)
+                }
+              >
+                <SelectTrigger
+                  id="markdown-preview-mode"
+                  className="!w-56"
+                  aria-label={t('general.markdownPreviewMode')}
+                >
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent align="end">
+                  <SelectItem value="preview">
+                    {t('general.markdownPreviewModePreview')}
+                  </SelectItem>
+                  <SelectItem value="source">
+                    {t('general.markdownPreviewModeSource')}
+                  </SelectItem>
+                  <SelectItem value="richtext">
+                    {t('general.markdownPreviewModeRichtext')}
+                  </SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div className="settings-row">
+              <div>
+                <Label>{t('general.filesChangedCollapsed')}</Label>
+                <p className="settings-row__description">
+                  {t('general.filesChangedCollapsedHint')}
+                </p>
+              </div>
+              <Switch
+                className="settings-switch"
+                aria-label={t('general.filesChangedCollapsed')}
+                checked={
+                  draft.files_changed_default_collapsed ??
+                  DEFAULT_COLLAPSE_PREFERENCES.filesChangedCollapsed
+                }
+                onCheckedChange={(checked) =>
+                  updateDraft({ files_changed_default_collapsed: checked })
+                }
+              />
+            </div>
+
+            <div className="settings-row">
+              <div>
+                <Label>{t('general.aiMessageCollapsed')}</Label>
+                <p className="settings-row__description">
+                  {t('general.aiMessageCollapsedHint')}
+                </p>
+              </div>
+              <Switch
+                className="settings-switch"
+                aria-label={t('general.aiMessageCollapsed')}
+                checked={
+                  draft.ai_message_default_collapsed ??
+                  DEFAULT_COLLAPSE_PREFERENCES.aiMessagesCollapsed
+                }
+                onCheckedChange={(checked) =>
+                  updateDraft({ ai_message_default_collapsed: checked })
+                }
+              />
+            </div>
+
+            <div className="settings-row">
+              <div>
+                <Label>{t('general.hideModelThinking')}</Label>
+                <p className="settings-row__description">
+                  {t('general.hideModelThinkingHint')}
+                </p>
+              </div>
+              <Switch
+                className="settings-switch"
+                aria-label={t('general.hideModelThinking')}
+                checked={
+                  draft.hide_model_thinking ??
+                  DEFAULT_COLLAPSE_PREFERENCES.hideModelThinking
+                }
+                onCheckedChange={(checked) =>
+                  updateDraft({ hide_model_thinking: checked })
+                }
+              />
+            </div>
+          </div>
+        </SettingsSection>
+
+        <SettingsSection
           icon={LayoutGrid}
           title={t('appearance.layout.title')}
           description={t('appearance.layout.description')}
+          action={
+            <SegmentedControl
+              className="shrink-0"
+              value={layoutPage}
+              onChange={(value) =>
+                setLayoutPage(value === 'kanban' ? 'kanban' : 'workspace')
+              }
+              label={t('appearance.layout.title')}
+              size="sm"
+              layout="hug"
+            >
+              <SegmentedControlItem
+                value="workspace"
+                label={t('appearance.layout.workspaceLabel')}
+              />
+              <SegmentedControlItem
+                value="kanban"
+                label={t('appearance.layout.kanbanLabel')}
+              />
+            </SegmentedControl>
+          }
         >
-          <div className="flex flex-col gap-5">
-            <div className="flex flex-col gap-3">
-              <div>
-                <Label>{t('appearance.layout.workspaceLabel')}</Label>
-                <p className="settings-row__description">
-                  {t('appearance.layout.dragHint')}
-                </p>
-              </div>
+          <div className="flex flex-col gap-3">
+            {layoutPage === 'workspace' ? (
               <WorkspaceLayoutSchematic
                 value={workspaceArrangementDraft}
                 onChange={setWorkspaceArrangementDraft}
               />
-            </div>
-
-            <div className="flex flex-col gap-3">
-              <div>
-                <Label>{t('appearance.layout.kanbanLabel')}</Label>
-                <p className="settings-row__description">
-                  {t('appearance.layout.kanbanHint')}
-                </p>
-              </div>
+            ) : (
               <KanbanLayoutSchematic
                 value={kanbanArrangementDraft}
                 onChange={setKanbanArrangementDraft}
               />
-            </div>
-
+            )}
+            <p className="settings-row__description">
+              {layoutPage === 'workspace'
+                ? t('appearance.layout.dragHint')
+                : t('appearance.layout.kanbanHint')}
+            </p>
             <p className="settings-row__description">
               {t('appearance.layout.hint')}
             </p>

@@ -2,8 +2,10 @@
  * User-configurable layout arrangements, persisted in localStorage and shared
  * across every project. Two independent arrangements exist:
  *
- * - Workspace page: four zones (A dock / B workspace / C session / D terminal)
- *   mapped onto four slots (left / center / right / bottom strip).
+ * - Workspace page: three visible columns (A dock / B workspace / C session)
+ *   mapped onto left / center / right. Stored arrangements still pin
+ *   `bottom: terminal` for the dockview engine; the settings schematic does
+ *   not expose a D terminal strip.
  * - Kanban page: three zones (A session list / B session monitor / C session
  *   execution) mapped onto three column slots.
  *

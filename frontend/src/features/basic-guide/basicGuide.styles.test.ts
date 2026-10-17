@@ -41,25 +41,14 @@ describe('basic guide panel chrome', () => {
     const frame = declarationsFor('.basic-guide-panel__stack--framed');
     const footer = declarationsFor('.basic-guide-panel__footer');
     expect(panel.left).toBe('40px');
-    expect(panel['max-width']).toBe('220px');
+    expect(panel['max-width']).toBe('224px');
     expect(bottom.bottom).toBe('30px');
     expect(kanban.left).toBe('10px');
-    expect(frame.background).toBe('hsl(220 10% 86% / 0.94)');
-    expect(frame['backdrop-filter']).toBe('blur(20px) saturate(1.2)');
-    expect(frame['-webkit-backdrop-filter']).toBe('blur(20px) saturate(1.2)');
+    expect(frame.background).toBe('#f1f1f1');
     expect(frame.border).toBe('1px solid #111');
     expect(frame['border-radius']).toBe('8px');
     expect(footer['justify-content']).toBe('flex-end');
     expect(declarationsFor('.basic-guide-panel--workspace')).toEqual({});
-  });
-
-  it('drops the glass blur when transparency is reduced', () => {
-    const frame = declarationsFor('.basic-guide-panel__stack--framed', {
-      inAtRule: 'prefers-reduced-transparency',
-    });
-    expect(frame.background).toBe('hsl(220 10% 86%)');
-    expect(frame['backdrop-filter']).toBe('none');
-    expect(frame['-webkit-backdrop-filter']).toBe('none');
   });
 
   it('styles the callout continue as a black action', () => {

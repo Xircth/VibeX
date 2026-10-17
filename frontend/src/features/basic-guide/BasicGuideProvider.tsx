@@ -33,7 +33,9 @@ import {
   completeStep2,
   dismissEndCopy,
   clickAdvancesSubstep,
+  conversationIdFromPathname,
   isConfigureSessionSubstep,
+  isStep2LiveSessionSubstep,
   isProjectRoute,
   isSettingsAgentsRoute,
   isSettingsRoute,
@@ -42,6 +44,7 @@ import {
   resolveLaunchState,
   sessionCreateHrefLooksOpen,
   shouldCompleteStep1OnRoute,
+  shouldCompleteStep2FromAgentOutput,
   shouldForceWelcome,
   skipBasicGuide,
   startBasicGuide,
@@ -335,22 +338,31 @@ export function BasicGuideProvider({ children }: { children: ReactNode }) {
   ]);
 
   useEffect(() => {
-    if (state.phase !== 'active' || state.substep !== 'send-hello') return;
+    if (state.phase !== 'active') return;
+    if (!isStep2LiveSessionSubstep(state.substep)) return;
+    const conversationId = conversationIdFromPathname(location.pathname);
     let disposed = false;
-    let stop: (() => void) | undefined;
-    void listenToConversationEvents((batch: ConversationRowOpBatch) => {
+    const stops: Array<() => void> = [];
+    const onBatch = (batch: ConversationRowOpBatch) => {
       if (disposed) return;
-      const started = batch.ops.some((op) => op.op === 'append_text');
-      if (started) goNext('send-hello');
-    }).then((unlisten) => {
-      if (disposed) unlisten();
-      else stop = unlisten;
-    });
+      if (!shouldCompleteStep2FromAgentOutput(stateRef.current, batch)) {
+        return;
+      }
+      persist(completeStep2(stateRef.current));
+    };
+    const listen = (id?: string) => {
+      void listenToConversationEvents(onBatch, id).then((unlisten) => {
+        if (disposed) unlisten();
+        else stops.push(unlisten);
+      });
+    };
+    listen();
+    if (conversationId) listen(conversationId);
     return () => {
       disposed = true;
-      stop?.();
+      for (const stop of stops) stop();
     };
-  }, [goNext, state.phase, state.substep]);
+  }, [location.pathname, persist, state.phase, state.substep]);
 
   useEffect(() => {
     if (state.phase !== 'active') return;

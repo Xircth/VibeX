@@ -25,6 +25,7 @@
     "click-new-session": "First, click this button to create a session.",
     "configure-session-agent": "First **choose** the Agent for this session.",
     "configure-session-config": "Then **choose** permission, model, and effort.",
+    "submit-session": "Click the button to create the session.",
     "send-hello": "Edit “你好” in the input, then send. When the Agent starts replying, this step is done.",
     "rail-session-list": "This is the session list for the current workspace.",
     "rail-file-tree": "This is the file tree for browsing and opening project files.",

@@ -25,6 +25,7 @@ export type BasicGuideSubstep =
   | 'click-new-session'
   | 'configure-session-agent'
   | 'configure-session-config'
+  | 'submit-session'
   | 'send-hello'
   | 'rail-session-list'
   | 'rail-file-tree'
@@ -70,6 +71,7 @@ export const SUBSTEP_ORDER: readonly BasicGuideSubstep[] = [
   'click-new-session',
   'configure-session-agent',
   'configure-session-config',
+  'submit-session',
   'send-hello',
   'rail-session-list',
   'rail-file-tree',
@@ -197,7 +199,13 @@ export const SUBSTEP_META: Record<BasicGuideSubstep, SubstepMeta> = {
   'configure-session-config': {
     mainStep: 2,
     targets: ['session-config'],
-    advance: 'auto',
+    advance: 'click',
+    continueVisible: true,
+  },
+  'submit-session': {
+    mainStep: 2,
+    targets: ['session-create-submit'],
+    advance: 'click',
     continueVisible: true,
   },
   'send-hello': {
@@ -568,7 +576,44 @@ export function shouldCompleteStep1OnRoute(
 export function isConfigureSessionSubstep(substep: BasicGuideSubstep): boolean {
   return (
     substep === 'configure-session-agent' ||
-    substep === 'configure-session-config'
+    substep === 'configure-session-config' ||
+    substep === 'submit-session'
+  );
+}
+
+export function isStep2LiveSessionSubstep(substep: BasicGuideSubstep): boolean {
+  return isConfigureSessionSubstep(substep) || substep === 'send-hello';
+}
+
+export function conversationIdFromPathname(pathname: string): string | null {
+  const match = pathname.match(/\/workspaces\/[^/]+\/sessions\/([^/?#]+)\/?$/);
+  return match?.[1] ?? null;
+}
+
+export function batchShowsAgentOutput(batch: {
+  ops: Array<{
+    op: string;
+    row?: { row?: { kind?: string; turn?: { role?: string } } };
+  }>;
+}): boolean {
+  return batch.ops.some((op) => {
+    if (op.op === 'append_text') return true;
+    if (op.op !== 'upsert') return false;
+    return (
+      op.row?.row?.kind === 'message_turn' &&
+      op.row.row.turn?.role === 'assistant'
+    );
+  });
+}
+
+export function shouldCompleteStep2FromAgentOutput(
+  state: PersistedBasicGuide,
+  batch: Parameters<typeof batchShowsAgentOutput>[0]
+): boolean {
+  return (
+    state.phase === 'active' &&
+    isStep2LiveSessionSubstep(state.substep) &&
+    batchShowsAgentOutput(batch)
   );
 }
 

@@ -163,14 +163,21 @@ export function BasicGuideSpotlight({
         );
       })}
       {plan.connectors.length > 0 ? (
-        <svg className="basic-guide-connectors" aria-hidden="true">
+        <svg
+          className="basic-guide-connectors"
+          aria-hidden="true"
+          data-basic-guide-connectors=""
+          width={viewport.width}
+          height={viewport.height}
+          viewBox={`0 0 ${viewport.width} ${viewport.height}`}
+        >
           {plan.connectors.map((line, index) => (
             <path
               key={`${line.copyKey}-${index}`}
               d={curvePath(line.from, line.to)}
               fill="none"
               stroke="#111"
-              strokeWidth="1"
+              strokeWidth="1.5"
             />
           ))}
         </svg>

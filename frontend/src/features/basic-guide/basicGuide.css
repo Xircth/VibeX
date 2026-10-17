@@ -214,8 +214,11 @@
   pointer-events: none;
   box-sizing: border-box;
   border: 2px solid #111;
+  outline: 2px solid #111;
+  outline-offset: -2px;
   border-radius: 8px;
-  animation: basic-guide-breathe 2s ease-in-out infinite;
+  box-shadow: 0 0 0 2px #111;
+  animation: basic-guide-breathe 2.4s ease-in-out infinite;
 }
 
 .basic-guide-spotlight--circle {
@@ -223,7 +226,7 @@
 }
 
 .basic-guide-spotlight.is-idle {
-  animation: basic-guide-flash 0.7s ease-in-out infinite;
+  animation-duration: 0.55s;
 }
 
 .basic-guide-callout {
@@ -258,8 +261,12 @@
 
 .basic-guide-connectors {
   position: fixed;
-  inset: 0;
-  z-index: 69;
+  left: 0;
+  top: 0;
+  z-index: 72;
+  width: 100vw;
+  height: 100vh;
+  overflow: visible;
   pointer-events: none;
 }
 
@@ -284,22 +291,14 @@
 @keyframes basic-guide-breathe {
   0%,
   100% {
-    box-shadow: 0 0 0 0 rgb(17 17 17 / 0.28);
+    box-shadow:
+      0 0 0 2px #111,
+      0 0 0 2px rgb(17 17 17 / 0);
   }
   50% {
-    box-shadow: 0 0 0 7px rgb(17 17 17 / 0.1);
-  }
-}
-
-@keyframes basic-guide-flash {
-  0%,
-  100% {
-    opacity: 1;
-    box-shadow: 0 0 0 3px rgb(17 17 17 / 0.5);
-  }
-  50% {
-    opacity: 0.35;
-    box-shadow: 0 0 0 10px rgb(17 17 17 / 0.06);
+    box-shadow:
+      0 0 0 2px #111,
+      0 0 0 5px rgb(17 17 17 / 0.22);
   }
 }
 

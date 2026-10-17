@@ -694,6 +694,7 @@ async fn migration_seeds_and_promotes_the_current_built_in_agent_catalog() {
             ("codebuddy", true),
             ("kimi_code", true),
             ("qoder", true),
+            ("omp", true),
         ]
     );
     assert!(
@@ -723,6 +724,7 @@ async fn migration_seeds_and_promotes_the_current_built_in_agent_catalog() {
         "cursor",
         "deepseek_harness",
         "qoder",
+        "omp",
     ] {
         assert!(
             sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM agent_setting WHERE agent_type = ?")
@@ -853,6 +855,7 @@ async fn migration_rewrites_the_previous_default_agent_bar_order() {
             "kimi_code",
             "qoder",
             "vendor.custom",
+            "omp",
         ]
     );
 

@@ -1931,6 +1931,8 @@
     "authDescClineProvider": "Configure a BYOK provider for Cline.",
     "authDescCodebuddySubscription": "Sign in to the Tencent Cloud CodeBuddy account.",
     "authDescQoderSubscription": "Sign in with a Qoder account.",
+    "authDescOmpSubscription": "Sign in to the OMP account.",
+    "authDescOmpProvider": "Use a provider saved for OMP.",
     "authDescMimoSubscription": "Sign in with a Xiaomi MiMo account.",
     "authDescMimoOfficialApi": "Use a Xiaomi MiMo first-party API key.",
     "authDescMimoProvider": "Connect catalog or custom OpenAI-compatible providers in MiMo Code.",
@@ -2352,6 +2354,12 @@
         "login": {
           "label": "Sign in to Qoder",
           "description": "Open a browser to complete Qoder account sign-in."
+        }
+      },
+      "omp": {
+        "login": {
+          "label": "Sign in to OMP",
+          "description": "Sign in to an OMP model provider in the terminal."
         }
       },
       "kimi_code": {

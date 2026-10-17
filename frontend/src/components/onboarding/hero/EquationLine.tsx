@@ -31,6 +31,7 @@ export const SLOT_B: SlotItem[] = [
   { id: 'cursor', label: 'Cursor', kind: 'agent' },
   { id: 'deepseek', label: 'DeepSeek', kind: 'agent' },
   { id: 'qoder', label: 'Qoder', kind: 'agent' },
+  { id: 'omp', label: 'OMP', kind: 'agent' },
 ];
 
 const SLOT_C_ZH: SlotItem[] = [

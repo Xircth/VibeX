@@ -118,6 +118,7 @@ const KNOWN_AGENT_KINDS = new Set([
   'grok',
   'cursor',
   'deepseek_harness',
+  'omp',
   'qa_mock',
 ]);
 
@@ -131,6 +132,8 @@ const AGENT_KIND_ALIASES: Record<string, string> = {
   kimicode: 'kimi_code',
   xai: 'grok',
   'x.ai': 'grok',
+  ohmypi: 'omp',
+  'oh-my-pi': 'omp',
 };
 
 /**

@@ -28,6 +28,7 @@ const RUNNABLE_AGENTS: AgentKind[] = [
   'cursor',
   'deepseek_harness',
   'qoder',
+  'omp',
 ];
 
 describe('onboarding equation slots', () => {

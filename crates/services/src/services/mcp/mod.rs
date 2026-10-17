@@ -89,9 +89,10 @@ pub enum McpAppType {
     Grok,
     Cursor,
     Qoder,
+    Omp,
 }
 
-const ALL_APPS: [McpAppType; 12] = [
+const ALL_APPS: [McpAppType; 13] = [
     McpAppType::ClaudeCode,
     McpAppType::Codex,
     McpAppType::Antigravity,
@@ -104,12 +105,13 @@ const ALL_APPS: [McpAppType; 12] = [
     McpAppType::Grok,
     McpAppType::Cursor,
     McpAppType::Qoder,
+    McpAppType::Omp,
 ];
 
 /// Targets that Codeg exposes for new MCP assignments. OpenClaw remains in
 /// `ALL_APPS` so legacy entries can be scanned and removed, but is not offered
 /// for new assignments because its ACP implementation rejects MCP entries.
-const ASSIGNABLE_APPS: [McpAppType; 11] = [
+const ASSIGNABLE_APPS: [McpAppType; 12] = [
     McpAppType::ClaudeCode,
     McpAppType::Codex,
     McpAppType::Antigravity,
@@ -121,6 +123,7 @@ const ASSIGNABLE_APPS: [McpAppType; 11] = [
     McpAppType::Grok,
     McpAppType::Cursor,
     McpAppType::Qoder,
+    McpAppType::Omp,
 ];
 
 #[derive(Debug, Clone, Serialize)]
@@ -693,6 +696,23 @@ fn cursor_mcp_json_path() -> PathBuf {
 
 fn qoder_settings_path() -> PathBuf {
     configured_dir("QODER_CONFIG_DIR", home_dir_or_default().join(".qoder")).join("settings.json")
+}
+
+fn omp_mcp_json_path() -> PathBuf {
+    let environment = SAVED_AGENT_ENVIRONMENT
+        .try_with(|environment| {
+            environment
+                .iter()
+                .map(|(key, value)| (key.clone(), value.clone()))
+                .collect()
+        })
+        .unwrap_or_default();
+    omp_mcp_json_path_in(&home_dir_or_default(), &environment)
+}
+
+fn omp_mcp_json_path_in(home: &Path, environment: &BTreeMap<String, String>) -> PathBuf {
+    // Same rule as launch: a process or saved dir that points at Pi is not OMP.
+    agents::omp_agent_dir(home, environment).join("mcp.json")
 }
 
 // ---------------------------------------------------------------------------
@@ -2790,6 +2810,51 @@ fn remove_qoder_server(id: &str) -> Result<bool, McpError> {
     remove_json_mcp_server_at(&qoder_settings_path(), id)
 }
 
+fn read_omp_servers_at(path: &Path) -> Result<BTreeMap<String, Value>, McpError> {
+    let root = read_json_file(path)?;
+    let mut out = BTreeMap::new();
+    let Some(servers) = root.get("mcpServers").and_then(Value::as_object) else {
+        return Ok(out);
+    };
+    for (id, spec) in servers {
+        if let Ok(normalized) = canonicalize_spec(spec, "OMP config") {
+            out.insert(id.clone(), normalized);
+        }
+    }
+    Ok(out)
+}
+
+fn read_omp_servers() -> Result<BTreeMap<String, Value>, McpError> {
+    read_omp_servers_at(&omp_mcp_json_path())
+}
+
+fn upsert_omp_server_at(path: &Path, id: &str, spec: &Value) -> Result<(), McpError> {
+    let mut root = read_json_file(path)?;
+    if !root.is_object() {
+        root = json!({});
+    }
+    let canonical = canonicalize_spec(spec, "OMP write")?;
+    let obj = root
+        .as_object_mut()
+        .ok_or_else(|| bad(format!("invalid JSON root in {}", path.display())))?;
+    if !obj.get("mcpServers").map(Value::is_object).unwrap_or(false) {
+        obj.insert("mcpServers".to_string(), Value::Object(Map::new()));
+    }
+    obj.get_mut("mcpServers")
+        .and_then(Value::as_object_mut)
+        .ok_or_else(|| bad(format!("invalid mcpServers in {}", path.display())))?
+        .insert(id.to_string(), canonical);
+    write_json_file(path, &root)
+}
+
+fn upsert_omp_server(id: &str, spec: &Value) -> Result<(), McpError> {
+    upsert_omp_server_at(&omp_mcp_json_path(), id, spec)
+}
+
+fn remove_omp_server(id: &str) -> Result<bool, McpError> {
+    remove_json_mcp_server_at(&omp_mcp_json_path(), id)
+}
+
 fn read_grok_root_toml_at(path: &Path) -> Result<toml::Value, McpError> {
     if !path.exists() {
         return Ok(toml::Value::Table(toml::map::Map::new()));
@@ -3100,6 +3165,7 @@ fn upsert_server_for_app(app: McpAppType, id: &str, spec: &Value) -> Result<(), 
         McpAppType::Grok => upsert_grok_server(id, spec),
         McpAppType::Cursor => upsert_cursor_server(id, spec),
         McpAppType::Qoder => upsert_qoder_server(id, spec),
+        McpAppType::Omp => upsert_omp_server(id, spec),
     }
 }
 
@@ -3117,6 +3183,7 @@ fn remove_server_for_app(app: McpAppType, id: &str) -> Result<bool, McpError> {
         McpAppType::Grok => remove_grok_server(id),
         McpAppType::Cursor => remove_cursor_server(id),
         McpAppType::Qoder => remove_qoder_server(id),
+        McpAppType::Omp => remove_omp_server(id),
     }
 }
 
@@ -3134,6 +3201,7 @@ fn read_servers_for_app(app: McpAppType) -> Result<BTreeMap<String, Value>, McpE
         McpAppType::Grok => read_grok_servers(),
         McpAppType::Cursor => read_cursor_servers(),
         McpAppType::Qoder => read_qoder_servers(),
+        McpAppType::Omp => read_omp_servers(),
     }
 }
 
@@ -4356,7 +4424,7 @@ mod tests {
             .into_iter()
             .map(|app| serde_json::to_value(app).expect("serialize app"))
             .collect::<Vec<_>>();
-        assert_eq!(targets.len(), 12);
+        assert_eq!(targets.len(), 13);
         for expected in [
             "claude_code",
             "codex",
@@ -4370,12 +4438,51 @@ mod tests {
             "grok",
             "cursor",
             "qoder",
+            "omp",
         ] {
             assert!(targets.contains(&Value::String(expected.to_string())));
         }
         assert!(!targets.contains(&Value::String("pi".to_string())));
-        assert_eq!(ASSIGNABLE_APPS.len(), 11);
+        assert_eq!(ASSIGNABLE_APPS.len(), 12);
         assert!(!ASSIGNABLE_APPS.contains(&McpAppType::OpenClaw));
+    }
+
+    #[test]
+    fn omp_assignment_writes_omp_mcp_json_not_pi() {
+        let home = Path::new("/tmp/vibex-home");
+        let pi = home.join(".pi").join("agent");
+        let env = BTreeMap::from([(
+            "PI_CODING_AGENT_DIR".to_string(),
+            pi.to_string_lossy().into_owned(),
+        )]);
+        assert_eq!(
+            omp_mcp_json_path_in(home, &env),
+            home.join(".omp").join("agent").join("mcp.json")
+        );
+
+        let temp = tempfile::tempdir().unwrap();
+        let path = temp.path().join("mcp.json");
+        std::fs::write(
+            &path,
+            "{\"$schema\":\"keep\",\"disabledServers\":[\"old\"]}\n",
+        )
+        .unwrap();
+        upsert_omp_server_at(
+            &path,
+            "local",
+            &json!({"type": "stdio", "command": "npx", "args": ["-y", "pkg"]}),
+        )
+        .unwrap();
+        let servers = read_omp_servers_at(&path).unwrap();
+        assert_eq!(servers["local"]["command"], "npx");
+        assert!(remove_json_mcp_server_at(&path, "local").unwrap());
+        let root = read_json_file(&path).unwrap();
+        assert_eq!(root["$schema"], "keep");
+        assert!(
+            root.get("mcpServers")
+                .and_then(|servers| servers.get("local"))
+                .is_none()
+        );
     }
 
     #[test]

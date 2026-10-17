@@ -67,6 +67,7 @@ const BUILT_IN_ICON_PATHS: Partial<
     dark: '/agents/deepseek-harness-dark.svg',
   },
   qoder: { light: '/agents/qoder.svg', dark: '/agents/qoder.svg' },
+  omp: { light: '/agents/omp-light.svg', dark: '/agents/omp-dark.svg' },
   mimo_code: {
     light: '/agents/mimo-code-light.svg',
     dark: '/agents/mimo-code-dark.svg',
@@ -90,6 +91,7 @@ const BUILT_IN_DISPLAY_NAMES: Partial<Record<string, string>> = {
   cursor: 'Cursor',
   deepseek_harness: 'DeepSeek Harness',
   qoder: 'Qoder',
+  omp: 'OMP',
   mimo_code: 'MiMo Code',
 };
 
@@ -120,6 +122,9 @@ export function normalizeAgentIconKey(
       return 'deepseek_harness';
     case 'qodercli':
       return 'qoder';
+    case 'oh_my_pi':
+    case 'ohmypi':
+      return 'omp';
     case 'mimo':
     case 'mimocode':
       return 'mimo_code';

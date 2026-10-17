@@ -206,6 +206,7 @@ fn acp_slash_command_catalog(agent_type: AgentKind) -> Vec<SlashCommandDescripti
         | AgentKind::Cursor
         | AgentKind::DeepseekHarness
         | AgentKind::Qoder
+        | AgentKind::Omp
         | AgentKind::QaMock => Vec::new(),
     }
 }

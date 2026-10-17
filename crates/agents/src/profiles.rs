@@ -387,6 +387,7 @@ impl BuiltInProfileCatalog {
                 codebuddy_profile(),
                 kimi_code_profile(),
                 qoder_profile(),
+                omp_profile(),
             ],
         }
     }
@@ -520,6 +521,9 @@ const KIMI_CANDIDATES: &[ProfileExternalCandidate] = &[external("kimi")];
 const GROK_CANDIDATES: &[ProfileExternalCandidate] = &[external("grok")];
 const CURSOR_CANDIDATES: &[ProfileExternalCandidate] = &[external("cursor-agent")];
 const DEEPSEEK_HARNESS_CANDIDATES: &[ProfileExternalCandidate] = &[external("deepseek-acp")];
+/// `omp` without `acp` is the interactive TUI. The subcommand is the stdio server.
+const OMP_ACP_ARGS: &[&str] = &["acp"];
+const OMP_CANDIDATES: &[ProfileExternalCandidate] = &[external_acp("omp", OMP_ACP_ARGS)];
 /// Qoder CLI turns into an ACP stdio server with `--acp`; without it the same
 /// executable starts the interactive TUI. Both published executable names are
 /// probed because the official ACP guide uses `qoder` while the Model Studio
@@ -577,6 +581,11 @@ const UV_DEPENDENCIES: &[ProfileDependency] = &[
         "uv 将自动安装 Python 3.13",
         false,
     ),
+];
+const OMP_DEPENDENCIES: &[ProfileDependency] = &[
+    dependency("node", "Node.js", "node", &["--version"], ">=20", true),
+    dependency("npm", "npm", "npm", &["--version"], "随 Node.js 安装", true),
+    dependency("bun", "Bun", "bun", &["--version"], ">=1.3.14", true),
 ];
 const ARCHIVE_DEPENDENCIES: &[ProfileDependency] = &[dependency(
     "archive",
@@ -811,6 +820,13 @@ const DEEPSEEK_HARNESS_ACTIONS: &[ProfileManagementAction] = &[terminal_action(
     "把 DeepSeek API Key 写入本地凭据",
     ProfileManagementActionKind::Setup,
     &[program("deepseek-acp", &["--setup"])],
+)];
+const OMP_ACTIONS: &[ProfileManagementAction] = &[terminal_action(
+    "login",
+    "登录 OMP",
+    "在终端里为 OMP 登录模型供应商",
+    ProfileManagementActionKind::Login,
+    &[program("omp", &["login"])],
 )];
 
 const fn program(program: &'static str, args: &'static [&'static str]) -> ProfileManagementProgram {
@@ -2419,6 +2435,49 @@ const DEEPSEEK_HARNESS_SETTINGS: &[AgentSettingsFeature] = &[
     AgentSettingsFeature::DshPlugins,
     AgentSettingsFeature::NativeSkills,
 ];
+/// Credentials live in `agent.db` and `models.yml`, not `auth.json`. ACP
+/// sessions do not discover disk MCP, so assignments saved to
+/// `~/.omp/agent/mcp.json` are injected on `session/new`.
+const OMP_CONFIG: &[NativeConfigBinding] = &[NativeConfigBinding {
+    binding_id: "config",
+    home_relative_path: ".omp/agent/config.yml",
+    directory_override_env: Some("PI_CODING_AGENT_DIR"),
+    override_relative_path: "config.yml",
+    format: NativeConfigFormat::Yaml,
+    fields: &[
+        text_field(
+            "omp_default_model",
+            "默认模型",
+            "新会话使用的模型",
+            &["modelRoles", "default"],
+        ),
+        select_field(
+            "omp_theme_dark",
+            "深色主题",
+            "深色模式下使用的主题",
+            &["theme", "dark"],
+            PI_THEME_OPTIONS,
+        ),
+        boolean_field(
+            "omp_compaction_enabled",
+            "自动压缩上下文",
+            "上下文接近上限时压缩历史",
+            &["compaction", "enabled"],
+        ),
+        number_field(
+            "omp_compaction_reserve_tokens",
+            "压缩预留 Token",
+            "为模型回复预留的 Token 数",
+            &["compaction", "reserveTokens"],
+        ),
+    ],
+}];
+const OMP_SETTINGS: &[AgentSettingsFeature] = &[
+    AgentSettingsFeature::AuthenticationMode,
+    AgentSettingsFeature::ReusableModelProviders,
+    AgentSettingsFeature::NativeMcp,
+    AgentSettingsFeature::NativeSkills,
+];
 /// MiMo Code is an OpenCode fork: Xiaomi OAuth is the official subscription,
 /// first-party keys live in `auth.json`, and catalog/custom endpoints use the
 /// same provider JSON as OpenCode. Plugins are the `plugin` array in
@@ -3177,6 +3236,40 @@ fn qoder_profile() -> BuiltInProfile {
             relative_file: "settings.json",
             kind: AccountEvidenceKind::NonEmptyStringAt(&["security", "auth", "selectedType"]),
         }),
+    }
+}
+
+fn omp_profile() -> BuiltInProfile {
+    BuiltInProfile {
+        agent_id: AgentId::parse("omp").expect("bundled AgentId"),
+        display_name: "OMP",
+        description: "oh-my-pi coding agent over its native ACP server",
+        icon: ProfileIcon {
+            light: "/agents/omp-light.svg",
+            dark: "/agents/omp-dark.svg",
+        },
+        // Not an official ACP Registry id. Present so a later registry entry
+        // with this id binds to this profile instead of creating a second agent.
+        registry_binding: Some(ProfileRegistryBinding { registry_id: "omp" }),
+        topology: ProfileTopology::NativeAcp,
+        supported_platforms: DESKTOP_PLATFORMS,
+        install_sources: vec![native_npx(
+            "@oh-my-pi/pi-coding-agent",
+            "18.8.0",
+            "omp",
+            OMP_ACP_ARGS,
+            ">=20",
+            "sha512-i0m5z+sljos+Fb7GwKhtXimAbvZ3EOiulyN9RiDeVy0yl1UtNlErgp2O376EurT263rD7C/CAbVOp9EyK7saOQ==",
+        )],
+        external_candidates: OMP_CANDIDATES,
+        dependencies: OMP_DEPENDENCIES,
+        management_actions: OMP_ACTIONS,
+        runtime_executable_env: None,
+        native_config: OMP_CONFIG,
+        settings_features: OMP_SETTINGS,
+        authentication_precedence: AuthenticationPrecedence::AccountThenApiKey,
+        authentication_required_by_default: true,
+        account_evidence: None,
     }
 }
 

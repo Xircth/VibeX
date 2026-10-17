@@ -84,7 +84,8 @@ pub fn skills_surface(agent_type: AgentKind) -> AgentSkillsSurface {
         | AgentKind::Grok
         | AgentKind::Cursor
         | AgentKind::DeepseekHarness
-        | AgentKind::Qoder => AgentSkillsSurface {
+        | AgentKind::Qoder
+        | AgentKind::Omp => AgentSkillsSurface {
             agent_type,
             strategy: AgentSkillsStrategy::Directory,
             global_supported: true,
@@ -106,7 +107,7 @@ pub fn skills_surface(agent_type: AgentKind) -> AgentSkillsSurface {
 }
 
 /// Every agent VibeX manages. Order is used for stable scan/display output.
-const ALL_AGENTS: [AgentKind; 14] = [
+const ALL_AGENTS: [AgentKind; 15] = [
     AgentKind::ClaudeCode,
     AgentKind::Codex,
     AgentKind::Antigravity,
@@ -121,6 +122,7 @@ const ALL_AGENTS: [AgentKind; 14] = [
     AgentKind::Cursor,
     AgentKind::DeepseekHarness,
     AgentKind::Qoder,
+    AgentKind::Omp,
 ];
 
 pub fn skill_capable_agent_ids() -> Vec<String> {
@@ -209,6 +211,25 @@ fn configured_dir(variable: &str, fallback: Option<PathBuf>) -> Option<PathBuf> 
         Some(value) => Some(PathBuf::from(value)),
         None => fallback,
     }
+}
+
+fn omp_skill_agent_dir(fallback_home: Option<&Path>) -> Option<PathBuf> {
+    let mut environment = BTreeMap::new();
+    if let Ok(saved) = SAVED_AGENT_ENVIRONMENT.try_with(|env| env.clone()) {
+        environment.extend(saved);
+    }
+    if let Ok(value) = std::env::var("PI_CODING_AGENT_DIR") {
+        environment
+            .entry("PI_CODING_AGENT_DIR".to_string())
+            .or_insert(value);
+    }
+    let home = environment
+        .get("HOME")
+        .or_else(|| environment.get("USERPROFILE"))
+        .map(PathBuf::from)
+        .or_else(|| fallback_home.map(Path::to_path_buf))
+        .or_else(dirs::home_dir)?;
+    Some(crate::omp_auth::agent_dir(&home, &environment))
 }
 
 fn cline_skills_root(home: Option<PathBuf>) -> Option<PathBuf> {
@@ -387,6 +408,10 @@ fn skill_dirs(agent: AgentKind, workspace: Option<&Path>) -> Vec<SkillDir> {
         .into_iter()
         .map(|dir| (dir.join("skills"), false))
         .collect(),
+        AgentKind::Omp => omp_skill_agent_dir(home.as_deref())
+            .into_iter()
+            .map(|dir| (dir.join("skills"), false))
+            .collect(),
         // In-process mock agent: no skill directories.
         AgentKind::QaMock => Vec::new(),
     };
@@ -420,6 +445,7 @@ fn skill_dirs(agent: AgentKind, workspace: Option<&Path>) -> Vec<SkillDir> {
             AgentKind::Cursor => &[".cursor/skills", ".agents/skills"],
             AgentKind::DeepseekHarness => &[".dsh/skills", ".agents/skills"],
             AgentKind::Qoder => &[".qoder/skills"],
+            AgentKind::Omp => &[".agents/skills"],
             AgentKind::QaMock => &[],
         };
         for relative in relatives {
@@ -1020,6 +1046,7 @@ fn agent_primary_skill_dir(agent: AgentKind) -> Option<PathBuf> {
             configured_dir("QODER_CONFIG_DIR", home.map(|home| home.join(".qoder")))
                 .map(|dir| dir.join("skills"))
         }
+        AgentKind::Omp => omp_skill_agent_dir(home.as_deref()).map(|dir| dir.join("skills")),
         AgentKind::QaMock => None,
     }
 }

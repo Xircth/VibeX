@@ -1594,6 +1594,11 @@ fn auth_mode_translation_keys(agent_id: &AgentId, mode: &str) -> (&'static str, 
         ("pi" | "openclaw", "model_provider") => {
             ("agents.authModeProvider", "agents.authDescGenericProvider")
         }
+        ("omp", "official_subscription") => (
+            "agents.authModeOfficialSubscription",
+            "agents.authDescOmpSubscription",
+        ),
+        ("omp", "model_provider") => ("agents.authModeProvider", "agents.authDescOmpProvider"),
         _ => ("agents.authModeUnknown", "agents.authDescUnknown"),
     }
 }
@@ -2722,6 +2727,24 @@ mod tests {
         assert_eq!(options[0].value, "official_subscription");
         assert_eq!(options[0].kind, AgentAuthModeKind::Subscription);
         assert!(!options[0].credential_required);
+
+    }
+
+    #[test]
+    fn omp_auth_options_name_subscription_and_provider() {
+        let agent_id = AgentId::parse("omp").unwrap();
+        let policy = built_in_auth_mode_policy(&agent_id).unwrap();
+        let options = project_auth_mode_options(&agent_id, policy.modes);
+        assert_eq!(
+            options
+                .iter()
+                .map(|option| option.description_key.as_str())
+                .collect::<Vec<_>>(),
+            [
+                "agents.authDescOmpSubscription",
+                "agents.authDescOmpProvider",
+            ]
+        );
     }
 
     #[test]

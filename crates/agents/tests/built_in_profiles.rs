@@ -108,6 +108,14 @@ fn codeg_pinned_distribution_matrix_is_exact() {
             "deepseek-acp",
             ">=22",
         ),
+        (
+            "omp",
+            ProfileComponent::CombinedRuntime,
+            "@oh-my-pi/pi-coding-agent",
+            "18.8.0",
+            "omp",
+            ">=20",
+        ),
     ] {
         let source = profile(id)
             .install_sources
@@ -385,6 +393,7 @@ fn built_in_profiles_are_declarative_and_bind_explicitly() {
             "codebuddy",
             "kimi_code",
             "qoder",
+            "omp",
         ]
     );
 
@@ -477,6 +486,7 @@ fn built_in_profiles_are_declarative_and_bind_explicitly() {
             ("codebuddy", None),
             ("kimi_code", None),
             ("qoder", None),
+            ("omp", None),
         ]
     );
     assert!(
@@ -516,6 +526,7 @@ fn codeg_account_action_matrix_is_complete() {
         ("grok", &["login", "logout", "subscription"][..]),
         ("cursor", &["login", "logout", "subscription"][..]),
         ("deepseek_harness", &["setup"][..]),
+        ("omp", &["login"][..]),
     ] {
         let profile = catalog.profile(&AgentId::parse(agent_id).unwrap()).unwrap();
         assert_eq!(
@@ -734,6 +745,16 @@ fn codeg_directory_semantics_and_settings_capabilities_are_profile_declared() {
             .contains(&AgentSettingsFeature::AuthenticationMode)
     );
     assert!(
+        profile("omp")
+            .settings_features
+            .contains(&AgentSettingsFeature::AuthenticationMode)
+    );
+    assert!(
+        profile("omp")
+            .settings_features
+            .contains(&AgentSettingsFeature::ReusableModelProviders)
+    );
+    assert!(
         profile("deepseek_harness")
             .settings_features
             .contains(&AgentSettingsFeature::DshPlugins)
@@ -789,6 +810,7 @@ fn codeg_directory_semantics_and_settings_capabilities_are_profile_declared() {
         "grok",
         "cursor",
         "qoder",
+        "omp",
     ] {
         assert!(
             profile(id)
@@ -820,6 +842,7 @@ fn codeg_directory_semantics_and_settings_capabilities_are_profile_declared() {
         "cursor",
         "deepseek_harness",
         "qoder",
+        "omp",
     ] {
         assert!(
             profile(id)

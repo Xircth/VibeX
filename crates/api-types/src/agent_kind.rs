@@ -10,7 +10,7 @@
 //!
 //! `claude_code`, `codex`, `opencode`, `antigravity`, `openclaw`, `cline`, `hermes`,
 //! `codebuddy`, `kimi_code`, `pi`, `grok`, `cursor`, `deepseek_harness`, `qoder`,
-//! `qa_mock` — the `executor_key` form already persisted in `sessions.agent_type`.
+//! `omp`, `qa_mock` — the `executor_key` form already persisted in `sessions.agent_type`.
 //! `Serialize` / `Display` / `FromStr` / sqlx all emit this single canonical form.
 //! The retired Gemini CLI identity (`gemini`) is accepted on read and maps to
 //! `antigravity`.
@@ -53,13 +53,14 @@ pub enum AgentKind {
     Cursor,
     DeepseekHarness,
     Qoder,
+    Omp,
     QaMock,
 }
 
 impl AgentKind {
     /// Every variant, in Agent Bar / picker order. `QaMock` stays last because
     /// it is a test identity, not a product Agent.
-    pub const ALL: [AgentKind; 15] = [
+    pub const ALL: [AgentKind; 16] = [
         AgentKind::ClaudeCode,
         AgentKind::Codex,
         AgentKind::Pi,
@@ -74,6 +75,7 @@ impl AgentKind {
         AgentKind::Codebuddy,
         AgentKind::KimiCode,
         AgentKind::Qoder,
+        AgentKind::Omp,
         AgentKind::QaMock,
     ];
 
@@ -101,6 +103,7 @@ impl AgentKind {
             AgentKind::Cursor => "cursor",
             AgentKind::DeepseekHarness => "deepseek_harness",
             AgentKind::Qoder => "qoder",
+            AgentKind::Omp => "omp",
             AgentKind::QaMock => "qa_mock",
         }
     }
@@ -131,6 +134,7 @@ impl AgentKind {
             // `qodercli` is the installed executable name; some producers wrote it
             // as the agent id before the identity was canonicalized.
             "qoder" | "qodercli" => AgentKind::Qoder,
+            "omp" | "ohmypi" => AgentKind::Omp,
             "qamock" => AgentKind::QaMock,
             _ => return None,
         };
@@ -204,6 +208,7 @@ mod tests {
             (AgentKind::Codebuddy, "codebuddy"),
             (AgentKind::KimiCode, "kimi_code"),
             (AgentKind::Qoder, "qoder"),
+            (AgentKind::Omp, "omp"),
             (AgentKind::QaMock, "qa_mock"),
         ];
         assert_eq!(
@@ -267,6 +272,9 @@ mod tests {
             ("Qoder", AgentKind::Qoder),
             ("qoder", AgentKind::Qoder),
             ("qodercli", AgentKind::Qoder),
+            ("OMP", AgentKind::Omp),
+            ("oh-my-pi", AgentKind::Omp),
+            ("omp", AgentKind::Omp),
             ("QA_MOCK", AgentKind::QaMock),
             ("QaMock", AgentKind::QaMock),
             ("qa_mock", AgentKind::QaMock),

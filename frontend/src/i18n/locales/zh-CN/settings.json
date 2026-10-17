@@ -1931,6 +1931,8 @@
     "authDescClineProvider": "为 Cline 配置 BYOK Provider。",
     "authDescCodebuddySubscription": "登录腾讯云 CodeBuddy 账号。",
     "authDescQoderSubscription": "登录 Qoder 账号。",
+    "authDescOmpSubscription": "登录 OMP 账号。",
+    "authDescOmpProvider": "使用已保存的 OMP 供应商。",
     "authDescMimoSubscription": "使用小米 MiMo 账号登录。",
     "authDescMimoOfficialApi": "使用小米 MiMo 官方 API Key。",
     "authDescMimoProvider": "在 MiMo Code 中连接目录或自定义 OpenAI 兼容供应商。",
@@ -2349,6 +2351,12 @@
         "login": {
           "label": "登录 Qoder",
           "description": "打开浏览器完成 Qoder 官方账号登录。"
+        }
+      },
+      "omp": {
+        "login": {
+          "label": "登录 OMP",
+          "description": "在终端里为 OMP 登录模型供应商。"
         }
       },
       "kimi_code": {

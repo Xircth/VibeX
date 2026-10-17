@@ -46,6 +46,9 @@ pub mod manager;
 pub mod metadata;
 pub mod native_config;
 pub mod npm_registry;
+mod omp_auth;
+mod omp_mcp;
+pub mod omp_providers;
 pub mod operations;
 pub mod parsers;
 pub mod permissions;
@@ -237,6 +240,10 @@ pub use npm_registry::{
     overlay_npx_latest_from_npm, overlay_npx_latest_versions,
     plan_runtime_acp_compatibility_warning, runtime_acp_compatibility_warning, split_npm_spec,
     verify_external_component_change, verify_npm_component_file,
+};
+pub use omp_auth::{
+    OmpCredentialPresence, agent_dir as omp_agent_dir,
+    credential_presence as omp_credential_presence,
 };
 pub use operations::{InstallOperationError, InstallOrchestrator, OrchestratorAgentSnapshot};
 pub use permissions::{

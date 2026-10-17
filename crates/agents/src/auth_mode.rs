@@ -178,6 +178,14 @@ pub fn built_in_auth_mode_policy(agent_id: &AgentId) -> Option<BuiltInAuthModePo
             subscription_scrub_env: MIMO_SCRUB_ENV,
             default_mode: "official_subscription",
         }),
+        "omp" => Some(BuiltInAuthModePolicy {
+            mode_env: "OMP_AUTH_MODE",
+            credential_env: "OMP_API_KEY",
+            modes: OMP_MODES,
+            credential_modes: &[],
+            subscription_scrub_env: &[],
+            default_mode: "official_subscription",
+        }),
         _ => None,
     }
 }
@@ -197,6 +205,7 @@ const MIMO_CREDENTIAL_MODES: &[&str] = &["official_api"];
 const MIMO_SCRUB_ENV: &[&str] = &["MIMO_API_KEY", "OPENAI_API_KEY", "ANTHROPIC_API_KEY"];
 const PI_MODES: &[&str] = &["model_provider"];
 const OPENCLAW_MODES: &[&str] = &["model_provider"];
+const OMP_MODES: &[&str] = &["official_subscription", "model_provider"];
 
 pub fn auth_mode_kind(agent_id: &AgentId, mode: &str) -> AgentAuthModeKind {
     match (agent_id.as_str(), mode) {
@@ -541,6 +550,10 @@ pub fn apply_built_in_launch_policy(
             bind_pi_acp_pi_command(env, requested.as_deref());
         }
         "grok" => apply_grok_native_launch_env(env),
+        // OMP reads PI_CODING_AGENT_DIR. The parent process often has that
+        // variable for Pi. Pin this child to the OMP directory VibeX writes,
+        // and do not inherit Pi's ACP switches. MCP stays on session/new.
+        "omp" => apply_omp_native_launch_env(env),
         _ => {}
     }
     apply_built_in_launch_argument_policy(agent_id, env, args);
@@ -625,6 +638,30 @@ pub fn apply_pi_native_launch_env(home: &Path, env: &mut HashMap<String, String>
     if let Some(key) = read_pi_default_provider_key(&agent_dir) {
         env.insert("PI_API_KEY".to_string(), key);
     }
+}
+
+fn apply_omp_native_launch_env(env: &mut HashMap<String, String>) {
+    let home = env
+        .get("HOME")
+        .or_else(|| env.get("USERPROFILE"))
+        .map(PathBuf::from)
+        .or_else(dirs::home_dir);
+    let Some(home) = home else {
+        return;
+    };
+    let map = env
+        .iter()
+        .map(|(key, value)| (key.clone(), value.clone()))
+        .collect();
+    let agent_dir = crate::omp_auth::agent_dir(&home, &map);
+    env.insert(
+        "PI_CODING_AGENT_DIR".to_string(),
+        agent_dir.to_string_lossy().into_owned(),
+    );
+    env.remove("PI_ACP_ENABLE_EMBEDDED_CONTEXT");
+    env.remove("PI_ACP_ENABLE_EXTENSION_COMMANDS");
+    env.remove("PI_ACP_PI_COMMAND");
+    env.remove("PI_CODING_AGENT_SESSION_DIR");
 }
 
 /// Point `pi-acp` at a spawnable `pi` command.
@@ -893,6 +930,49 @@ mod tests {
         assert_eq!(codex["DISABLE_MCP_CONFIG_FILTERING"], "true");
 
         let temp = tempfile::tempdir().unwrap();
+        let omp_home = temp.path();
+        let mut omp = HashMap::from([
+            ("HOME".to_string(), omp_home.to_string_lossy().into_owned()),
+            (
+                "USERPROFILE".to_string(),
+                omp_home.to_string_lossy().into_owned(),
+            ),
+            (
+                "PI_CODING_AGENT_DIR".to_string(),
+                omp_home
+                    .join(".pi")
+                    .join("agent")
+                    .to_string_lossy()
+                    .into_owned(),
+            ),
+            (
+                "PI_ACP_ENABLE_EMBEDDED_CONTEXT".to_string(),
+                "true".to_string(),
+            ),
+            (
+                "PI_CODING_AGENT_SESSION_DIR".to_string(),
+                omp_home
+                    .join(".pi")
+                    .join("agent")
+                    .join("sessions")
+                    .to_string_lossy()
+                    .into_owned(),
+            ),
+        ]);
+        apply_built_in_launch_policy(&AgentId::parse("omp").unwrap(), &mut omp, &mut Vec::new());
+        assert_eq!(
+            omp.get("PI_CODING_AGENT_DIR").map(String::as_str),
+            Some(
+                omp_home
+                    .join(".omp")
+                    .join("agent")
+                    .to_string_lossy()
+                    .as_ref()
+            )
+        );
+        assert!(!omp.contains_key("PI_ACP_ENABLE_EMBEDDED_CONTEXT"));
+        assert!(!omp.contains_key("PI_CODING_AGENT_SESSION_DIR"));
+
         let mut pi = HashMap::from([(
             "HOME".to_string(),
             temp.path().to_string_lossy().into_owned(),
@@ -1199,6 +1279,16 @@ mod tests {
             AgentAuthModeKind::Subscription
         );
         assert_eq!(official_api_url(&qoder, "official_subscription"), None);
+
+        let omp = AgentId::parse("omp").unwrap();
+        assert_eq!(
+            built_in_auth_mode_policy(&omp).unwrap().modes,
+            ["official_subscription", "model_provider"]
+        );
+        assert_eq!(
+            auth_mode_kind(&omp, "official_subscription"),
+            AgentAuthModeKind::Subscription
+        );
 
         let mimo = AgentId::parse("mimo_code").unwrap();
         assert_eq!(

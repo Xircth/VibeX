@@ -261,7 +261,7 @@ _Avoid_: 连接, 隧道, 服务器地址（单独拿来当 Host 身份）
 - **User-declared agent definition（用户声明 Agent 定义）** — 用户为官方 Registry 尚未收录的本地 ACP Agent 提供的版本化接入契约；只接受 Binary、npx 或 uvx 的 Registry-compatible distribution，保存稳定 Agent id、明确分发方式与定义 digest，并复用统一冻结安装计划、Installation lock 和 LaunchGate。
 - **Community ACP preset（社区 ACP 预设）** — VibeX 为官方 Registry 尚未收录、但已有成熟开源 ACP 适配器的 Agent 提供的 Registry-compatible 分发模板；它出现在 ACP 注册表「手动添加」页，添加后走用户声明定义同一管线，不得显示为官方 Registry 或 VibeX 已验证。已提升为内置 Agent 的预设只展示已内置状态，不能再以同一身份重复添加。
 - **Agent profile（Agent 档案）** — 驱动统一 Agent 管线的声明式接入契约，描述身份、运行拓扑、分发、检测和版本信息；来源不同不会改变安装、配置或运行语义。
-- **Built-in agent（内置 agent）** — 由 VibeX 预先加入并给予默认展示策略的 Agent；当前成员为 Claude Code、Codex、Google Antigravity、OpenClaw、OpenCode、Cline、Hermes、CodeBuddy、Kimi Code、Pi、Grok、Cursor 与 DeepSeek Harness。它们与其他 Agent 使用同一安装、探测和会话管线，但可由档案声明各自的官方账号、订阅、Provider 与原生插件管理动作。
+- **Built-in agent（内置 agent）** — 由 VibeX 预先加入并给予默认展示策略的 Agent；当前成员为 Claude Code、Codex、Google Antigravity、OpenClaw、OpenCode、Cline、Hermes、CodeBuddy、Kimi Code、Pi、Grok、Cursor、DeepSeek Harness、Qoder 与 OMP。它们与其他 Agent 使用同一安装、探测和会话管线，但可由档案声明各自的官方账号、订阅、Provider 与原生插件管理动作。
 - **Built-in agent profile（内置 agent 档案）** — VibeX 为内置 Agent 提供的 Agent 档案，可声明其本地 Runtime、ACP 适配器、检测候选、依赖环境、验证组合、原生配置与白名单管理动作，但不能改变统一 Agent 管线的语义。
 - **Agent management capability（Agent 管理能力）** — Agent 在统一设置界面中提供的认证状态、账户状态、订阅入口、Provider 连接以及官方登录、注销和初始化动作。管理动作必须由 Built-in Agent Profile 完整声明，不能接受用户提供的程序、参数、URL 或任意 shell 文本。
 - **Profile management action（档案管理动作）** — Built-in Agent Profile 固定声明的登录、注销、初始化或订阅入口；VibeX 只解析当前安装锁或 PATH 中的同名官方可执行文件，并在用户点击后于可见终端中启动，或打开固定官方 URL。

@@ -881,6 +881,9 @@ function agentDisplayName(agentId: AgentId) {
       return 'Qoder';
     case 'mimo_code':
       return 'MiMo Code';
+    case 'omp':
+      return 'OMP';
+
     default:
       return agentId;
   }

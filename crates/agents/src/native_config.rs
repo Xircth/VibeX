@@ -197,8 +197,19 @@ impl NativeConfigProvider {
             paths.push(path);
         }
 
-        let api_key_present =
+        let mut api_key_present =
             vault_api_key_present || fields.iter().any(|field| field.secret && field.present);
+        let mut account_logged_in = account_logged_in;
+        if crate::AgentKind::Omp.matches_id(agent_id.as_str()) {
+            let presence = crate::omp_auth::credential_presence(&crate::omp_auth::agent_dir(
+                &self.home,
+                &self.environment,
+            ));
+            account_logged_in |= presence.account;
+            if presence.api_key {
+                api_key_present = true;
+            }
+        }
         Ok(NativeConfigSnapshot {
             agent_id: agent_id.clone(),
             path: paths.first().cloned().unwrap_or_else(|| self.home.clone()),
@@ -414,6 +425,9 @@ impl NativeConfigProvider {
     }
 
     fn binding_path(&self, binding: &NativeConfigBinding) -> PathBuf {
+        if binding.home_relative_path == ".omp/agent/config.yml" {
+            return omp_config_path(&self.home, &self.environment);
+        }
         if let Some(path) = crate::metadata::mimo_native_binding_path(
             binding.binding_id,
             &self.home,
@@ -439,6 +453,16 @@ impl NativeConfigProvider {
             .map(|directory| directory.join(binding.override_relative_path))
             .unwrap_or_else(|| self.home.join(binding.home_relative_path))
     }
+}
+
+fn omp_config_path(home: &Path, environment: &BTreeMap<String, String>) -> PathBuf {
+    let mut environment = environment.clone();
+    if let Ok(value) = std::env::var("PI_CODING_AGENT_DIR") {
+        environment
+            .entry("PI_CODING_AGENT_DIR".to_string())
+            .or_insert(value);
+    }
+    crate::omp_auth::agent_dir(home, &environment).join("config.yml")
 }
 
 fn expand_home_path(home: &std::path::Path, path: PathBuf) -> PathBuf {
@@ -1615,5 +1639,23 @@ fn authentication_status(
             AuthenticationPrecedence::ApiKeyThenAccount => AgentAuthenticationStatus::ApiKey,
             AuthenticationPrecedence::SingleSource => AgentAuthenticationStatus::MultipleUnknown,
         },
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn omp_config_path_ignores_pi_agent_dir() {
+        let home = Path::new("/tmp/vibex-home");
+        let environment = BTreeMap::from([(
+            "PI_CODING_AGENT_DIR".to_string(),
+            home.join(".pi").join("agent").to_string_lossy().into_owned(),
+        )]);
+        assert_eq!(
+            omp_config_path(home, &environment),
+            home.join(".omp").join("agent").join("config.yml")
+        );
     }
 }

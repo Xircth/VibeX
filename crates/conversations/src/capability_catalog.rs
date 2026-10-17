@@ -174,6 +174,10 @@ fn native_model_source_dir(
             home,
             ".pi/agent",
         ),
+        "omp" => {
+            let home = home?;
+            Some(agents::omp_agent_dir(home, &launch_lock.env))
+        }
         "grok" => env_dir(launch_lock, &["GROK_HOME"], home, ".grok"),
         "openclaw" => env_dir(launch_lock, &["OPENCLAW_HOME"], home, ".openclaw"),
         _ => None,
@@ -189,6 +193,7 @@ fn native_model_source_files(agent_id: &str) -> &'static [&'static str] {
         ],
         "claude_code" => &["settings.json"],
         "pi" => &["settings.json", "models.json"],
+        "omp" => &["config.yml", "models.yml"],
         "grok" => &["config.toml"],
         "openclaw" => &["openclaw.json"],
         _ => &[],

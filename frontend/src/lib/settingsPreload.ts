@@ -110,7 +110,7 @@ export function warmDefaultSettingsSurface(
       void exactLoader();
       return;
     }
-    void loadAgentSettings();
+    void loadGeneralSettings();
   }
 }
 

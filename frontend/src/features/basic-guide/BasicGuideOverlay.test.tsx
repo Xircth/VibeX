@@ -115,7 +115,7 @@ describe('BasicGuideOverlay', () => {
     expect(panel.className).not.toMatch(/basic-guide-panel--workspace/);
   });
 
-  it('keeps the step panel 60px from the window on a workspace route', () => {
+  it('keeps the step panel pinned without a workspace offset', () => {
     renderOverlay(ACTIVE_GUIDE, undefined, {
       pathname: '/local-projects/abc/sessions',
     });

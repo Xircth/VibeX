@@ -10,6 +10,7 @@ import { listenToAgentEvents } from '@/features/agents/events';
 import { conversationApi } from './conversationApi';
 import { AGENT_BINDING_LOAD_FAILURE_NOTICE_ROW_ID } from './sessionNoticeNeedsRebind';
 import { canSkipInFlightHistoryWait } from './canSkipInFlightHistoryWait';
+import { nextOlderTimelinePage } from './timelinePaging';
 import { retainConversationKeepalive } from './conversationKeepalive';
 import { listenToConversationEvents } from './events';
 import { subscribeToOptimisticConversationTurns } from './optimisticTurnEvents';
@@ -303,6 +304,7 @@ function loadDetail(
       dispatch({ type: 'load_success', conversationId, detail });
       ensureLive(conversationId, controller);
       scheduleBind(conversationId, controller);
+      void prefetchOlder(conversationId, controller);
     })
     .catch((error: unknown) => {
       if (controller.stopped || controller.loadEpoch !== epoch) return;
@@ -523,20 +525,32 @@ async function reconnectAndReload(conversationId: string): Promise<void> {
   }
 }
 
+async function prefetchOlder(
+  conversationId: string,
+  controller: Controller
+): Promise<void> {
+  while (!controller.stopped) {
+    const before = state.byConversationId[conversationId]?.olderCursor ?? null;
+    if (nextOlderTimelinePage(before) == null) return;
+    await loadOlder(conversationId);
+    const after = state.byConversationId[conversationId]?.olderCursor ?? null;
+    if (after === before) return;
+  }
+}
+
 async function loadOlder(conversationId: string): Promise<void> {
   const controller = slots.get(conversationId)?.controller;
   if (!controller || controller.loadingOlder || controller.stopped) return;
-  const cursor = state.byConversationId[conversationId]?.olderCursor;
-  if (!cursor) return;
-  const end = Number(cursor);
-  if (!Number.isFinite(end) || end <= 0) return;
-  const start = Math.max(0, end - 80);
+  const pageWindow = nextOlderTimelinePage(
+    state.byConversationId[conversationId]?.olderCursor
+  );
+  if (!pageWindow) return;
   controller.loadingOlder = true;
   try {
     const page = await conversationApi.timelinePage({
       conversationId,
-      cursor: String(start),
-      limit: end - start,
+      cursor: String(pageWindow.start),
+      limit: pageWindow.limit,
     });
     if (controller.stopped || slots.get(conversationId)?.refs === 0) return;
     dispatch({
@@ -544,7 +558,7 @@ async function loadOlder(conversationId: string): Promise<void> {
       conversationId,
       rows: page.rows,
       lastSequence: state.byConversationId[conversationId]?.lastSequence ?? 0n,
-      olderCursor: start > 0 ? String(start) : null,
+      olderCursor: pageWindow.start > 0 ? String(pageWindow.start) : null,
       protectLoaded: true,
     });
   } finally {

@@ -12,6 +12,7 @@ import { formatSessionComposerCommand } from '@/components/tasks/follow-up/sessi
 import {
   conversationStoreReducer,
   emptyConversationStoreState,
+  enforceTimelineBudget,
   sideRowsForEntry,
   TIMELINE_RETAINED_BYTE_BUDGET,
   TIMELINE_RETAINED_ROW_LIMIT,
@@ -1454,16 +1455,44 @@ describe('conversationStore (row-op dumb container)', () => {
     expect(textOf(patched?.turn.blocks ?? [])).toContain('hello');
   });
 
+  it('keeps the open timeline window so a fat last turn does not hide earlier turns', () => {
+    const fat = 'x'.repeat(32 * 1024);
+    const rows = Array.from({ length: 40 }, (_, index) =>
+      userRow(`t${index}`, fat, BigInt(index + 1))
+    );
+    const state = loaded(rows);
+    const entry = entryOf(state);
+    expect(entry.rows).toHaveLength(40);
+    expect(entry.rows[0]?.row_id).toBe('t0:user');
+    expect(entry.rows.at(-1)?.row_id).toBe('t39:user');
+  });
+
+  it('keeps hydrated history when a later idle row-op arrives', () => {
+    const fat = 'x'.repeat(32 * 1024);
+    const rows = Array.from({ length: 40 }, (_, index) =>
+      userRow(`t${index}`, fat, BigInt(index + 1))
+    );
+    let state = loaded(rows);
+    state = conversationStoreReducer(state, {
+      type: 'row_ops',
+      batch: batch(
+        [{ op: 'upsert', row: userRow('t39', `${fat}!`, 41n) }],
+        41n
+      ),
+    });
+    expect(entryOf(state).rows).toHaveLength(40);
+    expect(entryOf(state).rows[0]?.row_id).toBe('t0:user');
+  });
+
   it('drops the oldest rows past the retained budget and reopens them by cursor', () => {
     const rows = Array.from(
       { length: TIMELINE_RETAINED_ROW_LIMIT + 1 },
       (_, index) => userRow(`t${index}`, 'x', BigInt(index + 1))
     );
-    const state = loaded(rows);
-    const entry = entryOf(state);
-    expect(entry.rows).toHaveLength(TIMELINE_RETAINED_ROW_LIMIT);
-    expect(entry.rows[0]?.row_id).toBe('t1:user');
-    expect(entry.olderCursor).toBe('1');
+    const trimmed = enforceTimelineBudget(entryOf(loaded(rows)));
+    expect(trimmed.rows).toHaveLength(TIMELINE_RETAINED_ROW_LIMIT);
+    expect(trimmed.rows[0]?.row_id).toBe('t1:user');
+    expect(trimmed.olderCursor).toBe('1');
   });
 
   it('drops oldest rows when their payload exceeds the byte budget', () => {
@@ -1471,13 +1500,12 @@ describe('conversationStore (row-op dumb container)', () => {
     const rows = Array.from({ length: 40 }, (_, index) =>
       userRow(`t${index}`, fat, BigInt(index + 1))
     );
-    const state = loaded(rows);
-    const entry = entryOf(state);
-    expect(entry.rows.length).toBeLessThan(rows.length);
-    expect(entry.rows.length * fat.length).toBeLessThanOrEqual(
+    const trimmed = enforceTimelineBudget(entryOf(loaded(rows)));
+    expect(trimmed.rows.length).toBeLessThan(rows.length);
+    expect(trimmed.rows.length * fat.length).toBeLessThanOrEqual(
       TIMELINE_RETAINED_BYTE_BUDGET
     );
-    expect(entry.olderCursor).not.toBeNull();
+    expect(trimmed.olderCursor).not.toBeNull();
   });
 
   it('keeps the in-flight turn when its streaming payload exceeds the hot budget', () => {

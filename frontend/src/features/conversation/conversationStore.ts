@@ -154,7 +154,7 @@ export function conversationStoreReducer(
           ...action.detail,
           timeline: { ...action.detail.timeline, rows: [] },
         };
-        return enforceTimelineBudget({
+        const hydrated = {
           ...entry,
           detail,
           rows: keepRealtimeRows ? entry.rows : reconciledTimeline.rows,
@@ -197,7 +197,14 @@ export function conversationStoreReducer(
           olderCursor: keepRealtimeRows
             ? entry.olderCursor
             : (action.detail.timeline.older_cursor ?? null),
-        });
+        };
+        if (keepRealtimeRows) {
+          return enforceTimelineBudget(hydrated);
+        }
+        // Keep the open window on screen. Byte-budget amputation here left only
+        // the last fat turn, then a later page dumped the rest in one paint.
+        const protect = new Set(hydrated.rows.map((row) => row.row_id));
+        return enforceTimelineBudget(hydrated, protect);
       });
     case 'load_error':
       return updateEntry(state, action.conversationId, (entry) => ({
@@ -222,16 +229,19 @@ export function conversationStoreReducer(
         availableCommands:
           action.controls.available_commands ?? entry.availableCommands,
       }));
-    case 'row_ops':
-      return updateEntry(state, action.batch.conversation_id, (entry) =>
-        enforceTimelineBudget(applyRowOpBatch(entry, action.batch))
-      );
+    case 'row_ops': {
+      return updateEntry(state, action.batch.conversation_id, (entry) => {
+        const next = applyRowOpBatch(entry, action.batch);
+        const protect = new Set(next.rows.map((row) => row.row_id));
+        return enforceTimelineBudget(next, protect);
+      });
+    }
     case 'upsert_rows':
       return updateEntry(state, action.conversationId, (entry) => {
         let rows = entry.rows;
         let liveText = entry.liveText;
         let optimisticTurns = entry.optimisticTurns;
-        const protect = new Set<string>();
+        const protect = new Set(entry.rows.map((row) => row.row_id));
         if (action.protectLoaded) {
           const existing = new Set(rows.map((row) => row.row_id));
           const firstRevision = rows[0] ? toBigInt(rows[0].revision) : null;
@@ -557,6 +567,7 @@ export function enforceTimelineBudget(
   const protect = new Set(protectIds ?? []);
   for (const rowId of inFlightProtectIds(entry)) protect.add(rowId);
   let rows = entry.rows;
+  if (rows[0] && protect.has(rows[0].row_id)) return entry;
   let dropped = 0;
   const over = () =>
     rows.length > TIMELINE_RETAINED_ROW_LIMIT ||

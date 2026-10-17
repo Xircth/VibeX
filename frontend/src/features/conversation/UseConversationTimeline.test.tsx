@@ -2,6 +2,7 @@ import { act, renderHook, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { useConversationTimeline } from './useConversationTimeline';
 import { resetConversationTimelineRegistryForTests } from './conversationTimelineRegistry';
+import { TIMELINE_OLDER_PAGE_SIZE } from './timelinePaging';
 import { resetConversationKeepaliveForTests } from './conversationKeepalive';
 import { publishOptimisticConversationTurn } from './optimisticTurnEvents';
 import type {
@@ -20,6 +21,7 @@ const {
   ensureSessionControlsMock,
   touchMock,
   eventsSinceMock,
+  timelinePageMock,
   listenMock,
   listenToAgentEventsMock,
   listeners,
@@ -39,6 +41,7 @@ const {
     ensureSessionControlsMock: vi.fn(),
     touchMock: vi.fn(),
     eventsSinceMock: vi.fn(),
+    timelinePageMock: vi.fn(),
     listenMock: vi.fn((handler: (batch: ConversationRowOpBatch) => void) => {
       listeners.push(handler);
       return Promise.resolve(() => {});
@@ -63,7 +66,7 @@ vi.mock('./conversationApi', () => ({
     ensureSessionControls: ensureSessionControlsMock,
     touch: touchMock,
     eventsSince: eventsSinceMock,
-    timelinePage: vi.fn(),
+    timelinePage: timelinePageMock,
     cancel: vi.fn(),
     respondPermission: vi.fn(),
   },
@@ -197,6 +200,14 @@ describe('useConversationTimeline', () => {
     eventsSinceMock.mockReset();
     // The hook backfills rows once on subscribe; default to "nothing changed".
     eventsSinceMock.mockResolvedValue(rowPage([], 0n));
+    timelinePageMock.mockReset();
+    timelinePageMock.mockResolvedValue({
+      conversation_id: CONVERSATION_ID,
+      projection_version: 2,
+      cursor: null,
+      next_cursor: null,
+      rows: [],
+    });
     rafCallbacks = [];
     vi.stubGlobal('requestAnimationFrame', (cb: FrameRequestCallback) => {
       rafCallbacks.push(cb);
@@ -330,6 +341,96 @@ describe('useConversationTimeline', () => {
       })
     );
     await waitFor(() => expect(result.current.sessionBindReady).toBe(true));
+  });
+
+  it('shows each older page as it arrives instead of waiting for the rest', async () => {
+    let resolveFirst: (value: {
+      conversation_id: string;
+      projection_version: number;
+      cursor: string | null;
+      next_cursor: string | null;
+      rows: TimelineRow[];
+    }) => void = () => {};
+    let resolveSecond: typeof resolveFirst = () => {};
+    timelinePageMock
+      .mockImplementationOnce(
+        () =>
+          new Promise((resolve) => {
+            resolveFirst = resolve;
+          })
+      )
+      .mockImplementationOnce(
+        () =>
+          new Promise((resolve) => {
+            resolveSecond = resolve;
+          })
+      );
+
+    detailMock.mockResolvedValue({
+      ...detail(),
+      summary: { ...detail().summary, message_count: 8n },
+      timeline: {
+        ...detail().timeline,
+        last_sequence: 80n,
+        truncated_from_start: true,
+        older_cursor: String(TIMELINE_OLDER_PAGE_SIZE * 2),
+        rows: [assistantRow('t-tail', 'latest', 80n)],
+      },
+    });
+
+    const { result } = renderHook(() =>
+      useConversationTimeline(CONVERSATION_ID)
+    );
+
+    await waitFor(() => expect(result.current.loading).toBe(false));
+    expect(result.current.timeline.map((row) => row.turn.id)).toEqual([
+      't-tail:assistant',
+    ]);
+    await waitFor(() => expect(timelinePageMock).toHaveBeenCalledTimes(1));
+    expect(timelinePageMock).toHaveBeenCalledWith({
+      conversationId: CONVERSATION_ID,
+      cursor: String(TIMELINE_OLDER_PAGE_SIZE),
+      limit: TIMELINE_OLDER_PAGE_SIZE,
+    });
+
+    await act(async () => {
+      resolveFirst({
+        conversation_id: CONVERSATION_ID,
+        projection_version: 2,
+        cursor: String(TIMELINE_OLDER_PAGE_SIZE),
+        next_cursor: String(TIMELINE_OLDER_PAGE_SIZE),
+        rows: [userRow('t-mid', 'earlier', 40n)],
+      });
+    });
+
+    await waitFor(() =>
+      expect(result.current.timeline.map((row) => row.turn.id)).toEqual([
+        't-mid:user',
+        't-tail:assistant',
+      ])
+    );
+    await waitFor(() => expect(timelinePageMock).toHaveBeenCalledTimes(2));
+    expect(
+      result.current.timeline.some((row) => row.turn.id === 't-early:user')
+    ).toBe(false);
+
+    await act(async () => {
+      resolveSecond({
+        conversation_id: CONVERSATION_ID,
+        projection_version: 2,
+        cursor: '0',
+        next_cursor: null,
+        rows: [userRow('t-early', 'first', 1n)],
+      });
+    });
+
+    await waitFor(() =>
+      expect(result.current.timeline.map((row) => row.turn.id)).toEqual([
+        't-early:user',
+        't-mid:user',
+        't-tail:assistant',
+      ])
+    );
   });
 
   it('backfills from the loaded sequence instead of dumping the full timeline', async () => {

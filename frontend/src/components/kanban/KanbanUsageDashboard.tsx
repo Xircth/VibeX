@@ -2428,35 +2428,38 @@ export function KanbanUsageDashboard() {
                     icon={BarChart3}
                     title={t('usageDashboard.dailyTrend')}
                     right={
-                      <span className="text-xs text-muted-foreground">
-                        {t('usageDashboard.daysCount', {
-                          count: filteredDailyUsage.length,
-                        })}
-                      </span>
+                      <div className="flex flex-wrap items-center justify-end gap-4 text-xs text-muted-foreground">
+                        {filteredDailyUsage.length > 0 ? (
+                          <div className="flex flex-wrap items-center gap-4 text-[11px]">
+                            <span className="flex items-center gap-1.5">
+                              <span className="h-2.5 w-2.5 rounded-[3px] bg-foreground/75" />
+                              {t('usageDashboard.freshTokens')}
+                            </span>
+                            <span className="flex items-center gap-1.5">
+                              <span className="h-2.5 w-2.5 rounded-[3px] bg-primary" />
+                              {t('usageDashboard.tokenCacheRead')}
+                            </span>
+                            <span className="flex items-center gap-1.5">
+                              <span className="relative inline-flex h-2.5 w-4 items-center justify-center">
+                                <span className="h-0.5 w-full rounded-full bg-amber-500" />
+                                <span className="absolute h-2 w-2 rounded-full border border-background bg-amber-500" />
+                              </span>
+                              {t('usageDashboard.trendLine')}
+                            </span>
+                          </div>
+                        ) : null}
+                        <span>
+                          {t('usageDashboard.daysCount', {
+                            count: filteredDailyUsage.length,
+                          })}
+                        </span>
+                      </div>
                     }
                   />
 
                   {filteredDailyUsage.length > 0 ? (
                     <>
-                      <div className="flex flex-wrap items-center justify-end gap-4 text-[11px] text-muted-foreground">
-                        <span className="flex items-center gap-1.5">
-                          <span className="h-2.5 w-2.5 rounded-[3px] bg-foreground/75" />
-                          {t('usageDashboard.freshTokens')}
-                        </span>
-                        <span className="flex items-center gap-1.5">
-                          <span className="h-2.5 w-2.5 rounded-[3px] bg-primary" />
-                          {t('usageDashboard.tokenCacheRead')}
-                        </span>
-                        <span className="flex items-center gap-1.5">
-                          <span className="relative inline-flex h-2.5 w-4 items-center justify-center">
-                            <span className="h-0.5 w-full rounded-full bg-amber-500" />
-                            <span className="absolute h-2 w-2 rounded-full border border-background bg-amber-500" />
-                          </span>
-                          {t('usageDashboard.trendLine')}
-                        </span>
-                      </div>
-
-                      <div className="mt-3 flex h-44 min-w-0 flex-1">
+                      <div className="mt-1 flex h-44 min-w-0 flex-1">
                         <div className="flex w-14 shrink-0 flex-col justify-between pb-1 text-right text-[10px] tabular-nums text-muted-foreground">
                           {[1, 0.5, 0].map((ratio) => (
                             <span key={ratio} className="pr-2">

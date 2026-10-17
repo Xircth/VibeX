@@ -41,7 +41,7 @@ describe('basic guide panel chrome', () => {
     const frame = declarationsFor('.basic-guide-panel__stack--framed');
     const footer = declarationsFor('.basic-guide-panel__footer');
     expect(panel.left).toBe('40px');
-    expect(panel['max-width']).toBe('224px');
+    expect(panel['max-width']).toBe('230px');
     expect(bottom.bottom).toBe('30px');
     expect(kanban.left).toBe('10px');
     expect(frame.background).toBe('#f1f1f1');

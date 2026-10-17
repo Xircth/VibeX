@@ -294,28 +294,30 @@ export function ImagePreviewToolbar({
                 <span className="image-preview-toolbar-sep" />
               </>
             ) : null}
-            <Select
-              value={String(zoomPercent)}
-              onValueChange={(value) => onScaleChange(Number(value) / 100)}
-            >
-              <SelectTrigger
-                aria-label={t('imagePreview.zoomPercent')}
-                className="image-preview-scale-trigger"
+            <div className="image-preview-scale">
+              <Select
+                value={String(zoomPercent)}
+                onValueChange={(value) => onScaleChange(Number(value) / 100)}
               >
-                <SelectValue>{`${zoomPercent}%`}</SelectValue>
-              </SelectTrigger>
-              <SelectContent
-                side="top"
-                align="center"
-                className="min-w-[6.5rem]"
-              >
-                {scaleOptions.map((percent) => (
-                  <SelectItem key={percent} value={String(percent)}>
-                    {percent}%
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+                <SelectTrigger
+                  aria-label={t('imagePreview.zoomPercent')}
+                  className="image-preview-scale-trigger w-auto shrink-0 justify-center gap-1"
+                >
+                  <SelectValue>{`${zoomPercent}%`}</SelectValue>
+                </SelectTrigger>
+                <SelectContent
+                  side="top"
+                  align="center"
+                  className="min-w-[6.5rem]"
+                >
+                  {scaleOptions.map((percent) => (
+                    <SelectItem key={percent} value={String(percent)}>
+                      {percent}%
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
             <ToolbarIconButton
               label={t('imagePreview.fitAria')}
               onClick={onFit}
@@ -493,7 +495,7 @@ function ToolbarIconButton({
 
 function toolbarButtonClass(active: boolean) {
   return cn(
-    'image-preview-toolbar-btn inline-flex h-8 w-8 items-center justify-center rounded-full transition',
+    'image-preview-toolbar-btn inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full transition',
     active
       ? 'bg-primary text-primary-foreground'
       : 'text-muted-foreground hover:bg-muted hover:text-foreground',

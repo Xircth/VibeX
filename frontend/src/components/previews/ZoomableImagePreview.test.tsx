@@ -123,8 +123,12 @@ describe('ZoomableImagePreview', () => {
     expect(screen.getByTestId('image-preview-toolbar')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Move' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Mark' })).toBeInTheDocument();
-    expect(screen.getByRole('combobox', { name: 'Scale' })).toHaveTextContent(
-      '100%'
+    const scaleTrigger = screen.getByRole('combobox', { name: 'Scale' });
+    expect(scaleTrigger).toHaveTextContent('100%');
+    expect(scaleTrigger).toHaveClass('w-auto', 'shrink-0');
+    expect(scaleTrigger).not.toHaveClass('w-full');
+    expect(screen.getByTestId('image-preview-toolbar')).toHaveClass(
+      'image-preview-toolbar'
     );
     expect(screen.queryByText('Wheel to zoom')).not.toBeInTheDocument();
     expect(

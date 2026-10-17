@@ -9,6 +9,10 @@ const conversationStyles = [
     'utf8'
   ),
   readFileSync(
+    resolve(process.cwd(), 'src/styles/conversation/conv-markdown.css'),
+    'utf8'
+  ),
+  readFileSync(
     resolve(process.cwd(), 'src/styles/conversation/conv-tools.css'),
     'utf8'
   ),
@@ -47,8 +51,13 @@ describe('assistant turn vertical rhythm', () => {
     const body = container.querySelector('.conv-assistant-body');
     const thinking = container.querySelector('.conv-thinking');
     const header = container.querySelector('.conv-thinking-header');
+    const markdown = container.querySelector('.conv-markdown');
     const toolCalls = container.querySelector('.astryx-chat-tool-calls');
 
+    expect(getComputedStyle(header as Element).fontSize).toBe('13px');
+    expect(getComputedStyle(header as Element).fontSize).toBe(
+      getComputedStyle(markdown as Element).fontSize
+    );
     expect(getComputedStyle(body as Element).gap).toBe('10px');
     expect(getComputedStyle(thinking as Element).paddingTop).toBe('0px');
     expect(getComputedStyle(thinking as Element).paddingBottom).toBe('0px');

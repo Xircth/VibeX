@@ -60,7 +60,7 @@ describe('agentStatusPresentation', () => {
     expect(isAgentLoggedIn('not_required')).toBe(true);
   });
 
-  it('requires every preflight item to pass before Agent 可用', () => {
+  it('requires every preflight item to pass', () => {
     expect(preflightAllPassed(null)).toBe(false);
     expect(preflightAllPassed(preflight(['pass', 'pass']))).toBe(true);
     expect(preflightAllPassed(preflight(['pass', 'fail']))).toBe(false);
@@ -93,8 +93,7 @@ describe('agentStatusPresentation', () => {
         progressPercent: 40,
         message: null,
         sequence: 1,
-      },
-      null
+      }
     );
     expect(installing.showStepper).toBe(true);
     expect(installing.stepperIndex).toBe(1);
@@ -106,13 +105,11 @@ describe('agentStatusPresentation', () => {
         lifecycle: 'ready',
         authentication: 'account',
       },
-      null,
-      preflight(['pass', 'pass'])
+      null
     );
     expect(ready.showStepper).toBe(false);
     expect(ready.connectorAvailable).toBe(true);
     expect(ready.loggedIn).toBe(true);
-    expect(ready.agentAvailable).toBe(true);
   });
 
   it('shows the stepper from lifecycle when no operation snapshot is present', () => {
@@ -122,7 +119,6 @@ describe('agentStatusPresentation', () => {
         lifecycle: 'installing',
         authentication: 'not_logged_in',
       },
-      null,
       null
     );
     expect(installing.showStepper).toBe(true);

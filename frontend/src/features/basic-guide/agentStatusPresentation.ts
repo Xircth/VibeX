@@ -98,7 +98,6 @@ export type AgentStatusRowModel = {
   stepperIndex: 0 | 1 | 2;
   connectorAvailable: boolean;
   loggedIn: boolean;
-  agentAvailable: boolean;
 };
 
 export function presentAgentStatusRow(
@@ -106,8 +105,7 @@ export function presentAgentStatusRow(
     AgentManagementView,
     'acp_version' | 'lifecycle' | 'authentication'
   >,
-  operation: AgentOperationState | null | undefined,
-  preflight: AgentPreflightView | null
+  operation: AgentOperationState | null | undefined
 ): AgentStatusRowModel {
   const operationInFlight = isAcpInstallOperation(operation);
   const showStepper =
@@ -119,6 +117,5 @@ export function presentAgentStatusRow(
       : acpStepperIndexFromLifecycle(agent.lifecycle),
     connectorAvailable: !showStepper && isAcpConnectorAvailable(agent),
     loggedIn: isAgentLoggedIn(agent.authentication),
-    agentAvailable: preflightAllPassed(preflight),
   };
 }

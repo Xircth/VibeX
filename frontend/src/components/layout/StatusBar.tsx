@@ -12,21 +12,12 @@ import {
   useAgentAcpUpdates,
   useAgentManagement,
 } from '@/features/agent-management';
-import { preflightAllPassed } from '@/features/basic-guide/agentStatusPresentation';
-import { readPreflightSnapshot } from '@/pages/settings/agentPreflightSnapshot';
 import { PluginStatusItems } from '@/components/plugins/PluginStatusItems';
 
 export function StatusBar() {
   const { config } = useUserSystem();
   const { state: agentManagementState } = useAgentManagement();
   const updatableAgentIds = useAgentAcpUpdates(agentManagementState.agents);
-  const preflightPassedIds = new Set(
-    agentManagementState.agents
-      .filter((agent) =>
-        preflightAllPassed(readPreflightSnapshot(agent.agent_id))
-      )
-      .map((agent) => agent.agent_id)
-  );
 
   return (
     <div className="workspace-chrome workspace-divider-top relative z-20 flex h-6 shrink-0 select-none items-center justify-between overflow-visible px-2 text-[11px] text-secondary-foreground">
@@ -50,7 +41,6 @@ export function StatusBar() {
           defaultAgentId={config?.executor_profile.executor ?? null}
           updatableAgentIds={updatableAgentIds}
           operations={agentManagementState.operations}
-          preflightPassedIds={preflightPassedIds}
           onOpenAgentSettings={openAgentSettings}
         />
       </div>

@@ -156,7 +156,7 @@ describe('AgentStatusMenu', () => {
     expect(onOpenAgentSettings).toHaveBeenCalledWith('claude_code');
   });
 
-  it('shows connector, auth, and Agent ready details', () => {
+  it('shows connector and auth without an Agent-ready label', () => {
     const onOpenAgentSettings = vi.fn();
     render(
       <AgentStatusMenu
@@ -169,7 +169,6 @@ describe('AgentStatusMenu', () => {
           }),
         ]}
         defaultAgentId="grok"
-        preflightPassedIds={new Set(['grok'])}
         onOpenAgentSettings={onOpenAgentSettings}
       />
     );
@@ -179,7 +178,7 @@ describe('AgentStatusMenu', () => {
     );
 
     expect(screen.getByRole('button', { name: '已登录' })).toBeInTheDocument();
-    expect(screen.getByText('Agent 可用')).toBeInTheDocument();
+    expect(screen.queryByText('Agent 可用')).toBeNull();
     const row = screen.getByRole('listitem', { name: /Grok/ });
     const name = within(row).getByText('Grok', { selector: 'span' });
     const connector = within(row).getByRole('button', { name: '连接器可用' });
@@ -188,6 +187,49 @@ describe('AgentStatusMenu', () => {
     expect(row.className).not.toMatch(/flex-col/);
     fireEvent.click(screen.getByRole('button', { name: '连接器可用' }));
     expect(onOpenAgentSettings).toHaveBeenCalledWith('grok');
+  });
+
+  it('aligns status fields across differently named Agent rows', () => {
+    render(
+      <AgentStatusMenu
+        agents={[
+          agent({
+            agent_id: 'claude_code',
+            display_name: 'Claude Code',
+            acp_version: '1.0.0',
+          }),
+          agent({
+            agent_id: 'codex',
+            display_name: 'Codex',
+            acp_version: '1.0.0',
+          }),
+        ]}
+        defaultAgentId="claude_code"
+        updatableAgentIds={new Set(['claude_code', 'codex'])}
+        onOpenAgentSettings={vi.fn()}
+      />
+    );
+
+    fireEvent.mouseEnter(
+      screen.getByRole('button', { name: /默认 Agent：Claude Code/ })
+    );
+
+    const list = screen.getByRole('list');
+    expect(list.className).toMatch(/grid/);
+    const claude = screen.getByRole('listitem', { name: /Claude Code/ });
+    const codex = screen.getByRole('listitem', { name: /Codex/ });
+    expect(claude.className).toMatch(/subgrid/);
+    expect(codex.className).toMatch(/subgrid/);
+    expect(claude.children).toHaveLength(6);
+    expect(codex.children).toHaveLength(6);
+    expect(claude.children[2]).toHaveTextContent('连接器可用');
+    expect(codex.children[2]).toHaveTextContent('连接器可用');
+    expect(claude.children[3]).toHaveTextContent('已登录');
+    expect(codex.children[3]).toHaveTextContent('已登录');
+    expect(within(claude).getByText('默认')).toBe(claude.children[4]);
+    expect(codex.children[4]).toHaveTextContent('');
+    expect(claude.children[5]).toHaveTextContent('可更新');
+    expect(codex.children[5]).toHaveTextContent('可更新');
   });
 
   it('shows the ACP stepper while an install is running', () => {

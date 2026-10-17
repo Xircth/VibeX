@@ -14,12 +14,7 @@ import {
 } from 'lucide-react';
 import { toast } from '@/components/ui/toast';
 import { useTranslation } from 'react-i18next';
-import {
-  SoundFile,
-  type Config,
-  type LinkOpenBehavior,
-  type NotificationWhen,
-} from 'shared/types';
+import { SoundFile, type Config, type NotificationWhen } from 'shared/types';
 
 import { PluginSettingsSections } from '@/components/plugins/PluginSettingsSections';
 import { ImportLocalSessionsDialog } from '@/components/sessions/ImportLocalSessionsDialog';
@@ -621,33 +616,6 @@ export function GeneralSettings() {
                   updateDraft({ files_changed_default_collapsed: checked })
                 }
               />
-            </div>
-
-            <div className="settings-row">
-              <div>
-                <Label>{t('general.linkOpenBehavior')}</Label>
-                <p className="settings-row__description">
-                  {t('general.linkOpenBehaviorHint')}
-                </p>
-              </div>
-              <Select
-                value={draft.link_open_behavior ?? 'ExternalBrowser'}
-                onValueChange={(value: LinkOpenBehavior) =>
-                  updateDraft({ link_open_behavior: value })
-                }
-              >
-                <SelectTrigger className="!w-44">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent align="end">
-                  <SelectItem value="ExternalBrowser">
-                    {t('general.linkOpenExternal')}
-                  </SelectItem>
-                  <SelectItem value="BuiltinPreview">
-                    {t('general.linkOpenBuiltin')}
-                  </SelectItem>
-                </SelectContent>
-              </Select>
             </div>
 
             <div className="settings-row">

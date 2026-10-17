@@ -125,7 +125,6 @@ export const SETTINGS_SEARCH_ENTRIES: SettingsSearchEntry[] = [
     'general.previewFontSize',
     'general.markdownPreviewMode',
     'general.filesChangedCollapsed',
-    'general.linkOpenBehavior',
     'general.aiMessageCollapsed',
     'general.hideModelThinking',
   ]),

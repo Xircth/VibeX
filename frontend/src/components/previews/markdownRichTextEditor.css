@@ -12,7 +12,15 @@
 }
 
 .markdown-rich-text-editor > *,
-.markdown-rich-text-editor [data-pressable-container] {
+.markdown-rich-text-editor .astryx-rich-text-editor {
+  display: flex;
+  min-height: 0;
+  flex: 1 1 auto;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.markdown-rich-text-editor > * > :last-child {
   display: flex;
   min-height: 0;
   flex: 1 1 auto;
@@ -52,13 +60,13 @@
 }
 
 .markdown-rich-text-editor
-  [data-pressable-container]
+  .astryx-rich-text-editor
   > :first-child:not(:last-child) {
   flex: 0 0 auto;
 }
 
 .markdown-rich-text-editor
-  [data-pressable-container]
+  .astryx-rich-text-editor
   > :last-child:not(#\#):not(#\#):not(#\#):not(#\#) {
   flex: 1 1 auto;
   min-height: 0;

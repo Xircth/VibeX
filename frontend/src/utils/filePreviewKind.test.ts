@@ -38,8 +38,8 @@ describe('filePreviewKind', () => {
     expect(getFilePreviewKind('C:/repo/docs/deck.PPTX')).toBe('binary');
   });
 
-  it('opens markdown in the rich-text editor and HTML rendered', () => {
-    expect(defaultRenderedPreview('markdown')).toBe(true);
+  it('opens HTML rendered; markdown follows editor settings', () => {
+    expect(defaultRenderedPreview('markdown')).toBe(false);
     expect(defaultRenderedPreview('html')).toBe(true);
   });
 

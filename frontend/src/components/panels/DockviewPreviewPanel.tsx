@@ -1,4 +1,5 @@
 import {
+  Component,
   Suspense,
   lazy,
   useCallback,
@@ -8,6 +9,7 @@ import {
   useState,
   type ComponentType,
   type MouseEventHandler,
+  type ReactNode,
 } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
@@ -63,6 +65,19 @@ import {
 } from '@/utils/markdownImagePaste';
 import { FilePreviewLoading } from './FilePreviewLoading';
 import { HostHtmlPreview } from '@/components/previews/HostHtmlPreview';
+import { useEditorSettingsStore } from '@/stores/useEditorSettingsStore';
+import {
+  nextMarkdownPreviewMode,
+  parseMarkdownPreviewMode,
+  type MarkdownPreviewMode,
+} from '@/utils/markdownPreviewMode';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 import { resolveImagePreviewSource } from '@/lib/imagePreviewRegistry';
 import { PluginFilePreview } from '@/components/previews/PluginFilePreview';
 import { PluginArtifactEditor } from '@/components/previews/PluginArtifactEditor';
@@ -74,6 +89,9 @@ import { preloadMonacoEditor } from '@/lib/monacoPreload';
 
 const LazyMarkdownRichTextEditor = lazy(
   () => import('@/components/previews/MarkdownRichTextEditor')
+);
+const LazyMarkdown = lazy(
+  () => import('@/components/NormalizedConversation/AstryxMarkdown')
 );
 const LazyFileContentView = lazy(
   () => import('@/components/NormalizedConversation/FileContentView')
@@ -216,11 +234,36 @@ function ContentLoadingFallback({ label }: { label: string }) {
   );
 }
 
+class PreviewSubviewErrorBoundary extends Component<
+  { children: ReactNode },
+  { hasError: boolean }
+> {
+  state = { hasError: false };
+
+  static getDerivedStateFromError(): { hasError: boolean } {
+    return { hasError: true };
+  }
+
+  componentDidCatch(error: Error) {
+    console.error('[PreviewSubview] Failed to load:', error);
+  }
+
+  render() {
+    if (this.state.hasError) {
+      return (
+        <PreviewPlaceholder icon={FileWarning} title="File preview failed" />
+      );
+    }
+    return this.props.children;
+  }
+}
+
 /** Remembered rendered/source choice per file, so a tab keeps its view. */
 const renderStateMap = new Map<string, boolean>();
+const markdownViewStateMap = new Map<string, MarkdownPreviewMode>();
 
 function DockviewPreviewPanel(props: IDockviewPanelProps) {
-  const { t } = useTranslation(['conversation', 'common']);
+  const { t } = useTranslation(['conversation', 'common', 'settings']);
   const { openSurfaceMenu } = useAppContextMenu();
   const markdownScrollRef = useRef<HTMLDivElement>(null);
   const params = (props.params ?? {}) as Partial<PreviewPanelParams>;
@@ -438,8 +481,17 @@ function DockviewPreviewPanel(props: IDockviewPanelProps) {
 
   const canToggleView =
     previewForm !== null && effectivePreviewKind === 'text' && !isDiffMode;
+  const markdownPreviewModeDefault = useEditorSettingsStore(
+    (state) => state.markdownPreviewMode
+  );
+  const [markdownView, setMarkdownViewState] = useState<MarkdownPreviewMode>(
+    () =>
+      filePath
+        ? (markdownViewStateMap.get(filePath) ?? markdownPreviewModeDefault)
+        : markdownPreviewModeDefault
+  );
   const [isRendered, setIsRendered] = useState(() =>
-    filePath && previewForm
+    filePath && previewForm && previewForm !== 'markdown'
       ? (renderStateMap.get(filePath) ?? defaultRenderedPreview(previewForm))
       : false
   );
@@ -454,32 +506,91 @@ function DockviewPreviewPanel(props: IDockviewPanelProps) {
 
   useEffect(() => {
     setIsRendered(
-      filePath && previewForm
+      filePath && previewForm && previewForm !== 'markdown'
         ? (renderStateMap.get(filePath) ?? defaultRenderedPreview(previewForm))
         : false
     );
   }, [filePath, previewForm]);
+
+  useEffect(() => {
+    if (!filePath || previewForm !== 'markdown') {
+      return;
+    }
+    const remembered = markdownViewStateMap.get(filePath);
+    if (remembered) {
+      setMarkdownViewState(remembered);
+      return;
+    }
+    const renamedFrom = params.renamedFrom;
+    if (renamedFrom) {
+      const previousKey =
+        deriveRelativeFilePath(renamedFrom, rootPath) ?? renamedFrom;
+      const previousView = markdownViewStateMap.get(previousKey);
+      if (previousView) {
+        markdownViewStateMap.set(filePath, previousView);
+        setMarkdownViewState(previousView);
+        return;
+      }
+    }
+    setMarkdownViewState(markdownPreviewModeDefault);
+  }, [
+    filePath,
+    previewForm,
+    markdownPreviewModeDefault,
+    params.renamedFrom,
+    rootPath,
+  ]);
 
   // The map is written only where the user chooses a view, so switching files
   // can never record one file's choice against another.
   const setRenderedView = useCallback(
     (next: boolean) => {
       setIsRendered(next);
-      if (filePath && previewForm) {
+      if (filePath && previewForm && previewForm !== 'markdown') {
         renderStateMap.set(filePath, next);
       }
     },
     [filePath, previewForm]
   );
+  const setMarkdownView = useCallback(
+    (next: MarkdownPreviewMode) => {
+      const mode = parseMarkdownPreviewMode(next);
+      setMarkdownViewState(mode);
+      if (filePath && previewForm === 'markdown') {
+        markdownViewStateMap.set(filePath, mode);
+      }
+    },
+    [filePath, previewForm]
+  );
+
+  const showingMarkdownSource = isMd && markdownView === 'source';
+  const showingMarkdownPreview = isMd && markdownView === 'preview';
+  const showingMarkdownRichtext = isMd && markdownView === 'richtext';
+  const showingSource =
+    showingMarkdownSource ||
+    (isHtml && !isRendered) ||
+    (!isMd && !isHtml);
 
   const handleMouseDown = useCallback(
     (event: React.MouseEvent) => {
-      if (event.button === 1 && canToggleView) {
-        event.preventDefault();
-        setRenderedView(!isRendered);
+      if (event.button !== 1 || !canToggleView) {
+        return;
       }
+      event.preventDefault();
+      if (isMd) {
+        setMarkdownView(nextMarkdownPreviewMode(markdownView));
+        return;
+      }
+      setRenderedView(!isRendered);
     },
-    [canToggleView, isRendered, setRenderedView]
+    [
+      canToggleView,
+      isMd,
+      isRendered,
+      markdownView,
+      setMarkdownView,
+      setRenderedView,
+    ]
   );
 
   const applyReadRange = useCallback(
@@ -632,12 +743,12 @@ function DockviewPreviewPanel(props: IDockviewPanelProps) {
   }, [params.renamedFrom, resolvedFilePath]);
 
   useEffect(() => {
-    if (isRendered || isDiffMode) {
+    if (!showingSource || isDiffMode) {
       disposeEditorModel();
       markdownPasteCleanupRef.current?.();
       markdownPasteCleanupRef.current = null;
     }
-  }, [disposeEditorModel, isDiffMode, isRendered]);
+  }, [disposeEditorModel, isDiffMode, showingSource]);
 
   if (!filePath) {
     const imageSource =
@@ -780,6 +891,31 @@ function DockviewPreviewPanel(props: IDockviewPanelProps) {
             <GitCompare className="h-3 w-3" />
             {t('preview.switchToDiffView')}
           </button>
+        ) : canToggleView && isMd ? (
+          <Select
+            value={markdownView}
+            onValueChange={(value) =>
+              setMarkdownView(parseMarkdownPreviewMode(value))
+            }
+          >
+            <SelectTrigger
+              className="!h-auto !w-auto shrink-0 gap-1 px-1.5 py-0.5 text-[10px]"
+              aria-label={t('settings:general.markdownPreviewMode')}
+            >
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent align="end">
+              <SelectItem value="preview">
+                {t('settings:general.markdownPreviewModePreview')}
+              </SelectItem>
+              <SelectItem value="source">
+                {t('settings:general.markdownPreviewModeSource')}
+              </SelectItem>
+              <SelectItem value="richtext">
+                {t('settings:general.markdownPreviewModeRichtext')}
+              </SelectItem>
+            </SelectContent>
+          </Select>
         ) : canToggleView ? (
           <button
             className="raised-control flex select-none items-center gap-1 px-1.5 py-0.5 text-[10px]"
@@ -1023,7 +1159,39 @@ function DockviewPreviewPanel(props: IDockviewPanelProps) {
             title="File preview failed"
             description={contentErrorMessage}
           />
-        ) : isMd && isRendered ? (
+        ) : showingMarkdownRichtext ? (
+          <PreviewSubviewErrorBoundary
+            key={resolvedFilePath ?? filePath}
+          >
+            <Suspense
+              fallback={
+                <FilePreviewLoading
+                  fileName={resolvedDisplayPath ?? filePath}
+                  label={`Opening ${resolvedDisplayPath ?? filePath}`}
+                />
+              }
+            >
+              <div ref={markdownScrollRef} className="h-full min-h-0">
+                <LazyMarkdownRichTextEditor
+                  key={`${resolvedFilePath}:${content ?? ''}`}
+                  markdown={editorContent}
+                  label={resolvedDisplayPath ?? filePath}
+                  workspacePath={markdownBasePath}
+                  onMarkdownChange={(value) => {
+                    if (!resolvedFilePath) return;
+                    setDraft(
+                      value === content
+                        ? null
+                        : { path: resolvedFilePath, content: value }
+                    );
+                  }}
+                  onSave={() => persistEditorContent()}
+                  pasteImages={pasteMarkdownImages}
+                />
+              </div>
+            </Suspense>
+          </PreviewSubviewErrorBoundary>
+        ) : showingMarkdownPreview ? (
           <Suspense
             fallback={
               <FilePreviewLoading
@@ -1032,22 +1200,13 @@ function DockviewPreviewPanel(props: IDockviewPanelProps) {
               />
             }
           >
-            <div ref={markdownScrollRef} className="h-full min-h-0">
-              <LazyMarkdownRichTextEditor
-                key={`${resolvedFilePath}:${content ?? ''}`}
-                markdown={editorContent}
-                label={resolvedDisplayPath ?? filePath}
+            <div
+              ref={markdownScrollRef}
+              className="h-full overflow-auto px-6 py-4"
+            >
+              <LazyMarkdown
+                value={editorContent}
                 workspacePath={markdownBasePath}
-                onMarkdownChange={(value) => {
-                  if (!resolvedFilePath) return;
-                  setDraft(
-                    value === content
-                      ? null
-                      : { path: resolvedFilePath, content: value }
-                  );
-                }}
-                onSave={() => persistEditorContent()}
-                pasteImages={pasteMarkdownImages}
               />
             </div>
           </Suspense>

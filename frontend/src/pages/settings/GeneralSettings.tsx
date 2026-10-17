@@ -49,6 +49,7 @@ import {
 } from '@/lib/terminalPreferences';
 import { terminalHostPlatform } from '@/utils/platform';
 import { useEditorSettingsStore } from '@/stores/useEditorSettingsStore';
+import { type MarkdownPreviewMode } from '@/utils/markdownPreviewMode';
 import { toPrettyCase } from '@/utils/string';
 import { useOptionalBasicGuide } from '@/features/basic-guide';
 import { restartBasicGuide } from '@/features/basic-guide/basicGuideState';
@@ -94,6 +95,12 @@ export function GeneralSettings() {
   );
   const setPreviewFontSize = useEditorSettingsStore(
     (state) => state.setPreviewFontSize
+  );
+  const markdownPreviewMode = useEditorSettingsStore(
+    (state) => state.markdownPreviewMode
+  );
+  const setMarkdownPreviewMode = useEditorSettingsStore(
+    (state) => state.setMarkdownPreviewMode
   );
 
   const [importOpen, setImportOpen] = useState(false);
@@ -574,6 +581,39 @@ export function GeneralSettings() {
                 />
                 <span className="text-sm text-muted-foreground">px</span>
               </div>
+            </div>
+
+            <div className="settings-row">
+              <div>
+                <Label htmlFor="markdown-preview-mode">
+                  {t('general.markdownPreviewMode')}
+                </Label>
+              </div>
+              <Select
+                value={markdownPreviewMode}
+                onValueChange={(value: MarkdownPreviewMode) =>
+                  setMarkdownPreviewMode(value)
+                }
+              >
+                <SelectTrigger
+                  id="markdown-preview-mode"
+                  className="!w-56"
+                  aria-label={t('general.markdownPreviewMode')}
+                >
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent align="end">
+                  <SelectItem value="preview">
+                    {t('general.markdownPreviewModePreview')}
+                  </SelectItem>
+                  <SelectItem value="source">
+                    {t('general.markdownPreviewModeSource')}
+                  </SelectItem>
+                  <SelectItem value="richtext">
+                    {t('general.markdownPreviewModeRichtext')}
+                  </SelectItem>
+                </SelectContent>
+              </Select>
             </div>
 
             <div className="settings-row">

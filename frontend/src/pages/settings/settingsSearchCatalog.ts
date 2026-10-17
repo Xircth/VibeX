@@ -123,6 +123,7 @@ export const SETTINGS_SEARCH_ENTRIES: SettingsSearchEntry[] = [
     'general.crashReportsToggle',
     'general.previewTitle',
     'general.previewFontSize',
+    'general.markdownPreviewMode',
     'general.filesChangedCollapsed',
     'general.linkOpenBehavior',
     'general.aiMessageCollapsed',

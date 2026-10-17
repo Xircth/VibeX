@@ -128,12 +128,12 @@ export function getFilePreviewForm(
 }
 
 /**
- * Which view a file opens in the first time it is previewed. Markdown opens in
- * the rich-text editor; HTML opens rendered because its source is markup the
- * reader rarely wants to see.
+ * Which view a file opens in the first time it is previewed. HTML opens
+ * rendered because its source is markup the reader rarely wants to see.
+ * Markdown uses `markdownPreviewMode` from editor settings.
  */
 export function defaultRenderedPreview(form: FilePreviewForm): boolean {
-  return form === 'html' || form === 'markdown';
+  return form === 'html';
 }
 
 /**

@@ -7,15 +7,12 @@ function normalizeBranch(branch: string | null | undefined): string | null {
 
 export function shouldBindDefaultGitWorkspace(input: {
   isWorkspaceSurface: boolean;
-  isGitProject: boolean;
+  isGitProject?: boolean;
   routeWorkspaceId?: string | null;
   routeSessionId?: string | null;
 }): boolean {
   return (
-    input.isWorkspaceSurface &&
-    input.isGitProject &&
-    !input.routeWorkspaceId &&
-    !input.routeSessionId
+    input.isWorkspaceSurface && !input.routeWorkspaceId && !input.routeSessionId
   );
 }
 

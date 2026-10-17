@@ -37,7 +37,7 @@ describe('shouldBindDefaultGitWorkspace', () => {
     ).toBe(true);
   });
 
-  it('leaves a routed workspace or a plain directory project unbound', () => {
+  it('leaves a routed workspace unbound', () => {
     expect(
       shouldBindDefaultGitWorkspace({
         isWorkspaceSurface: true,
@@ -47,16 +47,19 @@ describe('shouldBindDefaultGitWorkspace', () => {
     ).toBe(false);
     expect(
       shouldBindDefaultGitWorkspace({
-        isWorkspaceSurface: true,
-        isGitProject: false,
-      })
-    ).toBe(false);
-    expect(
-      shouldBindDefaultGitWorkspace({
         isWorkspaceSurface: false,
         isGitProject: true,
       })
     ).toBe(false);
+  });
+
+  it('still lands a plain directory project so the last session or create form can bind', () => {
+    expect(
+      shouldBindDefaultGitWorkspace({
+        isWorkspaceSurface: true,
+        isGitProject: false,
+      })
+    ).toBe(true);
   });
 });
 

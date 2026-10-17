@@ -43,6 +43,7 @@ import {
 } from '@/contexts/WorkspaceOverlayContext';
 import { nativeSurfaceDestinationProgress } from '@/lib/nativeSurfaceHandoff';
 import { overlayCoversSurface } from '@/lib/nativeSurfaceOverlay';
+import { BROWSER_HOST_EVENT } from './browserHostEvent';
 import { requestBrowserTabOpen } from './openBrowserTab';
 import { backendCall, backendListen } from '@/lib/backendTransport';
 import { getInvokeErrorMessage } from '@/lib/errors';
@@ -978,7 +979,7 @@ export function HostBrowserPanel({
   useEffect(() => {
     let cancelled = false;
     let unlisten: (() => void) | undefined;
-    void backendListen<BrowserHostEvent>('plugin.browser', (payload) => {
+    void backendListen<BrowserHostEvent>(BROWSER_HOST_EVENT, (payload) => {
       applyBrowserHostEvent(payload);
       if (payload.kind === 'tab.open') {
         const source = payload.sourceTabId;

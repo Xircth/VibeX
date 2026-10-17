@@ -41,7 +41,10 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from '@/components/ui/tooltip';
-import { resolveWorkspaceTabNavigation } from '@/lib/createSessionHref';
+import {
+  preserveCreateSessionQuery,
+  resolveWorkspaceTabNavigation,
+} from '@/lib/createSessionHref';
 import { requestCreateSessionInExecutionArea } from '@/lib/requestCreateSession';
 import { HomeLogoMenu } from '@/components/layout/HomeLogoMenu';
 import { paths } from '@/lib/paths';
@@ -54,6 +57,7 @@ import { useLocalDesktopHost } from '@/lib/desktopShell';
 import { useProjectRepos } from '@/hooks';
 import { useProjectWorktrees } from '@/hooks/useProjectWorktrees';
 import { PANEL_IDS, useLayoutStore } from '@/stores/useLayoutStore';
+import { useWindowProjectsStore } from '@/stores/useWindowProjectsStore';
 import type { WorkspaceTab } from '@/stores/useLayoutStore';
 import { fallbackWorkspaceTab, pluginSurfaceId } from '@/lib/hostSurfaceIds';
 import { parkNativeSurfaceThen } from '@/lib/nativeSurfaceHandoff';
@@ -449,9 +453,13 @@ export function WorkspaceBranchControls({
 function WorkspaceTabSwitcher() {
   const { t } = useTranslation('panels');
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
   const { projectId, project } = useProject();
   const { activeWorktreeId, setActiveWorktree } = useWorktree();
   const { rightSession } = useKanbanSessionContext();
+  const lastRoute = useWindowProjectsStore((state) =>
+    projectId ? (state.lastRouteByProject[projectId] ?? null) : null
+  );
   const { workspaceId, sessionId } = useParams<{
     workspaceId?: string;
     sessionId?: string;
@@ -459,7 +467,6 @@ function WorkspaceTabSwitcher() {
   const { data: repos } = useProjectRepos(projectId);
   const { worktrees, isLoading: isLoadingWorktrees } =
     useProjectWorktrees(projectId);
-  const isGitProject = Boolean(project?.is_git);
   const primaryRepo = repos?.[0];
   const { data: primaryRepoBranches = [] } = useRepoBranches(primaryRepo?.id, {
     enabled: Boolean(primaryRepo?.id),
@@ -529,8 +536,30 @@ function WorkspaceTabSwitcher() {
     return worktrees.find((item) => item.workspace.id === selected.id) ?? null;
   }, [activeWorktreeId, currentProjectBranch, worktrees]);
 
+  const bindWorkspaceLanding = useCallback(
+    (href: string, workspaceIdToBind: string, taskId: string | null) => {
+      setActiveWorktree(workspaceIdToBind, taskId);
+      navigate(preserveCreateSessionQuery(href, searchParams));
+    },
+    [navigate, searchParams, setActiveWorktree]
+  );
+
   const bindDefaultGitWorkspace = useCallback(async () => {
     if (!projectId) {
+      return;
+    }
+
+    const restored = resolveWorkspaceTabNavigation({
+      projectId,
+      lastRoute,
+      rightSession,
+    });
+    if (restored) {
+      bindWorkspaceLanding(
+        restored.href,
+        restored.workspaceId,
+        restored.taskId
+      );
       return;
     }
 
@@ -551,23 +580,32 @@ function WorkspaceTabSwitcher() {
       }
     }
 
-    const targetAttemptId = targetWorkspace?.id ?? null;
-    const targetTaskId = targetWorkspace?.task_id ?? null;
-
-    if (targetAttemptId) {
-      setActiveWorktree(targetAttemptId, targetTaskId);
-      navigate(paths.projectWorkspace(projectId, targetAttemptId));
+    const landed = resolveWorkspaceTabNavigation({
+      projectId,
+      lastRoute,
+      rightSession,
+      fallbackWorkspaceId: targetWorkspace?.id ?? null,
+      fallbackTaskId: targetWorkspace?.task_id ?? null,
+    });
+    if (landed) {
+      bindWorkspaceLanding(landed.href, landed.workspaceId, landed.taskId);
       return;
     }
 
     setActiveWorktree(null, null);
-    navigate(paths.projectSessions(projectId));
+    navigate(
+      preserveCreateSessionQuery(paths.projectSessions(projectId), searchParams)
+    );
   }, [
     activeWorktreeId,
+    bindWorkspaceLanding,
     currentProjectBranch,
+    lastRoute,
     navigate,
     projectId,
     resolveFallbackWorktree,
+    rightSession,
+    searchParams,
     setActiveWorktree,
   ]);
 
@@ -576,14 +614,27 @@ function WorkspaceTabSwitcher() {
     if (
       !shouldBindDefaultGitWorkspace({
         isWorkspaceSurface: effectiveActiveTab === 'workspace',
-        isGitProject,
         routeWorkspaceId: workspaceId,
         routeSessionId: sessionId,
       })
     ) {
       return;
     }
-    if (isLoadingWorktrees) {
+    if (!useWindowProjectsStore.persist.hasHydrated()) {
+      return useWindowProjectsStore.persist.onFinishHydration(() => {
+        if (defaultGitWorkspaceBindRef.current === projectId) {
+          return;
+        }
+        defaultGitWorkspaceBindRef.current = projectId ?? null;
+        void bindDefaultGitWorkspace();
+      });
+    }
+    const restored = resolveWorkspaceTabNavigation({
+      projectId: projectId ?? '',
+      lastRoute,
+      rightSession,
+    });
+    if (!restored && isLoadingWorktrees) {
       return;
     }
     if (defaultGitWorkspaceBindRef.current === projectId) {
@@ -594,9 +645,10 @@ function WorkspaceTabSwitcher() {
   }, [
     bindDefaultGitWorkspace,
     effectiveActiveTab,
-    isGitProject,
     isLoadingWorktrees,
+    lastRoute,
     projectId,
+    rightSession,
     sessionId,
     workspaceId,
   ]);

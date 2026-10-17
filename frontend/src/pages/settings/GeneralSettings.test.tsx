@@ -133,6 +133,7 @@ describe('GeneralSettings basic guide', () => {
       )
     ).toBe(true);
     expect(button.closest('.flex')?.className).toMatch(/justify-end/);
+    expect(button.closest('.mt-auto')?.className).toMatch(/pt-12/);
     expect(content?.children[1]).toContainElement(button);
   });
 });

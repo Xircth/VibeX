@@ -33,6 +33,17 @@ describe('requestCreateSessionInExecutionArea', () => {
     layout.setKanbanSessionVisible.mockReset();
   });
 
+  it('reveals the workspace execution column without switching the kanban tab', () => {
+    layout.activeTab = 'workspace';
+    const setSearchParams = vi.fn();
+    requestCreateSessionInExecutionArea(setSearchParams, new URLSearchParams());
+
+    expect(layout.setRightPanelVisible).toHaveBeenCalledWith(true);
+    expect(layout.setKanbanSessionVisible).not.toHaveBeenCalled();
+    const next = setSearchParams.mock.calls[0]?.[0] as URLSearchParams;
+    expect(next.get('newSession')).toBe('1');
+  });
+
   it('reveals the kanban execution column and asks it to create', () => {
     const setSearchParams = vi.fn();
     requestCreateSessionInExecutionArea(

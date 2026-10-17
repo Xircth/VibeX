@@ -453,6 +453,19 @@ function KanbanSessionConversationContent({
     !requestedSessionLoading &&
     sessionState.sessions.length === 0 &&
     !sessionState.isNewSessionMode;
+  const requestedEmptyCreateRef = useRef(false);
+
+  useEffect(() => {
+    if (!shouldShowNewSessionPrompt) {
+      requestedEmptyCreateRef.current = false;
+      return;
+    }
+    if (requestedEmptyCreateRef.current) {
+      return;
+    }
+    requestedEmptyCreateRef.current = true;
+    onCreateSessionRequested?.();
+  }, [onCreateSessionRequested, shouldShowNewSessionPrompt]);
 
   const conversationKey = buildSessionConversationKey(
     attempt.id,

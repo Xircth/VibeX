@@ -1,5 +1,8 @@
 import { describe, expect, it } from 'vitest';
-import { isCreateSessionFormVisibleForProject } from './createSessionFormVisibility';
+import {
+  isCreateSessionFormVisibleForProject,
+  shouldRenderExecutionCreateSessionForm,
+} from './createSessionFormVisibility';
 
 describe('isCreateSessionFormVisibleForProject', () => {
   it('hides the form when it is closed', () => {
@@ -45,6 +48,57 @@ describe('isCreateSessionFormVisibleForProject', () => {
         open: true,
         openedForProjectId: null,
         currentProjectId: 'project-b',
+      })
+    ).toBe(false);
+  });
+});
+
+describe('shouldRenderExecutionCreateSessionForm', () => {
+  it('shows the create form on first project entry before a workspace is selected', () => {
+    expect(
+      shouldRenderExecutionCreateSessionForm({
+        bindsExecutionConversation: true,
+        isSessionPending: false,
+        hasVisibleSession: false,
+        hasWorkspaceConversation: false,
+      })
+    ).toBe(true);
+  });
+
+  it('does not replace a bound conversation or a loading session', () => {
+    expect(
+      shouldRenderExecutionCreateSessionForm({
+        bindsExecutionConversation: true,
+        isSessionPending: false,
+        hasVisibleSession: false,
+        hasWorkspaceConversation: true,
+      })
+    ).toBe(false);
+    expect(
+      shouldRenderExecutionCreateSessionForm({
+        bindsExecutionConversation: true,
+        isSessionPending: true,
+        hasVisibleSession: false,
+        hasWorkspaceConversation: false,
+      })
+    ).toBe(false);
+    expect(
+      shouldRenderExecutionCreateSessionForm({
+        bindsExecutionConversation: true,
+        isSessionPending: false,
+        hasVisibleSession: true,
+        hasWorkspaceConversation: false,
+      })
+    ).toBe(false);
+  });
+
+  it('stays hidden when the execution conversation is unbound', () => {
+    expect(
+      shouldRenderExecutionCreateSessionForm({
+        bindsExecutionConversation: false,
+        isSessionPending: false,
+        hasVisibleSession: false,
+        hasWorkspaceConversation: false,
       })
     ).toBe(false);
   });

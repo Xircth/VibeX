@@ -20,12 +20,35 @@
   overflow: hidden;
 }
 
+.markdown-rich-text-editor .astryx-rich-text-editor:not(#\#):not(#\#):not(#\#),
 .markdown-rich-text-editor
-  [data-pressable-container]:not(#\#):not(#\#):not(#\#) {
-  border: none;
+  [data-pressable-container]:not(#\#):not(#\#):not(#\#),
+.markdown-rich-text-editor
+  .astryx-rich-text-editor:not(#\#):not(#\#):not(#\#):hover,
+.markdown-rich-text-editor
+  [data-pressable-container]:not(#\#):not(#\#):not(#\#):hover,
+.markdown-rich-text-editor
+  .astryx-rich-text-editor:not(#\#):not(#\#):not(#\#):focus,
+.markdown-rich-text-editor
+  [data-pressable-container]:not(#\#):not(#\#):not(#\#):focus,
+.markdown-rich-text-editor
+  .astryx-rich-text-editor:not(#\#):not(#\#):not(#\#):focus-within,
+.markdown-rich-text-editor
+  [data-pressable-container]:not(#\#):not(#\#):not(#\#):focus-within {
+  border: none !important;
+  border-color: transparent !important;
   border-radius: 0;
   background: transparent;
-  box-shadow: none;
+  box-shadow: none !important;
+  outline: none !important;
+}
+
+.markdown-rich-text-editor [contenteditable],
+.markdown-rich-text-editor [contenteditable]:focus,
+.markdown-rich-text-editor [contenteditable]:focus-visible {
+  border: none !important;
+  box-shadow: none !important;
+  outline: none !important;
 }
 
 .markdown-rich-text-editor

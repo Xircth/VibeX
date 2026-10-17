@@ -1125,14 +1125,26 @@ html.dark {
 }
 
 .legacy-design .astryx-segmented-control {
-  --color-neutral: light-dark(rgba(5, 54, 89, 0.1), rgba(223, 226, 229, 0.2));
-  --radius-element: 8px;
-  --_segmented-control-radius: 8px;
+  --color-neutral: light-dark(#e3e3e3, #3a3a3a);
+  --radius-element: 999px;
+  --_segmented-control-radius: 999px;
+  background-color: light-dark(#e3e3e3, #3a3a3a) !important;
+  border-radius: 999px;
 }
 
 .legacy-design .astryx-segmented-control-item {
   appearance: none;
   -webkit-appearance: none;
+  background-color: transparent !important;
+  background-image: none !important;
+  border: none;
+  padding-inline: 12px !important;
+  border-radius: 999px;
+}
+
+.legacy-design .astryx-segmented-control-item[aria-checked='true'] {
+  background-color: light-dark(#ffffff, #1c1c1c) !important;
+  box-shadow: var(--shadow-low);
 }
 
 .legacy-design .git-log-search-input.astryx-text-input {

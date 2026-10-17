@@ -169,7 +169,7 @@
 
 .basic-guide-panel {
   position: fixed;
-  left: 30px;
+  left: 48px;
   z-index: 80;
   width: max-content;
   max-width: 260px;
@@ -196,16 +196,16 @@
 .basic-guide-panel__stack--framed {
   box-sizing: border-box;
   padding: 12px;
-  background: hsl(220 14% 88% / 0.58);
+  background: hsl(220 10% 86% / 0.94);
   border: 1px solid #111;
   border-radius: 8px;
-  backdrop-filter: blur(24px) saturate(1.55);
-  -webkit-backdrop-filter: blur(24px) saturate(1.55);
+  backdrop-filter: blur(20px) saturate(1.2);
+  -webkit-backdrop-filter: blur(20px) saturate(1.2);
 }
 
 @media (prefers-reduced-transparency: reduce) {
   .basic-guide-panel__stack--framed {
-    background: hsl(220 14% 92%);
+    background: hsl(220 10% 86%);
     backdrop-filter: none;
     -webkit-backdrop-filter: none;
   }

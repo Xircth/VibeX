@@ -34,15 +34,15 @@ function declarationsFor(
 }
 
 describe('basic guide panel chrome', () => {
-  it('sits 30px from the window and uses frosted gray glass', () => {
+  it('sits 48px from the left with an opaque gray glass frame', () => {
     const panel = declarationsFor('.basic-guide-panel');
     const bottom = declarationsFor('.basic-guide-panel--bottom');
     const frame = declarationsFor('.basic-guide-panel__stack--framed');
-    expect(panel.left).toBe('30px');
+    expect(panel.left).toBe('48px');
     expect(bottom.bottom).toBe('30px');
-    expect(frame.background).toBe('hsl(220 14% 88% / 0.58)');
-    expect(frame['backdrop-filter']).toBe('blur(24px) saturate(1.55)');
-    expect(frame['-webkit-backdrop-filter']).toBe('blur(24px) saturate(1.55)');
+    expect(frame.background).toBe('hsl(220 10% 86% / 0.94)');
+    expect(frame['backdrop-filter']).toBe('blur(20px) saturate(1.2)');
+    expect(frame['-webkit-backdrop-filter']).toBe('blur(20px) saturate(1.2)');
     expect(frame.border).toBe('1px solid #111');
     expect(frame['border-radius']).toBe('8px');
     expect(declarationsFor('.basic-guide-panel--workspace')).toEqual({});
@@ -52,7 +52,7 @@ describe('basic guide panel chrome', () => {
     const frame = declarationsFor('.basic-guide-panel__stack--framed', {
       inAtRule: 'prefers-reduced-transparency',
     });
-    expect(frame.background).toBe('hsl(220 14% 92%)');
+    expect(frame.background).toBe('hsl(220 10% 86%)');
     expect(frame['backdrop-filter']).toBe('none');
     expect(frame['-webkit-backdrop-filter']).toBe('none');
   });

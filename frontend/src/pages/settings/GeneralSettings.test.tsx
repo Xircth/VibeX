@@ -5,6 +5,7 @@ import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { EditorType, SoundFile, type Config } from 'shared/types';
 
+import { useEditorSettingsStore } from '@/stores/useEditorSettingsStore';
 import { GeneralSettings } from './GeneralSettings';
 
 const configApiMock = vi.hoisted(() => ({
@@ -127,6 +128,10 @@ describe('GeneralSettings basic guide', () => {
 
 describe('GeneralSettings Agent model catalogs', () => {
   beforeEach(() => {
+    HTMLElement.prototype.hasPointerCapture = vi.fn(() => false);
+    HTMLElement.prototype.setPointerCapture = vi.fn();
+    HTMLElement.prototype.releasePointerCapture = vi.fn();
+    HTMLElement.prototype.scrollIntoView = vi.fn();
     for (const fn of Object.values(configApiMock)) {
       fn.mockReset();
     }
@@ -303,5 +308,32 @@ describe('GeneralSettings Agent model catalogs', () => {
     expect(screen.getByText('本地对话')).toBeInTheDocument();
     await user.click(screen.getByRole('button', { name: '导入' }));
     expect(screen.getByText('import-dialog')).toBeInTheDocument();
+  });
+
+  it('lets the user pick the Markdown default view', async () => {
+    const user = userEvent.setup();
+    useEditorSettingsStore.setState({ markdownPreviewMode: 'preview' });
+    renderSettings();
+
+    const trigger = screen.getByRole('combobox', {
+      name: 'Markdown默认预览方式',
+    });
+    expect(trigger).toHaveTextContent('预览视图');
+
+    await user.click(trigger);
+    await user.click(
+      await screen.findByRole('option', { name: '源码视图' })
+    );
+    expect(useEditorSettingsStore.getState().markdownPreviewMode).toBe(
+      'source'
+    );
+
+    await user.click(trigger);
+    await user.click(
+      await screen.findByRole('option', { name: '富文本预览编辑视图' })
+    );
+    expect(useEditorSettingsStore.getState().markdownPreviewMode).toBe(
+      'richtext'
+    );
   });
 });

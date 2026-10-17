@@ -1,4 +1,5 @@
 import { act, fireEvent, render, screen } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import type { IDockviewPanelProps } from 'dockview-react';
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
@@ -6,6 +7,7 @@ import {
   registerImagePreviewSource,
   releaseImagePreviewSource,
 } from '@/lib/imagePreviewRegistry';
+import { useEditorSettingsStore } from '@/stores/useEditorSettingsStore';
 
 import DockviewPreviewPanel from './DockviewPreviewPanel';
 
@@ -156,6 +158,22 @@ vi.mock('@tanstack/react-query', async (importOriginal) => {
   };
 });
 
+vi.mock('@/components/NormalizedConversation/AstryxMarkdown', () => ({
+  default: ({
+    value,
+    workspacePath,
+  }: {
+    value: string;
+    workspacePath: string | null;
+  }) => (
+    <div
+      data-testid="astryx-markdown"
+      data-value={value}
+      data-workspace-path={workspacePath ?? ''}
+    />
+  ),
+}));
+
 vi.mock('@/components/previews/MarkdownRichTextEditor', () => ({
   default: ({
     markdown,
@@ -187,6 +205,14 @@ vi.mock('@/components/previews/MarkdownRichTextEditor', () => ({
   ),
 }));
 
+async function chooseMarkdownView(label: string) {
+  const user = userEvent.setup();
+  await user.click(
+    await screen.findByRole('combobox', { name: 'Markdown默认预览方式' })
+  );
+  await user.click(await screen.findByRole('option', { name: label }));
+}
+
 function panelProps(filePath = 'README.md'): IDockviewPanelProps {
   return {
     params: {
@@ -199,6 +225,10 @@ function panelProps(filePath = 'README.md'): IDockviewPanelProps {
 
 describe('DockviewPreviewPanel', () => {
   beforeEach(() => {
+    HTMLElement.prototype.hasPointerCapture = vi.fn(() => false);
+    HTMLElement.prototype.setPointerCapture = vi.fn();
+    HTMLElement.prototype.releasePointerCapture = vi.fn();
+    HTMLElement.prototype.scrollIntoView = vi.fn();
     api.resolveFileOpener.mockReset().mockResolvedValue(null);
     platform.isTauriDesktopShell.mockReturnValue(true);
     fileContent.data = '# Preview title';
@@ -208,6 +238,7 @@ describe('DockviewPreviewPanel', () => {
       fileContent.data = variables.content;
       callbacks?.onSuccess?.();
     });
+    useEditorSettingsStore.setState({ markdownPreviewMode: 'preview' });
   });
 
   it('resolves transient conversation images without serializing their data', () => {
@@ -271,23 +302,49 @@ describe('DockviewPreviewPanel', () => {
     );
   });
 
-  it('switches Markdown rich text to source and back with a middle click', async () => {
-    render(<DockviewPreviewPanel {...panelProps()} />);
+  it('opens markdown in the preview view by default', async () => {
+    render(<DockviewPreviewPanel {...panelProps('docs/readme.md')} />);
 
+    const preview = await screen.findByTestId('astryx-markdown');
+    expect(preview).toHaveAttribute('data-value', '# Preview title');
+    expect(preview).toHaveAttribute('data-workspace-path', '/workspace/docs');
     expect(
-      await screen.findByRole('button', { name: 'Preview' })
-    ).toBeVisible();
-    fireEvent.click(screen.getByRole('button', { name: 'Preview' }));
+      screen.queryByTestId('astryx-rich-text-editor')
+    ).not.toBeInTheDocument();
+    expect(screen.queryByTestId('monaco-editor')).not.toBeInTheDocument();
+    expect(
+      screen.getByRole('combobox', { name: 'Markdown默认预览方式' })
+    ).toHaveTextContent('预览视图');
+  });
 
-    expect(await screen.findByRole('button', { name: 'Source' })).toBeVisible();
+  it('opens markdown in the configured default view', async () => {
+    useEditorSettingsStore.getState().setMarkdownPreviewMode('richtext');
+    render(<DockviewPreviewPanel {...panelProps('docs/configured.md')} />);
+
+    expect(await screen.findByTestId('astryx-rich-text-editor')).toBeVisible();
+    expect(screen.queryByTestId('astryx-markdown')).not.toBeInTheDocument();
+  });
+
+  it('cycles markdown views with a middle click', async () => {
+    render(<DockviewPreviewPanel {...panelProps('notes/cycle.md')} />);
+
+    fireEvent.mouseDown(await screen.findByTestId('astryx-markdown'), {
+      button: 1,
+    });
+    expect(await screen.findByTestId('monaco-editor')).toBeVisible();
+
     fireEvent.mouseDown(screen.getByTestId('monaco-editor'), { button: 1 });
+    expect(await screen.findByTestId('astryx-rich-text-editor')).toBeVisible();
 
-    expect(screen.getByRole('button', { name: 'Preview' })).toBeVisible();
-    expect(screen.getByTestId('astryx-rich-text-editor')).toBeVisible();
+    fireEvent.mouseDown(screen.getByTestId('astryx-rich-text-editor'), {
+      button: 1,
+    });
+    expect(await screen.findByTestId('astryx-markdown')).toBeVisible();
   });
 
   it('renders markdown in the rich-text editor relative to the file directory', async () => {
     render(<DockviewPreviewPanel {...panelProps('docs/guide.md')} />);
+    await chooseMarkdownView('富文本预览编辑视图');
 
     const editor = await screen.findByTestId('astryx-rich-text-editor');
     expect(editor).toHaveAttribute('data-workspace-path', '/workspace/docs');
@@ -296,18 +353,19 @@ describe('DockviewPreviewPanel', () => {
 
   it('keeps edited Markdown when switching from the editor to source and back', async () => {
     render(<DockviewPreviewPanel {...panelProps('notes/draft.md')} />);
+    await chooseMarkdownView('富文本预览编辑视图');
 
     const editor = await screen.findByRole('textbox', {
       name: 'notes/draft.md',
     });
     fireEvent.change(editor, { target: { value: '# Edited content' } });
-    fireEvent.click(screen.getByRole('button', { name: 'Preview' }));
+    await chooseMarkdownView('源码视图');
 
     expect(
       await screen.findByRole('textbox', { name: 'File source' })
     ).toHaveValue('# Edited content');
 
-    fireEvent.click(screen.getByRole('button', { name: 'Source' }));
+    await chooseMarkdownView('富文本预览编辑视图');
     expect(
       await screen.findByTestId('astryx-rich-text-editor')
     ).toHaveAttribute('data-value', '# Edited content');
@@ -317,6 +375,7 @@ describe('DockviewPreviewPanel', () => {
     const { rerender } = render(
       <DockviewPreviewPanel {...panelProps('notes/before.md')} />
     );
+    await chooseMarkdownView('富文本预览编辑视图');
     fireEvent.change(
       await screen.findByRole('textbox', { name: 'notes/before.md' }),
       {
@@ -334,6 +393,7 @@ describe('DockviewPreviewPanel', () => {
   it('shows external updates after its draft has been saved', async () => {
     const props = panelProps('notes/saved.md');
     const { rerender } = render(<DockviewPreviewPanel {...props} />);
+    await chooseMarkdownView('富文本预览编辑视图');
     const editor = await screen.findByRole('textbox', {
       name: 'notes/saved.md',
     });
@@ -356,6 +416,7 @@ describe('DockviewPreviewPanel', () => {
       };
     });
     render(<DockviewPreviewPanel {...panelProps('notes/delayed-save.md')} />);
+    await chooseMarkdownView('富文本预览编辑视图');
     const editor = await screen.findByRole('textbox', {
       name: 'notes/delayed-save.md',
     });
@@ -364,11 +425,11 @@ describe('DockviewPreviewPanel', () => {
     fireEvent.change(editor, { target: { value: '# Newer draft' } });
 
     act(completeSave);
-    fireEvent.click(screen.getByRole('button', { name: 'Preview' }));
+    await chooseMarkdownView('源码视图');
     expect(
       await screen.findByRole('textbox', { name: 'File source' })
     ).toHaveValue('# Newer draft');
-    fireEvent.click(screen.getByRole('button', { name: 'Source' }));
+    await chooseMarkdownView('富文本预览编辑视图');
     expect(
       await screen.findByTestId('astryx-rich-text-editor')
     ).toHaveAttribute('data-value', '# Newer draft');

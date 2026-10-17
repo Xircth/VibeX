@@ -26,3 +26,25 @@ export function shouldRenderExecutionCreateSessionForm(input: {
     !input.hasWorkspaceConversation
   );
 }
+
+export type DefaultCreateSessionMode = 'existing_workspace' | 'new_workspace';
+
+/**
+ * Git projects stay on the project-root current branch ("existing
+ * workspace") until options finish loading. Plain directories have no
+ * git workspace modes; the form hides that toggle and create still
+ * goes through the directory root workspace.
+ */
+export function resolveDefaultCreateSessionMode(input: {
+  isGitProject: boolean;
+  isWorkspaceOptionsReady: boolean;
+  hasExistingWorkspace: boolean;
+}): DefaultCreateSessionMode {
+  if (!input.isGitProject) {
+    return 'existing_workspace';
+  }
+  if (!input.isWorkspaceOptionsReady) {
+    return 'existing_workspace';
+  }
+  return input.hasExistingWorkspace ? 'existing_workspace' : 'new_workspace';
+}

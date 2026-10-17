@@ -37,7 +37,10 @@ import { toast } from '@/components/ui/toast';
 import { sessionsApi, type SessionStatus } from '@/lib/api';
 import { getSessionUiErrorMessage } from '@/lib/sessionUiErrors';
 import { useKanbanBoardStyle } from '@/lib/kanbanBoardStyle';
-import { isCreateSessionFormVisibleForProject } from '@/lib/createSessionFormVisibility';
+import {
+  isCreateSessionFormVisibleForProject,
+  resolveDefaultCreateSessionMode,
+} from '@/lib/createSessionFormVisibility';
 import {
   requestCreateSessionInExecutionArea,
   resolveCreateSessionSurface,
@@ -172,7 +175,7 @@ export function KanbanSessionHub({
   >([]);
   const [searchParams, setSearchParams] = useSearchParams();
   const { projectId, project } = useProject();
-  const { data: repos } = useProjectRepos(projectId);
+  const { data: repos, isPending: isReposPending } = useProjectRepos(projectId);
   const projectRepos = repos ?? [];
   const { activeWorktreeId } = useWorktree();
   const { profiles, config } = useUserSystem();
@@ -208,9 +211,10 @@ export function KanbanSessionHub({
   const { sessions, workspaces, isLoading } =
     useKanbanProjectSessions(projectId);
   const primaryRepo = repos?.[0];
-  const { data: primaryRepoBranches = [] } = useRepoBranches(primaryRepo?.id, {
-    enabled: Boolean(primaryRepo?.id),
-  });
+  const { data: primaryRepoBranches = [], isPending: isBranchesPending } =
+    useRepoBranches(primaryRepo?.id, {
+      enabled: Boolean(primaryRepo?.id),
+    });
 
   const createWorkspaceOptions = useMemo(() => {
     if (
@@ -267,8 +271,18 @@ export function KanbanSessionHub({
   const [createWorkspaceValue, setCreateWorkspaceValue] = useState(
     defaultWorkspaceValue
   );
-  const [createMode, setCreateMode] =
-    useState<SessionCreationMode>('existing_workspace');
+  const isGitProject = Boolean(project?.is_git);
+  const isWorkspaceOptionsReady = isGitProject
+    ? !isLoading && !isReposPending && (!primaryRepo || !isBranchesPending)
+    : true;
+  const defaultCreateMode = resolveDefaultCreateSessionMode({
+    isGitProject,
+    isWorkspaceOptionsReady,
+    hasExistingWorkspace: workspaceBranchOptions.length > 0,
+  });
+  const [userCreateMode, setUserCreateMode] =
+    useState<SessionCreationMode | null>(null);
+  const createMode = userCreateMode ?? defaultCreateMode;
   const [selectedExecutorProfile, setSelectedExecutorProfile] =
     useState<ExecutorProfileId | null>(defaultExecutorProfile);
   const createWorkspaceValueRef = useRef(createWorkspaceValue);
@@ -394,12 +408,6 @@ export function KanbanSessionHub({
     selectedExecutorProfile,
     updateSelectedExecutorProfile,
   ]);
-
-  useEffect(() => {
-    if (workspaceBranchOptions.length === 0) {
-      setCreateMode('new_workspace');
-    }
-  }, [workspaceBranchOptions.length]);
 
   useEffect(() => {
     if (searchParams.get('createSession') !== '1') {
@@ -753,11 +761,7 @@ export function KanbanSessionHub({
     if (open) {
       updateCreateWorkspaceValue(defaultWorkspaceValue);
       updateSelectedExecutorProfile(defaultExecutorProfile);
-      setCreateMode(
-        workspaceBranchOptions.length > 0
-          ? 'existing_workspace'
-          : 'new_workspace'
-      );
+      setUserCreateMode(null);
       resetRepoBranchSelection();
       setDeleteErrorMessage(null);
     } else {
@@ -1345,7 +1349,7 @@ export function KanbanSessionHub({
                     <LazyCanvasCreateSessionPanel
                       isGitProject={Boolean(project?.is_git)}
                       createMode={createMode}
-                      onCreateModeChange={setCreateMode}
+                      onCreateModeChange={setUserCreateMode}
                       workspaceBranchOptions={workspaceBranchOptions}
                       createWorkspaceValue={createWorkspaceValue}
                       onCreateWorkspaceValueChange={updateCreateWorkspaceValue}

@@ -5,6 +5,20 @@ function normalizeBranch(branch: string | null | undefined): string | null {
   return value.length > 0 ? value : null;
 }
 
+export function shouldBindDefaultGitWorkspace(input: {
+  isWorkspaceSurface: boolean;
+  isGitProject: boolean;
+  routeWorkspaceId?: string | null;
+  routeSessionId?: string | null;
+}): boolean {
+  return (
+    input.isWorkspaceSurface &&
+    input.isGitProject &&
+    !input.routeWorkspaceId &&
+    !input.routeSessionId
+  );
+}
+
 export function resolveDefaultProjectWorkspace(input: {
   workspaces: readonly Workspace[];
   currentBranch?: string | null;

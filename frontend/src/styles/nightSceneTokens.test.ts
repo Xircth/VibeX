@@ -147,7 +147,7 @@ describe('dark night scene tokens', () => {
   it('paints welcome, quote, and selection chrome from tokens instead of light hex plus a dark patch', () => {
     expect(css).toContain('.welcome-page-surface {');
     expect(css).toMatch(
-      /\.welcome-page-surface \{[\s\S]*?background: var\(--surface-dialog\);/
+      /\.welcome-page-surface \{[\s\S]*?background: var\(--welcome-page\);/
     );
     expect(css).toMatch(
       /\.welcome-project-form-surface \{[\s\S]*?background: var\(--surface-dialog\);/

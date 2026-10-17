@@ -457,30 +457,35 @@ export function InstructionsSettings() {
   return (
     <div className="flex h-full min-h-0 gap-4">
       <aside className="flex w-[340px] shrink-0 flex-col gap-3">
-        <div className="flex items-center gap-1 rounded-lg border bg-muted-foreground/[0.06] p-0.5">
-          {(['local', 'market'] as const).map((tab) => (
-            <button
-              key={tab}
-              type="button"
-              onClick={() => setLeftTab(tab)}
-              className={cn(
-                'flex-1 rounded-md py-1.5 text-xs font-medium transition-colors',
-                leftTab === tab
-                  ? 'bg-card text-foreground shadow-sm'
-                  : 'text-muted-foreground hover:text-foreground'
-              )}
-            >
-              {tab === 'local'
-                ? t('instructions.tabLocal')
-                : t('instructions.tabMarket')}
-            </button>
-          ))}
+        <div className="agent-management-bar settings-top-tab-bar">
+          {(['local', 'market'] as const).map((tab) => {
+            const selected = leftTab === tab;
+            return (
+              <button
+                key={tab}
+                type="button"
+                aria-pressed={selected}
+                onClick={() => setLeftTab(tab)}
+                className={cn(
+                  'agent-management-bar-item',
+                  selected && 'is-selected'
+                )}
+              >
+                {tab === 'local'
+                  ? t('instructions.tabLocal')
+                  : t('instructions.tabMarket')}
+              </button>
+            );
+          })}
         </div>
 
         <div className="flex min-h-0 flex-1 flex-col rounded-xl border bg-card">
           <div className="p-2.5">
-            <div className="relative">
-              <Search className="absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
+            <div className="settings-list-search relative">
+              <Search
+                aria-hidden="true"
+                className="pointer-events-none absolute left-2.5 top-1/2 z-10 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground"
+              />
               <Input
                 value={search}
                 onChange={(event) => setSearch(event.target.value)}

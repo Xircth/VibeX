@@ -38,9 +38,13 @@ describe('HomeLogoMenu', () => {
       </MemoryRouter>
     );
 
-    await user.click(
-      screen.getByRole('button', { name: '返回首页或打开已导入项目' })
-    );
+    const logo = screen.getByRole('button', {
+      name: '返回首页或打开已导入项目',
+    });
+    expect(logo).toHaveClass('home-logo-button');
+    expect(logo).not.toHaveClass('workspace-toolbar-button');
+
+    await user.click(logo);
 
     expect(
       await screen.findByRole('menuitem', { name: '新建应用窗口' })

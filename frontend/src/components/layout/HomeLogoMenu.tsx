@@ -55,7 +55,7 @@ export function HomeLogoMenu({ align }: { align: 'start' | 'end' }) {
       <DropdownMenuTrigger asChild>
         <button
           type="button"
-          className="workspace-toolbar-button flex h-9 w-9 shrink-0 items-center justify-center rounded-md p-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          className="home-logo-button flex h-9 w-9 shrink-0 items-center justify-center rounded-md border border-transparent bg-transparent p-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
           aria-label={t('toolbar.homeOrRecentProjects')}
           title={t('toolbar.homeOrRecentProjects')}
         >

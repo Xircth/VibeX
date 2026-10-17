@@ -67,6 +67,7 @@ describe('Astryx SegmentedControl chrome', () => {
     expect(decls.appearance).toBe('none');
     expect(decls['-webkit-appearance']).toBe('none');
     expect(decls['background-color']).toBe('transparent');
+    expect(decls.height).toBe('20px');
     expect(decls['padding-inline']).toBe('12px');
   });
 

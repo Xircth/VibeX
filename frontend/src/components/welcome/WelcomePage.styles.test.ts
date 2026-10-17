@@ -40,11 +40,20 @@ describe('welcome project surfaces', () => {
     expect(surface.get('background')).toContain('var(--welcome-canvas)');
   });
 
-  it('uses the themed dialog surface on the home page', () => {
+  it('paints the home page white and leaves the logo without a hover fill', () => {
     const surface = declarationsFor('.welcome-page-surface');
+    const light = declarationsFor('.legacy-design');
+    const dark = declarationsFor('.legacy-design.dark, .dark .legacy-design');
+    const logoHover = declarationsFor(
+      ".home-logo-button, .home-logo-button:hover, .home-logo-button[data-state='open']"
+    );
 
-    expect(surface.get('background')).toBe('var(--surface-dialog)');
+    expect(light.get('--welcome-page')).toBe('#ffffff');
+    expect(dark.get('--welcome-page')).toBe('var(--surface-dialog)');
+    expect(surface.get('background')).toBe('var(--welcome-page)');
     expect(surface.get('position')).toBe('relative');
+    expect(logoHover.get('background')).toBe('transparent');
+    expect(logoHover.get('border-color')).toBe('transparent');
   });
 
   it('uses the themed dialog surface and popover shadow on forms', () => {

@@ -73,7 +73,7 @@ interface SettingsNavGroup {
 
 const SETTINGS_NAV_GROUPS: Omit<SettingsNavGroup, 'id'>[] = [
   {
-    title: 'FOR Human',
+    title: 'For Human',
     items: [
       {
         path: '/settings/general',
@@ -104,7 +104,7 @@ const SETTINGS_NAV_GROUPS: Omit<SettingsNavGroup, 'id'>[] = [
     ],
   },
   {
-    title: 'FOR AI',
+    title: 'For SI',
     items: [
       {
         path: '/settings/agents',
@@ -139,7 +139,7 @@ const SETTINGS_NAV_GROUPS: Omit<SettingsNavGroup, 'id'>[] = [
     ],
   },
   {
-    title: 'FOR SYSTEM',
+    title: 'For System',
     items: [
       {
         path: '/plugins',
@@ -210,7 +210,7 @@ export function SettingsLayout() {
 
   const navGroups = useMemo(() => {
     const pluginGroup: Omit<SettingsNavGroup, 'id'> = {
-      title: 'FOR PLUGINS',
+      title: 'For Plugin',
       items: pluginPages.map((page): SettingsNavItem => {
         const meta = contributionMetadata(page);
         return {

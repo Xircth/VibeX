@@ -344,9 +344,6 @@ export function AppearanceSettings() {
           <div className="settings-row settings-row--stacked">
             <div className="settings-row__stack">
               <Label>{t('appearance.theme.label')}</Label>
-              <p className="settings-row__description">
-                {t('appearance.theme.hint')}
-              </p>
             </div>
             <ThemeChoiceCards
               ariaLabel={t('appearance.theme.label')}

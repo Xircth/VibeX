@@ -398,17 +398,40 @@ describe('settings page alignment', () => {
       ".settings-page .settings-theme-card[data-selected='true']"
     );
 
+    const sidebarScrollbar = declarationsFor(
+      '.settings-sidebar::-webkit-scrollbar'
+    );
+    const navGroups = declarationsFor('.settings-nav-groups');
+    const sectionTitle = declarationsFor('.settings-nav-section__title');
+    const sectionDivider = declarationsFor(
+      '.settings-nav-section + .settings-nav-section::before'
+    );
+    const quickToggleLabel = declarationsFor(
+      '.settings-page .agent-codex-quick-toggle strong'
+    );
+
     expect(sidebar.get('border-radius')).toBe('var(--radius)');
+    expect(sidebar.get('overflow-y')).toBe('auto');
     expect(sidebar.get('background')).toBe(
       'var(--surface-wash), var(--surface-sidebar)'
     );
+    expect(sidebarScrollbar.get('width')).toBe('3px');
+    expect(navGroups.get('gap')).toBe('0.625rem');
+    expect(sectionTitle.get('color')).toBe('var(--text-faint)');
+    expect(sectionTitle.get('opacity')).toBe('0.65');
+    expect(sectionDivider.size).toBe(0);
     expect(settingsPage.get('--surface-sidebar')).toBe('#ffffff');
     expect(settingsPage.get('--surface-wash')).toContain('180deg');
-    expect(settingsPage.get('--surface-wash')).toContain('#ffffff 0%');
+    expect(settingsPage.get('--surface-wash')).toContain('#e6e6e6 0%');
+    expect(settingsPage.get('--surface-wash')).toContain('#ffffff 50%');
     expect(settingsPage.get('--surface-wash')).toContain('#e6e6e6 100%');
     expect(settingsPage.get('--settings-button-primary-bg')).toBe('#1b1b1b');
     expect(settingsPage.get('--settings-button-secondary-bg')).toBe('#e3e3e3');
     expect(quickToggle.get('background')).toBe('var(--surface-control)');
+    expect(quickToggle.get('height')).toBe('40px');
+    expect(quickToggle.get('max-height')).toBe('40px');
+    expect(quickToggle.get('align-self')).toBe('end');
+    expect(quickToggleLabel.get('white-space')).toBe('nowrap');
     expect(updateButton.get('font-size')).toBe(statusChip.get('font-size'));
     expect(updateButton.get('font-size')).toBe('0.6875rem');
     expect(themeChoices.get('grid-template-columns')).toBe(
@@ -428,5 +451,38 @@ describe('settings page alignment', () => {
     expect(flush.get('box-shadow')).toBe('none');
     expect(flush.get('backdrop-filter')).toBe('none');
     expect(flush.get('-webkit-backdrop-filter')).toBe('none');
+  });
+
+  it('keeps list search inputs padded past the leading icon and styles top tab switchers like the Agent Bar', () => {
+    const searchIcon = declarationsFor(
+      '.settings-page .settings-list-search > svg'
+    );
+    const searchInput = declarationsMatching(
+      '.settings-list-search > input'
+    );
+    const agentBar = declarationsMatching('.agent-management-bar');
+    const topTabBar = declarationsMatching(
+      '.agent-management-bar.settings-top-tab-bar'
+    );
+    const topTabItem = declarationsFor(
+      '.settings-page .settings-top-tab-bar > .agent-management-bar-item'
+    );
+    const selectedItem = declarationsMatching(
+      '.agent-management-bar-item.is-selected'
+    );
+
+    expect(searchIcon.get('left')).toBe('10px');
+    expect(searchIcon.get('pointer-events')).toBe('none');
+    expect(searchInput.get('padding-left')).toBe('32px');
+    expect(searchInput.get('padding-inline')).toBe('32px 10px');
+
+    expect(agentBar.get('--agent-bar-item-size')).toBe('32px');
+    expect(agentBar.get('border-radius')).toBe('9999px');
+    expect(agentBar.get('background')).toBe('var(--surface-content)');
+    expect(topTabBar.get('gap')).toBe('4px');
+    expect(topTabItem.get('flex')).toBe('1 1 0%');
+    expect(topTabItem.get('justify-content')).toBe('center');
+    expect(selectedItem.get('background')).toBe('var(--surface-control)');
+    expect(selectedItem.get('box-shadow')).toBe('var(--shadow-card)');
   });
 });

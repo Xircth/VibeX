@@ -162,12 +162,15 @@ vi.mock('@/components/NormalizedConversation/AstryxMarkdown', () => ({
   default: ({
     value,
     workspacePath,
+    className,
   }: {
     value: string;
     workspacePath: string | null;
+    className?: string;
   }) => (
     <div
       data-testid="astryx-markdown"
+      className={className}
       data-value={value}
       data-workspace-path={workspacePath ?? ''}
     />
@@ -305,6 +308,7 @@ describe('DockviewPreviewPanel', () => {
     const preview = await screen.findByTestId('astryx-markdown');
     expect(preview).toHaveAttribute('data-value', '# Preview title');
     expect(preview).toHaveAttribute('data-workspace-path', '/workspace/docs');
+    expect(preview).toHaveClass('markdown-file-prose');
     expect(
       screen.queryByTestId('astryx-rich-text-editor')
     ).not.toBeInTheDocument();

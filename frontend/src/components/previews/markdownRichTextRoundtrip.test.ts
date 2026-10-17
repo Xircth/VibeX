@@ -109,6 +109,35 @@ describe('Astryx richtext markdown roundtrip', () => {
     expect(boldTexts(nodes)).toContain('永不共享名单 (Never-Share Blocklist)');
   });
 
+  it('imports GFM emphasis, code, links, quotes, and tables', () => {
+    const source = [
+      '> quoted',
+      '',
+      'A `token` and *italic* and ~~strike~~ and [docs](https://example.com).',
+      '',
+      '| col | val |',
+      '| --- | --- |',
+      '| a   | b   |',
+      '',
+    ].join('\n');
+    const nodes = walk(
+      JSON.parse(markdownToRichTextState(source)).root as LexicalNode
+    );
+    const texts = nodes.map((node) => node.text).filter(Boolean);
+
+    expect(nodes.some((node) => node.t === 'quote')).toBe(true);
+    expect(
+      nodes.some((node) => node.t === 'table' || node.t === 'tablecell')
+    ).toBe(true);
+    expect(texts).toContain('token');
+    expect(texts).toContain('italic');
+    expect(texts).toContain('strike');
+    expect(texts).toContain('docs');
+    expect(nodes.some((node) => ((node.fmt ?? 0) & 2) !== 0)).toBe(true);
+    expect(nodes.some((node) => ((node.fmt ?? 0) & 4) !== 0)).toBe(true);
+    expect(nodes.some((node) => ((node.fmt ?? 0) & 16) !== 0)).toBe(true);
+  });
+
   it('isolates and compact YAML fences without rewriting the body', () => {
     const source = [
       '---',

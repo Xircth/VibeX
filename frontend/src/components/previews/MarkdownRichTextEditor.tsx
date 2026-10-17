@@ -116,7 +116,7 @@ export function MarkdownRichTextEditor({
 
   return (
     <div
-      className="markdown-rich-text-editor"
+      className="markdown-rich-text-editor conv-markdown markdown-file-prose"
       data-testid="astryx-rich-text-editor"
       data-workspace-path={workspacePath ?? ''}
       onKeyDown={handleKeyDown}

@@ -1,0 +1,199 @@
+@import '../../styles/conversation/conv-variables.css';
+@import '../../styles/conversation/conv-markdown.css';
+
+/* File Preview and RichText share conv-markdown metrics. StyleX on
+   Astryx Markdown / Lexical uses :not(#\#)×3; these rules outrank it. */
+
+.markdown-file-prose:not(#\#):not(#\#):not(#\#):not(#\#),
+.markdown-file-prose [contenteditable]:not(#\#):not(#\#):not(#\#):not(#\#) {
+  color: var(--conv-text-primary, var(--text-strong));
+  font-size: 13px;
+  line-height: 1.7;
+  overflow-wrap: break-word;
+  word-break: break-word;
+}
+
+.markdown-file-prose
+  :is(p, li, [role='paragraph']):not(#\#):not(#\#):not(#\#):not(#\#) {
+  font-size: 13px;
+  line-height: 1.7;
+}
+
+.markdown-file-prose
+  :is(
+    p,
+    h1,
+    h2,
+    h3,
+    h4,
+    h5,
+    h6,
+    ul,
+    ol,
+    blockquote,
+    pre,
+    table,
+    hr,
+    [role='paragraph']
+  ):not(#\#):not(#\#):not(#\#):not(#\#) {
+  margin-block: 0;
+  max-width: none;
+}
+
+.markdown-file-prose
+  :is(
+    p,
+    h1,
+    h2,
+    h3,
+    h4,
+    h5,
+    h6,
+    ul,
+    ol,
+    blockquote,
+    pre,
+    table,
+    hr,
+    [role='paragraph']
+  )
+  + :is(
+    p,
+    h1,
+    h2,
+    h3,
+    h4,
+    h5,
+    h6,
+    ul,
+    ol,
+    blockquote,
+    pre,
+    table,
+    hr,
+    [role='paragraph']
+  ):not(#\#):not(#\#):not(#\#):not(#\#) {
+  margin-top: 8px;
+}
+
+.markdown-file-prose
+  :is(h1, h2, h3, h4, h5, h6):not(#\#):not(#\#):not(#\#):not(#\#) {
+  color: var(--conv-text-primary, var(--text-strong));
+  font-size: 1em;
+  font-weight: 650;
+  letter-spacing: 0.01em;
+  line-height: 1.7;
+}
+
+.markdown-file-prose strong:not(#\#):not(#\#):not(#\#):not(#\#),
+.markdown-file-prose b:not(#\#):not(#\#):not(#\#):not(#\#) {
+  font-weight: 600;
+}
+
+.markdown-file-prose em:not(#\#):not(#\#):not(#\#):not(#\#),
+.markdown-file-prose i:not(#\#):not(#\#):not(#\#):not(#\#) {
+  color: var(--conv-text-secondary, var(--text-muted));
+}
+
+.markdown-file-prose :not(pre) > code:not(#\#):not(#\#):not(#\#):not(#\#) {
+  background: var(--conv-surface-control, var(--surface-control));
+  border: 1px solid var(--conv-border-subtle, var(--border-content));
+  border-radius: var(--radius);
+  color: var(--conv-text-primary, var(--text-strong));
+  font-family: var(
+    --font-mono,
+    'IBM Plex Mono',
+    'Cascadia Code',
+    'Fira Code',
+    monospace
+  );
+  font-size: 0.88em;
+  padding: 0.05em 5px;
+}
+
+.markdown-file-prose a:not(#\#):not(#\#):not(#\#):not(#\#) {
+  color: var(--conv-tool-icon, hsl(var(--primary, 0 0% 9.02%)));
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.markdown-file-prose a:hover:not(#\#):not(#\#):not(#\#):not(#\#) {
+  color: var(--conv-text-primary, var(--text-strong));
+}
+
+.markdown-file-prose blockquote:not(#\#):not(#\#):not(#\#):not(#\#) {
+  background: var(--conv-surface-control, var(--surface-control));
+  border: 1px solid var(--conv-border-subtle, var(--border-content));
+  border-radius: var(--radius);
+  color: var(--conv-text-secondary, var(--text-muted));
+  margin: 0;
+  padding: 6px 10px;
+}
+
+.markdown-file-prose ul:not(#\#):not(#\#):not(#\#):not(#\#),
+.markdown-file-prose ol:not(#\#):not(#\#):not(#\#):not(#\#) {
+  line-height: 1.7;
+  margin: 10px 0;
+}
+
+.markdown-file-prose li:not(#\#):not(#\#):not(#\#):not(#\#) {
+  margin-bottom: 4px;
+}
+
+.markdown-file-prose li p:not(#\#):not(#\#):not(#\#):not(#\#) {
+  margin: 0;
+}
+
+.markdown-file-prose hr:not(#\#):not(#\#):not(#\#):not(#\#) {
+  border: none;
+  border-top: 1px solid var(--border-strong, hsl(var(--border)));
+  height: 0;
+  margin-bottom: 20px;
+  margin-top: 12px;
+  max-width: none;
+  width: 100%;
+}
+
+.markdown-file-prose hr + *:not(#\#):not(#\#):not(#\#):not(#\#) {
+  margin-top: 16px;
+}
+
+.markdown-file-prose table:not(#\#):not(#\#):not(#\#):not(#\#) {
+  background: var(--conv-surface-card, var(--surface-content));
+  border: 1px solid var(--conv-border-subtle, var(--border-content));
+  border-collapse: separate;
+  border-radius: var(--radius);
+  border-spacing: 0;
+  display: table;
+  margin: 0;
+  max-width: none;
+  min-width: 100%;
+  width: max-content;
+}
+
+.markdown-file-prose th:not(#\#):not(#\#):not(#\#):not(#\#),
+.markdown-file-prose td:not(#\#):not(#\#):not(#\#):not(#\#) {
+  border-bottom: 1px solid var(--conv-border-subtle, var(--border-content));
+  border-right: 1px solid var(--conv-border-subtle, var(--border-content));
+  padding: 8px 12px;
+  text-align: left;
+  overflow-wrap: break-word;
+  word-wrap: break-word;
+}
+
+.markdown-file-prose th:last-child:not(#\#):not(#\#):not(#\#):not(#\#),
+.markdown-file-prose td:last-child:not(#\#):not(#\#):not(#\#):not(#\#) {
+  border-right: none;
+}
+
+.markdown-file-prose
+  tbody
+  tr:last-child
+  td:not(#\#):not(#\#):not(#\#):not(#\#) {
+  border-bottom: none;
+}
+
+.markdown-file-prose th:not(#\#):not(#\#):not(#\#):not(#\#) {
+  background: var(--conv-surface-control, var(--surface-control));
+  font-weight: 600;
+}

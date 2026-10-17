@@ -99,10 +99,63 @@ describe('ThinkingEntry', () => {
     );
   });
 
-  it('caps thinking content at 200 lines and scrolls the existing block', () => {
+  it('caps thinking content at 100 lines, hides the scrollbar, and disables inner scroll while streaming', () => {
     expect(convToolsStyles).toMatch(
-      /\.conv-thinking-content\s*\{[^}]*max-height:\s*200lh;[^}]*overflow-y:\s*auto;/
+      /\.conv-thinking-content\s*\{[^}]*max-height:\s*100lh;[^}]*overflow-y:\s*auto;/
     );
+    expect(convToolsStyles).toMatch(
+      /\.conv-thinking-content\s*\{[^}]*scrollbar-width:\s*none;/
+    );
+    expect(convToolsStyles).toMatch(
+      /\.conv-thinking-streaming\s+\.conv-thinking-content\s*\{[^}]*overflow:\s*hidden;/
+    );
+  });
+
+  it('forwards wheel input to the conversation scroller while thinking is streaming', () => {
+    const { container } = render(
+      <div data-panel="conversation-logs">
+        <ThinkingEntry
+          content={'line\n'.repeat(40)}
+          expansionKey="stream-scroll"
+          isStreaming
+        />
+      </div>
+    );
+    const scroller = container.firstElementChild as HTMLDivElement;
+    Object.defineProperty(scroller, 'scrollTop', {
+      writable: true,
+      value: 12,
+    });
+    const content = container.querySelector(
+      '.conv-thinking-content'
+    ) as HTMLDivElement;
+    fireEvent.wheel(content, { deltaY: 48 });
+    expect(scroller.scrollTop).toBe(60);
+  });
+
+  it('keeps finished expanded thinking as an inner scroll region', () => {
+    render(
+      <div data-panel="conversation-logs">
+        <ThinkingEntry
+          content={'line\n'.repeat(40)}
+          expansionKey="finished-scroll"
+          isStreaming={false}
+        />
+      </div>
+    );
+    fireEvent.click(screen.getByRole('button', { name: '展开思考' }));
+    const scroller = document.querySelector(
+      '[data-panel="conversation-logs"]'
+    ) as HTMLDivElement;
+    Object.defineProperty(scroller, 'scrollTop', {
+      writable: true,
+      value: 12,
+    });
+    const content = document.querySelector(
+      '.conv-thinking-content'
+    ) as HTMLDivElement;
+    fireEvent.wheel(content, { deltaY: 48 });
+    expect(scroller.scrollTop).toBe(12);
   });
 
   it('styles thinking markdown content with secondary muted text color instead of primary body color', () => {

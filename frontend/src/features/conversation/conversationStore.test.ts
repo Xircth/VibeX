@@ -490,6 +490,67 @@ describe('conversationStore (row-op dumb container)', () => {
     ]);
   });
 
+  it('keeps the same-turn user before an assistant row that arrived first', () => {
+    let state = loaded();
+    state = conversationStoreReducer(state, {
+      type: 'optimistic_turn',
+      conversationId: CONVERSATION_ID,
+      turn: messageTurn('optimistic-1', 'user', [{ type: 'text', text: 'go' }]),
+    });
+    state = conversationStoreReducer(state, {
+      type: 'row_ops',
+      batch: batch(
+        [
+          {
+            op: 'upsert',
+            row: assistantRow(
+              't1',
+              [{ type: 'text', text: 'hello' }],
+              2n,
+              'streaming'
+            ),
+          },
+        ],
+        2n
+      ),
+    });
+
+    expect(
+      timelineTurnsForEntry(entryOf(state)).map((row) => row.turn.role)
+    ).toEqual(['user', 'assistant']);
+
+    state = conversationStoreReducer(state, {
+      type: 'row_ops',
+      batch: batch([{ op: 'upsert', row: userRow('t1', 'go', 3n) }], 3n),
+    });
+
+    expect(
+      timelineTurnsForEntry(entryOf(state)).map((row) => [
+        row.turn.role,
+        row.turn.id,
+      ])
+    ).toEqual([
+      ['user', 't1:user'],
+      ['assistant', 't1:assistant'],
+    ]);
+  });
+
+  it('replays a snapshot whose assistant row was stored ahead of its user', () => {
+    const state = loaded([
+      assistantRow('t1', [{ type: 'text', text: 'hello' }], 2n),
+      userRow('t1', 'go', 1n),
+    ]);
+    expect(
+      timelineTurnsForEntry(entryOf(state)).map((row) => [
+        row.turn.role,
+        row.turn.id,
+      ])
+    ).toEqual([
+      ['user', 't1:user'],
+      ['assistant', 't1:assistant'],
+    ]);
+  });
+
   it('keeps the pending assistant bubble while the sent user turn is confirmed', () => {
     let state = loaded();
     state = conversationStoreReducer(state, {

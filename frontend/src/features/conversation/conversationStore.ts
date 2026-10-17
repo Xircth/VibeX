@@ -412,8 +412,8 @@ function upsertRow(
   let nextRows = rows;
   let applied = false;
   if (index === undefined || index === -1) {
-    nextRows = [...rows, incoming];
-    rowIndexById?.set(incoming.row_id, nextRows.length - 1);
+    nextRows = insertTimelineRow(rows, incoming);
+    rebuildRowIndex(nextRows, rowIndexById);
     applied = true;
   } else if (incomingRevision >= toBigInt(rows[index].revision)) {
     const mergedIncoming = preserveStructuredUserText(rows[index], incoming);
@@ -452,8 +452,8 @@ function applyPatchBlocks(
     if (revision < maxRowRevision(rows)) {
       return { rows, liveText };
     }
-    const nextRows = [...rows, stubAssistantRow(op)];
-    rowIndexById.set(op.row_id, nextRows.length - 1);
+    const nextRows = insertTimelineRow(rows, stubAssistantRow(op));
+    rebuildRowIndex(nextRows, rowIndexById);
     return { rows: nextRows, liveText };
   }
   const existing = rows[index];
@@ -786,7 +786,15 @@ export function timelineTurnsForEntry(
     phase: 'optimistic' as const,
   }));
   return alignStreamingAssistantWithUserPhase(
-    withPendingAssistantTurns(entry, dedupeTurns([...persisted, ...optimistic]))
+    withPendingAssistantTurns(
+      entry,
+      orderSameTurnUserBeforeAssistant(
+        mergeOptimisticUsersBeforeOrphanAssistants(
+          dedupeTurns(persisted),
+          optimistic
+        )
+      )
+    )
   );
 }
 
@@ -1209,15 +1217,26 @@ function withPendingAssistantTurns(
 ): ConversationTimelineTurn[] {
   const result = [...turns];
   const assistantIds = new Set(
-    turns
+    result
       .filter((row) => row.turn.role === 'assistant')
       .map((row) => row.turn.id)
   );
 
+  const insertAfter = (
+    userTurn: ConversationTimelineTurn,
+    pending: ConversationTimelineTurn
+  ) => {
+    const userIndex = result.findIndex(
+      (row) => row.turn.id === userTurn.turn.id
+    );
+    result.splice(userIndex < 0 ? result.length : userIndex + 1, 0, pending);
+    assistantIds.add(pending.turn.id);
+  };
+
   for (const [rowId, overlay] of Object.entries(entry.liveText)) {
     if (!rowId.endsWith(':assistant') || assistantIds.has(rowId)) continue;
     const userId = `${rowId.slice(0, -':assistant'.length)}:user`;
-    const userTurn = turns.find(
+    const userTurn = result.find(
       (row) => row.turn.role === 'user' && row.turn.id === userId
     );
     if (
@@ -1229,7 +1248,7 @@ function withPendingAssistantTurns(
     ) {
       continue;
     }
-    result.push({
+    insertAfter(userTurn, {
       key: `conversation-${rowId}`,
       phase: 'streaming',
       revision: overlay.revision,
@@ -1240,14 +1259,13 @@ function withPendingAssistantTurns(
         timestamp: userTurn.turn.timestamp,
       },
     });
-    assistantIds.add(rowId);
   }
 
   // A sent user turn remains in-flight while it transitions from the optimistic
   // client row to the backend-projected streaming row. Keep one empty assistant
   // bubble across that handoff so the waiting indicator never disappears before
   // the first assistant delta arrives.
-  const pendingUser = [...turns]
+  const pendingUser = [...result]
     .reverse()
     .find(
       (row) =>
@@ -1258,8 +1276,12 @@ function withPendingAssistantTurns(
     const assistantId = pendingUser.turn.id.endsWith(':user')
       ? `${pendingUser.turn.id.slice(0, -':user'.length)}:assistant`
       : `${pendingUser.turn.id}:assistant`;
-    if (!assistantIds.has(assistantId)) {
-      result.push({
+    const hasOrphanAssistant = result.some(
+      (row) =>
+        row.turn.role === 'assistant' && !hasPairedUser(result, row.turn.id)
+    );
+    if (!assistantIds.has(assistantId) && !hasOrphanAssistant) {
+      insertAfter(pendingUser, {
         key: `conversation-${assistantId}`,
         phase: 'streaming',
         revision: pendingUser.revision,
@@ -1274,6 +1296,129 @@ function withPendingAssistantTurns(
   }
 
   return result;
+}
+
+function messageTurnPairKey(id: string): string | null {
+  if (id.endsWith(':user')) return id.slice(0, -':user'.length);
+  const assistant = /^(.*):assistant(?::\d+)?$/.exec(id);
+  if (assistant) return assistant[1];
+  const steer = /^(.*):steer:/.exec(id);
+  if (steer) return steer[1];
+  return null;
+}
+
+function isPrimaryUserTurn(turn: ConversationTimelineTurn): boolean {
+  return turn.turn.role === 'user' && turn.turn.id.endsWith(':user');
+}
+
+function isPrimaryUserRow(row: TimelineRow): boolean {
+  return (
+    row.row.kind === 'message_turn' &&
+    row.row.turn.role === 'user' &&
+    row.row_id.endsWith(':user')
+  );
+}
+
+/** Same-turn user rows always render before that turn's assistant / steering slices. */
+function orderSameTurnUserBeforeAssistant(
+  turns: ConversationTimelineTurn[]
+): ConversationTimelineTurn[] {
+  const result = [...turns];
+  const keys = new Set<string>();
+  for (const turn of result) {
+    const key = messageTurnPairKey(turn.turn.id);
+    if (key) keys.add(key);
+  }
+  for (const key of keys) {
+    const userIndex = result.findIndex(
+      (turn) =>
+        isPrimaryUserTurn(turn) && messageTurnPairKey(turn.turn.id) === key
+    );
+    const firstIndex = result.findIndex(
+      (turn) => messageTurnPairKey(turn.turn.id) === key
+    );
+    if (userIndex < 0 || firstIndex < 0 || userIndex <= firstIndex) continue;
+    const [user] = result.splice(userIndex, 1);
+    if (user) result.splice(firstIndex, 0, user);
+  }
+  return result;
+}
+
+function hasPairedUser(
+  turns: ConversationTimelineTurn[],
+  assistantId: string
+): boolean {
+  const key = messageTurnPairKey(assistantId);
+  if (!key) return false;
+  return turns.some(
+    (turn) =>
+      isPrimaryUserTurn(turn) && messageTurnPairKey(turn.turn.id) === key
+  );
+}
+
+/**
+ * Optimistic user ids are temporary (`optimistic-*`). If the matching assistant
+ * row already landed, keep that user in front of it instead of appending after.
+ */
+function mergeOptimisticUsersBeforeOrphanAssistants(
+  persisted: ConversationTimelineTurn[],
+  optimistic: ConversationTimelineTurn[]
+): ConversationTimelineTurn[] {
+  if (optimistic.length === 0) return persisted;
+  const result = [...persisted];
+  const filledKeys = new Set<string>();
+  for (const turn of optimistic) {
+    const orphan = result.find((candidate) => {
+      if (candidate.turn.role !== 'assistant') return false;
+      const key = messageTurnPairKey(candidate.turn.id);
+      if (!key || filledKeys.has(key)) return false;
+      return !hasPairedUser(result, candidate.turn.id);
+    });
+    if (!orphan) {
+      result.push(turn);
+      continue;
+    }
+    const key = messageTurnPairKey(orphan.turn.id);
+    if (key) filledKeys.add(key);
+    const index = result.indexOf(orphan);
+    result.splice(index < 0 ? result.length : index, 0, turn);
+  }
+  return result;
+}
+
+function insertTimelineRow(
+  rows: TimelineRow[],
+  incoming: TimelineRow
+): TimelineRow[] {
+  if (incoming.row.kind !== 'message_turn') {
+    return [...rows, incoming];
+  }
+  const key = messageTurnPairKey(incoming.row_id);
+  if (!key) return [...rows, incoming];
+
+  let insertAt = rows.length;
+  if (isPrimaryUserRow(incoming)) {
+    const sibling = rows.findIndex(
+      (row) => messageTurnPairKey(row.row_id) === key
+    );
+    if (sibling >= 0) insertAt = sibling;
+  } else {
+    for (let index = 0; index < rows.length; index += 1) {
+      if (messageTurnPairKey(rows[index]?.row_id ?? '') === key) {
+        insertAt = index + 1;
+      }
+    }
+  }
+  return [...rows.slice(0, insertAt), incoming, ...rows.slice(insertAt)];
+}
+
+function rebuildRowIndex(
+  rows: TimelineRow[],
+  rowIndexById?: Map<string, number>
+) {
+  if (!rowIndexById) return;
+  rowIndexById.clear();
+  rows.forEach((row, index) => rowIndexById.set(row.row_id, index));
 }
 
 function toBigInt(value: bigint | number | string): bigint {

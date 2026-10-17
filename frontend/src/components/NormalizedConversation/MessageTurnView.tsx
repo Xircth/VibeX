@@ -149,6 +149,7 @@ function renderItem(
           content={item.text}
           expansionKey={key}
           taskAttemptId={context.taskAttemptId}
+          isStreaming={isStreaming}
         />
       );
     case 'image':

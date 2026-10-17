@@ -83,10 +83,9 @@ export const SETTINGS_SEARCH_ENTRIES: SettingsSearchEntry[] = [
   ...entriesFor('appearance', [
     'appearance.theme.title',
     'appearance.theme.label',
+    'appearance.basics.title',
     'appearance.accent.title',
     'appearance.accent.label',
-    'appearance.appIcon.title',
-    'appearance.appIcon.label',
     'appearance.zoom.title',
     'appearance.zoom.label',
     'appearance.monoFont.title',

@@ -103,6 +103,10 @@
       "label": "应用主题",
       "hint": "深色模式（Ayu Mirage）针对代码密集会话优化。"
     },
+    "basics": {
+      "title": "基础外观",
+      "description": "强调色、界面缩放、等宽字体与显示语言。"
+    },
     "accent": {
       "title": "强调色",
       "description": "用于主按钮、选中态与焦点。即时生效并记住。",
@@ -110,16 +114,6 @@
       "hex": "色值",
       "picker": "选择强调色",
       "hue": "色相"
-    },
-    "appIcon": {
-      "title": "应用图标",
-      "description": "选择带背景的标准图标或无背景的纯标记。",
-      "label": "图标样式",
-      "hint": "亮色与暗色版本会随主题自动切换。",
-      "styles": {
-        "default": "标准",
-        "lite": "纯标记"
-      }
     },
     "zoom": {
       "title": "界面缩放",
@@ -145,11 +139,6 @@
       "label": "显示方式",
       "status": "状态分组视图",
       "workspace": "工作区分组视图"
-    },
-    "autoOpenCreatedPreviews": {
-      "title": "新增文件预览",
-      "description": "停留在工作区页面时，自动打开新增 SVG 或 HTML 文件的预览。",
-      "label": "自动打开预览"
     },
     "kanbanBoardStyle": {
       "title": "会话看板样式",

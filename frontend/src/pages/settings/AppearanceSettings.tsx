@@ -1,19 +1,14 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { SelectableCard } from '@astryxdesign/core/SelectableCard';
 import {
-  AppWindow,
   Infinity as InfinityIcon,
-  Languages,
   LayoutGrid,
   ListTree,
-  Eye,
   Loader2,
-  Maximize2,
   Monitor,
   Moon,
   Palette,
   Sun,
-  Type,
 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { ThemeMode, type Config } from 'shared/types';
@@ -27,13 +22,6 @@ import {
   type UiLanguage,
 } from '@/lib/uiLanguage';
 import { useTheme } from '@/components/ThemeProvider';
-import {
-  APP_ICON_STYLES,
-  getAppIconStyle,
-  resolveAppLogo,
-  setAppIconStyle,
-  type AppIconStyle,
-} from '@/lib/appIcon';
 import { useUserSystem } from '@/components/ConfigProvider';
 import { Label } from '@/components/ui/label';
 import {
@@ -43,11 +31,6 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { Switch } from '@/components/ui/switch';
-import {
-  getAutoOpenCreatedPreviews,
-  setAutoOpenCreatedPreviews,
-} from '@/lib/autoOpenCreatedPreviews';
 import { backendEmit } from '@/lib/backendTransport';
 import { toPrettyCase } from '@/utils/string';
 
@@ -173,7 +156,10 @@ function ThemeChoiceCards({
             <div className="settings-theme-card__body">
               <ThemePreviewMock scheme={choice.scheme} />
               <div className="settings-theme-card__caption">
-                <Icon aria-hidden="true" className="settings-theme-card__icon" />
+                <Icon
+                  aria-hidden="true"
+                  className="settings-theme-card__icon"
+                />
                 <span
                   className={
                     isSelected
@@ -194,7 +180,7 @@ function ThemeChoiceCards({
 
 export function AppearanceSettings() {
   const { config, loading, updateAndSaveConfig } = useUserSystem();
-  const { resolvedTheme, setTheme } = useTheme();
+  const { setTheme } = useTheme();
   const { t } = useTranslation('settings');
   const [draft, setDraft] = useState<Config | null>(() =>
     config ? structuredClone(config) : null
@@ -203,16 +189,10 @@ export function AppearanceSettings() {
   const [zoom, setZoom] = useState<number>(() => getUiZoom());
   const [language, setLanguage] = useState<UiLanguage>(() => getUiLanguage());
   const [monoFont, setMonoFontState] = useState<string>(() => getMonoFontId());
-  const [appIconStyle, setAppIconStyleState] = useState<AppIconStyle>(() =>
-    getAppIconStyle()
-  );
   const [kanbanSessionListView, setKanbanSessionListViewState] =
     useState<KanbanSessionListView>(() => getKanbanSessionListView());
   const [kanbanBoardStyle, setKanbanBoardStyleState] =
     useState<KanbanBoardStyle>(() => getKanbanBoardStyle());
-  const [autoOpenCreatedPreviews, setAutoOpenCreatedPreviewsState] = useState(
-    () => getAutoOpenCreatedPreviews()
-  );
   const savedWorkspaceArrangement = useLayoutArrangement();
   const savedKanbanArrangement = useKanbanArrangement();
   const [workspaceArrangementDraft, setWorkspaceArrangementDraft] = useState(
@@ -322,159 +302,110 @@ export function AppearanceSettings() {
 
         <SettingsSection
           icon={Palette}
-          title={t('appearance.accent.title')}
-          description={t('appearance.accent.description')}
+          title={t('appearance.basics.title')}
+          description={t('appearance.basics.description')}
         >
-          <div className="settings-row">
-            <div>
-              <Label>{t('appearance.accent.label')}</Label>
+          <div className="space-y-4">
+            <div className="settings-row">
+              <div>
+                <Label>{t('appearance.accent.label')}</Label>
+              </div>
+              <AccentColorField />
             </div>
-            <AccentColorField />
-          </div>
-        </SettingsSection>
 
-        <SettingsSection
-          icon={AppWindow}
-          title={t('appearance.appIcon.title')}
-          description={t('appearance.appIcon.description')}
-        >
-          <div className="settings-row">
-            <div>
-              <Label>{t('appearance.appIcon.label')}</Label>
-              <p className="settings-row__description">
-                {t('appearance.appIcon.hint')}
-              </p>
-            </div>
-            <div className="flex items-center gap-3">
-              <img
-                src={resolveAppLogo(appIconStyle, resolvedTheme)}
-                alt=""
-                aria-hidden="true"
-                className="h-10 w-10 shrink-0 object-contain"
-              />
+            <div className="settings-row">
+              <div>
+                <Label>{t('appearance.zoom.label')}</Label>
+                <p className="settings-row__description">
+                  {t('appearance.zoom.hint')}
+                </p>
+              </div>
               <Select
-                value={appIconStyle}
+                value={String(zoom)}
                 onValueChange={(value) => {
-                  const next = value as AppIconStyle;
-                  setAppIconStyleState(next);
-                  setAppIconStyle(next);
+                  const next = Number(value);
+                  setZoom(next);
+                  setUiZoom(next);
                 }}
               >
-                <SelectTrigger className="w-44">
+                <SelectTrigger
+                  className="w-56"
+                  aria-label={t('appearance.zoom.label')}
+                >
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent align="start">
-                  {APP_ICON_STYLES.map((style) => (
-                    <SelectItem key={style} value={style}>
-                      {t(`appearance.appIcon.styles.${style}`)}
+                  {UI_ZOOM_LEVELS.map((level) => (
+                    <SelectItem key={level} value={String(level)}>
+                      {Math.round(level * 100)}%
                     </SelectItem>
                   ))}
                 </SelectContent>
               </Select>
             </div>
-          </div>
-        </SettingsSection>
 
-        <SettingsSection
-          icon={Maximize2}
-          title={t('appearance.zoom.title')}
-          description={t('appearance.zoom.description')}
-        >
-          <div className="settings-row">
-            <div>
-              <Label>{t('appearance.zoom.label')}</Label>
-              <p className="settings-row__description">
-                {t('appearance.zoom.hint')}
-              </p>
+            <div className="settings-row">
+              <div>
+                <Label>{t('appearance.monoFont.label')}</Label>
+                <p className="settings-row__description">
+                  {t('appearance.monoFont.hint')}
+                </p>
+              </div>
+              <Select
+                value={monoFont}
+                onValueChange={(value) => {
+                  setMonoFontState(value);
+                  setMonoFont(value);
+                }}
+              >
+                <SelectTrigger
+                  className="w-56"
+                  aria-label={t('appearance.monoFont.label')}
+                >
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent align="start">
+                  {MONO_FONT_OPTIONS.map((option) => (
+                    <SelectItem key={option.id} value={option.id}>
+                      <span style={{ fontFamily: option.stack }}>
+                        {option.label}
+                      </span>
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             </div>
-            <Select
-              value={String(zoom)}
-              onValueChange={(value) => {
-                const next = Number(value);
-                setZoom(next);
-                setUiZoom(next);
-              }}
-            >
-              <SelectTrigger className="w-56">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent align="start">
-                {UI_ZOOM_LEVELS.map((level) => (
-                  <SelectItem key={level} value={String(level)}>
-                    {Math.round(level * 100)}%
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-        </SettingsSection>
 
-        <SettingsSection
-          icon={Type}
-          title={t('appearance.monoFont.title')}
-          description={t('appearance.monoFont.description')}
-        >
-          <div className="settings-row">
-            <div>
-              <Label>{t('appearance.monoFont.label')}</Label>
-              <p className="settings-row__description">
-                {t('appearance.monoFont.hint')}
-              </p>
+            <div className="settings-row">
+              <div>
+                <Label>{t('appearance.language.label')}</Label>
+                <p className="settings-row__description">
+                  {t('appearance.language.hint')}
+                </p>
+              </div>
+              <Select
+                value={language}
+                onValueChange={(value) => {
+                  const next = value as UiLanguage;
+                  setLanguage(next);
+                  setUiLanguage(next);
+                }}
+              >
+                <SelectTrigger
+                  className="w-56"
+                  aria-label={t('appearance.language.label')}
+                >
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent align="start">
+                  {SUPPORTED_LANGUAGES.map((lng) => (
+                    <SelectItem key={lng} value={lng}>
+                      {LANGUAGE_LABELS[lng]}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             </div>
-            <Select
-              value={monoFont}
-              onValueChange={(value) => {
-                setMonoFontState(value);
-                setMonoFont(value);
-              }}
-            >
-              <SelectTrigger className="w-56">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent align="start">
-                {MONO_FONT_OPTIONS.map((option) => (
-                  <SelectItem key={option.id} value={option.id}>
-                    <span style={{ fontFamily: option.stack }}>
-                      {option.label}
-                    </span>
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-        </SettingsSection>
-
-        <SettingsSection
-          icon={Languages}
-          title={t('appearance.language.title')}
-          description={t('appearance.language.description')}
-        >
-          <div className="settings-row">
-            <div>
-              <Label>{t('appearance.language.label')}</Label>
-              <p className="settings-row__description">
-                {t('appearance.language.hint')}
-              </p>
-            </div>
-            <Select
-              value={language}
-              onValueChange={(value) => {
-                const next = value as UiLanguage;
-                setLanguage(next);
-                setUiLanguage(next);
-              }}
-            >
-              <SelectTrigger className="w-56">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent align="start">
-                {SUPPORTED_LANGUAGES.map((lng) => (
-                  <SelectItem key={lng} value={lng}>
-                    {LANGUAGE_LABELS[lng]}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
           </div>
         </SettingsSection>
 
@@ -495,7 +426,10 @@ export function AppearanceSettings() {
                 setKanbanSessionListView(next);
               }}
             >
-              <SelectTrigger className="w-56">
+              <SelectTrigger
+                className="w-56"
+                aria-label={t('appearance.kanbanSessionList.label')}
+              >
                 <SelectValue />
               </SelectTrigger>
               <SelectContent align="start">
@@ -506,26 +440,6 @@ export function AppearanceSettings() {
                 ))}
               </SelectContent>
             </Select>
-          </div>
-        </SettingsSection>
-
-        <SettingsSection
-          icon={Eye}
-          title={t('appearance.autoOpenCreatedPreviews.title')}
-          description={t('appearance.autoOpenCreatedPreviews.description')}
-        >
-          <div className="settings-row">
-            <div>
-              <Label>{t('appearance.autoOpenCreatedPreviews.label')}</Label>
-            </div>
-            <Switch
-              checked={autoOpenCreatedPreviews}
-              onCheckedChange={(enabled) => {
-                setAutoOpenCreatedPreviewsState(enabled);
-                setAutoOpenCreatedPreviews(enabled);
-              }}
-              aria-label={t('appearance.autoOpenCreatedPreviews.label')}
-            />
           </div>
         </SettingsSection>
 
@@ -546,7 +460,10 @@ export function AppearanceSettings() {
                 setKanbanBoardStyle(next);
               }}
             >
-              <SelectTrigger className="w-56">
+              <SelectTrigger
+                className="w-56"
+                aria-label={t('appearance.kanbanBoardStyle.label')}
+              >
                 <SelectValue />
               </SelectTrigger>
               <SelectContent align="start">

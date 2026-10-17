@@ -27,6 +27,16 @@ export type PlacedCallout = Rect & {
   key: string;
 };
 
+export type CalloutAnchor = PlacedCallout & {
+  text: string;
+};
+
+export type CalloutMovePlan = {
+  moves: { from: CalloutAnchor; to: CalloutAnchor }[];
+  appear: CalloutAnchor[];
+  disappear: CalloutAnchor[];
+};
+
 export type Connector = {
   copyKey: string;
   from: { x: number; y: number };
@@ -42,6 +52,7 @@ export const CALLOUT_MIN_WIDTH = 140;
 export const VIEWPORT_MARGIN = 12;
 export const CALLOUT_GAP = 16;
 export const BASIC_GUIDE_IDLE_MS = 5000;
+export const CALLOUT_MOVE_MS = 480;
 
 export function isCircleLike(
   box: Rect,
@@ -386,4 +397,53 @@ export function curvePath(
 
 export function calloutKeysFor(boxes: MergedSpotlight[]): string[] {
   return uniqueStrings(boxes.flatMap((box) => box.copyKeys));
+}
+
+export function calloutKeySignature(callouts: { key: string }[]): string {
+  return callouts.map((callout) => callout.key).join('|');
+}
+
+function shuffledIndices(length: number, random: () => number): number[] {
+  const indices = Array.from({ length }, (_, i) => i);
+  for (let i = length - 1; i > 0; i -= 1) {
+    const j = Math.floor(random() * (i + 1));
+    const current = indices[i]!;
+    indices[i] = indices[j]!;
+    indices[j] = current;
+  }
+  return indices;
+}
+
+export function pairCalloutMoves(
+  from: CalloutAnchor[],
+  to: CalloutAnchor[],
+  random: () => number = Math.random
+): CalloutMovePlan {
+  if (from.length === 0) {
+    return { moves: [], appear: [...to], disappear: [] };
+  }
+  if (to.length === 0) {
+    return { moves: [], appear: [], disappear: [...from] };
+  }
+
+  const fromOrder = shuffledIndices(from.length, random);
+  const toOrder = shuffledIndices(to.length, random);
+  const pairCount = Math.min(from.length, to.length);
+  const usedFrom = new Set<number>();
+  const usedTo = new Set<number>();
+  const moves: CalloutMovePlan['moves'] = [];
+
+  for (let i = 0; i < pairCount; i += 1) {
+    const fromIndex = fromOrder[i]!;
+    const toIndex = toOrder[i]!;
+    moves.push({ from: from[fromIndex]!, to: to[toIndex]! });
+    usedFrom.add(fromIndex);
+    usedTo.add(toIndex);
+  }
+
+  return {
+    moves,
+    appear: to.filter((_, index) => !usedTo.has(index)),
+    disappear: from.filter((_, index) => !usedFrom.has(index)),
+  };
 }

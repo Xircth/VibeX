@@ -3,15 +3,111 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { GuideCopy } from './GuideCopy';
 import {
   BASIC_GUIDE_IDLE_MS,
+  CALLOUT_MOVE_MS,
+  calloutKeySignature,
   calloutKeysFor,
   curvePath,
   layoutCallouts,
   mergeOverlapping,
+  pairCalloutMoves,
+  type CalloutAnchor,
+  type CalloutMovePlan,
   type MeasuredTarget,
   type MergedSpotlight,
   type Rect,
   type SpotlightTarget,
 } from './spotlightGeometry';
+
+type VisualCallout = {
+  id: string;
+  kind: 'move' | 'appear' | 'disappear' | 'idle';
+  key: string;
+  text: string;
+  left: number;
+  top: number;
+  width: number;
+  opacity: number;
+};
+
+type Flight = {
+  phase: 'from' | 'to';
+  framesFrom: VisualCallout[];
+  framesTo: VisualCallout[];
+};
+
+function prefersReducedMotion(): boolean {
+  return (
+    window.matchMedia?.('(prefers-reduced-motion: reduce)')?.matches ?? false
+  );
+}
+
+function withText(
+  callouts: {
+    key: string;
+    left: number;
+    top: number;
+    width: number;
+    height: number;
+  }[],
+  copyItems: { key: string; text: string }[]
+): CalloutAnchor[] {
+  return callouts.map((callout) => ({
+    ...callout,
+    text: copyItems.find((item) => item.key === callout.key)?.text ?? '',
+  }));
+}
+
+function idleFrames(callouts: CalloutAnchor[]): VisualCallout[] {
+  return callouts.map((callout) => ({
+    id: callout.key,
+    kind: 'idle' as const,
+    key: callout.key,
+    text: callout.text,
+    left: callout.left,
+    top: callout.top,
+    width: callout.width,
+    opacity: 1,
+  }));
+}
+
+function framesFor(
+  plan: CalloutMovePlan,
+  phase: 'from' | 'to'
+): VisualCallout[] {
+  const atTo = phase === 'to';
+  return [
+    ...plan.moves.map((move, index) => ({
+      id: `move-${index}`,
+      kind: 'move' as const,
+      key: move.to.key,
+      text: move.to.text,
+      left: atTo ? move.to.left : move.from.left,
+      top: atTo ? move.to.top : move.from.top,
+      width: atTo ? move.to.width : move.from.width,
+      opacity: 1,
+    })),
+    ...plan.appear.map((callout, index) => ({
+      id: `appear-${index}`,
+      kind: 'appear' as const,
+      key: callout.key,
+      text: callout.text,
+      left: callout.left,
+      top: callout.top,
+      width: callout.width,
+      opacity: atTo ? 1 : 0,
+    })),
+    ...plan.disappear.map((callout, index) => ({
+      id: `disappear-${index}`,
+      kind: 'disappear' as const,
+      key: callout.key,
+      text: callout.text,
+      left: callout.left,
+      top: callout.top,
+      width: callout.width,
+      opacity: atTo ? 0 : 1,
+    })),
+  ];
+}
 
 function measurePanel(selector: string): Rect | null {
   const panel = document.querySelector<HTMLElement>(selector);
@@ -64,6 +160,8 @@ export function BasicGuideSpotlight({
     height: typeof window === 'undefined' ? 800 : window.innerHeight,
   });
   const [idle, setIdle] = useState(false);
+  const [flight, setFlight] = useState<Flight | null>(null);
+  const prevCalloutsRef = useRef<CalloutAnchor[]>([]);
   const targetsRef = useRef(targets);
   targetsRef.current = targets;
   const targetKey = targets
@@ -124,7 +222,67 @@ export function BasicGuideSpotlight({
     [boxes, copyItems, panel, viewport]
   );
 
-  if (copyItems.length === 0 && boxes.length === 0) return null;
+  useEffect(() => {
+    if (plan.callouts.length === 0) return;
+    const next = withText(plan.callouts, copyItems);
+    const prev = prevCalloutsRef.current;
+    const prevKeys = calloutKeySignature(prev);
+    const nextKeys = calloutKeySignature(next);
+    if (
+      prev.length > 0 &&
+      next.length > 0 &&
+      prevKeys !== nextKeys &&
+      !prefersReducedMotion()
+    ) {
+      const pairing = pairCalloutMoves(prev, next);
+      setFlight({
+        phase: 'from',
+        framesFrom: framesFor(pairing, 'from'),
+        framesTo: framesFor(pairing, 'to'),
+      });
+    }
+    prevCalloutsRef.current = next;
+  }, [plan, copyItems]);
+
+  useEffect(() => {
+    if (!flight) return;
+    if (flight.phase === 'from') {
+      const play = window.setTimeout(() => {
+        setFlight((current) =>
+          current?.phase === 'from' ? { ...current, phase: 'to' } : current
+        );
+      }, 0);
+      return () => window.clearTimeout(play);
+    }
+    const done = window.setTimeout(() => setFlight(null), CALLOUT_MOVE_MS);
+    return () => window.clearTimeout(done);
+  }, [flight]);
+
+  const nextAnchors = withText(plan.callouts, copyItems);
+  const previousAnchors = prevCalloutsRef.current;
+  const pendingMove =
+    !flight &&
+    previousAnchors.length > 0 &&
+    nextAnchors.length > 0 &&
+    calloutKeySignature(previousAnchors) !== calloutKeySignature(nextAnchors) &&
+    !prefersReducedMotion();
+  const visualCallouts: VisualCallout[] = flight
+    ? flight.phase === 'from'
+      ? flight.framesFrom
+      : flight.framesTo
+    : pendingMove
+      ? idleFrames(previousAnchors)
+      : idleFrames(nextAnchors);
+  const hideConnectors = Boolean(flight || pendingMove);
+
+  if (
+    !flight &&
+    !pendingMove &&
+    boxes.length === 0 &&
+    nextAnchors.length === 0
+  ) {
+    return null;
+  }
 
   return (
     <>
@@ -144,25 +302,26 @@ export function BasicGuideSpotlight({
           }}
         />
       ))}
-      {plan.callouts.map((callout) => {
-        const text =
-          copyItems.find((item) => item.key === callout.key)?.text ?? '';
-        return (
-          <div
-            key={callout.key}
-            className="basic-guide-callout"
-            data-basic-guide-callout={callout.key}
-            style={{
-              top: callout.top,
-              left: callout.left,
-              width: callout.width,
-            }}
-          >
-            <GuideCopy className="basic-guide-callout__copy" text={text} />
-          </div>
-        );
-      })}
-      {plan.connectors.length > 0 ? (
+      {visualCallouts.map((callout) => (
+        <div
+          key={callout.id}
+          className={`basic-guide-callout${flight ? ' is-moving' : ''}`}
+          data-basic-guide-callout={callout.key}
+          data-callout-kind={callout.kind}
+          style={{
+            top: callout.top,
+            left: callout.left,
+            width: callout.width,
+            opacity: callout.opacity,
+          }}
+        >
+          <GuideCopy
+            className="basic-guide-callout__copy"
+            text={callout.text}
+          />
+        </div>
+      ))}
+      {!hideConnectors && plan.connectors.length > 0 ? (
         <svg
           className="basic-guide-connectors"
           aria-hidden="true"

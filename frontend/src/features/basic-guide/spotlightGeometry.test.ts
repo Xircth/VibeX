@@ -2,11 +2,21 @@ import { describe, expect, it } from 'vitest';
 
 import {
   calloutKeysFor,
+  pairCalloutMoves,
   isCircleLike,
   layoutCallouts,
   mergeOverlapping,
+  type CalloutAnchor,
   type MeasuredTarget,
 } from './spotlightGeometry';
+
+function anchor(
+  key: string,
+  rect: { left: number; top: number; width: number; height: number },
+  text = key
+): CalloutAnchor {
+  return { key, text, ...rect };
+}
 
 function box(
   id: string,
@@ -220,5 +230,53 @@ describe('spotlightGeometry', () => {
         },
       ])
     ).toEqual(['select-project-create']);
+  });
+});
+
+describe('pairCalloutMoves', () => {
+  const a1 = anchor('a1', { left: 40, top: 80, width: 160, height: 48 });
+  const a2 = anchor('a2', { left: 40, top: 200, width: 160, height: 48 });
+  const b1 = anchor('b1', { left: 500, top: 40, width: 180, height: 52 });
+  const b2 = anchor('b2', { left: 500, top: 240, width: 180, height: 52 });
+
+  it('pairs two callouts 1-to-1 in shuffled order', () => {
+    const plan = pairCalloutMoves([a1, a2], [b1, b2], () => 0);
+    expect(plan.moves).toHaveLength(2);
+    expect(plan.appear).toEqual([]);
+    expect(plan.disappear).toEqual([]);
+    expect(new Set(plan.moves.map((move) => move.from.key))).toEqual(
+      new Set(['a1', 'a2'])
+    );
+    expect(new Set(plan.moves.map((move) => move.to.key))).toEqual(
+      new Set(['b1', 'b2'])
+    );
+  });
+
+  it('moves a single callout to one random next callout', () => {
+    const swapped = pairCalloutMoves([a1], [b1, b2], () => 0);
+    expect(swapped.moves).toEqual([{ from: a1, to: b2 }]);
+    expect(swapped.appear).toEqual([b1]);
+    expect(swapped.disappear).toEqual([]);
+
+    const identity = pairCalloutMoves([a1], [b1, b2], () => 0.99);
+    expect(identity.moves).toEqual([{ from: a1, to: b1 }]);
+    expect(identity.appear).toEqual([b2]);
+  });
+
+  it('moves one of two previous callouts onto a single next callout', () => {
+    const plan = pairCalloutMoves([a1, a2], [b1], () => 0);
+    expect(plan.moves).toHaveLength(1);
+    expect(plan.moves[0]?.to).toEqual(b1);
+    expect(plan.appear).toEqual([]);
+    expect(plan.disappear).toHaveLength(1);
+    expect(plan.disappear[0]?.key).not.toBe(plan.moves[0]?.from.key);
+  });
+
+  it('fades in all callouts when nothing was on screen', () => {
+    expect(pairCalloutMoves([], [b1, b2])).toEqual({
+      moves: [],
+      appear: [b1, b2],
+      disappear: [],
+    });
   });
 });

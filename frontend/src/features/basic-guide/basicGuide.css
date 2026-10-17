@@ -243,6 +243,15 @@
   box-sizing: border-box;
 }
 
+.basic-guide-callout.is-moving {
+  z-index: 74;
+  transition:
+    left 480ms cubic-bezier(0.22, 1, 0.36, 1),
+    top 480ms cubic-bezier(0.22, 1, 0.36, 1),
+    width 480ms cubic-bezier(0.22, 1, 0.36, 1),
+    opacity 320ms ease;
+}
+
 .basic-guide-callout__copy {
   margin: 0;
   font-size: 0.8125rem;
@@ -307,5 +316,9 @@
   .basic-guide-spotlight,
   .basic-guide-spotlight.is-idle {
     animation: none;
+  }
+
+  .basic-guide-callout.is-moving {
+    transition: none;
   }
 }

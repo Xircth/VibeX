@@ -2,7 +2,30 @@ import { act, render, screen } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { BasicGuideSpotlight } from './BasicGuideSpotlight';
-import { BASIC_GUIDE_IDLE_MS } from './spotlightGeometry';
+import { BASIC_GUIDE_IDLE_MS, CALLOUT_MOVE_MS } from './spotlightGeometry';
+
+function mountGuideTarget(
+  id: string,
+  rect: { left: number; top: number; width: number; height: number }
+) {
+  const node = document.createElement('div');
+  node.dataset.basicGuide = id;
+  document.body.appendChild(node);
+  vi.spyOn(node, 'getBoundingClientRect').mockReturnValue({
+    x: rect.left,
+    y: rect.top,
+    top: rect.top,
+    left: rect.left,
+    width: rect.width,
+    height: rect.height,
+    bottom: rect.top + rect.height,
+    right: rect.left + rect.width,
+    toJSON() {
+      return {};
+    },
+  } as DOMRect);
+  return node;
+}
 
 describe('BasicGuideSpotlight', () => {
   beforeEach(() => {
@@ -115,5 +138,84 @@ describe('BasicGuideSpotlight', () => {
     expect(document.querySelector('.basic-guide-spotlight')).toBeNull();
     expect(document.querySelector('[data-basic-guide-callout]')).toBeNull();
     expect(screen.queryByText('项目就是一个文件夹')).toBeNull();
+  });
+
+  it('flies the callout from the previous position to the next one', () => {
+    mountGuideTarget('welcome-global-project', {
+      left: 80,
+      top: 200,
+      width: 240,
+      height: 36,
+    });
+    const copy = (key: string) =>
+      key === 'select-project-global'
+        ? '全局则是您的用户文件夹'
+        : '首先，点击此按钮以创建会话';
+    const { rerender } = render(
+      <BasicGuideSpotlight
+        targets={[
+          { id: 'welcome-global-project', copyKey: 'select-project-global' },
+        ]}
+        resolveCopy={copy}
+        panelSelector="[data-basic-guide-panel]"
+      />
+    );
+    const start = document.querySelector(
+      '[data-basic-guide-callout]'
+    ) as HTMLElement;
+    expect(start).toHaveTextContent('全局则是您的用户文件夹');
+    const startLeft = start.style.left;
+    const startTop = start.style.top;
+
+    document
+      .querySelector('[data-basic-guide="welcome-global-project"]')
+      ?.remove();
+    mountGuideTarget('toolbar-new-session', {
+      left: 900,
+      top: 12,
+      width: 28,
+      height: 28,
+    });
+    rerender(
+      <BasicGuideSpotlight
+        targets={[
+          {
+            id: 'toolbar-new-session',
+            copyKey: 'click-new-session',
+            shape: 'circle',
+          },
+        ]}
+        resolveCopy={copy}
+        panelSelector="[data-basic-guide-panel]"
+      />
+    );
+
+    const moving = document.querySelector(
+      '[data-basic-guide-callout]'
+    ) as HTMLElement;
+    expect(moving).toHaveClass('is-moving');
+    expect(moving).toHaveAttribute('data-callout-kind', 'move');
+    expect(moving).toHaveTextContent('首先，点击此按钮以创建会话');
+    expect(moving.style.left).toBe(startLeft);
+    expect(moving.style.top).toBe(startTop);
+    expect(document.querySelector('[data-basic-guide-connectors]')).toBeNull();
+
+    act(() => {
+      vi.advanceTimersByTime(0);
+    });
+    const flying = document.querySelector(
+      '[data-basic-guide-callout]'
+    ) as HTMLElement;
+    expect(flying.style.left).not.toBe(startLeft);
+
+    act(() => {
+      vi.advanceTimersByTime(CALLOUT_MOVE_MS);
+    });
+    expect(document.querySelector('.basic-guide-callout')).not.toHaveClass(
+      'is-moving'
+    );
+    expect(
+      document.querySelector('[data-basic-guide-connectors]')
+    ).toBeInTheDocument();
   });
 });

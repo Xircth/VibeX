@@ -694,7 +694,7 @@ export function GeneralSettings() {
         <PluginSettingsSections />
       </div>
 
-      <div className="mt-auto flex flex-col gap-3">
+      <div className="mt-auto flex flex-col gap-3 pt-12">
         <SettingsActionBar
           dirty={dirty}
           saving={saving}

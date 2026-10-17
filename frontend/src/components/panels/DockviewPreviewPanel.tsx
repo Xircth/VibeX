@@ -99,7 +99,9 @@ function previewMarkdownScroller(root: HTMLElement | null): HTMLElement | null {
   if (!root) {
     return null;
   }
-  const frame = root.querySelector<HTMLElement>('[data-pressable-container]');
+  const frame =
+    root.querySelector<HTMLElement>('.astryx-rich-text-editor') ??
+    root.querySelector<HTMLElement>('[data-pressable-container]');
   const body = frame?.lastElementChild;
   if (body instanceof HTMLElement) {
     return body;

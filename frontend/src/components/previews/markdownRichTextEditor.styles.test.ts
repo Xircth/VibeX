@@ -30,13 +30,40 @@ describe('markdown rich text editor chrome', () => {
     const css = readFileSync(STYLESHEET, 'utf8');
     const matches: string[] = [];
     parse(css).walkRules((rule: Rule) => {
-      if (!rule.selector.includes('[data-pressable-container]')) return;
+      if (!rule.selector.includes('.astryx-rich-text-editor')) return;
       if (!rule.selector.includes(':last-child')) return;
       rule.walkDecls('padding', (declaration) => {
         matches.push(declaration.value);
       });
     });
     expect(matches).toContain('1rem 1.5rem');
+  });
+
+  it('scrolls the editor body instead of clipping long markdown', () => {
+    const css = readFileSync(STYLESHEET, 'utf8');
+    const fieldChild: Record<string, string> = {};
+    const editorBody: Record<string, string> = {};
+    parse(css).walkRules((rule: Rule) => {
+      const selector = rule.selector.replace(/\s+/g, ' ').trim();
+      if (selector.includes('.markdown-rich-text-editor > * > :last-child')) {
+        rule.walkDecls((declaration) => {
+          fieldChild[declaration.prop] = declaration.value;
+        });
+      }
+      if (
+        selector.includes('.astryx-rich-text-editor') &&
+        selector.includes(':last-child')
+      ) {
+        rule.walkDecls((declaration) => {
+          editorBody[declaration.prop] = declaration.value;
+        });
+      }
+    });
+    expect(fieldChild.display).toBe('flex');
+    expect(fieldChild['min-height']).toBe('0');
+    expect(fieldChild.overflow).toBe('hidden');
+    expect(editorBody['min-height']).toBe('0');
+    expect(editorBody.overflow).toBe('auto');
   });
 
   it('kills the Field focus ring that appears after click', () => {

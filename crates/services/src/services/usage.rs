@@ -1031,11 +1031,14 @@ pub fn align_vendor_usage(
     sessions: &mut [ProjectUsageSessionSummary],
     vendor_logs: &[VendorLogUsage],
 ) -> i64 {
-    let mut by_external: HashMap<&str, &VendorLogUsage> = HashMap::new();
+    let mut by_external: HashMap<String, &VendorLogUsage> = HashMap::new();
     for vendor in vendor_logs {
         by_external
-            .entry(vendor.external_session_id.as_str())
+            .entry(vendor.external_session_id.clone())
             .or_insert(vendor);
+        if let Some(uuid) = uuid_suffix(&vendor.external_session_id) {
+            by_external.entry(uuid).or_insert(vendor);
+        }
     }
 
     let mut attributed = HashSet::new();
@@ -1043,10 +1046,13 @@ pub fn align_vendor_usage(
         let Some(external_id) = session.external_session_id.as_deref() else {
             continue;
         };
-        let Some(vendor) = by_external.get(external_id) else {
+        let vendor = by_external.get(external_id).copied().or_else(|| {
+            uuid_suffix(external_id).and_then(|uuid| by_external.get(&uuid).copied())
+        });
+        let Some(vendor) = vendor else {
             continue;
         };
-        attributed.insert(external_id.to_string());
+        attributed.insert(vendor.external_session_id.clone());
         if session.model.is_none() && !vendor.model.is_empty() {
             session.model = Some(vendor.model.clone());
         }
@@ -1419,11 +1425,13 @@ fn parse_grok_session(path: &Path) -> Result<Option<VendorLogUsage>, String> {
     let mut usage = ProjectUsageTokenCounts::default();
     let mut model = grok_summary_model(session_dir);
     let mut first_timestamp = 0_i64;
-    let session_id = session_dir
+    let dir_name = session_dir
         .file_name()
         .and_then(|name| name.to_str())
-        .unwrap_or_default()
-        .to_string();
+        .unwrap_or_default();
+    let mut session_id = grok_summary_session_id(session_dir)
+        .or_else(|| uuid_suffix(dir_name))
+        .unwrap_or_else(|| dir_name.to_string());
 
     for line in reader.lines() {
         let line = match line {
@@ -1441,6 +1449,12 @@ fn parse_grok_session(path: &Path) -> Result<Option<VendorLogUsage>, String> {
             first_timestamp = grok_line_timestamp_ms(&value).unwrap_or(0);
         }
         let params = value.get("params").unwrap_or(&value);
+        if session_id.is_empty()
+            && let Some(id) = string_at(params, &["sessionId", "session_id"])
+                .and_then(|raw| uuid_suffix(&raw).or(Some(raw)))
+        {
+            session_id = id;
+        }
         if model.is_none() {
             model = grok_model_from_params(params);
         }
@@ -1483,6 +1497,42 @@ fn parse_grok_session(path: &Path) -> Result<Option<VendorLogUsage>, String> {
         ),
     };
 
+    if let Some(session_usage) = grok_usage_session_value(session_dir) {
+        if session_id.is_empty()
+            && let Some(id) = string_at(&session_usage, &["sessionId", "session_id"])
+                .and_then(|raw| uuid_suffix(&raw).or(Some(raw)))
+        {
+            session_id = id;
+        }
+        if model.is_none() {
+            model = session_usage
+                .get("primaryModelId")
+                .and_then(Value::as_str)
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .map(ToOwned::to_owned);
+        }
+        if let Some(parsed) = agents::prompt_usage_from_value(&session_usage) {
+            let fallback_input = parsed.input_tokens.map(|value| value as i64);
+            let fallback_output = parsed.output_tokens.map(|value| value as i64);
+            let fallback_cache_write = parsed.cache_write_tokens.map(|value| value as i64);
+            let fallback_cache_read = parsed.cache_read_tokens.map(|value| value as i64);
+            let fallback_total = fallback_input.unwrap_or(0)
+                + fallback_output.unwrap_or(0)
+                + fallback_cache_write.unwrap_or(0)
+                + fallback_cache_read.unwrap_or(0);
+            if fallback_total > usage.total_tokens.unwrap_or(0) {
+                usage = ProjectUsageTokenCounts {
+                    input_tokens: fallback_input,
+                    output_tokens: fallback_output,
+                    cache_write_tokens: fallback_cache_write,
+                    cache_read_tokens: fallback_cache_read,
+                    total_tokens: Some(fallback_total),
+                };
+            }
+        }
+    }
+
     if usage.total_tokens.unwrap_or(0) == 0 && model.is_none() {
         return Ok(None);
     }
@@ -1516,6 +1566,22 @@ fn grok_session_is_subagent(session_dir: &Path) -> bool {
         .get("session_kind")
         .and_then(Value::as_str)
         == Some("subagent")
+}
+
+fn grok_summary_session_id(session_dir: &Path) -> Option<String> {
+    grok_summary_json(session_dir)
+        .get("session_id")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|id| !id.is_empty())
+        .and_then(|id| uuid_suffix(id).or_else(|| Some(id.to_string())))
+}
+
+fn grok_usage_session_value(session_dir: &Path) -> Option<Value> {
+    fs::read_to_string(session_dir.join("usage.json"))
+        .ok()
+        .and_then(|raw| serde_json::from_str::<Value>(&raw).ok())
+        .and_then(|value| value.get("session").cloned())
 }
 
 fn grok_summary_model(session_dir: &Path) -> Option<String> {

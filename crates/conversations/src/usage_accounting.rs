@@ -337,10 +337,19 @@ pub async fn sync_vendor_usage_logs_with_roots(
 ) -> Result<Vec<ProjectUsageProviderStatus>, sqlx::Error> {
     let _guard = VENDOR_SYNC.lock().await;
     let known = VendorUsageFileRecord::list(pool).await?;
-    let known_map: HashMap<String, (i64, i64)> = known
+    let mut known_map: HashMap<String, (i64, i64)> = known
         .into_iter()
         .map(|row| (row.path, (row.mtime_ms, row.size)))
         .collect();
+    for session in VendorUsageSessionRecord::list_all(pool).await? {
+        if session.provider == "grok"
+            && (session.cost.is_none()
+                || session.total_tokens.is_none()
+                || session.external_session_id.len() > 36)
+        {
+            known_map.remove(&session.source_path);
+        }
+    }
     let scan = tokio::task::spawn_blocking(move || scan_changed_vendor_logs(&roots, &known_map))
         .await
         .map_err(|error| sqlx::Error::Protocol(error.to_string()))?;

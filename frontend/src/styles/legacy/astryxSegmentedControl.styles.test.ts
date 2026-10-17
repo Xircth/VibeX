@@ -32,7 +32,7 @@ describe('Astryx SegmentedControl chrome', () => {
     }
   });
 
-  it('restores the Astryx track fill and element radius on the control', () => {
+  it('paints the gray capsule track and pill radius', () => {
     const decls: Record<string, string> = {};
     parse(stylesheet).walkRules((rule) => {
       if (selectorOf(rule) !== '.legacy-design .astryx-segmented-control') {
@@ -43,15 +43,15 @@ describe('Astryx SegmentedControl chrome', () => {
       });
     });
 
-    expect(decls['--color-neutral']?.replace(/\s+/g, '')).toBe(
-      'light-dark(rgba(5,54,89,0.1),rgba(223,226,229,0.2))'
+    expect(decls['background-color']?.replace(/\s+/g, '')).toBe(
+      'light-dark(#e3e3e3,#3a3a3a)'
     );
-    expect(decls['--radius-element']).toBe('8px');
-    expect(decls['--_segmented-control-radius']).toBe('8px');
+    expect(decls['border-radius']).toBe('999px');
+    expect(decls['--_segmented-control-radius']).toBe('999px');
     expect(decls['--color-neutral']).not.toContain('surface-raised-control');
   });
 
-  it('strips native button appearance from SegmentedControl items', () => {
+  it('widens items and keeps unselected segments transparent', () => {
     const decls: Record<string, string> = {};
     parse(stylesheet).walkRules((rule) => {
       if (
@@ -66,5 +66,26 @@ describe('Astryx SegmentedControl chrome', () => {
 
     expect(decls.appearance).toBe('none');
     expect(decls['-webkit-appearance']).toBe('none');
+    expect(decls['background-color']).toBe('transparent');
+    expect(decls['padding-inline']).toBe('12px');
+  });
+
+  it('paints the selected segment white', () => {
+    const decls: Record<string, string> = {};
+    parse(stylesheet).walkRules((rule) => {
+      if (
+        selectorOf(rule) !==
+        ".legacy-design .astryx-segmented-control-item[aria-checked='true']"
+      ) {
+        return;
+      }
+      rule.walkDecls((declaration) => {
+        decls[declaration.prop] = declaration.value;
+      });
+    });
+
+    expect(decls['background-color']?.replace(/\s+/g, '')).toBe(
+      'light-dark(#ffffff,#1c1c1c)'
+    );
   });
 });

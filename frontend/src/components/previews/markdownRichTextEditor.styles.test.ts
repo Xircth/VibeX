@@ -38,4 +38,45 @@ describe('markdown rich text editor chrome', () => {
     });
     expect(matches).toContain('1rem 1.5rem');
   });
+
+  it('kills the Field focus ring that appears after click', () => {
+    const css = readFileSync(STYLESHEET, 'utf8');
+    const focusDecls: Record<string, { value: string; important: boolean }> =
+      {};
+    parse(css).walkRules((rule: Rule) => {
+      const selector = rule.selector.replace(/\s+/g, ' ');
+      if (!selector.includes('.astryx-rich-text-editor')) return;
+      if (!selector.includes(':focus-within')) return;
+      rule.walkDecls((declaration) => {
+        focusDecls[declaration.prop] = {
+          value: declaration.value,
+          important: declaration.important,
+        };
+      });
+    });
+
+    expect(focusDecls.border?.value).toBe('none');
+    expect(focusDecls.border?.important).toBe(true);
+    expect(focusDecls['box-shadow']?.value).toBe('none');
+    expect(focusDecls['box-shadow']?.important).toBe(true);
+    expect(focusDecls.outline?.value).toBe('none');
+    expect(focusDecls.outline?.important).toBe(true);
+  });
+
+  it('kills the contenteditable outline after the surface is focused', () => {
+    const css = readFileSync(STYLESHEET, 'utf8');
+    const decls: Record<string, string> = {};
+    parse(css).walkRules((rule: Rule) => {
+      const selector = rule.selector.replace(/\s+/g, ' ');
+      if (!selector.includes('[contenteditable]')) return;
+      if (!selector.includes(':focus')) return;
+      rule.walkDecls((declaration) => {
+        decls[declaration.prop] = declaration.value;
+      });
+    });
+
+    expect(decls.outline).toBe('none');
+    expect(decls['box-shadow']).toBe('none');
+    expect(decls.border).toBe('none');
+  });
 });

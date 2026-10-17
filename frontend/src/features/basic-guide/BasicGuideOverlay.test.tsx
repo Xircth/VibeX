@@ -90,9 +90,17 @@ describe('BasicGuideOverlay', () => {
       within(panel).queryByText(/项目就是一个文件夹/, { exact: false })
     ).toBeNull();
     expect(document.querySelector('[data-basic-guide-callout]')).toBeNull();
+    const exit = screen.getByRole('button', { name: '直接退出' });
+    const steps = panel.querySelector('.astryx-step');
+    expect(exit).toBeInTheDocument();
+    expect(steps).toBeTruthy();
     expect(
-      screen.getByRole('button', { name: '直接退出' })
-    ).toBeInTheDocument();
+      Boolean(
+        steps &&
+          exit.compareDocumentPosition(steps) & Node.DOCUMENT_POSITION_FOLLOWING
+      )
+    ).toBe(true);
+    expect(panel.className).toMatch(/basic-guide-panel--bottom/);
   });
 
   it('places callout copy next to a measured box on this window', () => {
@@ -177,16 +185,18 @@ describe('BasicGuideOverlay', () => {
       substep: 'show-end',
       endCopy: 'finished',
     });
-    expect(
-      screen.getByRole('button', {
-        name: '更多使用技巧请查看官方文档或社区，Vibing~~~',
-      })
-    ).toBeInTheDocument();
-    await user.click(
-      screen.getByRole('button', {
-        name: '更多使用技巧请查看官方文档或社区，Vibing~~~',
-      })
+    const end = document.querySelector('[data-basic-guide-callout="end"]');
+    expect(end).toHaveTextContent(
+      '更多使用技巧请查看官方文档或社区，Vibing~~~'
     );
+    expect(end).toHaveClass('basic-guide-callout');
+    expect(end).toHaveClass('basic-guide-end');
+    expect(
+      screen.queryByRole('button', {
+        name: '更多使用技巧请查看官方文档或社区，Vibing~~~',
+      })
+    ).toBeNull();
+    await user.click(screen.getByRole('button', { name: '关闭' }));
     expect(value.dismissEnd).toHaveBeenCalled();
   });
 });

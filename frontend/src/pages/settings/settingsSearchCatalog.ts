@@ -92,7 +92,6 @@ export const SETTINGS_SEARCH_ENTRIES: SettingsSearchEntry[] = [
     'appearance.monoFont.label',
     'appearance.language.title',
     'appearance.language.label',
-    'appearance.kanbanSessionList.title',
     'appearance.kanbanSessionList.label',
     'appearance.kanbanBoardStyle.title',
     'appearance.kanbanBoardStyle.label',

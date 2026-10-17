@@ -134,16 +134,14 @@
       "hint": "Bilingual coverage is progressive — some screens are still Chinese-only and will be completed over time."
     },
     "kanbanSessionList": {
-      "title": "Kanban session list",
-      "description": "Choose how sessions are grouped on the Kanban page.",
-      "label": "Display mode",
+      "label": "Kanban session list",
       "status": "Status groups",
       "workspace": "Workspace groups"
     },
     "kanbanBoardStyle": {
       "title": "Session board style",
-      "description": "Choose how the session monitor and execution area are presented.",
-      "label": "Board style",
+      "description": "Kanban session list and board layout type.",
+      "label": "Board layout type",
       "fixed": "Fixed layout",
       "canvas": "Infinite canvas"
     },

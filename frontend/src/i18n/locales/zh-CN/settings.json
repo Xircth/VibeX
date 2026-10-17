@@ -134,16 +134,14 @@
       "hint": "当前为渐进式双语，部分界面仍为中文，将逐步完善。"
     },
     "kanbanSessionList": {
-      "title": "Kanban 会话列表",
-      "description": "选择 Kanban 页会话列表的分组方式。",
-      "label": "显示方式",
+      "label": "看板会话列表",
       "status": "状态分组视图",
       "workspace": "工作区分组视图"
     },
     "kanbanBoardStyle": {
       "title": "会话看板样式",
-      "description": "选择会话监控与执行区的呈现方式。",
-      "label": "看板样式",
+      "description": "看板会话列表与看板布局类型。",
+      "label": "看板布局类型",
       "fixed": "固定布局",
       "canvas": "无限画布"
     },

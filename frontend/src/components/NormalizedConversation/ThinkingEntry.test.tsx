@@ -66,6 +66,15 @@ describe('ThinkingEntry', () => {
     expect(screen.getByText('updated finished thought')).toBeInTheDocument();
   });
 
+  it('sizes thinking labels to the conversation body without bolding', () => {
+    expect(convToolsStyles).toMatch(
+      /\.conv-thinking-header\s*\{[^}]*font-size:\s*13px;[^}]*font-weight:\s*400;/
+    );
+    expect(convToolsStyles).not.toMatch(
+      /\.conv-thinking-label\s*\{[^}]*font-weight:\s*700/
+    );
+  });
+
   it('styles thinking markdown content with secondary muted text color instead of primary body color', () => {
     expect(convToolsStyles).toMatch(
       /\.conv-thinking-content\s+\.conv-markdown[\s\S]*?--color-text-primary:\s*var\(--conv-text-secondary,\s*var\(--text-muted\)\)/

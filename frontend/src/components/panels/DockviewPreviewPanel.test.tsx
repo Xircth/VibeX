@@ -315,7 +315,7 @@ describe('DockviewPreviewPanel', () => {
     expect(screen.queryByTestId('monaco-editor')).not.toBeInTheDocument();
     expect(
       screen.getByRole('radiogroup', { name: 'Markdown默认预览方式' })
-    ).toBeVisible();
+    ).toHaveClass('astryx-segmented-control');
     expect(screen.getByRole('radio', { name: 'Preview' })).toBeChecked();
     expect(screen.getByRole('radio', { name: 'Source' })).toBeVisible();
     expect(screen.getByRole('radio', { name: 'RichText' })).toBeVisible();

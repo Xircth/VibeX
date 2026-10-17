@@ -68,4 +68,15 @@ describe('markdown file prose chrome', () => {
     );
     expect(rhythm).toBeTruthy();
   });
+
+  it('indents native RichText lists so outside markers stay in the tab', () => {
+    const lists = ruleIncluding(
+      '.markdown-file-prose',
+      '[contenteditable]',
+      'ul'
+    );
+    expect(lists.decls['padding-inline-start']).toBe('var(--spacing-6, 24px)');
+    expect(lists.decls['padding-left']).toBe('var(--spacing-6, 24px)');
+    expect(lists.decls['list-style-position']).toBe('outside');
+  });
 });

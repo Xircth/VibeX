@@ -136,6 +136,14 @@
   margin: 10px 0;
 }
 
+.markdown-file-prose [contenteditable] ul:not(#\#):not(#\#):not(#\#):not(#\#),
+.markdown-file-prose [contenteditable] ol:not(#\#):not(#\#):not(#\#):not(#\#) {
+  list-style-position: outside;
+  max-width: 100%;
+  padding-left: var(--spacing-6, 24px);
+  padding-inline-start: var(--spacing-6, 24px);
+}
+
 .markdown-file-prose li:not(#\#):not(#\#):not(#\#):not(#\#) {
   margin-bottom: 4px;
 }

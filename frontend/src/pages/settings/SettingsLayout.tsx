@@ -38,6 +38,7 @@ import { SurfaceLoading } from '@/components/layout/SurfaceLoading';
 import { AppTitleBar } from '@/components/settings/AppTitleBar';
 import { Button } from '@/components/ui/button';
 import { useTauriClient } from '@/lib/desktopShell';
+import { useSettingsNavFloat } from '@/lib/settingsNavFloat';
 import { preloadSettingsPath } from '@/lib/settingsPreload';
 import { cn } from '@/lib/utils';
 import { useBackendCapabilities } from '@/lib/transport';
@@ -200,6 +201,7 @@ export function SettingsLayout() {
   const { t, i18n } = useTranslation('settings');
   const { capabilities, supports } = useBackendCapabilities();
   const isTauri = useTauriClient();
+  const settingsNavFloat = useSettingsNavFloat();
   const logoLeads = logoLeadsWindowChrome();
   const pluginPages = usePluginHostContributions('settings_page');
   const [searchQuery, setSearchQuery] = useState('');
@@ -292,7 +294,12 @@ export function SettingsLayout() {
         />
       ) : null}
       <div className="flex min-h-0 flex-1">
-        <aside className="settings-sidebar m-3 w-44 shrink-0 overflow-y-auto p-2.5">
+        <aside
+          className={cn(
+            'settings-sidebar min-h-0 w-44 shrink-0 overflow-y-auto p-2.5',
+            settingsNavFloat ? 'm-3' : 'settings-sidebar--flush'
+          )}
+        >
           <SettingsSearch
             query={searchQuery}
             onQueryChange={setSearchQuery}

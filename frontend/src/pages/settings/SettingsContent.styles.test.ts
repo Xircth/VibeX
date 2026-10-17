@@ -92,7 +92,9 @@ describe('settings page alignment', () => {
   });
 
   it('matches chat-channel and plugin catalog titles to other settings headings', () => {
-    const pageTitle = declarationsFor('.settings-page .settings-page-header h2');
+    const pageTitle = declarationsFor(
+      '.settings-page .settings-page-header h2'
+    );
     const chatTitle = declarationsFor(
       '.settings-page .chat-channel-heading__copy h2'
     );
@@ -415,5 +417,16 @@ describe('settings page alignment', () => {
     expect(selectedThemeCard.get('border-color')).toBe(
       'var(--settings-button-primary-bg)'
     );
+  });
+
+  it('lets the settings menu sit flush on the window background without a floating panel', () => {
+    const flush = declarationsFor('.settings-sidebar.settings-sidebar--flush');
+
+    expect(flush.get('border')).toBe('none');
+    expect(flush.get('border-radius')).toBe('0');
+    expect(flush.get('background')).toBe('transparent');
+    expect(flush.get('box-shadow')).toBe('none');
+    expect(flush.get('backdrop-filter')).toBe('none');
+    expect(flush.get('-webkit-backdrop-filter')).toBe('none');
   });
 });

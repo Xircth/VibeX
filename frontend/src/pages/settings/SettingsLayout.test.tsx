@@ -45,6 +45,16 @@ vi.mock('@/hooks/useProjectSwitcher', () => ({
   useProjectSwitcher: () => vi.fn(),
 }));
 
+const useSettingsNavFloat = vi.hoisted(() => vi.fn(() => true));
+
+vi.mock('@/lib/settingsNavFloat', () => ({
+  useSettingsNavFloat,
+}));
+
+beforeEach(() => {
+  useSettingsNavFloat.mockReturnValue(true);
+});
+
 describe('SettingsLayout capability gating', () => {
   it('keeps the settings shell pinned to the visible viewport', () => {
     const transport: BackendTransport = {
@@ -548,5 +558,53 @@ describe('SettingsLayout window title', () => {
     } finally {
       usePluginHostContributions.mockReturnValue([]);
     }
+  });
+});
+
+describe('SettingsLayout menu float', () => {
+  const renderSettings = () => {
+    const transport: BackendTransport = {
+      environment: 'desktop',
+      call: vi.fn(),
+    };
+    render(
+      <BackendTransportProvider transport={transport}>
+        <MemoryRouter initialEntries={['/settings/appearance']}>
+          <Routes>
+            <Route path="/settings" element={<SettingsLayout />}>
+              <Route
+                path="appearance"
+                element={<div>Appearance content</div>}
+              />
+            </Route>
+          </Routes>
+        </MemoryRouter>
+      </BackendTransportProvider>
+    );
+  };
+
+  beforeEach(() => {
+    useSettingsNavFloat.mockReturnValue(true);
+  });
+
+  it('shows the settings menu in a rounded floating container by default', () => {
+    renderSettings();
+    const sidebar = screen
+      .getByText('Appearance content')
+      .closest('.settings-page')
+      ?.querySelector('.settings-sidebar');
+    expect(sidebar).toHaveClass('m-3');
+    expect(sidebar).not.toHaveClass('settings-sidebar--flush');
+  });
+
+  it('lays the settings menu flat on the window background when floating is off', () => {
+    useSettingsNavFloat.mockReturnValue(false);
+    renderSettings();
+    const sidebar = screen
+      .getByText('Appearance content')
+      .closest('.settings-page')
+      ?.querySelector('.settings-sidebar');
+    expect(sidebar).toHaveClass('settings-sidebar--flush');
+    expect(sidebar).not.toHaveClass('m-3');
   });
 });

@@ -24,6 +24,7 @@ const STORAGE_KEYS = {
   'vibex.skills.hostMode': 'skills_host_mode',
   'vibex:operation-diagnostics': 'operation_diagnostics_enabled',
   'vibex:auto-open-created-previews': 'auto_open_created_previews',
+  'vibex:settings-nav-float': 'settings_nav_float',
   'vibex:basic-guide': 'basic_guide',
 } as const;
 

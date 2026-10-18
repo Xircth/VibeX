@@ -666,7 +666,11 @@ const AgentTimelineConversation = forwardRef<
           return false;
         }
         if (kind === 'session_notice') return false;
-        if (usesComposerStatusDock && kind === 'question_request') {
+        if (
+          usesComposerStatusDock &&
+          item.row.row.kind === 'question_request' &&
+          !item.row.row.response
+        ) {
           return false;
         }
         return true;
@@ -881,6 +885,8 @@ const AgentTimelineConversation = forwardRef<
   const setConversationPlanEntries = entries?.setConversationPlanEntries;
   const setConversationTurnInFlight = entries?.setConversationTurnInFlight;
   const setConversationSteeringTurnId = entries?.setConversationSteeringTurnId;
+  const setConversationDeliveryChannel =
+    entries?.setConversationDeliveryChannel;
   const conversationPlanEntries = useMemo(
     () => getLatestTimelinePlanEntries(timeline),
     [timeline]
@@ -905,6 +911,9 @@ const AgentTimelineConversation = forwardRef<
     isTurnInFlight,
     setConversationSteeringTurnId,
   ]);
+  useEffect(() => {
+    setConversationDeliveryChannel?.(conversation.deliveryChannel);
+  }, [conversation.deliveryChannel, setConversationDeliveryChannel]);
 
   const setUserMessageHistory = entries?.setUserMessageHistory;
   const timelineTurns = useMemo(

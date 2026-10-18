@@ -28,7 +28,6 @@ import { useConversationTimeline } from '@/features/conversation/useConversation
 import { resolveConversationCollapsePreferences } from '@/lib/conversationCollapsePreferences';
 import type { WorkspaceWithSession } from '@/types/attempt';
 import { agentDisplayLabel } from './DelegationCard';
-import { hasAskQuestionTool } from '@/components/tasks/follow-up/agentQuestionModel';
 
 const CONVERSATION_REGION_SELECTOR = '.right-panel-conversation-region';
 
@@ -69,16 +68,10 @@ export function ChildConversationViewer({
       ),
     [conversation.items, messages, taskPreview]
   );
-  const hideAnsweredQuestionRows = hasAskQuestionTool(
-    messages.map((row) => row.turn)
+  const leftoverSideRows = useMemo(
+    () => leftoverUninlinedSideRows(conversation.sideRows, stream),
+    [conversation.sideRows, stream]
   );
-  const leftoverSideRows = useMemo(() => {
-    const leftover = leftoverUninlinedSideRows(conversation.sideRows, stream);
-    if (!hideAnsweredQuestionRows) return leftover;
-    return leftover.filter(
-      (entry) => !(entry.row.kind === 'question_request' && entry.row.response)
-    );
-  }, [conversation.sideRows, hideAnsweredQuestionRows, stream]);
   const delegations = useMemo(
     () =>
       conversation.sideRows.flatMap((row) =>
@@ -211,13 +204,6 @@ export function ChildConversationViewer({
                           />
                         );
                       }
-                      if (
-                        hideAnsweredQuestionRows &&
-                        entry.row.row.kind === 'question_request' &&
-                        entry.row.row.response
-                      ) {
-                        return null;
-                      }
                       return (
                         <ChildInlineSideRow
                           key={entry.row.row_id}
@@ -237,6 +223,16 @@ export function ChildConversationViewer({
                               respondingId === entry.row.request.permission_id
                             }
                             onRespond={respondPermission}
+                          />
+                        );
+                      }
+                      if (entry.row.kind === 'question_request') {
+                        return (
+                          <ChildInlineSideRow
+                            key={entry.row_id}
+                            entry={entry}
+                            respondingId={respondingId}
+                            onRespondQuestion={respondQuestion}
                           />
                         );
                       }

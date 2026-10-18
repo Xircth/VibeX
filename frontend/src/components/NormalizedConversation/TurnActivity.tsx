@@ -630,8 +630,12 @@ export function TurnActivity({
     [entries, folded.hiddenToolUseIds, lifecycleIndex.spawnBindingIds]
   );
   const askQuestionEntries = useMemo(
-    () => entries.filter((entry) => entry.isAskQuestion),
-    [entries]
+    () =>
+      entries.filter(
+        (entry) =>
+          entry.isAskQuestion && !matchTimelineQuestion(entry.use, questions)
+      ),
+    [entries, questions]
   );
   const hostDelegationEntries = useMemo(
     () => entries.filter((entry) => entry.isHostDelegation),

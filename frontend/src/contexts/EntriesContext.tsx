@@ -11,6 +11,7 @@ import {
 import type { PatchTypeWithKey } from '@/hooks/conversationEntries';
 import type {
   AgentSessionConfigOption,
+  DeliveryChannel,
   PlanEntry,
   TokenUsageInfo,
 } from 'shared/types';
@@ -34,6 +35,7 @@ interface EntriesContextType {
   setConversationPlanEntries: (entries: PlanEntry[]) => void;
   setConversationTurnInFlight: (inFlight: boolean) => void;
   setConversationSteeringTurnId: (turnId: string | null) => void;
+  setConversationDeliveryChannel: (channel: DeliveryChannel) => void;
   setUserMessageHistory: (messages: string[]) => void;
   reset: () => void;
   tokenUsageInfo: TokenUsageInfo | null;
@@ -42,6 +44,7 @@ interface EntriesContextType {
   conversationPlanEntries: PlanEntry[];
   conversationTurnInFlight: boolean;
   conversationSteeringTurnId: string | null;
+  conversationDeliveryChannel: DeliveryChannel;
   userMessageHistory: string[];
 }
 
@@ -53,6 +56,7 @@ type EntriesRuntimeValue = {
   conversationPlanEntries: PlanEntry[];
   conversationTurnInFlight: boolean;
   conversationSteeringTurnId: string | null;
+  conversationDeliveryChannel: DeliveryChannel;
   userMessageHistory: string[];
 };
 
@@ -64,6 +68,7 @@ const EMPTY_RUNTIME_VALUE: EntriesRuntimeValue = {
   conversationPlanEntries: EMPTY_CONVERSATION_PLAN_ENTRIES,
   conversationTurnInFlight: false,
   conversationSteeringTurnId: null,
+  conversationDeliveryChannel: 'none',
   userMessageHistory: EMPTY_USER_MESSAGE_HISTORY,
 };
 
@@ -375,6 +380,30 @@ export const EntriesProvider = ({
     [runtimeKey]
   );
 
+  const setConversationDeliveryChannel = useCallback(
+    (conversationDeliveryChannel: DeliveryChannel) => {
+      if (
+        localValueRef.current.conversationDeliveryChannel ===
+        conversationDeliveryChannel
+      ) {
+        return;
+      }
+      const nextValue = {
+        ...localValueRef.current,
+        conversationDeliveryChannel,
+      };
+      localValueRef.current = nextValue;
+
+      if (runtimeKey) {
+        writeRuntimeValue(runtimeKey, nextValue);
+        return;
+      }
+
+      setLocalValue(nextValue);
+    },
+    [runtimeKey]
+  );
+
   const setUserMessageHistory = useCallback(
     (messages: string[]) => {
       if (
@@ -423,6 +452,7 @@ export const EntriesProvider = ({
       setConversationPlanEntries,
       setConversationTurnInFlight,
       setConversationSteeringTurnId,
+      setConversationDeliveryChannel,
       setUserMessageHistory,
       reset,
       tokenUsageInfo: localValue.tokenUsageInfo,
@@ -431,6 +461,7 @@ export const EntriesProvider = ({
       conversationPlanEntries: localValue.conversationPlanEntries,
       conversationTurnInFlight: localValue.conversationTurnInFlight,
       conversationSteeringTurnId: localValue.conversationSteeringTurnId,
+      conversationDeliveryChannel: localValue.conversationDeliveryChannel,
       userMessageHistory: localValue.userMessageHistory,
     }),
     [
@@ -443,6 +474,7 @@ export const EntriesProvider = ({
       setConversationPlanEntries,
       setConversationTurnInFlight,
       setConversationSteeringTurnId,
+      setConversationDeliveryChannel,
       setUserMessageHistory,
     ]
   );

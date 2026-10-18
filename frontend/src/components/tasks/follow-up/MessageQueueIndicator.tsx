@@ -2,9 +2,10 @@ import { useState } from 'react';
 import type { ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
-  ArrowDown,
   ArrowUp,
   ChevronDown,
+  ChevronsDown,
+  ChevronsUp,
   Clock,
   Loader2,
   Pencil,
@@ -16,6 +17,9 @@ import { cn } from '@/lib/utils';
 interface MessageQueueIndicatorProps {
   isQueued: boolean;
   queuedMessages?: QueuedMessage[];
+  canSteerQueued?: boolean;
+  steeringQueued?: boolean;
+  onSteerQueuedMessage?: (message: QueuedMessage) => void;
   onEditQueuedMessage?: (message: QueuedMessage) => void;
   onDeleteQueuedMessage?: (message: QueuedMessage) => void;
   onMoveQueuedMessage?: (message: QueuedMessage, direction: -1 | 1) => void;
@@ -24,6 +28,9 @@ interface MessageQueueIndicatorProps {
 export function MessageQueueIndicator({
   isQueued,
   queuedMessages = [],
+  canSteerQueued = false,
+  steeringQueued = false,
+  onSteerQueuedMessage,
   onEditQueuedMessage,
   onDeleteQueuedMessage,
   onMoveQueuedMessage,
@@ -96,12 +103,23 @@ export function MessageQueueIndicator({
                   >
                     <Trash2 className="h-3.5 w-3.5" />
                   </QueueAction>
+                  {canSteerQueued ? (
+                    <QueueAction
+                      label={t('messageQueue.steer')}
+                      disabled={
+                        claimed || steeringQueued || !onSteerQueuedMessage
+                      }
+                      onClick={() => onSteerQueuedMessage?.(message)}
+                    >
+                      <ArrowUp className="h-3.5 w-3.5" />
+                    </QueueAction>
+                  ) : null}
                   <QueueAction
                     label={t('messageQueue.moveUp')}
                     disabled={claimed || index === 0 || !onMoveQueuedMessage}
                     onClick={() => onMoveQueuedMessage?.(message, -1)}
                   >
-                    <ArrowUp className="h-3.5 w-3.5" />
+                    <ChevronsUp className="h-3.5 w-3.5" />
                   </QueueAction>
                   <QueueAction
                     label={t('messageQueue.moveDown')}
@@ -112,7 +130,7 @@ export function MessageQueueIndicator({
                     }
                     onClick={() => onMoveQueuedMessage?.(message, 1)}
                   >
-                    <ArrowDown className="h-3.5 w-3.5" />
+                    <ChevronsDown className="h-3.5 w-3.5" />
                   </QueueAction>
                 </div>
               </li>

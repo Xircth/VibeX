@@ -173,4 +173,61 @@ describe('ChildConversationViewer', () => {
     ).toBeInTheDocument();
     expect(screen.getByText('你好，我是 Codex')).toBeInTheDocument();
   });
+
+  it('renders answered questions with the shared ask-question card', () => {
+    useConversationTimeline.mockImplementation(() =>
+      timelineMock({
+        items: [
+          {
+            kind: 'side',
+            revision: 3n,
+            row: {
+              row_id: 'q-1',
+              revision: 3n,
+              row: {
+                kind: 'question_request',
+                request: {
+                  question_id: 'q-1',
+                  prompt: 'Pick a tracker',
+                  options: ['Local markdown'],
+                  schema: {
+                    'x-vibex-questions': [
+                      {
+                        id: 'tracker',
+                        question: 'Pick a tracker',
+                        options: [{ label: 'Local markdown' }],
+                      },
+                    ],
+                  },
+                },
+                response: {
+                  answer: 'Local markdown',
+                  content: {
+                    answers: [
+                      { questionId: 'tracker', labels: ['Local markdown'] },
+                    ],
+                  },
+                },
+              },
+            },
+          },
+        ],
+      })
+    );
+
+    render(
+      <ChildConversationViewer
+        conversationId="child-1"
+        attempt={{ id: 'ws-1', container_ref: null } as never}
+        task={null}
+        onClose={vi.fn()}
+      />
+    );
+
+    expect(screen.getByTestId('ask-question-tool-card')).toBeInTheDocument();
+    expect(screen.getByText('Pick a tracker')).toBeInTheDocument();
+    expect(
+      screen.queryByRole('button', { name: '提交回答' })
+    ).not.toBeInTheDocument();
+  });
 });

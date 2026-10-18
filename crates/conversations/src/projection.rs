@@ -2579,6 +2579,24 @@ impl ProjectionFold {
                     }
                 }
             },
+            ConversationEvent::UserSubmittedFeedback {
+                note_id,
+                text,
+                turn_id,
+                ..
+            } => {
+                if let Some(turn_id) = turn_id.or(record.turn_id) {
+                    ensure_turn(turns, turn_order, turn_id, record);
+                    let turn = turns.get_mut(&turn_id).expect("turn exists");
+                    insert_mid_turn_user_slice(
+                        turn,
+                        note_id,
+                        vec![ContentBlock::Text { text }],
+                        record,
+                    );
+                    touched_turn_rows = Some(TouchedTurnRows::All(turn_id));
+                }
+            }
             _ => {}
         }
 
@@ -3262,6 +3280,21 @@ fn apply_accepted_steering(
     steering_id: Uuid,
     record: &ConversationEventRecord,
 ) {
+    let blocks = turn
+        .pending_steering
+        .take()
+        .filter(|(id, _)| *id == steering_id)
+        .map(|(_, blocks)| blocks)
+        .unwrap_or_default();
+    insert_mid_turn_user_slice(turn, steering_id, blocks, record);
+}
+
+fn insert_mid_turn_user_slice(
+    turn: &mut ProjectedTurn,
+    slice_id: Uuid,
+    blocks: Vec<ContentBlock>,
+    record: &ConversationEventRecord,
+) {
     if !turn.assistant.blocks.is_empty() {
         let mut closed = turn.assistant.clone();
         closed.completed_at = Some(record.created_at);
@@ -3279,15 +3312,9 @@ fn apply_accepted_steering(
             agent_message_id: None,
         };
     }
-    let blocks = turn
-        .pending_steering
-        .take()
-        .filter(|(id, _)| *id == steering_id)
-        .map(|(_, blocks)| blocks)
-        .unwrap_or_default();
     if !blocks.is_empty() {
         turn.prefix_segments.push(MessageTurn {
-            id: format!("{}:steer:{steering_id}", turn.turn_id),
+            id: format!("{}:steer:{slice_id}", turn.turn_id),
             role: TurnRole::User,
             blocks,
             timestamp: record.created_at,
@@ -4702,6 +4729,120 @@ mod tests {
         let timeline = ConversationProjector::project(&pool, conversation_id)
             .await
             .expect("project steered turn");
+        let texts: Vec<(TurnRole, String)> = timeline
+            .rows
+            .iter()
+            .filter_map(|row| match &row.row {
+                ConversationTimelineRow::MessageTurn { turn, .. } => {
+                    let text = turn.blocks.iter().find_map(|block| match block {
+                        ContentBlock::Text { text } => Some(text.clone()),
+                        _ => None,
+                    })?;
+                    Some((turn.role, text))
+                }
+                _ => None,
+            })
+            .collect();
+        assert_eq!(
+            texts,
+            vec![
+                (TurnRole::User, "write it".into()),
+                (TurnRole::Assistant, "first half".into()),
+                (TurnRole::User, "stop".into()),
+                (TurnRole::Assistant, "second half".into()),
+            ]
+        );
+        let assistant_ids: Vec<String> = timeline
+            .rows
+            .iter()
+            .filter_map(|row| match &row.row {
+                ConversationTimelineRow::MessageTurn { turn, .. }
+                    if turn.role == TurnRole::Assistant =>
+                {
+                    Some(turn.id.clone())
+                }
+                _ => None,
+            })
+            .collect();
+        assert_eq!(
+            assistant_ids,
+            vec![
+                format!("{turn_id}:assistant"),
+                format!("{turn_id}:assistant:2"),
+            ]
+        );
+        let first_agent_id = timeline.rows.iter().find_map(|row| match &row.row {
+            ConversationTimelineRow::MessageTurn { turn, .. }
+                if turn.id == format!("{turn_id}:assistant") =>
+            {
+                turn.agent_message_id.clone()
+            }
+            _ => None,
+        });
+        assert_eq!(first_agent_id.as_deref(), Some("msg_1"));
+    }
+
+    #[tokio::test]
+    async fn submitted_feedback_splits_the_assistant_bubble_like_steering() {
+        let pool = setup_pool().await;
+        let (conversation_id, turn_id) = seed_turn(&pool).await;
+        let note_id = Uuid::new_v4();
+        append_event(
+            &pool,
+            conversation_id,
+            Some(turn_id),
+            "user",
+            ConversationEvent::UserTurnCreated {
+                blocks: vec![ConversationInputBlock::Text {
+                    text: "write it".into(),
+                }],
+                workflow_refs: Vec::new(),
+            },
+            None,
+        )
+        .await;
+        append_event(
+            &pool,
+            conversation_id,
+            Some(turn_id),
+            "runtime",
+            ConversationEvent::AssistantTextDelta {
+                text: "first half".into(),
+                message_id: Some("msg_1".into()),
+            },
+            None,
+        )
+        .await;
+        append_event(
+            &pool,
+            conversation_id,
+            Some(turn_id),
+            "user",
+            ConversationEvent::UserSubmittedFeedback {
+                note_id,
+                operation_id: Uuid::new_v4(),
+                text: "stop".into(),
+                turn_id: Some(turn_id),
+            },
+            None,
+        )
+        .await;
+        append_event(
+            &pool,
+            conversation_id,
+            Some(turn_id),
+            "runtime",
+            ConversationEvent::AssistantTextDelta {
+                text: "second half".into(),
+                message_id: None,
+            },
+            None,
+        )
+        .await;
+
+        let timeline = ConversationProjector::project(&pool, conversation_id)
+            .await
+            .expect("project feedback turn");
         let texts: Vec<(TurnRole, String)> = timeline
             .rows
             .iter()

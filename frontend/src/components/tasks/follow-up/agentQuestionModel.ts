@@ -1,7 +1,6 @@
 import type {
   ConversationQuestionRequest,
   ConversationQuestionResponse,
-  MessageTurn,
 } from 'shared/types';
 import type {
   ToolResultBlock,
@@ -55,14 +54,6 @@ export function isAskQuestionTool(use: ToolUseBlock): boolean {
     return true;
   }
   return isQuestionToolName(use.tool_name);
-}
-
-export function hasAskQuestionTool(turns: MessageTurn[]): boolean {
-  return turns.some((turn) =>
-    turn.blocks.some(
-      (block) => block.type === 'tool_use' && isAskQuestionTool(block)
-    )
-  );
 }
 
 export function questionTabsFromRequest(

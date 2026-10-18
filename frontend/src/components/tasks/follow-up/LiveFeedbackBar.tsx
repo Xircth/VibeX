@@ -15,12 +15,7 @@ export function LiveFeedbackNotes({
   onResend?: (text: string) => void;
 }) {
   const { t } = useTranslation('conversation');
-  const visible = notes.filter(
-    (note) =>
-      note.status === 'pending' ||
-      note.status === 'delivered' ||
-      note.status === 'expired'
-  );
+  const visible = notes.filter((note) => note.status === 'expired');
   if (visible.length === 0) return null;
 
   const ordered = [...visible].sort((left, right) =>

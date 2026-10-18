@@ -7,14 +7,7 @@ function renderRunningControls(
   props: Partial<Parameters<typeof ActionBarRunningControls>[0]> = {}
 ) {
   return render(
-    <ActionBarRunningControls
-      isCompactingContext={false}
-      isStopping={false}
-      hasQueueableContent={true}
-      sessionId="session-1"
-      onStopExecution={vi.fn()}
-      {...props}
-    />
+    <ActionBarRunningControls isStopping={false} onStopExecution={vi.fn()} {...props} />
   );
 }
 
@@ -26,46 +19,12 @@ describe('ActionBarRunningControls', () => {
     expect(screen.getByRole('button', { name: '停止' })).toBeInTheDocument();
   });
 
-  it('offers native insert only when a native channel is live', () => {
-    const onSteer = vi.fn();
-    const { rerender } = renderRunningControls({
-      steeringChannel: null,
-      onSteer,
-    });
-    expect(screen.queryByRole('button', { name: '插入当前回合' })).toBeNull();
-
-    rerender(
-      <ActionBarRunningControls
-        isCompactingContext={false}
-        isStopping={false}
-        steeringChannel="native"
-        hasQueueableContent={true}
-        sessionId="session-1"
-        onSteer={onSteer}
-        onStopExecution={vi.fn()}
-      />
-    );
-    expect(screen.getByRole('button', { name: '插入当前回合' })).toBeEnabled();
-  });
-
-  it('labels the pull channel as a note the Agent will read', () => {
-    renderRunningControls({
-      steeringChannel: 'pull',
-      onSteer: vi.fn(),
-    });
-    expect(
-      screen.getByRole('button', { name: '发给 Agent 查阅' })
-    ).toBeEnabled();
-  });
-
-  it('hides steer controls while compacting but keeps stop available', () => {
-    renderRunningControls({
-      isCompactingContext: true,
-      steeringChannel: 'native',
-      onSteer: vi.fn(),
-    });
+  it('keeps only stop next to a running turn', () => {
+    renderRunningControls();
 
     expect(screen.queryByRole('button', { name: '插入当前回合' })).toBeNull();
+    expect(screen.queryByRole('button', { name: '发给 Agent 查阅' })).toBeNull();
+    expect(screen.queryByRole('button', { name: '纠偏' })).toBeNull();
     expect(screen.getByRole('button', { name: '停止' })).toBeInTheDocument();
   });
 
@@ -85,10 +44,7 @@ describe('ActionBarRunningControls', () => {
 
     rerender(
       <ActionBarRunningControls
-        isCompactingContext={false}
         isStopping={true}
-        hasQueueableContent={true}
-        sessionId="session-1"
         onStopExecution={onStopExecution}
       />
     );

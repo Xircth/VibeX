@@ -96,9 +96,11 @@ import {
   hasPendingToolApproval,
   isComposerExecutionActive,
   restoreComposerAttachmentsAfterSendFailure,
-  buildQueuedFollowUp,
 } from './follow-up/sessionComposerSubmit';
-import { executeComposerSteer } from './follow-up/sessionComposerSteering';
+import {
+  executeComposerSteer,
+  getQueueSteerChannel,
+} from './follow-up/sessionComposerSteering';
 import { canEnhancePrompt as getCanEnhancePrompt } from './follow-up/sessionComposerPromptEnhancement';
 import { useSessionComposerPromptEnhancement } from './follow-up/useSessionComposerPromptEnhancement';
 import { useSessionComposerContextCompact } from './follow-up/useSessionComposerContextCompact';
@@ -230,6 +232,7 @@ export function TaskFollowUpSection({
     conversationPlanEntries,
     conversationTurnInFlight,
     conversationSteeringTurnId,
+    conversationDeliveryChannel,
     userMessageHistory,
   } = useEntries();
   const isComposerExecutionRunning = isComposerExecutionActive({
@@ -777,58 +780,58 @@ export function TaskFollowUpSection({
     onPendingOperationIdChange: setPendingSendOperationId,
   });
   const [isSteering, setIsSteering] = useState(false);
-  const handleSteer = useCallback(async () => {
-    if (!sessionId) return;
-    const previousDraft = localMessage;
-    const followUp = buildQueuedFollowUp({
-      message: localMessage,
-      conflictMarkdown: conflictResolutionInstructions,
-      reviewMarkdown,
-      images: attachedImagePaths,
-      executorProfile: effectiveExecutorProfile,
-    });
-    if (!followUp) return;
-    setIsSteering(true);
-    try {
-      await executeComposerSteer({
-        sessionId,
-        previousDraft,
-        followUp,
-        steeringTarget,
-        steer: (args) => conversationApi.steer(args),
-        submitFeedback: (args) => conversationApi.submitFeedback(args),
-        onAfterSuccess: async () => {
-          cancelDebouncedSave();
-          await handleAfterSendWithSessionControlCleanup();
-        },
-        onRestoreDraft: handleSendFailure,
-        onError: setFollowUpError,
-        onToastError: (message) => toast.error(message),
-        messages: {
-          pluginBlocked: t('tasks:composer.steerPluginBlocked'),
-          imagesBlocked: t('tasks:composer.steerImagesBlocked'),
-          turnEnded: t('tasks:composer.steerTurnEnded'),
-          unknown: t('tasks:composer.steerUnknown'),
-          rejected: t('tasks:composer.steerRejected'),
-        },
-      });
-    } finally {
-      setIsSteering(false);
-    }
-  }, [
-    attachedImagePaths,
-    cancelDebouncedSave,
-    conflictResolutionInstructions,
-    effectiveExecutorProfile,
-    handleAfterSendWithSessionControlCleanup,
-    handleSendFailure,
-    localMessage,
-    reviewMarkdown,
-    sessionId,
-    setFollowUpError,
-    steeringTarget,
-    t,
-  ]);
+  const queueSteerChannel = getQueueSteerChannel({
+    isTurnInFlight: conversationTurnInFlight,
+    steeringSupported: Boolean(steeringTarget),
+    currentTurnId: steeringTarget?.turnId ?? null,
+    deliveryChannel: conversationDeliveryChannel,
+    sessionEnhanceFeedbackOn: Boolean(liveFeedbackOn),
+  });
+  const handleSteerQueuedMessage = useCallback(
+    async (queuedMessage: QueuedMessage) => {
+      if (!sessionId || queuedMessage.status !== 'queued') return;
+      const followUp = {
+        message: queuedMessage.data.message,
+        images: queuedMessage.data.images,
+        pluginActions: queuedMessage.data.pluginActions,
+      };
+      setIsSteering(true);
+      try {
+        await executeComposerSteer({
+          sessionId,
+          previousDraft: queuedMessage.data.message,
+          followUp,
+          steeringTarget:
+            queueSteerChannel === 'native' ? steeringTarget : null,
+          steer: (args) => conversationApi.steer(args),
+          submitFeedback: (args) => conversationApi.submitFeedback(args),
+          onAfterSuccess: async () => {
+            await cancelQueue(queuedMessage);
+          },
+          onRestoreDraft: () => undefined,
+          onError: setFollowUpError,
+          onToastError: (message) => toast.error(message),
+          messages: {
+            pluginBlocked: t('tasks:composer.steerPluginBlocked'),
+            imagesBlocked: t('tasks:composer.steerImagesBlocked'),
+            turnEnded: t('tasks:composer.steerTurnEnded'),
+            unknown: t('tasks:composer.steerUnknown'),
+            rejected: t('tasks:composer.steerRejected'),
+          },
+        });
+      } finally {
+        setIsSteering(false);
+      }
+    },
+    [
+      cancelQueue,
+      queueSteerChannel,
+      sessionId,
+      setFollowUpError,
+      steeringTarget,
+      t,
+    ]
+  );
   const { isCompactingContext, canCompactContext, handleCompactContext } =
     useSessionComposerContextCompact({
       sessionId,
@@ -1047,6 +1050,9 @@ export function TaskFollowUpSection({
               <MessageQueueIndicator
                 isQueued={queueIndicatorState.isQueued}
                 queuedMessages={queueIndicatorState.queuedMessages}
+                canSteerQueued={Boolean(queueSteerChannel)}
+                steeringQueued={isSteering}
+                onSteerQueuedMessage={handleSteerQueuedMessage}
                 onEditQueuedMessage={handleEditQueuedMessage}
                 onDeleteQueuedMessage={cancelQueue}
                 onMoveQueuedMessage={moveQueue}
@@ -1197,10 +1203,6 @@ export function TaskFollowUpSection({
                 canCompactContext={canCompactContext}
                 isCompactingContext={isCompactingContext}
                 isStopping={isStopping}
-                isSteering={isSteering}
-                steeringChannel={
-                  steeringTarget ? 'native' : liveFeedbackOn ? 'pull' : null
-                }
                 isSendingFollowUp={isSendingFollowUp}
                 canSendFollowUp={canSendFollowUp}
                 isAwaitingNewSessionConfirmation={
@@ -1211,14 +1213,9 @@ export function TaskFollowUpSection({
                 }
                 isEnhancingPrompt={isEnhancingPrompt}
                 canEnhancePrompt={canEnhancePrompt}
-                sessionId={sessionId}
-                localMessage={localMessage}
-                attachmentCount={attachedImages.length}
                 conflictResolutionInstructions={conflictResolutionInstructions}
-                reviewMarkdown={reviewMarkdown}
                 comments={comments}
                 onCompactContext={handleCompactContext}
-                onSteer={handleSteer}
                 onStopExecution={stopExecution}
                 onSendFollowUp={onSendFollowUp}
                 onEnhancePrompt={handleEnhancePrompt}

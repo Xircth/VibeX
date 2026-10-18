@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import {
   executeComposerSteer,
   getComposerSteeringTarget,
+  getQueueSteerChannel,
 } from './sessionComposerSteering';
 
 const MESSAGES = {
@@ -46,6 +47,59 @@ describe('getComposerSteeringTarget', () => {
         isTurnInFlight: true,
         steeringSupported: true,
         currentTurnId: null,
+      })
+    ).toBeNull();
+  });
+});
+
+describe('getQueueSteerChannel', () => {
+  it('prefers native steering while a turn is in flight', () => {
+    expect(
+      getQueueSteerChannel({
+        isTurnInFlight: true,
+        steeringSupported: true,
+        currentTurnId: 'turn-1',
+        deliveryChannel: 'pull',
+        sessionEnhanceFeedbackOn: true,
+      })
+    ).toBe('native');
+  });
+
+  it('offers pull only when session enhance injected check_user_feedback', () => {
+    expect(
+      getQueueSteerChannel({
+        isTurnInFlight: true,
+        steeringSupported: false,
+        currentTurnId: 'turn-1',
+        deliveryChannel: 'pull',
+        sessionEnhanceFeedbackOn: true,
+      })
+    ).toBe('pull');
+    expect(
+      getQueueSteerChannel({
+        isTurnInFlight: true,
+        steeringSupported: false,
+        currentTurnId: 'turn-1',
+        deliveryChannel: 'pull',
+        sessionEnhanceFeedbackOn: false,
+      })
+    ).toBeNull();
+    expect(
+      getQueueSteerChannel({
+        isTurnInFlight: true,
+        steeringSupported: false,
+        currentTurnId: 'turn-1',
+        deliveryChannel: 'none',
+        sessionEnhanceFeedbackOn: true,
+      })
+    ).toBeNull();
+    expect(
+      getQueueSteerChannel({
+        isTurnInFlight: false,
+        steeringSupported: false,
+        currentTurnId: 'turn-1',
+        deliveryChannel: 'pull',
+        sessionEnhanceFeedbackOn: true,
       })
     ).toBeNull();
   });

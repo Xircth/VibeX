@@ -4,6 +4,7 @@ import type {
   AgentPermissionResponse,
   AgentSessionConfigOption,
   ConversationRowOpBatch,
+  DeliveryChannel,
   MessageTurn,
 } from 'shared/types';
 import { listenToAgentEvents } from '@/features/agents/events';
@@ -64,6 +65,7 @@ export type ConversationTimelineView = {
   agentId: string | null;
   currentTurnId: string | null;
   steeringSupported: boolean;
+  deliveryChannel: DeliveryChannel;
   forkSessionSupported: boolean;
   loading: boolean;
   error: string | null;
@@ -112,6 +114,7 @@ const EMPTY_VIEW: ConversationTimelineView = {
   agentId: null,
   currentTurnId: null,
   steeringSupported: false,
+  deliveryChannel: 'none',
   forkSessionSupported: false,
   loading: false,
   error: null,
@@ -599,6 +602,8 @@ function buildView(
     steeringSupported: Boolean(
       entry?.detail?.active_binding?.capabilities.steering
     ),
+    deliveryChannel:
+      entry?.detail?.active_binding?.capabilities.delivery_channel ?? 'none',
     forkSessionSupported: Boolean(
       entry?.detail?.active_binding?.capabilities.fork_session
     ),

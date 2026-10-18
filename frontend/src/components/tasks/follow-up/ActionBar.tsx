@@ -5,7 +5,6 @@ import type {
   ExecutorProfileId,
 } from 'shared/types';
 import type { ConversationSessionModesState } from '@/features/conversation/conversationStore';
-import { hasFollowUpContent } from './sessionComposerSubmit';
 import { ActionBarImageButton } from './ActionBarImageButton';
 import { ActionBarIdleControls } from './ActionBarIdleControls';
 import { ActionBarUtilityButtons } from './ActionBarUtilityButtons';
@@ -34,21 +33,14 @@ interface ActionBarProps {
   canCompactContext: boolean;
   isCompactingContext: boolean;
   isStopping: boolean;
-  isSteering?: boolean;
-  steeringChannel?: 'native' | 'pull' | null;
   isSendingFollowUp: boolean;
   canSendFollowUp: boolean;
   promptEnhancementEnabled: boolean;
   isEnhancingPrompt: boolean;
   canEnhancePrompt: boolean;
-  sessionId?: string;
-  localMessage: string;
-  attachmentCount?: number;
   conflictResolutionInstructions: string | null;
-  reviewMarkdown: string | null;
   comments: unknown[];
   onCompactContext: () => void;
-  onSteer?: () => void;
   onStopExecution: () => void;
   onSendFollowUp: () => void;
   onEnhancePrompt: () => void;
@@ -74,34 +66,20 @@ export function ActionBar({
   canCompactContext,
   isCompactingContext,
   isStopping,
-  isSteering = false,
-  steeringChannel = null,
   isSendingFollowUp,
   canSendFollowUp,
   promptEnhancementEnabled,
   isEnhancingPrompt,
   canEnhancePrompt,
-  sessionId,
-  localMessage,
-  attachmentCount = 0,
   conflictResolutionInstructions,
-  reviewMarkdown,
   comments,
   onCompactContext,
-  onSteer,
   onStopExecution,
   onSendFollowUp,
   onEnhancePrompt,
   onClearComments,
   onAttachImages,
 }: ActionBarProps) {
-  const hasQueueableContent = hasFollowUpContent({
-    message: localMessage,
-    conflictMarkdown: conflictResolutionInstructions,
-    reviewMarkdown,
-    imageCount: attachmentCount,
-  });
-
   return (
     <div className="flex flex-wrap items-center gap-1 pt-1">
       {showProfileControls ? (
@@ -151,13 +129,7 @@ export function ActionBar({
 
       {isAttemptRunning ? (
         <ActionBarRunningControls
-          isCompactingContext={isCompactingContext}
           isStopping={isStopping}
-          isSteering={isSteering}
-          steeringChannel={steeringChannel}
-          hasQueueableContent={Boolean(hasQueueableContent)}
-          sessionId={sessionId}
-          onSteer={onSteer}
           onStopExecution={onStopExecution}
         />
       ) : (

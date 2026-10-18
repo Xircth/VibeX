@@ -369,4 +369,51 @@ describe('TurnActivity subagent expansion', () => {
       )
     ).toBe(false);
   });
+
+  it('skips the tool-use question card when a matching elicitation row exists', () => {
+    captured.groups = [];
+    render(
+      <TurnActivity
+        turnId="turn-ask"
+        timestamp="2026-08-18T00:00:00.000Z"
+        items={[
+          toolItem(
+            'ask_user_question',
+            {
+              questions: [
+                {
+                  id: 'tracker',
+                  question: 'Pick a tracker',
+                  options: [{ label: 'Local markdown' }],
+                },
+              ],
+            },
+            JSON.stringify({
+              outcome: 'accepted',
+              answers: { tracker: ['Local markdown'] },
+            }),
+            0
+          ),
+          toolItem('bash', { command: 'ls' }, 'ok', 1),
+        ]}
+        questions={[
+          {
+            request: {
+              question_id: 'q-tracker',
+              prompt: 'Pick a tracker',
+              options: ['Local markdown'],
+            },
+            response: { answer: 'Local markdown' },
+          },
+        ]}
+        attempt={{ id: 'ws-1', container_ref: null } as never}
+        task={null}
+      />
+    );
+
+    expect(
+      screen.queryByTestId('ask-question-tool-card')
+    ).not.toBeInTheDocument();
+    expect(screen.getByText('ls')).toBeInTheDocument();
+  });
 });

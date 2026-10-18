@@ -12,6 +12,23 @@ export function getComposerSteeringTarget(args: {
   return { turnId: args.currentTurnId };
 }
 
+export type ComposerSteerChannel = 'native' | 'pull';
+
+export function getQueueSteerChannel(args: {
+  isTurnInFlight: boolean;
+  steeringSupported: boolean;
+  currentTurnId: string | null;
+  deliveryChannel: 'native' | 'pull' | 'none' | null | undefined;
+  sessionEnhanceFeedbackOn: boolean;
+}): ComposerSteerChannel | null {
+  if (!args.isTurnInFlight) return null;
+  if (args.steeringSupported && args.currentTurnId) return 'native';
+  if (args.deliveryChannel === 'pull' && args.sessionEnhanceFeedbackOn) {
+    return 'pull';
+  }
+  return null;
+}
+
 export type ComposerSteerFollowUp = {
   message: string;
   images: string[];

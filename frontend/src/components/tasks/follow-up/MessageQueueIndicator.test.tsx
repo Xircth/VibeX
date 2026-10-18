@@ -64,6 +64,46 @@ describe('MessageQueueIndicator', () => {
     fireEvent.click(moveDown[0]);
     expect(onMove).toHaveBeenCalledWith(messages[0], 1);
     expect(moveDown[1]).toBeDisabled();
+    expect(screen.queryByRole('button', { name: '纠偏' })).toBeNull();
+  });
+
+  it('places a steer action after edit and delete when a live channel is available', () => {
+    const messages = [
+      message('input-1', 'First'),
+      message('input-2', 'Second'),
+    ];
+    const onSteer = vi.fn();
+    const onEdit = vi.fn();
+    const onDelete = vi.fn();
+
+    render(
+      <MessageQueueIndicator
+        isQueued
+        queuedMessages={messages}
+        canSteerQueued
+        onSteerQueuedMessage={onSteer}
+        onEditQueuedMessage={onEdit}
+        onDeleteQueuedMessage={onDelete}
+        onMoveQueuedMessage={vi.fn()}
+      />
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: /已排队 2 条消息/ }));
+    const row = screen.getByText('First').closest('li');
+    expect(row).not.toBeNull();
+    const actions = [...row!.querySelectorAll('button')].map((button) =>
+      button.getAttribute('aria-label')
+    );
+    expect(actions).toEqual([
+      '编辑队列消息',
+      '删除队列消息',
+      '纠偏',
+      '上移队列消息',
+      '下移队列消息',
+    ]);
+
+    fireEvent.click(screen.getAllByRole('button', { name: '纠偏' })[1]);
+    expect(onSteer).toHaveBeenCalledWith(messages[1]);
   });
 
   it('locks a claimed message while dispatch is in progress', () => {
@@ -80,6 +120,34 @@ describe('MessageQueueIndicator', () => {
     expect(screen.getByLabelText('正在发送')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: '编辑队列消息' })).toBeDisabled();
     expect(screen.getByRole('button', { name: '删除队列消息' })).toBeDisabled();
+  });
+
+  it('locks steer while the queued message is claimed or a steer is in flight', () => {
+    const { rerender } = render(
+      <MessageQueueIndicator
+        isQueued
+        queuedMessages={[message('input-1', 'Sending', 'claimed')]}
+        canSteerQueued
+        onSteerQueuedMessage={vi.fn()}
+        onEditQueuedMessage={vi.fn()}
+        onDeleteQueuedMessage={vi.fn()}
+      />
+    );
+    fireEvent.click(screen.getByRole('button', { name: /已排队 1 条消息/ }));
+    expect(screen.getByRole('button', { name: '纠偏' })).toBeDisabled();
+
+    rerender(
+      <MessageQueueIndicator
+        isQueued
+        queuedMessages={[message('input-1', 'Ready')]}
+        canSteerQueued
+        steeringQueued
+        onSteerQueuedMessage={vi.fn()}
+        onEditQueuedMessage={vi.fn()}
+        onDeleteQueuedMessage={vi.fn()}
+      />
+    );
+    expect(screen.getByRole('button', { name: '纠偏' })).toBeDisabled();
   });
 
   it('does not render when the queue is empty', () => {

@@ -21,11 +21,7 @@ function renderActionBar(props: Partial<Parameters<typeof ActionBar>[0]> = {}) {
       promptEnhancementEnabled={false}
       isEnhancingPrompt={false}
       canEnhancePrompt={false}
-      sessionId="session-1"
-      localMessage="Ship it"
-      attachmentCount={0}
       conflictResolutionInstructions={null}
-      reviewMarkdown={null}
       comments={[]}
       onCompactContext={vi.fn()}
       onStopExecution={vi.fn()}
@@ -102,7 +98,6 @@ describe('ActionBar', () => {
   it('does not show a queue action while a turn is running', () => {
     renderActionBar({
       isAttemptRunning: true,
-      localMessage: 'Ship it',
       canSendFollowUp: false,
     });
 

@@ -18,7 +18,6 @@ import { ConversationTimelineSkeleton } from '@/components/logs/ConversationTime
 import { useConversationTimeline } from '@/features/conversation/useConversationTimeline';
 import { toast } from '@/components/ui/toast';
 import { resolveConversationCollapsePreferences } from '@/lib/conversationCollapsePreferences';
-import { hasAskQuestionTool } from '@/components/tasks/follow-up/agentQuestionModel';
 import '@/styles/conversation.css';
 
 export function WorkflowStepConversation({
@@ -134,12 +133,6 @@ export function WorkflowStepConversation({
             );
           }
           if (entry.row.kind === 'question_request') {
-            if (
-              entry.row.response &&
-              hasAskQuestionTool(messages.map((row) => row.turn))
-            ) {
-              return null;
-            }
             return (
               <QuestionRequestCard
                 key={entry.row_id}

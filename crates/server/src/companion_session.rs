@@ -4,13 +4,14 @@ use std::sync::Arc;
 
 use agents::{
     AgentElicitationId, AgentElicitationResponse, AgentEvent, AgentSessionId,
-    ids::AgentConnectionId,
+    conversation::ConversationEvent, ids::AgentConnectionId,
 };
 use application::{ApplicationError, CompanionSessionPort, ConversationLiveFeedbackNote};
 use async_trait::async_trait;
-use conversations::ConversationContext;
-use db::models::conversation_feedback_note::{
-    ConversationFeedbackNoteRecord, CreateConversationFeedbackNote,
+use conversations::{ConversationContext, ConversationEventAppender};
+use db::models::{
+    conversation_event::AppendConversationEvent,
+    conversation_feedback_note::{ConversationFeedbackNoteRecord, CreateConversationFeedbackNote},
 };
 use delegation::InMemoryCompanionFeatures;
 use plugins::{OfficialMcpRuntime, SESSION_FEAT_FEEDBACK};
@@ -70,6 +71,25 @@ impl CompanionSessionPort for CompanionSessionAdapter {
         if trimmed.chars().count() > delegation::MAX_FEEDBACK_CHARS {
             return Err(ApplicationError::bad_request("feedback is too long"));
         }
+        let note_id = Uuid::new_v4();
+        let operation_id = Uuid::new_v4();
+        let turn_id = runtime.active_turn_id;
+        let event = ConversationEvent::UserSubmittedFeedback {
+            note_id,
+            operation_id,
+            text: trimmed.to_string(),
+            turn_id,
+        };
+        let event_value = serde_json::to_value(&event)
+            .map_err(|error| ApplicationError::internal(error.to_string()))?;
+        let event_kind = event_value
+            .get("kind")
+            .and_then(|value| value.as_str())
+            .ok_or_else(|| ApplicationError::internal("feedback event missing kind"))?
+            .to_string();
+        let normalized_json = serde_json::to_string(&event)
+            .map_err(|error| ApplicationError::internal(error.to_string()))?;
+        let idempotency_key = format!("user-feedback:{note_id}");
         let mut conn = self
             .context
             .deployment
@@ -78,19 +98,57 @@ impl CompanionSessionPort for CompanionSessionAdapter {
             .acquire()
             .await
             .map_err(|error| ApplicationError::internal(error.to_string()))?;
-        let record = ConversationFeedbackNoteRecord::create_pending(
+        sqlx::query("BEGIN IMMEDIATE")
+            .execute(&mut *conn)
+            .await
+            .map_err(|error| ApplicationError::internal(error.to_string()))?;
+        let record = match ConversationFeedbackNoteRecord::create_pending(
             &mut conn,
             CreateConversationFeedbackNote {
-                id: Uuid::new_v4(),
+                id: note_id,
                 conversation_id,
-                operation_id: Uuid::new_v4(),
-                turn_id: runtime.active_turn_id,
+                operation_id,
+                turn_id,
                 text: trimmed,
             },
         )
         .await
-        .map_err(|error| ApplicationError::internal(error.to_string()))?;
-        let _ = connection_id;
+        {
+            Ok(record) => record,
+            Err(error) => {
+                let _ = sqlx::query("ROLLBACK").execute(&mut *conn).await;
+                return Err(ApplicationError::internal(error.to_string()));
+            }
+        };
+        let event_record = match ConversationEventAppender::append_on_connection(
+            &mut conn,
+            AppendConversationEvent {
+                id: Uuid::new_v4(),
+                conversation_id,
+                turn_id,
+                binding_id: runtime.binding_id,
+                connection_id: Some(&connection_id),
+                prompt_id: None,
+                source: "user",
+                event_kind: &event_kind,
+                normalized_json: &normalized_json,
+                raw_json: None,
+                idempotency_key: Some(&idempotency_key),
+            },
+        )
+        .await
+        {
+            Ok(record) => record,
+            Err(error) => {
+                let _ = sqlx::query("ROLLBACK").execute(&mut *conn).await;
+                return Err(ApplicationError::internal(error.to_string()));
+            }
+        };
+        if let Err(error) = sqlx::query("COMMIT").execute(&mut *conn).await {
+            let _ = sqlx::query("ROLLBACK").execute(&mut *conn).await;
+            return Err(ApplicationError::internal(error.to_string()));
+        }
+        self.context.event_publisher.publish(&event_record).await;
         Ok(note_record_view(record))
     }
 

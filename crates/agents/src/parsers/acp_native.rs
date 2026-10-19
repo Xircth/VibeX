@@ -544,7 +544,44 @@ pub fn project_turns(entries: &[TranscriptEntry]) -> Vec<MessageTurn> {
         }
     }
     flush(&mut pending, &mut turns, &mut seq, false);
+    attach_latest_context_occupancy(&mut turns, entries);
     turns
+}
+
+fn attach_latest_context_occupancy(turns: &mut [MessageTurn], entries: &[TranscriptEntry]) {
+    let (used, size) = latest_context_window(entries);
+    if used.is_none() && size.is_none() {
+        return;
+    }
+    let Some(last) = turns
+        .iter_mut()
+        .rev()
+        .find(|turn| matches!(turn.role, TurnRole::Assistant))
+    else {
+        return;
+    };
+    match last.usage.as_mut() {
+        Some(usage) => {
+            if usage.context_used.is_none() {
+                usage.context_used = used;
+            }
+            if usage.context_window_max.is_none() {
+                usage.context_window_max = size;
+            }
+        }
+        None => {
+            last.usage = Some(TurnUsage {
+                input_tokens: 0,
+                output_tokens: 0,
+                cache_creation_input_tokens: 0,
+                cache_read_input_tokens: 0,
+                context_used: used,
+                context_window_max: size,
+                cost_amount: None,
+                cost_currency: None,
+            });
+        }
+    }
 }
 
 fn flush(
@@ -1125,5 +1162,34 @@ mod tests {
             },
         ]);
         assert!(closed[1].completed_at.is_some());
+    }
+
+    #[test]
+    fn stamps_usage_update_occupancy_on_the_last_assistant_turn() {
+        let turns = project_turns(&[
+            prompt(1_000, "hi"),
+            chunk(1_100, "Hello"),
+            TranscriptEntry {
+                t: 1_150,
+                k: EntryKind::Update,
+                steer: false,
+                p: serde_json::json!({
+                    "sessionUpdate": "usage_update",
+                    "used": 18658,
+                    "size": 200000
+                }),
+            },
+            TranscriptEntry {
+                t: 1_300,
+                k: EntryKind::TurnEnd,
+                steer: false,
+                p: serde_json::json!({ "stopReason": "end_turn", "durationMs": 4000 }),
+            },
+        ]);
+        let usage = turns[1].usage.as_ref().expect("occupancy on assistant");
+        assert_eq!(usage.context_used, Some(18658));
+        assert_eq!(usage.context_window_max, Some(200000));
+        assert_eq!(usage.input_tokens, 0);
+        assert_eq!(turns[1].duration_ms, Some(4000));
     }
 }

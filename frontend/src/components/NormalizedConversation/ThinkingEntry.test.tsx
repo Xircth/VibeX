@@ -104,7 +104,7 @@ describe('ThinkingEntry', () => {
       /\.conv-thinking-content\s*\{[^}]*max-height:\s*100lh;[^}]*overflow-y:\s*auto;/
     );
     expect(convToolsStyles).toMatch(
-      /\.conv-thinking-content\s*\{[^}]*overscroll-behavior:\s*auto;/
+      /\.conv-thinking-content\s*\{[^}]*overscroll-behavior:\s*contain;/
     );
     expect(convToolsStyles).toMatch(
       /\.conv-thinking-content\s*\{[^}]*scrollbar-width:\s*none;/
@@ -112,9 +112,15 @@ describe('ThinkingEntry', () => {
     expect(convToolsStyles).toMatch(
       /\.conv-thinking-streaming\s+\.conv-thinking-content\s*\{[^}]*overflow:\s*hidden;/
     );
+    expect(convToolsStyles).toMatch(
+      /\.conv-nested-scroll\s*\{[^}]*max-height:\s*100lh;[^}]*overflow-y:\s*auto;[^}]*overscroll-behavior:\s*contain;/
+    );
+    expect(convToolsStyles).toMatch(
+      /\.astryx-chat-tool-calls\s+\[role='button'\]\[aria-expanded='true'\]\s*\+\s*div\s*\{[^}]*max-height:\s*100lh;/
+    );
   });
 
-  it('forwards wheel input to the conversation scroller while thinking is streaming', () => {
+  it('does not hijack wheel pixels while thinking is streaming', () => {
     const { container } = render(
       <div data-panel="conversation-logs">
         <ThinkingEntry
@@ -133,10 +139,10 @@ describe('ThinkingEntry', () => {
       '.conv-thinking-content'
     ) as HTMLDivElement;
     fireEvent.wheel(content, { deltaY: 48 });
-    expect(scroller.scrollTop).toBe(60);
+    expect(scroller.scrollTop).toBe(12);
   });
 
-  it('uses the conversation scroller when finished thinking does not overflow', () => {
+  it('does not hijack wheel pixels when finished thinking does not overflow', () => {
     render(
       <div data-panel="conversation-logs">
         <ThinkingEntry
@@ -164,7 +170,7 @@ describe('ThinkingEntry', () => {
       value: 0,
     });
     fireEvent.wheel(content, { deltaY: 48 });
-    expect(scroller.scrollTop).toBe(60);
+    expect(scroller.scrollTop).toBe(12);
   });
 
   it('keeps overflowing finished thinking until the wheel hits an edge', () => {
@@ -216,6 +222,8 @@ describe('ThinkingEntry', () => {
       writable: true,
       value: 12,
     });
+    Object.defineProperty(scroller, 'clientHeight', { value: 200 });
+    Object.defineProperty(scroller, 'scrollHeight', { value: 800 });
     const content = document.querySelector(
       '.conv-thinking-content'
     ) as HTMLDivElement;
@@ -227,6 +235,46 @@ describe('ThinkingEntry', () => {
     });
     fireEvent.wheel(content, { deltaY: 48 });
     expect(scroller.scrollTop).toBe(60);
+  });
+
+  it('forwards overflowing thinking at an edge to the tool fold before the conversation', () => {
+    render(
+      <div data-panel="conversation-logs">
+        <div data-nested-scroll className="conv-nested-scroll">
+          <ThinkingEntry
+            content={'line\n'.repeat(40)}
+            expansionKey="nested-fold"
+            isStreaming={false}
+          />
+        </div>
+      </div>
+    );
+    fireEvent.click(screen.getByRole('button', { name: '展开思考' }));
+    const scroller = document.querySelector(
+      '[data-panel="conversation-logs"]'
+    ) as HTMLDivElement;
+    const fold = document.querySelector(
+      '.conv-nested-scroll'
+    ) as HTMLDivElement;
+    const content = document.querySelector(
+      '.conv-thinking-content'
+    ) as HTMLDivElement;
+    Object.defineProperty(scroller, 'scrollTop', {
+      writable: true,
+      value: 12,
+    });
+    Object.defineProperty(fold, 'scrollTop', { writable: true, value: 8 });
+    Object.defineProperty(fold, 'clientHeight', { value: 100 });
+    Object.defineProperty(fold, 'scrollHeight', { value: 400 });
+    Object.defineProperty(content, 'clientHeight', { value: 100 });
+    Object.defineProperty(content, 'scrollHeight', { value: 400 });
+    Object.defineProperty(content, 'scrollTop', {
+      writable: true,
+      value: 300,
+    });
+    fireEvent.wheel(content, { deltaY: 48 });
+    expect(fold.scrollTop).toBe(56);
+    expect(scroller.scrollTop).toBe(12);
   });
 
   it('styles thinking markdown content with secondary muted text color instead of primary body color', () => {

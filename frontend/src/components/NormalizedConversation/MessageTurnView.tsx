@@ -29,6 +29,7 @@ import { cn } from '@/lib/utils';
 import { useTemporaryFlag } from '@/hooks/useTemporaryFlag';
 import { writeClipboardViaBridge } from '@/vscode/bridge';
 import { useExpandable } from '@/stores/useExpandableStore';
+import { useNestedWheel } from './nestedScroll';
 import { useOptionalUserSystem } from '@/components/ConfigProvider';
 import {
   DEFAULT_COLLAPSE_PREFERENCES,
@@ -451,7 +452,9 @@ function CollapsedProcessGroup({
   children: (expanded: boolean) => ReactNode;
 }) {
   const { t } = useTranslation(['conversation', 'common']);
+  const bodyRef = useRef<HTMLDivElement | null>(null);
   const [expanded, toggle] = useExpandable(`process:${expansionKey}`, false);
+  useNestedWheel(bodyRef, { enabled: expanded });
   return (
     <div className="conv-collapsed-process px-1 py-1">
       <button
@@ -468,7 +471,17 @@ function CollapsedProcessGroup({
         />
         <span>{t('messageTurnView.collapsedMessages', { count })}</span>
       </button>
-      <div className="conv-assistant-body mt-1">{children(expanded)}</div>
+      {expanded ? (
+        <div
+          ref={bodyRef}
+          className="conv-nested-scroll mt-1"
+          data-nested-scroll=""
+        >
+          {children(true)}
+        </div>
+      ) : (
+        <div className="conv-assistant-body mt-1">{children(false)}</div>
+      )}
     </div>
   );
 }

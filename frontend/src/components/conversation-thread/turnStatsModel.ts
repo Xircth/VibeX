@@ -4,6 +4,42 @@ import type {
 } from '@/hooks/conversationEntries';
 import { tokenUsageInfoToSnapshot } from '@/hooks/conversationTokenUsage';
 
+export function asFiniteNumber(value: unknown): number | null {
+  if (typeof value === 'bigint') {
+    const next = Number(value);
+    return Number.isFinite(next) ? next : null;
+  }
+  if (typeof value === 'number' && Number.isFinite(value)) return value;
+  if (typeof value === 'string' && value.trim()) {
+    const next = Number(value);
+    return Number.isFinite(next) ? next : null;
+  }
+  return null;
+}
+
+export function turnTokenTotal(
+  usage:
+    | {
+        input_tokens?: unknown;
+        output_tokens?: unknown;
+        cache_creation_input_tokens?: unknown;
+        cache_read_input_tokens?: unknown;
+        context_used?: unknown;
+      }
+    | null
+    | undefined
+): number | null {
+  if (!usage) return null;
+  const spend =
+    (asFiniteNumber(usage.input_tokens) ?? 0) +
+    (asFiniteNumber(usage.output_tokens) ?? 0) +
+    (asFiniteNumber(usage.cache_creation_input_tokens) ?? 0) +
+    (asFiniteNumber(usage.cache_read_input_tokens) ?? 0);
+  if (spend > 0) return spend;
+  const occupancy = asFiniteNumber(usage.context_used);
+  return occupancy !== null && occupancy > 0 ? occupancy : null;
+}
+
 export type TurnStatsData = {
   model?: string | null;
   startedAt?: string | null;

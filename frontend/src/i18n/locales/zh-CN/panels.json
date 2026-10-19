@@ -432,7 +432,6 @@
     "replyPlaceholder": "直接回复…",
     "replyInputAriaLabel": "回复该会话",
     "sendReplyAriaLabel": "发送回复",
-    "clickCardHint": "点击上方卡片回到该会话",
     "quickReply": "快捷回复",
     "openConversation": "打开会话",
     "closeAriaLabel": "关闭通知"

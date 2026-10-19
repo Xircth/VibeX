@@ -41,7 +41,7 @@ materials:
   # Liquid Glass = navigation / controls layer ONLY. Never on content.
   glass-titlebar: "blur(18px) saturate(1.2) over var(--surface-topbar)"
   glass-sidebar: "blur(30px) saturate(1.8) over var(--surface-sidebar)"
-  glass-popover: "blur(24px) saturate(1.55)  # menus, popovers, toasts"
+  glass-popover: "blur(24px) saturate(1.55)  # menus, popovers"
   dark-glass-fill: "cool blue-gray 55% over Hangar, same blur as light"
   dark-highlight: "moonlight hsl(210 30% 80% / 0.12)"
   dialog-surface: "opaque #FAFAFA in light mode; opaque #242936 in dark mode"
@@ -195,8 +195,8 @@ Translucent, blurred, lightly saturated material that floats and lets the worksp
 
 - **Title bar** (`.settings-titlebar`, `.workspace-topbar`): `blur(18px) saturate(1.2)` over a translucent fill, 1px hairline beneath. Light uses near-white glass; dark uses cool blue-gray glass at 55% over Hangar with a moonlight top edge. Unified with the window; the whole strip is a drag region.
 - **Sidebar** (`.settings-sidebar`): a rounded, inset floating panel — `blur(30px) saturate(1.8)`, full hairline border, `14px` corners, soft shell shadow, and a corner wash (pale blue in light, moonlight in dark). Content scrolls independently beneath it.
-- **Popovers, menus, toasts**: `blur(24px) saturate(1.55)` glass with a popover shadow.
-- **Dialogs**: opaque `--surface-dialog` with a popover shadow. The light-mode value is exactly `#FAFAFA`; dark mode uses opaque Mirage `#242936`. Dialog content never inherits translucent popover glass.
+- **Popovers, menus**: `blur(24px) saturate(1.55)` glass with a popover shadow.
+- **Dialogs and toasts**: opaque `--surface-dialog` with overlay elevation. The light-mode value is exactly `#FAFAFA`; dark mode uses opaque Mirage `#242936`. These surfaces never inherit translucent popover glass.
 
 ### The Content Layer — Opaque Grouped Surfaces
 

@@ -432,7 +432,6 @@
     "replyPlaceholder": "Reply directly…",
     "replyInputAriaLabel": "Reply to this session",
     "sendReplyAriaLabel": "Send reply",
-    "clickCardHint": "Click the card above to return to this session",
     "quickReply": "Quick reply",
     "openConversation": "Open conversation",
     "closeAriaLabel": "Close notification"

@@ -225,7 +225,8 @@ describe('night scene component islands', () => {
 
   it('does not fall back toast chrome to paper white', () => {
     expect(toast).not.toContain('#fafafa');
-    expect(toast).toContain('background: var(--surface-popover);');
+    expect(toast).toContain('background: var(--surface-dialog);');
+    expect(toast).toContain('var(--toast-shadow)');
     expect(toast).toContain('inset 0 1px 0 var(--highlight-edge)');
   });
 

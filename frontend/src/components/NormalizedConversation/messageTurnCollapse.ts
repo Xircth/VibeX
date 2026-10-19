@@ -1,6 +1,9 @@
 import type { TurnRenderItem } from './messageTurnBlocks';
 
-/** Process cards kept mounted while a turn is still streaming. Markdown stays. */
+/**
+ * Live cards kept mounted after the latest prose, or during a tool-only stream.
+ * Earlier prose is folded with everything that preceded the latest prose.
+ */
 export const STREAMING_VISIBLE_TAIL = 2;
 
 export type CollapsedTurnSegment = {
@@ -17,31 +20,32 @@ export function collapseTurnSegments(
   items: TurnRenderItem[],
   options?: { isStreaming?: boolean }
 ): CollapsedTurnSegment[] {
-  return options?.isStreaming
-    ? streamingSegments(items)
-    : settledSegments(items);
-}
-
-function settledSegments(items: TurnRenderItem[]): CollapsedTurnSegment[] {
+  if (items.length === 0) return [];
   const lastMarkdownIndex = items.reduce(
-    (acc, item, index) => (item.kind === 'markdown' ? index : acc),
+    (latest, item, index) => (item.kind === 'markdown' ? index : latest),
     -1
   );
-
   if (lastMarkdownIndex < 0) {
-    if (items.length === 0) return [];
-    return [{ kind: 'fold', startIndex: 0, items: [...items] }];
+    return options?.isStreaming
+      ? liveTail(items, 0)
+      : [{ kind: 'fold', startIndex: 0, items: [...items] }];
   }
+  const segments = foldBeforeProse(items, lastMarkdownIndex);
+  if (!options?.isStreaming) return segments;
+  return splitLiveSuffix(segments, lastMarkdownIndex);
+}
 
+/** One prelude of everything before the latest prose, then that prose onward. */
+function foldBeforeProse(
+  items: TurnRenderItem[],
+  lastMarkdownIndex: number
+): CollapsedTurnSegment[] {
   const visible = items[lastMarkdownIndex];
   const visibleText = visible?.kind === 'markdown' ? visible.text.trim() : '';
   const prelude = items.slice(0, lastMarkdownIndex).filter((item) => {
-    if (item.kind !== 'markdown' || visibleText.length === 0) {
-      return true;
-    }
+    if (item.kind !== 'markdown' || visibleText.length === 0) return true;
     return item.text.trim() !== visibleText;
   });
-
   const segments: CollapsedTurnSegment[] = [];
   if (prelude.length > 0) {
     const preludeStart = items.indexOf(prelude[0]);
@@ -59,36 +63,55 @@ function settledSegments(items: TurnRenderItem[]): CollapsedTurnSegment[] {
   return segments;
 }
 
-function streamingSegments(items: TurnRenderItem[]): CollapsedTurnSegment[] {
-  const lastMarkdown = [...items]
-    .reverse()
-    .find((item) => item.kind === 'markdown');
-  const lastText =
-    lastMarkdown?.kind === 'markdown' ? lastMarkdown.text.trim() : '';
-  const processIndices: number[] = [];
-  items.forEach((item, index) => {
-    if (item.kind !== 'markdown') processIndices.push(index);
-  });
-  const visibleProcess = new Set(processIndices.slice(-STREAMING_VISIBLE_TAIL));
-  const segments: CollapsedTurnSegment[] = [];
+/** Keep only the newest live cards after the prose that just closed the prelude. */
+function splitLiveSuffix(
+  segments: CollapsedTurnSegment[],
+  lastMarkdownIndex: number
+): CollapsedTurnSegment[] {
+  const visible = segments.at(-1);
+  if (!visible || visible.kind !== 'items') return segments;
+  const suffix = visible.items.slice(1);
+  if (suffix.length <= STREAMING_VISIBLE_TAIL) return segments;
+  const hiddenCount = suffix.length - STREAMING_VISIBLE_TAIL;
+  const foldStart = lastMarkdownIndex + 1;
+  return [
+    ...segments.slice(0, -1),
+    {
+      kind: 'items',
+      startIndex: lastMarkdownIndex,
+      items: visible.items.slice(0, 1),
+    },
+    {
+      kind: 'fold',
+      startIndex: foldStart,
+      items: suffix.slice(0, hiddenCount),
+    },
+    {
+      kind: 'items',
+      startIndex: foldStart + hiddenCount,
+      items: suffix.slice(hiddenCount),
+    },
+  ];
+}
 
-  items.forEach((item, index) => {
-    if (
-      item.kind === 'markdown' &&
-      item !== lastMarkdown &&
-      lastText.length > 0 &&
-      item.text.trim() === lastText
-    ) {
-      return;
-    }
-    const kind: CollapsedTurnSegment['kind'] =
-      item.kind === 'markdown' || visibleProcess.has(index) ? 'items' : 'fold';
-    const current = segments.at(-1);
-    if (current?.kind === kind) {
-      current.items.push(item);
-      return;
-    }
-    segments.push({ kind, startIndex: index, items: [item] });
-  });
-  return segments;
+function liveTail(
+  items: TurnRenderItem[],
+  startIndex: number
+): CollapsedTurnSegment[] {
+  if (items.length <= STREAMING_VISIBLE_TAIL) {
+    return [{ kind: 'items', startIndex, items: [...items] }];
+  }
+  const hiddenCount = items.length - STREAMING_VISIBLE_TAIL;
+  return [
+    {
+      kind: 'fold',
+      startIndex,
+      items: items.slice(0, hiddenCount),
+    },
+    {
+      kind: 'items',
+      startIndex: startIndex + hiddenCount,
+      items: items.slice(hiddenCount),
+    },
+  ];
 }

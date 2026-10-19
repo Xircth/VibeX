@@ -89,4 +89,29 @@ describe('assistantBlockSlices', () => {
       { kind: 'block', itemIndex: 4 },
     ]);
   });
+
+  it('folds every message before the latest streaming prose into one row', () => {
+    const items = [
+      markdown('first'),
+      tool('a'),
+      markdown('second'),
+      tool('b'),
+      tool('c'),
+      tool('d'),
+    ];
+    expect(
+      assistantBlockSlices({
+        items,
+        isStreaming: true,
+        collapseProcess: true,
+        processExpanded: () => false,
+      })
+    ).toEqual([
+      { kind: 'process-fold', count: 2, startIndex: 0 },
+      { kind: 'block', itemIndex: 2 },
+      { kind: 'process-fold', count: 1, startIndex: 3 },
+      { kind: 'block', itemIndex: 4 },
+      { kind: 'block', itemIndex: 5 },
+    ]);
+  });
 });

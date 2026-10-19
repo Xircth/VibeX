@@ -308,11 +308,11 @@ describe('conversation tool cards', () => {
       blocks: [...turn.blocks, { type: 'text', text: 'Final answer' }],
     };
     rerender(<MessageTurnView {...props} turn={answeredTurn} />);
-    const process = screen.getByRole('button', { name: '3 条消息' });
+    const process = screen.getByRole('button', { name: /5 条消息$/ });
     expect(process).toHaveAttribute('aria-expanded', 'false');
     expect(screen.getByText('Final answer')).toBeInTheDocument();
-    expect(screen.getByText('available.ts')).toBeInTheDocument();
-    expect(screen.getByText('next-check')).toBeInTheDocument();
+    expect(screen.queryByText('available.ts')).not.toBeInTheDocument();
+    expect(screen.queryByText('next-check')).not.toBeInTheDocument();
 
     rerender(
       <MessageTurnView {...props} turn={answeredTurn} phase="settled" />

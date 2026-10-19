@@ -171,6 +171,10 @@ describe('MessageTurnView', () => {
       />
     );
     expect(screen.getByText('I found the renderer')).toBeInTheDocument();
+    expect(
+      screen.queryByText('Inspecting the renderer')
+    ).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: /1 条消息$/ }));
     fireEvent.click(screen.getByRole('button', { name: '展开思考' }));
     expect(screen.getByText('Inspecting the renderer')).toBeInTheDocument();
   });
@@ -422,20 +426,19 @@ describe('MessageTurnView', () => {
     );
 
     expect(screen.getByText('Next update')).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: /6 条消息$/ })).toHaveAttribute(
-      'aria-expanded',
-      'false'
-    );
-    fireEvent.click(screen.getByRole('button', { name: /6 条消息$/ }));
-    const hiddenBatch = screen
-      .getAllByRole('button', { name: /运行 \d+ 个命令/ })
-      .find((button) => /运行 6 个命令/.test(button.textContent ?? ''));
-    expect(hiddenBatch).toBeTruthy();
-    fireEvent.click(hiddenBatch!);
+    expect(screen.queryByText('command-6')).not.toBeInTheDocument();
+    expect(
+      screen.queryByText('Preparing the next update')
+    ).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: /8 条消息$/ }));
+    fireEvent.click(screen.getByRole('button', { name: /运行 7 个命令/ }));
     expect(screen.getByText('command-0')).toBeInTheDocument();
+    expect(screen.getByText('command-6')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: '展开思考' }));
+    expect(screen.getByText('Preparing the next update')).toBeInTheDocument();
   });
 
-  it('progressively collapses earlier stages during streaming while keeping live activities aggregated', () => {
+  it('folds all earlier prose and activity when the next prose starts', () => {
     const stage1Commands = completedCommands(4);
     const stage2Commands = Array.from({ length: 4 }, (_, index) => [
       toolUseBlock(index + 10, 'bash', { command: `stage2-${index}` }),
@@ -464,12 +467,12 @@ describe('MessageTurnView', () => {
     };
     const { rerender } = render(<MessageTurnView {...props} turn={turn} />);
 
-    expect(screen.getByRole('button', { name: /2 条消息$/ })).toHaveAttribute(
+    expect(screen.queryByText('Stage 1 update')).not.toBeInTheDocument();
+    expect(screen.getByText('Stage 2 update')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /5 条消息$/ })).toHaveAttribute(
       'aria-expanded',
       'false'
     );
-    expect(screen.getByText('Stage 1 update')).toBeInTheDocument();
-    expect(screen.getByText('Stage 2 update')).toBeInTheDocument();
 
     rerender(
       <MessageTurnView
@@ -481,16 +484,13 @@ describe('MessageTurnView', () => {
       />
     );
 
-    const stage1 = screen.getByText('Stage 1 update');
     const stage2 = screen.getByText('Stage 2 update');
-    const earlierFold = screen.getByRole('button', { name: /4 条消息$/ });
+    const prelude = screen.getByRole('button', { name: /5 条消息$/ });
     const laterFold = screen.getByRole('button', { name: /2 条消息$/ });
-    expect(earlierFold).toHaveAttribute('aria-expanded', 'false');
+    expect(screen.queryByText('Stage 1 update')).not.toBeInTheDocument();
+    expect(prelude).toHaveAttribute('aria-expanded', 'false');
     expect(laterFold).toHaveAttribute('aria-expanded', 'false');
-    expect(stage1.compareDocumentPosition(earlierFold)).toBe(
-      Node.DOCUMENT_POSITION_FOLLOWING
-    );
-    expect(earlierFold.compareDocumentPosition(stage2)).toBe(
+    expect(prelude.compareDocumentPosition(stage2)).toBe(
       Node.DOCUMENT_POSITION_FOLLOWING
     );
     expect(stage2.compareDocumentPosition(laterFold)).toBe(
@@ -517,23 +517,15 @@ describe('MessageTurnView', () => {
       />
     );
 
-    expect(screen.getByRole('button', { name: /4 条消息$/ })).toHaveAttribute(
+    expect(screen.getAllByRole('button', { name: /条消息$/ })).toHaveLength(1);
+    expect(screen.getByRole('button', { name: /10 条消息$/ })).toHaveAttribute(
       'aria-expanded',
       'false'
     );
-    expect(screen.getByRole('button', { name: /2 条消息$/ })).toHaveAttribute(
-      'aria-expanded',
-      'false'
-    );
-    expect(screen.getByText('Stage 1 update')).toBeInTheDocument();
-    expect(screen.getByText('Stage 2 update')).toBeInTheDocument();
-    expect(screen.getByText('stage2-3')).toBeInTheDocument();
+    expect(screen.queryByText('Stage 1 update')).not.toBeInTheDocument();
+    expect(screen.queryByText('Stage 2 update')).not.toBeInTheDocument();
+    expect(screen.queryByText('stage2-3')).not.toBeInTheDocument();
     expect(screen.getByText('Stage 3 final')).toBeInTheDocument();
-    expect(
-      screen
-        .getByText('stage2-3')
-        .compareDocumentPosition(screen.getByText('Stage 3 final'))
-    ).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
   });
 
   it('uses one process disclosure for a settled turn with several prose and activity stages', () => {
@@ -666,10 +658,13 @@ describe('MessageTurnView', () => {
       />
     );
     expect(screen.getByText('Next stage')).toBeInTheDocument();
-    fireEvent.click(screen.getByRole('button', { name: /6 条消息$/ }));
-    fireEvent.click(screen.getByRole('button', { name: /运行 5 个命令/ }));
+    expect(screen.queryByText('command-6')).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: /8 条消息$/ }));
+    fireEvent.click(screen.getByRole('button', { name: /运行 7 个命令/ }));
     fireEvent.click(screen.getByRole('button', { name: '展开思考' }));
     expect(screen.getByText('Checking between calls')).toBeInTheDocument();
+    expect(screen.getByText('command-0')).toBeInTheDocument();
+    expect(screen.getByText('command-6')).toBeInTheDocument();
   });
 
   it('folds the final activity stage on settlement and preserves opened batch members', () => {
@@ -735,12 +730,15 @@ describe('MessageTurnView', () => {
       />
     );
     expect(
+      screen.queryByRole('button', { name: '终端command-6' })
+    ).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: /7 条消息$/ }));
+    expect(
+      screen.getByRole('button', { name: /运行 7 个命令/ })
+    ).toHaveAttribute('aria-expanded', 'true');
+    expect(
       screen.getByRole('button', { name: '终端command-6' })
     ).toHaveAttribute('aria-expanded', 'true');
-    fireEvent.click(screen.getByRole('button', { name: /5 条消息$/ }));
-    expect(
-      screen.getByRole('button', { name: /运行 5 个命令/ })
-    ).toBeInTheDocument();
   });
 
   it('keeps opened finished thinking visible when it joins a mixed batch', () => {

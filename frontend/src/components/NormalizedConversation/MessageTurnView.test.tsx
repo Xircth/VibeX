@@ -1499,6 +1499,11 @@ describe('MessageTurnView', () => {
     expect(
       screen.getByText('A').compareDocumentPosition(screen.getByText('D'))
     ).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
+    const foldBody = screen
+      .getByRole('button', { name: /已折叠 .* 条消息/ })
+      .parentElement?.querySelector('.conv-nested-scroll');
+    expect(foldBody).not.toBeNull();
+    expect(foldBody).toHaveAttribute('data-nested-scroll');
   });
 
   it('does not repeat earlier prose that matches the final answer after settlement', () => {

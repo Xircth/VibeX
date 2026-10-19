@@ -6,6 +6,8 @@ import { isContextCompactPrompt } from '@/lib/contextCompact';
 import {
   buildContextCompactPresentationByRowKey,
   buildLiveTurnStats,
+  buildSettledTurnStats,
+  mergeMissingTurnStats,
   contextCompactPresentationForRow,
   conversationThreadMaxWidthClass,
   getLatestTimelinePlanEntries,
@@ -281,6 +283,46 @@ describe('buildLiveTurnStats', () => {
       model: null,
       totalTokens: null,
       contextWindow: null,
+    });
+  });
+
+  it('reads occupancy from a settled assistant when spend counters are empty', () => {
+    const settled = row('turn-1', 'assistant', 'settled');
+    settled.turn.usage = {
+      input_tokens: 0n,
+      output_tokens: 0n,
+      cache_creation_input_tokens: 0n,
+      cache_read_input_tokens: 0n,
+      context_used: 18658n,
+      context_window_max: 200000n,
+    };
+    expect(
+      buildLiveTurnStats({
+        timeline: [settled],
+        composerTokenUsage: null,
+        sessionConfigOptions: [],
+      })
+    ).toEqual({
+      model: null,
+      totalTokens: 18658,
+      contextWindow: 200000,
+    });
+    expect(buildSettledTurnStats(settled.turn)).toMatchObject({
+      totalTokens: 18658,
+      contextWindow: 200000,
+    });
+  });
+
+  it('fills missing settled tokens from live occupancy on the latest turn', () => {
+    expect(
+      mergeMissingTurnStats(
+        { elapsedMs: 4000, totalTokens: null },
+        { totalTokens: 18500, contextWindow: 200000 }
+      )
+    ).toMatchObject({
+      elapsedMs: 4000,
+      totalTokens: 18500,
+      contextWindow: 200000,
     });
   });
 });

@@ -1,18 +1,10 @@
-import React, { useEffect, useRef } from 'react';
+import React, { useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Brain, ChevronDown, Loader2 } from 'lucide-react';
 import { useExpandable } from '@/stores/useExpandableStore';
 import { AstryxMarkdown } from './AstryxMarkdown';
 import { cn } from '@/lib/utils';
-import { thinkingWheelTarget } from './thinkingScroll';
-
-function conversationScrollerFrom(
-  node: EventTarget | null
-): HTMLElement | null {
-  return node instanceof Element
-    ? node.closest('[data-panel="conversation-logs"]')
-    : null;
-}
+import { useNestedWheel } from './nestedScroll';
 
 export const ThinkingEntry: React.FC<{
   content: string;
@@ -41,27 +33,10 @@ export const ThinkingEntry: React.FC<{
     isStreaming
   );
 
-  useEffect(() => {
-    if (!expanded) return;
-    const node = contentRef.current;
-    if (!node) return;
-    const onWheel = (event: WheelEvent) => {
-      const target = thinkingWheelTarget({
-        isStreaming,
-        scrollTop: node.scrollTop,
-        clientHeight: node.clientHeight,
-        scrollHeight: node.scrollHeight,
-        deltaY: event.deltaY,
-      });
-      if (target === 'inner') return;
-      const scroller = conversationScrollerFrom(node);
-      if (!scroller) return;
-      event.preventDefault();
-      scroller.scrollTop += event.deltaY;
-    };
-    node.addEventListener('wheel', onWheel, { passive: false });
-    return () => node.removeEventListener('wheel', onWheel);
-  }, [expanded, isStreaming]);
+  useNestedWheel(contentRef, {
+    locked: isStreaming,
+    enabled: expanded,
+  });
 
   return (
     <div
@@ -107,7 +82,11 @@ export const ThinkingEntry: React.FC<{
         />
       </button>
       {expanded ? (
-        <div ref={contentRef} className="conv-thinking-content">
+        <div
+          ref={contentRef}
+          className="conv-thinking-content"
+          data-nested-scroll=""
+        >
           <AstryxMarkdown
             value={content}
             taskAttemptId={taskAttemptId}

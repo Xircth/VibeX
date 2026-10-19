@@ -11,7 +11,7 @@ import {
 } from 'lucide-react';
 import { useTemporaryFlag } from '@/hooks/useTemporaryFlag';
 import { cn } from '@/lib/utils';
-import type { TurnStatsData } from './turnStatsModel';
+import { asFiniteNumber, type TurnStatsData } from './turnStatsModel';
 
 export type TurnStatsProps = {
   stats?: TurnStatsData | null;
@@ -24,23 +24,19 @@ export type TurnStatsProps = {
   className?: string;
 };
 
-function isFiniteNumber(value: number | null | undefined): value is number {
-  return typeof value === 'number' && Number.isFinite(value);
+export function formatTokenCount(value: unknown): string | null {
+  const tokens = asFiniteNumber(value);
+  if (tokens === null) return null;
+  const count = Math.max(0, Math.floor(tokens));
+  if (count <= 0) return null;
+  return count.toLocaleString();
 }
 
-export function formatTokenCount(
-  value: number | null | undefined
-): string | null {
-  if (!isFiniteNumber(value)) return null;
-  return Math.max(0, Math.floor(value)).toLocaleString();
-}
+export function formatTurnDuration(ms: unknown): string | null {
+  const duration = asFiniteNumber(ms);
+  if (duration === null) return null;
 
-export function formatTurnDuration(
-  ms: number | null | undefined
-): string | null {
-  if (!isFiniteNumber(ms)) return null;
-
-  const seconds = Math.max(0, Math.floor(ms / 1000));
+  const seconds = Math.max(0, Math.floor(duration / 1000));
   if (seconds < 60) return `${seconds}s`;
 
   const minutes = Math.floor(seconds / 60);
@@ -92,6 +88,7 @@ export function TurnStats({
   onForkFromHere,
   forkDisabled = false,
   forkDisabledReason = 'busy',
+  live = false,
   className,
 }: TurnStatsProps) {
   const { t } = useTranslation(['conversation', 'common']);
@@ -103,7 +100,7 @@ export function TurnStats({
   const completedAtText = formatCompletionTime(stats?.completedAt);
   const stopReasonText = stats?.stopReason?.trim() || null;
   const hasStats = Boolean(
-    tokenText || elapsedText || completedAtText || stopReasonText
+    live || tokenText || elapsedText || completedAtText || stopReasonText
   );
 
   const handleCopy = useCallback(async () => {
@@ -175,8 +172,15 @@ export function TurnStats({
           ) : null}
         </div>
         <div className="conv-turn-stats-items">
+          {live ? (
+            <StatItem
+              icon={Gauge}
+              label={t('turnStats.statusLabel')}
+              value={t('turnStats.generating')}
+            />
+          ) : null}
           {tokenText ? (
-            <StatItem icon={Gauge} label="Token" value={tokenText} hideLabel />
+            <StatItem icon={Gauge} label="Token" value={tokenText} />
           ) : null}
           {elapsedText ? (
             completedAtText ? (

@@ -10,7 +10,7 @@ import type { NormalizedEntryType } from 'shared/types';
 import type { PatchTypeWithKey } from '@/hooks/conversationEntries';
 import { LiveTurnStats } from './LiveTurnStats';
 import { formatCompletionTime, TurnStats } from './TurnStats';
-import { buildTurnStatsByAssistantKey } from './turnStatsModel';
+import { buildTurnStatsByAssistantKey, turnTokenTotal } from './turnStatsModel';
 
 function normalizedEntry(
   patchKey: string,
@@ -67,9 +67,9 @@ describe('TurnStats', () => {
     expect(screen.queryByText('模型')).not.toBeInTheDocument();
     expect(screen.queryByText('gpt-5-codex')).not.toBeInTheDocument();
     expect(screen.getByText('12,345')).toBeInTheDocument();
+    expect(screen.getByText('Token')).toBeInTheDocument();
     expect(screen.queryByText(/100,000/)).not.toBeInTheDocument();
     expect(screen.queryByText(/12,345 \/ /)).not.toBeInTheDocument();
-    expect(screen.queryByText('Token')).not.toBeInTheDocument();
     expect(screen.queryByText('耗时')).not.toBeInTheDocument();
     expect(screen.queryByText('缓存读')).not.toBeInTheDocument();
     expect(screen.queryByText('缓存写')).not.toBeInTheDocument();
@@ -143,8 +143,16 @@ describe('TurnStats', () => {
     );
 
     expect(screen.getByText('18,658')).toBeInTheDocument();
+    expect(screen.getByText('Token')).toBeInTheDocument();
     expect(screen.queryByText(/258,400/)).not.toBeInTheDocument();
     expect(screen.queryByText('18,658 / 258,400')).not.toBeInTheDocument();
+  });
+
+  it('hides a zero token total instead of painting it as a fact', () => {
+    render(<TurnStats stats={{ totalTokens: 0, elapsedMs: 1000 }} />);
+    expect(screen.queryByText('Token')).not.toBeInTheDocument();
+    expect(screen.queryByText('0')).not.toBeInTheDocument();
+    expect(screen.getByText('1s')).toBeInTheDocument();
   });
 
   it('does not render an empty stats row', () => {
@@ -163,8 +171,8 @@ describe('TurnStats', () => {
       />
     );
 
-    expect(screen.queryByText('生成中')).not.toBeInTheDocument();
-    expect(screen.queryByText('状态')).not.toBeInTheDocument();
+    expect(screen.getByText('生成中')).toBeInTheDocument();
+    expect(screen.getByText('状态')).toBeInTheDocument();
     expect(screen.getByText('5s')).toBeInTheDocument();
 
     vi.setSystemTime(new Date('2026-03-22T00:00:07.000Z'));
@@ -173,6 +181,38 @@ describe('TurnStats', () => {
     });
 
     expect(screen.getByText('8s')).toBeInTheDocument();
+  });
+});
+
+describe('turnTokenTotal', () => {
+  it('prefers spend totals and falls back to occupancy without inventing zero', () => {
+    expect(
+      turnTokenTotal({
+        input_tokens: 40000n,
+        output_tokens: 300n,
+        cache_creation_input_tokens: 0n,
+        cache_read_input_tokens: 2000n,
+        context_used: 18658n,
+      })
+    ).toBe(42300);
+    expect(
+      turnTokenTotal({
+        input_tokens: 0,
+        output_tokens: 0,
+        cache_creation_input_tokens: 0,
+        cache_read_input_tokens: 0,
+        context_used: 18658,
+      })
+    ).toBe(18658);
+    expect(
+      turnTokenTotal({
+        input_tokens: 0,
+        output_tokens: 0,
+        cache_creation_input_tokens: 0,
+        cache_read_input_tokens: 0,
+        context_used: 0,
+      })
+    ).toBeNull();
   });
 });
 

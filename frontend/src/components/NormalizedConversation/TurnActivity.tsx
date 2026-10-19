@@ -1,7 +1,9 @@
 import {
   useCallback,
+  useEffect,
   useId,
   useMemo,
+  useRef,
   type KeyboardEvent,
   type ReactNode,
 } from 'react';
@@ -82,6 +84,7 @@ import {
 } from '@/stores/useExpandableStore';
 import { cn } from '@/lib/utils';
 import { ThinkingEntry } from './ThinkingEntry';
+import { bindNestedWheel, useNestedWheel } from './nestedScroll';
 
 type ToolSummaryCategory =
   | 'commands'
@@ -132,18 +135,32 @@ function ToolCallBatch({
   label: string;
   turnId: string;
 }) {
+  const rootRef = useRef<HTMLDivElement | null>(null);
   const [expanded, setExpanded] = useExpandableGroup(
     calls.map((call) => `tool-batch:${turnId}:${call.key}`)
   );
+  useEffect(() => {
+    if (!expanded) return;
+    const root = rootRef.current;
+    if (!root) return;
+    const pane = root.querySelector(
+      '[role="button"][aria-expanded="true"] + div'
+    );
+    if (!(pane instanceof HTMLElement)) return;
+    pane.setAttribute('data-nested-scroll', '');
+    return bindNestedWheel(pane);
+  }, [expanded, calls.length]);
   return (
-    <ChatToolCalls
-      className="vibex-tool-call-batch"
-      calls={calls}
-      label={label}
-      alwaysGroup
-      isExpanded={expanded}
-      onExpandedChange={setExpanded}
-    />
+    <div ref={rootRef}>
+      <ChatToolCalls
+        className="vibex-tool-call-batch"
+        calls={calls}
+        label={label}
+        alwaysGroup
+        isExpanded={expanded}
+        onExpandedChange={setExpanded}
+      />
+    </div>
   );
 }
 
@@ -157,9 +174,11 @@ function MixedActivityBatch({
   children: ReactNode;
 }) {
   const id = useId();
+  const bodyRef = useRef<HTMLDivElement | null>(null);
   const [expanded, toggle] = useExpandableGroup(
     entries.map((entry) => entry.key)
   );
+  useNestedWheel(bodyRef, { enabled: expanded });
   return (
     <div className="conv-activity-batch">
       <button
@@ -180,7 +199,12 @@ function MixedActivityBatch({
         />
       </button>
       {expanded ? (
-        <div id={id} className="conv-assistant-body mt-1">
+        <div
+          id={id}
+          ref={bodyRef}
+          className="conv-nested-scroll mt-1"
+          data-nested-scroll=""
+        >
           {children}
         </div>
       ) : null}

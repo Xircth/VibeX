@@ -770,6 +770,18 @@ button.conv-tool-artifact-title:hover {
 .astryx-chat-tool-calls [role='button'][aria-expanded='true'] + div {
   padding-inline: 0 !important;
   width: 100%;
+  max-height: 100lh;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: none;
+}
+
+.conv-nested-scroll
+  .astryx-chat-tool-calls
+  [role='button'][aria-expanded='true']
+  + div {
+  max-height: none;
+  overflow: visible;
 }
 
 .vibex-tool-call-result-detail,
@@ -1085,11 +1097,25 @@ button.vibex-tool-call-target-label:hover {
   color: var(--conv-tool-icon);
 }
 
+.conv-nested-scroll {
+  max-height: 100lh;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+
+.conv-nested-scroll::-webkit-scrollbar {
+  display: none;
+  width: 0;
+  height: 0;
+}
+
 .conv-thinking-content {
   margin-top: 6px;
   max-height: 100lh;
   overflow-y: auto;
-  overscroll-behavior: auto;
+  overscroll-behavior: contain;
   scrollbar-width: none;
   -ms-overflow-style: none;
   color: var(--conv-text-secondary, var(--text-muted));

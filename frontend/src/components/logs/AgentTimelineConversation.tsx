@@ -81,7 +81,11 @@ import { getErrorMessage } from '@/lib/modals';
 import { toast } from '@/components/ui/toast';
 import { TurnStats } from '@/components/conversation-thread/TurnStats';
 import { LiveTurnStats } from '@/components/conversation-thread/LiveTurnStats';
-import type { TurnStatsData } from '@/components/conversation-thread/turnStatsModel';
+import {
+  asFiniteNumber,
+  turnTokenTotal,
+  type TurnStatsData,
+} from '@/components/conversation-thread/turnStatsModel';
 import { useUserSystem } from '@/components/ConfigProvider';
 import { ConversationMessageNav } from '@/components/conversation-thread/ConversationMessageNav';
 import {
@@ -382,6 +386,11 @@ function latestTokenUsage(
   return null;
 }
 
+function usageWindow(usage: MessageTurn['usage']): number | null {
+  const window = asFiniteNumber(usage?.context_window_max);
+  return window !== null && window > 0 ? window : null;
+}
+
 export function buildLiveTurnStats(input: {
   timeline: ConversationTimelineTurn[];
   composerTokenUsage: TokenUsageInfo | null;
@@ -397,24 +406,13 @@ export function buildLiveTurnStats(input: {
     if (!activeModel && row.turn.model?.trim()) {
       activeModel = row.turn.model.trim();
     }
-    if (
-      (row.phase === 'streaming' || row.phase === 'optimistic') &&
-      row.turn.usage
-    ) {
-      const usage = row.turn.usage;
-      const breakdown =
-        Number(usage.input_tokens) +
-        Number(usage.output_tokens) +
-        Number(usage.cache_creation_input_tokens) +
-        Number(usage.cache_read_input_tokens);
-      const total =
-        usage.context_used != null ? Number(usage.context_used) : breakdown;
-      if (activeTotalTokens === null && total > 0) {
+    if (row.turn.usage) {
+      const total = turnTokenTotal(row.turn.usage);
+      if (activeTotalTokens === null && total !== null) {
         activeTotalTokens = total;
       }
-      const window =
-        usage.context_window_max != null ? Number(usage.context_window_max) : 0;
-      if (activeContextWindow === null && window > 0) {
+      const window = usageWindow(row.turn.usage);
+      if (activeContextWindow === null && window !== null) {
         activeContextWindow = window;
       }
     }
@@ -448,29 +446,30 @@ export function buildLiveTurnStats(input: {
 }
 
 /** Turn stats for a settled assistant turn, sourced from the parsed MessageTurn. */
-function buildSettledTurnStats(turn: MessageTurn): TurnStatsData {
+export function buildSettledTurnStats(turn: MessageTurn): TurnStatsData {
   const usage = turn.usage ?? null;
   return {
     model: turn.model ?? null,
     startedAt: turn.timestamp,
-    totalTokens: usage
-      ? Number(
-          usage.context_used ??
-            Number(usage.input_tokens) +
-              Number(usage.output_tokens) +
-              Number(usage.cache_creation_input_tokens) +
-              Number(usage.cache_read_input_tokens)
-        )
-      : null,
-    contextWindow:
-      usage?.context_window_max != null
-        ? Number(usage.context_window_max)
-        : null,
-    cacheReadTokens: usage ? Number(usage.cache_read_input_tokens) : null,
-    cacheWriteTokens: usage ? Number(usage.cache_creation_input_tokens) : null,
-    elapsedMs: turn.duration_ms != null ? Number(turn.duration_ms) : null,
+    totalTokens: turnTokenTotal(usage),
+    contextWindow: usageWindow(usage),
+    cacheReadTokens: asFiniteNumber(usage?.cache_read_input_tokens),
+    cacheWriteTokens: asFiniteNumber(usage?.cache_creation_input_tokens),
+    elapsedMs: asFiniteNumber(turn.duration_ms),
     completedAt: turn.completed_at ?? null,
     stopReason: null,
+  };
+}
+
+export function mergeMissingTurnStats(
+  settled: TurnStatsData,
+  live: TurnStatsData
+): TurnStatsData {
+  return {
+    ...settled,
+    model: settled.model ?? live.model ?? null,
+    totalTokens: settled.totalTokens ?? live.totalTokens ?? null,
+    contextWindow: settled.contextWindow ?? live.contextWindow ?? null,
   };
 }
 
@@ -942,6 +941,13 @@ const AgentTimelineConversation = forwardRef<
       }),
     [composerTokenUsage, conversationSessionConfigOptions, timeline]
   );
+  const lastAssistantKey = useMemo(() => {
+    for (let index = timeline.length - 1; index >= 0; index -= 1) {
+      const row = timeline[index];
+      if (row?.turn.role === 'assistant') return row.key;
+    }
+    return null;
+  }, [timeline]);
 
   const navEntries = useMemo(
     () => buildTimelineNavEntries(timelineItems),
@@ -1431,6 +1437,11 @@ const AgentTimelineConversation = forwardRef<
             void handleForkFromTurn(vibexTurnId);
           }
         : null;
+      const settled = buildSettledTurnStats(row.turn);
+      const stats =
+        row.key === lastAssistantKey
+          ? mergeMissingTurnStats(settled, liveStats)
+          : settled;
       return row.phase === 'streaming' && !hasReconnectNotice ? (
         <LiveTurnStats
           stats={liveStats}
@@ -1440,7 +1451,7 @@ const AgentTimelineConversation = forwardRef<
         />
       ) : (
         <TurnStats
-          stats={buildSettledTurnStats(row.turn)}
+          stats={stats}
           copyText={copyText}
           onJumpBack={onJumpBack}
           onForkFromHere={onForkFromHere}
@@ -1456,6 +1467,7 @@ const AgentTimelineConversation = forwardRef<
       hasReconnectNotice,
       isTurnInFlight,
       jumpToVirtualIndex,
+      lastAssistantKey,
       liveStats,
       userMessageIndexes,
     ]

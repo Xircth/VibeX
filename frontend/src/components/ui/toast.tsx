@@ -8,12 +8,12 @@ import {
 import {
   AlertTriangle,
   CheckCircle2,
-  ChevronDown,
   CircleAlert,
   Info,
   Loader2,
   X,
 } from 'lucide-react';
+import { Button } from '@astryxdesign/core/Button';
 import { useTranslation } from 'react-i18next';
 import i18n from '@/i18n';
 
@@ -110,8 +110,54 @@ function resumeToast(id: ToastId) {
   if (item) scheduleToast(item);
 }
 
-function fallbackTitle(kind: ToastKind): string {
-  return i18n.t(`app:toast.${kind}Title`);
+function collectDetailRows(options: ToastOptions): ToastDetail[] {
+  const rows: ToastDetail[] = [];
+  if (options.description != null) {
+    rows.push({ description: options.description });
+  }
+  if (options.details?.length) {
+    rows.push(...options.details);
+  }
+  return rows;
+}
+
+function toastButtonCopy(
+  label: ReactNode | undefined,
+  fallback: string
+): { label: string; children?: ReactNode } {
+  if (typeof label === 'string') {
+    return { label };
+  }
+  if (typeof label === 'number') {
+    return { label: String(label) };
+  }
+  if (label == null) {
+    return { label: fallback };
+  }
+  return { label: fallback, children: label };
+}
+
+function ToastActionButton({
+  action,
+  variant,
+  onClick,
+}: {
+  action: ToastAction;
+  variant: 'primary' | 'secondary';
+  onClick: (event: React.MouseEvent<HTMLButtonElement>) => void;
+}) {
+  const copy = toastButtonCopy(action.label, '');
+  return (
+    <Button
+      type="button"
+      variant={variant}
+      size="sm"
+      label={copy.label}
+      onClick={onClick}
+    >
+      {copy.children}
+    </Button>
+  );
 }
 
 function ToastStatusIcon({ kind }: { kind: ToastKind }) {
@@ -149,11 +195,14 @@ function ToastCard({
 }) {
   const detailsId = useId();
   const [expanded, setExpanded] = useState(false);
-  const hasDescription = options.description != null;
-  const title = hasDescription ? message : fallbackTitle(kind);
-  const summary = hasDescription ? options.description : message;
-  const hasDetails = Boolean(options.details?.length);
+  const detailRows = collectDetailRows(options);
+  const hasDetails = detailRows.length > 0;
   const showClose = options.closeButton !== false && kind !== 'loading';
+  const hasActions = Boolean(options.cancel || options.action);
+  const detailsCopy = toastButtonCopy(
+    options.detailsLabel,
+    i18n.t('app:toast.showDetails')
+  );
 
   const runAction =
     (action: ToastAction) => (event: React.MouseEvent<HTMLButtonElement>) => {
@@ -193,85 +242,76 @@ function ToastCard({
       onBlurCapture={handleBlur}
     >
       <div className="vu-toast-heading">
-        <span className="vu-toast-icon-tile">
+        <span className="vu-toast-icon">
           <ToastStatusIcon kind={kind} />
         </span>
         <div className="vu-toast-copy">
-          <div className="vu-toast-title">{title}</div>
-          <div className="vu-toast-summary">{summary}</div>
+          <div className="vu-toast-title">{message}</div>
         </div>
-        {showClose ? (
-          <button
-            type="button"
-            className="vu-toast-close"
-            aria-label={i18n.t('app:toast.close')}
-            onClick={() => removeToast(id)}
-          >
-            <X aria-hidden="true" />
-          </button>
+        {hasDetails || hasActions || showClose ? (
+          <div className="vu-toast-end">
+            {hasDetails ? (
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                label={
+                  expanded ? i18n.t('app:toast.hideDetails') : detailsCopy.label
+                }
+                aria-expanded={expanded}
+                aria-controls={detailsId}
+                onClick={toggleDetails}
+              >
+                {expanded ? undefined : detailsCopy.children}
+              </Button>
+            ) : null}
+            {options.cancel ? (
+              <ToastActionButton
+                action={options.cancel}
+                variant="secondary"
+                onClick={runAction(options.cancel)}
+              />
+            ) : null}
+            {options.action ? (
+              <ToastActionButton
+                action={options.action}
+                variant="primary"
+                onClick={runAction(options.action)}
+              />
+            ) : null}
+            {showClose ? (
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                isIconOnly
+                icon={<X aria-hidden="true" />}
+                label={i18n.t('app:toast.close')}
+                onClick={() => removeToast(id)}
+              />
+            ) : null}
+          </div>
         ) : null}
       </div>
 
-      {hasDetails ? (
-        <div className="vu-toast-details-section">
-          <button
-            type="button"
-            className="vu-toast-disclosure"
-            aria-expanded={expanded}
-            aria-controls={detailsId}
-            onClick={toggleDetails}
-          >
-            <span>
-              {options.detailsLabel ?? i18n.t('app:toast.showDetails')}
-            </span>
-            <ChevronDown
-              className={expanded ? 'is-expanded' : undefined}
-              aria-hidden="true"
-            />
-          </button>
-          {expanded ? (
-            <div id={detailsId} className="vu-toast-details">
-              {options.details?.map((detail, index) => (
-                <div className="vu-toast-detail-row" key={index}>
-                  {detail.title ? (
-                    <div className="vu-toast-detail-title">{detail.title}</div>
-                  ) : null}
-                  <div
-                    className={
-                      detail.mono
-                        ? 'vu-toast-detail-copy vu-toast-detail-copy-mono'
-                        : 'vu-toast-detail-copy'
-                    }
-                  >
-                    {detail.description}
-                  </div>
-                </div>
-              ))}
+      {hasDetails && expanded ? (
+        <div id={detailsId} className="vu-toast-details">
+          {detailRows.map((detail, index) => (
+            <div className="vu-toast-detail-row" key={index}>
+              {detail.title ? (
+                <div className="vu-toast-detail-title">{detail.title}</div>
+              ) : null}
+              <div
+                className={
+                  detail.mono
+                    ? 'vu-toast-detail-copy vu-toast-detail-copy-mono'
+                    : 'vu-toast-detail-copy'
+                }
+              >
+                {detail.description}
+              </div>
             </div>
-          ) : null}
-        </div>
-      ) : null}
-
-      {options.cancel || options.action ? (
-        <div className="vu-toast-actions">
-          {options.cancel ? (
-            <button
-              type="button"
-              className="vu-toast-action vu-toast-action-secondary"
-              onClick={runAction(options.cancel)}
-            >
-              {options.cancel.label}
-            </button>
-          ) : null}
-          {options.action ? (
-            <button
-              type="button"
-              className="vu-toast-action vu-toast-action-primary"
-              onClick={runAction(options.action)}
-            >
-              {options.action.label}
-            </button>
-          ) : null}
+          ))}
         </div>
       ) : null}
     </article>

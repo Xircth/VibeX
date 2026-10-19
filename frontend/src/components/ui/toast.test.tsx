@@ -15,16 +15,40 @@ describe('unified toast', () => {
     });
   });
 
-  it('supplies the standard title and summary for compact calls', async () => {
+  it('uses the compact message as the title', async () => {
     render(<Toaster />);
 
     act(() => {
       toast.success('设置已保存');
     });
 
-    expect(await screen.findByText('操作已完成')).toBeInTheDocument();
-    expect(screen.getByText('设置已保存')).toBeInTheDocument();
-    expect(screen.getByRole('status')).toHaveClass('vu-toast-surface');
+    const title = await screen.findByText('设置已保存');
+    expect(title).toBeInTheDocument();
+    expect(screen.queryByText('操作已完成')).not.toBeInTheDocument();
+    expect(title.closest('.vu-toast-surface')).toHaveClass('vu-toast-surface');
+    expect(
+      screen.queryByRole('button', { name: '查看详情' })
+    ).not.toBeInTheDocument();
+  });
+
+  it('folds description into expandable details', async () => {
+    render(<Toaster />);
+
+    act(() => {
+      toast.error('无法打开外部终端', {
+        description: 'ENOENT: code.exe',
+      });
+    });
+
+    expect(await screen.findByText('无法打开外部终端')).toBeInTheDocument();
+    expect(screen.queryByText('ENOENT: code.exe')).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: '查看详情' }));
+    expect(screen.getByText('ENOENT: code.exe')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '收起详情' })).toHaveAttribute(
+      'aria-expanded',
+      'true'
+    );
   });
 
   it('keeps details independent from actions and dismisses after acting', async () => {
@@ -46,12 +70,17 @@ describe('unified toast', () => {
     });
 
     expect(await screen.findByText('依赖需要更新')).toBeInTheDocument();
-    const disclosure = screen.getByRole('button', { name: '查看详细信息' });
+    expect(
+      screen.queryByText('可在 VibeX 内完成更新。')
+    ).not.toBeInTheDocument();
+    const disclosure = screen.getByRole('button', { name: '查看详情' });
     expect(disclosure).toHaveAttribute('aria-expanded', 'false');
     expect(screen.queryByText('Codex CLI')).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '更新' })).toBeInTheDocument();
 
     fireEvent.click(disclosure);
     expect(disclosure).toHaveAttribute('aria-expanded', 'true');
+    expect(screen.getByText('可在 VibeX 内完成更新。')).toBeInTheDocument();
     expect(screen.getByText('Codex CLI')).toBeInTheDocument();
     expect(screen.getByText(/\.local\/bin\/codex/)).toHaveClass(
       'vu-toast-detail-copy-mono'

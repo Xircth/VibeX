@@ -33,10 +33,7 @@ export const ThinkingEntry: React.FC<{
     isStreaming
   );
 
-  useNestedWheel(contentRef, {
-    locked: isStreaming,
-    enabled: expanded,
-  });
+  useNestedWheel(contentRef, { enabled: expanded });
 
   return (
     <div

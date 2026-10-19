@@ -16,6 +16,7 @@ import {
   getSessionComposerStructuredTokens,
   serializeSessionComposerBackendMessage,
 } from '@/components/tasks/follow-up/sessionComposerStructuredTokens';
+import { plausibleTurnStartMs } from '@/components/conversation-thread/turnClock';
 import {
   mergeOpenTimelineRows,
   preferLoadedOlderCursor,
@@ -495,7 +496,7 @@ function applyPatchBlocks(
     if (revision < maxRowRevision(rows)) {
       return { rows, liveText };
     }
-    const nextRows = insertTimelineRow(rows, stubAssistantRow(op));
+    const nextRows = insertTimelineRow(rows, stubAssistantRow(op, rows));
     rebuildRowIndex(nextRows, rowIndexById);
     return { rows: nextRows, liveText };
   }
@@ -516,6 +517,10 @@ function applyPatchBlocks(
       phase: op.phase,
       turn: {
         ...existing.row.turn,
+        timestamp:
+          plausibleTurnStartMs(existing.row.turn.timestamp) !== null
+            ? existing.row.turn.timestamp
+            : assistantStartTimestamp(rows, op.row_id),
         blocks: mergePatchedBlocks(existing.row.turn.blocks, op.blocks),
         ...(op.usage ? { usage: op.usage } : {}),
       },
@@ -524,8 +529,34 @@ function applyPatchBlocks(
   return { rows: nextRows, liveText };
 }
 
+function assistantStartTimestamp(
+  rows: TimelineRow[],
+  assistantRowId: string
+): string {
+  const pair = messageTurnPairKey(assistantRowId);
+  if (pair) {
+    for (let index = rows.length - 1; index >= 0; index -= 1) {
+      const row = rows[index];
+      if (
+        !row ||
+        row.row.kind !== 'message_turn' ||
+        row.row.turn.role !== 'user'
+      ) {
+        continue;
+      }
+      const userId = `${pair}:user`;
+      if (row.row_id !== userId && row.row.turn.id !== userId) continue;
+      if (plausibleTurnStartMs(row.row.turn.timestamp) !== null) {
+        return row.row.turn.timestamp;
+      }
+    }
+  }
+  return new Date().toISOString();
+}
+
 function stubAssistantRow(
-  op: Extract<ConversationRowOp, { op: 'patch_blocks' }>
+  op: Extract<ConversationRowOp, { op: 'patch_blocks' }>,
+  rows: TimelineRow[]
 ): TimelineRow {
   return {
     row_id: op.row_id,
@@ -537,7 +568,7 @@ function stubAssistantRow(
         id: op.row_id,
         role: 'assistant',
         blocks: op.blocks,
-        timestamp: '1970-01-01T00:00:00.000Z',
+        timestamp: assistantStartTimestamp(rows, op.row_id),
         ...(op.usage ? { usage: op.usage } : {}),
       },
     },

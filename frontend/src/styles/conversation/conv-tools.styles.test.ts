@@ -89,13 +89,19 @@ describe('conversation tool-call typography', () => {
     expect(rules['line-height']?.value).toBe('1.7');
   });
 
-  it('shrinks only the grouped tool-call summary', () => {
+  it('matches stream prose size on the grouped tool-call summary', () => {
     const label = declarationsFor(
       ".vibex-tool-call-batch > [role='button'] > span:nth-child(2)"
     );
+    const header = declarationsFor('.conv-activity-header');
+    const fold = declarationsFor('.conv-collapsed-process-toggle');
 
-    expect(label['--text-supporting-size']?.value).toBe('12px');
-    expect(label['--text-supporting-leading']?.value).toBe('1.5');
+    expect(label['--text-supporting-size']?.value).toBe('13px');
+    expect(label['--text-supporting-leading']?.value).toBe('1.7');
+    expect(header['font-size']?.value).toBe('13px');
+    expect(header['line-height']?.value).toBe('1.7');
+    expect(fold['font-size']?.value).toBe('13px');
+    expect(fold['line-height']?.value).toBe('1.7');
     expect(label['white-space']?.value).toBe('nowrap');
     expect(label.overflow?.value).toBe('hidden');
     expect(label['min-width']?.value).toBe('0');

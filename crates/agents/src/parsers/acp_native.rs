@@ -784,6 +784,7 @@ fn apply_update(
                 tc.raw_output.as_ref(),
                 Some(status.as_str()),
                 tc.meta.clone().map(serde_json::Value::Object),
+                at_ms,
             );
         }
         SessionUpdate::ToolCallUpdate(tcu) => {
@@ -831,6 +832,7 @@ fn apply_update(
                         tcu.fields.raw_output.as_ref(),
                         status.as_deref(),
                         tcu.meta.clone().map(serde_json::Value::Object),
+                        at_ms,
                     );
                     return;
                 }
@@ -847,13 +849,14 @@ fn apply_update(
                 tcu.fields.raw_output.as_ref(),
                 status.as_deref(),
                 tcu.meta.clone().map(serde_json::Value::Object),
+                at_ms,
             );
         }
         SessionUpdate::Plan(plan) => {
             *prompt_just_recorded = false;
             let p = open_turn!();
             p.last_at_ms = at_ms;
-            upsert_plan(p, &plan);
+            upsert_plan(p, &plan, at_ms);
         }
         // Nothing else describes a TURN. `usage_update` does reach the
         // projection, but through [`latest_context_window`] — it reports the
@@ -910,6 +913,27 @@ fn closed_tool_card(
     (!uses.is_empty()).then_some((uses, results))
 }
 
+fn tool_call_is_terminal(status: Option<&str>) -> bool {
+    matches!(
+        status,
+        Some("completed") | Some("failed") | Some("cancelled") | Some("canceled")
+    )
+}
+
+fn observe_tool_clock(
+    started_at: &mut Option<DateTime<Utc>>,
+    ended_at: &mut Option<DateTime<Utc>>,
+    status: Option<&str>,
+    at_ms: u64,
+) {
+    if started_at.is_none() {
+        *started_at = Some(epoch_ms_to_utc(at_ms));
+    }
+    if tool_call_is_terminal(status) {
+        *ended_at = Some(epoch_ms_to_utc(at_ms));
+    }
+}
+
 /// Insert or patch one tool call's `ToolUse` / `ToolResult` pair.
 ///
 /// Uses the same input/output/image projection as the live path so a tool call
@@ -925,6 +949,7 @@ fn upsert_tool_call(
     raw_output: Option<&serde_json::Value>,
     status: Option<&str>,
     meta: Option<serde_json::Value>,
+    at_ms: u64,
 ) {
     let ToolCards {
         blocks,
@@ -950,6 +975,8 @@ fn upsert_tool_call(
                 input_preview: existing_input,
                 meta: existing_meta,
                 images: existing_images,
+                started_at,
+                ended_at,
                 ..
             }) = blocks.get_mut(idx)
             {
@@ -965,9 +992,11 @@ fn upsert_tool_call(
                 if !images.is_empty() {
                     *existing_images = images.clone();
                 }
+                observe_tool_clock(started_at, ended_at, status, at_ms);
             }
         }
         None => {
+            let observed = epoch_ms_to_utc(at_ms);
             tool_use_index.insert(id.to_string(), blocks.len());
             blocks.push(ContentBlock::ToolUse {
                 tool_use_id: Some(id.to_string()),
@@ -977,8 +1006,8 @@ fn upsert_tool_call(
                 input_preview,
                 meta,
                 images: images.clone(),
-                started_at: None,
-                ended_at: None,
+                started_at: Some(observed),
+                ended_at: tool_call_is_terminal(status).then_some(observed),
             });
         }
     }
@@ -1015,7 +1044,11 @@ fn upsert_tool_call(
 /// ACP plans are cumulative snapshots: each `plan` update replaces the previous
 /// one. Model that as a single synthetic `TodoWrite` tool call whose input the
 /// frontend already renders as a plan card.
-fn upsert_plan(pending: &mut PendingTurn, plan: &agent_client_protocol::schema::v1::Plan) {
+fn upsert_plan(
+    pending: &mut PendingTurn,
+    plan: &agent_client_protocol::schema::v1::Plan,
+    at_ms: u64,
+) {
     let todos: Vec<serde_json::Value> = plan
         .entries
         .iter()
@@ -1048,7 +1081,7 @@ fn upsert_plan(pending: &mut PendingTurn, plan: &agent_client_protocol::schema::
                 input_preview: Some(input),
                 meta: None,
                 images: Vec::new(),
-                started_at: None,
+                started_at: Some(epoch_ms_to_utc(at_ms)),
                 ended_at: None,
             });
         }
@@ -1191,5 +1224,57 @@ mod tests {
         assert_eq!(usage.context_window_max, Some(200000));
         assert_eq!(usage.input_tokens, 0);
         assert_eq!(turns[1].duration_ms, Some(4000));
+    }
+
+    fn tool_entry(t: u64, id: &str, status: &str, update: bool) -> TranscriptEntry {
+        TranscriptEntry {
+            t,
+            k: EntryKind::Update,
+            steer: false,
+            p: serde_json::json!({
+                "sessionUpdate": if update { "tool_call_update" } else { "tool_call" },
+                "toolCallId": id,
+                "title": "Bash",
+                "kind": "execute",
+                "status": status
+            }),
+        }
+    }
+
+    #[test]
+    fn stamps_tool_call_wall_clock_and_leaves_an_open_call_open() {
+        let start = 1_760_000_000_000;
+        let turns = project_turns(&[
+            prompt(start, "hi"),
+            tool_entry(start + 1_000, "open", "pending", false),
+            tool_entry(start + 2_000, "done", "pending", false),
+            tool_entry(start + 5_400_000, "done", "completed", true),
+        ]);
+        let assistant = turns
+            .iter()
+            .find(|turn| matches!(turn.role, TurnRole::Assistant))
+            .expect("assistant");
+        match &assistant.blocks[0] {
+            ContentBlock::ToolUse {
+                started_at,
+                ended_at,
+                ..
+            } => {
+                assert_eq!(*started_at, Some(epoch_ms_to_utc(start + 1_000)));
+                assert!(ended_at.is_none());
+            }
+            other => panic!("{other:?}"),
+        }
+        match &assistant.blocks[1] {
+            ContentBlock::ToolUse {
+                started_at,
+                ended_at,
+                ..
+            } => {
+                assert_eq!(*started_at, Some(epoch_ms_to_utc(start + 2_000)));
+                assert_eq!(*ended_at, Some(epoch_ms_to_utc(start + 5_400_000)));
+            }
+            other => panic!("{other:?}"),
+        }
     }
 }

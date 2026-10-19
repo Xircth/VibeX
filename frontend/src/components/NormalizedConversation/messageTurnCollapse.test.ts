@@ -62,7 +62,7 @@ describe('collapseTurnSegments', () => {
     ).toEqual([markdown('项目已启动完成。')]);
   });
 
-  it('keeps tool-only items visible while streaming and folds them once markdown arrives', () => {
+  it('folds every message before each new prose, including earlier prose', () => {
     const toolOnly = [tool('bash'), tool('read')];
     expect(collapseTurnSegments(toolOnly, { isStreaming: true })).toEqual([
       { kind: 'items', startIndex: 0, items: toolOnly },
@@ -74,40 +74,40 @@ describe('collapseTurnSegments', () => {
     const withFirstMarkdown = [...toolOnly, markdown('first stage')];
     expect(
       collapseTurnSegments(withFirstMarkdown, { isStreaming: true })
-    ).toEqual([{ kind: 'items', startIndex: 0, items: withFirstMarkdown }]);
+    ).toEqual([
+      { kind: 'fold', startIndex: 0, items: toolOnly },
+      { kind: 'items', startIndex: 2, items: [markdown('first stage')] },
+    ]);
 
     const withMoreTools = [...withFirstMarkdown, tool('grep')];
     expect(collapseTurnSegments(withMoreTools, { isStreaming: true })).toEqual([
-      { kind: 'fold', startIndex: 0, items: [tool('bash')] },
+      { kind: 'fold', startIndex: 0, items: [tool('bash'), tool('read')] },
       {
         kind: 'items',
-        startIndex: 1,
-        items: [tool('read'), markdown('first stage'), tool('grep')],
+        startIndex: 2,
+        items: [markdown('first stage'), tool('grep')],
       },
     ]);
 
     const withSecondMarkdown = [...withMoreTools, markdown('second stage')];
-    const second = collapseTurnSegments(withSecondMarkdown, {
-      isStreaming: true,
-    });
-    expect(second.flatMap((segment) => segment.items)).toEqual(
-      expect.arrayContaining([
-        markdown('first stage'),
-        markdown('second stage'),
-      ])
-    );
     expect(
-      second.some(
-        (segment) =>
-          segment.kind === 'fold' &&
-          segment.items.some(
-            (item) => item.kind === 'markdown' && item.text === 'first stage'
-          )
-      )
-    ).toBe(false);
+      collapseTurnSegments(withSecondMarkdown, { isStreaming: true })
+    ).toEqual([
+      {
+        kind: 'fold',
+        startIndex: 0,
+        items: [
+          tool('bash'),
+          tool('read'),
+          markdown('first stage'),
+          tool('grep'),
+        ],
+      },
+      { kind: 'items', startIndex: 4, items: [markdown('second stage')] },
+    ]);
   });
 
-  it('keeps earlier distinct markdown visible while a later stream continues', () => {
+  it('folds everything before the latest prose while streaming continues', () => {
     const items = [
       tool('bash'),
       tool('ls'),
@@ -116,18 +116,43 @@ describe('collapseTurnSegments', () => {
       markdown('new stream'),
     ];
     expect(collapseTurnSegments(items, { isStreaming: true })).toEqual([
-      { kind: 'fold', startIndex: 0, items: [tool('bash')] },
       {
-        kind: 'items',
-        startIndex: 1,
+        kind: 'fold',
+        startIndex: 0,
         items: [
+          tool('bash'),
           tool('ls'),
           markdown('already on screen'),
           tool('read'),
-          markdown('new stream'),
         ],
       },
+      { kind: 'items', startIndex: 4, items: [markdown('new stream')] },
     ]);
+  });
+
+  it('omits an earlier copy of the visible prose from the streaming fold', () => {
+    const items = [
+      tool('bash'),
+      markdown('项目已启动完成。'),
+      tool('read'),
+      markdown('项目已启动完成。'),
+    ];
+    const segments = collapseTurnSegments(items, { isStreaming: true });
+    expect(segments).toEqual([
+      {
+        kind: 'fold',
+        startIndex: 0,
+        items: [tool('bash'), tool('read')],
+      },
+      { kind: 'items', startIndex: 3, items: [markdown('项目已启动完成。')] },
+    ]);
+    expect(
+      segments
+        .flatMap((segment) => segment.items)
+        .filter(
+          (item) => item.kind === 'markdown' && item.text === '项目已启动完成。'
+        )
+    ).toEqual([markdown('项目已启动完成。')]);
   });
 
   it('folds a streaming tool run down to a two-block tail', () => {

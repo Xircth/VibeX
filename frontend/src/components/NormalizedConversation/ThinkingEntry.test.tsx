@@ -104,6 +104,9 @@ describe('ThinkingEntry', () => {
       /\.conv-thinking-content\s*\{[^}]*max-height:\s*100lh;[^}]*overflow-y:\s*auto;/
     );
     expect(convToolsStyles).toMatch(
+      /\.conv-thinking-content\s*\{[^}]*overscroll-behavior:\s*auto;/
+    );
+    expect(convToolsStyles).toMatch(
       /\.conv-thinking-content\s*\{[^}]*scrollbar-width:\s*none;/
     );
     expect(convToolsStyles).toMatch(
@@ -133,12 +136,12 @@ describe('ThinkingEntry', () => {
     expect(scroller.scrollTop).toBe(60);
   });
 
-  it('keeps finished expanded thinking as an inner scroll region', () => {
+  it('uses the conversation scroller when finished thinking does not overflow', () => {
     render(
       <div data-panel="conversation-logs">
         <ThinkingEntry
-          content={'line\n'.repeat(40)}
-          expansionKey="finished-scroll"
+          content="short thought"
+          expansionKey="finished-no-overflow"
           isStreaming={false}
         />
       </div>
@@ -154,8 +157,76 @@ describe('ThinkingEntry', () => {
     const content = document.querySelector(
       '.conv-thinking-content'
     ) as HTMLDivElement;
+    Object.defineProperty(content, 'clientHeight', { value: 120 });
+    Object.defineProperty(content, 'scrollHeight', { value: 80 });
+    Object.defineProperty(content, 'scrollTop', {
+      writable: true,
+      value: 0,
+    });
+    fireEvent.wheel(content, { deltaY: 48 });
+    expect(scroller.scrollTop).toBe(60);
+  });
+
+  it('keeps overflowing finished thinking until the wheel hits an edge', () => {
+    render(
+      <div data-panel="conversation-logs">
+        <ThinkingEntry
+          content={'line\n'.repeat(40)}
+          expansionKey="finished-overflow"
+          isStreaming={false}
+        />
+      </div>
+    );
+    fireEvent.click(screen.getByRole('button', { name: '展开思考' }));
+    const scroller = document.querySelector(
+      '[data-panel="conversation-logs"]'
+    ) as HTMLDivElement;
+    Object.defineProperty(scroller, 'scrollTop', {
+      writable: true,
+      value: 12,
+    });
+    const content = document.querySelector(
+      '.conv-thinking-content'
+    ) as HTMLDivElement;
+    Object.defineProperty(content, 'clientHeight', { value: 100 });
+    Object.defineProperty(content, 'scrollHeight', { value: 400 });
+    Object.defineProperty(content, 'scrollTop', {
+      writable: true,
+      value: 40,
+    });
     fireEvent.wheel(content, { deltaY: 48 });
     expect(scroller.scrollTop).toBe(12);
+  });
+
+  it('chains finished thinking to the conversation at the bottom edge', () => {
+    render(
+      <div data-panel="conversation-logs">
+        <ThinkingEntry
+          content={'line\n'.repeat(40)}
+          expansionKey="finished-edge"
+          isStreaming={false}
+        />
+      </div>
+    );
+    fireEvent.click(screen.getByRole('button', { name: '展开思考' }));
+    const scroller = document.querySelector(
+      '[data-panel="conversation-logs"]'
+    ) as HTMLDivElement;
+    Object.defineProperty(scroller, 'scrollTop', {
+      writable: true,
+      value: 12,
+    });
+    const content = document.querySelector(
+      '.conv-thinking-content'
+    ) as HTMLDivElement;
+    Object.defineProperty(content, 'clientHeight', { value: 100 });
+    Object.defineProperty(content, 'scrollHeight', { value: 400 });
+    Object.defineProperty(content, 'scrollTop', {
+      writable: true,
+      value: 300,
+    });
+    fireEvent.wheel(content, { deltaY: 48 });
+    expect(scroller.scrollTop).toBe(60);
   });
 
   it('styles thinking markdown content with secondary muted text color instead of primary body color', () => {

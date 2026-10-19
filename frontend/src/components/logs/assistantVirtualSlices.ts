@@ -4,12 +4,12 @@ import {
   type TurnRenderItem,
 } from '@/components/NormalizedConversation/messageTurnBlocks';
 import {
+  collapseTurnSegments,
   isCollapsibleProcessItem,
-  splitCollapsedTurnItems,
 } from '@/components/NormalizedConversation/messageTurnCollapse';
 
 export type AssistantBlockSlice =
-  | { kind: 'process-fold'; count: number }
+  | { kind: 'process-fold'; count: number; startIndex: number }
   | { kind: 'block'; itemIndex: number }
   | { kind: 'status' };
 
@@ -24,7 +24,7 @@ export function assistantBlockSlices(input: {
   items: TurnRenderItem[];
   isStreaming: boolean;
   collapseProcess: boolean;
-  processExpanded: boolean;
+  processExpanded: (foldStartIndex: number) => boolean;
 }): AssistantBlockSlice[] {
   if (!input.collapseProcess) {
     if (input.items.length === 0) {
@@ -33,23 +33,26 @@ export function assistantBlockSlices(input: {
     return input.items.map((_, itemIndex) => ({ kind: 'block', itemIndex }));
   }
 
-  const { prelude, rest } = splitCollapsedTurnItems(input.items, {
-    isStreaming: input.isStreaming,
-  });
   const slices: AssistantBlockSlice[] = [];
-  const processCount = prelude.filter(isCollapsibleProcessItem).length;
-  if (processCount > 0) {
-    slices.push({ kind: 'process-fold', count: processCount });
-    if (input.processExpanded) {
-      for (const item of prelude) {
-        const itemIndex = input.items.indexOf(item);
-        if (itemIndex >= 0) slices.push({ kind: 'block', itemIndex });
-      }
+  for (const segment of collapseTurnSegments(input.items, {
+    isStreaming: input.isStreaming,
+  })) {
+    if (segment.kind === 'fold') {
+      const processCount = segment.items.filter(
+        isCollapsibleProcessItem
+      ).length;
+      if (processCount === 0) continue;
+      slices.push({
+        kind: 'process-fold',
+        count: processCount,
+        startIndex: segment.startIndex,
+      });
+      if (!input.processExpanded(segment.startIndex)) continue;
     }
-  }
-  for (const item of rest) {
-    const itemIndex = input.items.indexOf(item);
-    if (itemIndex >= 0) slices.push({ kind: 'block', itemIndex });
+    for (const item of segment.items) {
+      const itemIndex = input.items.indexOf(item);
+      if (itemIndex >= 0) slices.push({ kind: 'block', itemIndex });
+    }
   }
   if (slices.length === 0 && input.isStreaming) {
     slices.push({ kind: 'status' });
@@ -61,7 +64,7 @@ export function buildTimelineVirtualEntries(input: {
   items: ConversationTimelineItem[];
   collapseProcess: boolean;
   hideThinking: boolean;
-  processExpanded: (turnId: string) => boolean;
+  processExpanded: (turnId: string, foldStartIndex: number) => boolean;
   isContextCompact: (rowKey: string) => boolean;
 }): TimelineVirtualEntry[] {
   const entries: TimelineVirtualEntry[] = [];
@@ -98,7 +101,8 @@ export function buildTimelineVirtualEntries(input: {
       items: blocks,
       isStreaming: row.phase === 'streaming',
       collapseProcess: input.collapseProcess,
-      processExpanded: input.processExpanded(row.turn.id),
+      processExpanded: (foldStartIndex) =>
+        input.processExpanded(row.turn.id, foldStartIndex),
     });
     if (slices.length === 0) {
       entries.push({
@@ -112,7 +116,7 @@ export function buildTimelineVirtualEntries(input: {
     slices.forEach((slice, sliceIndex) => {
       const suffix =
         slice.kind === 'process-fold'
-          ? 'fold'
+          ? `fold:${slice.startIndex}`
           : slice.kind === 'status'
             ? 'status'
             : `b:${slice.itemIndex}`;

@@ -1089,7 +1089,7 @@ button.vibex-tool-call-target-label:hover {
   margin-top: 6px;
   max-height: 100lh;
   overflow-y: auto;
-  overscroll-behavior: contain;
+  overscroll-behavior: auto;
   scrollbar-width: none;
   -ms-overflow-style: none;
   color: var(--conv-text-secondary, var(--text-muted));

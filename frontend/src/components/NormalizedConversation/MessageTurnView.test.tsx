@@ -478,14 +478,27 @@ describe('MessageTurnView', () => {
       />
     );
 
-    expect(
-      screen.getByRole('button', { name: /已折叠 6 条消息/ })
-    ).toHaveAttribute('aria-expanded', 'false');
-    expect(screen.getByText('Stage 1 update')).toBeInTheDocument();
-    expect(screen.getByText('Stage 2 update')).toBeInTheDocument();
+    const stage1 = screen.getByText('Stage 1 update');
+    const stage2 = screen.getByText('Stage 2 update');
+    const earlierFold = screen.getByRole('button', { name: /已折叠 4 条消息/ });
+    const laterFold = screen.getByRole('button', { name: /已折叠 2 条消息/ });
+    expect(earlierFold).toHaveAttribute('aria-expanded', 'false');
+    expect(laterFold).toHaveAttribute('aria-expanded', 'false');
+    expect(stage1.compareDocumentPosition(earlierFold)).toBe(
+      Node.DOCUMENT_POSITION_FOLLOWING
+    );
+    expect(earlierFold.compareDocumentPosition(stage2)).toBe(
+      Node.DOCUMENT_POSITION_FOLLOWING
+    );
+    expect(stage2.compareDocumentPosition(laterFold)).toBe(
+      Node.DOCUMENT_POSITION_FOLLOWING
+    );
     expect(screen.queryByText('stage2-0')).not.toBeInTheDocument();
     expect(screen.getByText('stage2-2')).toBeInTheDocument();
     expect(screen.getByText('stage2-3')).toBeInTheDocument();
+    expect(
+      laterFold.compareDocumentPosition(screen.getByText('stage2-2'))
+    ).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
 
     rerender(
       <MessageTurnView
@@ -502,12 +515,20 @@ describe('MessageTurnView', () => {
     );
 
     expect(
-      screen.getByRole('button', { name: /已折叠 6 条消息/ })
+      screen.getByRole('button', { name: /已折叠 4 条消息/ })
+    ).toHaveAttribute('aria-expanded', 'false');
+    expect(
+      screen.getByRole('button', { name: /已折叠 2 条消息/ })
     ).toHaveAttribute('aria-expanded', 'false');
     expect(screen.getByText('Stage 1 update')).toBeInTheDocument();
     expect(screen.getByText('Stage 2 update')).toBeInTheDocument();
     expect(screen.getByText('stage2-3')).toBeInTheDocument();
     expect(screen.getByText('Stage 3 final')).toBeInTheDocument();
+    expect(
+      screen
+        .getByText('stage2-3')
+        .compareDocumentPosition(screen.getByText('Stage 3 final'))
+    ).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
   });
 
   it('uses one process disclosure for a settled turn with several prose and activity stages', () => {
@@ -1416,6 +1437,35 @@ describe('MessageTurnView', () => {
     expect(
       screen.getByText('A').compareDocumentPosition(screen.getByText('D'))
     ).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
+  });
+
+  it('keeps the streaming tool fold after earlier prose', () => {
+    render(
+      <MessageTurnView
+        turn={{
+          id: 'prose-then-tools:assistant',
+          role: 'assistant',
+          blocks: [{ type: 'text', text: 'A' }, ...completedCommands(5)],
+          timestamp: '2026-10-09T00:00:00.000Z',
+        }}
+        phase="streaming"
+        attempt={{ id: 'attempt-1', container_ref: null } as never}
+        task={null}
+        collapseProcess
+      />
+    );
+
+    const prose = screen.getByText('A');
+    const fold = screen.getByRole('button', { name: /已折叠 3 条消息/ });
+    expect(prose.compareDocumentPosition(fold)).toBe(
+      Node.DOCUMENT_POSITION_FOLLOWING
+    );
+    expect(screen.getByText('command-3')).toBeInTheDocument();
+    expect(screen.getByText('command-4')).toBeInTheDocument();
+    expect(screen.queryByText('command-0')).not.toBeInTheDocument();
+    expect(prose.compareDocumentPosition(screen.getByText('command-3'))).toBe(
+      Node.DOCUMENT_POSITION_FOLLOWING
+    );
   });
 
   it('collapses earlier prose and running tools together after settlement', () => {

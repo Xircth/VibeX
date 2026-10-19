@@ -2,6 +2,10 @@ import { describe, expect, it } from 'vitest';
 import type { TurnRenderItem } from '@/components/NormalizedConversation/messageTurnBlocks';
 import { assistantBlockSlices } from './assistantVirtualSlices';
 
+function markdown(text: string): TurnRenderItem {
+  return { kind: 'markdown', text };
+}
+
 function tool(name: string): TurnRenderItem {
   return {
     kind: 'tool',
@@ -24,10 +28,10 @@ describe('assistantBlockSlices', () => {
         items,
         isStreaming: true,
         collapseProcess: true,
-        processExpanded: false,
+        processExpanded: () => false,
       })
     ).toEqual([
-      { kind: 'process-fold', count: 3 },
+      { kind: 'process-fold', count: 3, startIndex: 0 },
       { kind: 'block', itemIndex: 3 },
       { kind: 'block', itemIndex: 4 },
     ]);
@@ -40,10 +44,10 @@ describe('assistantBlockSlices', () => {
         items,
         isStreaming: true,
         collapseProcess: true,
-        processExpanded: true,
+        processExpanded: () => true,
       })
     ).toEqual([
-      { kind: 'process-fold', count: 2 },
+      { kind: 'process-fold', count: 2, startIndex: 0 },
       { kind: 'block', itemIndex: 0 },
       { kind: 'block', itemIndex: 1 },
       { kind: 'block', itemIndex: 2 },
@@ -58,8 +62,31 @@ describe('assistantBlockSlices', () => {
         items,
         isStreaming: false,
         collapseProcess: true,
-        processExpanded: false,
+        processExpanded: () => false,
       })
-    ).toEqual([{ kind: 'process-fold', count: 3 }]);
+    ).toEqual([{ kind: 'process-fold', count: 3, startIndex: 0 }]);
+  });
+
+  it('keeps the streaming tool fold after earlier prose', () => {
+    const items = [
+      markdown('answer'),
+      tool('a'),
+      tool('b'),
+      tool('c'),
+      tool('d'),
+    ];
+    expect(
+      assistantBlockSlices({
+        items,
+        isStreaming: true,
+        collapseProcess: true,
+        processExpanded: () => false,
+      })
+    ).toEqual([
+      { kind: 'block', itemIndex: 0 },
+      { kind: 'process-fold', count: 2, startIndex: 1 },
+      { kind: 'block', itemIndex: 3 },
+      { kind: 'block', itemIndex: 4 },
+    ]);
   });
 });

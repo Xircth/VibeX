@@ -955,7 +955,8 @@ const AgentTimelineConversation = forwardRef<
         items: timelineItems,
         collapseProcess,
         hideThinking,
-        processExpanded: (turnId) => isExpandableOpen(`process:${turnId}`),
+        processExpanded: (turnId, foldStartIndex) =>
+          isExpandableOpen(`process:${turnId}:${foldStartIndex}`),
         isContextCompact: (rowKey) => contextCompactByRowKey.has(rowKey),
       }),
     [

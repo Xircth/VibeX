@@ -1,4 +1,5 @@
 import {
+  Fragment,
   memo,
   useCallback,
   useEffect,
@@ -50,8 +51,8 @@ import {
   type TurnRenderItem,
 } from './messageTurnBlocks';
 import {
+  collapseTurnSegments,
   isCollapsibleProcessItem,
-  splitCollapsedTurnItems,
 } from './messageTurnCollapse';
 import { splitAssistantCommandOutput } from './conversation-entry-utils';
 import {
@@ -499,7 +500,7 @@ export const MessageTurnView = memo(function MessageTurnView({
   collapseProcess?: boolean;
   workspacePath?: string | null;
   slice?:
-    | { kind: 'process-fold'; count: number }
+    | { kind: 'process-fold'; count: number; startIndex: number }
     | { kind: 'block'; itemIndex: number }
     | { kind: 'status' }
     | null;
@@ -639,11 +640,10 @@ export const MessageTurnView = memo(function MessageTurnView({
   const items = hideThinking
     ? plannedItems.filter((item) => item.kind !== 'thinking')
     : plannedItems;
-  const { prelude, rest } = collapseProcess
-    ? splitCollapsedTurnItems(items, { isStreaming: phase === 'streaming' })
-    : { prelude: [], rest: items };
+  const segments = collapseProcess
+    ? collapseTurnSegments(items, { isStreaming: phase === 'streaming' })
+    : [{ kind: 'items' as const, startIndex: 0, items }];
   const originalIndices = new Map(items.map((item, index) => [item, index]));
-  const processCount = prelude.filter(isCollapsibleProcessItem).length;
   const pollResults = collectHostDelegationPollResults(
     items.filter((item) => item.kind === 'tool')
   );
@@ -697,7 +697,10 @@ export const MessageTurnView = memo(function MessageTurnView({
   if (slice?.kind === 'process-fold') {
     return (
       <div className="conv-entry-item conv-assistant-msg conv-msg-hover group px-4 py-2 text-sm">
-        <CollapsedProcessGroup expansionKey={turn.id} count={slice.count}>
+        <CollapsedProcessGroup
+          expansionKey={`${turn.id}:${slice.startIndex}`}
+          count={slice.count}
+        >
           {() => null}
         </CollapsedProcessGroup>
       </div>
@@ -730,14 +733,32 @@ export const MessageTurnView = memo(function MessageTurnView({
 
   const body = (
     <>
-      {processCount > 0 ? (
-        <CollapsedProcessGroup expansionKey={turn.id} count={processCount}>
-          {(expanded) => renderUnits(prelude, expanded)}
-        </CollapsedProcessGroup>
-      ) : (
-        renderUnits(prelude)
-      )}
-      {renderUnits(rest)}
+      {segments.map((segment) => {
+        if (segment.kind === 'fold') {
+          const count = segment.items.filter(isCollapsibleProcessItem).length;
+          if (count === 0) {
+            return (
+              <Fragment key={`${turn.id}-fold-${segment.startIndex}`}>
+                {renderUnits(segment.items)}
+              </Fragment>
+            );
+          }
+          return (
+            <CollapsedProcessGroup
+              key={`${turn.id}-fold-${segment.startIndex}`}
+              expansionKey={`${turn.id}:${segment.startIndex}`}
+              count={count}
+            >
+              {(expanded) => renderUnits(segment.items, expanded)}
+            </CollapsedProcessGroup>
+          );
+        }
+        return (
+          <Fragment key={`${turn.id}-items-${segment.startIndex}`}>
+            {renderUnits(segment.items)}
+          </Fragment>
+        );
+      })}
     </>
   );
 

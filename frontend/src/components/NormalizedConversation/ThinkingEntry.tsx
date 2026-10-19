@@ -1,9 +1,10 @@
-import React, { useCallback } from 'react';
+import React, { useEffect, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Brain, ChevronDown, Loader2 } from 'lucide-react';
 import { useExpandable } from '@/stores/useExpandableStore';
 import { AstryxMarkdown } from './AstryxMarkdown';
 import { cn } from '@/lib/utils';
+import { thinkingWheelTarget } from './thinkingScroll';
 
 function conversationScrollerFrom(
   node: EventTarget | null
@@ -34,20 +35,33 @@ export const ThinkingEntry: React.FC<{
   onExpandedChange,
 }) => {
   const { t } = useTranslation(['conversation']);
+  const contentRef = useRef<HTMLDivElement | null>(null);
   const [expanded, toggle] = useExpandable(
     `thinking:${expansionKey}:${isStreaming ? 'streaming' : 'finished'}`,
     isStreaming
   );
-  const forwardWheelToConversation = useCallback(
-    (event: React.WheelEvent<HTMLDivElement>) => {
-      if (!isStreaming) return;
-      const scroller = conversationScrollerFrom(event.currentTarget);
+
+  useEffect(() => {
+    if (!expanded) return;
+    const node = contentRef.current;
+    if (!node) return;
+    const onWheel = (event: WheelEvent) => {
+      const target = thinkingWheelTarget({
+        isStreaming,
+        scrollTop: node.scrollTop,
+        clientHeight: node.clientHeight,
+        scrollHeight: node.scrollHeight,
+        deltaY: event.deltaY,
+      });
+      if (target === 'inner') return;
+      const scroller = conversationScrollerFrom(node);
       if (!scroller) return;
-      scroller.scrollTop += event.deltaY;
       event.preventDefault();
-    },
-    [isStreaming]
-  );
+      scroller.scrollTop += event.deltaY;
+    };
+    node.addEventListener('wheel', onWheel, { passive: false });
+    return () => node.removeEventListener('wheel', onWheel);
+  }, [expanded, isStreaming]);
 
   return (
     <div
@@ -93,10 +107,7 @@ export const ThinkingEntry: React.FC<{
         />
       </button>
       {expanded ? (
-        <div
-          className="conv-thinking-content"
-          onWheel={isStreaming ? forwardWheelToConversation : undefined}
-        >
+        <div ref={contentRef} className="conv-thinking-content">
           <AstryxMarkdown
             value={content}
             taskAttemptId={taskAttemptId}

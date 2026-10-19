@@ -182,6 +182,32 @@ describe('TurnStats', () => {
 
     expect(screen.getByText('8s')).toBeInTheDocument();
   });
+
+  it('does not count a live turn from the unix epoch', () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-10-19T12:14:00.000Z'));
+
+    render(<LiveTurnStats startedAt="1970-01-01T00:00:00.000Z" />);
+
+    expect(screen.getByText('生成中')).toBeInTheDocument();
+    expect(screen.queryByText(/h/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/\dm/)).not.toBeInTheDocument();
+  });
+
+  it('ignores an absolute timestamp passed as the live elapsed time', () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-03-22T00:02:00.000Z'));
+
+    render(
+      <LiveTurnStats
+        startedAt="2026-03-22T00:00:00.000Z"
+        stats={{ elapsedMs: Date.parse('2026-03-22T00:02:00.000Z') }}
+      />
+    );
+
+    expect(screen.getByText('2m 0s')).toBeInTheDocument();
+    expect(screen.queryByText(/h/)).not.toBeInTheDocument();
+  });
 });
 
 describe('turnTokenTotal', () => {

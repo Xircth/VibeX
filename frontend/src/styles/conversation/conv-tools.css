@@ -764,11 +764,11 @@ button.conv-tool-artifact-title:hover {
 }
 
 /* StyleX paints this label with --text-supporting-size at a specificity a
-   plain font-size cannot beat. The stream token is 13px, so shrink it here.
-   The line stays single and clips; hover scrolls it inside the same box. */
+   plain font-size cannot beat. Match the 13px stream prose. The line stays
+   single and clips; hover scrolls it inside the same box. */
 .vibex-tool-call-batch > [role='button'] > span:nth-child(2) {
-  --text-supporting-size: 12px;
-  --text-supporting-leading: 1.5;
+  --text-supporting-size: 13px;
+  --text-supporting-leading: 1.7;
   display: block;
   flex: 1 1 auto;
   min-width: 0;
@@ -1187,9 +1187,16 @@ button.vibex-tool-call-target-label:hover {
   background: transparent;
   color: var(--conv-text-secondary);
   font: inherit;
-  font-size: 12px;
+  font-size: 13px;
+  line-height: 1.7;
   text-align: left;
   cursor: pointer;
+}
+
+.conv-collapsed-process-toggle {
+  font-size: 13px;
+  font-weight: 400;
+  line-height: 1.7;
 }
 
 .conv-activity-header > span {

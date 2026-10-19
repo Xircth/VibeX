@@ -1493,6 +1493,65 @@ describe('conversationStore (row-op dumb container)', () => {
     expect(secondSideRows).toBe(firstSideRows);
   });
 
+  it('times a live assistant from its user turn instead of the unix epoch', () => {
+    let state = loaded([userRow('t1', 'q', 1n)]);
+    state = conversationStoreReducer(state, {
+      type: 'row_ops',
+      batch: batch(
+        [
+          {
+            op: 'patch_blocks',
+            row_id: 't1:assistant',
+            revision: 2n,
+            phase: 'streaming',
+            blocks: [
+              {
+                type: 'tool_use',
+                tool_name: 'Read',
+                tool_use_id: 'call-1',
+                input_preview: '{}',
+                meta: null,
+              },
+            ],
+          },
+        ],
+        2n
+      ),
+    });
+    const assistant = timelineTurnsForEntry(entryOf(state)).find(
+      (row) => row.turn.role === 'assistant'
+    );
+    expect(assistant?.turn.timestamp).toBe('2026-07-03T00:00:00.000Z');
+
+    state = conversationStoreReducer(state, {
+      type: 'row_ops',
+      batch: batch(
+        [
+          {
+            op: 'patch_blocks',
+            row_id: 't1:assistant',
+            revision: 3n,
+            phase: 'streaming',
+            blocks: [
+              {
+                type: 'tool_use',
+                tool_name: 'Read file',
+                tool_use_id: 'call-1',
+                input_preview: '{}',
+                meta: null,
+              },
+            ],
+          },
+        ],
+        3n
+      ),
+    });
+    const patched = timelineTurnsForEntry(entryOf(state)).find(
+      (row) => row.turn.role === 'assistant'
+    );
+    expect(patched?.turn.timestamp).toBe('2026-07-03T00:00:00.000Z');
+  });
+
   it('merges a tool patch by tool id and keeps streamed text', () => {
     let state = loaded([userRow('t1', 'q', 1n)]);
     state = conversationStoreReducer(state, {

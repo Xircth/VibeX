@@ -52,6 +52,10 @@ import {
   type TurnRenderItem,
 } from './messageTurnBlocks';
 import {
+  collapsedMessagesDurationMs,
+  formatCollapsedDurationParts,
+} from './collapsedMessages';
+import {
   collapseTurnSegments,
   isCollapsibleProcessItem,
 } from './messageTurnCollapse';
@@ -445,22 +449,33 @@ function InterruptedTurnNotice({ onResend }: { onResend?: () => void }) {
 function CollapsedProcessGroup({
   expansionKey,
   count,
+  durationMs,
   children,
 }: {
   expansionKey: string;
   count: number;
+  durationMs: number | null;
   children: (expanded: boolean) => ReactNode;
 }) {
   const { t } = useTranslation(['conversation', 'common']);
   const bodyRef = useRef<HTMLDivElement | null>(null);
   const [expanded, toggle] = useExpandable(`process:${expansionKey}`, false);
   useNestedWheel(bodyRef, { enabled: expanded });
+  const span =
+    durationMs === null ? null : formatCollapsedDurationParts(durationMs);
+  const label = span
+    ? t('messageTurnView.collapsedMessages', {
+        hours: span.hours,
+        minutes: span.minutes,
+        count,
+      })
+    : t('messageTurnView.collapsedMessageCount', { count });
   return (
     <div className="conv-collapsed-process px-1 py-1">
       <button
         type="button"
         onClick={() => toggle()}
-        className="inline-flex items-center gap-1 rounded-md text-xs text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+        className="conv-collapsed-process-toggle inline-flex items-center gap-1 rounded-md text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
         aria-expanded={expanded}
       >
         <ChevronDown
@@ -469,7 +484,7 @@ function CollapsedProcessGroup({
             expanded ? '' : '-rotate-90'
           )}
         />
-        <span>{t('messageTurnView.collapsedMessages', { count })}</span>
+        <span>{label}</span>
       </button>
       {expanded ? (
         <div
@@ -656,6 +671,14 @@ export const MessageTurnView = memo(function MessageTurnView({
   const segments = collapseProcess
     ? collapseTurnSegments(items, { isStreaming: phase === 'streaming' })
     : [{ kind: 'items' as const, startIndex: 0, items }];
+  const foldDurationMs = (segmentItems: TurnRenderItem[]) =>
+    collapsedMessagesDurationMs({
+      items: segmentItems,
+      turnTimestamp: turn.timestamp,
+      completedAt: turn.completed_at,
+      durationMs: turn.duration_ms,
+      settled: phase !== 'streaming' && phase !== 'optimistic',
+    });
   const originalIndices = new Map(items.map((item, index) => [item, index]));
   const pollResults = collectHostDelegationPollResults(
     items.filter((item) => item.kind === 'tool')
@@ -708,11 +731,17 @@ export const MessageTurnView = memo(function MessageTurnView({
     hasTurnError,
   });
   if (slice?.kind === 'process-fold') {
+    const foldedItems =
+      segments.find(
+        (segment) =>
+          segment.kind === 'fold' && segment.startIndex === slice.startIndex
+      )?.items ?? [];
     return (
       <div className="conv-entry-item conv-assistant-msg conv-msg-hover group px-4 py-2 text-sm">
         <CollapsedProcessGroup
           expansionKey={`${turn.id}:${slice.startIndex}`}
           count={slice.count}
+          durationMs={foldDurationMs(foldedItems)}
         >
           {() => null}
         </CollapsedProcessGroup>
@@ -761,6 +790,7 @@ export const MessageTurnView = memo(function MessageTurnView({
               key={`${turn.id}-fold-${segment.startIndex}`}
               expansionKey={`${turn.id}:${segment.startIndex}`}
               count={count}
+              durationMs={foldDurationMs(segment.items)}
             >
               {(expanded) => renderUnits(segment.items, expanded)}
             </CollapsedProcessGroup>

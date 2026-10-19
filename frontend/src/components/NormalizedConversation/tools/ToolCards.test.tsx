@@ -295,7 +295,7 @@ describe('conversation tool cards', () => {
     };
     const { rerender } = render(<MessageTurnView {...props} turn={turn} />);
     const batch = screen.getByRole('button', {
-      name: '已折叠 3 条消息',
+      name: '3 条消息',
     });
     expect(batch).toHaveAttribute('aria-expanded', 'false');
     expect(screen.queryByText('denied.ts')).not.toBeInTheDocument();
@@ -308,18 +308,16 @@ describe('conversation tool cards', () => {
       blocks: [...turn.blocks, { type: 'text', text: 'Final answer' }],
     };
     rerender(<MessageTurnView {...props} turn={answeredTurn} />);
-    const process = screen.getByRole('button', { name: /已折叠 5 条消息/ });
+    const process = screen.getByRole('button', { name: '3 条消息' });
     expect(process).toHaveAttribute('aria-expanded', 'false');
     expect(screen.getByText('Final answer')).toBeInTheDocument();
-    expect(screen.queryByText('available.ts')).not.toBeInTheDocument();
-    expect(
-      screen.queryByRole('button', { name: /已读 2 个文件/ })
-    ).not.toBeInTheDocument();
+    expect(screen.getByText('available.ts')).toBeInTheDocument();
+    expect(screen.getByText('next-check')).toBeInTheDocument();
 
     rerender(
       <MessageTurnView {...props} turn={answeredTurn} phase="settled" />
     );
-    fireEvent.click(screen.getByRole('button', { name: /已折叠 5 条消息/ }));
+    fireEvent.click(screen.getByRole('button', { name: /5 条消息$/ }));
     expect(
       screen.getByRole('button', {
         name: '运行 1 个命令、已读 2 个文件、已改 1 个文件',

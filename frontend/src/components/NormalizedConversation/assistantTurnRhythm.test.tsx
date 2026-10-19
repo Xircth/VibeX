@@ -66,6 +66,92 @@ describe('assistant turn vertical rhythm', () => {
     expect(getComputedStyle(toolCalls as Element).marginBlockStart).toBe('0px');
     expect(getComputedStyle(toolCalls as Element).marginBlockEnd).toBe('0px');
   });
+
+  it('restores extra space around a tool-call fold versus surrounding prose', () => {
+    const { container } = render(
+      <div className="legacy-design">
+        <style>{`${astryxToolCallDefault}\n${conversationStyles}`}</style>
+        <div className="conv-assistant-body">
+          <div className="conv-markdown">
+            <p>Before</p>
+          </div>
+          <div className="conv-activity-batch">Mixed fold</div>
+          <div className="astryx-chat-tool-calls vibex-tool-call-batch">
+            Grouped tools
+          </div>
+          <div className="astryx-chat-tool-calls">Single tool</div>
+        </div>
+      </div>
+    );
+
+    const mixed = container.querySelector('.conv-activity-batch');
+    const grouped = container.querySelector('.vibex-tool-call-batch');
+    const single = container.querySelector(
+      '.astryx-chat-tool-calls:not(.vibex-tool-call-batch)'
+    );
+
+    expect(getComputedStyle(mixed as Element).marginBlockStart).toBe('8px');
+    expect(getComputedStyle(mixed as Element).marginBlockEnd).toBe('8px');
+    expect(getComputedStyle(grouped as Element).marginBlockStart).toBe('8px');
+    expect(getComputedStyle(grouped as Element).marginBlockEnd).toBe('8px');
+    expect(getComputedStyle(single as Element).marginBlockStart).toBe('0px');
+  });
+
+  it('spaces expanded tools from thinking without changing tool-to-tool rhythm', () => {
+    const { container } = render(
+      <div className="legacy-design">
+        <style>{conversationStyles}</style>
+        <div className="conv-nested-scroll">
+          <div className="astryx-chat-tool-calls">Search</div>
+          <div className="astryx-chat-tool-calls">Read</div>
+          <div className="conv-thinking">Thought</div>
+          <div className="astryx-chat-tool-calls">Edit</div>
+        </div>
+      </div>
+    );
+
+    const tools = container.querySelectorAll('.astryx-chat-tool-calls');
+    const thinking = container.querySelector('.conv-thinking');
+
+    expect(getComputedStyle(tools[1] as Element).marginTop).not.toBe('10px');
+    expect(getComputedStyle(thinking as Element).marginTop).toBe('10px');
+    expect(getComputedStyle(tools[2] as Element).marginTop).toBe('10px');
+  });
+
+  it('gives nested overflow panes 4px inline room for tool-row hover radius', () => {
+    const { container } = render(
+      <div className="legacy-design">
+        <style>{conversationStyles}</style>
+        <div className="conv-nested-scroll">pane</div>
+        <div className="astryx-chat-tool-calls">
+          <button type="button" role="button" aria-expanded="true">
+            Group
+          </button>
+          <div>
+            <div>rows</div>
+          </div>
+        </div>
+      </div>
+    );
+
+    const nested = container.querySelector('.conv-nested-scroll');
+    const expanded = container.querySelector(
+      ".astryx-chat-tool-calls [role='button'][aria-expanded='true'] + div"
+    );
+    const expandedInner = expanded?.firstElementChild;
+
+    expect(getComputedStyle(nested as Element).paddingInlineStart).toBe('4px');
+    expect(getComputedStyle(nested as Element).paddingInlineEnd).toBe('4px');
+    expect(getComputedStyle(nested as Element).marginInlineStart).toBe('-4px');
+    expect(getComputedStyle(nested as Element).marginInlineEnd).toBe('-4px');
+    expect(getComputedStyle(expanded as Element).paddingInlineStart).toBe(
+      '4px'
+    );
+    expect(getComputedStyle(expanded as Element).marginInlineStart).toBe(
+      '-4px'
+    );
+    expect(getComputedStyle(expandedInner as Element).overflow).toBe('visible');
+  });
 });
 
 describe('user message action rail', () => {

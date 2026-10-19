@@ -110,3 +110,50 @@ describe('conversation tool-call typography', () => {
     expect(label.flex?.value).toBe('1');
   });
 });
+
+describe('conversation tool-call fold spacing and hover', () => {
+  it('restores Astryx spacing-2 around tool-call folds, not ungrouped rows', () => {
+    const fold = declarationsFor(
+      '.conv-activity-batch, .conv-assistant-body .astryx-chat-tool-calls.vibex-tool-call-batch'
+    );
+
+    expect(fold['margin-block-start']?.value).toBe('8px');
+    expect(fold['margin-block-end']?.value).toBe('8px');
+  });
+
+  it('spaces thinking from neighboring kinds inside a nested fold, not tool from tool', () => {
+    const thinkingGap = declarationsFor(
+      '.conv-nested-scroll > * + .conv-thinking, .conv-nested-scroll > .conv-thinking + *'
+    );
+
+    expect(thinkingGap['margin-top']?.value).toBe('10px');
+    expect(
+      declarationsFor(
+        '.conv-nested-scroll > .astryx-chat-tool-calls + .astryx-chat-tool-calls'
+      )['margin-top']
+    ).toBeUndefined();
+  });
+
+  it('keeps CallRow hover radius inside nested overflow panes', () => {
+    const nested = declarationsFor('.conv-nested-scroll');
+    const expanded = declarationsFor(
+      ".astryx-chat-tool-calls [role='button'][aria-expanded='true'] + div"
+    );
+    const expandedInner = declarationsFor(
+      ".astryx-chat-tool-calls [role='button'][aria-expanded='true'] + div > div"
+    );
+
+    expect(nested['padding-inline-start']?.value).toBe('4px');
+    expect(nested['padding-inline-end']?.value).toBe('4px');
+    expect(nested['margin-inline-start']?.value).toBe('-4px');
+    expect(nested['margin-inline-end']?.value).toBe('-4px');
+    expect(nested['overflow-y']?.value).toBe('auto');
+    expect(expanded['padding-inline-start']?.value).toBe('4px');
+    expect(expanded['padding-inline-start']?.important).toBe(true);
+    expect(expanded['padding-inline-end']?.value).toBe('4px');
+    expect(expanded['padding-inline-end']?.important).toBe(true);
+    expect(expanded['margin-inline-start']?.value).toBe('-4px');
+    expect(expanded['margin-inline-end']?.value).toBe('-4px');
+    expect(expandedInner.overflow?.value).toBe('visible');
+  });
+});

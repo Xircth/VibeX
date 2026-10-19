@@ -740,6 +740,15 @@ button.conv-tool-artifact-title:hover {
   margin-block-end: 0;
 }
 
+/* Astryx ChatToolCalls root is spacing-2 (8px) above the list. The body gap
+   already covers ungrouped rows; restore that 8px only on folds so prose
+   does not sit against the aggregation chrome. */
+.conv-activity-batch,
+.conv-assistant-body .astryx-chat-tool-calls.vibex-tool-call-batch {
+  margin-block-start: 8px;
+  margin-block-end: 8px;
+}
+
 .astryx-chat-tool-calls [role='button'] {
   border-radius: var(--radius) !important;
 }
@@ -768,12 +777,22 @@ button.conv-tool-artifact-title:hover {
 }
 
 .astryx-chat-tool-calls [role='button'][aria-expanded='true'] + div {
-  padding-inline: 0 !important;
+  padding-inline-start: 4px !important;
+  padding-inline-end: 4px !important;
+  margin-inline-start: -4px;
+  margin-inline-end: -4px;
   width: 100%;
   max-height: 100lh;
   overflow-y: auto;
   overscroll-behavior: contain;
   scrollbar-width: none;
+}
+
+/* groupContentInner is overflow:hidden for the 0fr collapse. Once expanded
+   the parent already scrolls, so keep overflow visible or CallRow's 4px
+   negative hover margin is clipped. */
+.astryx-chat-tool-calls [role='button'][aria-expanded='true'] + div > div {
+  overflow: visible;
 }
 
 .conv-nested-scroll
@@ -1103,6 +1122,17 @@ button.vibex-tool-call-target-label:hover {
   overscroll-behavior: contain;
   scrollbar-width: none;
   -ms-overflow-style: none;
+  padding-inline-start: 4px;
+  padding-inline-end: 4px;
+  margin-inline-start: -4px;
+  margin-inline-end: -4px;
+}
+
+/* Match .conv-assistant-body gap between thinking and other kinds. Consecutive
+   ChatToolCalls keep Astryx row padding only. */
+.conv-nested-scroll > * + .conv-thinking,
+.conv-nested-scroll > .conv-thinking + * {
+  margin-top: 10px;
 }
 
 .conv-nested-scroll::-webkit-scrollbar {

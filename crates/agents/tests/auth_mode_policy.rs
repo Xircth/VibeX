@@ -69,6 +69,65 @@ fn deepseek_official_mode_clears_custom_base_url() {
 }
 
 #[test]
+fn kiro_subscription_scrubs_the_api_key_and_official_api_keeps_it() {
+    let policy = agents::built_in_auth_mode_policy(&AgentId::parse("kiro").unwrap()).unwrap();
+    assert_eq!(policy.modes, &["official_subscription", "official_api"]);
+    assert_eq!(policy.credential_modes, &["official_api"]);
+    assert!(agents::headless_account_env(&AgentId::parse("kiro").unwrap()).is_none());
+    assert_eq!(
+        agents::auth_mode_credential_env(&AgentId::parse("kiro").unwrap(), "official_api"),
+        Some("KIRO_API_KEY")
+    );
+
+    let mut subscription = HashMap::from([
+        (
+            "KIRO_AUTH_MODE".to_string(),
+            "official_subscription".to_string(),
+        ),
+        ("KIRO_API_KEY".to_string(), "ksk-stale".to_string()),
+    ]);
+    apply_built_in_auth_mode_policy(&AgentId::parse("kiro").unwrap(), &mut subscription);
+    assert!(!subscription.contains_key("KIRO_API_KEY"));
+
+    let mut api = HashMap::from([
+        ("KIRO_AUTH_MODE".to_string(), "official_api".to_string()),
+        ("KIRO_API_KEY".to_string(), "ksk-keep".to_string()),
+    ]);
+    apply_built_in_auth_mode_policy(&AgentId::parse("kiro").unwrap(), &mut api);
+    assert_eq!(
+        api.get("KIRO_API_KEY").map(String::as_str),
+        Some("ksk-keep")
+    );
+}
+
+#[test]
+fn headless_account_tokens_stay_out_of_the_api_key_field() {
+    for (agent_id, env_name) in [
+        ("qoder", "QODER_PERSONAL_ACCESS_TOKEN"),
+        ("auggie", "AUGMENT_SESSION_AUTH"),
+        ("trae", "TRAECLI_PERSONAL_ACCESS_TOKEN"),
+    ] {
+        let id = AgentId::parse(agent_id).unwrap();
+        let policy = agents::built_in_auth_mode_policy(&id).unwrap();
+        assert_eq!(policy.modes, &["official_subscription"]);
+        assert!(policy.credential_modes.is_empty());
+        assert_eq!(agents::headless_account_env(&id), Some(env_name));
+        assert!(agents::auth_mode_credential_env(&id, "official_subscription").is_none());
+
+        let mut env = HashMap::from([(env_name.to_string(), "keep".to_string())]);
+        apply_built_in_auth_mode_policy(&id, &mut env);
+        assert_eq!(env.get(env_name).map(String::as_str), Some("keep"));
+    }
+
+    let command_code = AgentId::parse("command_code").unwrap();
+    let policy = agents::built_in_auth_mode_policy(&command_code).unwrap();
+    assert_eq!(policy.modes, &["official_subscription"]);
+    assert!(policy.credential_modes.is_empty());
+    assert!(agents::headless_account_env(&command_code).is_none());
+    assert!(agents::auth_mode_credential_env(&command_code, "official_subscription").is_none());
+}
+
+#[test]
 fn qoder_has_only_subscription_and_keeps_the_personal_access_token() {
     let policy = agents::built_in_auth_mode_policy(&AgentId::parse("qoder").unwrap()).unwrap();
     assert_eq!(policy.modes, &["official_subscription"]);

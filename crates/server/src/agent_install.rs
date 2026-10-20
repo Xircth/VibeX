@@ -2,7 +2,7 @@
 
 use std::{
     collections::{BTreeMap, HashMap},
-    io::{IsTerminal, Write},
+    io::{IsTerminal, Read, Write},
     path::{Path, PathBuf},
     process::ExitCode,
 };
@@ -1233,11 +1233,53 @@ fn user_bin_destination(user_bin: &Path, command: &str, staged: &Path) -> PathBu
 }
 
 fn extract_archive(bytes: &[u8], source: &str, destination: &Path) -> anyhow::Result<()> {
-    if source.to_ascii_lowercase().ends_with(".zip") {
+    if source_path(source).to_ascii_lowercase().ends_with(".zip") {
         let mut archive = zip::ZipArchive::new(std::io::Cursor::new(bytes))?;
         archive.extract(destination)?;
         return Ok(());
     }
+    if is_single_file_gzip(source, bytes) {
+        let mut decoded = Vec::new();
+        flate2::read::GzDecoder::new(bytes).read_to_end(&mut decoded)?;
+        if looks_like_tar(&decoded) {
+            return extract_tar(bytes, destination);
+        }
+        std::fs::create_dir_all(destination)?;
+        std::fs::write(destination.join(gzip_member_name(source)), &decoded)?;
+        return Ok(());
+    }
+    extract_tar(bytes, destination)
+}
+
+fn source_path(source: &str) -> &str {
+    source.split(['?', '#']).next().unwrap_or(source)
+}
+
+fn is_single_file_gzip(source: &str, bytes: &[u8]) -> bool {
+    let path = source_path(source).to_ascii_lowercase();
+    path.ends_with(".gz")
+        && !path.ends_with(".tar.gz")
+        && !path.ends_with(".tgz")
+        && bytes.starts_with(&[0x1f, 0x8b])
+}
+
+fn looks_like_tar(bytes: &[u8]) -> bool {
+    bytes.len() >= 262 && &bytes[257..262] == b"ustar"
+}
+
+fn gzip_member_name(source: &str) -> String {
+    let path = source_path(source);
+    let file = path.rsplit(['/', '\\']).next().unwrap_or("payload");
+    let name = file
+        .to_ascii_lowercase()
+        .ends_with(".gz")
+        .then(|| &file[..file.len() - 3])
+        .filter(|name| !name.is_empty())
+        .unwrap_or("payload");
+    name.to_string()
+}
+
+fn extract_tar(bytes: &[u8], destination: &Path) -> anyhow::Result<()> {
     let archive = destination.join("download.archive");
     std::fs::write(&archive, bytes)?;
     let status = std::process::Command::new("tar")
@@ -1262,6 +1304,9 @@ fn find_staged_executable(root: &Path, command: &str) -> anyhow::Result<PathBuf>
     let file_name = relative
         .file_name()
         .ok_or_else(|| anyhow::anyhow!("binary command `{command}` is not a file name"))?;
+    let mut named = None;
+    let mut only_file = None;
+    let mut file_count = 0usize;
     let mut stack = vec![root.to_path_buf()];
     while let Some(dir) = stack.pop() {
         for entry in std::fs::read_dir(dir)? {
@@ -1269,10 +1314,23 @@ fn find_staged_executable(root: &Path, command: &str) -> anyhow::Result<PathBuf>
             let path = entry.path();
             if path.is_dir() {
                 stack.push(path);
-            } else if path.file_name() == Some(file_name) {
-                return Ok(path);
+                continue;
             }
+            if path.file_name().and_then(|name| name.to_str()) == Some("download.archive") {
+                continue;
+            }
+            file_count += 1;
+            if path.file_name() == Some(file_name) {
+                named = Some(path.clone());
+            }
+            only_file = Some(path);
         }
+    }
+    if let Some(path) = named {
+        return Ok(path);
+    }
+    if file_count == 1 {
+        return only_file.ok_or_else(|| anyhow::anyhow!("extracted archive is empty"));
     }
     anyhow::bail!("extracted archive does not contain `{command}`")
 }
@@ -1473,6 +1531,26 @@ mod tests {
     };
 
     use super::*;
+
+    #[test]
+    fn raw_gzip_archive_installs_as_the_single_binary() {
+        use flate2::{Compression, write::GzEncoder};
+
+        let mut encoder = GzEncoder::new(Vec::new(), Compression::default());
+        encoder.write_all(b"traex-binary").unwrap();
+        let bytes = encoder.finish().unwrap();
+        let destination = std::env::temp_dir().join(format!("vibex-gz-test-{}", Uuid::new_v4()));
+        std::fs::create_dir_all(&destination).unwrap();
+        extract_archive(
+            &bytes,
+            "https://example.invalid/traex-windows-x86_64.exe.gz",
+            &destination,
+        )
+        .unwrap();
+        let staged = find_staged_executable(&destination, "traex").unwrap();
+        assert_eq!(std::fs::read(&staged).unwrap(), b"traex-binary");
+        let _ = std::fs::remove_dir_all(&destination);
+    }
 
     #[test]
     fn host_install_plans_npx_without_a_system_node() {

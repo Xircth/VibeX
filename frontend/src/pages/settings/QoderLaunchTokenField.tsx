@@ -1,6 +1,7 @@
 import { KeyRound, Loader2 } from 'lucide-react';
 import { useCallback, useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
+import type { AgentId } from 'shared/types';
 
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -13,12 +14,16 @@ import {
 export const QODER_PERSONAL_ACCESS_TOKEN = 'QODER_PERSONAL_ACCESS_TOKEN';
 
 type Props = {
+  agentId: AgentId;
+  envName: string;
   locked?: boolean;
   onChanged?: () => void | Promise<void>;
   onDirtyChange?: (dirty: boolean) => void;
 };
 
-export function QoderLaunchTokenField({
+export function HeadlessAccountTokenField({
+  agentId,
+  envName,
   locked = false,
   onChanged,
   onDirtyChange,
@@ -34,19 +39,19 @@ export function QoderLaunchTokenField({
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const view = await agentManagementApi.environment('qoder');
-      const entry = view.entries.find(
-        (item) => item.name === QODER_PERSONAL_ACCESS_TOKEN
-      );
+      const view = await agentManagementApi.environment(agentId);
+      const entry = view.entries.find((item) => item.name === envName);
       setRevision(view.revision);
       setPresent(Boolean(entry?.present));
       setToken('');
     } catch (cause) {
-      toast.error(errorMessage(cause, t('agents.qoderTokenLoadFailed')));
+      toast.error(
+        errorMessage(cause, t('agents.headlessAccountTokenLoadFailed'))
+      );
     } finally {
       setLoading(false);
     }
-  }, [t]);
+  }, [agentId, envName, t]);
 
   useEffect(() => {
     void load();
@@ -62,23 +67,23 @@ export function QoderLaunchTokenField({
     setSaving(true);
     try {
       const next = await agentManagementApi.writeEnvironment({
-        agent_id: 'qoder',
+        agent_id: agentId,
         base_revision: revision,
         values: {
-          [QODER_PERSONAL_ACCESS_TOKEN]: nextToken,
+          [envName]: nextToken,
         },
       });
       setRevision(next.revision);
       setPresent(
-        next.entries.some(
-          (entry) => entry.name === QODER_PERSONAL_ACCESS_TOKEN && entry.present
-        )
+        next.entries.some((entry) => entry.name === envName && entry.present)
       );
       setToken('');
-      toast.success(t('agents.qoderTokenSaved'));
+      toast.success(t('agents.headlessAccountTokenSaved'));
       await onChanged?.();
     } catch (cause) {
-      toast.error(errorMessage(cause, t('agents.qoderTokenSaveFailed')));
+      toast.error(
+        errorMessage(cause, t('agents.headlessAccountTokenSaveFailed'))
+      );
     } finally {
       setSaving(false);
     }
@@ -86,20 +91,20 @@ export function QoderLaunchTokenField({
 
   return (
     <label className="agent-auth-mode-field agent-auth-mode-credential">
-      <span>{t('agents.qoderTokenLabel')}</span>
+      <span>{envName}</span>
       <div className="agent-auth-mode-secret-row">
         <div className="agent-auth-mode-secret">
           <KeyRound aria-hidden="true" className="h-3.5 w-3.5" />
           <Input
-            aria-label={t('agents.qoderTokenLabel')}
+            aria-label={envName}
             autoComplete="new-password"
             className="agent-auth-mode-secret-input"
             disabled={loading || saving || locked}
-            name="qoder_personal_access_token"
+            name={`${agentId}_headless_account_token`}
             placeholder={
               present
                 ? t('agents.credentialSavedPlaceholder')
-                : t('agents.qoderTokenPlaceholder')
+                : t('agents.credentialPlaceholder')
             }
             type="password"
             value={token}
@@ -115,7 +120,7 @@ export function QoderLaunchTokenField({
           {saving ? (
             <Loader2 aria-hidden="true" className="h-3.5 w-3.5 animate-spin" />
           ) : null}
-          {saving ? t('agents.saving') : t('agents.qoderTokenSave')}
+          {saving ? t('agents.saving') : t('agents.authSave')}
         </Button>
         {present ? (
           <Button
@@ -125,11 +130,23 @@ export function QoderLaunchTokenField({
             variant="ghost"
             onClick={() => void persist(null)}
           >
-            {t('agents.qoderTokenClear')}
+            {t('agents.headlessAccountTokenClear')}
           </Button>
         ) : null}
       </div>
-      <small>{t('agents.qoderTokenHint')}</small>
+      <small>{t('agents.headlessAccountTokenHint')}</small>
     </label>
+  );
+}
+
+type QoderProps = Omit<Props, 'agentId' | 'envName'>;
+
+export function QoderLaunchTokenField(props: QoderProps) {
+  return (
+    <HeadlessAccountTokenField
+      agentId="qoder"
+      envName={QODER_PERSONAL_ACCESS_TOKEN}
+      {...props}
+    />
   );
 }

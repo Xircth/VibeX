@@ -268,8 +268,13 @@ pub fn default_history_sources(agent_type: AgentKind) -> Vec<AgentHistorySource>
                 ..source
             })
             .collect(),
-        // In-process mock agent: no on-disk history to import.
-        AgentKind::QaMock => Vec::new(),
+        // No verified on-disk history layout. An invented parser would import
+        // the wrong files, so these agents stay empty until a format is known.
+        AgentKind::Kiro
+        | AgentKind::Auggie
+        | AgentKind::Trae
+        | AgentKind::CommandCode
+        | AgentKind::QaMock => Vec::new(),
     }
 }
 
@@ -319,7 +324,11 @@ pub fn configured_history_sources(
             }
             AgentKind::Qoder => configured_root(configured_env, "QODER_CONFIG_DIR")
                 .map(|path| path.join("projects")),
-            AgentKind::QaMock => None,
+            AgentKind::Kiro
+            | AgentKind::Auggie
+            | AgentKind::Trae
+            | AgentKind::CommandCode
+            | AgentKind::QaMock => None,
         }
         .into_iter()
         .collect::<Vec<_>>();

@@ -43,7 +43,6 @@ import {
 } from './AgentConfigurationAndDiagnostics';
 import { AgentDetail } from './AgentDetail';
 import { AgentAuthModeControl } from './AgentAuthModeControl';
-import { QoderLaunchTokenField } from './QoderLaunchTokenField';
 import { AgentEnvironmentEditor } from './AgentEnvironmentEditor';
 import { AgentEnvironmentDiagnosticsDialog } from './AgentEnvironmentDiagnosticsDialog';
 import { AgentModelProviderManager } from './AgentModelProviderManager';
@@ -1336,12 +1335,6 @@ export function AgentSettings() {
             selectedAgent.agent_id === 'opencode' ? (
               <OpenCodeSubscriptionPanel
                 onDirtyChange={setOpenCodeProviderDirty}
-                onChanged={notifyAuthenticationChanged}
-              />
-            ) : selectedAgent.agent_id === 'qoder' ? (
-              <QoderLaunchTokenField
-                locked={agentLocked}
-                onDirtyChange={setAuthModeDirty}
                 onChanged={notifyAuthenticationChanged}
               />
             ) : undefined

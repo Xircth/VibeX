@@ -67,6 +67,13 @@ const BUILT_IN_ICON_PATHS: Partial<
     dark: '/agents/deepseek-harness-dark.svg',
   },
   qoder: { light: '/agents/qoder.svg', dark: '/agents/qoder.svg' },
+  kiro: { light: '/agents/kiro.svg', dark: '/agents/kiro.svg' },
+  auggie: { light: '/agents/auggie.svg', dark: '/agents/auggie.svg' },
+  trae: { light: '/agents/trae.svg', dark: '/agents/trae.svg' },
+  command_code: {
+    light: '/agents/command-code.svg',
+    dark: '/agents/command-code.svg',
+  },
   mimo_code: {
     light: '/agents/mimo-code-light.svg',
     dark: '/agents/mimo-code-dark.svg',
@@ -90,6 +97,10 @@ const BUILT_IN_DISPLAY_NAMES: Partial<Record<string, string>> = {
   cursor: 'Cursor',
   deepseek_harness: 'DeepSeek Harness',
   qoder: 'Qoder',
+  kiro: 'Kiro CLI',
+  auggie: 'Auggie',
+  trae: 'TRAE CLI',
+  command_code: 'Command Code',
   mimo_code: 'MiMo Code',
 };
 
@@ -120,6 +131,16 @@ export function normalizeAgentIconKey(
       return 'deepseek_harness';
     case 'qodercli':
       return 'qoder';
+    case 'kirocli':
+    case 'kiro_cli':
+      return 'kiro';
+    case 'traex':
+    case 'traecli':
+    case 'trae_cli':
+      return 'trae';
+    case 'commandcode':
+    case 'cmdc':
+      return 'command_code';
     case 'mimo':
     case 'mimocode':
       return 'mimo_code';

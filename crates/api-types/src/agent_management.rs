@@ -1000,6 +1000,11 @@ pub struct AgentAuthModeView {
     #[serde(default)]
     #[ts(optional)]
     pub account_label: Option<String>,
+    /// Same-account token for a headless machine. Absent when the Agent has no
+    /// such secret, so the settings page does not invent an API-key field.
+    #[serde(default)]
+    #[ts(optional)]
+    pub headless_account_env: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]

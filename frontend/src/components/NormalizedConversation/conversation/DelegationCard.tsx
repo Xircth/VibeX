@@ -303,6 +303,11 @@ const AGENT_LABELS: Record<string, string> = {
   grok: 'Grok',
   cursor: 'Cursor',
   deepseek_harness: 'DeepSeek Harness',
+  qoder: 'Qoder',
+  kiro: 'Kiro CLI',
+  auggie: 'Auggie',
+  trae: 'TRAE CLI',
+  command_code: 'Command Code',
   qa_mock: 'QA Mock',
 };
 

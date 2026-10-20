@@ -118,6 +118,11 @@ const KNOWN_AGENT_KINDS = new Set([
   'grok',
   'cursor',
   'deepseek_harness',
+  'qoder',
+  'kiro',
+  'auggie',
+  'trae',
+  'command_code',
   'qa_mock',
 ]);
 
@@ -131,6 +136,14 @@ const AGENT_KIND_ALIASES: Record<string, string> = {
   kimicode: 'kimi_code',
   xai: 'grok',
   'x.ai': 'grok',
+  qodercli: 'qoder',
+  kirocli: 'kiro',
+  kiro_cli: 'kiro',
+  traex: 'trae',
+  traecli: 'trae',
+  trae_cli: 'trae',
+  commandcode: 'command_code',
+  cmdc: 'command_code',
 };
 
 /**

@@ -34,6 +34,14 @@ describe('toast surface contract', () => {
     expect(css).toContain('drop-shadow(0 10px 28px hsl(220 36% 8% / 0.16))');
   });
 
+  it('lets the title wrap to three lines at regular weight', () => {
+    expect(css).toMatch(/\.vu-toast-title \{[\s\S]*?font-weight: 400;/);
+    expect(css).toMatch(/\.vu-toast-title \{[\s\S]*?min-width: 0;/);
+    expect(css).toMatch(/\.vu-toast-title \{[\s\S]*?-webkit-line-clamp: 3;/);
+    expect(css).toMatch(/\.vu-toast-title \{[\s\S]*?line-clamp: 3;/);
+    expect(css).not.toContain('white-space: nowrap;');
+  });
+
   it('expands details across the icon column and keeps compact compose type', () => {
     expect(css).toContain('.vu-toast-details {');
     expect(css).toMatch(/\.vu-toast-details \{[\s\S]*?margin: 0 14px 12px;/);

@@ -37,6 +37,14 @@ function toolUseBlock(index: number, toolName: string, input: unknown) {
   };
 }
 
+function foldToggles(): HTMLElement[] {
+  return screen
+    .getAllByRole('button')
+    .filter((button) =>
+      button.classList.contains('conv-collapsed-process-toggle')
+    );
+}
+
 function completedCommands(count: number): ContentBlock[] {
   return Array.from({ length: count }, (_, index) => [
     toolUseBlock(index, 'bash', { command: `command-${index}` }),
@@ -174,7 +182,7 @@ describe('MessageTurnView', () => {
     expect(
       screen.queryByText('Inspecting the renderer')
     ).not.toBeInTheDocument();
-    fireEvent.click(screen.getByRole('button', { name: /1 条消息$/ }));
+    fireEvent.click(foldToggles()[0]);
     fireEvent.click(screen.getByRole('button', { name: '展开思考' }));
     expect(screen.getByText('Inspecting the renderer')).toBeInTheDocument();
   });
@@ -205,7 +213,7 @@ describe('MessageTurnView', () => {
     expect(screen.queryByText('running-3')).not.toBeInTheDocument();
     expect(screen.getByText('running-4')).toBeInTheDocument();
     expect(screen.getByText('Inspecting the last result')).toBeInTheDocument();
-    const fold = screen.getByRole('button', { name: /4 条消息$/ });
+    const fold = foldToggles()[0];
     expect(fold).toHaveAttribute('aria-expanded', 'false');
     fireEvent.click(fold);
     const aggregate = screen.getByRole('button', { name: /运行 4 个命令/ });
@@ -232,7 +240,7 @@ describe('MessageTurnView', () => {
     expect(screen.queryByText('command-5')).not.toBeInTheDocument();
     expect(screen.getByText('command-6')).toBeInTheDocument();
     expect(screen.getByText('command-7')).toBeInTheDocument();
-    const fold = screen.getByRole('button', { name: /6 条消息$/ });
+    const fold = foldToggles()[0];
     expect(fold).toHaveAttribute('aria-expanded', 'false');
     fireEvent.click(fold);
     const firstBatch = screen.getByRole('button', { name: /运行 6 个命令/ });
@@ -369,7 +377,7 @@ describe('MessageTurnView', () => {
     const { rerender } = render(<MessageTurnView {...props} turn={turn} />);
 
     expect(screen.queryByText('command-2')).not.toBeInTheDocument();
-    fireEvent.click(screen.getByRole('button', { name: /7 条消息$/ }));
+    fireEvent.click(foldToggles()[0]);
     fireEvent.click(screen.getByRole('button', { name: /运行 7 个命令/ }));
     expect(screen.getByText('command-2')).toBeInTheDocument();
     expect(screen.getByText('command-3')).toBeInTheDocument();
@@ -410,10 +418,7 @@ describe('MessageTurnView', () => {
     expect(screen.getByText('command-6')).toBeInTheDocument();
     expect(screen.getByText('Preparing the next update')).toBeInTheDocument();
     expect(screen.queryByText('command-0')).not.toBeInTheDocument();
-    expect(screen.getByRole('button', { name: /6 条消息$/ })).toHaveAttribute(
-      'aria-expanded',
-      'false'
-    );
+    expect(foldToggles()[0]).toHaveAttribute('aria-expanded', 'false');
 
     rerender(
       <MessageTurnView
@@ -430,7 +435,7 @@ describe('MessageTurnView', () => {
     expect(
       screen.queryByText('Preparing the next update')
     ).not.toBeInTheDocument();
-    fireEvent.click(screen.getByRole('button', { name: /8 条消息$/ }));
+    fireEvent.click(foldToggles()[0]);
     fireEvent.click(screen.getByRole('button', { name: /运行 7 个命令/ }));
     expect(screen.getByText('command-0')).toBeInTheDocument();
     expect(screen.getByText('command-6')).toBeInTheDocument();
@@ -469,10 +474,7 @@ describe('MessageTurnView', () => {
 
     expect(screen.queryByText('Stage 1 update')).not.toBeInTheDocument();
     expect(screen.getByText('Stage 2 update')).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: /5 条消息$/ })).toHaveAttribute(
-      'aria-expanded',
-      'false'
-    );
+    expect(foldToggles()[0]).toHaveAttribute('aria-expanded', 'false');
 
     rerender(
       <MessageTurnView
@@ -485,8 +487,7 @@ describe('MessageTurnView', () => {
     );
 
     const stage2 = screen.getByText('Stage 2 update');
-    const prelude = screen.getByRole('button', { name: /5 条消息$/ });
-    const laterFold = screen.getByRole('button', { name: /2 条消息$/ });
+    const [prelude, laterFold] = foldToggles();
     expect(screen.queryByText('Stage 1 update')).not.toBeInTheDocument();
     expect(prelude).toHaveAttribute('aria-expanded', 'false');
     expect(laterFold).toHaveAttribute('aria-expanded', 'false');
@@ -517,11 +518,8 @@ describe('MessageTurnView', () => {
       />
     );
 
-    expect(screen.getAllByRole('button', { name: /条消息$/ })).toHaveLength(1);
-    expect(screen.getByRole('button', { name: /10 条消息$/ })).toHaveAttribute(
-      'aria-expanded',
-      'false'
-    );
+    expect(foldToggles()).toHaveLength(1);
+    expect(foldToggles()[0]).toHaveAttribute('aria-expanded', 'false');
     expect(screen.queryByText('Stage 1 update')).not.toBeInTheDocument();
     expect(screen.queryByText('Stage 2 update')).not.toBeInTheDocument();
     expect(screen.queryByText('stage2-3')).not.toBeInTheDocument();
@@ -558,9 +556,7 @@ describe('MessageTurnView', () => {
       />
     );
 
-    const disclosures = screen.getAllByRole('button', {
-      name: /.* 条消息$/,
-    });
+    const disclosures = foldToggles();
     expect(disclosures).toHaveLength(1);
     expect(screen.getByText('Final answer')).toBeInTheDocument();
     expect(screen.queryByText('First progress update')).toBeNull();
@@ -577,9 +573,7 @@ describe('MessageTurnView', () => {
     expect(
       screen.getByRole('button', { name: /运行 1 个命令/ })
     ).toBeInTheDocument();
-    expect(screen.getAllByRole('button', { name: /.* 条消息$/ })).toHaveLength(
-      1
-    );
+    expect(foldToggles()).toHaveLength(1);
   });
 
   it('folds running and failed calls into the same process disclosure', () => {
@@ -609,7 +603,7 @@ describe('MessageTurnView', () => {
 
     expect(screen.queryByText('still-running')).toBeNull();
     expect(screen.queryByText('failed-check')).toBeNull();
-    fireEvent.click(screen.getByRole('button', { name: /2 条消息$/ }));
+    fireEvent.click(foldToggles()[0]);
     const aggregate = screen.getByRole('button', { name: /运行 2 个命令/ });
     expect(aggregate).toHaveAttribute('aria-expanded', 'false');
     fireEvent.click(aggregate);
@@ -639,10 +633,7 @@ describe('MessageTurnView', () => {
     expect(
       screen.queryByRole('button', { name: /运行 \d+ 个命令/ })
     ).toBeNull();
-    expect(screen.getByRole('button', { name: /6 条消息$/ })).toHaveAttribute(
-      'aria-expanded',
-      'false'
-    );
+    expect(foldToggles()[0]).toHaveAttribute('aria-expanded', 'false');
     expect(screen.queryByRole('button', { name: '展开思考' })).toBeNull();
     expect(screen.queryByText('command-4')).not.toBeInTheDocument();
     expect(screen.getByText('command-5')).toBeInTheDocument();
@@ -659,7 +650,7 @@ describe('MessageTurnView', () => {
     );
     expect(screen.getByText('Next stage')).toBeInTheDocument();
     expect(screen.queryByText('command-6')).not.toBeInTheDocument();
-    fireEvent.click(screen.getByRole('button', { name: /8 条消息$/ }));
+    fireEvent.click(foldToggles()[0]);
     fireEvent.click(screen.getByRole('button', { name: /运行 7 个命令/ }));
     fireEvent.click(screen.getByRole('button', { name: '展开思考' }));
     expect(screen.getByText('Checking between calls')).toBeInTheDocument();
@@ -685,15 +676,12 @@ describe('MessageTurnView', () => {
     const { rerender } = render(
       <MessageTurnView {...props} turn={turn} phase="streaming" />
     );
-    fireEvent.click(screen.getByRole('button', { name: /6 条消息$/ }));
+    fireEvent.click(foldToggles()[0]);
     fireEvent.click(screen.getByRole('button', { name: /运行 6 个命令/ }));
     expect(screen.getByText('command-0')).toBeInTheDocument();
 
     rerender(<MessageTurnView {...props} turn={turn} phase="settled" />);
-    expect(screen.getByRole('button', { name: /8 条消息$/ })).toHaveAttribute(
-      'aria-expanded',
-      'true'
-    );
+    expect(foldToggles()[0]).toHaveAttribute('aria-expanded', 'true');
     expect(
       screen.getByRole('button', { name: /运行 7 个命令/ })
     ).toHaveAttribute('aria-expanded', 'true');
@@ -732,7 +720,7 @@ describe('MessageTurnView', () => {
     expect(
       screen.queryByRole('button', { name: '终端command-6' })
     ).not.toBeInTheDocument();
-    fireEvent.click(screen.getByRole('button', { name: /7 条消息$/ }));
+    fireEvent.click(foldToggles()[0]);
     expect(
       screen.getByRole('button', { name: /运行 7 个命令/ })
     ).toHaveAttribute('aria-expanded', 'true');
@@ -770,7 +758,7 @@ describe('MessageTurnView', () => {
     ).not.toBeInTheDocument();
     expect(screen.getByText('command-2')).toBeInTheDocument();
     expect(screen.getByText('command-3')).toBeInTheDocument();
-    fireEvent.click(screen.getByRole('button', { name: /3 条消息$/ }));
+    fireEvent.click(foldToggles()[0]);
     expect(
       screen.getByRole('button', { name: /运行 2 个命令/ })
     ).toHaveAttribute('aria-expanded', 'true');
@@ -1461,7 +1449,7 @@ describe('MessageTurnView', () => {
     );
 
     const prose = screen.getByText('A');
-    const fold = screen.getByRole('button', { name: /3 条消息$/ });
+    const fold = foldToggles()[0];
     expect(prose.compareDocumentPosition(fold)).toBe(
       Node.DOCUMENT_POSITION_FOLLOWING
     );
@@ -1509,8 +1497,9 @@ describe('MessageTurnView', () => {
     );
 
     expect(
-      screen.getByRole('button', { name: '1 h 30 min，2 条消息' })
+      screen.getByRole('button', { name: 'Worked for 1h 30m' })
     ).toBeInTheDocument();
+    expect(screen.queryByText(/条消息/)).not.toBeInTheDocument();
   });
 
   it('collapses earlier prose and running tools together after settlement', () => {
@@ -1540,13 +1529,13 @@ describe('MessageTurnView', () => {
     expect(screen.queryByText('A')).not.toBeInTheDocument();
     expect(screen.queryByText('ls')).toBeNull();
 
-    fireEvent.click(screen.getByRole('button', { name: /.* 条消息$/ }));
+    fireEvent.click(foldToggles()[0]);
     expect(
       screen.getByText('A').compareDocumentPosition(screen.getByText('D'))
     ).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
-    const foldBody = screen
-      .getByRole('button', { name: /.* 条消息$/ })
-      .parentElement?.querySelector('.conv-nested-scroll');
+    const foldBody = foldToggles()[0].parentElement?.querySelector(
+      '.conv-nested-scroll'
+    );
     expect(foldBody).not.toBeNull();
     expect(foldBody).toHaveAttribute('data-nested-scroll');
   });
@@ -1571,7 +1560,7 @@ describe('MessageTurnView', () => {
     );
 
     expect(screen.getAllByText('The project is ready.')).toHaveLength(1);
-    fireEvent.click(screen.getByRole('button', { name: /.* 条消息$/ }));
+    fireEvent.click(foldToggles()[0]);
     fireEvent.click(screen.getByRole('button', { name: /运行 1 个命令/ }));
     expect(screen.getByText('command-0')).toBeInTheDocument();
     expect(screen.getAllByText('The project is ready.')).toHaveLength(1);

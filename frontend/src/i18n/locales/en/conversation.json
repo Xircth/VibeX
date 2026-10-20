@@ -235,8 +235,7 @@
     "resend": "Resend",
     "interruptedTitle": "Interrupted by restart",
     "interruptedDescription": "This turn was interrupted by an app restart while generating and did not complete.",
-    "collapsedMessages": "{{hours}} h {{minutes}} min, {{count}} messages",
-    "collapsedMessageCount": "{{count}} messages",
+    "collapsedMessages": "Worked for {{hours}}h {{minutes}}m",
     "toolCall": "Tool call",
     "generatingAgents": "Generating {{count}} agents",
     "toolSummary": {

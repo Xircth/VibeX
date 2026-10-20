@@ -448,12 +448,10 @@ function InterruptedTurnNotice({ onResend }: { onResend?: () => void }) {
 
 function CollapsedProcessGroup({
   expansionKey,
-  count,
   durationMs,
   children,
 }: {
   expansionKey: string;
-  count: number;
   durationMs: number | null;
   children: (expanded: boolean) => ReactNode;
 }) {
@@ -461,15 +459,15 @@ function CollapsedProcessGroup({
   const bodyRef = useRef<HTMLDivElement | null>(null);
   const [expanded, toggle] = useExpandable(`process:${expansionKey}`, false);
   useNestedWheel(bodyRef, { enabled: expanded });
+  // A missing span stays missing. Do not invent hours or a message count.
   const span =
     durationMs === null ? null : formatCollapsedDurationParts(durationMs);
   const label = span
     ? t('messageTurnView.collapsedMessages', {
         hours: span.hours,
         minutes: span.minutes,
-        count,
       })
-    : t('messageTurnView.collapsedMessageCount', { count });
+    : null;
   return (
     <div className="conv-collapsed-process px-1 py-1">
       <button
@@ -484,7 +482,7 @@ function CollapsedProcessGroup({
             expanded ? '' : '-rotate-90'
           )}
         />
-        <span>{label}</span>
+        {label ? <span>{label}</span> : null}
       </button>
       {expanded ? (
         <div
@@ -740,7 +738,6 @@ export const MessageTurnView = memo(function MessageTurnView({
       <div className="conv-entry-item conv-assistant-msg conv-msg-hover group px-4 py-2 text-sm">
         <CollapsedProcessGroup
           expansionKey={`${turn.id}:${slice.startIndex}`}
-          count={slice.count}
           durationMs={foldDurationMs(foldedItems)}
         >
           {() => null}
@@ -789,7 +786,6 @@ export const MessageTurnView = memo(function MessageTurnView({
             <CollapsedProcessGroup
               key={`${turn.id}-fold-${segment.startIndex}`}
               expansionKey={`${turn.id}:${segment.startIndex}`}
-              count={count}
               durationMs={foldDurationMs(segment.items)}
             >
               {(expanded) => renderUnits(segment.items, expanded)}

@@ -1,6 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import type { TurnRenderItem } from '@/components/NormalizedConversation/messageTurnBlocks';
-import { assistantBlockSlices } from './assistantVirtualSlices';
+import {
+  assistantBlockSlices,
+  buildTimelineVirtualEntries,
+  virtualRowFoldEdge,
+} from './assistantVirtualSlices';
 
 function markdown(text: string): TurnRenderItem {
   return { kind: 'markdown', text };
@@ -48,8 +52,8 @@ describe('assistantBlockSlices', () => {
       })
     ).toEqual([
       { kind: 'process-fold', count: 2, startIndex: 0 },
-      { kind: 'block', itemIndex: 0 },
-      { kind: 'block', itemIndex: 1 },
+      { kind: 'block', itemIndex: 0, inExpandedFold: true },
+      { kind: 'block', itemIndex: 1, inExpandedFold: true },
       { kind: 'block', itemIndex: 2 },
       { kind: 'block', itemIndex: 3 },
     ]);
@@ -67,7 +71,7 @@ describe('assistantBlockSlices', () => {
     ).toEqual([{ kind: 'process-fold', count: 3, startIndex: 0 }]);
   });
 
-  it('keeps the streaming tool fold after earlier prose', () => {
+  it('leaves tools after the latest prose in the stream', () => {
     const items = [
       markdown('answer'),
       tool('a'),
@@ -84,7 +88,8 @@ describe('assistantBlockSlices', () => {
       })
     ).toEqual([
       { kind: 'block', itemIndex: 0 },
-      { kind: 'process-fold', count: 2, startIndex: 1 },
+      { kind: 'block', itemIndex: 1 },
+      { kind: 'block', itemIndex: 2 },
       { kind: 'block', itemIndex: 3 },
       { kind: 'block', itemIndex: 4 },
     ]);
@@ -109,9 +114,49 @@ describe('assistantBlockSlices', () => {
     ).toEqual([
       { kind: 'process-fold', count: 2, startIndex: 0 },
       { kind: 'block', itemIndex: 2 },
-      { kind: 'process-fold', count: 1, startIndex: 3 },
+      { kind: 'block', itemIndex: 3 },
       { kind: 'block', itemIndex: 4 },
       { kind: 'block', itemIndex: 5 },
     ]);
+  });
+});
+
+describe('virtualRowFoldEdge', () => {
+  it('marks only the boundary between an expanded fold and the following prose', () => {
+    const entries = buildTimelineVirtualEntries({
+      items: [
+        {
+          kind: 'message',
+          item: {
+            key: 'row-1',
+            phase: 'settled',
+            turn: {
+              id: 'turn-1',
+              role: 'assistant',
+              blocks: [
+                { type: 'thinking', text: 'note' },
+                { type: 'text', text: 'inside' },
+                { type: 'text', text: 'outside' },
+              ],
+            },
+          },
+          row: { row_id: 'row-1' },
+        } as never,
+      ],
+      collapseProcess: true,
+      hideThinking: false,
+      processExpanded: () => true,
+      isContextCompact: () => false,
+    });
+
+    expect(entries.map((entry) => entry.slice)).toEqual([
+      { kind: 'process-fold', count: 2, startIndex: 0 },
+      { kind: 'block', itemIndex: 0, inExpandedFold: true },
+      { kind: 'block', itemIndex: 1, inExpandedFold: true },
+      { kind: 'block', itemIndex: 2 },
+    ]);
+    expect(
+      entries.map((_, index) => virtualRowFoldEdge(entries, index))
+    ).toEqual([null, null, 'tail', 'after']);
   });
 });

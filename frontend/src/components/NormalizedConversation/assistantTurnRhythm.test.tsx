@@ -97,6 +97,72 @@ describe('assistant turn vertical rhythm', () => {
     expect(getComputedStyle(single as Element).marginBlockStart).toBe('0px');
   });
 
+  it('gives standalone thinking the same block gap as assistant prose', () => {
+    const { container } = render(
+      <div className="legacy-design">
+        <style>{conversationStyles}</style>
+        <div className="conv-assistant-body">
+          <div className="vibex-turn-tool-calls">
+            <div className="conv-thinking">
+              <button type="button" className="conv-thinking-header">
+                Thinking
+              </button>
+            </div>
+          </div>
+        </div>
+        <div className="conv-nested-scroll">
+          <div className="vibex-turn-tool-calls">
+            <div className="conv-thinking">Thought</div>
+          </div>
+          <div className="conv-markdown">
+            <p>After</p>
+          </div>
+        </div>
+      </div>
+    );
+
+    const lone = container.querySelector(
+      '.conv-assistant-body > .vibex-turn-tool-calls'
+    );
+    const wrapped = container.querySelector(
+      '.conv-nested-scroll > .vibex-turn-tool-calls'
+    );
+    const after = container.querySelector('.conv-nested-scroll .conv-markdown');
+
+    expect(getComputedStyle(lone as Element).marginTop).toBe('10px');
+    expect(getComputedStyle(lone as Element).marginBottom).toBe('10px');
+    expect(getComputedStyle(wrapped as Element).marginTop).toBe('10px');
+    expect(getComputedStyle(wrapped as Element).marginBottom).toBe('10px');
+    expect(getComputedStyle(after as Element).marginTop).toBe('0px');
+  });
+
+  it('drops the expanded fold container gap under its last member', () => {
+    const { container } = render(
+      <div className="legacy-design">
+        <style>{conversationStyles}</style>
+        <div className="conv-assistant-body">
+          <div className="conv-collapsed-process is-expanded">
+            <div className="conv-nested-scroll">
+              <div className="conv-activity-batch">Files</div>
+            </div>
+          </div>
+          <div className="conv-markdown">
+            <p>After</p>
+          </div>
+        </div>
+      </div>
+    );
+
+    const fold = container.querySelector('.conv-collapsed-process');
+    const batch = container.querySelector('.conv-activity-batch');
+    const nested = container.querySelector('.conv-nested-scroll');
+
+    expect(getComputedStyle(fold as Element).paddingBottom).toBe('0px');
+    expect(getComputedStyle(fold as Element).marginBottom).toBe('-10px');
+    expect(getComputedStyle(batch as Element).marginBlockEnd).toBe('8px');
+    expect(getComputedStyle(nested as Element).marginTop).toBe('10px');
+  });
+
   it('spaces expanded tools from thinking without changing tool-to-tool rhythm', () => {
     const { container } = render(
       <div className="legacy-design">

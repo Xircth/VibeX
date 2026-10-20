@@ -1,8 +1,9 @@
 import type { TurnRenderItem } from './messageTurnBlocks';
 
 /**
- * Live cards kept mounted after the latest prose, or during a tool-only stream.
- * Earlier prose is folded with everything that preceded the latest prose.
+ * Live cards kept mounted during a tool-only stream. A turn has one process
+ * fold: everything before the latest prose. Activity after that prose stays
+ * in the stream, so a second fold is never opened.
  */
 export const STREAMING_VISIBLE_TAIL = 2;
 
@@ -30,9 +31,7 @@ export function collapseTurnSegments(
       ? liveTail(items, 0)
       : [{ kind: 'fold', startIndex: 0, items: [...items] }];
   }
-  const segments = foldBeforeProse(items, lastMarkdownIndex);
-  if (!options?.isStreaming) return segments;
-  return splitLiveSuffix(segments, lastMarkdownIndex);
+  return foldBeforeProse(items, lastMarkdownIndex);
 }
 
 /** One prelude of everything before the latest prose, then that prose onward. */
@@ -61,37 +60,6 @@ function foldBeforeProse(
     items: items.slice(lastMarkdownIndex),
   });
   return segments;
-}
-
-/** Keep only the newest live cards after the prose that just closed the prelude. */
-function splitLiveSuffix(
-  segments: CollapsedTurnSegment[],
-  lastMarkdownIndex: number
-): CollapsedTurnSegment[] {
-  const visible = segments.at(-1);
-  if (!visible || visible.kind !== 'items') return segments;
-  const suffix = visible.items.slice(1);
-  if (suffix.length <= STREAMING_VISIBLE_TAIL) return segments;
-  const hiddenCount = suffix.length - STREAMING_VISIBLE_TAIL;
-  const foldStart = lastMarkdownIndex + 1;
-  return [
-    ...segments.slice(0, -1),
-    {
-      kind: 'items',
-      startIndex: lastMarkdownIndex,
-      items: visible.items.slice(0, 1),
-    },
-    {
-      kind: 'fold',
-      startIndex: foldStart,
-      items: suffix.slice(0, hiddenCount),
-    },
-    {
-      kind: 'items',
-      startIndex: foldStart + hiddenCount,
-      items: suffix.slice(hiddenCount),
-    },
-  ];
 }
 
 function liveTail(

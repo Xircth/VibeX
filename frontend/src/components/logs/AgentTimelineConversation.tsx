@@ -118,7 +118,10 @@ import {
   isExpandableOpen,
   useExpandableRevision,
 } from '@/stores/useExpandableStore';
-import { buildTimelineVirtualEntries } from './assistantVirtualSlices';
+import {
+  buildTimelineVirtualEntries,
+  virtualRowFoldEdge,
+} from './assistantVirtualSlices';
 import { TimelineImagePanel } from '@/components/NormalizedConversation/TimelineDecodedImage';
 import { cn } from '@/lib/utils';
 import { isContextCompactPrompt } from '@/lib/contextCompact';
@@ -1985,13 +1988,19 @@ const AgentTimelineConversation = forwardRef<
                           row != null &&
                           currentFindMatch != null &&
                           timeline[currentFindMatch.rowIndex]?.key === row.key;
+                        const foldEdge = virtualRowFoldEdge(
+                          virtualEntries,
+                          virtualRow.index
+                        );
                         return (
                           <div
                             key={virtualRow.key}
                             ref={rowVirtualizer.measureElement}
                             data-index={virtualRow.index}
                             className={cn(
-                              'absolute left-0 top-0 w-full pb-3',
+                              'conv-turn-row absolute left-0 top-0 w-full',
+                              foldEdge === 'tail' ? 'is-fold-tail' : 'pb-3',
+                              foldEdge === 'after' && 'is-after-fold',
                               activeNavEntry?.index === entry.timelineIndex &&
                                 'conv-message-nav-target-active',
                               isCurrentFindMatch && 'rounded-md bg-primary/10'

@@ -493,22 +493,21 @@ describe('MessageTurnView', () => {
     );
 
     const stage2 = screen.getByText('Stage 2 update');
-    const [prelude, laterFold] = foldToggles();
+    expect(foldToggles()).toHaveLength(1);
+    const prelude = foldToggles()[0];
     expect(screen.queryByText('Stage 1 update')).not.toBeInTheDocument();
     expect(prelude).toHaveAttribute('aria-expanded', 'false');
-    expect(laterFold).toHaveAttribute('aria-expanded', 'false');
     expect(prelude.compareDocumentPosition(stage2)).toBe(
       Node.DOCUMENT_POSITION_FOLLOWING
     );
-    expect(stage2.compareDocumentPosition(laterFold)).toBe(
-      Node.DOCUMENT_POSITION_FOLLOWING
-    );
-    expect(screen.queryByText('stage2-0')).not.toBeInTheDocument();
+    expect(
+      screen.getByRole('button', { name: /运行 2 个命令/ })
+    ).toHaveAttribute('aria-expanded', 'false');
     expect(screen.getByText('stage2-2')).toBeInTheDocument();
     expect(screen.getByText('stage2-3')).toBeInTheDocument();
-    expect(
-      laterFold.compareDocumentPosition(screen.getByText('stage2-2'))
-    ).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
+    expect(stage2.compareDocumentPosition(screen.getByText('stage2-2'))).toBe(
+      Node.DOCUMENT_POSITION_FOLLOWING
+    );
 
     rerender(
       <MessageTurnView
@@ -1438,7 +1437,7 @@ describe('MessageTurnView', () => {
     ).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
   });
 
-  it('keeps the streaming tool fold after earlier prose', () => {
+  it('does not open a second process fold for tools after prose', () => {
     render(
       <MessageTurnView
         turn={{
@@ -1455,13 +1454,12 @@ describe('MessageTurnView', () => {
     );
 
     const prose = screen.getByText('A');
-    const fold = foldToggles()[0];
-    expect(prose.compareDocumentPosition(fold)).toBe(
-      Node.DOCUMENT_POSITION_FOLLOWING
-    );
+    expect(foldToggles()).toHaveLength(0);
+    expect(
+      screen.getByRole('button', { name: /运行 3 个命令/ })
+    ).toHaveAttribute('aria-expanded', 'false');
     expect(screen.getByText('command-3')).toBeInTheDocument();
     expect(screen.getByText('command-4')).toBeInTheDocument();
-    expect(screen.queryByText('command-0')).not.toBeInTheDocument();
     expect(prose.compareDocumentPosition(screen.getByText('command-3'))).toBe(
       Node.DOCUMENT_POSITION_FOLLOWING
     );

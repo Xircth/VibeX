@@ -62,6 +62,25 @@ describe('collapsed process label duration', () => {
     ).toBe(135 * 60 * 1000);
   });
 
+  it('counts forward from a plausible start while the turn is unfinished', () => {
+    expect(
+      collapsedMessagesDurationMs({
+        items: [tool(null, null)],
+        settled: false,
+        turnTimestamp: '2026-10-19T09:00:00.000Z',
+        nowMs: Date.parse('2026-10-19T10:13:00.000Z'),
+      })
+    ).toBe(73 * 60 * 1000);
+    expect(
+      collapsedMessagesDurationMs({
+        items: [tool(null, null)],
+        settled: false,
+        turnTimestamp: '1970-01-01T00:00:00.000Z',
+        nowMs: Date.parse('2026-10-19T10:13:00.000Z'),
+      })
+    ).toBeNull();
+  });
+
   it('does not invent a span for a streaming fold or an epoch duration', () => {
     expect(
       collapsedMessagesDurationMs({

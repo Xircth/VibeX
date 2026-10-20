@@ -1,19 +1,23 @@
 .vu-toast-viewport {
   position: fixed;
-  right: 12px;
-  bottom: 12px;
+  right: 0;
+  bottom: 0;
   z-index: 100000;
   display: flex;
-  width: min(400px, calc(100vw - 24px));
-  max-height: calc(100dvh - 24px);
+  box-sizing: border-box;
+  width: min(444px, 100vw);
+  max-height: 100dvh;
   flex-direction: column;
   gap: 10px;
   margin: 0;
-  padding: 0;
+  /* 32px gutter keeps the scrollport clip outside the shadow. A clip flush
+     with the card paints that shadow as a gray rectangle. */
+  padding: 36px 12px 12px 32px;
   overflow-x: hidden;
   overflow-y: auto;
   overscroll-behavior: contain;
   pointer-events: none;
+  background: transparent;
   font-family: var(--font-ui);
 }
 
@@ -33,14 +37,14 @@
   border: 0;
   box-shadow: none;
   pointer-events: auto;
-  animation: vu-toast-enter 180ms ease-out both;
+  animation: vu-toast-enter 180ms ease-out backwards;
 }
 
 .vu-toast-surface {
   --toast-shadow:
     0 1px 2px hsl(220 36% 8% / 0.1), 0 10px 28px hsl(220 36% 8% / 0.16);
   width: 100%;
-  overflow: hidden;
+  overflow: visible;
   color: var(--text-primary, hsl(213 10% 30%));
   background: var(--surface-dialog);
   border: 0;
@@ -53,6 +57,31 @@
 .dark .vu-toast-surface {
   --toast-shadow:
     0 1px 2px hsl(210 40% 2% / 0.36), 0 12px 32px hsl(210 40% 2% / 0.52);
+}
+
+/* The desktop toast window is transparent. WebView2 paints box-shadow as an
+   opaque rectangle behind the rounded card, so that window uses drop-shadow. */
+html.desktop-toast-shell .vu-toast-surface {
+  position: relative;
+  isolation: isolate;
+  box-shadow: none;
+}
+
+html.desktop-toast-shell .vu-toast-surface::before {
+  content: '';
+  position: absolute;
+  z-index: -1;
+  inset: 0;
+  border-radius: inherit;
+  background: var(--surface-dialog);
+  pointer-events: none;
+  filter: drop-shadow(0 1px 2px hsl(220 36% 8% / 0.1))
+    drop-shadow(0 10px 28px hsl(220 36% 8% / 0.16));
+}
+
+html.desktop-toast-shell.dark .vu-toast-surface::before {
+  filter: drop-shadow(0 1px 2px hsl(210 40% 2% / 0.36))
+    drop-shadow(0 12px 32px hsl(210 40% 2% / 0.52));
 }
 
 .vu-toast-heading {
@@ -289,10 +318,12 @@
 
 @media (max-width: 520px) {
   .vu-toast-viewport {
-    right: 12px;
-    bottom: 12px;
-    left: 12px;
+    right: 0;
+    bottom: 0;
+    left: 0;
     width: auto;
+    padding-right: 12px;
+    padding-left: 12px;
   }
 }
 

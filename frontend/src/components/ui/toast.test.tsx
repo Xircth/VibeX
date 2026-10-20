@@ -31,6 +31,95 @@ describe('unified toast', () => {
     ).not.toBeInTheDocument();
   });
 
+  it('moves a trailing technical suffix on errors into details', async () => {
+    render(<Toaster />);
+
+    act(() => {
+      toast.error('另一个程序正在使用此文件，进程无法访问。 (os error 32)');
+    });
+
+    expect(
+      await screen.findByText('另一个程序正在使用此文件，进程无法访问。')
+    ).toBeInTheDocument();
+    expect(screen.queryByText(/os error 32/)).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: '查看详情' }));
+    expect(screen.getByText('os error 32')).toHaveClass(
+      'vu-toast-detail-copy-mono'
+    );
+  });
+
+  it('keeps ordinary parenthetical copy in the warning title', async () => {
+    render(<Toaster />);
+
+    act(() => {
+      toast.warning('保存失败（请检查网络）');
+    });
+
+    expect(
+      await screen.findByText('保存失败（请检查网络）')
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByRole('button', { name: '查看详情' })
+    ).not.toBeInTheDocument();
+  });
+
+  it('keeps a non-technical parenthetical in the error title', async () => {
+    render(<Toaster />);
+
+    act(() => {
+      toast.error('保存失败 (try again)');
+    });
+
+    expect(await screen.findByText('保存失败 (try again)')).toBeInTheDocument();
+    expect(
+      screen.queryByRole('button', { name: '查看详情' })
+    ).not.toBeInTheDocument();
+  });
+
+  it('moves a trailing path on warnings into details', async () => {
+    render(<Toaster />);
+
+    act(() => {
+      toast.warning('无法打开 (C:\\temp\\lock.dat)');
+    });
+
+    expect(await screen.findByText('无法打开')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: '查看详情' }));
+    expect(screen.getByText('C:\\temp\\lock.dat')).toHaveClass(
+      'vu-toast-detail-copy-mono'
+    );
+  });
+
+  it('keeps a caller description after the extracted suffix', async () => {
+    render(<Toaster />);
+
+    act(() => {
+      toast.error('无法写入文件。 (os error 32)', {
+        description: '目标文件仍被占用。',
+      });
+    });
+
+    expect(await screen.findByText('无法写入文件。')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: '查看详情' }));
+    const rows = document.querySelectorAll('.vu-toast-detail-row');
+    expect(rows[0]).toHaveTextContent('os error 32');
+    expect(rows[1]).toHaveTextContent('目标文件仍被占用。');
+  });
+
+  it('leaves a technical suffix on success in the title', async () => {
+    render(<Toaster />);
+
+    act(() => {
+      toast.success('已完成 (os error 32)');
+    });
+
+    expect(await screen.findByText('已完成 (os error 32)')).toBeInTheDocument();
+    expect(
+      screen.queryByRole('button', { name: '查看详情' })
+    ).not.toBeInTheDocument();
+  });
+
   it('folds description into expandable details', async () => {
     render(<Toaster />);
 

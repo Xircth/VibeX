@@ -134,13 +134,18 @@ html.desktop-toast-shell.dark .vu-toast-surface::before {
 }
 
 .vu-toast-title {
+  display: -webkit-box;
+  width: 100%;
+  min-width: 0;
   overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+  line-clamp: 3;
   color: var(--text-strong, hsl(222 30% 16%));
   font-size: 14px;
-  font-weight: 600;
+  font-weight: 400;
   line-height: 20px;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  overflow-wrap: anywhere;
 }
 
 .vu-toast-end {

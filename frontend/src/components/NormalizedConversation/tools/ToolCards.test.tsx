@@ -294,9 +294,13 @@ describe('conversation tool cards', () => {
       phase: 'streaming' as const,
     };
     const { rerender } = render(<MessageTurnView {...props} turn={turn} />);
-    const batch = screen.getByRole('button', {
-      name: '3 条消息',
-    });
+    const foldToggle = () =>
+      screen
+        .getAllByRole('button')
+        .filter((button) =>
+          button.classList.contains('conv-collapsed-process-toggle')
+        )[0];
+    const batch = foldToggle();
     expect(batch).toHaveAttribute('aria-expanded', 'false');
     expect(screen.queryByText('denied.ts')).not.toBeInTheDocument();
     expect(screen.queryByText('locked.ts')).not.toBeInTheDocument();
@@ -308,7 +312,7 @@ describe('conversation tool cards', () => {
       blocks: [...turn.blocks, { type: 'text', text: 'Final answer' }],
     };
     rerender(<MessageTurnView {...props} turn={answeredTurn} />);
-    const process = screen.getByRole('button', { name: /5 条消息$/ });
+    const process = foldToggle();
     expect(process).toHaveAttribute('aria-expanded', 'false');
     expect(screen.getByText('Final answer')).toBeInTheDocument();
     expect(screen.queryByText('available.ts')).not.toBeInTheDocument();
@@ -317,7 +321,7 @@ describe('conversation tool cards', () => {
     rerender(
       <MessageTurnView {...props} turn={answeredTurn} phase="settled" />
     );
-    fireEvent.click(screen.getByRole('button', { name: /5 条消息$/ }));
+    fireEvent.click(foldToggle());
     expect(
       screen.getByRole('button', {
         name: '运行 1 个命令、已读 2 个文件、已改 1 个文件',

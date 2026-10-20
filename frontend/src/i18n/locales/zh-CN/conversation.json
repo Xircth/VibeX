@@ -235,8 +235,7 @@
     "resend": "重发",
     "interruptedTitle": "因重启中断",
     "interruptedDescription": "此回合在生成过程中因应用重启而中断，未能完成。",
-    "collapsedMessages": "{{hours}} h {{minutes}} min，{{count}} 条消息",
-    "collapsedMessageCount": "{{count}} 条消息",
+    "collapsedMessages": "Worked for {{hours}}h {{minutes}}m",
     "toolCall": "工具调用",
     "generatingAgents": "正在生成 {{count}} 个智能体",
     "toolSummary": {

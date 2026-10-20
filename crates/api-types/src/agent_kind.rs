@@ -10,7 +10,8 @@
 //!
 //! `claude_code`, `codex`, `opencode`, `antigravity`, `openclaw`, `cline`, `hermes`,
 //! `codebuddy`, `kimi_code`, `pi`, `grok`, `cursor`, `deepseek_harness`, `qoder`,
-//! `qa_mock` — the `executor_key` form already persisted in `sessions.agent_type`.
+//! `kiro`, `auggie`, `trae`, `command_code`, `qa_mock` — the `executor_key` form
+//! already persisted in `sessions.agent_type`.
 //! `Serialize` / `Display` / `FromStr` / sqlx all emit this single canonical form.
 //! The retired Gemini CLI identity (`gemini`) is accepted on read and maps to
 //! `antigravity`.
@@ -53,13 +54,17 @@ pub enum AgentKind {
     Cursor,
     DeepseekHarness,
     Qoder,
+    Kiro,
+    Auggie,
+    Trae,
+    CommandCode,
     QaMock,
 }
 
 impl AgentKind {
     /// Every variant, in Agent Bar / picker order. `QaMock` stays last because
     /// it is a test identity, not a product Agent.
-    pub const ALL: [AgentKind; 15] = [
+    pub const ALL: [AgentKind; 19] = [
         AgentKind::ClaudeCode,
         AgentKind::Codex,
         AgentKind::Pi,
@@ -74,6 +79,10 @@ impl AgentKind {
         AgentKind::Codebuddy,
         AgentKind::KimiCode,
         AgentKind::Qoder,
+        AgentKind::Kiro,
+        AgentKind::Auggie,
+        AgentKind::Trae,
+        AgentKind::CommandCode,
         AgentKind::QaMock,
     ];
 
@@ -101,6 +110,10 @@ impl AgentKind {
             AgentKind::Cursor => "cursor",
             AgentKind::DeepseekHarness => "deepseek_harness",
             AgentKind::Qoder => "qoder",
+            AgentKind::Kiro => "kiro",
+            AgentKind::Auggie => "auggie",
+            AgentKind::Trae => "trae",
+            AgentKind::CommandCode => "command_code",
             AgentKind::QaMock => "qa_mock",
         }
     }
@@ -131,6 +144,14 @@ impl AgentKind {
             // `qodercli` is the installed executable name; some producers wrote it
             // as the agent id before the identity was canonicalized.
             "qoder" | "qodercli" => AgentKind::Qoder,
+            // `kiro-cli` is the executable. Bare `kiro` is not a published bin.
+            "kiro" | "kirocli" => AgentKind::Kiro,
+            "auggie" => AgentKind::Auggie,
+            // `traex` is the current binary; `traecli` remains the compatibility name.
+            "trae" | "traex" | "traecli" => AgentKind::Trae,
+            // `command-code` / `commandcode` / `cmdc` are published bins. Bare
+            // `cmd` is the Windows shell and must not resolve to this agent.
+            "commandcode" | "cmdc" => AgentKind::CommandCode,
             "qamock" => AgentKind::QaMock,
             _ => return None,
         };
@@ -204,6 +225,10 @@ mod tests {
             (AgentKind::Codebuddy, "codebuddy"),
             (AgentKind::KimiCode, "kimi_code"),
             (AgentKind::Qoder, "qoder"),
+            (AgentKind::Kiro, "kiro"),
+            (AgentKind::Auggie, "auggie"),
+            (AgentKind::Trae, "trae"),
+            (AgentKind::CommandCode, "command_code"),
             (AgentKind::QaMock, "qa_mock"),
         ];
         assert_eq!(
@@ -267,6 +292,15 @@ mod tests {
             ("Qoder", AgentKind::Qoder),
             ("qoder", AgentKind::Qoder),
             ("qodercli", AgentKind::Qoder),
+            ("KIRO", AgentKind::Kiro),
+            ("kiro-cli", AgentKind::Kiro),
+            ("AUGGIE", AgentKind::Auggie),
+            ("TRAE", AgentKind::Trae),
+            ("traex", AgentKind::Trae),
+            ("traecli", AgentKind::Trae),
+            ("COMMAND_CODE", AgentKind::CommandCode),
+            ("command-code", AgentKind::CommandCode),
+            ("cmdc", AgentKind::CommandCode),
             ("QA_MOCK", AgentKind::QaMock),
             ("QaMock", AgentKind::QaMock),
             ("qa_mock", AgentKind::QaMock),

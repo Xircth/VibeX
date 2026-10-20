@@ -402,6 +402,74 @@ const CodeBuddyMonoIcon = memo(function CodeBuddyMonoIcon({
   );
 });
 
+const KiroMonoIcon = memo(function KiroMonoIcon({ size = '1em' }: IconProps) {
+  return (
+    <svg
+      fill="currentColor"
+      height={size}
+      style={baseSvgStyle}
+      viewBox="0 0 16 16"
+      width={size}
+      xmlns="http://www.w3.org/2000/svg"
+    >
+      <title>Kiro CLI</title>
+      <path d="M3.2 1.6h2.4v5.05l4.55-5.05h2.95L8.15 7.85 13.5 14.4h-3.15L6.35 9.55l-.75.85v4h-2.4V1.6Z" />
+    </svg>
+  );
+});
+
+const AuggieMonoIcon = memo(function AuggieMonoIcon({
+  size = '1em',
+}: IconProps) {
+  return (
+    <svg
+      fill="currentColor"
+      height={size}
+      style={baseSvgStyle}
+      viewBox="0 0 16 16"
+      width={size}
+      xmlns="http://www.w3.org/2000/svg"
+    >
+      <title>Auggie</title>
+      <path d="M8 1.4 14.6 14.6H11.9L10.6 11.6H5.4L4.1 14.6H1.4L8 1.4Zm0 4.3L6.15 10h3.7L8 5.7Z" />
+    </svg>
+  );
+});
+
+const TraeMonoIcon = memo(function TraeMonoIcon({ size = '1em' }: IconProps) {
+  return (
+    <svg
+      fill="currentColor"
+      height={size}
+      style={baseSvgStyle}
+      viewBox="0 0 16 16"
+      width={size}
+      xmlns="http://www.w3.org/2000/svg"
+    >
+      <title>TRAE CLI</title>
+      <path d="M2.2 2.4h11.6v2.3H9.15v9h-2.3v-9H2.2V2.4Z" />
+    </svg>
+  );
+});
+
+const CommandCodeMonoIcon = memo(function CommandCodeMonoIcon({
+  size = '1em',
+}: IconProps) {
+  return (
+    <svg
+      fill="currentColor"
+      height={size}
+      style={baseSvgStyle}
+      viewBox="0 0 16 16"
+      width={size}
+      xmlns="http://www.w3.org/2000/svg"
+    >
+      <title>Command Code</title>
+      <path d="M2.2 3.2 7.3 8 2.2 12.8l1.5 1.6L10.6 8 3.7 1.6 2.2 3.2Zm6.2 9.2h5.4V14H8.4v-1.6Z" />
+    </svg>
+  );
+});
+
 const QoderMonoIcon = memo(function QoderMonoIcon({ size = '1em' }: IconProps) {
   return (
     <svg
@@ -464,6 +532,10 @@ const MONO_ICONS: Partial<Record<string, AnyIcon>> = {
   deepseek_harness: DeepseekHarnessMonoIcon,
   codebuddy: CodeBuddyMonoIcon,
   qoder: QoderMonoIcon,
+  kiro: KiroMonoIcon,
+  auggie: AuggieMonoIcon,
+  trae: TraeMonoIcon,
+  command_code: CommandCodeMonoIcon,
   mimo_code: MimoCodeMonoIcon,
 };
 

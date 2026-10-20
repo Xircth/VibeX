@@ -14,7 +14,7 @@ use agents::{
     TokioNativeFileSystem, apply_built_in_auth_mode_policy, apply_codex_auth_mode,
     apply_component_versions, auth_mode_credential_env, auth_mode_kind,
     authentication_from_account_command, built_in_auth_mode_policy, compose_agent_update_check,
-    native_uses_custom_endpoint, official_account_present, official_api_url,
+    headless_account_env, native_uses_custom_endpoint, official_account_present, official_api_url,
     plan_runtime_acp_compatibility_warning, project_codex_auth_mode, resolve_account_label,
     resolve_built_in_auth_mode, resolve_observed_authentication, version_at_least,
 };
@@ -1188,6 +1188,7 @@ async fn project_auth_mode_view_at(
         &providers,
         snapshot.as_ref(),
     );
+    let headless_account_env = headless_account_env(&agent_id).map(str::to_string);
     Ok(AgentAuthModeView {
         options: project_auth_mode_options(&agent_id, policy.modes),
         agent_id,
@@ -1200,6 +1201,7 @@ async fn project_auth_mode_view_at(
         credential_env: credential_env.to_string(),
         credential_present,
         account_label: None,
+        headless_account_env,
     })
 }
 
@@ -1300,6 +1302,7 @@ async fn read_codex_auth_mode(
         credential_env: "OPENAI_API_KEY".to_string(),
         credential_present,
         account_label: None,
+        headless_account_env: None,
     })
 }
 
@@ -1332,6 +1335,7 @@ async fn read_dsh_auth_mode(
         credential_env: policy.credential_env.to_string(),
         credential_present,
         account_label: None,
+        headless_account_env: None,
     })
 }
 
@@ -1376,6 +1380,7 @@ async fn read_opencode_auth_mode(
         credential_env: policy.credential_env.to_string(),
         credential_present,
         account_label: None,
+        headless_account_env: None,
     })
 }
 
@@ -1579,6 +1584,26 @@ fn auth_mode_translation_keys(agent_id: &AgentId, mode: &str) -> (&'static str, 
         ("qoder", "official_subscription") => (
             "agents.authModeOfficialSubscription",
             "agents.authDescQoderSubscription",
+        ),
+        ("kiro", "official_subscription") => (
+            "agents.authModeOfficialSubscription",
+            "agents.authDescKiroSubscription",
+        ),
+        ("kiro", "official_api") => (
+            "agents.authModeOfficialApi",
+            "agents.authDescKiroOfficialApi",
+        ),
+        ("auggie", "official_subscription") => (
+            "agents.authModeOfficialSubscription",
+            "agents.authDescAuggieSubscription",
+        ),
+        ("trae", "official_subscription") => (
+            "agents.authModeOfficialSubscription",
+            "agents.authDescTraeSubscription",
+        ),
+        ("command_code", "official_subscription") => (
+            "agents.authModeOfficialSubscription",
+            "agents.authDescCommandCodeSubscription",
         ),
         ("mimo_code", "official_subscription") => (
             "agents.authModeOfficialSubscription",

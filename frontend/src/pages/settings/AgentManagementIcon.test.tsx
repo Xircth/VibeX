@@ -44,6 +44,10 @@ const BUILT_IN_AGENTS = [
   ['cursor', 'Cursor'],
   ['deepseek_harness', 'DeepSeek Harness'],
   ['qoder', 'Qoder'],
+  ['kiro', 'Kiro CLI'],
+  ['auggie', 'Auggie'],
+  ['trae', 'TRAE CLI'],
+  ['command_code', 'Command Code'],
   ['mimo_code', 'MiMo Code'],
 ] as const;
 

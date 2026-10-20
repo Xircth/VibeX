@@ -173,12 +173,20 @@ async fn apply_built_in_bar_order_v2(
         .map(String::as_str)
         .filter(|agent_id| built_in_set.contains(agent_id))
         .collect();
+    // Newly ensured built-ins must not hide a factory layout of the previous
+    // generation. Compare only those ids, then rewrite to the current bar.
+    let previous_set: HashSet<&str> = PREVIOUS_BUILT_IN_BAR_ORDER.into_iter().collect();
+    let current_previous: Vec<&str> = current
+        .iter()
+        .map(String::as_str)
+        .filter(|agent_id| previous_set.contains(agent_id))
+        .collect();
     let previous_present: Vec<&str> = PREVIOUS_BUILT_IN_BAR_ORDER
         .into_iter()
-        .filter(|agent_id| current_built_ins.contains(agent_id))
+        .filter(|agent_id| current_previous.contains(agent_id))
         .collect();
 
-    if current_built_ins == previous_present {
+    if current_previous == previous_present {
         let custom: Vec<&str> = current
             .iter()
             .map(String::as_str)

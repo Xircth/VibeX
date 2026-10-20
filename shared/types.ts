@@ -1457,7 +1457,19 @@ export type DbConversationDetail = { summary: DbConversationSummary,
  * Open path no longer ships a duplicate of `timeline` (ADR-0061). Kept empty
  * so existing TypeScript bindings remain valid.
  */
-turns?: Array<MessageTurn>, timeline: ConversationTimeline, active_binding?: ConversationActiveBinding | null, current_turn?: ConversationCurrentTurn | null, projection_version: number, session_stats?: SessionStats | null, in_flight_user_turn_id?: string | null,
+turns?: Array<MessageTurn>, timeline: ConversationTimeline,
+/**
+ * Index of `timeline.rows[0]` in the full transcript.
+ */
+turns_offset: number,
+/**
+ * Turn count of the full transcript, including turns above the window.
+ */
+turns_total: number,
+/**
+ * Fingerprint of the turns above the window.
+ */
+prefix_hash?: string | null, user_turns_before_offset: number, active_binding?: ConversationActiveBinding | null, current_turn?: ConversationCurrentTurn | null, projection_version: number, session_stats?: SessionStats | null, in_flight_user_turn_id?: string | null,
 /**
  * Latest agent-advertised session modes, hydrated from the event log so a
  * reopened conversation renders the real ACP pickers immediately.
@@ -1801,7 +1813,7 @@ export type OfficePluginReadiness = { enabled: boolean, dependency: OfficeCompon
 
 export type OfficePromptBlock = { type: string, text: string, };
 
-export type AgentKind = "claude_code" | "codex" | "opencode" | "antigravity" | "openclaw" | "cline" | "hermes" | "codebuddy" | "kimi_code" | "pi" | "grok" | "cursor" | "deepseek_harness" | "qoder" | "qa_mock";
+export type AgentKind = "claude_code" | "codex" | "opencode" | "antigravity" | "openclaw" | "cline" | "hermes" | "codebuddy" | "kimi_code" | "pi" | "grok" | "cursor" | "deepseek_harness" | "qoder" | "kiro" | "auggie" | "trae" | "command_code" | "qa_mock";
 
 export type AgentDiagnosticView = { id: string, agent_id: AgentId, operation_kind: string, severity: string, message: string, redacted_output: string | null, created_at: string, read: boolean, };
 
@@ -1942,7 +1954,12 @@ export type OpenCodePluginSummaryView = { config_path: string, cache_dir: string
 
 export type OpenCodePluginView = { name: string, declared_spec: string, installed_version: string | null, status: OpenCodePluginStatus, };
 
-export type AgentAuthModeView = { agent_id: AgentId, mode: string, modes: Array<string>, options: Array<AgentAuthModeOptionView>, credential_env: string, credential_present: boolean, account_label?: string, };
+export type AgentAuthModeView = { agent_id: AgentId, mode: string, modes: Array<string>, options: Array<AgentAuthModeOptionView>, credential_env: string, credential_present: boolean, account_label?: string,
+/**
+ * Same-account token for a headless machine. Absent when the Agent has no
+ * such secret, so the settings page does not invent an API-key field.
+ */
+headless_account_env?: string, };
 
 export type AgentModelCatalogItemView = { id: string, label: string, context_window: number | null, reasoning_levels: Array<string>, };
 

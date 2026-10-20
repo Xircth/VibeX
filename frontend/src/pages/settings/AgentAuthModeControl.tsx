@@ -47,6 +47,7 @@ import {
 } from './agentSettingsDraftRetention';
 import { AgentAccountIdentity } from './AgentAccountIdentity';
 import { CodexDeviceLogin } from './CodexDeviceLogin';
+import { HeadlessAccountTokenField } from './QoderLaunchTokenField';
 
 type AuthDraft = {
   mode: string;
@@ -101,6 +102,7 @@ export function AgentAuthModeControl({
   const [apiKey, setApiKey] = useState(retained?.apiKey ?? '');
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [tokenDirty, setTokenDirty] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
   const autoPersisted = useRef<string | null>(null);
   const persistModeRef = useRef<
@@ -155,7 +157,7 @@ export function AgentAuthModeControl({
     apiKey,
     nativeCredentialPresent
   );
-  const dirty = Boolean(view && apiKey.length > 0);
+  const dirty = Boolean(view && apiKey.length > 0) || tokenDirty;
   const panel = authenticationPanel(selectedKind, Boolean(modelProvider));
   const configurationVisible =
     panel === 'configuration' ||
@@ -506,6 +508,15 @@ export function AgentAuthModeControl({
             <div className="agent-auth-mode-panel" hidden={panel !== 'account'}>
               {showCodexDeviceLogin && panel === 'account' ? (
                 <CodexDeviceLogin onAuthenticated={onAuthenticated} />
+              ) : null}
+              {view?.headless_account_env && panel === 'account' ? (
+                <HeadlessAccountTokenField
+                  agentId={agentId}
+                  envName={view.headless_account_env}
+                  locked={locked}
+                  onDirtyChange={setTokenDirty}
+                  onChanged={onChanged}
+                />
               ) : null}
               {accountExtra && panel === 'account' ? accountExtra : null}
               {panel === 'account' ? (
@@ -879,6 +890,14 @@ function agentDisplayName(agentId: AgentId) {
       return 'Cursor';
     case 'qoder':
       return 'Qoder';
+    case 'kiro':
+      return 'Kiro CLI';
+    case 'auggie':
+      return 'Auggie';
+    case 'trae':
+      return 'TRAE CLI';
+    case 'command_code':
+      return 'Command Code';
     case 'mimo_code':
       return 'MiMo Code';
     default:

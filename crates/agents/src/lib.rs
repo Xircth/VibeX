@@ -5,6 +5,8 @@
 //! `ExecutionProcess` systems.
 
 mod account_session;
+pub mod acp_tool_projection;
+pub mod acp_transcript;
 mod antigravity_auth;
 mod antigravity_login;
 mod auth_mode;
@@ -47,8 +49,6 @@ pub mod metadata;
 pub mod native_config;
 pub mod npm_registry;
 pub mod operations;
-pub mod acp_tool_projection;
-pub mod acp_transcript;
 pub mod parsers;
 pub mod permissions;
 mod pi_commands;
@@ -94,9 +94,9 @@ pub use auth_mode::{
     BuiltInAuthModePolicy, apply_built_in_auth_mode_policy, apply_built_in_launch_argument_policy,
     apply_built_in_launch_policy, apply_pi_native_launch_env, auth_mode_credential_env,
     auth_mode_kind, auto_approve_mode_for_launch, bind_pi_acp_pi_command,
-    built_in_auth_mode_policy, built_in_auth_mode_scrubbed_env_keys, is_non_official_api_url,
-    native_uses_custom_endpoint, official_api_url, resolve_built_in_auth_mode,
-    resolve_pi_acp_command,
+    built_in_auth_mode_policy, built_in_auth_mode_scrubbed_env_keys, headless_account_env,
+    is_non_official_api_url, native_uses_custom_endpoint, official_api_url,
+    resolve_built_in_auth_mode, resolve_pi_acp_command,
 };
 pub use auth_status::{
     AUTH_STATUS_DRAFT_REVISION, AcpAuthStatusAdapter, AcpAuthStatusAdapterError,

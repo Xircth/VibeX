@@ -449,24 +449,30 @@ function InterruptedTurnNotice({ onResend }: { onResend?: () => void }) {
 function CollapsedProcessGroup({
   expansionKey,
   durationMs,
+  working,
   children,
 }: {
   expansionKey: string;
   durationMs: number | null;
+  working: boolean;
   children: (expanded: boolean) => ReactNode;
 }) {
   const { t } = useTranslation(['conversation', 'common']);
   const bodyRef = useRef<HTMLDivElement | null>(null);
   const [expanded, toggle] = useExpandable(`process:${expansionKey}`, false);
   useNestedWheel(bodyRef, { enabled: expanded });
-  // A missing span stays missing. Do not invent hours or a message count.
   const span =
     durationMs === null ? null : formatCollapsedDurationParts(durationMs);
   const label = span
-    ? t('messageTurnView.collapsedMessages', {
-        hours: span.hours,
-        minutes: span.minutes,
-      })
+    ? t(
+        working
+          ? 'messageTurnView.collapsedMessagesWorking'
+          : 'messageTurnView.collapsedMessages',
+        {
+          hours: span.hours,
+          minutes: span.minutes,
+        }
+      )
     : null;
   return (
     <div className="conv-collapsed-process px-1 py-1">
@@ -539,6 +545,13 @@ export const MessageTurnView = memo(function MessageTurnView({
   questions?: TimelineQuestion[];
 }) {
   const { t } = useTranslation(['conversation', 'common', 'app']);
+  const turnInProgress = phase === 'streaming' || phase === 'optimistic';
+  const [nowMs, setNowMs] = useState(() => Date.now());
+  useEffect(() => {
+    if (!turnInProgress) return;
+    const id = window.setInterval(() => setNowMs(Date.now()), 1000);
+    return () => window.clearInterval(id);
+  }, [turnInProgress]);
   const { config } = useOptionalUserSystem() ?? {};
   const hideThinking = resolveHideModelThinking(config);
   const [editing, setEditing] = useState(false);
@@ -675,7 +688,8 @@ export const MessageTurnView = memo(function MessageTurnView({
       turnTimestamp: turn.timestamp,
       completedAt: turn.completed_at,
       durationMs: turn.duration_ms,
-      settled: phase !== 'streaming' && phase !== 'optimistic',
+      settled: !turnInProgress,
+      nowMs: turnInProgress ? nowMs : undefined,
     });
   const originalIndices = new Map(items.map((item, index) => [item, index]));
   const pollResults = collectHostDelegationPollResults(
@@ -739,6 +753,7 @@ export const MessageTurnView = memo(function MessageTurnView({
         <CollapsedProcessGroup
           expansionKey={`${turn.id}:${slice.startIndex}`}
           durationMs={foldDurationMs(foldedItems)}
+          working={turnInProgress}
         >
           {() => null}
         </CollapsedProcessGroup>
@@ -787,6 +802,7 @@ export const MessageTurnView = memo(function MessageTurnView({
               key={`${turn.id}-fold-${segment.startIndex}`}
               expansionKey={`${turn.id}:${segment.startIndex}`}
               durationMs={foldDurationMs(segment.items)}
+              working={turnInProgress}
             >
               {(expanded) => renderUnits(segment.items, expanded)}
             </CollapsedProcessGroup>

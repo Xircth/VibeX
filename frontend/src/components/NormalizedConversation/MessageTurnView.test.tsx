@@ -1,6 +1,12 @@
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import {
+  act,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+} from '@testing-library/react';
 import type { ContentBlock, MessageTurn } from 'shared/types';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { MessageTurnView } from './MessageTurnView';
@@ -1459,6 +1465,72 @@ describe('MessageTurnView', () => {
     expect(prose.compareDocumentPosition(screen.getByText('command-3'))).toBe(
       Node.DOCUMENT_POSITION_FOLLOWING
     );
+  });
+
+  it('labels an unfinished fold as Working for the live elapsed time', () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-10-19T10:13:00.000Z'));
+    try {
+      const { rerender } = render(
+        <MessageTurnView
+          turn={{
+            id: 'working-fold:assistant',
+            role: 'assistant',
+            blocks: [
+              {
+                type: 'tool_use',
+                tool_use_id: 'read-a',
+                tool_name: 'Read',
+                input_preview: JSON.stringify({ file_path: 'a.ts' }),
+              },
+              { type: 'text', text: 'Still going' },
+            ],
+            timestamp: '2026-10-19T09:00:00.000Z',
+          }}
+          phase="streaming"
+          attempt={{ id: 'attempt-1', container_ref: null } as never}
+          task={null}
+        />
+      );
+
+      expect(
+        screen.getByRole('button', { name: 'Working for 1h 13m' })
+      ).toBeInTheDocument();
+      expect(screen.queryByText(/Worked for/)).not.toBeInTheDocument();
+
+      act(() => {
+        vi.advanceTimersByTime(60 * 1000);
+      });
+      expect(
+        screen.getByRole('button', { name: 'Working for 1h 14m' })
+      ).toBeInTheDocument();
+
+      rerender(
+        <MessageTurnView
+          turn={{
+            id: 'working-fold:assistant',
+            role: 'assistant',
+            blocks: [
+              {
+                type: 'tool_use',
+                tool_use_id: 'read-a',
+                tool_name: 'Read',
+                input_preview: JSON.stringify({ file_path: 'a.ts' }),
+              },
+              { type: 'text', text: 'Still going' },
+            ],
+            timestamp: '1970-01-01T00:00:00.000Z',
+          }}
+          phase="streaming"
+          attempt={{ id: 'attempt-1', container_ref: null } as never}
+          task={null}
+        />
+      );
+      expect(screen.queryByText(/Working for/)).not.toBeInTheDocument();
+      expect(screen.queryByText(/Worked for/)).not.toBeInTheDocument();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('labels a settled fold with the tool wall-clock span', () => {

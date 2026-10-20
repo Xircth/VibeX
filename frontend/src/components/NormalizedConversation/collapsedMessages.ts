@@ -1,6 +1,7 @@
 import type { TurnRenderItem } from './messageTurnBlocks';
 import {
   MAX_TURN_ELAPSED_MS,
+  liveElapsedMs,
   plausibleTurnStartMs,
 } from '@/components/conversation-thread/turnClock';
 
@@ -50,8 +51,9 @@ function toolSpanMs(items: TurnRenderItem[]): number | null {
 
 /**
  * Wall-clock span of a folded process group.
- * Tool start/end stamps win. A settled turn's own duration is the fallback
- * when those stamps were never recorded. A missing span stays missing.
+ * Tool start/end stamps win. While the turn is unfinished, a plausible turn
+ * start counts forward to now. A settled turn falls back to its own duration.
+ * An epoch or missing start stays missing.
  */
 export function collapsedMessagesDurationMs(input: {
   items: TurnRenderItem[];
@@ -59,10 +61,15 @@ export function collapsedMessagesDurationMs(input: {
   completedAt?: string | null;
   durationMs?: number | bigint | null;
   settled: boolean;
+  nowMs?: number;
 }): number | null {
   const fromTools = toolSpanMs(input.items);
   if (fromTools !== null) return fromTools;
-  if (!input.settled) return null;
+  if (!input.settled) {
+    return input.nowMs === undefined
+      ? null
+      : liveElapsedMs(input.turnTimestamp, input.nowMs);
+  }
 
   const recorded = plausibleSpan(finiteDuration(input.durationMs));
   if (recorded !== null) return recorded;

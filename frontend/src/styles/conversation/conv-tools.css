@@ -1135,10 +1135,62 @@ button.vibex-tool-call-target-label:hover {
 }
 
 /* Match .conv-assistant-body gap between thinking and other kinds. Consecutive
-   ChatToolCalls keep Astryx row padding only. */
+   ChatToolCalls keep Astryx row padding only. Standalone thinking is wrapped,
+   so the direct .conv-thinking rule does not see it. */
 .conv-nested-scroll > * + .conv-thinking,
 .conv-nested-scroll > .conv-thinking + * {
   margin-top: 10px;
+}
+
+.conv-assistant-body > .vibex-turn-tool-calls:only-child:has(> .conv-thinking),
+.conv-nested-scroll > .vibex-turn-tool-calls:has(> .conv-thinking) {
+  margin-top: 10px;
+  margin-bottom: 10px;
+}
+
+.conv-collapsed-process.is-expanded
+  .conv-nested-scroll
+  > .vibex-turn-tool-calls:first-child:has(> .conv-thinking) {
+  margin-top: 0;
+}
+
+.conv-nested-scroll > .vibex-turn-tool-calls:has(> .conv-thinking) + * {
+  margin-top: 0;
+}
+
+/* One paragraph gap under an expanded fold. The body gap and the fold's own
+   padding otherwise stack on the last member's margin. */
+.conv-assistant-body > .conv-collapsed-process.is-expanded {
+  padding-bottom: 0;
+  margin-bottom: -10px;
+}
+
+.conv-collapsed-process.is-expanded .conv-nested-scroll {
+  margin-top: 10px;
+}
+
+.conv-collapsed-process.is-expanded
+  .conv-nested-scroll
+  > .conv-markdown:last-child {
+  margin-bottom: 10px;
+}
+
+/* Virtual rows separate slices with their own padding. At the boundary after
+   an expanded fold that padding stacks on the member's margin. */
+.conv-turn-row.is-fold-tail {
+  padding-bottom: 0;
+}
+
+.conv-turn-row.is-fold-tail .conv-assistant-msg {
+  padding-bottom: 0;
+}
+
+.conv-turn-row.is-after-fold .conv-assistant-msg {
+  padding-top: 0;
+}
+
+.conv-turn-row.is-fold-tail .conv-assistant-body > .conv-markdown {
+  margin-bottom: 10px;
 }
 
 .conv-nested-scroll::-webkit-scrollbar {

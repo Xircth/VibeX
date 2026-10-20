@@ -475,7 +475,12 @@ function CollapsedProcessGroup({
       )
     : null;
   return (
-    <div className="conv-collapsed-process px-1 py-1">
+    <div
+      className={cn(
+        'conv-collapsed-process px-1 py-1',
+        expanded && 'is-expanded'
+      )}
+    >
       <button
         type="button"
         onClick={() => toggle()}
@@ -491,11 +496,7 @@ function CollapsedProcessGroup({
         {label ? <span>{label}</span> : null}
       </button>
       {expanded ? (
-        <div
-          ref={bodyRef}
-          className="conv-nested-scroll mt-1"
-          data-nested-scroll=""
-        >
+        <div ref={bodyRef} className="conv-nested-scroll" data-nested-scroll="">
           {children(true)}
         </div>
       ) : (

@@ -167,7 +167,7 @@ describe('collapseTurnSegments', () => {
     ]);
   });
 
-  it('keeps earlier prose before the streaming tool fold', () => {
+  it('keeps tools after the latest prose in the stream instead of a second fold', () => {
     const items = [
       markdown('answer'),
       tool('read'),
@@ -176,13 +176,21 @@ describe('collapseTurnSegments', () => {
       tool('write'),
     ];
     expect(collapseTurnSegments(items, { isStreaming: true })).toEqual([
-      { kind: 'items', startIndex: 0, items: [markdown('answer')] },
-      { kind: 'fold', startIndex: 1, items: [tool('read'), tool('grep')] },
-      { kind: 'items', startIndex: 3, items: [tool('edit'), tool('write')] },
+      {
+        kind: 'items',
+        startIndex: 0,
+        items: [
+          markdown('answer'),
+          tool('read'),
+          tool('grep'),
+          tool('edit'),
+          tool('write'),
+        ],
+      },
     ]);
   });
 
-  it('keeps a leading tool fold, then prose, then later tools in document order', () => {
+  it('uses one fold for the prelude and leaves later tools in document order', () => {
     const items = [
       tool('bash'),
       markdown('answer'),
@@ -193,9 +201,22 @@ describe('collapseTurnSegments', () => {
     ];
     expect(collapseTurnSegments(items, { isStreaming: true })).toEqual([
       { kind: 'fold', startIndex: 0, items: [tool('bash')] },
-      { kind: 'items', startIndex: 1, items: [markdown('answer')] },
-      { kind: 'fold', startIndex: 2, items: [tool('read'), tool('grep')] },
-      { kind: 'items', startIndex: 4, items: [tool('edit'), tool('write')] },
+      {
+        kind: 'items',
+        startIndex: 1,
+        items: [
+          markdown('answer'),
+          tool('read'),
+          tool('grep'),
+          tool('edit'),
+          tool('write'),
+        ],
+      },
     ]);
+    expect(
+      collapseTurnSegments(items, { isStreaming: true }).filter(
+        (segment) => segment.kind === 'fold'
+      )
+    ).toHaveLength(1);
   });
 });

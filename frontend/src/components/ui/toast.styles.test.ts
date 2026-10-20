@@ -11,12 +11,27 @@ const css = readFileSync(
 
 describe('toast surface contract', () => {
   it('uses an opaque 400px dialog card with overlay shadow', () => {
-    expect(css).toContain('width: min(400px, calc(100vw - 24px));');
+    expect(css).toContain('width: min(444px, 100vw);');
+    expect(css).toContain('padding: 36px 12px 12px 32px;');
     expect(css).toContain('background: var(--surface-dialog);');
     expect(css).toContain('var(--toast-shadow)');
     expect(css).not.toContain('backdrop-filter:');
     expect(css).not.toContain('vu-toast-icon-tile');
     expect(css).not.toContain('vu-toast-summary');
+  });
+
+  it('keeps the drop shadow outside the rounded card', () => {
+    expect(css).toMatch(/\.vu-toast-surface \{[\s\S]*?overflow: visible;/);
+    expect(css).toMatch(
+      /\.vu-toast-viewport \{[\s\S]*?padding: 36px 12px 12px 32px;/
+    );
+    expect(css).toContain(
+      'animation: vu-toast-enter 180ms ease-out backwards;'
+    );
+    expect(css).not.toContain('ease-out both');
+    expect(css).toContain('html.desktop-toast-shell .vu-toast-surface {');
+    expect(css).toContain('box-shadow: none;');
+    expect(css).toContain('drop-shadow(0 10px 28px hsl(220 36% 8% / 0.16))');
   });
 
   it('expands details across the icon column and keeps compact compose type', () => {

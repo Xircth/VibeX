@@ -217,7 +217,6 @@ describe('GeneralSettings Agent model catalogs', () => {
         name: '启动时提示未处理的崩溃报告',
       })
     );
-    await user.click(screen.getByRole('button', { name: '保存' }));
 
     await waitFor(() => {
       expect(updateAndSaveConfig).toHaveBeenCalledWith(
@@ -234,7 +233,6 @@ describe('GeneralSettings Agent model catalogs', () => {
     await user.click(
       screen.getByRole('switch', { name: '系统通知（桌面窗口）' })
     );
-    await user.click(screen.getByRole('button', { name: '保存' }));
 
     await waitFor(() => {
       expect(updateAndSaveConfig).toHaveBeenCalledWith(
@@ -351,7 +349,6 @@ describe('GeneralSettings Agent model catalogs', () => {
     expect(toggle).not.toBeChecked();
 
     await user.click(toggle);
-    await user.click(screen.getByRole('button', { name: '保存' }));
 
     await waitFor(() => {
       expect(updateAndSaveConfig).toHaveBeenCalledWith(
@@ -370,7 +367,6 @@ describe('GeneralSettings Agent model catalogs', () => {
     expect(toggle).not.toBeChecked();
 
     await user.click(toggle);
-    await user.click(screen.getByRole('button', { name: '保存' }));
 
     await waitFor(() => {
       expect(updateAndSaveConfig).toHaveBeenCalledWith(

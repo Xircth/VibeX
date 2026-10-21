@@ -12,13 +12,13 @@ function readFile(relativePath) {
   return fs.readFileSync(path.join(frontendRoot, relativePath), 'utf8');
 }
 
-test('浅色对话框用 #FAFAFA，菜单和通知走玻璃 token', () => {
+test('浅色对话框用 #ffffff，菜单和通知走共享表面 token', () => {
   const appStyles = readFile('src/styles/legacy/index.css');
   const toastStyles = readFile('src/components/ui/toast.css');
 
   assert.match(
     appStyles,
-    /\.legacy-design\s*\{[\s\S]*?--surface-dialog:\s*#fafafa;/
+    /\.legacy-design\s*\{[\s\S]*?--surface-dialog:\s*#ffffff;/
   );
   assert.match(
     appStyles,
@@ -30,6 +30,6 @@ test('浅色对话框用 #FAFAFA，菜单和通知走玻璃 token', () => {
   );
   assert.match(
     toastStyles,
-    /\.vu-toast-surface\s*\{[\s\S]*?background:\s*var\(--surface-popover\);/
+    /\.vu-toast-surface\s*\{[\s\S]*?background:\s*var\(--surface-dialog\);/
   );
 });

@@ -2230,7 +2230,11 @@ export type ConversationTurnErrorKind = "rejected" | "service_error" | "rate_lim
 
 export type ProjectUsageAgentUsage = { agent_id: string, session_count: bigint, tokens: ProjectUsageSourcedTokens, cost?: number | null, };
 
-export type ProjectUsageDailyUsage = { date: string, sessions: bigint, tokens: ProjectUsageSourcedTokens, cost?: number | null, models_used: Array<string>, };
+export type ProjectUsageDailyUsage = { date: string, sessions: bigint, tokens: ProjectUsageSourcedTokens, cost?: number | null, models_used: Array<string>,
+/**
+ * Usage-bearing turns. Missing when no transcript reported a turn count.
+ */
+turns?: bigint | null, };
 
 export type ProjectUsageFolderUsage = { workspace_id: string, folder?: string | null, session_count: bigint, tokens: ProjectUsageSourcedTokens, cost?: number | null, };
 
@@ -2238,7 +2242,11 @@ export type ProjectUsageModelUsage = { model: string, session_count: bigint, tok
 
 export type ProjectUsageProviderStatus = { provider: string, success: boolean, error: string | null, sessions_scanned: bigint, };
 
-export type ProjectUsageSessionSummary = { session_id: string, workspace_id: string, folder?: string | null, agent_id?: string | null, timestamp: bigint, model?: string | null, tokens: ProjectUsageSourcedTokens, context_used?: bigint | null, context_window_max?: bigint | null, cost?: number | null, summary?: string | null, external_session_id?: string | null, };
+export type ProjectUsageSessionSummary = { session_id: string, workspace_id: string, folder?: string | null, agent_id?: string | null, timestamp: bigint, model?: string | null, tokens: ProjectUsageSourcedTokens, context_used?: bigint | null, context_window_max?: bigint | null, cost?: number | null, summary?: string | null, external_session_id?: string | null,
+/**
+ * Usage-bearing turns from a transcript. Missing when none was counted.
+ */
+turns?: bigint | null, };
 
 export type ProjectUsageSourcedTokens = { protocol?: ProjectUsageTokenCounts | null, vendor_log?: ProjectUsageTokenCounts | null, sources_disagree: boolean, };
 

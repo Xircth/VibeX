@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   Archive,
   Download,
@@ -7,7 +7,6 @@ import {
   Loader2,
   Network,
   RefreshCw,
-  Save,
   Trash2,
 } from 'lucide-react';
 import { toast } from '@/components/ui/toast';
@@ -38,7 +37,8 @@ import { getInvokeErrorMessage } from '@/lib/errors';
 import { SETTINGS_CHANGED_EVENT } from '@/lib/frontendPreferences';
 import { useLocalDesktopHost } from '@/lib/desktopShell';
 
-import { SettingsActionBar, SettingsSection } from './SettingsUi';
+import { SettingsSection } from './SettingsUi';
+import { useLiveSettingsCommit } from './useLiveSettingsCommit';
 import { AppUpdaterSection } from '@/components/settings/AppUpdaterSection';
 
 type SystemSettingsConfig = Config;
@@ -102,10 +102,6 @@ function deepMerge<T extends Record<string, unknown>>(
   return result;
 }
 
-function deepEqual(a: unknown, b: unknown): boolean {
-  return JSON.stringify(a) === JSON.stringify(b);
-}
-
 function proxyDetectionCopy(
   settings: SystemProxySettings,
   t: (key: string, options?: Record<string, string>) => string
@@ -137,25 +133,64 @@ export function SystemSettings() {
   const [draft, setDraft] = useState<SystemSettingsConfig | null>(() =>
     config ? structuredClone(config as SystemSettingsConfig) : null
   );
-  const [dirty, setDirty] = useState(false);
-  const [saving, setSaving] = useState(false);
-  const [saveError, setSaveError] = useState<string | null>(null);
+  const draftRef = useRef(draft);
+  draftRef.current = draft;
   const [isClearingLocalData, setIsClearingLocalData] = useState(false);
-  const [proxySettings, setProxySettings] = useState<SystemProxySettings>(
-    DEFAULT_PROXY_SETTINGS
-  );
   const [proxyDraft, setProxyDraft] = useState<SystemProxySettings>(
     DEFAULT_PROXY_SETTINGS
   );
+  const proxyDraftRef = useRef(proxyDraft);
+  proxyDraftRef.current = proxyDraft;
   const [proxyLoading, setProxyLoading] = useState(true);
-  const [proxySaving, setProxySaving] = useState(false);
-  const [renderingSettings, setRenderingSettings] =
-    useState<SystemRenderingSettings>(DEFAULT_RENDERING_SETTINGS);
   const [renderingDraft, setRenderingDraft] = useState<SystemRenderingSettings>(
     DEFAULT_RENDERING_SETTINGS
   );
+  const renderingDraftRef = useRef(renderingDraft);
+  renderingDraftRef.current = renderingDraft;
   const [renderingLoading, setRenderingLoading] = useState(true);
-  const [renderingSaving, setRenderingSaving] = useState(false);
+  const { writeNow, holding } = useLiveSettingsCommit(
+    async (next: SystemSettingsConfig) => {
+      const saved = await updateAndSaveConfig(sanitizeDraft(next));
+      if (!saved) {
+        toast.error(t('general.saveFailed'));
+      }
+    }
+  );
+  const {
+    writeNow: writeProxyNow,
+    writeSettled: writeProxySettled,
+    flush: flushProxy,
+    holdingRef: proxyHoldingRef,
+  } = useLiveSettingsCommit(async (next: SystemProxySettings) => {
+    try {
+      const saved = await systemSettingsApi.updateProxy(next);
+      if (
+        proxyDraftRef.current.mode === next.mode &&
+        (proxyDraftRef.current.proxy_url ?? '') === (next.proxy_url ?? '')
+      ) {
+        proxyDraftRef.current = saved;
+        setProxyDraft(saved);
+      }
+    } catch (error) {
+      toast.error(
+        error instanceof Error ? error.message : t('system.proxySaveFailed')
+      );
+    }
+  });
+  const { writeNow: writeRenderingNow, holdingRef: renderingHoldingRef } =
+    useLiveSettingsCommit(async (next: SystemRenderingSettings) => {
+      try {
+        const saved = await systemSettingsApi.updateRendering(next);
+        renderingDraftRef.current = saved;
+        setRenderingDraft(saved);
+      } catch (error) {
+        toast.error(
+          error instanceof Error
+            ? error.message
+            : t('system.renderingSaveFailed')
+        );
+      }
+    });
   const [backupPath, setBackupPath] = useState('');
   const [restorePath, setRestorePath] = useState('');
   const [backupPassphrase, setBackupPassphrase] = useState('');
@@ -171,13 +206,15 @@ export function SystemSettings() {
   const [restoreBusy, setRestoreBusy] = useState(false);
   const [settingsPath, setSettingsPath] = useState('~/.vibex/settings.json');
 
+  const appliedConfig = useRef(config);
   useEffect(() => {
-    if (!config || dirty) {
-      return;
-    }
-
-    setDraft(structuredClone(config as SystemSettingsConfig));
-  }, [config, dirty]);
+    if (!config || holding) return;
+    if (config === appliedConfig.current) return;
+    appliedConfig.current = config;
+    const next = structuredClone(config as SystemSettingsConfig);
+    draftRef.current = next;
+    setDraft(next);
+  }, [config, holding]);
 
   const refreshSystemSettings = useCallback(async () => {
     setProxyLoading(true);
@@ -188,10 +225,14 @@ export function SystemSettings() {
         systemSettingsApi.getProxy(),
         systemSettingsApi.getRendering(),
       ]);
-      setProxySettings(proxy);
-      setProxyDraft(proxy);
-      setRenderingSettings(rendering);
-      setRenderingDraft(rendering);
+      if (!proxyHoldingRef.current) {
+        proxyDraftRef.current = proxy;
+        setProxyDraft(proxy);
+      }
+      if (!renderingHoldingRef.current) {
+        renderingDraftRef.current = rendering;
+        setRenderingDraft(rendering);
+      }
     } catch (error) {
       toast.error(
         error instanceof Error ? error.message : t('system.loadSettingsFailed')
@@ -200,7 +241,7 @@ export function SystemSettings() {
       setProxyLoading(false);
       setRenderingLoading(false);
     }
-  }, [t]);
+  }, [proxyHoldingRef, renderingHoldingRef, t]);
 
   useEffect(() => {
     void refreshSystemSettings();
@@ -221,29 +262,9 @@ export function SystemSettings() {
     };
   }, []);
 
-  const hasUnsavedChanges = useMemo(() => {
-    if (!draft || !config) {
-      return false;
-    }
-
-    return !deepEqual(draft, config);
-  }, [config, draft]);
-
-  const proxyDirty = useMemo(
-    () =>
-      proxyDraft.mode !== proxySettings.mode ||
-      (proxyDraft.proxy_url ?? '') !== (proxySettings.proxy_url ?? ''),
-    [proxyDraft, proxySettings]
-  );
-
-  const renderingDirty = useMemo(
-    () => !deepEqual(renderingDraft, renderingSettings),
-    [renderingDraft, renderingSettings]
-  );
-
   useEffect(() => {
     const refreshOnFocus = () => {
-      if (!proxyDirty && !renderingDirty) void refreshSystemSettings();
+      void refreshSystemSettings();
     };
     window.addEventListener('focus', refreshOnFocus);
     window.addEventListener(SETTINGS_CHANGED_EVENT, refreshOnFocus);
@@ -251,69 +272,28 @@ export function SystemSettings() {
       window.removeEventListener('focus', refreshOnFocus);
       window.removeEventListener(SETTINGS_CHANGED_EVENT, refreshOnFocus);
     };
-  }, [proxyDirty, refreshSystemSettings, renderingDirty]);
+  }, [refreshSystemSettings]);
 
   const updateDraft = useCallback(
     (patch: Partial<SystemSettingsConfig>) => {
-      setDraft((previous) => {
-        if (!previous) {
-          return previous;
-        }
-
-        const next = deepMerge({} as SystemSettingsConfig, previous, patch);
-        if (!deepEqual(next, config)) {
-          setDirty(true);
-        }
-        return next;
-      });
+      const previous = draftRef.current;
+      if (!previous) return;
+      const next = deepMerge({} as SystemSettingsConfig, previous, patch);
+      draftRef.current = next;
+      setDraft(next);
+      writeNow(next);
     },
-    [config]
+    [writeNow]
   );
 
-  useEffect(() => {
-    const handler = (event: BeforeUnloadEvent) => {
-      if (!hasUnsavedChanges) {
-        return;
-      }
-
-      event.preventDefault();
-      event.returnValue = '';
-    };
-
-    window.addEventListener('beforeunload', handler);
-    return () => window.removeEventListener('beforeunload', handler);
-  }, [hasUnsavedChanges]);
-
-  const handleSaveProxy = async () => {
-    setProxySaving(true);
-    try {
-      const saved = await systemSettingsApi.updateProxy(proxyDraft);
-      setProxySettings(saved);
-      setProxyDraft(saved);
-      toast.success(t('system.proxySaved'));
-    } catch (error) {
-      toast.error(
-        error instanceof Error ? error.message : t('system.proxySaveFailed')
-      );
-    } finally {
-      setProxySaving(false);
-    }
-  };
-
-  const handleSaveRendering = async () => {
-    setRenderingSaving(true);
-    try {
-      const saved = await systemSettingsApi.updateRendering(renderingDraft);
-      setRenderingSettings(saved);
-      setRenderingDraft(saved);
-      toast.success(t('system.renderingSaved'));
-    } catch (error) {
-      toast.error(
-        error instanceof Error ? error.message : t('system.renderingSaveFailed')
-      );
-    } finally {
-      setRenderingSaving(false);
-    }
+  const updateProxyDraft = (
+    next: SystemProxySettings,
+    settle = false
+  ) => {
+    proxyDraftRef.current = next;
+    setProxyDraft(next);
+    if (settle) writeProxySettled(next);
+    else writeProxyNow(next);
   };
 
   const handleCreateBackup = async () => {
@@ -436,41 +416,6 @@ export function SystemSettings() {
     });
   };
 
-  const handleSave = async () => {
-    if (!draft) {
-      return;
-    }
-
-    setSaving(true);
-    setSaveError(null);
-
-    try {
-      const sanitized = sanitizeDraft(draft);
-      const saved = await updateAndSaveConfig(sanitized);
-
-      if (saved) {
-        setDraft(structuredClone(sanitized));
-        setDirty(false);
-      }
-    } catch (error) {
-      setSaveError(
-        error instanceof Error ? error.message : 'Failed to save settings'
-      );
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  const handleDiscard = () => {
-    if (!config) {
-      return;
-    }
-
-    setDraft(structuredClone(config as SystemSettingsConfig));
-    setDirty(false);
-    setSaveError(null);
-  };
-
   const confirmClearLocalData = useCallback(async () => {
     setIsClearingLocalData(true);
     const toastId = toast.loading(t('system.clearingLocalData'));
@@ -563,48 +508,35 @@ export function SystemSettings() {
                     : t('system.proxyManualHint')}
                 </p>
               </div>
-              <div className="flex items-center gap-2">
-                <Select
-                  value={proxyDraft.mode}
-                  onValueChange={(value: SystemProxySettings['mode']) =>
-                    setProxyDraft((previous) => ({
-                      ...previous,
-                      mode: value,
-                      proxy_url:
-                        value === 'manual' &&
-                        !previous.proxy_url?.trim() &&
-                        previous.detected_source !== 'pac'
-                          ? (previous.detected_url ?? previous.proxy_url)
-                          : previous.proxy_url,
-                    }))
-                  }
-                  disabled={proxyLoading || proxySaving}
-                >
-                  <SelectTrigger id="system-proxy-mode" className="!w-40">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent align="end">
-                    <SelectItem value="auto">
-                      {t('system.proxyModeAuto')}
-                    </SelectItem>
-                    <SelectItem value="manual">
-                      {t('system.proxyModeManual')}
-                    </SelectItem>
-                  </SelectContent>
-                </Select>
-                <Button
-                  className="shrink-0"
-                  onClick={() => void handleSaveProxy()}
-                  disabled={proxyLoading || proxySaving || !proxyDirty}
-                >
-                  {proxySaving ? (
-                    <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" />
-                  ) : (
-                    <Save className="mr-1 h-3.5 w-3.5" />
-                  )}
-                  {t('common:save')}
-                </Button>
-              </div>
+              <Select
+                value={proxyDraft.mode}
+                onValueChange={(value: SystemProxySettings['mode']) => {
+                  const previous = proxyDraftRef.current;
+                  updateProxyDraft({
+                    ...previous,
+                    mode: value,
+                    proxy_url:
+                      value === 'manual' &&
+                      !previous.proxy_url?.trim() &&
+                      previous.detected_source !== 'pac'
+                        ? (previous.detected_url ?? previous.proxy_url)
+                        : previous.proxy_url,
+                  });
+                }}
+                disabled={proxyLoading}
+              >
+                <SelectTrigger id="system-proxy-mode" className="!w-40">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent align="end">
+                  <SelectItem value="auto">
+                    {t('system.proxyModeAuto')}
+                  </SelectItem>
+                  <SelectItem value="manual">
+                    {t('system.proxyModeManual')}
+                  </SelectItem>
+                </SelectContent>
+              </Select>
             </div>
 
             {proxyDraft.mode === 'manual' ? (
@@ -615,13 +547,17 @@ export function SystemSettings() {
                   isLabelHidden
                   value={proxyDraft.proxy_url ?? ''}
                   placeholder="http://127.0.0.1:7890"
-                  isDisabled={proxyLoading || proxySaving}
+                  isDisabled={proxyLoading}
                   onChange={(value) =>
-                    setProxyDraft((previous) => ({
-                      ...previous,
-                      proxy_url: value,
-                    }))
+                    updateProxyDraft(
+                      {
+                        ...proxyDraftRef.current,
+                        proxy_url: value,
+                      },
+                      true
+                    )
                   }
+                  onBlur={() => void flushProxy()}
                   width="100%"
                   className="[&_input]:text-sm"
                 />
@@ -647,48 +583,33 @@ export function SystemSettings() {
                     {t('system.accelerationModeDesc')}
                   </p>
                 </div>
-                <div className="flex items-center gap-2">
-                  <Select
-                    value={renderingDraft.acceleration_mode}
-                    onValueChange={(
-                      value: SystemRenderingSettings['acceleration_mode']
-                    ) =>
-                      setRenderingDraft({
-                        acceleration_mode: value,
-                      })
-                    }
-                    disabled={renderingLoading || renderingSaving}
-                  >
-                    <SelectTrigger className="!w-40">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent align="end">
-                      <SelectItem value="auto">
-                        {t('system.accelerationAuto')}
-                      </SelectItem>
-                      <SelectItem value="force_gpu">
-                        {t('system.accelerationForceGpu')}
-                      </SelectItem>
-                      <SelectItem value="disable_gpu">
-                        {t('system.accelerationDisableGpu')}
-                      </SelectItem>
-                    </SelectContent>
-                  </Select>
-                  <Button
-                    className="shrink-0"
-                    onClick={() => void handleSaveRendering()}
-                    disabled={
-                      renderingLoading || renderingSaving || !renderingDirty
-                    }
-                  >
-                    {renderingSaving ? (
-                      <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" />
-                    ) : (
-                      <Save className="mr-1 h-3.5 w-3.5" />
-                    )}
-                    {t('common:save')}
-                  </Button>
-                </div>
+                <Select
+                  value={renderingDraft.acceleration_mode}
+                  onValueChange={(
+                    value: SystemRenderingSettings['acceleration_mode']
+                  ) => {
+                    const next = { acceleration_mode: value };
+                    renderingDraftRef.current = next;
+                    setRenderingDraft(next);
+                    writeRenderingNow(next);
+                  }}
+                  disabled={renderingLoading}
+                >
+                  <SelectTrigger className="!w-40">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent align="end">
+                    <SelectItem value="auto">
+                      {t('system.accelerationAuto')}
+                    </SelectItem>
+                    <SelectItem value="force_gpu">
+                      {t('system.accelerationForceGpu')}
+                    </SelectItem>
+                    <SelectItem value="disable_gpu">
+                      {t('system.accelerationDisableGpu')}
+                    </SelectItem>
+                  </SelectContent>
+                </Select>
               </div>
             </SettingsSection>
 
@@ -888,14 +809,6 @@ export function SystemSettings() {
           </div>
         </SettingsSection>
       </div>
-
-      <SettingsActionBar
-        dirty={hasUnsavedChanges}
-        saving={saving}
-        onDiscard={handleDiscard}
-        onSave={handleSave}
-        error={saveError}
-      />
     </div>
   );
 }

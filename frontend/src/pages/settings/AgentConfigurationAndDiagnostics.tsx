@@ -1,5 +1,5 @@
 import { ChevronDown, FolderOpen, Loader2 } from 'lucide-react';
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import type {
   AgentModelCatalogView,
@@ -27,14 +27,16 @@ import {
 } from './CodexQuickSettings';
 import { AgentSectionHeading } from './SettingsSection';
 import { PiConfigurationPanel } from './PiConfigurationPanel';
-import { SettingsActionBar } from './SettingsUi';
 import { containsCjk, humanizeIdentifier } from './agentConfigLabels';
+import { useLiveSettingsCommit } from './useLiveSettingsCommit';
 
 type Props = {
   config: AgentNativeConfigView | null;
   saving: boolean;
   conflictMessage?: string | null;
-  onSave: (request: AgentNativeConfigPatchRequest) => void;
+  onSave: (
+    request: AgentNativeConfigPatchRequest
+  ) => void | Promise<void>;
   onSaveFile?: (request: AgentNativeConfigFileWriteRequest) => void;
   onReloadConflict?: () => void;
   onAdoptExternal?: () => void;
@@ -110,18 +112,44 @@ export function AgentConfigurationAndDiagnostics({
   fieldSurface,
 }: Props) {
   const { t } = useTranslation('settings');
-  const [drafts, setDrafts] = useState<Record<string, string>>({});
+  const appliedConfig = useRef(config);
+  const queuedConfig = useRef<AgentNativeConfigView | null>(null);
+  const [drafts, setDrafts] = useState<Record<string, string>>(() =>
+    draftsFromConfig(config)
+  );
+  const draftsRef = useRef(drafts);
+  draftsRef.current = drafts;
   const [dirty, setDirty] = useState<Record<string, boolean>>({});
+  const dirtyRef = useRef(dirty);
+  dirtyRef.current = dirty;
+  const configRef = useRef(config);
+  configRef.current = config;
   const [rawDirty, setRawDirty] = useState<Record<string, boolean>>({});
   const [childDirty, setChildDirty] = useState<Record<string, boolean>>({});
   const [configExpanded, setConfigExpanded] = useState(true);
+  const { writeNow, writeSettled, flush, holding } = useLiveSettingsCommit(
+    async (request: AgentNativeConfigPatchRequest) => {
+      await onSave(request);
+    }
+  );
 
   useEffect(() => {
-    setDrafts(draftsFromConfig(config));
+    if (holding) {
+      if (config !== appliedConfig.current) queuedConfig.current = config;
+      return;
+    }
+    const next =
+      queuedConfig.current ??
+      (config !== appliedConfig.current ? config : null);
+    if (!next) return;
+    queuedConfig.current = null;
+    appliedConfig.current = next;
+    const nextDrafts = draftsFromConfig(next);
+    draftsRef.current = nextDrafts;
+    dirtyRef.current = {};
+    setDrafts(nextDrafts);
     setDirty({});
-    setRawDirty({});
-    setChildDirty({});
-  }, [config]);
+  }, [config, holding]);
 
   const surfaceFields = useMemo(
     () => fieldsForSurface(config, fieldSurface),
@@ -147,22 +175,12 @@ export function AgentConfigurationAndDiagnostics({
   const showRuntimeSurfaces = fieldSurface !== 'authentication';
   const showFileEditor = fieldSurface !== 'authentication';
   const fieldsDisabled = saving || locked;
-  const changedFields =
-    config?.fields.filter(
-      (field) =>
-        dirty[field.id] &&
-        (!fieldSurface || fieldSurfaceOf(field) === fieldSurface)
-    ) ?? [];
-  const canSave = changedFields.some(
-    (field) => !field.secret || (drafts[field.id] ?? '').length > 0
-  );
   useEffect(() => {
     onDirtyChange?.(
-      canSave ||
-        Object.values(rawDirty).some(Boolean) ||
+      Object.values(rawDirty).some(Boolean) ||
         Object.values(childDirty).some(Boolean)
     );
-  }, [canSave, childDirty, onDirtyChange, rawDirty]);
+  }, [childDirty, onDirtyChange, rawDirty]);
   const updateRawDirty = useCallback((path: string, isDirty: boolean) => {
     setRawDirty((current) =>
       current[path] === isDirty ? current : { ...current, [path]: isDirty }
@@ -181,53 +199,46 @@ export function AgentConfigurationAndDiagnostics({
   );
 
   const updateDraft = (fieldId: string, value: string) => {
-    setDrafts((current) => {
-      const next = { ...current, [fieldId]: value };
-      if (fieldId === 'codex_approval_policy' && value === 'granular') {
-        CODEX_GRANULAR_APPROVAL_FIELDS.forEach((id) => {
-          if (!next[id]) next[id] = 'true';
-        });
-      }
-      return next;
-    });
-    setDirty((current) => ({ ...current, [fieldId]: true }));
-  };
-
-  const discard = () => {
-    setDrafts(draftsFromConfig(config));
-    setDirty({});
-  };
-
-  const save = () => {
-    if (!config) return;
-    const fields = changedFields.filter(
-      (field) => !field.secret || (drafts[field.id] ?? '').length > 0
+    const currentConfig = configRef.current;
+    const nextDrafts = { ...draftsRef.current, [fieldId]: value };
+    if (fieldId === 'codex_approval_policy' && value === 'granular') {
+      CODEX_GRANULAR_APPROVAL_FIELDS.forEach((id) => {
+        if (!nextDrafts[id]) nextDrafts[id] = 'true';
+      });
+    }
+    draftsRef.current = nextDrafts;
+    setDrafts(nextDrafts);
+    const nextDirty = { ...dirtyRef.current, [fieldId]: true };
+    dirtyRef.current = nextDirty;
+    setDirty(nextDirty);
+    if (!currentConfig) return;
+    const fields = currentConfig.fields.filter(
+      (field) =>
+        nextDirty[field.id] &&
+        (!field.secret || (nextDrafts[field.id] ?? '').length > 0)
     );
     if (fields.length === 0) return;
-    onSave({
-      agent_id: config.agent_id,
+    const request: AgentNativeConfigPatchRequest = {
+      agent_id: currentConfig.agent_id,
       base_field_revisions: Object.fromEntries(
         fields.map((field) => [field.id, field.revision])
       ),
       fields: Object.fromEntries(
         fields.map((field) => {
-          const value = drafts[field.id] ?? '';
-          return [field.id, value.length > 0 ? value : null];
+          const fieldValue = nextDrafts[field.id] ?? '';
+          return [field.id, fieldValue.length > 0 ? fieldValue : null];
         })
       ),
-    });
+    };
+    const field = currentConfig.fields.find((item) => item.id === fieldId);
+    if (field && (field.kind === 'select' || field.kind === 'boolean')) {
+      writeNow(request);
+    } else {
+      writeSettled(request);
+    }
   };
 
   const headingPaths = groups.map(([path]) => path);
-  const actionBar = config?.available ? (
-    <SettingsActionBar
-      dirty={changedFields.length > 0}
-      saving={saving}
-      disabled={!canSave}
-      onDiscard={discard}
-      onSave={save}
-    />
-  ) : null;
 
   return (
     <>
@@ -325,6 +336,7 @@ export function AgentConfigurationAndDiagnostics({
                                 field={field}
                                 value={drafts[field.id] ?? ''}
                                 saving={fieldsDisabled}
+                                onBlur={() => void flush()}
                                 onChange={(value) =>
                                   updateDraft(field.id, value)
                                 }
@@ -352,6 +364,7 @@ export function AgentConfigurationAndDiagnostics({
                           fields={visibleFields}
                           drafts={drafts}
                           disabled={fieldsDisabled}
+                          onBlur={() => void flush()}
                           onChange={updateDraft}
                         />
                       </details>
@@ -372,11 +385,9 @@ export function AgentConfigurationAndDiagnostics({
                 )}
               </>
             )}
-            {embedded ? actionBar : null}
           </>
         ) : null}
       </section>
-      {embedded ? null : actionBar}
     </>
   );
 }
@@ -386,12 +397,14 @@ function ConfigField({
   value,
   drafts,
   saving,
+  onBlur,
   onChange,
 }: {
   field: AgentNativeConfigFieldView;
   value: string;
   drafts?: Record<string, string>;
   saving: boolean;
+  onBlur?: () => void;
   onChange: (value: string) => void;
 }) {
   const { t, i18n } = useTranslation('settings');
@@ -420,6 +433,7 @@ function ConfigField({
             spellCheck={false}
             value={value}
             placeholder="{}"
+            onBlur={onBlur}
             onChange={(event) => onChange(event.target.value)}
           />
         ) : field.kind === 'select' ? (
@@ -478,6 +492,7 @@ function ConfigField({
             drafts={drafts ?? {}}
             label={label}
             value={value}
+            onBlur={onBlur}
             onChange={onChange}
           />
         ) : (
@@ -506,6 +521,7 @@ function ConfigField({
                 ? (event) => event.currentTarget.select()
                 : undefined
             }
+            onBlur={onBlur}
             onChange={(event) => onChange(event.target.value)}
           />
         )}
@@ -832,12 +848,14 @@ function GrokOfficialModelField({
   value,
   drafts,
   disabled,
+  onBlur,
   onChange,
 }: {
   label: string;
   value: string;
   drafts: Record<string, string>;
   disabled: boolean;
+  onBlur?: () => void;
   onChange: (value: string) => void;
 }) {
   const { t } = useTranslation('settings');
@@ -889,6 +907,7 @@ function GrokOfficialModelField({
           name="agent_config_grok_custom_model_id"
           placeholder={t('agents.notSet')}
           value={value}
+          onBlur={onBlur}
           onChange={(event) => onChange(event.target.value)}
         />
       )}

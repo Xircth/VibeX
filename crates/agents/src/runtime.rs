@@ -208,6 +208,7 @@ struct SilentTurnRecovery {
     session_id: AgentSessionId,
     prompt_id: AgentPromptId,
     blocks: Vec<AgentContentBlock>,
+    display_blocks: Option<Vec<AgentContentBlock>>,
     options: PromptDispatchOptions,
     launch: RuntimeConnectionLaunch,
     agent_id: AgentId,
@@ -231,6 +232,7 @@ struct RuntimeState {
     sessions: HashMap<AgentSessionId, RuntimeSession>,
     prompts: HashMap<AgentPromptId, AgentPromptSnapshot>,
     prompt_blocks: HashMap<AgentPromptId, Vec<AgentContentBlock>>,
+    prompt_display_blocks: HashMap<AgentPromptId, Vec<AgentContentBlock>>,
     prompt_options: HashMap<AgentPromptId, PromptDispatchOptions>,
     recent_events: VecDeque<AgentEventEnvelope>,
 }
@@ -408,13 +410,14 @@ impl AgentRuntime {
                 };
                 Self::dispatch_envelope(&*event_sink, &event_tx, envelope);
 
-                if let Some((session_id, prompt_id, blocks, options)) = next_prompt
+                if let Some((session_id, prompt_id, blocks, display_blocks, options)) = next_prompt
                     && let Err(error) = connection_manager
-                        .send_prompt(
+                        .send_prompt_with_display_blocks(
                             manager_event.connection_id,
                             session_id,
                             prompt_id,
                             blocks,
+                            display_blocks,
                             options.mode_override,
                             options.config_overrides,
                         )
@@ -461,6 +464,7 @@ impl AgentRuntime {
         AgentSessionId,
         AgentPromptId,
         Vec<AgentContentBlock>,
+        Option<Vec<AgentContentBlock>>,
         PromptDispatchOptions,
     )> {
         let session_id = manager_event.session_id?;
@@ -484,12 +488,13 @@ impl AgentRuntime {
         }
 
         let blocks = state.prompt_blocks.get(&prompt_id).cloned()?;
+        let display_blocks = state.prompt_display_blocks.get(&prompt_id).cloned();
         let options = state
             .prompt_options
             .get(&prompt_id)
             .cloned()
             .unwrap_or_default();
-        Some((session_id, prompt_id, blocks, options))
+        Some((session_id, prompt_id, blocks, display_blocks, options))
     }
 
     async fn take_silent_turn_recovery(
@@ -516,6 +521,7 @@ impl AgentRuntime {
             return None;
         }
         let blocks = state.prompt_blocks.get(&prompt_id).cloned()?;
+        let display_blocks = state.prompt_display_blocks.get(&prompt_id).cloned();
         let options = state
             .prompt_options
             .get(&prompt_id)
@@ -527,6 +533,7 @@ impl AgentRuntime {
             session_id,
             prompt_id,
             blocks,
+            display_blocks,
             options,
             launch: connection.launch.clone(),
             agent_id: connection.snapshot.agent_id.clone(),
@@ -654,11 +661,12 @@ impl AgentRuntime {
         }
 
         if let Err(error) = connection_manager
-            .send_prompt(
+            .send_prompt_with_display_blocks(
                 rebound.id,
                 recovery.session_id,
                 recovery.prompt_id,
                 recovery.blocks,
+                recovery.display_blocks,
                 recovery.options.mode_override,
                 recovery.options.config_overrides,
             )
@@ -1301,12 +1309,14 @@ impl AgentRuntime {
     /// Reopen a dead ACP process and re-issue a prompt that never reached the
     /// agent (Codeg Prompting keep-alive). Used when send_prompt hits a dead
     /// command channel and when the event pump sees a silent in-flight death.
+    #[allow(clippy::too_many_arguments)]
     async fn recover_live_prompt(
         &self,
         connection_id: AgentConnectionId,
         session_id: AgentSessionId,
         prompt_id: AgentPromptId,
         blocks: Vec<AgentContentBlock>,
+        display_blocks: Option<Vec<AgentContentBlock>>,
         mode_override: Option<String>,
         config_overrides: Vec<AgentSessionConfigOverride>,
     ) -> AgentResult<()> {
@@ -1380,11 +1390,12 @@ impl AgentRuntime {
         }
 
         self.connection_manager
-            .send_prompt(
+            .send_prompt_with_display_blocks(
                 rebound.connection_id,
                 session_id,
                 prompt_id,
                 blocks,
+                display_blocks,
                 mode_override,
                 config_overrides,
             )
@@ -1788,6 +1799,14 @@ impl AgentRuntime {
         &self,
         input: SendAgentPromptInput,
     ) -> AgentResult<AgentPromptSnapshot> {
+        self.send_prompt_with_display_blocks(input, None).await
+    }
+
+    pub async fn send_prompt_with_display_blocks(
+        &self,
+        input: SendAgentPromptInput,
+        display_blocks: Option<Vec<AgentContentBlock>>,
+    ) -> AgentResult<AgentPromptSnapshot> {
         if input.blocks.is_empty() {
             return Err(AgentError::Runtime(
                 "prompt must include at least one content block".to_string(),
@@ -1865,6 +1884,11 @@ impl AgentRuntime {
         };
         state.prompts.insert(prompt.id, prompt.clone());
         state.prompt_blocks.insert(prompt.id, blocks.clone());
+        if let Some(display_blocks) = display_blocks.as_ref() {
+            state
+                .prompt_display_blocks
+                .insert(prompt.id, display_blocks.clone());
+        }
         state.prompt_options.insert(
             prompt.id,
             PromptDispatchOptions {
@@ -1886,11 +1910,12 @@ impl AgentRuntime {
         if matches!(prompt.status, AgentPromptStatus::Running)
             && let Err(error) = self
                 .connection_manager
-                .send_prompt(
+                .send_prompt_with_display_blocks(
                     connection_id,
                     session_id,
                     prompt.id,
                     blocks.clone(),
+                    display_blocks.clone(),
                     mode_override.clone(),
                     config_overrides.clone(),
                 )
@@ -1903,6 +1928,7 @@ impl AgentRuntime {
                         session_id,
                         prompt.id,
                         blocks,
+                        display_blocks,
                         mode_override,
                         config_overrides,
                     )
@@ -1992,20 +2018,21 @@ impl AgentRuntime {
     }
 
     pub async fn has_bound_acp_session(&self, session_id: AgentSessionId) -> bool {
+        self.bound_acp_session_id(session_id).await.is_some()
+    }
+
+    pub async fn bound_acp_session_id(&self, session_id: AgentSessionId) -> Option<String> {
         let connection_id = {
             let state = self.state.read().await;
             state
                 .sessions
                 .get(&session_id)
                 .map(|session| session.snapshot.connection_id)
-        };
-        let Some(connection_id) = connection_id else {
-            return false;
-        };
+        }?;
         self.connection_manager
             .bound_acp_session_id(connection_id, session_id)
             .await
-            .is_some_and(|id| is_restorable_acp_session_id(&id))
+            .filter(|id| is_restorable_acp_session_id(id))
     }
 
     /// True only when this conversation still has a Ready ACP process that can
@@ -2131,6 +2158,7 @@ impl AgentRuntime {
                 }
                 if !was_active {
                     state.prompt_blocks.remove(&input.prompt_id);
+                    state.prompt_display_blocks.remove(&input.prompt_id);
                     state.prompt_options.remove(&input.prompt_id);
                     Self::emit_with_parts_locked(
                         &mut state,
@@ -2170,6 +2198,14 @@ impl AgentRuntime {
         &self,
         input: SteerAgentPromptInput,
     ) -> AgentResult<crate::AgentSteerReceipt> {
+        self.steer_prompt_with_display_blocks(input, None).await
+    }
+
+    pub async fn steer_prompt_with_display_blocks(
+        &self,
+        input: SteerAgentPromptInput,
+        display_blocks: Option<Vec<AgentContentBlock>>,
+    ) -> AgentResult<crate::AgentSteerReceipt> {
         if input.blocks.is_empty() {
             return Err(AgentError::Runtime(
                 "steering input must include at least one content block".to_string(),
@@ -2194,11 +2230,12 @@ impl AgentRuntime {
             });
         }
         self.connection_manager
-            .steer_prompt(
+            .steer_prompt_with_display_blocks(
                 input.connection_id,
                 input.session_id,
                 input.expected_prompt_id,
                 input.blocks,
+                display_blocks,
             )
             .await
     }
@@ -2363,6 +2400,7 @@ impl AgentRuntime {
                     }
                 }
                 state.prompt_blocks.remove(&finished.prompt_id);
+                state.prompt_display_blocks.remove(&finished.prompt_id);
                 state.prompt_options.remove(&finished.prompt_id);
             }
             AgentEvent::AvailableCommands { commands } => {
@@ -2451,6 +2489,7 @@ fn fail_prompt_locked(
     }
 
     state.prompt_blocks.remove(&prompt_id);
+    state.prompt_display_blocks.remove(&prompt_id);
     state.prompt_options.remove(&prompt_id);
 }
 
@@ -2493,6 +2532,7 @@ fn fail_connection_sessions_locked(
                     prompt.updated_at = now;
                 }
                 state.prompt_blocks.remove(&prompt_id);
+                state.prompt_display_blocks.remove(&prompt_id);
                 state.prompt_options.remove(&prompt_id);
             }
         }

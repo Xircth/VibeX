@@ -44,7 +44,7 @@ describe('Astryx SegmentedControl chrome', () => {
     });
 
     expect(decls['background-color']?.replace(/\s+/g, '')).toBe(
-      'light-dark(#e3e3e3,#3a3a3a)'
+      'light-dark(#e5e5e5,#262626)'
     );
     expect(decls['border-radius']).toBe('999px');
     expect(decls['--_segmented-control-radius']).toBe('999px');
@@ -86,7 +86,7 @@ describe('Astryx SegmentedControl chrome', () => {
     });
 
     expect(decls['background-color']?.replace(/\s+/g, '')).toBe(
-      'light-dark(#ffffff,#1c1c1c)'
+      'light-dark(#ffffff,#404040)'
     );
   });
 });

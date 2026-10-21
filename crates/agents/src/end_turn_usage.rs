@@ -87,6 +87,15 @@ pub fn model_id_from_meta(meta: Option<&Value>) -> Option<String> {
         })
 }
 
+/// Claude config selects (`opus`, `fable`, `sonnet`, `haiku`) are aliases, not
+/// model ids. Ranking and cost must use the concrete id from a transcript.
+pub fn is_unresolved_model_alias(model: &str) -> bool {
+    matches!(
+        model.trim().to_ascii_lowercase().as_str(),
+        "opus" | "fable" | "sonnet" | "haiku"
+    )
+}
+
 pub fn model_id_from_config_options(options: &[AgentSessionConfigOption]) -> Option<String> {
     options.iter().find_map(|option| {
         if !option
@@ -101,7 +110,7 @@ pub fn model_id_from_config_options(options: &[AgentSessionConfigOption]) -> Opt
             .as_ref()
             .and_then(Value::as_str)
             .map(str::trim)
-            .filter(|value| !value.is_empty())
+            .filter(|value| !value.is_empty() && !is_unresolved_model_alias(value))
             .map(ToOwned::to_owned)
     })
 }
@@ -168,6 +177,49 @@ fn disjoint_usage(usage: &Value) -> Option<AgentUsage> {
     })
 }
 
+/// Merge one usage sample into the turn accumulator.
+///
+/// Occupancy (`used` / `limit`) and model/cost always merge. Token buckets
+/// are copied only when the incoming sample has protocol spend. An all-zero
+/// or `Some(0)` report is occupancy, and must not erase a prior breakdown.
+pub fn merge_agent_usage(existing: Option<AgentUsage>, incoming: &AgentUsage) -> AgentUsage {
+    let mut target = existing.unwrap_or_default();
+    if incoming.used > 0 {
+        target.used = incoming.used;
+    }
+    if incoming.limit.is_some() {
+        target.limit = incoming.limit;
+    }
+    let spend = incoming.input_tokens.unwrap_or(0)
+        + incoming.output_tokens.unwrap_or(0)
+        + incoming.cache_read_tokens.unwrap_or(0)
+        + incoming.cache_write_tokens.unwrap_or(0);
+    if spend > 0 {
+        if incoming.input_tokens.is_some() {
+            target.input_tokens = incoming.input_tokens;
+        }
+        if incoming.output_tokens.is_some() {
+            target.output_tokens = incoming.output_tokens;
+        }
+        if incoming.cache_read_tokens.is_some() {
+            target.cache_read_tokens = incoming.cache_read_tokens;
+        }
+        if incoming.cache_write_tokens.is_some() {
+            target.cache_write_tokens = incoming.cache_write_tokens;
+        }
+    }
+    if incoming.model.is_some() {
+        target.model = incoming.model.clone();
+    }
+    if incoming.cost_amount.is_some() {
+        target.cost_amount = incoming.cost_amount;
+    }
+    if incoming.cost_currency.is_some() {
+        target.cost_currency = incoming.cost_currency.clone();
+    }
+    target
+}
+
 fn u64_field(value: &Value, keys: &[&str]) -> u64 {
     keys.iter()
         .find_map(|key| {
@@ -190,6 +242,15 @@ mod tests {
     use serde_json::json;
 
     use super::*;
+
+    #[test]
+    fn claude_short_aliases_are_not_model_ids() {
+        assert!(is_unresolved_model_alias("opus"));
+        assert!(is_unresolved_model_alias("Fable"));
+        assert!(is_unresolved_model_alias(" sonnet "));
+        assert!(!is_unresolved_model_alias("claude-opus-4-6"));
+        assert!(!is_unresolved_model_alias("claude-fable-5"));
+    }
 
     #[test]
     fn grok_turn_completed_is_per_prompt_and_disjoint() {
@@ -224,6 +285,31 @@ mod tests {
                 + usage.cache_read_tokens.unwrap(),
             87_826
         );
+    }
+
+    #[test]
+    fn zero_token_report_does_not_erase_prior_spend() {
+        let existing = AgentUsage {
+            input_tokens: Some(29_214),
+            output_tokens: Some(1_652),
+            cache_read_tokens: Some(56_960),
+            ..AgentUsage::default()
+        };
+        let occupancy = AgentUsage {
+            used: 80_000,
+            limit: Some(200_000),
+            input_tokens: Some(0),
+            output_tokens: Some(0),
+            cache_read_tokens: Some(0),
+            cache_write_tokens: Some(0),
+            ..AgentUsage::default()
+        };
+        let merged = merge_agent_usage(Some(existing), &occupancy);
+        assert_eq!(merged.input_tokens, Some(29_214));
+        assert_eq!(merged.output_tokens, Some(1_652));
+        assert_eq!(merged.cache_read_tokens, Some(56_960));
+        assert_eq!(merged.used, 80_000);
+        assert_eq!(merged.limit, Some(200_000));
     }
 
     #[test]

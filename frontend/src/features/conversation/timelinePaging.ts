@@ -46,7 +46,8 @@ export function mergeOpenTimelineRows(
   if (existing.length === 0) return incoming;
   if (incoming.length === 0) return existing;
   const byId = new Map(existing.map((row) => [row.row_id, row]));
-  const firstRevision = revisionOf(existing[0]!);
+  const firstRow = existing[0]!;
+  const firstRevision = revisionOf(firstRow);
   const older: TimelineRow[] = [];
   const newer: TimelineRow[] = [];
   for (const row of incoming) {
@@ -57,8 +58,11 @@ export function mergeOpenTimelineRows(
       }
       continue;
     }
-    if (revisionOf(row) <= firstRevision) older.push(row);
-    else newer.push(row);
+    if (revisionOf(row) <= firstRevision) {
+      older.push(row);
+    } else {
+      newer.push(row);
+    }
   }
   return [
     ...older,

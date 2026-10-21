@@ -22,6 +22,7 @@ import {
   Image as ImageIcon,
   List,
   MessageSquare,
+  ClipboardList,
   NotebookPen,
   ScrollText,
   Search,
@@ -175,6 +176,9 @@ const PANEL_COMPONENT_MAP: Record<PanelId, React.FC<IDockviewPanelProps>> = {
   [PANEL_IDS.NOTES]: lazyPanel(
     () => import('@/components/panels/DockviewNotesPanel')
   ),
+  [PANEL_IDS.SESSION_DETAILS]: lazyPanel(
+    () => import('@/components/panels/DockviewSessionDetailsPanel')
+  ),
   [PANEL_IDS.SEARCH]: lazyPanel(
     () => import('@/components/panels/DockviewSearchPanel')
   ),
@@ -220,6 +224,7 @@ const PANEL_TAB_ICONS: Partial<Record<PanelId, [LucideIcon, string]>> = {
   [PANEL_IDS.KANBAN]: [Columns3, 'kanban'],
   [PANEL_IDS.LOGS]: [ScrollText, 'logs'],
   [PANEL_IDS.NOTES]: [NotebookPen, 'note'],
+  [PANEL_IDS.SESSION_DETAILS]: [ClipboardList, 'session-details'],
   [PANEL_IDS.SEARCH]: [Search, 'search'],
   [PANEL_IDS.SESSION_LIST]: [List, 'session-list'],
   [PANEL_IDS.TERMINAL]: [SquareTerminal, 'terminal'],
@@ -494,6 +499,11 @@ export function usePanelMeta(): PanelMeta[] {
     {
       id: PANEL_IDS.NOTES,
       title: t('panelRegistry.notes'),
+      defaultPosition: 'center',
+    },
+    {
+      id: PANEL_IDS.SESSION_DETAILS,
+      title: t('panelRegistry.sessionDetails'),
       defaultPosition: 'center',
     },
     {

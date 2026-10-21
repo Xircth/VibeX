@@ -711,6 +711,7 @@ pub enum AgentConnectionCommand {
         session_id: AgentSessionId,
         prompt_id: AgentPromptId,
         blocks: Vec<AgentContentBlock>,
+        display_blocks: Option<Vec<AgentContentBlock>>,
         mode_override: Option<String>,
         config_overrides: Vec<AgentSessionConfigOverride>,
     },
@@ -722,6 +723,7 @@ pub enum AgentConnectionCommand {
         session_id: AgentSessionId,
         expected_prompt_id: AgentPromptId,
         blocks: Vec<AgentContentBlock>,
+        display_blocks: Option<Vec<AgentContentBlock>>,
         result_tx: oneshot::Sender<AgentResult<AgentSteerReceipt>>,
     },
     RespondPermission {
@@ -950,6 +952,29 @@ impl AgentConnectionManager {
         mode_override: Option<String>,
         config_overrides: Vec<AgentSessionConfigOverride>,
     ) -> AgentResult<()> {
+        self.send_prompt_with_display_blocks(
+            connection_id,
+            session_id,
+            prompt_id,
+            blocks,
+            None,
+            mode_override,
+            config_overrides,
+        )
+        .await
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub async fn send_prompt_with_display_blocks(
+        &self,
+        connection_id: AgentConnectionId,
+        session_id: AgentSessionId,
+        prompt_id: AgentPromptId,
+        blocks: Vec<AgentContentBlock>,
+        display_blocks: Option<Vec<AgentContentBlock>>,
+        mode_override: Option<String>,
+        config_overrides: Vec<AgentSessionConfigOverride>,
+    ) -> AgentResult<()> {
         if !self.has_connection(connection_id).await {
             return Err(AgentError::ConnectionNotFound(connection_id.to_string()));
         }
@@ -967,6 +992,7 @@ impl AgentConnectionManager {
                 session_id,
                 prompt_id,
                 blocks,
+                display_blocks,
                 mode_override,
                 config_overrides,
             },
@@ -1019,6 +1045,24 @@ impl AgentConnectionManager {
         expected_prompt_id: AgentPromptId,
         blocks: Vec<AgentContentBlock>,
     ) -> AgentResult<AgentSteerReceipt> {
+        self.steer_prompt_with_display_blocks(
+            connection_id,
+            session_id,
+            expected_prompt_id,
+            blocks,
+            None,
+        )
+        .await
+    }
+
+    pub async fn steer_prompt_with_display_blocks(
+        &self,
+        connection_id: AgentConnectionId,
+        session_id: AgentSessionId,
+        expected_prompt_id: AgentPromptId,
+        blocks: Vec<AgentContentBlock>,
+        display_blocks: Option<Vec<AgentContentBlock>>,
+    ) -> AgentResult<AgentSteerReceipt> {
         if !self.connection_capabilities(connection_id).await?.steering {
             return Err(AgentError::SteeringUnsupported);
         }
@@ -1029,6 +1073,7 @@ impl AgentConnectionManager {
                 session_id,
                 expected_prompt_id,
                 blocks,
+                display_blocks,
                 result_tx,
             },
         )
@@ -1535,6 +1580,17 @@ struct SessionControlState {
     /// Kept until the first prompt; a later push that contradicts them is
     /// re-asserted once (Codeg `asserted_config_values`).
     asserted_config_values: BTreeMap<String, String>,
+    /// Merged token & context-window usage accumulated during the active turn.
+    last_turn_usage: Option<AgentUsage>,
+}
+
+impl SessionControlState {
+    fn merge_turn_usage(&mut self, incoming: &AgentUsage) {
+        self.last_turn_usage = Some(crate::merge_agent_usage(
+            self.last_turn_usage.clone(),
+            incoming,
+        ));
+    }
 }
 
 #[derive(Debug)]
@@ -1559,6 +1615,7 @@ struct RunPromptRequest {
     session_id: AgentSessionId,
     prompt_id: AgentPromptId,
     blocks: Vec<AgentContentBlock>,
+    display_blocks: Option<Vec<AgentContentBlock>>,
     mode_override: Option<String>,
     config_overrides: Vec<AgentSessionConfigOverride>,
 }
@@ -1714,6 +1771,7 @@ impl AgentConnectionRunner {
                         existing
                     } else {
                         let acp_session_id = format!("inmem-{}", session_id.0);
+                        self.record_session_header(session_id, &acp_session_id);
                         self.session_map
                             .write()
                             .await
@@ -1747,6 +1805,7 @@ impl AgentConnectionRunner {
                         } else {
                             format!("inmem-{}", session_id.0)
                         };
+                    self.record_session_header(session_id, &acp_session_id);
                     self.session_map
                         .write()
                         .await
@@ -1779,6 +1838,7 @@ impl AgentConnectionRunner {
                     session_id,
                     prompt_id,
                     blocks,
+                    display_blocks,
                     ..
                 } => {
                     let bound = self
@@ -1788,7 +1848,7 @@ impl AgentConnectionRunner {
                         .get(&session_id)
                         .cloned()
                         .filter(|id| crate::is_restorable_acp_session_id(id));
-                    if bound.is_none() {
+                    let Some(acp_session_id) = bound else {
                         self.fail_active_turn(
                             session_id,
                             prompt_id,
@@ -1796,7 +1856,13 @@ impl AgentConnectionRunner {
                         )
                         .await;
                         continue;
-                    }
+                    };
+                    let wire_blocks: Vec<ContentBlock> =
+                        blocks.iter().cloned().map(agent_block_to_acp).collect();
+                    let recorded_blocks: Vec<ContentBlock> = display_blocks
+                        .map(|blocks| blocks.into_iter().map(agent_block_to_acp).collect())
+                        .unwrap_or_else(|| wire_blocks.clone());
+                    self.record_prompt(&acp_session_id, &recorded_blocks).await;
                     let text = blocks
                         .into_iter()
                         .map(|block| match block {
@@ -1812,9 +1878,16 @@ impl AgentConnectionRunner {
                         .collect::<Vec<_>>()
                         .join("\n");
                     if text.contains(FULL_GATE_FIXTURE_PROMPT) {
-                        self.run_full_gate_fixture(session_id, prompt_id).await;
+                        self.run_full_gate_fixture(&acp_session_id, session_id, prompt_id)
+                            .await;
                         continue;
                     }
+                    self.record_in_memory_update(
+                        &acp_session_id,
+                        &SessionUpdate::AgentMessageChunk(acp::schema::v1::ContentChunk::new(
+                            ContentBlock::from(text.clone()),
+                        )),
+                    );
                     self.emit(
                         Some(session_id),
                         Some(prompt_id),
@@ -1826,17 +1899,25 @@ impl AgentConnectionRunner {
                 AgentConnectionCommand::Cancel {
                     session_id,
                     prompt_id,
-                } => self.emit(
-                    Some(session_id),
-                    Some(prompt_id),
-                    AgentEvent::PromptFinished {
-                        finished: AgentPromptFinished {
-                            prompt_id,
-                            stop_reason: Some("cancelled".to_string()),
-                            usage: None,
+                } => {
+                    if let Some(acp_session_id) =
+                        self.session_map.read().await.get(&session_id).cloned()
+                    {
+                        self.record_turn_end(&acp_session_id, session_id, "cancelled", 0, None)
+                            .await;
+                    }
+                    self.emit(
+                        Some(session_id),
+                        Some(prompt_id),
+                        AgentEvent::PromptFinished {
+                            finished: AgentPromptFinished {
+                                prompt_id,
+                                stop_reason: Some("cancelled".to_string()),
+                                usage: None,
+                            },
                         },
-                    },
-                ),
+                    );
+                }
                 AgentConnectionCommand::Steer { result_tx, .. } => {
                     let _ = result_tx.send(Err(AgentError::SteeringUnsupported));
                 }
@@ -1885,7 +1966,18 @@ impl AgentConnectionRunner {
         }
     }
 
-    async fn run_full_gate_fixture(&self, session_id: AgentSessionId, prompt_id: AgentPromptId) {
+    async fn run_full_gate_fixture(
+        &self,
+        acp_session_id: &str,
+        session_id: AgentSessionId,
+        prompt_id: AgentPromptId,
+    ) {
+        self.record_in_memory_update(
+            acp_session_id,
+            &SessionUpdate::AgentMessageChunk(acp::schema::v1::ContentChunk::new(
+                ContentBlock::from("fixture stream chunk"),
+            )),
+        );
         self.emit(
             Some(session_id),
             Some(prompt_id),
@@ -1894,6 +1986,13 @@ impl AgentConnectionRunner {
                     text: "fixture stream chunk".to_string(),
                 },
             },
+        );
+        self.record_in_memory_update(
+            acp_session_id,
+            &SessionUpdate::ToolCall(
+                acp::schema::v1::ToolCall::new("fixture-tool", "Inspect fixture workspace")
+                    .kind(acp::schema::v1::ToolKind::Read),
+            ),
         );
         self.emit(
             Some(session_id),
@@ -1910,6 +2009,17 @@ impl AgentConnectionRunner {
                     images: Vec::new(),
                 },
             },
+        );
+        self.record_in_memory_update(
+            acp_session_id,
+            &SessionUpdate::ToolCallUpdate(acp::schema::v1::ToolCallUpdate::new(
+                "fixture-tool",
+                acp::schema::v1::ToolCallUpdateFields::new()
+                    .status(acp::schema::v1::ToolCallStatus::InProgress)
+                    .content(vec![acp::schema::v1::ToolCallContent::from(
+                        "reading fixture input",
+                    )]),
+            )),
         );
         self.emit(
             Some(session_id),
@@ -2013,7 +2123,8 @@ impl AgentConnectionRunner {
                     auto: true,
                 },
             );
-            self.emit_full_gate_completion(session_id, prompt_id);
+            self.emit_full_gate_completion(acp_session_id, session_id, prompt_id)
+                .await;
             return;
         }
 
@@ -2036,13 +2147,32 @@ impl AgentConnectionRunner {
             },
         );
         let runner = self.clone();
+        let acp_session_id = acp_session_id.to_string();
         tokio::spawn(async move {
             let _ = rx.await;
-            runner.emit_full_gate_completion(session_id, prompt_id);
+            runner
+                .emit_full_gate_completion(&acp_session_id, session_id, prompt_id)
+                .await;
         });
     }
 
-    fn emit_full_gate_completion(&self, session_id: AgentSessionId, prompt_id: AgentPromptId) {
+    async fn emit_full_gate_completion(
+        &self,
+        acp_session_id: &str,
+        session_id: AgentSessionId,
+        prompt_id: AgentPromptId,
+    ) {
+        self.record_in_memory_update(
+            acp_session_id,
+            &SessionUpdate::ToolCallUpdate(acp::schema::v1::ToolCallUpdate::new(
+                "fixture-tool",
+                acp::schema::v1::ToolCallUpdateFields::new()
+                    .status(acp::schema::v1::ToolCallStatus::Completed)
+                    .content(vec![acp::schema::v1::ToolCallContent::from(
+                        "fixture tool completed",
+                    )]),
+            )),
+        );
         self.emit(
             Some(session_id),
             Some(prompt_id),
@@ -2058,6 +2188,8 @@ impl AgentConnectionRunner {
                 },
             },
         );
+        self.record_turn_end(acp_session_id, session_id, "end_turn", 0, None)
+            .await;
         self.emit(
             Some(session_id),
             Some(prompt_id),
@@ -2601,6 +2733,7 @@ impl AgentConnectionRunner {
                             session_id,
                             prompt_id,
                             blocks,
+                            display_blocks,
                             mode_override,
                             config_overrides,
                         } => {
@@ -2653,6 +2786,7 @@ impl AgentConnectionRunner {
                                         session_id,
                                         prompt_id,
                                         blocks,
+                                        display_blocks,
                                         mode_override,
                                         config_overrides,
                                     },
@@ -2884,8 +3018,11 @@ impl AgentConnectionRunner {
         // yet own a thread) and for fork, which creates a new Conversation.
         // Prompt must never reach here: that would stuff a new Codex thread
         // into an existing VibeX Conversation.
-        self.new_acp_session(conn, working_dir, session_id, companion_capabilities)
-            .await
+        let acp_session_id = self
+            .new_acp_session(conn, working_dir, session_id, companion_capabilities)
+            .await?;
+        self.record_session_header(session_id, &acp_session_id);
+        Ok(acp_session_id)
     }
 
     async fn load_or_new_acp_session(
@@ -2953,6 +3090,7 @@ impl AgentConnectionRunner {
             let resume_result = conn.send_request(request).block_task().await;
             match resume_result {
                 Ok(response) => {
+                    self.record_session_header(session_id, &external_session_id);
                     self.session_map
                         .write()
                         .await
@@ -3033,6 +3171,7 @@ impl AgentConnectionRunner {
 
         match load_result {
             Ok(response) => {
+                self.record_session_header(session_id, &external_session_id);
                 self.session_map
                     .write()
                     .await
@@ -3284,6 +3423,160 @@ impl AgentConnectionRunner {
         )
         .continuing(previous_session_id);
         let _ = crate::acp_transcript::claim_replay_transcript(&agent_dir, new_session_id, &header);
+    }
+
+    fn record_session_header(&self, session_id: AgentSessionId, acp_session_id: &str) {
+        if !records_acp_jsonl(self.snapshot.agent_id.as_str()) {
+            return;
+        }
+        let agent_dir = jsonl_agent_dir(self.snapshot.agent_id.as_str());
+        if !crate::acp_transcript::safe_component(acp_session_id) {
+            return;
+        }
+        let mut header = crate::acp_transcript::TranscriptHeader::new(
+            self.snapshot.agent_id.as_str(),
+            acp_session_id,
+            &self.snapshot.working_dir.to_string_lossy(),
+            crate::acp_transcript::now_epoch_ms(),
+        );
+        let local_sid = session_id.0.simple().to_string();
+        if acp_session_id != local_sid
+            && !crate::acp_transcript::has_recorded_history(&agent_dir, acp_session_id)
+            && crate::acp_transcript::has_entries_in(
+                &crate::acp_transcript::vibex_acp_transcripts_root(),
+                &agent_dir,
+                &local_sid,
+            )
+        {
+            header = header.continuing(&local_sid);
+        }
+        drop(crate::acp_transcript::record_header(&agent_dir, &header));
+    }
+
+    async fn record_prompt(&self, acp_session_id: &str, blocks: &[ContentBlock]) {
+        if !records_acp_jsonl(self.snapshot.agent_id.as_str()) {
+            return;
+        }
+        let agent_dir = jsonl_agent_dir(self.snapshot.agent_id.as_str());
+        if !crate::acp_transcript::safe_component(acp_session_id) {
+            return;
+        }
+        let Ok(payload) = serde_json::to_value(blocks) else {
+            return;
+        };
+        let ack = crate::acp_transcript::record_entry(
+            &agent_dir,
+            acp_session_id,
+            crate::acp_transcript::EntryKind::Prompt,
+            payload,
+        );
+        let _ = tokio::time::timeout(Duration::from_millis(2000), ack).await;
+    }
+
+    async fn record_steer(&self, acp_session_id: &str, blocks: &[ContentBlock]) {
+        if !records_acp_jsonl(self.snapshot.agent_id.as_str()) {
+            return;
+        }
+        let agent_dir = jsonl_agent_dir(self.snapshot.agent_id.as_str());
+        if !crate::acp_transcript::safe_component(acp_session_id) {
+            return;
+        }
+        let Ok(payload) = serde_json::to_value(blocks) else {
+            return;
+        };
+        let ack = crate::acp_transcript::record_steer(&agent_dir, acp_session_id, payload);
+        let _ = tokio::time::timeout(Duration::from_millis(2000), ack).await;
+    }
+
+    fn record_in_memory_update(&self, acp_session_id: &str, update: &SessionUpdate) {
+        if !records_acp_jsonl(self.snapshot.agent_id.as_str()) {
+            return;
+        }
+        let agent_dir = jsonl_agent_dir(self.snapshot.agent_id.as_str());
+        if !crate::acp_transcript::safe_component(acp_session_id) {
+            return;
+        }
+        let Ok(payload) = serde_json::to_value(update) else {
+            return;
+        };
+        drop(crate::acp_transcript::record_entry(
+            &agent_dir,
+            acp_session_id,
+            crate::acp_transcript::EntryKind::Update,
+            payload,
+        ));
+    }
+
+    async fn record_turn_end(
+        &self,
+        acp_session_id: &str,
+        session_id: AgentSessionId,
+        stop_reason: &str,
+        duration_ms: u64,
+        usage: Option<&crate::AgentUsage>,
+    ) {
+        if !records_acp_jsonl(self.snapshot.agent_id.as_str()) {
+            return;
+        }
+        let agent_dir = jsonl_agent_dir(self.snapshot.agent_id.as_str());
+        if !crate::acp_transcript::safe_component(acp_session_id) {
+            return;
+        }
+        let mut payload = serde_json::json!({
+            "stopReason": stop_reason,
+            "durationMs": duration_ms,
+        });
+        let model = usage.and_then(|u| u.model.clone()).or_else(|| {
+            self.session_controls.try_read().ok().and_then(|controls| {
+                controls.get(&session_id).and_then(|state| {
+                    current_grok_model_id(&state.config_options)
+                        .or_else(|| state.last_model_id.clone())
+                })
+            })
+        });
+        if let Some(obj) = payload.as_object_mut() {
+            if let Some(model) = model {
+                obj.insert("model".to_string(), serde_json::Value::String(model));
+            }
+            if let Some(u) = usage {
+                let mut usage_obj = serde_json::Map::new();
+                let spend = u.input_tokens.unwrap_or(0)
+                    + u.output_tokens.unwrap_or(0)
+                    + u.cache_read_tokens.unwrap_or(0)
+                    + u.cache_write_tokens.unwrap_or(0);
+                if spend > 0 {
+                    if let Some(v) = u.input_tokens {
+                        usage_obj.insert("inputTokens".to_string(), serde_json::json!(v));
+                    }
+                    if let Some(v) = u.output_tokens {
+                        usage_obj.insert("outputTokens".to_string(), serde_json::json!(v));
+                    }
+                    if let Some(v) = u.cache_write_tokens {
+                        usage_obj
+                            .insert("cacheCreationInputTokens".to_string(), serde_json::json!(v));
+                    }
+                    if let Some(v) = u.cache_read_tokens {
+                        usage_obj.insert("cacheReadInputTokens".to_string(), serde_json::json!(v));
+                    }
+                }
+                if u.used > 0 {
+                    usage_obj.insert("contextUsed".to_string(), serde_json::json!(u.used));
+                }
+                if let Some(limit) = u.limit.filter(|v| *v > 0) {
+                    usage_obj.insert("contextWindowMax".to_string(), serde_json::json!(limit));
+                }
+                if !usage_obj.is_empty() {
+                    obj.insert("usage".to_string(), serde_json::Value::Object(usage_obj));
+                }
+            }
+        }
+        let ack = crate::acp_transcript::record_entry(
+            &agent_dir,
+            acp_session_id,
+            crate::acp_transcript::EntryKind::TurnEnd,
+            payload,
+        );
+        let _ = tokio::time::timeout(Duration::from_millis(2000), ack).await;
     }
 
     async fn emit_session_linked(&self, session_id: AgentSessionId, acp_session_id: String) {
@@ -4021,6 +4314,7 @@ impl AgentConnectionRunner {
             session_id,
             prompt_id,
             blocks,
+            display_blocks,
             mode_override,
             config_overrides,
         } = request;
@@ -4034,6 +4328,7 @@ impl AgentConnectionRunner {
         *self.last_activity.lock().await = Instant::now();
         if let Some(stored) = self.session_controls.write().await.get_mut(&session_id) {
             stored.asserted_config_values.clear();
+            stored.last_turn_usage = None;
         }
         let confirmed_mode = mode_override.clone();
         let confirmed_config = config_overrides.clone();
@@ -4062,10 +4357,13 @@ impl AgentConnectionRunner {
         }
         self.record_confirmed_controls(session_id, confirmed_mode.as_deref(), &confirmed_config)
             .await;
-        let request = PromptRequest::new(
-            SessionId::new(acp_session_id.clone()),
-            blocks.into_iter().map(agent_block_to_acp).collect(),
-        );
+        let wire_blocks: Vec<ContentBlock> = blocks.into_iter().map(agent_block_to_acp).collect();
+        let recorded_blocks: Vec<ContentBlock> = display_blocks
+            .map(|blocks| blocks.into_iter().map(agent_block_to_acp).collect())
+            .unwrap_or_else(|| wire_blocks.clone());
+        self.record_prompt(&acp_session_id, &recorded_blocks).await;
+        let turn_started = Instant::now();
+        let request = PromptRequest::new(SessionId::new(acp_session_id.clone()), wire_blocks);
         let prompt_future = conn.send_request(request).block_task();
         tokio::pin!(prompt_future);
 
@@ -4079,21 +4377,41 @@ impl AgentConnectionRunner {
                     self.cancel_pending_interactions(session_id).await;
                     match result {
                         Ok(response) => {
-                            let usage = response.usage.as_ref().map(agent_usage_from_end_turn);
-                            if let Some(mut usage) = usage.clone() {
-                                if usage.model.is_none() {
-                                    let controls = self.session_controls.read().await;
-                                    if let Some(state) = controls.get(&session_id) {
-                                        usage.model = current_grok_model_id(&state.config_options)
+                            let mut usage = response.usage.as_ref().map(agent_usage_from_end_turn);
+                            if let Some(ref mut resolved_usage) = usage {
+                                let mut controls = self.session_controls.write().await;
+                                let state = controls.entry(session_id).or_default();
+                                if resolved_usage.model.is_none() {
+                                    resolved_usage.model =
+                                        current_grok_model_id(&state.config_options)
                                             .or_else(|| state.last_model_id.clone());
-                                    }
                                 }
+                                state.merge_turn_usage(resolved_usage);
+                                drop(controls);
                                 self.emit(
                                     Some(session_id),
                                     Some(prompt_id),
-                                    AgentEvent::Usage { usage },
+                                    AgentEvent::Usage {
+                                        usage: resolved_usage.clone(),
+                                    },
                                 );
                             }
+                            let recorded_usage = self
+                                .session_controls
+                                .read()
+                                .await
+                                .get(&session_id)
+                                .and_then(|state| state.last_turn_usage.clone())
+                                .or_else(|| usage.clone());
+                            let stop_label = acp_enum_label(&response.stop_reason);
+                            self.record_turn_end(
+                                &acp_session_id,
+                                session_id,
+                                &stop_label,
+                                turn_started.elapsed().as_millis() as u64,
+                                recorded_usage.as_ref(),
+                            )
+                            .await;
                             self.emit(
                                 Some(session_id),
                                 Some(prompt_id),
@@ -4107,15 +4425,35 @@ impl AgentConnectionRunner {
                             );
                         }
                         Err(error) => {
-                            if let Some(usage) =
-                                crate::usage_from_error_data(error.data.as_ref())
-                            {
+                            let err_usage = crate::usage_from_error_data(error.data.as_ref());
+                            if let Some(usage) = err_usage.clone() {
+                                self.session_controls
+                                    .write()
+                                    .await
+                                    .entry(session_id)
+                                    .or_default()
+                                    .merge_turn_usage(&usage);
                                 self.emit(
                                     Some(session_id),
                                     Some(prompt_id),
                                     AgentEvent::Usage { usage },
                                 );
                             }
+                            let recorded_err_usage = self
+                                .session_controls
+                                .read()
+                                .await
+                                .get(&session_id)
+                                .and_then(|state| state.last_turn_usage.clone())
+                                .or(err_usage);
+                            self.record_turn_end(
+                                &acp_session_id,
+                                session_id,
+                                "error",
+                                turn_started.elapsed().as_millis() as u64,
+                                recorded_err_usage.as_ref(),
+                            )
+                            .await;
                             self.emit(
                                 Some(session_id),
                                 Some(prompt_id),
@@ -4160,6 +4498,14 @@ impl AgentConnectionRunner {
                     let _ = conn.send_notification(CancelNotification::new(SessionId::new(
                         acp_session_id.clone(),
                     )));
+                    self.record_turn_end(
+                        &acp_session_id,
+                        session_id,
+                        "idle_timeout",
+                        turn_started.elapsed().as_millis() as u64,
+                        None,
+                    )
+                    .await;
                     self.emit(
                         Some(session_id),
                         Some(prompt_id),
@@ -4203,6 +4549,14 @@ impl AgentConnectionRunner {
                                         match command {
                                             Some(AgentConnectionCommand::Disconnect) | None => {
                                                 *self.active_prompt.lock().await = None;
+                                                self.record_turn_end(
+                                                    &acp_session_id,
+                                                    session_id,
+                                                    "cancelled",
+                                                    turn_started.elapsed().as_millis() as u64,
+                                                    None,
+                                                )
+                                                .await;
                                                 self.emit(
                                                     Some(session_id),
                                                     Some(prompt_id),
@@ -4272,6 +4626,14 @@ impl AgentConnectionRunner {
                                     },
                                 );
                             }
+                            self.record_turn_end(
+                                &acp_session_id,
+                                session_id,
+                                "cancelled",
+                                turn_started.elapsed().as_millis() as u64,
+                                None,
+                            )
+                            .await;
                             self.emit(
                                 Some(session_id),
                                 Some(prompt_id),
@@ -4336,6 +4698,7 @@ impl AgentConnectionRunner {
                             session_id: steer_session,
                             expected_prompt_id,
                             blocks,
+                            display_blocks,
                             result_tx,
                         }) => {
                             if steer_session != session_id || expected_prompt_id != prompt_id {
@@ -4349,9 +4712,14 @@ impl AgentConnectionRunner {
                                 let _ = result_tx.send(Err(AgentError::SteeringUnsupported));
                                 continue;
                             }
+                            let steer_blocks: Vec<ContentBlock> =
+                                blocks.into_iter().map(agent_block_to_acp).collect();
+                            let recorded_steer_blocks: Vec<ContentBlock> = display_blocks
+                                .map(|blocks| blocks.into_iter().map(agent_block_to_acp).collect())
+                                .unwrap_or_else(|| steer_blocks.clone());
                             let request = AcpSteerRequest {
                                 session_id: acp_session_id.clone(),
-                                prompt: blocks.into_iter().map(agent_block_to_acp).collect(),
+                                prompt: steer_blocks,
                                 meta: serde_json::json!({
                                     "steering": { "idleBehavior": "promptRequired" }
                                 }),
@@ -4368,6 +4736,7 @@ impl AgentConnectionRunner {
                                 receipt.outcome == AgentSteerOutcome::Injected
                             }) {
                                 *self.last_activity.lock().await = Instant::now();
+                                self.record_steer(&acp_session_id, &recorded_steer_blocks).await;
                             }
                             let _ = result_tx.send(result);
                         }
@@ -4379,6 +4748,14 @@ impl AgentConnectionRunner {
                             let _ = conn.send_notification(CancelNotification::new(SessionId::new(
                                 acp_session_id.clone(),
                             )));
+                            self.record_turn_end(
+                                &acp_session_id,
+                                session_id,
+                                "cancelled",
+                                turn_started.elapsed().as_millis() as u64,
+                                None,
+                            )
+                            .await;
                             self.emit(
                                 Some(session_id),
                                 Some(prompt_id),
@@ -4872,6 +5249,25 @@ impl AcpClientBridge {
             return;
         }
         let agent_dir = jsonl_agent_dir(self.agent_id.as_str());
+        let Ok(payload) = serde_json::to_value(update) else {
+            return;
+        };
+        drop(crate::acp_transcript::record_entry(
+            &agent_dir,
+            acp_session_id,
+            crate::acp_transcript::EntryKind::Update,
+            payload,
+        ));
+    }
+
+    fn record_live_update(&self, acp_session_id: &str, update: &SessionUpdate) {
+        if !records_acp_jsonl(self.agent_id.as_str()) {
+            return;
+        }
+        let agent_dir = jsonl_agent_dir(self.agent_id.as_str());
+        if !crate::acp_transcript::safe_component(acp_session_id) {
+            return;
+        }
         let Ok(payload) = serde_json::to_value(update) else {
             return;
         };
@@ -5407,6 +5803,12 @@ impl AcpClientBridge {
             self.maybe_emit_grok_usage(session_id, args.meta.as_ref())
                 .await;
         }
+        if matches!(
+            args.update,
+            SessionUpdate::ToolCall(_) | SessionUpdate::ToolCallUpdate(_) | SessionUpdate::Plan(_)
+        ) {
+            self.record_live_update(&acp_session_id, &args.update);
+        }
         let event = match args.update {
             SessionUpdate::AgentMessageChunk(chunk) => {
                 if self.take_pi_startup_banner(session_id, &chunk).await {
@@ -5416,23 +5818,38 @@ impl AcpClientBridge {
                         raw: session_notice::diagnostic_payload(&notice),
                     })
                 } else {
-                    self.gate_stream_chunk(
-                        &acp_session_id,
-                        StreamKind::Message,
-                        acp_content_to_agent(chunk.content),
-                    )
-                    .await
-                    .map(|content| AgentEvent::MessageChunk { content })
+                    let gated = self
+                        .gate_stream_chunk(
+                            &acp_session_id,
+                            StreamKind::Message,
+                            acp_content_to_agent(chunk.content.clone()),
+                        )
+                        .await;
+                    if gated.is_some() {
+                        self.record_live_update(
+                            &acp_session_id,
+                            &SessionUpdate::AgentMessageChunk(chunk),
+                        );
+                    }
+                    gated.map(|content| AgentEvent::MessageChunk { content })
                 }
             }
-            SessionUpdate::AgentThoughtChunk(chunk) => self
-                .gate_stream_chunk(
-                    &acp_session_id,
-                    StreamKind::Thought,
-                    acp_content_to_agent(chunk.content),
-                )
-                .await
-                .map(|content| AgentEvent::ThoughtChunk { content }),
+            SessionUpdate::AgentThoughtChunk(chunk) => {
+                let gated = self
+                    .gate_stream_chunk(
+                        &acp_session_id,
+                        StreamKind::Thought,
+                        acp_content_to_agent(chunk.content.clone()),
+                    )
+                    .await;
+                if gated.is_some() {
+                    self.record_live_update(
+                        &acp_session_id,
+                        &SessionUpdate::AgentThoughtChunk(chunk),
+                    );
+                }
+                gated.map(|content| AgentEvent::ThoughtChunk { content })
+            }
             SessionUpdate::ToolCall(tool_call) => {
                 let status = Some(acp_enum_label(&tool_call.status));
                 let original_input_preview = acp_tool_input_preview(
@@ -5731,11 +6148,20 @@ impl AcpClientBridge {
         let Some((used, size)) = grok_usage::live_usage_step(used, window, last) else {
             return;
         };
-        let model = {
+        let usage = {
             let mut controls = self.session_controls.write().await;
             let entry = controls.entry(session_id).or_default();
             entry.last_grok_usage = Some((used, size));
-            current_grok_model_id(&entry.config_options).or_else(|| entry.last_model_id.clone())
+            let model = current_grok_model_id(&entry.config_options)
+                .or_else(|| entry.last_model_id.clone());
+            let usage = AgentUsage {
+                used,
+                limit: (size > 0).then_some(size),
+                model,
+                ..AgentUsage::default()
+            };
+            entry.merge_turn_usage(&usage);
+            usage
         };
         send_manager_event(
             &self.event_tx,
@@ -5743,14 +6169,7 @@ impl AcpClientBridge {
                 connection_id: self.connection_id,
                 session_id: Some(session_id),
                 prompt_id: None,
-                event: AgentEvent::Usage {
-                    usage: AgentUsage {
-                        used,
-                        limit: (size > 0).then_some(size),
-                        model,
-                        ..AgentUsage::default()
-                    },
-                },
+                event: AgentEvent::Usage { usage },
             },
         );
     }
@@ -5765,6 +6184,7 @@ impl AcpClientBridge {
                 usage.model = current_grok_model_id(&entry.config_options)
                     .or_else(|| entry.last_model_id.clone());
             }
+            entry.merge_turn_usage(&usage);
         }
         send_manager_event(
             &self.event_tx,
@@ -5782,21 +6202,18 @@ impl AcpClientBridge {
         session_id: Option<AgentSessionId>,
         mut usage: AgentUsage,
     ) -> AgentUsage {
-        if usage.model.is_some() {
-            if let (Some(session_id), Some(model)) = (session_id, usage.model.clone()) {
-                let mut controls = self.session_controls.write().await;
-                controls.entry(session_id).or_default().last_model_id = Some(model);
-            }
-            return usage;
-        }
         let Some(session_id) = session_id else {
             return usage;
         };
-        let controls = self.session_controls.read().await;
-        let state = controls.get(&session_id);
-        usage.model = state
-            .and_then(|state| current_grok_model_id(&state.config_options))
-            .or_else(|| state.and_then(|state| state.last_model_id.clone()));
+        let mut controls = self.session_controls.write().await;
+        let entry = controls.entry(session_id).or_default();
+        if let Some(model) = usage.model.clone() {
+            entry.last_model_id = Some(model);
+        } else {
+            usage.model = current_grok_model_id(&entry.config_options)
+                .or_else(|| entry.last_model_id.clone());
+        }
+        entry.merge_turn_usage(&usage);
         usage
     }
 
@@ -5908,15 +6325,8 @@ fn mapped_resume_action(mapped: Option<&str>, requested: &str) -> MappedResume {
 /// session control state). Only transcript content is replayed by `session/load` and
 /// `session/resume`, and only it must be gated during session establishment.
 fn records_acp_jsonl(agent_id: &str) -> bool {
-    !matches!(
-        crate::AgentKind::from_lenient(agent_id),
-        Some(
-            crate::AgentKind::ClaudeCode
-                | crate::AgentKind::Codex
-                | crate::AgentKind::Cline
-                | crate::AgentKind::Openclaw
-        )
-    )
+    let _ = agent_id;
+    true
 }
 
 fn jsonl_agent_dir(agent_id: &str) -> String {

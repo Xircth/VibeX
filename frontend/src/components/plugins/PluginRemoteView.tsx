@@ -103,6 +103,16 @@ async function remoteEntryAvailable(entry: string): Promise<boolean> {
   }
 }
 
+async function currentWindowLabel(): Promise<string | null> {
+  try {
+    const { getCurrentWindow } = await import('@tauri-apps/api/window');
+    const label = getCurrentWindow().label.trim();
+    return label || null;
+  } catch {
+    return null;
+  }
+}
+
 function opaqueToken(): string {
   const bytes = new Uint8Array(24);
   globalThis.crypto.getRandomValues(bytes);
@@ -255,6 +265,8 @@ function PluginRemoteViewBody({
         };
         await openSession();
         if (disposed) return;
+        const windowLabel = await currentWindowLabel();
+        if (disposed) return;
         const toError = (err: unknown): Error => {
           if (err instanceof Error) return err;
           if (err && typeof err === 'object') {
@@ -273,6 +285,7 @@ function PluginRemoteViewBody({
           slot,
           workspaceId,
           projectId,
+          windowLabel,
           invoke: (handler, input) => {
             const run = async () => {
               let activeToken = sessionToken ?? (await openSession());

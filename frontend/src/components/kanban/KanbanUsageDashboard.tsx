@@ -7,6 +7,7 @@ import {
   useState,
   type ReactNode,
 } from 'react';
+import { createPortal } from 'react-dom';
 import { ProgressBar } from '@astryxdesign/core/ProgressBar';
 import { useQueries, useQuery } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
@@ -29,11 +30,7 @@ import {
   UserCheck,
   Zap,
 } from 'lucide-react';
-import type {
-  AgentAuthModeView,
-  AgentManagementView,
-  AgentPlanUsage,
-} from 'shared/types';
+import type { AgentManagementView, AgentPlanUsage } from 'shared/types';
 import { AgentManagementIcon } from '@/components/agents/AgentManagementIcon';
 import { SurfaceLoading } from '@/components/layout/SurfaceLoading';
 import { AstryxSelect } from '@/components/ui/astryx-select';
@@ -53,11 +50,16 @@ import {
   type ProjectUsageTokenCounts,
 } from '@/lib/api';
 import { cn } from '@/lib/utils';
+import {
+  isPlanCapableAgentId,
+  isSignedInSubscription,
+} from './agentSubscriptionAuth';
 import { PlanUsageDashboard } from './PlanUsageDashboard';
 import {
   clampPercent,
   describeReset,
   describeWindowLabel,
+  formatPlanType,
 } from './planUsageFormat';
 
 type UsageTab =
@@ -91,6 +93,14 @@ interface ModelCostRates {
   output: number;
   cacheWrite: number;
   cacheRead: number;
+}
+
+const UNRESOLVED_MODEL_ALIASES = new Set(['opus', 'fable', 'sonnet', 'haiku']);
+
+/** Claude config options, not a model id recorded in a transcript. */
+function isUnresolvedModelAlias(model: string | null | undefined): boolean {
+  if (!model) return false;
+  return UNRESOLVED_MODEL_ALIASES.has(model.trim().toLowerCase());
 }
 
 function modelMatches(model: string, candidates: string[]): boolean {
@@ -151,9 +161,7 @@ function getModelCostRates(
   }
 
   if (modelMatches(model, ['gpt', 'codex', 'o1', 'o3', 'o4'])) {
-    if (
-      modelMatches(model, ['gpt-6.1-sol', 'gpt-6-sol', 'gpt-6.1', 'gpt-6'])
-    ) {
+    if (modelMatches(model, ['gpt-6.1-sol', 'gpt-6-sol', 'gpt-6.1', 'gpt-6'])) {
       return { input: 2.0, output: 10.0, cacheWrite: 2.5, cacheRead: 0.1 };
     }
     if (modelMatches(model, ['gpt-5.6-sol', 'gpt-5.6', 'gpt-5-6'])) {
@@ -340,9 +348,10 @@ function normalizeUsageStatistics(
   if (!raw) return null;
 
   const sessions = raw.sessions.map((session) => {
-    const resolvedCost =
-      session.cost ??
-      estimateUsageCost(session.model, preferredTokenCounts(session.tokens));
+    const resolvedCost = isUnresolvedModelAlias(session.model)
+      ? session.cost
+      : (session.cost ??
+        estimateUsageCost(session.model, preferredTokenCounts(session.tokens)));
     return resolvedCost === session.cost
       ? session
       : { ...session, cost: resolvedCost };
@@ -363,6 +372,7 @@ function normalizeUsageStatistics(
   };
 
   const by_model = raw.by_model
+    .filter((modelItem) => !isUnresolvedModelAlias(modelItem.model))
     .map((modelItem) => {
       const resolvedCost =
         modelItem.cost ??
@@ -557,12 +567,16 @@ interface UsageHabitItem {
   id: string;
   icon: LucideIcon;
   label: string;
-  value: string;
-  badge: string;
+  value: ReactNode;
+  valueTitle?: string;
+  badge?: string;
 }
 
 function UsageHabitTile({ item }: { item: UsageHabitItem }) {
   const Icon = item.icon;
+  const valueTitle =
+    item.valueTitle ??
+    (typeof item.value === 'string' ? item.value : undefined);
   return (
     <div className="flex min-w-0 items-center gap-2.5 rounded-lg border border-border/60 bg-muted/25 px-3 py-2">
       <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-primary/10 text-primary">
@@ -573,13 +587,15 @@ function UsageHabitTile({ item }: { item: UsageHabitItem }) {
           <span className="truncate text-[11px] text-muted-foreground">
             {item.label}
           </span>
-          <span className="shrink-0 rounded-full bg-background/90 px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground ring-1 ring-inset ring-border/60">
-            {item.badge}
-          </span>
+          {item.badge ? (
+            <span className="shrink-0 rounded-full bg-background/90 px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground ring-1 ring-inset ring-border/60">
+              {item.badge}
+            </span>
+          ) : null}
         </div>
         <strong
-          title={item.value}
-          className="mt-0.5 block truncate text-xs font-semibold tabular-nums text-foreground"
+          title={valueTitle}
+          className="mt-0.5 block min-w-0 truncate text-xs font-semibold tabular-nums text-foreground"
         >
           {item.value}
         </strong>
@@ -820,50 +836,22 @@ function TokenCompositionList({
 }
 
 const PLAN_USAGE_STALE_TIME_MS = 180_000;
-const PLAN_CAPABLE_AGENT_IDS = [
-  'claude_code',
-  'codex',
-  'grok',
-  'cursor',
-] as const;
 
-type PlanCapableAgentId = (typeof PLAN_CAPABLE_AGENT_IDS)[number];
-
-const SUBSCRIPTION_MODES: Record<PlanCapableAgentId, string> = {
-  claude_code: 'official_subscription',
-  codex: 'chatgpt_subscription',
-  grok: 'subscription',
-  cursor: 'subscription',
-};
-
-function isPlanCapableAgentId(agentId: string): agentId is PlanCapableAgentId {
-  return (PLAN_CAPABLE_AGENT_IDS as readonly string[]).includes(agentId);
-}
-
-function isSignedInSubscription(
-  agent: AgentManagementView,
-  authMode: AgentAuthModeView | undefined
-) {
-  return (
-    agent.enabled &&
-    agent.authentication === 'account' &&
-    isPlanCapableAgentId(agent.agent_id) &&
-    authMode?.mode === SUBSCRIPTION_MODES[agent.agent_id]
-  );
-}
-
-function OverviewSubscriptionPlansCard() {
+function OverviewSubscriptionPlansCard({
+  agents,
+}: {
+  agents: AgentManagementView[];
+}) {
   const { t } = useTranslation('tasks');
-  const management = useAgentManagement();
   const candidatePlanAgents = useMemo(
     () =>
-      management.state.agents.filter(
+      agents.filter(
         (agent) =>
           agent.enabled &&
           agent.authentication === 'account' &&
           isPlanCapableAgentId(agent.agent_id)
       ),
-    [management.state.agents]
+    [agents]
   );
 
   const authQueries = useQueries({
@@ -926,6 +914,7 @@ function OverviewSubscriptionPlansCard() {
       <div className="flex flex-col gap-3">
         {activeSubscriptionPlans.map(({ agent, usage }) => {
           const agentLabel = agent.display_name || agent.agent_id;
+          const planName = formatPlanType(usage.planType);
           const windows = usage.windows;
           const columnCount = Math.max(1, windows.length);
 
@@ -940,11 +929,18 @@ function OverviewSubscriptionPlansCard() {
                   agent={agent}
                   className="size-4 shrink-0"
                 />
-                <span
-                  title={agentLabel}
-                  className="truncate text-[13px] font-medium text-foreground"
-                >
-                  {agentLabel}
+                <span className="min-w-0">
+                  <span
+                    title={agentLabel}
+                    className="block truncate text-[13px] font-medium text-foreground"
+                  >
+                    {agentLabel}
+                  </span>
+                  {planName ? (
+                    <span className="block truncate text-[11px] text-muted-foreground">
+                      {planName}
+                    </span>
+                  ) : null}
                 </span>
               </div>
 
@@ -1296,10 +1292,43 @@ function displayUsageLabel(
   value: string | null | undefined,
   notProvided: string
 ): string {
-  if (value == null || value === '' || value === 'unprovided') {
+  if (
+    value == null ||
+    value === '' ||
+    value === 'unprovided' ||
+    isUnresolvedModelAlias(value)
+  ) {
     return notProvided;
   }
   return value;
+}
+
+function favoriteAgentPresentation(
+  agentId: string,
+  agents: AgentManagementView[],
+  notProvided: string
+): { node: ReactNode; title: string } {
+  const catalog = agents.find((agent) => agent.agent_id === agentId);
+  const name =
+    catalog?.display_name?.trim() || displayUsageLabel(agentId, notProvided);
+  if (name === notProvided) {
+    return { node: name, title: name };
+  }
+  const iconAgent = catalog ?? {
+    agent_id: agentId,
+    icon_light: null,
+    icon_dark: null,
+    icon_svg: null,
+  };
+  return {
+    title: name,
+    node: (
+      <span className="flex min-w-0 items-center gap-1.5">
+        <AgentManagementIcon agent={iconAgent} className="size-3.5 shrink-0" />
+        <span className="min-w-0 truncate">{name}</span>
+      </span>
+    ),
+  };
 }
 
 function extractFolderBasename(
@@ -1570,6 +1599,8 @@ export function KanbanUsageDashboard() {
   const { t } = useTranslation(['tasks', 'common']);
   const { projectId } = useProject();
   const { projects } = useProjects();
+  const { state: agentManagement } = useAgentManagement();
+  const catalogAgents = agentManagement.agents;
   const preferredProjectTarget = projectId ? `project:${projectId}` : 'global';
   const [selectedTarget, setSelectedTarget] = useState<string>(
     preferredProjectTarget
@@ -1587,8 +1618,8 @@ export function KanbanUsageDashboard() {
     y: number;
     content: {
       date: string;
-      cost: number | null;
       sessions: number;
+      turns: number | null;
       totalTokens: number;
       freshTokens: number;
       cacheReadTokens: number;
@@ -1599,8 +1630,8 @@ export function KanbanUsageDashboard() {
     y: 0,
     content: {
       date: '',
-      cost: null,
       sessions: 0,
+      turns: null,
       totalTokens: 0,
       freshTokens: 0,
       cacheReadTokens: 0,
@@ -1978,6 +2009,18 @@ export function KanbanUsageDashboard() {
     );
   }, [statistics?.by_model]);
 
+  const favoriteAgentView = useMemo(
+    () =>
+      favoriteAgent
+        ? favoriteAgentPresentation(
+            favoriteAgent.agent_id,
+            catalogAgents,
+            notProvided
+          )
+        : null,
+    [catalogAgents, favoriteAgent, notProvided]
+  );
+
   const habitItems = useMemo<UsageHabitItem[]>(
     () => [
       {
@@ -1992,15 +2035,13 @@ export function KanbanUsageDashboard() {
         icon: Zap,
         label: t('usageDashboard.dailyAvgActiveTokens'),
         value: formatOptionalNumber(dailyAvgActiveTokens, notProvided),
-        badge: t('usageDashboard.dailyAvgActiveDetail'),
       },
       {
         id: 'favoriteAgent',
         icon: Cpu,
         label: t('usageDashboard.favoriteAgent'),
-        value: favoriteAgent
-          ? displayUsageLabel(favoriteAgent.agent_id, notProvided)
-          : notProvided,
+        value: favoriteAgentView?.node ?? notProvided,
+        valueTitle: favoriteAgentView?.title ?? notProvided,
         badge: favoriteAgent
           ? t('usageDashboard.sessionsCount', {
               count: favoriteAgent.session_count,
@@ -2025,6 +2066,7 @@ export function KanbanUsageDashboard() {
       activeWorkHours,
       dailyAvgActiveTokens,
       favoriteAgent,
+      favoriteAgentView,
       favoriteModel,
       notProvided,
       t,
@@ -2056,10 +2098,7 @@ export function KanbanUsageDashboard() {
   );
 
   const renderDimensionDetailCard = useCallback(
-    (
-      breakdown: DimensionSubBreakdown,
-      mode: 'folder' | 'agent' | 'model'
-    ) => {
+    (breakdown: DimensionSubBreakdown, mode: 'folder' | 'agent' | 'model') => {
       const primarySubList =
         mode === 'agent' ? breakdown.topFolders : breakdown.topAgents;
       const primarySubListTitle =
@@ -2182,7 +2221,7 @@ export function KanbanUsageDashboard() {
   );
 
   return (
-    <div className="kanban-usage-page flex h-full flex-col bg-[#FFFFFF] dark:bg-background">
+    <div className="kanban-usage-page flex h-full flex-col">
       <div className="flex shrink-0 items-center justify-between gap-3 px-4 py-2.5">
         <div className="flex h-8 items-center gap-2">
           <BarChart3 className="h-5 w-5 shrink-0 text-muted-foreground" />
@@ -2441,8 +2480,8 @@ export function KanbanUsageDashboard() {
                             </span>
                             <span className="flex items-center gap-1.5">
                               <span className="relative inline-flex h-2.5 w-4 items-center justify-center">
-                                <span className="h-0.5 w-full rounded-full bg-amber-500" />
-                                <span className="absolute h-2 w-2 rounded-full border border-background bg-amber-500" />
+                                <span className="h-0.5 w-full rounded-full bg-[var(--usage-blue-fg)]" />
+                                <span className="absolute h-2 w-2 rounded-full border border-background bg-[var(--usage-blue-fg)]" />
                               </span>
                               {t('usageDashboard.trendLine')}
                             </span>
@@ -2532,8 +2571,8 @@ export function KanbanUsageDashboard() {
                                   y: rect.top,
                                   content: {
                                     date: day.date,
-                                    cost: day.cost ?? null,
                                     sessions: day.sessions,
+                                    turns: day.turns ?? null,
                                     totalTokens,
                                     freshTokens,
                                     cacheReadTokens,
@@ -2656,7 +2695,7 @@ export function KanbanUsageDashboard() {
                 </section>
               </div>
 
-              <OverviewSubscriptionPlansCard />
+              <OverviewSubscriptionPlansCard agents={catalogAgents} />
 
               <div className="grid items-stretch gap-4 lg:grid-cols-2">
                 <UsageRankingCard
@@ -2818,10 +2857,7 @@ export function KanbanUsageDashboard() {
                         </button>
 
                         {isExpanded && folderBreakdown
-                          ? renderDimensionDetailCard(
-                              folderBreakdown,
-                              'folder'
-                            )
+                          ? renderDimensionDetailCard(folderBreakdown, 'folder')
                           : null}
                       </div>
                     );
@@ -3217,76 +3253,69 @@ export function KanbanUsageDashboard() {
         </div>
       </div>
 
-      {tooltip.visible ? (
-        <div
-          role="tooltip"
-          data-testid="usage-trend-tooltip"
-          className="pointer-events-none fixed z-50 min-w-[196px] -translate-x-1/2 -translate-y-full rounded-xl border border-border/80 bg-popover px-3.5 py-2.5 text-popover-foreground shadow-lg"
-          style={{
-            left: tooltip.x,
-            top: Math.max(12, tooltip.y - 10),
-          }}
-        >
-          <div className="flex items-baseline justify-between gap-4">
-            <span className="text-xs font-semibold text-foreground">
-              {formatTrendTooltipDate(tooltip.content.date, weekdayLabels)}
-            </span>
-            <span className="font-mono text-xs font-semibold tabular-nums text-foreground">
-              {formatNumber(tooltip.content.totalTokens)}
-            </span>
-          </div>
+      {tooltip.visible
+        ? createPortal(
+            <div
+              role="tooltip"
+              data-testid="usage-trend-tooltip"
+              className="pointer-events-none fixed z-50 min-w-[196px] -translate-x-1/2 -translate-y-full rounded-xl border border-border/80 bg-popover px-3.5 py-2.5 text-popover-foreground shadow-lg"
+              style={{
+                left: tooltip.x,
+                top: Math.max(12, tooltip.y - 10),
+              }}
+            >
+              <div className="flex items-baseline justify-between gap-4">
+                <span className="text-xs font-semibold text-foreground">
+                  {formatTrendTooltipDate(tooltip.content.date, weekdayLabels)}
+                </span>
+                <span className="font-mono text-xs font-semibold tabular-nums text-foreground">
+                  {formatNumber(tooltip.content.totalTokens)}
+                </span>
+              </div>
 
-          <div className="mt-2 space-y-1 text-[11px]">
-            <div className="flex items-center justify-between gap-4">
-              <span className="flex items-center gap-1.5 text-muted-foreground">
-                <span className="h-2.5 w-2.5 shrink-0 rounded-[3px] bg-primary" />
-                {t('usageDashboard.tokenCacheRead')}
-              </span>
-              <span className="font-mono tabular-nums text-muted-foreground">
-                {formatNumber(tooltip.content.cacheReadTokens)}
-              </span>
-            </div>
+              <div className="mt-2 space-y-1 text-[11px]">
+                <div className="flex items-center justify-between gap-4">
+                  <span className="flex items-center gap-1.5 text-muted-foreground">
+                    <span className="h-2.5 w-2.5 shrink-0 rounded-[3px] bg-foreground" />
+                    {t('usageDashboard.tokenCacheRead')}
+                  </span>
+                  <span className="font-mono tabular-nums text-foreground">
+                    {formatNumber(tooltip.content.cacheReadTokens)}
+                  </span>
+                </div>
 
-            <div className="flex items-center justify-between gap-4">
-              <span className="flex items-center gap-1.5 text-muted-foreground">
-                <span className="h-2.5 w-2.5 shrink-0 rounded-[3px] bg-foreground/75" />
-                {t('usageDashboard.freshTokens')}
-              </span>
-              <span className="font-mono tabular-nums text-muted-foreground">
-                {formatNumber(tooltip.content.freshTokens)}
-              </span>
-            </div>
+                <div className="flex items-center justify-between gap-4">
+                  <span className="flex items-center gap-1.5 text-muted-foreground">
+                    <span className="h-2.5 w-2.5 shrink-0 rounded-[3px] bg-foreground/35" />
+                    {t('usageDashboard.freshTokens')}
+                  </span>
+                  <span className="font-mono tabular-nums text-foreground">
+                    {formatNumber(tooltip.content.freshTokens)}
+                  </span>
+                </div>
 
-            <div className="flex items-center justify-between gap-4">
-              <span className="flex items-center gap-1.5 text-muted-foreground">
-                <span className="h-2 w-2.5 shrink-0 rounded-full bg-[var(--usage-blue-fg)]" />
-                {t('usageDashboard.trendLine')}
-              </span>
-              <span className="font-mono tabular-nums text-muted-foreground">
-                {formatNumber(tooltip.content.totalTokens)}
-              </span>
-            </div>
+                <div className="flex items-center justify-between gap-4">
+                  <span className="text-muted-foreground">
+                    {t('usageDashboard.turnsLabel')}
+                  </span>
+                  <span className="font-mono tabular-nums text-foreground">
+                    {formatOptionalNumber(tooltip.content.turns, notProvided)}
+                  </span>
+                </div>
 
-            <div className="flex items-center justify-between gap-4 pt-0.5">
-              <span className="text-muted-foreground">
-                {t('usageDashboard.costLabel')}
-              </span>
-              <span className="font-mono tabular-nums text-muted-foreground">
-                {formatOptionalCost(tooltip.content.cost, notProvided)}
-              </span>
-            </div>
-
-            <div className="flex items-center justify-between gap-4">
-              <span className="text-muted-foreground">
-                {t('usageDashboard.sessionsLabel')}
-              </span>
-              <span className="font-mono tabular-nums text-muted-foreground">
-                {tooltip.content.sessions}
-              </span>
-            </div>
-          </div>
-        </div>
-      ) : null}
+                <div className="flex items-center justify-between gap-4">
+                  <span className="text-muted-foreground">
+                    {t('usageDashboard.sessionsLabel')}
+                  </span>
+                  <span className="font-mono tabular-nums text-foreground">
+                    {tooltip.content.sessions}
+                  </span>
+                </div>
+              </div>
+            </div>,
+            document.body
+          )
+        : null}
     </div>
   );
 }

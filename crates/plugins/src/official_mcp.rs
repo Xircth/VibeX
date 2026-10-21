@@ -907,5 +907,4 @@ mod tests {
             ["list_apps", "search_actions"]
         );
     }
-
 }

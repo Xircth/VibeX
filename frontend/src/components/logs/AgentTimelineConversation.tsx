@@ -21,6 +21,10 @@ import { ConversationSelectionToolbar } from '@/components/NormalizedConversatio
 import { copyConversationMarkdown } from '@/lib/copyConversationMarkdown';
 import { exportConversation } from '@/lib/exportConversation';
 import { requestCreateSessionInExecutionArea } from '@/lib/requestCreateSession';
+import {
+  CONVERSATION_SCROLL_TO_TURN_EVENT,
+  type ConversationScrollToTurnDetail,
+} from '@/lib/conversationScroll';
 import { writeClipboardViaBridge } from '@/vscode/bridge';
 
 import { elementScroll, useVirtualizer } from '@tanstack/react-virtual';
@@ -144,6 +148,7 @@ import {
   observeUnscaledElementRect,
   scheduleMeasuredScrollToIndex,
   scrollTopAfterPrepend,
+  startAlignedVirtualOffset,
   wheelDetachesConversationFollow,
   type VirtualizedListRef,
 } from './VirtualizedList';
@@ -245,6 +250,22 @@ export function isTimelineTurnInFlight(
   });
 }
 
+function parseSideRowTurnAliases(rowId: string): {
+  userTurnId: string | null;
+  assistantTurnId: string | null;
+} {
+  let userTurnId: string | null = null;
+  let assistantTurnId: string | null = null;
+  for (const segment of rowId.split('|').slice(1)) {
+    if (segment.startsWith('user=')) {
+      userTurnId = segment.slice('user='.length) || null;
+    } else if (segment.startsWith('assistant=')) {
+      assistantTurnId = segment.slice('assistant='.length) || null;
+    }
+  }
+  return { userTurnId, assistantTurnId };
+}
+
 export function getLatestTimelinePlanEntries(
   timeline: ConversationTimelineTurn[]
 ): PlanEntry[] {
@@ -254,6 +275,31 @@ export function getLatestTimelinePlanEntries(
     for (const block of row.turn.blocks) {
       if (block.type === 'plan') {
         latest = block.entries;
+      } else if (
+        block.type === 'tool_use' &&
+        (block.tool_name === 'TodoWrite' || block.tool_use_id === 'acp-plan') &&
+        block.input_preview
+      ) {
+        try {
+          const parsed = JSON.parse(block.input_preview) as {
+            todos?: Array<{
+              content?: string;
+              status?: string;
+              priority?: string;
+            }>;
+          };
+          if (Array.isArray(parsed.todos)) {
+            latest = parsed.todos
+              .filter((todo) => typeof todo?.content === 'string')
+              .map((todo) => ({
+                content: todo.content ?? '',
+                status: (todo.status ?? 'pending') as PlanEntry['status'],
+                priority: (todo.priority ?? null) as PlanEntry['priority'],
+              }));
+          }
+        } catch {
+          // ignore malformed todo preview
+        }
       }
     }
   }
@@ -323,6 +369,14 @@ export function contextCompactPresentationForRow(
       userTurn = candidate.turn;
       break;
     }
+    if (
+      row.turn.id.startsWith('acp-') &&
+      candidate?.turn.role === 'user' &&
+      !candidate.turn.id.includes(':steer:')
+    ) {
+      userTurn = candidate.turn;
+      break;
+    }
   }
   return buildContextCompactPresentation(row, userTurn);
 }
@@ -332,14 +386,20 @@ export function buildContextCompactPresentationByRowKey(
 ): Map<string, ContextCompactPresentation | null> {
   const byRowKey = new Map<string, ContextCompactPresentation | null>();
   const latestTurnById = new Map<string, MessageTurn>();
+  let lastNonSteerUserTurn: MessageTurn | undefined;
 
   for (const row of timeline) {
     if (row.turn.role === 'assistant') {
       const baseId = vibexTurnIdFromTimelineRowId(row.turn.id);
-      const userTurn = latestTurnById.get(`${baseId}:user`);
+      const userTurn =
+        latestTurnById.get(`${baseId}:user`) ??
+        (row.turn.id.startsWith('acp-') ? lastNonSteerUserTurn : undefined);
       byRowKey.set(row.key, buildContextCompactPresentation(row, userTurn));
     } else {
       byRowKey.set(row.key, null);
+      if (row.turn.role === 'user' && !row.turn.id.includes(':steer:')) {
+        lastNonSteerUserTurn = row.turn;
+      }
     }
     latestTurnById.set(row.turn.id, row.turn);
   }
@@ -810,6 +870,9 @@ const AgentTimelineConversation = forwardRef<
       if (entry.row.kind !== 'turn_error') continue;
       const turnId = entry.row.error.turn_id;
       if (turnId) ids.add(turnId);
+      const aliases = parseSideRowTurnAliases(entry.row_id);
+      if (aliases.userTurnId) ids.add(aliases.userTurnId);
+      if (aliases.assistantTurnId) ids.add(aliases.assistantTurnId);
     }
     return ids;
   }, [sideRows]);
@@ -1025,6 +1088,16 @@ const AgentTimelineConversation = forwardRef<
     (index: number, align: 'start' | 'center' | 'end' | 'auto' = 'start') => {
       if (index < 0 || index >= virtualEntries.length) return;
       const jump = () => {
+        if (align === 'start') {
+          const start = rowVirtualizer.measurementsCache[index]?.start;
+          if (typeof start === 'number') {
+            rowVirtualizer.scrollToOffset(startAlignedVirtualOffset(start), {
+              align: 'start',
+              behavior: 'auto',
+            });
+            return;
+          }
+        }
         rowVirtualizer.scrollToIndex(index, {
           align,
           behavior: 'auto',
@@ -1225,6 +1298,30 @@ const AgentTimelineConversation = forwardRef<
     },
     [detachFromBottom, jumpToVirtualIndex, virtualEntries]
   );
+
+  useEffect(() => {
+    const onJump = (event: Event) => {
+      const detail = (event as CustomEvent<ConversationScrollToTurnDetail>)
+        .detail;
+      if (!detail || detail.conversationId !== sessionId) return;
+      const index = timelineItems.findIndex((item) => {
+        if (item.kind !== 'message' || item.item.turn.role !== 'user') {
+          return false;
+        }
+        const turnId = item.item.turn.id;
+        return (
+          turnId === detail.turnId ||
+          vibexTurnIdFromTimelineRowId(turnId) === detail.turnId
+        );
+      });
+      if (index < 0) return;
+      scrollToIndex(index);
+    };
+    window.addEventListener(CONVERSATION_SCROLL_TO_TURN_EVENT, onJump);
+    return () => {
+      window.removeEventListener(CONVERSATION_SCROLL_TO_TURN_EVENT, onJump);
+    };
+  }, [scrollToIndex, sessionId, timelineItems]);
 
   const updateScrollMargin = useCallback(() => {
     const container = containerRef.current;
@@ -1479,37 +1576,62 @@ const AgentTimelineConversation = forwardRef<
   // The Nth user turn maps to the Nth checkpoint ordinal (see G-R1).
   const userOrdinalByKey = useMemo(() => {
     const map = new Map<string, number>();
-    let ordinal = 0;
+    let ordinal = conversation.userTurnsBeforeOffset;
     for (const item of timelineItems) {
       const row = timelineItemAsMessage(item);
-      if (row?.turn.role === 'user') {
+      if (row?.turn.role === 'user' && !row.turn.id.includes(':steer:')) {
         map.set(row.key, ordinal);
         ordinal += 1;
       }
     }
     return map;
-  }, [timelineItems]);
+  }, [conversation.userTurnsBeforeOffset, timelineItems]);
   const lastUserRowKey = navEntries.at(-1)?.key ?? null;
   const latestInterruptedRow = useMemo(() => {
     const latestRow = [...timeline]
       .reverse()
-      .find((row) => row.turn.role === 'user');
+      .find((row) => row.turn.role === 'user' && !row.turn.id.includes(':steer:'));
     return latestRow?.phase === 'interrupted' ? latestRow : null;
   }, [timeline]);
 
-  // Same ordinal keyed by turn id (message rows are `${turnId}:user`), for the
+  // Same ordinal keyed by turn id (message rows are `${turnId}:user` or `acp-N`), for the
   // per-turn files-changed Undo which rolls back to that turn's checkpoint.
   const userOrdinalByTurnId = useMemo(() => {
     const map = new Map<string, number>();
-    let ordinal = 0;
+    let nextOrdinal = conversation.userTurnsBeforeOffset;
+    let activeOrdinal: number | null = null;
     for (const row of timeline) {
-      if (row.turn.role === 'user') {
-        map.set(row.turn.id.replace(/:user$/, ''), ordinal);
-        ordinal += 1;
+      if (row.turn.role === 'user' && !row.turn.id.includes(':steer:')) {
+        activeOrdinal = nextOrdinal;
+        nextOrdinal += 1;
+        map.set(row.turn.id.replace(/:user$/, ''), activeOrdinal);
+      } else if (row.turn.role === 'assistant' && activeOrdinal !== null) {
+        map.set(vibexTurnIdFromTimelineRowId(row.turn.id), activeOrdinal);
+      }
+    }
+    if (conversation.currentTurnId && activeOrdinal !== null && !map.has(conversation.currentTurnId)) {
+      map.set(conversation.currentTurnId, activeOrdinal);
+    }
+    for (const entry of sideRows) {
+      const aliases = parseSideRowTurnAliases(entry.row_id);
+      const turnUuid =
+        entry.row.kind === 'file_change_summary'
+          ? entry.row.turn_id
+          : entry.row.kind === 'turn_error'
+            ? entry.row.error.turn_id
+            : null;
+      const ord =
+        (turnUuid ? map.get(turnUuid) : undefined) ??
+        (aliases.userTurnId ? map.get(aliases.userTurnId) : undefined) ??
+        (aliases.assistantTurnId ? map.get(aliases.assistantTurnId) : undefined);
+      if (ord !== undefined) {
+        if (turnUuid) map.set(turnUuid, ord);
+        if (aliases.userTurnId) map.set(aliases.userTurnId, ord);
+        if (aliases.assistantTurnId) map.set(aliases.assistantTurnId, ord);
       }
     }
     return map;
-  }, [timeline]);
+  }, [conversation.currentTurnId, conversation.userTurnsBeforeOffset, sideRows, timeline]);
 
   // Latest checkpoint-diff summary per turn, rendered inline at the end of the
   // turn that produced it (rows without a turn_id stay hidden rather than
@@ -1519,13 +1641,32 @@ const AgentTimelineConversation = forwardRef<
       string,
       Extract<TimelineRow['row'], { kind: 'file_change_summary' }>
     >();
+    const lastAssistantTurnId = (() => {
+      for (let i = timeline.length - 1; i >= 0; i -= 1) {
+        const r = timeline[i];
+        if (r?.turn.role === 'assistant') {
+          return vibexTurnIdFromTimelineRowId(r.turn.id);
+        }
+      }
+      return null;
+    })();
     for (const entry of sideRows) {
       if (entry.row.kind !== 'file_change_summary') continue;
       if (!entry.row.turn_id) continue;
       map.set(entry.row.turn_id, entry.row);
+      const aliases = parseSideRowTurnAliases(entry.row_id);
+      if (aliases.userTurnId) map.set(aliases.userTurnId, entry.row);
+      if (aliases.assistantTurnId) map.set(aliases.assistantTurnId, entry.row);
+      if (
+        conversation.currentTurnId &&
+        entry.row.turn_id === conversation.currentTurnId &&
+        lastAssistantTurnId
+      ) {
+        map.set(lastAssistantTurnId, entry.row);
+      }
     }
     return map;
-  }, [sideRows]);
+  }, [conversation.currentTurnId, sideRows, timeline]);
 
   // Unanswered permission requests dock at the bottom of the stream (above the
   // composer) instead of scrolling away with the timeline; answered ones are

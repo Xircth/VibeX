@@ -17,6 +17,7 @@ import {
   serializeSessionComposerBackendMessage,
 } from '@/components/tasks/follow-up/sessionComposerStructuredTokens';
 import { plausibleTurnStartMs } from '@/components/conversation-thread/turnClock';
+import { mergeReportedTurnUsage } from './reportedTurnUsage';
 import {
   mergeOpenTimelineRows,
   preferLoadedOlderCursor,
@@ -75,7 +76,11 @@ export type LiveTextOverlay = {
 export type ConversationStoreEntry = {
   conversationId: string;
   detail: DbConversationDetail | null;
-  /** Authoritative rows from the backend projector, keyed by `row_id`. */
+  /** Persisted window rows from `get_conversation_detail_window` and older pagination. */
+  windowRows: TimelineRow[];
+  /** Live rows from the current unconverged turn's `row_ops` (`{turn}:user`, `{turn}:assistant`, steer, side rows). */
+  liveRows: TimelineRow[];
+  /** Combined rendered rows (`windowRows` followed by `liveRows`, aligned by turn position and prompt text). */
   rows: TimelineRow[];
   /** Per-row streaming-text overlay (`row_id` → chunks since last upsert). */
   liveText: Record<string, LiveTextOverlay>;
@@ -95,6 +100,8 @@ export type ConversationStoreEntry = {
   olderCursor: string | null;
   /** Fingerprint of the turns above `olderCursor`, from the last window response. */
   prefixHash: string | null;
+  /** Number of non-steer user turns before the loaded window offset. */
+  userTurnsBeforeOffset: number;
   /** The loaded rows begin at transcript index 0. */
   loadedToStart: boolean;
   /** Increments when an older page is prepended, so scroll compensation is not keyed off the first row id. */
@@ -152,50 +159,78 @@ export function conversationStoreReducer(
         const detailLastSequence = toBigInt(
           action.detail.timeline.last_sequence
         );
-        // A slow detail response must not rewind row-ops that already rendered.
-        // Otherwise the server window replaces the loaded rows. Unpersisted
-        // transcript chunks report the database cursor, so they do not keep
-        // this comparison true after the file has caught up.
         const keepRealtimeRows = entry.lastSequence > detailLastSequence;
         const incomingRows = action.detail.timeline.rows;
-        const retained = keepRealtimeRows
-          ? {
-              rows: mergeOpenTimelineRows(entry.rows, incomingRows),
-              liveText: entry.liveText,
-            }
-          : retainInFlightStreamingUsers(
-              entry.rows,
-              incomingRows,
-              entry.liveText
-            );
-        const mergedRows = dropSeededInitialPrompt(
+
+        // Promote any in-flight live-id rows that were seeded into `windowRows`
+        // (e.g. unit tests calling `loaded([streamingUser(...)])`) before replacing
+        // `windowRows` with the server window.
+        const priorLiveRows = promoteUnconvergedStreamingLiveRows(
+          entry.windowRows,
+          entry.liveRows,
+          incomingRows
+        );
+
+        const incomingIds = new Set(incomingRows.map((row) => row.row_id));
+        const baseWindowRows =
+          keepRealtimeRows &&
+          entry.windowRows.length > 0 &&
+          entry.windowRows.some((row) => incomingIds.has(row.row_id))
+            ? mergeOpenTimelineRows(entry.windowRows, incomingRows)
+            : incomingRows;
+        const droppedWindowSeed = dropSeededInitialPrompt(
           action.conversationId,
-          retained.rows
+          baseWindowRows
         );
-        const reconciledTimeline = reconcileOptimisticTurnsAgainstRows(
+        const reconciledWindow = reconcileOptimisticTurnsAgainstRows(
           entry.optimisticTurns,
-          mergedRows
+          droppedWindowSeed
         );
+        const windowRows = preserveStructuredUserTextFromLiveRows(
+          settleIdleOpenTail(
+            dropSeededInitialPrompt(
+              action.conversationId,
+              reconciledWindow.rows
+            ),
+            Boolean(action.detail.in_flight_user_turn_id)
+          ),
+          priorLiveRows
+        );
+
+        const prunedLive = pruneConvergedLiveState(
+          windowRows,
+          priorLiveRows,
+          entry.liveText,
+          keepRealtimeRows
+        );
+        const liveRows = dropSeededInitialPrompt(
+          action.conversationId,
+          prunedLive.liveRows
+        );
+        const liveText = retainStreamingLiveText(
+          [...windowRows, ...liveRows],
+          prunedLive.liveText
+        );
+        const rows = combineWindowAndLiveRows(
+          action.conversationId,
+          windowRows,
+          liveRows,
+          liveText
+        );
+
         // `rows` is the timeline the view renders. Keeping the same rows on
         // `detail` duplicated the open window for as long as the card was mounted.
         const detail = {
           ...action.detail,
           timeline: { ...action.detail.timeline, rows: [] },
         };
-        const rows = settleIdleOpenTail(
-          dropSeededInitialPrompt(
-            action.conversationId,
-            keepRealtimeRows ? mergedRows : reconciledTimeline.rows
-          ),
-          Boolean(action.detail.in_flight_user_turn_id)
-        );
-        const hydrated = {
+        return {
           ...entry,
           detail,
+          windowRows,
+          liveRows,
           rows,
-          liveText: keepRealtimeRows
-            ? entry.liveText
-            : retainStreamingLiveText(rows, retained.liveText),
+          liveText,
           lastSequence: keepRealtimeRows
             ? entry.lastSequence
             : detailLastSequence,
@@ -209,7 +244,7 @@ export function conversationStoreReducer(
                 entry.optimisticTurns,
                 action.detail.timeline
               )
-            : reconciledTimeline.optimisticTurns,
+            : reconciledWindow.optimisticTurns,
           // Hydrate agent-advertised session controls from the persisted event
           // log so a reopened conversation renders real ACP pickers immediately;
           // live row-op batches keep them fresh afterwards.
@@ -233,17 +268,19 @@ export function conversationStoreReducer(
             ? preferLoadedOlderCursor(
                 entry.olderCursor,
                 action.detail.timeline.older_cursor,
-                entry.rows.length > 0
+                entry.windowRows.length > 0
               )
             : (action.detail.timeline.older_cursor ?? null),
           prefixHash: keepRealtimeRows
             ? (windowPrefixHash(action.detail) ?? entry.prefixHash)
             : windowPrefixHash(action.detail),
+          userTurnsBeforeOffset: keepRealtimeRows
+            ? entry.userTurnsBeforeOffset
+            : Number(action.detail.user_turns_before_offset ?? 0),
           loadedToStart: keepRealtimeRows
             ? entry.loadedToStart
             : action.detail.timeline.older_cursor == null,
         };
-        return hydrated;
       });
     case 'load_error':
       return updateEntry(state, action.conversationId, (entry) => ({
@@ -275,13 +312,14 @@ export function conversationStoreReducer(
     }
     case 'upsert_rows':
       return updateEntry(state, action.conversationId, (entry) => {
-        let rows = entry.rows;
+        let windowRows = entry.windowRows;
+        let liveRows = entry.liveRows;
         let liveText = entry.liveText;
         let optimisticTurns = entry.optimisticTurns;
         let prepended = 0;
+        let prependedUserTurns = 0;
         if (action.protectLoaded) {
-          const existing = new Set(rows.map((row) => row.row_id));
-          const firstRevision = rows[0] ? toBigInt(rows[0].revision) : null;
+          const existing = new Set(windowRows.map((row) => row.row_id));
           const older: TimelineRow[] = [];
           const updates: TimelineRow[] = [];
           for (const row of action.rows) {
@@ -290,30 +328,44 @@ export function conversationStoreReducer(
               row
             );
             optimisticTurns = reconciled.optimisticTurns;
-            if (
-              !existing.has(row.row_id) &&
-              (firstRevision === null ||
-                toBigInt(row.revision) <= firstRevision)
-            ) {
+            if (!existing.has(reconciled.row.row_id)) {
               older.push(reconciled.row);
-              existing.add(row.row_id);
+              existing.add(reconciled.row.row_id);
               prepended += 1;
+              if (
+                reconciled.row.row.kind === 'message_turn' &&
+                reconciled.row.row.turn.role === 'user' &&
+                !reconciled.row.row_id.includes(':steer:')
+              ) {
+                prependedUserTurns += 1;
+              }
             } else {
               updates.push(reconciled.row);
             }
           }
-          rows = [...older, ...rows];
-          const rowIndexById = new Map(
-            rows.map((row, index) => [row.row_id, index] as const)
-          );
-          for (const row of updates) {
-            const applied = upsertRow(rows, liveText, row, rowIndexById);
-            rows = applied.rows;
-            liveText = applied.liveText;
+          windowRows = [...older, ...windowRows];
+          if (updates.length > 0) {
+            const rowIndexById = new Map(
+              windowRows.map((row, index) => [row.row_id, index] as const)
+            );
+            for (const row of updates) {
+              const applied = upsertRow(
+                windowRows,
+                liveText,
+                row,
+                rowIndexById
+              );
+              windowRows = applied.rows;
+              liveText = applied.liveText;
+            }
           }
+          windowRows = dropSeededInitialPrompt(
+            action.conversationId,
+            windowRows
+          );
         } else {
           const rowIndexById = new Map(
-            rows.map((row, index) => [row.row_id, index] as const)
+            liveRows.map((row, index) => [row.row_id, index] as const)
           );
           for (const row of action.rows) {
             const reconciled = reconcileOptimisticTurnAgainstUserRow(
@@ -322,18 +374,28 @@ export function conversationStoreReducer(
             );
             optimisticTurns = reconciled.optimisticTurns;
             const applied = upsertRow(
-              rows,
+              liveRows,
               liveText,
               reconciled.row,
-              rowIndexById
+              rowIndexById,
+              windowRows
             );
-            rows = applied.rows;
+            liveRows = applied.rows;
             liveText = applied.liveText;
           }
+          liveRows = dropSeededInitialPrompt(action.conversationId, liveRows);
         }
+        const rows = combineWindowAndLiveRows(
+          action.conversationId,
+          windowRows,
+          liveRows,
+          liveText
+        );
         return {
           ...entry,
-          rows: dropSeededInitialPrompt(action.conversationId, rows),
+          windowRows,
+          liveRows,
+          rows,
           liveText,
           optimisticTurns,
           lastSequence:
@@ -344,6 +406,10 @@ export function conversationStoreReducer(
             action.olderCursor !== undefined
               ? action.olderCursor
               : entry.olderCursor,
+          userTurnsBeforeOffset: Math.max(
+            0,
+            entry.userTurnsBeforeOffset - prependedUserTurns
+          ),
           olderTurnsPrependEpoch:
             entry.olderTurnsPrependEpoch + (prepended > 0 ? 1 : 0),
           loadedToStart:
@@ -376,12 +442,13 @@ function applyRowOpBatch(
   entry: ConversationStoreEntry,
   batch: ConversationRowOpBatch
 ): ConversationStoreEntry {
-  let rows = entry.rows;
+  let windowRows = entry.windowRows;
+  let liveRows = entry.liveRows;
   let liveText = entry.liveText;
   let currentTurnId = entry.currentTurnId;
   let optimisticTurns = entry.optimisticTurns;
   const rowIndexById = new Map(
-    rows.map((row, index) => [row.row_id, index] as const)
+    liveRows.map((row, index) => [row.row_id, index] as const)
   );
 
   for (const op of batch.ops) {
@@ -391,8 +458,14 @@ function applyRowOpBatch(
         op.row
       );
       optimisticTurns = reconciled.optimisticTurns;
-      const applied = upsertRow(rows, liveText, reconciled.row, rowIndexById);
-      rows = applied.rows;
+      const applied = upsertRow(
+        liveRows,
+        liveText,
+        reconciled.row,
+        rowIndexById,
+        windowRows
+      );
+      liveRows = applied.rows;
       liveText = applied.liveText;
       if (
         op.row.row.kind === 'message_turn' &&
@@ -401,18 +474,27 @@ function applyRowOpBatch(
         currentTurnId = turnIdOfRowId(op.row.row_id) ?? currentTurnId;
       }
     } else if (op.op === 'patch_blocks') {
-      const applied = applyPatchBlocks(rows, liveText, op, rowIndexById);
-      rows = applied.rows;
+      const applied = applyPatchBlocks(
+        liveRows,
+        liveText,
+        op,
+        rowIndexById,
+        windowRows
+      );
+      liveRows = applied.rows;
       liveText = applied.liveText;
     } else if (op.op === 'delete') {
       const revision = toBigInt(op.revision);
       const existingIndex = rowIndexById.get(op.row_id);
       const existing =
-        existingIndex === undefined ? undefined : rows[existingIndex];
+        existingIndex === undefined ? undefined : liveRows[existingIndex];
       if (existing && revision >= toBigInt(existing.revision)) {
-        rows = rows.filter((row) => row.row_id !== op.row_id);
-        rowIndexById.clear();
-        rows.forEach((row, index) => rowIndexById.set(row.row_id, index));
+        liveRows = liveRows.filter((row) => row.row_id !== op.row_id);
+        rebuildRowIndex(liveRows, rowIndexById);
+      }
+      const windowExisting = windowRows.find((row) => row.row_id === op.row_id);
+      if (windowExisting && revision >= toBigInt(windowExisting.revision)) {
+        windowRows = windowRows.filter((row) => row.row_id !== op.row_id);
       }
       const overlay = liveText[op.row_id];
       if (overlay && revision >= overlay.revision) {
@@ -420,15 +502,32 @@ function applyRowOpBatch(
         delete liveText[op.row_id];
       }
     } else {
-      liveText = appendLiveText(liveText, rows, currentTurnId, op);
+      liveText = appendLiveText(
+        liveText,
+        windowRows,
+        liveRows,
+        currentTurnId,
+        op
+      );
     }
   }
+
+  liveRows = dropSeededInitialPrompt(entry.conversationId, liveRows);
+  windowRows = dropSeededInitialPrompt(entry.conversationId, windowRows);
+  const rows = combineWindowAndLiveRows(
+    entry.conversationId,
+    windowRows,
+    liveRows,
+    liveText
+  );
 
   const lastSequence = toBigInt(batch.last_sequence);
   const gap = detectSequenceGap(entry.lastSequence, batch);
   return {
     ...entry,
-    rows: dropSeededInitialPrompt(entry.conversationId, rows),
+    windowRows,
+    liveRows,
+    rows,
     liveText,
     currentTurnId,
     optimisticTurns,
@@ -452,7 +551,8 @@ function upsertRow(
   rows: TimelineRow[],
   liveText: Record<string, LiveTextOverlay>,
   incoming: TimelineRow,
-  rowIndexById?: Map<string, number>
+  rowIndexById?: Map<string, number>,
+  windowRows?: TimelineRow[]
 ): { rows: TimelineRow[]; liveText: Record<string, LiveTextOverlay> } {
   const incomingRevision = toBigInt(incoming.revision);
   const index =
@@ -461,11 +561,31 @@ function upsertRow(
   let nextRows = rows;
   let applied = false;
   if (index === undefined || index === -1) {
-    nextRows = insertTimelineRow(rows, incoming);
+    const windowExisting = windowRows?.find(
+      (row) => row.row_id === incoming.row_id
+    );
+    if (
+      windowExisting &&
+      incomingRevision < toBigInt(windowExisting.revision)
+    ) {
+      return { rows, liveText };
+    }
+    const seededIncoming = windowExisting
+      ? preserveAssistantBlocksOnColdUpsert(
+          windowExisting,
+          preserveStructuredUserText(windowExisting, incoming),
+          liveText[incoming.row_id]
+        )
+      : incoming;
+    nextRows = insertTimelineRow(rows, seededIncoming);
     rebuildRowIndex(nextRows, rowIndexById);
     applied = true;
   } else if (incomingRevision >= toBigInt(rows[index].revision)) {
-    const mergedIncoming = preserveStructuredUserText(rows[index], incoming);
+    const mergedIncoming = preserveAssistantBlocksOnColdUpsert(
+      rows[index],
+      preserveStructuredUserText(rows[index], incoming),
+      liveText[incoming.row_id]
+    );
     nextRows = rows.slice();
     nextRows[index] = mergedIncoming;
     applied = true;
@@ -484,21 +604,152 @@ function upsertRow(
   return { rows: nextRows, liveText: nextLive };
 }
 
+function withMergedTurnUsage(
+  existing: TimelineRow,
+  incoming: TimelineRow
+): TimelineRow {
+  if (
+    existing.row.kind !== 'message_turn' ||
+    incoming.row.kind !== 'message_turn'
+  ) {
+    return incoming;
+  }
+  return {
+    ...incoming,
+    row: {
+      ...incoming.row,
+      turn: {
+        ...incoming.row.turn,
+        usage: mergeReportedTurnUsage(
+          existing.row.turn.usage,
+          incoming.row.turn.usage
+        ),
+      },
+    },
+  };
+}
+
+function preserveAssistantBlocksOnColdUpsert(
+  existing: TimelineRow,
+  incoming: TimelineRow,
+  overlay: LiveTextOverlay | undefined
+): TimelineRow {
+  if (
+    existing.row.kind !== 'message_turn' ||
+    existing.row.turn.role !== 'assistant' ||
+    incoming.row.kind !== 'message_turn' ||
+    incoming.row.turn.role !== 'assistant'
+  ) {
+    return incoming;
+  }
+  if (incoming.row.turn.blocks.length > 0) {
+    return withMergedTurnUsage(existing, incoming);
+  }
+  const incomingRevision = toBigInt(incoming.revision);
+  const baseBlocks =
+    overlay && incomingRevision >= overlay.revision
+      ? overlayLiveText(existing.row.turn.blocks, overlay)
+      : existing.row.turn.blocks;
+  if (baseBlocks.length === 0) {
+    return incoming;
+  }
+  return {
+    ...incoming,
+    row: {
+      ...incoming.row,
+      turn: {
+        ...incoming.row.turn,
+        blocks: baseBlocks,
+        usage: mergeReportedTurnUsage(
+          existing.row.turn.usage,
+          incoming.row.turn.usage
+        ),
+        duration_ms:
+          incoming.row.turn.duration_ms ?? existing.row.turn.duration_ms,
+        model: incoming.row.turn.model ?? existing.row.turn.model,
+      },
+    },
+  };
+}
+
 function applyPatchBlocks(
   rows: TimelineRow[],
   liveText: Record<string, LiveTextOverlay>,
   op: Extract<ConversationRowOp, { op: 'patch_blocks' }>,
-  rowIndexById: Map<string, number>
+  rowIndexById: Map<string, number>,
+  windowRows?: TimelineRow[]
 ): { rows: TimelineRow[]; liveText: Record<string, LiveTextOverlay> } {
   const revision = toBigInt(op.revision);
   const index = rowIndexById.get(op.row_id);
+  const overlay = liveText[op.row_id];
   if (index === undefined) {
-    if (revision < maxRowRevision(rows)) {
+    const windowExisting = windowRows?.find((row) => row.row_id === op.row_id);
+    if (windowExisting && windowExisting.row.kind === 'message_turn') {
+      if (revision < toBigInt(windowExisting.revision)) {
+        return { rows, liveText };
+      }
+      const consumeOverlay = Boolean(
+        overlay &&
+          overlay.revision <= revision &&
+          willAppendNewPatchedBlock(windowExisting.row.turn.blocks, op.blocks)
+      );
+      const baseBlocks =
+        consumeOverlay && overlay
+          ? overlayLiveText(windowExisting.row.turn.blocks, overlay)
+          : windowExisting.row.turn.blocks;
+      const patched: TimelineRow = {
+        ...windowExisting,
+        revision: op.revision,
+        row: {
+          ...windowExisting.row,
+          phase: op.phase,
+          turn: {
+            ...windowExisting.row.turn,
+            timestamp:
+              plausibleTurnStartMs(windowExisting.row.turn.timestamp) !==
+              null
+                ? windowExisting.row.turn.timestamp
+                : assistantStartTimestamp(rows, op.row_id),
+            blocks: mergePatchedBlocks(baseBlocks, op.blocks),
+            usage: mergeReportedTurnUsage(
+              windowExisting.row.turn.usage,
+              op.usage
+            ),
+          },
+        },
+      };
+      const nextRows = insertTimelineRow(rows, patched);
+      rebuildRowIndex(nextRows, rowIndexById);
+      let nextLive = liveText;
+      if (consumeOverlay) {
+        nextLive = { ...liveText };
+        delete nextLive[op.row_id];
+      }
+      return { rows: nextRows, liveText: nextLive };
+    }
+    if (revision < maxLiveRowRevision(rows)) {
       return { rows, liveText };
     }
-    const nextRows = insertTimelineRow(rows, stubAssistantRow(op, rows));
+    const consumeOverlay = Boolean(
+      overlay && overlay.revision <= revision && op.blocks.length > 0
+    );
+    const baseBlocks =
+      consumeOverlay && overlay ? overlayLiveText([], overlay) : [];
+    const stub = stubAssistantRow(
+      {
+        ...op,
+        blocks: mergePatchedBlocks(baseBlocks, op.blocks),
+      },
+      rows
+    );
+    const nextRows = insertTimelineRow(rows, stub);
     rebuildRowIndex(nextRows, rowIndexById);
-    return { rows: nextRows, liveText };
+    let nextLive = liveText;
+    if (consumeOverlay) {
+      nextLive = { ...liveText };
+      delete nextLive[op.row_id];
+    }
+    return { rows: nextRows, liveText: nextLive };
   }
   const existing = rows[index];
   if (
@@ -508,6 +759,15 @@ function applyPatchBlocks(
   ) {
     return { rows, liveText };
   }
+  const consumeOverlay = Boolean(
+    overlay &&
+      overlay.revision <= revision &&
+      willAppendNewPatchedBlock(existing.row.turn.blocks, op.blocks)
+  );
+  const baseBlocks =
+    consumeOverlay && overlay
+      ? overlayLiveText(existing.row.turn.blocks, overlay)
+      : existing.row.turn.blocks;
   const nextRows = rows.slice();
   nextRows[index] = {
     ...existing,
@@ -521,12 +781,43 @@ function applyPatchBlocks(
           plausibleTurnStartMs(existing.row.turn.timestamp) !== null
             ? existing.row.turn.timestamp
             : assistantStartTimestamp(rows, op.row_id),
-        blocks: mergePatchedBlocks(existing.row.turn.blocks, op.blocks),
-        ...(op.usage ? { usage: op.usage } : {}),
+        blocks: mergePatchedBlocks(baseBlocks, op.blocks),
+        usage: mergeReportedTurnUsage(existing.row.turn.usage, op.usage),
       },
     },
   };
-  return { rows: nextRows, liveText };
+  let nextLive = liveText;
+  if (consumeOverlay) {
+    nextLive = { ...liveText };
+    delete nextLive[op.row_id];
+  }
+  return { rows: nextRows, liveText: nextLive };
+}
+
+function willAppendNewPatchedBlock(
+  existing: ContentBlock[],
+  incoming: ContentBlock[]
+): boolean {
+  for (const block of incoming) {
+    if (block.type === 'tool_use') {
+      const id = block.tool_use_id;
+      const match = existing.some(
+        (candidate) =>
+          candidate.type === 'tool_use' &&
+          Boolean(id) &&
+          candidate.tool_use_id === id
+      );
+      if (!match) return true;
+    } else if (block.type === 'tool_result') {
+      continue;
+    } else if (block.type === 'plan') {
+      const match = existing.some((candidate) => candidate.type === 'plan');
+      if (!match) return true;
+    } else {
+      return true;
+    }
+  }
+  return false;
 }
 
 function assistantStartTimestamp(
@@ -619,13 +910,18 @@ function windowPrefixHash(detail: DbConversationDetail): string | null {
   return hash ?? null;
 }
 
-function maxRowRevision(rows: TimelineRow[]): bigint {
+function maxLiveRowRevision(rows: TimelineRow[]): bigint {
   let max = 0n;
   for (const row of rows) {
+    if (!isLiveProjectorRowId(row.row_id)) continue;
     const revision = toBigInt(row.revision);
     if (revision > max) max = revision;
   }
   return max;
+}
+
+function hasPotentialStructuredToken(text: string): boolean {
+  return text.includes('[');
 }
 
 /**
@@ -649,10 +945,14 @@ function preserveStructuredUserText(
   }
 
   const existingText = userTurnText(existing.row.turn);
+  if (!hasPotentialStructuredToken(existingText)) {
+    return incoming;
+  }
   const incomingText = userTurnText(incoming.row.turn);
   if (
     getSessionComposerStructuredTokens(existingText).length === 0 ||
-    getSessionComposerStructuredTokens(incomingText).length > 0
+    (hasPotentialStructuredToken(incomingText) &&
+      getSessionComposerStructuredTokens(incomingText).length > 0)
   ) {
     return incoming;
   }
@@ -676,13 +976,46 @@ function preserveStructuredUserText(
   };
 }
 
+function preserveStructuredUserTextFromLiveRows(
+  windowRows: TimelineRow[],
+  liveRows: TimelineRow[]
+): TimelineRow[] {
+  if (windowRows.length === 0 || liveRows.length === 0) return windowRows;
+  const liveUsers = liveRows.filter((row) => {
+    if (row.row.kind !== 'message_turn' || row.row.turn.role !== 'user') {
+      return false;
+    }
+    const text = userTurnText(row.row.turn);
+    return (
+      hasPotentialStructuredToken(text) &&
+      getSessionComposerStructuredTokens(text).length > 0
+    );
+  });
+  if (liveUsers.length === 0) return windowRows;
+  return windowRows.map((row) => {
+    if (row.row.kind !== 'message_turn' || row.row.turn.role !== 'user') {
+      return row;
+    }
+    const match = liveUsers.find(
+      (live) =>
+        live.row.kind === 'message_turn' &&
+        promptsMatch(userTurnText(live.row.turn), userTurnText(row.row.turn))
+    );
+    return match ? preserveStructuredUserText(match, row) : row;
+  });
+}
+
 function appendLiveText(
   liveText: Record<string, LiveTextOverlay>,
-  rows: TimelineRow[],
+  windowRows: TimelineRow[],
+  liveRows: TimelineRow[],
   _currentTurnId: string | null,
   op: Extract<ConversationRowOp, { op: 'append_text' }>
 ): Record<string, LiveTextOverlay> {
-  if (isLateSettledAssistantAppend(rows, op.row_id)) {
+  if (
+    isLateSettledAssistantAppend(liveRows, op.row_id) ||
+    isLateSettledAssistantAppend(windowRows, op.row_id)
+  ) {
     return liveText;
   }
   const rowId = op.row_id;
@@ -746,6 +1079,595 @@ function retainStreamingLiveText(
   return next;
 }
 
+/**
+ * Promote streaming live-id rows that were placed in `windowRows` via initial
+ * `loaded(...)` in unit tests so a subsequent file-window `load_success` (`acp-*`)
+ * treats them as part of `liveRows` until the file window converges.
+ */
+function promoteUnconvergedStreamingLiveRows(
+  previousWindowRows: TimelineRow[],
+  currentLiveRows: TimelineRow[],
+  incomingWindowRows: TimelineRow[]
+): TimelineRow[] {
+  const incomingIds = new Set(incomingWindowRows.map((row) => row.row_id));
+  const liveIds = new Set(currentLiveRows.map((row) => row.row_id));
+  const activeLiveTurnKeys = new Set(
+    currentLiveRows
+      .map((row) => messageTurnPairKey(row.row_id))
+      .filter((key): key is string => Boolean(key))
+  );
+  const promoted: TimelineRow[] = [];
+  for (const row of previousWindowRows) {
+    if (incomingIds.has(row.row_id) || liveIds.has(row.row_id)) continue;
+    const turnKey = messageTurnPairKey(row.row_id);
+    if (
+      isLiveProjectorRowId(row.row_id) &&
+      row.row.kind === 'message_turn' &&
+      (row.row.phase === 'streaming' ||
+        (turnKey !== null && activeLiveTurnKeys.has(turnKey)))
+    ) {
+      promoted.push(row);
+    }
+  }
+  return promoted.length > 0
+    ? [...promoted, ...currentLiveRows]
+    : currentLiveRows;
+}
+
+/**
+ * Clear live rows and overlays only after `windowRows` contains the converged
+ * turn content. Never clear `liveRows` merely because `in_flight_user_turn_id`
+ * is null when the window does not yet reflect the completed turn.
+ */
+function pruneConvergedLiveState(
+  windowRows: TimelineRow[],
+  liveRows: TimelineRow[],
+  liveText: Record<string, LiveTextOverlay>,
+  keepRealtimeRows: boolean
+): {
+  liveRows: TimelineRow[];
+  liveText: Record<string, LiveTextOverlay>;
+} {
+  if (keepRealtimeRows) {
+    return { liveRows, liveText };
+  }
+  const turnKeys = new Set<string>();
+  for (const row of liveRows) {
+    const key = messageTurnPairKey(row.row_id);
+    if (key) turnKeys.add(key);
+  }
+  for (const rowId of Object.keys(liveText)) {
+    const key = messageTurnPairKey(rowId);
+    if (key) turnKeys.add(key);
+  }
+  const windowSideRevisions = new Map<string, bigint>();
+  for (const row of windowRows) {
+    if (row.row.kind !== 'message_turn') {
+      const baseId = row.row_id.split('|')[0] ?? row.row_id;
+      windowSideRevisions.set(baseId, toBigInt(row.revision));
+    }
+  }
+  const filteredSideLiveRows = liveRows.filter((row) => {
+    if (row.row.kind === 'message_turn') return true;
+    const baseId = row.row_id.split('|')[0] ?? row.row_id;
+    const winRev = windowSideRevisions.get(baseId);
+    return winRev === undefined || toBigInt(row.revision) > winRev;
+  });
+  if (turnKeys.size === 0) {
+    return { liveRows: filteredSideLiveRows, liveText };
+  }
+
+  const convergedKeys = new Set<string>();
+  for (const key of turnKeys) {
+    if (isLiveTurnConvergedInWindow(key, windowRows, liveRows, liveText)) {
+      convergedKeys.add(key);
+    }
+  }
+
+  if (convergedKeys.size === 0) {
+    return { liveRows: filteredSideLiveRows, liveText };
+  }
+
+  const nextLiveRows = filteredSideLiveRows.filter((row) => {
+    const key = messageTurnPairKey(row.row_id);
+    return !key || !convergedKeys.has(key);
+  });
+  const nextLiveText: Record<string, LiveTextOverlay> = {};
+  for (const [rowId, overlay] of Object.entries(liveText)) {
+    const key = messageTurnPairKey(rowId);
+    if (!key || !convergedKeys.has(key)) {
+      nextLiveText[rowId] = overlay;
+    }
+  }
+  return { liveRows: nextLiveRows, liveText: nextLiveText };
+}
+
+function isLiveTurnConvergedInWindow(
+  turnKey: string,
+  windowRows: TimelineRow[],
+  liveRows: TimelineRow[],
+  liveText: Record<string, LiveTextOverlay>
+): boolean {
+  const turnRows = liveRows.filter(
+    (row) => messageTurnPairKey(row.row_id) === turnKey
+  );
+  const liveUser = turnRows.find(
+    (row) =>
+      row.row.kind === 'message_turn' &&
+      row.row.turn.role === 'user' &&
+      !row.row_id.includes(':steer:')
+  );
+  const liveAssistants = turnRows.filter(
+    (row) =>
+      row.row.kind === 'message_turn' && row.row.turn.role === 'assistant'
+  );
+  const overlay = liveText[`${turnKey}:assistant`];
+
+  // Find the matching round in `windowRows` (searching from the tail).
+  let matchedUserIndex = -1;
+  if (liveUser && liveUser.row.kind === 'message_turn') {
+    const targetPrompt = userTurnText(liveUser.row.turn);
+    for (let index = windowRows.length - 1; index >= 0; index -= 1) {
+      const candidate = windowRows[index];
+      if (
+        candidate &&
+        candidate.row.kind === 'message_turn' &&
+        candidate.row.turn.role === 'user' &&
+        !candidate.row_id.includes(':steer:') &&
+        (candidate.row_id === liveUser.row_id ||
+          promptsMatch(userTurnText(candidate.row.turn), targetPrompt))
+      ) {
+        matchedUserIndex = index;
+        break;
+      }
+    }
+    if (matchedUserIndex < 0) return false;
+    const matchedUser = windowRows[matchedUserIndex];
+    // A later send can repeat the finished prompt and, briefly, its answer.
+    // The file stamp and the live stamp of one send stay within the skew;
+    // a stamp past that is a new turn and must not be dropped.
+    if (livePromptStartsAfterWindowUser(liveUser, matchedUser)) return false;
+  } else {
+    for (let index = windowRows.length - 1; index >= 0; index -= 1) {
+      const candidate = windowRows[index];
+      if (
+        candidate &&
+        candidate.row.kind === 'message_turn' &&
+        candidate.row.turn.role === 'user' &&
+        !candidate.row_id.includes(':steer:')
+      ) {
+        matchedUserIndex = index;
+        break;
+      }
+    }
+    if (matchedUserIndex < 0) return false;
+  }
+
+  // Collect the window rows in this round (from `matchedUserIndex` up to the next non-steer user turn).
+  const roundRows: TimelineRow[] = [];
+  for (let index = matchedUserIndex; index < windowRows.length; index += 1) {
+    const row = windowRows[index];
+    if (!row) continue;
+    if (
+      index > matchedUserIndex &&
+      row.row.kind === 'message_turn' &&
+      row.row.turn.role === 'user' &&
+      !row.row_id.includes(':steer:')
+    ) {
+      break;
+    }
+    roundRows.push(row);
+  }
+
+  // An open streaming round in the window is not yet converged.
+  if (
+    roundRows.some(
+      (row) => row.row.kind === 'message_turn' && row.row.phase === 'streaming'
+    )
+  ) {
+    return false;
+  }
+
+  const windowAssistants = roundRows.filter(
+    (row) =>
+      row.row.kind === 'message_turn' && row.row.turn.role === 'assistant'
+  );
+
+  const hasLiveAssistantExpectation =
+    liveAssistants.length > 0 ||
+    Boolean(
+      overlay && (overlay.text.length > 0 || overlay.reasoning.length > 0)
+    );
+
+  if (hasLiveAssistantExpectation) {
+    if (windowAssistants.length === 0) return false;
+    const windowBlocks = windowAssistants.flatMap((row) =>
+      row.row.kind === 'message_turn' ? row.row.turn.blocks : []
+    );
+    const liveBaseBlocks = liveAssistants.flatMap((row) =>
+      row.row.kind === 'message_turn' ? row.row.turn.blocks : []
+    );
+    const expectedBlocks = overlay
+      ? overlayLiveText(liveBaseBlocks, overlay)
+      : liveBaseBlocks;
+    return windowBlocksCoverLiveBlocks(windowBlocks, expectedBlocks);
+  }
+
+  // Only a user row exists in liveRows. If it was still streaming and the window
+  // round has no assistant yet, keep the live user only while it is streaming.
+  if (
+    liveUser &&
+    liveUser.row.kind === 'message_turn' &&
+    liveUser.row.phase === 'streaming' &&
+    windowAssistants.length === 0
+  ) {
+    return false;
+  }
+
+  return true;
+}
+
+/** File prompt time and the live user event can disagree by a moment. */
+const SAME_TURN_STAMP_SKEW_MS = 2_000;
+
+function livePromptStartsAfterWindowUser(
+  liveUser: TimelineRow | undefined,
+  windowUser: TimelineRow | undefined
+): boolean {
+  if (
+    !liveUser ||
+    liveUser.row.kind !== 'message_turn' ||
+    !windowUser ||
+    windowUser.row.kind !== 'message_turn'
+  ) {
+    return false;
+  }
+  const liveMs = plausibleTurnStartMs(liveUser.row.turn.timestamp);
+  const windowMs = plausibleTurnStartMs(windowUser.row.turn.timestamp);
+  if (liveMs === null || windowMs === null) return false;
+  return liveMs > windowMs + SAME_TURN_STAMP_SKEW_MS;
+}
+
+function windowBlocksCoverLiveBlocks(
+  windowBlocks: ContentBlock[],
+  liveBlocks: ContentBlock[]
+): boolean {
+  const windowText = windowBlocks
+    .flatMap((block) => (block.type === 'text' ? [block.text] : []))
+    .join('')
+    .trim();
+  const liveText = liveBlocks
+    .flatMap((block) => (block.type === 'text' ? [block.text] : []))
+    .join('')
+    .trim();
+  if (liveText.length > 0 && !windowText.includes(liveText)) {
+    return false;
+  }
+  const windowToolIds = new Set(toolUseIdsOf(windowBlocks));
+  for (const toolId of toolUseIdsOf(liveBlocks)) {
+    if (!windowToolIds.has(toolId)) return false;
+  }
+  return true;
+}
+
+function promptsMatch(left: string, right: string): boolean {
+  const leftTrimmed = left.trim();
+  const rightTrimmed = right.trim();
+  if (leftTrimmed === rightTrimmed) return true;
+  if (
+    !hasPotentialStructuredToken(leftTrimmed) &&
+    !hasPotentialStructuredToken(rightTrimmed)
+  ) {
+    return false;
+  }
+  return (
+    serializeSessionComposerBackendMessage(leftTrimmed).trim() ===
+    serializeSessionComposerBackendMessage(rightTrimmed).trim()
+  );
+}
+
+type TrailingWindowRound = {
+  startIndex: number;
+  userRow: TimelineRow | null;
+  assistantRows: TimelineRow[];
+  isStreamingOrOpen: boolean;
+};
+
+function findTrailingWindowRound(
+  windowRows: TimelineRow[]
+): TrailingWindowRound | null {
+  let lastMessageIndex = -1;
+  for (let index = windowRows.length - 1; index >= 0; index -= 1) {
+    if (windowRows[index]?.row.kind === 'message_turn') {
+      lastMessageIndex = index;
+      break;
+    }
+  }
+  if (lastMessageIndex < 0) return null;
+
+  const lastMessage = windowRows[lastMessageIndex]!;
+  // Check for an orphan trailing streaming assistant (e.g. a file snapshot where
+  // the streaming assistant arrived before a user prompt existed for that round).
+  if (
+    lastMessage.row.kind === 'message_turn' &&
+    lastMessage.row.turn.role === 'assistant' &&
+    lastMessage.row.phase === 'streaming'
+  ) {
+    let prevMessage: TimelineRow | null = null;
+    for (let index = lastMessageIndex - 1; index >= 0; index -= 1) {
+      if (windowRows[index]?.row.kind === 'message_turn') {
+        prevMessage = windowRows[index]!;
+        break;
+      }
+    }
+    if (
+      !prevMessage ||
+      (prevMessage.row.kind === 'message_turn' &&
+        prevMessage.row.turn.role !== 'user')
+    ) {
+      return {
+        startIndex: lastMessageIndex,
+        userRow: null,
+        assistantRows: [lastMessage],
+        isStreamingOrOpen: true,
+      };
+    }
+  }
+
+  let userIndex = -1;
+  for (let index = lastMessageIndex; index >= 0; index -= 1) {
+    const candidate = windowRows[index];
+    if (
+      candidate?.row.kind === 'message_turn' &&
+      candidate.row.turn.role === 'user' &&
+      !candidate.row_id.includes(':steer:')
+    ) {
+      userIndex = index;
+      break;
+    }
+  }
+  if (userIndex < 0) return null;
+
+  const userRow = windowRows[userIndex]!;
+  const assistantRows: TimelineRow[] = [];
+  for (let index = userIndex + 1; index < windowRows.length; index += 1) {
+    const candidate = windowRows[index];
+    if (
+      candidate?.row.kind === 'message_turn' &&
+      candidate.row.turn.role === 'assistant'
+    ) {
+      assistantRows.push(candidate);
+    }
+  }
+  const isStreamingOrOpen =
+    (userRow.row.kind === 'message_turn' &&
+      userRow.row.phase === 'streaming') ||
+    assistantRows.length === 0 ||
+    assistantRows.some(
+      (row) => row.row.kind === 'message_turn' && row.row.phase === 'streaming'
+    );
+
+  return {
+    startIndex: userIndex,
+    userRow,
+    assistantRows,
+    isStreamingOrOpen,
+  };
+}
+
+/**
+ * Render `windowRows` first, followed by `liveRows`.
+ * Aligns the trailing round of `windowRows` with `liveRows` by turn position
+ * and user-visible prompt text so `acp-N` and `{turn}:*` for the same turn
+ * never appear together, while falling back to the window's open streaming
+ * tail when `liveRows` is empty.
+ */
+function combineWindowAndLiveRows(
+  conversationId: string,
+  windowRows: TimelineRow[],
+  liveRows: TimelineRow[],
+  liveText: Record<string, LiveTextOverlay>
+): TimelineRow[] {
+  if (liveRows.length === 0) {
+    return windowRows;
+  }
+
+  // 1. Replace any exact `row_id` matches in `windowRows` (e.g. unit tests that
+  //    seeded `{turn}:*` rows via `load_success` and then updated them via `row_ops`).
+  const baseRowId = (id: string) => id.split('|')[0] ?? id;
+  const liveByRowId = new Map(
+    liveRows.map((row) => [baseRowId(row.row_id), row])
+  );
+  const replacedIds = new Set<string>();
+  let effectiveWindow = windowRows.map((row) => {
+    const baseId = baseRowId(row.row_id);
+    const replacement = liveByRowId.get(baseId);
+    if (!replacement) return row;
+    replacedIds.add(baseId);
+    if (row.row_id.includes('|') && !replacement.row_id.includes('|')) {
+      return toBigInt(replacement.revision) > toBigInt(row.revision)
+        ? { ...replacement, row_id: row.row_id }
+        : row;
+    }
+    return replacement;
+  });
+  let remainingLive = liveRows.filter(
+    (row) => !replacedIds.has(baseRowId(row.row_id))
+  );
+  if (remainingLive.length === 0) {
+    return dropSeededInitialPrompt(conversationId, effectiveWindow);
+  }
+
+  // 2. Align the trailing round of `effectiveWindow` with `remainingLive` by
+  //    turn position (tail of `windowRows`) and user-visible prompt text.
+  const trailing = findTrailingWindowRound(effectiveWindow);
+  if (trailing) {
+    const firstLiveUser = remainingLive.find(
+      (row) => row.row.kind === 'message_turn' && row.row.turn.role === 'user'
+    );
+    const firstLiveAssistant = remainingLive.find(
+      (row) =>
+        row.row.kind === 'message_turn' && row.row.turn.role === 'assistant'
+    );
+
+    const trailingUserText =
+      trailing.userRow?.row.kind === 'message_turn'
+        ? userTurnText(trailing.userRow.row.turn)
+        : null;
+    const liveUserText =
+      firstLiveUser?.row.kind === 'message_turn'
+        ? userTurnText(firstLiveUser.row.turn)
+        : null;
+
+    const liveHasTerminalPhase = remainingLive.some(
+      (row) =>
+        row.row.kind === 'message_turn' &&
+        TERMINAL_ROW_PHASES.has(row.row.phase)
+    );
+
+    const alignsByPrompt =
+      trailingUserText !== null &&
+      liveUserText !== null &&
+      promptsMatch(trailingUserText, liveUserText) &&
+      (trailing.isStreamingOrOpen || liveHasTerminalPhase);
+
+    const alignsOrphanWindowAssistant =
+      trailing.userRow === null &&
+      trailing.isStreamingOrOpen &&
+      Boolean(firstLiveUser || firstLiveAssistant);
+
+    const alignsOrphanLiveAssistant =
+      trailing.userRow !== null &&
+      trailing.isStreamingOrOpen &&
+      !firstLiveUser &&
+      Boolean(firstLiveAssistant);
+
+    if (
+      alignsByPrompt ||
+      alignsOrphanWindowAssistant ||
+      alignsOrphanLiveAssistant
+    ) {
+      const windowAssistantBlocks = trailing.assistantRows.flatMap((row) =>
+        row.row.kind === 'message_turn' ? row.row.turn.blocks : []
+      );
+      if (windowAssistantBlocks.length > 0 && firstLiveAssistant) {
+        remainingLive = remainingLive.map((row) => {
+          if (
+            row.row_id !== firstLiveAssistant.row_id ||
+            row.row.kind !== 'message_turn'
+          ) {
+            return row;
+          }
+          return {
+            ...row,
+            row: {
+              ...row.row,
+              turn: mergeAssistantTurnData(
+                trailing.assistantRows[0]!.row.kind === 'message_turn'
+                  ? {
+                      ...trailing.assistantRows[0]!.row.turn,
+                      blocks: windowAssistantBlocks,
+                    }
+                  : row.row.turn,
+                row.row.turn
+              ),
+            },
+          };
+        });
+      }
+
+      if (alignsOrphanLiveAssistant && trailing.userRow) {
+        // Keep the window's user row in front of the orphan live assistant,
+        // suppressing only the window's trailing streaming assistant rows.
+        const suppressedIds = new Set(
+          trailing.assistantRows.map((row) => row.row_id)
+        );
+        effectiveWindow = effectiveWindow.filter(
+          (row, index) =>
+            index < trailing.startIndex || !suppressedIds.has(row.row_id)
+        );
+      } else {
+        // Suppress the overlapping trailing round in `windowRows` (preserving any
+        // non-message side rows in that tail slice).
+        effectiveWindow = effectiveWindow.filter(
+          (row, index) =>
+            index < trailing.startIndex || row.row.kind !== 'message_turn'
+        );
+      }
+    } else {
+      const liveTurnKey = messageTurnPairKey(
+        (firstLiveUser ?? firstLiveAssistant)?.row_id ?? ''
+      );
+      // The file round already finished and covers this live reply, but the
+      // live row is still streaming, so prompt alignment does not apply.
+      // Keep the settled window copy (it has the final duration and usage).
+      if (
+        liveTurnKey &&
+        isLiveTurnConvergedInWindow(
+          liveTurnKey,
+          effectiveWindow,
+          remainingLive,
+          liveText
+        )
+      ) {
+        remainingLive = remainingLive.filter(
+          (row) => messageTurnPairKey(row.row_id) !== liveTurnKey
+        );
+      }
+    }
+  }
+
+  // Also seed pre-reload assistant blocks from a suppressed trailing window
+  // assistant when the live turn only has `{turn}:user` + `liveText` so far.
+  if (trailing && trailing.assistantRows.length > 0) {
+    const firstLiveUser = remainingLive.find(
+      (row) => row.row.kind === 'message_turn' && row.row.turn.role === 'user'
+    );
+    const hasLiveAssistant = remainingLive.some(
+      (row) =>
+        row.row.kind === 'message_turn' && row.row.turn.role === 'assistant'
+    );
+    if (firstLiveUser && !hasLiveAssistant) {
+      const turnKey = messageTurnPairKey(firstLiveUser.row_id);
+      const assistantId = turnKey ? `${turnKey}:assistant` : null;
+      const windowAssistant = trailing.assistantRows[0];
+      if (
+        assistantId &&
+        windowAssistant &&
+        windowAssistant.row.kind === 'message_turn' &&
+        !effectiveWindow.some((row) => row.row_id === windowAssistant.row_id)
+      ) {
+        const overlay = liveText[assistantId];
+        const blocks = overlay
+          ? overlayLiveText(windowAssistant.row.turn.blocks, overlay)
+          : windowAssistant.row.turn.blocks;
+        remainingLive = insertTimelineRow(remainingLive, {
+          row_id: assistantId,
+          revision: overlay ? overlay.revision : windowAssistant.revision,
+          row: {
+            kind: 'message_turn',
+            phase:
+              firstLiveUser.row.kind === 'message_turn' &&
+              TERMINAL_ROW_PHASES.has(firstLiveUser.row.phase)
+                ? firstLiveUser.row.phase
+                : 'streaming',
+            turn: {
+              ...windowAssistant.row.turn,
+              id: assistantId,
+              blocks,
+            },
+          },
+        });
+      }
+    }
+  }
+
+  return dropSeededInitialPrompt(conversationId, [
+    ...effectiveWindow,
+    ...remainingLive,
+  ]);
+}
+
 export function timelineTurnsForEntry(
   entry: ConversationStoreEntry | null
 ): ConversationTimelineTurn[] {
@@ -777,6 +1699,7 @@ export function timelineTurnsForEntry(
     ];
   });
   const maxRowRevision = entry.rows.reduce((max, row) => {
+    if (!isLiveProjectorRowId(row.row_id)) return max;
     const revision = toBigInt(row.revision);
     return revision > max ? revision : max;
   }, entry.lastSequence);
@@ -797,6 +1720,135 @@ export function timelineTurnsForEntry(
       )
     )
   );
+}
+
+const CLIENT_ASSISTANT_ID = /:assistant(?::\d+)?$/;
+
+function isClientAssistantId(id: string): boolean {
+  return CLIENT_ASSISTANT_ID.test(id);
+}
+
+function toolUseIdsOf(blocks: ContentBlock[]): string[] {
+  return blocks.flatMap((block) =>
+    block.type === 'tool_use' && block.tool_use_id ? [block.tool_use_id] : []
+  );
+}
+
+function mergeAssistantTurnData(
+  fileTurn: MessageTurn,
+  clientTurn: MessageTurn
+): MessageTurn {
+  const timestamp =
+    plausibleTurnStartMs(fileTurn.timestamp) !== null
+      ? fileTurn.timestamp
+      : plausibleTurnStartMs(clientTurn.timestamp) !== null
+        ? clientTurn.timestamp
+        : fileTurn.timestamp || clientTurn.timestamp;
+  return {
+    ...clientTurn,
+    timestamp,
+    blocks: mergeAssistantBlocks(fileTurn.blocks, clientTurn.blocks),
+    usage: mergeReportedTurnUsage(fileTurn.usage, clientTurn.usage),
+    duration_ms: clientTurn.duration_ms ?? fileTurn.duration_ms,
+    model: clientTurn.model ?? fileTurn.model,
+  };
+}
+
+function mergeAssistantBlocks(
+  fileBlocks: ContentBlock[],
+  clientBlocks: ContentBlock[]
+): ContentBlock[] {
+  if (fileBlocks.length === 0) return clientBlocks;
+  if (clientBlocks.length === 0) return fileBlocks;
+
+  const fileHasStructured = fileBlocks.some(
+    (block) =>
+      block.type === 'tool_use' ||
+      block.type === 'tool_result' ||
+      block.type === 'plan'
+  );
+  const clientHasStructured = clientBlocks.some(
+    (block) =>
+      block.type === 'tool_use' ||
+      block.type === 'tool_result' ||
+      block.type === 'plan'
+  );
+
+  // Pure text / thinking on both sides: combine without duplicating prefix/suffix.
+  if (!fileHasStructured && !clientHasStructured) {
+    const fileThinking = fileBlocks
+      .flatMap((b) => (b.type === 'thinking' ? [b.text] : []))
+      .join('');
+    const clientThinking = clientBlocks
+      .flatMap((b) => (b.type === 'thinking' ? [b.text] : []))
+      .join('');
+    const fileText = fileBlocks
+      .flatMap((b) => (b.type === 'text' ? [b.text] : []))
+      .join('');
+    const clientText = clientBlocks
+      .flatMap((b) => (b.type === 'text' ? [b.text] : []))
+      .join('');
+    const merged: ContentBlock[] = [];
+    const combinedThinking = mergeOverlayText(fileThinking, clientThinking);
+    if (combinedThinking) {
+      merged.push({ type: 'thinking', text: combinedThinking });
+    }
+    const combinedText = mergeOverlayText(fileText, clientText);
+    if (combinedText) {
+      merged.push({ type: 'text', text: combinedText });
+    }
+    return merged.length > 0 ? merged : clientBlocks;
+  }
+
+  // When `clientBlocks` starts at a mid-turn `patch_blocks` (so its first block
+  // is a tool_use/plan without the pre-reload blocks that `fileBlocks` holds),
+  // seed with the prefix of `fileBlocks` and fold `clientBlocks` on top.
+  const firstClientBlock = clientBlocks[0];
+  if (
+    firstClientBlock &&
+    (firstClientBlock.type === 'tool_use' ||
+      firstClientBlock.type === 'tool_result' ||
+      firstClientBlock.type === 'plan')
+  ) {
+    const matchIndex =
+      firstClientBlock.type === 'tool_use' && firstClientBlock.tool_use_id
+        ? fileBlocks.findIndex(
+            (b) =>
+              b.type === 'tool_use' &&
+              b.tool_use_id === firstClientBlock.tool_use_id
+          )
+        : firstClientBlock.type === 'plan'
+          ? fileBlocks.findIndex((b) => b.type === 'plan')
+          : -1;
+    const prefix =
+      matchIndex >= 0 ? fileBlocks.slice(0, matchIndex) : fileBlocks.slice();
+    return mergeBlockSequence(prefix, clientBlocks);
+  }
+
+  return mergeBlockSequence(fileBlocks, clientBlocks);
+}
+
+function mergeBlockSequence(
+  baseBlocks: ContentBlock[],
+  incomingBlocks: ContentBlock[]
+): ContentBlock[] {
+  const result = baseBlocks.slice();
+  for (const block of incomingBlocks) {
+    if (
+      block.type === 'tool_use' ||
+      block.type === 'tool_result' ||
+      block.type === 'plan'
+    ) {
+      const patched = mergePatchedBlocks(result, [block]);
+      result.length = 0;
+      result.push(...patched);
+    } else if (block.type === 'text' || block.type === 'thinking') {
+      mergeOverlayBlock(result, block.type, block.text);
+    } else {
+      result.push(block);
+    }
+  }
+  return result;
 }
 
 function liveOverlayForRow(
@@ -887,6 +1939,8 @@ const INLINE_SIDE_ROW_KINDS = new Set([
   'session_notice',
 ]);
 
+const EPOCH_MILLIS_REVISION_FLOOR = 1_000_000_000_000n;
+
 /** Message turns and inlined side rows, ordered by revision to match the event log. */
 export function timelineItemsForEntry(
   entry: ConversationStoreEntry | null,
@@ -929,6 +1983,10 @@ export function timelineItemsForEntry(
   let runningMaxRevision = 0n;
 
   for (const message of messages) {
+    const isEpochMillisMessage =
+      !isLiveProjectorRowId(message.item.turn.id) &&
+      message.revision >= EPOCH_MILLIS_REVISION_FLOOR &&
+      maxSideRevision < EPOCH_MILLIS_REVISION_FLOOR;
     const isOptimisticOrZeroTrailing =
       message.item.phase === 'optimistic' ||
       (message.revision <= 0n &&
@@ -937,9 +1995,11 @@ export function timelineItemsForEntry(
       ? (runningMaxRevision > maxSideRevision
           ? runningMaxRevision
           : maxSideRevision) + 1n
-      : message.revision > runningMaxRevision
-        ? message.revision
-        : runningMaxRevision;
+      : isEpochMillisMessage
+        ? runningMaxRevision
+        : message.revision > runningMaxRevision
+          ? message.revision
+          : runningMaxRevision;
     runningMaxRevision = effectiveRevision;
 
     while (
@@ -960,6 +2020,18 @@ export function timelineItemsForEntry(
   return result;
 }
 
+export function selectConversationTimelineItems(
+  state: ConversationStoreState,
+  conversationId: string | null,
+  shouldInline: (row: TimelineRow) => boolean = defaultInlineSideRow
+): ConversationTimelineItem[] {
+  if (!conversationId) return [];
+  return timelineItemsForEntry(
+    state.byConversationId[conversationId] ?? null,
+    shouldInline
+  );
+}
+
 export function defaultInlineSideRow(row: TimelineRow): boolean {
   return INLINE_SIDE_ROW_KINDS.has(row.row.kind);
 }
@@ -968,6 +2040,8 @@ function createEntry(conversationId: string): ConversationStoreEntry {
   return {
     conversationId,
     detail: null,
+    windowRows: [],
+    liveRows: [],
     rows: [],
     liveText: {},
     lastSequence: 0n,
@@ -982,6 +2056,7 @@ function createEntry(conversationId: string): ConversationStoreEntry {
     availableCommands: null,
     olderCursor: null,
     prefixHash: null,
+    userTurnsBeforeOffset: 0,
     loadedToStart: false,
     olderTurnsPrependEpoch: 0,
   };
@@ -1150,13 +2225,18 @@ function reconcileOptimisticTurnAgainstUserRow(
   );
 
   if (optimisticIndex < 0) {
-    const authoritativeBackendText =
-      serializeSessionComposerBackendMessage(authoritativeText).trim();
-    optimisticIndex = optimisticTurns.findIndex(
-      (turn) =>
-        serializeSessionComposerBackendMessage(userTurnText(turn)).trim() ===
-        authoritativeBackendText
-    );
+    const authoritativeBackendText = hasPotentialStructuredToken(
+      authoritativeText
+    )
+      ? serializeSessionComposerBackendMessage(authoritativeText).trim()
+      : authoritativeText.trim();
+    optimisticIndex = optimisticTurns.findIndex((turn) => {
+      const candidateText = userTurnText(turn);
+      const candidateBackendText = hasPotentialStructuredToken(candidateText)
+        ? serializeSessionComposerBackendMessage(candidateText).trim()
+        : candidateText.trim();
+      return candidateBackendText === authoritativeBackendText;
+    });
   }
 
   if (optimisticIndex < 0) return { row, optimisticTurns };
@@ -1188,53 +2268,49 @@ function reconcileOptimisticTurnAgainstUserRow(
 }
 
 /**
- * The first open of a new session can project `initial_prompt` as
- * `{conversationId}:user` before the live user row arrives. Drop that seed
- * once another user row carries the same text. Two real prompts that happen
- * to match stay, because neither uses the conversation id as its row id.
- */
-/**
- * A transcript with no turn-end leaves its last assistant unfinished. That is
- * the live tail while a turn is running, and a settled replay when no turn is
- * in flight. Client rows (`…:user` / `…:assistant`) keep the phase they had.
+ * When a turn is in flight and the transcript ends on a user turn (`acp-N`,
+ * before the first assistant chunk is written), mark that trailing user
+ * turn `streaming` so `withPendingAssistantTurns` renders the waiting
+ * assistant bubble.
  */
 function settleIdleOpenTail(
   rows: TimelineRow[],
   turnInFlight: boolean
 ): TimelineRow[] {
-  if (turnInFlight || rows.length === 0) return rows;
+  if (rows.length === 0 || !turnInFlight) return rows;
   const lastIndex = rows.length - 1;
   const last = rows[lastIndex];
   if (
-    !last ||
-    last.row.kind !== 'message_turn' ||
-    last.row.turn.role !== 'assistant' ||
-    last.row.phase !== 'streaming' ||
-    last.row_id.endsWith(':assistant')
+    last &&
+    last.row.kind === 'message_turn' &&
+    last.row.turn.role === 'user' &&
+    !isLiveProjectorRowId(last.row_id) &&
+    last.row.phase !== 'streaming'
   ) {
-    return rows;
-  }
-  const next = rows.slice();
-  next[lastIndex] = {
-    ...last,
-    row: { ...last.row, phase: 'settled' },
-  };
-  const previous = next[lastIndex - 1];
-  if (
-    previous &&
-    previous.row.kind === 'message_turn' &&
-    previous.row.turn.role === 'user' &&
-    previous.row.phase === 'streaming' &&
-    !previous.row_id.endsWith(':user')
-  ) {
-    next[lastIndex - 1] = {
-      ...previous,
-      row: { ...previous.row, phase: 'settled' },
+    const next = rows.slice();
+    next[lastIndex] = {
+      ...last,
+      row: { ...last.row, phase: 'streaming' },
     };
+    return next;
   }
-  return next;
+  return rows;
 }
 
+function isLiveProjectorRowId(rowId: string): boolean {
+  return (
+    rowId.endsWith(':user') ||
+    /:assistant(?::\d+)?$/.test(rowId) ||
+    rowId.includes(':steer:')
+  );
+}
+
+/**
+ * The first open of a new session can project `initial_prompt` as
+ * `{conversationId}:user` before the live user row arrives. Drop that seed
+ * once another user row carries the same text. Two real prompts that happen
+ * to match stay, because neither uses the conversation id as its row id.
+ */
 function dropSeededInitialPrompt(
   conversationId: string,
   rows: TimelineRow[]
@@ -1258,78 +2334,6 @@ function dropSeededInitialPrompt(
   );
   if (!duplicated) return rows;
   return rows.filter((row) => row.row_id !== seedId);
-}
-
-/**
- * An equal-cursor file refresh replaces live rows. Keep a streaming user whose
- * prompt is not in that window yet, and place it in front of an assistant that
- * arrived without its user. A file row with the same text already counts as
- * that prompt.
- */
-function retainInFlightStreamingUsers(
-  localRows: TimelineRow[],
-  incomingRows: TimelineRow[],
-  liveText: Record<string, LiveTextOverlay>
-): { rows: TimelineRow[]; liveText: Record<string, LiveTextOverlay> } {
-  const unmatched = incomingRows.flatMap((row) =>
-    row.row.kind === 'message_turn' && row.row.turn.role === 'user'
-      ? [userTurnText(row.row.turn)]
-      : []
-  );
-  const retained = localRows.filter((row) => {
-    if (
-      row.row.kind !== 'message_turn' ||
-      row.row.turn.role !== 'user' ||
-      row.row.phase !== 'streaming'
-    ) {
-      return false;
-    }
-    const index = unmatched.indexOf(userTurnText(row.row.turn));
-    if (index >= 0) {
-      unmatched.splice(index, 1);
-      return false;
-    }
-    return true;
-  });
-  if (retained.length === 0) return { rows: incomingRows, liveText };
-
-  const rows = incomingRows.slice();
-  let nextLive = liveText;
-  for (const user of retained) {
-    const assistantId = user.row_id.endsWith(':user')
-      ? `${user.row_id.slice(0, -':user'.length)}:assistant`
-      : null;
-    const last = rows[rows.length - 1];
-    const previous = rows[rows.length - 2];
-    const lastIsAssistant =
-      last?.row.kind === 'message_turn' && last.row.turn.role === 'assistant';
-    const previousIsUser =
-      previous?.row.kind === 'message_turn' &&
-      previous.row.turn.role === 'user';
-    if (lastIsAssistant && !previousIsUser) {
-      rows.splice(rows.length - 1, 0, user);
-      if (assistantId && nextLive[assistantId]) {
-        nextLive = { ...nextLive };
-        delete nextLive[assistantId];
-      }
-      continue;
-    }
-    rows.push(user);
-    if (!assistantId) continue;
-    const localAssistant = localRows.find(
-      (row) =>
-        row.row_id === assistantId &&
-        row.row.kind === 'message_turn' &&
-        row.row.phase === 'streaming'
-    );
-    if (
-      localAssistant &&
-      !rows.some((row) => row.row_id === localAssistant.row_id)
-    ) {
-      rows.push(localAssistant);
-    }
-  }
-  return { rows, liveText: nextLive };
 }
 
 function userTurnText(turn: MessageTurn): string {
@@ -1386,9 +2390,15 @@ function withPendingAssistantTurns(
   for (const [rowId, overlay] of Object.entries(entry.liveText)) {
     if (!rowId.endsWith(':assistant') || assistantIds.has(rowId)) continue;
     const userId = `${rowId.slice(0, -':assistant'.length)}:user`;
-    const userTurn = result.find(
+    let userTurn = result.find(
       (row) => row.turn.role === 'user' && row.turn.id === userId
     );
+    if (!userTurn) {
+      const lastRow = result[result.length - 1];
+      if (lastRow && lastRow.turn.role === 'user') {
+        userTurn = lastRow;
+      }
+    }
     if (
       !userTurn ||
       userTurn.phase === 'settled' ||
@@ -1423,14 +2433,28 @@ function withPendingAssistantTurns(
         (row.phase === 'optimistic' || row.phase === 'streaming')
     );
   if (pendingUser) {
+    const pendingUserIndex = result.findIndex(
+      (row) => row.turn.id === pendingUser.turn.id
+    );
+    const hasFollowingAssistant =
+      pendingUserIndex >= 0 &&
+      result
+        .slice(pendingUserIndex + 1)
+        .some((row) => row.turn.role === 'assistant');
     const assistantId = pendingUser.turn.id.endsWith(':user')
       ? `${pendingUser.turn.id.slice(0, -':user'.length)}:assistant`
       : `${pendingUser.turn.id}:assistant`;
     const hasOrphanAssistant = result.some(
       (row) =>
-        row.turn.role === 'assistant' && !hasPairedUser(result, row.turn.id)
+        row.turn.role === 'assistant' &&
+        isClientAssistantId(row.turn.id) &&
+        !hasPairedUser(result, row.turn.id)
     );
-    if (!assistantIds.has(assistantId) && !hasOrphanAssistant) {
+    if (
+      !assistantIds.has(assistantId) &&
+      !hasFollowingAssistant &&
+      !hasOrphanAssistant
+    ) {
       insertAfter(pendingUser, {
         key: `conversation-${assistantId}`,
         phase: 'streaming',
@@ -1522,7 +2546,8 @@ function mergeOptimisticUsersBeforeOrphanAssistants(
       if (candidate.turn.role !== 'assistant') return false;
       const key = messageTurnPairKey(candidate.turn.id);
       if (!key || filledKeys.has(key)) return false;
-      return !hasPairedUser(result, candidate.turn.id);
+      if (hasPairedUser(result, candidate.turn.id)) return false;
+      return true;
     });
     if (!orphan) {
       result.push(turn);

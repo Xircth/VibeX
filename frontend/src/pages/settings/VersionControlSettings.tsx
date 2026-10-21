@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 import {
   AlertCircle,
   Bell,
@@ -31,7 +31,8 @@ import {
   type VersionControlCliSettings,
   versionControlApi,
 } from '@/lib/api';
-import { SettingsActionBar, SettingsSection } from './SettingsUi';
+import { SettingsSection } from './SettingsUi';
+import { useLiveSettingsCommit } from './useLiveSettingsCommit';
 import { SETTINGS_CHANGED_EVENT } from '@/lib/frontendPreferences';
 
 function cloneConfig(config: Config): Config {
@@ -70,8 +71,8 @@ export function VersionControlSettings() {
   const [draft, setDraft] = useState<Config | null>(() =>
     config ? cloneConfig(config) : null
   );
-  const [saving, setSaving] = useState(false);
-  const [dirty, setDirty] = useState(false);
+  const draftRef = useRef(draft);
+  draftRef.current = draft;
   const [cliSettings, setCliSettings] =
     useState<VersionControlCliSettings | null>(null);
   const [customGitPath, setCustomGitPath] = useState('');
@@ -85,19 +86,49 @@ export function VersionControlSettings() {
   const [githubLoading, setGithubLoading] = useState(false);
   const [githubInstalling, setGithubInstalling] = useState(false);
 
-  useEffect(() => {
-    if (config && !dirty) {
-      setDraft(cloneConfig(config));
+  const { writeNow, writeSettled, flush, holding } = useLiveSettingsCommit(
+    async (next: Config) => {
+      const saved = await updateAndSaveConfig({
+        commit_reminder_enabled: next.commit_reminder_enabled,
+        commit_reminder_mode: next.commit_reminder_mode,
+        commit_reminder_line_threshold: next.commit_reminder_line_threshold,
+        pr_auto_description_enabled: next.pr_auto_description_enabled,
+        pr_auto_description_prompt: next.pr_auto_description_prompt,
+        pr_auto_description_agent_id: next.pr_auto_description_agent_id,
+        pr_auto_description_mode: next.pr_auto_description_mode,
+        pr_auto_description_session_config:
+          next.pr_auto_description_session_config,
+      });
+      if (!saved) {
+        toast.error(t('versionControl.saveFailed'), {
+          description: t('versionControl.saveFailedDesc'),
+        });
+      }
     }
-  }, [config, dirty]);
+  );
 
-  const updateDraft = useCallback((patch: Partial<Config>) => {
-    setDraft((prev) => {
-      if (!prev) return prev;
-      setDirty(true);
-      return { ...prev, ...patch };
-    });
-  }, []);
+  const appliedConfig = useRef(config);
+  useEffect(() => {
+    if (!config || holding) return;
+    if (config === appliedConfig.current) return;
+    appliedConfig.current = config;
+    const next = cloneConfig(config);
+    draftRef.current = next;
+    setDraft(next);
+  }, [config, holding]);
+
+  const updateDraft = useCallback(
+    (patch: Partial<Config>, settle = false) => {
+      const previous = draftRef.current;
+      if (!previous) return;
+      const next = { ...previous, ...patch };
+      draftRef.current = next;
+      setDraft(next);
+      if (settle) writeSettled(next);
+      else writeNow(next);
+    },
+    [writeNow, writeSettled]
+  );
 
   const refreshGit = useCallback(async () => {
     try {
@@ -215,49 +246,6 @@ export function VersionControlSettings() {
       );
     };
   }, [cliSettings, customGitPath, t]);
-
-  const handleSave = async () => {
-    if (!draft) return;
-
-    try {
-      setSaving(true);
-      // 只提交本页可编辑的字段，避免用旧快照覆盖工作树页等其它来源的
-      // 全局设置（workspace_dir / git_branch_prefix 已迁移到工作树页）。
-      const saved = await updateAndSaveConfig({
-        commit_reminder_enabled: draft.commit_reminder_enabled,
-        commit_reminder_mode: draft.commit_reminder_mode,
-        commit_reminder_line_threshold: draft.commit_reminder_line_threshold,
-        pr_auto_description_enabled: draft.pr_auto_description_enabled,
-        pr_auto_description_prompt: draft.pr_auto_description_prompt,
-        pr_auto_description_agent_id: draft.pr_auto_description_agent_id,
-        pr_auto_description_mode: draft.pr_auto_description_mode,
-        pr_auto_description_session_config:
-          draft.pr_auto_description_session_config,
-      });
-      if (!saved) {
-        throw new Error(t('versionControl.saveFailedDesc'));
-      }
-      setDirty(false);
-      toast.success(t('versionControl.settingsSaved'), {
-        description: t('versionControl.settingsSavedDesc'),
-      });
-    } catch (error) {
-      toast.error(t('versionControl.saveFailed'), {
-        description:
-          error instanceof Error
-            ? error.message
-            : t('versionControl.saveFailedDesc'),
-      });
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  const handleReset = () => {
-    if (!config) return;
-    setDraft(cloneConfig(config));
-    setDirty(false);
-  };
 
   const handleTestGitPath = async () => {
     const trimmed = customGitPath.trim();
@@ -556,16 +544,20 @@ export function VersionControlSettings() {
                   step={100}
                   value={draft.commit_reminder_line_threshold ?? 10000}
                   onChange={(event) =>
-                    updateDraft({
-                      commit_reminder_line_threshold: Math.max(
-                        0,
-                        Math.min(
-                          4_294_967_295,
-                          Number.parseInt(event.target.value || '0', 10)
-                        )
-                      ),
-                    })
+                    updateDraft(
+                      {
+                        commit_reminder_line_threshold: Math.max(
+                          0,
+                          Math.min(
+                            4_294_967_295,
+                            Number.parseInt(event.target.value || '0', 10)
+                          )
+                        ),
+                      },
+                      true
+                    )
                   }
+                  onBlur={() => void flush()}
                 />
                 <span className="text-xs text-muted-foreground">
                   {t('versionControl.linesUnit')}
@@ -649,8 +641,12 @@ export function VersionControlSettings() {
               }
               disabled={draft.pr_auto_description_prompt == null}
               onChange={(event) =>
-                updateDraft({ pr_auto_description_prompt: event.target.value })
+                updateDraft(
+                  { pr_auto_description_prompt: event.target.value },
+                  true
+                )
               }
+              onBlur={() => void flush()}
               rows={7}
             />
           </div>
@@ -765,12 +761,6 @@ export function VersionControlSettings() {
         </SettingsSection>
       </div>
 
-      <SettingsActionBar
-        dirty={dirty}
-        saving={saving}
-        onDiscard={handleReset}
-        onSave={handleSave}
-      />
     </div>
   );
 }

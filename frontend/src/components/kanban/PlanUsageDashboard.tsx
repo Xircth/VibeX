@@ -2,13 +2,7 @@ import { useMemo, useState } from 'react';
 import { useQueries, useQuery } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
 import { AlertCircle, CreditCard, RefreshCw } from 'lucide-react';
-import type {
-  AgentId,
-  AgentAuthModeView,
-  AgentManagementView,
-  AgentPlanUsage,
-  PlanUsageWindow,
-} from 'shared/types';
+import type { AgentId, AgentPlanUsage, PlanUsageWindow } from 'shared/types';
 import { PlanUsageUnavailableReason } from 'shared/types';
 import { SurfaceLoading } from '@/components/layout/SurfaceLoading';
 import { toast } from '@/components/ui/toast';
@@ -19,6 +13,11 @@ import {
 } from '@/features/agent-management';
 import { cn } from '@/lib/utils';
 import {
+  isPlanCapableAgentId,
+  isSignedInSubscription,
+  type PlanCapableAgentId,
+} from './agentSubscriptionAuth';
+import {
   clampPercent,
   describeReset,
   describeWindowLabel,
@@ -27,22 +26,6 @@ import {
 
 // The Claude usage endpoint is rate limited; keep probes to one per 3 minutes.
 const PLAN_USAGE_STALE_TIME_MS = 180_000;
-
-const PLAN_CAPABLE_AGENT_IDS = [
-  'claude_code',
-  'codex',
-  'grok',
-  'cursor',
-] as const;
-
-type PlanCapableAgentId = (typeof PLAN_CAPABLE_AGENT_IDS)[number];
-
-const SUBSCRIPTION_MODES: Record<PlanCapableAgentId, string> = {
-  claude_code: 'official_subscription',
-  codex: 'chatgpt_subscription',
-  grok: 'subscription',
-  cursor: 'subscription',
-};
 
 const UNAVAILABLE_REASON_KEYS: Record<PlanUsageUnavailableReason, string> = {
   [PlanUsageUnavailableReason.UNSUPPORTED_AGENT]: 'reasonUnsupported',
@@ -57,23 +40,10 @@ const PLAN_COPY: Record<PlanCapableAgentId, { title: string; source: string }> =
     codex: { title: 'codexTitle', source: 'codexSource' },
     grok: { title: 'grokTitle', source: 'grokSource' },
     cursor: { title: 'cursorTitle', source: 'cursorSource' },
+    opencode: { title: 'opencodeTitle', source: 'opencodeSource' },
+    kimi_code: { title: 'kimiTitle', source: 'kimiSource' },
+    antigravity: { title: 'antigravityTitle', source: 'antigravitySource' },
   };
-
-function isPlanCapableAgentId(agentId: string): agentId is PlanCapableAgentId {
-  return (PLAN_CAPABLE_AGENT_IDS as readonly string[]).includes(agentId);
-}
-
-function isSignedInSubscription(
-  agent: AgentManagementView,
-  authMode: AgentAuthModeView | undefined
-) {
-  return (
-    agent.enabled &&
-    agent.authentication === 'account' &&
-    isPlanCapableAgentId(agent.agent_id) &&
-    authMode?.mode === SUBSCRIPTION_MODES[agent.agent_id]
-  );
-}
 
 function usePlanKey() {
   const { t } = useTranslation('tasks');

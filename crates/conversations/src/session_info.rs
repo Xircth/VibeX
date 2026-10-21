@@ -10,7 +10,10 @@ use std::{
     time::Duration,
 };
 
-use agents::{ConversationEvent, ConversationInputBlock};
+use agents::{
+    ConversationEvent, ConversationInputBlock,
+    conversation::{ContentBlock, TurnRole},
+};
 use chrono::{DateTime, Utc};
 use db::models::{conversation::DbConversationSummary, workspace::Workspace};
 use serde::Serialize;
@@ -236,6 +239,7 @@ pub async fn load_compact_transcript(
     if max_messages == 0 {
         return (None, None);
     }
+    #[derive(Clone)]
     struct CompactMessage {
         role: &'static str,
         chunks_rev: Vec<String>,
@@ -348,6 +352,82 @@ pub async fn load_compact_transcript(
         }
         if page_len < usize::try_from(PAGE_SIZE).unwrap_or(512) {
             break;
+        }
+    }
+
+    // Wire-recorded ACP turns persist assistant messages and tool calls to the
+    // JSONL transcript rather than `conversation_events`. When the JSONL file
+    // exists on disk, prefer its full user + assistant turn sequence while
+    // retaining any brand-new uncommitted user turn at the head of `messages`.
+    if let Some(jsonl_turns) = crate::jsonl_history::read_existing_transcript_turns(conversation_id)
+    {
+        let mut jsonl_messages_rev: Vec<CompactMessage> = Vec::new();
+        for turn in jsonl_turns.iter().rev() {
+            let role = match turn.role {
+                TurnRole::User => "user",
+                TurnRole::Assistant => "assistant",
+                TurnRole::System => continue,
+            };
+            let mut text_parts = Vec::new();
+            let mut tools = Vec::new();
+            for block in &turn.blocks {
+                match block {
+                    ContentBlock::Text { text } => {
+                        let normalized = normalize_session_newlines(text);
+                        if !(role == "user" && is_host_history_prompt(&normalized))
+                            && !normalized.trim().is_empty()
+                        {
+                            text_parts.push(normalized);
+                        }
+                    }
+                    ContentBlock::ToolUse { tool_name, .. } => {
+                        let name = truncate_chars(tool_name, MAX_TOOL_NAME_CHARS);
+                        if tools.len() < MAX_TOOLS_PER_TURN && !tools.contains(&name) {
+                            tools.push(name);
+                        }
+                    }
+                    _ => {}
+                }
+            }
+            let content = text_parts.join("\n");
+            if content.is_empty() && tools.is_empty() {
+                continue;
+            }
+            jsonl_messages_rev.push(CompactMessage {
+                role,
+                chunks_rev: vec![content],
+                tools,
+                message_id: Some(turn.id.clone()),
+            });
+            if latest_usage.is_none()
+                && let Some(usage) = turn.usage.as_ref()
+            {
+                let total = usage
+                    .input_tokens
+                    .saturating_add(usage.output_tokens)
+                    .saturating_add(usage.cache_creation_input_tokens)
+                    .saturating_add(usage.cache_read_input_tokens);
+                if total > 0 {
+                    latest_usage = Some(json!({
+                        "total_tokens": total,
+                        "input_tokens": usage.input_tokens,
+                        "output_tokens": usage.output_tokens,
+                    }));
+                }
+            }
+        }
+        let sql_user_count = messages.iter().filter(|m| m.role == "user").count();
+        let jsonl_user_count = jsonl_messages_rev
+            .iter()
+            .filter(|m| m.role == "user")
+            .count();
+        if sql_user_count > jsonl_user_count
+            && let Some(newest_sql_user) = messages.first().filter(|m| m.role == "user").cloned()
+        {
+            jsonl_messages_rev.insert(0, newest_sql_user);
+        }
+        if !jsonl_messages_rev.is_empty() {
+            messages = jsonl_messages_rev;
         }
     }
 
@@ -895,5 +975,85 @@ mod tests {
         let info = resolve_referenced_session(&pool, "not-a-uuid", 20).await;
         assert!(!info.found);
         assert!(info.note.unwrap().contains("not-a-uuid"));
+    }
+
+    #[tokio::test]
+    async fn compact_transcript_and_host_history_read_jsonl_assistant_turns() {
+        let pool = pool().await;
+        let conversation_id = Uuid::new_v4();
+        let _ = crate::jsonl_history::read_existing_transcript_turns(conversation_id);
+        let root = agents::acp_transcript::vibex_acp_transcripts_root();
+        let sid = conversation_id.simple().to_string();
+        let path = agents::acp_transcript::transcript_path_in(&root, "claude-code", &sid)
+            .expect("transcript path");
+        if let Some(parent) = path.parent() {
+            std::fs::create_dir_all(parent).expect("create dir");
+        }
+        let header = serde_json::to_string(&agents::acp_transcript::TranscriptHeader::new(
+            "claude-code",
+            &sid,
+            "",
+            1_700_000_000_000,
+        ))
+        .unwrap();
+        let e1 = serde_json::to_string(&agents::acp_transcript::TranscriptEntry {
+            t: 1_700_000_001_000,
+            k: agents::acp_transcript::EntryKind::Prompt,
+            steer: false,
+            p: serde_json::json!([{ "type": "text", "text": "first question" }]),
+        })
+        .unwrap();
+        let e2 = serde_json::to_string(&agents::acp_transcript::TranscriptEntry {
+            t: 1_700_000_002_000,
+            k: agents::acp_transcript::EntryKind::Update,
+            steer: false,
+            p: serde_json::json!({
+                "sessionUpdate": "agent_message_chunk",
+                "content": { "type": "text", "text": "first answer" }
+            }),
+        })
+        .unwrap();
+        let e3 = serde_json::to_string(&agents::acp_transcript::TranscriptEntry {
+            t: 1_700_000_003_000,
+            k: agents::acp_transcript::EntryKind::TurnEnd,
+            steer: false,
+            p: serde_json::json!({ "stopReason": "end_turn" }),
+        })
+        .unwrap();
+        std::fs::write(&path, format!("{header}\n{e1}\n{e2}\n{e3}\n")).expect("write transcript");
+
+        insert_event(
+            &pool,
+            conversation_id,
+            1,
+            ConversationEvent::UserTurnCreated {
+                blocks: vec![ConversationInputBlock::Text {
+                    text: "first question".to_string(),
+                }],
+                workflow_refs: Vec::new(),
+            },
+        )
+        .await;
+        insert_event(
+            &pool,
+            conversation_id,
+            2,
+            ConversationEvent::UserTurnCreated {
+                blocks: vec![ConversationInputBlock::Text {
+                    text: "second question".to_string(),
+                }],
+                workflow_refs: Vec::new(),
+            },
+        )
+        .await;
+
+        let prompt = host_history_prompt(&pool, conversation_id, "second question")
+            .await
+            .expect("host history prompt");
+        let _ = std::fs::remove_file(&path);
+        assert_eq!(
+            prompt,
+            "Previous conversation:\nUser: first question\nAssistant: first answer\n"
+        );
     }
 }

@@ -20,6 +20,7 @@ type Props = {
   fields: AgentNativeConfigFieldView[];
   drafts: Record<string, string>;
   disabled: boolean;
+  onBlur?: () => void;
   onChange: (fieldId: string, value: string) => void;
 };
 
@@ -27,6 +28,7 @@ export function AgentConfigFieldsCard({
   fields,
   drafts,
   disabled,
+  onBlur,
   onChange,
 }: Props) {
   const { i18n } = useTranslation('settings');
@@ -77,6 +79,7 @@ export function AgentConfigFieldsCard({
                 label={labelOf(field)}
                 optionLabel={optionLabel}
                 value={drafts[field.id] ?? ''}
+                onBlur={onBlur}
                 onChange={(value) => onChange(field.id, value)}
               />
             </div>
@@ -102,6 +105,7 @@ function ConfigControl({
   disabled,
   label,
   optionLabel,
+  onBlur,
   onChange,
 }: {
   field: AgentNativeConfigFieldView;
@@ -109,6 +113,7 @@ function ConfigControl({
   disabled: boolean;
   label: string;
   optionLabel: (value: string, option: string) => string;
+  onBlur?: () => void;
   onChange: (value: string) => void;
 }) {
   const { t } = useTranslation('settings');
@@ -125,6 +130,7 @@ function ConfigControl({
         rows={7}
         spellCheck={false}
         value={value}
+        onBlur={onBlur}
         onChange={(event) => onChange(event.target.value)}
       />
     );
@@ -172,6 +178,7 @@ function ConfigControl({
           ? (event) => event.currentTarget.select()
           : undefined
       }
+      onBlur={onBlur}
       onChange={(event) => onChange(event.target.value)}
     />
   );

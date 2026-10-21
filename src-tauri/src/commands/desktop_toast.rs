@@ -192,9 +192,8 @@ pub async fn show_desktop_toast(
                 if let Ok(core) = controller.CoreWebView2()
                     && let Ok(core19) = core.cast::<ICoreWebView2_19>()
                 {
-                    let _ = core19.SetMemoryUsageTargetLevel(
-                        COREWEBVIEW2_MEMORY_USAGE_TARGET_LEVEL_NORMAL,
-                    );
+                    let _ = core19
+                        .SetMemoryUsageTargetLevel(COREWEBVIEW2_MEMORY_USAGE_TARGET_LEVEL_NORMAL);
                 }
                 let _ = controller.SetIsVisible(true);
             }

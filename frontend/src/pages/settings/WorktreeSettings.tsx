@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { AlertTriangle, FolderGit2, GitFork, Loader2 } from 'lucide-react';
+import { AlertTriangle, FolderGit2, GitFork } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import type { Project } from 'shared/types';
 
@@ -20,7 +20,8 @@ import {
 } from '@/lib/api';
 import { SETTINGS_CHANGED_EVENT } from '@/lib/frontendPreferences';
 import { cn } from '@/lib/utils';
-import { SettingsActionBar, SettingsSection } from './SettingsUi';
+import { SettingsSection } from './SettingsUi';
+import { useLiveSettingsCommit } from './useLiveSettingsCommit';
 
 const EMPTY_SETTINGS: ProjectWorktreeSettings = {
   create_command: null,
@@ -61,42 +62,110 @@ export function WorktreeSettings() {
   const [projects, setProjects] = useState<Project[]>([]);
   const [projectId, setProjectId] = useState('');
   const [draft, setDraft] = useState<ProjectWorktreeSettings>(EMPTY_SETTINGS);
-  const [saved, setSaved] = useState<ProjectWorktreeSettings>(EMPTY_SETTINGS);
+  const draftRef = useRef(draft);
+  draftRef.current = draft;
   const [status, setStatus] = useState<WorktreeCleanupStatus | null>(null);
   const [loading, setLoading] = useState(true);
-  const [saving, setSaving] = useState(false);
-  const dirtyRef = useRef(false);
+  const projectIdRef = useRef('');
   const [worktreeDraft, setWorktreeDraft] = useState({
     workspace_dir: null as string | null,
     git_branch_prefix: '',
   });
-  const [worktreeSaving, setWorktreeSaving] = useState(false);
+  const worktreeDraftRef = useRef(worktreeDraft);
+  worktreeDraftRef.current = worktreeDraft;
   const worktreeEditedRef = useRef(false);
-  const worktreeDirty =
-    config !== null &&
-    (worktreeDraft.workspace_dir !== (config.workspace_dir ?? null) ||
-      worktreeDraft.git_branch_prefix !== config.git_branch_prefix);
+  const [worktreeEdited, setWorktreeEdited] = useState(false);
   const worktreeBranchPrefixError = useMemo(
     () => validateBranchPrefix(worktreeDraft.git_branch_prefix, t),
     [worktreeDraft.git_branch_prefix, t]
   );
+  const {
+    writeSettled: writeWorktreeSettled,
+    flush: flushWorktree,
+    holdingRef: worktreeHoldingRef,
+  } = useLiveSettingsCommit(
+    async (next: { workspace_dir: string | null; git_branch_prefix: string }) => {
+      if (validateBranchPrefix(next.git_branch_prefix, t)) return;
+      try {
+        const savedConfig = await updateAndSaveConfig({
+          workspace_dir: next.workspace_dir,
+          git_branch_prefix: next.git_branch_prefix,
+        });
+        if (!savedConfig) {
+          toast.error(t('versionControl.saveFailed'), {
+            description: t('versionControl.saveFailedDesc'),
+          });
+          return;
+        }
+        const current = worktreeDraftRef.current;
+        if (
+          current.workspace_dir === next.workspace_dir &&
+          current.git_branch_prefix === next.git_branch_prefix
+        ) {
+          worktreeEditedRef.current = false;
+          setWorktreeEdited(false);
+        }
+      } catch (error) {
+        toast.error(t('versionControl.saveFailed'), {
+          description:
+            error instanceof Error
+              ? error.message
+              : t('versionControl.saveFailedDesc'),
+        });
+      }
+    }
+  );
+  const {
+    writeNow: writeProjectNow,
+    writeSettled: writeProjectSettled,
+    flush: flushProject,
+    holdingRef: projectHoldingRef,
+  } = useLiveSettingsCommit(async (next: ProjectWorktreeSettings) => {
+    const project = projectIdRef.current;
+    if (!project) return;
+    try {
+      const savedSettings = await worktreeSettingsApi.update(project, next);
+      if (projectIdRef.current !== project) return;
+      const cloned = cloneSettings(savedSettings);
+      draftRef.current = cloned;
+      setDraft(cloned);
+      setStatus(await worktreeSettingsApi.getCleanupStatus(project));
+    } catch (error) {
+      if (projectIdRef.current !== project) return;
+      toast.error(t('worktrees.saveFailed'), {
+        description: error instanceof Error ? error.message : String(error),
+      });
+    }
+  });
 
   // config 就绪前不渲染编辑值；就绪后同步一次，之后只在用户未编辑时跟随
   // 外部 config 变化，避免把加载前的空 draft 覆盖回全局配置。
   useEffect(() => {
-    if (config === null || worktreeEditedRef.current) return;
-    setWorktreeDraft({
+    if (
+      config === null ||
+      worktreeEditedRef.current ||
+      worktreeHoldingRef.current
+    ) {
+      return;
+    }
+    const next = {
       workspace_dir: config.workspace_dir ?? null,
       git_branch_prefix: config.git_branch_prefix,
-    });
-  }, [config]);
+    };
+    worktreeDraftRef.current = next;
+    setWorktreeDraft(next);
+  }, [config, worktreeHoldingRef]);
 
   const updateWorktreeDraft = useCallback(
     (patch: Partial<typeof worktreeDraft>) => {
       worktreeEditedRef.current = true;
-      setWorktreeDraft((current) => ({ ...current, ...patch }));
+      setWorktreeEdited(true);
+      const next = { ...worktreeDraftRef.current, ...patch };
+      worktreeDraftRef.current = next;
+      setWorktreeDraft(next);
+      writeWorktreeSettled(next);
     },
-    []
+    [writeWorktreeSettled]
   );
 
   const handleBrowseWorkspaceDir = async () => {
@@ -107,45 +176,6 @@ export function WorktreeSettings() {
     });
     if (result) {
       updateWorktreeDraft({ workspace_dir: result });
-    }
-  };
-
-  const resetWorktreeSettings = () => {
-    worktreeEditedRef.current = false;
-    setWorktreeDraft({
-      workspace_dir: config?.workspace_dir ?? null,
-      git_branch_prefix: config?.git_branch_prefix ?? '',
-    });
-  };
-
-  const saveWorktreeSettings = async () => {
-    if (worktreeBranchPrefixError) {
-      toast.error(t('versionControl.branchPrefixInvalid'), {
-        description: worktreeBranchPrefixError,
-      });
-      return;
-    }
-    setWorktreeSaving(true);
-    try {
-      const savedConfig = await updateAndSaveConfig({
-        workspace_dir: worktreeDraft.workspace_dir,
-        git_branch_prefix: worktreeDraft.git_branch_prefix,
-      });
-      if (!savedConfig) {
-        throw new Error(t('versionControl.saveFailedDesc'));
-      }
-      toast.success(t('versionControl.settingsSaved'), {
-        description: t('versionControl.settingsSavedDesc'),
-      });
-    } catch (error) {
-      toast.error(t('versionControl.saveFailed'), {
-        description:
-          error instanceof Error
-            ? error.message
-            : t('versionControl.saveFailedDesc'),
-      });
-    } finally {
-      setWorktreeSaving(false);
     }
   };
 
@@ -176,17 +206,19 @@ export function WorktreeSettings() {
       return;
     }
     let cancelled = false;
+    projectIdRef.current = projectId;
     const loadSettings = () => {
-      if (dirtyRef.current) return;
+      if (projectHoldingRef.current) return;
       setLoading(true);
       void Promise.all([
         worktreeSettingsApi.get(projectId),
         worktreeSettingsApi.getCleanupStatus(projectId),
       ])
         .then(([settings, nextStatus]) => {
-          if (cancelled) return;
-          setDraft(cloneSettings(settings));
-          setSaved(cloneSettings(settings));
+          if (cancelled || projectHoldingRef.current) return;
+          const cloned = cloneSettings(settings);
+          draftRef.current = cloned;
+          setDraft(cloned);
           setStatus(nextStatus);
         })
         .catch((error) => {
@@ -207,42 +239,29 @@ export function WorktreeSettings() {
       window.removeEventListener('focus', loadSettings);
       window.removeEventListener(SETTINGS_CHANGED_EVENT, loadSettings);
     };
-  }, [projectId, t]);
+  }, [projectHoldingRef, projectId, t]);
 
-  const dirty = useMemo(
-    () => JSON.stringify(draft) !== JSON.stringify(saved),
-    [draft, saved]
+  const updateDraft = useCallback(
+    (patch: Partial<ProjectWorktreeSettings>, settle = false) => {
+      const next = { ...draftRef.current, ...patch };
+      draftRef.current = next;
+      setDraft(next);
+      if (!projectIdRef.current) return;
+      if (settle) writeProjectSettled(next);
+      else writeProjectNow(next);
+    },
+    [writeProjectNow, writeProjectSettled]
   );
-  dirtyRef.current = dirty;
-
-  const updateDraft = useCallback((patch: Partial<ProjectWorktreeSettings>) => {
-    setDraft((current) => ({ ...current, ...patch }));
-  }, []);
-
-  const save = useCallback(async () => {
-    if (!projectId) return;
-    setSaving(true);
-    try {
-      const next = await worktreeSettingsApi.update(projectId, draft);
-      setDraft(cloneSettings(next));
-      setSaved(cloneSettings(next));
-      setStatus(await worktreeSettingsApi.getCleanupStatus(projectId));
-      toast.success(t('worktrees.saved'));
-    } catch (error) {
-      toast.error(t('worktrees.saveFailed'), {
-        description: error instanceof Error ? error.message : String(error),
-      });
-    } finally {
-      setSaving(false);
-    }
-  }, [draft, projectId, t]);
 
   const selectedProject = projects.find((project) => project.id === projectId);
 
   const selectProject = (id: string) => {
     if (id === projectId) return;
-    dirtyRef.current = false;
-    setProjectId(id);
+    void (async () => {
+      await flushProject();
+      projectIdRef.current = id;
+      setProjectId(id);
+    })();
   };
 
   return (
@@ -271,6 +290,7 @@ export function WorktreeSettings() {
                       workspace_dir: value || null,
                     })
                   }
+                  onBlur={() => void flushWorktree()}
                   placeholder={t('versionControl.workspaceDirPlaceholder')}
                   width="100%"
                   className="[&_input]:text-sm"
@@ -301,48 +321,22 @@ export function WorktreeSettings() {
                     git_branch_prefix: value.trim(),
                   })
                 }
+                onBlur={() => void flushWorktree()}
                 placeholder="vibex"
                 width="100%"
                 className="[&_input]:text-sm"
                 status={
-                  worktreeDirty && worktreeBranchPrefixError
+                  worktreeEdited && worktreeBranchPrefixError
                     ? { type: 'error' }
                     : undefined
                 }
               />
-              {worktreeDirty && worktreeBranchPrefixError ? (
+              {worktreeEdited && worktreeBranchPrefixError ? (
                 <p className="text-sm text-destructive">
                   {worktreeBranchPrefixError}
                 </p>
               ) : null}
             </div>
-
-            {worktreeDirty ? (
-              <div className="flex justify-end gap-2 pt-1">
-                <Button
-                  variant="outline"
-                  size="sm"
-                  type="button"
-                  onClick={resetWorktreeSettings}
-                  disabled={worktreeSaving}
-                >
-                  {t('common:discard')}
-                </Button>
-                <Button
-                  size="sm"
-                  type="button"
-                  onClick={() => void saveWorktreeSettings()}
-                  disabled={
-                    Boolean(worktreeBranchPrefixError) || worktreeSaving
-                  }
-                >
-                  {worktreeSaving ? (
-                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                  ) : null}
-                  {t('common:save')}
-                </Button>
-              </div>
-            ) : null}
           </div>
         </SettingsSection>
 
@@ -396,10 +390,14 @@ export function WorktreeSettings() {
                     className="min-h-20 font-mono text-sm"
                     value={draft.create_command ?? ''}
                     onChange={(event) =>
-                      updateDraft({
-                        create_command: event.target.value || null,
-                      })
+                      updateDraft(
+                        {
+                          create_command: event.target.value || null,
+                        },
+                        true
+                      )
                     }
+                    onBlur={() => void flushProject()}
                     placeholder={t('worktrees.createCommandPlaceholder')}
                     disabled={loading || !projectId}
                   />
@@ -416,10 +414,14 @@ export function WorktreeSettings() {
                     className="min-h-20 font-mono text-sm"
                     value={draft.delete_command ?? ''}
                     onChange={(event) =>
-                      updateDraft({
-                        delete_command: event.target.value || null,
-                      })
+                      updateDraft(
+                        {
+                          delete_command: event.target.value || null,
+                        },
+                        true
+                      )
                     }
+                    onBlur={() => void flushProject()}
                     placeholder={t('worktrees.deleteCommandPlaceholder')}
                     disabled={loading || !projectId}
                   />
@@ -460,14 +462,14 @@ export function WorktreeSettings() {
                     max={999}
                     className="w-24 text-right"
                     value={draft.cleanup_prompt_threshold}
-                    onChange={(event) =>
-                      updateDraft({
-                        cleanup_prompt_threshold: Math.max(
-                          1,
-                          Number.parseInt(event.target.value, 10) || 1
-                        ),
-                      })
-                    }
+                    onChange={(event) => {
+                      const parsed = Number.parseInt(event.target.value, 10);
+                      if (!Number.isInteger(parsed) || parsed < 1 || parsed > 999) {
+                        return;
+                      }
+                      updateDraft({ cleanup_prompt_threshold: parsed }, true);
+                    }}
+                    onBlur={() => void flushProject()}
                     disabled={
                       loading || !projectId || !draft.cleanup_prompt_enabled
                     }
@@ -492,14 +494,6 @@ export function WorktreeSettings() {
           </div>
         </SettingsSection>
       </div>
-
-      <SettingsActionBar
-        dirty={dirty}
-        saving={saving}
-        onDiscard={() => setDraft(cloneSettings(saved))}
-        onSave={() => void save()}
-        disabled={!projectId || draft.cleanup_prompt_threshold < 1}
-      />
     </div>
   );
 }

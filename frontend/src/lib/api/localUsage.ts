@@ -22,6 +22,7 @@ export interface ProjectUsageDailyUsage {
   tokens: ProjectUsageSourcedTokens;
   cost?: number | null;
   models_used: string[];
+  turns?: number | null;
 }
 
 export interface ProjectUsageModelUsage {
@@ -59,6 +60,7 @@ export interface ProjectUsageSessionSummary {
   cost?: number | null;
   summary?: string | null;
   external_session_id?: string | null;
+  turns?: number | null;
 }
 
 export interface ProjectUsageWeekData {

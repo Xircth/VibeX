@@ -9,6 +9,7 @@ pub mod acp_tool_projection;
 pub mod acp_transcript;
 mod antigravity_auth;
 mod antigravity_login;
+mod antigravity_plan;
 mod auth_mode;
 pub mod auth_status;
 pub mod capability;
@@ -144,8 +145,9 @@ pub use delegation_inject::{
 pub use distribution::current_platform;
 pub use elicitation::{AgentElicitationRequest, AgentElicitationResponse};
 pub use end_turn_usage::{
-    model_id_from_config_options, model_id_from_meta, prompt_usage_from_value,
-    usage_from_error_data, usage_from_session_notification_params, usage_from_session_update,
+    is_unresolved_model_alias, merge_agent_usage, model_id_from_config_options, model_id_from_meta,
+    prompt_usage_from_value, usage_from_error_data, usage_from_session_notification_params,
+    usage_from_session_update,
 };
 pub use error::{AgentError, AgentResult};
 pub use events::{
@@ -159,7 +161,8 @@ pub use events::{
 };
 pub use filesystem::{AgentFileReadRequest, AgentFileWriteRequest};
 pub use fork::{
-    ForkPoint, ForkPointStatus, classify_fork_point, fingerprint_agent_message, resolve_fork_point,
+    ForkPoint, ForkPointStatus, can_name_fork_point_turn, classify_fork_point,
+    classify_fork_point_turn, fingerprint_agent_message, resolve_fork_point,
     resolve_fork_point_for_turn,
 };
 pub use grok_mcp::{mcp_bare_tool_name, unwrap_grok_use_tool};
@@ -248,8 +251,8 @@ pub use permissions::{
     decide_remote_permission_response,
 };
 pub use plan_usage::{
-    AgentPlanUsage, PlanCredits, PlanUsageResult, PlanUsageUnavailableReason, PlanUsageWindow,
-    cached_plan_usage, probe_plan_usage,
+    AgentPlanUsage, PlanCredits, PlanProbeContext, PlanUsageResult, PlanUsageUnavailableReason,
+    PlanUsageWindow, cached_plan_usage, probe_plan_usage, probe_plan_usage_with,
 };
 pub use profiles::{
     AccountEvidence, AccountEvidenceKind, AuthenticationPrecedence, BuiltInProfile,

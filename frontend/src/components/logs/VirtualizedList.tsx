@@ -143,6 +143,22 @@ export function measureScrollMargin(
   );
 }
 
+/**
+ * Space left above a user message when a piano-key or turn jump aligns it
+ * to the start. Start alignment otherwise scrolls the row onto the scrollport
+ * edge and carries the stream's top padding away with it.
+ */
+export const USER_MESSAGE_SCROLL_INSET_PX = 12;
+
+export function startAlignedVirtualOffset(
+  itemStart: number,
+  insetPx = USER_MESSAGE_SCROLL_INSET_PX
+): number {
+  if (!Number.isFinite(itemStart)) return 0;
+  const inset = Number.isFinite(insetPx) ? Math.max(0, insetPx) : 0;
+  return Math.max(0, itemStart - inset);
+}
+
 export function unscaledElementRect(element: {
   clientWidth: number;
   clientHeight: number;

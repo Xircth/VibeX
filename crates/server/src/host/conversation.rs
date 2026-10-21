@@ -15,6 +15,7 @@ use conversations::{
     CreateConversationRelation, ForkVisibleConversation, export_conversation_bundle,
     fork_visible_conversation, import_conversation_bundle, jsonl_history,
     preview_checkpoint_file_changes, render_html, render_markdown,
+    session_stats_with_usage_snapshot,
 };
 use db::models::{
     conversation::{
@@ -23,6 +24,7 @@ use db::models::{
     },
     conversation_event::ConversationEventRecord,
     conversation_turn::ConversationTurnRecord,
+    conversation_usage::ConversationUsageSnapshotRecord,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
@@ -253,7 +255,7 @@ impl ServerApplicationDomains {
             Some(page) => (
                 Some(page.start.to_string()),
                 page.next_cursor.map(|index| index.to_string()),
-                jsonl_history::rows_from_turns(&page.turns),
+                page.rows,
             ),
             None => (args.cursor, None, Vec::new()),
         };
@@ -439,11 +441,14 @@ impl ServerApplicationDomains {
     ) -> Result<Value, ApplicationError> {
         let args: ConversationForkArgs = parse(args)?;
         let source_id = parse_uuid(&args.conversation_id)?;
-        let until_turn_id = args.at_turn_id.as_deref().map(parse_uuid).transpose()?;
+        let until_turn_id = self
+            .resolve_fork_target_turn_uuid(source_id, args.at_turn_id.as_deref())
+            .await?;
         serialize(
             self.fork_conversation(
                 source_id,
                 until_turn_id,
+                args.at_turn_id.as_deref(),
                 args.current_mode,
                 args.config_selection_json,
             )
@@ -451,10 +456,54 @@ impl ServerApplicationDomains {
         )
     }
 
+    async fn resolve_fork_target_turn_uuid(
+        &self,
+        source_id: Uuid,
+        raw_turn_id: Option<&str>,
+    ) -> Result<Option<Uuid>, ApplicationError> {
+        let Some(raw) = raw_turn_id.map(str::trim).filter(|s| !s.is_empty()) else {
+            return Ok(None);
+        };
+        let stripped = raw
+            .strip_suffix(":assistant")
+            .or_else(|| raw.strip_suffix(":user"))
+            .unwrap_or(raw);
+        if let Ok(uuid) = Uuid::parse_str(stripped) {
+            return Ok(Some(uuid));
+        }
+        let turns = jsonl_history::load_all_turns(&self.pool, source_id)
+            .await
+            .map_err(internal_error)?
+            .unwrap_or_default();
+        let db_turns = ConversationTurnRecord::list_for_conversation(&self.pool, source_id)
+            .await
+            .map_err(internal_error)?;
+        let mut round_index: Option<usize> = None;
+        for turn in &turns {
+            if matches!(turn.role, agents::conversation::TurnRole::User)
+                && !turn.id.contains(":steer:")
+            {
+                round_index = Some(round_index.map_or(0, |idx| idx + 1));
+            }
+            if turn.id == raw {
+                if let Some(idx) = round_index
+                    && let Some(db_turn) = db_turns.get(idx)
+                {
+                    return Ok(Some(db_turn.id));
+                }
+                break;
+            }
+        }
+        Err(ApplicationError::bad_request(format!(
+            "invalid fork turn id: {raw}"
+        )))
+    }
+
     async fn fork_conversation(
         &self,
         source_id: Uuid,
         until_turn_id: Option<Uuid>,
+        raw_at_turn_id: Option<&str>,
         overlay_mode: Option<String>,
         overlay_config_json: Option<String>,
     ) -> Result<ConversationForkResult, ApplicationError> {
@@ -501,7 +550,7 @@ impl ServerApplicationDomains {
         let agent_id = summary.agent_id.as_ref();
         let fork_point = match (agent_id, until_turn_id) {
             (Some(agent_id), Some(_)) => {
-                self.resolve_agent_fork_point(source_id, until_turn_id, agent_id)
+                self.resolve_agent_fork_point(source_id, until_turn_id, raw_at_turn_id, agent_id)
                     .await?
             }
             _ => None,
@@ -680,6 +729,7 @@ impl ServerApplicationDomains {
         &self,
         source_id: Uuid,
         until_turn_id: Option<Uuid>,
+        raw_at_turn_id: Option<&str>,
         agent_id: &agents::AgentId,
     ) -> Result<Option<agents::ForkPoint>, ApplicationError> {
         let Some(until_turn_id) = until_turn_id else {
@@ -688,6 +738,41 @@ impl ServerApplicationDomains {
         let Ok(agent_kind) = agents::AgentKind::from_str(agent_id.as_str()) else {
             return Ok(None);
         };
+        if let Some(turns) = jsonl_history::load_all_turns(&self.pool, source_id)
+            .await
+            .map_err(internal_error)?
+            && !turns.is_empty()
+        {
+            if let Some(raw) = raw_at_turn_id
+                && let Some(fp) = agents::resolve_fork_point_for_turn(&turns, raw, agent_kind)
+            {
+                return Ok(Some(fp));
+            }
+            if let Some(fp) =
+                agents::resolve_fork_point_for_turn(&turns, &until_turn_id.to_string(), agent_kind)
+            {
+                return Ok(Some(fp));
+            }
+            let db_turns = ConversationTurnRecord::list_for_conversation(&self.pool, source_id)
+                .await
+                .map_err(internal_error)?;
+            if let Some(user_ordinal) = db_turns.iter().position(|turn| turn.id == until_turn_id) {
+                let target_turn_id = turns
+                    .iter()
+                    .filter(|turn| {
+                        matches!(turn.role, agents::conversation::TurnRole::User)
+                            && !turn.id.contains(":steer:")
+                    })
+                    .nth(user_ordinal)
+                    .map(|turn| turn.id.clone());
+                if let Some(target_turn_id) = target_turn_id
+                    && let Some(fp) =
+                        agents::resolve_fork_point_for_turn(&turns, &target_turn_id, agent_kind)
+                {
+                    return Ok(Some(fp));
+                }
+            }
+        }
         let timeline = ConversationProjector::project(&self.pool, source_id)
             .await
             .map_err(internal_error)?;
@@ -748,16 +833,13 @@ pub async fn load_conversation_detail(
     let history = jsonl_history::load_window(pool, id, request)
         .await
         .map_err(internal_error)?
-        .unwrap_or_else(|| jsonl_history::WindowedHistory {
-            turns: Vec::new(),
-            offset: 0,
-            total: 0,
-            meta: conversations::turn_window::window_meta(&[], 0),
-            session_stats: None,
-            last_sequence: 0,
-        });
+        .unwrap_or_else(jsonl_history::WindowedHistory::empty);
     let timeline = jsonl_history::timeline_from_window(id, &history);
-    let session_stats = history.session_stats.clone();
+    let usage_snapshot = ConversationUsageSnapshotRecord::find(pool, id)
+        .await
+        .map_err(internal_error)?;
+    let session_stats =
+        session_stats_with_usage_snapshot(history.session_stats.clone(), usage_snapshot.as_ref());
     let current_turn = current_turn_for_conversation(pool, id).await?;
     let in_flight_user_turn_id = current_turn.as_ref().and_then(|turn| {
         matches!(

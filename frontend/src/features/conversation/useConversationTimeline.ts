@@ -1,8 +1,10 @@
 import { useEffect, useSyncExternalStore } from 'react';
 import {
+  getConversationSessionFacts,
   getConversationTimelineView,
   retainConversationTimeline,
   subscribeConversationTimeline,
+  type ConversationSessionFacts,
   type ConversationTimelineView,
 } from './conversationTimelineRegistry';
 
@@ -23,4 +25,14 @@ export function useConversationTimeline(
     return retainConversationTimeline(conversationId);
   }, [conversationId, isActive]);
   return snapshot;
+}
+
+export function useConversationSessionFacts(
+  conversationId: string | null
+): ConversationSessionFacts {
+  return useSyncExternalStore(
+    subscribeConversationTimeline,
+    () => getConversationSessionFacts(conversationId),
+    () => getConversationSessionFacts(conversationId)
+  );
 }

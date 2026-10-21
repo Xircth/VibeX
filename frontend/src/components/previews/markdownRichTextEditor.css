@@ -28,21 +28,26 @@
   overflow: hidden;
 }
 
-.markdown-rich-text-editor .astryx-rich-text-editor:not(#\#):not(#\#):not(#\#),
 .markdown-rich-text-editor
-  [data-pressable-container]:not(#\#):not(#\#):not(#\#),
+  .astryx-rich-text-editor:not(dialog *):not(#\#):not(#\#):not(#\#),
 .markdown-rich-text-editor
-  .astryx-rich-text-editor:not(#\#):not(#\#):not(#\#):hover,
+  [data-pressable-container]:not(dialog *):not(#\#):not(#\#):not(#\#),
 .markdown-rich-text-editor
-  [data-pressable-container]:not(#\#):not(#\#):not(#\#):hover,
+  .astryx-rich-text-editor:not(dialog *):not(#\#):not(#\#):not(#\#):hover,
 .markdown-rich-text-editor
-  .astryx-rich-text-editor:not(#\#):not(#\#):not(#\#):focus,
+  [data-pressable-container]:not(dialog *):not(#\#):not(#\#):not(#\#):hover,
 .markdown-rich-text-editor
-  [data-pressable-container]:not(#\#):not(#\#):not(#\#):focus,
+  .astryx-rich-text-editor:not(dialog *):not(#\#):not(#\#):not(#\#):focus,
 .markdown-rich-text-editor
-  .astryx-rich-text-editor:not(#\#):not(#\#):not(#\#):focus-within,
+  [data-pressable-container]:not(dialog *):not(#\#):not(#\#):not(#\#):focus,
 .markdown-rich-text-editor
-  [data-pressable-container]:not(#\#):not(#\#):not(#\#):focus-within {
+  .astryx-rich-text-editor:not(dialog *):not(#\#):not(#\#):not(
+    #\#
+  ):focus-within,
+.markdown-rich-text-editor
+  [data-pressable-container]:not(dialog *):not(#\#):not(#\#):not(
+    #\#
+  ):focus-within {
   border: none !important;
   border-color: transparent !important;
   border-radius: 0;
@@ -72,4 +77,26 @@
   min-height: 0;
   overflow: auto;
   padding: 1rem 1.5rem;
+}
+
+/* The link dialog is a descendant of the editor, so the surface resets above
+   also match its text field. Astryx cancels dialog padding with an equal
+   negative margin and then clips the shell; once that pair is disturbed the
+   title and actions sit on the card edge. Drop the bleed and pad the slots. */
+.markdown-rich-text-editor dialog > div {
+  padding: 0;
+}
+
+.markdown-rich-text-editor dialog .astryx-layout {
+  margin: 0;
+}
+
+.markdown-rich-text-editor dialog .astryx-layout-header > div,
+.markdown-rich-text-editor dialog .astryx-layout-footer > div {
+  padding: var(--spacing-4, 16px);
+}
+
+.markdown-rich-text-editor dialog .astryx-layout-content {
+  padding-block: 0 var(--spacing-4, 16px);
+  padding-inline: var(--spacing-4, 16px);
 }

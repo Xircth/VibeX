@@ -13,6 +13,10 @@ const conv = readFileSync(
   resolve(frontendRoot, 'src/styles/conversation/conv-variables.css'),
   'utf8'
 );
+const fileTree = readFileSync(
+  resolve(frontendRoot, 'src/styles/file-tree/file-tree-base.css'),
+  'utf8'
+);
 
 function declarationsFor(match: (selector: string) => boolean) {
   const declarations = new Map<string, string>();
@@ -43,17 +47,16 @@ describe('dark night scene tokens', () => {
       !selector.includes('reduced-transparency')
   );
 
-  it('documents Hangar, Mirage, and Pearl Ink as first-class dark materials', () => {
+  it('documents Astryx neutral surfaces and Pearl Ink accent', () => {
     expect(design).toContain('dark-primary: "#E7EBEF"');
     expect(design).toContain('dark-primary-foreground: "#0E1319"');
-    expect(design).toContain('dark-shell-bg: "#0E1319"');
-    expect(design).toContain('dark-content-bg: "#1F2430"');
-    expect(design).toContain('dark-panel-bg: "#242936"');
+    expect(design).toContain('shell-bg: "#ffffff"');
+    expect(design).toContain('content-bg: "#ffffff"');
+    expect(design).toContain('dark-shell-bg: "#1b1b1b"');
+    expect(design).toContain('dark-content-bg: "#262626"');
+    expect(design).toContain('dark-panel-bg: "#262626"');
     expect(design).toContain('Pearl Ink');
-    expect(design).toContain('Hangar');
-    expect(design).toContain(
-      'Astryx `theme-neutral` chrome follows the same night scene'
-    );
+    expect(design).toContain('same hex on macOS and Windows');
     expect(design).not.toContain('dark-switch-checked-border: "#ffffff57"');
     expect(design).toContain(
       'dark-switch-checked-track: "hsl(var(--primary))"'
@@ -67,40 +70,39 @@ describe('dark night scene tokens', () => {
     );
   });
 
-  it('paints workspace chrome from one topbar token', () => {
+  it('paints workspace chrome from one opaque topbar token on every platform', () => {
     expect(css).toContain('--surface-sidebar: var(--surface-topbar);');
-    expect(css).toContain('--surface-right-panel: hsl(0 0% 100% / 0.82);');
-    expect(css).toContain('--surface-right-panel: hsl(210 18% 15% / 0.55);');
-    expect(css).not.toContain('--surface-right-panel: var(--surface-topbar);');
-    expect(css).not.toContain(
-      '--surface-right-panel: var(--surface-glass-solid);'
-    );
-    expect(css).toContain('--surface-glass-solid: hsl(220 24% 96%);');
-    expect(css).toMatch(
-      /\.workspace-topbar,\s*\.workspace-chrome \{[\s\S]*?background: var\(--surface-topbar\);[\s\S]*?backdrop-filter: blur\(18px\) saturate\(1\.2\);/
-    );
-    expect(css).toContain(
-      'html.host-windows :where(.legacy-design) .workspace-chrome,'
-    );
-    expect(dark.get('--surface-topbar')).toBe('hsl(210 18% 16% / 0.55)');
-    expect(dark.get('--surface-glass-solid')).toBe('#191e2a');
+    expect(css).toContain('--surface-right-panel: var(--surface-shell);');
+    expect(css).not.toContain('html.host-windows .legacy-design {');
+    expect(light.get('--surface-shell')).toBe('#ffffff');
+    expect(light.get('--surface-topbar')).toBe('#f1f1f1');
+    expect(light.get('--surface-glass-solid')).toBe('var(--surface-shell)');
+    expect(dark.get('--surface-shell')).toBe('#1b1b1b');
+    expect(dark.get('--surface-topbar')).toBe('var(--surface-shell)');
+    expect(dark.get('--surface-glass-solid')).toBe('var(--surface-shell)');
+    expect(isOpaqueColor(light.get('--surface-shell'))).toBe(true);
+    expect(isOpaqueColor(dark.get('--surface-shell'))).toBe(true);
   });
 
-  it('keeps chrome translucent and content fully opaque', () => {
-    expect(dark.get('--surface-shell')).toBe('#0e1319');
-    expect(dark.get('--surface-glass')).toMatch(/\/ 0\.55\)/);
+  it('keeps content and dialogs on the lifted Astryx surface', () => {
+    expect(isOpaqueColor(light.get('--surface-content'))).toBe(true);
     expect(isOpaqueColor(dark.get('--surface-content'))).toBe(true);
     expect(isOpaqueColor(dark.get('--surface-card-strong'))).toBe(true);
     expect(isOpaqueColor(dark.get('--surface-dialog'))).toBe(true);
-    expect(dark.get('--surface-content')).toBe('#1f2430');
-    expect(dark.get('--surface-card-strong')).toBe('#242936');
-    expect(dark.get('--surface-dialog')).toBe('#242936');
+    expect(light.get('--surface-content')).toBe('#ffffff');
+    expect(light.get('--surface-dialog')).toBe('#ffffff');
+    expect(dark.get('--surface-content')).toBe('#262626');
+    expect(dark.get('--surface-card-strong')).toBe('#262626');
+    expect(dark.get('--surface-dialog')).toBe('#262626');
   });
 
-  it('gives dark chrome a moonlight edge and sidebar wash instead of deleting decoration', () => {
-    expect(light.get('--surface-wash')).toContain('linear-gradient');
-    expect(dark.get('--surface-wash')).toContain('210 32% 42%');
-    expect(dark.get('--highlight-edge')).toBe('hsl(210 30% 80% / 0.12)');
+  it('paints the settings nav with a gray-white-gray wash', () => {
+    expect(light.get('--surface-wash')?.replace(/\s+/g, ' ')).toBe(
+      'linear-gradient( 180deg, #e6e6e6 0%, #f3f3f3 24%, #ffffff 50%, #f3f3f3 76%, #e6e6e6 100% )'
+    );
+    expect(dark.get('--surface-wash')?.replace(/\s+/g, ' ')).toBe(
+      'linear-gradient( 180deg, #262626 0%, #1b1b1b 28%, #1b1b1b 72%, #262626 100% )'
+    );
     expect(css).toContain(
       'background: var(--surface-wash), var(--surface-sidebar);'
     );
@@ -118,14 +120,29 @@ describe('dark night scene tokens', () => {
     expect(css).toContain('box-shadow: var(--shadow-composer);');
   });
 
-  it('keeps conversation user bubbles on raised Mirage instead of a third gray', () => {
+  it('paints the session list with the page color', () => {
+    expect(css).toMatch(
+      /\.session-hub-sidebar \{\s*min-width: 0;\s*overflow: hidden;\s*background: var\(--surface-shell\);/
+    );
+  });
+
+  it('paints the file tree with the page color', () => {
+    expect(fileTree).toMatch(
+      /\.file-tree-panel \{[\s\S]*?background: var\(--surface-shell\);/
+    );
+    expect(fileTree).not.toContain('--surface-topbar');
+  });
+
+  it('paints user bubbles gray on the white page', () => {
+    expect(conv).toContain('--conv-user-bg: #f1f1f1;');
     expect(conv).toContain('--conv-user-bg: var(--surface-raised-control);');
     expect(conv).toContain('--conv-user-text: var(--text-strong);');
   });
 
-  it('aligns shadcn dark background to Mirage so content islands do not fork', () => {
-    expect(dark.get('--_background')).toBe('222 22% 15%');
-    expect(dark.get('--_secondary')).toBe('223 20% 18%');
+  it('aligns shadcn dark background to the Astryx body', () => {
+    expect(dark.get('--_background')).toBe('0 0% 10.59%');
+    expect(dark.get('--_secondary')).toBe('0 0% 14.9%');
+    expect(dark.get('--card')).toBe('0 0% 14.9%');
     expect(dark.get('--_console-background')).toBe('213 28% 8%');
   });
 
@@ -175,11 +192,11 @@ describe('dark night scene tokens', () => {
     expect(css).toContain('--project-rail-glass: var(--surface-glass-solid);');
   });
 
-  it('maps Astryx dark chrome onto Hangar, Mirage, and the live accent', () => {
-    expect(dark.get('--color-background-body')).toBe('#0e1319');
-    expect(dark.get('--color-background-card')).toBe('#1f2430');
-    expect(dark.get('--color-background-surface')).toBe('#242936');
-    expect(dark.get('--color-background-popover')).toBe('#242936');
+  it('maps Astryx dark chrome onto the neutral body and the live accent', () => {
+    expect(dark.get('--color-background-body')).toBe('#1b1b1b');
+    expect(dark.get('--color-background-card')).toBe('#262626');
+    expect(dark.get('--color-background-surface')).toBe('#262626');
+    expect(dark.get('--color-background-popover')).toBe('#262626');
     expect(dark.get('--color-accent')).toBe('hsl(var(--primary))');
     expect(dark.get('--color-accent-muted')).toBe('hsl(var(--primary) / 0.12)');
     expect(dark.get('--color-on-accent')).toBe(
@@ -187,7 +204,7 @@ describe('dark night scene tokens', () => {
     );
     expect(dark.get('--color-text-accent')).toBe('hsl(var(--primary))');
     expect(dark.get('--color-icon-accent')).toBe('hsl(var(--primary))');
-    expect(dark.get('--color-text-primary')).toBe('#e7ebef');
+    expect(dark.get('--color-text-primary')).toBe('#fafafa');
   });
 
   it('keeps the composer usage ring as a ring, not a pearl pie', () => {

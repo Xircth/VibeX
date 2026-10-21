@@ -43,6 +43,7 @@
   min-height: 0;
   overflow: hidden;
   position: relative;
+  background: var(--surface-shell);
 }
 
 .file-tree-top-zone {
@@ -365,7 +366,7 @@
   padding-bottom: 8px;
   background: color-mix(
     in srgb,
-    var(--surface-right-panel, transparent) 84%,
+    var(--surface-shell) 84%,
     transparent
   );
   backdrop-filter: blur(6px);
@@ -374,20 +375,14 @@
 .app.reduced-transparency .workspace-search-header {
   backdrop-filter: none;
   -webkit-backdrop-filter: none;
-  background: var(
-    --surface-right-panel,
-    var(--surface-panel, var(--surface-card-strong))
-  );
+  background: var(--surface-shell);
 }
 
 @media (prefers-reduced-transparency: reduce) {
   .workspace-search-header {
     backdrop-filter: none;
     -webkit-backdrop-filter: none;
-    background: var(
-      --surface-right-panel,
-      var(--surface-panel, var(--surface-card-strong))
-    );
+    background: var(--surface-shell);
   }
 }
 

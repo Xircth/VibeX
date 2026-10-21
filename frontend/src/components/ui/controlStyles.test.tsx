@@ -161,7 +161,7 @@ describe('shared raised controls', () => {
     expect(css).toContain('--_radius: 0.875rem;');
     expect(css).toContain('--radius-element: var(--radius);');
     expect(css).toContain('--_button-radius: var(--radius);');
-    expect(css).toContain('--color-neutral: var(--surface-raised-control);');
+    expect(css).toContain('--color-neutral: #0000000f;');
     expect(css).toContain('--_primary: var(--accent-hsl, 0 0% 10.59%);');
     expect(css).toContain(
       '--_primary-foreground: var(--accent-foreground-hsl, 0 0% 100%);'
@@ -179,7 +179,7 @@ describe('shared raised controls', () => {
       '--switch-checked-border: hsl(var(--primary) / 0.85);'
     );
     expect(css).toContain('--_ring: var(--_primary);');
-    expect(css).toContain('--surface-raised-control: hsl(220 14% 97%);');
+    expect(css).toContain('--surface-raised-control: #ffffff;');
     expect(css).toContain('border: 1px solid var(--border-subtle) !important;');
     expect(css).toContain('box-shadow: none !important;');
     expect(css).toContain('.primary-control,');

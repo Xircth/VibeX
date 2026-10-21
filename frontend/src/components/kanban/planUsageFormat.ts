@@ -53,10 +53,32 @@ export function describeWindowLabel(
       return { key: 'windowCursorModels' };
     case 'other_models':
       return { key: 'windowOtherModels' };
+    case 'gemini_five_hour':
+      return { key: 'windowGeminiFiveHour' };
+    case 'gemini_weekly':
+      return { key: 'windowGeminiWeekly' };
+    case 'claude_gpt_five_hour':
+      return { key: 'windowClaudeGptFiveHour' };
+    case 'claude_gpt_weekly':
+      return { key: 'windowClaudeGptWeekly' };
+    case 'argon_five_hour':
+      return { key: 'windowArgonFiveHour' };
+    case 'argon_weekly':
+      return { key: 'windowArgonWeekly' };
+    case 'gemini_pro':
+      return { key: 'windowGeminiPro' };
+    case 'gemini_flash':
+      return { key: 'windowGeminiFlash' };
+    case 'claude_pool':
+      return { key: 'windowClaudePool' };
+    case 'argon_pool':
+      return { key: 'windowArgonPool' };
     case 'weekly':
       return { key: 'windowWeekly' };
     case 'monthly':
       return { key: 'windowMonthly' };
+    case 'rolling':
+      return { key: 'windowRolling' };
     default: {
       const minutes = window.windowMinutes;
       if (typeof minutes === 'number' && minutes > 0) {

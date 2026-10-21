@@ -97,6 +97,7 @@
     "zustand": "^4.5.4"
   },
   "devDependencies": {
+    "@astryxdesign/cli": "0.7.1",
     "@playwright/test": "^1.62.1",
     "@testing-library/jest-dom": "^6.9.1",
     "@testing-library/react": "^16.3.2",

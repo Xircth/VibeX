@@ -129,7 +129,7 @@ export function Navbar() {
   );
 
   return (
-    <div className="window-chrome relative border-b bg-background">
+    <div className="window-chrome relative border-b bg-[var(--surface-topbar)]">
       <div data-tauri-drag-region className="absolute inset-0" />
       <div className="relative z-10 w-full px-3">
         <div className="flex items-center h-12 py-2">

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { SelectableCard } from '@astryxdesign/core/SelectableCard';
 import {
   SegmentedControl,
@@ -42,7 +42,6 @@ import { backendEmit } from '@/lib/backendTransport';
 import { toPrettyCase } from '@/utils/string';
 
 import {
-  arrangementsEqual,
   setKanbanArrangement,
   setLayoutArrangement,
   useKanbanArrangement,
@@ -68,7 +67,8 @@ import { DEFAULT_COLLAPSE_PREFERENCES } from '@/lib/conversationCollapsePreferen
 import { useEditorSettingsStore } from '@/stores/useEditorSettingsStore';
 import { type MarkdownPreviewMode } from '@/utils/markdownPreviewMode';
 import { AccentColorField } from './AccentColorField';
-import { SettingsActionBar, SettingsSection } from './SettingsUi';
+import { SettingsSection } from './SettingsUi';
+import { useLiveSettingsCommit } from './useLiveSettingsCommit';
 import {
   KanbanLayoutSchematic,
   WorkspaceLayoutSchematic,
@@ -199,7 +199,8 @@ export function AppearanceSettings() {
   const [draft, setDraft] = useState<Config | null>(() =>
     config ? structuredClone(config) : null
   );
-  const [saving, setSaving] = useState(false);
+  const draftRef = useRef(draft);
+  draftRef.current = draft;
   const [zoom, setZoom] = useState<number>(() => getUiZoom());
   const [language, setLanguage] = useState<UiLanguage>(() => getUiLanguage());
   const [monoFont, setMonoFontState] = useState<string>(() => getMonoFontId());
@@ -210,14 +211,8 @@ export function AppearanceSettings() {
   const [settingsNavFloat, setSettingsNavFloatState] = useState<boolean>(() =>
     getSettingsNavFloat()
   );
-  const savedWorkspaceArrangement = useLayoutArrangement();
-  const savedKanbanArrangement = useKanbanArrangement();
-  const [workspaceArrangementDraft, setWorkspaceArrangementDraft] = useState(
-    savedWorkspaceArrangement
-  );
-  const [kanbanArrangementDraft, setKanbanArrangementDraft] = useState(
-    savedKanbanArrangement
-  );
+  const workspaceArrangement = useLayoutArrangement();
+  const kanbanArrangement = useKanbanArrangement();
   const [layoutPage, setLayoutPage] = useState<'workspace' | 'kanban'>(
     'workspace'
   );
@@ -234,92 +229,40 @@ export function AppearanceSettings() {
     (state) => state.setMarkdownPreviewMode
   );
 
+  const { writeNow, holding } = useLiveSettingsCommit(async (next: Config) => {
+    await updateAndSaveConfig(next);
+  });
+
+  const appliedConfig = useRef(config);
   useEffect(() => {
-    if (config) {
-      setDraft(structuredClone(config));
-    }
-  }, [config]);
+    if (!config || holding) return;
+    if (config === appliedConfig.current) return;
+    appliedConfig.current = config;
+    const next = structuredClone(config);
+    draftRef.current = next;
+    setDraft(next);
+  }, [config, holding]);
 
-  useEffect(() => {
-    setWorkspaceArrangementDraft(savedWorkspaceArrangement);
-  }, [savedWorkspaceArrangement]);
+  const updateDraft = useCallback(
+    (patch: Partial<Config>) => {
+      const previous = draftRef.current;
+      if (!previous) return;
+      const next = { ...previous, ...patch };
+      draftRef.current = next;
+      setDraft(next);
+      writeNow(next);
+    },
+    [writeNow]
+  );
 
-  useEffect(() => {
-    setKanbanArrangementDraft(savedKanbanArrangement);
-  }, [savedKanbanArrangement]);
-
-  const hasUnsavedChanges = useMemo(() => {
-    if (!config || !draft) {
-      return (
-        !arrangementsEqual(
-          workspaceArrangementDraft,
-          savedWorkspaceArrangement
-        ) || !arrangementsEqual(kanbanArrangementDraft, savedKanbanArrangement)
-      );
-    }
-    return (
-      draft.theme !== config.theme ||
-      (draft.files_changed_default_collapsed ??
-        DEFAULT_COLLAPSE_PREFERENCES.filesChangedCollapsed) !==
-        (config.files_changed_default_collapsed ??
-          DEFAULT_COLLAPSE_PREFERENCES.filesChangedCollapsed) ||
-      (draft.ai_message_default_collapsed ??
-        DEFAULT_COLLAPSE_PREFERENCES.aiMessagesCollapsed) !==
-        (config.ai_message_default_collapsed ??
-          DEFAULT_COLLAPSE_PREFERENCES.aiMessagesCollapsed) ||
-      (draft.hide_model_thinking ??
-        DEFAULT_COLLAPSE_PREFERENCES.hideModelThinking) !==
-        (config.hide_model_thinking ??
-          DEFAULT_COLLAPSE_PREFERENCES.hideModelThinking) ||
-      !arrangementsEqual(
-        workspaceArrangementDraft,
-        savedWorkspaceArrangement
-      ) ||
-      !arrangementsEqual(kanbanArrangementDraft, savedKanbanArrangement)
-    );
-  }, [
-    config,
-    draft,
-    kanbanArrangementDraft,
-    savedKanbanArrangement,
-    savedWorkspaceArrangement,
-    workspaceArrangementDraft,
-  ]);
-
-  const updateTheme = useCallback((theme: ThemeMode) => {
-    setDraft((previous) => (previous ? { ...previous, theme } : previous));
-  }, []);
-
-  const updateDraft = useCallback((patch: Partial<Config>) => {
-    setDraft((previous) => (previous ? { ...previous, ...patch } : previous));
-  }, []);
-
-  const handleSave = async () => {
-    if (!draft) return;
-    setSaving(true);
-    try {
-      // Layout arrangements apply on save (localStorage + storage-event
-      // sync to the main window), not while dragging the schematic.
-      setLayoutArrangement(workspaceArrangementDraft);
-      setKanbanArrangement(kanbanArrangementDraft);
-
-      const saved = await updateAndSaveConfig(draft);
-      if (saved) {
-        setTheme(draft.theme);
-        backendEmit('theme-changed', { theme: draft.theme });
-      }
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  const handleDiscard = () => {
-    if (config) {
-      setDraft(structuredClone(config));
-    }
-    setWorkspaceArrangementDraft(savedWorkspaceArrangement);
-    setKanbanArrangementDraft(savedKanbanArrangement);
-  };
+  const updateTheme = useCallback(
+    (theme: ThemeMode) => {
+      updateDraft({ theme });
+      setTheme(theme);
+      backendEmit('theme-changed', { theme });
+    },
+    [setTheme, updateDraft]
+  );
 
   if (loading) {
     return (
@@ -701,13 +644,13 @@ export function AppearanceSettings() {
           <div className="flex flex-col gap-3">
             {layoutPage === 'workspace' ? (
               <WorkspaceLayoutSchematic
-                value={workspaceArrangementDraft}
-                onChange={setWorkspaceArrangementDraft}
+                value={workspaceArrangement}
+                onChange={setLayoutArrangement}
               />
             ) : (
               <KanbanLayoutSchematic
-                value={kanbanArrangementDraft}
-                onChange={setKanbanArrangementDraft}
+                value={kanbanArrangement}
+                onChange={setKanbanArrangement}
               />
             )}
             <p className="settings-row__description">
@@ -722,13 +665,6 @@ export function AppearanceSettings() {
         </SettingsSection>
       </div>
 
-      <SettingsActionBar
-        dirty={hasUnsavedChanges}
-        saving={saving}
-        onDiscard={handleDiscard}
-        onSave={handleSave}
-        disabled={saving}
-      />
     </div>
   );
 }

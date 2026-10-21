@@ -99,7 +99,7 @@ describe('WorktreeSettings', () => {
       screen.getByLabelText(/创建.*命令|create.*command/i),
       'pnpm bootstrap'
     );
-    await user.click(screen.getByRole('button', { name: /保存|save/i }));
+    await user.tab();
 
     await waitFor(() =>
       expect(api.update).toHaveBeenCalledWith('project-1', {
@@ -148,7 +148,7 @@ describe('WorktreeSettings', () => {
 
     await user.clear(prefixInput);
     await user.type(prefixInput, 'feature');
-    await user.click(screen.getByRole('button', { name: '保存' }));
+    await user.tab();
 
     await waitFor(() =>
       expect(configMocks.updateAndSaveConfig).toHaveBeenCalledWith({
@@ -199,5 +199,6 @@ describe('WorktreeSettings', () => {
     expect(
       screen.getByText('分支前缀不能以 / 开头或结尾。')
     ).toBeInTheDocument();
+    expect(configMocks.updateAndSaveConfig).not.toHaveBeenCalled();
   });
 });

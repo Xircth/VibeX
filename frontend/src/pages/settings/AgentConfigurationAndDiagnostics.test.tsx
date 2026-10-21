@@ -194,7 +194,6 @@ describe('AgentConfigurationAndDiagnostics', () => {
     expect(screen.queryByText('Agent Skills')).not.toBeInTheDocument();
 
     await pickAstryxOption(userEvent, screen.getByLabelText('推理强度'), '高');
-    await userEvent.click(screen.getByRole('button', { name: '保存' }));
 
     expect(onSave).toHaveBeenCalledWith({
       agent_id: 'codex',
@@ -280,7 +279,7 @@ describe('AgentConfigurationAndDiagnostics', () => {
       screen.getByLabelText('OpenAI API Key'),
       'sk-local-only'
     );
-    await userEvent.click(screen.getByRole('button', { name: '保存' }));
+    await userEvent.tab();
     expect(onSave).toHaveBeenCalledWith({
       agent_id: 'codex',
       base_field_revisions: { openai_api_key: 'revision-key' },
@@ -477,7 +476,6 @@ describe('AgentConfigurationAndDiagnostics', () => {
     );
     expect(screen.getByLabelText('沙箱命令确认')).toBeChecked();
     await userEvent.click(screen.getByLabelText('规则确认'));
-    await userEvent.click(screen.getByRole('button', { name: '保存' }));
 
     expect(onSave).toHaveBeenCalledWith({
       agent_id: 'codex',
@@ -536,7 +534,6 @@ describe('AgentConfigurationAndDiagnostics', () => {
     );
 
     await userEvent.click(screen.getByLabelText('Skills'));
-    await userEvent.click(screen.getByRole('button', { name: '保存' }));
 
     expect(onSave).toHaveBeenCalledWith({
       agent_id: 'codex',

@@ -496,7 +496,6 @@ describe('WebServiceSettings', () => {
       expect(webServiceApiMock.probePort).toHaveBeenCalledWith(19000)
     );
     await user.click(screen.getByRole('switch', { name: '自动启动' }));
-    await user.click(screen.getByRole('button', { name: '保存' }));
 
     await waitFor(() =>
       expect(webServiceApiMock.updateConfig).toHaveBeenCalledWith({

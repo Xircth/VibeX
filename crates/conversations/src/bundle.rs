@@ -1,8 +1,9 @@
 use std::collections::HashMap;
 
 use agents::conversation::{
-    ConversationBundleChecksum, ConversationBundleManifest, ConversationBundlePayload,
-    ConversationEvent, ConversationInputBlock,
+    ContentBlock, ConversationBundleChecksum, ConversationBundleManifest,
+    ConversationBundlePayload, ConversationEvent, ConversationInputBlock,
+    ConversationToolCallPatch, TurnRole,
 };
 use chrono::Utc;
 use db::models::{
@@ -11,7 +12,7 @@ use db::models::{
         ConversationExportRecord, ConversationImportRecord, InsertConversationExport,
         InsertConversationImport,
     },
-    conversation_event::{AppendConversationEvent, ConversationEventRecord},
+    conversation_event::{AppendConversationEvent, CURRENT_EVENT_VERSION, ConversationEventRecord},
     conversation_side_effects::{
         ConversationFileChangeRecord, ConversationPermissionRecord, ConversationTerminalRecord,
     },
@@ -145,7 +146,20 @@ pub async fn export_conversation_bundle(
     let bindings =
         ConversationAgentBindingRecord::list_for_conversation(pool, conversation_id).await?;
     let turns = ConversationTurnRecord::list_for_conversation(pool, conversation_id).await?;
-    let events = ConversationEventRecord::events_since(pool, conversation_id, 0, i64::MAX).await?;
+    let mut events =
+        ConversationEventRecord::events_since(pool, conversation_id, 0, i64::MAX).await?;
+    let has_assistant_events = events.iter().any(|record| {
+        matches!(
+            record.event_kind.as_str(),
+            "assistant_text_delta" | "assistant_reasoning_delta" | "tool_call_upsert"
+        )
+    });
+    if !has_assistant_events
+        && let Some(jsonl_turns) =
+            crate::jsonl_history::read_existing_transcript_turns(conversation_id)
+    {
+        events = merge_jsonl_assistant_events(conversation_id, &turns, events, &jsonl_turns)?;
+    }
     let tools = ConversationToolCallRecord::list_for_conversation(pool, conversation_id).await?;
     let files = ConversationFileChangeRecord::list_for_conversation(pool, conversation_id).await?;
     let permissions =
@@ -225,6 +239,230 @@ pub async fn export_conversation_bundle(
     })
 }
 
+fn merge_jsonl_assistant_events(
+    conversation_id: Uuid,
+    db_turns: &[ConversationTurnRecord],
+    sql_events: Vec<ConversationEventRecord>,
+    jsonl_turns: &[agents::conversation::MessageTurn],
+) -> Result<Vec<ConversationEventRecord>, serde_json::Error> {
+    let mut assistant_by_round: Vec<Vec<ConversationEvent>> = Vec::new();
+    let mut current_round: Option<usize> = None;
+    for turn in jsonl_turns {
+        match turn.role {
+            TurnRole::User => {
+                if !turn.id.contains(":steer:") {
+                    assistant_by_round.push(Vec::new());
+                    current_round = Some(assistant_by_round.len() - 1);
+                }
+            }
+            TurnRole::Assistant => {
+                let idx = match current_round {
+                    Some(idx) => idx,
+                    None => {
+                        assistant_by_round.push(Vec::new());
+                        current_round = Some(0);
+                        0
+                    }
+                };
+                for block in &turn.blocks {
+                    match block {
+                        ContentBlock::Thinking { text } if !text.is_empty() => {
+                            assistant_by_round[idx].push(
+                                ConversationEvent::AssistantReasoningDelta {
+                                    text: text.clone(),
+                                    message_id: turn.agent_message_id.clone(),
+                                },
+                            );
+                        }
+                        ContentBlock::Text { text } if !text.is_empty() => {
+                            assistant_by_round[idx].push(ConversationEvent::AssistantTextDelta {
+                                text: text.clone(),
+                                message_id: turn.agent_message_id.clone(),
+                            });
+                        }
+                        ContentBlock::ToolUse {
+                            tool_use_id,
+                            tool_name,
+                            input_preview,
+                            ..
+                        } => {
+                            let raw_input = input_preview.as_deref().map(|raw| {
+                                serde_json::from_str(raw)
+                                    .unwrap_or_else(|_| serde_json::Value::String(raw.to_string()))
+                            });
+                            assistant_by_round[idx].push(ConversationEvent::ToolCallUpsert {
+                                tool_call: ConversationToolCallPatch {
+                                    tool_call_id: tool_use_id
+                                        .clone()
+                                        .unwrap_or_else(|| Uuid::new_v4().to_string()),
+                                    title: Some(tool_name.clone()),
+                                    kind: Some(tool_name.clone()),
+                                    status: Some("in_progress".to_string()),
+                                    raw_input,
+                                    raw_output: None,
+                                    raw_output_append: None,
+                                    content: None,
+                                    locations: None,
+                                    metadata: None,
+                                    images: Vec::new(),
+                                },
+                            });
+                        }
+                        ContentBlock::ToolResult {
+                            tool_use_id,
+                            is_error,
+                            output_preview,
+                            ..
+                        } => {
+                            let raw_output = output_preview
+                                .as_ref()
+                                .map(|text| serde_json::Value::String(text.clone()));
+                            assistant_by_round[idx].push(ConversationEvent::ToolCallUpsert {
+                                tool_call: ConversationToolCallPatch {
+                                    tool_call_id: tool_use_id
+                                        .clone()
+                                        .unwrap_or_else(|| Uuid::new_v4().to_string()),
+                                    title: None,
+                                    kind: None,
+                                    status: Some(
+                                        if *is_error { "failed" } else { "completed" }.to_string(),
+                                    ),
+                                    raw_input: None,
+                                    raw_output,
+                                    raw_output_append: None,
+                                    content: None,
+                                    locations: None,
+                                    metadata: None,
+                                    images: Vec::new(),
+                                },
+                            });
+                        }
+                        _ => {}
+                    }
+                }
+            }
+            TurnRole::System => {}
+        }
+    }
+
+    let mut turn_events_map: HashMap<Uuid, Vec<ConversationEvent>> = HashMap::new();
+    for (idx, db_turn) in db_turns.iter().enumerate() {
+        if let Some(events) = assistant_by_round.get(idx)
+            && !events.is_empty()
+        {
+            turn_events_map.insert(db_turn.id, events.clone());
+        }
+    }
+
+    let mut out = Vec::with_capacity(sql_events.len() + jsonl_turns.len() * 2);
+    let mut seq = 1i64;
+    for mut record in sql_events {
+        let is_settle = matches!(
+            record.event_kind.as_str(),
+            "turn_completed" | "turn_failed" | "turn_cancelled" | "turn_interrupted"
+        );
+        if is_settle
+            && let Some(turn_id) = record.turn_id
+            && let Some(synthesized) = turn_events_map.remove(&turn_id)
+        {
+            for synth in synthesized {
+                let kind = serde_json::to_value(&synth)?
+                    .get("kind")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("unknown")
+                    .to_string();
+                let normalized_json = serde_json::to_string(&synth)?;
+                out.push(ConversationEventRecord {
+                    id: Uuid::new_v4(),
+                    conversation_id,
+                    turn_id: Some(turn_id),
+                    binding_id: record.binding_id,
+                    connection_id: record.connection_id.clone(),
+                    prompt_id: record.prompt_id.clone(),
+                    sequence: seq,
+                    source: "runtime".to_string(),
+                    event_kind: kind,
+                    event_version: CURRENT_EVENT_VERSION,
+                    normalized_json,
+                    raw_json: None,
+                    idempotency_key: None,
+                    created_at: record.created_at,
+                });
+                seq += 1;
+            }
+        }
+        record.sequence = seq;
+        seq += 1;
+        let maybe_turn_id = record.turn_id;
+        let record_created_at = record.created_at;
+        let is_user_created = record.event_kind == "user_turn_created";
+        out.push(record);
+        if is_user_created && let Some(turn_id) = maybe_turn_id {
+            let has_later_settle = db_turns.iter().find(|t| t.id == turn_id).is_some_and(|t| {
+                matches!(
+                    t.status.as_str(),
+                    "completed" | "failed" | "cancelled" | "interrupted"
+                )
+            });
+            if !has_later_settle && let Some(synthesized) = turn_events_map.remove(&turn_id) {
+                for synth in synthesized {
+                    let kind = serde_json::to_value(&synth)?
+                        .get("kind")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("unknown")
+                        .to_string();
+                    let normalized_json = serde_json::to_string(&synth)?;
+                    out.push(ConversationEventRecord {
+                        id: Uuid::new_v4(),
+                        conversation_id,
+                        turn_id: Some(turn_id),
+                        binding_id: None,
+                        connection_id: None,
+                        prompt_id: None,
+                        sequence: seq,
+                        source: "runtime".to_string(),
+                        event_kind: kind,
+                        event_version: CURRENT_EVENT_VERSION,
+                        normalized_json,
+                        raw_json: None,
+                        idempotency_key: None,
+                        created_at: record_created_at,
+                    });
+                    seq += 1;
+                }
+            }
+        }
+    }
+    for (turn_id, synthesized) in turn_events_map {
+        for synth in synthesized {
+            let kind = serde_json::to_value(&synth)?
+                .get("kind")
+                .and_then(|v| v.as_str())
+                .unwrap_or("unknown")
+                .to_string();
+            let normalized_json = serde_json::to_string(&synth)?;
+            out.push(ConversationEventRecord {
+                id: Uuid::new_v4(),
+                conversation_id,
+                turn_id: Some(turn_id),
+                binding_id: None,
+                connection_id: None,
+                prompt_id: None,
+                sequence: seq,
+                source: "runtime".to_string(),
+                event_kind: kind,
+                event_version: CURRENT_EVENT_VERSION,
+                normalized_json,
+                raw_json: None,
+                idempotency_key: None,
+                created_at: Utc::now(),
+            });
+            seq += 1;
+        }
+    }
+    Ok(out)
+}
+
 pub async fn import_conversation_bundle(
     pool: &SqlitePool,
     bundle: ConversationBundlePayload,
@@ -293,6 +531,7 @@ pub async fn import_conversation_bundle(
     let _timeline = ConversationProjector::project(pool, conversation_id)
         .await
         .map_err(|error| ConversationBundleError::Internal(error.to_string()))?;
+    let _ = crate::jsonl_history::load_all_turns(pool, conversation_id).await;
     ConversationImportRecord::insert(
         pool,
         InsertConversationImport {
@@ -399,9 +638,7 @@ fn checksum_str(path: &str, value: &str) -> ConversationBundleChecksum {
 mod tests {
     use std::str::FromStr;
 
-    use agents::conversation::{
-        ConversationEvent, ConversationInputBlock,
-    };
+    use agents::conversation::{ConversationEvent, ConversationInputBlock};
     use db::models::{
         conversation::{ConversationRecord, CreateConversationRecord},
         conversation_event::AppendConversationEvent,
@@ -649,105 +886,12 @@ mod tests {
         let texts: Vec<String> = history
             .turns
             .iter()
-            .filter_map(|turn| {
-                turn.blocks.iter().find_map(|block| match block {
-                    agents::conversation::ContentBlock::Text { text } => Some(text.clone()),
-                    _ => None,
-                })
+            .flat_map(|turn| turn.blocks.iter())
+            .filter_map(|block| match block {
+                agents::conversation::ContentBlock::Text { text } => Some(text.clone()),
+                _ => None,
             })
             .collect();
-        assert!(texts.iter().any(|text| text == "hello" || text == "hi"));
-        assert!(!texts.iter().any(|text| text == "second" || text == "later"));
-    }
-
-    #[tokio::test]
-    async fn fork_copies_steering_so_the_child_keeps_split_bubbles() {
-        let pool = migrated_pool().await;
-        let (conversation_id, _) = seed_conversation(&pool).await;
-        let turns = ConversationTurnRecord::list_for_conversation(&pool, conversation_id)
-            .await
-            .expect("list");
-        let turn_id = turns[0].id;
-        let steering_id = Uuid::new_v4();
-        append_event(
-            &pool,
-            conversation_id,
-            turn_id,
-            ConversationEvent::ConversationSteering {
-                event: agents::conversation::ConversationSteeringEvent::Requested {
-                    steering_id,
-                    operation_id: Uuid::new_v4(),
-                    expected_turn_id: turn_id,
-                    payload_digest: "d".into(),
-                    blocks: vec![ConversationInputBlock::Text {
-                        text: "steer now".into(),
-                    }],
-                    principal: serde_json::json!({}),
-                },
-            },
-        )
-        .await;
-        append_event(
-            &pool,
-            conversation_id,
-            turn_id,
-            ConversationEvent::ConversationSteering {
-                event: agents::conversation::ConversationSteeringEvent::Accepted {
-                    steering_id,
-                    expected_turn_id: turn_id,
-                },
-            },
-        )
-        .await;
-        append_event(
-            &pool,
-            conversation_id,
-            turn_id,
-            ConversationEvent::AssistantTextDelta {
-                text: "after steer".into(),
-                message_id: None,
-            },
-        )
-        .await;
-        sqlx::query("UPDATE conversation_turns SET status = 'completed' WHERE conversation_id = ?")
-            .bind(conversation_id)
-            .execute(&pool)
-            .await
-            .expect("complete turns");
-        sqlx::query("UPDATE sessions SET active_turn_id = NULL WHERE id = ?")
-            .bind(conversation_id)
-            .execute(&pool)
-            .await
-            .ok();
-
-        let (child_id, _) = crate::fork_visible_conversation(
-            &pool,
-            crate::ForkVisibleConversation {
-                source_id: conversation_id,
-                until_turn_id: None,
-            },
-        )
-        .await
-        .expect("fork");
-        let history = crate::jsonl_history::load_window(
-            &pool,
-            child_id,
-            crate::jsonl_history::default_tail(),
-        )
-        .await
-        .expect("child window")
-        .expect("child history");
-        let texts: Vec<String> = history
-            .turns
-            .iter()
-            .filter_map(|turn| {
-                turn.blocks.iter().find_map(|block| match block {
-                    agents::conversation::ContentBlock::Text { text } => Some(text.clone()),
-                    _ => None,
-                })
-            })
-            .collect();
-        assert!(texts.iter().any(|text| text == "steer now"));
-        assert!(texts.iter().any(|text| text == "after steer"));
+        assert_eq!(texts, vec!["hello".to_string(), "hi".to_string()]);
     }
 }

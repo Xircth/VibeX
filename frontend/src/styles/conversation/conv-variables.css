@@ -5,7 +5,7 @@
 
 :root,
 .legacy-design {
-  --conv-user-bg: var(--surface-raised-control);
+  --conv-user-bg: #f1f1f1;
   --conv-user-text: var(--text-strong);
   --conv-user-code-bg: rgb(0 0 0 / 0.06);
   --conv-user-code-border: rgb(0 0 0 / 0.1);

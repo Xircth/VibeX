@@ -31,7 +31,7 @@ import { usePluginHostContributions } from '@/hooks/usePluginHostContributions';
 import { parsePluginSurfaceId } from '@/lib/hostSurfaceIds';
 import { RightPanelSidebar } from '@/components/layout/RightPanelSidebar';
 import { StatusBar } from '@/components/layout/StatusBar';
-import { ProjectLayoutScope } from '@/contexts/ProjectContext';
+import { ProjectLayoutScope, useProject } from '@/contexts/ProjectContext';
 import {
   EDITOR_GROUP_PREFIX,
   GROUP_IDS,
@@ -46,6 +46,10 @@ import {
   type SessionPanelPlacement,
 } from '@/contexts/RightPanelSlotContext';
 import { useWorktree } from '@/contexts/WorktreeContext';
+import { useProjectWorktrees } from '@/hooks/useProjectWorktrees';
+import { getProjectScopeKey } from '@/lib/projectScope';
+import { resolveSurfaceWorkspaceId } from '@/lib/surfaceWorkspace';
+import { useProjectViewStateStore } from '@/stores/useProjectViewStateStore';
 import { useAgentLongRunningTerminals } from '@/hooks/useAgentLongRunningTerminals';
 import { useWorkspaceOverlay } from '@/contexts/WorkspaceOverlayContext';
 import { chromeHidesNativeSurface } from '@/lib/nativeSurfaceHandoff';
@@ -351,6 +355,12 @@ export function IDELayout({
   const apiRef = useRef<DockviewApi | null>(null);
   const dockviewRootRef = useRef<HTMLDivElement>(null);
   const { activeWorktreeId } = useWorktree();
+  const { projectId } = useProject();
+  const projectKey = getProjectScopeKey(projectId);
+  const rememberedWorkspaceId = useProjectViewStateStore(
+    (state) => state.kanbanByProject[projectKey]?.lastActiveWorkspaceId ?? null
+  );
+  const { worktrees } = useProjectWorktrees(projectId);
   const {
     serializedLayout,
     setSerializedLayout,
@@ -362,6 +372,16 @@ export function IDELayout({
   } = useLayoutStore();
   const arrangement = useLayoutArrangement();
   const effectiveWorkspaceId = activeWorktreeId ?? workspaceId ?? null;
+  const surfaceWorkspaceId = useMemo(
+    () =>
+      resolveSurfaceWorkspaceId({
+        routeWorkspaceId: workspaceId,
+        activeWorkspaceId: activeWorktreeId,
+        rememberedWorkspaceId,
+        workspaces: worktrees.map((item) => item.workspace),
+      }),
+    [activeWorktreeId, rememberedWorkspaceId, workspaceId, worktrees]
+  );
   const routeTab = workspaceId || sessionId ? 'workspace' : null;
   const effectiveActiveTab = routeTab ?? activeTab;
   const [isDockviewMounted, setIsDockviewMounted] = useState(
@@ -1209,7 +1229,8 @@ export function IDELayout({
                     item={activePluginTab}
                     slot="app.tab"
                     enabled
-                    workspaceId={effectiveWorkspaceId}
+                    workspaceId={surfaceWorkspaceId}
+                    projectId={projectId ?? null}
                   />
                 </div>
               ) : null}

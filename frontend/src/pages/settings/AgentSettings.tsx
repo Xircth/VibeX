@@ -110,13 +110,18 @@ export function AgentSettings() {
     useState<UserAgentDefinitionView | null>(null);
   const [savingUserDefinition, setSavingUserDefinition] = useState(false);
   const [dirtySources, setDirtySources] = useState<Record<string, boolean>>({});
+  const dirtySourcesRef = useRef(dirtySources);
+  const configDirtyRef = useRef(false);
   const [nativePluginsExpanded, setNativePluginsExpanded] = useState(false);
   const [pluginCount, setPluginCount] = useState(0);
   const configDirty = Object.values(dirtySources).some(Boolean);
   const setDirtySource = useCallback((source: string, dirty: boolean) => {
-    setDirtySources((current) =>
-      current[source] === dirty ? current : { ...current, [source]: dirty }
-    );
+    const current = dirtySourcesRef.current;
+    const next =
+      current[source] === dirty ? current : { ...current, [source]: dirty };
+    dirtySourcesRef.current = next;
+    configDirtyRef.current = Object.values(next).some(Boolean);
+    if (next !== current) setDirtySources(next);
   }, []);
   const setConfigurationDirty = useCallback(
     (dirty: boolean) => setDirtySource('configuration', dirty),
@@ -198,9 +203,6 @@ export function AgentSettings() {
     updateCheck: new Map<AgentId, AgentUpdateCheckView>(),
   });
 
-  const configDirtyRef = useRef(configDirty);
-  configDirtyRef.current = configDirty;
-
   const confirmDiscardConfig = useCallback(async () => {
     if (!configDirtyRef.current) return true;
     const result = await ConfirmDialog.show({
@@ -211,6 +213,7 @@ export function AgentSettings() {
       variant: 'destructive',
     });
     if (result !== 'confirmed') return false;
+    dirtySourcesRef.current = {};
     configDirtyRef.current = false;
     setDirtySources({});
     return true;
@@ -1087,7 +1090,6 @@ export function AgentSettings() {
       try {
         setConfig(await agentManagementApi.writeConfig(request));
         setConfigConflict(null);
-        toast.success(t('settings:agents.configSaved'));
         if (options?.refreshAuth) await refreshAuthentication();
         else await management.refresh();
       } catch (error) {
@@ -1285,7 +1287,7 @@ export function AgentSettings() {
                     conflictMessage={configConflict?.message}
                     embedded
                     onSave={(request) =>
-                      void saveConfig(request, { refreshAuth: true })
+                      saveConfig(request, { refreshAuth: true })
                     }
                     onReloadConflict={() => void reloadConflict()}
                     onAdoptExternal={() => setConfigConflict(null)}
@@ -1469,7 +1471,7 @@ export function AgentSettings() {
                   }
                   saving={savingConfig}
                   conflictMessage={configConflict?.message}
-                  onSave={(request) => void saveConfig(request)}
+                  onSave={(request) => saveConfig(request)}
                   onSaveFile={(request) => void saveConfigFile(request)}
                   onReloadConflict={() => void reloadConflict()}
                   onAdoptExternal={() => setConfigConflict(null)}

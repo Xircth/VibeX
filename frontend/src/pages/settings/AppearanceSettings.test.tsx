@@ -180,7 +180,6 @@ describe('AppearanceSettings', () => {
 
     await user.click(screen.getByText('Dark'));
     expect(screen.getByRole('checkbox', { name: 'Dark' })).toBeChecked();
-    await user.click(screen.getByRole('button', { name: '保存' }));
 
     await waitFor(() => {
       expect(mocks.updateAndSaveConfig).toHaveBeenCalledWith(
@@ -303,7 +302,6 @@ describe('AppearanceSettings', () => {
 
     await user.click(filesChangedToggle);
     await user.click(aiMessageToggle);
-    await user.click(screen.getByRole('button', { name: '保存' }));
 
     await waitFor(() => {
       expect(mocks.updateAndSaveConfig).toHaveBeenCalledWith(

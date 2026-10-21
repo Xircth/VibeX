@@ -12,6 +12,7 @@ import { formatSessionComposerCommand } from '@/components/tasks/follow-up/sessi
 import {
   conversationStoreReducer,
   emptyConversationStoreState,
+  selectConversationTimelineItems,
   sideRowsForEntry,
   timelineItemsForEntry,
   timelineTurnsForEntry,
@@ -1074,7 +1075,7 @@ describe('conversationStore (row-op dumb container)', () => {
     ]);
   });
 
-  it('streams an open file tail only while a turn is in flight', () => {
+  it('falls back to the open file tail when liveRows is empty', () => {
     const user = timelineRow('acp-1', 1n, {
       kind: 'message_turn',
       phase: 'streaming',
@@ -1096,7 +1097,7 @@ describe('conversationStore (row-op dumb container)', () => {
     });
     expect(
       timelineTurnsForEntry(entryOf(idleState)).map((row) => row.phase)
-    ).toEqual(['settled', 'settled']);
+    ).toEqual(['streaming', 'streaming']);
 
     const live = emptyDetail([user, assistant]);
     live.timeline.last_sequence = 2n;
@@ -1109,6 +1110,281 @@ describe('conversationStore (row-op dumb container)', () => {
     expect(
       timelineTurnsForEntry(entryOf(liveState)).map((row) => row.phase)
     ).toEqual(['streaming', 'streaming']);
+  });
+
+  it('shows one assistant while the live reply and the open transcript tail match', () => {
+    const answer = 'The complete answer';
+    const detail = emptyDetail([
+      fileTurn('acp-1', 'user', 'hi', 1_700_000_000_000n, 'streaming'),
+      fileTurn('acp-2', 'assistant', answer, 1_700_000_000_100n, 'streaming'),
+    ]);
+    detail.timeline.last_sequence = 4n;
+    detail.in_flight_user_turn_id = 't1';
+    let state = conversationStoreReducer(emptyConversationStoreState, {
+      type: 'load_success',
+      conversationId: CONVERSATION_ID,
+      detail,
+    });
+    state = conversationStoreReducer(state, {
+      type: 'row_ops',
+      batch: batch(
+        [
+          { op: 'upsert', row: streamingUser('t1', 'hi', 5n) },
+          {
+            op: 'append_text',
+            row_id: 't1:assistant',
+            revision: 6n,
+            stream: 'text',
+            delta: answer,
+          },
+        ],
+        5n
+      ),
+    });
+
+    const live = timelineTurnsForEntry(entryOf(state));
+    expect(assistantTexts(live)).toEqual([answer]);
+    expect(live.find((row) => row.turn.role === 'assistant')?.phase).toBe(
+      'streaming'
+    );
+
+    state = conversationStoreReducer(state, {
+      type: 'row_ops',
+      batch: batch(
+        [
+          {
+            op: 'upsert',
+            row: timelineRow('t1:user', 7n, {
+              kind: 'message_turn',
+              phase: 'settled',
+              turn: messageTurn('t1:user', 'user', [
+                { type: 'text', text: 'hi' },
+              ]),
+            }),
+          },
+          {
+            op: 'upsert',
+            row: assistantRow(
+              't1',
+              [{ type: 'text', text: answer }],
+              7n,
+              'settled'
+            ),
+          },
+        ],
+        7n
+      ),
+    });
+
+    const finished = timelineTurnsForEntry(entryOf(state));
+    expect(assistantTexts(finished)).toEqual([answer]);
+    expect(
+      finished.find((row) => row.turn.role === 'assistant')?.phase
+    ).not.toBe('streaming');
+    expect(
+      finished.filter((row) => row.turn.role === 'user').map((row) => row.phase)
+    ).toEqual(['settled']);
+  });
+
+  it('drops the streaming transcript copy a stale reload appends after the finished reply', () => {
+    const answer = 'The complete answer';
+    let state = loaded([
+      userRow('t1', 'hi', 5n),
+      assistantRow('t1', [{ type: 'text', text: answer }], 6n, 'settled'),
+    ]);
+    state = conversationStoreReducer(state, {
+      type: 'row_ops',
+      batch: batch(
+        [
+          {
+            op: 'upsert',
+            row: assistantRow(
+              't1',
+              [{ type: 'text', text: answer }],
+              6n,
+              'settled'
+            ),
+          },
+        ],
+        10n
+      ),
+    });
+    const detail = emptyDetail([
+      fileTurn('acp-1', 'user', 'hi', 1_700_000_000_000n, 'streaming'),
+      fileTurn('acp-2', 'assistant', answer, 1_700_000_000_100n, 'streaming'),
+    ]);
+    detail.timeline.last_sequence = 6n;
+    detail.in_flight_user_turn_id = 't1';
+    state = conversationStoreReducer(state, {
+      type: 'load_success',
+      conversationId: CONVERSATION_ID,
+      detail,
+    });
+
+    const turns = timelineTurnsForEntry(entryOf(state));
+    expect(assistantTexts(turns)).toEqual([answer]);
+    expect(turns.find((row) => row.turn.role === 'assistant')?.phase).not.toBe(
+      'streaming'
+    );
+    expect(turns.filter((row) => row.turn.role === 'user')).toHaveLength(1);
+  });
+
+  it('shows one settled reply when the file turn finishes while the turn is still in flight', () => {
+    const answer = 'The complete answer';
+    let state = loaded([streamingUser('t1', 'hi', 1n)]);
+    state = conversationStoreReducer(state, {
+      type: 'row_ops',
+      batch: batch(
+        [
+          {
+            op: 'append_text',
+            row_id: 't1:assistant',
+            revision: 2n,
+            stream: 'text',
+            delta: answer,
+          },
+        ],
+        2n
+      ),
+    });
+
+    const detail = emptyDetail([
+      timelineRow('acp-1', 3n, {
+        kind: 'message_turn',
+        phase: 'settled',
+        turn: {
+          ...messageTurn('acp-1', 'user', [{ type: 'text', text: 'hi' }]),
+          timestamp: '2026-07-02T23:59:59.000Z',
+        },
+      }),
+      timelineRow('acp-2', 4n, {
+        kind: 'message_turn',
+        phase: 'settled',
+        turn: {
+          ...messageTurn('acp-2', 'assistant', [
+            { type: 'text', text: answer },
+          ]),
+          duration_ms: 12_000n,
+        },
+      }),
+    ]);
+    detail.timeline.last_sequence = 4n;
+    detail.in_flight_user_turn_id = 't1';
+    state = conversationStoreReducer(state, {
+      type: 'load_success',
+      conversationId: CONVERSATION_ID,
+      detail,
+    });
+
+    const turns = timelineTurnsForEntry(entryOf(state));
+    const assistants = turns.filter((row) => row.turn.role === 'assistant');
+    expect(assistants).toHaveLength(1);
+    expect(assistants[0]?.phase).toBe('settled');
+    expect(assistants[0]?.turn.duration_ms).toBe(12_000n);
+    expect(textOf(assistants[0]?.turn.blocks ?? [])).toBe(answer);
+    expect(entryOf(state).liveRows).toEqual([]);
+  });
+
+  it('keeps a later turn that repeats a finished prompt', () => {
+    const earlierUser = timelineRow('acp-1', 1n, {
+      kind: 'message_turn',
+      phase: 'settled',
+      turn: {
+        ...messageTurn('acp-1', 'user', [{ type: 'text', text: 'hi' }]),
+        timestamp: '2026-07-03T00:00:00.000Z',
+      },
+    });
+    const earlierAssistant = timelineRow('acp-2', 2n, {
+      kind: 'message_turn',
+      phase: 'settled',
+      turn: {
+        ...messageTurn('acp-2', 'assistant', [{ type: 'text', text: 'OK' }]),
+        duration_ms: 4_000n,
+      },
+    });
+    let state = loaded([earlierUser, earlierAssistant]);
+    state = conversationStoreReducer(state, {
+      type: 'row_ops',
+      batch: batch(
+        [
+          {
+            op: 'upsert',
+            row: timelineRow('t2:user', 3n, {
+              kind: 'message_turn',
+              phase: 'streaming',
+              turn: {
+                ...messageTurn('t2:user', 'user', [
+                  { type: 'text', text: 'hi' },
+                ]),
+                timestamp: '2026-07-03T00:02:00.000Z',
+              },
+            }),
+          },
+          {
+            op: 'append_text',
+            row_id: 't2:assistant',
+            revision: 4n,
+            stream: 'text',
+            delta: 'OK',
+          },
+        ],
+        4n
+      ),
+    });
+    const detail = emptyDetail([earlierUser, earlierAssistant]);
+    detail.timeline.last_sequence = 4n;
+    detail.in_flight_user_turn_id = 't2';
+    state = conversationStoreReducer(state, {
+      type: 'load_success',
+      conversationId: CONVERSATION_ID,
+      detail,
+    });
+
+    const turns = timelineTurnsForEntry(entryOf(state));
+    expect(assistantTexts(turns)).toEqual(['OK', 'OK']);
+    expect(
+      turns.filter((row) => row.turn.role === 'user').map((row) => row.turn.id)
+    ).toEqual(['acp-1', 't2:user']);
+  });
+
+  it('keeps a later open tail when an earlier turn used the same answer', () => {
+    const detail = emptyDetail([
+      userRow('t1', 'hi', 1n),
+      assistantRow('t1', [{ type: 'text', text: 'OK' }], 2n, 'settled'),
+      userRow('t2', 'next', 3n),
+      fileTurn('acp-9', 'user', 'hi', 1_700_000_000_000n, 'streaming'),
+      fileTurn('acp-10', 'assistant', 'OK', 1_700_000_000_100n, 'streaming'),
+    ]);
+    detail.in_flight_user_turn_id = 't2';
+    const state = conversationStoreReducer(emptyConversationStoreState, {
+      type: 'load_success',
+      conversationId: CONVERSATION_ID,
+      detail,
+    });
+    const assistants = timelineTurnsForEntry(entryOf(state)).filter(
+      (row) => row.turn.role === 'assistant'
+    );
+    expect(assistants.map((row) => textOf(row.turn.blocks))).toEqual([
+      'OK',
+      'OK',
+    ]);
+    expect(assistants.map((row) => row.phase)).toEqual([
+      'settled',
+      'streaming',
+    ]);
+  });
+
+  it('keeps an earlier finished reply when a later turn repeats its text', () => {
+    const state = loaded([
+      userRow('t1', 'hi', 1n),
+      assistantRow('t1', [{ type: 'text', text: 'OK' }], 2n, 'settled'),
+      userRow('t2', 'hi', 3n),
+      assistantRow('t2', [{ type: 'text', text: 'OK' }], 4n, 'settled'),
+    ]);
+    expect(assistantTexts(timelineTurnsForEntry(entryOf(state)))).toEqual([
+      'OK',
+      'OK',
+    ]);
   });
 
   it('shows the first prompt once when the session seed and the live user match', () => {
@@ -1453,6 +1729,26 @@ describe('conversationStore (row-op dumb container)', () => {
     });
     expect(entryOf(state).gap).toEqual({ kind: 'none' });
     expect(entryOf(state).lastSequence).toBe(15n);
+
+    // Unpersisted batches repeat the last emitted sequence for both previous_sequence and last_sequence.
+    state = conversationStoreReducer(state, {
+      type: 'row_ops',
+      batch: batch(
+        [
+          {
+            op: 'append_text',
+            row_id: 't1:assistant',
+            revision: 16n,
+            stream: 'text',
+            delta: ' live',
+          },
+        ],
+        15n,
+        { previous_sequence: 15n }
+      ),
+    });
+    expect(entryOf(state).gap).toEqual({ kind: 'none' });
+    expect(entryOf(state).lastSequence).toBe(15n);
   });
 
   it('preserves sideRowsForEntry array identity across streaming message row updates', () => {
@@ -1491,6 +1787,110 @@ describe('conversationStore (row-op dumb container)', () => {
     });
     const secondSideRows = sideRowsForEntry(entryOf(state));
     expect(secondSideRows).toBe(firstSideRows);
+  });
+
+  it('keeps reported tokens on the streaming assistant before the first text block', () => {
+    let state = loaded([streamingUser('t1', 'q', 1n)]);
+    state = conversationStoreReducer(state, {
+      type: 'row_ops',
+      batch: batch(
+        [
+          {
+            op: 'patch_blocks',
+            row_id: 't1:assistant',
+            revision: 2n,
+            phase: 'streaming',
+            blocks: [],
+            usage: {
+              input_tokens: 20n,
+              output_tokens: 4n,
+              cache_creation_input_tokens: 0n,
+              cache_read_input_tokens: 70n,
+              context_used: 18658n,
+              context_window_max: 200000n,
+            },
+          },
+        ],
+        2n
+      ),
+    });
+    state = conversationStoreReducer(state, {
+      type: 'row_ops',
+      batch: batch(
+        [
+          {
+            op: 'append_text',
+            row_id: 't1:assistant',
+            revision: 3n,
+            stream: 'text',
+            delta: 'hello',
+          },
+        ],
+        3n
+      ),
+    });
+    const assistant = timelineTurnsForEntry(entryOf(state)).find(
+      (row) => row.turn.role === 'assistant'
+    );
+    expect(assistant?.phase).toBe('streaming');
+    expect(assistant?.turn.blocks).toEqual([{ type: 'text', text: 'hello' }]);
+    expect(assistant?.turn.usage).toMatchObject({
+      input_tokens: 20n,
+      output_tokens: 4n,
+      cache_read_input_tokens: 70n,
+      context_used: 18658n,
+    });
+  });
+
+  it('attaches a later usage patch to text that is still only in the live overlay', () => {
+    let state = loaded([streamingUser('t1', 'q', 1n)]);
+    state = conversationStoreReducer(state, {
+      type: 'row_ops',
+      batch: batch(
+        [
+          {
+            op: 'append_text',
+            row_id: 't1:assistant',
+            revision: 2n,
+            stream: 'text',
+            delta: 'hello',
+          },
+        ],
+        2n
+      ),
+    });
+    state = conversationStoreReducer(state, {
+      type: 'row_ops',
+      batch: batch(
+        [
+          {
+            op: 'patch_blocks',
+            row_id: 't1:assistant',
+            revision: 3n,
+            phase: 'streaming',
+            blocks: [],
+            usage: {
+              input_tokens: 10n,
+              output_tokens: 2n,
+              cache_creation_input_tokens: 0n,
+              cache_read_input_tokens: 30n,
+              context_used: 9000n,
+              context_window_max: 200000n,
+            },
+          },
+        ],
+        3n
+      ),
+    });
+    const assistant = timelineTurnsForEntry(entryOf(state)).find(
+      (row) => row.turn.role === 'assistant'
+    );
+    expect(assistant?.turn.blocks).toEqual([{ type: 'text', text: 'hello' }]);
+    expect(assistant?.turn.usage).toMatchObject({
+      input_tokens: 10n,
+      cache_read_input_tokens: 30n,
+      context_used: 9000n,
+    });
   });
 
   it('times a live assistant from its user turn instead of the unix epoch', () => {
@@ -1937,10 +2337,515 @@ describe('conversationStore (row-op dumb container)', () => {
     expect(entry.rows.at(-1)?.row_id).toBe('tail3:user');
     expect(entry.olderTurnsPrependEpoch).toBe(1);
   });
+
+  it('maintains strictly monotonic order across multiple loadOlder pages over 30+ turns', () => {
+    const allRows: TimelineRow[] = [];
+    for (let turnIndex = 0; turnIndex < 36; turnIndex += 1) {
+      allRows.push(
+        fileTurn(
+          `acp-${turnIndex * 2 + 1}`,
+          'user',
+          `Question ${turnIndex + 1}`,
+          BigInt(turnIndex * 2 + 1),
+          'settled'
+        )
+      );
+      allRows.push(
+        fileTurn(
+          `acp-${turnIndex * 2 + 2}`,
+          'assistant',
+          `Answer ${turnIndex + 1}`,
+          BigInt(turnIndex * 2 + 2),
+          'settled'
+        )
+      );
+    }
+
+    // Initial tail window: turns 24..35 (rows 48..71)
+    const initialDetail = emptyDetail(allRows.slice(48));
+    initialDetail.timeline.last_sequence = 72n;
+    initialDetail.timeline.older_cursor = '48';
+    initialDetail.timeline.truncated_from_start = true;
+    let state = conversationStoreReducer(emptyConversationStoreState, {
+      type: 'load_success',
+      conversationId: CONVERSATION_ID,
+      detail: initialDetail,
+    });
+
+    // First loadOlder: turns 12..23 (rows 24..47)
+    state = conversationStoreReducer(state, {
+      type: 'upsert_rows',
+      conversationId: CONVERSATION_ID,
+      rows: allRows.slice(24, 48),
+      lastSequence: 72n,
+      olderCursor: '24',
+      protectLoaded: true,
+    });
+
+    // Second loadOlder: turns 0..11 (rows 0..23)
+    state = conversationStoreReducer(state, {
+      type: 'upsert_rows',
+      conversationId: CONVERSATION_ID,
+      rows: allRows.slice(0, 24),
+      lastSequence: 72n,
+      olderCursor: null,
+      protectLoaded: true,
+    });
+
+    const entry = entryOf(state);
+    expect(entry.rows).toHaveLength(72);
+    expect(entry.rows.map((row) => row.row_id)).toEqual(
+      allRows.map((row) => row.row_id)
+    );
+    expect(entry.olderTurnsPrependEpoch).toBe(2);
+  });
+
+  it('applies patch_blocks and preserves pre/post-tool text order when acp history has epoch-millis revisions', () => {
+    const detail = emptyDetail([
+      fileTurn(
+        'acp-1',
+        'user',
+        'previous prompt',
+        1_700_000_000_000n,
+        'settled'
+      ),
+      fileTurn(
+        'acp-2',
+        'assistant',
+        'previous answer',
+        1_700_000_000_500n,
+        'settled'
+      ),
+    ]);
+    detail.timeline.last_sequence = 2n;
+    let state = conversationStoreReducer(emptyConversationStoreState, {
+      type: 'load_success',
+      conversationId: CONVERSATION_ID,
+      detail,
+    });
+    state = conversationStoreReducer(state, {
+      type: 'row_ops',
+      batch: batch(
+        [
+          { op: 'upsert', row: streamingUser('t2', 'run a tool', 3n) },
+          {
+            op: 'append_text',
+            row_id: 't2:assistant',
+            revision: 4n,
+            stream: 'text',
+            delta: 'Before tool. ',
+          },
+          {
+            op: 'patch_blocks',
+            row_id: 't2:assistant',
+            revision: 5n,
+            phase: 'streaming',
+            blocks: [
+              {
+                type: 'tool_use',
+                tool_use_id: 'call-1',
+                tool_name: 'Bash',
+                status: 'in_progress',
+                kind: 'execute',
+                input_preview: '{"cmd":"ls"}',
+                meta: null,
+              },
+            ],
+          },
+          {
+            op: 'append_text',
+            row_id: 't2:assistant',
+            revision: 6n,
+            stream: 'text',
+            delta: 'After tool.',
+          },
+        ],
+        3n
+      ),
+    });
+
+    const turns = timelineTurnsForEntry(entryOf(state));
+    const currentAssistant = turns.find(
+      (row) => row.turn.id === 't2:assistant'
+    );
+    expect(currentAssistant).toBeDefined();
+    expect(currentAssistant?.turn.blocks.map((b) => b.type)).toEqual([
+      'text',
+      'tool_use',
+      'text',
+    ]);
+    expect(currentAssistant?.turn.blocks[0]).toEqual({
+      type: 'text',
+      text: 'Before tool. ',
+    });
+    expect(currentAssistant?.turn.blocks[2]).toEqual({
+      type: 'text',
+      text: 'After tool.',
+    });
+  });
+
+  it('synthesizes a pending assistant bubble for a new turn after acp-* history turns', () => {
+    const detail = emptyDetail([
+      fileTurn('acp-1', 'user', 'q1', 1_700_000_000_000n, 'settled'),
+      fileTurn('acp-2', 'assistant', 'a1', 1_700_000_000_500n, 'settled'),
+    ]);
+    detail.timeline.last_sequence = 2n;
+    let state = conversationStoreReducer(emptyConversationStoreState, {
+      type: 'load_success',
+      conversationId: CONVERSATION_ID,
+      detail,
+    });
+    state = conversationStoreReducer(state, {
+      type: 'row_ops',
+      batch: batch([{ op: 'upsert', row: streamingUser('t2', 'q2', 3n) }], 3n),
+    });
+
+    const turns = timelineTurnsForEntry(entryOf(state));
+    expect(
+      turns.map((row) => `${row.turn.role}:${row.turn.id}:${row.phase}`)
+    ).toEqual([
+      'user:acp-1:settled',
+      'assistant:acp-2:settled',
+      'user:t2:user:streaming',
+      'assistant:t2:assistant:streaming',
+    ]);
+  });
+
+  it('continues streaming and merges tool updates without splitting after a mid-turn file reload', () => {
+    let state = loaded([streamingUser('t1', 'inspect repo', 1n)]);
+    state = conversationStoreReducer(state, {
+      type: 'row_ops',
+      batch: batch(
+        [
+          {
+            op: 'append_text',
+            row_id: 't1:assistant',
+            revision: 2n,
+            stream: 'text',
+            delta: 'Checking files',
+          },
+        ],
+        1n
+      ),
+    });
+
+    const midTurnDetail = emptyDetail([
+      fileTurn('acp-1', 'user', 'inspect repo', 1_700_000_000_000n, 'settled'),
+      fileTurn(
+        'acp-2',
+        'assistant',
+        'Checking files',
+        1_700_000_000_200n,
+        'streaming'
+      ),
+    ]);
+    midTurnDetail.timeline.last_sequence = 1n;
+    midTurnDetail.in_flight_user_turn_id = 't1';
+    state = conversationStoreReducer(state, {
+      type: 'load_success',
+      conversationId: CONVERSATION_ID,
+      detail: midTurnDetail,
+    });
+
+    const assertSingleCurrentAssistant = (s: ConversationStoreState) => {
+      const items = selectConversationTimelineItems(s, CONVERSATION_ID);
+      const assistantItems = items.filter(
+        (item) => item.kind === 'message' && item.item.turn.role === 'assistant'
+      );
+      expect(assistantItems).toHaveLength(1);
+      const ids = items.flatMap((item) =>
+        item.kind === 'message' ? [item.item.turn.id] : []
+      );
+      expect(
+        ids.some((id) => id === 'acp-2') &&
+          ids.some((id) => id === 't1:assistant')
+      ).toBe(false);
+    };
+
+    assertSingleCurrentAssistant(state);
+
+    state = conversationStoreReducer(state, {
+      type: 'row_ops',
+      batch: batch(
+        [
+          {
+            op: 'append_text',
+            row_id: 't1:assistant',
+            revision: 3n,
+            stream: 'text',
+            delta: ' now.',
+          },
+        ],
+        1n
+      ),
+    });
+
+    assertSingleCurrentAssistant(state);
+    let turns = timelineTurnsForEntry(entryOf(state));
+    expect(turns.filter((row) => row.turn.role === 'assistant')).toHaveLength(
+      1
+    );
+    expect(assistantTexts(turns)).toEqual(['Checking files now.']);
+
+    state = conversationStoreReducer(state, {
+      type: 'row_ops',
+      batch: batch(
+        [
+          {
+            op: 'patch_blocks',
+            row_id: 't1:assistant',
+            revision: 4n,
+            phase: 'streaming',
+            blocks: [
+              {
+                type: 'tool_use',
+                tool_use_id: 'call-1',
+                tool_name: 'Read',
+                status: 'completed',
+                kind: 'read',
+                input_preview: '{}',
+                meta: null,
+              },
+            ],
+          },
+          {
+            op: 'append_text',
+            row_id: 't1:assistant',
+            revision: 5n,
+            stream: 'text',
+            delta: 'All done.',
+          },
+        ],
+        1n
+      ),
+    });
+
+    assertSingleCurrentAssistant(state);
+    turns = timelineTurnsForEntry(entryOf(state));
+    const assistants = turns.filter((row) => row.turn.role === 'assistant');
+    expect(assistants).toHaveLength(1);
+    expect(assistants[0]?.turn.blocks.map((b) => b.type)).toEqual([
+      'text',
+      'tool_use',
+      'text',
+    ]);
+    expect(assistants[0]?.turn.blocks[0]).toEqual({
+      type: 'text',
+      text: 'Checking files now.',
+    });
+    expect(assistants[0]?.turn.blocks[2]).toEqual({
+      type: 'text',
+      text: 'All done.',
+    });
+
+    // TurnCompleted arrives
+    state = conversationStoreReducer(state, {
+      type: 'row_ops',
+      batch: batch(
+        [
+          {
+            op: 'upsert',
+            row: timelineRow('t1:user', 6n, {
+              kind: 'message_turn',
+              phase: 'settled',
+              turn: messageTurn('t1:user', 'user', [
+                { type: 'text', text: 'inspect repo' },
+              ]),
+            }),
+          },
+          {
+            op: 'upsert',
+            row: assistantRow(
+              't1',
+              [
+                { type: 'text', text: 'Checking files now.' },
+                {
+                  type: 'tool_use',
+                  tool_use_id: 'call-1',
+                  tool_name: 'Read',
+                  status: 'completed',
+                  kind: 'read',
+                  input_preview: '{}',
+                  meta: null,
+                },
+                { type: 'text', text: 'All done.' },
+              ],
+              6n,
+              'settled'
+            ),
+          },
+        ],
+        6n
+      ),
+    });
+    assertSingleCurrentAssistant(state);
+
+    // If a stale load_success arrives with hasActiveTurn === false (in_flight_user_turn_id = null)
+    // BEFORE the window contains the completed turn, liveRows must NOT be cleared.
+    const prematureIdleDetail = emptyDetail([
+      fileTurn('acp-1', 'user', 'inspect repo', 1_700_000_000_000n, 'settled'),
+      fileTurn(
+        'acp-2',
+        'assistant',
+        'Checking files',
+        1_700_000_000_200n,
+        'streaming'
+      ),
+    ]);
+    prematureIdleDetail.timeline.last_sequence = 6n;
+    prematureIdleDetail.in_flight_user_turn_id = null;
+    state = conversationStoreReducer(state, {
+      type: 'load_success',
+      conversationId: CONVERSATION_ID,
+      detail: prematureIdleDetail,
+    });
+    assertSingleCurrentAssistant(state);
+    expect(entryOf(state).liveRows.length).toBeGreaterThan(0);
+
+    // Once the JSONL window includes the settled turn, load_success atomically replaces windowRows
+    // and clears converged liveRows and liveText.
+    const settledWindowDetail = emptyDetail([
+      fileTurn('acp-1', 'user', 'inspect repo', 1_700_000_000_000n, 'settled'),
+      timelineRow('acp-2', 1_700_000_000_500n, {
+        kind: 'message_turn',
+        phase: 'settled',
+        turn: messageTurn('acp-2', 'assistant', [
+          { type: 'text', text: 'Checking files now.' },
+          {
+            type: 'tool_use',
+            tool_use_id: 'call-1',
+            tool_name: 'Read',
+            status: 'completed',
+            kind: 'read',
+            input_preview: '{}',
+            meta: null,
+          },
+          { type: 'text', text: 'All done.' },
+        ]),
+      }),
+    ]);
+    settledWindowDetail.timeline.last_sequence = 6n;
+    settledWindowDetail.in_flight_user_turn_id = null;
+    state = conversationStoreReducer(state, {
+      type: 'load_success',
+      conversationId: CONVERSATION_ID,
+      detail: settledWindowDetail,
+    });
+    assertSingleCurrentAssistant(state);
+    expect(entryOf(state).liveRows).toEqual([]);
+    expect(entryOf(state).liveText).toEqual({});
+  });
+
+  it('aligns mid-turn steer rounds in windowRows with liveRows without duplicating user or assistant bubbles', () => {
+    let state = loaded([streamingUser('t1', 'initial task', 1n)]);
+    state = conversationStoreReducer(state, {
+      type: 'row_ops',
+      batch: batch(
+        [
+          {
+            op: 'append_text',
+            row_id: 't1:assistant',
+            revision: 2n,
+            stream: 'text',
+            delta: 'Working on step 1. ',
+          },
+          {
+            op: 'upsert',
+            row: timelineRow('t1:steer:s1', 3n, {
+              kind: 'message_turn',
+              phase: 'settled',
+              turn: messageTurn('t1:steer:s1', 'user', [
+                { type: 'text', text: 'switch to step 2' },
+              ]),
+            }),
+          },
+          {
+            op: 'append_text',
+            row_id: 't1:assistant',
+            revision: 4n,
+            stream: 'text',
+            delta: 'Switched to step 2.',
+          },
+        ],
+        2n
+      ),
+    });
+
+    // Mid-stream loadDetail returns windowRows containing acp-0 (user), acp-1 (settled pre-steer assistant),
+    // acp-2:steer:2 (steer user), and acp-3 (streaming post-steer assistant).
+    const midSteerWindow = emptyDetail([
+      fileTurn('acp-0', 'user', 'initial task', 1n, 'settled'),
+      fileTurn('acp-1', 'assistant', 'Working on step 1. ', 2n, 'settled'),
+      fileTurn('acp-2:steer:2', 'user', 'switch to step 2', 3n, 'streaming'),
+      fileTurn('acp-3', 'assistant', 'Switched to step 2.', 4n, 'streaming'),
+    ]);
+    midSteerWindow.timeline.last_sequence = 2n;
+    midSteerWindow.in_flight_user_turn_id = 't1';
+    state = conversationStoreReducer(state, {
+      type: 'load_success',
+      conversationId: CONVERSATION_ID,
+      detail: midSteerWindow,
+    });
+
+    // The entire open round in windowRows (including acp-0, acp-1, acp-2:steer:2, acp-3)
+    // is suppressed while liveRows owns the active round.
+    const midItems = selectConversationTimelineItems(state, CONVERSATION_ID);
+    const midTurnIds = midItems.flatMap((item) =>
+      item.kind === 'message' ? [item.item.turn.id] : []
+    );
+    expect(midTurnIds).toEqual(['t1:user', 't1:steer:s1', 't1:assistant']);
+
+    // Once the turn settles in the window, liveRows converges and is cleared cleanly.
+    const settledSteerWindow = emptyDetail([
+      fileTurn('acp-0', 'user', 'initial task', 1n, 'settled'),
+      fileTurn('acp-1', 'assistant', 'Working on step 1. ', 2n, 'settled'),
+      fileTurn('acp-2:steer:2', 'user', 'switch to step 2', 3n, 'settled'),
+      fileTurn('acp-3', 'assistant', 'Switched to step 2.', 4n, 'settled'),
+    ]);
+    settledSteerWindow.timeline.last_sequence = 3n;
+    settledSteerWindow.in_flight_user_turn_id = null;
+    state = conversationStoreReducer(state, {
+      type: 'load_success',
+      conversationId: CONVERSATION_ID,
+      detail: settledSteerWindow,
+    });
+    expect(entryOf(state).liveRows).toEqual([]);
+    const settledItems = selectConversationTimelineItems(
+      state,
+      CONVERSATION_ID
+    );
+    expect(
+      settledItems.flatMap((item) =>
+        item.kind === 'message' ? [item.item.turn.id] : []
+      )
+    ).toEqual(['acp-0', 'acp-1', 'acp-2:steer:2', 'acp-3']);
+  });
 });
 
 function textOf(blocks: ContentBlock[]): string {
   return blocks
     .flatMap((block) => (block.type === 'text' ? [block.text] : []))
     .join('');
+}
+
+function fileTurn(
+  id: string,
+  role: 'user' | 'assistant',
+  text: string,
+  revision: bigint,
+  phase: 'streaming' | 'settled'
+): TimelineRow {
+  return timelineRow(id, revision, {
+    kind: 'message_turn',
+    phase,
+    turn: messageTurn(id, role, [{ type: 'text', text }]),
+  });
+}
+
+function assistantTexts(
+  turns: ReturnType<typeof timelineTurnsForEntry>
+): string[] {
+  return turns
+    .filter((row) => row.turn.role === 'assistant')
+    .map((row) => textOf(row.turn.blocks));
 }

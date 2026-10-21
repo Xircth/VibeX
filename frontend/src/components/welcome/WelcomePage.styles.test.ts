@@ -30,17 +30,27 @@ describe('welcome project surfaces', () => {
     expect(enApp.welcomePage.tagline).toBe('Super Agent Coding Platform');
   });
 
-  it('paints the workspace Welcome tab canvas as #fafafa', () => {
+  it('paints the workspace Welcome tab canvas with the shell color', () => {
     const surface = declarationsFor('.workspace-welcome');
     const light = declarationsFor('.legacy-design');
     const dark = declarationsFor('.legacy-design.dark, .dark .legacy-design');
 
-    expect(light.get('--welcome-canvas')).toBe('#fafafa');
-    expect(dark.get('--welcome-canvas')).toBe('var(--surface-dialog)');
-    expect(surface.get('background')).toContain('var(--welcome-canvas)');
+    expect(light.get('--welcome-canvas')).toBe('var(--surface-shell)');
+    expect(dark.get('--welcome-canvas')).toBe('var(--surface-shell)');
+    expect(surface.get('background')).toBe('var(--welcome-canvas)');
   });
 
-  it('paints the home page white and leaves the logo without a hover fill', () => {
+  it('lays out workspace Welcome recommend cards in a 2x2 gray grid', () => {
+    const recommend = declarationsFor('.workspace-welcome__recommend');
+    const action = declarationsFor('.workspace-welcome__action');
+
+    expect(recommend.get('grid-template-columns')).toBe(
+      'repeat(2, minmax(0, 1fr))'
+    );
+    expect(action.get('background')).toBe('var(--surface-control)');
+  });
+
+  it('paints the home page with the shell color and leaves the logo without a hover fill', () => {
     const surface = declarationsFor('.welcome-page-surface');
     const light = declarationsFor('.legacy-design');
     const dark = declarationsFor('.legacy-design.dark, .dark .legacy-design');
@@ -48,8 +58,8 @@ describe('welcome project surfaces', () => {
       ".home-logo-button, .home-logo-button:hover, .home-logo-button[data-state='open']"
     );
 
-    expect(light.get('--welcome-page')).toBe('#ffffff');
-    expect(dark.get('--welcome-page')).toBe('var(--surface-dialog)');
+    expect(light.get('--welcome-page')).toBe('var(--surface-shell)');
+    expect(dark.get('--welcome-page')).toBe('var(--surface-shell)');
     expect(surface.get('background')).toBe('var(--welcome-page)');
     expect(surface.get('position')).toBe('relative');
     expect(logoHover.get('background')).toBe('transparent');

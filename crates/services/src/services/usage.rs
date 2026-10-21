@@ -11,6 +11,13 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use ts_rs::TS;
 
+#[path = "native_token_usage.rs"]
+mod native_token_usage;
+
+/// Bump when a vendor parser starts emitting fields older rows do not have.
+/// Files stamped with a lower generation are read once more, then skipped.
+pub const VENDOR_USAGE_SCAN_GENERATION: i64 = 2;
+
 // ============= Type Definitions =============
 
 /// Optional token breakdown. `None` means the source did not provide the field
@@ -67,6 +74,9 @@ pub struct ProjectUsageDailyUsage {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub cost: Option<f64>,
     pub models_used: Vec<String>,
+    /// Usage-bearing turns. Missing when no transcript reported a turn count.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub turns: Option<i64>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
@@ -124,6 +134,9 @@ pub struct ProjectUsageSessionSummary {
     pub summary: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub external_session_id: Option<String>,
+    /// Usage-bearing turns from a transcript. Missing when none was counted.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub turns: Option<i64>,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize, TS)]
@@ -197,6 +210,7 @@ pub struct VendorLogUsage {
     pub cost: Option<f64>,
     pub summary: Option<String>,
     pub provider: String,
+    pub turns: Option<i64>,
 }
 
 /// Local directories that hold vendor transcripts.
@@ -205,16 +219,37 @@ pub struct VendorLogRoots {
     pub claude_projects: Option<PathBuf>,
     pub codex_sessions: Option<PathBuf>,
     pub grok_sessions: Option<PathBuf>,
+    pub acp_transcripts: Option<PathBuf>,
+    pub kimi_sessions: Option<PathBuf>,
+    pub qoder_projects: Option<PathBuf>,
+    pub codebuddy_projects: Option<PathBuf>,
 }
 
 impl VendorLogRoots {
     pub fn local() -> Self {
         Self {
-            claude_projects: dirs::home_dir().map(|home| home.join(".claude").join("projects")),
-            codex_sessions: dirs::home_dir().map(|home| home.join(".codex").join("sessions")),
+            claude_projects: env_or_home("CLAUDE_CONFIG_DIR", ".claude")
+                .map(|root| root.join("projects")),
+            codex_sessions: env_or_home("CODEX_HOME", ".codex").map(|root| root.join("sessions")),
             grok_sessions: agents::grok_home_dir().map(|home| home.join("sessions")),
+            acp_transcripts: Some(agents::acp_transcript::vibex_acp_transcripts_root()),
+            kimi_sessions: env_or_home("KIMI_CODE_HOME", ".kimi-code")
+                .map(|root| root.join("sessions")),
+            qoder_projects: env_or_home("QODER_CONFIG_DIR", ".qoder")
+                .map(|root| root.join("projects")),
+            codebuddy_projects: env_or_home("CODEBUDDY_CONFIG_DIR", ".codebuddy")
+                .map(|root| root.join("projects")),
         }
     }
+}
+
+fn env_or_home(env_key: &str, relative: &str) -> Option<PathBuf> {
+    if let Some(value) = std::env::var_os(env_key) {
+        if !value.is_empty() {
+            return Some(PathBuf::from(value));
+        }
+    }
+    dirs::home_dir().map(|home| home.join(relative))
 }
 
 /// One jsonl that changed (or was seen for the first time) during an incremental scan.
@@ -563,12 +598,7 @@ fn grok_cost_rates(model: &str) -> CostRates {
     if model_matches(
         model,
         &[
-            "grok-4.7",
-            "grok-4-7",
-            "grok-4.6",
-            "grok-4-6",
-            "grok-4.5",
-            "grok-4-5",
+            "grok-4.7", "grok-4-7", "grok-4.6", "grok-4-6", "grok-4.5", "grok-4-5",
         ],
     ) {
         return CostRates {
@@ -679,15 +709,23 @@ pub fn build_project_usage_statistics(
         add_optional_tokens(&mut daily.protocol, session.tokens.protocol.as_ref());
         add_optional_tokens(&mut daily.vendor, session.tokens.vendor_log.as_ref());
         add_optional_cost(&mut daily.cost, session.cost);
-        if let Some(model) = session.model.as_ref()
-            && !daily.models_used.iter().any(|existing| existing == model)
-        {
-            daily.models_used.push(model.clone());
+        match session.turns {
+            Some(turns) => {
+                daily.turns = Some(daily.turns.unwrap_or(0).saturating_add(turns));
+                daily.turns_reported = true;
+            }
+            None => {}
+        }
+        if let Some(model) = session.model.as_deref().and_then(concrete_model_id) {
+            if !daily.models_used.iter().any(|existing| existing == &model) {
+                daily.models_used.push(model);
+            }
         }
 
         let model_key = session
             .model
-            .clone()
+            .as_deref()
+            .and_then(concrete_model_id)
             .unwrap_or_else(|| "unprovided".to_string());
         accumulate_dimension(
             &mut model_map,
@@ -741,6 +779,7 @@ pub fn build_project_usage_statistics(
             tokens: sourced_from_accumulated(&daily.protocol, &daily.vendor),
             cost: daily.cost,
             models_used: daily.models_used,
+            turns: daily.turns_reported.then_some(daily.turns.unwrap_or(0)),
         })
         .collect();
     daily_usage.sort_by(|a, b| a.date.cmp(&b.date));
@@ -831,6 +870,8 @@ struct DailyAccumulator {
     vendor: AccumulatedTokens,
     cost: Option<f64>,
     models_used: Vec<String>,
+    turns: Option<i64>,
+    turns_reported: bool,
 }
 
 #[derive(Default, Clone)]
@@ -931,6 +972,19 @@ fn tokens_disagree(
     }
 }
 
+pub fn concrete_model_id(model: &str) -> Option<String> {
+    let trimmed = model.trim();
+    if trimmed.is_empty()
+        || trimmed.eq_ignore_ascii_case("unknown")
+        || trimmed.eq_ignore_ascii_case("unprovided")
+        || agents::is_unresolved_model_alias(trimmed)
+    {
+        None
+    } else {
+        Some(trimmed.to_string())
+    }
+}
+
 pub fn preferred_counts(tokens: &ProjectUsageSourcedTokens) -> Option<&ProjectUsageTokenCounts> {
     tokens
         .vendor_log
@@ -1027,34 +1081,63 @@ fn vendor_cost_for_model(model: Option<&str>, tokens: &ProjectUsageTokenCounts) 
     None
 }
 
+fn remember_vendor<'a>(
+    index: &mut HashMap<String, &'a VendorLogUsage>,
+    key: String,
+    vendor: &'a VendorLogUsage,
+) {
+    match index.get(&key) {
+        Some(existing) if has_token_counts(&existing.tokens) => {}
+        _ => {
+            index.insert(key, vendor);
+        }
+    }
+}
+
+fn lookup_vendor<'a>(
+    index: &HashMap<String, &'a VendorLogUsage>,
+    id: &str,
+) -> Option<&'a VendorLogUsage> {
+    index
+        .get(id)
+        .copied()
+        .or_else(|| uuid_suffix(id).and_then(|uuid| index.get(&uuid).copied()))
+}
+
 pub fn align_vendor_usage(
     sessions: &mut [ProjectUsageSessionSummary],
     vendor_logs: &[VendorLogUsage],
 ) -> i64 {
     let mut by_external: HashMap<String, &VendorLogUsage> = HashMap::new();
     for vendor in vendor_logs {
-        by_external
-            .entry(vendor.external_session_id.clone())
-            .or_insert(vendor);
+        remember_vendor(&mut by_external, vendor.external_session_id.clone(), vendor);
         if let Some(uuid) = uuid_suffix(&vendor.external_session_id) {
-            by_external.entry(uuid).or_insert(vendor);
+            remember_vendor(&mut by_external, uuid, vendor);
         }
     }
 
     let mut attributed = HashSet::new();
     for session in sessions.iter_mut() {
-        let Some(external_id) = session.external_session_id.as_deref() else {
-            continue;
-        };
-        let vendor = by_external.get(external_id).copied().or_else(|| {
-            uuid_suffix(external_id).and_then(|uuid| by_external.get(&uuid).copied())
-        });
+        let vendor = session
+            .external_session_id
+            .as_deref()
+            .and_then(|external_id| lookup_vendor(&by_external, external_id))
+            .or_else(|| lookup_vendor(&by_external, &session.session_id));
         let Some(vendor) = vendor else {
             continue;
         };
         attributed.insert(vendor.external_session_id.clone());
-        if session.model.is_none() && !vendor.model.is_empty() {
-            session.model = Some(vendor.model.clone());
+        if let Some(model) = concrete_model_id(&vendor.model) {
+            let replace = session
+                .model
+                .as_deref()
+                .is_none_or(|current| concrete_model_id(current).is_none());
+            if replace {
+                session.model = Some(model);
+            }
+        }
+        if session.turns.is_none() {
+            session.turns = vendor.turns;
         }
         if session.summary.is_none() {
             session.summary = vendor.summary.clone();
@@ -1099,7 +1182,8 @@ fn parse_claude_session(path: &Path) -> Result<Option<VendorLogUsage>, String> {
     let mut usage = ProjectUsageTokenCounts::default();
     let mut total_cost = 0.0;
     let mut has_cost = false;
-    let mut model = "unknown".to_string();
+    let mut turns = 0_i64;
+    let mut model = String::new();
     let mut first_timestamp = 0_i64;
     let mut summary: Option<String> = None;
     let mut session_id = path
@@ -1148,10 +1232,10 @@ fn parse_claude_session(path: &Path) -> Result<Option<VendorLogUsage>, String> {
         };
 
         let message_model = message.get("model").and_then(|v| v.as_str());
-        if model == "unknown"
-            && let Some(message_model) = message_model
+        if model.is_empty()
+            && let Some(message_model) = message_model.and_then(concrete_model_id)
         {
-            model = message_model.to_string();
+            model = message_model;
         }
 
         let Some(usage_map) = message.get("usage").and_then(|v| v.as_object()) else {
@@ -1170,6 +1254,7 @@ fn parse_claude_session(path: &Path) -> Result<Option<VendorLogUsage>, String> {
         {
             continue;
         }
+        turns += 1;
 
         let message_usage = ProjectUsageTokenCounts {
             input_tokens: Some(input_tokens),
@@ -1192,7 +1277,11 @@ fn parse_claude_session(path: &Path) -> Result<Option<VendorLogUsage>, String> {
             message_usage.cache_read_tokens,
         );
 
-        let pricing_model = message_model.unwrap_or(model.as_str());
+        let pricing_model = message_model.unwrap_or(if model.is_empty() {
+            "claude"
+        } else {
+            model.as_str()
+        });
         if let Some(cost) = calculate_usage_cost(&message_usage, claude_cost_rates(pricing_model)) {
             total_cost += cost;
             has_cost = true;
@@ -1232,6 +1321,7 @@ fn parse_claude_session(path: &Path) -> Result<Option<VendorLogUsage>, String> {
         cost: has_cost.then_some(total_cost),
         summary,
         provider: "claude".to_string(),
+        turns: Some(turns),
     }))
 }
 
@@ -1289,6 +1379,39 @@ pub fn scan_changed_vendor_logs(
         }
     }
 
+    scan_extra_provider(
+        "acp",
+        roots.acp_transcripts.as_deref(),
+        known,
+        collect_jsonl_tree,
+        native_token_usage::parse_acp_transcript,
+        &mut scan,
+    );
+    scan_extra_provider(
+        "kimi_code",
+        roots.kimi_sessions.as_deref(),
+        known,
+        collect_kimi_wires,
+        native_token_usage::parse_kimi_wire,
+        &mut scan,
+    );
+    scan_extra_provider(
+        "qoder",
+        roots.qoder_projects.as_deref(),
+        known,
+        collect_jsonl_tree,
+        native_token_usage::parse_qoder_session,
+        &mut scan,
+    );
+    scan_extra_provider(
+        "codebuddy",
+        roots.codebuddy_projects.as_deref(),
+        known,
+        collect_jsonl_tree,
+        native_token_usage::parse_codebuddy_session,
+        &mut scan,
+    );
+
     for provider in &scan.successful_providers {
         let sessions_scanned = scan
             .updates
@@ -1304,6 +1427,92 @@ pub fn scan_changed_vendor_logs(
     }
 
     scan
+}
+
+fn scan_extra_provider(
+    provider: &str,
+    root: Option<&Path>,
+    known: &HashMap<String, (i64, i64)>,
+    collect: fn(Option<&Path>) -> Result<Vec<PathBuf>, String>,
+    parse: fn(&Path) -> Result<Option<VendorLogUsage>, String>,
+    scan: &mut VendorLogScan,
+) {
+    match collect(root) {
+        Ok(files) => {
+            scan_provider_files(provider, &files, known, parse, scan);
+            scan.successful_providers.push(provider.to_string());
+        }
+        Err(error) => {
+            scan.provider_status.push(ProjectUsageProviderStatus {
+                provider: provider.to_string(),
+                success: false,
+                error: Some(error),
+                sessions_scanned: 0,
+            });
+        }
+    }
+}
+
+fn collect_jsonl_tree(root: Option<&Path>) -> Result<Vec<PathBuf>, String> {
+    let Some(root) = root.filter(|dir| dir.exists()) else {
+        return Ok(Vec::new());
+    };
+    let mut files = Vec::new();
+    walk_jsonl(root, &mut files);
+    Ok(files)
+}
+
+fn walk_jsonl(dir: &Path, files: &mut Vec<PathBuf>) {
+    let entries = match fs::read_dir(dir) {
+        Ok(entries) => entries,
+        Err(_) => return,
+    };
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if path.is_dir() {
+            walk_jsonl(&path, files);
+            continue;
+        }
+        let name = path
+            .file_name()
+            .and_then(|name| name.to_str())
+            .unwrap_or("");
+        if name.ends_with(".jsonl") && !name.starts_with("agent-") {
+            files.push(path);
+        }
+    }
+}
+
+fn collect_kimi_wires(root: Option<&Path>) -> Result<Vec<PathBuf>, String> {
+    let Some(root) = root.filter(|dir| dir.exists()) else {
+        return Ok(Vec::new());
+    };
+    let mut files = Vec::new();
+    walk_kimi_wires(root, &mut files);
+    Ok(files)
+}
+
+fn walk_kimi_wires(dir: &Path, files: &mut Vec<PathBuf>) {
+    let entries = match fs::read_dir(dir) {
+        Ok(entries) => entries,
+        Err(_) => return,
+    };
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if path.is_dir() {
+            walk_kimi_wires(&path, files);
+            continue;
+        }
+        if path.file_name().and_then(|name| name.to_str()) == Some("wire.jsonl")
+            && path
+                .parent()
+                .and_then(|parent| parent.file_name())
+                .and_then(|name| name.to_str())
+                == Some("main")
+        {
+            files.push(path);
+        }
+    }
 }
 
 fn scan_provider_files(
@@ -1432,6 +1641,7 @@ fn parse_grok_session(path: &Path) -> Result<Option<VendorLogUsage>, String> {
     let mut session_id = grok_summary_session_id(session_dir)
         .or_else(|| uuid_suffix(dir_name))
         .unwrap_or_else(|| dir_name.to_string());
+    let mut turns = 0_i64;
 
     for line in reader.lines() {
         let line = match line {
@@ -1461,6 +1671,7 @@ fn parse_grok_session(path: &Path) -> Result<Option<VendorLogUsage>, String> {
         let Some(parsed) = agents::usage_from_session_notification_params(params) else {
             continue;
         };
+        turns += 1;
         add_optional_i64(
             &mut usage.input_tokens,
             parsed.input_tokens.map(|value| value as i64),
@@ -1547,7 +1758,11 @@ fn parse_grok_session(path: &Path) -> Result<Option<VendorLogUsage>, String> {
     };
 
     let model = model.unwrap_or_default();
-    let cost_model = if model.is_empty() { "grok-4.6" } else { model.as_str() };
+    let cost_model = if model.is_empty() {
+        "grok-4.6"
+    } else {
+        model.as_str()
+    };
     let cost = calculate_usage_cost(&usage, grok_cost_rates(cost_model));
 
     Ok(Some(VendorLogUsage {
@@ -1558,6 +1773,7 @@ fn parse_grok_session(path: &Path) -> Result<Option<VendorLogUsage>, String> {
         cost,
         summary: grok_summary_title(session_dir),
         provider: "grok".to_string(),
+        turns: (turns > 0).then_some(turns),
     }))
 }
 
@@ -1675,6 +1891,7 @@ fn parse_codex_session(path: &Path) -> Result<Option<VendorLogUsage>, String> {
     let mut first_timestamp = 0_i64;
     let mut previous_totals: Option<UsageTotals> = None;
     let mut session_id = session_id_from_codex_path(path);
+    let mut turns = 0_i64;
 
     for line in reader.lines() {
         let line = match line {
@@ -1804,9 +2021,12 @@ fn parse_codex_session(path: &Path) -> Result<Option<VendorLogUsage>, String> {
             previous_totals = Some(next);
         }
 
+        // Codex `input_tokens` already includes the cached prefix.
+        delta.input = delta.input.saturating_sub(delta.cached);
         if delta.input == 0 && delta.cached == 0 && delta.output == 0 {
             continue;
         }
+        turns += 1;
 
         add_optional_i64(&mut usage.input_tokens, Some(delta.input.max(0)));
         add_optional_i64(&mut usage.output_tokens, Some(delta.output.max(0)));
@@ -1830,8 +2050,12 @@ fn parse_codex_session(path: &Path) -> Result<Option<VendorLogUsage>, String> {
         return Ok(None);
     }
 
-    let model = model.unwrap_or_else(|| "gpt-5.1".to_string());
-    let cost = calculate_usage_cost(&usage, openai_cost_rates(&model));
+    let model = model
+        .and_then(|value| concrete_model_id(&value))
+        .unwrap_or_default();
+    let cost = (!model.is_empty())
+        .then(|| calculate_usage_cost(&usage, openai_cost_rates(&model)))
+        .flatten();
     let timestamp = if first_timestamp > 0 {
         first_timestamp
     } else {
@@ -1849,6 +2073,7 @@ fn parse_codex_session(path: &Path) -> Result<Option<VendorLogUsage>, String> {
         cost,
         summary,
         provider: "codex".to_string(),
+        turns: Some(turns),
     }))
 }
 
@@ -2033,6 +2258,7 @@ mod tests {
             cost,
             summary: None,
             external_session_id: Some(session_id.to_string()),
+            turns: None,
         }
     }
 
@@ -2224,6 +2450,7 @@ mod tests {
                 cost: Some(0.2),
                 summary: None,
                 provider: "claude".to_string(),
+                turns: Some(1),
             },
             VendorLogUsage {
                 external_session_id: "orphan".to_string(),
@@ -2239,6 +2466,7 @@ mod tests {
                 cost: Some(0.01),
                 summary: None,
                 provider: "claude".to_string(),
+                turns: None,
             },
         ];
 
@@ -2290,6 +2518,7 @@ mod tests {
             cost: None,
             summary: None,
             provider: "grok".to_string(),
+            turns: Some(1),
         }];
 
         align_vendor_usage(&mut sessions, &vendor);
@@ -2370,6 +2599,71 @@ mod tests {
                 .and_then(|tokens| tokens.total_tokens),
             Some(87_826)
         );
+    }
+
+    #[test]
+    fn short_model_aliases_are_replaced_or_left_unprovided() {
+        let now = 1_725_000_000_000;
+        let mut sessions = vec![
+            attributed_session(
+                "alias-1",
+                "ws-1",
+                "/repo",
+                "claude_code",
+                Some("opus"),
+                protocol_tokens(100),
+                None,
+                now,
+            ),
+            attributed_session(
+                "alias-2",
+                "ws-1",
+                "/repo",
+                "claude_code",
+                Some("fable"),
+                protocol_tokens(40),
+                None,
+                now,
+            ),
+        ];
+        let vendor = vec![VendorLogUsage {
+            external_session_id: "alias-1".to_string(),
+            timestamp: now,
+            model: "claude-opus-4-6".to_string(),
+            tokens: ProjectUsageTokenCounts {
+                input_tokens: Some(80),
+                output_tokens: Some(20),
+                cache_write_tokens: Some(0),
+                cache_read_tokens: Some(0),
+                total_tokens: Some(100),
+            },
+            cost: None,
+            summary: None,
+            provider: "acp".to_string(),
+            turns: Some(2),
+        }];
+        align_vendor_usage(&mut sessions, &vendor);
+        assert_eq!(sessions[0].model.as_deref(), Some("claude-opus-4-6"));
+        assert_eq!(sessions[0].turns, Some(2));
+
+        let result = build_project_usage_statistics(
+            "project".to_string(),
+            "project-1".to_string(),
+            "Demo".to_string(),
+            sessions,
+            Vec::new(),
+            0,
+            now,
+        );
+        let models: Vec<&str> = result
+            .by_model
+            .iter()
+            .map(|row| row.model.as_str())
+            .collect();
+        assert!(models.contains(&"claude-opus-4-6"));
+        assert!(models.contains(&"unprovided"));
+        assert!(!models.contains(&"opus"));
+        assert!(!models.contains(&"fable"));
     }
 
     #[test]
@@ -2482,7 +2776,11 @@ mod tests {
 
         let parsed = parse_codex_session(&path).expect("parse").expect("session");
         assert_eq!(parsed.external_session_id, session_id);
-        assert_eq!(parsed.tokens.total_tokens, Some(140));
+        // Codex `input_tokens` includes the cached prefix, so 80 splits into 60 + 20.
+        assert_eq!(parsed.tokens.input_tokens, Some(60));
+        assert_eq!(parsed.tokens.cache_read_tokens, Some(20));
+        assert_eq!(parsed.tokens.output_tokens, Some(40));
+        assert_eq!(parsed.tokens.total_tokens, Some(120));
     }
 
     #[test]
@@ -2500,9 +2798,8 @@ mod tests {
         .expect("write");
 
         let roots = VendorLogRoots {
-            claude_projects: None,
             codex_sessions: Some(sessions_dir.clone()),
-            grok_sessions: None,
+            ..VendorLogRoots::default()
         };
         let first = scan_changed_vendor_logs(&roots, &HashMap::new());
         assert_eq!(first.updates.len(), 1);

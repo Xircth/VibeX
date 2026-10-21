@@ -14,7 +14,9 @@ pub fn on_main_window_focus(window: &tauri::Window, focused: bool) {
     if window.label() != "main" {
         return;
     }
-    let generation = FOCUS_GENERATION.fetch_add(1, Ordering::Relaxed).wrapping_add(1);
+    let generation = FOCUS_GENERATION
+        .fetch_add(1, Ordering::Relaxed)
+        .wrapping_add(1);
     let app = window.app_handle().clone();
     if focused {
         set_main_memory_target(&app, false);

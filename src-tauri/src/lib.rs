@@ -26,13 +26,13 @@ mod plugin_dev_server;
 mod window_chrome;
 pub mod windows_webview2;
 
+mod memory_target;
 mod plugin_remote_profiles;
 mod pr_description;
 mod prompt_enhancement;
 mod remote_desktop;
 mod settings_watcher;
 mod state;
-mod memory_target;
 mod tray;
 mod workflow_mcp_gateway;
 mod workspace_paths;

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   Bell,
   History,
@@ -40,7 +40,8 @@ import { toPrettyCase } from '@/utils/string';
 import { useOptionalBasicGuide } from '@/features/basic-guide';
 import { restartBasicGuide } from '@/features/basic-guide/basicGuideState';
 import { writeBasicGuide } from '@/features/basic-guide/basicGuideStorage';
-import { SettingsActionBar, SettingsSection } from './SettingsUi';
+import { SettingsSection } from './SettingsUi';
+import { useLiveSettingsCommit } from './useLiveSettingsCommit';
 
 const DEFAULT_PROMPT_ENHANCEMENT_PROMPT = `You are PromptEnhance (PE).
 
@@ -74,25 +75,45 @@ export function GeneralSettings() {
   const [draft, setDraft] = useState<Config | null>(() =>
     config ? cloneConfig(config) : null
   );
-  const [saving, setSaving] = useState(false);
-  const [dirty, setDirty] = useState(false);
+  const draftRef = useRef(draft);
+  draftRef.current = draft;
 
   const [importOpen, setImportOpen] = useState(false);
   const importJob = useLocalHistoryImportJob();
 
-  useEffect(() => {
-    if (config && !dirty) {
-      setDraft(cloneConfig(config));
+  const { writeNow, writeSettled, flush, holding } = useLiveSettingsCommit(
+    async (next: Config) => {
+      const saved = await updateAndSaveConfig(next);
+      if (!saved) {
+        toast.error(t('general.saveFailed'), {
+          description: t('general.saveGeneralFailed'),
+        });
+      }
     }
-  }, [config, dirty]);
+  );
 
-  const updateDraft = useCallback((patch: Partial<Config>) => {
-    setDraft((prev) => {
-      if (!prev) return prev;
-      setDirty(true);
-      return { ...prev, ...patch };
-    });
-  }, []);
+  const appliedConfig = useRef(config);
+  useEffect(() => {
+    if (!config || holding) return;
+    if (config === appliedConfig.current) return;
+    appliedConfig.current = config;
+    const next = cloneConfig(config);
+    draftRef.current = next;
+    setDraft(next);
+  }, [config, holding]);
+
+  const updateDraft = useCallback(
+    (patch: Partial<Config>, settle = false) => {
+      const previous = draftRef.current;
+      if (!previous) return;
+      const next = { ...previous, ...patch };
+      draftRef.current = next;
+      setDraft(next);
+      if (settle) writeSettled(next);
+      else writeNow(next);
+    },
+    [writeNow, writeSettled]
+  );
 
   const playSound = async (soundFile: SoundFile) => {
     try {
@@ -100,36 +121,6 @@ export function GeneralSettings() {
     } catch (error) {
       console.error('Failed to play notification sound:', error);
     }
-  };
-
-  const handleSave = async () => {
-    if (!draft) return;
-    try {
-      setSaving(true);
-      const saved = await updateAndSaveConfig(draft);
-      if (!saved) {
-        throw new Error(t('general.saveGeneralFailed'));
-      }
-      setDirty(false);
-      toast.success(t('general.settingsSaved'), {
-        description: t('general.generalSettingsUpdated'),
-      });
-    } catch (error) {
-      toast.error(t('general.saveFailed'), {
-        description:
-          error instanceof Error
-            ? error.message
-            : t('general.saveGeneralFailed'),
-      });
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  const handleReset = () => {
-    if (!config) return;
-    setDraft(cloneConfig(config));
-    setDirty(false);
   };
 
   if (loading) {
@@ -277,10 +268,14 @@ export function GeneralSettings() {
                     }
                     disabled={draft.prompt_enhancement_prompt == null}
                     onChange={(event) =>
-                      updateDraft({
-                        prompt_enhancement_prompt: event.target.value,
-                      })
+                      updateDraft(
+                        {
+                          prompt_enhancement_prompt: event.target.value,
+                        },
+                        true
+                      )
                     }
+                    onBlur={() => void flush()}
                     placeholder={t('general.customPromptPlaceholder')}
                     className={`min-h-32 font-mono text-sm ${
                       draft.prompt_enhancement_prompt == null
@@ -501,12 +496,6 @@ export function GeneralSettings() {
       </div>
 
       <div className="mt-auto flex flex-col gap-3 pt-12">
-        <SettingsActionBar
-          dirty={dirty}
-          saving={saving}
-          onDiscard={handleReset}
-          onSave={handleSave}
-        />
         <div className="flex justify-end">
           <Button
             type="button"

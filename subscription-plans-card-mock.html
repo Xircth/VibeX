@@ -1,0 +1,789 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>订阅套餐卡片 Mock — VibeX 计量统计概览</title>
+    <style>
+      :root {
+        color-scheme: light;
+        --font-ui:
+          -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC',
+          'Hiragino Sans GB', 'Microsoft YaHei', sans-serif;
+        --font-mono:
+          'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Monaco,
+          Consolas, monospace;
+
+        /* VibeX / Legacy Design Tokens */
+        --background: #ffffff;
+        --foreground: hsl(213 10% 30%);
+        --text-strong: hsl(222 30% 16%);
+        --muted-foreground: hsl(213 8% 45%);
+        --border-strong: hsl(220 16% 28% / 0.18);
+        --border-pill: hsl(240 2% 88% / 0.85);
+        --surface-content: hsl(0 0% 100% / 0.96);
+        --radius: 0.875rem;
+
+        /* Astryx ProgressBar Semantic Tokens */
+        --color-track: hsl(220 4% 91%);
+        --color-accent: hsl(0 0% 9.02%);
+        --color-warning: #e9af08;
+        --color-error: #e3193b;
+        --color-success: #0d8626;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      body {
+        margin: 0;
+        padding: 32px;
+        background-color: var(--background);
+        color: var(--foreground);
+        font-family: var(--font-ui);
+        -webkit-font-smoothing: antialiased;
+      }
+
+      .mock-page-container {
+        max-width: 1180px;
+        margin: 0 auto;
+        display: flex;
+        flex-direction: column;
+        gap: 16px;
+      }
+
+      /* 卡片容器：独占一行，高度随套餐列表自适应 */
+      .kanban-usage-card {
+        width: 100%;
+        border: 1px solid var(--border-strong);
+        border-radius: var(--radius);
+        background: var(--surface-content);
+        padding: 16px;
+        display: flex;
+        flex-direction: column;
+      }
+
+      /* 卡片标题栏 */
+      .usage-card-header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 8px;
+        margin-bottom: 12px;
+      }
+
+      .usage-card-header__left {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        min-width: 0;
+      }
+
+      .usage-card-header__icon {
+        width: 16px;
+        height: 16px;
+        color: var(--muted-foreground);
+        flex-shrink: 0;
+      }
+
+      .usage-card-header__title {
+        margin: 0;
+        font-size: 14px;
+        font-weight: 600;
+        line-height: 1.25;
+        color: var(--text-strong);
+      }
+
+      /* 套餐列表：无冗余容器或背景，每行一个 Agent */
+      .subscription-plan-list {
+        display: flex;
+        flex-direction: column;
+        gap: 12px;
+      }
+
+      .subscription-plan-row {
+        display: flex;
+        align-items: center;
+        gap: 16px;
+        min-width: 0;
+      }
+
+      /* 最左侧：Agent 图标与名称 */
+      .subscription-plan-agent {
+        width: 160px;
+        flex: 0 0 160px;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        min-width: 0;
+      }
+
+      .subscription-plan-agent__icon {
+        width: 16px;
+        height: 16px;
+        flex-shrink: 0;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        color: var(--text-strong);
+      }
+
+      .subscription-plan-agent__name {
+        font-size: 13px;
+        font-weight: 500;
+        color: var(--text-strong);
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+
+      /* 右侧：按该 Agent 的限制数量分为 N 等份（如 5h、7d、30d 分为三部分） */
+      .subscription-plan-windows {
+        flex: 1 1 0%;
+        min-width: 0;
+        display: grid;
+        align-items: center;
+        gap: 16px;
+      }
+
+      .subscription-plan-windows--cols-3 {
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+      }
+
+      .subscription-plan-windows--cols-2 {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
+
+      /* 单个限制部分：左侧限制名称组件 + 中间 Astryx ProgressBar + 右侧百分比 */
+      .subscription-window-item {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        min-width: 0;
+      }
+
+      /* 限制名称胶囊组件（与概览页指标胶囊一致） */
+      .window-limit-pill {
+        display: inline-flex;
+        height: 24px;
+        flex-shrink: 0;
+        align-items: center;
+        justify-content: center;
+        border-radius: 9999px;
+        border: 1px solid var(--border-pill);
+        background: rgba(255, 255, 255, 0.92);
+        padding: 0 10px;
+        font-size: 11px;
+        font-weight: 500;
+        line-height: 1;
+        color: var(--foreground);
+        font-variant-numeric: tabular-nums;
+      }
+
+      /* Astryx ProgressBar (@astryxdesign/core/ProgressBar) 样式还原 */
+      .astryx-progressbar {
+        display: flex;
+        flex-direction: column;
+        gap: 4px;
+        width: 100%;
+        min-width: 0;
+        flex: 1 1 0%;
+      }
+
+      .astryx-visually-hidden {
+        position: absolute;
+        width: 1px;
+        height: 1px;
+        padding: 0;
+        margin: -1px;
+        overflow: hidden;
+        clip: rect(0, 0, 0, 0);
+        white-space: nowrap;
+        border: 0;
+      }
+
+      .astryx-progressbar-track {
+        position: relative;
+        width: 100%;
+        height: 8px;
+        background-color: var(--color-track);
+        border-radius: 9999px;
+        overflow: hidden;
+      }
+
+      .astryx-progressbar-fill {
+        height: 100%;
+        border-radius: 9999px;
+        transition: width 250ms cubic-bezier(0.2, 0, 0, 1);
+      }
+
+      .astryx-progressbar-fill[data-variant='accent'] {
+        background-color: var(--color-accent);
+      }
+
+      .astryx-progressbar-fill[data-variant='warning'] {
+        background-color: var(--color-warning);
+      }
+
+      .astryx-progressbar-fill[data-variant='error'] {
+        background-color: var(--color-error);
+      }
+
+      .astryx-progressbar-fill[data-variant='success'] {
+        background-color: var(--color-success);
+      }
+
+      .window-percent {
+        width: 36px;
+        flex-shrink: 0;
+        text-align: right;
+        font-family: var(--font-mono);
+        font-size: 12px;
+        font-variant-numeric: tabular-nums;
+        color: var(--muted-foreground);
+      }
+
+      @media (max-width: 860px) {
+        .subscription-plan-row {
+          flex-direction: column;
+          align-items: stretch;
+          gap: 8px;
+        }
+        .subscription-plan-windows--cols-3,
+        .subscription-plan-windows--cols-2 {
+          grid-template-columns: 1fr;
+          gap: 8px;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="mock-page-container">
+      <!-- 订阅套餐卡片（独占一行，高度随套餐数量自适应） -->
+      <section
+        aria-label="订阅套餐"
+        data-testid="overview-subscription-plans-card"
+        class="kanban-usage-card"
+      >
+        <div class="usage-card-header">
+          <div class="usage-card-header__left">
+            <!-- Lucide Package Icon -->
+            <svg
+              class="usage-card-header__icon"
+              xmlns="http://www.w3.org/2000/svg"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              aria-hidden="true"
+            >
+              <path d="M11 21.73a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73z" />
+              <path d="M12 22V12" />
+              <polyline points="3.29 7 12 12 20.71 7" />
+              <path d="m7.5 4.27 9 5.15" />
+            </svg>
+            <h3 class="usage-card-header__title">订阅套餐</h3>
+          </div>
+        </div>
+
+        <div class="subscription-plan-list">
+          <!-- 1. Grok -->
+          <div
+            class="subscription-plan-row"
+            data-testid="subscription-plan-row-grok"
+          >
+            <div class="subscription-plan-agent">
+              <span class="subscription-plan-agent__icon" aria-hidden="true">
+                <svg
+                  fill="currentColor"
+                  height="16"
+                  width="16"
+                  viewBox="48 48 416 416"
+                  xmlns="http://www.w3.org/2000/svg"
+                >
+                  <title>Grok</title>
+                  <path d="m210.484 312.759 132.981-102.376c6.519-5.019 15.837-3.061 18.943 4.734 16.35 41.114 9.046 90.523-23.483 124.446-32.528 33.924-77.788 41.364-119.157 24.42l-45.191 21.82c64.817 46.205 143.527 34.778 192.712-16.552 39.014-40.687 51.097-96.147 39.799-146.16l.102.107c-16.383-73.472 4.028-102.839 45.84-162.891.99-1.424 1.98-2.848 2.97-4.307l-55.022 57.382v-.178l-190.528 199.59" />
+                  <path d="M183.042 337.641c-46.523-46.347-38.502-118.074 1.194-159.438 29.354-30.613 77.447-43.107 119.43-24.739l45.089-21.714c-8.123-6.123-18.534-12.708-30.48-17.336-53.998-23.173-118.645-11.64-162.54 34.102-42.222 44.033-55.499 111.738-32.699 169.511 17.033 43.179-10.888 73.721-39.013 104.548C74.056 433.503 64.055 444.431 56 456l127.007-118.323" />
+                </svg>
+              </span>
+              <span class="subscription-plan-agent__name" title="Grok">
+                Grok
+              </span>
+            </div>
+
+            <div
+              class="subscription-plan-windows subscription-plan-windows--cols-3"
+            >
+              <!-- 5h 限制 -->
+              <div
+                class="subscription-window-item"
+                title="5h 限制 · 已用 28% · 剩余 72% · 2 小时后重置"
+              >
+                <span class="window-limit-pill">5h 限制</span>
+                <div class="astryx-progressbar" data-variant="accent">
+                  <span id="grok-5h-label" class="astryx-visually-hidden">
+                    Grok 5h 限制
+                  </span>
+                  <div
+                    role="progressbar"
+                    aria-labelledby="grok-5h-label"
+                    aria-valuemin="0"
+                    aria-valuemax="100"
+                    aria-valuenow="28"
+                    aria-valuetext="28%"
+                    class="astryx-progressbar-track"
+                  >
+                    <div
+                      class="astryx-progressbar-fill"
+                      data-variant="accent"
+                      style="width: 28%"
+                    ></div>
+                  </div>
+                </div>
+                <span class="window-percent">28%</span>
+              </div>
+
+              <!-- 7d 限制 -->
+              <div
+                class="subscription-window-item"
+                title="7d 限制 · 已用 54% · 剩余 46% · 4 天后重置"
+              >
+                <span class="window-limit-pill">7d 限制</span>
+                <div class="astryx-progressbar" data-variant="accent">
+                  <span id="grok-7d-label" class="astryx-visually-hidden">
+                    Grok 7d 限制
+                  </span>
+                  <div
+                    role="progressbar"
+                    aria-labelledby="grok-7d-label"
+                    aria-valuemin="0"
+                    aria-valuemax="100"
+                    aria-valuenow="54"
+                    aria-valuetext="54%"
+                    class="astryx-progressbar-track"
+                  >
+                    <div
+                      class="astryx-progressbar-fill"
+                      data-variant="accent"
+                      style="width: 54%"
+                    ></div>
+                  </div>
+                </div>
+                <span class="window-percent">54%</span>
+              </div>
+
+              <!-- 30d 限制 -->
+              <div
+                class="subscription-window-item"
+                title="30d 限制 · 已用 41% · 剩余 59% · 18 天后重置"
+              >
+                <span class="window-limit-pill">30d 限制</span>
+                <div class="astryx-progressbar" data-variant="accent">
+                  <span id="grok-30d-label" class="astryx-visually-hidden">
+                    Grok 30d 限制
+                  </span>
+                  <div
+                    role="progressbar"
+                    aria-labelledby="grok-30d-label"
+                    aria-valuemin="0"
+                    aria-valuemax="100"
+                    aria-valuenow="41"
+                    aria-valuetext="41%"
+                    class="astryx-progressbar-track"
+                  >
+                    <div
+                      class="astryx-progressbar-fill"
+                      data-variant="accent"
+                      style="width: 41%"
+                    ></div>
+                  </div>
+                </div>
+                <span class="window-percent">41%</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- 2. Codex -->
+          <div
+            class="subscription-plan-row"
+            data-testid="subscription-plan-row-codex"
+          >
+            <div class="subscription-plan-agent">
+              <span class="subscription-plan-agent__icon" aria-hidden="true">
+                <svg
+                  height="16"
+                  width="16"
+                  viewBox="2 2 20 20"
+                  xmlns="http://www.w3.org/2000/svg"
+                >
+                  <title>Codex</title>
+                  <path
+                    d="M9.064 3.344a4.578 4.578 0 012.285-.312c1 .115 1.891.54 2.673 1.275.01.01.024.017.037.021a.09.09 0 00.043 0 4.55 4.55 0 013.046.275l.047.022.116.057a4.581 4.581 0 012.188 2.399c.209.51.313 1.041.315 1.595a4.24 4.24 0 01-.134 1.223.123.123 0 00.03.115c.594.607.988 1.33 1.183 2.17.289 1.425-.007 2.71-.887 3.854l-.136.166a4.548 4.548 0 01-2.201 1.388.123.123 0 00-.081.076c-.191.551-.383 1.023-.74 1.494-.9 1.187-2.222 1.846-3.711 1.838-1.187-.006-2.239-.44-3.157-1.302a.107.107 0 00-.105-.024c-.388.125-.78.143-1.204.138a4.441 4.441 0 01-1.945-.466 4.544 4.544 0 01-1.61-1.335c-.152-.202-.303-.392-.414-.617a5.81 5.81 0 01-.37-.961 4.582 4.582 0 01-.014-2.298.124.124 0 00.006-.056.085.085 0 00-.027-.048 4.467 4.467 0 01-1.034-1.651 3.896 3.896 0 01-.251-1.192 5.189 5.189 0 01.141-1.6c.337-1.112.982-1.985 1.933-2.618.212-.141.413-.251.601-.33.215-.089.43-.164.646-.227a.098.098 0 00.065-.066 4.51 4.51 0 01.829-1.615 4.535 4.535 0 011.837-1.388zm3.482 10.565a.637.637 0 000 1.272h3.636a.637.637 0 100-1.272h-3.636zM8.462 9.23a.637.637 0 00-1.106.631l1.272 2.224-1.266 2.136a.636.636 0 101.095.649l1.454-2.455a.636.636 0 00.005-.64L8.462 9.23z"
+                    fill="url(#codex-grad)"
+                  />
+                  <defs>
+                    <linearGradient
+                      gradientUnits="userSpaceOnUse"
+                      id="codex-grad"
+                      x1="12"
+                      x2="12"
+                      y1="3"
+                      y2="21"
+                    >
+                      <stop stop-color="#B1A7FF" />
+                      <stop offset=".5" stop-color="#7A9DFF" />
+                      <stop offset="1" stop-color="#3941FF" />
+                    </linearGradient>
+                  </defs>
+                </svg>
+              </span>
+              <span class="subscription-plan-agent__name" title="Codex">
+                Codex
+              </span>
+            </div>
+
+            <div
+              class="subscription-plan-windows subscription-plan-windows--cols-3"
+            >
+              <!-- 5h 限制 -->
+              <div
+                class="subscription-window-item"
+                title="5h 限制 · 已用 45% · 剩余 55% · 3 小时后重置"
+              >
+                <span class="window-limit-pill">5h 限制</span>
+                <div class="astryx-progressbar" data-variant="accent">
+                  <span id="codex-5h-label" class="astryx-visually-hidden">
+                    Codex 5h 限制
+                  </span>
+                  <div
+                    role="progressbar"
+                    aria-labelledby="codex-5h-label"
+                    aria-valuemin="0"
+                    aria-valuemax="100"
+                    aria-valuenow="45"
+                    aria-valuetext="45%"
+                    class="astryx-progressbar-track"
+                  >
+                    <div
+                      class="astryx-progressbar-fill"
+                      data-variant="accent"
+                      style="width: 45%"
+                    ></div>
+                  </div>
+                </div>
+                <span class="window-percent">45%</span>
+              </div>
+
+              <!-- 7d 限制 -->
+              <div
+                class="subscription-window-item"
+                title="7d 限制 · 已用 76% · 剩余 24% · 2 天后重置"
+              >
+                <span class="window-limit-pill">7d 限制</span>
+                <div class="astryx-progressbar" data-variant="warning">
+                  <span id="codex-7d-label" class="astryx-visually-hidden">
+                    Codex 7d 限制
+                  </span>
+                  <div
+                    role="progressbar"
+                    aria-labelledby="codex-7d-label"
+                    aria-valuemin="0"
+                    aria-valuemax="100"
+                    aria-valuenow="76"
+                    aria-valuetext="76%"
+                    class="astryx-progressbar-track"
+                  >
+                    <div
+                      class="astryx-progressbar-fill"
+                      data-variant="warning"
+                      style="width: 76%"
+                    ></div>
+                  </div>
+                </div>
+                <span class="window-percent">76%</span>
+              </div>
+
+              <!-- 30d 限制 -->
+              <div
+                class="subscription-window-item"
+                title="30d 限制 · 已用 62% · 剩余 38% · 12 天后重置"
+              >
+                <span class="window-limit-pill">30d 限制</span>
+                <div class="astryx-progressbar" data-variant="accent">
+                  <span id="codex-30d-label" class="astryx-visually-hidden">
+                    Codex 30d 限制
+                  </span>
+                  <div
+                    role="progressbar"
+                    aria-labelledby="codex-30d-label"
+                    aria-valuemin="0"
+                    aria-valuemax="100"
+                    aria-valuenow="62"
+                    aria-valuetext="62%"
+                    class="astryx-progressbar-track"
+                  >
+                    <div
+                      class="astryx-progressbar-fill"
+                      data-variant="accent"
+                      style="width: 62%"
+                    ></div>
+                  </div>
+                </div>
+                <span class="window-percent">62%</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- 3. ClaudeCode -->
+          <div
+            class="subscription-plan-row"
+            data-testid="subscription-plan-row-claude_code"
+          >
+            <div class="subscription-plan-agent">
+              <span class="subscription-plan-agent__icon" aria-hidden="true">
+                <svg
+                  height="16"
+                  width="16"
+                  viewBox="0 0 24 24"
+                  xmlns="http://www.w3.org/2000/svg"
+                >
+                  <title>Claude Code</title>
+                  <path
+                    clip-rule="evenodd"
+                    d="M20.998 10.949H24v3.102h-3v3.028h-1.487V20H18v-2.921h-1.487V20H15v-2.921H9V20H7.488v-2.921H6V20H4.487v-2.921H3V14.05H0V10.95h3V5h17.998v5.949zM6 10.949h1.488V8.102H6v2.847zm10.51 0H18V8.102h-1.49v2.847z"
+                    fill="#D97757"
+                    fill-rule="evenodd"
+                  />
+                </svg>
+              </span>
+              <span class="subscription-plan-agent__name" title="ClaudeCode">
+                ClaudeCode
+              </span>
+            </div>
+
+            <div
+              class="subscription-plan-windows subscription-plan-windows--cols-3"
+            >
+              <!-- 5h 限制 -->
+              <div
+                class="subscription-window-item"
+                title="5h 限制 · 已用 82% · 剩余 18% · 45 分钟后重置"
+              >
+                <span class="window-limit-pill">5h 限制</span>
+                <div class="astryx-progressbar" data-variant="warning">
+                  <span id="claude-5h-label" class="astryx-visually-hidden">
+                    ClaudeCode 5h 限制
+                  </span>
+                  <div
+                    role="progressbar"
+                    aria-labelledby="claude-5h-label"
+                    aria-valuemin="0"
+                    aria-valuemax="100"
+                    aria-valuenow="82"
+                    aria-valuetext="82%"
+                    class="astryx-progressbar-track"
+                  >
+                    <div
+                      class="astryx-progressbar-fill"
+                      data-variant="warning"
+                      style="width: 82%"
+                    ></div>
+                  </div>
+                </div>
+                <span class="window-percent">82%</span>
+              </div>
+
+              <!-- 7d 限制 -->
+              <div
+                class="subscription-window-item"
+                title="7d 限制 · 已用 68% · 剩余 32% · 3 天后重置"
+              >
+                <span class="window-limit-pill">7d 限制</span>
+                <div class="astryx-progressbar" data-variant="accent">
+                  <span id="claude-7d-label" class="astryx-visually-hidden">
+                    ClaudeCode 7d 限制
+                  </span>
+                  <div
+                    role="progressbar"
+                    aria-labelledby="claude-7d-label"
+                    aria-valuemin="0"
+                    aria-valuemax="100"
+                    aria-valuenow="68"
+                    aria-valuetext="68%"
+                    class="astryx-progressbar-track"
+                  >
+                    <div
+                      class="astryx-progressbar-fill"
+                      data-variant="accent"
+                      style="width: 68%"
+                    ></div>
+                  </div>
+                </div>
+                <span class="window-percent">68%</span>
+              </div>
+
+              <!-- 30d 限制 -->
+              <div
+                class="subscription-window-item"
+                title="30d 限制 · 已用 93% · 剩余 7% · 5 天后重置"
+              >
+                <span class="window-limit-pill">30d 限制</span>
+                <div class="astryx-progressbar" data-variant="error">
+                  <span id="claude-30d-label" class="astryx-visually-hidden">
+                    ClaudeCode 30d 限制
+                  </span>
+                  <div
+                    role="progressbar"
+                    aria-labelledby="claude-30d-label"
+                    aria-valuemin="0"
+                    aria-valuemax="100"
+                    aria-valuenow="93"
+                    aria-valuetext="93%"
+                    class="astryx-progressbar-track"
+                  >
+                    <div
+                      class="astryx-progressbar-fill"
+                      data-variant="error"
+                      style="width: 93%"
+                    ></div>
+                  </div>
+                </div>
+                <span class="window-percent">93%</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- 4. Antigravity -->
+          <div
+            class="subscription-plan-row"
+            data-testid="subscription-plan-row-antigravity"
+          >
+            <div class="subscription-plan-agent">
+              <span class="subscription-plan-agent__icon" aria-hidden="true">
+                <svg
+                  fill="none"
+                  height="16"
+                  width="16"
+                  viewBox="0 0 16 16"
+                  xmlns="http://www.w3.org/2000/svg"
+                >
+                  <title>Antigravity</title>
+                  <path
+                    d="M14.1452 14.6818C14.9937 15.3182 16.2664 14.894 15.0997 13.7273C11.5998 10.3333 12.3421 1 7.99366 1C3.64518 1 4.3876 10.3333 0.887603 13.7273C-0.385123 15 0.993664 15.3182 1.84215 14.6818C5.13002 12.4545 4.9179 8.5303 7.99366 8.5303C11.0694 8.5303 10.8573 12.4545 14.1452 14.6818Z"
+                    fill="currentColor"
+                  />
+                </svg>
+              </span>
+              <span class="subscription-plan-agent__name" title="Antigravity">
+                Antigravity
+              </span>
+            </div>
+
+            <div
+              class="subscription-plan-windows subscription-plan-windows--cols-3"
+            >
+              <!-- 5h 限制 -->
+              <div
+                class="subscription-window-item"
+                title="5h 限制 · 已用 19% · 剩余 81% · 4 小时后重置"
+              >
+                <span class="window-limit-pill">5h 限制</span>
+                <div class="astryx-progressbar" data-variant="accent">
+                  <span
+                    id="antigravity-5h-label"
+                    class="astryx-visually-hidden"
+                  >
+                    Antigravity 5h 限制
+                  </span>
+                  <div
+                    role="progressbar"
+                    aria-labelledby="antigravity-5h-label"
+                    aria-valuemin="0"
+                    aria-valuemax="100"
+                    aria-valuenow="19"
+                    aria-valuetext="19%"
+                    class="astryx-progressbar-track"
+                  >
+                    <div
+                      class="astryx-progressbar-fill"
+                      data-variant="accent"
+                      style="width: 19%"
+                    ></div>
+                  </div>
+                </div>
+                <span class="window-percent">19%</span>
+              </div>
+
+              <!-- 7d 限制 -->
+              <div
+                class="subscription-window-item"
+                title="7d 限制 · 已用 36% · 剩余 64% · 5 天后重置"
+              >
+                <span class="window-limit-pill">7d 限制</span>
+                <div class="astryx-progressbar" data-variant="accent">
+                  <span
+                    id="antigravity-7d-label"
+                    class="astryx-visually-hidden"
+                  >
+                    Antigravity 7d 限制
+                  </span>
+                  <div
+                    role="progressbar"
+                    aria-labelledby="antigravity-7d-label"
+                    aria-valuemin="0"
+                    aria-valuemax="100"
+                    aria-valuenow="36"
+                    aria-valuetext="36%"
+                    class="astryx-progressbar-track"
+                  >
+                    <div
+                      class="astryx-progressbar-fill"
+                      data-variant="accent"
+                      style="width: 36%"
+                    ></div>
+                  </div>
+                </div>
+                <span class="window-percent">36%</span>
+              </div>
+
+              <!-- 30d 限制 -->
+              <div
+                class="subscription-window-item"
+                title="30d 限制 · 已用 48% · 剩余 52% · 21 天后重置"
+              >
+                <span class="window-limit-pill">30d 限制</span>
+                <div class="astryx-progressbar" data-variant="accent">
+                  <span
+                    id="antigravity-30d-label"
+                    class="astryx-visually-hidden"
+                  >
+                    Antigravity 30d 限制
+                  </span>
+                  <div
+                    role="progressbar"
+                    aria-labelledby="antigravity-30d-label"
+                    aria-valuemin="0"
+                    aria-valuemax="100"
+                    aria-valuenow="48"
+                    aria-valuetext="48%"
+                    class="astryx-progressbar-track"
+                  >
+                    <div
+                      class="astryx-progressbar-fill"
+                      data-variant="accent"
+                      style="width: 48%"
+                    ></div>
+                  </div>
+                </div>
+                <span class="window-percent">48%</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+    </div>
+  </body>
+</html>

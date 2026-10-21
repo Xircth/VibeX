@@ -3,24 +3,28 @@
 //! Ported from Codeg `parsers/acp_native.rs` at `2e657fac`. The projection
 //! (`project_turns`) is the only reader of [`crate::acp_transcript`].
 
-use std::collections::HashMap;
-use std::path::{Path, PathBuf};
+use std::{
+    collections::HashMap,
+    path::{Path, PathBuf},
+};
 
 use agent_client_protocol::schema::v1::{SessionUpdate, ToolCallContent};
 use api_types::AgentKind;
 use chrono::{DateTime, TimeZone, Utc};
 use serde::Deserialize as _;
 
-use crate::acp_tool_projection::{
-    extract_tool_call_images, json_value_to_text, serialize_tool_call_content,
-    synthesize_edit_input_from_diffs,
+use crate::{
+    acp_tool_projection::{
+        extract_tool_call_images, json_value_to_text, serialize_tool_call_content,
+        synthesize_edit_input_from_diffs,
+    },
+    acp_transcript::{self, EntryKind, Transcript, TranscriptEntry, vibex_acp_transcripts_root},
+    conversation::{
+        ContentBlock, ConversationDetail, ConversationSummary, ImageData, MessageTurn,
+        SessionStats, TurnRole, TurnUsage,
+    },
+    parsers::ParseError,
 };
-use crate::acp_transcript::{self, EntryKind, Transcript, TranscriptEntry, vibex_acp_transcripts_root};
-use crate::conversation::{
-    ContentBlock, ConversationDetail, ConversationSummary, ImageData, MessageTurn, SessionStats,
-    TurnRole, TurnUsage,
-};
-use crate::parsers::ParseError;
 
 pub struct AcpNativeParser {
     agent_type: AgentKind,
@@ -119,8 +123,14 @@ impl AcpNativeParser {
 
 #[allow(dead_code)]
 enum PromptInputBlock {
-    Text { text: String },
-    Image { data: String, mime_type: String, uri: Option<String> },
+    Text {
+        text: String,
+    },
+    Image {
+        data: String,
+        mime_type: String,
+        uri: Option<String>,
+    },
     ResourceLink {
         name: String,
         uri: String,
@@ -138,7 +148,11 @@ enum PromptInputBlock {
 fn user_turn_block(block: &PromptInputBlock) -> ContentBlock {
     match block {
         PromptInputBlock::Text { text } => ContentBlock::Text { text: text.clone() },
-        PromptInputBlock::Image { data, mime_type, uri } => ContentBlock::Image {
+        PromptInputBlock::Image {
+            data,
+            mime_type,
+            uri,
+        } => ContentBlock::Image {
             data: data.clone(),
             mime_type: mime_type.clone(),
             uri: uri.clone(),
@@ -148,8 +162,16 @@ fn user_turn_block(block: &PromptInputBlock) -> ContentBlock {
         PromptInputBlock::ResourceLink { name, uri, .. } => ContentBlock::Text {
             text: format!("[{name}](<{uri}>)"),
         },
-        PromptInputBlock::Resource { uri, mime_type, text, blob } => {
-            if mime_type.as_deref().is_some_and(|mime| mime.starts_with("image/")) {
+        PromptInputBlock::Resource {
+            uri,
+            mime_type,
+            text,
+            blob,
+        } => {
+            if mime_type
+                .as_deref()
+                .is_some_and(|mime| mime.starts_with("image/"))
+            {
                 if let Some(data) = blob.clone().filter(|data| !data.is_empty()) {
                     return ContentBlock::Image {
                         data,
@@ -185,9 +207,10 @@ fn truncate_str(text: &str, max_chars: usize) -> String {
     out
 }
 
-
 fn epoch_ms_to_utc(ms: u64) -> DateTime<Utc> {
-    Utc.timestamp_millis_opt(ms as i64).single().unwrap_or_else(Utc::now)
+    Utc.timestamp_millis_opt(ms as i64)
+        .single()
+        .unwrap_or_else(Utc::now)
 }
 
 fn first_prompt_title(entries: &[TranscriptEntry]) -> Option<String> {
@@ -235,18 +258,28 @@ fn prompt_blocks(payload: &serde_json::Value) -> Vec<ContentBlock> {
 /// chunk arrives already deserialized, so it is converted straight across
 /// rather than being serialized back to JSON only to be re-read. Consumes the
 /// block, so an embedded image's base64 moves instead of being copied twice.
-fn prompt_block_from_content(content: agent_client_protocol::schema::v1::ContentBlock) -> Option<PromptInputBlock> {
-    use agent_client_protocol::schema::v1::{ContentBlock as Wire, EmbeddedResourceResource as Res};
+fn prompt_block_from_content(
+    content: agent_client_protocol::schema::v1::ContentBlock,
+) -> Option<PromptInputBlock> {
+    use agent_client_protocol::schema::v1::{
+        ContentBlock as Wire, EmbeddedResourceResource as Res,
+    };
     let non_empty = |s: String| (!s.is_empty()).then_some(s);
     match content {
         Wire::Text(t) => Some(PromptInputBlock::Text {
             text: non_empty(t.text)?,
         }),
-        Wire::Image(i) => Some(PromptInputBlock::Image {
-            data: non_empty(i.data)?,
-            mime_type: i.mime_type,
-            uri: i.uri.and_then(non_empty),
-        }),
+        Wire::Image(i) => {
+            let uri = i.uri.and_then(non_empty);
+            if i.data.is_empty() && uri.is_none() {
+                return None;
+            }
+            Some(PromptInputBlock::Image {
+                data: i.data,
+                mime_type: i.mime_type,
+                uri,
+            })
+        }
         Wire::ResourceLink(l) => {
             let uri = non_empty(l.uri)?;
             Some(PromptInputBlock::ResourceLink {
@@ -264,7 +297,9 @@ fn prompt_block_from_content(content: agent_client_protocol::schema::v1::Content
                 // no bytes this can render.
                 _ => return None,
             };
-            let is_image = mime_type.as_deref().is_some_and(|m| m.starts_with("image/"));
+            let is_image = mime_type
+                .as_deref()
+                .is_some_and(|m| m.starts_with("image/"));
             if uri.is_empty() && !(is_image && blob.is_some()) {
                 return None;
             }
@@ -303,6 +338,7 @@ struct PendingTurn {
     usage: Option<TurnUsage>,
     duration_ms: Option<u64>,
     model: Option<String>,
+    agent_message_id: Option<String>,
     has_content: bool,
 }
 
@@ -384,33 +420,46 @@ pub fn is_recorded_update(update: &SessionUpdate) -> bool {
 }
 
 /// The context-window reading a transcript ends on: `(used, size)` from its
-/// last recorded `usage_update`.
-///
-/// ACP's usage channel reports context **occupancy** (`used` of `size` tokens),
-/// not the per-turn input/output counts `MessageTurn::usage` holds — so it
-/// feeds the session footer's context-window trio, exactly like the built-in
-/// parsers derive it from their own stores, and never a turn's token usage.
-/// (A turn's usage stays `None` for custom agents: ACP has no channel for it,
-/// and inventing one from occupancy deltas would be a guess rendered as fact.)
+/// last recorded `usage_update` or `turn_end` usage payload.
 ///
 /// Matched on the raw payload rather than by deserializing: the answer is
 /// almost always in the last few entries, and a string compare per entry costs
 /// nothing next to building a `SessionUpdate`.
 fn latest_context_window(entries: &[TranscriptEntry]) -> (Option<u64>, Option<u64>) {
-    let found = entries.iter().rev().find(|e| {
-        e.k == EntryKind::Update
-            && e.p.get("sessionUpdate").and_then(|v| v.as_str()) == Some("usage_update")
-    });
-    let Some(entry) = found else {
-        return (None, None);
-    };
-    let field = |name: &str| entry.p.get(name).and_then(|v| v.as_u64());
-    // A window of zero is not a reading, it is an agent that reported nothing;
-    // surfacing "0 tokens of 0" as a live gauge would be worse than silence.
-    match field("size").filter(|s| *s > 0) {
-        Some(size) => (field("used"), Some(size)),
-        None => (None, None),
+    for entry in entries.iter().rev() {
+        match entry.k {
+            EntryKind::Update
+                if entry.p.get("sessionUpdate").and_then(|v| v.as_str())
+                    == Some("usage_update") =>
+            {
+                let field = |name: &str| entry.p.get(name).and_then(|v| v.as_u64());
+                // A window of zero is not a reading, it is an agent that reported nothing;
+                // surfacing "0 tokens of 0" as a live gauge would be worse than silence.
+                if let Some(size) = field("size").filter(|s| *s > 0) {
+                    return (field("used"), Some(size));
+                }
+            }
+            EntryKind::TurnEnd => {
+                if let Some(usage) = entry.p.get("usage") {
+                    let size = usage
+                        .get("contextWindowMax")
+                        .or_else(|| usage.get("context_window_max"))
+                        .and_then(|v| v.as_u64())
+                        .filter(|s| *s > 0);
+                    let used = usage
+                        .get("contextUsed")
+                        .or_else(|| usage.get("context_used"))
+                        .and_then(|v| v.as_u64())
+                        .filter(|u| *u > 0);
+                    if size.is_some() || used.is_some() {
+                        return (used, size);
+                    }
+                }
+            }
+            _ => {}
+        }
     }
+    (None, None)
 }
 
 /// Project recorded transcript entries into turns.
@@ -452,19 +501,42 @@ pub fn project_turns(entries: &[TranscriptEntry]) -> Vec<MessageTurn> {
             EntryKind::Prompt => {
                 between_turns = false;
                 flush(&mut pending, &mut turns, &mut seq, true);
+                let blocks = prompt_blocks(&entry.p);
+                // If an earlier non-steer prompt produced no assistant output before
+                // a retry resent the exact same prompt (e.g. SilentTurnRecovery
+                // after an early process exit or transient failure), coalesce it into
+                // the existing trailing user turn instead of rendering two duplicate
+                // consecutive user bubbles.
+                if !entry.steer {
+                    if let Some(last) = turns.last_mut() {
+                        if matches!(last.role, TurnRole::User)
+                            && !last.id.contains(":steer:")
+                            && last.blocks == blocks
+                        {
+                            last.timestamp = epoch_ms_to_utc(entry.t);
+                            steered = false;
+                            prompt_start = Some(turns.len() - 1);
+                            prompt_just_recorded = true;
+                            turn_start_hint = Some(entry.t);
+                            user_prose_open = false;
+                            continue;
+                        }
+                    }
+                }
                 // A steer is a user message of its own, so it splits the turn
                 // like a prompt — the shape Claude Code's history draws, and
                 // the live view's — but the turn goes on: same prompt, same
                 // turn end.
-                if entry.steer {
+                let turn_id = if entry.steer {
                     steered = true;
+                    format!("acp-{seq}:steer:{seq}")
                 } else {
                     steered = false;
                     prompt_start = Some(turns.len());
-                }
-                let blocks = prompt_blocks(&entry.p);
+                    format!("acp-{seq}")
+                };
                 turns.push(MessageTurn {
-                    id: format!("acp-{seq}"),
+                    id: turn_id,
                     role: TurnRole::User,
                     blocks,
                     timestamp: epoch_ms_to_utc(entry.t),
@@ -472,7 +544,7 @@ pub fn project_turns(entries: &[TranscriptEntry]) -> Vec<MessageTurn> {
                     duration_ms: None,
                     model: None,
                     completed_at: None,
-                agent_message_id: None,
+                    agent_message_id: None,
                 });
                 seq += 1;
                 prompt_just_recorded = true;
@@ -605,7 +677,7 @@ fn flush(
             .or_else(|| p.last_at_ms.checked_sub(p.started_at_ms)),
         model: p.model,
         completed_at: closed.then(|| epoch_ms_to_utc(p.last_at_ms)),
-    agent_message_id: None,
+        agent_message_id: p.agent_message_id,
     });
     *seq += 1;
 }
@@ -649,11 +721,26 @@ fn parse_usage(value: &serde_json::Value) -> Option<TurnUsage> {
             .and_then(|v| v.as_u64())
             .unwrap_or(0)
     };
+    let get_opt = |camel: &str, snake: &str| -> Option<u64> {
+        value
+            .get(camel)
+            .or_else(|| value.get(snake))
+            .and_then(|v| v.as_u64())
+            .filter(|v| *v > 0)
+    };
     let input = get("inputTokens", "input_tokens");
     let output = get("outputTokens", "output_tokens");
     let cache_create = get("cacheCreationInputTokens", "cache_creation_input_tokens");
     let cache_read = get("cacheReadInputTokens", "cache_read_input_tokens");
-    if input == 0 && output == 0 && cache_create == 0 && cache_read == 0 {
+    let context_used = get_opt("contextUsed", "context_used");
+    let context_window_max = get_opt("contextWindowMax", "context_window_max");
+    if input == 0
+        && output == 0
+        && cache_create == 0
+        && cache_read == 0
+        && context_used.is_none()
+        && context_window_max.is_none()
+    {
         return None;
     }
     Some(TurnUsage {
@@ -661,11 +748,23 @@ fn parse_usage(value: &serde_json::Value) -> Option<TurnUsage> {
         output_tokens: output,
         cache_creation_input_tokens: cache_create,
         cache_read_input_tokens: cache_read,
-        context_used: None,
-        context_window_max: None,
+        context_used,
+        context_window_max,
         cost_amount: None,
         cost_currency: None,
     })
+}
+
+fn tool_status_str(status: agent_client_protocol::schema::v1::ToolCallStatus) -> Option<String> {
+    serde_json::to_value(status)
+        .ok()
+        .and_then(|v| v.as_str().map(str::to_string))
+}
+
+fn tool_kind_str(kind: agent_client_protocol::schema::v1::ToolKind) -> Option<String> {
+    serde_json::to_value(kind)
+        .ok()
+        .and_then(|v| v.as_str().map(str::to_string))
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -745,6 +844,13 @@ fn apply_update(
             *prompt_just_recorded = false;
             let p = open_turn!();
             p.last_at_ms = at_ms;
+            if p.agent_message_id.is_none() {
+                p.agent_message_id = chunk
+                    .message_id
+                    .as_ref()
+                    .map(|id| id.to_string())
+                    .filter(|id| !id.trim().is_empty());
+            }
             match &chunk.content {
                 agent_client_protocol::schema::v1::ContentBlock::Image(image) => {
                     p.has_content = true;
@@ -774,7 +880,8 @@ fn apply_update(
             let p = open_turn!();
             p.last_at_ms = at_ms;
             let id = tc.tool_call_id.to_string();
-            let status = format!("{:?}", tc.status).to_lowercase();
+            let status = tool_status_str(tc.status);
+            let kind = tool_kind_str(tc.kind);
             upsert_tool_call(
                 p.tool_cards(),
                 &id,
@@ -782,14 +889,16 @@ fn apply_update(
                 tc.raw_input.as_ref(),
                 &tc.content,
                 tc.raw_output.as_ref(),
-                Some(status.as_str()),
+                status.as_deref(),
+                kind.as_deref(),
                 tc.meta.clone().map(serde_json::Value::Object),
                 at_ms,
             );
         }
         SessionUpdate::ToolCallUpdate(tcu) => {
             let id = tcu.tool_call_id.to_string();
-            let status = tcu.fields.status.map(|s| format!("{s:?}").to_lowercase());
+            let status = tcu.fields.status.and_then(tool_status_str);
+            let kind = tcu.fields.kind.and_then(tool_kind_str);
             // An update for a call the open part of the turn did not start can
             // still belong to a card already drawn:
             //
@@ -831,6 +940,7 @@ fn apply_update(
                         tcu.fields.content.as_deref().unwrap_or(&[]),
                         tcu.fields.raw_output.as_ref(),
                         status.as_deref(),
+                        kind.as_deref(),
                         tcu.meta.clone().map(serde_json::Value::Object),
                         at_ms,
                     );
@@ -848,6 +958,7 @@ fn apply_update(
                 tcu.fields.content.as_deref().unwrap_or(&[]),
                 tcu.fields.raw_output.as_ref(),
                 status.as_deref(),
+                kind.as_deref(),
                 tcu.meta.clone().map(serde_json::Value::Object),
                 at_ms,
             );
@@ -875,7 +986,9 @@ fn content_block_text(block: &agent_client_protocol::schema::v1::ContentBlock) -
         agent_client_protocol::schema::v1::ContentBlock::Text(t) => t.text.clone(),
         agent_client_protocol::schema::v1::ContentBlock::ResourceLink(link) => link.uri.clone(),
         agent_client_protocol::schema::v1::ContentBlock::Resource(res) => match &res.resource {
-            agent_client_protocol::schema::v1::EmbeddedResourceResource::TextResourceContents(t) => t.text.clone(),
+            agent_client_protocol::schema::v1::EmbeddedResourceResource::TextResourceContents(
+                t,
+            ) => t.text.clone(),
             _ => String::new(),
         },
         _ => String::new(),
@@ -948,6 +1061,7 @@ fn upsert_tool_call(
     content: &[ToolCallContent],
     raw_output: Option<&serde_json::Value>,
     status: Option<&str>,
+    kind: Option<&str>,
     meta: Option<serde_json::Value>,
     at_ms: u64,
 ) {
@@ -972,6 +1086,8 @@ fn upsert_tool_call(
         Some(idx) => {
             if let Some(ContentBlock::ToolUse {
                 tool_name,
+                status: existing_status,
+                kind: existing_kind,
                 input_preview: existing_input,
                 meta: existing_meta,
                 images: existing_images,
@@ -982,6 +1098,12 @@ fn upsert_tool_call(
             {
                 if let Some(t) = title.filter(|t| !t.is_empty()) {
                     *tool_name = t;
+                }
+                if let Some(s) = status.filter(|s| !s.is_empty()) {
+                    *existing_status = Some(s.to_string());
+                }
+                if let Some(k) = kind.filter(|k| !k.is_empty()) {
+                    *existing_kind = Some(k.to_string());
                 }
                 if input_preview.is_some() {
                     *existing_input = input_preview;
@@ -1001,8 +1123,8 @@ fn upsert_tool_call(
             blocks.push(ContentBlock::ToolUse {
                 tool_use_id: Some(id.to_string()),
                 tool_name: title.unwrap_or_else(|| "tool".to_string()),
-                status: None,
-                kind: None,
+                status: status.map(str::to_string),
+                kind: kind.map(str::to_string),
                 input_preview,
                 meta,
                 images: images.clone(),
@@ -1060,9 +1182,8 @@ fn upsert_plan(
             })
         })
         .collect();
-    let input = serde_json::json!({ "todos": todos }).to_string();
+    let input = serde_json::to_string(&serde_json::json!({ "todos": todos })).unwrap_or_default();
     const PLAN_ID: &str = "acp-plan";
-    pending.has_content = true;
     match pending.tool_use_index.get(PLAN_ID).copied() {
         Some(idx) => {
             if let Some(ContentBlock::ToolUse { input_preview, .. }) = pending.blocks.get_mut(idx) {
@@ -1171,6 +1292,27 @@ mod tests {
     }
 
     #[test]
+    fn preserves_agent_message_id_from_agent_message_chunk() {
+        let entries = vec![
+            prompt(1_000, "hi"),
+            TranscriptEntry {
+                t: 1_100,
+                k: EntryKind::Update,
+                steer: false,
+                p: serde_json::json!({
+                    "sessionUpdate": "agent_message_chunk",
+                    "messageId": "msg_claude_01",
+                    "content": { "type": "text", "text": "Hello" }
+                }),
+            },
+            chunk(1_200, " world"),
+        ];
+        let turns = project_turns(&entries);
+        assert_eq!(turns.len(), 2);
+        assert_eq!(turns[1].agent_message_id.as_deref(), Some("msg_claude_01"));
+    }
+
+    #[test]
     fn an_open_transcript_leaves_the_assistant_unfinished() {
         let open = project_turns(&[prompt(1_000, "hi"), chunk(1_100, "Hello")]);
         assert!(open[1].completed_at.is_none());
@@ -1275,6 +1417,160 @@ mod tests {
                 assert_eq!(*ended_at, Some(epoch_ms_to_utc(start + 5_400_000)));
             }
             other => panic!("{other:?}"),
+        }
+    }
+
+    #[test]
+    fn coalesces_retried_prompt_when_first_attempt_produced_no_assistant_output() {
+        let turns = project_turns(&[
+            prompt(1_000, "hi"),
+            TranscriptEntry {
+                t: 1_050,
+                k: EntryKind::TurnEnd,
+                steer: false,
+                p: serde_json::json!({ "stopReason": "error", "durationMs": 50 }),
+            },
+            prompt(1_100, "hi"),
+            chunk(1_200, "Recovered reply"),
+            TranscriptEntry {
+                t: 1_300,
+                k: EntryKind::TurnEnd,
+                steer: false,
+                p: serde_json::json!({ "stopReason": "end_turn", "durationMs": 200 }),
+            },
+        ]);
+        assert_eq!(turns.len(), 2);
+        assert!(matches!(turns[0].role, TurnRole::User));
+        assert!(matches!(turns[1].role, TurnRole::Assistant));
+        assert_eq!(turns[0].timestamp, epoch_ms_to_utc(1_100));
+    }
+
+    #[test]
+    fn steer_prompt_preserves_steer_marker_in_turn_id() {
+        let turns = project_turns(&[
+            prompt(1_000, "initial task"),
+            chunk(1_100, "Working on step 1"),
+            TranscriptEntry {
+                t: 1_200,
+                k: EntryKind::Prompt,
+                steer: true,
+                p: serde_json::json!([{ "type": "text", "text": "actually focus on step 2" }]),
+            },
+            chunk(1_300, "Switching to step 2"),
+            TranscriptEntry {
+                t: 1_400,
+                k: EntryKind::TurnEnd,
+                steer: false,
+                p: serde_json::json!({ "stopReason": "end_turn", "durationMs": 400 }),
+            },
+        ]);
+        assert_eq!(turns.len(), 4);
+        assert_eq!(turns[0].id, "acp-0");
+        assert_eq!(turns[1].id, "acp-1");
+        assert_eq!(turns[2].id, "acp-2:steer:2");
+        assert!(matches!(turns[2].role, TurnRole::User));
+        assert_eq!(turns[3].id, "acp-3");
+    }
+
+    #[test]
+    fn turn_end_usage_preserves_tokens_and_context_window_occupancy() {
+        let entries = vec![
+            prompt(1_000, "hi"),
+            chunk(1_100, "Hello"),
+            TranscriptEntry {
+                t: 1_300,
+                k: EntryKind::TurnEnd,
+                steer: false,
+                p: serde_json::json!({
+                    "stopReason": "end_turn",
+                    "durationMs": 300,
+                    "usage": {
+                        "inputTokens": 1200,
+                        "outputTokens": 350,
+                        "contextUsed": 1550,
+                        "contextWindowMax": 200000
+                    }
+                }),
+            },
+        ];
+        let turns = project_turns(&entries);
+        let usage = turns[1].usage.as_ref().expect("usage on assistant");
+        assert_eq!(usage.input_tokens, 1200);
+        assert_eq!(usage.output_tokens, 350);
+        assert_eq!(usage.context_used, Some(1550));
+        assert_eq!(usage.context_window_max, Some(200000));
+        assert_eq!(latest_context_window(&entries), (Some(1550), Some(200000)));
+    }
+
+    #[test]
+    fn tool_call_and_update_preserve_kind_status_and_output() {
+        let entries = vec![
+            prompt(1_000, "run ls"),
+            TranscriptEntry {
+                t: 1_100,
+                k: EntryKind::Update,
+                steer: false,
+                p: serde_json::json!({
+                    "sessionUpdate": "tool_call",
+                    "toolCallId": "tc-1",
+                    "title": "Bash",
+                    "kind": "execute",
+                    "status": "in_progress",
+                    "rawInput": { "command": "ls -la" }
+                }),
+            },
+            TranscriptEntry {
+                t: 1_200,
+                k: EntryKind::Update,
+                steer: false,
+                p: serde_json::json!({
+                    "sessionUpdate": "tool_call_update",
+                    "toolCallId": "tc-1",
+                    "status": "completed",
+                    "content": [{
+                        "type": "content",
+                        "content": { "type": "text", "text": "total 0" }
+                    }]
+                }),
+            },
+        ];
+        let turns = project_turns(&entries);
+        assert_eq!(turns.len(), 2);
+        assert_eq!(turns[1].blocks.len(), 2);
+        match &turns[1].blocks[0] {
+            ContentBlock::ToolUse {
+                tool_use_id,
+                tool_name,
+                status,
+                kind,
+                input_preview,
+                ..
+            } => {
+                assert_eq!(tool_use_id.as_deref(), Some("tc-1"));
+                assert_eq!(tool_name, "Bash");
+                assert_eq!(status.as_deref(), Some("completed"));
+                assert_eq!(kind.as_deref(), Some("execute"));
+                assert!(
+                    input_preview
+                        .as_deref()
+                        .unwrap_or_default()
+                        .contains("ls -la")
+                );
+            }
+            other => panic!("expected ToolUse, got {other:?}"),
+        }
+        match &turns[1].blocks[1] {
+            ContentBlock::ToolResult {
+                tool_use_id,
+                output_preview,
+                is_error,
+                ..
+            } => {
+                assert_eq!(tool_use_id.as_deref(), Some("tc-1"));
+                assert_eq!(output_preview.as_deref(), Some("total 0"));
+                assert!(!is_error);
+            }
+            other => panic!("expected ToolResult, got {other:?}"),
         }
     }
 }

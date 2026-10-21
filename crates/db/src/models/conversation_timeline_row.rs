@@ -116,6 +116,27 @@ impl ConversationTimelineRowRecord {
         .await
     }
 
+    pub async fn list_non_message_rows<'e, E>(
+        executor: E,
+        conversation_id: Uuid,
+    ) -> Result<Vec<Self>, sqlx::Error>
+    where
+        E: Executor<'e, Database = Sqlite>,
+    {
+        sqlx::query_as::<_, Self>(
+            r#"SELECT conversation_id, sort_index, row_id, revision, row_json
+               FROM conversation_timeline_rows
+               WHERE conversation_id = ?
+                 AND row_id NOT LIKE '%:user'
+                 AND row_id NOT LIKE '%:assistant%'
+                 AND row_id NOT LIKE '%:steer:%'
+               ORDER BY sort_index ASC"#,
+        )
+        .bind(conversation_id)
+        .fetch_all(executor)
+        .await
+    }
+
     pub async fn count<'e, E>(executor: E, conversation_id: Uuid) -> Result<i64, sqlx::Error>
     where
         E: Executor<'e, Database = Sqlite>,

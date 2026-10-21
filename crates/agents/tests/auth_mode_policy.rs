@@ -125,6 +125,16 @@ fn headless_account_tokens_stay_out_of_the_api_key_field() {
     assert!(policy.credential_modes.is_empty());
     assert!(agents::headless_account_env(&command_code).is_none());
     assert!(agents::auth_mode_credential_env(&command_code, "official_subscription").is_none());
+
+    let zcode = AgentId::parse("zcode").unwrap();
+    let policy = agents::built_in_auth_mode_policy(&zcode).unwrap();
+    assert_eq!(policy.mode_env, "ZCODE_AUTH_MODE");
+    assert_eq!(policy.credential_env, "");
+    assert_eq!(policy.modes, &["official_subscription"]);
+    assert!(policy.credential_modes.is_empty());
+    assert_eq!(policy.default_mode, "official_subscription");
+    assert!(agents::headless_account_env(&zcode).is_none());
+    assert!(agents::auth_mode_credential_env(&zcode, "official_subscription").is_none());
 }
 
 #[test]

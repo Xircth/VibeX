@@ -1605,6 +1605,10 @@ fn auth_mode_translation_keys(agent_id: &AgentId, mode: &str) -> (&'static str, 
             "agents.authModeOfficialSubscription",
             "agents.authDescCommandCodeSubscription",
         ),
+        ("zcode", "official_subscription") => (
+            "agents.authModeOfficialSubscription",
+            "agents.authDescZcodeSubscription",
+        ),
         ("mimo_code", "official_subscription") => (
             "agents.authModeOfficialSubscription",
             "agents.authDescMimoSubscription",

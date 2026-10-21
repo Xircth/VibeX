@@ -74,6 +74,7 @@ const BUILT_IN_ICON_PATHS: Partial<
     light: '/agents/command-code.svg',
     dark: '/agents/command-code.svg',
   },
+  zcode: { light: '/agents/zcode.svg', dark: '/agents/zcode.svg' },
   mimo_code: {
     light: '/agents/mimo-code-light.svg',
     dark: '/agents/mimo-code-dark.svg',
@@ -101,6 +102,7 @@ const BUILT_IN_DISPLAY_NAMES: Partial<Record<string, string>> = {
   auggie: 'Auggie',
   trae: 'TRAE CLI',
   command_code: 'Command Code',
+  zcode: 'ZCode',
   mimo_code: 'MiMo Code',
 };
 

@@ -1930,6 +1930,7 @@
     "authDescAuggieSubscription": "登录 Augment 账号。",
     "authDescTraeSubscription": "登录 TRAE 账号。",
     "authDescCommandCodeSubscription": "登录 Command Code 账号。",
+    "authDescZcodeSubscription": "在官方 ZCode 中登录。Start Plan 需要桌面验证码，无法在这里使用。",
     "headlessAccountTokenHint": "无浏览器环境使用同一账号的令牌。",
     "headlessAccountTokenClear": "清除",
     "headlessAccountTokenSaved": "已保存",

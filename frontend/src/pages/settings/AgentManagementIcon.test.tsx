@@ -48,6 +48,7 @@ const BUILT_IN_AGENTS = [
   ['auggie', 'Auggie'],
   ['trae', 'TRAE CLI'],
   ['command_code', 'Command Code'],
+  ['zcode', 'ZCode'],
   ['mimo_code', 'MiMo Code'],
 ] as const;
 

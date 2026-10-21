@@ -1930,6 +1930,7 @@
     "authDescAuggieSubscription": "Sign in with an Augment account.",
     "authDescTraeSubscription": "Sign in with a TRAE account.",
     "authDescCommandCodeSubscription": "Sign in with a Command Code account.",
+    "authDescZcodeSubscription": "Sign in inside official ZCode. Start Plan needs a desktop captcha and cannot be used here.",
     "headlessAccountTokenHint": "Same-account token for a machine without a browser.",
     "headlessAccountTokenClear": "Clear",
     "headlessAccountTokenSaved": "Saved",

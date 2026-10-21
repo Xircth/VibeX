@@ -418,7 +418,49 @@ fn native_acp_cli_agents_launch_with_the_documented_server_args() {
             .contains(&AgentSettingsFeature::NativeMcp)
     );
 
-    for profile in [kiro, auggie, trae, command_code] {
+    let zcode = catalog.profile(&AgentId::parse("zcode").unwrap()).unwrap();
+    assert!(zcode.registry_binding.is_none());
+    assert!(zcode.management_actions.is_empty());
+    assert_eq!(
+        zcode
+            .external_candidates
+            .iter()
+            .map(|candidate| (candidate.executable, candidate.acp_args))
+            .collect::<Vec<_>>(),
+        [("zcode-acp-server", &["server"][..])]
+    );
+    assert!(
+        zcode
+            .external_candidates
+            .iter()
+            .all(|candidate| candidate.executable != "zcode")
+    );
+    assert!(matches!(
+        zcode.install_sources.first().unwrap(),
+        ProfileInstallSource::Npx {
+            package: "zcode-acp-server",
+            version: "0.72.0",
+            command: "zcode-acp-server",
+            args: ["server"],
+            node_requirement: ">=22",
+            integrity: "sha512-zQzsh/c35NNqLr3iyGwM+UBOyx+93sZ4R3GUFB4ZWjU35r1ThBkDh2Gp/s0d6RpeBI9bysk/bLZlI5DDealBOw==",
+            ..
+        }
+    ));
+    assert!(
+        zcode
+            .settings_features
+            .contains(&AgentSettingsFeature::NativeSkills)
+    );
+    assert!(
+        !zcode
+            .settings_features
+            .contains(&AgentSettingsFeature::NativeMcp)
+    );
+    assert!(zcode.account_evidence.is_none());
+    assert!(zcode.runtime_executable_env.is_none());
+
+    for profile in [kiro, auggie, trae, command_code, zcode] {
         for candidate in profile.external_candidates {
             assert_eq!(
                 agents::acp_launch_args(profile, candidate.component),
@@ -511,6 +553,7 @@ fn built_in_profiles_are_declarative_and_bind_explicitly() {
             "auggie",
             "trae",
             "command_code",
+            "zcode",
         ]
     );
 
@@ -613,6 +656,7 @@ fn built_in_profiles_are_declarative_and_bind_explicitly() {
             ("auggie", None),
             ("trae", None),
             ("command_code", None),
+            ("zcode", None),
         ]
     );
     assert!(
@@ -915,6 +959,7 @@ fn codeg_directory_semantics_and_settings_capabilities_are_profile_declared() {
         "auggie",
         "trae",
         "command_code",
+        "zcode",
     ] {
         assert!(
             !catalog.supports_reusable_model_providers(&AgentId::parse(id).unwrap()),
@@ -950,6 +995,7 @@ fn codeg_directory_semantics_and_settings_capabilities_are_profile_declared() {
         "auggie",
         "trae",
         "command_code",
+        "zcode",
     ] {
         assert!(
             !profile(id)
@@ -974,6 +1020,7 @@ fn codeg_directory_semantics_and_settings_capabilities_are_profile_declared() {
         "deepseek_harness",
         "qoder",
         "command_code",
+        "zcode",
     ] {
         assert!(
             profile(id)

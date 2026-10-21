@@ -35,6 +35,7 @@ export const SLOT_B: SlotItem[] = [
   { id: 'auggie', label: 'Auggie', kind: 'agent' },
   { id: 'trae', label: 'TRAE CLI', kind: 'agent' },
   { id: 'command_code', label: 'Command Code', kind: 'agent' },
+  { id: 'zcode', label: 'ZCode', kind: 'agent' },
 ];
 
 const SLOT_C_ZH: SlotItem[] = [

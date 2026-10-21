@@ -19,6 +19,7 @@ import { Toaster, toast } from '@/components/ui/toast';
 import { ProjectWindowManager } from '@/components/layout/ProjectWindowManager';
 import { DesktopWindowControls } from '@/components/settings/DesktopWindowControls';
 import { TrayBadgeSync } from '@/components/layout/TrayBadgeSync';
+import { FocusConversationListener } from '@/components/layout/FocusConversationListener';
 import { HotkeysProvider } from 'react-hotkeys-hook';
 
 import { ProjectProvider } from '@/contexts/ProjectContext';
@@ -326,6 +327,7 @@ function AppContent() {
           <SequenceTrackerProvider>
             <GlobalShortcutActionBridge />
             <PluginContributionBridge />
+            <FocusConversationListener />
             <AppContextMenuHost>
               <BasicGuideProvider>
                 <MainAppContent>{routes}</MainAppContent>

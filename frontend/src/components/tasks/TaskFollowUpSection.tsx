@@ -1,5 +1,12 @@
 import { TooltipProvider } from '@/components/ui/tooltip';
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  useSyncExternalStore,
+} from 'react';
 import { useTranslation } from 'react-i18next';
 import { useQuery } from '@tanstack/react-query';
 import type { AgentKind } from 'shared/types';
@@ -19,6 +26,10 @@ import { useActiveExecutorProfile } from '@/contexts/ActiveExecutorProfileContex
 import { useFollowUpSend } from '@/hooks/useFollowUpSend';
 import { toast } from '@/components/ui/toast';
 import { conversationApi } from '@/features/conversation/conversationApi';
+import {
+  getConversationPersona,
+  subscribeConversationTimeline,
+} from '@/features/conversation/conversationTimelineRegistry';
 import { AGENT_BINDING_LOAD_FAILURE_NOTICE_ROW_ID } from '@/features/conversation/sessionNoticeNeedsRebind';
 import { sessionsApi } from '@/lib/api';
 import { listenToConversationEvents } from '@/features/conversation/events';
@@ -185,6 +196,20 @@ export function TaskFollowUpSection({
     isNewSessionMode,
     sessionId: session?.id,
   });
+  const storedPersona = useSyncExternalStore(
+    subscribeConversationTimeline,
+    () => getConversationPersona(sessionId ?? null),
+    () => getConversationPersona(sessionId ?? null)
+  );
+  const persona = useMemo(() => {
+    if (!storedPersona) return null;
+    return {
+      name: storedPersona.name,
+      teamName: storedPersona.team_name?.trim() || undefined,
+      summary: storedPersona.summary?.trim() || undefined,
+      agentName: storedPersona.agent_name,
+    };
+  }, [storedPersona]);
   const liveCommands = useConversationAvailableCommands(sessionId);
   const { profiles, config } = useUserSystem();
   const { selectedSessionLabel, compactSessionLabel } =
@@ -1197,6 +1222,7 @@ export function TaskFollowUpSection({
                 sessionConfigOptions={displaySessionConfigOptions}
                 selectedConfigValues={selectedConfigValues}
                 onSelectConfigOption={handleSelectConfigOption}
+                persona={persona}
                 isEditable={isEditable}
                 isAttemptRunning={isComposerExecutionRunning}
                 compactContextEnabled={config?.compact_context_enabled ?? false}

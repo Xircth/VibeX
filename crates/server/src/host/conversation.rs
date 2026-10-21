@@ -60,6 +60,8 @@ pub struct HostConversationDetail {
     pub session_config_options: Vec<AgentSessionConfigOption>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub available_commands: Option<Vec<AgentAvailableCommand>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub persona: Option<conversations::collaboration::ConversationPersonaView>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -794,6 +796,9 @@ pub async fn load_conversation_detail(
         })
         .await?
         .unwrap_or_default(),
+        persona: conversations::collaboration::conversation_persona(pool, id)
+            .await
+            .map_err(internal_error)?,
         available_commands: latest_event(
             pool,
             id,
@@ -959,6 +964,7 @@ mod tests {
             }),
             session_config_options: Vec::new(),
             available_commands: None,
+            persona: None,
         };
 
         let value = serde_json::to_value(&detail).expect("conversation detail");

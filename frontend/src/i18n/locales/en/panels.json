@@ -199,6 +199,7 @@
     "resetLayout": "Reset layout",
     "kanban": "Kanban",
     "workspace": "Workspace",
+    "collaboration": "Collaboration",
     "toggleSessionList": "Toggle session list",
     "toggleSessionMonitor": "Toggle session monitor",
     "toggleSessionExecution": "Toggle session execution",
@@ -479,5 +480,37 @@
         "uninstalled": "Retry"
       }
     }
+  },
+  "collaborationSpace": {
+    "title": "Collaboration Space",
+    "spacesButton": "Spaces",
+    "messagesTitle": "Messages",
+    "previewTitle": "Preview",
+    "closePane": "Close",
+    "loading": "Loading",
+    "send": "Send",
+    "spaceName": "Space name",
+    "nickname": "Nickname",
+    "memberFallback": "Member",
+    "emptyMembers": "No members yet",
+    "expandSpace": "Expand {{name}}",
+    "collapseSpace": "Collapse {{name}}",
+    "addMemberToSpace": "Add member {{name}}",
+    "renameMemberAria": "Rename {{name}}",
+    "emptySpaces": "No collaboration spaces yet",
+    "newSpace": "New space",
+    "addMember": "Add member",
+    "renameMember": "Rename nickname",
+    "chooseConversation": "Choose session",
+    "emptyMessages": "No messages yet",
+    "previewEmpty": "Select a member",
+    "noSession": "No session",
+    "backToSession": "Back to session",
+    "attachmentsUnsupported": "Space messages support text only",
+    "openWorkspace": "Open in workspace",
+    "openWorkspaceFirst": "Open a workspace first",
+    "receiptQueued": "Queued",
+    "receiptClaimed": "Claimed",
+    "receiptFailed": "Failed"
   }
 }

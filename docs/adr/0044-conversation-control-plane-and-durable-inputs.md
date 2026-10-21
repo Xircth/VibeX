@@ -257,3 +257,11 @@ steering 事件安全降级。
 - 实际需求证明需要原子 input batches；
 - 隔离 child worktree 需要自动合并；
 - 可信 usage 覆盖率足以把 token/cost 设为默认硬预算。
+
+## Amendment（2026-10-19）
+
+协同写路径在 MCP / token 边界选择策略，不在插件 ID 上分支。会话增强 token 仍是祖先树。协同 token 是同工作区：自己、子孙、兄弟。其它工作区、已删除、已归档表现为不存在，响应不带标题。
+
+延时输入是独立事实。到期前不占普通队列的顺序。Application Core 提升器用该行自己的 operation id 调用 `submit`，之后它才成为排队输入。省略或 0 延迟就是立即 `submit`。
+
+`steer` 失败保持失败，不降级成排队。空间扇出仍是对每个收件人各一次 `submit`。`spawned` 只用于导航，不走委派级联。

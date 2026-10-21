@@ -202,7 +202,7 @@ export function conversationStoreReducer(
           currentTurnId: action.detail.current_turn?.id ?? entry.currentTurnId,
           loading: false,
           error: null,
-          gap: { kind: 'none' },
+          gap: { kind: 'none' } satisfies ConversationGapState,
           optimisticTurns: keepRealtimeRows
             ? reconcileOptimisticTurns(
                 entry.optimisticTurns,
@@ -845,6 +845,14 @@ export function sideRowsForEntry(
   }
   sideRowsByEntryRows.set(entry.rows, filtered);
   return filtered;
+}
+
+/** Persona and other standing host notes stay on the timeline. */
+export function isDurableHostNote(row: TimelineRow): boolean {
+  if (row.row_id.startsWith('host-note:')) return true;
+  if (row.row.kind !== 'session_notice') return false;
+  const id = row.row.notice.announcement_id ?? '';
+  return id.startsWith('host-note:');
 }
 
 const INLINE_SIDE_ROW_KINDS = new Set([

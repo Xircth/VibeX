@@ -45,6 +45,25 @@ export function isBuiltinWorkspaceTab(tab: string): tab is BuiltinWorkspaceTab {
   return tab === 'workspace' || tab === 'kanban';
 }
 
+export const COLLABORATION_WORKSPACE_TAB = 'collaboration';
+
+/** Collaboration stays on the workspace URL, so it wins over the route tab. */
+export function effectiveWorkspaceTab(
+  routeTab: string | null,
+  activeTab: string,
+  options: { collaborationEnabled: boolean }
+): string {
+  if (
+    options.collaborationEnabled &&
+    activeTab === COLLABORATION_WORKSPACE_TAB
+  ) {
+    return activeTab;
+  }
+  const tab =
+    activeTab === COLLABORATION_WORKSPACE_TAB ? 'workspace' : activeTab;
+  return routeTab ?? tab;
+}
+
 export function fallbackWorkspaceTab(
   tab: string,
   availableTabs: readonly string[]

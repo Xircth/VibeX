@@ -37,3 +37,7 @@ P1 的多会话 Split View 把每个 Conversation 建模为独立 Dockview panel
 
 - 在固定右侧会话区域内新增嵌套 splitter：否决。它会制造第二套布局、拖拽、持久化和
   无障碍模型，并继续保留会话单实例假设。
+
+## Amendment（2026-10-19）
+
+`workspace.focusConversation` 只做导航：打开或聚焦该窗口里这个 Conversation 的唯一面板，并切到工作区表面。重复调用不新建面板。它不创造第二种面板，也不把时间线嵌进插件 Tab。

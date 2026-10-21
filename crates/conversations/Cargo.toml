@@ -22,7 +22,7 @@ sha2 = "0.10"
 thiserror = { workspace = true }
 tracing = { workspace = true }
 chrono = { workspace = true }
-uuid = { workspace = true }
+uuid = { workspace = true, features = ["v5"] }
 url = { workspace = true }
 ts-rs = { workspace = true }
 async-trait = { workspace = true }

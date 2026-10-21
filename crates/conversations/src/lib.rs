@@ -6,6 +6,7 @@
 //! this crate owns the folding of the event log into timeline projections.
 
 pub mod bundle;
+pub mod collaboration;
 pub mod capability_catalog;
 pub mod commit_reminder;
 pub mod export;
@@ -28,6 +29,7 @@ pub use bundle::{
     ConversationForkResult, ConversationImportResult, export_conversation_bundle,
     import_conversation_bundle,
 };
+pub use collaboration::spawn_delayed_input_promoter;
 pub use capability_catalog::{
     capability_catalog_is_fresh, invalidate_open_capability_catalog,
     load_capability_catalog_for_session_defaults, open_capability_catalog_fingerprint,

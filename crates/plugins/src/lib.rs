@@ -9,6 +9,7 @@ mod blob_store;
 mod catalog;
 mod contribution;
 mod control_plane;
+mod collaboration_host;
 mod conversation_host;
 mod error;
 mod host_call;
@@ -67,6 +68,9 @@ pub use control_plane::{
     PluginControlPlane, PluginRegistry, RuntimeInstallation, SqlitePluginRegistry,
     candidate_capability_grants,
 };
+pub use collaboration_host::{
+    CollaborationHost, CollaborationHostError, UnavailableCollaborationHost,
+};
 pub use conversation_host::{
     PluginConversationCancelInput, PluginConversationCreate, PluginConversationDraftInsert,
     PluginConversationDraftReceipt, PluginConversationDraftToken, PluginConversationEnqueue,
@@ -105,8 +109,9 @@ pub use official_catalog::{
     official_plugin_catalog, official_plugin_category, official_plugin_record,
 };
 pub use official_mcp::{
-    DELEGATION_MCP_NAME, HOST_FAMILY_MCP_STARTUP_TIMEOUT_SEC, OfficialMcpBinding,
-    OfficialMcpRuntime, OfficialProductMcpState, PLUGIN_DEV_MCP_NAME, PluginMcpHeadline,
+    DELEGATION_MCP_NAME, HOST_FAMILY_MCP_STARTUP_TIMEOUT_SEC, HOST_MULTI_AGENT_ID,
+    HostDelegationLimits, OfficialMcpBinding, OfficialMcpRuntime, OfficialProductMcpState,
+    PLUGIN_DEV_MCP_NAME, PluginMcpHeadline,
     PluginMcpPluginStatus, PluginMcpServerStatus, PluginMcpStatusReport, PluginMcpToolStatus,
     SESSION_FEAT_ALL, SESSION_FEAT_ASK, SESSION_FEAT_FEEDBACK, SESSION_FEAT_SESSION_CONTROL,
     SESSION_FEAT_SESSIONS, SESSION_MCP_NAME, WORKFLOW_MCP_NAME, advertised_mcp_tools,

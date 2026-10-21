@@ -63,6 +63,7 @@ pub type SendMessageShortcut = versions::v9::SendMessageShortcut;
 pub type LinkOpenBehavior = versions::v9::LinkOpenBehavior;
 pub type CommitReminderMode = versions::v9::CommitReminderMode;
 pub type NotificationWhen = versions::v9::NotificationWhen;
+pub type MultiAgentAgentDefault = versions::v9::MultiAgentAgentDefault;
 
 /// Push settings that live processes read without a restart.
 pub async fn publish_config_runtime(config: &Config) {

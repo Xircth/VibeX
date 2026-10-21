@@ -301,4 +301,40 @@ describe('composer @ references', () => {
       },
     ]);
   });
+
+  it('prepends the member tab when space members are provided and keeps existing tabs available', () => {
+    const groups = buildAtReferenceGroups('小', {
+      files: [{ path: 'src/App.tsx', name: 'App.tsx' }],
+      conversations: [],
+      commits: [],
+      repoId: null,
+      instructions: [],
+      members: [
+        { id: 'm1', nickname: '小A', detail: 'conv-1' },
+        { id: 'm2', nickname: '评审B', detail: 'conv-2' },
+      ],
+    });
+    expect(groups.map((group) => group.tab)).toEqual([
+      'member',
+      'file',
+      'project',
+      'conversation',
+      'commit',
+      'instruction',
+      'host',
+      'action',
+    ]);
+    expect(groups[0]?.items).toEqual([
+      {
+        id: 'member:m1',
+        tab: 'member',
+        label: '小A',
+        detail: 'conv-1',
+        insertText: '@小A',
+      },
+    ]);
+    expect(firstNonEmptyTab(groups)).toBe('member');
+    expect(cycleAtReferenceTab('member', 1, groups)).toBe('file');
+    expect(cycleAtReferenceTab('action', 1, groups)).toBe('member');
+  });
 });

@@ -786,25 +786,6 @@
           }
         }
       },
-      "multiAgent": {
-        "name": "多智能体协同",
-        "summary": "让父 Agent 把子任务委托给其它 Agent。",
-        "readme": "# 多智能体协同\n\n父 Agent 把边界清楚的子任务交给其它 Agent。输入框里的 `&` 只是点名；真正启动工作的是 `delegate_to_agent`。\n\n插件启停就是委托启停。深度、结果缓存和子智能体默认只活在本页，并且只作用于委托拉起的新子会话。\n\n## 启用\n\n随 Host 分发，默认关闭，不能卸载。打开后，Host 把 `vibex-delegation-mcp` 注入之后新开或重新绑定的会话，Composer 才会显示 `&`。\n\n## 配置\n\n最大委托深度限制根 → 子 → 孙（1–8，默认 1）。已完成结果缓存是运行中委托会话的内存（MB，默认 512，0 为不限）。子智能体配置只覆盖委托子会话，不是全局新会话默认。\n\n## 排障\n\n没有 `&`，说明插件未启用，或当前会话是启用之前打开的。点了 mention 并不等于子任务已开始，父 Agent 必须调用 `delegate_to_agent`。",
-        "config": {
-          "depthLimit": {
-            "title": "最大委托深度",
-            "description": "限制委托链（根 → 子 → 孙）的最大递归深度。"
-          },
-          "completedCacheMaxMb": {
-            "title": "已完成结果缓存（MB）",
-            "description": "运行中委托会话已完成子智能体结果的内存缓存。0 表示不限，会话结束后仍会清除。"
-          },
-          "agentDefaults": {
-            "title": "子智能体配置",
-            "description": "仅作用于委托拉起的新子会话，不是全局新会话默认。"
-          }
-        }
-      },
       "pluginDevelopment": {
         "name": "插件开发",
         "summary": "让 Agent 在本机用当前 Host 的 SDK 与 CLI 开发、校验、链接并发布插件。",
@@ -923,6 +904,7 @@
     "contentTree": "包结构",
     "contentPreview": "内容预览",
     "noConfig": "此插件没有可配置项。",
+    "openInSettings": "在设置中打开",
     "agentDefaultsEmpty": "没有可配置的已启用智能体。",
     "agentDefaultsUnavailable": "无法读取该智能体的会话选项。",
     "agentDefaultsConfigure": "配置 {{name}}",
@@ -1621,6 +1603,16 @@
     "defaultTerminal": "默认终端",
     "defaultTerminalDescription": "内置终端使用该 Shell。Warp 会打开外部应用到当前工作区。",
     "basicFeaturesTitle": "基础功能",
+    "multiAgentTitle": "MultiAgent协同",
+    "multiAgentEnabled": "MultiAgent协同",
+    "multiAgentEnabledHint": "新会话可以使用委派、角色和协作空间。",
+    "multiAgentDepth": "委派深度",
+    "multiAgentCache": "完成缓存 (MB)",
+    "multiAgentDays": "查询窗口（天）",
+    "multiAgentHours": "延时上限（小时）",
+    "multiAgentRangeError": "深度 1–8，缓存不少于 0，查询窗口 1–90，延时上限 1–168。",
+    "multiAgentDefaultsTitle": "委派默认",
+    "multiAgentDefaultsHint": "只作用于 delegate_to_agent 拉起的新子会话。",
     "utilityFeaturesTitle": "实用功能",
     "sessionFeaturesTitle": "会话功能",
     "externalEditorTitle": "外部查看器",

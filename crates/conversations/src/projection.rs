@@ -393,6 +393,7 @@ impl ConversationStateApplier {
                     agents::ConversationRelationKind::Delegation => "delegation",
                     agents::ConversationRelationKind::Fork => "fork",
                     agents::ConversationRelationKind::WorkflowStep => "workflow_step",
+                    agents::ConversationRelationKind::Spawned => "spawned",
                 };
                 let visibility = match visibility {
                     agents::ConversationRelationVisibility::Visible => "visible",
@@ -2453,7 +2454,14 @@ impl ProjectionFold {
                 }
             }
             ConversationEvent::RawDiagnosticRecorded { label, payload } => {
-                if label == agents::SESSION_RECONNECT_PROGRESS_KIND
+                if let Some(notice) = host_note_notice(&label, payload.as_ref()) {
+                    let row_id = notice
+                        .announcement_id
+                        .clone()
+                        .filter(|id| id.starts_with("host-note:"))
+                        .unwrap_or_else(|| "host-note:persona".to_string());
+                    upsert_stable_notice(side_rows, &row_id, record.sequence, notice);
+                } else if label == agents::SESSION_RECONNECT_PROGRESS_KIND
                     || payload
                         .as_ref()
                         .and_then(|value| value.get("kind"))
@@ -3369,6 +3377,49 @@ enum ParsedEvent {
 /// The single parse entry for a stored event. Never fails: an unparseable payload
 /// degrades to [`ParsedEvent::Unknown`] rather than propagating a decode error, so
 /// one forward-incompatible event can't take down the whole conversation timeline.
+fn host_note_notice(
+    label: &str,
+    payload: Option<&serde_json::Value>,
+) -> Option<ConversationSessionNotice> {
+    let kind = payload
+        .and_then(|value| value.get("kind"))
+        .and_then(serde_json::Value::as_str)
+        .unwrap_or(label);
+    if kind != "host_note" {
+        return None;
+    }
+    let message = payload
+        .and_then(|value| value.get("message"))
+        .and_then(serde_json::Value::as_str)
+        .unwrap_or("")
+        .trim()
+        .to_string();
+    if message.is_empty() {
+        return None;
+    }
+    let title = payload
+        .and_then(|value| value.get("title"))
+        .and_then(serde_json::Value::as_str)
+        .filter(|title| !title.trim().is_empty())
+        .unwrap_or("人设");
+    let announcement_id = payload
+        .and_then(|value| {
+            value
+                .get("announcementId")
+                .or_else(|| value.get("announcement_id"))
+        })
+        .and_then(serde_json::Value::as_str)
+        .filter(|id| id.starts_with("host-note:"))
+        .unwrap_or("host-note:persona");
+    Some(ConversationSessionNotice {
+        title: title.to_string(),
+        message: Some(message),
+        severity: "info".into(),
+        announcement_id: Some(announcement_id.to_string()),
+        action: None,
+    })
+}
+
 fn diagnostic_session_notice(
     label: &str,
     payload: Option<&serde_json::Value>,
@@ -3395,7 +3446,8 @@ fn diagnostic_session_notice(
         agents::AGENT_SESSION_NOTICE_KIND => {
             payload.and_then(agents::session_notice_from_diagnostic)
         }
-        "user_message_acknowledged"
+        "host_note"
+        | "user_message_acknowledged"
         | "companion_capability"
         | "ext_notification"
         | "prompt_cancel_requested" => None,
@@ -4483,6 +4535,55 @@ mod tests {
         )
         .expect("cleared announcements");
         assert!(cleared_timeline.rows.is_empty());
+    }
+
+    #[test]
+    fn host_note_stays_when_announcements_clear() {
+        let conversation_id = Uuid::new_v4();
+        let note = ConversationEvent::RawDiagnosticRecorded {
+            label: "host_note".into(),
+            payload: Some(serde_json::json!({
+                "kind": "host_note",
+                "title": "人设",
+                "message": "只评论 diff，不改文件",
+                "announcementId": "host-note:persona",
+            })),
+        };
+        let cleared = ConversationEvent::AnnouncementsUpdated {
+            generation: 1,
+            notices: Vec::new(),
+        };
+        let timeline = ConversationProjector::project_records(
+            conversation_id,
+            &[
+                diagnostic_record(conversation_id, 1, &note),
+                ConversationEventRecord {
+                    id: Uuid::new_v4(),
+                    conversation_id,
+                    turn_id: None,
+                    binding_id: None,
+                    connection_id: None,
+                    prompt_id: None,
+                    sequence: 2,
+                    source: "acp".into(),
+                    event_kind: "announcements_updated".into(),
+                    event_version: CURRENT_EVENT_VERSION,
+                    normalized_json: serde_json::to_string(&cleared).expect("cleared json"),
+                    raw_json: None,
+                    idempotency_key: None,
+                    created_at: chrono::Utc::now(),
+                },
+            ],
+        )
+        .expect("host note survives");
+        assert_eq!(timeline.rows.len(), 1);
+        assert_eq!(timeline.rows[0].row_id, "host-note:persona");
+        match &timeline.rows[0].row {
+            ConversationTimelineRow::SessionNotice { notice } => {
+                assert_eq!(notice.message.as_deref(), Some("只评论 diff，不改文件"));
+            }
+            other => panic!("expected host note, got {other:?}"),
+        }
     }
 
     #[tokio::test]

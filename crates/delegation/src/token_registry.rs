@@ -3,7 +3,7 @@
 //! injected with it), looked up on every framed message, and revoked when the
 //! parent disconnects.
 
-use std::{collections::HashMap, path::PathBuf, sync::RwLock};
+use std::{collections::HashMap, path::PathBuf, sync::{Arc, RwLock}};
 
 use uuid::Uuid;
 
@@ -25,6 +25,10 @@ pub struct TokenPermissions {
     pub ask: bool,
     pub session_info: bool,
     pub session_control: bool,
+    /// Same-workspace send, including siblings. Session-enhance tokens stay false.
+    pub workspace_write: bool,
+    /// Roles, teams, durable create, and collaboration spaces.
+    pub collaboration: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -34,6 +38,8 @@ pub enum TokenFeature {
     Ask,
     SessionInfo,
     SessionControl,
+    WorkspaceWrite,
+    Collaboration,
 }
 
 impl TokenPermissions {
@@ -44,6 +50,8 @@ impl TokenPermissions {
             TokenFeature::Ask => self.ask,
             TokenFeature::SessionInfo => self.session_info,
             TokenFeature::SessionControl => self.session_control,
+            TokenFeature::WorkspaceWrite => self.workspace_write,
+            TokenFeature::Collaboration => self.collaboration,
         }
     }
 
@@ -55,6 +63,8 @@ impl TokenPermissions {
             ask: true,
             session_info: true,
             session_control: true,
+            workspace_write: true,
+            collaboration: true,
         }
     }
 }
@@ -63,16 +73,33 @@ impl TokenPermissions {
 struct RegisteredToken {
     entry: TokenEntry,
     permissions: TokenPermissions,
+    product: Option<String>,
 }
 
-#[derive(Default, Debug)]
+#[derive(Default)]
 pub struct TokenRegistry {
     inner: RwLock<HashMap<String, RegisteredToken>>,
+    product_gate: RwLock<Option<Arc<dyn Fn(&str) -> bool + Send + Sync>>>,
+}
+
+impl std::fmt::Debug for TokenRegistry {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("TokenRegistry")
+            .field("tokens", &self.inner.read().unwrap().len())
+            .finish_non_exhaustive()
+    }
 }
 
 impl TokenRegistry {
     pub fn new() -> Self {
         Self::default()
+    }
+
+    /// Product tokens fail closed when this returns false. Untagged tokens,
+    /// including HTTP ephemerals, are not checked here.
+    pub fn set_product_gate(&self, gate: impl Fn(&str) -> bool + Send + Sync + 'static) {
+        *self.product_gate.write().unwrap() = Some(Arc::new(gate));
     }
 
     pub fn register_with_permissions(
@@ -81,10 +108,34 @@ impl TokenRegistry {
         entry: TokenEntry,
         permissions: TokenPermissions,
     ) {
-        self.inner
-            .write()
-            .unwrap()
-            .insert(token, RegisteredToken { entry, permissions });
+        self.insert(token, entry, permissions, None);
+    }
+
+    pub fn register_product_token(
+        &self,
+        token: String,
+        entry: TokenEntry,
+        permissions: TokenPermissions,
+        product: &str,
+    ) {
+        self.insert(token, entry, permissions, Some(product.to_string()));
+    }
+
+    fn insert(
+        &self,
+        token: String,
+        entry: TokenEntry,
+        permissions: TokenPermissions,
+        product: Option<String>,
+    ) {
+        self.inner.write().unwrap().insert(
+            token,
+            RegisteredToken {
+                entry,
+                permissions,
+                product,
+            },
+        );
     }
 
     #[cfg(test)]
@@ -100,13 +151,32 @@ impl TokenRegistry {
             .map(|registered| registered.entry.clone())
     }
 
-    pub fn authorize(&self, token: &str, feature: TokenFeature) -> Option<TokenEntry> {
+    pub fn permissions(&self, token: &str) -> Option<TokenPermissions> {
         self.inner
             .read()
             .unwrap()
             .get(token)
-            .filter(|registered| registered.permissions.allows(feature))
-            .map(|registered| registered.entry.clone())
+            .map(|registered| registered.permissions)
+    }
+
+    pub fn authorize(&self, token: &str, feature: TokenFeature) -> Option<TokenEntry> {
+        let registered = {
+            let guard = self.inner.read().unwrap();
+            let registered = guard.get(token)?;
+            if !registered.permissions.allows(feature) {
+                return None;
+            }
+            registered.clone()
+        };
+        if let Some(product) = registered.product.as_deref() {
+            let gate = self.product_gate.read().unwrap().clone();
+            if let Some(gate) = gate {
+                if !gate(product) {
+                    return None;
+                }
+            }
+        }
+        Some(registered.entry)
     }
 
     pub fn revoke(&self, token: &str) {
@@ -132,5 +202,39 @@ impl TokenRegistry {
         ids.sort();
         ids.dedup();
         ids
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn entry() -> TokenEntry {
+        TokenEntry {
+            parent_connection_id: "parent".to_string(),
+            parent_conversation_id: Uuid::nil(),
+            working_root: PathBuf::from("."),
+        }
+    }
+
+    #[test]
+    fn disabled_product_rejects_a_tagged_token_and_keeps_untagged() {
+        let registry = TokenRegistry::new();
+        registry.set_product_gate(|product| product != "delegation");
+        let permissions = TokenPermissions {
+            delegation: true,
+            ..TokenPermissions::default()
+        };
+        registry.register_product_token(
+            "pipe".to_string(),
+            entry(),
+            permissions,
+            "delegation",
+        );
+        registry.register_with_permissions("http".to_string(), entry(), permissions);
+        assert!(registry.authorize("pipe", TokenFeature::Delegation).is_none());
+        assert!(registry.authorize("http", TokenFeature::Delegation).is_some());
+        registry.set_product_gate(|product| product == "delegation");
+        assert!(registry.authorize("pipe", TokenFeature::Delegation).is_some());
     }
 }

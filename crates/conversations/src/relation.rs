@@ -275,6 +275,7 @@ impl TryFrom<ConversationRelationRecord> for ConversationRelationView {
                 "delegation" => ConversationRelationKind::Delegation,
                 "fork" => ConversationRelationKind::Fork,
                 "workflow_step" => ConversationRelationKind::WorkflowStep,
+                "spawned" => ConversationRelationKind::Spawned,
                 value => {
                     return Err(sqlx::Error::Protocol(format!(
                         "invalid conversation relation kind `{value}`"
@@ -308,6 +309,7 @@ fn relation_kind_str(kind: ConversationRelationKind) -> &'static str {
         ConversationRelationKind::Delegation => "delegation",
         ConversationRelationKind::Fork => "fork",
         ConversationRelationKind::WorkflowStep => "workflow_step",
+        ConversationRelationKind::Spawned => "spawned",
     }
 }
 

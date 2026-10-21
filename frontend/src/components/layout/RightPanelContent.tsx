@@ -6,6 +6,7 @@ import { Loader2, X } from 'lucide-react';
 import { BranchInfoHeader } from '@/components/layout/BranchInfoHeader';
 import { KanbanSessionConversationView } from '@/components/kanban/KanbanSessionConversationView';
 import { useUserSystem } from '@/components/ConfigProvider';
+import { effectiveWorkspaceTab } from '@/lib/hostSurfaceIds';
 import { useKanbanSessionContext } from '@/contexts/KanbanSessionContext';
 import { kanbanBindsExecutionConversation } from '@/lib/kanbanViews';
 import { RightPanelSessionCreationProvider } from '@/contexts/RightPanelSessionCreationContext';
@@ -175,9 +176,12 @@ export function RightPanelContent() {
     workspaceId?: string;
     sessionId?: string;
   }>();
+  const { profiles, config } = useUserSystem();
   const activeTab = useLayoutStore((state) => state.activeTab);
   const routeTab = workspaceId || sessionId ? 'workspace' : null;
-  const effectiveActiveTab = routeTab ?? activeTab;
+  const effectiveActiveTab = effectiveWorkspaceTab(routeTab, activeTab, {
+    collaborationEnabled: Boolean(config?.multi_agent_enabled),
+  });
   const {
     activeViewId,
     visibleRightSession,
@@ -188,7 +192,6 @@ export function RightPanelContent() {
   } = useKanbanSessionContext();
   const { activeWorktreeId, setActiveWorktree } = useWorktree();
   const { projectId, project } = useProject();
-  const { profiles, config } = useUserSystem();
   const effectiveProjectId = projectId ?? routeProjectId;
   const showRightSession = !!visibleRightSession;
   const rightSessionWorkspaceId = visibleRightSession?.workspaceId ?? '';

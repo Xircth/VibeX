@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
+import { useNavigate } from 'react-router-dom';
 
 import { ConfirmDialog } from '@/components/dialogs/shared/ConfirmDialog';
 import { TextInput } from '@astryxdesign/core/TextInput';
@@ -17,6 +18,7 @@ import {
   createPluginControlApi,
   type PluginProductDetail,
 } from '@/lib/api/plugins';
+import { openSettingsSurface } from '@/lib/api/settingsWindow';
 import { useBackendCapabilities, useBackendTransport } from '@/lib/transport';
 import {
   AgentDefaultsField,
@@ -27,6 +29,24 @@ import { pluginConfigEnableItemCount } from './pluginConfigEnableConfirm';
 import { errorMessage } from './pluginQueries';
 
 type JsonSchema = Record<string, unknown>;
+
+function schemaTitle(schema: JsonSchema, fallback: string): string {
+  return typeof schema.title === 'string' && schema.title.trim()
+    ? schema.title
+    : fallback;
+}
+
+function formatConfigValue(value: unknown): string {
+  if (value == null || value === '') return '—';
+  if (
+    typeof value === 'string' ||
+    typeof value === 'number' ||
+    typeof value === 'boolean'
+  ) {
+    return String(value);
+  }
+  return JSON.stringify(value);
+}
 
 function schemaProperties(schema: JsonSchema): Array<[string, JsonSchema]> {
   const properties = schema.properties;
@@ -271,6 +291,7 @@ export function PluginConfigForm({
   onSaved: (detail: PluginProductDetail) => void;
 }) {
   const { t } = useTranslation('settings');
+  const navigate = useNavigate();
   const transport = useBackendTransport();
   const api = useMemo(() => createPluginControlApi(transport), [transport]);
   const { supports } = useBackendCapabilities();
@@ -300,6 +321,40 @@ export function PluginConfigForm({
   };
 
   const properties = schemaProperties(detail.configSchema);
+  if (detail.configSchema['x-vibex-config-surface'] === 'settings') {
+    const pageId =
+      typeof detail.configSchema['x-vibex-settings-page'] === 'string'
+        ? detail.configSchema['x-vibex-settings-page']
+        : 'settings';
+    return (
+      <div className="settings-surface product-plugin-config-shell">
+        <dl className="settings-card grid gap-2 p-3 text-sm">
+          {properties.map(([key, schema]) => (
+            <div key={key} className="flex items-baseline justify-between gap-4">
+              <dt className="text-[color:var(--text-muted)]">
+                {schemaTitle(schema, key)}
+              </dt>
+              <dd className="text-[color:var(--text-primary)]">
+                {formatConfigValue(draft[key])}
+              </dd>
+            </div>
+          ))}
+        </dl>
+        <button
+          type="button"
+          className="raised-control mt-3 h-8 px-3 text-sm"
+          onClick={() =>
+            openSettingsSurface(
+              navigate,
+              `/settings/plugin/${pluginId}/${pageId}`
+            )
+          }
+        >
+          {t('plugins.openInSettings')}
+        </button>
+      </div>
+    );
+  }
   if (
     detail.configSchema['x-vibex-config-form'] === false ||
     properties.length === 0

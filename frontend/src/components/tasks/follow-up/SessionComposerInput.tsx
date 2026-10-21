@@ -134,6 +134,7 @@ import {
   stepComposerHistory,
 } from './sessionComposerHistory';
 import { ComposerAtReferencePanel } from './ComposerAtReferenceMenu';
+import { type AtReferenceMember } from './composerAtReferences';
 import { useComposerAtReferencePanel } from './useComposerAtReferencePanel';
 import {
   fileFromHostPath,
@@ -164,6 +165,7 @@ export type SessionComposerInputContext = {
   availableCommands?: AgentAvailableCommand[] | null;
   commandsLoading?: boolean;
   transport?: BackendTransport;
+  spaceMembers?: AtReferenceMember[];
 };
 
 type SessionComposerInputProps = {
@@ -1124,6 +1126,7 @@ export function SessionComposerInput({
     availableCommands = null,
     commandsLoading = false,
     transport = configuredBackendTransport,
+    spaceMembers,
   } = context ?? {};
   const composerHandleRef = useRef<ChatComposerInputHandle | null>(null);
   const composerRootRef = useRef<HTMLDivElement | null>(null);
@@ -1237,6 +1240,7 @@ export function SessionComposerInput({
       repoIds,
       projectId,
       transport,
+      spaceMembers,
       actions: composerActions.map((item) => {
         const metadata = contributionMetadata(item);
         const prompt =

@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  effectiveWorkspaceTab,
   fallbackWorkspaceTab,
   parsePluginSurfaceId,
   pluginSurfaceId,
@@ -34,6 +35,24 @@ describe('hostSurfaceIds', () => {
     expect(
       fallbackWorkspaceTab('plugin:live/tab', ['workspace', 'plugin:live/tab'])
     ).toBe('plugin:live/tab');
+  });
+
+  it('keeps collaboration on the workspace route while the setting is on', () => {
+    expect(
+      effectiveWorkspaceTab('workspace', 'collaboration', {
+        collaborationEnabled: true,
+      })
+    ).toBe('collaboration');
+    expect(
+      effectiveWorkspaceTab('workspace', 'collaboration', {
+        collaborationEnabled: false,
+      })
+    ).toBe('workspace');
+    expect(
+      effectiveWorkspaceTab('workspace', 'kanban', {
+        collaborationEnabled: true,
+      })
+    ).toBe('workspace');
   });
 
   it('opens a contributed panel once until it leaves the catalog', () => {

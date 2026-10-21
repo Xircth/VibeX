@@ -15,6 +15,7 @@ export type PluginRemoteEnvironment = {
   slot: string;
   workspaceId?: string | null;
   projectId?: string | null;
+  windowLabel?: string | null;
   invoke: (
     handler: string,
     input?: Record<string, unknown> | null

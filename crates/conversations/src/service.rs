@@ -916,12 +916,19 @@ impl ConversationSessionService {
             origin,
         )
         .await?;
+        let persona = crate::collaboration::persona_prompt_text(pool, input.conversation_id)
+            .await
+            .map_err(|error| ConversationServiceError::Internal(error.to_string()))?;
+        let prompt_text = match persona.as_deref() {
+            Some(persona) => crate::collaboration::prefix_persona_prompt(persona, &input.text),
+            None => input.text.clone(),
+        };
         let agent_text = match smart_reminder.as_deref() {
-            Some(reminder) if !input.text.trim().is_empty() => {
-                format!("{}\n\n{}", input.text, reminder)
+            Some(reminder) if !prompt_text.trim().is_empty() => {
+                format!("{prompt_text}\n\n{reminder}")
             }
             Some(reminder) => reminder.to_string(),
-            None => input.text.clone(),
+            None => prompt_text,
         };
         let agent_blocks = self
             .ctx

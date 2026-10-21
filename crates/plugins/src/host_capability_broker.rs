@@ -25,7 +25,9 @@ pub struct HostCapabilityBroker {
     remote_profiles: Arc<dyn crate::RemoteProfileHost>,
     bind_prompts: Arc<crate::ProviderBindPrompts>,
     conversations: Arc<dyn crate::PluginConversationHost>,
+    collaboration: Arc<dyn crate::CollaborationHost>,
     browser: Arc<browser_host::BrowserService>,
+    settings_saved: std::sync::Mutex<Option<Arc<dyn Fn() + Send + Sync>>>,
     artifacts: Mutex<HashMap<String, ArtifactAuthorization>>,
     preview_leases: Arc<Mutex<HashMap<String, crate::ActivationLease>>>,
 }
@@ -84,7 +86,9 @@ impl HostCapabilityBroker {
             remote_profiles,
             bind_prompts,
             conversations: Arc::new(crate::UnavailablePluginConversationHost),
+            collaboration: Arc::new(crate::UnavailableCollaborationHost),
             browser: Arc::new(browser_host::BrowserService::unavailable()),
+            settings_saved: std::sync::Mutex::new(None),
             artifacts: Mutex::new(HashMap::new()),
             preview_leases: Arc::new(Mutex::new(HashMap::new())),
         }
@@ -101,6 +105,18 @@ impl HostCapabilityBroker {
     ) -> Self {
         self.conversations = conversations;
         self
+    }
+
+    pub fn with_collaboration_host(
+        mut self,
+        collaboration: Arc<dyn crate::CollaborationHost>,
+    ) -> Self {
+        self.collaboration = collaboration;
+        self
+    }
+
+    pub fn set_settings_saved_hook(&self, hook: impl Fn() + Send + Sync + 'static) {
+        *self.settings_saved.lock().expect("settings hook") = Some(Arc::new(hook));
     }
 
     pub fn bind_prompts(&self) -> Arc<crate::ProviderBindPrompts> {
@@ -195,6 +211,8 @@ impl crate::CapabilityBroker for HostCapabilityBroker {
                 | "events"
                 | "agent"
                 | "conversation"
+                | "collaboration"
+                | "workspace"
                 | "browser"
                 | "blob"
                 | "app"
@@ -228,6 +246,11 @@ impl crate::CapabilityBroker for HostCapabilityBroker {
             }
             "remote" => self.call_remote(plugin_id, operation, input).await,
             "conversation" => self.call_conversation(plugin_id, operation, input).await,
+            "collaboration" | "workspace" => self
+                .collaboration
+                .call(plugin_id, capability, operation, input)
+                .await
+                .map_err(|error| broker_error(error.code(), error)),
             "browser" => browser_host::dispatch(&self.browser, plugin_id, operation, input)
                 .await
                 .map_err(|error| broker_error(error.code(), error.message())),
@@ -888,6 +911,14 @@ impl HostCapabilityBroker {
                 plugin
                     .write_config(input.clone())
                     .map_err(|error| broker_error("config_schema_invalid", error))?;
+                let hook = self
+                    .settings_saved
+                    .lock()
+                    .expect("settings hook")
+                    .clone();
+                if let Some(hook) = hook {
+                    hook();
+                }
                 Ok(input)
             }
             "secrets.get" => Ok(json!({ "present": false })),

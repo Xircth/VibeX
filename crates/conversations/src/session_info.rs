@@ -163,7 +163,10 @@ pub async fn resolve_referenced_session(
         created_at: Some(summary.created_at),
         updated_at: Some(summary.updated_at),
         parent_conversation_id: summary.parent_session_id,
-        is_delegation_child: summary.parent_session_id.is_some(),
+        is_delegation_child: summary
+            .delegation_call_id
+            .as_deref()
+            .is_some_and(|call_id| !call_id.trim().is_empty()),
         stats: None,
         messages: None,
         note: None,

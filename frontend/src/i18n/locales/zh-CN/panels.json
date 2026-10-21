@@ -199,6 +199,7 @@
     "resetLayout": "重置布局",
     "kanban": "看板",
     "workspace": "工作区",
+    "collaboration": "协作空间",
     "toggleSessionList": "显示/隐藏会话列表",
     "toggleSessionMonitor": "显示/隐藏会话监控区",
     "toggleSessionExecution": "显示/隐藏会话执行区",
@@ -479,5 +480,37 @@
         "uninstalled": "重试"
       }
     }
+  },
+  "collaborationSpace": {
+    "title": "协作空间",
+    "spacesButton": "空间",
+    "messagesTitle": "消息",
+    "previewTitle": "预览",
+    "closePane": "关闭",
+    "loading": "加载中",
+    "send": "发送",
+    "spaceName": "空间名称",
+    "nickname": "昵称",
+    "memberFallback": "成员",
+    "emptyMembers": "还没有成员",
+    "expandSpace": "展开 {{name}}",
+    "collapseSpace": "收起 {{name}}",
+    "addMemberToSpace": "加入成员 {{name}}",
+    "renameMemberAria": "修改昵称 {{name}}",
+    "emptySpaces": "还没有协作空间",
+    "newSpace": "新建空间",
+    "addMember": "加入成员",
+    "renameMember": "修改昵称",
+    "chooseConversation": "选择会话",
+    "emptyMessages": "还没有消息",
+    "previewEmpty": "选择一个成员",
+    "noSession": "没有会话",
+    "backToSession": "返回会话",
+    "attachmentsUnsupported": "空间消息只发送文字",
+    "openWorkspace": "在工作区打开",
+    "openWorkspaceFirst": "先打开一个工作区",
+    "receiptQueued": "已排队",
+    "receiptClaimed": "已认领",
+    "receiptFailed": "失败"
   }
 }

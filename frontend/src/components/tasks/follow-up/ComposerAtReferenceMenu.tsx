@@ -1,4 +1,5 @@
 import {
+  AtSign,
   Folder,
   GitCommitHorizontal,
   Hash,
@@ -11,13 +12,14 @@ import { createPortal } from 'react-dom';
 import { useTranslation } from 'react-i18next';
 import { cn } from '@/lib/utils';
 import {
-  AT_REFERENCE_TAB_ORDER,
+  atReferenceTabOrder,
   type AtReferenceGroup,
   type AtReferenceItem,
   type AtReferenceTab,
 } from './composerAtReferences';
 
 const TAB_ICON = {
+  member: AtSign,
   file: FileIcon,
   project: Folder,
   conversation: MessageSquare,
@@ -48,6 +50,7 @@ export function ComposerAtReferenceMenu({
   const groupByTab = new Map(groups.map((group) => [group.tab, group]));
   const activeGroup = groupByTab.get(activeTab);
   const items = activeGroup?.items ?? [];
+  const tabOrder = atReferenceTabOrder(groups);
 
   return (
     <div
@@ -60,7 +63,7 @@ export function ComposerAtReferenceMenu({
         aria-orientation="horizontal"
         className="flex shrink-0 gap-0.5 overflow-x-auto p-1"
       >
-        {AT_REFERENCE_TAB_ORDER.map((tab) => {
+        {tabOrder.map((tab) => {
           const count = groupByTab.get(tab)?.items.length ?? 0;
           const selected = tab === activeTab;
           return (

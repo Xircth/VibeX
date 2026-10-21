@@ -55,11 +55,15 @@ impl DelegationInjector for VibexDelegationInjector {
                     context,
                     "vibex-delegation-mcp",
                     "vibex-mcp",
-                    "delegation",
+                    "delegation,sessions,collaboration",
                     TokenPermissions {
                         delegation: true,
+                        session_info: true,
+                        workspace_write: true,
+                        collaboration: true,
                         ..TokenPermissions::default()
                     },
+                    "delegation",
                 ) {
                     Some(server) => servers.push(server),
                     None => missing_binary = true,
@@ -80,6 +84,7 @@ impl DelegationInjector for VibexDelegationInjector {
                                 session_control: bits & SESSION_FEAT_SESSION_CONTROL != 0,
                                 ..TokenPermissions::default()
                             },
+                            "session",
                         ) {
                             Some(server) => servers.push(server),
                             None => missing_binary = true,
@@ -92,6 +97,7 @@ impl DelegationInjector for VibexDelegationInjector {
                     "vibex-workflow-mcp",
                     "",
                     TokenPermissions::default(),
+                    "workflow",
                 ) {
                     Some(mut server) => {
                         server.args.clear();
@@ -161,10 +167,11 @@ impl VibexDelegationInjector {
         binary_id: &str,
         features: &str,
         permissions: TokenPermissions,
+        product: &str,
     ) -> Option<InjectedMcpServer> {
         let command = (self.locate_binary)(binary_id)?;
         let token = Uuid::new_v4().to_string();
-        self.tokens.register_with_permissions(
+        self.tokens.register_product_token(
             token.clone(),
             TokenEntry {
                 parent_connection_id: context.parent_connection_id.to_string(),
@@ -172,6 +179,7 @@ impl VibexDelegationInjector {
                 working_root: context.working_root.to_path_buf(),
             },
             permissions,
+            product,
         );
         Some(InjectedMcpServer {
             name: name.to_string(),
@@ -283,7 +291,7 @@ mod tests {
             servers[0]
                 .args
                 .windows(2)
-                .any(|window| window == ["--features", "delegation"])
+                .any(|window| window == ["--features", "delegation,sessions,collaboration"])
         );
     }
 

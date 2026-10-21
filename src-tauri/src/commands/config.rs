@@ -98,6 +98,11 @@ pub async fn get_user_system_info(
     // agent become visible without restarting VibeX.
     let config = load_config_from_file(&utils::assets::settings_path()).await;
     publish_config_runtime(&config).await;
+    server::apply_host_multi_agent_setting(
+        state.plugin_control_plane.official_product_mcp_gate().as_ref(),
+        Some(state.delegation.broker.as_ref()),
+        &config,
+    );
     {
         let mut current = state.deployment.config().write().await;
         *current = config.clone();
@@ -134,6 +139,8 @@ pub async fn update_config(
     new_config: Config,
 ) -> Result<Config, AppError> {
     let config_path = utils::assets::settings_path();
+    let mut new_config = new_config;
+    new_config.clamp_multi_agent();
     let previous_theme = state.deployment.config().read().await.theme.clone();
 
     if !git::is_valid_branch_prefix(&new_config.git_branch_prefix) {
@@ -145,6 +152,11 @@ pub async fn update_config(
 
     save_config_to_file(&new_config, &config_path).await?;
     publish_config_runtime(&new_config).await;
+    server::apply_host_multi_agent_setting(
+        state.plugin_control_plane.official_product_mcp_gate().as_ref(),
+        Some(state.delegation.broker.as_ref()),
+        &new_config,
+    );
 
     let mut config = state.deployment.config().write().await;
     *config = new_config.clone();
@@ -222,6 +234,11 @@ pub async fn clear_local_app_data(
     remove_path_if_exists(&utils::assets::settings_path())?;
     save_config_to_file(&default_config, &utils::assets::settings_path()).await?;
     publish_config_runtime(&default_config).await;
+    server::apply_host_multi_agent_setting(
+        state.plugin_control_plane.official_product_mcp_gate().as_ref(),
+        Some(state.delegation.broker.as_ref()),
+        &default_config,
+    );
     {
         let mut config = state.deployment.config().write().await;
         *config = default_config;

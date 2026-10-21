@@ -208,6 +208,26 @@ describe('GeneralSettings Agent model catalogs', () => {
     });
   });
 
+  it('turns MultiAgent collaboration on immediately and keeps host records closed until that save lands', async () => {
+    const user = userEvent.setup();
+    const { updateAndSaveConfig } = renderSettings(
+      'opencode/minimax-m2.5-free',
+      { multi_agent_enabled: false }
+    );
+
+    await user.click(
+      await screen.findByRole('switch', { name: 'MultiAgent协同' })
+    );
+
+    await waitFor(() => {
+      expect(updateAndSaveConfig).toHaveBeenCalledWith({
+        multi_agent_enabled: true,
+      });
+    });
+    expect(screen.queryByText('暂不可用')).not.toBeInTheDocument();
+    expect(screen.queryByRole('heading', { name: '角色' })).not.toBeInTheDocument();
+  });
+
   it('persists a changed general preference through the shared config boundary', async () => {
     const user = userEvent.setup();
     const { updateAndSaveConfig } = renderSettings();

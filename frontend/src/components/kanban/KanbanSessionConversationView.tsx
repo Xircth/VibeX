@@ -65,6 +65,8 @@ interface KanbanSessionConversationViewProps {
   conversationWidthMode?: 'bounded' | 'workspace';
   /** When false, opening the conversation does not count as viewing. */
   markViewed?: boolean;
+  /** Render in place. A shared placement slot would leave this pane. */
+  embedded?: boolean;
 }
 
 interface KanbanSessionConversationSurfaceProps
@@ -718,6 +720,7 @@ export function KanbanSessionConversationView(
     imagePreviewPresentation,
     conversationWidthMode,
     markViewed,
+    embedded = false,
   } = props;
   const sessionState = useWorkspaceSessions(props.workspaceId, {
     initialSessionId: sessionId,
@@ -766,7 +769,7 @@ export function KanbanSessionConversationView(
   // tree order and the last one (usually the right panel) steals the portal
   // out of an open canvas window after the first send.
   useLayoutEffect(() => {
-    if (!placement || !slotRef.current) {
+    if (embedded || !placement || !slotRef.current) {
       return;
     }
 
@@ -790,17 +793,17 @@ export function KanbanSessionConversationView(
       observer.disconnect();
       unmount();
     };
-  }, [placement, placementKey, slotId]);
+  }, [embedded, placement, placementKey, slotId]);
 
   useLayoutEffect(() => {
-    if (!placement) {
+    if (embedded || !placement) {
       return;
     }
 
     placement.updateSlotProps(placementKey, surfaceProps);
-  }, [placement, placementKey, surfaceProps]);
+  }, [embedded, placement, placementKey, surfaceProps]);
 
-  if (!placement) {
+  if (embedded || !placement) {
     return <KanbanSessionConversationSurface {...surfaceProps} />;
   }
 

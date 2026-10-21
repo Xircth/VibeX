@@ -42,6 +42,7 @@ impl HeadlessDelegationRuntime {
         pool: SqlitePool,
         conversation_context: ConversationContext,
         official_mcp: Arc<OfficialMcpRuntime>,
+        events: Arc<crate::HostEventBus>,
     ) -> (Self, Arc<InMemoryCompanionFeatures>, Arc<DelegationBroker>) {
         let map = Arc::new(Mutex::new(HashMap::new()));
         let broker = Arc::new(DelegationBroker::new(
@@ -60,6 +61,15 @@ impl HeadlessDelegationRuntime {
             DelegationConfig::default(),
         ));
         let tokens = Arc::new(TokenRegistry::new());
+        {
+            let official_mcp = official_mcp.clone();
+            tokens.set_product_gate(move |product| match product {
+                "delegation" => official_mcp.allow_delegation_mcp(),
+                "session" => official_mcp.allow_session_mcp(),
+                "workflow" => official_mcp.allow_workflow_mcp(),
+                _ => false,
+            });
+        }
         let features = Arc::new(InMemoryCompanionFeatures::new());
         let socket_path = process_socket_path();
         runtime.install_delegation_injector(Arc::new(HeadlessDelegationInjector {
@@ -67,18 +77,37 @@ impl HeadlessDelegationRuntime {
             socket_path: socket_path.clone(),
             official_mcp: official_mcp.clone(),
         }));
+        let runtime_features = Arc::new(delegation::HostCompanionFeatures::new(
+            features.clone(),
+            pool.clone(),
+            runtime.clone(),
+            ScopedConversationControl::new(conversation_context),
+        ));
+        runtime_features.set_collaboration_limits({
+            let broker = broker.clone();
+            move || {
+                let config = broker.config_snapshot();
+                delegation::CollaborationLimits {
+                    since_days: config.conversation_list_default_days as i64,
+                    delay_cap_hours: config.delay_max_hours as i64,
+                    depth_limit: config.depth_limit,
+                    max_active_children: config.max_active_children,
+                }
+            }
+        });
+        runtime_features.set_space_changed_listener({
+            let events = events.clone();
+            move |event| {
+                events.emit(crate::host::events::COLLABORATION_SPACE_CHANGED_EVENT, event);
+            }
+        });
         let listener = Arc::new(DelegationListener::new_with_features(
             broker.clone(),
             tokens.clone(),
             Arc::new(RuntimeParentLookup {
                 runtime: runtime.clone(),
             }),
-            Arc::new(delegation::HostCompanionFeatures::new(
-                features.clone(),
-                pool.clone(),
-                runtime.clone(),
-                ScopedConversationControl::new(conversation_context),
-            )),
+            runtime_features,
         ));
         let listen_path = socket_path.clone();
         let gateway_listener = listener.clone();
@@ -293,6 +322,12 @@ impl DepthLookup for DbDepthLookup {
             .map(|session| session.and_then(|session| session.parent_session_id))
             .map_err(|error| DelegationError::SubagentRuntimeError(error.to_string()))
     }
+
+    async fn active_durable_children(&self, session_id: Uuid) -> Result<u32, DelegationError> {
+        conversations::collaboration::active_collaboration_children(&self.pool, session_id)
+            .await
+            .map_err(|error| DelegationError::SubagentRuntimeError(error.to_string()))
+    }
 }
 
 struct DbChildStatusLookup {
@@ -459,8 +494,9 @@ impl DelegationInjector for HeadlessDelegationInjector {
                     context,
                     "vibex-delegation-mcp",
                     "vibex-mcp",
-                    "delegation",
+                    "delegation,sessions,collaboration",
                     true,
+                    "delegation",
                 ) {
                     Some(server) => servers.push(server),
                     None => missing_binary = true,
@@ -471,6 +507,7 @@ impl DelegationInjector for HeadlessDelegationInjector {
                     "vibex-mcp",
                     "feedback,ask,sessions,session-control",
                     false,
+                    "session",
                 ) {
                     Some(server) => servers.push(server),
                     None => missing_binary = true,
@@ -481,6 +518,7 @@ impl DelegationInjector for HeadlessDelegationInjector {
                     "vibex-workflow-mcp",
                     "",
                     false,
+                    "workflow",
                 ) {
                     Some(mut server) => {
                         server.args.clear();
@@ -512,10 +550,11 @@ impl HeadlessDelegationInjector {
         binary_id: &str,
         features: &str,
         delegation: bool,
+        product: &str,
     ) -> Option<InjectedMcpServer> {
         let command = utils::host_bin::locate_runnable_host_family_binary(binary_id)?;
         let token = Uuid::new_v4().to_string();
-        self.tokens.register_with_permissions(
+        self.tokens.register_product_token(
             token.clone(),
             TokenEntry {
                 parent_connection_id: context.parent_connection_id.to_string(),
@@ -526,9 +565,12 @@ impl HeadlessDelegationInjector {
                 delegation,
                 feedback: !delegation,
                 ask: !delegation,
-                session_info: !delegation,
+                session_info: true,
                 session_control: !delegation,
+                workspace_write: delegation,
+                collaboration: delegation,
             },
+            product,
         );
         let args = vec![
             "--parent-connection-id".to_string(),

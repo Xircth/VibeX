@@ -798,7 +798,12 @@ crash_reports_enabled: boolean,
  * How links clicked in conversation content open: system browser or the
  * built-in Web Preview panel.
  */
-link_open_behavior: LinkOpenBehavior, };
+link_open_behavior: LinkOpenBehavior,
+/**
+ * Host MultiAgent collaboration. Default off. Only new sessions pick up
+ * the MCP tools and skill.
+ */
+multi_agent_enabled: boolean, multi_agent_depth_limit: number, multi_agent_completed_cache_max_mb: number, multi_agent_conversation_list_default_days: number, multi_agent_delay_max_hours: number, multi_agent_agent_defaults: { [key in string]?: MultiAgentAgentDefault }, };
 
 export type NotificationConfig = { sound_enabled: boolean, push_enabled: boolean, sound_file: SoundFile, notify_when: NotificationWhen, };
 
@@ -1457,7 +1462,19 @@ export type DbConversationDetail = { summary: DbConversationSummary,
  * Open path no longer ships a duplicate of `timeline` (ADR-0061). Kept empty
  * so existing TypeScript bindings remain valid.
  */
-turns?: Array<MessageTurn>, timeline: ConversationTimeline, active_binding?: ConversationActiveBinding | null, current_turn?: ConversationCurrentTurn | null, projection_version: number, session_stats?: SessionStats | null, in_flight_user_turn_id?: string | null,
+turns?: Array<MessageTurn>, timeline: ConversationTimeline,
+/**
+ * Index of `timeline.rows[0]` in the full transcript.
+ */
+turns_offset: number,
+/**
+ * Turn count of the full transcript, including turns above the window.
+ */
+turns_total: number,
+/**
+ * Fingerprint of the turns above the window.
+ */
+prefix_hash?: string | null, user_turns_before_offset: number, active_binding?: ConversationActiveBinding | null, current_turn?: ConversationCurrentTurn | null, projection_version: number, session_stats?: SessionStats | null, in_flight_user_turn_id?: string | null,
 /**
  * Latest agent-advertised session modes, hydrated from the event log so a
  * reopened conversation renders the real ACP pickers immediately.
@@ -1472,7 +1489,12 @@ session_config_options: Array<AgentSessionConfigOption>,
  * Latest agent-advertised slash/skill catalog. `None` until the agent
  * publishes `available_commands_update`.
  */
-available_commands?: Array<AgentAvailableCommand> | null, };
+available_commands?: Array<AgentAvailableCommand> | null,
+/**
+ * Snapshot of the role used to create this conversation. Absent when the
+ * conversation was not created from a role.
+ */
+persona?: ConversationPersonaView | null, };
 
 export type PlanEntry = { content: string,
 /**
@@ -1651,7 +1673,7 @@ export type ConversationTurnSnapshot = { conversationId: string, turnId: string,
 
 export type ConversationActiveBinding = { id: string, agent_type: string, working_dir: string, acp_session_id?: string | null, status: string, capabilities: AcpCapabilitySnapshot,
 /**
- * True when this binding was created while the multi-agent plugin was on,
+ * True when this binding was created while MultiAgent collaboration was on,
  * so Host delivered `vibex-delegation-mcp` on that session new/resume/rebind.
  */
 delegation_mcp_delivered: boolean, };
@@ -2141,7 +2163,7 @@ export type WorkflowVersionView = { id: string, definitionId: string, version: b
 
 export type WorkspaceAccess = "native" | "read_only_shared" | "write_serialized" | "write_isolated";
 
-export type ConversationRelationKind = "delegation" | "fork" | "workflow_step";
+export type ConversationRelationKind = "delegation" | "fork" | "workflow_step" | "spawned";
 
 export type ConversationRelationVisibility = "visible" | "hidden";
 
@@ -2252,3 +2274,9 @@ export type HostTerminalSnapshot = { alive: boolean, data: string, seq: number, 
 export type DeliveryChannel = "none" | "native" | "pull";
 
 export type ForkPointStatus = "named" | "unnamed" | "tail" | "unsupported";
+
+export type ConversationPersonaView = { name: string, team_name?: string | null, summary?: string | null, agent_name: string, };
+
+export type MultiAgentAgentDefault = { mode_id?: string | null, config_values?: { [key in string]?: string }, };
+
+export type CollaborationSpaceChangedEvent = { workspaceId: string, spaceId: string, seq?: number, memberId?: string, };

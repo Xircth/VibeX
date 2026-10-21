@@ -10,7 +10,7 @@ pub const DEFAULT_MARKETPLACE_ORIGIN: &str = "https://vibex.xforever.xin";
 pub const COMMUNITY_PAGE_SIZE: u32 = 50;
 
 /// Retired package id → successor. Official marketplace must show one product.
-pub const REPLACED_PLUGIN_IDS: &[(&str, &str)] = &[("vibex.collaboration", "vibex.multi-agent")];
+pub const REPLACED_PLUGIN_IDS: &[(&str, &str)] = &[];
 
 /// SDK authoring samples. They stay in-repo for templates and Host tests, but
 /// they are not product marketplace listings and must not ship in a release Host.
@@ -190,7 +190,7 @@ pub fn listing_from_package(package: &PluginPackage, offline: bool) -> CatalogLi
     }
 }
 
-/// Marketplace URL slug: `vibex.multi-agent` + owner `vibex` → `multi-agent`.
+/// Marketplace URL slug: `vibex.session-enhance` + owner `vibex` → `session-enhance`.
 pub fn marketplace_plugin_slug(owner: &str, plugin_id: &str) -> String {
     let id = plugin_id.trim();
     let owner = owner.trim();
@@ -1255,46 +1255,9 @@ mod tests {
     }
 
     #[test]
-    fn official_catalog_keeps_one_multi_agent_product() {
-        let collaboration = listing(
-            "collaboration",
-            "VibeX Collaboration",
-            "让父 Agent 通过 vibex-mcp 把工作委派给其它 Agent。",
-        );
-        let successor = listing(
-            "vibex.multi-agent",
-            "多智能体协同",
-            "让父 Agent 把子任务委托给其它 Agent。",
-        );
-        let office = listing("vibex.office", "办公套件", "Office files");
-        let folded = fold_official_listings(
-            vec![collaboration.clone(), successor.clone(), office.clone()],
-            None,
-        );
-        assert_eq!(
-            folded
-                .iter()
-                .map(|item| item.plugin_name.as_str())
-                .collect::<Vec<_>>(),
-            vec!["vibex.office", "vibex.multi-agent"]
-        );
-
-        let from_retired_only = fold_official_listings(vec![collaboration], [successor.clone()]);
-        assert_eq!(from_retired_only.len(), 1);
-        assert_eq!(from_retired_only[0].plugin_name, "vibex.multi-agent");
-        assert_eq!(from_retired_only[0].display_name, "多智能体协同");
-
-        let mut page = CatalogPage {
-            official: vec![listing(
-                "vibex.collaboration",
-                "VibeX Collaboration",
-                "retired",
-            )],
-            ..CatalogPage::default()
-        };
-        page.official = fold_official_listings(page.official, [successor]);
-        assert_eq!(page.official.len(), 1);
-        assert_eq!(page.official[0].plugin_name, "vibex.multi-agent");
+    fn retired_collaboration_ids_have_no_plugin_successor() {
+        assert!(successor_plugin_id("vibex.collaboration").is_none());
+        assert!(successor_plugin_id("vibex.multi-agent").is_none());
     }
 
     #[test]
@@ -1307,7 +1270,11 @@ mod tests {
         session.category = "official".into();
         normalize_listing_category(&mut session);
         assert_eq!(session.category, "productivity");
-        assert_eq!(bundled_topic_category("vibex.multi-agent"), Some("agent"));
+        assert_eq!(
+            bundled_topic_category("vibex.session-enhance"),
+            Some("productivity")
+        );
+        assert!(bundled_topic_category("vibex.multi-agent").is_none());
         assert_eq!(
             bundled_topic_category("vibex.workflow-creator"),
             Some("workflow")
@@ -1375,12 +1342,6 @@ mod tests {
 
     #[test]
     fn host_official_catalog_fills_gaps_left_by_a_short_remote_catalog() {
-        let extra = crate::listings_from_host_official_catalog();
-        assert!(extra.iter().any(|listing| {
-            listing.owner == "vibex"
-                && listing.plugin_name == "multi-agent"
-                && listing.offline_plugin_id.as_deref() == Some("vibex.multi-agent")
-        }));
         let mut page = CatalogPage {
             official: vec![listing("vibex.office", "办公套件", "Office files")],
             ..CatalogPage::default()
@@ -1392,7 +1353,6 @@ mod tests {
             .map(|listing| listing.plugin_name.as_str())
             .collect::<Vec<_>>();
         assert!(names.contains(&"office") || names.contains(&"vibex.office"));
-        assert!(names.contains(&"multi-agent") || names.contains(&"vibex.multi-agent"));
         assert!(names.contains(&"session-enhance") || names.contains(&"vibex.session-enhance"));
         assert!(names.contains(&"workflow-creator") || names.contains(&"vibex.workflow-creator"));
         assert!(names.len() >= 8);
@@ -1401,27 +1361,30 @@ mod tests {
     #[test]
     fn marketplace_slug_strips_owner_prefix_for_install_urls() {
         assert_eq!(
-            marketplace_plugin_slug("vibex", "vibex.multi-agent"),
-            "multi-agent"
+            marketplace_plugin_slug("vibex", "vibex.session-enhance"),
+            "session-enhance"
         );
         assert_eq!(
-            marketplace_plugin_ids("vibex", "vibex.multi-agent"),
-            vec!["multi-agent".to_string(), "vibex.multi-agent".to_string()]
+            marketplace_plugin_ids("vibex", "vibex.session-enhance"),
+            vec![
+                "session-enhance".to_string(),
+                "vibex.session-enhance".to_string()
+            ]
         );
         assert!(package_matches_marketplace(
-            "vibex.multi-agent",
+            "vibex.session-enhance",
             "vibex",
-            "multi-agent"
+            "session-enhance"
         ));
         assert!(package_matches_marketplace(
-            "vibex.multi-agent",
+            "vibex.session-enhance",
             "vibex",
-            "vibex.multi-agent"
+            "vibex.session-enhance"
         ));
-        let urls = official_github_archive_urls("vibex", "vibex.multi-agent");
+        let urls = official_github_archive_urls("vibex", "vibex.session-enhance");
         assert!(
             urls.iter()
-                .any(|url| url.contains("Xircth/vibex-plugin-multi-agent"))
+                .any(|url| url.contains("Xircth/vibex-plugin-session-enhance"))
         );
         assert!(official_github_archive_urls("acme", "notes").is_empty());
     }

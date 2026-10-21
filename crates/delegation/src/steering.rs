@@ -108,6 +108,43 @@ pub trait CompanionFeaturePort: std::fmt::Debug + Send + Sync {
         })
     }
 
+    /// Extended send. The default keeps immediate ancestor-scoped sends on
+    /// [`session_send`] and refuses steer or delay instead of queueing them.
+    async fn session_send_ex(
+        &self,
+        scope: &DelegationScope,
+        conversation_id: &str,
+        operation_id: &str,
+        text: &str,
+        steer: bool,
+        _expected_turn_id: Option<&str>,
+        delay_seconds: Option<i64>,
+        deliver_at: Option<&str>,
+        _workspace_write: bool,
+    ) -> Value {
+        if steer || delay_seconds.unwrap_or(0) > 0 || deliver_at.is_some() {
+            return json!({
+                "accepted": false,
+                "conversation_id": conversation_id,
+                "error_code": "session_control_unavailable",
+            });
+        }
+        self.session_send(scope, conversation_id, operation_id, text)
+            .await
+    }
+
+    async fn collaborate(
+        &self,
+        _scope: &DelegationScope,
+        _name: &str,
+        _arguments: Value,
+    ) -> Value {
+        json!({
+            "error_code": "collaboration_unavailable",
+            "message": "collaboration is not available on this companion",
+        })
+    }
+
     async fn session_cancel(
         &self,
         _scope: &DelegationScope,

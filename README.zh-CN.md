@@ -69,7 +69,7 @@ Host 拥有一份数据目录，并对外提供远程协议。Agent 进程、Wor
 
 VibeX 插件是可安装、可启停、可配置的产品功能单元。同一包可以向界面、Agent、Host 与 Runtime 贡献能力。安装、启用、配置、诊断、回滚与卸载由插件控制面统一管理。
 
-官方捆绑插件覆盖会话增强、多智能体协同、工作流创建、Office 预览与插件开发。MCP 与 Skill 由 Host 托管。作者可使用 TypeScript、JavaScript、Python 与 Rust SDK，经[插件市场](https://vibex.com/marketplace)或链接开发目录接入。
+官方捆绑插件覆盖会话增强、工作流创建、Office 预览与插件开发。MCP 与 Skill 由 Host 托管。作者可使用 TypeScript、JavaScript、Python 与 Rust SDK，经[插件市场](https://vibex.com/marketplace)或链接开发目录接入。
 
 插件说明见[插件概念](https://vibex.com/docs/reference/plugin)与[插件体系](https://vibex.com/docs/developers/plugin-overview)。
 
@@ -92,7 +92,7 @@ VibeX 插件是可安装、可启停、可配置的产品功能单元。同一�
 
 多 Agent 协作分为委派与 Graph Workflow。Automation 负责触发。
 
-- **委派：** 父 Agent 在对话中把工作交给其他已启用 Agent。输入框中的 `&` 是结构化提及。子会话拥有独立时间线与回合。该能力由官方插件「多智能体协同」提供。
+- **委派：** 父 Agent 在对话中把工作交给其他已启用 Agent。输入框中的 `&` 是结构化提及。子会话拥有独立时间线与回合。在「设置 → 常规 → MultiAgent协同」打开，默认关闭，只进入之后的新会话。
 - **Graph Workflow：** 以 JSON DAG 描述步骤依赖后再执行。源文件可纳入 Git；发布后的定义版本不可变。该能力由官方插件「工作流创建器」提供。
 - **Automation：** 在手动操作或到达计划时间时，启动一次普通回合，或启动某个已发布的 Workflow 版本。
 

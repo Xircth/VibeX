@@ -88,7 +88,8 @@ pub(super) async fn update_config(
     args: Value,
 ) -> Result<Value, ApplicationError> {
     let args: UpdateConfigArgs = parse(args)?;
-    let new_config = args.new_config;
+    let mut new_config = args.new_config;
+    new_config.clamp_multi_agent();
     if !git::is_valid_branch_prefix(&new_config.git_branch_prefix) {
         return Err(ApplicationError::bad_request(
             "Invalid git branch prefix. Must be a valid git branch name component without slashes.",
@@ -100,6 +101,14 @@ pub(super) async fn update_config(
         .await
         .map_err(internal_error)?;
     publish_config_runtime(&new_config).await;
+    crate::apply_host_multi_agent_setting(
+        domains
+            .plugin_control_plane
+            .official_product_mcp_gate()
+            .as_ref(),
+        domains.delegation_broker.as_deref(),
+        &new_config,
+    );
     {
         let mut config = domains.deployment.config().write().await;
         *config = new_config.clone();
@@ -124,6 +133,14 @@ pub(crate) async fn user_system_info(
 ) -> Result<Value, ApplicationError> {
     let config = load_config_from_file(&utils::assets::settings_path()).await;
     publish_config_runtime(&config).await;
+    crate::apply_host_multi_agent_setting(
+        domains
+            .plugin_control_plane
+            .official_product_mcp_gate()
+            .as_ref(),
+        domains.delegation_broker.as_deref(),
+        &config,
+    );
     {
         let mut current = domains.deployment.config().write().await;
         *current = config.clone();

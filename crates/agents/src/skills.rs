@@ -1416,6 +1416,49 @@ pub fn project_plugin_skills(
     )
 }
 
+pub const HOST_MULTI_AGENT_PLUGIN_ID: &str = "host.multi-agent";
+pub const HOST_MULTI_AGENT_SKILL_ID: &str = "vibex-multi-agent";
+
+/// Project or remove the host MultiAgent skill. Only new sessions pick it up.
+pub fn sync_host_multi_agent_skill(enabled: bool) -> Result<(), SkillError> {
+    sync_host_multi_agent_skill_with_layout(enabled, &system_skill_hosting_layout())
+}
+
+fn sync_host_multi_agent_skill_with_layout(
+    enabled: bool,
+    layout: &SkillHostingLayout,
+) -> Result<(), SkillError> {
+    if !enabled {
+        return remove_plugin_skill_projections_with_layout(
+            HOST_MULTI_AGENT_PLUGIN_ID,
+            &[HOST_MULTI_AGENT_SKILL_ID.to_owned()],
+            layout,
+        );
+    }
+    // Projection accepts the SKILL.md file, not its parent directory.
+    let skill_file = std::env::temp_dir()
+        .join("vibex-host-multi-agent-skill")
+        .join("SKILL.md");
+    if let Some(parent) = skill_file.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+    std::fs::write(
+        &skill_file,
+        include_str!("skills/vibex-multi-agent/SKILL.md"),
+    )?;
+    let agents = AgentKind::built_in_bar_order()
+        .map(|kind| kind.as_str().to_owned())
+        .collect::<BTreeSet<_>>();
+    project_plugin_skills_with_layout(
+        HOST_MULTI_AGENT_PLUGIN_ID,
+        &[(HOST_MULTI_AGENT_SKILL_ID.to_owned(), skill_file)],
+        &agents,
+        false,
+        layout,
+    )?;
+    Ok(())
+}
+
 pub fn remove_plugin_skill_projections(
     plugin_id: &str,
     skill_ids: &[String],
@@ -2177,6 +2220,21 @@ mod tests {
             std::fs::read_to_string(temp.path().join("claude/office-pptx/SKILL.md")).unwrap(),
             "---\nname: office-pptx\n---\nupdated"
         );
+    }
+
+    #[test]
+    fn host_multi_agent_skill_projects_from_the_skill_file() {
+        let temp = tempfile::tempdir().unwrap();
+        let layout = SkillHostingLayout {
+            store: temp.path().join("store"),
+            agent_dirs: BTreeMap::from([("codex".to_string(), temp.path().join("codex"))]),
+        };
+
+        sync_host_multi_agent_skill_with_layout(true, &layout).unwrap();
+
+        let projected = temp.path().join("codex/vibex-multi-agent/SKILL.md");
+        assert!(projected.is_file());
+        assert!(std::fs::read_to_string(projected).unwrap().contains("name:"));
     }
 
     #[test]

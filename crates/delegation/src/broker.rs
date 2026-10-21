@@ -22,6 +22,7 @@ use std::{
 };
 
 use agents::AgentId;
+use conversations::collaboration::{AdmissionDeny, admit_collaboration_child};
 use tokio::sync::{Mutex as AsyncMutex, Notify, OwnedMutexGuard};
 use uuid::Uuid;
 
@@ -410,10 +411,15 @@ impl DelegationBroker {
             Ok(depth) => depth,
             Err(err) => return failed_setup_report("subagent_error", &err.to_string()),
         };
-        if parent_depth + 1 > config.depth_limit {
+        if let Err(AdmissionDeny::Depth { current, limit }) = admit_collaboration_child(
+            parent_depth,
+            0,
+            config.depth_limit,
+            config.max_active_children,
+        ) {
             let err = DelegationError::DepthLimitExceeded {
-                current_depth: parent_depth + 1,
-                limit: config.depth_limit,
+                current_depth: current,
+                limit,
             };
             return failed_setup_report("depth_limit", &err.to_string());
         }
@@ -421,6 +427,14 @@ impl DelegationBroker {
             return failed_setup_report("canceled", "parent connection is closed");
         }
 
+        let durable = match self
+            .depth_lookup
+            .active_durable_children(req.parent_session_id)
+            .await
+        {
+            Ok(count) => count,
+            Err(error) => return failed_setup_report("subagent_error", &error.to_string()),
+        };
         let call_id = Uuid::new_v4().to_string();
         {
             let mut pending = self.pending.lock().unwrap();
@@ -451,11 +465,14 @@ impl DelegationBroker {
                     .values()
                     .filter(|task| task.parent_connection_id == req.parent_connection_id)
                     .count();
-            if active >= config.max_active_children as usize {
-                let error = DelegationError::ActiveChildLimitExceeded {
-                    active: active as u32,
-                    limit: config.max_active_children,
-                };
+            let active = active.saturating_add(durable as usize);
+            if let Err(AdmissionDeny::Active { active, limit }) = admit_collaboration_child(
+                0,
+                active as u32,
+                config.depth_limit,
+                config.max_active_children,
+            ) {
+                let error = DelegationError::ActiveChildLimitExceeded { active, limit };
                 return failed_setup_report("active_child_limit", &error.to_string());
             }
             pending

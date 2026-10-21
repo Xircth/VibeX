@@ -192,7 +192,11 @@ mod tests {
                 .any(|plugin| plugin.id == "vibex.open-connector")
         );
         assert!(official_plugin_record("browser").is_some());
-        assert_eq!(official_plugin_category("vibex.multi-agent"), Some("agent"));
+        assert_eq!(
+            official_plugin_category("vibex.session-enhance"),
+            Some("productivity")
+        );
+        assert!(official_plugin_category("vibex.multi-agent").is_none());
     }
 
     #[test]

@@ -93,6 +93,7 @@ import {
   type ConversationMessageNavEntry,
 } from '@/components/conversation-thread/messageNavEntries';
 import {
+  isDurableHostNote,
   type ConversationTimelineItem,
   type ConversationTimelineTurn,
 } from '@/features/conversation/conversationStore';
@@ -523,6 +524,18 @@ function InlineTimelineSideRow({
   if (row.kind === 'artifact_revision') {
     return <ArtifactTimelineCard artifact={row.artifact} />;
   }
+  if (row.kind === 'session_notice' && isDurableHostNote(entry)) {
+    return (
+      <div className="conv-entry-item px-4 py-1">
+        <div className="conv-compact-notice whitespace-pre-wrap break-words text-[var(--text-primary)]">
+          <div className="text-xs text-[var(--text-muted)]">
+            {row.notice.title}
+          </div>
+          {row.notice.message ? <div>{row.notice.message}</div> : null}
+        </div>
+      </div>
+    );
+  }
   return null;
 }
 
@@ -664,7 +677,9 @@ const AgentTimelineConversation = forwardRef<
         if (kind === 'delegation') {
           return false;
         }
-        if (kind === 'session_notice') return false;
+        if (kind === 'session_notice' && !isDurableHostNote(item.row)) {
+          return false;
+        }
         if (
           usesComposerStatusDock &&
           item.row.row.kind === 'question_request' &&
@@ -822,7 +837,9 @@ const AgentTimelineConversation = forwardRef<
   const autoPermissionNoticeRow = sessionNoticeRows.find(
     (entry) => entry.row_id === AUTO_PERMISSION_NOTICE_ROW_ID
   );
-  const latestSessionNoticeRow = sessionNoticeRows.at(-1);
+  const latestSessionNoticeRow = [...sessionNoticeRows]
+    .reverse()
+    .find((entry) => !isDurableHostNote(entry));
   const hasReconnectNotice = Boolean(reconnectNoticeRow);
 
   // Feed the composer's context-usage ring (EntriesContext). The setter is

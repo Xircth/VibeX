@@ -542,6 +542,25 @@ fn remove_directory_watch(
 }
 
 pub fn async_watcher(root: PathBuf) -> Result<WatcherComponents, FilesystemWatcherError> {
+    // A workspace can be the user profile, and this scan is synchronous.
+    // The desktop worker overflowed its stack while that scan was running,
+    // so the scan stays off the worker stack.
+    let (sender, receiver) = std::sync::mpsc::channel();
+    std::thread::Builder::new()
+        .name("vibex-file-tree-watch".to_string())
+        .stack_size(8 * 1024 * 1024)
+        .spawn(move || {
+            let _ = sender.send(build_async_watcher(root));
+        })
+        .map_err(FilesystemWatcherError::IoError)?;
+    receiver.recv().map_err(|_| {
+        FilesystemWatcherError::InvalidPath(
+            "file tree watcher stopped before it was ready".to_string(),
+        )
+    })?
+}
+
+fn build_async_watcher(root: PathBuf) -> Result<WatcherComponents, FilesystemWatcherError> {
     let canonical_root = canonicalize_lossy(&root);
     let gi_set = Arc::new(build_gitignore_set(&canonical_root)?);
     // NOTE: changes to .gitignore aren’t picked up until the watcher is rebuilt.
@@ -915,5 +934,13 @@ mod tests {
 
         assert_eq!(added.len(), 3);
         assert!(!truncated);
+    }
+
+    #[test]
+    fn starts_a_watcher_off_the_caller_thread() {
+        let temp = TempDir::new().unwrap();
+        let root = canonicalize_lossy(temp.path());
+        let watcher = async_watcher(root);
+        assert!(watcher.is_ok());
     }
 }

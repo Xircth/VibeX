@@ -14,6 +14,7 @@ const HOST_COMMAND_SET = new Set<string>(HOST_COMMANDS);
 const HOST_PUSH_EVENT_PREFIXES = [
   'conversation-events',
   'workspace-sessions-changed',
+  'workspace-focus-conversation',
   'agent-management-event',
   'agent-management-snapshot-invalidated',
   'agent-management-discovery-progress',
@@ -29,6 +30,7 @@ const HOST_PUSH_EVENT_PREFIXES = [
   'slash-commands-stream',
   'log-stream',
   'vibex://settings-file-changed',
+  'vibex://collaboration-space-changed',
   'theme-changed',
   'log-settings://changed',
   'logs://appended',

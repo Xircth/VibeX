@@ -23,12 +23,18 @@ import {
 } from '@/components/layout/panels/PanelRegistry';
 import { WorkspaceActivityRail } from '@/components/layout/WorkspaceActivityRail';
 import { WorkspaceTabAddMenu } from '@/components/layout/panels/WorkspaceTabAddMenu';
+import { useUserSystem } from '@/components/ConfigProvider';
 import { PluginRemoteView } from '@/components/plugins/PluginRemoteView';
+import { CollaborationSpacePage } from '@/features/collaboration/CollaborationSpacePage';
 import { useActiveSurfaceHidesBottomDock } from '@/hooks/useActiveSurfaceDockPolicy';
 import { useAutoOpenCreatedFilePreviews } from '@/hooks/useAutoOpenCreatedFilePreviews';
 import { useAutoOpenCreatedPreviews } from '@/lib/autoOpenCreatedPreviews';
 import { usePluginHostContributions } from '@/hooks/usePluginHostContributions';
-import { parsePluginSurfaceId } from '@/lib/hostSurfaceIds';
+import {
+  COLLABORATION_WORKSPACE_TAB,
+  effectiveWorkspaceTab,
+  parsePluginSurfaceId,
+} from '@/lib/hostSurfaceIds';
 import { RightPanelSidebar } from '@/components/layout/RightPanelSidebar';
 import { StatusBar } from '@/components/layout/StatusBar';
 import { ProjectLayoutScope } from '@/contexts/ProjectContext';
@@ -46,6 +52,10 @@ import {
   type SessionPanelPlacement,
 } from '@/contexts/RightPanelSlotContext';
 import { useWorktree } from '@/contexts/WorktreeContext';
+import { useProjectWorktrees } from '@/hooks/useProjectWorktrees';
+import { getProjectScopeKey } from '@/lib/projectScope';
+import { resolveSurfaceWorkspaceId } from '@/lib/surfaceWorkspace';
+import { useProjectViewStateStore } from '@/stores/useProjectViewStateStore';
 import { useAgentLongRunningTerminals } from '@/hooks/useAgentLongRunningTerminals';
 import { useWorkspaceOverlay } from '@/contexts/WorkspaceOverlayContext';
 import { chromeHidesNativeSurface } from '@/lib/nativeSurfaceHandoff';
@@ -344,13 +354,19 @@ export function IDELayout({
   toolbarContent,
 }: IDELayoutProps) {
   useAgentLongRunningTerminals();
-  const { workspaceId, sessionId } = useParams<{
+  const { projectId, workspaceId, sessionId } = useParams<{
+    projectId?: string;
     workspaceId?: string;
     sessionId?: string;
   }>();
   const apiRef = useRef<DockviewApi | null>(null);
   const dockviewRootRef = useRef<HTMLDivElement>(null);
   const { activeWorktreeId } = useWorktree();
+  const projectKey = getProjectScopeKey(projectId);
+  const rememberedWorkspaceId = useProjectViewStateStore(
+    (state) => state.kanbanByProject[projectKey]?.lastActiveWorkspaceId ?? null
+  );
+  const { worktrees } = useProjectWorktrees(projectId);
   const {
     serializedLayout,
     setSerializedLayout,
@@ -362,8 +378,21 @@ export function IDELayout({
   } = useLayoutStore();
   const arrangement = useLayoutArrangement();
   const effectiveWorkspaceId = activeWorktreeId ?? workspaceId ?? null;
+  const surfaceWorkspaceId = useMemo(
+    () =>
+      resolveSurfaceWorkspaceId({
+        routeWorkspaceId: workspaceId,
+        activeWorkspaceId: activeWorktreeId,
+        rememberedWorkspaceId,
+        workspaces: worktrees.map((item) => item.workspace),
+      }),
+    [activeWorktreeId, rememberedWorkspaceId, workspaceId, worktrees]
+  );
+  const { config } = useUserSystem();
   const routeTab = workspaceId || sessionId ? 'workspace' : null;
-  const effectiveActiveTab = routeTab ?? activeTab;
+  const effectiveActiveTab = effectiveWorkspaceTab(routeTab, activeTab, {
+    collaborationEnabled: Boolean(config?.multi_agent_enabled),
+  });
   const [isDockviewMounted, setIsDockviewMounted] = useState(
     () => effectiveActiveTab === 'workspace'
   );
@@ -1203,13 +1232,20 @@ export function IDELayout({
                 </Suspense>
               </KeepAliveSurface>
 
+              {effectiveActiveTab === COLLABORATION_WORKSPACE_TAB ? (
+                <div className="kanban-overlay absolute inset-0 z-10">
+                  <CollaborationSpacePage workspaceId={surfaceWorkspaceId} />
+                </div>
+              ) : null}
+
               {activePluginTab ? (
                 <div className="kanban-overlay absolute inset-0 z-10">
                   <PluginRemoteView
                     item={activePluginTab}
                     slot="app.tab"
                     enabled
-                    workspaceId={effectiveWorkspaceId}
+                    workspaceId={surfaceWorkspaceId}
+                    projectId={projectId ?? null}
                   />
                 </div>
               ) : null}

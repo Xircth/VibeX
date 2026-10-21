@@ -34,6 +34,7 @@ import {
   MessagesSquare,
   Monitor,
   Puzzle,
+  Users,
 } from 'lucide-react';
 import {
   Tooltip,
@@ -59,7 +60,13 @@ import { useProjectWorktrees } from '@/hooks/useProjectWorktrees';
 import { PANEL_IDS, useLayoutStore } from '@/stores/useLayoutStore';
 import { useWindowProjectsStore } from '@/stores/useWindowProjectsStore';
 import type { WorkspaceTab } from '@/stores/useLayoutStore';
-import { fallbackWorkspaceTab, pluginSurfaceId } from '@/lib/hostSurfaceIds';
+import {
+  COLLABORATION_WORKSPACE_TAB,
+  effectiveWorkspaceTab,
+  fallbackWorkspaceTab,
+  pluginSurfaceId,
+} from '@/lib/hostSurfaceIds';
+import { useUserSystem } from '@/components/ConfigProvider';
 import { parkNativeSurfaceThen } from '@/lib/nativeSurfaceHandoff';
 import { useKanbanViews } from '@/hooks/useKanbanViews';
 import { usePanelActions } from '@/hooks/usePanelActions';
@@ -472,6 +479,8 @@ function WorkspaceTabSwitcher() {
     enabled: Boolean(primaryRepo?.id),
   });
   const { activeTab, setActiveTab } = useLayoutStore();
+  const { config } = useUserSystem();
+  const collaborationEnabled = Boolean(config?.multi_agent_enabled);
   const { setChromeOccluded, waitForOverlayReady } = useWorkspaceOverlay();
   const pluginTabs = usePluginHostContributions('app_tab');
   const kanbanViews = useKanbanViews();
@@ -485,6 +494,15 @@ function WorkspaceTabSwitcher() {
       ? [{ key: 'kanban', label: t('toolbar.kanban'), icon: LayoutDashboard }]
       : []),
     { key: 'workspace', label: t('toolbar.workspace'), icon: Monitor },
+    ...(collaborationEnabled
+      ? [
+          {
+            key: COLLABORATION_WORKSPACE_TAB,
+            label: t('toolbar.collaboration'),
+            icon: Users,
+          },
+        ]
+      : []),
     ...pluginTabs.map((item) => ({
       key: pluginSurfaceId(item.pluginId, item.id),
       label: item.label,
@@ -498,7 +516,11 @@ function WorkspaceTabSwitcher() {
       setActiveTab(resolvedActiveTab);
     }
   }, [activeTab, resolvedActiveTab, setActiveTab]);
-  const effectiveActiveTab = routeTab ?? resolvedActiveTab;
+  const effectiveActiveTab = effectiveWorkspaceTab(
+    routeTab,
+    availableTabKeys.includes(activeTab) ? activeTab : resolvedActiveTab,
+    { collaborationEnabled }
+  );
   const preferredWorkspaceBranch = useMemo(() => {
     const repoBranch =
       repos
@@ -663,6 +685,13 @@ function WorkspaceTabSwitcher() {
           return;
         }
 
+        if (tab === COLLABORATION_WORKSPACE_TAB) {
+          startTransition(() => {
+            setActiveTab(tab);
+          });
+          return;
+        }
+
         if (tab !== 'workspace') {
           startTransition(() => {
             setActiveTab(tab);
@@ -761,8 +790,11 @@ export function Toolbar() {
   const isSingleRepoProject = repos?.length === 1;
   const localDesktopHost = useLocalDesktopHost();
   const activeTab = useLayoutStore((state) => state.activeTab);
+  const { config } = useUserSystem();
   const routeTab = workspaceId || sessionId ? 'workspace' : null;
-  const effectiveActiveTab = routeTab ?? activeTab;
+  const effectiveActiveTab = effectiveWorkspaceTab(routeTab, activeTab, {
+    collaborationEnabled: Boolean(config?.multi_agent_enabled),
+  });
   const isWorkspaceTab = effectiveActiveTab === 'workspace';
   const boardStyle = useKanbanBoardStyle();
   const hasLeadingControls = isWorkspaceTab || boardStyle === 'canvas';

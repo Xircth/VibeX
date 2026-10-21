@@ -25,9 +25,6 @@ describe('official plugin presentation', () => {
     expect(officialPluginName('vibex.session-enhance', 'fallback', t)).toBe(
       '会话增强'
     );
-    expect(officialPluginName('vibex.multi-agent', 'fallback', t)).toBe(
-      '多智能体协同'
-    );
     expect(officialPluginName('vibex.plugin-development', 'fallback', t)).toBe(
       '插件开发'
     );
@@ -60,9 +57,6 @@ describe('official plugin presentation', () => {
     );
     expect(officialPluginName('vibex.session-enhance', 'fallback', en)).toBe(
       'Session Enhance'
-    );
-    expect(officialPluginName('vibex.multi-agent', 'fallback', en)).toBe(
-      'Multi-agent'
     );
     expect(officialPluginName('vibex.plugin-development', 'fallback', en)).toBe(
       'Plugin Development'
@@ -121,9 +115,9 @@ describe('official plugin presentation', () => {
       pluginInstallSource({ builtin: false, sourceKind: 'snapshot' })
     ).toBe('installed');
     expect(pluginSourceLabel('builtin', t)).toBe('内置');
-    expect(
-      officialPluginSummary('vibex.multi-agent', 'package fallback', t)
-    ).toBe('让父 Agent 把子任务委托给其它 Agent。');
+    expect(officialPluginSummary('vibex.office', 'package fallback', t)).toBe(
+      '在 VibeX 中创建、编辑、分析和预览 DOCX、XLSX 与 PPTX 文件。'
+    );
   });
 
   it('exposes package structure only for public repository origins', () => {

@@ -12,6 +12,12 @@ use crate::types::{DelegationError, TaskStatus};
 #[async_trait]
 pub trait DepthLookup: Send + Sync {
     async fn parent_session_id(&self, session_id: Uuid) -> Result<Option<Uuid>, DelegationError>;
+
+    /// Living spawned children. The broker adds this to its in-memory tasks.
+    /// Test lookups keep the default of zero.
+    async fn active_durable_children(&self, _session_id: Uuid) -> Result<u32, DelegationError> {
+        Ok(0)
+    }
 }
 
 /// A child's persisted terminal status, recovered after the broker's in-memory

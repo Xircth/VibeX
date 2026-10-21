@@ -786,25 +786,6 @@
           }
         }
       },
-      "multiAgent": {
-        "name": "Multi-agent",
-        "summary": "Let a parent agent hand a subtask to another agent.",
-        "readme": "# Multi-agent\n\nThe parent agent hands a bounded subtask to another agent. `&` in the composer names a target; `delegate_to_agent` is what actually starts the work.\n\nTurning this plugin on or off is the delegation switch. Depth, result cache, and child-agent defaults live only on this page, and they apply only to new child sessions started by delegation.\n\n## Enable\n\nThe plugin ships with the Host, starts off, and cannot be uninstalled. After you turn it on, Host injects `vibex-delegation-mcp` into later new or rebound sessions, and `&` appears in the composer.\n\n## Configuration\n\nMaximum depth limits root → child → grandchild recursion (1–8, default 1). Completed-result cache is in-memory for the running delegation session (MB, default 512, 0 means no cap). Child-agent defaults override only delegated child sessions, not global new-session defaults.\n\n## Troubleshooting\n\nIf `&` is missing, the plugin is off or the session was opened before it was enabled. A mention is not a started task — the parent must call `delegate_to_agent`.",
-        "config": {
-          "depthLimit": {
-            "title": "Maximum delegation depth",
-            "description": "How deep a root → child → grandchild chain may go."
-          },
-          "completedCacheMaxMb": {
-            "title": "Completed result cache (MB)",
-            "description": "In-memory cache for finished child results in a running delegation session. 0 means no cap; the cache still clears when the session ends."
-          },
-          "agentDefaults": {
-            "title": "Child agent defaults",
-            "description": "Applies only to new child sessions started by delegation, not to ordinary new sessions."
-          }
-        }
-      },
       "pluginDevelopment": {
         "name": "Plugin Development",
         "summary": "Let an agent develop, validate, link, and publish plugins with this Host's SDK and CLI.",
@@ -923,6 +904,7 @@
     "contentTree": "Package",
     "contentPreview": "Content preview",
     "noConfig": "This plugin has no configurable options.",
+    "openInSettings": "Open in Settings",
     "agentDefaultsEmpty": "No ready agents to configure.",
     "agentDefaultsUnavailable": "This agent's session options could not be loaded.",
     "agentDefaultsConfigure": "Configure {{name}}",
@@ -1621,6 +1603,16 @@
     "defaultTerminal": "Default terminal",
     "defaultTerminalDescription": "Built-in sessions use this shell. Warp opens an external app at the current workspace.",
     "basicFeaturesTitle": "Basics",
+    "multiAgentTitle": "MultiAgent collaboration",
+    "multiAgentEnabled": "MultiAgent collaboration",
+    "multiAgentEnabledHint": "New sessions can delegate, use roles, and open collaboration spaces.",
+    "multiAgentDepth": "Delegation depth",
+    "multiAgentCache": "Completed cache (MB)",
+    "multiAgentDays": "List window (days)",
+    "multiAgentHours": "Delay cap (hours)",
+    "multiAgentRangeError": "Depth 1–8, cache at least 0, list window 1–90, delay cap 1–168.",
+    "multiAgentDefaultsTitle": "Delegation defaults",
+    "multiAgentDefaultsHint": "Applies only to new child sessions started by delegate_to_agent.",
     "utilityFeaturesTitle": "Utilities",
     "sessionFeaturesTitle": "Sessions",
     "externalEditorTitle": "External viewer",

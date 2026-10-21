@@ -123,7 +123,7 @@
   },
   {
     "name": "send_session_input",
-    "description": "Append one durable input to this parent Conversation or one of its descendants. The operation_id makes retries idempotent: reuse it only for the exact same target and text. The input starts immediately when the target is idle or remains in its durable queue when busy.",
+    "description": "Deliver one instruction to a Conversation and return immediately. With collaboration enabled, the target may be this Conversation, a descendant, or a sibling in the same workspace. Without it, only this Conversation and its descendants are in scope. Another workspace is not_found. Reuse operation_id only for the exact same target and text. Omit delay_seconds and deliver_at, or pass delay_seconds 0, to deliver now: idle targets are dispatched and a busy target stays queued. A positive delay_seconds or deliver_at schedules the input; it does not take a queue position until it is due. Pass steer true only with expected_turn_id to steer that exact in-flight turn. If steering is unsupported, there is no active turn, or the turn changed, the call fails and nothing is queued. Do not wait for the target to finish; continue your own work.",
     "inputSchema": {
       "type": "object",
       "required": ["conversation_id", "operation_id", "text"],
@@ -131,7 +131,7 @@
         "conversation_id": {
           "type": "string",
           "format": "uuid",
-          "description": "The parent Conversation or a descendant created in this companion scope."
+          "description": "Target Conversation id."
         },
         "operation_id": {
           "type": "string",
@@ -141,7 +141,26 @@
         "text": {
           "type": "string",
           "minLength": 1,
-          "description": "The next instruction for the target Conversation."
+          "description": "The instruction for the target Conversation."
+        },
+        "steer": {
+          "type": "boolean",
+          "description": "When true, steer expected_turn_id. Never falls back to the queue."
+        },
+        "expected_turn_id": {
+          "type": "string",
+          "format": "uuid",
+          "description": "Required when steer is true. The in-flight turn this instruction belongs to."
+        },
+        "delay_seconds": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Seconds from now. 0 or omitted delivers immediately. Mutually exclusive with deliver_at."
+        },
+        "deliver_at": {
+          "type": "string",
+          "format": "date-time",
+          "description": "RFC3339 delivery time. Mutually exclusive with delay_seconds."
         }
       }
     }
@@ -188,6 +207,192 @@
           "maximum": 60000,
           "description": "Bounded wait in milliseconds; 0 means wait until the condition is met."
         }
+      }
+    }
+  },
+  {
+    "name": "list_conversations",
+    "description": "List recent Conversations in this workspace. Metadata only: id, title, agent, status, updated time, whether a turn is in flight, parent, and whether it is a one-shot delegation. No message bodies. Omit since_days to use the host default (1–90). Pass project_id or workspace_id only for this workspace; anything else is not_found.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "since_days": { "type": "integer", "minimum": 1, "maximum": 90 },
+        "project_id": { "type": "string", "format": "uuid" },
+        "workspace_id": { "type": "string", "format": "uuid" },
+        "limit": { "type": "integer", "minimum": 1, "maximum": 100 }
+      }
+    }
+  },
+  {
+    "name": "create_conversation",
+    "description": "Create a durable first-class Conversation in this workspace. Pass role_id to snapshot that role, or agent_id to create one directly. This is not delegate_to_agent: the parent exiting does not cancel it, and the first turn does not end the Conversation. Reuse operation_id to retry the same create. After it returns, keep working; use send_session_input when you have a later instruction.",
+    "inputSchema": {
+      "type": "object",
+      "required": ["operation_id"],
+      "properties": {
+        "operation_id": { "type": "string", "format": "uuid" },
+        "role_id": { "type": "string" },
+        "agent_id": { "type": "string" },
+        "title": { "type": "string" },
+        "prompt": { "type": "string" },
+        "mode_id": { "type": "string" },
+        "config_values": { "type": "object" }
+      }
+    }
+  },
+  {
+    "name": "list_roles",
+    "description": "List reusable role templates. A role is not a Conversation.",
+    "inputSchema": { "type": "object", "properties": {} }
+  },
+  {
+    "name": "create_role",
+    "description": "Create a role template. agent_id is the stable agent id. persona_prompt is shown to the user when a Conversation is created from the role. Editing a role later does not rewrite existing Conversations.",
+    "inputSchema": {
+      "type": "object",
+      "required": ["name", "agent_id"],
+      "properties": {
+        "name": { "type": "string" },
+        "team_id": { "type": "string" },
+        "summary": { "type": "string" },
+        "persona_prompt": { "type": "string" },
+        "agent_id": { "type": "string" },
+        "mode_id": { "type": "string" },
+        "config_values": { "type": "object" }
+      }
+    }
+  },
+  {
+    "name": "update_role",
+    "description": "Replace a role template. Existing Conversations keep the snapshot they were created with.",
+    "inputSchema": {
+      "type": "object",
+      "required": ["role_id", "name", "agent_id"],
+      "properties": {
+        "role_id": { "type": "string" },
+        "name": { "type": "string" },
+        "team_id": { "type": "string" },
+        "summary": { "type": "string" },
+        "persona_prompt": { "type": "string" },
+        "agent_id": { "type": "string" },
+        "mode_id": { "type": "string" },
+        "config_values": { "type": "object" }
+      }
+    }
+  },
+  {
+    "name": "delete_role",
+    "description": "Delete a role template. Conversations already created from it remain, including their persona snapshot.",
+    "inputSchema": {
+      "type": "object",
+      "required": ["role_id"],
+      "properties": { "role_id": { "type": "string" } }
+    }
+  },
+  {
+    "name": "list_teams",
+    "description": "List optional role groupings.",
+    "inputSchema": { "type": "object", "properties": {} }
+  },
+  {
+    "name": "create_team",
+    "description": "Create a team. Roles may leave team_id empty.",
+    "inputSchema": {
+      "type": "object",
+      "required": ["name"],
+      "properties": {
+        "name": { "type": "string" },
+        "summary": { "type": "string" }
+      }
+    }
+  },
+  {
+    "name": "update_team",
+    "description": "Rename a team or replace its summary.",
+    "inputSchema": {
+      "type": "object",
+      "required": ["team_id", "name"],
+      "properties": {
+        "team_id": { "type": "string" },
+        "name": { "type": "string" },
+        "summary": { "type": "string" }
+      }
+    }
+  },
+  {
+    "name": "delete_team",
+    "description": "Delete a team. Roles in it become ungrouped. Conversations are kept.",
+    "inputSchema": {
+      "type": "object",
+      "required": ["team_id"],
+      "properties": { "team_id": { "type": "string" } }
+    }
+  },
+  {
+    "name": "create_collaboration_space",
+    "description": "Create an IM space in this workspace and join it. Reuse operation_id to retry the same create. Members must share the workspace.",
+    "inputSchema": {
+      "type": "object",
+      "required": ["operation_id", "name"],
+      "properties": {
+        "operation_id": { "type": "string", "format": "uuid" },
+        "name": { "type": "string" }
+      }
+    }
+  },
+  {
+    "name": "add_space_member",
+    "description": "Add a Conversation from this workspace to a space you belong to. nickname is a proposal; the member can rename itself later. Nicknames are unique in the space.",
+    "inputSchema": {
+      "type": "object",
+      "required": ["operation_id", "space_id", "conversation_id", "nickname"],
+      "properties": {
+        "operation_id": { "type": "string", "format": "uuid" },
+        "space_id": { "type": "string" },
+        "conversation_id": { "type": "string", "format": "uuid" },
+        "nickname": { "type": "string" }
+      }
+    }
+  },
+  {
+    "name": "set_space_identity",
+    "description": "Set your own nickname in a space. Later @ resolution uses the new nickname. Messages already posted keep the actor snapshot.",
+    "inputSchema": {
+      "type": "object",
+      "required": ["operation_id", "space_id", "nickname"],
+      "properties": {
+        "operation_id": { "type": "string", "format": "uuid" },
+        "space_id": { "type": "string" },
+        "nickname": { "type": "string" }
+      }
+    }
+  },
+  {
+    "name": "post_to_space",
+    "description": "Post one ActivityStreams Note into a space and return immediately. to is a list of nicknames. Omit to to deliver to every agent member except yourself. The user is not an @ target. Each addressee receives the same text through the conversation input queue. If that member is busy, the input stays queued. A retry with the same operation_id does not submit twice. Do not poll an inbox; list_space_messages reads the log, and send_session_input is how you continue a direct conversation.",
+    "inputSchema": {
+      "type": "object",
+      "required": ["operation_id", "space_id", "content"],
+      "properties": {
+        "operation_id": { "type": "string", "format": "uuid" },
+        "space_id": { "type": "string" },
+        "content": { "type": "string", "minLength": 1 },
+        "summary": { "type": "string" },
+        "to": { "type": "array", "items": { "type": "string" } },
+        "in_reply_to": { "type": "string" }
+      }
+    }
+  },
+  {
+    "name": "list_space_messages",
+    "description": "Read the space log since since_seq. This returns immediately. It does not wait for new messages. Agent reads omit how to address the user.",
+    "inputSchema": {
+      "type": "object",
+      "required": ["space_id"],
+      "properties": {
+        "space_id": { "type": "string" },
+        "since_seq": { "type": "integer", "minimum": 0 },
+        "limit": { "type": "integer", "minimum": 1, "maximum": 200 }
       }
     }
   }

@@ -35,6 +35,8 @@ pub enum BrokerMessage {
     SessionInfo(BrokerSessionRequest),
     /// `send_session_input` — append one idempotent input to a scoped Conversation.
     SessionSend(BrokerSessionSendRequest),
+    /// Collaboration tools that are not session-scoped queue operations.
+    Collaborate(BrokerCollaborateRequest),
     /// `cancel_session_turn` — cancel a scoped Conversation's active Turn.
     SessionCancel(BrokerSessionCancelRequest),
     /// `wait_for_session` — wait for a scoped Conversation to advance or settle.
@@ -118,6 +120,21 @@ pub struct BrokerSessionSendRequest {
     pub conversation_id: String,
     pub operation_id: String,
     pub text: String,
+    #[serde(default)]
+    pub steer: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub expected_turn_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub delay_seconds: Option<i64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub deliver_at: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, serde::Deserialize)]
+pub struct BrokerCollaborateRequest {
+    pub token: String,
+    pub name: String,
+    pub arguments: Value,
 }
 
 #[derive(Debug, Clone, Serialize, serde::Deserialize)]
@@ -278,6 +295,10 @@ mod tests {
             conversation_id: "child".to_string(),
             operation_id: operation_id.clone(),
             text: "continue".to_string(),
+            steer: false,
+            expected_turn_id: None,
+            delay_seconds: None,
+            deliver_at: None,
         });
         write_frame(&mut tx, &sent).await.expect("write send");
         match read_frame::<_, BrokerMessage>(&mut rx)

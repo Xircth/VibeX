@@ -109,6 +109,9 @@ function detail(): DbConversationDetail {
       truncated_from_start: false,
       older_cursor: null,
     },
+    turns_offset: 0,
+    turns_total: 0,
+    user_turns_before_offset: 0,
     projection_version: 2,
     session_config_options: [],
   };
@@ -434,6 +437,7 @@ describe('useConversationTimeline', () => {
         next_cursor: null,
         rows: [userRow('t-early', 'first', 1n)],
       });
+      await secondPage;
     });
 
     await waitFor(() =>

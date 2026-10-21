@@ -692,13 +692,16 @@ async function loadOlder(conversationId: string): Promise<void> {
       });
     } finally {
       controller.loadingOlder = false;
-      if (controller.loadOlderPromise === pending) {
-        controller.loadOlderPromise = null;
-      }
     }
   })();
   controller.loadOlderPromise = pending;
-  await pending;
+  try {
+    await pending;
+  } finally {
+    if (controller.loadOlderPromise === pending) {
+      controller.loadOlderPromise = null;
+    }
+  }
 }
 
 function buildView(

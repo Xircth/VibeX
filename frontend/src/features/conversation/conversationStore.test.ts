@@ -118,6 +118,9 @@ function emptyDetail(rows: TimelineRow[] = []): DbConversationDetail {
       rows,
       truncated_from_start: false,
     },
+    turns_offset: 0,
+    turns_total: 0,
+    user_turns_before_offset: 0,
     projection_version: 2,
     session_config_options: [],
   };

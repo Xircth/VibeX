@@ -996,10 +996,11 @@ function preserveStructuredUserTextFromLiveRows(
     if (row.row.kind !== 'message_turn' || row.row.turn.role !== 'user') {
       return row;
     }
+    const windowTurn = row.row.turn;
     const match = liveUsers.find(
       (live) =>
         live.row.kind === 'message_turn' &&
-        promptsMatch(userTurnText(live.row.turn), userTurnText(row.row.turn))
+        promptsMatch(userTurnText(live.row.turn), userTurnText(windowTurn))
     );
     return match ? preserveStructuredUserText(match, row) : row;
   });

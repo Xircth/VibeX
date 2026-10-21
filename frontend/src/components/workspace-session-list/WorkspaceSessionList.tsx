@@ -770,7 +770,7 @@ function SortableWorkspaceSessionRow({
   );
 }
 
-function WorkspaceSessionRow({
+export function WorkspaceSessionRow({
   session,
   isSelected,
   isDeleteMode = false,

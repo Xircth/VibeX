@@ -1,8 +1,15 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { act, render, screen } from '@testing-library/react';
+import { act, fireEvent, render, screen } from '@testing-library/react';
 import { RightPanelSidebar } from './RightPanelSidebar';
 
 const backendCall = vi.hoisted(() => vi.fn());
+const panelActions = vi.hoisted(() => ({
+  openNewTerminal: vi.fn(),
+  openDiffPreview: vi.fn(),
+  openNotes: vi.fn(),
+  openOrFocusPanel: vi.fn(),
+  openPluginPanel: vi.fn(),
+}));
 
 vi.mock('@/lib/backendTransport', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@/lib/backendTransport')>()),
@@ -18,13 +25,7 @@ vi.mock('@/contexts/KanbanSessionContext', () => ({
 }));
 
 vi.mock('@/contexts/PanelActionsContext', () => ({
-  usePanelActionsContext: () => ({
-    openNewTerminal: vi.fn(),
-    openDiffPreview: vi.fn(),
-    openNotes: vi.fn(),
-    openOrFocusPanel: vi.fn(),
-    openPluginPanel: vi.fn(),
-  }),
+  usePanelActionsContext: () => panelActions,
 }));
 
 vi.mock('@/hooks/useTaskAttempt', () => ({
@@ -51,6 +52,7 @@ vi.mock('@/lib/transport', async (importOriginal) => ({
 describe('RightPanelSidebar', () => {
   beforeEach(() => {
     transportEnvironment.current = 'desktop';
+    panelActions.openOrFocusPanel.mockClear();
   });
 
   it('does not load or render legacy plugin shortcuts', async () => {
@@ -135,5 +137,31 @@ describe('RightPanelSidebar', () => {
     expect(
       screen.getByRole('button', { name: '打开终端' })
     ).toBeInTheDocument();
+  });
+
+  it('opens session details from the button under the terminal', async () => {
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+
+    render(
+      <QueryClientProvider client={queryClient}>
+        <RightPanelSidebar />
+      </QueryClientProvider>
+    );
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    const buttons = screen.getAllByRole('button');
+    const terminal = screen.getByRole('button', { name: '打开终端' });
+    const details = screen.getByRole('button', { name: '会话详情' });
+    expect(buttons.indexOf(details)).toBe(buttons.indexOf(terminal) + 1);
+
+    fireEvent.click(details);
+    expect(panelActions.openOrFocusPanel).toHaveBeenCalledWith(
+      'session-details',
+      '会话详情'
+    );
   });
 });

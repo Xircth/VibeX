@@ -7,7 +7,7 @@ import {
   Search,
   Trash2,
 } from 'lucide-react';
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import type { DshProviderModelView, DshProvidersView } from 'shared/types';
 
@@ -30,7 +30,6 @@ import {
 } from './agentSettingsDraftRetention';
 import { ProviderCatalogPicker } from './ProviderCatalogPicker';
 import type { ProviderCatalogTemplateView } from './providerCatalogTypes';
-import { SettingsActionBar } from './SettingsUi';
 import { useProviderCatalogList } from './useProviderCatalogList';
 
 const DRAFT_KEY = 'dsh-auth';
@@ -73,6 +72,8 @@ export function DshAuthPanel({
   const [draft, setDraft] = useState<Draft>(
     () => peekAgentSettingsDraft<Draft>(DRAFT_KEY) ?? emptyDraft('deepseek')
   );
+  const draftRef = useRef(draft);
+  draftRef.current = draft;
   const [customSurface, setCustomSurface] = useState<'list' | 'form'>(() =>
     peekAgentSettingsDraft<Draft>(DRAFT_KEY)?.mode === 'custom'
       ? 'form'
@@ -188,9 +189,9 @@ export function DshAuthPanel({
   }, [dirty, draft, view]);
 
   useEffect(() => {
-    onDirtyChange?.(dirty);
+    onDirtyChange?.(saving ? false : dirty);
     return () => onDirtyChange?.(false);
-  }, [dirty, onDirtyChange]);
+  }, [dirty, onDirtyChange, saving]);
 
   const discover = async () => {
     const url = officialMode ? OFFICIAL_URL : draft.baseUrl.trim();
@@ -205,14 +206,17 @@ export function DshAuthPanel({
         api_key: draft.apiKey.trim() || null,
         provider_id: officialMode ? OFFICIAL_ID : custom?.id || CUSTOM_ID,
       });
-      const next = discovered.length ? discovered : draft.models;
-      setDraft((current) => ({
-        ...current,
-        models: next,
-        model: next.some((entry) => entry.id === current.model)
-          ? current.model
-          : (next[0]?.id ?? ''),
-      }));
+      const models = discovered.length ? discovered : draftRef.current.models;
+      const next = {
+        ...draftRef.current,
+        models,
+        model: models.some((entry) => entry.id === draftRef.current.model)
+          ? draftRef.current.model
+          : (models[0]?.id ?? ''),
+      };
+      draftRef.current = next;
+      setDraft(next);
+      void save(next);
     } catch (error) {
       toast.error(
         errorMessage(error, t('settings:agents.dshProviderDiscoverFailed'))
@@ -222,51 +226,57 @@ export function DshAuthPanel({
     }
   };
 
-  const discard = () => {
-    clearAgentSettingsDraft(DRAFT_KEY);
-    if (view) setDraft(hydrate(view, savedMode));
+  const draftChanged = (next: Draft) => {
+    if (!view) return false;
+    const baseline = hydrate(view, savedMode);
+    return (
+      next.mode !== baseline.mode ||
+      next.apiKey.trim().length > 0 ||
+      next.displayName !== baseline.displayName ||
+      next.notes !== baseline.notes ||
+      next.baseUrl !== baseline.baseUrl ||
+      next.model !== baseline.model ||
+      JSON.stringify(next.models) !== JSON.stringify(baseline.models)
+    );
   };
 
-  const save = async () => {
-    if (!officialMode && !draft.baseUrl.trim()) {
-      toast.warning(t('settings:agents.dshProviderUrlRequired'));
-      return;
-    }
-    if (
-      !draft.apiKey.trim() &&
-      !(officialMode
-        ? official?.credential_present
-        : custom?.credential_present)
-    ) {
-      toast.warning(t('settings:agents.dshProviderKeyRequired'));
-      return;
-    }
+  const save = async (next: Draft = draftRef.current) => {
+    const isOfficial = next.mode !== 'custom';
+    const credentialPresent = Boolean(
+      isOfficial ? official?.credential_present : custom?.credential_present
+    );
+    if (!draftChanged(next)) return;
+    if (!isOfficial && !next.baseUrl.trim()) return;
+    if (!next.apiKey.trim() && !credentialPresent) return;
+    onDirtyChange?.(false);
     setSaving(true);
     try {
       await agentManagementApi.setAuthMode(
         'deepseek_harness',
-        officialMode ? 'deepseek' : 'custom',
-        draft.apiKey.trim() || null
+        isOfficial ? 'deepseek' : 'custom',
+        next.apiKey.trim() || null
       );
-      const next = await agentManagementApi.saveDshProvider({
-        id: officialMode ? OFFICIAL_ID : editingId || custom?.id || CUSTOM_ID,
-        display_name: officialMode
+      const saved = await agentManagementApi.saveDshProvider({
+        id: isOfficial ? OFFICIAL_ID : editingId || custom?.id || CUSTOM_ID,
+        display_name: isOfficial
           ? 'DeepSeek'
-          : draft.displayName.trim() || CUSTOM_ID,
-        notes: officialMode ? null : draft.notes.trim() || null,
-        api: officialMode ? null : 'openai-completions',
-        base_url: officialMode ? null : draft.baseUrl.trim(),
-        api_key: draft.apiKey.trim() || null,
-        models: draft.models,
+          : next.displayName.trim() || CUSTOM_ID,
+        notes: isOfficial ? null : next.notes.trim() || null,
+        api: isOfficial ? null : 'openai-completions',
+        base_url: isOfficial ? null : next.baseUrl.trim(),
+        api_key: next.apiKey.trim() || null,
+        models: next.models,
         set_default: true,
-        default_model: draft.model.trim() || null,
+        default_model: next.model.trim() || null,
       });
-      setView(next);
-      setSavedMode(officialMode ? 'deepseek' : 'custom');
+      setView(saved);
+      setSavedMode(isOfficial ? 'deepseek' : 'custom');
       setCustomSurface('list');
       setEditingId(null);
       clearAgentSettingsDraft(DRAFT_KEY);
-      setDraft(hydrate(next, officialMode ? 'deepseek' : 'custom'));
+      const hydrated = hydrate(saved, isOfficial ? 'deepseek' : 'custom');
+      draftRef.current = hydrated;
+      setDraft(hydrated);
       await onChanged?.();
     } catch (error) {
       toast.error(
@@ -275,6 +285,13 @@ export function DshAuthPanel({
     } finally {
       setSaving(false);
     }
+  };
+
+  const patchDraft = (patch: Partial<Draft>, commit = false) => {
+    const next = { ...draftRef.current, ...patch };
+    draftRef.current = next;
+    setDraft(next);
+    if (commit) void save(next);
   };
 
   const modelOptions = draft.models
@@ -287,7 +304,11 @@ export function DshAuthPanel({
   const selectMode = (mode: string) => {
     setCustomSurface('list');
     setEditingId(null);
-    setDraft((current) => (view ? hydrate(view, mode) : { ...current, mode }));
+    const next = view
+      ? hydrate(view, mode)
+      : { ...draftRef.current, mode };
+    draftRef.current = next;
+    setDraft(next);
   };
 
   const applyCatalogTemplate = (template: ProviderCatalogTemplateView) => {
@@ -509,12 +530,8 @@ export function DshAuthPanel({
                           : t('settings:agents.credentialPlaceholder')
                       }
                       value={draft.apiKey}
-                      onChange={(value) =>
-                        setDraft((current) => ({
-                          ...current,
-                          apiKey: value,
-                        }))
-                      }
+                      onBlur={() => void save()}
+                      onChange={(value) => patchDraft({ apiKey: value })}
                       width="100%"
                       className="[&_input]:text-sm"
                     />
@@ -531,9 +548,7 @@ export function DshAuthPanel({
                           )}
                           options={modelOptions}
                           value={draft.model}
-                          onChange={(model) =>
-                            setDraft((current) => ({ ...current, model }))
-                          }
+                          onChange={(model) => patchDraft({ model }, true)}
                         />
                       ) : (
                         <TextInput
@@ -541,12 +556,8 @@ export function DshAuthPanel({
                           isLabelHidden
                           htmlName="dsh_model"
                           value={draft.model}
-                          onChange={(value) =>
-                            setDraft((current) => ({
-                              ...current,
-                              model: value,
-                            }))
-                          }
+                          onBlur={() => void save()}
+                          onChange={(value) => patchDraft({ model: value })}
                           width="100%"
                           className="[&_input]:text-sm"
                         />
@@ -633,12 +644,8 @@ export function DshAuthPanel({
                       isLabelHidden
                       htmlName="dsh_custom_name"
                       value={draft.displayName}
-                      onChange={(value) =>
-                        setDraft((current) => ({
-                          ...current,
-                          displayName: value,
-                        }))
-                      }
+                      onBlur={() => void save()}
+                      onChange={(value) => patchDraft({ displayName: value })}
                       width="100%"
                       className="[&_input]:text-sm"
                     />
@@ -650,12 +657,8 @@ export function DshAuthPanel({
                       isLabelHidden
                       htmlName="dsh_custom_notes"
                       value={draft.notes}
-                      onChange={(value) =>
-                        setDraft((current) => ({
-                          ...current,
-                          notes: value,
-                        }))
-                      }
+                      onBlur={() => void save()}
+                      onChange={(value) => patchDraft({ notes: value })}
                       width="100%"
                       className="[&_input]:text-sm"
                     />
@@ -667,12 +670,8 @@ export function DshAuthPanel({
                       isLabelHidden
                       htmlName="dsh_custom_url"
                       value={draft.baseUrl}
-                      onChange={(value) =>
-                        setDraft((current) => ({
-                          ...current,
-                          baseUrl: value,
-                        }))
-                      }
+                      onBlur={() => void save()}
+                      onChange={(value) => patchDraft({ baseUrl: value })}
                       width="100%"
                       className="[&_input]:text-sm"
                     />
@@ -685,12 +684,7 @@ export function DshAuthPanel({
                         label: candidate,
                       }))}
                       value={draft.baseUrl}
-                      onChange={(value) =>
-                        setDraft((current) => ({
-                          ...current,
-                          baseUrl: value,
-                        }))
-                      }
+                      onChange={(value) => patchDraft({ baseUrl: value }, true)}
                     />
                   ) : null}
                   <label className="agent-auth-mode-field">
@@ -706,12 +700,8 @@ export function DshAuthPanel({
                           : t('settings:agents.credentialPlaceholder')
                       }
                       value={draft.apiKey}
-                      onChange={(value) =>
-                        setDraft((current) => ({
-                          ...current,
-                          apiKey: value,
-                        }))
-                      }
+                      onBlur={() => void save()}
+                      onChange={(value) => patchDraft({ apiKey: value })}
                       width="100%"
                       className="[&_input]:text-sm"
                     />
@@ -728,9 +718,7 @@ export function DshAuthPanel({
                           )}
                           options={modelOptions}
                           value={draft.model}
-                          onChange={(model) =>
-                            setDraft((current) => ({ ...current, model }))
-                          }
+                          onChange={(model) => patchDraft({ model }, true)}
                         />
                       ) : (
                         <TextInput
@@ -738,12 +726,8 @@ export function DshAuthPanel({
                           isLabelHidden
                           htmlName="dsh_model"
                           value={draft.model}
-                          onChange={(value) =>
-                            setDraft((current) => ({
-                              ...current,
-                              model: value,
-                            }))
-                          }
+                          onBlur={() => void save()}
+                          onChange={(value) => patchDraft({ model: value })}
                           width="100%"
                           className="[&_input]:text-sm"
                         />
@@ -864,14 +848,6 @@ export function DshAuthPanel({
           )}
         </div>
       </section>
-      {officialMode || customSurface === 'form' ? (
-        <SettingsActionBar
-          dirty={dirty}
-          saving={saving}
-          onDiscard={discard}
-          onSave={() => void save()}
-        />
-      ) : null}
     </>
   );
 }

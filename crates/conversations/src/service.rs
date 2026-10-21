@@ -394,6 +394,38 @@ pub async fn fork_visible_conversation(
         input.until_turn_id,
     )
     .await?;
+    let source_turns = ConversationTurnRecord::list_for_conversation(pool, input.source_id).await?;
+    let mut kept_turns = Vec::new();
+    for turn in source_turns {
+        let stop = input.until_turn_id.is_some_and(|cut| turn.id == cut);
+        kept_turns.push(turn);
+        if stop {
+            break;
+        }
+    }
+    for source_turn in kept_turns {
+        if let Ok(created) = ConversationTurnRecord::create_pending(
+            pool,
+            Uuid::new_v4(),
+            CreateConversationTurn {
+                conversation_id: child_id,
+                prompt_id: source_turn.prompt_id.as_deref(),
+                text_preview: source_turn.text_preview.as_deref(),
+                input_blocks_json: &source_turn.input_blocks_json,
+            },
+        )
+        .await
+        {
+            let _ = ConversationTurnRecord::mark_completed(
+                pool,
+                created.id,
+                source_turn.stop_reason.as_deref(),
+                None,
+                None,
+            )
+            .await;
+        }
+    }
     Ok((child_id, copied))
 }
 
@@ -717,6 +749,7 @@ struct CommittedTurnLaunch {
     working_dir: String,
     additional_directories: Vec<PathBuf>,
     agent_blocks: Vec<AgentContentBlock>,
+    display_blocks: Vec<AgentContentBlock>,
     turn_id: Uuid,
     created_sequence: i64,
     smart_reminder: Option<String>,
@@ -935,6 +968,7 @@ impl ConversationSessionService {
             .host
             .build_prompt_blocks(&working_dir, agent_text, &input.images, &input.file_refs)
             .await?;
+        let display_blocks = agent_blocks_with_display_text(&agent_blocks, &display_text);
         let conversation_blocks =
             conversation_input_blocks_with_display_text(&agent_blocks, &display_text);
 
@@ -1117,6 +1151,7 @@ impl ConversationSessionService {
             working_dir,
             additional_directories,
             agent_blocks,
+            display_blocks,
             turn_id: turn.id,
             created_sequence: created.sequence,
             smart_reminder,
@@ -1132,6 +1167,7 @@ impl ConversationSessionService {
             working_dir,
             additional_directories,
             agent_blocks,
+            display_blocks,
             turn_id,
             created_sequence,
             smart_reminder,
@@ -1153,6 +1189,7 @@ impl ConversationSessionService {
                 &working_dir,
                 &additional_directories,
                 agent_blocks,
+                display_blocks,
                 turn_id,
             )
             .await;
@@ -1553,6 +1590,7 @@ impl ConversationSessionService {
             .host
             .build_prompt_blocks(&working_dir, input.text.clone(), &input.images, &[])
             .await?;
+        let display_blocks = agent_blocks_with_display_text(&agent_blocks, &input.text);
         let visible_blocks =
             conversation_input_blocks_with_display_text(&agent_blocks, &input.text);
         let steering_id = Uuid::new_v4();
@@ -1630,12 +1668,15 @@ impl ConversationSessionService {
         let result = self
             .ctx
             .agent_runtime
-            .steer_prompt(SteerAgentPromptInput {
-                connection_id: connection_id.expect("checked above"),
-                session_id: runtime_session_id,
-                expected_prompt_id: prompt_id.expect("checked above"),
-                blocks: agent_blocks,
-            })
+            .steer_prompt_with_display_blocks(
+                SteerAgentPromptInput {
+                    connection_id: connection_id.expect("checked above"),
+                    session_id: runtime_session_id,
+                    expected_prompt_id: prompt_id.expect("checked above"),
+                    blocks: agent_blocks,
+                },
+                Some(display_blocks),
+            )
             .await;
         let settlement = match result {
             Ok(receipt) => match receipt.outcome {
@@ -2095,10 +2136,10 @@ impl ConversationSessionService {
         self.interrupt_orphaned_turn(conversation_id).await?;
         let runtime_session_id = AgentSessionId(conversation_id);
 
-        if self
+        if let Some(bound_acp_session_id) = self
             .ctx
             .agent_runtime
-            .has_bound_acp_session(runtime_session_id)
+            .bound_acp_session_id(runtime_session_id)
             .await
             && let Ok(controls) = self
                 .ctx
@@ -2106,6 +2147,23 @@ impl ConversationSessionService {
                 .session_controls_snapshot(runtime_session_id)
                 .await
         {
+            let pool = &self.ctx.deployment.db().pool;
+            if let Ok(Some(persisted_session)) = Session::find_by_id(pool, conversation_id).await {
+                let agent_id = persisted_session.agent_id.clone().or_else(|| {
+                    persisted_session
+                        .executor
+                        .as_deref()
+                        .and_then(AgentKind::from_lenient)
+                        .and_then(|kind| agents::AgentId::parse(kind.as_str()).ok())
+                });
+                let _ = Session::update_agent_metadata(
+                    pool,
+                    conversation_id,
+                    Some(&bound_acp_session_id),
+                    agent_id.as_ref(),
+                )
+                .await;
+            }
             self.ctx
                 .agent_runtime
                 .commit_prepared_session(runtime_session_id)
@@ -2469,7 +2527,16 @@ impl ConversationSessionService {
         let _turn_guard = turn_lock.lock().await;
 
         let pool = &self.ctx.deployment.db().pool;
-        // Detach the Agent session *before* deleting anything. The truncated prefix
+        // Truncate the JSONL transcript before detaching so `summary.external_session_id`
+        // is still present and both `<session_id>.jsonl` and `<external_session_id>.jsonl`
+        // are rewritten with the kept turns.
+        let _ = crate::jsonl_history::truncate_transcript_to_user_ordinal(
+            pool,
+            conversation_id,
+            user_ordinal.max(0) as usize,
+        )
+        .await;
+        // Detach the Agent session *before* deleting anything in SQLite. The truncated prefix
         // must never be re-sent, and the old ACP session still holds it: if the
         // detach fails after the delete, the event log is short while the binding
         // still points at the full context, and the next send replays the deleted
@@ -2542,6 +2609,8 @@ impl ConversationSessionService {
         self.forget_conversation_runtime(conversation_id).await;
 
         let pool = &self.ctx.deployment.db().pool;
+        let _ =
+            crate::jsonl_history::preserve_transcript_before_detach(pool, conversation_id).await;
         if let Some(binding) =
             ConversationAgentBindingRecord::latest_for_conversation(pool, conversation_id).await?
         {
@@ -2975,11 +3044,23 @@ impl ConversationSessionService {
         input: &ConversationStartTurnInput,
         display_text: &str,
     ) -> Result<ConversationRecord, ConversationServiceError> {
+        let bound_acp_session_id = self
+            .ctx
+            .agent_runtime
+            .bound_acp_session_id(AgentSessionId(input.conversation_id))
+            .await;
         if let Some(existing) = ConversationRecord::find_by_id(pool, input.conversation_id).await? {
+            let _ = Session::update_agent_metadata(
+                pool,
+                input.conversation_id,
+                bound_acp_session_id.as_deref(),
+                Some(&input.agent_id),
+            )
+            .await;
             return Ok(existing);
         }
 
-        ConversationRecord::create(
+        let created = ConversationRecord::create(
             pool,
             input.conversation_id,
             CreateConversationRecord {
@@ -2991,8 +3072,15 @@ impl ConversationSessionService {
                 executor: Some("agent"),
             },
         )
-        .await
-        .map_err(Into::into)
+        .await?;
+        let _ = Session::update_agent_metadata(
+            pool,
+            input.conversation_id,
+            bound_acp_session_id.as_deref(),
+            Some(&input.agent_id),
+        )
+        .await;
+        Ok(created)
     }
 
     async fn send_turn_to_agent(
@@ -3001,6 +3089,7 @@ impl ConversationSessionService {
         _working_dir: &str,
         _additional_directories: &[PathBuf],
         blocks: Vec<AgentContentBlock>,
+        display_blocks: Vec<AgentContentBlock>,
         turn_id: Uuid,
     ) -> Result<AgentPromptSnapshot, ConversationServiceError> {
         let pool = &self.ctx.deployment.db().pool;
@@ -3080,13 +3169,16 @@ impl ConversationSessionService {
         let prompt = self
             .ctx
             .agent_runtime
-            .send_prompt(SendAgentPromptInput {
-                connection_id,
-                session_id: runtime_session_id,
-                blocks,
-                mode_override: prompt_overrides.mode_override,
-                config_overrides: prompt_overrides.config_overrides,
-            })
+            .send_prompt_with_display_blocks(
+                SendAgentPromptInput {
+                    connection_id,
+                    session_id: runtime_session_id,
+                    blocks,
+                    mode_override: prompt_overrides.mode_override,
+                    config_overrides: prompt_overrides.config_overrides,
+                },
+                Some(display_blocks),
+            )
             .await?;
 
         let bound_sid = self
@@ -3842,6 +3934,23 @@ fn prune_unreferenced_turn_lock(locks: &mut HashMap<Uuid, Arc<Mutex<()>>>, conve
     {
         locks.remove(&conversation_id);
     }
+}
+
+fn agent_blocks_with_display_text(
+    blocks: &[AgentContentBlock],
+    display_text: &str,
+) -> Vec<AgentContentBlock> {
+    let mut visible = Vec::with_capacity(blocks.len());
+    if !display_text.trim().is_empty() {
+        visible.push(AgentContentBlock::Text {
+            text: display_text.to_string(),
+        });
+    }
+    visible.extend(blocks.iter().filter_map(|block| match block {
+        AgentContentBlock::Text { .. } => None,
+        other => Some(other.clone()),
+    }));
+    visible
 }
 
 fn conversation_input_blocks_with_display_text(

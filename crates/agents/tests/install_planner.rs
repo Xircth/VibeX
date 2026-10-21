@@ -80,6 +80,69 @@ fn built_in_linux_agents_resolve_supported_runtime_and_acp_plans() {
 }
 
 #[test]
+fn kiro_installs_from_linux_zips_and_refuses_unsigned_desktop_packages() {
+    let planner = InstallPlanner::bundled();
+    let environment = InstallEnvironment {
+        node_verified: true,
+        ..Default::default()
+    };
+    for platform in ["linux-x86_64", "linux-aarch64"] {
+        let plan = planner
+            .plan(InstallPlanningInput {
+                agent_id: AgentId::parse("kiro").unwrap(),
+                source: InstallCandidateSource::BuiltInProfile,
+                platform: platform.to_string(),
+                environment: environment.clone(),
+            })
+            .unwrap();
+        assert_eq!(plan.components[0].command, "kiro-cli");
+        assert!(plan.components[0].resolved_source.ends_with(".zip"));
+        assert!(matches!(
+            plan.components[0].trust,
+            ArtifactTrust::ExpectedSha256 { .. }
+        ));
+    }
+    for platform in ["windows-x86_64", "darwin-aarch64", "darwin-x86_64"] {
+        let error = planner
+            .plan(InstallPlanningInput {
+                agent_id: AgentId::parse("kiro").unwrap(),
+                source: InstallCandidateSource::BuiltInProfile,
+                platform: platform.to_string(),
+                environment: environment.clone(),
+            })
+            .unwrap_err();
+        assert!(
+            matches!(error, InstallPlanningError::UnsupportedPlatform { .. }),
+            "{platform}: {error:?}"
+        );
+    }
+}
+
+#[test]
+fn trae_installs_a_digest_pinned_gzip_on_every_desktop() {
+    let planner = InstallPlanner::bundled();
+    let plan = planner
+        .plan(InstallPlanningInput {
+            agent_id: AgentId::parse("trae").unwrap(),
+            source: InstallCandidateSource::BuiltInProfile,
+            platform: "windows-x86_64".to_string(),
+            environment: InstallEnvironment::default(),
+        })
+        .unwrap();
+    assert_eq!(plan.components[0].command, "traex");
+    assert!(
+        plan.components[0]
+            .resolved_source
+            .ends_with("traex-windows-x86_64.exe.gz")
+    );
+    assert!(matches!(
+        &plan.components[0].trust,
+        ArtifactTrust::ExpectedSha256 { sha256 }
+            if sha256 == "b794b482ef9212c72ab985575b869c08d26d0f54a761d7ac45d83ea8aa7bfac4"
+    ));
+}
+
+#[test]
 fn npx_acp_plans_without_a_system_node_on_supported_hosts() {
     let planner = InstallPlanner::bundled();
     let plan = planner
@@ -888,10 +951,9 @@ fn bundled_registry_updates_follow_each_profile_topology() {
         python_verified: true,
     };
     for profile in catalog.profiles() {
-        let binding = profile
-            .registry_binding
-            .as_ref()
-            .expect("bundled profiles declare a Registry binding");
+        let Some(binding) = profile.registry_binding.as_ref() else {
+            continue;
+        };
         let target = RegistryAddTarget {
             snapshot_id: Uuid::new_v4(),
             agent_id: profile.agent_id.clone(),

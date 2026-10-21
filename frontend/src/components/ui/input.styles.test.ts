@@ -269,7 +269,7 @@ describe('text control caret clearance', () => {
     expect(focusDecls['box-shadow']).toContain('--color-accent-muted');
   });
 
-  it('gives settings search and settings page inputs an opaque recessed gray fill on Windows WebView2', () => {
+  it('gives settings search and settings page inputs an opaque Astryx surface fill', () => {
     const lightTokens: Record<string, string> = {};
     const darkTokens: Record<string, string> = {};
     const settingsInputFills: string[] = [];
@@ -299,17 +299,13 @@ describe('text control caret clearance', () => {
       }
     });
 
-    expect(lightTokens['--surface-control-solid']).toBe('hsl(220 14% 94%)');
-    expect(lightTokens['--surface-control-solid-hover']).toBe(
-      'hsl(220 14% 92%)'
-    );
+    expect(lightTokens['--surface-control-solid']).toBe('#ffffff');
+    expect(lightTokens['--surface-control-solid-hover']).toBe('#f5f5f5');
     expect(lightTokens['--surface-raised']).toBe(
       'var(--surface-raised-control)'
     );
-    expect(darkTokens['--surface-control-solid']).toBe('hsl(216 18% 22%)');
-    expect(darkTokens['--surface-control-solid-hover']).toBe(
-      'hsl(216 18% 25%)'
-    );
+    expect(darkTokens['--surface-control-solid']).toBe('#262626');
+    expect(darkTokens['--surface-control-solid-hover']).toBe('#404040');
     expect(darkTokens['--surface-raised']).toBe(
       'var(--surface-raised-control)'
     );

@@ -29,6 +29,49 @@ pub enum ForkPointStatus {
     Unsupported,
 }
 
+fn turn_has_non_empty_text(turn: &MessageTurn) -> bool {
+    turn.blocks.iter().any(|block| match block {
+        ContentBlock::Text { text } => !text.trim().is_empty(),
+        _ => false,
+    })
+}
+
+/// Whether `turn` can be named as a historical `session/fork` cut for `agent_kind`
+/// without computing SHA-256 fingerprints or scanning prior turns.
+pub fn can_name_fork_point_turn(turn: &MessageTurn, agent_kind: AgentKind) -> bool {
+    if !matches!(turn.role, TurnRole::Assistant) {
+        return false;
+    }
+    match agent_kind {
+        AgentKind::ClaudeCode => turn.agent_message_id.is_some(),
+        AgentKind::Codex => turn_has_non_empty_text(turn),
+        AgentKind::DeepseekHarness => {
+            turn.agent_message_id.is_some() || turn_has_non_empty_text(turn)
+        }
+        _ => false,
+    }
+}
+
+/// Classify a single assistant `turn` for this agent in O(1) without hashing.
+pub fn classify_fork_point_turn(
+    turn: &MessageTurn,
+    agent_kind: AgentKind,
+    fork_session: bool,
+    is_thread_tail: bool,
+) -> ForkPointStatus {
+    if !fork_session {
+        return ForkPointStatus::Unsupported;
+    }
+    if is_thread_tail {
+        return ForkPointStatus::Tail;
+    }
+    if can_name_fork_point_turn(turn, agent_kind) {
+        ForkPointStatus::Named
+    } else {
+        ForkPointStatus::Unnamed
+    }
+}
+
 /// Classify `turn_id` (an assistant message-row id) for this agent.
 pub fn classify_fork_point(
     turns: &[MessageTurn],
@@ -43,11 +86,13 @@ pub fn classify_fork_point(
     if is_thread_tail {
         return ForkPointStatus::Tail;
     }
-    if resolve_fork_point(turns, turn_id, agent_kind).is_some() {
-        ForkPointStatus::Named
-    } else {
-        ForkPointStatus::Unnamed
-    }
+    let Some(turn) = turns
+        .iter()
+        .find(|turn| turn.id == turn_id && matches!(turn.role, TurnRole::Assistant))
+    else {
+        return ForkPointStatus::Unnamed;
+    };
+    classify_fork_point_turn(turn, agent_kind, fork_session, is_thread_tail)
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -108,14 +153,34 @@ fn is_assistant_row_for_turn(turn: &MessageTurn, vibex_turn_id: &str) -> bool {
 }
 
 /// Last assistant bubble of a VibeX Turn, including post-steering segments
-/// (`{turn}:assistant:N`).
+/// (`{turn}:assistant:N`) and JSONL-projected `acp-N` user/assistant rounds.
 fn last_assistant_for_turn<'a>(
     turns: &'a [MessageTurn],
     vibex_turn_id: &str,
 ) -> Option<&'a MessageTurn> {
-    turns
+    if let Some(turn) = turns
         .iter()
         .rfind(|turn| is_assistant_row_for_turn(turn, vibex_turn_id))
+    {
+        return Some(turn);
+    }
+    let idx = turns.iter().position(|turn| turn.id == vibex_turn_id)?;
+    match turns[idx].role {
+        TurnRole::Assistant => Some(&turns[idx]),
+        TurnRole::User => {
+            let mut last_assistant = None;
+            for candidate in &turns[(idx + 1)..] {
+                if matches!(candidate.role, TurnRole::User) && !candidate.id.contains(":steer:") {
+                    break;
+                }
+                if matches!(candidate.role, TurnRole::Assistant) {
+                    last_assistant = Some(candidate);
+                }
+            }
+            last_assistant
+        }
+        TurnRole::System => None,
+    }
 }
 
 /// Name the last assistant bubble of `vibex_turn_id`, or `None` when the
@@ -389,6 +454,35 @@ mod tests {
     }
 
     #[test]
+    fn jsonl_acp_round_resolves_fork_point_from_user_or_assistant_id() {
+        let user_turn = |id: &str| MessageTurn {
+            id: id.into(),
+            role: TurnRole::User,
+            blocks: vec![ContentBlock::Text { text: "q".into() }],
+            timestamp: Utc::now(),
+            usage: None,
+            duration_ms: None,
+            model: None,
+            completed_at: None,
+            agent_message_id: None,
+        };
+        let turns = vec![
+            user_turn("acp-0"),
+            assistant("acp-1", "part 1", Some("msg_1")),
+            user_turn("acp-2:steer:2"),
+            assistant("acp-3", "part 2", Some("msg_2")),
+            user_turn("acp-4"),
+            assistant("acp-5", "round 2", Some("msg_3")),
+        ];
+        let from_user =
+            resolve_fork_point_for_turn(&turns, "acp-0", AgentKind::ClaudeCode).unwrap();
+        assert_eq!(from_user.message_id, "msg_2");
+        let from_assistant =
+            resolve_fork_point_for_turn(&turns, "acp-3", AgentKind::ClaudeCode).unwrap();
+        assert_eq!(from_assistant.message_id, "msg_2");
+    }
+
+    #[test]
     fn classify_tail_even_without_a_name() {
         let turns = vec![assistant("t1:assistant", "hello", None)];
         assert_eq!(
@@ -402,6 +496,31 @@ mod tests {
         assert_eq!(
             classify_fork_point(&turns, "t1:assistant", AgentKind::ClaudeCode, false, true),
             ForkPointStatus::Unsupported
+        );
+    }
+
+    #[test]
+    fn classify_fork_point_turn_matches_agent_naming_rules() {
+        let named_claude = assistant("acp-1", "hello", Some("msg_01"));
+        let unnamed_claude = assistant("acp-1", "hello", None);
+        let textless_codex = assistant("acp-1", "   ", None);
+        let named_codex = assistant("acp-1", "answer", None);
+
+        assert_eq!(
+            classify_fork_point_turn(&named_claude, AgentKind::ClaudeCode, true, false),
+            ForkPointStatus::Named
+        );
+        assert_eq!(
+            classify_fork_point_turn(&unnamed_claude, AgentKind::ClaudeCode, true, false),
+            ForkPointStatus::Unnamed
+        );
+        assert_eq!(
+            classify_fork_point_turn(&textless_codex, AgentKind::Codex, true, false),
+            ForkPointStatus::Unnamed
+        );
+        assert_eq!(
+            classify_fork_point_turn(&named_codex, AgentKind::Codex, true, false),
+            ForkPointStatus::Named
         );
     }
 

@@ -1823,7 +1823,7 @@ export type OfficePluginReadiness = { enabled: boolean, dependency: OfficeCompon
 
 export type OfficePromptBlock = { type: string, text: string, };
 
-export type AgentKind = "claude_code" | "codex" | "opencode" | "antigravity" | "openclaw" | "cline" | "hermes" | "codebuddy" | "kimi_code" | "pi" | "grok" | "cursor" | "deepseek_harness" | "qoder" | "qa_mock";
+export type AgentKind = "claude_code" | "codex" | "opencode" | "antigravity" | "openclaw" | "cline" | "hermes" | "codebuddy" | "kimi_code" | "pi" | "grok" | "cursor" | "deepseek_harness" | "qoder" | "kiro" | "auggie" | "trae" | "command_code" | "qa_mock";
 
 export type AgentDiagnosticView = { id: string, agent_id: AgentId, operation_kind: string, severity: string, message: string, redacted_output: string | null, created_at: string, read: boolean, };
 
@@ -1964,7 +1964,12 @@ export type OpenCodePluginSummaryView = { config_path: string, cache_dir: string
 
 export type OpenCodePluginView = { name: string, declared_spec: string, installed_version: string | null, status: OpenCodePluginStatus, };
 
-export type AgentAuthModeView = { agent_id: AgentId, mode: string, modes: Array<string>, options: Array<AgentAuthModeOptionView>, credential_env: string, credential_present: boolean, account_label?: string, };
+export type AgentAuthModeView = { agent_id: AgentId, mode: string, modes: Array<string>, options: Array<AgentAuthModeOptionView>, credential_env: string, credential_present: boolean, account_label?: string,
+/**
+ * Same-account token for a headless machine. Absent when the Agent has no
+ * such secret, so the settings page does not invent an API-key field.
+ */
+headless_account_env?: string, };
 
 export type AgentModelCatalogItemView = { id: string, label: string, context_window: number | null, reasoning_levels: Array<string>, };
 
@@ -2235,7 +2240,11 @@ export type ConversationTurnErrorKind = "rejected" | "service_error" | "rate_lim
 
 export type ProjectUsageAgentUsage = { agent_id: string, session_count: bigint, tokens: ProjectUsageSourcedTokens, cost?: number | null, };
 
-export type ProjectUsageDailyUsage = { date: string, sessions: bigint, tokens: ProjectUsageSourcedTokens, cost?: number | null, models_used: Array<string>, };
+export type ProjectUsageDailyUsage = { date: string, sessions: bigint, tokens: ProjectUsageSourcedTokens, cost?: number | null, models_used: Array<string>,
+/**
+ * Usage-bearing turns. Missing when no transcript reported a turn count.
+ */
+turns?: bigint | null, };
 
 export type ProjectUsageFolderUsage = { workspace_id: string, folder?: string | null, session_count: bigint, tokens: ProjectUsageSourcedTokens, cost?: number | null, };
 
@@ -2243,7 +2252,11 @@ export type ProjectUsageModelUsage = { model: string, session_count: bigint, tok
 
 export type ProjectUsageProviderStatus = { provider: string, success: boolean, error: string | null, sessions_scanned: bigint, };
 
-export type ProjectUsageSessionSummary = { session_id: string, workspace_id: string, folder?: string | null, agent_id?: string | null, timestamp: bigint, model?: string | null, tokens: ProjectUsageSourcedTokens, context_used?: bigint | null, context_window_max?: bigint | null, cost?: number | null, summary?: string | null, external_session_id?: string | null, };
+export type ProjectUsageSessionSummary = { session_id: string, workspace_id: string, folder?: string | null, agent_id?: string | null, timestamp: bigint, model?: string | null, tokens: ProjectUsageSourcedTokens, context_used?: bigint | null, context_window_max?: bigint | null, cost?: number | null, summary?: string | null, external_session_id?: string | null,
+/**
+ * Usage-bearing turns from a transcript. Missing when none was counted.
+ */
+turns?: bigint | null, };
 
 export type ProjectUsageSourcedTokens = { protocol?: ProjectUsageTokenCounts | null, vendor_log?: ProjectUsageTokenCounts | null, sources_disagree: boolean, };
 

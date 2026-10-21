@@ -38,9 +38,7 @@ pub(crate) fn serialize_tool_call_content(
             // file text (see `diff_block_payload`); its change reaches the
             // card through the synthesized input or not at all.
             ToolCallContent::Diff(diff)
-                if include_diffs
-                    && air_meta_value(diff.meta.as_ref(), "diffPatch")
-                        .is_none() =>
+                if include_diffs && air_meta_value(diff.meta.as_ref(), "diffPatch").is_none() =>
             {
                 let path = diff.path.display();
                 let mut diff_text = format!("--- {path}\n+++ {path}\n");
@@ -195,8 +193,7 @@ pub(crate) fn synthesize_edit_input_from_diffs(content: &[ToolCallContent]) -> O
                 };
                 changes.insert(path.clone(), entry);
             }
-            (!changes.is_empty())
-                .then(|| serde_json::json!({ "changes": changes }).to_string())
+            (!changes.is_empty()).then(|| serde_json::json!({ "changes": changes }).to_string())
         }
     }
 }
@@ -226,9 +223,7 @@ enum DiffBlockPayload {
 /// validates it the way the contract asks: `{version: 1, format: "git_patch",
 /// text}` with at least one `@@` hunk.
 fn diff_block_payload(diff: &agent_client_protocol::schema::v1::Diff) -> Option<DiffBlockPayload> {
-    let Some(patch) =
-        air_meta_value(diff.meta.as_ref(), "diffPatch")
-    else {
+    let Some(patch) = air_meta_value(diff.meta.as_ref(), "diffPatch") else {
         return Some(DiffBlockPayload::Text {
             old: diff.old_text.clone(),
             new: diff.new_text.clone(),
@@ -332,7 +327,9 @@ fn normalize_git_patch(patch: &str, block_path: &str) -> Option<String> {
             if rest.trim_end() == "/dev/null" {
                 out.push("--- /dev/null".to_string());
             } else {
-                let old = renamed_from.clone().unwrap_or_else(|| block_path.to_string());
+                let old = renamed_from
+                    .clone()
+                    .unwrap_or_else(|| block_path.to_string());
                 out.push(format!("--- a/{old}"));
             }
             continue;
@@ -417,9 +414,9 @@ fn c_unquote(inner: &str) -> String {
             i += 2;
             continue;
         }
-        let octal = bytes.get(i + 1..i + 4).filter(|digits| {
-            digits.iter().all(|d| (b'0'..=b'7').contains(d))
-        });
+        let octal = bytes
+            .get(i + 1..i + 4)
+            .filter(|digits| digits.iter().all(|d| (b'0'..=b'7').contains(d)));
         if let Some(digits) = octal {
             let value = digits
                 .iter()
@@ -446,10 +443,7 @@ fn build_new_file_diff(path: &str, new_text: &str) -> String {
     // it keeps the trailing empty segment from a final newline, so the `+N`
     // count and the trailing `+` addition line match exactly.
     let lines: Vec<&str> = new_text.split('\n').collect();
-    let mut out = format!(
-        "--- /dev/null\n+++ b/{path}\n@@ -0,0 +1,{} @@",
-        lines.len()
-    );
+    let mut out = format!("--- /dev/null\n+++ b/{path}\n@@ -0,0 +1,{} @@", lines.len());
     for line in lines {
         out.push('\n');
         out.push('+');
@@ -478,13 +472,8 @@ pub(crate) fn extract_tool_call_images(content: &[ToolCallContent]) -> Option<Ve
             }
         }
     }
-    if imgs.is_empty() {
-        None
-    } else {
-        Some(imgs)
-    }
+    if imgs.is_empty() { None } else { Some(imgs) }
 }
-
 
 pub(crate) fn json_value_to_text(val: &Option<serde_json::Value>) -> Option<String> {
     match val {

@@ -329,8 +329,6 @@ describe('VersionControlSettings', () => {
       screen.getByRole('spinbutton', { name: '更改行数边界' })
     ).toBeDisabled();
 
-    await user.click(screen.getAllByRole('button', { name: '保存' }).at(-1)!);
-
     await waitFor(() => {
       expect(mocks.updateAndSaveConfig).toHaveBeenCalledWith(
         expect.objectContaining({ commit_reminder_enabled: false })
@@ -366,7 +364,7 @@ describe('VersionControlSettings', () => {
     });
     await user.clear(threshold);
     await user.type(threshold, '2500');
-    await user.click(screen.getAllByRole('button', { name: '保存' }).at(-1)!);
+    await user.tab();
 
     await waitFor(() => {
       expect(mocks.updateAndSaveConfig).toHaveBeenCalledWith(

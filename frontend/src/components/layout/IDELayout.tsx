@@ -37,7 +37,7 @@ import {
 } from '@/lib/hostSurfaceIds';
 import { RightPanelSidebar } from '@/components/layout/RightPanelSidebar';
 import { StatusBar } from '@/components/layout/StatusBar';
-import { ProjectLayoutScope } from '@/contexts/ProjectContext';
+import { ProjectLayoutScope, useProject } from '@/contexts/ProjectContext';
 import {
   EDITOR_GROUP_PREFIX,
   GROUP_IDS,
@@ -354,7 +354,7 @@ export function IDELayout({
   toolbarContent,
 }: IDELayoutProps) {
   useAgentLongRunningTerminals();
-  const { projectId, workspaceId, sessionId } = useParams<{
+  const { projectId: routeProjectId, workspaceId, sessionId } = useParams<{
     projectId?: string;
     workspaceId?: string;
     sessionId?: string;
@@ -362,6 +362,8 @@ export function IDELayout({
   const apiRef = useRef<DockviewApi | null>(null);
   const dockviewRootRef = useRef<HTMLDivElement>(null);
   const { activeWorktreeId } = useWorktree();
+  const { projectId: contextProjectId } = useProject();
+  const projectId = contextProjectId ?? routeProjectId;
   const projectKey = getProjectScopeKey(projectId);
   const rememberedWorkspaceId = useProjectViewStateStore(
     (state) => state.kanbanByProject[projectKey]?.lastActiveWorkspaceId ?? null

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Copy,
   ExternalLink,
@@ -31,7 +31,8 @@ import { SETTINGS_CHANGED_EVENT } from '@/lib/frontendPreferences';
 import { openInSystemBrowser } from '@/hooks/useOpenLink';
 import { cn } from '@/lib/utils';
 
-import { SettingsActionBar, SettingsSection } from './SettingsUi';
+import { SettingsSection } from './SettingsUi';
+import { useLiveSettingsCommit } from './useLiveSettingsCommit';
 import { DevicePairingPanel } from './DevicePairingPanel';
 import { HostTunnelPanel } from './HostTunnelPanel';
 import { presentRemoteAccess, type RemoteAccessRowKind } from './hostEndpoints';
@@ -55,6 +56,10 @@ function sameConfig(a: WebServiceConfig, b: WebServiceConfig): boolean {
   return JSON.stringify(a) === JSON.stringify(b);
 }
 
+function validPort(port: number): boolean {
+  return Number.isInteger(port) && port >= 1 && port <= 65535;
+}
+
 export function WebServiceSettings({
   transport: transportOverride,
 }: {
@@ -65,6 +70,8 @@ export function WebServiceSettings({
   const { t } = useTranslation(['settings', 'common']);
   const [config, setConfig] = useState<WebServiceConfig>(DEFAULT_CONFIG);
   const [draft, setDraft] = useState<WebServiceConfig>(DEFAULT_CONFIG);
+  const draftRef = useRef(draft);
+  draftRef.current = draft;
   const [status, setStatus] = useState<WebServerStatus | null>(null);
   const [probe, setProbe] = useState<PortProbeResult | null>(null);
   const [loading, setLoading] = useState(true);
@@ -78,8 +85,36 @@ export function WebServiceSettings({
     hostConsole && boundToRemote ? 'client' : 'server'
   );
   const serviceRunning = Boolean(status?.running);
+  const { writeNow, writeSettled, flush, holdingRef } = useLiveSettingsCommit(
+    async (next: WebServiceConfig) => {
+      if (!validPort(next.port)) return;
+      try {
+        const saved = await webServiceApi.updateConfig(next);
+        setConfig(saved);
+        setDraft((current) => {
+          if (!sameConfig(current, next)) return current;
+          draftRef.current = saved;
+          return saved;
+        });
+        setProbe(null);
+        setStatus(await webServiceApi.getStatus());
+      } catch (error) {
+        toast.error(
+          error instanceof Error
+            ? error.message
+            : t('webService.configSaveFailed')
+        );
+      }
+    }
+  );
+  const commitDraft = (next: WebServiceConfig, settle = false) => {
+    draftRef.current = next;
+    setDraft(next);
+    if (!validPort(next.port)) return;
+    if (settle) writeSettled(next);
+    else writeNow(next);
+  };
 
-  const dirty = useMemo(() => !sameConfig(config, draft), [config, draft]);
   const accessRows = useMemo(
     () =>
       presentRemoteAccess({
@@ -133,7 +168,10 @@ export function WebServiceSettings({
           webServiceApi.getStatus(),
         ]);
         setConfig(savedConfig);
-        setDraft(savedConfig);
+        if (!holdingRef.current) {
+          draftRef.current = savedConfig;
+          setDraft(savedConfig);
+        }
         const lanMissing =
           currentStatus.running &&
           savedConfig.allow_lan &&
@@ -152,7 +190,7 @@ export function WebServiceSettings({
         setLoading(false);
       }
     },
-    [boundToRemote, hostConsole, t]
+    [boundToRemote, holdingRef, hostConsole, t]
   );
 
   useEffect(() => {
@@ -165,12 +203,12 @@ export function WebServiceSettings({
 
   useEffect(() => {
     const reloadFromJson = () => {
-      if (!dirty) void load(false);
+      if (!holdingRef.current) void load(false);
     };
     window.addEventListener(SETTINGS_CHANGED_EVENT, reloadFromJson);
     return () =>
       window.removeEventListener(SETTINGS_CHANGED_EVENT, reloadFromJson);
-  }, [dirty, load]);
+  }, [holdingRef, load]);
 
   const refreshStatus = useCallback(async () => {
     setStatusBusy(true);
@@ -187,50 +225,18 @@ export function WebServiceSettings({
     }
   }, [t]);
 
-  const saveConfig = useCallback(async () => {
-    setSaving(true);
-    try {
-      const saved = await webServiceApi.updateConfig(draft);
-      setConfig(saved);
-      setDraft(saved);
-      setProbe(null);
-      setStatus(await webServiceApi.getStatus());
-      toast.success(t('webService.configSaved'));
-    } catch (error) {
-      toast.error(
-        error instanceof Error
-          ? error.message
-          : t('webService.configSaveFailed')
-      );
-    } finally {
-      setSaving(false);
-    }
-  }, [draft, t]);
-
-  const discard = useCallback(() => {
-    setDraft(config);
-    setProbe(null);
-  }, [config]);
-
-  useEffect(() => {
-    if (!dirty) return;
-    const timer = window.setTimeout(() => {
-      void saveConfig();
-    }, 500);
-    return () => window.clearTimeout(timer);
-  }, [dirty, saveConfig]);
-
   const startServer = useCallback(async () => {
-    if (dirty) {
-      await saveConfig();
-    }
+    await flush();
 
     setStatusBusy(true);
     try {
       const next = await webServiceApi.start();
       const saved = await webServiceApi.getConfig();
       setConfig(saved);
-      setDraft(saved);
+      if (!holdingRef.current) {
+        draftRef.current = saved;
+        setDraft(saved);
+      }
       setStatus(next);
       toast.success(t('webService.started'));
       return next;
@@ -242,7 +248,7 @@ export function WebServiceSettings({
     } finally {
       setStatusBusy(false);
     }
-  }, [dirty, saveConfig, t]);
+  }, [flush, holdingRef, t]);
 
   const stopServer = useCallback(async () => {
     setStatusBusy(true);
@@ -290,7 +296,11 @@ export function WebServiceSettings({
     try {
       const saved = await webServiceApi.generateToken();
       setConfig(saved);
-      setDraft((previous) => ({ ...previous, token: saved.token }));
+      setDraft((previous) => {
+        const next = { ...previous, token: saved.token };
+        draftRef.current = next;
+        return next;
+      });
       toast.success(t('webService.tokenGenerated'));
     } catch (error) {
       toast.error(
@@ -473,13 +483,12 @@ export function WebServiceSettings({
                     type="number"
                     min={1}
                     max={65535}
-                    value={draft.port}
-                    onChange={(event) =>
-                      setDraft((previous) => ({
-                        ...previous,
-                        port: Number(event.target.value),
-                      }))
-                    }
+                    value={draft.port || ''}
+                    onChange={(event) => {
+                      const port = Number(event.target.value);
+                      commitDraft({ ...draftRef.current, port }, true);
+                    }}
+                    onBlur={() => void flush()}
                   />
                   <Button
                     variant="outline"
@@ -532,10 +541,7 @@ export function WebServiceSettings({
                   className="settings-switch"
                   checked={draft.auto_start}
                   onCheckedChange={(checked: boolean) =>
-                    setDraft((previous) => ({
-                      ...previous,
-                      auto_start: checked,
-                    }))
+                    commitDraft({ ...draftRef.current, auto_start: checked })
                   }
                 />
               </div>
@@ -554,10 +560,7 @@ export function WebServiceSettings({
                   className="settings-switch"
                   checked={Boolean(draft.allow_lan)}
                   onCheckedChange={(checked: boolean) =>
-                    setDraft((previous) => ({
-                      ...previous,
-                      allow_lan: checked,
-                    }))
+                    commitDraft({ ...draftRef.current, allow_lan: checked })
                   }
                 />
               </div>
@@ -605,11 +608,12 @@ export function WebServiceSettings({
                     type={tokenRevealed ? 'text' : 'password'}
                     value={draft.token ?? ''}
                     onChange={(value) =>
-                      setDraft((previous) => ({
-                        ...previous,
-                        token: value || null,
-                      }))
+                      commitDraft(
+                        { ...draftRef.current, token: value || null },
+                        true
+                      )
                     }
+                    onBlur={() => void flush()}
                     placeholder={t('webService.tokenPlaceholder')}
                     width="100%"
                     className="[&_input]:font-mono"
@@ -722,17 +726,6 @@ export function WebServiceSettings({
             </SettingsSection>
           ) : null}
         </div>
-      ) : null}
-
-      {role === 'server' && !boundToRemote ? (
-        <SettingsActionBar
-          dirty={dirty}
-          saving={saving}
-          onDiscard={discard}
-          onSave={() => void saveConfig()}
-          disabled={saving}
-          message={t('webService.actionBarMessage')}
-        />
       ) : null}
     </div>
   );

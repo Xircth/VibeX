@@ -45,6 +45,15 @@ pub async fn emit_conversation_row_ops_after(
     conversation_id: Uuid,
     after_sequence: i64,
 ) {
+    emit_conversation_row_ops_after_inner(projectors, pool, conversation_id, after_sequence).await;
+}
+
+async fn emit_conversation_row_ops_after_inner(
+    projectors: &ConversationRowProjectors,
+    pool: &SqlitePool,
+    conversation_id: Uuid,
+    after_sequence: i64,
+) {
     // Cursor read, tail read, projector load and fold all happen inside one critical
     // section. Splitting them let two publishers disagree on the cursor: the one that
     // won the map insert loaded its projector *at* the other's first unpublished
@@ -112,7 +121,7 @@ pub async fn emit_conversation_row_ops_after(
     let should_emit = {
         let entry = map.get_mut(&conversation_id).expect("projector present");
         entry.touch();
-        let previous_sequence = entry.db_cursor;
+        let previous_sequence = entry.last_emitted_sequence;
         for record in &new_records {
             match entry.apply_persisted(record) {
                 Ok(Some(record_ops)) => {
@@ -203,8 +212,8 @@ pub async fn emit_conversation_row_ops_after(
 }
 
 /// Fold one transcript delta that was not inserted. The database cursor stays
-/// put, and the batch reports that cursor so a later file refresh can replace
-/// the window once streaming text has settled.
+/// put, and the batch reports `last_emitted_sequence` for both `previous_sequence`
+/// and `last_sequence` so empty persisted records never cause a sequence gap.
 pub async fn emit_unpersisted_row_op(
     projectors: &ConversationRowProjectors,
     pool: &SqlitePool,
@@ -227,7 +236,7 @@ pub async fn emit_unpersisted_row_op(
     let cursor = {
         let entry = map.get_mut(&conversation_id).expect("projector present");
         entry.touch();
-        let cursor = entry.db_cursor;
+        let cursor = entry.last_emitted_sequence;
         match entry.apply_unpersisted(record) {
             Ok(record_ops) => conversations::extend_coalesced_row_ops(&mut ops, record_ops),
             Err(error) => {
@@ -860,5 +869,203 @@ mod tests {
         assert!(!super::is_local_desktop_event_target(
             &EventTarget::webview_window("settings-host-abc")
         ));
+    }
+
+    #[tokio::test]
+    async fn desktop_publisher_previous_sequence_tracks_last_emitted_sequence_across_empty_records()
+    {
+        use std::{str::FromStr, sync::Arc};
+
+        use agents::conversation::{ConversationInputBlock, ConversationRowOpBatch};
+        use conversations::ConversationRowProjectors;
+        use db::models::{
+            conversation_event::{AppendConversationEvent, ConversationEventRecord},
+            conversation_turn::{ConversationTurnRecord, CreateConversationTurn},
+        };
+        use server::HostEventBus;
+        use sqlx::sqlite::{SqliteConnectOptions, SqlitePoolOptions};
+        use uuid::Uuid;
+
+        crate::host_bus::install(Arc::new(HostEventBus::new()));
+        let bus = crate::host_bus::bus();
+        let mut rx = bus.subscribe();
+
+        let options = SqliteConnectOptions::from_str("sqlite::memory:")
+            .expect("sqlite memory options")
+            .foreign_keys(false);
+        let pool = SqlitePoolOptions::new()
+            .max_connections(1)
+            .connect_with(options)
+            .await
+            .expect("connect sqlite memory pool");
+        sqlx::migrate!("../crates/db/migrations")
+            .run(&pool)
+            .await
+            .expect("migrations");
+        sqlx::query("PRAGMA foreign_keys = OFF")
+            .execute(&pool)
+            .await
+            .expect("disable fk");
+
+        let projectors = ConversationRowProjectors::default();
+        let conversation_id = Uuid::new_v4();
+        let turn_id = Uuid::new_v4();
+        ConversationTurnRecord::create_pending(
+            &pool,
+            turn_id,
+            CreateConversationTurn {
+                conversation_id,
+                prompt_id: None,
+                text_preview: Some("hello"),
+                input_blocks_json: "[]",
+            },
+        )
+        .await
+        .expect("create pending turn");
+        let channel = format!("{}:{conversation_id}", super::channels::CONVERSATION_EVENTS);
+
+        let json1 = serde_json::to_string(&ConversationEvent::UserTurnCreated {
+            blocks: vec![ConversationInputBlock::Text {
+                text: "hello".to_string(),
+            }],
+            workflow_refs: Vec::new(),
+        })
+        .expect("serialize event");
+        ConversationEventRecord::append(
+            &pool,
+            AppendConversationEvent {
+                id: Uuid::new_v4(),
+                conversation_id,
+                turn_id: Some(turn_id),
+                binding_id: None,
+                connection_id: None,
+                prompt_id: None,
+                source: "acp",
+                event_kind: "user_turn_created",
+                normalized_json: &json1,
+                raw_json: None,
+                idempotency_key: None,
+            },
+        )
+        .await
+        .expect("append seq 1");
+
+        super::emit_conversation_row_ops_after_inner(&projectors, &pool, conversation_id, 0).await;
+
+        let mut first_batches = Vec::new();
+        while let Ok(evt) = rx.try_recv() {
+            if evt.channel == channel {
+                let batch: ConversationRowOpBatch =
+                    serde_json::from_value(evt.payload).expect("decode batch");
+                first_batches.push(batch);
+            }
+        }
+        assert_eq!(first_batches.len(), 1);
+        assert_eq!(first_batches[0].previous_sequence, Some(0));
+        assert_eq!(first_batches[0].last_sequence, 1);
+
+        let json2 = serde_json::to_string(&ConversationEvent::RawDiagnosticRecorded {
+            label: "user_message_acknowledged".to_string(),
+            payload: None,
+        })
+        .expect("serialize event");
+        ConversationEventRecord::append(
+            &pool,
+            AppendConversationEvent {
+                id: Uuid::new_v4(),
+                conversation_id,
+                turn_id: Some(turn_id),
+                binding_id: None,
+                connection_id: None,
+                prompt_id: None,
+                source: "acp",
+                event_kind: "raw_diagnostic_recorded",
+                normalized_json: &json2,
+                raw_json: None,
+                idempotency_key: None,
+            },
+        )
+        .await
+        .expect("append seq 2");
+
+        super::emit_conversation_row_ops_after_inner(&projectors, &pool, conversation_id, 1).await;
+        while let Ok(evt) = rx.try_recv() {
+            assert_ne!(evt.channel, channel, "empty ops record must not emit batch");
+        }
+
+        let unpersisted = ConversationEventRecord {
+            id: Uuid::new_v4(),
+            conversation_id,
+            turn_id: Some(turn_id),
+            binding_id: None,
+            connection_id: None,
+            prompt_id: None,
+            sequence: 2,
+            source: "acp".to_string(),
+            event_kind: "assistant_text_delta".to_string(),
+            event_version: 1,
+            normalized_json: serde_json::to_string(&ConversationEvent::AssistantTextDelta {
+                text: "streaming chunk".to_string(),
+                message_id: None,
+            })
+            .expect("serialize delta"),
+            raw_json: None,
+            idempotency_key: None,
+            created_at: chrono::Utc::now(),
+        };
+        super::emit_unpersisted_row_op(&projectors, &pool, &unpersisted).await;
+
+        let mut unpersisted_batches = Vec::new();
+        while let Ok(evt) = rx.try_recv() {
+            if evt.channel == channel {
+                let batch: ConversationRowOpBatch =
+                    serde_json::from_value(evt.payload).expect("decode batch");
+                unpersisted_batches.push(batch);
+            }
+        }
+        assert_eq!(unpersisted_batches.len(), 1);
+        assert_eq!(
+            unpersisted_batches[0].previous_sequence,
+            Some(unpersisted_batches[0].last_sequence)
+        );
+        assert_eq!(unpersisted_batches[0].last_sequence, 1);
+
+        let json3 = serde_json::to_string(&ConversationEvent::TurnCompleted { stop_reason: None })
+            .expect("serialize event");
+        ConversationEventRecord::append(
+            &pool,
+            AppendConversationEvent {
+                id: Uuid::new_v4(),
+                conversation_id,
+                turn_id: Some(turn_id),
+                binding_id: None,
+                connection_id: None,
+                prompt_id: None,
+                source: "acp",
+                event_kind: "turn_completed",
+                normalized_json: &json3,
+                raw_json: None,
+                idempotency_key: None,
+            },
+        )
+        .await
+        .expect("append seq 3");
+
+        super::emit_conversation_row_ops_after_inner(&projectors, &pool, conversation_id, 2).await;
+
+        let mut final_batches = Vec::new();
+        while let Ok(evt) = rx.try_recv() {
+            if evt.channel == channel {
+                let batch: ConversationRowOpBatch =
+                    serde_json::from_value(evt.payload).expect("decode batch");
+                final_batches.push(batch);
+            }
+        }
+        assert_eq!(final_batches.len(), 1);
+        assert_eq!(
+            final_batches[0].previous_sequence,
+            Some(first_batches[0].last_sequence)
+        );
+        assert_eq!(final_batches[0].last_sequence, 3);
     }
 }

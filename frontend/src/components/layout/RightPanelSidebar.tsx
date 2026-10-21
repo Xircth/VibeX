@@ -1,12 +1,14 @@
 import { useTranslation } from 'react-i18next';
 import {
   Terminal,
+  ClipboardList,
   List,
   GitCompareArrows,
   StickyNote,
   Puzzle,
 } from 'lucide-react';
 import { usePanelActionsContext } from '@/contexts/PanelActionsContext';
+import { PANEL_IDS } from '@/stores/useLayoutStore';
 import {
   contributionMetadata,
   usePluginHostContributions,
@@ -31,8 +33,13 @@ function RightPanelSidebarContent({
   sessionId?: string;
 }) {
   const { t } = useTranslation(['panels', 'common']);
-  const { openNewTerminal, openDiffPreview, openNotes, openPluginPanel } =
-    usePanelActionsContext();
+  const {
+    openNewTerminal,
+    openDiffPreview,
+    openNotes,
+    openOrFocusPanel,
+    openPluginPanel,
+  } = usePanelActionsContext();
   const railSections = usePluginHostContributions('app_rail_section');
 
   const buttons = [
@@ -40,6 +47,15 @@ function RightPanelSidebarContent({
       icon: Terminal,
       label: t('rightPanelSidebar.openTerminal'),
       onClick: openNewTerminal,
+    },
+    {
+      icon: ClipboardList,
+      label: t('rightPanelSidebar.sessionDetails'),
+      onClick: () =>
+        openOrFocusPanel(
+          PANEL_IDS.SESSION_DETAILS,
+          t('rightPanelSidebar.sessionDetails')
+        ),
     },
     {
       icon: List,

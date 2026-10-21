@@ -231,12 +231,6 @@ impl ConversationAgentEventRecorder {
                     let record = ephemeral_record(&mapped, &normalized_json);
                     publisher.publish_unpersisted(&record).await;
                 }
-                crate::jsonl_history::mirror_appended_event(
-                    &self.pool,
-                    mapped.conversation_id,
-                    &mapped.event,
-                )
-                .await;
                 continue;
             }
             let Some(record) = append_mapped_event(&self.pool, &mapped, &normalized_json).await?
@@ -267,17 +261,11 @@ impl ConversationAgentEventRecorder {
                 batch.events.push(file_event);
             }
 
-            // Publish only after the terminal checkpoint append. The desktop
-            // publisher reads the durable tail, so one publication includes both.
+            // Publish only after the terminal checkpoint append.
+            // The desktop publisher reads the durable tail, so one publication includes both.
             if let Some(publisher) = &self.event_publisher {
                 publisher.publish(&record).await;
             }
-            crate::jsonl_history::mirror_appended_event(
-                &self.pool,
-                mapped.conversation_id,
-                &mapped.event,
-            )
-            .await;
 
             // A terminal Turn makes the conversation idle. Pump the next durable
             // input on a separate task: this recorder owns the Agent event
@@ -832,7 +820,7 @@ fn map_agent_event(
             tool_call: ConversationToolCallPatch {
                 tool_call_id: tool_call.id.clone(),
                 title: Some(tool_call.title.clone()),
-                kind: tool_call.kind.clone(),
+                kind: tool_call.kind.clone().or_else(|| Some("other".to_string())),
                 status: tool_call
                     .status
                     .clone()

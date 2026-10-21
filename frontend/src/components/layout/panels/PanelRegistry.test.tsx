@@ -243,6 +243,7 @@ describe('WorkspaceDockviewTab', () => {
     [PANEL_IDS.DIFFS, 'diff'],
     [PANEL_IDS.TERMINAL, 'terminal'],
     [PANEL_IDS.NOTES, 'note'],
+    [PANEL_IDS.SESSION_DETAILS, 'session-details'],
     [PANEL_IDS.GIT, 'git'],
     [PANEL_IDS.MERGE, 'merge'],
   ])('renders the %s panel icon', (component, iconKind) => {

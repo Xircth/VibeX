@@ -79,11 +79,23 @@ describe('describeWindowLabel', () => {
     expect(describeWindowLabel(window({ id: 'monthly' }))).toEqual({
       key: 'windowMonthly',
     });
+    expect(describeWindowLabel(window({ id: 'rolling' }))).toEqual({
+      key: 'windowRolling',
+    });
     expect(describeWindowLabel(window({ id: 'cursor_models' }))).toEqual({
       key: 'windowCursorModels',
     });
     expect(describeWindowLabel(window({ id: 'other_models' }))).toEqual({
       key: 'windowOtherModels',
+    });
+    expect(describeWindowLabel(window({ id: 'gemini_five_hour' }))).toEqual({
+      key: 'windowGeminiFiveHour',
+    });
+    expect(describeWindowLabel(window({ id: 'claude_gpt_weekly' }))).toEqual({
+      key: 'windowClaudeGptWeekly',
+    });
+    expect(describeWindowLabel(window({ id: 'argon_five_hour' }))).toEqual({
+      key: 'windowArgonFiveHour',
     });
   });
 

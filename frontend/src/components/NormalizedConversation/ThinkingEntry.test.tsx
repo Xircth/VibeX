@@ -99,28 +99,31 @@ describe('ThinkingEntry', () => {
     );
   });
 
-  it('caps thinking content at 100 lines, hides the scrollbar, and disables inner scroll while streaming', () => {
+  it('caps thinking and folds at 100 lines and hides their scrollbars', () => {
     expect(convToolsStyles).toMatch(
       /\.conv-thinking-content\s*\{[^}]*max-height:\s*100lh;[^}]*overflow-y:\s*auto;/
     );
     expect(convToolsStyles).toMatch(
-      /\.conv-thinking-content\s*\{[^}]*overscroll-behavior:\s*contain;/
-    );
-    expect(convToolsStyles).toMatch(
       /\.conv-thinking-content\s*\{[^}]*scrollbar-width:\s*none;/
     );
-    expect(convToolsStyles).toMatch(
-      /\.conv-thinking-streaming\s+\.conv-thinking-content\s*\{[^}]*overflow:\s*hidden;/
+    expect(convToolsStyles).not.toMatch(
+      /\.conv-thinking-streaming\s+\.conv-thinking-content\s*\{[^}]*overflow:\s*hidden/
+    );
+    expect(convToolsStyles).not.toMatch(
+      /\.conv-thinking-content\s*\{[^}]*overscroll-behavior:\s*contain/
     );
     expect(convToolsStyles).toMatch(
-      /\.conv-nested-scroll\s*\{[^}]*max-height:\s*100lh;[^}]*overflow-y:\s*auto;[^}]*overscroll-behavior:\s*contain;/
+      /\.conv-nested-scroll\s*\{[^}]*max-height:\s*100lh;[^}]*overflow-y:\s*auto;[^}]*scrollbar-width:\s*none;/
+    );
+    expect(convToolsStyles).not.toMatch(
+      /\.conv-nested-scroll\s*\{[^}]*overscroll-behavior:\s*contain/
     );
     expect(convToolsStyles).toMatch(
       /\.astryx-chat-tool-calls\s+\[role='button'\]\[aria-expanded='true'\]\s*\+\s*div\s*\{[^}]*max-height:\s*100lh;/
     );
   });
 
-  it('does not hijack wheel pixels while thinking is streaming', () => {
+  it('scrolls streaming thinking up to its cap before the conversation', () => {
     const { container } = render(
       <div data-panel="conversation-logs">
         <ThinkingEntry
@@ -131,15 +134,36 @@ describe('ThinkingEntry', () => {
       </div>
     );
     const scroller = container.firstElementChild as HTMLDivElement;
+    let conversationTop = 12;
     Object.defineProperty(scroller, 'scrollTop', {
-      writable: true,
-      value: 12,
+      configurable: true,
+      get: () => conversationTop,
+      set: (value: number) => {
+        conversationTop = value;
+      },
     });
     const content = container.querySelector(
       '.conv-thinking-content'
     ) as HTMLDivElement;
+    let contentTop = 40;
+    Object.defineProperty(content, 'scrollTop', {
+      configurable: true,
+      get: () => contentTop,
+      set: (value: number) => {
+        contentTop = value;
+      },
+    });
+    Object.defineProperty(content, 'clientHeight', {
+      configurable: true,
+      value: 100,
+    });
+    Object.defineProperty(content, 'scrollHeight', {
+      configurable: true,
+      value: 400,
+    });
     fireEvent.wheel(content, { deltaY: 48 });
-    expect(scroller.scrollTop).toBe(12);
+    expect(contentTop).toBe(88);
+    expect(conversationTop).toBe(12);
   });
 
   it('does not hijack wheel pixels when finished thinking does not overflow', () => {
@@ -196,15 +220,20 @@ describe('ThinkingEntry', () => {
     ) as HTMLDivElement;
     Object.defineProperty(content, 'clientHeight', { value: 100 });
     Object.defineProperty(content, 'scrollHeight', { value: 400 });
+    let contentTop = 40;
     Object.defineProperty(content, 'scrollTop', {
-      writable: true,
-      value: 40,
+      configurable: true,
+      get: () => contentTop,
+      set: (value: number) => {
+        contentTop = value;
+      },
     });
     fireEvent.wheel(content, { deltaY: 48 });
+    expect(contentTop).toBe(88);
     expect(scroller.scrollTop).toBe(12);
   });
 
-  it('chains finished thinking to the conversation at the bottom edge', () => {
+  it('releases the wheel to the conversation once thinking is at its edge', () => {
     render(
       <div data-panel="conversation-logs">
         <ThinkingEntry
@@ -234,7 +263,8 @@ describe('ThinkingEntry', () => {
       value: 300,
     });
     fireEvent.wheel(content, { deltaY: 48 });
-    expect(scroller.scrollTop).toBe(60);
+    expect(content.scrollTop).toBe(300);
+    expect(scroller.scrollTop).toBe(12);
   });
 
   it('forwards overflowing thinking at an edge to the tool fold before the conversation', () => {

@@ -246,6 +246,7 @@ describe('KanbanUsageDashboard', () => {
           tokens: sourced(100),
           cost: 0.12,
           models_used: ['claude-sonnet-4'],
+          turns: 4,
         },
       ],
       weekly_comparison: {
@@ -283,6 +284,18 @@ describe('KanbanUsageDashboard', () => {
           cost: 0.04,
           tokens: sourced(40),
           session_count: 1,
+        },
+        {
+          model: 'opus',
+          cost: 9,
+          tokens: sourced(900),
+          session_count: 9,
+        },
+        {
+          model: 'fable',
+          cost: 8,
+          tokens: sourced(800),
+          session_count: 8,
         },
         {
           model: 'llama-4',
@@ -341,7 +354,9 @@ describe('KanbanUsageDashboard', () => {
         .closest('.kanban-usage-summary__ring')
     ).not.toBeNull();
     expect(within(summary).queryByText('缓存命中率')).not.toBeInTheDocument();
-    expect(within(summary).queryByText(/80\s*缓存读取/)).not.toBeInTheDocument();
+    expect(
+      within(summary).queryByText(/80\s*缓存读取/)
+    ).not.toBeInTheDocument();
     expect(
       within(summary).getByRole('heading', { name: 'Token统计与缓存率' })
     ).toBeVisible();
@@ -377,9 +392,17 @@ describe('KanbanUsageDashboard', () => {
     expect(within(summary).getByText('15:00 - 16:00')).toBeVisible();
     expect(within(summary).getByText('日均 Token 用量')).toBeVisible();
     expect(within(summary).getByText('125')).toBeVisible();
-    expect(within(summary).getByText('仅活跃日期')).toBeVisible();
+    expect(within(summary).queryByText('仅活跃日期')).not.toBeInTheDocument();
     expect(within(summary).getByText('最爱用的 Agent')).toBeVisible();
-    expect(within(summary).getByText('claude_code')).toBeVisible();
+    const favoriteTile = within(summary)
+      .getByText('最爱用的 Agent')
+      .closest('div.rounded-lg') as HTMLElement;
+    const favoriteName = within(favoriteTile).getByText('Claude Code', {
+      selector: 'span',
+    });
+    expect(favoriteName).toBeVisible();
+    expect(favoriteName.closest('strong')?.querySelector('svg')).not.toBeNull();
+    expect(within(summary).queryByText('claude_code')).not.toBeInTheDocument();
     expect(within(summary).getByText('最爱用的模型')).toBeVisible();
     expect(within(summary).getByText('claude-sonnet-4')).toBeVisible();
 
@@ -418,6 +441,8 @@ describe('KanbanUsageDashboard', () => {
       modelsCard.querySelector('.kanban-usage-ranking-list')
     ).not.toBeNull();
     expect(within(modelsCard).getByText('llama-4')).toBeInTheDocument();
+    expect(within(modelsCard).queryByText('opus')).toBeNull();
+    expect(within(modelsCard).queryByText('fable')).toBeNull();
     expect(within(modelsCard).getByText('1')).toHaveClass('kanban-rank-first');
     expect(within(modelsCard).getByText('2')).toHaveClass('kanban-rank-second');
     expect(within(modelsCard).getByText('3')).toHaveClass('kanban-rank-third');
@@ -428,7 +453,9 @@ describe('KanbanUsageDashboard', () => {
     const agentsCard = agentsHeading.closest('section');
     expect(projectsCard?.parentElement).toBe(agentsCard?.parentElement);
     expect(projectsCard?.nextElementSibling).toBe(agentsCard);
-    expect(within(projectsCard as HTMLElement).getByText('/repo')).toBeVisible();
+    expect(
+      within(projectsCard as HTMLElement).getByText('/repo')
+    ).toBeVisible();
     expect(
       within(agentsCard as HTMLElement).getByText('claude_code')
     ).toBeVisible();
@@ -459,8 +486,15 @@ describe('KanbanUsageDashboard', () => {
     expect(within(trendTooltip).getByText('40')).toBeVisible();
     expect(within(trendTooltip).getByText('新算 Token')).toBeVisible();
     expect(within(trendTooltip).getByText('60')).toBeVisible();
-    expect(within(trendTooltip).getByText('趋势折线')).toBeVisible();
-    expect(within(trendTooltip).getByText('$0.1200')).toBeVisible();
+    expect(within(trendTooltip).getByText('轮次')).toBeVisible();
+    expect(within(trendTooltip).getByText('4')).toBeVisible();
+    expect(within(trendTooltip).getByText('会话')).toBeVisible();
+    expect(within(trendTooltip).getByText('1')).toBeVisible();
+    expect(within(trendTooltip).queryByText('趋势折线')).toBeNull();
+    expect(within(trendTooltip).queryByText('$0.1200')).toBeNull();
+    const trendLegend = screen.getByText('趋势折线').parentElement;
+    expect(trendLegend?.querySelector('[class*="amber"]')).toBeNull();
+    expect(trendLegend?.innerHTML).toContain('--usage-blue-fg');
     fireEvent.mouseLeave(dailyBar);
 
     const heatmapCell = screen.getByRole('img', {
@@ -478,9 +512,7 @@ describe('KanbanUsageDashboard', () => {
     fireEvent.click(folderButton);
     expect(folderButton).toHaveAttribute('aria-expanded', 'true');
     expect(screen.getByText('平均日 Token')).toBeVisible();
-    expect(
-      screen.getByRole('heading', { name: 'Token 构成' })
-    ).toBeVisible();
+    expect(screen.getByRole('heading', { name: 'Token 构成' })).toBeVisible();
   });
 
   it('resolves Grok cost and falls back to protocol tokens when vendor_log has empty token counts', async () => {
@@ -780,9 +812,7 @@ describe('KanbanUsageDashboard', () => {
         '250'
       )
     ).toHaveLength(2);
-    expect(
-      screen.queryByText(/协议 .* · 厂商日志/)
-    ).not.toBeInTheDocument();
+    expect(screen.queryByText(/协议 .* · 厂商日志/)).not.toBeInTheDocument();
     expect(
       screen.queryByText(/条厂商日志未能对齐到任何会话/)
     ).not.toBeInTheDocument();
@@ -903,9 +933,7 @@ describe('KanbanUsageDashboard', () => {
     });
 
     expect(within(windowsGrid).getByText('5 小时窗口')).toBeVisible();
-    expect(
-      within(windowsGrid).getByText('每周窗口（全部模型）')
-    ).toBeVisible();
+    expect(within(windowsGrid).getByText('每周窗口（全部模型）')).toBeVisible();
     expect(within(windowsGrid).getByText('每月窗口')).toBeVisible();
 
     const progressBars = within(windowsGrid).getAllByRole('progressbar');

@@ -773,7 +773,7 @@ impl ServerApplicationDomains {
                         .collect::<Vec<_>>(),
                 )
             }
-            DomainCommand::AgentPlanUsage => read_agent_plan_usage(args).await,
+            DomainCommand::AgentPlanUsage => read_agent_plan_usage(Some(&self.pool), args).await,
             DomainCommand::FrontendPreferencesGet => {
                 let prefs: serde_json::Map<String, Value> =
                     read_section(&utils::assets::settings_path(), "frontend")
@@ -1475,11 +1475,18 @@ fn repo_remote(
     }
 }
 
-async fn read_agent_plan_usage(args: Value) -> Result<Value, ApplicationError> {
+async fn read_agent_plan_usage(
+    pool: Option<&sqlx::SqlitePool>,
+    args: Value,
+) -> Result<Value, ApplicationError> {
     let args: AgentIdArgs = parse_payload_or_value(args)?;
     let agent_id = AgentId::parse(&args.agent_id)
         .map_err(|error| ApplicationError::bad_request(error.to_string()))?;
-    serialize(AgentPlanUsageApplicationService::read(&agent_id).await)
+    let result = match pool {
+        Some(pool) => AgentPlanUsageApplicationService::read_with_pool(pool, &agent_id).await,
+        None => AgentPlanUsageApplicationService::read(&agent_id).await,
+    };
+    serialize(result)
 }
 
 fn parse_payload_or_value<T: serde::de::DeserializeOwned>(
@@ -1646,7 +1653,7 @@ mod tests {
 
     #[tokio::test]
     async fn unsupported_agent_returns_typed_unavailable_not_null() {
-        let value = read_agent_plan_usage(json!({ "agentId": "gemini" }))
+        let value = read_agent_plan_usage(None, json!({ "agentId": "gemini" }))
             .await
             .expect("plan usage");
         assert_eq!(
@@ -1660,7 +1667,7 @@ mod tests {
 
     #[tokio::test]
     async fn payload_wrapped_agent_id_is_accepted() {
-        let value = read_agent_plan_usage(json!({ "payload": { "agentId": "gemini" } }))
+        let value = read_agent_plan_usage(None, json!({ "payload": { "agentId": "gemini" } }))
             .await
             .expect("plan usage");
         assert_eq!(value["type"], "UNAVAILABLE");

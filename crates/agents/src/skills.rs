@@ -84,7 +84,8 @@ pub fn skills_surface(agent_type: AgentKind) -> AgentSkillsSurface {
         | AgentKind::Grok
         | AgentKind::Cursor
         | AgentKind::DeepseekHarness
-        | AgentKind::Qoder => AgentSkillsSurface {
+        | AgentKind::Qoder
+        | AgentKind::CommandCode => AgentSkillsSurface {
             agent_type,
             strategy: AgentSkillsStrategy::Directory,
             global_supported: true,
@@ -96,17 +97,19 @@ pub fn skills_surface(agent_type: AgentKind) -> AgentSkillsSurface {
             global_supported: true,
             project_supported: false,
         },
-        AgentKind::QaMock => AgentSkillsSurface {
-            agent_type,
-            strategy: AgentSkillsStrategy::Unsupported,
-            global_supported: false,
-            project_supported: false,
-        },
+        AgentKind::Kiro | AgentKind::Auggie | AgentKind::Trae | AgentKind::QaMock => {
+            AgentSkillsSurface {
+                agent_type,
+                strategy: AgentSkillsStrategy::Unsupported,
+                global_supported: false,
+                project_supported: false,
+            }
+        }
     }
 }
 
 /// Every agent VibeX manages. Order is used for stable scan/display output.
-const ALL_AGENTS: [AgentKind; 14] = [
+const ALL_AGENTS: [AgentKind; 15] = [
     AgentKind::ClaudeCode,
     AgentKind::Codex,
     AgentKind::Antigravity,
@@ -121,6 +124,7 @@ const ALL_AGENTS: [AgentKind; 14] = [
     AgentKind::Cursor,
     AgentKind::DeepseekHarness,
     AgentKind::Qoder,
+    AgentKind::CommandCode,
 ];
 
 pub fn skill_capable_agent_ids() -> Vec<String> {
@@ -387,8 +391,11 @@ fn skill_dirs(agent: AgentKind, workspace: Option<&Path>) -> Vec<SkillDir> {
         .into_iter()
         .map(|dir| (dir.join("skills"), false))
         .collect(),
-        // In-process mock agent: no skill directories.
-        AgentKind::QaMock => Vec::new(),
+        AgentKind::CommandCode => home
+            .iter()
+            .map(|home| (home.join(".commandcode").join("skills"), false))
+            .collect(),
+        AgentKind::Kiro | AgentKind::Auggie | AgentKind::Trae | AgentKind::QaMock => Vec::new(),
     };
     for (path, read_only) in globals {
         out.push(SkillDir {
@@ -420,7 +427,8 @@ fn skill_dirs(agent: AgentKind, workspace: Option<&Path>) -> Vec<SkillDir> {
             AgentKind::Cursor => &[".cursor/skills", ".agents/skills"],
             AgentKind::DeepseekHarness => &[".dsh/skills", ".agents/skills"],
             AgentKind::Qoder => &[".qoder/skills"],
-            AgentKind::QaMock => &[],
+            AgentKind::CommandCode => &[".commandcode/skills"],
+            AgentKind::Kiro | AgentKind::Auggie | AgentKind::Trae | AgentKind::QaMock => &[],
         };
         for relative in relatives {
             let mut path = project_base.clone();
@@ -1020,7 +1028,8 @@ fn agent_primary_skill_dir(agent: AgentKind) -> Option<PathBuf> {
             configured_dir("QODER_CONFIG_DIR", home.map(|home| home.join(".qoder")))
                 .map(|dir| dir.join("skills"))
         }
-        AgentKind::QaMock => None,
+        AgentKind::CommandCode => home.map(|home| home.join(".commandcode").join("skills")),
+        AgentKind::Kiro | AgentKind::Auggie | AgentKind::Trae | AgentKind::QaMock => None,
     }
 }
 

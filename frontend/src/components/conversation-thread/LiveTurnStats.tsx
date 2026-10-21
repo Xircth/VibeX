@@ -1,18 +1,11 @@
 import { useEffect, useMemo, useState } from 'react';
 import { TurnStats, type TurnStatsProps } from './TurnStats';
+import { liveElapsedMs } from './turnClock';
 
 export type LiveTurnStatsProps = Omit<TurnStatsProps, 'live' | 'stats'> & {
   stats?: TurnStatsProps['stats'];
   startedAt?: string | null;
 };
-
-function elapsedFrom(startedAt: string | null | undefined, nowMs: number) {
-  if (!startedAt) return null;
-  const startedAtMs = Date.parse(startedAt);
-  if (!Number.isFinite(startedAtMs)) return null;
-
-  return Math.max(0, nowMs - startedAtMs);
-}
 
 export function LiveTurnStats({
   stats,
@@ -29,7 +22,7 @@ export function LiveTurnStats({
   const liveStats = useMemo(
     () => ({
       ...stats,
-      elapsedMs: stats?.elapsedMs ?? elapsedFrom(startedAt, nowMs),
+      elapsedMs: liveElapsedMs(startedAt, nowMs, stats?.elapsedMs),
     }),
     [nowMs, startedAt, stats]
   );

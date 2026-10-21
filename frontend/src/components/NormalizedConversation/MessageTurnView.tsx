@@ -52,6 +52,10 @@ import {
   type TurnRenderItem,
 } from './messageTurnBlocks';
 import {
+  collapsedMessagesDurationMs,
+  formatCollapsedDurationParts,
+} from './collapsedMessages';
+import {
   collapseTurnSegments,
   isCollapsibleProcessItem,
 } from './messageTurnCollapse';
@@ -444,23 +448,43 @@ function InterruptedTurnNotice({ onResend }: { onResend?: () => void }) {
 
 function CollapsedProcessGroup({
   expansionKey,
-  count,
+  durationMs,
+  working,
   children,
 }: {
   expansionKey: string;
-  count: number;
+  durationMs: number | null;
+  working: boolean;
   children: (expanded: boolean) => ReactNode;
 }) {
   const { t } = useTranslation(['conversation', 'common']);
   const bodyRef = useRef<HTMLDivElement | null>(null);
   const [expanded, toggle] = useExpandable(`process:${expansionKey}`, false);
   useNestedWheel(bodyRef, { enabled: expanded });
+  const span =
+    durationMs === null ? null : formatCollapsedDurationParts(durationMs);
+  const label = span
+    ? t(
+        working
+          ? 'messageTurnView.collapsedMessagesWorking'
+          : 'messageTurnView.collapsedMessages',
+        {
+          hours: span.hours,
+          minutes: span.minutes,
+        }
+      )
+    : null;
   return (
-    <div className="conv-collapsed-process px-1 py-1">
+    <div
+      className={cn(
+        'conv-collapsed-process px-1 py-1',
+        expanded && 'is-expanded'
+      )}
+    >
       <button
         type="button"
         onClick={() => toggle()}
-        className="inline-flex items-center gap-1 rounded-md text-xs text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+        className="conv-collapsed-process-toggle inline-flex items-center gap-1 rounded-md text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
         aria-expanded={expanded}
       >
         <ChevronDown
@@ -469,14 +493,10 @@ function CollapsedProcessGroup({
             expanded ? '' : '-rotate-90'
           )}
         />
-        <span>{t('messageTurnView.collapsedMessages', { count })}</span>
+        {label ? <span>{label}</span> : null}
       </button>
       {expanded ? (
-        <div
-          ref={bodyRef}
-          className="conv-nested-scroll mt-1"
-          data-nested-scroll=""
-        >
+        <div ref={bodyRef} className="conv-nested-scroll" data-nested-scroll="">
           {children(true)}
         </div>
       ) : (
@@ -526,6 +546,13 @@ export const MessageTurnView = memo(function MessageTurnView({
   questions?: TimelineQuestion[];
 }) {
   const { t } = useTranslation(['conversation', 'common', 'app']);
+  const turnInProgress = phase === 'streaming' || phase === 'optimistic';
+  const [nowMs, setNowMs] = useState(() => Date.now());
+  useEffect(() => {
+    if (!turnInProgress) return;
+    const id = window.setInterval(() => setNowMs(Date.now()), 1000);
+    return () => window.clearInterval(id);
+  }, [turnInProgress]);
   const { config } = useOptionalUserSystem() ?? {};
   const hideThinking = resolveHideModelThinking(config);
   const [editing, setEditing] = useState(false);
@@ -656,6 +683,15 @@ export const MessageTurnView = memo(function MessageTurnView({
   const segments = collapseProcess
     ? collapseTurnSegments(items, { isStreaming: phase === 'streaming' })
     : [{ kind: 'items' as const, startIndex: 0, items }];
+  const foldDurationMs = (segmentItems: TurnRenderItem[]) =>
+    collapsedMessagesDurationMs({
+      items: segmentItems,
+      turnTimestamp: turn.timestamp,
+      completedAt: turn.completed_at,
+      durationMs: turn.duration_ms,
+      settled: !turnInProgress,
+      nowMs: turnInProgress ? nowMs : undefined,
+    });
   const originalIndices = new Map(items.map((item, index) => [item, index]));
   const pollResults = collectHostDelegationPollResults(
     items.filter((item) => item.kind === 'tool')
@@ -708,11 +744,17 @@ export const MessageTurnView = memo(function MessageTurnView({
     hasTurnError,
   });
   if (slice?.kind === 'process-fold') {
+    const foldedItems =
+      segments.find(
+        (segment) =>
+          segment.kind === 'fold' && segment.startIndex === slice.startIndex
+      )?.items ?? [];
     return (
       <div className="conv-entry-item conv-assistant-msg conv-msg-hover group px-4 py-2 text-sm">
         <CollapsedProcessGroup
           expansionKey={`${turn.id}:${slice.startIndex}`}
-          count={slice.count}
+          durationMs={foldDurationMs(foldedItems)}
+          working={turnInProgress}
         >
           {() => null}
         </CollapsedProcessGroup>
@@ -760,7 +802,8 @@ export const MessageTurnView = memo(function MessageTurnView({
             <CollapsedProcessGroup
               key={`${turn.id}-fold-${segment.startIndex}`}
               expansionKey={`${turn.id}:${segment.startIndex}`}
-              count={count}
+              durationMs={foldDurationMs(segment.items)}
+              working={turnInProgress}
             >
               {(expanded) => renderUnits(segment.items, expanded)}
             </CollapsedProcessGroup>

@@ -119,7 +119,7 @@ describe('DshAuthPanel', () => {
       await screen.findByDisplayValue('https://api.deepseek.com')
     ).toBeInTheDocument();
     await user.type(screen.getByLabelText('API Key'), 'sk-test');
-    await user.click(screen.getByRole('button', { name: '保存' }));
+    await user.tab();
 
     expect(agentManagementApi.setAuthMode).toHaveBeenCalledWith(
       'deepseek_harness',

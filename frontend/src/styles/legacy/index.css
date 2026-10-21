@@ -9,21 +9,21 @@
   .legacy-design {
     /* Definite scheme: `light dark` makes WebView2 paint Win11 text fields. */
     color-scheme: light;
-    /* Ayu Light */
-    --_background: 0 0% 98%;
-    --_foreground: 213 10% 37%;
+    /* Astryx neutral light. The page is #ffffff; user messages use #f1f1f1. */
+    --_background: 0 0% 100%;
+    --_foreground: 0 0% 9%;
     --_primary: var(--accent-hsl, 0 0% 10.59%);
     --_primary-foreground: var(--accent-foreground-hsl, 0 0% 100%);
-    --_secondary: 0 0% 94%;
-    --_secondary-foreground: 213 10% 37%;
-    --_muted: 220 4% 91%;
-    --_muted-foreground: 210 5% 56%;
-    --_accent: 220 4% 91%;
-    --_accent-foreground: 222 30% 16%;
+    --_secondary: 0 0% 94.5%;
+    --_secondary-foreground: 0 0% 9%;
+    --_muted: 0 0% 94.5%;
+    --_muted-foreground: 0 0% 32.2%;
+    --_accent: 0 0% 89.8%;
+    --_accent-foreground: 0 0% 9%;
     --_destructive: 0 96% 53%;
     --_destructive-foreground: 0 0% 100%;
-    --_border: 240 2% 88%;
-    --_input: 0 0% 83%;
+    --_border: 0 0% 83.1%;
+    --_input: 0 0% 83.1%;
     --_ring: var(--_primary);
     --_radius: 0.875rem;
 
@@ -55,25 +55,26 @@
     --_syntax-deleted: hsl(0 91% 53%);
   }
 
-  /* Dark mode — Hangar chrome + Ayu Mirage content. Pearl Ink is the
-     default accent fallback when JS has not applied --accent-hsl. */
+  /* Dark mode. Pearl Ink is the default accent fallback when JS has not
+     applied --accent-hsl. Ayu stays on status, console, and syntax only. */
   .legacy-design.dark,
   .dark .legacy-design {
     color-scheme: dark;
-    --_background: 222 22% 15%;
-    --_foreground: 212 17% 81%;
+    /* Astryx neutral dark. Body is #1b1b1b; lifted surfaces are #262626. */
+    --_background: 0 0% 10.59%;
+    --_foreground: 0 0% 98%;
     --_primary: var(--accent-hsl, 210 20% 92%);
     --_primary-foreground: var(--accent-foreground-hsl, 0 0% 9.02%);
-    --_secondary: 223 20% 18%;
-    --_secondary-foreground: 212 17% 81%;
-    --_muted: 222 16% 20%;
-    --_muted-foreground: 212 9% 58%;
-    --_accent: 222 16% 20%;
-    --_accent-foreground: 210 20% 92%;
+    --_secondary: 0 0% 14.9%;
+    --_secondary-foreground: 0 0% 98%;
+    --_muted: 0 0% 10.59%;
+    --_muted-foreground: 0 0% 63.9%;
+    --_accent: 0 0% 14.9%;
+    --_accent-foreground: 0 0% 98%;
     --_destructive: 0 80% 55%;
     --_destructive-foreground: 0 0% 100%;
-    --_border: 210 16% 28%;
-    --_input: 222 16% 20%;
+    --_border: 0 0% 32.2%;
+    --_input: 0 0% 14.9%;
     --_ring: var(--_primary);
 
     /* Status (dark - Ayu Mirage) */
@@ -111,9 +112,9 @@
     --background: var(--vscode-editor-background, var(--_background));
     --foreground: var(--vscode-editor-foreground, var(--_foreground));
 
-    --card: var(--muted);
-    --card-foreground: var(--muted-foreground);
-    --popover: var(--background);
+    --card: 0 0% 100%;
+    --card-foreground: var(--foreground);
+    --popover: 0 0% 100%;
     --popover-foreground: var(--foreground);
 
     --primary: var(--_primary);
@@ -204,53 +205,55 @@
     --diff-line-number-fg: var(--text-muted);
     --diff-highlight-bg: hsl(var(--primary) / 0.16);
 
-    /* Tahoe app-design tokens scoped to the historical legacy UI wrapper. */
-    --text-strong: hsl(222 30% 16%);
-    --text-primary: hsl(213 10% 30%);
+    /* Astryx neutral surfaces. Opaque on purpose: macOS and Windows share
+       these fills, so translucency cannot composite into a different color. */
+    --text-strong: #171717;
+    --text-primary: #171717;
     --text-default: var(--text-primary);
-    --text-muted: hsl(213 8% 45%);
+    --text-muted: #525252;
     --text-secondary: var(--text-muted);
-    --text-subtle: hsl(214 7% 56%);
+    --text-subtle: #737373;
     --text-tertiary: var(--text-subtle);
-    --text-faint: hsl(214 6% 66%);
+    --text-faint: #a3a3a3;
     --primary-control-foreground: hsl(var(--_primary-foreground));
     --switch-checked-track: hsl(213 25% 15%);
     --switch-checked-border: var(--switch-checked-track);
     --switch-checked-thumb: hsl(0 0% 100%);
-    --surface-shell: hsl(225 18% 94%);
-    --surface-topbar: hsl(0 0% 100% / 0.86);
+    --surface-shell: #ffffff;
+    --surface-topbar: #f1f1f1;
     --surface-sidebar: var(--surface-topbar);
-    --surface-right-panel: hsl(0 0% 100% / 0.82);
-    --surface-composer: hsl(0 0% 100% / 0.92);
-    --surface-glass: hsl(0 0% 100% / 0.72);
-    --surface-popover: var(--surface-glass);
-    --surface-dialog: #fafafa;
-    --welcome-page: #ffffff;
-    --welcome-canvas: #fafafa;
-    --surface-glass-solid: hsl(220 24% 96%);
-    --surface-content: hsl(0 0% 100% / 0.96);
-    --surface-card: hsl(0 0% 100% / 0.72);
-    --surface-card-strong: hsl(0 0% 100% / 0.94);
-    --surface-control: hsl(220 20% 20% / 0.06);
-    --surface-control-hover: hsl(220 20% 20% / 0.1);
-    --surface-control-solid: hsl(220 14% 94%);
-    --surface-control-solid-hover: hsl(220 14% 92%);
+    --surface-right-panel: var(--surface-shell);
+    --surface-composer: #ffffff;
+    --surface-glass: var(--surface-shell);
+    --surface-glass-solid: var(--surface-shell);
+    --surface-popover: #ffffff;
+    --surface-dialog: #ffffff;
+    --surface-subtle: #f1f1f1;
+    --welcome-page: var(--surface-shell);
+    --welcome-canvas: var(--surface-shell);
+    --surface-content: #ffffff;
+    --surface-card: #ffffff;
+    --surface-card-strong: #ffffff;
+    --surface-control: #0000000d;
+    --surface-control-hover: #0000001a;
+    --surface-control-solid: #ffffff;
+    --surface-control-solid-hover: #f5f5f5;
     --surface-raised: var(--surface-raised-control);
-    --surface-raised-control: hsl(220 14% 97%);
-    --surface-raised-control-hover: hsl(220 14% 95%);
-    --surface-hover: hsl(220 20% 20% / 0.07);
+    --surface-raised-control: #ffffff;
+    --surface-raised-control-hover: #f5f5f5;
+    --surface-hover: #0000000d;
     --surface-active: hsl(var(--primary) / 0.16);
-    --surface-page-solid: hsl(0 0% 94%);
-    --kanban-column-background: hsl(0 0% 100%);
+    --surface-page-solid: var(--surface-shell);
+    --kanban-column-background: #ffffff;
     --composer-token-usage-ring: hsl(222 47% 11%);
     --composer-token-usage-track: hsl(var(--muted));
     --composer-token-usage-core: hsl(0 0% 100%);
-    --border-subtle: hsl(220 16% 28% / 0.09);
-    --border-strong: hsl(220 16% 28% / 0.18);
+    --border-subtle: #00000014;
+    --border-strong: #d4d4d4;
     --workspace-divider-color: hsl(var(--border) / 0.88);
     --workspace-divider-subtle: hsl(var(--border) / 0.74);
     --workspace-divider-hover: hsl(var(--primary) / 0.52);
-    --border-glass: hsl(0 0% 100% / 0.62);
+    --border-glass: var(--border-subtle);
     --border-content: var(--border-subtle);
     --focus-ring: hsl(var(--primary) / 0.28);
     --highlight-edge: hsl(0 0% 100% / 0.36);
@@ -258,7 +261,7 @@
       180deg,
       #e6e6e6 0%,
       #f3f3f3 24%,
-      transparent 50%,
+      #ffffff 50%,
       #f3f3f3 76%,
       #e6e6e6 100%
     );
@@ -339,53 +342,57 @@
 @layer base {
   .legacy-design.dark,
   .dark .legacy-design {
-    --text-strong: #e7ebef;
-    --text-primary: #c5cdd6;
+    --card: 0 0% 14.9%;
+    --popover: 0 0% 14.9%;
+    --text-strong: #fafafa;
+    --text-primary: #fafafa;
     --text-default: var(--text-primary);
-    --text-muted: #8b949e;
+    --text-muted: #a3a3a3;
     --text-secondary: var(--text-muted);
-    --text-subtle: hsl(215 8% 52%);
+    --text-subtle: #737373;
     --text-tertiary: var(--text-subtle);
-    --text-faint: hsl(211 11% 41%);
-    --surface-shell: #0e1319;
-    --surface-topbar: hsl(210 18% 16% / 0.55);
+    --text-faint: #525252;
+    --surface-shell: #1b1b1b;
+    --surface-topbar: var(--surface-shell);
     --surface-sidebar: var(--surface-topbar);
-    --surface-right-panel: hsl(210 18% 15% / 0.55);
-    --surface-composer: hsl(210 16% 18% / 0.78);
-    --surface-glass: hsl(210 16% 22% / 0.55);
-    --surface-glass-solid: #191e2a;
-    --surface-popover: var(--surface-glass);
-    --surface-dialog: #242936;
-    --welcome-page: var(--surface-dialog);
-    --welcome-canvas: var(--surface-dialog);
-    --surface-content: #1f2430;
-    --surface-card: #1f2430;
-    --surface-card-strong: #242936;
-    --surface-control: hsl(210 30% 80% / 0.07);
-    --surface-control-hover: hsl(210 30% 80% / 0.12);
-    --surface-control-solid: hsl(216 18% 22%);
-    --surface-control-solid-hover: hsl(216 18% 25%);
+    --surface-right-panel: var(--surface-topbar);
+    --surface-composer: #262626;
+    --surface-glass: var(--surface-shell);
+    --surface-glass-solid: var(--surface-shell);
+    --surface-popover: #262626;
+    --surface-dialog: #262626;
+    --surface-subtle: var(--surface-shell);
+    --welcome-page: var(--surface-shell);
+    --welcome-canvas: var(--surface-shell);
+    --surface-content: #262626;
+    --surface-card: #262626;
+    --surface-card-strong: #262626;
+    --surface-control: #ffffff0d;
+    --surface-control-hover: #ffffff1a;
+    --surface-control-solid: #262626;
+    --surface-control-solid-hover: #404040;
     --surface-raised: var(--surface-raised-control);
-    --surface-raised-control: #242936;
-    --surface-raised-control-hover: hsl(222 16% 22%);
-    --surface-hover: hsl(210 30% 80% / 0.08);
+    --surface-raised-control: #262626;
+    --surface-raised-control-hover: #404040;
+    --surface-hover: #ffffff0d;
     --surface-active: hsl(var(--primary) / 0.18);
-    --surface-page-solid: #0e1319;
-    --kanban-column-background: #242936;
-    --border-subtle: hsl(210 30% 80% / 0.1);
-    --border-strong: hsl(210 30% 80% / 0.18);
+    --surface-page-solid: var(--surface-shell);
+    --kanban-column-background: #262626;
+    --border-subtle: #ffffff1a;
+    --border-strong: #525252;
     --workspace-divider-color: hsl(var(--border) / 0.9);
     --workspace-divider-subtle: hsl(var(--border) / 0.76);
     --workspace-divider-hover: hsl(var(--primary) / 0.62);
-    --border-glass: hsl(210 30% 80% / 0.12);
+    --border-glass: var(--border-subtle);
     --border-content: var(--border-subtle);
     --focus-ring: hsl(var(--primary) / 0.36);
     --highlight-edge: hsl(210 30% 80% / 0.12);
     --surface-wash: linear-gradient(
-      145deg,
-      hsl(210 32% 42% / 0.22) 0%,
-      hsl(210 24% 30% / 0.08) 28%,
-      transparent 52%
+      180deg,
+      #262626 0%,
+      #1b1b1b 28%,
+      #1b1b1b 72%,
+      #262626 100%
     );
     --shadow-shell: 0 18px 42px hsl(210 40% 2% / 0.55);
     --shadow-popover: 0 18px 42px hsl(210 40% 2% / 0.62);
@@ -409,18 +416,18 @@
     --composer-token-usage-ring: hsl(var(--primary));
     --composer-token-usage-track: hsl(210 30% 80% / 0.2);
     --composer-token-usage-core: var(--surface-content);
-    --color-background-body: #0e1319;
-    --color-background-card: #1f2430;
-    --color-background-muted: #1f2430;
-    --color-background-surface: #242936;
-    --color-background-popover: #242936;
+    --color-background-body: #1b1b1b;
+    --color-background-card: #262626;
+    --color-background-muted: #1b1b1b;
+    --color-background-surface: #262626;
+    --color-background-popover: #262626;
     --color-accent: hsl(var(--primary));
     --color-accent-muted: hsl(var(--primary) / 0.12);
     --color-on-accent: hsl(var(--primary-foreground));
-    --color-text-primary: #e7ebef;
-    --color-text-secondary: #8b949e;
+    --color-text-primary: #fafafa;
+    --color-text-secondary: #a3a3a3;
     --color-text-accent: hsl(var(--primary));
-    --color-icon-primary: #e7ebef;
+    --color-icon-primary: #fafafa;
     --color-icon-accent: hsl(var(--primary));
     --switch-checked-track: hsl(var(--primary));
     --switch-checked-thumb: hsl(var(--primary-foreground));
@@ -573,15 +580,32 @@
     --color-text-accent: hsl(var(--primary));
     --color-icon-accent: hsl(var(--primary));
     --color-on-accent: hsl(var(--primary-foreground));
-    --color-neutral: var(--surface-raised-control);
+    --color-neutral: #0000000f;
     --color-overlay-hover: var(--surface-control);
     --color-overlay-pressed: var(--surface-control-hover);
-    --color-border-emphasized: light-dark(#d4d4d4, #525252);
+    --color-border-emphasized: #d4d4d4;
+    --color-background-body: #ffffff;
+    --color-background-card: #ffffff;
+    --color-background-muted: #f1f1f1;
+    --color-background-surface: #ffffff;
+    --color-background-popover: #ffffff;
+    --color-text-primary: #171717;
+    --color-text-secondary: #525252;
+    --color-icon-primary: #171717;
   }
 
   .legacy-design.dark [data-astryx-theme],
   .dark .legacy-design [data-astryx-theme] {
     --color-border-emphasized: #525252;
+    --color-neutral: #ffffff1a;
+    --color-background-body: #1b1b1b;
+    --color-background-card: #262626;
+    --color-background-muted: #1b1b1b;
+    --color-background-surface: #262626;
+    --color-background-popover: #262626;
+    --color-text-primary: #fafafa;
+    --color-text-secondary: #a3a3a3;
+    --color-icon-primary: #fafafa;
   }
 
   .legacy-design .session-composer-attachment-drawer {
@@ -782,13 +806,9 @@
   }
 
   .legacy-design .browser-toolbar-over-page {
-    background-color: color-mix(
-      in srgb,
-      var(--surface-background) 28%,
-      transparent
-    );
-    backdrop-filter: blur(18px);
-    -webkit-backdrop-filter: blur(18px);
+    background-color: var(--surface-topbar);
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
   }
 
   @keyframes browser-loading {
@@ -866,7 +886,7 @@
       .session-composer-editor
       [popover]:has(.astryx-trigger-menu)
       > div {
-      background: var(--surface-glass-solid);
+      background: var(--surface-popover);
       backdrop-filter: none;
     }
   }
@@ -1129,10 +1149,10 @@ html.dark {
 }
 
 .legacy-design .astryx-segmented-control {
-  --color-neutral: light-dark(#e3e3e3, #3a3a3a);
+  --color-neutral: light-dark(#e5e5e5, #262626);
   --radius-element: 999px;
   --_segmented-control-radius: 999px;
-  background-color: light-dark(#e3e3e3, #3a3a3a) !important;
+  background-color: light-dark(#e5e5e5, #262626) !important;
   border-radius: 999px;
 }
 
@@ -1151,7 +1171,7 @@ html.dark {
 }
 
 .legacy-design .astryx-segmented-control-item[aria-checked='true'] {
-  background-color: light-dark(#ffffff, #1c1c1c) !important;
+  background-color: light-dark(#ffffff, #404040) !important;
   box-shadow: var(--shadow-low);
 }
 
@@ -1599,118 +1619,32 @@ html.dark {
   }
 }
 
-/* 4) Settings page overrides – darker text for better readability */
+/* Settings window: white page, gray items. The nav wash lives on --surface-wash. */
 @layer base {
   .settings-page {
-    --background: 0 0% 100%;
-    --foreground: 0 0% 9%;
-    --muted: 0 0% 95%;
-    --muted-foreground: 0 0% 32%;
-    --card: 0 0% 95%;
-    --card-foreground: 0 0% 9%;
-    --border: 0 0% 88%;
-    --input: 0 0% 88%;
-    --surface-shell: #ffffff;
-    --surface-page-solid: #ffffff;
-    --surface-topbar: #ffffff;
-    --surface-sidebar: #ffffff;
-    --surface-wash: linear-gradient(
-      180deg,
-      #e6e6e6 0%,
-      #f3f3f3 24%,
-      #ffffff 50%,
-      #f3f3f3 76%,
-      #e6e6e6 100%
-    );
-    --surface-glass: #ffffff;
-    --surface-glass-solid: #ffffff;
     --surface-content: #f1f1f1;
     --surface-card: #f1f1f1;
     --surface-card-strong: #f1f1f1;
-    --surface-raised: #ffffff;
-    --surface-subtle: #ffffff;
-    --surface-control: #ffffff;
-    --surface-control-hover: var(--color-overlay-hover, rgba(0, 0, 0, 0.05));
-    --surface-control-solid: #ffffff;
-    --surface-control-solid-hover: #fafafa;
-    --surface-raised-control: #ffffff;
-    --surface-raised-control-hover: #fafafa;
-    --surface-hover: var(--color-overlay-hover, rgba(0, 0, 0, 0.05));
     --settings-button-primary-bg: #1b1b1b;
-    --settings-button-primary-hover-bg: #2e2e2e;
+    --settings-button-primary-hover-bg: #262626;
     --settings-button-primary-fg: #ffffff;
-    --settings-button-secondary-bg: #e3e3e3;
-    --settings-button-secondary-hover-bg: #d6d6d6;
+    --settings-button-secondary-bg: #e5e5e5;
+    --settings-button-secondary-hover-bg: #d4d4d4;
     --settings-button-secondary-fg: #171717;
-    --text-strong: #171717;
-    --text-primary: #171717;
-    --text-default: #171717;
-    --text-muted: #525252;
-    --text-secondary: #525252;
-    --text-tertiary: #737373;
-    --text-faint: #737373;
-    --border-subtle: rgba(0, 0, 0, 0.06);
-    --border-content: rgba(0, 0, 0, 0.06);
-    --border-strong: #d4d4d4;
-    --shadow-surface: none;
-    background-color: #ffffff;
+    background-color: var(--surface-shell);
     font-family: var(--font-sans);
   }
 
   .dark .settings-page {
-    --background: 222 18% 9%;
-    --foreground: 210 20% 92%;
-    --muted: 222 16% 15%;
-    --muted-foreground: 212 9% 58%;
-    --card: 222 22% 15%;
-    --card-foreground: 210 20% 92%;
-    --border: 210 16% 28%;
-    --input: 222 16% 20%;
-    --surface-shell: #0f1217;
-    --surface-page-solid: #0f1217;
-    --surface-topbar: #0f1217;
-    --surface-sidebar: #141820;
-    --surface-wash: linear-gradient(
-      180deg,
-      hsl(210 32% 42% / 0.14) 0%,
-      hsl(215 24% 24% / 0.08) 24%,
-      transparent 50%,
-      hsl(215 24% 24% / 0.08) 76%,
-      hsl(210 32% 42% / 0.14) 100%
-    );
-    --surface-glass: rgba(20, 24, 32, 0.74);
-    --surface-glass-solid: #171c25;
-    --surface-content: #1a202b;
-    --surface-card: #1a202b;
-    --surface-card-strong: #1c222e;
-    --surface-raised: #222938;
-    --surface-subtle: #141820;
-    --surface-control: #222938;
-    --surface-control-hover: var(
-      --color-overlay-hover,
-      rgba(255, 255, 255, 0.06)
-    );
-    --surface-control-solid: #222938;
-    --surface-control-solid-hover: #293142;
-    --surface-raised-control: #252c3b;
-    --surface-raised-control-hover: #2d3546;
-    --surface-hover: var(--color-overlay-hover, rgba(255, 255, 255, 0.06));
+    --surface-content: #262626;
+    --surface-card: #262626;
+    --surface-card-strong: #262626;
     --settings-button-primary-bg: hsl(var(--primary));
     --settings-button-primary-hover-bg: hsl(var(--primary) / 0.9);
     --settings-button-primary-fg: hsl(var(--primary-foreground));
-    --settings-button-secondary-bg: #252c3b;
-    --settings-button-secondary-hover-bg: #2d3546;
-    --settings-button-secondary-fg: #f2f4f8;
-    --text-strong: #f2f4f8;
-    --text-primary: #e6eaf0;
-    --text-default: #e6eaf0;
-    --text-muted: #98a1b0;
-    --text-secondary: #98a1b0;
-    --text-tertiary: #6e7787;
-    --text-faint: #6e7787;
-    --border-subtle: rgba(255, 255, 255, 0.08);
-    --border-content: rgba(255, 255, 255, 0.1);
-    --border-strong: rgba(255, 255, 255, 0.18);
+    --settings-button-secondary-bg: #262626;
+    --settings-button-secondary-hover-bg: #404040;
+    --settings-button-secondary-fg: #fafafa;
     background-color: var(--surface-shell);
   }
 
@@ -2073,7 +2007,7 @@ html.dark {
   }
 
   .settings-page .settings-theme-preview__canvas[data-mode='light'] {
-    background: #efefef;
+    background: #ffffff;
     --theme-preview-surface: #ffffff;
     --theme-preview-bar: rgba(0, 0, 0, 0.18);
   }
@@ -2724,9 +2658,8 @@ html.dark {
     animation: settings-action-bar-in 160ms cubic-bezier(0.22, 1, 0.36, 1);
   }
 
-  /* Liquid-glass panel (same material as the Git workspace toolbar). The
-     glass is rendered by liquid-glass-react; these rules keep its internal
-     layers aligned with the app's glass tokens. */
+  /* Sticky settings bar. liquid-glass-react still mounts the layers; the
+     fill is the opaque dialog surface on every platform. */
   .settings-page .settings-action-bar__stage {
     position: relative;
     width: 100%;
@@ -2753,7 +2686,7 @@ html.dark {
     height: 100% !important;
     padding: 0 !important;
     border: 1px solid var(--border-glass);
-    background: color-mix(in srgb, var(--surface-glass) 16%, transparent);
+    background: var(--surface-dialog);
     box-shadow:
       inset 0 1px 0 var(--highlight-edge),
       inset 0 -1px 0 var(--highlight-edge),
@@ -2764,7 +2697,7 @@ html.dark {
     /* The package's square displacement map creates a full-width edge band
        on this shallow toolbar. The stronger local backdrop lens remains. */
     filter: none !important;
-    background: color-mix(in srgb, var(--surface-glass) 10%, transparent);
+    background: transparent;
   }
 
   .settings-page .settings-action-bar__glass .glass > div:last-child {
@@ -4053,14 +3986,14 @@ html.dark {
     height: 100% !important;
     padding: 0 !important;
     border: 1px solid var(--border-glass);
-    background: color-mix(in srgb, var(--surface-glass) 24%, transparent);
+    background: var(--surface-dialog);
     box-shadow:
       inset 0 1px 0 var(--highlight-edge),
       var(--shadow-card) !important;
   }
 
   .branch-info-liquid-glass .glass__warp {
-    background: color-mix(in srgb, var(--surface-glass) 18%, transparent);
+    background: transparent;
   }
 
   .branch-info-liquid-glass .glass > div:last-child {
@@ -4414,98 +4347,49 @@ html.dark {
     --welcome-ink: var(--text-primary);
     --welcome-muted: var(--text-muted);
     --welcome-subtle: var(--text-subtle);
-    --welcome-rule: var(--border-subtle);
     color: var(--welcome-ink);
-    background:
-      linear-gradient(var(--welcome-rule) 1px, transparent 1px),
-      linear-gradient(90deg, var(--welcome-rule) 1px, transparent 1px),
-      var(--welcome-canvas);
-    background-size:
-      56px 56px,
-      56px 56px,
-      auto;
-    background-position:
-      -1px -1px,
-      -1px -1px,
-      0 0;
+    background: var(--welcome-canvas);
+    container: workspace-welcome / inline-size;
   }
 
   .workspace-welcome__inner {
-    display: grid;
-    grid-template-columns: minmax(280px, 0.86fr) minmax(260px, 0.64fr);
-    align-items: center;
-    gap: clamp(24px, 5vw, 64px);
+    display: flex;
+    flex-direction: column;
+    gap: 28px;
     min-height: 100%;
-    width: min(880px, calc(100% - 56px));
+    max-width: 920px;
     margin: 0 auto;
-    padding: clamp(28px, 7vh, 72px) 0;
+    padding: 28px 32px 20px;
   }
 
-  .workspace-welcome__intro {
+  .workspace-welcome__section,
+  .workspace-welcome__recommend-wrap {
     min-width: 0;
   }
 
-  .workspace-welcome__mark {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    width: 40px;
-    height: 40px;
-    margin-bottom: 18px;
-    border: 1px solid hsl(var(--primary) / 0.28);
-    border-radius: var(--radius);
-    color: hsl(var(--primary));
-    background:
-      linear-gradient(
-        135deg,
-        hsl(var(--primary) / 0.14),
-        hsl(var(--success) / 0.1)
-      ),
-      var(--surface-card-strong);
-    box-shadow: var(--shadow-inset);
-  }
-
-  .workspace-welcome__eyebrow {
-    margin: 0 0 8px;
-    font-family: var(
-      --font-mono,
-      'IBM Plex Mono',
-      ui-monospace,
-      SFMono-Regular,
-      Menlo,
-      Monaco,
-      Consolas,
-      monospace
-    );
+  .workspace-welcome__section > h2,
+  .workspace-welcome__recommend-wrap > h2 {
+    max-width: none;
+    margin: 0 0 10px;
     font-size: 11px;
-    font-weight: 600;
-    letter-spacing: 0;
-    color: hsl(var(--primary));
+    font-weight: 500;
+    line-height: inherit;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--text-muted);
   }
 
-  .workspace-welcome h2 {
-    max-width: 16ch;
-    margin: 0;
-    font-size: clamp(25px, 3vw, 38px);
-    font-weight: 720;
-    line-height: 1.08;
-    letter-spacing: 0;
-    color: var(--text-strong);
+  .workspace-welcome__mid {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    gap: 28px 40px;
+    align-items: start;
   }
 
-  .workspace-welcome__copy {
-    max-width: 46ch;
-    margin: 14px 0 0;
-    color: var(--welcome-muted);
-    font-size: 13px;
-    line-height: 1.8;
-  }
-
-  .workspace-welcome__actions {
+  .workspace-welcome__recommend {
     display: grid;
     grid-template-columns: repeat(2, minmax(0, 1fr));
-    gap: 9px;
-    margin-top: 24px;
+    gap: 10px;
   }
 
   .workspace-welcome__action {
@@ -4515,23 +4399,18 @@ html.dark {
     align-items: flex-start;
     min-height: 72px;
     padding: 11px;
-    border: 1px solid var(--border-subtle);
+    border: 0;
     border-radius: var(--radius);
     color: var(--text-primary);
     text-align: left;
-    background: var(--surface-card-strong);
-    box-shadow: var(--shadow-inset);
+    background: var(--surface-control);
     transition:
       background 150ms ease,
-      border-color 150ms ease,
-      color 150ms ease,
-      transform 150ms ease;
+      color 150ms ease;
   }
 
   .workspace-welcome__action:hover {
-    border-color: hsl(var(--primary) / 0.3);
     background: var(--surface-control-hover);
-    transform: translateY(-1px);
   }
 
   .workspace-welcome__action:focus-visible {
@@ -4570,145 +4449,143 @@ html.dark {
     line-height: 1.5;
   }
 
-  .workspace-welcome__artifact {
-    overflow: hidden;
-    border: 1px solid var(--border-subtle);
-    border-radius: var(--radius);
-    background:
-      linear-gradient(180deg, var(--surface-card-strong), var(--surface-card)),
-      var(--surface-card);
-    box-shadow: var(--shadow-card);
-  }
-
-  .workspace-welcome__artifact-header {
+  .workspace-welcome__tips {
     display: flex;
-    justify-content: space-between;
-    gap: 12px;
-    padding: 10px 12px;
-    border-bottom: 1px solid var(--border-subtle);
-    color: var(--welcome-subtle);
-    font-family: var(
-      --font-mono,
-      'IBM Plex Mono',
-      ui-monospace,
-      SFMono-Regular,
-      Menlo,
-      Monaco,
-      Consolas,
-      monospace
-    );
-    font-size: 10px;
-  }
-
-  .workspace-welcome__artifact-body {
-    display: grid;
-    gap: 1px;
-    padding: 10px;
-  }
-
-  .workspace-welcome__line {
-    display: grid;
-    grid-template-columns: 24px minmax(0, 1fr);
     align-items: center;
-    min-height: 34px;
-    border-radius: var(--radius);
-    color: var(--welcome-muted);
-    background: var(--surface-control);
+    gap: 12px;
+    min-height: 36px;
+    margin-top: auto;
+    padding-top: 8px;
+    border-top: 1px solid var(--border-subtle);
   }
 
-  .workspace-welcome__line span {
-    text-align: center;
-    font-family: var(
-      --font-mono,
-      'IBM Plex Mono',
-      ui-monospace,
-      SFMono-Regular,
-      Menlo,
-      Monaco,
-      Consolas,
-      monospace
-    );
-    font-size: 12px;
-    color: var(--welcome-subtle);
+  .workspace-welcome__tips-main {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    min-width: 0;
+    flex: 1;
   }
 
-  .workspace-welcome__line code {
+  .workspace-welcome__tips-nav {
+    width: 24px;
+    height: 24px;
+    flex: none;
+    border: 0;
+    border-radius: 6px;
+    background: transparent;
+    color: var(--text-muted);
+    cursor: pointer;
+  }
+
+  .workspace-welcome__tips-nav:hover {
+    background: var(--surface-hover);
+    color: var(--text-strong);
+  }
+
+  .workspace-welcome__tips-nav:focus-visible {
+    outline: 2px solid hsl(var(--primary) / 0.55);
+    outline-offset: 1px;
+  }
+
+  .workspace-welcome__tips-text {
+    min-width: 0;
+    flex: 1;
+    margin: 0;
     overflow: hidden;
-    padding-right: 10px;
-    font-family: var(
-      --font-mono,
-      'IBM Plex Mono',
-      ui-monospace,
-      SFMono-Regular,
-      Menlo,
-      Monaco,
-      Consolas,
-      monospace
-    );
-    font-size: 11px;
     text-overflow: ellipsis;
     white-space: nowrap;
+    font-size: 12px;
+    color: var(--text-muted);
   }
 
-  .workspace-welcome__line.is-add {
-    color: hsl(var(--success));
-    background: hsl(var(--success) / 0.1);
+  .workspace-welcome__tips-dots {
+    display: flex;
+    flex: none;
+    gap: 5px;
   }
 
-  .workspace-welcome__line.is-run {
-    color: hsl(var(--primary));
-    background: hsl(var(--primary) / 0.1);
+  .workspace-welcome__tips-dots button {
+    width: 5px;
+    height: 5px;
+    padding: 0;
+    border: 0;
+    border-radius: 50%;
+    background: var(--border-strong);
+    cursor: pointer;
   }
 
-  .workspace-welcome__line.is-note {
-    color: hsl(var(--warning));
-    background: hsl(var(--warning) / 0.11);
+  .workspace-welcome__tips-dots button[aria-current='true'] {
+    background: var(--text-muted);
   }
 
-  @media (max-width: 780px) {
+  .workspace-welcome__tips-docs {
+    flex: none;
+    height: 26px;
+    padding: 0 10px;
+    border: 1px solid var(--border-subtle);
+    border-radius: 999px;
+    background: transparent;
+    color: var(--text-primary);
+    font-size: 12px;
+    line-height: 26px;
+    white-space: nowrap;
+    text-decoration: none;
+  }
+
+  .workspace-welcome__tips-docs:hover {
+    background: var(--surface-hover);
+    color: var(--text-strong);
+  }
+
+  .workspace-welcome__tips-docs:focus-visible {
+    outline: 2px solid hsl(var(--primary) / 0.55);
+    outline-offset: 2px;
+  }
+
+  @container workspace-welcome (max-width: 520px) {
     .workspace-welcome__inner {
-      grid-template-columns: 1fr;
-      width: min(560px, calc(100% - 32px));
-      padding-block: 32px;
+      gap: 24px;
+      padding: 22px 20px 18px;
     }
 
-    .workspace-welcome__artifact {
+    .workspace-welcome__mid {
+      grid-template-columns: 1fr;
+      gap: 24px;
+    }
+
+    .workspace-welcome__recommend-wrap,
+    .workspace-welcome__tips {
       display: none;
     }
   }
 
-  @media (max-width: 520px) {
-    .workspace-welcome__actions {
-      grid-template-columns: 1fr;
-    }
-  }
-
   .project-rail-inline-stage {
-    --project-rail-glass: hsl(210 28% 98% / 0.36);
-    --project-rail-glass-edge: hsl(218 16% 42% / 0.38);
-    --project-rail-glass-shadow: hsl(220 24% 14% / 0.2);
-    --project-rail-control: hsl(0 0% 100% / 0.94);
-    --project-rail-control-hover: hsl(218 20% 92% / 0.72);
-    --project-rail-control-border: hsl(218 16% 42% / 0.28);
-    --project-rail-control-shadow: hsl(220 20% 18% / 0.14);
-    --project-rail-ink: #1d2433;
-    --project-rail-muted: #6d7480;
-    --project-rail-divider: hsl(218 17% 76% / 0.72);
-    --project-rail-accent: #0a84ff;
+    --project-rail-glass: var(--surface-shell);
+    --project-rail-glass-edge: #00000014;
+    --project-rail-glass-shadow: #00000033;
+    --project-rail-control: #ffffff;
+    --project-rail-control-hover: #f5f5f5;
+    --project-rail-control-border: #00000014;
+    --project-rail-control-shadow: #00000024;
+    --project-rail-ink: #171717;
+    --project-rail-muted: #525252;
+    --project-rail-divider: #00000014;
+    --project-rail-accent: hsl(var(--primary));
   }
 
   .dark .project-rail-inline-stage {
-    --project-rail-glass: hsl(210 16% 16% / 0.4);
-    --project-rail-glass-edge: hsl(210 30% 80% / 0.28);
-    --project-rail-glass-shadow: hsl(210 40% 2% / 0.45);
-    --project-rail-control: hsl(210 16% 18% / 0.96);
-    --project-rail-control-hover: hsl(210 20% 100% / 0.1);
-    --project-rail-control-border: hsl(210 30% 80% / 0.22);
-    --project-rail-control-shadow: hsl(210 40% 2% / 0.34);
-    --project-rail-ink: #e7ebef;
-    --project-rail-muted: #8b949e;
-    --project-rail-divider: hsl(210 30% 80% / 0.14);
-    --project-rail-accent: #409cff;
+    --project-rail-glass: #1b1b1b;
+    --project-rail-glass-edge: #ffffff1a;
+    --project-rail-glass-shadow: #00000080;
+    --project-rail-control: #262626;
+    --project-rail-control-hover: #404040;
+    --project-rail-control-border: #ffffff1a;
+    --project-rail-control-shadow: #00000066;
+    --project-rail-ink: #fafafa;
+    --project-rail-muted: #a3a3a3;
+    --project-rail-divider: #ffffff1a;
+    --project-rail-accent: hsl(var(--primary));
   }
 
   .project-rail-inline-host {
@@ -5243,7 +5120,7 @@ html.dark {
   .session-hub-sidebar {
     min-width: 0;
     overflow: hidden;
-    background: hsl(var(--background));
+    background: var(--surface-shell);
   }
 
   .session-hub-sidebar [data-radix-scroll-area-viewport] {
@@ -5637,12 +5514,7 @@ html.dark {
   }
 
   .kanban-usage-page {
-    background-color: #ffffff;
-    --color-track: hsl(var(--muted));
-  }
-
-  .dark .kanban-usage-page {
-    background-color: hsl(var(--background));
+    background-color: var(--surface-shell);
     --color-track: hsl(var(--muted));
   }
 
@@ -6890,7 +6762,7 @@ html.dark {
 
   .settings-titlebar {
     border-bottom: 1px solid var(--border-subtle);
-    background: var(--surface-topbar);
+    background: var(--surface-shell);
     box-shadow: none;
     backdrop-filter: none;
     -webkit-backdrop-filter: none;
@@ -8713,17 +8585,10 @@ html.dark {
   }
 
   .project-rail-inline-stage {
-    --project-rail-glass: hsl(210 20% 98% / 0.9);
+    --project-rail-glass: var(--surface-shell);
     --project-rail-glass-edge: hsl(220 18% 28% / 0.7);
     --project-rail-control-border: hsl(220 18% 28% / 0.82);
   }
-}
-
-html.host-windows .legacy-design {
-  --surface-glass: var(--surface-glass-solid);
-  --surface-popover: var(--surface-glass-solid);
-  --surface-topbar: var(--surface-glass-solid);
-  --surface-sidebar: var(--surface-glass-solid);
 }
 
 html.tauri-desktop[data-host-platform='macos'] .window-chrome {
@@ -8776,20 +8641,8 @@ html.host-windows :where(.legacy-design) .vu-toast-surface {
 }
 
 @media (prefers-reduced-transparency: reduce) {
-  .legacy-design {
-    --surface-glass: var(--surface-glass-solid);
-    --surface-popover: var(--surface-dialog);
-    --surface-topbar: var(--surface-glass-solid);
-    --surface-sidebar: var(--surface-glass-solid);
-  }
-
-  .legacy-design.dark,
-  .dark .legacy-design {
-    --surface-popover: var(--surface-dialog);
-  }
-
   .project-rail-inline-stage {
-    --project-rail-glass: #f2f4f7;
+    --project-rail-glass: var(--surface-shell);
   }
 
   .dark .project-rail-inline-stage {
@@ -8815,7 +8668,7 @@ html.host-windows :where(.legacy-design) .vu-toast-surface {
   }
 
   :where(.legacy-design) .branch-info-liquid-glass .glass {
-    background: var(--surface-glass-solid) !important;
+    background: var(--surface-dialog) !important;
   }
 
   :where(.legacy-design) .project-rail-liquid-glass[data-host-chrome='solid'] {
@@ -8825,26 +8678,13 @@ html.host-windows :where(.legacy-design) .vu-toast-surface {
   }
 
   :where(.legacy-design) .settings-action-bar__glass .glass {
-    background: var(--surface-glass-solid) !important;
+    background: var(--surface-dialog) !important;
   }
-}
-
-:where(.legacy-design.reduced-transparency),
-:where(.app.reduced-transparency .legacy-design) {
-  --surface-glass: var(--surface-glass-solid);
-  --surface-popover: var(--surface-dialog);
-  --surface-topbar: var(--surface-glass-solid);
-  --surface-sidebar: var(--surface-glass-solid);
-}
-
-.dark :where(.legacy-design.reduced-transparency),
-.dark :where(.app.reduced-transparency .legacy-design) {
-  --surface-popover: var(--surface-dialog);
 }
 
 :where(.legacy-design.reduced-transparency) .project-rail-inline-stage,
 :where(.app.reduced-transparency .legacy-design) .project-rail-inline-stage {
-  --project-rail-glass: #f2f4f7;
+  --project-rail-glass: var(--surface-shell);
 }
 
 .dark :where(.legacy-design.reduced-transparency) .project-rail-inline-stage,
@@ -8923,7 +8763,7 @@ html.host-windows :where(.legacy-design) .vu-toast-surface {
 :where(.app.reduced-transparency .legacy-design)
   .branch-info-liquid-glass
   .glass {
-  background: var(--surface-glass-solid) !important;
+  background: var(--surface-dialog) !important;
 }
 
 :where(.legacy-design.reduced-transparency)
@@ -8939,17 +8779,10 @@ html.host-windows :where(.legacy-design) .vu-toast-surface {
 :where(.app.reduced-transparency .legacy-design)
   .settings-action-bar__glass
   .glass {
-  background: var(--surface-glass-solid) !important;
+  background: var(--surface-dialog) !important;
 }
 
-@supports not (
-  (backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))
-) {
-  .legacy-design {
-    --surface-glass: var(--surface-glass-solid);
-    --surface-popover: var(--surface-dialog);
-  }
-}
+
 
 .branch-info-header-host
   + .right-panel-conversation-region
@@ -16035,8 +15868,7 @@ html.host-windows :where(.legacy-design) .vu-toast-surface {
 
 .session-canvas-floating-panel,
 .session-canvas-create-panel {
-  background: color-mix(in oklab, var(--surface-card-strong) 75%, transparent);
-  backdrop-filter: blur(18px) saturate(1.2);
+  background: var(--surface-card-strong);
 }
 
 .session-canvas-floating-list {

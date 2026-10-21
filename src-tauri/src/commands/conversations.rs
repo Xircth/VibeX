@@ -22,7 +22,7 @@ use automation::{
 };
 use conversations::{
     CONVERSATION_PROJECTION_VERSION, ConversationEventAppender, ConversationProjector,
-    jsonl_history, workbench_status,
+    jsonl_history, session_stats_with_usage_snapshot, workbench_status,
 };
 use db::models::{
     conversation::{
@@ -31,6 +31,7 @@ use db::models::{
     },
     conversation_event::{AppendConversationEvent, ConversationEventRecord},
     conversation_turn::{ConversationTurnRecord, CreateConversationTurn},
+    conversation_usage::ConversationUsageSnapshotRecord,
     session::SessionStatus,
     workspace::Workspace,
 };
@@ -291,16 +292,11 @@ pub async fn conversation_detail_core(
     let persona = conversations::collaboration::conversation_persona(pool, id)
         .await
         .map_err(|error| AppError::Internal(error.to_string()))?;
-    let history = open.unwrap_or_else(|| jsonl_history::WindowedHistory {
-        turns: Vec::new(),
-        offset: 0,
-        total: 0,
-        meta: conversations::turn_window::window_meta(&[], 0),
-        session_stats: None,
-        last_sequence: 0,
-    });
+    let history = open.unwrap_or_else(jsonl_history::WindowedHistory::empty);
     let timeline = jsonl_history::timeline_from_window(id, &history);
-    let session_stats = history.session_stats.clone();
+    let usage_snapshot = ConversationUsageSnapshotRecord::find(pool, id).await?;
+    let session_stats =
+        session_stats_with_usage_snapshot(history.session_stats.clone(), usage_snapshot.as_ref());
     let in_flight_user_turn_id = current_turn.as_ref().and_then(|turn| {
         matches!(
             turn.status.as_str(),
@@ -571,7 +567,7 @@ pub async fn conversation_timeline_page_core(
         projection_version: CONVERSATION_PROJECTION_VERSION,
         cursor: Some(page.start.to_string()),
         next_cursor: page.next_cursor.map(|index| index.to_string()),
-        rows: jsonl_history::rows_from_turns(&page.turns),
+        rows: page.rows,
     })
 }
 

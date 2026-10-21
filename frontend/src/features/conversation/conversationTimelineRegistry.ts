@@ -6,6 +6,8 @@ import type {
   ConversationRowOpBatch,
   DeliveryChannel,
   MessageTurn,
+  SessionStats,
+  SessionStatus,
 } from 'shared/types';
 import { listenToAgentEvents } from '@/features/agents/events';
 import { conversationApi } from './conversationApi';
@@ -89,6 +91,7 @@ export type ConversationTimelineView = {
   hasEarlier: boolean;
   loadOlder: () => Promise<void>;
   olderTurnsPrependEpoch: number;
+  userTurnsBeforeOffset: number;
   sessionBindReady: boolean;
   connecting: boolean;
 };
@@ -102,6 +105,46 @@ const viewCache = new Map<
     entry: ConversationStoreState['byConversationId'][string] | undefined;
     bindReady: boolean;
     view: ConversationTimelineView;
+  }
+>();
+
+export type ConversationSessionFacts = {
+  sessionId: string | null;
+  hasDetail: boolean;
+  error: string | null;
+  title: string | null;
+  status: SessionStatus | null;
+  agentId: string | null;
+  model: string | null;
+  acpSessionId: string | null;
+  externalSessionId: string | null;
+  turnInFlight: boolean;
+  sessionStats: SessionStats | null;
+  truncated: boolean;
+  loading: boolean;
+};
+
+const EMPTY_SESSION_FACTS: ConversationSessionFacts = {
+  sessionId: null,
+  hasDetail: false,
+  error: null,
+  title: null,
+  status: null,
+  agentId: null,
+  model: null,
+  acpSessionId: null,
+  externalSessionId: null,
+  turnInFlight: false,
+  sessionStats: null,
+  truncated: false,
+  loading: false,
+};
+
+const factsCache = new Map<
+  string,
+  {
+    entry: ConversationStoreState['byConversationId'][string] | undefined;
+    facts: ConversationSessionFacts;
   }
 >();
 
@@ -132,6 +175,7 @@ const EMPTY_VIEW: ConversationTimelineView = {
   hasEarlier: false,
   loadOlder: () => Promise.resolve(),
   olderTurnsPrependEpoch: 0,
+  userTurnsBeforeOffset: 0,
   sessionBindReady: false,
   connecting: false,
 };
@@ -178,6 +222,52 @@ export function getConversationPersona(
   return persona;
 }
 
+function timelineTurnInFlight(rows: TimelineRow[] | undefined): boolean {
+  return (rows ?? []).some(
+    (row) =>
+      row.row.kind === 'message_turn' &&
+      (row.row.phase === 'streaming' || row.row.phase === 'optimistic')
+  );
+}
+
+function buildSessionFacts(
+  conversationId: string,
+  entry: ConversationStoreState['byConversationId'][string] | undefined
+): ConversationSessionFacts {
+  const summary = entry?.detail?.summary;
+  return {
+    sessionId: conversationId,
+    hasDetail: Boolean(entry?.detail),
+    error: entry?.error ?? null,
+    title: summary?.title ?? null,
+    status: summary?.status ?? null,
+    agentId: summary?.agent_id ?? null,
+    model: summary?.model ?? null,
+    acpSessionId: entry?.detail?.active_binding?.acp_session_id ?? null,
+    externalSessionId: summary?.external_session_id ?? null,
+    turnInFlight:
+      Boolean(entry?.detail?.in_flight_user_turn_id) ||
+      (entry?.optimisticTurns.length ?? 0) > 0 ||
+      timelineTurnInFlight(entry?.rows),
+    sessionStats: entry?.detail?.session_stats ?? null,
+    truncated: Boolean(entry?.olderCursor),
+    loading: entry?.loading ?? false,
+  };
+}
+
+/** Stable snapshot for the session-details panel. Does not retain or refresh. */
+export function getConversationSessionFacts(
+  conversationId: string | null
+): ConversationSessionFacts {
+  if (!conversationId) return EMPTY_SESSION_FACTS;
+  const entry = state.byConversationId[conversationId];
+  const cached = factsCache.get(conversationId);
+  if (cached && cached.entry === entry) return cached.facts;
+  const facts = buildSessionFacts(conversationId, entry);
+  factsCache.set(conversationId, { entry, facts });
+  return facts;
+}
+
 export function getConversationTimelineView(
   conversationId: string | null
 ): ConversationTimelineView {
@@ -218,6 +308,7 @@ export function resetConversationTimelineRegistryForTests(): void {
   slots.clear();
   inflightBinds.clear();
   viewCache.clear();
+  factsCache.clear();
   state = emptyConversationStoreState;
   listeners.clear();
 }
@@ -230,6 +321,7 @@ function releaseConversationTimeline(conversationId: string): void {
   stopController(slot);
   slots.delete(conversationId);
   viewCache.delete(conversationId);
+  factsCache.delete(conversationId);
   dispatch({ type: 'reset', conversationId });
 }
 
@@ -376,6 +468,24 @@ function loadDetail(
     });
 }
 
+const TERMINAL_TURN_PHASES = new Set([
+  'settled',
+  'failed',
+  'cancelled',
+  'interrupted',
+]);
+
+function hasTerminalTurnOp(batch: ConversationRowOpBatch): boolean {
+  return batch.ops.some(
+    (op) =>
+      op.op === 'upsert' &&
+      ((op.row.row.kind === 'message_turn' &&
+        TERMINAL_TURN_PHASES.has(op.row.row.phase)) ||
+        op.row.row.kind === 'file_change_summary' ||
+        op.row.row.kind === 'turn_error')
+  );
+}
+
 function ensureLive(conversationId: string, controller: Controller): void {
   if (controller.liveStarted || controller.stopped) return;
   controller.liveStarted = true;
@@ -389,8 +499,20 @@ function ensureLive(conversationId: string, controller: Controller): void {
       const batches = controller.pendingBatches;
       if (batches.length === 0) return;
       controller.pendingBatches = [];
+      let shouldReloadWindow = false;
       for (const pending of batches) {
-        dispatch({ type: 'row_ops', batch: pending });
+        if (hasTerminalTurnOp(pending)) {
+          shouldReloadWindow = true;
+        }
+        state = conversationStoreReducer(state, {
+          type: 'row_ops',
+          batch: pending,
+        });
+        watchGap(conversationId, controller);
+      }
+      notify();
+      if (shouldReloadWindow && !controller.stopped) {
+        void loadDetail(conversationId, controller);
       }
     });
   }, conversationId)
@@ -662,6 +784,7 @@ function buildView(
     hasEarlier: Boolean(entry?.olderCursor),
     loadOlder: () => loadOlder(conversationId),
     olderTurnsPrependEpoch: entry?.olderTurnsPrependEpoch ?? 0,
+    userTurnsBeforeOffset: entry?.userTurnsBeforeOffset ?? 0,
     sessionBindReady: bindReady,
     connecting:
       hasDetail &&
@@ -682,8 +805,4 @@ function conversationLoadError(error: unknown): string | null {
 function isStaleAgentConnectionError(error: unknown): boolean {
   const message = getInvokeErrorMessage(error) ?? '';
   return /agent connection `.+` was not found/i.test(message);
-}
-
-function toBigInt(value: bigint | number | string): bigint {
-  return typeof value === 'bigint' ? value : BigInt(value);
 }

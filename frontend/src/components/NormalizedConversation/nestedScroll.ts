@@ -10,20 +10,16 @@ export type ScrollMetrics = {
   scrollTop: number;
   clientHeight: number;
   scrollHeight: number;
-  locked?: boolean;
+  /** Session transcript. Leave its wheel to the browser. */
+  conversation?: boolean;
 };
 
 export type NestedWheelResult =
   | { kind: 'native' }
-  | { kind: 'inner' }
-  | { kind: 'forward'; index: number };
-
-export function hasOverflow(metrics: ScrollMetrics): boolean {
-  return metrics.scrollHeight - metrics.clientHeight > EDGE_PX;
-}
+  | { kind: 'scroll'; index: number };
 
 export function canConsume(metrics: ScrollMetrics, deltaY: number): boolean {
-  if (metrics.locked) return false;
+  if (metrics.conversation || deltaY === 0) return false;
   const overflow = metrics.scrollHeight - metrics.clientHeight;
   if (overflow <= EDGE_PX) return false;
   if (deltaY < 0 && metrics.scrollTop <= EDGE_PX) return false;
@@ -32,23 +28,17 @@ export function canConsume(metrics: ScrollMetrics, deltaY: number): boolean {
 }
 
 /**
- * Innermost-first nested scrollers. No overflow / locked panes leave the
- * wheel to the browser so parent scrolling stays native and smooth. An
- * overflowing pane at its edge forwards to the next layer that can move.
+ * Innermost nested pane that can still move. A pane at its top or bottom
+ * yields to the next nested pane. The conversation transcript is never
+ * scrolled here, so the browser can move it by one native wheel step.
  */
 export function nestedWheelResult(
   layers: ScrollMetrics[],
   deltaY: number
 ): NestedWheelResult {
-  const inner = layers[0];
-  if (!inner) return { kind: 'native' };
-  if (inner.locked || !hasOverflow(inner)) return { kind: 'native' };
-  if (canConsume(inner, deltaY)) return { kind: 'inner' };
-  const index = layers.findIndex(
-    (layer, layerIndex) => layerIndex > 0 && canConsume(layer, deltaY)
-  );
+  const index = layers.findIndex((layer) => canConsume(layer, deltaY));
   if (index === -1) return { kind: 'native' };
-  return { kind: 'forward', index };
+  return { kind: 'scroll', index };
 }
 
 export function wheelDeltaPixels(
@@ -77,43 +67,54 @@ export function collectNestedScrollers(from: HTMLElement): HTMLElement[] {
   return layers;
 }
 
-export function bindNestedWheel(
-  node: HTMLElement,
-  options: { locked?: boolean } = {}
-): () => void {
+function wheelOrigin(event: WheelEvent): HTMLElement | null {
+  const target = event.target;
+  if (target instanceof HTMLElement) return target;
+  if (target instanceof Node) return target.parentElement;
+  return null;
+}
+
+function metricsFor(el: HTMLElement): ScrollMetrics {
+  return {
+    scrollTop: el.scrollTop,
+    clientHeight: el.clientHeight,
+    scrollHeight: el.scrollHeight,
+    conversation: el.getAttribute('data-panel') === 'conversation-logs',
+  };
+}
+
+export function bindNestedWheel(node: HTMLElement): () => void {
   const onWheel = (event: WheelEvent) => {
-    const elements = collectNestedScrollers(node);
-    const layers = elements.map((el, index) => ({
-      scrollTop: el.scrollTop,
-      clientHeight: el.clientHeight,
-      scrollHeight: el.scrollHeight,
-      locked: index === 0 ? Boolean(options.locked) : false,
-    }));
-    const result = nestedWheelResult(layers, event.deltaY);
-    // Passive: never preventDefault. Short / locked panes return immediately
-    // so the compositor keeps native scrolling on the parent. Overflowing
-    // panes stop bubbling so a parent binder cannot also apply the delta.
-    if (result.kind === 'native') return;
-    event.stopPropagation();
-    if (result.kind === 'inner') return;
+    if (event.ctrlKey || event.deltaY === 0) return;
+    const origin = wheelOrigin(event);
+    if (!origin) return;
+    const elements = collectNestedScrollers(origin);
+    const result = nestedWheelResult(
+      elements.map(metricsFor),
+      wheelDeltaPixels(event)
+    );
+    if (result.kind !== 'scroll') return;
     const target = elements[result.index];
     if (!target) return;
+    event.preventDefault();
+    event.stopPropagation();
     target.scrollTop += wheelDeltaPixels(event);
   };
-  node.addEventListener('wheel', onWheel, { passive: true });
+  // Must be active so preventDefault wins over the transcript's native wheel.
+  // Otherwise stopPropagation leaves the nested pane unmoved.
+  node.addEventListener('wheel', onWheel, { passive: false });
   return () => node.removeEventListener('wheel', onWheel);
 }
 
 export function useNestedWheel(
   ref: RefObject<HTMLElement | null>,
-  options: { locked?: boolean; enabled?: boolean } = {}
+  options: { enabled?: boolean } = {}
 ) {
-  const locked = Boolean(options.locked);
   const enabled = options.enabled ?? true;
   useEffect(() => {
     if (!enabled) return;
     const node = ref.current;
     if (!node) return;
-    return bindNestedWheel(node, { locked });
-  }, [enabled, locked, ref]);
+    return bindNestedWheel(node);
+  }, [enabled, ref]);
 }

@@ -7,7 +7,7 @@ type SlotItem = { id: string; label: string; kind: 'agent' | 'mark' };
 
 export const SLOT_A: SlotItem[] = [
   { id: 'cursor', label: 'Cursor', kind: 'agent' },
-  { id: 'trae', label: 'Trae', kind: 'mark' },
+  { id: 'trae', label: 'TRAE CLI', kind: 'agent' },
   { id: 'qoder', label: 'Qoder', kind: 'agent' },
   { id: 'vscode', label: 'VS Code', kind: 'mark' },
   { id: 'jetbrains', label: 'JetBrains', kind: 'mark' },
@@ -31,6 +31,10 @@ export const SLOT_B: SlotItem[] = [
   { id: 'cursor', label: 'Cursor', kind: 'agent' },
   { id: 'deepseek', label: 'DeepSeek', kind: 'agent' },
   { id: 'qoder', label: 'Qoder', kind: 'agent' },
+  { id: 'kiro', label: 'Kiro CLI', kind: 'agent' },
+  { id: 'auggie', label: 'Auggie', kind: 'agent' },
+  { id: 'trae', label: 'TRAE CLI', kind: 'agent' },
+  { id: 'command_code', label: 'Command Code', kind: 'agent' },
 ];
 
 const SLOT_C_ZH: SlotItem[] = [

@@ -1,11 +1,16 @@
 //! Subscription plan / rate-limit usage probes for agents that expose them.
 //!
-//! Deliberately independent of the ACP runtime: Codex is probed through a
-//! one-shot `codex app-server` JSON-RPC exchange, Claude Code through the
-//! OAuth usage endpoint using the credentials the CLI already stores locally,
-//! Grok through the official CLI chat-proxy settings/billing endpoints, and
-//! Cursor through the official DashboardService period-usage API. None of the
-//! probes touch live agent connections or conversations.
+//! Codex is probed through the ACP-installed `codex app-server` and the
+//! `auth.json` Settings login already writes. Claude Code uses the OAuth
+//! usage endpoint and `CLAUDE_CONFIG_DIR` from Settings. OpenCode Go and Kimi
+//! Code use their official usage HTTP APIs and the same credential files as
+//! Settings login. Grok and Cursor keep their official account endpoints.
+//! Antigravity reads the quota Cloud Code returns for the OAuth token the ACP
+//! server already stored. None of the probes spawn a vendor CLI or touch live
+//! agent connections.
+//!
+//! Gemini, Qoder, and CodeBuddy stay unsupported: Gemini has no separate ACP
+//! login, and the other two only expose quota through private cookies.
 
 use std::{
     collections::HashMap,
@@ -52,6 +57,23 @@ const CURSOR_PLAN_INFO_URL: &str =
     "https://api2.cursor.sh/aiserver.v1.DashboardService/GetPlanInfo";
 const CURSOR_USAGE_USER_AGENT: &str = "cursor-agent";
 const CURSOR_USAGE_TIMEOUT_SECS: u64 = 15;
+const OPENCODE_GO_USAGE_URL: &str = "https://opencode.ai/zen/go/v1/usage";
+const OPENCODE_GO_USAGE_TIMEOUT_SECS: u64 = 15;
+const KIMI_CODING_BASE_CN: &str = "https://api.kimi.com/coding/v1";
+const KIMI_CODING_BASE_GLOBAL: &str = "https://api.kimi.ai/coding/v1";
+const KIMI_TOKEN_URL: &str = "https://auth.kimi.com/api/oauth/token";
+const KIMI_OAUTH_CLIENT_ID: &str = "17e5f671-d194-4dfb-9706-5516cb48c098";
+const KIMI_USAGE_TIMEOUT_SECS: u64 = 15;
+
+/// Where a plan probe should look, beyond process environment and default homes.
+/// The application service fills this from the ACP installation and the
+/// Settings environment the subscription login already saved.
+#[derive(Debug, Clone, Default)]
+pub struct PlanProbeContext {
+    pub codex_executable: Option<PathBuf>,
+    pub claude_config_dir: Option<PathBuf>,
+    pub environment: HashMap<String, String>,
+}
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]
@@ -61,6 +83,9 @@ pub struct PlanUsageWindow {
     /// Codex: `primary` / `secondary`. Claude: `five_hour` / `seven_day` /
     /// `seven_day_opus` / `seven_day_sonnet` / `extra_usage`. Grok: `weekly` /
     /// `monthly` / `plan_period`. Cursor: `cursor_models` / `other_models`.
+    /// Antigravity: `gemini_five_hour` / `gemini_weekly` /
+    /// `claude_gpt_five_hour` / `claude_gpt_weekly` / `argon_five_hour` /
+    /// `argon_weekly`.
     pub id: String,
     pub used_percent: Option<f64>,
     #[ts(type = "number | null")]
@@ -107,11 +132,11 @@ pub enum PlanUsageResult {
 }
 
 impl PlanUsageResult {
-    fn unavailable(reason: PlanUsageUnavailableReason) -> Self {
+    pub(crate) fn unavailable(reason: PlanUsageUnavailableReason) -> Self {
         Self::Unavailable { reason }
     }
 
-    fn error(message: impl Into<String>) -> Self {
+    pub(crate) fn error(message: impl Into<String>) -> Self {
         Self::Error {
             message: message.into(),
         }
@@ -131,11 +156,23 @@ pub fn cached_plan_usage(agent_id: &AgentId) -> Option<AgentPlanUsage> {
 }
 
 pub async fn probe_plan_usage(agent_id: &AgentId) -> PlanUsageResult {
+    probe_plan_usage_with(agent_id, &PlanProbeContext::default()).await
+}
+
+pub async fn probe_plan_usage_with(
+    agent_id: &AgentId,
+    context: &PlanProbeContext,
+) -> PlanUsageResult {
     let result = match agent_id.as_str() {
-        "claude_code" => probe_claude_plan_usage().await,
-        "codex" => probe_codex_plan_usage().await,
+        "claude_code" => probe_claude_plan_usage(context).await,
+        "codex" => probe_codex_plan_usage(context).await,
         "grok" => probe_grok_plan_usage().await,
         "cursor" => probe_cursor_plan_usage().await,
+        "opencode" => probe_opencode_go_plan_usage(context).await,
+        "kimi_code" => probe_kimi_plan_usage(context).await,
+        "antigravity" => crate::antigravity_plan::probe_antigravity_plan_usage(context).await,
+        // Gemini has no ACP credential of its own. Qoder and CodeBuddy have no
+        // stable public quota API.
         _ => PlanUsageResult::unavailable(PlanUsageUnavailableReason::UnsupportedAgent),
     };
     if let PlanUsageResult::Ok { usage } = &result
@@ -176,7 +213,30 @@ fn npm_codex_candidates() -> Vec<PathBuf> {
     candidates
 }
 
-fn resolve_codex_command_path() -> Option<PathBuf> {
+fn context_env(context: &PlanProbeContext, key: &str) -> Option<String> {
+    context
+        .environment
+        .get(key)
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty())
+        .or_else(|| {
+            env::var(key)
+                .ok()
+                .map(|value| value.trim().to_string())
+                .filter(|value| !value.is_empty())
+        })
+}
+
+fn resolve_codex_command_path(context: &PlanProbeContext) -> Option<PathBuf> {
+    if let Some(path) = context.codex_executable.clone().and_then(existing_file) {
+        return Some(path);
+    }
+    if let Some(path) = context_env(context, "CODEX_BIN")
+        .map(PathBuf::from)
+        .and_then(existing_file)
+    {
+        return Some(path);
+    }
     if let Some(path) = env::var_os("CODEX_BIN").and_then(existing_file) {
         return Some(path);
     }
@@ -245,16 +305,27 @@ async fn read_app_server_response(
     }
 }
 
-async fn probe_codex_plan_usage() -> PlanUsageResult {
-    if !metadata::codex_auth_path().is_some_and(|path| path.exists()) {
+fn codex_auth_file(context: &PlanProbeContext) -> Option<PathBuf> {
+    if let Some(home) = context_env(context, "CODEX_HOME") {
+        return Some(PathBuf::from(home).join("auth.json"));
+    }
+    metadata::codex_auth_path()
+}
+
+async fn probe_codex_plan_usage(context: &PlanProbeContext) -> PlanUsageResult {
+    if !codex_auth_file(context).is_some_and(|path| path.is_file()) {
         return PlanUsageResult::unavailable(PlanUsageUnavailableReason::NotLoggedIn);
     }
 
-    let Some(codex_path) = resolve_codex_command_path() else {
+    let Some(codex_path) = resolve_codex_command_path(context) else {
         return PlanUsageResult::unavailable(PlanUsageUnavailableReason::CliNotFound);
     };
 
-    let mut child = match new_hidden_tokio_command(&codex_path, ["app-server"])
+    let mut command = new_hidden_tokio_command(&codex_path, ["app-server"]);
+    if let Some(home) = context_env(context, "CODEX_HOME") {
+        command.env("CODEX_HOME", home);
+    }
+    let mut child = match command
         .stdin(std::process::Stdio::piped())
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped())
@@ -422,8 +493,23 @@ fn parse_claude_credentials_json(raw: &str) -> Option<ClaudeOauthCredentials> {
     })
 }
 
-fn claude_credentials_file_path() -> Option<PathBuf> {
-    dirs::home_dir().map(|home| home.join(".claude").join(".credentials.json"))
+fn claude_credential_paths(context: &PlanProbeContext) -> Vec<PathBuf> {
+    let mut paths = Vec::new();
+    let mut push = |path: PathBuf| {
+        if !paths.contains(&path) {
+            paths.push(path);
+        }
+    };
+    if let Some(dir) = &context.claude_config_dir {
+        push(dir.join(".credentials.json"));
+    }
+    if let Some(dir) = context_env(context, "CLAUDE_CONFIG_DIR") {
+        push(PathBuf::from(dir).join(".credentials.json"));
+    }
+    if let Some(home) = dirs::home_dir() {
+        push(home.join(".claude").join(".credentials.json"));
+    }
+    paths
 }
 
 #[cfg(target_os = "macos")]
@@ -453,22 +539,23 @@ async fn read_claude_keychain_credentials() -> Option<String> {
     None
 }
 
-async fn load_claude_credentials() -> Result<ClaudeOauthCredentials, PlanUsageResult> {
-    if let Ok(token) = env::var("CLAUDE_CODE_OAUTH_TOKEN")
-        && !token.trim().is_empty()
-    {
+async fn load_claude_credentials(
+    context: &PlanProbeContext,
+) -> Result<ClaudeOauthCredentials, PlanUsageResult> {
+    if let Some(token) = context_env(context, "CLAUDE_CODE_OAUTH_TOKEN") {
         return Ok(ClaudeOauthCredentials {
-            access_token: token.trim().to_string(),
+            access_token: token,
             expires_at_ms: None,
             subscription_type: None,
         });
     }
 
-    if let Some(path) = claude_credentials_file_path()
-        && let Ok(raw) = tokio::fs::read_to_string(&path).await
-        && let Some(credentials) = parse_claude_credentials_json(&raw)
-    {
-        return Ok(credentials);
+    for path in claude_credential_paths(context) {
+        if let Ok(raw) = tokio::fs::read_to_string(&path).await
+            && let Some(credentials) = parse_claude_credentials_json(&raw)
+        {
+            return Ok(credentials);
+        }
     }
 
     if let Some(raw) = read_claude_keychain_credentials().await
@@ -486,8 +573,8 @@ fn is_token_expired(expires_at_ms: Option<i64>, now_ms: i64) -> bool {
     expires_at_ms.is_some_and(|expires_at| expires_at <= now_ms)
 }
 
-async fn probe_claude_plan_usage() -> PlanUsageResult {
-    let credentials = match load_claude_credentials().await {
+async fn probe_claude_plan_usage(context: &PlanProbeContext) -> PlanUsageResult {
+    let credentials = match load_claude_credentials(context).await {
         Ok(credentials) => credentials,
         Err(result) => return result,
     };
@@ -1232,6 +1319,502 @@ async fn probe_cursor_plan_usage() -> PlanUsageResult {
     }
 }
 
+// ── OpenCode Go: official usage API with the stored Go key ────────────────
+
+fn form_escape(value: &str) -> String {
+    let mut out = String::new();
+    for byte in value.bytes() {
+        match byte {
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => {
+                out.push(byte as char);
+            }
+            _ => out.push_str(&format!("%{byte:02X}")),
+        }
+    }
+    out
+}
+
+fn json_string_field<'a>(value: &'a Value, keys: &[&str]) -> Option<&'a str> {
+    keys.iter().find_map(|key| {
+        value
+            .get(*key)
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .filter(|text| !text.is_empty())
+    })
+}
+
+fn json_f64(value: &Value) -> Option<f64> {
+    value
+        .as_f64()
+        .or_else(|| value.as_i64().map(|number| number as f64))
+        .or_else(|| value.as_str().and_then(|text| text.trim().parse().ok()))
+}
+
+fn opencode_auth_candidates(context: &PlanProbeContext) -> Vec<PathBuf> {
+    let mut paths = Vec::new();
+    let mut push = |path: PathBuf| {
+        if !paths.contains(&path) {
+            paths.push(path);
+        }
+    };
+    if let Some(path) = metadata::opencode_auth_path_from_env(&context.environment) {
+        push(path);
+    }
+    if let Some(appdata) = env::var_os("APPDATA") {
+        push(PathBuf::from(appdata).join("opencode").join("auth.json"));
+    }
+    paths
+}
+
+fn opencode_key_from_auth(value: &Value) -> Option<String> {
+    let object = value.as_object()?;
+    let preferred = [
+        "opencode-go",
+        "opencodego",
+        "opencode",
+        "cc-switch-open-code-go",
+    ];
+    for name in preferred {
+        if let Some(key) = object
+            .get(name)
+            .and_then(|entry| json_string_field(entry, &["key", "apiKey", "api_key", "access"]))
+        {
+            return Some(key.to_string());
+        }
+    }
+    for (name, entry) in object {
+        if !name.to_ascii_lowercase().contains("go") {
+            continue;
+        }
+        if let Some(key) = json_string_field(entry, &["key", "apiKey", "api_key", "access"]) {
+            return Some(key.to_string());
+        }
+    }
+    None
+}
+
+fn opencode_key_from_config(value: &Value) -> Option<String> {
+    let providers = value.get("provider")?.as_object()?;
+    for (id, provider) in providers {
+        let options = provider.get("options")?;
+        let base = json_string_field(options, &["baseURL", "base_url", "baseUrl"]);
+        let looks_go = id.to_ascii_lowercase().contains("go")
+            || base.is_some_and(|url| url.contains("opencode.ai/zen/go"));
+        if !looks_go {
+            continue;
+        }
+        if let Some(key) = json_string_field(options, &["apiKey", "api_key"]) {
+            return Some(key.to_string());
+        }
+    }
+    None
+}
+
+async fn load_opencode_go_api_key(context: &PlanProbeContext) -> Option<String> {
+    if let Some(key) = context_env(context, "OPENCODE_GO_API_KEY") {
+        return Some(key);
+    }
+    for path in opencode_auth_candidates(context) {
+        if let Ok(raw) = tokio::fs::read_to_string(&path).await
+            && let Ok(value) = serde_json::from_str::<Value>(&raw)
+            && let Some(key) = opencode_key_from_auth(&value)
+        {
+            return Some(key);
+        }
+    }
+    let config_dir = metadata::opencode_config_dir_from_env(&context.environment)?;
+    for name in ["opencode.json", "opencode.jsonc"] {
+        let path = config_dir.join(name);
+        if let Ok(raw) = tokio::fs::read_to_string(&path).await
+            && let Ok(value) = serde_json::from_str::<Value>(&raw)
+            && let Some(key) = opencode_key_from_config(&value)
+        {
+            return Some(key);
+        }
+    }
+    None
+}
+
+fn parse_resets_at_ms(value: &Value) -> Option<i64> {
+    if let Some(number) = json_f64(value) {
+        return Some(normalize_epoch_ms(number));
+    }
+    let text = value.as_str()?;
+    chrono::DateTime::parse_from_rfc3339(text)
+        .ok()
+        .map(|parsed| parsed.timestamp_millis())
+}
+
+fn opencode_window(id: &str, window: &Value, scale_fractions: bool) -> Option<PlanUsageWindow> {
+    if !window.is_object() {
+        return None;
+    }
+    let percent = window.get("percent").and_then(json_f64).map(|value| {
+        if scale_fractions && value <= 1.0 {
+            value * 100.0
+        } else {
+            value
+        }
+    });
+    Some(PlanUsageWindow {
+        id: id.to_string(),
+        used_percent: percent,
+        window_minutes: None,
+        resets_at_ms: window.get("resetsAt").and_then(parse_resets_at_ms),
+    })
+}
+
+pub(crate) fn map_opencode_go_usage(value: &Value) -> Option<AgentPlanUsage> {
+    let nested = value.get("usage").filter(|usage| {
+        usage.get("rolling").is_some()
+            || usage.get("weekly").is_some()
+            || usage.get("monthly").is_some()
+    });
+    let root = nested.unwrap_or(value);
+    let ids = ["rolling", "weekly", "monthly"];
+    let percents: Vec<f64> = ids
+        .iter()
+        .filter_map(|id| {
+            root.get(*id)
+                .and_then(|window| window.get("percent"))
+                .and_then(json_f64)
+        })
+        .collect();
+    if percents.is_empty() {
+        return None;
+    }
+    let scale_fractions = percents.iter().all(|value| *value <= 1.0);
+    let windows = ids
+        .iter()
+        .filter_map(|id| {
+            root.get(*id)
+                .and_then(|window| opencode_window(id, window, scale_fractions))
+        })
+        .collect::<Vec<_>>();
+    if windows.is_empty() {
+        return None;
+    }
+    Some(AgentPlanUsage {
+        plan_type: value
+            .get("plan")
+            .or_else(|| value.get("planType"))
+            .and_then(Value::as_str)
+            .map(str::to_string),
+        windows,
+        credits: None,
+    })
+}
+
+async fn probe_opencode_go_plan_usage(context: &PlanProbeContext) -> PlanUsageResult {
+    let Some(api_key) = load_opencode_go_api_key(context).await else {
+        return PlanUsageResult::unavailable(PlanUsageUnavailableReason::NotLoggedIn);
+    };
+    let client = match http_client(OPENCODE_GO_USAGE_TIMEOUT_SECS) {
+        Ok(client) => client,
+        Err(result) => return result,
+    };
+    let response = match client
+        .get(OPENCODE_GO_USAGE_URL)
+        .header("Authorization", format!("Bearer {api_key}"))
+        .header("Accept", "application/json")
+        .send()
+        .await
+    {
+        Ok(response) => response,
+        Err(error) => return PlanUsageResult::error(error.to_string()),
+    };
+    let status = response.status();
+    if status == reqwest::StatusCode::UNAUTHORIZED || status == reqwest::StatusCode::FORBIDDEN {
+        return PlanUsageResult::unavailable(PlanUsageUnavailableReason::NotLoggedIn);
+    }
+    if !status.is_success() {
+        return PlanUsageResult::error(format!("OpenCode Go usage endpoint returned {status}."));
+    }
+    match response.json::<Value>().await {
+        Ok(value) => match map_opencode_go_usage(&value) {
+            Some(usage) => PlanUsageResult::Ok { usage },
+            None => PlanUsageResult::error("OpenCode Go usage endpoint returned no windows."),
+        },
+        Err(error) => PlanUsageResult::error(error.to_string()),
+    }
+}
+
+// ── Kimi Code: official coding `/usages` with the subscription token ───────
+
+struct KimiCredentialFile {
+    path: PathBuf,
+    value: Value,
+    access_token: String,
+    refresh_token: Option<String>,
+    expires_at_ms: Option<i64>,
+}
+
+fn kimi_expires_at_ms(value: &Value) -> Option<i64> {
+    let number = value
+        .get("expires_at")
+        .or_else(|| value.get("expiresAt"))
+        .and_then(json_f64)?;
+    Some(normalize_epoch_ms(number))
+}
+
+fn kimi_credentials_from_json(path: PathBuf, raw: &str) -> Option<KimiCredentialFile> {
+    let value: Value = serde_json::from_str(raw).ok()?;
+    if value.get("_vibex_synthetic").and_then(Value::as_bool) == Some(true) {
+        return None;
+    }
+    let access_token = value.get("access_token").and_then(Value::as_str)?.trim();
+    if access_token.is_empty() || access_token == "vibex-local-gate" {
+        return None;
+    }
+    Some(KimiCredentialFile {
+        path,
+        refresh_token: value
+            .get("refresh_token")
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .filter(|token| !token.is_empty())
+            .map(str::to_string),
+        expires_at_ms: kimi_expires_at_ms(&value),
+        access_token: access_token.to_string(),
+        value,
+    })
+}
+
+fn kimi_credential_candidates(context: &PlanProbeContext) -> Vec<PathBuf> {
+    let mut paths = Vec::new();
+    let mut push = |path: PathBuf| {
+        if !paths.contains(&path) {
+            paths.push(path);
+        }
+    };
+    if let Some(home) = context_env(context, "KIMI_CODE_HOME") {
+        push(
+            PathBuf::from(home)
+                .join("credentials")
+                .join("kimi-code.json"),
+        );
+    }
+    if let Some(home) = dirs::home_dir() {
+        push(
+            home.join(".kimi-code")
+                .join("credentials")
+                .join("kimi-code.json"),
+        );
+        push(
+            home.join(".kimi")
+                .join("credentials")
+                .join("kimi-code.json"),
+        );
+    }
+    paths
+}
+
+async fn load_kimi_credentials(context: &PlanProbeContext) -> Option<KimiCredentialFile> {
+    for path in kimi_credential_candidates(context) {
+        if let Ok(raw) = tokio::fs::read_to_string(&path).await
+            && let Some(credentials) = kimi_credentials_from_json(path, &raw)
+        {
+            return Some(credentials);
+        }
+    }
+    None
+}
+
+fn kimi_coding_base(context: &PlanProbeContext) -> String {
+    let hinted = context_env(context, "KIMI_CODE_BASE_URL")
+        .or_else(|| context_env(context, "KIMI_BASE_URL"));
+    match hinted.as_deref() {
+        Some(url) if url.contains("api.kimi.ai") => KIMI_CODING_BASE_GLOBAL.to_string(),
+        _ => KIMI_CODING_BASE_CN.to_string(),
+    }
+}
+
+fn kimi_window_minutes(window: &Value) -> Option<i64> {
+    let duration = window.get("duration").and_then(json_f64)? as i64;
+    let unit = window
+        .get("timeUnit")
+        .and_then(Value::as_str)
+        .unwrap_or("TIME_UNIT_MINUTE");
+    let minutes = match unit {
+        "TIME_UNIT_SECOND" => duration.div_euclid(60),
+        "TIME_UNIT_HOUR" => duration.saturating_mul(60),
+        "TIME_UNIT_DAY" => duration.saturating_mul(24 * 60),
+        _ => duration,
+    };
+    (minutes > 0).then_some(minutes)
+}
+
+fn kimi_used_percent(limit: f64, remaining: f64) -> Option<f64> {
+    if limit <= 0.0 {
+        return None;
+    }
+    let used = (limit - remaining).clamp(0.0, limit);
+    Some(used / limit * 100.0)
+}
+
+fn kimi_quota_window(
+    id: &str,
+    detail: &Value,
+    window_minutes: Option<i64>,
+) -> Option<PlanUsageWindow> {
+    let limit = detail.get("limit").and_then(json_f64)?;
+    let remaining = detail.get("remaining").and_then(json_f64).unwrap_or(0.0);
+    Some(PlanUsageWindow {
+        id: id.to_string(),
+        used_percent: kimi_used_percent(limit, remaining),
+        window_minutes,
+        resets_at_ms: detail.get("resetTime").and_then(parse_resets_at_ms),
+    })
+}
+
+pub(crate) fn map_kimi_usage(value: &Value) -> Option<AgentPlanUsage> {
+    let mut windows = Vec::new();
+    if let Some(limits) = value.get("limits").and_then(Value::as_array) {
+        for (index, limit) in limits.iter().enumerate() {
+            let detail = limit.get("detail").unwrap_or(limit);
+            let minutes = limit.get("window").and_then(kimi_window_minutes);
+            if let Some(window) = kimi_quota_window(&format!("kimi_limit_{index}"), detail, minutes)
+            {
+                windows.push(window);
+            }
+        }
+    }
+    if windows.is_empty()
+        && let Some(usage) = value.get("usage")
+        && let Some(window) = kimi_quota_window("primary", usage, None)
+    {
+        windows.push(window);
+    }
+    if windows.is_empty() {
+        return None;
+    }
+    let plan_type = value
+        .get("user")
+        .and_then(|user| user.get("membership"))
+        .and_then(|membership| membership.get("level"))
+        .and_then(Value::as_str)
+        .map(|level| level.trim_start_matches("LEVEL_").to_ascii_lowercase());
+    Some(AgentPlanUsage {
+        plan_type,
+        windows,
+        credits: None,
+    })
+}
+
+async fn refresh_kimi_credentials(
+    client: &reqwest::Client,
+    credentials: &mut KimiCredentialFile,
+) -> Result<(), PlanUsageResult> {
+    let Some(refresh_token) = credentials.refresh_token.clone() else {
+        return Err(PlanUsageResult::unavailable(
+            PlanUsageUnavailableReason::TokenExpired,
+        ));
+    };
+    let body = format!(
+        "client_id={}&grant_type=refresh_token&refresh_token={}",
+        form_escape(KIMI_OAUTH_CLIENT_ID),
+        form_escape(&refresh_token)
+    );
+    let response = client
+        .post(KIMI_TOKEN_URL)
+        .header("Content-Type", "application/x-www-form-urlencoded")
+        .header("Accept", "application/json")
+        .body(body)
+        .send()
+        .await
+        .map_err(|error| PlanUsageResult::error(error.to_string()))?;
+    let status = response.status();
+    if status == reqwest::StatusCode::UNAUTHORIZED || status == reqwest::StatusCode::FORBIDDEN {
+        return Err(PlanUsageResult::unavailable(
+            PlanUsageUnavailableReason::TokenExpired,
+        ));
+    }
+    if !status.is_success() {
+        return Err(PlanUsageResult::error(format!(
+            "Kimi token endpoint returned {status}."
+        )));
+    }
+    let value = response
+        .json::<Value>()
+        .await
+        .map_err(|error| PlanUsageResult::error(error.to_string()))?;
+    let access_token = value
+        .get("access_token")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|token| !token.is_empty())
+        .ok_or_else(|| PlanUsageResult::error("Kimi token endpoint returned no access token."))?
+        .to_string();
+    if let Some(object) = credentials.value.as_object_mut() {
+        object.insert(
+            "access_token".to_string(),
+            Value::String(access_token.clone()),
+        );
+        if let Some(refresh) = value.get("refresh_token").and_then(Value::as_str) {
+            object.insert(
+                "refresh_token".to_string(),
+                Value::String(refresh.to_string()),
+            );
+            credentials.refresh_token = Some(refresh.to_string());
+        }
+        if let Some(expires_in) = value.get("expires_in").and_then(json_f64) {
+            let expires_at = chrono::Utc::now().timestamp() as f64 + expires_in;
+            object.insert("expires_at".to_string(), Value::from(expires_at));
+            credentials.expires_at_ms = Some(normalize_epoch_ms(expires_at));
+        }
+    }
+    credentials.access_token = access_token;
+    if let Ok(raw) = serde_json::to_string_pretty(&credentials.value) {
+        let _ = tokio::fs::write(&credentials.path, raw).await;
+    }
+    Ok(())
+}
+
+async fn probe_kimi_plan_usage(context: &PlanProbeContext) -> PlanUsageResult {
+    let Some(mut credentials) = load_kimi_credentials(context).await else {
+        return PlanUsageResult::unavailable(PlanUsageUnavailableReason::NotLoggedIn);
+    };
+    let client = match http_client(KIMI_USAGE_TIMEOUT_SECS) {
+        Ok(client) => client,
+        Err(result) => return result,
+    };
+    let now_ms = chrono::Utc::now().timestamp_millis();
+    if is_token_expired(credentials.expires_at_ms, now_ms + 5 * 60 * 1000) {
+        if let Err(result) = refresh_kimi_credentials(&client, &mut credentials).await {
+            return result;
+        }
+    }
+    let url = format!("{}/usages", kimi_coding_base(context));
+    let response = match client
+        .get(url)
+        .header(
+            "Authorization",
+            format!("Bearer {}", credentials.access_token),
+        )
+        .header("Accept", "application/json")
+        .send()
+        .await
+    {
+        Ok(response) => response,
+        Err(error) => return PlanUsageResult::error(error.to_string()),
+    };
+    let status = response.status();
+    if status == reqwest::StatusCode::UNAUTHORIZED || status == reqwest::StatusCode::FORBIDDEN {
+        return PlanUsageResult::unavailable(PlanUsageUnavailableReason::TokenExpired);
+    }
+    if !status.is_success() {
+        return PlanUsageResult::error(format!("Kimi usage endpoint returned {status}."));
+    }
+    match response.json::<Value>().await {
+        Ok(value) => match map_kimi_usage(&value) {
+            Some(usage) => PlanUsageResult::Ok { usage },
+            None => PlanUsageResult::error("Kimi usage endpoint returned no quota."),
+        },
+        Err(error) => PlanUsageResult::error(error.to_string()),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1597,6 +2180,74 @@ mod tests {
         assert_eq!(usage.windows[0].id, "monthly");
         assert_eq!(usage.windows[0].used_percent, Some(8.0));
         assert!(usage.plan_type.is_none());
+    }
+
+    #[test]
+    fn opencode_go_usage_maps_percent_windows() {
+        let value = json!({
+            "usage": {
+                "rolling": { "status": "ok", "percent": 12.0, "resetsAt": "2026-10-20T12:00:00Z" },
+                "weekly": { "status": "ok", "percent": 40, "resetsAt": 1_761_000_000_000_i64 },
+                "monthly": { "status": "ok", "percent": 0.5 }
+            }
+        });
+        let usage = map_opencode_go_usage(&value).expect("windows");
+        assert_eq!(usage.windows.len(), 3);
+        assert_eq!(usage.windows[0].id, "rolling");
+        assert_eq!(usage.windows[0].used_percent, Some(12.0));
+        assert!(usage.windows[0].resets_at_ms.is_some());
+        assert_eq!(usage.windows[1].used_percent, Some(40.0));
+        assert_eq!(usage.windows[2].used_percent, Some(0.5));
+    }
+
+    #[test]
+    fn opencode_go_usage_scales_fractional_percents() {
+        let value = json!({
+            "rolling": { "percent": 0.12 },
+            "weekly": { "percent": 1.0 },
+            "monthly": { "percent": 0.0 }
+        });
+        let usage = map_opencode_go_usage(&value).expect("windows");
+        assert_eq!(usage.windows[0].used_percent, Some(12.0));
+        assert_eq!(usage.windows[1].used_percent, Some(100.0));
+        assert_eq!(usage.windows[2].used_percent, Some(0.0));
+    }
+
+    #[test]
+    fn kimi_usage_maps_limit_windows_and_membership() {
+        let value = json!({
+            "usage": { "limit": "100", "remaining": "74", "resetTime": "2026-02-11T17:32:50.757941Z" },
+            "limits": [{
+                "window": { "duration": 300, "timeUnit": "TIME_UNIT_MINUTE" },
+                "detail": { "limit": "100", "remaining": "85", "resetTime": "2026-02-07T12:32:50Z" }
+            }],
+            "user": { "membership": { "level": "LEVEL_INTERMEDIATE" } }
+        });
+        let usage = map_kimi_usage(&value).expect("quota");
+        assert_eq!(usage.plan_type.as_deref(), Some("intermediate"));
+        assert_eq!(usage.windows.len(), 1);
+        assert_eq!(usage.windows[0].window_minutes, Some(300));
+        assert_eq!(usage.windows[0].used_percent, Some(15.0));
+    }
+
+    #[test]
+    fn kimi_credentials_skip_the_local_gate_token() {
+        let path = PathBuf::from("kimi-code.json");
+        assert!(
+            kimi_credentials_from_json(
+                path.clone(),
+                r#"{"access_token":"vibex-local-gate","_vibex_synthetic":true}"#
+            )
+            .is_none()
+        );
+        let credentials = kimi_credentials_from_json(
+            path,
+            r#"{"access_token":"live","refresh_token":"refresh","expires_at":1769861835.0}"#,
+        )
+        .expect("credentials");
+        assert_eq!(credentials.access_token, "live");
+        assert_eq!(credentials.refresh_token.as_deref(), Some("refresh"));
+        assert!(credentials.expires_at_ms.unwrap() > 1_000_000_000_000);
     }
 
     #[test]

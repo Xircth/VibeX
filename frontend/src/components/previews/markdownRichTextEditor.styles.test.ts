@@ -106,4 +106,36 @@ describe('markdown rich text editor chrome', () => {
     expect(decls['box-shadow']).toBe('none');
     expect(decls.border).toBe('none');
   });
+
+  it('does not strip chrome from controls inside a nested dialog', () => {
+    const css = readFileSync(STYLESHEET, 'utf8');
+    const pressable: string[] = [];
+    parse(css).walkRules((rule: Rule) => {
+      if (!rule.selector.includes('[data-pressable-container]')) return;
+      pressable.push(rule.selector);
+    });
+    expect(pressable.length).toBeGreaterThan(0);
+    for (const selector of pressable) {
+      expect(selector).toContain(':not(dialog *)');
+    }
+
+    const header = declarationsFor(css, '.astryx-layout-header > div');
+    const content = declarationsFor(css, '.astryx-layout-content');
+    const layout = declarationsFor(css, 'dialog .astryx-layout');
+    expect(header.padding).toBe('var(--spacing-4, 16px)');
+    expect(content['padding-inline']).toBe('var(--spacing-4, 16px)');
+    expect(content['padding-block']).toBe('0 var(--spacing-4, 16px)');
+    expect(layout.margin).toBe('0');
+  });
 });
+
+function declarationsFor(css: string, part: string): Record<string, string> {
+  const decls: Record<string, string> = {};
+  parse(css).walkRules((rule: Rule) => {
+    if (!rule.selector.includes(part)) return;
+    rule.walkDecls((declaration) => {
+      decls[declaration.prop] = declaration.value;
+    });
+  });
+  return decls;
+}

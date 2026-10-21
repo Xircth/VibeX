@@ -22,9 +22,8 @@
 
 use std::collections::HashSet;
 
-use chrono::{DateTime, Utc};
-
 use agents::conversation::{ContentBlock, MessageTurn, TurnRole};
+use chrono::{DateTime, Utc};
 
 /// Server-side clamp for `tailTurns` / page `limit`.
 pub const MAX_WINDOW_TURNS: usize = 500;
@@ -115,10 +114,7 @@ pub fn prefix_fingerprint(turns: &[MessageTurn]) -> String {
 /// 0), bounded by [`ROUND_ALIGN_CAP`]. Alignment only ever ADDS earlier turns.
 fn round_align_backward(turns: &[MessageTurn], mut start: usize) -> usize {
     let mut steps = 0;
-    while start > 0
-        && steps < ROUND_ALIGN_CAP
-        && !matches!(turns[start].role, TurnRole::User)
-    {
+    while start > 0 && steps < ROUND_ALIGN_CAP && !matches!(turns[start].role, TurnRole::User) {
         start -= 1;
         steps += 1;
     }
@@ -272,8 +268,9 @@ fn has_hunk_header_line(text: &str) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use chrono::TimeZone;
+
+    use super::*;
 
     fn turn(role: TurnRole, secs: i64) -> MessageTurn {
         MessageTurn {
@@ -285,7 +282,7 @@ mod tests {
             duration_ms: None,
             model: None,
             completed_at: None,
-        agent_message_id: None,
+            agent_message_id: None,
         }
     }
 
@@ -357,10 +354,7 @@ mod tests {
         assert_eq!(meta.total, 5);
         assert_eq!(meta.assistant_before, 2);
         assert_eq!(meta.user_before, 1);
-        assert_eq!(
-            meta.uncovered_prefix_max_ts,
-            Some(turns[2].timestamp)
-        );
+        assert_eq!(meta.uncovered_prefix_max_ts, Some(turns[2].timestamp));
 
         let full = window_meta(&turns, 0);
         assert_eq!(full.assistant_before, 0);

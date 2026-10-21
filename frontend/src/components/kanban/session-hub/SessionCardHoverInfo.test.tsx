@@ -4,6 +4,7 @@ import type { KanbanProjectSessionRecord } from '@/hooks/useKanbanProjectSession
 import { toast } from '@/components/ui/toast';
 import { writeClipboardViaBridge } from '@/vscode/bridge';
 import {
+  SessionCardHoverCard,
   SessionCardHoverInfo,
   sessionCardHoverDetails,
 } from './SessionCardHoverInfo';
@@ -75,6 +76,25 @@ describe('sessionCardHoverDetails', () => {
         }
       ).path
     ).toBe('C:\\Users\\18190\\Documents\\projects\\VibeX');
+  });
+});
+
+describe('SessionCardHoverCard', () => {
+  it('mounts on a page that has no tooltip provider', () => {
+    const details = sessionCardHoverDetails(session(), '请参考附图，对我', {
+      name: 'VibeX',
+      root_path: 'C:\\fallback',
+    });
+
+    render(
+      <SessionCardHoverCard details={details}>
+        <button type="button">请参考附图，对我</button>
+      </SessionCardHoverCard>
+    );
+
+    expect(
+      screen.getByRole('button', { name: '请参考附图，对我' })
+    ).toBeInTheDocument();
   });
 });
 

@@ -59,7 +59,7 @@ describe('AgentEnvironmentEditor', () => {
     expect(
       screen.getByLabelText('环境变量 OPENAI_API_KEY 的值')
     ).toHaveAttribute('type', 'password');
-    await user.click(screen.getByRole('button', { name: '保存' }));
+    await user.tab();
 
     await waitFor(() =>
       expect(write).toHaveBeenCalledWith({

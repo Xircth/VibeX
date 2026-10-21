@@ -15,7 +15,7 @@ import {
 } from '@/features/agent-management';
 
 import { AgentSectionHeading } from './SettingsSection';
-import { SettingsActionBar } from './SettingsUi';
+import { useLiveSettingsCommit } from './useLiveSettingsCommit';
 
 type Props = {
   agentId: AgentId;
@@ -40,8 +40,15 @@ export function AgentEnvironmentEditor({
 }: Props) {
   const { t } = useTranslation('settings');
   const nextKey = useRef(1);
+  const commitGeneration = useRef(0);
   const [view, setView] = useState<AgentEnvironmentView | null>(null);
   const [rows, setRows] = useState<EnvironmentRow[]>([]);
+  const rowsRef = useRef(rows);
+  rowsRef.current = rows;
+  const viewRef = useRef(view);
+  viewRef.current = view;
+  const onDirtyChangeRef = useRef(onDirtyChange);
+  onDirtyChangeRef.current = onDirtyChange;
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -88,14 +95,36 @@ export function AgentEnvironmentEditor({
   const dirty = Boolean(
     request && (structureDirty || Object.keys(request.values).length > 0)
   );
+  const { writeNow } = useLiveSettingsCommit(
+    async (commit: { request: AgentEnvironmentPatchRequest; token: number }) => {
+      onDirtyChangeRef.current?.(false);
+      setSaving(true);
+      setError(null);
+      try {
+        const next = await agentManagementApi.writeEnvironment(commit.request);
+        if (commit.token !== commitGeneration.current) return;
+        adopt(next);
+        await onChanged?.();
+      } catch (cause) {
+        const message = agentManagementErrorMessage(
+          cause,
+          t('agents.environmentSaveFailed')
+        );
+        setError(message);
+        toast.error(message);
+      } finally {
+        setSaving(false);
+      }
+    }
+  );
   useEffect(() => {
-    onDirtyChange?.(dirty);
+    onDirtyChange?.(saving ? false : dirty);
     return () => onDirtyChange?.(false);
-  }, [dirty, onDirtyChange]);
+  }, [dirty, onDirtyChange, saving]);
 
   const updateRow = (key: number, field: 'name' | 'value', value: string) => {
-    setRows((current) =>
-      current.map((row) =>
+    setRows((current) => {
+      const next = current.map((row) =>
         row.key === key
           ? {
               ...row,
@@ -106,13 +135,17 @@ export function AgentEnvironmentEditor({
                   : row.secret,
             }
           : row
-      )
-    );
+      );
+      rowsRef.current = next;
+      return next;
+    });
   };
 
-  const save = async () => {
-    if (!request) return;
-    const names = rows.map((row) => row.name.trim());
+  const commitRows = () => {
+    const currentView = viewRef.current;
+    const currentRows = rowsRef.current;
+    if (!currentView) return;
+    const names = currentRows.map((row) => row.name.trim()).filter(Boolean);
     if (names.some((name) => !validEnvironmentName(name))) {
       setError(t('agents.environmentInvalidName'));
       return;
@@ -121,32 +154,32 @@ export function AgentEnvironmentEditor({
       setError(t('agents.environmentDuplicateName'));
       return;
     }
-    const missingRenamedSecret = rows.some(
+    const missingRenamedSecret = currentRows.some(
       (row) =>
         row.secret &&
         row.originalName !== row.name.trim() &&
+        row.name.trim().length > 0 &&
         row.value.length === 0
     );
     if (missingRenamedSecret) {
       setError(t('agents.environmentSecretRenameRequiresValue'));
       return;
     }
-    setSaving(true);
-    setError(null);
-    try {
-      adopt(await agentManagementApi.writeEnvironment(request));
-      toast.success(t('agents.environmentSaved'));
-      await onChanged?.();
-    } catch (cause) {
-      const message = agentManagementErrorMessage(
-        cause,
-        t('agents.environmentSaveFailed')
-      );
-      setError(message);
-      toast.error(message);
-    } finally {
-      setSaving(false);
+    const nextRequest = buildEnvironmentPatch(currentView, currentRows);
+    const nextStructureDirty =
+      currentRows.length !== currentView.entries.length ||
+      currentRows.some((row) => row.originalName !== row.name.trim());
+    if (!nextStructureDirty && Object.keys(nextRequest.values).length === 0) {
+      return;
     }
+    if (
+      currentRows.some((row) => row.name.trim().length === 0) &&
+      Object.keys(nextRequest.values).length === 0
+    ) {
+      return;
+    }
+    const token = ++commitGeneration.current;
+    writeNow({ request: nextRequest, token });
   };
 
   return (
@@ -222,6 +255,7 @@ export function AgentEnvironmentEditor({
                   name={`agent_environment_name_${row.key}`}
                   placeholder="NAME"
                   value={row.name}
+                  onBlur={commitRows}
                   onChange={(event) =>
                     updateRow(row.key, 'name', event.target.value)
                   }
@@ -241,6 +275,7 @@ export function AgentEnvironmentEditor({
                   }
                   type={row.secret ? 'password' : 'text'}
                   value={row.value}
+                  onBlur={commitRows}
                   onChange={(event) =>
                     updateRow(row.key, 'value', event.target.value)
                   }
@@ -253,11 +288,14 @@ export function AgentEnvironmentEditor({
                   disabled={disabled || saving}
                   size="sm"
                   variant="ghost"
-                  onClick={() =>
-                    setRows((current) =>
-                      current.filter((candidate) => candidate.key !== row.key)
-                    )
-                  }
+                  onClick={() => {
+                    const next = rowsRef.current.filter(
+                      (candidate) => candidate.key !== row.key
+                    );
+                    rowsRef.current = next;
+                    setRows(next);
+                    commitRows();
+                  }}
                 >
                   <Trash2 aria-hidden="true" className="h-3.5 w-3.5" />
                 </Button>
@@ -270,16 +308,6 @@ export function AgentEnvironmentEditor({
             </p>
           ) : null}
         </div>
-      ) : null}
-
-      {view ? (
-        <SettingsActionBar
-          dirty={dirty}
-          disabled={disabled || saving || !dirty}
-          saving={saving}
-          onDiscard={() => adopt(view)}
-          onSave={() => void save()}
-        />
       ) : null}
     </section>
   );

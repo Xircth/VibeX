@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import { AstryxSelect } from '@/components/ui/astryx-select';
@@ -9,7 +9,7 @@ import {
 } from '@/features/agent-management';
 
 import { AgentSectionHeading } from './SettingsSection';
-import { SettingsActionBar } from './SettingsUi';
+import { useLiveSettingsCommit } from './useLiveSettingsCommit';
 
 const PRESETS = ['standard', 'code', 'minimal', 'cordis'] as const;
 const SANDBOXES = [
@@ -39,11 +39,39 @@ type Props = {
 export function DshSessionDefaults({ onChanged, onDirtyChange }: Props) {
   const { t } = useTranslation(['settings', 'common']);
   const [loading, setLoading] = useState(true);
-  const [saving, setSaving] = useState(false);
   const [revision, setRevision] = useState('');
+  const revisionRef = useRef(revision);
+  revisionRef.current = revision;
   const [draft, setDraft] = useState<Draft>(DEFAULT_DRAFT);
+  const draftRef = useRef(draft);
+  draftRef.current = draft;
   const [saved, setSaved] = useState<Draft>(DEFAULT_DRAFT);
   const [expanded, setExpanded] = useState(true);
+  const onDirtyChangeRef = useRef(onDirtyChange);
+  onDirtyChangeRef.current = onDirtyChange;
+  const { writeNow, holding, holdingRef } = useLiveSettingsCommit(
+    async (next: Draft) => {
+      try {
+        const savedEnvironment = await agentManagementApi.writeEnvironment({
+          agent_id: 'deepseek_harness',
+          base_revision: revisionRef.current,
+          values: {
+            DSH_AGENT_PRESET: next.preset,
+            DEEPSEEK_ACP_SANDBOX: next.sandbox,
+            DEEPSEEK_ACP_REASONING: next.reasoning,
+          },
+        });
+        revisionRef.current = savedEnvironment.revision;
+        setRevision(savedEnvironment.revision);
+        setSaved(next);
+        await onChanged?.();
+      } catch (error) {
+        toast.error(
+          errorMessage(error, t('settings:agents.dshSessionSaveFailed'))
+        );
+      }
+    }
+  );
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -58,9 +86,13 @@ export function DshSessionDefaults({ onChanged, onDirtyChange }: Props) {
         sandbox: values.DEEPSEEK_ACP_SANDBOX || DEFAULT_DRAFT.sandbox,
         reasoning: values.DEEPSEEK_ACP_REASONING || DEFAULT_DRAFT.reasoning,
       };
-      setDraft(next);
-      setSaved(next);
       setRevision(environment.revision);
+      revisionRef.current = environment.revision;
+      if (!holdingRef.current) {
+        draftRef.current = next;
+        setDraft(next);
+        setSaved(next);
+      }
     } catch (error) {
       toast.error(
         errorMessage(error, t('settings:agents.dshSessionLoadFailed'))
@@ -68,7 +100,7 @@ export function DshSessionDefaults({ onChanged, onDirtyChange }: Props) {
     } finally {
       setLoading(false);
     }
-  }, [t]);
+  }, [holdingRef, t]);
 
   useEffect(() => {
     void load();
@@ -80,32 +112,16 @@ export function DshSessionDefaults({ onChanged, onDirtyChange }: Props) {
     draft.reasoning !== saved.reasoning;
 
   useEffect(() => {
-    onDirtyChange?.(dirty);
+    onDirtyChange?.(holding ? false : dirty);
     return () => onDirtyChange?.(false);
-  }, [dirty, onDirtyChange]);
+  }, [dirty, holding, onDirtyChange]);
 
-  const save = async () => {
-    setSaving(true);
-    try {
-      const next = await agentManagementApi.writeEnvironment({
-        agent_id: 'deepseek_harness',
-        base_revision: revision,
-        values: {
-          DSH_AGENT_PRESET: draft.preset,
-          DEEPSEEK_ACP_SANDBOX: draft.sandbox,
-          DEEPSEEK_ACP_REASONING: draft.reasoning,
-        },
-      });
-      setRevision(next.revision);
-      setSaved(draft);
-      await onChanged?.();
-    } catch (error) {
-      toast.error(
-        errorMessage(error, t('settings:agents.dshSessionSaveFailed'))
-      );
-    } finally {
-      setSaving(false);
-    }
+  const updateDraft = (patch: Partial<Draft>) => {
+    const next = { ...draftRef.current, ...patch };
+    draftRef.current = next;
+    setDraft(next);
+    onDirtyChangeRef.current?.(false);
+    writeNow(next);
   };
 
   return (
@@ -140,9 +156,7 @@ export function DshSessionDefaults({ onChanged, onDirtyChange }: Props) {
                       data-selected={selected ? 'true' : 'false'}
                       role="radio"
                       type="button"
-                      onClick={() =>
-                        setDraft((current) => ({ ...current, preset: id }))
-                      }
+                      onClick={() => updateDraft({ preset: id })}
                     >
                       <div className="dsh-preset-card-head">
                         <strong>
@@ -172,9 +186,7 @@ export function DshSessionDefaults({ onChanged, onDirtyChange }: Props) {
                       label: t(`settings:agents.dshSandbox.${value}`),
                     }))}
                     value={draft.sandbox}
-                    onChange={(sandbox) =>
-                      setDraft((current) => ({ ...current, sandbox }))
-                    }
+                    onChange={(sandbox) => updateDraft({ sandbox })}
                   />
                 </label>
                 <label className="agent-auth-mode-field">
@@ -186,9 +198,7 @@ export function DshSessionDefaults({ onChanged, onDirtyChange }: Props) {
                       label: t(`settings:agents.dshReasoning.${value}`),
                     }))}
                     value={draft.reasoning}
-                    onChange={(reasoning) =>
-                      setDraft((current) => ({ ...current, reasoning }))
-                    }
+                    onChange={(reasoning) => updateDraft({ reasoning })}
                   />
                 </label>
               </div>
@@ -196,12 +206,6 @@ export function DshSessionDefaults({ onChanged, onDirtyChange }: Props) {
           )
         ) : null}
       </section>
-      <SettingsActionBar
-        dirty={dirty}
-        saving={saving}
-        onDiscard={() => setDraft(saved)}
-        onSave={() => void save()}
-      />
     </>
   );
 }

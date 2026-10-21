@@ -1,0 +1,1310 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Toast 样例 — VibeX</title>
+    <style>
+      @font-face {
+        font-family: 'Inter Variable';
+        font-style: normal;
+        font-display: swap;
+        font-weight: 100 900;
+        src: url('frontend/node_modules/@fontsource-variable/inter/files/inter-latin-wght-normal.woff2')
+          format('woff2-variations');
+      }
+
+      @font-face {
+        font-family: 'IBM Plex Mono';
+        font-style: normal;
+        font-weight: 400;
+        font-display: swap;
+        src: url('frontend/public/fonts/IBMPlexMono-Regular.woff2')
+          format('woff2');
+      }
+
+      :root {
+        color-scheme: light;
+        --font-ui:
+          'Inter Variable', 'Microsoft YaHei UI', 'Microsoft YaHei',
+          'PingFang SC', system-ui, 'Segoe UI', sans-serif;
+        --font-mono:
+          'IBM Plex Mono', ui-monospace, SFMono-Regular, Menlo, Monaco,
+          Consolas, monospace;
+
+        --primary: 0 0% 10.59%;
+        --primary-foreground: 0 0% 100%;
+        --success: 78 100% 35%;
+        --warning: 38 92% 50%;
+        --destructive: 0 96% 53%;
+        --muted-foreground: 210 5% 56%;
+
+        --text-strong: hsl(222 30% 16%);
+        --text-primary: hsl(213 10% 30%);
+        --text-muted: hsl(213 8% 45%);
+        --surface-shell: hsl(225 18% 94%);
+        --surface-glass: hsl(0 0% 100% / 0.72);
+        --surface-popover: var(--surface-glass);
+        --surface-dialog: #fafafa;
+        --surface-content: hsl(0 0% 100% / 0.96);
+        --surface-card-strong: hsl(0 0% 100% / 0.94);
+        --surface-control: hsl(220 20% 20% / 0.06);
+        --surface-control-hover: hsl(220 20% 20% / 0.1);
+        --border-subtle: hsl(220 16% 28% / 0.09);
+        --border-glass: hsl(0 0% 100% / 0.62);
+        --highlight-edge: hsl(0 0% 100% / 0.36);
+        --radius: 0.875rem;
+      }
+
+      html.dark {
+        color-scheme: dark;
+        --primary: 210 20% 92%;
+        --primary-foreground: 0 0% 9.02%;
+        --success: 78 72% 50%;
+        --warning: 38 92% 55%;
+        --destructive: 0 80% 55%;
+        --muted-foreground: 212 9% 58%;
+        --text-strong: #e7ebef;
+        --text-primary: #c5cdd6;
+        --text-muted: #8b949e;
+        --surface-shell: #0e1319;
+        --surface-glass: hsl(210 16% 22% / 0.55);
+        --surface-popover: var(--surface-glass);
+        --surface-dialog: #242936;
+        --surface-content: #1f2430;
+        --surface-card-strong: #242936;
+        --surface-control: hsl(210 30% 80% / 0.07);
+        --surface-control-hover: hsl(210 30% 80% / 0.12);
+        --border-subtle: hsl(210 30% 80% / 0.1);
+        --border-glass: hsl(210 30% 80% / 0.12);
+        --highlight-edge: hsl(210 30% 80% / 0.12);
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      html,
+      body {
+        margin: 0;
+        min-height: 100%;
+      }
+
+      body {
+        background:
+          radial-gradient(
+            1200px 640px at 12% -10%,
+            hsl(210 40% 96%),
+            transparent 58%
+          ),
+          linear-gradient(180deg, #eef1f5 0%, var(--surface-shell) 100%);
+        color: var(--text-primary);
+        font-family: var(--font-ui);
+        -webkit-font-smoothing: antialiased;
+      }
+
+      html.dark body {
+        background:
+          radial-gradient(
+            1100px 520px at 80% -8%,
+            hsl(210 24% 22% / 0.45),
+            transparent 55%
+          ),
+          linear-gradient(180deg, #121821 0%, var(--surface-shell) 100%);
+      }
+
+      .page {
+        max-width: 1180px;
+        margin: 0 auto;
+        padding: 40px 28px 120px;
+      }
+
+      .page-header {
+        display: flex;
+        align-items: flex-end;
+        justify-content: space-between;
+        gap: 16px;
+        margin-bottom: 28px;
+      }
+
+      h1 {
+        margin: 0;
+        color: var(--text-strong);
+        font-size: 1.125rem;
+        font-weight: 600;
+        letter-spacing: -0.01em;
+        line-height: 1.55;
+      }
+
+      .theme-toggle {
+        display: inline-flex;
+        height: 32px;
+        padding: 2px;
+        background: var(--surface-control);
+        border: 1px solid var(--border-subtle);
+        border-radius: var(--radius);
+      }
+
+      .theme-toggle button {
+        min-width: 56px;
+        height: 28px;
+        padding: 0 12px;
+        color: var(--text-muted);
+        background: transparent;
+        border: 0;
+        border-radius: calc(var(--radius) - 2px);
+        font-family: inherit;
+        font-size: 12px;
+        font-weight: 500;
+        cursor: pointer;
+      }
+
+      .theme-toggle button[aria-pressed='true'] {
+        color: var(--text-strong);
+        background: var(--surface-dialog);
+      }
+
+      .board {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) 424px;
+        gap: 28px;
+        align-items: start;
+      }
+
+      .scene {
+        min-height: 640px;
+        padding: 18px;
+        overflow: hidden;
+        background: var(--surface-content);
+        border: 1px solid var(--border-subtle);
+        border-radius: var(--radius);
+        position: relative;
+      }
+
+      .scene-chrome {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        height: 36px;
+        margin-bottom: 14px;
+        padding: 0 10px;
+        color: var(--text-muted);
+        background: hsl(220 24% 96%);
+        border: 1px solid var(--border-subtle);
+        border-radius: var(--radius);
+        font-size: 12px;
+        font-weight: 500;
+      }
+
+      html.dark .scene-chrome {
+        background: hsl(210 18% 16% / 0.55);
+      }
+
+      .scene-chrome .dot {
+        width: 8px;
+        height: 8px;
+        border-radius: 999px;
+        background: hsl(var(--success));
+      }
+
+      .scene-canvas {
+        display: grid;
+        grid-template-columns: 168px 1fr;
+        gap: 12px;
+        min-height: 540px;
+      }
+
+      .scene-rail,
+      .scene-panel {
+        background: var(--surface-card-strong);
+        border: 1px solid var(--border-subtle);
+        border-radius: var(--radius);
+      }
+
+      .scene-rail {
+        padding: 12px;
+      }
+
+      .scene-rail-row {
+        height: 28px;
+        margin-bottom: 8px;
+        background: var(--surface-control);
+        border-radius: 8px;
+      }
+
+      .scene-panel {
+        padding: 18px 20px;
+      }
+
+      .scene-line {
+        height: 10px;
+        margin-bottom: 10px;
+        background: var(--surface-control);
+        border-radius: 6px;
+      }
+
+      .scene-line.w-80 {
+        width: 80%;
+      }
+      .scene-line.w-62 {
+        width: 62%;
+      }
+      .scene-line.w-94 {
+        width: 94%;
+      }
+      .scene-line.w-48 {
+        width: 48%;
+      }
+
+      .vu-toast-viewport {
+        position: absolute;
+        right: 12px;
+        bottom: 12px;
+        z-index: 4;
+        display: flex;
+        width: min(424px, calc(100% - 24px));
+        max-height: calc(100% - 24px);
+        flex-direction: column;
+        gap: 12px;
+        margin: 0;
+        padding: 0;
+        overflow-x: hidden;
+        overflow-y: auto;
+        overscroll-behavior: contain;
+        pointer-events: none;
+        font-family: var(--font-ui);
+      }
+
+      .catalog {
+        display: flex;
+        flex-direction: column;
+        gap: 12px;
+      }
+
+      .catalog h2 {
+        margin: 18px 0 2px;
+        color: var(--text-strong);
+        font-size: 0.875rem;
+        font-weight: 600;
+        line-height: 1.43;
+      }
+
+      .catalog h2:first-child {
+        margin-top: 0;
+      }
+
+      .vu-toast-host {
+        width: 100%;
+        flex: 0 0 auto;
+        padding: 0;
+        overflow: visible;
+        background: transparent;
+        border: 0;
+        box-shadow: none;
+        pointer-events: auto;
+        animation: vu-toast-enter 180ms ease-out both;
+      }
+
+      .vu-toast-surface {
+        width: 100%;
+        overflow: hidden;
+        color: var(--text-primary, hsl(213 10% 30%));
+        background: var(--surface-popover);
+        border: 1px solid var(--border-glass);
+        border-radius: var(--radius);
+        box-shadow: inset 0 1px 0 var(--highlight-edge);
+        backdrop-filter: blur(24px) saturate(1.55);
+        -webkit-backdrop-filter: blur(24px) saturate(1.55);
+      }
+
+      html.host-windows .vu-toast-surface {
+        backdrop-filter: none;
+        -webkit-backdrop-filter: none;
+      }
+
+      .vu-toast-heading {
+        display: flex;
+        align-items: flex-start;
+        gap: 8px;
+        padding: 14px;
+      }
+
+      .vu-toast-icon-tile {
+        display: inline-flex;
+        width: 28px;
+        height: 28px;
+        flex: 0 0 28px;
+        align-items: center;
+        justify-content: center;
+        border-radius: var(--radius);
+        color: var(--text-muted, hsl(213 8% 45%));
+        background: var(--surface-control, hsl(220 20% 20% / 0.06));
+      }
+
+      .vu-toast-status-icon {
+        width: 16px;
+        height: 16px;
+      }
+
+      .vu-toast-surface[data-kind='success'] .vu-toast-icon-tile {
+        color: hsl(var(--success, 78 100% 35%));
+      }
+
+      .vu-toast-surface[data-kind='info'] .vu-toast-icon-tile,
+      .vu-toast-surface[data-kind='loading'] .vu-toast-icon-tile {
+        color: hsl(var(--primary, 0 0% 10.59%));
+      }
+
+      .vu-toast-surface[data-kind='warning'] .vu-toast-icon-tile {
+        color: hsl(var(--warning, 38 92% 50%));
+      }
+
+      .vu-toast-surface[data-kind='error'] .vu-toast-icon-tile {
+        color: hsl(var(--destructive, 0 96% 53%));
+      }
+
+      .vu-toast-status-icon-loading {
+        animation: vu-toast-spin 900ms linear infinite;
+      }
+
+      .vu-toast-copy {
+        min-width: 0;
+        flex: 1;
+      }
+
+      .vu-toast-title {
+        color: var(--text-strong, hsl(222 30% 16%));
+        font-size: 14px;
+        font-weight: 600;
+        line-height: 20px;
+      }
+
+      .vu-toast-summary {
+        margin-top: 4px;
+        color: var(--text-muted, hsl(213 8% 45%));
+        font-size: 12px;
+        font-weight: 400;
+        line-height: 18px;
+        overflow-wrap: anywhere;
+      }
+
+      .vu-toast-close {
+        display: inline-flex;
+        width: 28px;
+        height: 28px;
+        flex: 0 0 28px;
+        align-items: center;
+        justify-content: center;
+        margin: 0;
+        padding: 0;
+        color: var(--text-muted, hsl(213 8% 45%));
+        background: transparent;
+        border: 0;
+        border-radius: var(--radius);
+        cursor: pointer;
+      }
+
+      .vu-toast-close:hover {
+        color: var(--text-strong, hsl(222 30% 16%));
+        background: var(--surface-control-hover, hsl(220 20% 20% / 0.1));
+      }
+
+      .vu-toast-close svg {
+        width: 15px;
+        height: 15px;
+      }
+
+      .vu-toast-details-section,
+      .vu-toast-actions {
+        margin: 0 14px 14px 50px;
+      }
+
+      .vu-toast-details-section {
+        margin-top: -2px;
+      }
+
+      .vu-toast-disclosure {
+        display: flex;
+        width: 100%;
+        min-height: 28px;
+        align-items: center;
+        justify-content: space-between;
+        gap: 8px;
+        padding: 0;
+        color: var(--text-primary, hsl(213 10% 30%));
+        background: transparent;
+        border: 0;
+        font-size: 12px;
+        font-weight: 500;
+        line-height: 16px;
+        cursor: pointer;
+      }
+
+      .vu-toast-disclosure svg {
+        width: 14px;
+        height: 14px;
+        transition: transform 160ms ease;
+      }
+
+      .vu-toast-disclosure svg.is-expanded {
+        transform: rotate(180deg);
+      }
+
+      .vu-toast-details {
+        max-height: min(42dvh, 360px);
+        margin-top: 8px;
+        overflow-y: auto;
+        overscroll-behavior: contain;
+        background: var(--surface-control, hsl(220 20% 20% / 0.06));
+        border: 1px solid var(--border-subtle, hsl(220 16% 28% / 0.09));
+        border-radius: var(--radius);
+      }
+
+      .vu-toast-detail-row {
+        padding: 9px 10px;
+      }
+
+      .vu-toast-detail-row + .vu-toast-detail-row {
+        border-top: 1px solid var(--border-subtle, hsl(220 16% 28% / 0.09));
+      }
+
+      .vu-toast-detail-title {
+        color: var(--text-strong, hsl(222 30% 16%));
+        font-size: 12px;
+        font-weight: 600;
+        line-height: 16px;
+      }
+
+      .vu-toast-detail-copy {
+        margin-top: 2px;
+        color: var(--text-muted, hsl(213 8% 45%));
+        font-size: 12px;
+        font-weight: 400;
+        line-height: 18px;
+        overflow-wrap: anywhere;
+      }
+
+      .vu-toast-detail-copy-mono {
+        font-family: 'IBM Plex Mono', ui-monospace, monospace;
+      }
+
+      .vu-toast-actions {
+        display: flex;
+        justify-content: flex-end;
+        gap: 8px;
+      }
+
+      .vu-toast-action {
+        min-height: 30px;
+        padding: 0 12px;
+        border: 1px solid transparent;
+        border-radius: var(--radius);
+        font-family: inherit;
+        font-size: 12px;
+        font-weight: 500;
+        line-height: 16px;
+        cursor: pointer;
+      }
+
+      .vu-toast-action-secondary {
+        color: var(--text-primary, hsl(213 10% 30%));
+        background: var(--surface-control, hsl(220 20% 20% / 0.06));
+        border-color: var(--border-subtle, hsl(220 16% 28% / 0.09));
+      }
+
+      .vu-toast-action-primary {
+        color: hsl(var(--primary-foreground, 0 0% 100%));
+        background: hsl(var(--primary, 0 0% 10.59%));
+      }
+
+      .vu-desktop-toast-copy {
+        display: flex;
+        min-width: 0;
+        flex: 1;
+        flex-direction: column;
+        align-items: flex-start;
+        padding: 0;
+        text-align: left;
+        background: transparent;
+        border: 0;
+        cursor: pointer;
+      }
+
+      .vu-desktop-toast-app-icon {
+        position: relative;
+        overflow: visible;
+        color: inherit;
+        background: transparent;
+      }
+
+      .vu-desktop-toast-app-icon img {
+        width: 28px;
+        height: 28px;
+        object-fit: contain;
+      }
+
+      .vu-desktop-toast-status-badge {
+        position: absolute;
+        right: -3px;
+        bottom: -3px;
+        width: 13px;
+        height: 13px;
+        padding: 2px;
+        color: currentColor;
+        background: var(--surface-popover);
+        border-radius: 999px;
+      }
+
+      .vu-desktop-toast-copy .vu-toast-summary {
+        display: -webkit-box;
+        overflow: hidden;
+        -webkit-box-orient: vertical;
+        -webkit-line-clamp: 2;
+      }
+
+      .vu-desktop-toast-reply {
+        margin: -2px 14px 14px 50px;
+        padding: 10px;
+        background: var(--surface-control, hsl(220 20% 20% / 0.06));
+        border: 1px solid var(--border-subtle, hsl(220 16% 28% / 0.09));
+        border-radius: var(--radius);
+      }
+
+      .vu-desktop-toast-reply-row {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+      }
+
+      .vu-desktop-toast-input {
+        min-width: 0;
+        height: 32px;
+        flex: 1;
+        padding: 0 10px;
+        color: var(--text-strong, hsl(222 30% 16%));
+        background: var(--surface-content);
+        border: 1px solid var(--border-subtle, hsl(220 16% 28% / 0.09));
+        border-radius: var(--radius);
+        outline: none;
+        font-family: inherit;
+        font-size: 12px;
+        line-height: 18px;
+      }
+
+      .vu-desktop-toast-input:focus {
+        border-color: hsl(var(--primary, 0 0% 10.59%) / 0.5);
+      }
+
+      .vu-desktop-toast-send {
+        display: inline-flex;
+        width: 32px;
+        height: 32px;
+        flex: 0 0 32px;
+        align-items: center;
+        justify-content: center;
+        padding: 0;
+        color: hsl(var(--primary-foreground, 0 0% 100%));
+        background: hsl(var(--primary, 0 0% 10.59%));
+        border: 0;
+        border-radius: var(--radius);
+        cursor: pointer;
+      }
+
+      .vu-desktop-toast-send svg,
+      .vu-desktop-toast-sent svg,
+      .vu-desktop-toast-reply-action svg {
+        width: 14px;
+        height: 14px;
+      }
+
+      .vu-desktop-toast-hint,
+      .vu-desktop-toast-sent {
+        margin-top: 6px;
+        color: var(--text-muted, hsl(213 8% 45%));
+        font-size: 12px;
+        font-weight: 400;
+        line-height: 16px;
+      }
+
+      .vu-desktop-toast-sent {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        margin-top: 0;
+        color: hsl(var(--success, 78 100% 35%));
+        font-weight: 500;
+      }
+
+      .vu-desktop-toast-reply-action {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+      }
+
+      .vu-toast-close:focus-visible,
+      .vu-toast-disclosure:focus-visible,
+      .vu-toast-action:focus-visible,
+      .vu-desktop-toast-copy:focus-visible,
+      .vu-desktop-toast-input:focus-visible,
+      .vu-desktop-toast-send:focus-visible,
+      .theme-toggle button:focus-visible {
+        outline: 2px solid hsl(var(--primary, 0 0% 10.59%) / 0.48);
+        outline-offset: 2px;
+      }
+
+      @keyframes vu-toast-spin {
+        to {
+          transform: rotate(360deg);
+        }
+      }
+
+      @keyframes vu-toast-enter {
+        from {
+          opacity: 0;
+          transform: translateY(8px);
+        }
+        to {
+          opacity: 1;
+          transform: translateY(0);
+        }
+      }
+
+      @media (prefers-reduced-motion: reduce) {
+        .vu-toast-host,
+        .vu-toast-disclosure svg,
+        .vu-toast-status-icon-loading {
+          animation: none;
+          transition: none;
+        }
+      }
+
+      @media (max-width: 960px) {
+        .board {
+          grid-template-columns: 1fr;
+        }
+
+        .scene {
+          min-height: 480px;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="page">
+      <header class="page-header">
+        <h1>Toast 样例</h1>
+        <div class="theme-toggle" role="group" aria-label="主题">
+          <button type="button" data-theme="light" aria-pressed="true">
+            浅色
+          </button>
+          <button type="button" data-theme="dark" aria-pressed="false">
+            深色
+          </button>
+        </div>
+      </header>
+
+      <div class="board">
+        <section class="scene" aria-label="工作区中的通知堆叠">
+          <div class="scene-chrome">
+            <span class="dot" aria-hidden="true"></span>
+            VibeX · 工作区
+          </div>
+          <div class="scene-canvas" aria-hidden="true">
+            <div class="scene-rail">
+              <div class="scene-rail-row"></div>
+              <div class="scene-rail-row"></div>
+              <div class="scene-rail-row"></div>
+              <div class="scene-rail-row"></div>
+            </div>
+            <div class="scene-panel">
+              <div class="scene-line w-62"></div>
+              <div class="scene-line w-94"></div>
+              <div class="scene-line w-80"></div>
+              <div class="scene-line w-48"></div>
+              <div class="scene-line w-94"></div>
+              <div class="scene-line w-80"></div>
+            </div>
+          </div>
+
+          <section class="vu-toast-viewport" aria-label="通知">
+            <div class="vu-toast-host">
+              <article class="vu-toast-surface" data-kind="error" role="alert">
+                <div class="vu-toast-heading">
+                  <span class="vu-toast-icon-tile">
+                    <svg
+                      class="vu-toast-status-icon"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      stroke-width="2"
+                      stroke-linecap="round"
+                      stroke-linejoin="round"
+                      aria-hidden="true"
+                    >
+                      <circle cx="12" cy="12" r="10" />
+                      <line x1="12" x2="12" y1="8" y2="12" />
+                      <line x1="12" x2="12.01" y1="16" y2="16" />
+                    </svg>
+                  </span>
+                  <div class="vu-toast-copy">
+                    <div class="vu-toast-title">无法删除会话</div>
+                    <div class="vu-toast-summary">
+                      会话仍在运行。结束后再试一次。
+                    </div>
+                  </div>
+                  <button type="button" class="vu-toast-close" aria-label="关闭通知">
+                    <svg
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      stroke-width="2"
+                      stroke-linecap="round"
+                      stroke-linejoin="round"
+                      aria-hidden="true"
+                    >
+                      <path d="M18 6 6 18" />
+                      <path d="m6 6 12 12" />
+                    </svg>
+                  </button>
+                </div>
+              </article>
+            </div>
+            <div class="vu-toast-host">
+              <article class="vu-toast-surface" data-kind="warning" role="status">
+                <div class="vu-toast-heading">
+                  <span class="vu-toast-icon-tile">
+                    <svg
+                      class="vu-toast-status-icon"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      stroke-width="2"
+                      stroke-linecap="round"
+                      stroke-linejoin="round"
+                      aria-hidden="true"
+                    >
+                      <path
+                        d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3"
+                      />
+                      <path d="M12 9v4" />
+                      <path d="M12 17h.01" />
+                    </svg>
+                  </span>
+                  <div class="vu-toast-copy">
+                    <div class="vu-toast-title">依赖需要更新</div>
+                    <div class="vu-toast-summary">可在 VibeX 内完成更新。</div>
+                  </div>
+                  <button type="button" class="vu-toast-close" aria-label="关闭通知">
+                    <svg
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      stroke-width="2"
+                      stroke-linecap="round"
+                      stroke-linejoin="round"
+                      aria-hidden="true"
+                    >
+                      <path d="M18 6 6 18" />
+                      <path d="m6 6 12 12" />
+                    </svg>
+                  </button>
+                </div>
+                <div class="vu-toast-actions">
+                  <button
+                    type="button"
+                    class="vu-toast-action vu-toast-action-primary"
+                  >
+                    更新
+                  </button>
+                </div>
+              </article>
+            </div>
+            <div class="vu-toast-host">
+              <article class="vu-toast-surface" data-kind="success" role="status">
+                <div class="vu-toast-heading">
+                  <span class="vu-toast-icon-tile">
+                    <svg
+                      class="vu-toast-status-icon"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      stroke-width="2"
+                      stroke-linecap="round"
+                      stroke-linejoin="round"
+                      aria-hidden="true"
+                    >
+                      <circle cx="12" cy="12" r="10" />
+                      <path d="m9 12 2 2 4-4" />
+                    </svg>
+                  </span>
+                  <div class="vu-toast-copy">
+                    <div class="vu-toast-title">操作已完成</div>
+                    <div class="vu-toast-summary">设置已保存</div>
+                  </div>
+                  <button type="button" class="vu-toast-close" aria-label="关闭通知">
+                    <svg
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      stroke-width="2"
+                      stroke-linecap="round"
+                      stroke-linejoin="round"
+                      aria-hidden="true"
+                    >
+                      <path d="M18 6 6 18" />
+                      <path d="m6 6 12 12" />
+                    </svg>
+                  </button>
+                </div>
+              </article>
+            </div>
+          </section>
+        </section>
+
+        <aside class="catalog" aria-label="全部变体">
+          <h2>紧凑</h2>
+          <article class="vu-toast-surface" data-kind="success" role="status">
+            <div class="vu-toast-heading">
+              <span class="vu-toast-icon-tile">
+                <svg
+                  class="vu-toast-status-icon"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="2"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                  aria-hidden="true"
+                >
+                  <circle cx="12" cy="12" r="10" />
+                  <path d="m9 12 2 2 4-4" />
+                </svg>
+              </span>
+              <div class="vu-toast-copy">
+                <div class="vu-toast-title">操作已完成</div>
+                <div class="vu-toast-summary">已复制会话名称</div>
+              </div>
+              <button type="button" class="vu-toast-close" aria-label="关闭通知">
+                <svg
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="2"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                  aria-hidden="true"
+                >
+                  <path d="M18 6 6 18" />
+                  <path d="m6 6 12 12" />
+                </svg>
+              </button>
+            </div>
+          </article>
+
+          <article class="vu-toast-surface" data-kind="info" role="status">
+            <div class="vu-toast-heading">
+              <span class="vu-toast-icon-tile">
+                <svg
+                  class="vu-toast-status-icon"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="2"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                  aria-hidden="true"
+                >
+                  <circle cx="12" cy="12" r="10" />
+                  <path d="M12 16v-4" />
+                  <path d="M12 8h.01" />
+                </svg>
+              </span>
+              <div class="vu-toast-copy">
+                <div class="vu-toast-title">提示</div>
+                <div class="vu-toast-summary">
+                  已从列表移除 StallerLab
+                </div>
+              </div>
+              <button type="button" class="vu-toast-close" aria-label="关闭通知">
+                <svg
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="2"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                  aria-hidden="true"
+                >
+                  <path d="M18 6 6 18" />
+                  <path d="m6 6 12 12" />
+                </svg>
+              </button>
+            </div>
+          </article>
+
+          <article class="vu-toast-surface" data-kind="loading" role="status">
+            <div class="vu-toast-heading">
+              <span class="vu-toast-icon-tile">
+                <svg
+                  class="vu-toast-status-icon vu-toast-status-icon-loading"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="2"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                  aria-hidden="true"
+                >
+                  <path d="M21 12a9 9 0 1 1-6.219-8.56" />
+                </svg>
+              </span>
+              <div class="vu-toast-copy">
+                <div class="vu-toast-title">正在处理</div>
+                <div class="vu-toast-summary">正在导出</div>
+              </div>
+            </div>
+          </article>
+
+          <h2>带说明与操作</h2>
+          <article class="vu-toast-surface" data-kind="warning" role="status">
+            <div class="vu-toast-heading">
+              <span class="vu-toast-icon-tile">
+                <svg
+                  class="vu-toast-status-icon"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="2"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                  aria-hidden="true"
+                >
+                  <path
+                    d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3"
+                  />
+                  <path d="M12 9v4" />
+                  <path d="M12 17h.01" />
+                </svg>
+              </span>
+              <div class="vu-toast-copy">
+                <div class="vu-toast-title">依赖需要更新</div>
+                <div class="vu-toast-summary">可在 VibeX 内完成更新。</div>
+              </div>
+              <button type="button" class="vu-toast-close" aria-label="关闭通知">
+                <svg
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="2"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                  aria-hidden="true"
+                >
+                  <path d="M18 6 6 18" />
+                  <path d="m6 6 12 12" />
+                </svg>
+              </button>
+            </div>
+            <div class="vu-toast-details-section">
+              <button
+                type="button"
+                class="vu-toast-disclosure"
+                aria-expanded="false"
+                aria-controls="toast-details-codex"
+              >
+                <span>查看详细信息</span>
+                <svg
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="2"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                  aria-hidden="true"
+                >
+                  <path d="m6 9 6 6 6-6" />
+                </svg>
+              </button>
+              <div id="toast-details-codex" class="vu-toast-details" hidden>
+                <div class="vu-toast-detail-row">
+                  <div class="vu-toast-detail-title">Codex CLI</div>
+                  <div class="vu-toast-detail-copy vu-toast-detail-copy-mono">
+                    /Users/sean/.local/bin/codex · 0.139.0
+                  </div>
+                </div>
+              </div>
+            </div>
+            <div class="vu-toast-actions">
+              <button
+                type="button"
+                class="vu-toast-action vu-toast-action-secondary"
+              >
+                稍后
+              </button>
+              <button
+                type="button"
+                class="vu-toast-action vu-toast-action-primary"
+              >
+                更新
+              </button>
+            </div>
+          </article>
+
+          <article class="vu-toast-surface" data-kind="error" role="alert">
+            <div class="vu-toast-heading">
+              <span class="vu-toast-icon-tile">
+                <svg
+                  class="vu-toast-status-icon"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="2"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                  aria-hidden="true"
+                >
+                  <circle cx="12" cy="12" r="10" />
+                  <line x1="12" x2="12" y1="8" y2="12" />
+                  <line x1="12" x2="12.01" y1="16" y2="16" />
+                </svg>
+              </span>
+              <div class="vu-toast-copy">
+                <div class="vu-toast-title">删除失败</div>
+                <div class="vu-toast-summary">无法删除 frontend/src/App.tsx</div>
+              </div>
+              <button type="button" class="vu-toast-close" aria-label="关闭通知">
+                <svg
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="2"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                  aria-hidden="true"
+                >
+                  <path d="M18 6 6 18" />
+                  <path d="m6 6 12 12" />
+                </svg>
+              </button>
+            </div>
+            <div class="vu-toast-details-section">
+              <button
+                type="button"
+                class="vu-toast-disclosure"
+                aria-expanded="true"
+                aria-controls="toast-details-delete"
+              >
+                <span>查看详细信息</span>
+                <svg
+                  class="is-expanded"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="2"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                  aria-hidden="true"
+                >
+                  <path d="m6 9 6 6 6-6" />
+                </svg>
+              </button>
+              <div id="toast-details-delete" class="vu-toast-details">
+                <div class="vu-toast-detail-row">
+                  <div class="vu-toast-detail-title">路径</div>
+                  <div class="vu-toast-detail-copy vu-toast-detail-copy-mono">
+                    C:\Users\18190\Documents\projects\VibeX\frontend\src\App.tsx
+                  </div>
+                </div>
+                <div class="vu-toast-detail-row">
+                  <div class="vu-toast-detail-title">原因</div>
+                  <div class="vu-toast-detail-copy">
+                    文件正在被编辑器占用，关闭标签页后再试。
+                  </div>
+                </div>
+              </div>
+            </div>
+          </article>
+
+          <h2>桌面通知</h2>
+          <article class="vu-toast-surface" data-kind="success" role="status">
+            <div class="vu-toast-heading">
+              <span class="vu-toast-icon-tile vu-desktop-toast-app-icon">
+                <img src="frontend/public/icon-192.png" alt="" />
+                <svg
+                  class="vu-desktop-toast-status-badge"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="2.4"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                  aria-hidden="true"
+                >
+                  <circle cx="12" cy="12" r="10" />
+                  <path d="m9 12 2 2 4-4" />
+                </svg>
+              </span>
+              <button type="button" class="vu-desktop-toast-copy">
+                <span class="vu-toast-title">Codex 已完成当前回合</span>
+                <span class="vu-toast-summary">
+                  已把 Toast 样式收敛到统一表面，并补上详情展开。
+                </span>
+              </button>
+              <button type="button" class="vu-toast-close" aria-label="关闭通知">
+                <svg
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="2"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                  aria-hidden="true"
+                >
+                  <path d="M18 6 6 18" />
+                  <path d="m6 6 12 12" />
+                </svg>
+              </button>
+            </div>
+            <div class="vu-toast-actions">
+              <button
+                type="button"
+                class="vu-toast-action vu-toast-action-secondary vu-desktop-toast-reply-action"
+              >
+                <svg
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="2"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                  aria-hidden="true"
+                >
+                  <path
+                    d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"
+                  />
+                </svg>
+                快捷回复
+              </button>
+              <button
+                type="button"
+                class="vu-toast-action vu-toast-action-primary"
+              >
+                打开会话
+              </button>
+            </div>
+          </article>
+
+          <article class="vu-toast-surface" data-kind="error" role="alert">
+            <div class="vu-toast-heading">
+              <span class="vu-toast-icon-tile vu-desktop-toast-app-icon">
+                <img src="frontend/public/icon-192.png" alt="" />
+                <svg
+                  class="vu-desktop-toast-status-badge"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="2.4"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                  aria-hidden="true"
+                >
+                  <circle cx="12" cy="12" r="10" />
+                  <line x1="12" x2="12" y1="8" y2="12" />
+                  <line x1="12" x2="12.01" y1="16" y2="16" />
+                </svg>
+              </span>
+              <button type="button" class="vu-desktop-toast-copy">
+                <span class="vu-toast-title">Grok 本回合失败</span>
+                <span class="vu-toast-summary">
+                  启动门未通过：缺少有效的 API Key。
+                </span>
+              </button>
+              <button type="button" class="vu-toast-close" aria-label="关闭通知">
+                <svg
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="2"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                  aria-hidden="true"
+                >
+                  <path d="M18 6 6 18" />
+                  <path d="m6 6 12 12" />
+                </svg>
+              </button>
+            </div>
+            <div class="vu-desktop-toast-reply">
+              <div class="vu-desktop-toast-reply-row">
+                <input
+                  class="vu-desktop-toast-input"
+                  placeholder="直接回复…"
+                  aria-label="回复该会话"
+                  value="改用官方订阅再试一次"
+                />
+                <button
+                  type="button"
+                  class="vu-desktop-toast-send"
+                  aria-label="发送回复"
+                >
+                  <svg
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-width="2"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                    aria-hidden="true"
+                  >
+                    <path d="m22 2-7 20-4-9-9-4Z" />
+                    <path d="M22 2 11 13" />
+                  </svg>
+                </button>
+              </div>
+              <div class="vu-desktop-toast-hint">点击上方卡片回到该会话</div>
+            </div>
+          </article>
+        </aside>
+      </div>
+    </div>
+
+    <script>
+      document.documentElement.classList.add('host-windows');
+      if (new URLSearchParams(location.search).get('theme') === 'dark') {
+        document.documentElement.classList.add('dark');
+        document.querySelectorAll('[data-theme]').forEach((item) => {
+          item.setAttribute(
+            'aria-pressed',
+            String(item.getAttribute('data-theme') === 'dark')
+          );
+        });
+      }
+
+      document.querySelectorAll('[data-theme]').forEach((button) => {
+        button.addEventListener('click', () => {
+          const theme = button.getAttribute('data-theme');
+          document.documentElement.classList.toggle('dark', theme === 'dark');
+          document.querySelectorAll('[data-theme]').forEach((item) => {
+            item.setAttribute(
+              'aria-pressed',
+              String(item === button)
+            );
+          });
+        });
+      });
+
+      document.querySelectorAll('.vu-toast-disclosure').forEach((button) => {
+        button.addEventListener('click', () => {
+          const expanded = button.getAttribute('aria-expanded') === 'true';
+          const panel = document.getElementById(
+            button.getAttribute('aria-controls')
+          );
+          const icon = button.querySelector('svg');
+          button.setAttribute('aria-expanded', String(!expanded));
+          if (panel) panel.hidden = expanded;
+          if (icon) icon.classList.toggle('is-expanded', !expanded);
+        });
+      });
+    </script>
+  </body>
+</html>

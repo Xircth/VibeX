@@ -14,6 +14,7 @@ import {
   isConversationNearBottom,
   measureScrollMargin,
   measureUnscaledBlockHeight,
+  startAlignedVirtualOffset,
   scheduleMeasuredScrollToIndex,
   unscaledElementRect,
   wheelDetachesConversationFollow,
@@ -328,6 +329,12 @@ describe('conversation virtualizer layout coordinates', () => {
     expect(calls).toEqual([9]);
     scheduled.forEach((callback) => callback());
     expect(calls).toEqual([9, 9]);
+  });
+
+  it('leaves a gap above a start-aligned user message', () => {
+    expect(startAlignedVirtualOffset(0)).toBe(0);
+    expect(startAlignedVirtualOffset(12)).toBe(0);
+    expect(startAlignedVirtualOffset(400)).toBe(388);
   });
 });
 

@@ -6,6 +6,7 @@ import { toast } from '@/components/ui/toast';
 import {
   Tooltip,
   TooltipContent,
+  TooltipProvider,
   TooltipTrigger,
 } from '@/components/ui/tooltip';
 import { useOptionalProject } from '@/contexts/ProjectContext';
@@ -152,19 +153,21 @@ export function SessionCardHoverCard({
   }
 
   return (
-    <Tooltip delayDuration={280} disableHoverableContent={false}>
-      <TooltipTrigger asChild>{children}</TooltipTrigger>
-      <TooltipContent
-        side="right"
-        align="start"
-        sideOffset={8}
-        className="session-card-hover-info"
-        onClick={(event) => event.stopPropagation()}
-        onPointerDown={(event) => event.stopPropagation()}
-      >
-        <SessionCardHoverInfo {...details} />
-      </TooltipContent>
-    </Tooltip>
+    <TooltipProvider delayDuration={280}>
+      <Tooltip>
+        <TooltipTrigger asChild>{children}</TooltipTrigger>
+        <TooltipContent
+          side="right"
+          align="start"
+          sideOffset={8}
+          className="session-card-hover-info"
+          onClick={(event) => event.stopPropagation()}
+          onPointerDown={(event) => event.stopPropagation()}
+        >
+          <SessionCardHoverInfo {...details} />
+        </TooltipContent>
+      </Tooltip>
+    </TooltipProvider>
   );
 }
 

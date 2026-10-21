@@ -175,7 +175,12 @@ pub async fn reindex_from_projection(
     pool: &SqlitePool,
     conversation_id: Uuid,
 ) -> Result<(), sqlx::Error> {
-    let timeline = ConversationProjector::project(pool, conversation_id).await?;
+    let timeline = match crate::jsonl_history::load_all_turns(pool, conversation_id).await? {
+        Some(turns) if !turns.is_empty() => {
+            crate::jsonl_history::timeline_from_turns(conversation_id, &turns)
+        }
+        _ => ConversationProjector::project(pool, conversation_id).await?,
+    };
     let body = extract_searchable_text(&timeline);
     let mut conn = pool.acquire().await?;
     reindex_conversation(&mut conn, conversation_id, &body).await

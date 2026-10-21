@@ -13,9 +13,7 @@ use agents::{
 };
 use application::{ApplicationError, DomainCommand};
 use base64::{Engine, engine::general_purpose::STANDARD as BASE64};
-use conversations::{
-    derive_session_display_name, remember_creation_session_controls,
-};
+use conversations::{derive_session_display_name, remember_creation_session_controls};
 use db::models::{
     conversation::DbConversationSummary,
     conversation_turn::ConversationTurnRecord,

@@ -28,6 +28,10 @@ const RUNNABLE_AGENTS: AgentKind[] = [
   'cursor',
   'deepseek_harness',
   'qoder',
+  'kiro',
+  'auggie',
+  'trae',
+  'command_code',
 ];
 
 describe('onboarding equation slots', () => {

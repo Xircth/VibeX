@@ -1917,6 +1917,16 @@
     "authDescClineProvider": "为 Cline 配置 BYOK Provider。",
     "authDescCodebuddySubscription": "登录腾讯云 CodeBuddy 账号。",
     "authDescQoderSubscription": "登录 Qoder 账号。",
+    "authDescKiroSubscription": "登录 Kiro 账号。",
+    "authDescKiroOfficialApi": "使用 KIRO_API_KEY。",
+    "authDescAuggieSubscription": "登录 Augment 账号。",
+    "authDescTraeSubscription": "登录 TRAE 账号。",
+    "authDescCommandCodeSubscription": "登录 Command Code 账号。",
+    "headlessAccountTokenHint": "无浏览器环境使用同一账号的令牌。",
+    "headlessAccountTokenClear": "清除",
+    "headlessAccountTokenSaved": "已保存",
+    "headlessAccountTokenLoadFailed": "无法读取令牌",
+    "headlessAccountTokenSaveFailed": "无法保存令牌",
     "authDescMimoSubscription": "使用小米 MiMo 账号登录。",
     "authDescMimoOfficialApi": "使用小米 MiMo 官方 API Key。",
     "authDescMimoProvider": "在 MiMo Code 中连接目录或自定义 OpenAI 兼容供应商。",
@@ -2335,6 +2345,46 @@
         "login": {
           "label": "登录 Qoder",
           "description": "打开浏览器完成 Qoder 官方账号登录。"
+        }
+      },
+      "kiro": {
+        "login": {
+          "label": "登录 Kiro",
+          "description": "打开浏览器完成 Kiro 官方账号登录。"
+        },
+        "logout": {
+          "label": "退出登录",
+          "description": "注销 Kiro 本地账号。"
+        }
+      },
+      "auggie": {
+        "login": {
+          "label": "登录 Auggie",
+          "description": "打开浏览器完成 Augment 账号登录。"
+        },
+        "logout": {
+          "label": "退出登录",
+          "description": "注销 Auggie 本地账号。"
+        }
+      },
+      "trae": {
+        "login": {
+          "label": "登录 TRAE",
+          "description": "打开浏览器完成 TRAE 账号登录。"
+        },
+        "logout": {
+          "label": "退出登录",
+          "description": "注销 TRAE 本地账号。"
+        }
+      },
+      "command_code": {
+        "login": {
+          "label": "登录 Command Code",
+          "description": "打开浏览器完成 Command Code 账号登录。"
+        },
+        "logout": {
+          "label": "退出登录",
+          "description": "注销 Command Code 本地账号。"
         }
       },
       "kimi_code": {

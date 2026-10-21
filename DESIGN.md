@@ -12,41 +12,40 @@ colors:
   switch-checked-thumb: "#ffffff"
   dark-switch-checked-track: "hsl(var(--primary))"
   dark-switch-checked-thumb: "hsl(var(--primary-foreground))"
-  # Window backdrop sits BEHIND translucent chrome; content layer is opaque.
-  shell-bg: "#eef1f5"
-  content-bg: "#fafbfc"
+  # Astryx neutral surfaces. Opaque, and the same hex on macOS and Windows.
+  shell-bg: "#ffffff"
+  content-bg: "#ffffff"
   panel-bg: "#ffffff"
-  panel-translucent: "#ffffffe6"
-  popover-bg: "#fafafa"
-  control-bg: "#0f172a0f"
-  raised-control-bg: "#f6f7f8"
-  raised-control-hover: "#f0f1f3"
-  active-bg: "#e0e7f6"
-  text-strong: "#1d2530"
-  text-primary: "#46505b"
-  text-muted: "#727b85"
-  border-subtle: "#0b16280f"
-  border-strong: "#0b162824"
+  popover-bg: "#ffffff"
+  control-bg: "#0000000d"
+  raised-control-bg: "#ffffff"
+  raised-control-hover: "#f5f5f5"
+  active-bg: "#e5e5e5"
+  text-strong: "#171717"
+  text-primary: "#171717"
+  text-muted: "#525252"
+  border-subtle: "#00000014"
+  border-strong: "#d4d4d4"
   success: "#86b300"
   warning: "#f2ae49"
   destructive: "#f51818"
   dark-primary: "#E7EBEF"
   dark-primary-foreground: "#0E1319"
-  dark-shell-bg: "#0E1319"
-  dark-content-bg: "#1F2430"
-  dark-panel-bg: "#242936"
-  dark-text-strong: "#E7EBEF"
+  dark-shell-bg: "#1b1b1b"
+  dark-content-bg: "#262626"
+  dark-panel-bg: "#262626"
+  dark-text-strong: "#fafafa"
   dark-border-subtle: "#ffffff1a"
 materials:
-  # Liquid Glass = navigation / controls layer ONLY. Never on content.
-  glass-titlebar: "blur(18px) saturate(1.2) over var(--surface-topbar)"
-  glass-sidebar: "blur(30px) saturate(1.8) over var(--surface-sidebar)"
-  glass-popover: "blur(24px) saturate(1.55)  # menus, popovers"
-  dark-glass-fill: "cool blue-gray 55% over Hangar, same blur as light"
+  # Chrome and content are opaque. Blur must not change the resolved color.
+  glass-titlebar: "opaque var(--surface-topbar), #f1f1f1 light / #1b1b1b dark"
+  glass-sidebar: "opaque var(--surface-sidebar), the same hex as the title bar"
+  glass-popover: "opaque var(--surface-popover), #ffffff light / #262626 dark"
+  dark-glass-fill: "opaque #1b1b1b, the same hex on macOS and Windows"
   dark-highlight: "moonlight hsl(210 30% 80% / 0.12)"
-  dialog-surface: "opaque #FAFAFA in light mode; opaque #242936 in dark mode"
-  content-surface: "opaque var(--surface-card-strong) + 1px hairline  # lists, cards, editors"
-  reduce-transparency-fallback: "drop blur, fill with solid panel + hairline"
+  dialog-surface: "opaque #ffffff in light mode; opaque #262626 in dark mode"
+  content-surface: "opaque #ffffff in light mode; opaque #262626 in dark mode"
+  reduce-transparency-fallback: "fills are already opaque, so dropping blur does not change the color"
 typography:
   display:
     fontFamily: "var(--font-ui)"
@@ -138,7 +137,7 @@ components:
     padding: "0 10px"
     height: "32px"
   input-default:
-    backgroundColor: "{colors.control-bg}"
+    backgroundColor: "{colors.raised-control-bg}"
     textColor: "{colors.text-primary}"
     rounded: "{rounded.control}"
     padding: "0 10px"
@@ -172,48 +171,48 @@ VibeX is a local engineering control surface for coordinating many agent session
 
 The macOS contract is a two-layer model:
 
-- A **navigation/controls layer** where structural window chrome uses translucent **Liquid Glass**, while light-mode menus, dialogs, and toasts use a calm opaque `#FAFAFA` overlay surface.
-- A **content layer** of crisp, **opaque grouped surfaces** (inset lists, cards, editors) where hierarchy comes from layout and grouping — never from decoration.
+- A **navigation/controls layer** for the window frame. Title bar, sidebars, status bar, and the tab strip use `#f1f1f1` in light and `#1b1b1b` in dark. The page inside that frame stays `#ffffff` / `#1b1b1b`.
+- A **content layer** of crisp, **opaque grouped surfaces** (inset lists, cards, editors, menus, dialogs, and toasts). Light is `#ffffff`. Dark is `#262626`. Hierarchy comes from that one step and from grouping.
 
-VibeX is a Tauri app (React + Tailwind + Radix), so "native" is an aesthetic and behavioral target, not a toolkit. The look is delivered through the tokenized shell classes in `frontend/src/styles/legacy/index.css` (`--surface-*`, `.settings-sidebar`, `.settings-surface`, `.workspace-topbar`, blur materials). Every surface must degrade: when the OS reports reduced transparency, glass collapses to a solid panel; on Windows the custom title-bar controls take over where the OS chrome would otherwise sit.
+VibeX is a Tauri app (React + Tailwind + Radix), so "native" is an aesthetic and behavioral target, not a toolkit. The look is delivered through the tokenized shell classes in `frontend/src/styles/legacy/index.css` (`--surface-*`, `.settings-sidebar`, `.settings-surface`, `.workspace-topbar`). Reduced transparency drops blur and keeps the same hex. On Windows the custom title-bar controls take over where the OS chrome would otherwise sit.
 
 **Key characteristics:**
 
 - Dense information, quiet surfaces, visible state.
 - Glass is structural, not decorative — chrome only, never content.
 - One user-configurable accent (default Ink `#1B1B1B` in light, Pearl Ink `#E7EBEF` in dark), used only for selected / focused / primary / live.
-- Light mode is the primary working scene; dark mode is a first-class night scene: Tahoe glass over Hangar, opaque Ayu Mirage content.
+- Light mode is the primary working scene. Dark mode uses the same Astryx roles: body `#1b1b1b`, lifted surface `#262626`. Ayu stays on status, syntax, and the terminal.
 - Hierarchy is expressed by grouping and spacing; remove any background, border, or internal rule added purely for emphasis.
 
 ## 2. Materials & Layering
 
 This is the section that makes VibeX feel like Tahoe rather than a web app. Decide which layer a surface belongs to before styling it.
 
-### The Navigation/Controls Layer — Liquid Glass
+### The Navigation/Controls Layer
 
-Translucent, blurred, lightly saturated material that floats and lets the workspace show through. Reserved for chrome that frames content:
+Opaque Astryx body color. Reserved for chrome that frames content. A leftover blur filter must not change the fill, and Windows does not substitute a different solid.
 
-- **Title bar** (`.settings-titlebar`, `.workspace-topbar`): `blur(18px) saturate(1.2)` over a translucent fill, 1px hairline beneath. Light uses near-white glass; dark uses cool blue-gray glass at 55% over Hangar with a moonlight top edge. Unified with the window; the whole strip is a drag region.
-- **Sidebar** (`.settings-sidebar`): a rounded, inset floating panel — `blur(30px) saturate(1.8)`, full hairline border, `14px` corners, soft shell shadow, and a corner wash (pale blue in light, moonlight in dark). Content scrolls independently beneath it.
-- **Popovers, menus**: `blur(24px) saturate(1.55)` glass with a popover shadow.
-- **Dialogs and toasts**: opaque `--surface-dialog` with overlay elevation. The light-mode value is exactly `#FAFAFA`; dark mode uses opaque Mirage `#242936`. These surfaces never inherit translucent popover glass.
+- **Title bar** (`.settings-titlebar`, `.workspace-topbar`): `--surface-topbar`, 1px hairline beneath. Light `#f1f1f1`, dark `#1b1b1b`. Unified with the window; the whole strip is a drag region. The tab strip uses the same color. The active tab stays the page color.
+- **Sidebar** (`.settings-sidebar`): a rounded, inset floating panel on the same body color, full hairline border, `14px` corners. Content scrolls independently beneath it.
+- **Popovers and menus**: opaque `--surface-popover` (`#ffffff` / `#262626`) with a popover shadow.
+- **Dialogs and toasts**: opaque `--surface-dialog`. Light mode is `#ffffff`; dark mode is `#262626`. These surfaces use the same hex on macOS and Windows.
 
 ### The Content Layer — Opaque Grouped Surfaces
 
-Everything users read, edit, or scan. **No glass here.** Use opaque panels:
+Everything users read, edit, or scan. Use opaque panels:
 
 - **Inset grouped lists / cards** (`.settings-surface`): solid `--surface-card-strong`, 1px outer hairline, `14px` corners, flat at rest (no drop shadow). Rows inside one card are separated by spacing, not internal rules; a row gains elevation only while dragged or actively hovered.
 - **Editors, tables, conversation, file tree, diffs**: opaque content background, hairline seams.
 
 ### Named Rules
 
-**The Two-Layer Rule.** Before styling a surface, name its layer. Chrome may be glass; content must be opaque.
+**The Two-Layer Rule.** Before styling a surface, name its layer. Chrome uses the body hex. Content, menus, and dialogs use the lifted surface hex. Both are opaque.
 
-**The Opaque Dialog Rule.** Every modal implementation—shared Dialog, Astryx Dialog, and exceptional fullscreen/custom modals—must resolve its visible surface through `--surface-dialog`. Do not apply `--surface-popover`, glass blur, or a one-off background to a dialog.
+**The Opaque Dialog Rule.** Every modal implementation—shared Dialog, Astryx Dialog, and exceptional fullscreen/custom modals—must resolve its visible surface through `--surface-dialog`. Do not apply a one-off background to a dialog.
 
-**The No-Glass-On-Glass Rule.** Never stack a glass surface on another glass surface (e.g. a blurred popover inside a blurred sidebar reads as mud). One glass layer between the eye and the content.
+**The Same-Hex Rule.** macOS and Windows resolve the same opaque color for a role. Do not add a platform remap, a translucent mix, or a reduced-transparency fill that lands on a different hex.
 
-**The Reduce-Transparency Rule.** Every glass surface needs a solid fallback. Honor `prefers-reduced-transparency`: drop the blur, fill with the solid panel token, keep the hairline. The UI must stay fully legible with transparency off.
+**The Reduce-Transparency Rule.** Dropping blur keeps the same fill and the hairline. The UI must stay fully legible with transparency off.
 
 **The Decoration-Budget Rule.** If a background or border exists only to draw attention, delete it and express the emphasis through grouping, spacing, or the accent instead.
 
@@ -224,7 +223,7 @@ A restrained, system-adaptive neutral palette with one user-configurable accent 
 ### Accent
 
 - **Ink** (`--primary`, `#1B1B1B`): the default light accent. Used for the selected sidebar row, focus rings, primary buttons, active navigation, live state, and drag targets. Accent-filled states use a contrasting control-foreground (white on this default).
-- **Pearl Ink** (`--primary` in dark, `#E7EBEF`): the reciprocal night default — graphite inverted to pearl, with Hangar `#0E1319` on fill. Custom accents keep hue and lift lightness only until the fill stays visible on Hangar. Users change the hex in Settings → Appearance.
+- **Pearl Ink** (`--primary` in dark, `#E7EBEF`): the reciprocal night default — graphite inverted to pearl, with `#0E1319` on the accent fill. Custom accents keep their hue and only lift lightness until the label stays readable. Users change the hex in Settings → Appearance.
 
 ### Semantic status
 
@@ -232,23 +231,26 @@ A restrained, system-adaptive neutral palette with one user-configurable accent 
 - **Ayu Amber** — warning, queued, pending; attention without danger.
 - **Review Red** — destructive actions, failures, deleted diff state, irreversible warnings.
 
-### Neutrals (tinted, never pure)
+### Neutrals
 
-- **Shell Mist** — the light window backdrop behind the glass chrome.
-- **Hangar** — the dark window backdrop (`#0E1319`).
-- **Panel White / Panel Strong** — opaque light content surfaces.
-- **Mirage** — opaque Ayu Mirage content boards (`#1F2430` content, `#242936` elevated).
-- **Control Wash** — quiet toolbar buttons, chips, inactive controls (a low-alpha ink tint).
-- **Ink Strong / Ink Muted** — headings vs. metadata.
-- **Hairline / Hairline Strong** — alpha-based seams that read correctly on both glass and opaque surfaces.
+Page surfaces use the Astryx neutral ramp. The same hex is used on macOS and Windows. Fills are opaque, so a blur or a Windows solid-chrome fallback cannot shift the color.
 
-Astryx `theme-neutral` chrome follows the same night scene: Hangar body, Mirage cards, raised `#242936` surfaces, Pearl Ink accent. Do not let the package's warm-black `#1b1b1b` remain as a third dark palette.
+- **Frame** — title bar, tab strip, sidebars, and status bar. Light `#f1f1f1`, dark `#1b1b1b`.
+- **Page** — the working surface inside that frame. Light `#ffffff`, dark `#1b1b1b`. The session list and the file tree use this color.
+- **User message** — the sent bubble. Light `#f1f1f1`, dark `#262626`.
+- **Surface** — panels, cards, dialogs, popovers, and inputs. Light `#ffffff`, dark `#262626`.
+- **Settings window** — the page and its title bar stay the page color. Setting groups are `#f1f1f1` in light and `#262626` in dark. The floating navigation container uses a vertical wash: light `#e6e6e6` / `#f3f3f3` / `#ffffff` / `#f3f3f3` / `#e6e6e6`, dark `#262626` fading into `#1b1b1b`. Workspace chrome stays on the frame color.
+- **Control wash** — hover and pressed overlays. Light `#0000000d` / `#0000001a`, dark `#ffffff0d` / `#ffffff1a`.
+- **Ink** — primary text `#171717` / `#fafafa`. Secondary text `#525252` / `#a3a3a3`.
+- **Hairline** — `#00000014` / `#ffffff1a`. Emphasized borders are `#d4d4d4` / `#525252`.
+
+The user accent stays separate from this ramp. Light default remains Ink `#1B1B1B`; dark default remains Pearl Ink `#E7EBEF`.
 
 ## 6. Radius, Elevation, And Motion
 
 **The State-Only Accent Rule.** The accent means selected, focused, primary, or live. It is never a decorative fill.
 
-**The System-Adaptive Rule.** Surfaces are built from tinted-neutral tokens that flip with light/dark and strengthen under `prefers-contrast: more`. Avoid pure `#000`/`#fff` and hard-coded hex; reach for the tokens.
+**The System-Adaptive Rule.** Surfaces use the Astryx neutral tokens and flip with light/dark. macOS and Windows resolve the same opaque hex. Reach for the tokens instead of a local palette.
 
 **The Honor-The-Accent Rule.** Treat the Appearance accent as the user's system accent: selection, focus, and primary actions follow it. The default is Ink `#1B1B1B` in light and Pearl Ink `#E7EBEF` in dark.
 
@@ -288,7 +290,7 @@ so custom and fallback rows inherit the same density.
 Resting surfaces are flat with a 1px hairline. Shadow is reserved for things that genuinely float above another layer.
 
 - **Shell Shadow** (`0 18px 42px hsl(220 36% 8% / 0.16)` in light; deeper cool hangar shadow in dark): floating sidebar, project rail, loading shells.
-- **Popover Shadow** (`0 18px 42px hsl(220 36% 8% / 0.2)` in light; matching hangar shadow in dark): dialogs, menus, command surfaces.
+- **Popover Shadow** (`0 18px 42px hsl(220 36% 8% / 0.2)` in light; the matching dark shadow): dialogs, menus, command surfaces.
 - **Card Shadow** (`0 1px 2px / 0 10px 30px hsl(220 36% 8% / 0.05)` in light; moonlight hairline in dark): grouped `.settings-surface` cards and repeated items, kept very low.
 - **Composer Shadow**: the persistent follow-up composer, slightly lifted from the right panel.
 - Dark elevation prefers lighter surfaces and moonlight hairlines over wide drop shadows copied from light mode.
@@ -316,15 +318,15 @@ Motion communicates state, focus, and hierarchy — quietly. Ease-out curves (no
 
 ### Title bar / Window chrome
 
-Unified Liquid Glass strip, full drag region, hairline beneath. Keep it sparse: app mark + title, primary actions tinted, everything secondary demoted. On Windows the custom traffic-light controls live at the right; on macOS the OS owns the left. Settings is always reachable by keyboard.
+Opaque body strip, full drag region, hairline beneath. Keep it sparse: app mark + title, primary actions tinted, everything secondary demoted. On Windows the custom traffic-light controls live at the right; on macOS the OS owns the left. Settings is always reachable by keyboard.
 
 ### Sidebar
 
-A rounded, inset, glass floating panel — the primary, stable navigation. Rows are scannable and never reflow on hover. Selection is an **accent-filled rounded row with a contrasting label** (the macOS System Settings idiom). Where a list of destinations benefits from identity, a row may carry a small **colored app-icon badge** (rounded square, white glyph) — reserved for navigation, never content. Content scrolls behind/under the sidebar.
+A rounded, inset panel on the body color — the primary, stable navigation. Rows are scannable and never reflow on hover. Selection is an **accent-filled rounded row with a contrasting label** (the macOS System Settings idiom). Where a list of destinations benefits from identity, a row may carry a small **colored app-icon badge** (rounded square, white glyph) — reserved for navigation, never content. Content scrolls beside the sidebar.
 
 ### Toolbars
 
-Group items by function and frequency; the primary action is visually distinct (tinted). Demote secondary actions into a "more" overflow menu rather than crowding the bar — a crowded toolbar is the signal to cut. Remove custom backgrounds/borders; let the glass layer and spacing do the work. Don't pair a text button and an icon button so tightly they read as one control.
+Group items by function and frequency; the primary action is visually distinct (tinted). Demote secondary actions into a "more" overflow menu rather than crowding the bar — a crowded toolbar is the signal to cut. Remove custom backgrounds/borders; let the chrome color and spacing do the work. Don't pair a text button and an icon button so tightly they read as one control.
 
 ### Inset grouped lists & cards (content)
 
@@ -333,8 +335,8 @@ The workhorse content surface: an opaque `.settings-surface` card with a quiet h
 ### Controls
 
 - **Switch**: Ink track with a white thumb when on in light. Dark mode uses the resolved accent fill (Pearl Ink by default) with a contrasting thumb. Keep a clear off state and never use the switch as the only signal for a meaningful change.
-- **Secondary / outline buttons and selects**: a very light cool-gray surface in light mode, a 1px hairline border, no drop shadow, and `14px` radius. Dark mode uses the reciprocal dark surface with the same hairline.
-- **Inputs / fields**: Control Wash background, 1px hairline, `14px` radius, `32px` compact height; blue focus ring at low opacity; error state in Review Red **with a text explanation**.
+- **Secondary / outline buttons and selects**: opaque white in light mode, `#262626` in dark mode, a 1px hairline border, no drop shadow, and `14px` radius.
+- **Inputs / fields**: the same opaque surface, 1px hairline, `14px` radius, `32px` compact height; accent focus ring at low opacity; error state in Review Red **with a text explanation**.
 
 #### Single control frame rule
 
@@ -359,25 +361,25 @@ The **Composer Shell** (grounded, always-available action surface) and the **Age
 
 - **Labels:** every icon-only control carries an `aria-label`/title (e.g. the agent bar buttons). Communicate state with icon + text + color together — never color alone.
 - **Keyboard:** everything operable without a pointer; visible focus rings on custom controls; standard editing shortcuts (copy/paste/undo) never overridden; a command palette _in addition_ to menus.
-- **Contrast:** body text ≥ 4.5:1, large text ≥ 3:1, including over glass; placeholders meet the same bar. Strengthen hairlines under `prefers-contrast: more`.
-- **Reduced transparency / motion:** glass collapses to solid panels; animations fall back to crossfade/instant. Both states must stay fully usable.
+- **Contrast:** body text ≥ 4.5:1, large text ≥ 3:1; placeholders meet the same bar. Strengthen hairlines under `prefers-contrast: more`.
+- **Reduced transparency / motion:** dropping blur keeps the same fill; animations fall back to crossfade/instant. Both states must stay fully usable.
 - **Localization:** layouts absorb longer strings (the UI is bilingual today); never truncate meaning at default width.
 
 ## 8. Do's and Don'ts
 
 ### Do
 
-- **Do** name a surface's layer (chrome vs content) before styling it; glass for chrome, opaque for content.
+- **Do** name a surface's layer before styling it: body hex for chrome, lifted surface hex for content. Both stay opaque, and both platforms use that hex.
 - **Do** use the tokenized shell classes in `frontend/src/styles/legacy/index.css` before adding one-off Tailwind color stacks.
 - **Do** keep controls compact and consistent: `32px` controls and one `14px` radius token across controls and surfaces.
 - **Do** express hierarchy through grouping, spacing, and hairlines — and delete any chrome added only for emphasis.
 - **Do** keep hover changes stable: change color, shadow, or a small transform; never size, border width, or text wrapping.
-- **Do** give every glass surface a reduced-transparency solid fallback.
+- **Do** keep a reduced-transparency state on the same fill. Dropping blur must not swap the hex.
 - **Do** keep settings, dialogs, Kanban, conversation, file tree, and preview controls aligned to the same radius, hairline, focus, and material rules.
 
 ### Don't
 
-- **Don't** put Liquid Glass on content (lists, tables, editors, conversation) or stack glass on glass.
+- **Don't** paint content or chrome with a translucent mix, or give Windows a different solid from macOS.
 - **Don't** separate a section header from its own content, or sibling rows inside the same card, with a full-width divider. It reads as a hard rule and looks cheap. Use spacing and grouping; the card's outer hairline is enough.
 - **Don't** use generic AI-SaaS patterns: oversized cards, decorative gradients, glass panels as ornament, hero metrics, vague productivity claims.
 - **Don't** use the accent as decorative fill — it means selected/focused/primary/live only.

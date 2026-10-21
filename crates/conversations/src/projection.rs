@@ -11,9 +11,9 @@ use agents::{
         ConversationDelegationResult, ConversationDelegationView, ConversationError,
         ConversationErrorView, ConversationEvent, ConversationInputEvent,
         ConversationPermissionView, ConversationRowOp, ConversationSessionNotice,
-        ConversationTerminalView, ConversationTimeline, ConversationTimelineRow, MessageTurn,
-        PlanEntry, SessionLoadFailureReason, SessionRecoveryStrategy, SessionStats, TimelineRow,
-        TimelineTextStream, TurnRole, TurnUsage, cap_content_blocks, cap_json_value,
+        ConversationTerminalView, ConversationTimeline, ConversationTimelineRow, ConversationUsage,
+        MessageTurn, PlanEntry, SessionLoadFailureReason, SessionRecoveryStrategy, SessionStats,
+        TimelineRow, TimelineTextStream, TurnRole, TurnUsage, cap_content_blocks, cap_json_value,
         cap_preview_bytes, cap_timeline_preview_fields, cap_timeline_row_preview_fields,
     },
 };
@@ -40,6 +40,51 @@ use serde::{Deserialize, Serialize};
 use sqlx::{Executor, Sqlite, SqliteConnection, SqlitePool};
 use tokio::{sync::Mutex, time::Instant};
 use uuid::Uuid;
+
+/// Occupancy-only usage must not erase a protocol breakdown already stored on
+/// the turn. A later `_meta.totalTokens` sample updates context fields only.
+fn merge_reported_turn_usage(
+    existing: Option<TurnUsage>,
+    incoming: &ConversationUsage,
+) -> TurnUsage {
+    let keep_buckets = incoming.input_tokens == 0
+        && incoming.output_tokens == 0
+        && incoming.cache_creation_input_tokens == 0
+        && incoming.cache_read_input_tokens == 0;
+    let buckets = if keep_buckets {
+        existing.as_ref()
+    } else {
+        None
+    };
+    TurnUsage {
+        input_tokens: buckets
+            .map(|usage| usage.input_tokens)
+            .unwrap_or(incoming.input_tokens),
+        output_tokens: buckets
+            .map(|usage| usage.output_tokens)
+            .unwrap_or(incoming.output_tokens),
+        cache_creation_input_tokens: buckets
+            .map(|usage| usage.cache_creation_input_tokens)
+            .unwrap_or(incoming.cache_creation_input_tokens),
+        cache_read_input_tokens: buckets
+            .map(|usage| usage.cache_read_input_tokens)
+            .unwrap_or(incoming.cache_read_input_tokens),
+        context_used: incoming
+            .context_used
+            .or_else(|| existing.as_ref().and_then(|usage| usage.context_used)),
+        context_window_max: incoming
+            .context_window_max
+            .or_else(|| existing.as_ref().and_then(|usage| usage.context_window_max)),
+        cost_amount: incoming
+            .cost_amount
+            .or_else(|| existing.as_ref().and_then(|usage| usage.cost_amount)),
+        cost_currency: incoming.cost_currency.clone().or_else(|| {
+            existing
+                .as_ref()
+                .and_then(|usage| usage.cost_currency.clone())
+        }),
+    }
+}
 
 // v21 settles Antigravity view_file (`read`) failures as `completed` with no
 // error output, matching a successful view. The bump drops snapshots folded
@@ -814,8 +859,24 @@ impl ConversationProjector {
         }
     }
 
-    /// Refresh the materialized snapshot on turn settle, and also every
-    /// `SNAPSHOT_REFRESH_EVENT_GAP` events during a long in-flight turn so
+    /// Materialized non-message side rows (`TurnError`, `Delegation`,
+    /// `PermissionRequest`, `QuestionRequest`, `FeedbackRequest`, `SessionNotice`)
+    /// from the SQLite snapshot so JSONL-backed window reloads preserve side rows.
+    pub async fn persisted_side_rows(
+        pool: &SqlitePool,
+        conversation_id: Uuid,
+    ) -> Result<Vec<TimelineRow>, sqlx::Error> {
+        let records =
+            ConversationTimelineRowRecord::list_non_message_rows(pool, conversation_id).await?;
+        let rows = decode_timeline_row_records(&records)?;
+        Ok(rows
+            .into_iter()
+            .filter(|row| !matches!(row.row, ConversationTimelineRow::MessageTurn { .. }))
+            .collect())
+    }
+
+    /// Refresh the materialized snapshot on turn settle, on side-row changes, and
+    /// every `SNAPSHOT_REFRESH_EVENT_GAP` events during a long in-flight turn so
     /// detail/gap reloads do not replay the whole turn.
     pub(super) async fn refresh_snapshot_on_settle(
         conn: &mut SqliteConnection,
@@ -825,12 +886,31 @@ impl ConversationProjector {
             record.event_kind.as_str(),
             "turn_completed" | "turn_failed" | "turn_cancelled" | "turn_interrupted"
         );
+        let side_row_changed = matches!(
+            record.event_kind.as_str(),
+            "delegation_started"
+                | "delegation_completed"
+                | "permission_requested"
+                | "permission_responded"
+                | "question_requested"
+                | "question_responded"
+                | "feedback_requested"
+                | "feedback_submitted"
+                | "agent_binding_load_failed"
+                | "turn_blocked"
+                | "file_change_summary_updated"
+                | "artifact_revision_recorded"
+                | "terminal_updated"
+        );
 
         let conversation_id = record.conversation_id;
         let mut fold = Self::load_fold_from_snapshot(&mut *conn, conversation_id).await?;
         fold.complete_antigravity_reads =
             antigravity_conversation(&mut *conn, conversation_id).await?;
-        if !settled && record.sequence - fold.last_sequence < SNAPSHOT_REFRESH_EVENT_GAP {
+        if !settled
+            && !side_row_changed
+            && record.sequence - fold.last_sequence < SNAPSHOT_REFRESH_EVENT_GAP
+        {
             return Ok(());
         }
         let tail = ConversationEventRecord::events_since(
@@ -851,7 +931,10 @@ impl ConversationProjector {
 
         // Best-effort full-text reindex from the freshly-settled projection.
         // A search-index failure must never block a turn from settling (P1-2).
-        let timeline = fold.into_timeline(conversation_id);
+        let timeline = match crate::jsonl_history::read_existing_transcript_turns(conversation_id) {
+            Some(turns) => crate::jsonl_history::timeline_from_turns(conversation_id, &turns),
+            None => fold.into_timeline(conversation_id),
+        };
         let body = crate::search::extract_searchable_text(&timeline);
         if let Err(error) =
             crate::search::reindex_conversation(&mut *conn, conversation_id, &body).await
@@ -1618,12 +1701,26 @@ impl ProjectionFold {
                 }
             }
             turn.revision = record.sequence;
-            return Ok(vec![ConversationRowOp::AppendText {
+            let mut ops = vec![ConversationRowOp::AppendText {
                 row_id: turn.assistant.id.clone(),
                 revision: record.sequence,
                 stream,
                 delta: text.clone(),
-            }]);
+            }];
+            // A usage sample that landed before any block is already on the fold.
+            // The first text delta is the moment the live assistant row appears,
+            // so the token count has to ride along or the footer never sees it.
+            if turn.assistant.usage.is_some() && !turn.usage_announced {
+                ops.push(ConversationRowOp::PatchBlocks {
+                    row_id: turn.assistant.id.clone(),
+                    revision: record.sequence,
+                    phase: turn.phase.clone(),
+                    blocks: Vec::new(),
+                    usage: turn.assistant.usage.clone(),
+                });
+                turn.usage_announced = true;
+            }
+            return Ok(ops);
         }
 
         enum TouchedTurnRows {
@@ -1962,27 +2059,22 @@ impl ProjectionFold {
                 if let Some(turn_id) = record.turn_id.or_else(|| turn_order.last().copied()) {
                     ensure_turn(turns, turn_order, turn_id, record);
                     let turn = turns.get_mut(&turn_id).expect("turn exists");
-                    let next_usage = Some(TurnUsage {
-                        input_tokens: usage.input_tokens,
-                        output_tokens: usage.output_tokens,
-                        cache_creation_input_tokens: usage.cache_creation_input_tokens,
-                        cache_read_input_tokens: usage.cache_read_input_tokens,
-                        context_used: usage.context_used,
-                        context_window_max: usage.context_window_max,
-                        cost_amount: usage.cost_amount,
-                        cost_currency: usage.cost_currency.clone(),
-                    });
+                    let next_usage = Some(merge_reported_turn_usage(
+                        turn.assistant.usage.clone(),
+                        &usage,
+                    ));
                     if turn.assistant.usage != next_usage {
-                        let has_blocks = !turn.assistant.blocks.is_empty();
+                        // Occupancy often arrives before the first text block, and a
+                        // repeated sample is dropped upstream. The live row has to
+                        // carry this update now; AppendText never includes usage.
                         turn.assistant.usage = next_usage;
                         turn.revision = record.sequence;
-                        if has_blocks {
-                            assistant_emit = Some(AssistantEmit::Patch {
-                                blocks: Vec::new(),
-                                usage: turn.assistant.usage.clone(),
-                            });
-                            touched_turn_rows = Some(TouchedTurnRows::AssistantOnly(turn_id));
-                        }
+                        turn.usage_announced = true;
+                        assistant_emit = Some(AssistantEmit::Patch {
+                            blocks: Vec::new(),
+                            usage: turn.assistant.usage.clone(),
+                        });
+                        touched_turn_rows = Some(TouchedTurnRows::AssistantOnly(turn_id));
                     }
                 }
             }
@@ -2621,11 +2713,11 @@ impl ProjectionFold {
                 }
             }
             Some(TouchedTurnRows::AssistantOnly(turn_id)) => {
-                if let Some(turn) = self.turns.get(&turn_id)
-                    && !turn.assistant.blocks.is_empty()
-                {
+                if let Some(turn) = self.turns.get(&turn_id) {
                     match assistant_emit {
-                        Some(AssistantEmit::Patch { mut blocks, usage }) => {
+                        Some(AssistantEmit::Patch { mut blocks, usage })
+                            if !blocks.is_empty() || usage.is_some() =>
+                        {
                             cap_content_blocks(&mut blocks);
                             ops.push(ConversationRowOp::PatchBlocks {
                                 row_id: turn.assistant.id.clone(),
@@ -2635,11 +2727,12 @@ impl ProjectionFold {
                                 usage,
                             });
                         }
-                        _ => {
+                        _ if !turn.assistant.blocks.is_empty() => {
                             let mut row = message_row(turn, TurnRole::Assistant);
                             cap_timeline_row_preview_fields(&mut row);
                             ops.push(ConversationRowOp::Upsert { row });
                         }
+                        _ => {}
                     }
                 }
             }
@@ -2817,6 +2910,7 @@ impl ProjectionFold {
                     pending_steering: None,
                     phase: "settled".into(),
                     revision: self.last_sequence.max(1),
+                    usage_announced: false,
                 },
             );
             return;
@@ -2846,6 +2940,10 @@ struct ProjectedTurn {
     /// by the projection-version check, but be defensive).
     #[serde(default)]
     revision: i64,
+    /// True once a live row op has carried `assistant.usage`. A sample that
+    /// arrives before the first block must still be announced on the next delta.
+    #[serde(default)]
+    usage_announced: bool,
 }
 
 fn ensure_turn(
@@ -2889,6 +2987,7 @@ fn ensure_turn(
             pending_steering: None,
             phase: "streaming".into(),
             revision: record.sequence,
+            usage_announced: false,
         },
     );
 }
@@ -3573,7 +3672,7 @@ mod tests {
             ConversationInputPayload, ConversationPermissionRequest,
             ConversationPermissionResponse, ConversationPlanEntry, ConversationQuestionRequest,
             ConversationQuestionResponse, ConversationTerminalPatch, ConversationToolCallPatch,
-            ConversationUsage, SessionRecoveryStrategy,
+            ConversationUsage, SessionRecoveryStrategy, TurnUsage,
         },
     };
     use db::models::{
@@ -3586,7 +3685,7 @@ mod tests {
     };
     use sqlx::sqlite::{SqliteConnectOptions, SqlitePoolOptions};
 
-    use super::*;
+    use super::{merge_reported_turn_usage, *};
     use crate::{CreateDelegatedConversation, create_delegated_conversation};
 
     fn record_of(
@@ -8104,6 +8203,39 @@ mod tests {
         );
     }
 
+    #[test]
+    fn occupancy_update_keeps_reported_protocol_buckets() {
+        let existing = TurnUsage {
+            input_tokens: 20,
+            output_tokens: 10,
+            cache_creation_input_tokens: 0,
+            cache_read_input_tokens: 70,
+            context_used: None,
+            context_window_max: None,
+            cost_amount: None,
+            cost_currency: None,
+        };
+        let merged = merge_reported_turn_usage(
+            Some(existing),
+            &ConversationUsage {
+                input_tokens: 0,
+                output_tokens: 0,
+                cache_creation_input_tokens: 0,
+                cache_read_input_tokens: 0,
+                context_used: Some(12_000),
+                context_window_max: Some(200_000),
+                cost_amount: None,
+                cost_currency: None,
+                model: None,
+            },
+        );
+        assert_eq!(merged.input_tokens, 20);
+        assert_eq!(merged.output_tokens, 10);
+        assert_eq!(merged.cache_read_input_tokens, 70);
+        assert_eq!(merged.context_used, Some(12_000));
+        assert_eq!(merged.context_window_max, Some(200_000));
+    }
+
     #[tokio::test]
     async fn usage_occupancy_and_plan_status_replace_the_turn_block() {
         let pool = setup_pool().await;
@@ -8571,5 +8703,84 @@ mod tests {
             }
             other => panic!("expected a usage patch, got {other:?}"),
         }
+    }
+
+    #[tokio::test]
+    async fn usage_before_the_first_block_is_still_pushed_live() {
+        let pool = setup_pool().await;
+        let (conversation_id, turn_id) = seed_turn(&pool).await;
+        let user_rec = append_event(
+            &pool,
+            conversation_id,
+            Some(turn_id),
+            "user",
+            ConversationEvent::UserTurnCreated {
+                blocks: vec![ConversationInputBlock::Text { text: "hi".into() }],
+                workflow_refs: Vec::new(),
+            },
+            None,
+        )
+        .await;
+        let mut projector = IncrementalRowProjector::load(&pool, conversation_id, 0)
+            .await
+            .expect("load projector");
+        projector.apply(&user_rec).expect("apply user");
+
+        let usage_rec = append_event(
+            &pool,
+            conversation_id,
+            Some(turn_id),
+            "acp",
+            ConversationEvent::UsageUpdated {
+                usage: ConversationUsage {
+                    input_tokens: 20,
+                    output_tokens: 4,
+                    cache_creation_input_tokens: 0,
+                    cache_read_input_tokens: 70,
+                    context_used: Some(18_658),
+                    context_window_max: Some(200_000),
+                    ..ConversationUsage::default()
+                },
+            },
+            None,
+        )
+        .await;
+        let usage_ops = projector.apply(&usage_rec).expect("apply usage");
+        match usage_ops.as_slice() {
+            [
+                ConversationRowOp::PatchBlocks {
+                    blocks,
+                    usage,
+                    phase,
+                    ..
+                },
+            ] => {
+                assert!(blocks.is_empty());
+                assert_eq!(phase, "streaming");
+                let usage = usage.as_ref().expect("usage");
+                assert_eq!(usage.input_tokens, 20);
+                assert_eq!(usage.cache_read_input_tokens, 70);
+                assert_eq!(usage.context_used, Some(18_658));
+            }
+            other => panic!("expected a usage patch before any block, got {other:?}"),
+        }
+
+        let text_rec = append_event(
+            &pool,
+            conversation_id,
+            Some(turn_id),
+            "acp",
+            ConversationEvent::AssistantTextDelta {
+                text: "hello".into(),
+                message_id: None,
+            },
+            None,
+        )
+        .await;
+        let text_ops = projector.apply(&text_rec).expect("apply text");
+        assert!(
+            matches!(text_ops.as_slice(), [ConversationRowOp::AppendText { .. }]),
+            "a later text delta must not repeat the usage patch, got {text_ops:?}"
+        );
     }
 }

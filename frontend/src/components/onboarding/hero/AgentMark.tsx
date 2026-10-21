@@ -220,6 +220,36 @@ export function AgentMark({ id, title }: { id: string; title?: string }) {
           />
         </svg>
       );
+    case 'kiro':
+      return (
+        <svg viewBox="0 0 16 16" className="h-full w-full" aria-hidden={!title}>
+          {title ? <title>{title}</title> : null}
+          <path
+            fill="currentColor"
+            d="M3.2 1.6h2.4v5.05l4.55-5.05h2.95L8.15 7.85 13.5 14.4h-3.15L6.35 9.55l-.75.85v4h-2.4V1.6Z"
+          />
+        </svg>
+      );
+    case 'trae':
+      return (
+        <svg viewBox="0 0 16 16" className="h-full w-full" aria-hidden={!title}>
+          {title ? <title>{title}</title> : null}
+          <path
+            fill="currentColor"
+            d="M2.2 2.4h11.6v2.3H9.15v9h-2.3v-9H2.2V2.4Z"
+          />
+        </svg>
+      );
+    case 'command_code':
+      return (
+        <svg viewBox="0 0 16 16" className="h-full w-full" aria-hidden={!title}>
+          {title ? <title>{title}</title> : null}
+          <path
+            fill="currentColor"
+            d="M2.2 3.2 7.3 8 2.2 12.8l1.5 1.6L10.6 8 3.7 1.6 2.2 3.2Zm6.2 9.2h5.4V14H8.4v-1.6Z"
+          />
+        </svg>
+      );
     case 'auggie':
       return (
         <svg viewBox="0 0 24 24" className="h-full w-full" aria-hidden={!title}>

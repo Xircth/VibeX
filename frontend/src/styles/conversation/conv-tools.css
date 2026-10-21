@@ -740,6 +740,15 @@ button.conv-tool-artifact-title:hover {
   margin-block-end: 0;
 }
 
+/* Astryx ChatToolCalls root is spacing-2 (8px) above the list. The body gap
+   already covers ungrouped rows; restore that 8px only on folds so prose
+   does not sit against the aggregation chrome. */
+.conv-activity-batch,
+.conv-assistant-body .astryx-chat-tool-calls.vibex-tool-call-batch {
+  margin-block-start: 8px;
+  margin-block-end: 8px;
+}
+
 .astryx-chat-tool-calls [role='button'] {
   border-radius: var(--radius) !important;
 }
@@ -755,11 +764,11 @@ button.conv-tool-artifact-title:hover {
 }
 
 /* StyleX paints this label with --text-supporting-size at a specificity a
-   plain font-size cannot beat. The stream token is 13px, so shrink it here.
-   The line stays single and clips; hover scrolls it inside the same box. */
+   plain font-size cannot beat. Match the 13px stream prose. The line stays
+   single and clips; hover scrolls it inside the same box. */
 .vibex-tool-call-batch > [role='button'] > span:nth-child(2) {
-  --text-supporting-size: 12px;
-  --text-supporting-leading: 1.5;
+  --text-supporting-size: 13px;
+  --text-supporting-leading: 1.7;
   display: block;
   flex: 1 1 auto;
   min-width: 0;
@@ -768,12 +777,29 @@ button.conv-tool-artifact-title:hover {
 }
 
 .astryx-chat-tool-calls [role='button'][aria-expanded='true'] + div {
-  padding-inline: 0 !important;
+  padding-inline-start: 4px !important;
+  padding-inline-end: 4px !important;
+  margin-inline-start: -4px;
+  margin-inline-end: -4px;
   width: 100%;
   max-height: 100lh;
   overflow-y: auto;
-  overscroll-behavior: contain;
   scrollbar-width: none;
+}
+
+.astryx-chat-tool-calls
+  [role='button'][aria-expanded='true']
+  + div::-webkit-scrollbar {
+  display: none;
+  width: 0;
+  height: 0;
+}
+
+/* groupContentInner is overflow:hidden for the 0fr collapse. Once expanded
+   the parent already scrolls, so keep overflow visible or CallRow's 4px
+   negative hover margin is clipped. */
+.astryx-chat-tool-calls [role='button'][aria-expanded='true'] + div > div {
+  overflow: visible;
 }
 
 .conv-nested-scroll
@@ -1100,9 +1126,71 @@ button.vibex-tool-call-target-label:hover {
 .conv-nested-scroll {
   max-height: 100lh;
   overflow-y: auto;
-  overscroll-behavior: contain;
   scrollbar-width: none;
   -ms-overflow-style: none;
+  padding-inline-start: 4px;
+  padding-inline-end: 4px;
+  margin-inline-start: -4px;
+  margin-inline-end: -4px;
+}
+
+/* Match .conv-assistant-body gap between thinking and other kinds. Consecutive
+   ChatToolCalls keep Astryx row padding only. Standalone thinking is wrapped,
+   so the direct .conv-thinking rule does not see it. */
+.conv-nested-scroll > * + .conv-thinking,
+.conv-nested-scroll > .conv-thinking + * {
+  margin-top: 10px;
+}
+
+.conv-assistant-body > .vibex-turn-tool-calls:only-child:has(> .conv-thinking),
+.conv-nested-scroll > .vibex-turn-tool-calls:has(> .conv-thinking) {
+  margin-top: 10px;
+  margin-bottom: 10px;
+}
+
+.conv-collapsed-process.is-expanded
+  .conv-nested-scroll
+  > .vibex-turn-tool-calls:first-child:has(> .conv-thinking) {
+  margin-top: 0;
+}
+
+.conv-nested-scroll > .vibex-turn-tool-calls:has(> .conv-thinking) + * {
+  margin-top: 0;
+}
+
+/* One paragraph gap under an expanded fold. The body gap and the fold's own
+   padding otherwise stack on the last member's margin. */
+.conv-assistant-body > .conv-collapsed-process.is-expanded {
+  padding-bottom: 0;
+  margin-bottom: -10px;
+}
+
+.conv-collapsed-process.is-expanded .conv-nested-scroll {
+  margin-top: 10px;
+}
+
+.conv-collapsed-process.is-expanded
+  .conv-nested-scroll
+  > .conv-markdown:last-child {
+  margin-bottom: 10px;
+}
+
+/* Virtual rows separate slices with their own padding. At the boundary after
+   an expanded fold that padding stacks on the member's margin. */
+.conv-turn-row.is-fold-tail {
+  padding-bottom: 0;
+}
+
+.conv-turn-row.is-fold-tail .conv-assistant-msg {
+  padding-bottom: 0;
+}
+
+.conv-turn-row.is-after-fold .conv-assistant-msg {
+  padding-top: 0;
+}
+
+.conv-turn-row.is-fold-tail .conv-assistant-body > .conv-markdown {
+  margin-bottom: 10px;
 }
 
 .conv-nested-scroll::-webkit-scrollbar {
@@ -1115,7 +1203,6 @@ button.vibex-tool-call-target-label:hover {
   margin-top: 6px;
   max-height: 100lh;
   overflow-y: auto;
-  overscroll-behavior: contain;
   scrollbar-width: none;
   -ms-overflow-style: none;
   color: var(--conv-text-secondary, var(--text-muted));
@@ -1127,12 +1214,6 @@ button.vibex-tool-call-target-label:hover {
   display: none;
   width: 0;
   height: 0;
-}
-
-.conv-thinking-streaming .conv-thinking-content {
-  overflow: hidden;
-  overscroll-behavior: auto;
-  touch-action: pan-y;
 }
 
 .conv-thinking-content .conv-markdown,
@@ -1158,9 +1239,16 @@ button.vibex-tool-call-target-label:hover {
   background: transparent;
   color: var(--conv-text-secondary);
   font: inherit;
-  font-size: 12px;
+  font-size: 13px;
+  line-height: 1.7;
   text-align: left;
   cursor: pointer;
+}
+
+.conv-collapsed-process-toggle {
+  font-size: 13px;
+  font-weight: 400;
+  line-height: 1.7;
 }
 
 .conv-activity-header > span {

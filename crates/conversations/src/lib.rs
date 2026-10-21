@@ -11,16 +11,16 @@ pub mod capability_catalog;
 pub mod commit_reminder;
 pub mod export;
 pub mod host;
-pub mod jsonl_history;
 pub mod input;
+pub mod jsonl_history;
 pub mod projection;
 pub mod relation;
 pub mod runtime_events;
 pub mod scoped_control;
 pub mod search;
 pub mod service;
-pub mod turn_window;
 pub mod session_info;
+pub mod turn_window;
 pub mod usage_accounting;
 pub mod workbench_status;
 
@@ -87,5 +87,5 @@ pub use session_info::{
 };
 pub use usage_accounting::{
     assemble_project_usage_statistics, attributed_sessions_from_rows, catch_up_usage_snapshots,
-    sync_vendor_usage_logs,
+    session_stats_with_usage_snapshot, sync_vendor_usage_logs,
 };

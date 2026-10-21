@@ -387,6 +387,10 @@ impl BuiltInProfileCatalog {
                 codebuddy_profile(),
                 kimi_code_profile(),
                 qoder_profile(),
+                kiro_profile(),
+                auggie_profile(),
+                trae_profile(),
+                command_code_profile(),
             ],
         }
     }
@@ -533,6 +537,37 @@ const QODER_ACP_ARGS: &[&str] = &["--acp"];
 const QODER_CANDIDATES: &[ProfileExternalCandidate] = &[
     external_acp("qoder", QODER_ACP_ARGS),
     external_acp("qodercli", QODER_ACP_ARGS),
+];
+/// `kiro-cli acp` is the native ACP server. A bare `kiro-cli` starts the TUI.
+const KIRO_ACP_ARGS: &[&str] = &["acp"];
+const KIRO_CANDIDATES: &[ProfileExternalCandidate] = &[external_acp("kiro-cli", KIRO_ACP_ARGS)];
+/// The CLI runs on these desktops. Managed install artifacts exist only for
+/// Linux zip archives; macOS is a DMG and Windows is an MSI, which this
+/// installer does not extract. PATH detection still launches `kiro-cli acp`.
+const KIRO_PLATFORMS: &[&str] = &[
+    "darwin-aarch64",
+    "darwin-x86_64",
+    "linux-aarch64",
+    "linux-x86_64",
+    "windows-x86_64",
+];
+const AUGGIE_ACP_ARGS: &[&str] = &["--acp"];
+const AUGGIE_CANDIDATES: &[ProfileExternalCandidate] = &[external_acp("auggie", AUGGIE_ACP_ARGS)];
+/// `acp serve` is the documented stdio server. Global flags, when present,
+/// must precede the subcommand; VibeX does not pass permission overrides.
+const TRAE_ACP_ARGS: &[&str] = &["acp", "serve"];
+const TRAE_CANDIDATES: &[ProfileExternalCandidate] = &[
+    external_acp("traex", TRAE_ACP_ARGS),
+    external_acp("traecli", TRAE_ACP_ARGS),
+    external_acp("trae-cli", TRAE_ACP_ARGS),
+];
+/// Published bins are `command-code`, `commandcode`, and `cmdc`. `cmd` is the
+/// Windows shell and is not a candidate.
+const COMMAND_CODE_ACP_ARGS: &[&str] = &["acp"];
+const COMMAND_CODE_CANDIDATES: &[ProfileExternalCandidate] = &[
+    external_acp("command-code", COMMAND_CODE_ACP_ARGS),
+    external_acp("cmdc", COMMAND_CODE_ACP_ARGS),
+    external_acp("commandcode", COMMAND_CODE_ACP_ARGS),
 ];
 
 const fn external(executable: &'static str) -> ProfileExternalCandidate {
@@ -743,6 +778,73 @@ const QODER_ACTIONS: &[ProfileManagementAction] = &[terminal_action(
     ProfileManagementActionKind::Login,
     &[program("qodercli", &["login"])],
 )];
+const KIRO_ACTIONS: &[ProfileManagementAction] = &[
+    terminal_action(
+        "login",
+        "登录 Kiro",
+        "打开浏览器完成 Kiro 官方账号登录",
+        ProfileManagementActionKind::Login,
+        &[program("kiro-cli", &["login"])],
+    ),
+    terminal_action(
+        "logout",
+        "退出登录",
+        "注销 Kiro 本地账号",
+        ProfileManagementActionKind::Logout,
+        &[program("kiro-cli", &["logout"])],
+    ),
+];
+const AUGGIE_ACTIONS: &[ProfileManagementAction] = &[
+    terminal_action(
+        "login",
+        "登录 Auggie",
+        "打开浏览器完成 Augment 账号登录",
+        ProfileManagementActionKind::Login,
+        &[program("auggie", &["login"])],
+    ),
+    terminal_action(
+        "logout",
+        "退出登录",
+        "注销 Auggie 本地账号",
+        ProfileManagementActionKind::Logout,
+        &[program("auggie", &["logout"])],
+    ),
+];
+const TRAE_ACTIONS: &[ProfileManagementAction] = &[
+    terminal_action(
+        "login",
+        "登录 TRAE",
+        "打开浏览器完成 TRAE 账号登录",
+        ProfileManagementActionKind::Login,
+        &[program("traex", &["login"]), program("traecli", &["login"])],
+    ),
+    terminal_action(
+        "logout",
+        "退出登录",
+        "注销 TRAE 本地账号",
+        ProfileManagementActionKind::Logout,
+        &[
+            program("traex", &["logout"]),
+            program("traecli", &["logout"]),
+        ],
+    ),
+];
+const COMMAND_CODE_ACTIONS: &[ProfileManagementAction] = &[
+    terminal_action(
+        "login",
+        "登录 Command Code",
+        "打开浏览器完成 Command Code 账号登录",
+        ProfileManagementActionKind::Login,
+        &[program("command-code", &["login"])],
+    ),
+    terminal_action(
+        "logout",
+        "退出登录",
+        "注销 Command Code 本地账号",
+        ProfileManagementActionKind::Logout,
+        &[program("command-code", &["logout"])],
+    ),
+];
 const KIMI_ACTIONS: &[ProfileManagementAction] = &[
     terminal_action(
         "login",
@@ -2399,6 +2501,16 @@ const QODER_SETTINGS: &[AgentSettingsFeature] = &[
     AgentSettingsFeature::NativeMcp,
     AgentSettingsFeature::NativeSkills,
 ];
+/// Subscription login, plus a same-account headless secret that is not an
+/// official API mode. No verified native MCP or Skills directory.
+const SUBSCRIPTION_AUTH_SETTINGS: &[AgentSettingsFeature] =
+    &[AgentSettingsFeature::AuthenticationMode];
+/// Command Code documents `~/.commandcode/skills` and `.commandcode/skills`.
+/// Its MCP config file shape is not verified, so it is not a native MCP target.
+const COMMAND_CODE_SETTINGS: &[AgentSettingsFeature] = &[
+    AgentSettingsFeature::AuthenticationMode,
+    AgentSettingsFeature::NativeSkills,
+];
 const KIMI_SETTINGS: &[AgentSettingsFeature] = &[
     AgentSettingsFeature::AuthenticationMode,
     AgentSettingsFeature::ReusableModelProviders,
@@ -3182,6 +3294,178 @@ fn qoder_profile() -> BuiltInProfile {
             relative_file: "settings.json",
             kind: AccountEvidenceKind::NonEmptyStringAt(&["security", "auth", "selectedType"]),
         }),
+    }
+}
+
+fn kiro_profile() -> BuiltInProfile {
+    BuiltInProfile {
+        agent_id: AgentId::parse("kiro").expect("bundled AgentId"),
+        display_name: "Kiro CLI",
+        description: "Kiro CLI's coding agent over native ACP",
+        icon: ProfileIcon {
+            light: "/agents/kiro.svg",
+            dark: "/agents/kiro.svg",
+        },
+        registry_binding: None,
+        topology: ProfileTopology::NativeAcp,
+        supported_platforms: KIRO_PLATFORMS,
+        install_sources: vec![ProfileInstallSource::Binary {
+            component: ProfileComponent::CombinedRuntime,
+            version: "2.32.0",
+            command: "kiro-cli",
+            args: KIRO_ACP_ARGS,
+            artifacts: vec![
+                binary_artifact(
+                    "linux-x86_64",
+                    "https://prod.download.cli.kiro.dev/stable/2.32.0/kirocli-x86_64-linux.zip",
+                    "7cea2c90198edc60ccaee9e0d9c9de26902b3824f54a66aa3639a365f7242fbb",
+                ),
+                binary_artifact(
+                    "linux-aarch64",
+                    "https://prod.download.cli.kiro.dev/stable/2.32.0/kirocli-aarch64-linux.zip",
+                    "f66faaa3fa202e7730979e10ad907c43f83220577609c97fdffbb07fc8ef1848",
+                ),
+            ],
+            entry: None,
+        }],
+        external_candidates: KIRO_CANDIDATES,
+        dependencies: ARCHIVE_DEPENDENCIES,
+        management_actions: KIRO_ACTIONS,
+        runtime_executable_env: None,
+        native_config: &[],
+        settings_features: SUBSCRIPTION_AUTH_SETTINGS,
+        authentication_precedence: AuthenticationPrecedence::AccountThenApiKey,
+        authentication_required_by_default: true,
+        account_evidence: None,
+    }
+}
+
+fn auggie_profile() -> BuiltInProfile {
+    BuiltInProfile {
+        agent_id: AgentId::parse("auggie").expect("bundled AgentId"),
+        display_name: "Auggie",
+        description: "Augment CLI's coding agent over native ACP",
+        icon: ProfileIcon {
+            light: "/agents/auggie.svg",
+            dark: "/agents/auggie.svg",
+        },
+        registry_binding: Some(ProfileRegistryBinding {
+            registry_id: "auggie",
+        }),
+        topology: ProfileTopology::NativeAcp,
+        supported_platforms: DESKTOP_PLATFORMS,
+        install_sources: vec![native_npx(
+            "@augmentcode/auggie",
+            "0.36.0",
+            "auggie",
+            AUGGIE_ACP_ARGS,
+            ">=22",
+            "sha512-jb4kq97pGzG0i5UyISc//LjTVlFzIywwD+VfPemiSIl58KjLfxry3KDgxWYnr1vmV8yUkySVzjLnj4ewUEbT/Q==",
+        )],
+        external_candidates: AUGGIE_CANDIDATES,
+        dependencies: NODE_22_DEPENDENCIES,
+        management_actions: AUGGIE_ACTIONS,
+        runtime_executable_env: None,
+        native_config: &[],
+        settings_features: SUBSCRIPTION_AUTH_SETTINGS,
+        authentication_precedence: AuthenticationPrecedence::AccountThenApiKey,
+        authentication_required_by_default: true,
+        account_evidence: None,
+    }
+}
+
+fn trae_profile() -> BuiltInProfile {
+    BuiltInProfile {
+        agent_id: AgentId::parse("trae").expect("bundled AgentId"),
+        display_name: "TRAE CLI",
+        description: "TRAE CLI's coding agent over native ACP",
+        icon: ProfileIcon {
+            light: "/agents/trae.svg",
+            dark: "/agents/trae.svg",
+        },
+        registry_binding: None,
+        topology: ProfileTopology::NativeAcp,
+        supported_platforms: DESKTOP_PLATFORMS,
+        install_sources: vec![ProfileInstallSource::Binary {
+            component: ProfileComponent::CombinedRuntime,
+            version: "0.209.1",
+            command: "traex",
+            args: TRAE_ACP_ARGS,
+            artifacts: vec![
+                binary_artifact(
+                    "darwin-x86_64",
+                    "https://lf-cdn.trae.com.cn/obj/trae-com-cn/trae-cli/v2/releases/0.209.1/traex-macos-x86_64.gz",
+                    "67f3d5e21ee2eaf2b4349423d2a1b44e70ef174546ad8b1f5cf83c264f9cfb6b",
+                ),
+                binary_artifact(
+                    "darwin-aarch64",
+                    "https://lf-cdn.trae.com.cn/obj/trae-com-cn/trae-cli/v2/releases/0.209.1/traex-macos-aarch64.gz",
+                    "16f35e5bf7c5f8aa53783e40eef99c96dd9208227084c2fabd0029cb97b4d813",
+                ),
+                binary_artifact(
+                    "linux-x86_64",
+                    "https://lf-cdn.trae.com.cn/obj/trae-com-cn/trae-cli/v2/releases/0.209.1/traex-linux-x86_64.gz",
+                    "643cf93b876e89ea5c72c87d3448b26690c6b71e45b3a7756b914d2ca53c1405",
+                ),
+                binary_artifact(
+                    "linux-aarch64",
+                    "https://lf-cdn.trae.com.cn/obj/trae-com-cn/trae-cli/v2/releases/0.209.1/traex-linux-aarch64.gz",
+                    "63205dfddf6ae479d0148f7caa10e2487231c442da2d1db44e5388f08923d00b",
+                ),
+                binary_artifact(
+                    "windows-x86_64",
+                    "https://lf-cdn.trae.com.cn/obj/trae-com-cn/trae-cli/v2/releases/0.209.1/traex-windows-x86_64.exe.gz",
+                    "b794b482ef9212c72ab985575b869c08d26d0f54a761d7ac45d83ea8aa7bfac4",
+                ),
+                binary_artifact(
+                    "windows-aarch64",
+                    "https://lf-cdn.trae.com.cn/obj/trae-com-cn/trae-cli/v2/releases/0.209.1/traex-windows-aarch64.exe.gz",
+                    "30b0c71e41f75bc2d130537053a589f6d3422ff2085f80c8f9c8c1d20c72f477",
+                ),
+            ],
+            entry: None,
+        }],
+        external_candidates: TRAE_CANDIDATES,
+        dependencies: ARCHIVE_DEPENDENCIES,
+        management_actions: TRAE_ACTIONS,
+        runtime_executable_env: None,
+        native_config: &[],
+        settings_features: SUBSCRIPTION_AUTH_SETTINGS,
+        authentication_precedence: AuthenticationPrecedence::AccountThenApiKey,
+        authentication_required_by_default: true,
+        account_evidence: None,
+    }
+}
+
+fn command_code_profile() -> BuiltInProfile {
+    BuiltInProfile {
+        agent_id: AgentId::parse("command_code").expect("bundled AgentId"),
+        display_name: "Command Code",
+        description: "Command Code CLI's coding agent over native ACP",
+        icon: ProfileIcon {
+            light: "/agents/command-code.svg",
+            dark: "/agents/command-code.svg",
+        },
+        registry_binding: None,
+        topology: ProfileTopology::NativeAcp,
+        supported_platforms: DESKTOP_PLATFORMS,
+        install_sources: vec![native_npx(
+            "command-code",
+            "1.84.0",
+            "command-code",
+            COMMAND_CODE_ACP_ARGS,
+            ">=22",
+            "sha512-LiBTBYI7mF0RmdkYlqm+2yEsfoMWPDckBpCZzF22rxNuVOlKATiZ7UwOh+G9cyDgOzNL+s0Fg31yb1TP55szyA==",
+        )],
+        external_candidates: COMMAND_CODE_CANDIDATES,
+        dependencies: NODE_22_DEPENDENCIES,
+        management_actions: COMMAND_CODE_ACTIONS,
+        runtime_executable_env: None,
+        native_config: &[],
+        settings_features: COMMAND_CODE_SETTINGS,
+        authentication_precedence: AuthenticationPrecedence::AccountThenApiKey,
+        authentication_required_by_default: true,
+        account_evidence: None,
     }
 }
 

@@ -1,15 +1,9 @@
-import { useId, useRef, type ComponentType, type ReactNode } from 'react';
-import { ChevronRight, Loader2, Save, Undo2 } from 'lucide-react';
+import { useId, type ComponentType, type ReactNode } from 'react';
+import { ChevronRight } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
-import { HostGlass } from '@/components/ui/host-glass';
 
-import { Button } from '@/components/ui/button';
 import { toast } from '@/components/ui/toast';
-import { useMediaQuery } from '@/hooks/useMediaQuery';
 import { cn } from '@/lib/utils';
-
-/** Static pointer used when motion is reduced: the refraction stays put. */
-const STATIC_GLASS_POINTER = { x: 0, y: 0 };
 
 export function SettingsPageHeader({
   title,
@@ -150,105 +144,6 @@ export function SettingsDisclosure({
         ) : null}
       </div>
     </section>
-  );
-}
-
-interface SettingsActionBarProps {
-  dirty: boolean;
-  saving: boolean;
-  onDiscard: () => void;
-  onSave: () => void;
-  disabled?: boolean;
-  message?: string;
-  /** Optional failure copy shown under the controls when saving failed. */
-  error?: string | null;
-}
-
-/**
- * Unified floating save/discard bar for settings pages. Rendered only while
- * there are unsaved changes. The bar is a liquid-glass panel (same material
- * as the Git workspace toolbar, see BranchInfoHeader) that pins to the bottom
- * of the scrolling content area; discard (outline) and save (primary) sit on
- * the right, status copy on the left. The `error` slot renders below the
- * glass so failure copy stays fully readable.
- */
-export function SettingsActionBar({
-  dirty,
-  saving,
-  onDiscard,
-  onSave,
-  disabled = false,
-  message,
-  error = null,
-}: SettingsActionBarProps) {
-  const { t } = useTranslation('common');
-  const glassStageRef = useRef<HTMLDivElement | null>(null);
-  const prefersReducedMotion = useMediaQuery(
-    '(prefers-reduced-motion: reduce)'
-  );
-  if (!dirty) {
-    return null;
-  }
-
-  return (
-    <div className="settings-action-bar" data-testid="settings-action-bar">
-      <div ref={glassStageRef} className="settings-action-bar__stage">
-        <HostGlass
-          className="settings-action-bar__glass"
-          padding="0"
-          cornerRadius={14}
-          displacementScale={72}
-          blurAmount={0.16}
-          saturation={155}
-          /* This wide surface makes the RGB edge split read as a red stripe. */
-          aberrationIntensity={0}
-          elasticity={prefersReducedMotion ? 0 : 0.12}
-          mouseContainer={glassStageRef}
-          globalMousePos={
-            prefersReducedMotion ? STATIC_GLASS_POINTER : undefined
-          }
-          mouseOffset={prefersReducedMotion ? STATIC_GLASS_POINTER : undefined}
-          mode="prominent"
-          style={{
-            position: 'absolute',
-            top: '50%',
-            left: '50%',
-            width: '100%',
-            height: '100%',
-          }}
-        >
-          <div className="settings-action-bar__inner">
-            <span className="settings-action-bar__message">
-              {message ?? t('settingsChanged')}
-            </span>
-            <div className="settings-action-bar__actions">
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={onDiscard}
-                disabled={saving}
-              >
-                <Undo2 className="mr-2 h-4 w-4" />
-                {t('discard')}
-              </Button>
-              <Button size="sm" onClick={onSave} disabled={disabled || saving}>
-                {saving ? (
-                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                ) : (
-                  <Save className="mr-2 h-4 w-4" />
-                )}
-                {t('save')}
-              </Button>
-            </div>
-          </div>
-        </HostGlass>
-      </div>
-      {error ? (
-        <p className="settings-action-bar__error" role="alert">
-          {error}
-        </p>
-      ) : null}
-    </div>
   );
 }
 

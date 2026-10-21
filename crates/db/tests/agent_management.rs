@@ -694,6 +694,10 @@ async fn migration_seeds_and_promotes_the_current_built_in_agent_catalog() {
             ("codebuddy", true),
             ("kimi_code", true),
             ("qoder", true),
+            ("kiro", true),
+            ("auggie", true),
+            ("trae", true),
+            ("command_code", true),
         ]
     );
     assert!(
@@ -723,6 +727,10 @@ async fn migration_seeds_and_promotes_the_current_built_in_agent_catalog() {
         "cursor",
         "deepseek_harness",
         "qoder",
+        "kiro",
+        "auggie",
+        "trae",
+        "command_code",
     ] {
         assert!(
             sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM agent_setting WHERE agent_type = ?")
@@ -852,6 +860,10 @@ async fn migration_rewrites_the_previous_default_agent_bar_order() {
             "codebuddy",
             "kimi_code",
             "qoder",
+            "kiro",
+            "auggie",
+            "trae",
+            "command_code",
             "vendor.custom",
         ]
     );

@@ -1917,6 +1917,16 @@
     "authDescClineProvider": "Configure a BYOK provider for Cline.",
     "authDescCodebuddySubscription": "Sign in to the Tencent Cloud CodeBuddy account.",
     "authDescQoderSubscription": "Sign in with a Qoder account.",
+    "authDescKiroSubscription": "Sign in with a Kiro account.",
+    "authDescKiroOfficialApi": "Use KIRO_API_KEY.",
+    "authDescAuggieSubscription": "Sign in with an Augment account.",
+    "authDescTraeSubscription": "Sign in with a TRAE account.",
+    "authDescCommandCodeSubscription": "Sign in with a Command Code account.",
+    "headlessAccountTokenHint": "Same-account token for a machine without a browser.",
+    "headlessAccountTokenClear": "Clear",
+    "headlessAccountTokenSaved": "Saved",
+    "headlessAccountTokenLoadFailed": "Could not read the token",
+    "headlessAccountTokenSaveFailed": "Could not save the token",
     "authDescMimoSubscription": "Sign in with a Xiaomi MiMo account.",
     "authDescMimoOfficialApi": "Use a Xiaomi MiMo first-party API key.",
     "authDescMimoProvider": "Connect catalog or custom OpenAI-compatible providers in MiMo Code.",
@@ -2338,6 +2348,46 @@
         "login": {
           "label": "Sign in to Qoder",
           "description": "Open a browser to complete Qoder account sign-in."
+        }
+      },
+      "kiro": {
+        "login": {
+          "label": "Sign in to Kiro",
+          "description": "Open a browser to complete Kiro account sign-in."
+        },
+        "logout": {
+          "label": "Sign out",
+          "description": "Remove the local Kiro account."
+        }
+      },
+      "auggie": {
+        "login": {
+          "label": "Sign in to Auggie",
+          "description": "Open a browser to complete Augment account sign-in."
+        },
+        "logout": {
+          "label": "Sign out",
+          "description": "Remove the local Auggie account."
+        }
+      },
+      "trae": {
+        "login": {
+          "label": "Sign in to TRAE",
+          "description": "Open a browser to complete TRAE account sign-in."
+        },
+        "logout": {
+          "label": "Sign out",
+          "description": "Remove the local TRAE account."
+        }
+      },
+      "command_code": {
+        "login": {
+          "label": "Sign in to Command Code",
+          "description": "Open a browser to complete Command Code account sign-in."
+        },
+        "logout": {
+          "label": "Sign out",
+          "description": "Remove the local Command Code account."
         }
       },
       "kimi_code": {

@@ -2543,20 +2543,38 @@ describe('AgentSettings', () => {
       </div>
     );
 
+    api.writeConfig.mockResolvedValue({
+      agent_id: 'codex',
+      available: true,
+      settings_features: ['authentication_mode'],
+      path: '/Users/example/.codex/config.toml',
+      paths: ['/Users/example/.codex/config.toml'],
+      files: [],
+      applies_to_next_session: true,
+      fields: [
+        configField({
+          id: 'codex_model',
+          label: '默认模型',
+          kind: 'text',
+          value: 'gpt-5-mini',
+          path: '/Users/example/.codex/config.toml',
+          surface: 'configuration',
+        }),
+      ],
+    });
     const input = await screen.findByLabelText('默认模型');
     await user.type(input, '-mini');
-
-    confirmShow.mockResolvedValueOnce('cancelled');
     await user.click(screen.getByRole('link', { name: '常规' }));
-    expect(confirmShow).toHaveBeenCalledOnce();
-    expect(window.location.pathname).not.toBe('/settings/general');
 
-    confirmShow.mockResolvedValueOnce('confirmed');
-    await user.click(screen.getByRole('link', { name: '常规' }));
-    await waitFor(() => expect(confirmShow).toHaveBeenCalledTimes(2));
     await waitFor(() =>
-      expect(window.location.pathname).toBe('/settings/general')
+      expect(api.writeConfig).toHaveBeenCalledWith(
+        expect.objectContaining({
+          agent_id: 'codex',
+          fields: { codex_model: 'gpt-5-mini' },
+        })
+      )
     );
+    expect(confirmShow).not.toHaveBeenCalled();
   });
 });
 

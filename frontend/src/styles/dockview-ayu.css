@@ -39,8 +39,8 @@
   --dv-tab-font-size: inherit;
   --dv-border-radius: var(--radius);
   --dv-tab-margin: 0;
-  --dv-sash-color: color-mix(in srgb, var(--border-subtle) 86%, transparent);
-  --dv-active-sash-color: hsl(var(--primary) / 0.58);
+  --dv-sash-color: var(--workspace-divider-color);
+  --dv-active-sash-color: var(--workspace-divider-hover);
   --dv-active-sash-transition-duration: 0.1s;
   --dv-active-sash-transition-delay: 0.5s;
   --dv-scrollbar-background-color: color-mix(
@@ -67,7 +67,7 @@
   --dv-paneview-header-border-color: var(--dv-theme-border);
   --dv-tabs-and-actions-container-background-color: var(--dv-theme-surface);
   --dv-group-view-background-color: var(--dv-theme-bg);
-  --dv-separator-border: var(--dv-theme-border);
+  --dv-separator-border: transparent;
 }
 
 .workspace-shell {
@@ -178,11 +178,11 @@
     transparent
   );
   --dv-group-view-background-color: var(--dv-theme-bg);
-  --dv-separator-border: var(--dv-theme-border);
+  --dv-separator-border: transparent;
   --dv-drag-over-background-color: var(--surface-active);
   --dv-drag-over-border-color: hsl(var(--primary) / 0.72);
-  --dv-sash-color: color-mix(in srgb, var(--border-subtle) 88%, transparent);
-  --dv-active-sash-color: hsl(var(--primary) / 0.68);
+  --dv-sash-color: var(--workspace-divider-color);
+  --dv-active-sash-color: var(--workspace-divider-hover);
 }
 
 .dark .workspace-shell {
@@ -656,21 +656,29 @@
 [class*='dockview-theme-ayu']
   .dv-split-view-container.dv-horizontal
   > .dv-view-container
+  > .dv-view:not(:first-child)::before,
+[class*='dockview-theme-ayu']
+  .dv-split-view-container.dv-vertical
+  > .dv-view-container
   > .dv-view:not(:first-child)::before {
   display: none;
 }
 
+/* Dockview adds dv-enabled only when a sash can move both ways. Against a
+   minimum or maximum (the file tree often sits on its minimum width) the
+   sash is dv-minimum or dv-maximum, and the library keeps a 4px bar that
+   :hover/:active fills with --dv-active-sash-color. Style every state, and
+   keep position:absolute plus z-index:99: position:relative stacks later
+   sashes below the container, and a lower z-index lets panel content eat
+   the hit target. */
 [class*='dockview-theme-ayu']
   .dv-split-view-container.dv-horizontal
   > .dv-sash-container
-  > .dv-sash.dv-enabled {
-  /* Keep the base .dv-sash `position: absolute` and `z-index: 99`:
-     `position: relative` makes multiple sashes stack in normal flow (any
-     sash after the first lands below the container and disappears), and a
-     lower z-index lets high-z panel content swallow the sash. */
+  > .dv-sash {
   overflow: visible;
   width: 1px;
   margin-left: 0;
+  border: 0;
   background-color: var(--workspace-divider-color, var(--dv-sash-color));
   transition:
     background-color 0.15s ease,
@@ -682,19 +690,21 @@
 [class*='dockview-theme-ayu']
   .dv-split-view-container.dv-horizontal
   > .dv-sash-container
-  > .dv-sash.dv-enabled::before {
+  > .dv-sash::before {
   content: '';
   position: absolute;
   top: 0;
   bottom: 0;
   left: -5px;
   width: 11px;
+  border: 0;
+  background: transparent;
 }
 
 [class*='dockview-theme-ayu']
   .dv-split-view-container.dv-horizontal
   > .dv-sash-container
-  > .dv-sash.dv-enabled::after {
+  > .dv-sash::after {
   content: '';
   position: absolute;
   left: 50%;
@@ -702,6 +712,7 @@
   width: 4px;
   height: 21px;
   transform: translate(-50%, -50%);
+  border: 0;
   border-radius: 999px;
   background-color: var(
     --workspace-divider-subtle,
@@ -716,14 +727,22 @@
 [class*='dockview-theme-ayu']
   .dv-split-view-container.dv-horizontal
   > .dv-sash-container
-  > .dv-sash.dv-enabled:hover {
+  > .dv-sash:hover,
+[class*='dockview-theme-ayu']
+  .dv-split-view-container.dv-horizontal
+  > .dv-sash-container
+  > .dv-sash:active {
   background-color: var(--workspace-divider-hover, var(--dv-active-sash-color));
 }
 
 [class*='dockview-theme-ayu']
   .dv-split-view-container.dv-horizontal
   > .dv-sash-container
-  > .dv-sash.dv-enabled:hover::after {
+  > .dv-sash:hover::after,
+[class*='dockview-theme-ayu']
+  .dv-split-view-container.dv-horizontal
+  > .dv-sash-container
+  > .dv-sash:active::after {
   transform: translate(-50%, -50%) scaleX(1.35);
   background-color: var(--workspace-divider-hover, var(--dv-active-sash-color));
 }
@@ -731,10 +750,11 @@
 [class*='dockview-theme-ayu']
   .dv-split-view-container.dv-vertical
   > .dv-sash-container
-  > .dv-sash.dv-enabled {
+  > .dv-sash {
   overflow: visible;
   height: 1px;
   margin-top: 0;
+  border: 0;
   background-color: var(--workspace-divider-color, var(--dv-sash-color));
   transition:
     background-color 0.15s ease,
@@ -744,19 +764,21 @@
 [class*='dockview-theme-ayu']
   .dv-split-view-container.dv-vertical
   > .dv-sash-container
-  > .dv-sash.dv-enabled::before {
+  > .dv-sash::before {
   content: '';
   position: absolute;
   left: 0;
   right: 0;
   top: -5px;
   height: 11px;
+  border: 0;
+  background: transparent;
 }
 
 [class*='dockview-theme-ayu']
   .dv-split-view-container.dv-vertical
   > .dv-sash-container
-  > .dv-sash.dv-enabled::after {
+  > .dv-sash::after {
   content: '';
   position: absolute;
   left: 50%;
@@ -764,6 +786,7 @@
   width: 21px;
   height: 4px;
   transform: translate(-50%, -50%);
+  border: 0;
   border-radius: 999px;
   background-color: var(
     --workspace-divider-subtle,
@@ -778,14 +801,22 @@
 [class*='dockview-theme-ayu']
   .dv-split-view-container.dv-vertical
   > .dv-sash-container
-  > .dv-sash.dv-enabled:hover {
+  > .dv-sash:hover,
+[class*='dockview-theme-ayu']
+  .dv-split-view-container.dv-vertical
+  > .dv-sash-container
+  > .dv-sash:active {
   background-color: var(--workspace-divider-hover, var(--dv-active-sash-color));
 }
 
 [class*='dockview-theme-ayu']
   .dv-split-view-container.dv-vertical
   > .dv-sash-container
-  > .dv-sash.dv-enabled:hover::after {
+  > .dv-sash:hover::after,
+[class*='dockview-theme-ayu']
+  .dv-split-view-container.dv-vertical
+  > .dv-sash-container
+  > .dv-sash:active::after {
   transform: translate(-50%, -50%) scaleY(1.35);
   background-color: var(--workspace-divider-hover, var(--dv-active-sash-color));
 }

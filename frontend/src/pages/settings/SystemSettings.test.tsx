@@ -167,9 +167,7 @@ describe('SystemSettings', () => {
       within(proxySection!).getByPlaceholderText('http://127.0.0.1:7890'),
       'http://proxy.local:7890'
     );
-    await user.click(
-      within(proxySection!).getByRole('button', { name: '保存' })
-    );
+    await user.tab();
     await waitFor(() => {
       expect(mocks.updateProxy).toHaveBeenCalledWith({
         mode: 'manual',
@@ -182,9 +180,6 @@ describe('SystemSettings', () => {
     const renderingSection = screen.getByText('渲染加速').closest('section');
     await user.click(within(renderingSection!).getByRole('combobox'));
     await user.click(screen.getByRole('option', { name: '禁用 GPU' }));
-    await user.click(
-      within(renderingSection!).getByRole('button', { name: '保存' })
-    );
     await waitFor(() => {
       expect(mocks.updateRendering).toHaveBeenCalledWith({
         acceleration_mode: 'disable_gpu',
@@ -192,11 +187,6 @@ describe('SystemSettings', () => {
     });
 
     await user.click(screen.getByRole('switch', { name: '自动检查应用更新' }));
-    await user.click(
-      within(screen.getByTestId('settings-action-bar')).getByRole('button', {
-        name: '保存',
-      })
-    );
     await waitFor(() => {
       expect(mocks.updateAndSaveConfig).toHaveBeenCalledWith(
         expect.objectContaining({

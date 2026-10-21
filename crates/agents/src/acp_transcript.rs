@@ -65,8 +65,10 @@
 //! one case where a partial write cannot be rolled back, where the batch is
 //! abandoned rather than risk duplicating history that did land.
 
-use std::io::{Seek as _, Write as _};
-use std::path::{Path, PathBuf};
+use std::{
+    io::{Seek as _, Write as _},
+    path::{Path, PathBuf},
+};
 
 use serde::{Deserialize, Serialize};
 
@@ -226,6 +228,8 @@ type AckSender = tokio::sync::oneshot::Sender<()>;
 enum PendingRecord {
     Header(TranscriptHeader),
     Entry(TranscriptEntry),
+    Flush,
+    Replace(String),
 }
 
 impl PendingRecord {
@@ -233,6 +237,7 @@ impl PendingRecord {
         match self {
             PendingRecord::Header(h) => serde_json::to_string(h).unwrap_or_default(),
             PendingRecord::Entry(e) => serde_json::to_string(e).unwrap_or_default(),
+            PendingRecord::Flush | PendingRecord::Replace(_) => String::new(),
         }
     }
 
@@ -251,7 +256,7 @@ impl PendingRecord {
     /// `a_queued_prompt_is_invisible_to_the_replay_gate_until_it_lands` exists.
     fn is_boundary(&self) -> bool {
         match self {
-            PendingRecord::Header(_) => true,
+            PendingRecord::Header(_) | PendingRecord::Flush | PendingRecord::Replace(_) => true,
             PendingRecord::Entry(e) => matches!(e.k, EntryKind::Prompt | EntryKind::TurnEnd),
         }
     }
@@ -428,6 +433,31 @@ impl SessionWriter {
 
     fn accept(&mut self, queued: Queued) {
         self.last_touched = std::time::Instant::now();
+        match queued.record {
+            PendingRecord::Flush => {
+                self.flush();
+                let _ = queued.ack.send(());
+                return;
+            }
+            PendingRecord::Replace(content) => {
+                self.resolve_all(false);
+                self.compactable = false;
+                self.poisoned = false;
+                self.consecutive_failures = 0;
+                self.header_written = !content.trim().is_empty();
+                let write_res = (|| -> std::io::Result<()> {
+                    if let Some(dir) = self.path.parent() {
+                        std::fs::create_dir_all(dir)?;
+                    }
+                    std::fs::write(&self.path, content.as_bytes())
+                })();
+                if write_res.is_ok() {
+                    let _ = queued.ack.send(());
+                }
+                return;
+            }
+            _ => {}
+        }
         if self.poisoned {
             return; // dropping `ack` (and the guard) reports the failure
         }
@@ -574,7 +604,10 @@ impl SessionWriter {
                 self.pending.len()
             );
         } else {
-            tracing::debug!("[acp-transcript] deferring write to {}: {e}", self.path.display());
+            tracing::debug!(
+                "[acp-transcript] deferring write to {}: {e}",
+                self.path.display()
+            );
         }
     }
 }
@@ -628,7 +661,9 @@ fn mergeable_chunk_kind(payload: &serde_json::Value) -> Option<&'static str> {
     };
     let content = payload.get("content")?;
     (content.get("type").and_then(|v| v.as_str()) == Some("text")
-        && content.get("text").is_some_and(serde_json::Value::is_string))
+        && content
+            .get("text")
+            .is_some_and(serde_json::Value::is_string))
     .then_some(kind)
 }
 
@@ -751,6 +786,10 @@ fn append_chunk_text(open: &mut TranscriptEntry, next: &TranscriptEntry) {
 /// dropped, which their receivers report.
 fn enqueue(path: PathBuf, record: PendingRecord) -> tokio::sync::oneshot::Receiver<()> {
     let (ack_tx, ack_rx) = tokio::sync::oneshot::channel();
+    if matches!(record, PendingRecord::Flush) && TRANSCRIPT_TX.get().is_none() {
+        let _ = ack_tx.send(());
+        return ack_rx;
+    }
     // Taken BEFORE the record is handed to the queue, so there is no instant in
     // which the record is in flight and the replay gate cannot see it.
     let prompt_guard = matches!(
@@ -836,9 +875,35 @@ fn run_writer(rx: std::sync::mpsc::Receiver<TranscriptJob>) {
     }
 }
 
+fn isolate_test_transcripts() {
+    static ONCE: std::sync::Once = std::sync::Once::new();
+    ONCE.call_once(|| {
+        if std::env::var_os("VIBEX_TRANSCRIPTS_ROOT").is_some()
+            || std::env::var_os("VIBEX_HOME").is_some()
+            || std::env::var_os("VIBEX_DATA_DIR").is_some()
+        {
+            return;
+        }
+        let Ok(exe) = std::env::current_exe() else {
+            return;
+        };
+        let in_deps = exe
+            .components()
+            .any(|component| component.as_os_str() == "deps");
+        if !in_deps {
+            return;
+        }
+        let dir =
+            std::env::temp_dir().join(format!("vibex-acp-transcripts-{}", std::process::id()));
+        unsafe {
+            std::env::set_var("VIBEX_TRANSCRIPTS_ROOT", dir);
+        }
+    });
+}
 
 /// ACP JSONL root. `$VIBEX_HOME` then `$VIBEX_DATA_DIR` then the platform data dir.
 pub fn vibex_acp_transcripts_root() -> PathBuf {
+    isolate_test_transcripts();
     if let Some(explicit) = std::env::var_os("VIBEX_TRANSCRIPTS_ROOT") {
         return PathBuf::from(explicit);
     }
@@ -874,7 +939,12 @@ pub fn record_header_in(
     // Idempotence is decided on the writer thread, which is the only party that
     // knows about a header still sitting in its buffer — and which, being the
     // only writer, cannot race the file it checks.
-    queue_for(root, agent_dir, &header.session_id, PendingRecord::Header(header.clone()))
+    queue_for(
+        root,
+        agent_dir,
+        &header.session_id,
+        PendingRecord::Header(header.clone()),
+    )
 }
 
 /// Record one prompt or update.
@@ -942,6 +1012,28 @@ pub fn record_steer_in(
     queue_for(root, agent_dir, session_id, PendingRecord::Entry(entry))
 }
 
+/// Flush any buffered write-behind chunks for `session_id` to disk on the
+/// writer thread before reading the transcript.
+pub fn flush_in(
+    root: &Path,
+    agent_dir: &str,
+    session_id: &str,
+) -> tokio::sync::oneshot::Receiver<()> {
+    queue_for(root, agent_dir, session_id, PendingRecord::Flush)
+}
+
+/// Replace the entire transcript file on the writer thread (discarding any
+/// buffered write-behind records for that file). Used when truncating a
+/// conversation to an earlier turn.
+pub fn replace_in(
+    root: &Path,
+    agent_dir: &str,
+    session_id: &str,
+    content: String,
+) -> tokio::sync::oneshot::Receiver<()> {
+    queue_for(root, agent_dir, session_id, PendingRecord::Replace(content))
+}
+
 /// Resolve the target file and queue `record` for it. An id that is unsafe as a
 /// path component records nothing, and says so through the dropped ack.
 fn queue_for(
@@ -987,10 +1079,7 @@ pub fn append_line_in(root: &Path, agent_dir: &str, session_id: &str, line: &str
         f.write_all(format!("{line}\n").as_bytes())
     };
     if let Err(e) = write() {
-        tracing::debug!(
-            "[acp-transcript] append failed for {}: {e}",
-            path.display()
-        );
+        tracing::debug!("[acp-transcript] append failed for {}: {e}", path.display());
     }
 }
 
@@ -998,11 +1087,7 @@ pub fn append_line_in(root: &Path, agent_dir: &str, session_id: &str, line: &str
 /// lines are skipped so a single truncated write (e.g. a hard kill mid-append)
 /// cannot poison the rest of the history.
 pub fn read_transcript(agent_dir: &str, session_id: &str) -> Transcript {
-    read_transcript_in(
-        &vibex_acp_transcripts_root(),
-        agent_dir,
-        session_id,
-    )
+    read_transcript_in(&vibex_acp_transcripts_root(), agent_dir, session_id)
 }
 
 /// Root-injectable core of [`read_transcript`].
@@ -1118,11 +1203,7 @@ pub fn read_header_in(root: &Path, agent_dir: &str, session_id: &str) -> Option<
 /// to be. The opposite bias is unrecoverable; this one costs at most a replay
 /// that was redundant anyway.
 pub fn has_recorded_history(agent_dir: &str, session_id: &str) -> bool {
-    has_recorded_history_in(
-        &vibex_acp_transcripts_root(),
-        agent_dir,
-        session_id,
-    )
+    has_recorded_history_in(&vibex_acp_transcripts_root(), agent_dir, session_id)
 }
 
 /// Root-injectable core of [`has_recorded_history`].
@@ -1150,12 +1231,7 @@ pub fn claim_replay_transcript(
     session_id: &str,
     header: &TranscriptHeader,
 ) -> bool {
-    claim_replay_transcript_in(
-        &vibex_acp_transcripts_root(),
-        agent_dir,
-        session_id,
-        header,
-    )
+    claim_replay_transcript_in(&vibex_acp_transcripts_root(), agent_dir, session_id, header)
 }
 
 pub fn claim_replay_transcript_in(
@@ -1300,11 +1376,7 @@ pub fn continuation_ancestors_in(root: &Path, agent_dir: &str, session_id: &str)
 
 /// [`continuation_ancestors_in`] against the real transcripts root.
 pub fn continuation_ancestors(agent_dir: &str, session_id: &str) -> Vec<String> {
-    continuation_ancestors_in(
-        &vibex_acp_transcripts_root(),
-        agent_dir,
-        session_id,
-    )
+    continuation_ancestors_in(&vibex_acp_transcripts_root(), agent_dir, session_id)
 }
 
 /// Session ids under `<root>/<agent_dir>/` that some other transcript continues.
@@ -1407,7 +1479,10 @@ mod tests {
             &root,
             "goose",
             "s1",
-            &entry_line(EntryKind::Prompt, serde_json::json!([{"type":"text","text":"hi"}])),
+            &entry_line(
+                EntryKind::Prompt,
+                serde_json::json!([{"type":"text","text":"hi"}]),
+            ),
         );
         append_line_in(
             &root,
@@ -1496,22 +1571,32 @@ mod tests {
             &root,
             "goose",
             "s0",
-            &entry_line(EntryKind::Prompt, serde_json::json!([{"type":"text","text":"first"}])),
+            &entry_line(
+                EntryKind::Prompt,
+                serde_json::json!([{"type":"text","text":"first"}]),
+            ),
         );
         for (id, prev, text) in [("s1", "s0", "second"), ("s2", "s1", "third")] {
-            let header = TranscriptHeader::new("custom:goose", id, "/elsewhere", 9_999)
-                .continuing(prev);
+            let header =
+                TranscriptHeader::new("custom:goose", id, "/elsewhere", 9_999).continuing(prev);
             append_line_in(&root, "goose", id, &serde_json::to_string(&header).unwrap());
             append_line_in(
                 &root,
                 "goose",
                 id,
-                &entry_line(EntryKind::Prompt, serde_json::json!([{"type":"text","text":text}])),
+                &entry_line(
+                    EntryKind::Prompt,
+                    serde_json::json!([{"type":"text","text":text}]),
+                ),
             );
         }
 
         let merged = read_chain_in(&root, "goose", "s2");
-        assert_eq!(merged.entries.len(), 3, "every link contributes its entries");
+        assert_eq!(
+            merged.entries.len(),
+            3,
+            "every link contributes its entries"
+        );
         let header = merged.header.expect("oldest header survives");
         assert_eq!(header.session_id, "s0", "the root header wins");
         assert_eq!(
@@ -1542,8 +1627,8 @@ mod tests {
         let root = temp_root();
         append_line_in(&root, "goose", "s0", &header_line("s0"));
         for (id, prev) in [("s1", "s0"), ("s2", "s1")] {
-            let header = TranscriptHeader::new("custom:goose", id, "/elsewhere", 9_999)
-                .continuing(prev);
+            let header =
+                TranscriptHeader::new("custom:goose", id, "/elsewhere", 9_999).continuing(prev);
             append_line_in(&root, "goose", id, &serde_json::to_string(&header).unwrap());
         }
 
@@ -1574,8 +1659,7 @@ mod tests {
         // headers must not hang the bind path.
         let root = temp_root();
         for (id, prev) in [("a", "b"), ("b", "a")] {
-            let header =
-                TranscriptHeader::new("custom:goose", id, "/repo", 1).continuing(prev);
+            let header = TranscriptHeader::new("custom:goose", id, "/repo", 1).continuing(prev);
             append_line_in(&root, "goose", id, &serde_json::to_string(&header).unwrap());
         }
         assert_eq!(
@@ -1591,7 +1675,12 @@ mod tests {
         let root = temp_root();
         // A hand-edited file pointing at itself must not hang the reader.
         let looped = TranscriptHeader::new("custom:goose", "loop", "/repo", 1).continuing("loop");
-        append_line_in(&root, "goose", "loop", &serde_json::to_string(&looped).unwrap());
+        append_line_in(
+            &root,
+            "goose",
+            "loop",
+            &serde_json::to_string(&looped).unwrap(),
+        );
         append_line_in(
             &root,
             "goose",
@@ -1604,7 +1693,12 @@ mod tests {
         // never to an error or an empty result.
         let orphan =
             TranscriptHeader::new("custom:goose", "orphan", "/repo", 2).continuing("deleted");
-        append_line_in(&root, "goose", "orphan", &serde_json::to_string(&orphan).unwrap());
+        append_line_in(
+            &root,
+            "goose",
+            "orphan",
+            &serde_json::to_string(&orphan).unwrap(),
+        );
         append_line_in(
             &root,
             "goose",
@@ -1672,7 +1766,10 @@ mod tests {
             &root,
             "goose",
             "e1",
-            &entry_line(EntryKind::Prompt, serde_json::json!([{"type":"text","text":"hi"}])),
+            &entry_line(
+                EntryKind::Prompt,
+                serde_json::json!([{"type":"text","text":"hi"}]),
+            ),
         );
         assert!(has_entries_in(&root, "goose", "e1"));
 
@@ -1706,12 +1803,18 @@ mod tests {
         raw.extend_from_slice(header_line("torn").as_bytes());
         raw.push(b'\n');
         raw.extend_from_slice(
-            entry_line(EntryKind::Prompt, serde_json::json!([{"type":"text","text":"你好"}]))
-                .as_bytes(),
+            entry_line(
+                EntryKind::Prompt,
+                serde_json::json!([{"type":"text","text":"你好"}]),
+            )
+            .as_bytes(),
         );
         raw.push(b'\n');
         // A prompt line cut in the middle of a 3-byte character.
-        let torn = entry_line(EntryKind::Prompt, serde_json::json!([{"type":"text","text":"世界"}]));
+        let torn = entry_line(
+            EntryKind::Prompt,
+            serde_json::json!([{"type":"text","text":"世界"}]),
+        );
         let cut = torn.find('世').unwrap() + 2;
         raw.extend_from_slice(&torn.as_bytes()[..cut]);
         std::fs::write(&path, &raw).unwrap();
@@ -1750,9 +1853,10 @@ mod tests {
         let root = temp_root();
         let path = transcript_path_in(&root, "goose", "new").unwrap();
         std::fs::create_dir_all(path.parent().unwrap()).unwrap();
-        let header =
-            serde_json::to_string(&TranscriptHeader::new("custom:goose", "new", "/repo", 1).continuing("old"))
-                .unwrap();
+        let header = serde_json::to_string(
+            &TranscriptHeader::new("custom:goose", "new", "/repo", 1).continuing("old"),
+        )
+        .unwrap();
         let mut raw = Vec::from(header.as_bytes());
         raw.push(b'\n');
         raw.extend_from_slice(&[0xff, 0xfe, b'\n']);
@@ -1763,7 +1867,10 @@ mod tests {
             &root,
             "goose",
             "old",
-            &entry_line(EntryKind::Prompt, serde_json::json!([{"type":"text","text":"hi"}])),
+            &entry_line(
+                EntryKind::Prompt,
+                serde_json::json!([{"type":"text","text":"hi"}]),
+            ),
         );
 
         // `new` is readable despite the garbage line, so `old` is legitimately
@@ -1801,10 +1908,12 @@ mod tests {
         a.await.unwrap();
         b.await.unwrap();
 
-        let raw = std::fs::read_to_string(transcript_path_in(&root, "goose", "s3").unwrap())
-            .unwrap();
+        let raw =
+            std::fs::read_to_string(transcript_path_in(&root, "goose", "s3").unwrap()).unwrap();
         assert_eq!(
-            raw.lines().filter(|l| parse_header_line(l).is_some()).count(),
+            raw.lines()
+                .filter(|l| parse_header_line(l).is_some())
+                .count(),
             1,
             "exactly one header, no matter how many reconnects raced"
         );
@@ -1833,7 +1942,7 @@ mod tests {
             .iter()
             .filter_map(|r| match r {
                 PendingRecord::Entry(e) => Some(e.clone()),
-                PendingRecord::Header(_) => None,
+                PendingRecord::Header(_) | PendingRecord::Flush | PendingRecord::Replace(_) => None,
             })
             .collect();
 
@@ -2083,7 +2192,9 @@ mod tests {
             .iter()
             .map(|r| match r {
                 PendingRecord::Entry(e) => queued(PendingRecord::Entry(e.clone())),
-                PendingRecord::Header(_) => unreachable!(),
+                PendingRecord::Header(_) | PendingRecord::Flush | PendingRecord::Replace(_) => {
+                    unreachable!()
+                }
             })
             .collect();
         let (lines, compactable) = compact_batch(&pending, false);
@@ -2229,6 +2340,60 @@ mod tests {
         let _ = std::fs::remove_dir_all(&root);
     }
 
+    #[tokio::test]
+    async fn flush_and_replace_operate_synchronously_through_the_writer_thread() {
+        let root = temp_root();
+        record_header_in(
+            &root,
+            "goose",
+            &TranscriptHeader::new("custom:goose", "flush-test", "/repo", 1),
+        )
+        .await
+        .unwrap();
+        record_entry_in(
+            &root,
+            "goose",
+            "flush-test",
+            EntryKind::Prompt,
+            serde_json::json!([{ "type": "text", "text": "hi" }]),
+        )
+        .await
+        .unwrap();
+        drop(record_entry_in(
+            &root,
+            "goose",
+            "flush-test",
+            EntryKind::Update,
+            serde_json::json!({
+                "sessionUpdate": "agent_message_chunk",
+                "content": { "type": "text", "text": "in-flight reply" }
+            }),
+        ));
+        flush_in(&root, "goose", "flush-test").await.unwrap();
+        let turns = project_turns(&read_transcript_in(&root, "goose", "flush-test").entries);
+        assert_eq!(
+            turns.len(),
+            2,
+            "flush_in writes buffered in-flight chunks immediately"
+        );
+
+        let replacement = format!(
+            "{}\n{}\n",
+            header_line("flush-test"),
+            entry_line(
+                EntryKind::Prompt,
+                serde_json::json!([{ "type": "text", "text": "truncated" }])
+            )
+        );
+        replace_in(&root, "goose", "flush-test", replacement)
+            .await
+            .unwrap();
+        let after_replace =
+            project_turns(&read_transcript_in(&root, "goose", "flush-test").entries);
+        assert_eq!(after_replace.len(), 1);
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
     /// A write that cannot even begin must cost nothing: the batch and its acks
     /// stay pending, the retry writes them in order, and no caller is told a
     /// record landed when it did not.
@@ -2267,10 +2432,15 @@ mod tests {
         }
 
         let entries = read_transcript_in(&root, "goose", "wedged").entries;
-        assert_eq!(entries.len(), 4, "every buffered record landed exactly once");
+        assert_eq!(
+            entries.len(),
+            4,
+            "every buffered record landed exactly once"
+        );
         for (i, entry) in entries.iter().enumerate() {
             assert_eq!(
-                entry.p[0]["text"], format!("p{i}"),
+                entry.p[0]["text"],
+                format!("p{i}"),
                 "and in the order they were recorded"
             );
         }

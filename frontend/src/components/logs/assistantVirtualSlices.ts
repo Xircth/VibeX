@@ -10,7 +10,7 @@ import {
 
 export type AssistantBlockSlice =
   | { kind: 'process-fold'; count: number; startIndex: number }
-  | { kind: 'block'; itemIndex: number }
+  | { kind: 'block'; itemIndex: number; inExpandedFold?: boolean }
   | { kind: 'status' };
 
 export type TimelineVirtualEntry = {
@@ -49,9 +49,15 @@ export function assistantBlockSlices(input: {
       });
       if (!input.processExpanded(segment.startIndex)) continue;
     }
+    const inExpandedFold = segment.kind === 'fold';
     for (const item of segment.items) {
       const itemIndex = input.items.indexOf(item);
-      if (itemIndex >= 0) slices.push({ kind: 'block', itemIndex });
+      if (itemIndex < 0) continue;
+      slices.push(
+        inExpandedFold
+          ? { kind: 'block', itemIndex, inExpandedFold: true }
+          : { kind: 'block', itemIndex }
+      );
     }
   }
   if (slices.length === 0 && input.isStreaming) {
@@ -129,4 +135,31 @@ export function buildTimelineVirtualEntries(input: {
     });
   });
   return entries;
+}
+
+/** Row edge where an expanded fold meets the prose that follows it. */
+export function virtualRowFoldEdge(
+  entries: TimelineVirtualEntry[],
+  index: number
+): 'tail' | 'after' | null {
+  const entry = entries[index];
+  if (!entry?.slice) return null;
+  const sameTurn = (other: TimelineVirtualEntry | undefined) =>
+    other?.timelineIndex === entry.timelineIndex;
+  const inFold = (slice: AssistantBlockSlice | null | undefined) =>
+    slice?.kind === 'block' && slice.inExpandedFold === true;
+  const previous = entries[index - 1];
+  const next = entries[index + 1];
+  if (
+    inFold(entry.slice) &&
+    sameTurn(next) &&
+    next?.slice != null &&
+    !inFold(next.slice)
+  ) {
+    return 'tail';
+  }
+  if (!inFold(entry.slice) && sameTurn(previous) && inFold(previous?.slice)) {
+    return 'after';
+  }
+  return null;
 }

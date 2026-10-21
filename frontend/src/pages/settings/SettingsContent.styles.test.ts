@@ -281,7 +281,7 @@ describe('settings page alignment', () => {
     expect(field.get('-webkit-appearance')).toBe('none');
   });
 
-  it('paints the plugin catalog list as a white settings surface', () => {
+  it('paints the plugin catalog list with the settings item surface', () => {
     const list = declarationsFor('.settings-page .product-plugin-list');
     const surface = declarationsFor('.settings-surface');
     const card = declarationsFor('.settings-page .settings-card');
@@ -420,13 +420,17 @@ describe('settings page alignment', () => {
     expect(sectionTitle.get('color')).toBe('var(--text-faint)');
     expect(sectionTitle.get('opacity')).toBe('0.65');
     expect(sectionDivider.size).toBe(0);
-    expect(settingsPage.get('--surface-sidebar')).toBe('#ffffff');
-    expect(settingsPage.get('--surface-wash')).toContain('180deg');
-    expect(settingsPage.get('--surface-wash')).toContain('#e6e6e6 0%');
-    expect(settingsPage.get('--surface-wash')).toContain('#ffffff 50%');
-    expect(settingsPage.get('--surface-wash')).toContain('#e6e6e6 100%');
+    expect(settingsPage.get('--surface-sidebar')).toBeUndefined();
+    expect(settingsPage.get('--surface-wash')).toBeUndefined();
+    expect(settingsPage.get('background-color')).toBe('var(--surface-shell)');
+    expect(settingsPage.get('--surface-content')).toBe('#f1f1f1');
+    expect(settingsPage.get('--surface-card')).toBe('#f1f1f1');
+    expect(settingsPage.get('--surface-card-strong')).toBe('#f1f1f1');
+    expect(declarationsFor('.settings-titlebar').get('background')).toBe(
+      'var(--surface-shell)'
+    );
     expect(settingsPage.get('--settings-button-primary-bg')).toBe('#1b1b1b');
-    expect(settingsPage.get('--settings-button-secondary-bg')).toBe('#e3e3e3');
+    expect(settingsPage.get('--settings-button-secondary-bg')).toBe('#e5e5e5');
     expect(quickToggle.get('background')).toBe('var(--surface-control)');
     expect(quickToggle.get('height')).toBe('40px');
     expect(quickToggle.get('max-height')).toBe('40px');

@@ -1,9 +1,9 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Keyboard, Loader2, RotateCcw } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 
 import { Button } from '@/components/ui/button';
-import { SettingsActionBar } from './SettingsUi';
+import { useLiveSettingsCommit } from './useLiveSettingsCommit';
 import {
   Select,
   SelectContent,
@@ -164,7 +164,8 @@ export function ShortcutSettings() {
   const [draft, setDraft] = useState<Config | null>(() =>
     config ? structuredClone(config) : null
   );
-  const [saving, setSaving] = useState(false);
+  const draftRef = useRef(draft);
+  draftRef.current = draft;
 
   const overrides = useKeyBindingOverridesStore((s) => s.overrides);
   const setOverride = useKeyBindingOverridesStore((s) => s.setOverride);
@@ -174,11 +175,19 @@ export function ShortcutSettings() {
   const [capturingId, setCapturingId] = useState<string | null>(null);
   const [captureError, setCaptureError] = useState(false);
 
+  const { writeNow, holding } = useLiveSettingsCommit(async (next: Config) => {
+    await updateAndSaveConfig(next);
+  });
+
+  const appliedConfig = useRef(config);
   useEffect(() => {
-    if (config) {
-      setDraft(structuredClone(config));
-    }
-  }, [config]);
+    if (!config || holding) return;
+    if (config === appliedConfig.current) return;
+    appliedConfig.current = config;
+    const next = structuredClone(config);
+    draftRef.current = next;
+    setDraft(next);
+  }, [config, holding]);
 
   // Global capture-phase listener while rebinding — intercepts the chord before
   // the app's own hotkeys can fire on it.
@@ -229,14 +238,6 @@ export function ShortcutSettings() {
   );
   const hasOverrides = Object.keys(overrides).length > 0;
 
-  const hasUnsavedChanges = useMemo(
-    () =>
-      !!config &&
-      !!draft &&
-      draft.send_message_shortcut !== config.send_message_shortcut,
-    [config, draft]
-  );
-
   const sendShortcutOptions = useMemo(
     () => [
       {
@@ -261,27 +262,17 @@ export function ShortcutSettings() {
     [draft?.send_message_shortcut, sendShortcutOptions]
   );
 
-  const updateSendShortcut = useCallback((value: SendMessageShortcut) => {
-    setDraft((previous) =>
-      previous ? { ...previous, send_message_shortcut: value } : previous
-    );
-  }, []);
-
-  const handleSave = async () => {
-    if (!draft) return;
-    setSaving(true);
-    try {
-      await updateAndSaveConfig(draft);
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  const handleDiscard = () => {
-    if (config) {
-      setDraft(structuredClone(config));
-    }
-  };
+  const updateSendShortcut = useCallback(
+    (value: SendMessageShortcut) => {
+      const previous = draftRef.current;
+      if (!previous) return;
+      const next = { ...previous, send_message_shortcut: value };
+      draftRef.current = next;
+      setDraft(next);
+      writeNow(next);
+    },
+    [writeNow]
+  );
 
   if (loading) {
     return (
@@ -425,13 +416,6 @@ export function ShortcutSettings() {
         </section>
       </div>
 
-      <SettingsActionBar
-        dirty={hasUnsavedChanges}
-        saving={saving}
-        onDiscard={handleDiscard}
-        onSave={handleSave}
-        message={t('shortcuts.unsaved')}
-      />
     </div>
   );
 }

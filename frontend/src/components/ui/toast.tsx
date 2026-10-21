@@ -121,6 +121,50 @@ function collectDetailRows(options: ToastOptions): ToastDetail[] {
   return rows;
 }
 
+// Rust and Windows I/O errors end in a parenthetical such as "(os error 32)".
+// That suffix is the diagnostic; the sentence before it is the title.
+const TRAILING_DETAIL = /^(.*?)[ \t]*[（(]([^()（）\n]+)[)）]\s*$/;
+
+function technicalDetail(inner: string): string | null {
+  const text = inner.trim();
+  if (!text || /[\u3400-\u9fff]/.test(text)) return null;
+  if (/os error\s+\d+/i.test(text)) return text;
+  if (/\berror\b/i.test(text) && /\d/.test(text)) return text;
+  if (/[\\/]/.test(text)) return text;
+  if (/\d/.test(text)) return text;
+  if (/^[A-Z][A-Z0-9_.:-]{2,}$/.test(text)) return text;
+  return null;
+}
+
+function splitTechnicalDetail(
+  message: ReactNode
+): { title: string; detail: string } | null {
+  if (typeof message !== 'string') return null;
+  const match = message.match(TRAILING_DETAIL);
+  if (!match) return null;
+  const title = match[1].trim();
+  const detail = technicalDetail(match[2]);
+  if (!title || !detail) return null;
+  return { title, detail };
+}
+
+function presentToast(
+  kind: ToastKind,
+  message: ReactNode,
+  options: ToastOptions
+): { message: ReactNode; detailRows: ToastDetail[] } {
+  const detailRows = collectDetailRows(options);
+  if (kind !== 'error' && kind !== 'warning') {
+    return { message, detailRows };
+  }
+  const split = splitTechnicalDetail(message);
+  if (!split) return { message, detailRows };
+  return {
+    message: split.title,
+    detailRows: [{ description: split.detail, mono: true }, ...detailRows],
+  };
+}
+
 function toastButtonCopy(
   label: ReactNode | undefined,
   fallback: string
@@ -195,7 +239,8 @@ function ToastCard({
 }) {
   const detailsId = useId();
   const [expanded, setExpanded] = useState(false);
-  const detailRows = collectDetailRows(options);
+  const presented = presentToast(kind, message, options);
+  const detailRows = presented.detailRows;
   const hasDetails = detailRows.length > 0;
   const showClose = options.closeButton !== false && kind !== 'loading';
   const hasActions = Boolean(options.cancel || options.action);
@@ -246,7 +291,7 @@ function ToastCard({
           <ToastStatusIcon kind={kind} />
         </span>
         <div className="vu-toast-copy">
-          <div className="vu-toast-title">{message}</div>
+          <div className="vu-toast-title">{presented.message}</div>
         </div>
         {hasDetails || hasActions || showClose ? (
           <div className="vu-toast-end">

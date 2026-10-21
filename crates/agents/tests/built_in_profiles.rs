@@ -323,6 +323,121 @@ fn qoder_launches_as_an_acp_server_under_both_bin_names() {
 }
 
 #[test]
+#[test]
+fn native_acp_cli_agents_launch_with_the_documented_server_args() {
+    let catalog = BuiltInProfileCatalog::bundled();
+
+    let kiro = catalog.profile(&AgentId::parse("kiro").unwrap()).unwrap();
+    assert_eq!(
+        kiro.external_candidates
+            .iter()
+            .map(|candidate| candidate.executable)
+            .collect::<Vec<_>>(),
+        ["kiro-cli"]
+    );
+    assert!(matches!(
+        kiro.install_sources.first().unwrap(),
+        ProfileInstallSource::Binary {
+            command: "kiro-cli",
+            args: ["acp"],
+            version: "2.32.0",
+            ..
+        }
+    ));
+    assert!(kiro.registry_binding.is_none());
+
+    let auggie = catalog.profile(&AgentId::parse("auggie").unwrap()).unwrap();
+    assert_eq!(
+        auggie.registry_binding.as_ref().unwrap().registry_id,
+        "auggie"
+    );
+    assert!(matches!(
+        auggie.install_sources.first().unwrap(),
+        ProfileInstallSource::Npx {
+            package: "@augmentcode/auggie",
+            version: "0.36.0",
+            command: "auggie",
+            args: ["--acp"],
+            ..
+        }
+    ));
+
+    let trae = catalog.profile(&AgentId::parse("trae").unwrap()).unwrap();
+    assert_eq!(
+        trae.external_candidates
+            .iter()
+            .map(|candidate| candidate.executable)
+            .collect::<Vec<_>>(),
+        ["traex", "traecli", "trae-cli"]
+    );
+    assert!(matches!(
+        trae.install_sources.first().unwrap(),
+        ProfileInstallSource::Binary {
+            command: "traex",
+            args: ["acp", "serve"],
+            version: "0.209.1",
+            ..
+        }
+    ));
+
+    let command_code = catalog
+        .profile(&AgentId::parse("command_code").unwrap())
+        .unwrap();
+    assert_eq!(
+        command_code
+            .external_candidates
+            .iter()
+            .map(|candidate| candidate.executable)
+            .collect::<Vec<_>>(),
+        ["command-code", "cmdc", "commandcode"]
+    );
+    assert!(
+        command_code
+            .external_candidates
+            .iter()
+            .all(|candidate| candidate.executable != "cmd")
+    );
+    assert!(matches!(
+        command_code.install_sources.first().unwrap(),
+        ProfileInstallSource::Npx {
+            package: "command-code",
+            version: "1.84.0",
+            command: "command-code",
+            args: ["acp"],
+            ..
+        }
+    ));
+    assert!(
+        command_code
+            .settings_features
+            .contains(&AgentSettingsFeature::NativeSkills)
+    );
+    assert!(
+        !command_code
+            .settings_features
+            .contains(&AgentSettingsFeature::NativeMcp)
+    );
+
+    for profile in [kiro, auggie, trae, command_code] {
+        for candidate in profile.external_candidates {
+            assert_eq!(
+                agents::acp_launch_args(profile, candidate.component),
+                candidate
+                    .acp_args
+                    .iter()
+                    .map(|argument| (*argument).to_string())
+                    .collect::<Vec<_>>(),
+                "{}",
+                profile.agent_id.as_str()
+            );
+            assert!(!candidate.acp_args.is_empty());
+        }
+        assert!(profile.authentication_required_by_default);
+        assert!(profile.account_evidence.is_none());
+    }
+}
+
+#[test]
 fn mimo_code_management_profile_is_not_a_permanent_member() {
     let bundled = BuiltInProfileCatalog::bundled();
     let management = BuiltInProfileCatalog::management();
@@ -392,6 +507,10 @@ fn built_in_profiles_are_declarative_and_bind_explicitly() {
             "codebuddy",
             "kimi_code",
             "qoder",
+            "kiro",
+            "auggie",
+            "trae",
+            "command_code",
         ]
     );
 
@@ -403,7 +522,13 @@ fn built_in_profiles_are_declarative_and_bind_explicitly() {
         assert!(!profile.supported_platforms.is_empty());
         assert!(!profile.install_sources.is_empty());
         assert!(!profile.external_candidates.is_empty());
-        assert!(profile.registry_binding.is_some());
+        if let Some(binding) = profile.registry_binding.as_ref() {
+            assert!(
+                !binding.registry_id.is_empty(),
+                "{} declares an empty Registry id",
+                profile.agent_id.as_str()
+            );
+        }
         assert!(!profile.dependencies.is_empty());
         assert!(profile.dependencies.iter().all(|dependency| {
             !dependency.id.is_empty()
@@ -484,6 +609,10 @@ fn built_in_profiles_are_declarative_and_bind_explicitly() {
             ("codebuddy", None),
             ("kimi_code", None),
             ("qoder", None),
+            ("kiro", None),
+            ("auggie", None),
+            ("trae", None),
+            ("command_code", None),
         ]
     );
     assert!(
@@ -777,7 +906,16 @@ fn codeg_directory_semantics_and_settings_capabilities_are_profile_declared() {
             "{id} exposes reusable Model Providers and must be able to probe them"
         );
     }
-    for id in ["cursor", "opencode", "deepseek_harness", "qoder"] {
+    for id in [
+        "cursor",
+        "opencode",
+        "deepseek_harness",
+        "qoder",
+        "kiro",
+        "auggie",
+        "trae",
+        "command_code",
+    ] {
         assert!(
             !catalog.supports_reusable_model_providers(&AgentId::parse(id).unwrap()),
             "{id} does not expose reusable Model Providers"
@@ -804,7 +942,15 @@ fn codeg_directory_semantics_and_settings_capabilities_are_profile_declared() {
             "{id} must declare native MCP support"
         );
     }
-    for id in ["openclaw", "pi", "deepseek_harness"] {
+    for id in [
+        "openclaw",
+        "pi",
+        "deepseek_harness",
+        "kiro",
+        "auggie",
+        "trae",
+        "command_code",
+    ] {
         assert!(
             !profile(id)
                 .settings_features
@@ -827,12 +973,21 @@ fn codeg_directory_semantics_and_settings_capabilities_are_profile_declared() {
         "cursor",
         "deepseek_harness",
         "qoder",
+        "command_code",
     ] {
         assert!(
             profile(id)
                 .settings_features
                 .contains(&AgentSettingsFeature::NativeSkills),
             "{id} must declare native Skills support"
+        );
+    }
+    for id in ["kiro", "auggie", "trae"] {
+        assert!(
+            !profile(id)
+                .settings_features
+                .contains(&AgentSettingsFeature::NativeSkills),
+            "{id} has no verified skill directories"
         );
     }
 }

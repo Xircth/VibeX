@@ -10,7 +10,7 @@ use std::{
     time::{SystemTime, UNIX_EPOCH},
 };
 
-use agents::conversation::{ConversationEvent, ConversationUsage};
+use agents::conversation::{ConversationEvent, ConversationUsage, SessionStats, TurnUsage};
 use db::models::{
     conversation::DbConversationSummary,
     conversation_usage::{
@@ -23,8 +23,8 @@ use db::models::{
 };
 use services::services::usage::{
     ProjectUsageProviderStatus, ProjectUsageSessionSummary, ProjectUsageSourcedTokens,
-    ProjectUsageStatistics, ProjectUsageTokenCounts, VendorLogRoots, VendorLogUsage,
-    align_vendor_usage, build_project_usage_statistics, scan_changed_vendor_logs,
+    ProjectUsageStatistics, ProjectUsageTokenCounts, VENDOR_USAGE_SCAN_GENERATION, VendorLogRoots,
+    VendorLogUsage, align_vendor_usage, build_project_usage_statistics, scan_changed_vendor_logs,
 };
 use sqlx::{SqliteConnection, SqlitePool};
 use uuid::Uuid;
@@ -257,6 +257,55 @@ fn merge_usage_snapshot(
     }
 }
 
+/// Prefer the usage snapshot when it reports more protocol spend than the
+/// transcript rollup. Occupancy on the snapshot is not copied into the token
+/// total. Transcript duration and context-window fields stay as they are.
+pub fn session_stats_with_usage_snapshot(
+    transcript: Option<SessionStats>,
+    snapshot: Option<&ConversationUsageSnapshotRecord>,
+) -> Option<SessionStats> {
+    let Some(snapshot) = snapshot else {
+        return transcript;
+    };
+    let input = nonneg_i64(snapshot.protocol_input_tokens);
+    let output = nonneg_i64(snapshot.protocol_output_tokens);
+    let cache_write = nonneg_i64(snapshot.protocol_cache_write_tokens);
+    let cache_read = nonneg_i64(snapshot.protocol_cache_read_tokens);
+    let snapshot_total = input
+        .saturating_add(output)
+        .saturating_add(cache_write)
+        .saturating_add(cache_read);
+    if snapshot_total == 0 {
+        return transcript;
+    }
+    let transcript_total = transcript
+        .as_ref()
+        .and_then(|stats| stats.total_tokens)
+        .unwrap_or(0);
+    if transcript_total >= snapshot_total {
+        return transcript;
+    }
+    let mut stats = transcript.unwrap_or_default();
+    stats.total_usage = Some(TurnUsage {
+        input_tokens: input,
+        output_tokens: output,
+        cache_creation_input_tokens: cache_write,
+        cache_read_input_tokens: cache_read,
+        context_used: None,
+        context_window_max: None,
+        cost_amount: None,
+        cost_currency: None,
+    });
+    stats.total_tokens = Some(snapshot_total);
+    Some(stats)
+}
+
+fn nonneg_i64(value: Option<i64>) -> u64 {
+    value
+        .and_then(|number| u64::try_from(number).ok())
+        .unwrap_or(0)
+}
+
 fn datetime_to_ms(value: chrono::DateTime<chrono::Utc>) -> i64 {
     value.timestamp_millis()
 }
@@ -307,6 +356,7 @@ pub fn attributed_sessions_from_rows(
                 cost: row.protocol_cost_amount,
                 summary: row.session_name,
                 external_session_id: row.external_session_id,
+                turns: None,
             }
         })
         .collect()
@@ -354,6 +404,7 @@ pub async fn sync_vendor_usage_logs_with_roots(
     let known = VendorUsageFileRecord::list(pool).await?;
     let known_map: HashMap<String, (i64, i64)> = known
         .into_iter()
+        .filter(|row| row.generation == VENDOR_USAGE_SCAN_GENERATION)
         .map(|row| (row.path, (row.mtime_ms, row.size)))
         .collect();
     let scan = tokio::task::spawn_blocking(move || scan_changed_vendor_logs(&roots, &known_map))
@@ -371,6 +422,7 @@ pub async fn sync_vendor_usage_logs_with_roots(
             provider: update.provider,
             mtime_ms: update.mtime_ms,
             size: update.size,
+            generation: VENDOR_USAGE_SCAN_GENERATION,
             session: update.session.map(|session| VendorUsageSessionRecord {
                 provider: session.provider,
                 external_session_id: session.external_session_id,
@@ -385,6 +437,7 @@ pub async fn sync_vendor_usage_logs_with_roots(
                 cost: session.cost,
                 summary: session.summary,
                 scanned_at_ms: now_ms,
+                turns: session.turns,
             }),
         })
         .collect();
@@ -431,6 +484,7 @@ async fn load_vendor_usage_logs(
             cost: row.cost,
             summary: row.summary,
             provider: row.provider,
+            turns: row.turns,
         })
         .collect())
 }
@@ -476,6 +530,55 @@ mod tests {
         assert_eq!(next.protocol_total_tokens, None);
         assert_eq!(next.context_used, Some(12_000));
         assert_eq!(next.context_window_max, Some(200_000));
+    }
+
+    #[test]
+    fn snapshot_spend_overlays_a_smaller_transcript_total() {
+        let snapshot = ConversationUsageSnapshotRecord {
+            conversation_id: Uuid::nil(),
+            last_sequence: 8,
+            protocol_input_tokens: Some(20),
+            protocol_output_tokens: Some(10),
+            protocol_cache_write_tokens: Some(0),
+            protocol_cache_read_tokens: Some(70),
+            protocol_total_tokens: Some(100),
+            context_used: Some(50_000),
+            context_window_max: Some(200_000),
+            protocol_cost_amount: None,
+            protocol_cost_currency: None,
+            model: Some("grok-4.6".into()),
+            last_usage_at: None,
+        };
+        let transcript = SessionStats {
+            total_tokens: Some(10),
+            total_duration_ms: 25,
+            context_window_used_tokens: Some(9_000),
+            context_window_max_tokens: Some(128_000),
+            context_window_usage_percent: Some(7.0),
+            ..SessionStats::default()
+        };
+        let overlaid = session_stats_with_usage_snapshot(Some(transcript.clone()), Some(&snapshot))
+            .expect("stats");
+        assert_eq!(overlaid.total_tokens, Some(100));
+        assert_eq!(overlaid.total_duration_ms, 25);
+        assert_eq!(overlaid.context_window_used_tokens, Some(9_000));
+        let usage = overlaid.total_usage.expect("buckets");
+        assert_eq!(usage.input_tokens, 20);
+        assert_eq!(usage.cache_read_input_tokens, 70);
+        assert_eq!(usage.context_used, None);
+
+        let larger = SessionStats {
+            total_tokens: Some(150),
+            total_duration_ms: 25,
+            ..SessionStats::default()
+        };
+        assert_eq!(
+            session_stats_with_usage_snapshot(Some(larger.clone()), Some(&snapshot))
+                .expect("kept")
+                .total_tokens,
+            Some(150)
+        );
+        assert!(session_stats_with_usage_snapshot(Some(transcript), None).is_some());
     }
 
     #[test]
@@ -693,9 +796,8 @@ mod vendor_sync_tests {
 
         let pool = pool().await;
         let roots = VendorLogRoots {
-            claude_projects: None,
             codex_sessions: Some(sessions_dir),
-            grok_sessions: None,
+            ..VendorLogRoots::default()
         };
         let first = sync_vendor_usage_logs_with_roots(&pool, roots.clone())
             .await
@@ -758,9 +860,8 @@ mod vendor_sync_tests {
 
         let pool = pool().await;
         let roots = VendorLogRoots {
-            claude_projects: None,
-            codex_sessions: None,
             grok_sessions: Some(dir.path().join("sessions")),
+            ..VendorLogRoots::default()
         };
         sync_vendor_usage_logs_with_roots(&pool, roots.clone())
             .await

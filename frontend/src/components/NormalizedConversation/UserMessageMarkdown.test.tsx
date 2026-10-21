@@ -225,7 +225,7 @@ describe('UserMessageMarkdown', () => {
     const paragraph = screen.getByRole('paragraph');
     const theme = bubble.closest('.legacy-design') as Element;
     expect(getComputedStyle(theme).getPropertyValue('--conv-user-bg')).toBe(
-      'var(--surface-raised-control)'
+      '#f1f1f1'
     );
     expect(getComputedStyle(theme).getPropertyValue('--conv-user-text')).toBe(
       'var(--text-strong)'

@@ -170,6 +170,38 @@ pub fn built_in_auth_mode_policy(agent_id: &AgentId) -> Option<BuiltInAuthModePo
             subscription_scrub_env: &[],
             default_mode: "official_subscription",
         }),
+        "kiro" => Some(BuiltInAuthModePolicy {
+            mode_env: "KIRO_AUTH_MODE",
+            credential_env: "KIRO_API_KEY",
+            modes: KIRO_MODES,
+            credential_modes: KIRO_CREDENTIAL_MODES,
+            subscription_scrub_env: KIRO_SCRUB_ENV,
+            default_mode: "official_subscription",
+        }),
+        "auggie" => Some(BuiltInAuthModePolicy {
+            mode_env: "AUGGIE_AUTH_MODE",
+            credential_env: "AUGMENT_SESSION_AUTH",
+            modes: SUBSCRIPTION_ONLY_MODES,
+            credential_modes: &[],
+            subscription_scrub_env: &[],
+            default_mode: "official_subscription",
+        }),
+        "trae" => Some(BuiltInAuthModePolicy {
+            mode_env: "TRAE_AUTH_MODE",
+            credential_env: "TRAECLI_PERSONAL_ACCESS_TOKEN",
+            modes: SUBSCRIPTION_ONLY_MODES,
+            credential_modes: &[],
+            subscription_scrub_env: &[],
+            default_mode: "official_subscription",
+        }),
+        "command_code" => Some(BuiltInAuthModePolicy {
+            mode_env: "COMMAND_CODE_AUTH_MODE",
+            credential_env: "",
+            modes: SUBSCRIPTION_ONLY_MODES,
+            credential_modes: &[],
+            subscription_scrub_env: &[],
+            default_mode: "official_subscription",
+        }),
         "mimo_code" => Some(BuiltInAuthModePolicy {
             mode_env: "MIMO_AUTH_MODE",
             credential_env: "MIMO_API_KEY",
@@ -192,6 +224,10 @@ const CLINE_MODES: &[&str] = &["official_subscription", "official_api", "model_p
 const CLINE_CREDENTIAL_MODES: &[&str] = &["official_api"];
 const CODEBUDDY_MODES: &[&str] = &["official_subscription"];
 const QODER_MODES: &[&str] = &["official_subscription"];
+const SUBSCRIPTION_ONLY_MODES: &[&str] = &["official_subscription"];
+const KIRO_MODES: &[&str] = &["official_subscription", "official_api"];
+const KIRO_CREDENTIAL_MODES: &[&str] = &["official_api"];
+const KIRO_SCRUB_ENV: &[&str] = &["KIRO_API_KEY"];
 const MIMO_MODES: &[&str] = &["official_subscription", "official_api", "model_provider"];
 const MIMO_CREDENTIAL_MODES: &[&str] = &["official_api"];
 const MIMO_SCRUB_ENV: &[&str] = &["MIMO_API_KEY", "OPENAI_API_KEY", "ANTHROPIC_API_KEY"];
@@ -413,6 +449,19 @@ pub fn auth_mode_credential_env(agent_id: &AgentId, mode: &str) -> Option<&'stat
         ("hermes", "official_api") => Some("NOUS_API_KEY"),
         ("kimi_code", "official_api") => Some("KIMI_API_KEY"),
         ("cline", "official_api") => Some("CLINE_API_KEY"),
+        ("kiro", "official_api") => Some("KIRO_API_KEY"),
+        _ => None,
+    }
+}
+
+/// Same-account secret for a headless machine. This is not an official API
+/// mode: the settings API-key field stays hidden, and subscription login keeps
+/// the value.
+pub fn headless_account_env(agent_id: &AgentId) -> Option<&'static str> {
+    match agent_id.as_str() {
+        "qoder" => Some("QODER_PERSONAL_ACCESS_TOKEN"),
+        "auggie" => Some("AUGMENT_SESSION_AUTH"),
+        "trae" => Some("TRAECLI_PERSONAL_ACCESS_TOKEN"),
         _ => None,
     }
 }
@@ -434,6 +483,7 @@ fn auth_mode_scrubbed_env_keys(agent_id: &AgentId, mode: &str) -> &'static [&'st
             .map(|policy| policy.subscription_scrub_env)
             .unwrap_or_default(),
         ("deepseek_harness", "deepseek") => DSH_OFFICIAL_SCRUB_ENV,
+        ("kiro", "official_subscription") => KIRO_SCRUB_ENV,
         _ => &[],
     }
 }

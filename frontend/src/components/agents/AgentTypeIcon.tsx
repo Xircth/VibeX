@@ -452,6 +452,22 @@ const TraeMonoIcon = memo(function TraeMonoIcon({ size = '1em' }: IconProps) {
   );
 });
 
+const ZCodeMonoIcon = memo(function ZCodeMonoIcon({ size = '1em' }: IconProps) {
+  return (
+    <svg
+      fill="currentColor"
+      height={size}
+      style={baseSvgStyle}
+      viewBox="0 0 16 16"
+      width={size}
+      xmlns="http://www.w3.org/2000/svg"
+    >
+      <title>ZCode</title>
+      <path d="M3.2 3.2H12.8V4.8L6.2 11.2H12.8V12.8H3.2V11.2L9.8 4.8H3.2Z" />
+    </svg>
+  );
+});
+
 const CommandCodeMonoIcon = memo(function CommandCodeMonoIcon({
   size = '1em',
 }: IconProps) {
@@ -536,6 +552,7 @@ const MONO_ICONS: Partial<Record<string, AnyIcon>> = {
   auggie: AuggieMonoIcon,
   trae: TraeMonoIcon,
   command_code: CommandCodeMonoIcon,
+  zcode: ZCodeMonoIcon,
   mimo_code: MimoCodeMonoIcon,
 };
 

@@ -91,7 +91,7 @@ pub fn skills_surface(agent_type: AgentKind) -> AgentSkillsSurface {
             global_supported: true,
             project_supported: true,
         },
-        AgentKind::Hermes => AgentSkillsSurface {
+        AgentKind::Hermes | AgentKind::ZCode => AgentSkillsSurface {
             agent_type,
             strategy: AgentSkillsStrategy::Directory,
             global_supported: true,
@@ -109,7 +109,7 @@ pub fn skills_surface(agent_type: AgentKind) -> AgentSkillsSurface {
 }
 
 /// Every agent VibeX manages. Order is used for stable scan/display output.
-const ALL_AGENTS: [AgentKind; 15] = [
+const ALL_AGENTS: [AgentKind; 16] = [
     AgentKind::ClaudeCode,
     AgentKind::Codex,
     AgentKind::Antigravity,
@@ -125,6 +125,7 @@ const ALL_AGENTS: [AgentKind; 15] = [
     AgentKind::DeepseekHarness,
     AgentKind::Qoder,
     AgentKind::CommandCode,
+    AgentKind::ZCode,
 ];
 
 pub fn skill_capable_agent_ids() -> Vec<String> {
@@ -190,6 +191,13 @@ fn hermes_home() -> Option<PathBuf> {
     configured_dir(
         "HERMES_HOME",
         dirs::home_dir().map(|home| home.join(".hermes")),
+    )
+}
+
+fn zcode_home() -> Option<PathBuf> {
+    configured_dir(
+        "ZCODE_HOME",
+        dirs::home_dir().map(|home| home.join(".zcode")),
     )
 }
 
@@ -395,6 +403,10 @@ fn skill_dirs(agent: AgentKind, workspace: Option<&Path>) -> Vec<SkillDir> {
             .iter()
             .map(|home| (home.join(".commandcode").join("skills"), false))
             .collect(),
+        AgentKind::ZCode => zcode_home()
+            .into_iter()
+            .map(|dir| (dir.join("skills"), false))
+            .collect(),
         AgentKind::Kiro | AgentKind::Auggie | AgentKind::Trae | AgentKind::QaMock => Vec::new(),
     };
     for (path, read_only) in globals {
@@ -419,7 +431,7 @@ fn skill_dirs(agent: AgentKind, workspace: Option<&Path>) -> Vec<SkillDir> {
                 ".clinerules/skills",
                 ".claude/skills",
             ],
-            AgentKind::Hermes => &[],
+            AgentKind::Hermes | AgentKind::ZCode => &[],
             AgentKind::Codebuddy => &[".codebuddy/skills"],
             AgentKind::KimiCode => &[".kimi-code/skills"],
             AgentKind::Pi => &[".pi/skills", ".agents/skills"],
@@ -1029,6 +1041,7 @@ fn agent_primary_skill_dir(agent: AgentKind) -> Option<PathBuf> {
                 .map(|dir| dir.join("skills"))
         }
         AgentKind::CommandCode => home.map(|home| home.join(".commandcode").join("skills")),
+        AgentKind::ZCode => zcode_home().map(|dir| dir.join("skills")),
         AgentKind::Kiro | AgentKind::Auggie | AgentKind::Trae | AgentKind::QaMock => None,
     }
 }

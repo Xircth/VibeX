@@ -123,6 +123,7 @@ const KNOWN_AGENT_KINDS = new Set([
   'auggie',
   'trae',
   'command_code',
+  'zcode',
   'qa_mock',
 ]);
 

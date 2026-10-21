@@ -2263,7 +2263,34 @@ impl AgentConnectionRunner {
                 return Err(AgentError::PiProjectTrustRequired(message));
             }
         }
-        let mut command = new_hidden_tokio_command(&acp_program, &launch_lock.args);
+        let mut launch_program = acp_program.clone();
+        let mut launch_args = launch_lock.args.clone();
+        let mut zcode_launch_env = HashMap::new();
+        if self.snapshot.agent_id.as_str() == "zcode" {
+            // The install lock points at the npm shim. Official ZCode and a
+            // Node 22 runtime that can load `node:sqlite` are resolved here,
+            // then the shim is replaced by that Node and the bridge entry.
+            let mut overrides = self.snapshot.env.clone();
+            for (key, value) in &launch_lock.env {
+                overrides.insert(key.clone(), value.clone());
+            }
+            match crate::zcode::prepare_launch(
+                &acp_program,
+                &launch_lock.args,
+                &overrides,
+                &self.snapshot.working_dir,
+            )
+            .await
+            {
+                Ok(prepared) => {
+                    launch_program = prepared.program;
+                    launch_args = prepared.args;
+                    zcode_launch_env = prepared.env;
+                }
+                Err(error) => return Err(error.into_agent_error()),
+            }
+        }
+        let mut command = new_hidden_tokio_command(&launch_program, &launch_args);
         command
             .kill_on_drop(true)
             .stdin(std::process::Stdio::piped())
@@ -2319,6 +2346,11 @@ impl AgentConnectionRunner {
                 launch_env.remove(PI_COMMAND_ENV);
             }
             crate::bind_pi_acp_pi_command(&mut launch_env, requested);
+        }
+        // Resolved ZCode paths win over an inherited or lock-captured value.
+        // `ZCODE_ACP_REMOTE` is forced off; a non-blank runtime choice is kept.
+        for (key, value) in &zcode_launch_env {
+            launch_env.insert(key.clone(), value.clone());
         }
         for (key, value) in &launch_env {
             command.env(key, value);
@@ -3368,6 +3400,17 @@ impl AgentConnectionRunner {
             response.config_options,
             response.meta.as_ref(),
         );
+        // `emit_session_controls` consumes the saved preferences. Snapshot them
+        // first so ZCode can still confirm the mode that creates its backend.
+        let zcode_preferences = if self.snapshot.agent_id.as_str() == "zcode" {
+            self.preferred_controls
+                .read()
+                .await
+                .get(&session_id)
+                .cloned()
+        } else {
+            None
+        };
         self.emit_session_controls(
             conn,
             &acp_session_id,
@@ -3378,8 +3421,111 @@ impl AgentConnectionRunner {
             response.meta.as_ref(),
         )
         .await;
+        if self.snapshot.agent_id.as_str() == "zcode"
+            && let Err(error) = self
+                .confirm_zcode_backend_session(
+                    conn,
+                    &acp_session_id,
+                    session_id,
+                    zcode_preferences.as_ref(),
+                )
+                .await
+        {
+            self.session_map.write().await.remove(&session_id);
+            *self.pending_session_id.lock().await = None;
+            self.emit_connection_status(
+                AgentConnectionStatus::Failed,
+                Some(error.to_string()),
+                Some(session_id),
+            );
+            return Err(error);
+        }
         *self.pending_session_id.lock().await = None;
         Ok(acp_session_id)
+    }
+
+    /// ZCode's `session/new` is a placeholder. The backend session exists only
+    /// after `mode` is set, including when the placeholder already reports that
+    /// mode. Resume and load keep the existing backend session and skip this.
+    async fn confirm_zcode_backend_session(
+        &self,
+        conn: &ConnectionTo<Agent>,
+        acp_session_id: &str,
+        session_id: AgentSessionId,
+        preferences: Option<&crate::SessionControlPreferences>,
+    ) -> Result<(), acp::Error> {
+        let options = self
+            .session_controls
+            .read()
+            .await
+            .get(&session_id)
+            .map(|state| state.config_options.clone())
+            .unwrap_or_default();
+        let (modes, _) = session_modes_from_config_options(&options);
+        let available = modes.iter().map(|mode| mode.id.clone()).collect::<Vec<_>>();
+        let preferred_mode = preferences.and_then(|preferences| preferences.mode.as_deref());
+        let mut preferred_config = BTreeMap::new();
+        if let Some(preferences) = preferences {
+            for item in &preferences.config {
+                preferred_config.insert(item.key.clone(), item.value.clone());
+            }
+        }
+        let mode = crate::zcode::initial_mode(preferred_mode, &preferred_config, &available);
+        let Some(selection) = find_config_override_selection(
+            &options,
+            "mode",
+            &serde_json::Value::String(mode.clone()),
+        ) else {
+            return Err(acp::Error::new(
+                -32603,
+                crate::zcode::MODE_NOT_ADVERTISED.to_string(),
+            ));
+        };
+        let response = match tokio::time::timeout(
+            Duration::from_secs(60),
+            conn.send_request(SetSessionConfigOptionRequest::new(
+                SessionId::new(acp_session_id.to_string()),
+                selection.config_id.clone(),
+                selection.wire_value.clone(),
+            ))
+            .block_task(),
+        )
+        .await
+        {
+            Ok(Ok(response)) => response,
+            Ok(Err(error)) => return Err(error),
+            Err(_elapsed) => {
+                return Err(acp::Error::new(
+                    -32603,
+                    crate::zcode::MODE_CONFIRM_TIMEOUT.to_string(),
+                ));
+            }
+        };
+        {
+            let mut controls = self.session_controls.write().await;
+            let stored = controls.entry(session_id).or_default();
+            stored.config_options = response.config_options;
+        }
+        let updated = agent_session_config_options_from_acp(
+            self.session_controls
+                .read()
+                .await
+                .get(&session_id)
+                .map(|stored| stored.config_options.clone())
+                .unwrap_or_default(),
+        );
+        let settled = updated
+            .iter()
+            .find(|option| option.key == selection.config_id)
+            .and_then(|option| option.value.as_ref())
+            .and_then(serde_json::Value::as_str);
+        if let Err(message) = crate::zcode::require_confirmed_mode(settled, &mode) {
+            return Err(acp::Error::new(-32603, message.to_string()));
+        }
+        self.record_confirmed_controls(session_id, Some(&mode), &[])
+            .await;
+        self.emit_derived_session_controls(session_id).await;
+        Ok(())
     }
 
     async fn begin_load_replay(&self, external_session_id: &str) {

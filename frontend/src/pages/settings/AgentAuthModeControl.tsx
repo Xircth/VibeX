@@ -898,6 +898,8 @@ function agentDisplayName(agentId: AgentId) {
       return 'TRAE CLI';
     case 'command_code':
       return 'Command Code';
+    case 'zcode':
+      return 'ZCode';
     case 'mimo_code':
       return 'MiMo Code';
     default:

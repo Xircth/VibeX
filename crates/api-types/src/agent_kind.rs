@@ -10,7 +10,7 @@
 //!
 //! `claude_code`, `codex`, `opencode`, `antigravity`, `openclaw`, `cline`, `hermes`,
 //! `codebuddy`, `kimi_code`, `pi`, `grok`, `cursor`, `deepseek_harness`, `qoder`,
-//! `kiro`, `auggie`, `trae`, `command_code`, `qa_mock` — the `executor_key` form
+//! `kiro`, `auggie`, `trae`, `command_code`, `zcode`, `qa_mock` — the `executor_key` form
 //! already persisted in `sessions.agent_type`.
 //! `Serialize` / `Display` / `FromStr` / sqlx all emit this single canonical form.
 //! The retired Gemini CLI identity (`gemini`) is accepted on read and maps to
@@ -58,13 +58,17 @@ pub enum AgentKind {
     Auggie,
     Trae,
     CommandCode,
+    /// `snake_case` of this ident is `z_code`. The wire id is `zcode`.
+    #[sqlx(rename = "zcode")]
+    #[ts(rename = "zcode")]
+    ZCode,
     QaMock,
 }
 
 impl AgentKind {
     /// Every variant, in Agent Bar / picker order. `QaMock` stays last because
     /// it is a test identity, not a product Agent.
-    pub const ALL: [AgentKind; 19] = [
+    pub const ALL: [AgentKind; 20] = [
         AgentKind::ClaudeCode,
         AgentKind::Codex,
         AgentKind::Pi,
@@ -83,6 +87,7 @@ impl AgentKind {
         AgentKind::Auggie,
         AgentKind::Trae,
         AgentKind::CommandCode,
+        AgentKind::ZCode,
         AgentKind::QaMock,
     ];
 
@@ -114,6 +119,7 @@ impl AgentKind {
             AgentKind::Auggie => "auggie",
             AgentKind::Trae => "trae",
             AgentKind::CommandCode => "command_code",
+            AgentKind::ZCode => "zcode",
             AgentKind::QaMock => "qa_mock",
         }
     }
@@ -152,6 +158,10 @@ impl AgentKind {
             // `command-code` / `commandcode` / `cmdc` are published bins. Bare
             // `cmd` is the Windows shell and must not resolve to this agent.
             "commandcode" | "cmdc" => AgentKind::CommandCode,
+            // `zcode-acp` and `zcode-acp-server` are bridge binaries, not this
+            // identity. Bare `zcode` is the official app, and it normalizes to
+            // the same wire id.
+            "zcode" => AgentKind::ZCode,
             "qamock" => AgentKind::QaMock,
             _ => return None,
         };
@@ -229,6 +239,7 @@ mod tests {
             (AgentKind::Auggie, "auggie"),
             (AgentKind::Trae, "trae"),
             (AgentKind::CommandCode, "command_code"),
+            (AgentKind::ZCode, "zcode"),
             (AgentKind::QaMock, "qa_mock"),
         ];
         assert_eq!(
@@ -301,6 +312,8 @@ mod tests {
             ("COMMAND_CODE", AgentKind::CommandCode),
             ("command-code", AgentKind::CommandCode),
             ("cmdc", AgentKind::CommandCode),
+            ("ZCode", AgentKind::ZCode),
+            ("zcode", AgentKind::ZCode),
             ("QA_MOCK", AgentKind::QaMock),
             ("QaMock", AgentKind::QaMock),
             ("qa_mock", AgentKind::QaMock),
@@ -327,6 +340,8 @@ mod tests {
     #[test]
     fn unknown_spelling_is_rejected() {
         assert_eq!(AgentKind::from_lenient("nope"), None);
+        assert_eq!(AgentKind::from_lenient("zcode-acp"), None);
+        assert_eq!(AgentKind::from_lenient("zcode-acp-server"), None);
         assert!(serde_json::from_str::<AgentKind>("\"nope\"").is_err());
         assert!("".parse::<AgentKind>().is_err());
     }

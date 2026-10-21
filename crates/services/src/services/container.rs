@@ -210,6 +210,7 @@ fn acp_slash_command_catalog(agent_type: AgentKind) -> Vec<SlashCommandDescripti
         | AgentKind::Auggie
         | AgentKind::Trae
         | AgentKind::CommandCode
+        | AgentKind::ZCode
         | AgentKind::QaMock => Vec::new(),
     }
 }

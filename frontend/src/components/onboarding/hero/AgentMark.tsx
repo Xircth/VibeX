@@ -250,6 +250,16 @@ export function AgentMark({ id, title }: { id: string; title?: string }) {
           />
         </svg>
       );
+    case 'zcode':
+      return (
+        <svg viewBox="0 0 16 16" className="h-full w-full" aria-hidden={!title}>
+          {title ? <title>{title}</title> : null}
+          <path
+            fill="currentColor"
+            d="M3.2 3.2H12.8V4.8L6.2 11.2H12.8V12.8H3.2V11.2L9.8 4.8H3.2Z"
+          />
+        </svg>
+      );
     case 'auggie':
       return (
         <svg viewBox="0 0 24 24" className="h-full w-full" aria-hidden={!title}>

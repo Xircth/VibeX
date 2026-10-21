@@ -202,6 +202,14 @@ pub fn built_in_auth_mode_policy(agent_id: &AgentId) -> Option<BuiltInAuthModePo
             subscription_scrub_env: &[],
             default_mode: "official_subscription",
         }),
+        "zcode" => Some(BuiltInAuthModePolicy {
+            mode_env: "ZCODE_AUTH_MODE",
+            credential_env: "",
+            modes: SUBSCRIPTION_ONLY_MODES,
+            credential_modes: &[],
+            subscription_scrub_env: &[],
+            default_mode: "official_subscription",
+        }),
         "mimo_code" => Some(BuiltInAuthModePolicy {
             mode_env: "MIMO_AUTH_MODE",
             credential_env: "MIMO_API_KEY",

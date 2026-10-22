@@ -775,6 +775,7 @@ export function WorkspaceSessionRow({
   isSelected,
   isDeleteMode = false,
   marker = null,
+  showMarker = true,
   onClick,
   onToggleSelect,
   onPin,
@@ -793,6 +794,7 @@ export function WorkspaceSessionRow({
   isSelected: boolean;
   isDeleteMode?: boolean;
   marker?: SessionMarker | null;
+  showMarker?: boolean;
   onClick: () => void;
   onToggleSelect?: () => void;
   onPin?: (pinned: boolean) => void;
@@ -815,7 +817,9 @@ export function WorkspaceSessionRow({
   const statusLabel = t(STATUS_LABEL_KEY[tone]);
   const agentKey = sessionListAgentKey(session);
   const agentName = getExecutorDisplayName(agentKey);
-  const compactAge = formatCompactSessionAge(session.updatedAt);
+  const compactAge = session.updatedAt
+    ? formatCompactSessionAge(session.updatedAt)
+    : '';
   const isPinned = Boolean(session.pinnedAt);
   const [isHovered, setIsHovered] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
@@ -986,16 +990,22 @@ export function WorkspaceSessionRow({
           setContextMenu({ x: event.clientX, y: event.clientY });
         }}
       >
-        <span
-          className={cn(
-            'workspace-session-row-marker',
-            marker?.hue ? marker.bar : (marker?.bar ?? 'bg-muted-foreground/35')
-          )}
-          style={
-            marker?.hue ? { backgroundColor: `hsl(${marker.hue})` } : undefined
-          }
-          aria-hidden="true"
-        />
+        {showMarker ? (
+          <span
+            className={cn(
+              'workspace-session-row-marker',
+              marker?.hue
+                ? marker.bar
+                : (marker?.bar ?? 'bg-muted-foreground/35')
+            )}
+            style={
+              marker?.hue
+                ? { backgroundColor: `hsl(${marker.hue})` }
+                : undefined
+            }
+            aria-hidden="true"
+          />
+        ) : null}
         {isDeleteMode ? (
           <div
             className="flex shrink-0 items-center pl-1.5"
@@ -1080,7 +1090,10 @@ export function WorkspaceSessionRow({
                     : `${title}, ${agentName}, ${statusLabel}`
                 }
                 onClick={onClick}
-                className="workspace-session-row-main"
+                className={cn(
+                  'workspace-session-row-main',
+                  !listeners && !isEditing && 'cursor-pointer touch-auto'
+                )}
                 {...(overlay ? {} : attributes)}
                 {...(overlay ? {} : listeners)}
               >
@@ -1120,14 +1133,14 @@ export function WorkspaceSessionRow({
                       className="h-3.5 w-3.5 animate-spin text-[hsl(var(--warning))]"
                       aria-hidden="true"
                     />
-                  ) : (
+                  ) : compactAge ? (
                     <span
                       className="workspace-session-age"
                       title={formatRelativeTime(session.updatedAt)}
                     >
                       {compactAge}
                     </span>
-                  )}
+                  ) : null}
                 </span>
               </button>
             </SessionCardHoverCard>
@@ -1176,46 +1189,50 @@ export function WorkspaceSessionRow({
                   </button>
                 ) : (
                   <>
-                    <button
-                      type="button"
-                      className={cn(
-                        'workspace-session-row-action',
-                        isPinned && 'is-active'
-                      )}
-                      aria-label={
-                        isPinned
-                          ? t('workspaceSessionList.unpin')
-                          : t('workspaceSessionList.pin')
-                      }
-                      aria-pressed={isPinned}
-                      onPointerDown={(event) => event.stopPropagation()}
-                      onMouseDown={(event) => {
-                        event.preventDefault();
-                        event.stopPropagation();
-                      }}
-                      onClick={(event) => {
-                        event.stopPropagation();
-                        onPin?.(!isPinned);
-                      }}
-                    >
-                      <Pin className="h-3.5 w-3.5" />
-                    </button>
-                    <button
-                      type="button"
-                      className="workspace-session-row-action"
-                      aria-label={t('workspaceSessionList.archive')}
-                      onPointerDown={(event) => event.stopPropagation()}
-                      onMouseDown={(event) => {
-                        event.preventDefault();
-                        event.stopPropagation();
-                      }}
-                      onClick={(event) => {
-                        event.stopPropagation();
-                        onArchive?.();
-                      }}
-                    >
-                      <Archive className="h-3.5 w-3.5" />
-                    </button>
+                    {onPin ? (
+                      <button
+                        type="button"
+                        className={cn(
+                          'workspace-session-row-action',
+                          isPinned && 'is-active'
+                        )}
+                        aria-label={
+                          isPinned
+                            ? t('workspaceSessionList.unpin')
+                            : t('workspaceSessionList.pin')
+                        }
+                        aria-pressed={isPinned}
+                        onPointerDown={(event) => event.stopPropagation()}
+                        onMouseDown={(event) => {
+                          event.preventDefault();
+                          event.stopPropagation();
+                        }}
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          onPin(!isPinned);
+                        }}
+                      >
+                        <Pin className="h-3.5 w-3.5" />
+                      </button>
+                    ) : null}
+                    {onArchive ? (
+                      <button
+                        type="button"
+                        className="workspace-session-row-action"
+                        aria-label={t('workspaceSessionList.archive')}
+                        onPointerDown={(event) => event.stopPropagation()}
+                        onMouseDown={(event) => {
+                          event.preventDefault();
+                          event.stopPropagation();
+                        }}
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          onArchive();
+                        }}
+                      >
+                        <Archive className="h-3.5 w-3.5" />
+                      </button>
+                    ) : null}
                   </>
                 )}
               </span>

@@ -2,7 +2,22 @@
   "bundle": {
     "macOS": {
       "minimumSystemVersion": "12.0",
-      "entitlements": "entitlements.macos.plist"
+      "entitlements": "entitlements.macos.plist",
+      "dmg": {
+        "background": "installer/assets/dmg-background.png",
+        "windowSize": {
+          "width": 540,
+          "height": 360
+        },
+        "appPosition": {
+          "x": 150,
+          "y": 175
+        },
+        "applicationFolderPosition": {
+          "x": 390,
+          "y": 175
+        }
+      }
     }
   }
 }

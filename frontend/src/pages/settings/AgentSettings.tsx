@@ -540,7 +540,7 @@ export function AgentSettings() {
   }, []);
 
   const inspectAgent = useCallback(
-    async (options?: { notify?: boolean }) => {
+    async (options?: { notify?: boolean; skipUpdateCheck?: boolean }) => {
       if (!selectedAgentId) return null;
       const watchId = ++inspectGeneration.current;
       setChecking(true);
@@ -555,9 +555,12 @@ export function AgentSettings() {
         if (options?.notify !== false) {
           toast.success(t('settings:agents.preflightComplete'));
         }
-        const comparison = await applyBackgroundUpdateCheck(selectedAgentId);
         const agent =
           agents.find((entry) => entry.agent_id === selectedAgentId) ?? null;
+        if (options?.skipUpdateCheck) {
+          return { report, agent, comparison: null };
+        }
+        const comparison = await applyBackgroundUpdateCheck(selectedAgentId);
         return { report, agent, comparison };
       } catch (error) {
         if (inspectGeneration.current !== watchId) return null;
@@ -822,9 +825,34 @@ export function AgentSettings() {
             (agent) => agent.agent_id === nextDefault
           );
           if (moved && !moved.enabled) {
-            management.mergeAgent(
-              await agentManagementApi.setEnabled(nextDefault, true)
+            const enabledAgent = await agentManagementApi.setEnabled(
+              nextDefault,
+              true
             );
+            management.mergeAgent(enabledAgent);
+            const report = await agentManagementApi
+              .preflight(nextDefault)
+              .catch(() => null);
+            const action = report
+              ? agentProvisioningAction(
+                  enabledAgent,
+                  presentPreflightItems(report.items).filter(
+                    (item) => !isAuthPreflightItem(item)
+                  )
+                )
+              : enabledAgent.lifecycle === 'uninstalled'
+                ? 'install'
+                : enabledAgent.lifecycle === 'needs_repair'
+                  ? 'repair'
+                  : null;
+            if (action === 'install') {
+              const receipt =
+                await agentManagementApi.addAndInstall(nextDefault);
+              management.beginOperation(receipt);
+            } else if (action === 'repair') {
+              const receipt = await agentManagementApi.repair(nextDefault);
+              management.beginOperation(receipt);
+            }
           }
           await updateAndSaveConfig({
             executor_profile: { executor: nextDefault, variant: null },
@@ -953,10 +981,13 @@ export function AgentSettings() {
   const setEnabled = useCallback(
     async (enabled: boolean) => {
       if (!selectedAgentId) return;
+      let updatedAgent;
       try {
-        management.mergeAgent(
-          await agentManagementApi.setEnabled(selectedAgentId, enabled)
+        updatedAgent = await agentManagementApi.setEnabled(
+          selectedAgentId,
+          enabled
         );
+        management.mergeAgent(updatedAgent);
       } catch (error) {
         toast.error(
           errorMessage(error, t('settings:agents.enableUpdateFailed'))
@@ -964,18 +995,29 @@ export function AgentSettings() {
         return;
       }
       if (!enabled) return;
-      const inspected = await inspectAgent({ notify: false });
-      if (!inspected?.agent || inspected.agent.active_operation) return;
-      const { report, agent, comparison } = inspected;
-      const action = agentProvisioningAction(
-        agent,
-        presentPreflightItems(report.items).filter(
-          (item) => !isAuthPreflightItem(item)
-        )
-      );
+      const inspected = await inspectAgent({
+        notify: false,
+        skipUpdateCheck: true,
+      });
+      const agent = inspected?.agent ?? updatedAgent;
+      if (agent.active_operation) return;
+      const report = inspected?.report ?? null;
+      const action = report
+        ? agentProvisioningAction(
+            agent,
+            presentPreflightItems(report.items).filter(
+              (item) => !isAuthPreflightItem(item)
+            )
+          )
+        : agent.lifecycle === 'uninstalled'
+          ? 'install'
+          : agent.lifecycle === 'needs_repair'
+            ? 'repair'
+            : null;
       if (action === 'install') return queueInstall();
       if (action === 'repair') return queueRepair();
-      const acpItem = report.items.find((item) => item.id === 'acp');
+      const comparison = await applyBackgroundUpdateCheck(selectedAgentId);
+      const acpItem = report?.items.find((item) => item.id === 'acp');
       if (
         comparison?.update_available ||
         (comparison && agentHasAcpUpdate(comparison, acpItem?.version))
@@ -984,6 +1026,7 @@ export function AgentSettings() {
       }
     },
     [
+      applyBackgroundUpdateCheck,
       applyUpdate,
       inspectAgent,
       management,
@@ -1011,27 +1054,34 @@ export function AgentSettings() {
     [applyUpdate, preflight, selectedAgentId]
   );
 
-  const uninstall = useCallback(async () => {
-    if (!selectedAgentId) return;
-    const result = await ConfirmDialog.show({
-      title: t('settings:agents.uninstallTitle', {
-        agent: selectedAgent?.display_name ?? selectedAgentId,
-      }),
-      message: t('settings:agents.uninstallMessage'),
-      confirmText: t('settings:agents.uninstallConfirm'),
-      cancelText: t('common:cancel'),
-      variant: 'destructive',
-    });
-    if (result !== 'confirmed') return;
-    try {
-      management.mergeAgent(
-        await agentManagementApi.uninstall(selectedAgentId)
-      );
-      toast.success(t('settings:agents.uninstalled'));
-    } catch (error) {
-      toast.error(errorMessage(error, t('settings:agents.uninstallFailed')));
-    }
-  }, [management, selectedAgent?.display_name, selectedAgentId, t]);
+  const uninstall = useCallback(
+    async (options?: { clearData?: boolean }) => {
+      if (!selectedAgentId) return;
+      try {
+        const result = await agentManagementApi.uninstall(
+          selectedAgentId,
+          options
+        );
+        if (Array.isArray(result)) {
+          const updated = result.find(
+            (entry) => entry.agent_id === selectedAgentId
+          );
+          if (updated) {
+            management.mergeAgent(updated);
+          } else {
+            await management.refresh();
+          }
+        } else if (result) {
+          management.mergeAgent(result);
+        }
+        await inspectAgent({ notify: false, skipUpdateCheck: true });
+        toast.success(t('settings:agents.uninstalled'));
+      } catch (error) {
+        toast.error(errorMessage(error, t('settings:agents.uninstallFailed')));
+      }
+    },
+    [inspectAgent, management, selectedAgentId, t]
+  );
 
   const rollback = useCallback(async () => {
     if (!selectedAgentId) return;
@@ -1416,7 +1466,7 @@ export function AgentSettings() {
               }
               onRollback={() => void rollback()}
               onCancelOperation={() => void cancelOperation()}
-              onUninstall={() => void uninstall()}
+              onUninstall={(options) => void uninstall(options)}
               onRemove={() => void remove()}
               onExportDiagnostics={exportDiagnostics}
               onEnvironmentDiagnostics={

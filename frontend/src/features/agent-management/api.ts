@@ -405,8 +405,16 @@ export const agentManagementApi = {
       operationId,
     }),
 
-  uninstall: (agentId: AgentId): Promise<AgentManagementView> =>
-    backendCall('agent_management_uninstall', { agentId }),
+  uninstall: (
+    agentId: AgentId,
+    options?: { clearData?: boolean }
+  ): Promise<AgentManagementView | AgentManagementView[]> =>
+    backendCall('agent_management_uninstall', {
+      agentId,
+      ...(options?.clearData !== undefined
+        ? { clearData: options.clearData }
+        : {}),
+    }),
 
   remove: (agentId: AgentId): Promise<void> =>
     backendCall('agent_management_remove', { agentId }),

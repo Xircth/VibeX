@@ -694,11 +694,11 @@ async fn migration_seeds_and_promotes_the_current_built_in_agent_catalog() {
             ("codebuddy", true),
             ("kimi_code", true),
             ("qoder", true),
-            ("kiro", true),
-            ("auggie", true),
-            ("trae", true),
-            ("command_code", true),
-            ("zcode", true),
+            ("kiro", false),
+            ("auggie", false),
+            ("trae", false),
+            ("command_code", false),
+            ("zcode", false),
         ]
     );
     assert!(

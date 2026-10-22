@@ -583,8 +583,17 @@ async fn probe_built_in_external_installations(
                 .fetch_one(pool)
                 .await
                 .unwrap_or(false);
+                let enabled = sqlx::query_scalar::<_, bool>(
+                    "SELECT enabled FROM agent_membership WHERE agent_id = ?",
+                )
+                .bind(profile.agent_id.as_str())
+                .fetch_optional(pool)
+                .await
+                .ok()
+                .flatten()
+                .unwrap_or(true);
                 match built_in_probe_action(installed, force) {
-                    BuiltInProbeAction::Discover => {
+                    BuiltInProbeAction::Discover if enabled => {
                         let result = probe_one_built_in_external_installation(
                             app,
                             pool,
@@ -600,6 +609,7 @@ async fn probe_built_in_external_installations(
                             );
                         }
                     }
+                    BuiltInProbeAction::Discover => {}
                     BuiltInProbeAction::RefreshExisting => {
                         if let Err(error) =
                             record_post_install_probe(app, pool, &profile.agent_id).await

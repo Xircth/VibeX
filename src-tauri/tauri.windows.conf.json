@@ -1,5 +1,13 @@
 {
   "bundle": {
-    "windows": {}
+    "windows": {
+      "nsis": {
+        "template": "installer/installer.nsi",
+        "installerHooks": "installer/hooks.nsh",
+        "installMode": "currentUser",
+        "languages": ["SimpChinese", "English"],
+        "displayLanguageSelector": false
+      }
+    }
   }
 }

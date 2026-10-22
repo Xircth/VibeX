@@ -50,6 +50,9 @@ vi.mock('@/components/panels/DockviewLogsPanel', () => ({
 vi.mock('@/components/panels/DockviewNotesPanel', () => ({
   default: () => null,
 }));
+vi.mock('@/components/panels/DockviewProcessesPanel', () => ({
+  default: () => null,
+}));
 vi.mock('@/components/panels/DockviewSearchPanel', () => ({
   default: () => null,
 }));
@@ -244,6 +247,7 @@ describe('WorkspaceDockviewTab', () => {
     [PANEL_IDS.TERMINAL, 'terminal'],
     [PANEL_IDS.NOTES, 'note'],
     [PANEL_IDS.SESSION_DETAILS, 'session-details'],
+    [PANEL_IDS.PROCESSES, 'processes'],
     [PANEL_IDS.GIT, 'git'],
     [PANEL_IDS.MERGE, 'merge'],
   ])('renders the %s panel icon', (component, iconKind) => {

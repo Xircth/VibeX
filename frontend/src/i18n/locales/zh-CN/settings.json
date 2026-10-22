@@ -1690,6 +1690,11 @@
     "crashReportsPrivacy": "崩溃时应用会把报告（时间、版本、系统、panic 信息与调用栈）写入本机数据目录，最多保留 20 份。开启后，下次启动会展示完整内容，由你决定是否在 GitHub 提交 issue；任何内容都不会自动上传。"
   },
   "agents": {
+    "disableDialogTitle": "关闭 {{agent}}",
+    "disableDialogDescription": "关闭启用该Agent后，将无法使用该Agent创建会话，您可以选择是否卸载和清除该Agent的数据，卸载时仅卸载ACP，不会影响您本地的CLI本体",
+    "disableOnly": "仅关闭",
+    "disableAndUninstall": "卸载",
+    "disableAndClearData": "卸载并清除数据",
     "presetAcp": "预设 ACP",
     "communityAcp": "社区",
     "presetAcpBuiltIn": "已内置",

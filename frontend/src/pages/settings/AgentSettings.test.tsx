@@ -971,7 +971,7 @@ describe('AgentSettings', () => {
     ).toBeVisible();
   });
 
-  it('requires destructive confirmation before uninstalling an Agent', async () => {
+  it('opens the disable modal when turning off the enable switch and supports disable-only, uninstall, and uninstall-and-clear-data', async () => {
     const user = userEvent.setup();
     api.uninstall.mockResolvedValue({
       agent_id: 'codex',
@@ -983,7 +983,7 @@ describe('AgentSettings', () => {
       source: 'built_in_profile',
       built_in: true,
       retired: false,
-      enabled: true,
+      enabled: false,
       position: 0,
       lifecycle: 'uninstalled',
       authentication: 'account',
@@ -993,17 +993,69 @@ describe('AgentSettings', () => {
       rollback_available: false,
     });
     render(<AgentSettings />);
-    const uninstall = await screen.findByRole('button', { name: '卸载' });
+    const enableSwitch = await screen.findByRole('switch', {
+      name: '启用 Agent',
+    });
+    expect(
+      screen.queryByRole('button', { name: '检查更新' })
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole('button', { name: '卸载' })
+    ).not.toBeInTheDocument();
 
-    await user.click(uninstall);
-    expect(confirmShow).toHaveBeenCalledWith(
-      expect.objectContaining({ variant: 'destructive' })
-    );
+    await user.click(enableSwitch);
+    expect(
+      screen.getByText(
+        '关闭启用该Agent后，将无法使用该Agent创建会话，您可以选择是否卸载和清除该Agent的数据，卸载时仅卸载ACP，不会影响您本地的CLI本体'
+      )
+    ).toBeVisible();
+    expect(screen.getByRole('button', { name: '仅关闭' })).toBeVisible();
+    expect(screen.getByRole('button', { name: '卸载' })).toBeVisible();
+    expect(
+      screen.getByRole('button', { name: '卸载并清除数据' })
+    ).toBeVisible();
+
+    await user.click(screen.getByRole('button', { name: '取消' }));
+    expect(api.setEnabled).not.toHaveBeenCalled();
     expect(api.uninstall).not.toHaveBeenCalled();
 
-    confirmShow.mockResolvedValueOnce('confirmed');
-    await user.click(uninstall);
-    await waitFor(() => expect(api.uninstall).toHaveBeenCalledWith('codex'));
+    await user.click(enableSwitch);
+    await user.click(screen.getByRole('button', { name: '卸载' }));
+    await waitFor(() =>
+      expect(api.uninstall).toHaveBeenCalledWith('codex', { clearData: false })
+    );
+
+    api.uninstall.mockClear();
+    api.bar.mockResolvedValue([
+      {
+        agent_id: 'codex',
+        display_name: 'Codex',
+        description: 'Codex ACP',
+        icon_light: null,
+        icon_dark: null,
+        icon_svg: null,
+        source: 'built_in_profile',
+        built_in: true,
+        retired: false,
+        enabled: true,
+        position: 0,
+        lifecycle: 'ready',
+        authentication: 'account',
+        runtime_version: '1.0.0',
+        acp_version: '1.0.0',
+        active_operation: null,
+        rollback_available: false,
+      },
+    ]);
+    await user.click(screen.getByRole('button', { name: '立即检查' }));
+    await waitFor(() =>
+      expect(screen.getByRole('switch', { name: '启用 Agent' })).toBeChecked()
+    );
+    await user.click(screen.getByRole('switch', { name: '启用 Agent' }));
+    await user.click(screen.getByRole('button', { name: '卸载并清除数据' }));
+    await waitFor(() =>
+      expect(api.uninstall).toHaveBeenCalledWith('codex', { clearData: true })
+    );
   });
 
   it('lets the user install an added Agent when preflight finds no valid installation', async () => {
@@ -1256,6 +1308,7 @@ describe('AgentSettings', () => {
       api.addAndInstall.mockClear();
 
       await user.click(screen.getByRole('switch', { name: '启用 Agent' }));
+      await user.click(await screen.findByRole('button', { name: '仅关闭' }));
 
       await waitFor(() =>
         expect(api.setEnabled).toHaveBeenCalledWith('kimi', false)
@@ -1634,7 +1687,7 @@ describe('AgentSettings', () => {
     await waitFor(() => expect(screen.getAllByText('可更新')).toHaveLength(1));
   });
 
-  it('toasts an available ACP update instead of already latest', async () => {
+  it('checks for ACP updates as part of Check Now in preflight', async () => {
     const user = userEvent.setup();
     api.preflight.mockResolvedValue({
       agent_id: 'codex',
@@ -1671,20 +1724,9 @@ describe('AgentSettings', () => {
     const success = vi.spyOn(toast, 'success');
     render(<AgentSettings />);
     await waitFor(() => expect(screen.getAllByText('可更新')).toHaveLength(1));
-    await user.click(screen.getByRole('button', { name: '检查更新' }));
-    await waitFor(() => expect(success).toHaveBeenCalledWith('发现可用更新'));
+    await user.click(screen.getByRole('button', { name: '立即检查' }));
+    await waitFor(() => expect(success).toHaveBeenCalledWith('预检查完成'));
     expect(api.checkUpdate).toHaveBeenCalledWith('codex', { force: true });
-  });
-
-  it('does not toast already latest when check learned no available version', async () => {
-    const user = userEvent.setup();
-    const success = vi.spyOn(toast, 'success');
-    const error = vi.spyOn(toast, 'error');
-    render(<AgentSettings />);
-    await screen.findByRole('button', { name: '检查更新' });
-    await user.click(screen.getByRole('button', { name: '检查更新' }));
-    await waitFor(() => expect(error).toHaveBeenCalledWith('检查更新失败'));
-    expect(success).not.toHaveBeenCalledWith('当前已是最新版本');
   });
 
   it('refreshes login status after a terminal account flow finishes', async () => {

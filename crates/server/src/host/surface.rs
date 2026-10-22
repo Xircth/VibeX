@@ -399,7 +399,10 @@ impl ServerApplicationDomains {
                 self.agent_management_install(args, AgentOperationKind::Update)
                     .await
             }
-            DomainCommand::AgentManagementUninstall | DomainCommand::AgentManagementRemove => {
+            DomainCommand::AgentManagementUninstall => {
+                self.agent_management_uninstall(args).await
+            }
+            DomainCommand::AgentManagementRemove => {
                 self.agent_management_remove(args).await
             }
             DomainCommand::AgentManagementRollback => self.agent_management_rollback(args).await,
@@ -1704,6 +1707,179 @@ impl ServerApplicationDomains {
             .await;
         });
         serialize(receipt)
+    }
+
+    async fn agent_management_uninstall(&self, args: Value) -> Result<Value, ApplicationError> {
+        #[derive(Deserialize)]
+        #[serde(rename_all = "camelCase")]
+        struct AgentUninstallArgs {
+            #[serde(alias = "agent_id")]
+            agent_id: AgentId,
+            #[serde(default, alias = "clear_data")]
+            clear_data: bool,
+        }
+        let args: AgentUninstallArgs = parse(args)?;
+        let active_operation = sqlx::query_scalar::<_, Option<String>>(
+            "SELECT active_operation FROM agent_installation WHERE agent_id = ?",
+        )
+        .bind(args.agent_id.as_str())
+        .fetch_optional(&self.pool)
+        .await
+        .map_err(internal_error)?
+        .flatten();
+        if active_operation.is_some() {
+            return Err(ApplicationError::conflict("Agent 已有正在执行的管理操作"));
+        }
+
+        // Only remove ACP adapter executables/shims; never delete the user's
+        // local CLI runtime (`agent_runtime` / `combined_runtime`).
+        let acp_paths = sqlx::query_scalar::<_, String>(
+            r#"SELECT component.absolute_path
+               FROM agent_install_component component
+               JOIN agent_install_lock lock ON lock.id = component.lock_id
+               WHERE lock.agent_id = ?
+                 AND component.component_kind = 'acp_adapter'"#,
+        )
+        .bind(args.agent_id.as_str())
+        .fetch_all(&self.pool)
+        .await
+        .map_err(internal_error)?;
+        for raw_path in acp_paths {
+            let path = PathBuf::from(&raw_path);
+            let _ = tokio::fs::remove_file(&path).await;
+            if let (Some(parent), Some(stem)) =
+                (path.parent(), path.file_stem().and_then(|s| s.to_str()))
+            {
+                for ext in ["", ".cmd", ".ps1", ".exe"] {
+                    let sibling = parent.join(format!("{stem}{ext}"));
+                    if sibling != path {
+                        let _ = tokio::fs::remove_file(&sibling).await;
+                    }
+                }
+            }
+        }
+
+        let mut tx = self.pool.begin().await.map_err(internal_error)?;
+        sqlx::query(
+            "UPDATE agent_membership SET enabled = 0, updated_at = CURRENT_TIMESTAMP WHERE agent_id = ?",
+        )
+        .bind(args.agent_id.as_str())
+        .execute(&mut *tx)
+        .await
+        .map_err(internal_error)?;
+        sqlx::query(
+            r#"UPDATE agent_installation
+               SET current_lock_id = NULL,
+                   rollback_lock_id = NULL,
+                   lifecycle = 'uninstalled',
+                   active_operation = NULL,
+                   active_operation_id = NULL,
+                   updated_at = CURRENT_TIMESTAMP
+               WHERE agent_id = ?"#,
+        )
+        .bind(args.agent_id.as_str())
+        .execute(&mut *tx)
+        .await
+        .map_err(internal_error)?;
+        sqlx::query(
+            r#"DELETE FROM agent_install_component
+               WHERE lock_id IN (SELECT id FROM agent_install_lock WHERE agent_id = ?)"#,
+        )
+        .bind(args.agent_id.as_str())
+        .execute(&mut *tx)
+        .await
+        .map_err(internal_error)?;
+        sqlx::query("DELETE FROM agent_install_lock WHERE agent_id = ?")
+            .bind(args.agent_id.as_str())
+            .execute(&mut *tx)
+            .await
+            .map_err(internal_error)?;
+        sqlx::query("DELETE FROM agent_installation WHERE agent_id = ?")
+            .bind(args.agent_id.as_str())
+            .execute(&mut *tx)
+            .await
+            .map_err(internal_error)?;
+        sqlx::query("DELETE FROM agent_probe WHERE agent_id = ?")
+            .bind(args.agent_id.as_str())
+            .execute(&mut *tx)
+            .await
+            .map_err(internal_error)?;
+        sqlx::query("DELETE FROM agent_capability_catalog WHERE agent_type = ?")
+            .bind(args.agent_id.as_str())
+            .execute(&mut *tx)
+            .await
+            .map_err(internal_error)?;
+        if args.clear_data {
+            sqlx::query("DELETE FROM agent_session_default WHERE agent_id = ?")
+                .bind(args.agent_id.as_str())
+                .execute(&mut *tx)
+                .await
+                .map_err(internal_error)?;
+            sqlx::query("DELETE FROM agent_diagnostic WHERE agent_id = ?")
+                .bind(args.agent_id.as_str())
+                .execute(&mut *tx)
+                .await
+                .map_err(internal_error)?;
+            sqlx::query("DELETE FROM agent_config_binding WHERE agent_id = ?")
+                .bind(args.agent_id.as_str())
+                .execute(&mut *tx)
+                .await
+                .map_err(internal_error)?;
+            sqlx::query("DELETE FROM agent_install_operation WHERE agent_id = ?")
+                .bind(args.agent_id.as_str())
+                .execute(&mut *tx)
+                .await
+                .map_err(internal_error)?;
+            sqlx::query(
+                r#"UPDATE agent_setting
+                   SET enabled = 0,
+                       installed_version = NULL,
+                       env_json = NULL,
+                       config_json = NULL,
+                       auto_approve_mode = 'off',
+                       runtime_cli_path = NULL,
+                       runtime_cli_version = NULL,
+                       runtime_cli_revision = NULL,
+                       runtime_acp_path = NULL,
+                       runtime_acp_version = NULL,
+                       runtime_acp_revision = NULL,
+                       updated_at = datetime('now')
+                   WHERE agent_type = ?"#,
+            )
+            .bind(args.agent_id.as_str())
+            .execute(&mut *tx)
+            .await
+            .map_err(internal_error)?;
+        } else {
+            sqlx::query(
+                r#"UPDATE agent_setting
+                   SET enabled = 0,
+                       installed_version = NULL,
+                       runtime_acp_path = NULL,
+                       runtime_acp_version = NULL,
+                       runtime_acp_revision = NULL,
+                       updated_at = datetime('now')
+                   WHERE agent_type = ?"#,
+            )
+            .bind(args.agent_id.as_str())
+            .execute(&mut *tx)
+            .await
+            .map_err(internal_error)?;
+        }
+        tx.commit().await.map_err(internal_error)?;
+
+        if args.clear_data {
+            let agent_data_dir = utils::assets::host_data_dir()
+                .join("agents")
+                .join(args.agent_id.as_str());
+            let _ = tokio::fs::remove_dir_all(agent_data_dir).await;
+        }
+
+        self.events.emit(
+            "agent-management-snapshot-invalidated",
+            json!({ "agentId": args.agent_id }),
+        );
+        serialize(self.management().list().await.map_err(internal_error)?)
     }
 
     async fn agent_management_remove(&self, args: Value) -> Result<Value, ApplicationError> {

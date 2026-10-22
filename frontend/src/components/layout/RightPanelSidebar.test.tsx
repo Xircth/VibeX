@@ -36,10 +36,6 @@ vi.mock('@/hooks/useDevServer', () => ({
   useDevServer: () => ({ runningDevServers: [], devServerProcesses: [] }),
 }));
 
-vi.mock('@/components/dialogs/tasks/ViewProcessesDialog', () => ({
-  ViewProcessesDialog: { show: vi.fn() },
-}));
-
 const transportEnvironment = vi.hoisted(() => ({
   current: 'desktop' as 'desktop' | 'web' | 'remote-desktop',
 }));
@@ -162,6 +158,28 @@ describe('RightPanelSidebar', () => {
     expect(panelActions.openOrFocusPanel).toHaveBeenCalledWith(
       'session-details',
       '会话详情'
+    );
+  });
+
+  it('opens processes as a dockview tab instead of a modal dialog', async () => {
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+
+    render(
+      <QueryClientProvider client={queryClient}>
+        <RightPanelSidebar />
+      </QueryClientProvider>
+    );
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    const processes = screen.getByRole('button', { name: '执行进程' });
+    fireEvent.click(processes);
+    expect(panelActions.openOrFocusPanel).toHaveBeenCalledWith(
+      'processes',
+      '执行进程'
     );
   });
 });

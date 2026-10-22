@@ -23,6 +23,7 @@ const MAX_CONVERSATION_INPUT_BYTES: usize = 1024 * 1024;
 #[ts(export)]
 pub enum ConversationInputStatus {
     Queued,
+    Scheduled,
     Claimed,
     Dispatched,
     Cancelled,
@@ -46,6 +47,8 @@ pub struct ConversationInputView {
     pub turn_id: Option<Uuid>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub deliver_at: Option<DateTime<Utc>>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
@@ -72,6 +75,7 @@ pub struct UpdateConversationInput {
     pub operation_id: Uuid,
     pub expected_revision: u64,
     pub payload: ConversationInputPayload,
+    pub delay_seconds: Option<i64>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -237,18 +241,100 @@ impl ConversationInputControl {
         &self,
         conversation_id: Uuid,
     ) -> Result<Vec<ConversationInputView>, ConversationInputControlError> {
-        ConversationInputRecord::list_for_conversation(&self.pool, conversation_id)
+        let mut views = ConversationInputRecord::list_for_conversation(&self.pool, conversation_id)
             .await?
             .into_iter()
             .map(ConversationInputView::try_from)
-            .collect()
+            .collect::<Result<Vec<_>, _>>()?;
+        let delayed = list_delayed_input_views(&self.pool, conversation_id).await?;
+        views.extend(delayed);
+        Ok(views)
     }
 
     pub async fn update(
         &self,
         input: UpdateConversationInput,
     ) -> Result<ConversationInputView, ConversationInputControlError> {
-        let payload_json = validate_input_payload(&input.payload)?;
+        let payload_bytes = validate_input_payload(&input.payload)?;
+        let payload_digest = format!("{:x}", Sha256::digest(&payload_bytes));
+        let payload_json_str = serde_json::to_string(&input.payload)?;
+
+        if let Some(updated_delayed) = update_delayed_input_if_exists(
+            &self.pool,
+            input.conversation_id,
+            input.input_id,
+            &payload_json_str,
+            &payload_digest,
+            input.delay_seconds,
+        )
+        .await?
+        {
+            return Ok(updated_delayed);
+        }
+
+        if let Some(delay_seconds) = input.delay_seconds.filter(|seconds| *seconds > 0) {
+            let existing = ConversationInputRecord::find_by_id_for_conversation(
+                &self.pool,
+                input.conversation_id,
+                input.input_id,
+            )
+            .await?
+            .ok_or(ConversationInputControlError::NotFound(input.input_id))?;
+            if existing.status != "queued" {
+                return Err(ConversationInputControlError::StateConflict {
+                    input_id: input.input_id,
+                });
+            }
+            let _ = self
+                .cancel(CancelConversationInput {
+                    conversation_id: input.conversation_id,
+                    input_id: input.input_id,
+                    operation_id: input.operation_id,
+                    expected_revision: input.expected_revision,
+                })
+                .await?;
+            let deliver_at = Utc::now() + Duration::seconds(delay_seconds);
+            let now = Utc::now();
+            let delayed_id = Uuid::new_v4();
+            let delayed_op_id = Uuid::new_v4();
+            let deliver_at_stamp =
+                deliver_at.to_rfc3339_opts(chrono::SecondsFormat::Millis, true);
+            let now_stamp = now.to_rfc3339_opts(chrono::SecondsFormat::Millis, true);
+            sqlx::query(
+                r#"INSERT INTO conversation_delayed_inputs
+                   (id, conversation_id, operation_id, payload_json, payload_digest, principal_json,
+                    deliver_at, status, created_at)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, 'scheduled', ?)"#,
+            )
+            .bind(delayed_id.to_string())
+            .bind(input.conversation_id.to_string())
+            .bind(delayed_op_id.to_string())
+            .bind(&payload_json_str)
+            .bind(&payload_digest)
+            .bind(&existing.principal_json)
+            .bind(&deliver_at_stamp)
+            .bind(&now_stamp)
+            .execute(&self.pool)
+            .await?;
+            return Ok(ConversationInputView {
+                id: delayed_id,
+                conversation_id: input.conversation_id,
+                operation_id: delayed_op_id,
+                revision: 1,
+                sort_key: deliver_at.timestamp_millis(),
+                status: ConversationInputStatus::Scheduled,
+                payload: input.payload,
+                principal: serde_json::from_str(&existing.principal_json)
+                    .unwrap_or_else(|_| serde_json::json!({})),
+                claim_token: None,
+                claim_deadline: None,
+                turn_id: None,
+                created_at: now,
+                updated_at: now,
+                deliver_at: Some(deliver_at),
+            });
+        }
+
         let revision = input
             .expected_revision
             .checked_add(1)
@@ -257,7 +343,7 @@ impl ConversationInputControl {
             event: ConversationInputEvent::Updated {
                 input_id: input.input_id,
                 revision,
-                payload_digest: format!("{:x}", Sha256::digest(&payload_json)),
+                payload_digest,
                 payload: input.payload,
             },
         };
@@ -297,6 +383,15 @@ impl ConversationInputControl {
         &self,
         input: CancelConversationInput,
     ) -> Result<ConversationInputView, ConversationInputControlError> {
+        if let Some(cancelled_delayed) = cancel_delayed_input_if_exists(
+            &self.pool,
+            input.conversation_id,
+            input.input_id,
+        )
+        .await?
+        {
+            return Ok(cancelled_delayed);
+        }
         let revision = input
             .expected_revision
             .checked_add(1)
@@ -392,10 +487,18 @@ impl ConversationInputControl {
         conversation_id: Uuid,
         input_id: Uuid,
     ) -> Result<ConversationInputView, ConversationInputControlError> {
-        ConversationInputRecord::find_by_id_for_conversation(&self.pool, conversation_id, input_id)
-            .await?
-            .ok_or(ConversationInputControlError::NotFound(input_id))?
-            .try_into()
+        if let Some(record) =
+            ConversationInputRecord::find_by_id_for_conversation(&self.pool, conversation_id, input_id)
+                .await?
+        {
+            return record.try_into();
+        }
+        if let Some(delayed) =
+            find_delayed_input_view(&self.pool, conversation_id, input_id).await?
+        {
+            return Ok(delayed);
+        }
+        Err(ConversationInputControlError::NotFound(input_id))
     }
 
     pub async fn claim_next(
@@ -608,8 +711,233 @@ impl TryFrom<ConversationInputRecord> for ConversationInputView {
             turn_id: record.turn_id,
             created_at: record.created_at,
             updated_at: record.updated_at,
+            deliver_at: None,
         })
     }
+}
+
+#[derive(Debug, sqlx::FromRow)]
+struct DelayedInputRow {
+    id: String,
+    conversation_id: String,
+    operation_id: String,
+    payload_json: String,
+    principal_json: String,
+    deliver_at: String,
+    created_at: String,
+}
+
+fn parse_delayed_payload(
+    raw: &str,
+) -> Result<ConversationInputPayload, ConversationInputControlError> {
+    if let Ok(full) = serde_json::from_str::<ConversationInputPayload>(raw) {
+        return Ok(full);
+    }
+    let val: serde_json::Value = serde_json::from_str(raw)?;
+    let text = val
+        .get("text")
+        .and_then(serde_json::Value::as_str)
+        .unwrap_or_default()
+        .to_string();
+    let display_text = val
+        .get("display_text")
+        .or_else(|| val.get("displayText"))
+        .and_then(serde_json::Value::as_str)
+        .map(str::to_string);
+    let agent_raw = val
+        .get("agent_id")
+        .or_else(|| val.get("agentId"))
+        .and_then(serde_json::Value::as_str)
+        .unwrap_or("codex");
+    let agent_id = agents::AgentId::parse(agent_raw)
+        .unwrap_or_else(|_| agents::AgentId::parse("codex").expect("fallback agent_id"));
+    let workspace_id = val
+        .get("workspace_id")
+        .or_else(|| val.get("workspaceId"))
+        .and_then(serde_json::Value::as_str)
+        .and_then(|v| Uuid::parse_str(v).ok())
+        .unwrap_or_else(Uuid::nil);
+    Ok(ConversationInputPayload {
+        agent_id,
+        workspace_id,
+        executor_profile_id: None,
+        text,
+        display_text,
+        images: Vec::new(),
+        mode_override: None,
+        config_overrides: Vec::new(),
+        workflow_refs: Vec::new(),
+        file_refs: Vec::new(),
+    })
+}
+
+fn delayed_row_to_view(
+    row: DelayedInputRow,
+    requested_conversation_id: Uuid,
+    status: ConversationInputStatus,
+) -> Option<ConversationInputView> {
+    let id = Uuid::parse_str(&row.id).ok()?;
+    let operation_id = Uuid::parse_str(&row.operation_id).unwrap_or_else(|_| Uuid::new_v4());
+    let payload = parse_delayed_payload(&row.payload_json).ok()?;
+    let principal =
+        serde_json::from_str(&row.principal_json).unwrap_or_else(|_| serde_json::json!({}));
+    let deliver_at = DateTime::parse_from_rfc3339(&row.deliver_at)
+        .map(|dt| dt.with_timezone(&Utc))
+        .ok()?;
+    let created_at = DateTime::parse_from_rfc3339(&row.created_at)
+        .map(|dt| dt.with_timezone(&Utc))
+        .unwrap_or(deliver_at);
+    let _target_conversation_id = Uuid::parse_str(&row.conversation_id).ok();
+    Some(ConversationInputView {
+        id,
+        conversation_id: requested_conversation_id,
+        operation_id,
+        revision: 1,
+        sort_key: deliver_at.timestamp_millis(),
+        status,
+        payload,
+        principal,
+        claim_token: None,
+        claim_deadline: None,
+        turn_id: None,
+        created_at,
+        updated_at: created_at,
+        deliver_at: Some(deliver_at),
+    })
+}
+
+async fn list_delayed_input_views(
+    pool: &SqlitePool,
+    conversation_id: Uuid,
+) -> Result<Vec<ConversationInputView>, ConversationInputControlError> {
+    let conv_str = conversation_id.to_string();
+    let rows = sqlx::query_as::<_, DelayedInputRow>(
+        r#"SELECT id, conversation_id, operation_id, payload_json, principal_json, deliver_at, created_at
+           FROM conversation_delayed_inputs
+           WHERE status = 'scheduled'
+             AND COALESCE(json_extract(principal_json, '$.kind'), '') != 'collaboration_space_post'
+             AND (conversation_id = ? OR json_extract(principal_json, '$.parentConversationId') = ?)
+           ORDER BY deliver_at ASC, created_at ASC"#,
+    )
+    .bind(&conv_str)
+    .bind(&conv_str)
+    .fetch_all(pool)
+    .await?;
+    Ok(rows
+        .into_iter()
+        .filter_map(|row| delayed_row_to_view(row, conversation_id, ConversationInputStatus::Scheduled))
+        .collect())
+}
+
+async fn find_delayed_input_view(
+    pool: &SqlitePool,
+    conversation_id: Uuid,
+    input_id: Uuid,
+) -> Result<Option<ConversationInputView>, ConversationInputControlError> {
+    let conv_str = conversation_id.to_string();
+    let row = sqlx::query_as::<_, DelayedInputRow>(
+        r#"SELECT id, conversation_id, operation_id, payload_json, principal_json, deliver_at, created_at
+           FROM conversation_delayed_inputs
+           WHERE id = ?
+             AND COALESCE(json_extract(principal_json, '$.kind'), '') != 'collaboration_space_post'
+             AND (conversation_id = ? OR json_extract(principal_json, '$.parentConversationId') = ?)
+           LIMIT 1"#,
+    )
+    .bind(input_id.to_string())
+    .bind(&conv_str)
+    .bind(&conv_str)
+    .fetch_optional(pool)
+    .await?;
+    Ok(row.and_then(|r| delayed_row_to_view(r, conversation_id, ConversationInputStatus::Scheduled)))
+}
+
+async fn update_delayed_input_if_exists(
+    pool: &SqlitePool,
+    conversation_id: Uuid,
+    input_id: Uuid,
+    payload_json: &str,
+    payload_digest: &str,
+    delay_seconds: Option<i64>,
+) -> Result<Option<ConversationInputView>, ConversationInputControlError> {
+    let conv_str = conversation_id.to_string();
+    let existing = sqlx::query_as::<_, DelayedInputRow>(
+        r#"SELECT id, conversation_id, operation_id, payload_json, principal_json, deliver_at, created_at
+           FROM conversation_delayed_inputs
+           WHERE id = ? AND status = 'scheduled'
+             AND COALESCE(json_extract(principal_json, '$.kind'), '') != 'collaboration_space_post'
+             AND (conversation_id = ? OR json_extract(principal_json, '$.parentConversationId') = ?)
+           LIMIT 1"#,
+    )
+    .bind(input_id.to_string())
+    .bind(&conv_str)
+    .bind(&conv_str)
+    .fetch_optional(pool)
+    .await?;
+    let Some(mut row) = existing else {
+        return Ok(None);
+    };
+    let next_deliver_at = match delay_seconds.filter(|seconds| *seconds > 0) {
+        Some(seconds) => {
+            (Utc::now() + Duration::seconds(seconds))
+                .to_rfc3339_opts(chrono::SecondsFormat::Millis, true)
+        }
+        None => row.deliver_at.clone(),
+    };
+    sqlx::query(
+        r#"UPDATE conversation_delayed_inputs
+           SET payload_json = ?, payload_digest = ?, deliver_at = ?
+           WHERE id = ? AND status = 'scheduled'"#,
+    )
+    .bind(payload_json)
+    .bind(payload_digest)
+    .bind(&next_deliver_at)
+    .bind(&row.id)
+    .execute(pool)
+    .await?;
+    row.payload_json = payload_json.to_string();
+    row.deliver_at = next_deliver_at;
+    Ok(delayed_row_to_view(
+        row,
+        conversation_id,
+        ConversationInputStatus::Scheduled,
+    ))
+}
+
+async fn cancel_delayed_input_if_exists(
+    pool: &SqlitePool,
+    conversation_id: Uuid,
+    input_id: Uuid,
+) -> Result<Option<ConversationInputView>, ConversationInputControlError> {
+    let conv_str = conversation_id.to_string();
+    let existing = sqlx::query_as::<_, DelayedInputRow>(
+        r#"SELECT id, conversation_id, operation_id, payload_json, principal_json, deliver_at, created_at
+           FROM conversation_delayed_inputs
+           WHERE id = ? AND status = 'scheduled'
+             AND COALESCE(json_extract(principal_json, '$.kind'), '') != 'collaboration_space_post'
+             AND (conversation_id = ? OR json_extract(principal_json, '$.parentConversationId') = ?)
+           LIMIT 1"#,
+    )
+    .bind(input_id.to_string())
+    .bind(&conv_str)
+    .bind(&conv_str)
+    .fetch_optional(pool)
+    .await?;
+    let Some(row) = existing else {
+        return Ok(None);
+    };
+    sqlx::query(
+        r#"UPDATE conversation_delayed_inputs
+           SET status = 'cancelled'
+           WHERE id = ? AND status = 'scheduled'"#,
+    )
+    .bind(&row.id)
+    .execute(pool)
+    .await?;
+    Ok(delayed_row_to_view(
+        row,
+        conversation_id,
+        ConversationInputStatus::Cancelled,
+    ))
 }
 
 fn event_input_id(event: &ConversationInputEvent) -> Uuid {
@@ -1360,6 +1688,7 @@ mod tests {
                 operation_id: Uuid::new_v4(),
                 expected_revision: 1,
                 payload: payload("edited"),
+                delay_seconds: None,
             })
             .await
             .expect("update queued input");

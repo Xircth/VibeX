@@ -110,9 +110,9 @@ describe('collaboration space model', () => {
       ])
     ).toBe('部分成员没有送达');
     expect(deliveryFailureCopy([{ delivered: 'queued' }])).toBe('');
-    expect(receiptStatusCopy({ delivered: 'queued' })).toBe('已排队');
-    expect(receiptStatusCopy({ delivered: 'dispatched' })).toBe('已认领');
-    expect(receiptStatusCopy({ delivered: 'claimed' })).toBe('已认领');
+    expect(receiptStatusCopy({ delivered: 'queued' })).toBe('已收到');
+    expect(receiptStatusCopy({ delivered: 'dispatched' })).toBe('已收到');
+    expect(receiptStatusCopy({ delivered: 'claimed' })).toBe('已收到');
     expect(receiptStatusCopy({ delivered: 'failed' })).toBe('失败');
   });
 

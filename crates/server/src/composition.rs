@@ -221,7 +221,16 @@ impl HeadlessServer {
         conversations::spawn_delayed_input_promoter(
             pool.clone(),
             conversations::ScopedConversationControl::new(conversation_context.clone())
-                .delivery_context(),
+                .delivery_context()
+                .with_space_changed({
+                    let events = events.clone();
+                    move |event| {
+                        events.emit(
+                            crate::host::events::COLLABORATION_SPACE_CHANGED_EVENT,
+                            event,
+                        );
+                    }
+                }),
         );
 
         let preview_host: Arc<dyn PluginPreviewHost> = Arc::new(

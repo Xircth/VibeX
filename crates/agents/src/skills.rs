@@ -1444,17 +1444,29 @@ fn sync_host_multi_agent_skill_with_layout(
             layout,
         );
     }
-    // Projection accepts the SKILL.md file, not its parent directory.
-    let skill_file = std::env::temp_dir()
-        .join("vibex-host-multi-agent-skill")
-        .join("SKILL.md");
-    if let Some(parent) = skill_file.parent() {
-        std::fs::create_dir_all(parent)?;
+    const HOST_MULTI_AGENT_SKILL_FILES: &[(&str, &str)] = &[
+        ("SKILL.md", include_str!("skills/vibex-multi-agent/SKILL.md")),
+        (
+            "COLLABORATION-SPACE.md",
+            include_str!("skills/vibex-multi-agent/COLLABORATION-SPACE.md"),
+        ),
+        (
+            "SESSION-AND-DELEGATION.md",
+            include_str!("skills/vibex-multi-agent/SESSION-AND-DELEGATION.md"),
+        ),
+    ];
+    // Projection accepts the SKILL.md file and copies its parent directory.
+    let skill_dir = std::env::temp_dir().join("vibex-host-multi-agent-skill");
+    remove_if_exists(&skill_dir)?;
+    std::fs::create_dir_all(&skill_dir)?;
+    for (relative_path, contents) in HOST_MULTI_AGENT_SKILL_FILES {
+        let file_path = skill_dir.join(relative_path);
+        if let Some(parent) = file_path.parent() {
+            std::fs::create_dir_all(parent)?;
+        }
+        std::fs::write(&file_path, contents)?;
     }
-    std::fs::write(
-        &skill_file,
-        include_str!("skills/vibex-multi-agent/SKILL.md"),
-    )?;
+    let skill_file = skill_dir.join("SKILL.md");
     let agents = AgentKind::built_in_bar_order()
         .map(|kind| kind.as_str().to_owned())
         .collect::<BTreeSet<_>>();
@@ -2244,6 +2256,14 @@ mod tests {
         let projected = temp.path().join("codex/vibex-multi-agent/SKILL.md");
         assert!(projected.is_file());
         assert!(std::fs::read_to_string(projected).unwrap().contains("name:"));
+        assert!(temp
+            .path()
+            .join("codex/vibex-multi-agent/COLLABORATION-SPACE.md")
+            .is_file());
+        assert!(temp
+            .path()
+            .join("codex/vibex-multi-agent/SESSION-AND-DELEGATION.md")
+            .is_file());
     }
 
     #[test]

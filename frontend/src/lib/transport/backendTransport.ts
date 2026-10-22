@@ -173,6 +173,7 @@ export interface ApplicationCommandMap {
         inputId: string;
         expectedRevision: number;
         payload: ConversationInputPayload;
+        delaySeconds?: number | null;
       };
     };
     result: ConversationInputView;

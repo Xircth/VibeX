@@ -2135,6 +2135,7 @@ pub(crate) async fn refresh_enabled_plugin_projections(state: &AppState) {
             return;
         }
     };
+    let _ = apply_official_product_runtime(state).await;
     if let Err(error) = services::services::mcp::patch_grok_product_mcp_startup_timeout() {
         tracing::warn!(%error, "Grok product MCP startup timeout patch failed");
     }
@@ -3321,7 +3322,7 @@ fn materialize_host_family_binary_mcp(
         )));
     }
     let features = match product {
-        "delegation" => "delegation".to_string(),
+        "delegation" => "delegation,sessions,collaboration".to_string(),
         "session" => plugins::session_feature_arg(gate.session_features()),
         "plugin-dev" => "plugin-dev".to_string(),
         other => other.to_string(),

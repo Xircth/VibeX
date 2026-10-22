@@ -13,8 +13,8 @@ export const COPY = {
   noMemberSessions: '暂无成员会话',
   memberNameLabel: '成员名称',
   memberSourceLabel: '创建方式',
-  memberSourceRole: '从角色新建',
-  memberSourceSession: '从会话新建',
+  memberSourceRole: '基于角色',
+  memberSourceSession: '基于会话',
   memberSourceCustom: '自定义',
   chooseRole: '选择角色',
   chooseAgent: '选择 Agent',
@@ -23,7 +23,7 @@ export const COPY = {
   noTeam: '不属于任何团队',
   spaceMembersLabel: '协作空间成员（可选）',
   spaceTagLabel: '颜色标签',
-  memberSessionsGroup: '成员会话',
+  memberSessionsGroup: '可选成员',
   otherSessionsGroup: '非成员会话',
   addMember: '加入成员',
   renameMember: '修改昵称',
@@ -57,8 +57,8 @@ export const COPY = {
   controlsUnavailable: '暂不可用',
   noneDelivered: '没有送达',
   partialDelivered: '部分成员没有送达',
-  receiptQueued: '已排队',
-  receiptClaimed: '已认领',
+  receiptQueued: '已收到',
+  receiptClaimed: '已收到',
   receiptFailed: '失败',
   requestFailed: '请求失败',
   rangeError: '深度 1–8，缓存不少于 0，查询窗口 1–90，延时上限 1–168。',
@@ -362,6 +362,44 @@ export function receiptStatusCopy(
     return labels.claimed ?? COPY.receiptClaimed;
   }
   return labels.queued ?? COPY.receiptQueued;
+}
+
+export function resolveMessageReceipts(
+  envelope:
+    | {
+        to?: readonly string[] | null;
+      }
+    | null
+    | undefined,
+  explicitReceipts: ReadonlyArray<DeliveryReceipt> | null | undefined
+): DeliveryReceipt[] {
+  if (Array.isArray(explicitReceipts) && explicitReceipts.length > 0) {
+    return [...explicitReceipts];
+  }
+  const toList = Array.isArray(envelope?.to) ? envelope.to : [];
+  if (toList.length === 0) return [];
+  const marker = '/member/';
+  const derived: DeliveryReceipt[] = [];
+  const seen = new Set<string>();
+  for (const item of toList) {
+    const raw = String(item ?? '').trim();
+    const index = raw.lastIndexOf(marker);
+    if (index < 0) continue;
+    let nickname = raw.slice(index + marker.length);
+    try {
+      nickname = decodeURIComponent(nickname);
+    } catch {
+      // Keep raw segment if decode fails
+    }
+    nickname = nickname.trim();
+    if (!nickname || seen.has(nickname)) continue;
+    seen.add(nickname);
+    derived.push({
+      nickname,
+      delivered: 'claimed',
+    });
+  }
+  return derived;
 }
 
 export function postRecipients(

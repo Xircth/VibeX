@@ -1,7 +1,8 @@
 import { Check, ChevronDown } from 'lucide-react';
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 import type { AgentSessionConfigOption, AgentSessionMode } from 'shared/types';
+import { AgentIcon, getAgentName } from '@/components/agents/AgentIcon';
 import type { ConversationSessionModesState } from '@/features/conversation/conversationStore';
 import {
   DropdownMenu,
@@ -377,16 +378,18 @@ export function SessionSettingsSummary({
               value={persona.name}
             />
             <PersonaFact
-              label={t('sessionSettings.personaTeam')}
-              value={persona.teamName || '—'}
-            />
-            <PersonaFact
-              label={t('sessionSettings.personaSummary')}
-              value={persona.summary || '—'}
-            />
-            <PersonaFact
               label={t('sessionSettings.personaAgent')}
-              value={persona.agentName}
+              value={
+                <>
+                  <AgentIcon
+                    agent={persona.agentName}
+                    className="h-3.5 w-3.5 shrink-0"
+                  />
+                  <span className="truncate">
+                    {getAgentName(persona.agentName)}
+                  </span>
+                </>
+              }
             />
             {hasSessionControls ? (
               <DropdownMenuSub>
@@ -414,7 +417,7 @@ export function SessionSettingsSummary({
   );
 }
 
-function PersonaFact({ label, value }: { label: string; value: string }) {
+function PersonaFact({ label, value }: { label: string; value: ReactNode }) {
   return (
     <div className="flex items-center gap-3 px-2.5 py-1.5">
       <span className="min-w-0 flex-1 text-sm font-semibold">{label}</span>
@@ -423,9 +426,9 @@ function PersonaFact({ label, value }: { label: string; value: string }) {
   );
 }
 
-function RowValue({ children }: { children: string }) {
+function RowValue({ children }: { children: ReactNode }) {
   return (
-    <span className="max-w-[11rem] truncate text-sm text-muted-foreground">
+    <span className="inline-flex max-w-[11rem] items-center gap-1.5 truncate text-sm text-muted-foreground">
       {children}
     </span>
   );

@@ -444,6 +444,20 @@ pub(crate) async fn refresh_official_product_runtime_with(
     broker: &delegation::DelegationBroker,
     config: &services::services::config::Config,
 ) -> Result<(), ApplicationError> {
+    refresh_official_product_runtime_with_inner(plane, broker, config).await?;
+    sync_host_delegation_native_mcp(
+        plane.official_product_mcp_gate().as_ref(),
+        config.multi_agent_enabled,
+    )
+    .await;
+    Ok(())
+}
+
+pub(crate) async fn refresh_official_product_runtime_with_inner(
+    plane: &plugins::PluginControlPlane,
+    broker: &delegation::DelegationBroker,
+    config: &services::services::config::Config,
+) -> Result<(), ApplicationError> {
     plane
         .sync_official_product_mcp_gate()
         .await
@@ -454,6 +468,45 @@ pub(crate) async fn refresh_official_product_runtime_with(
         config,
     );
     Ok(())
+}
+
+async fn sync_host_delegation_native_mcp(gate: &plugins::OfficialMcpRuntime, enabled: bool) {
+    let Some(http_base) = gate.http_base().filter(|value| !value.trim().is_empty()) else {
+        return;
+    };
+    if !enabled {
+        let _ =
+            services::services::mcp::uninstall_server(plugins::DELEGATION_MCP_NAME.to_string())
+                .await;
+        return;
+    }
+    let Some(command) = utils::host_bin::locate_runnable_host_family_binary("vibex-mcp") else {
+        tracing::warn!("skipping host delegation native MCP sync; vibex-mcp sidecar is missing");
+        return;
+    };
+    let Some(token) = gate
+        .token_for_product("delegation")
+        .filter(|value| !value.trim().is_empty())
+    else {
+        return;
+    };
+    let spec = plugins::host_family_stdio_spec(
+        &command.to_string_lossy(),
+        "delegation",
+        "delegation,sessions,collaboration",
+        Some(&http_base),
+        Some(&token),
+    );
+    if let Err(error) = services::services::mcp::upsert_local_server(
+        plugins::DELEGATION_MCP_NAME.to_string(),
+        spec,
+        true,
+        Vec::new(),
+    )
+    .await
+    {
+        tracing::warn!(%error, "host delegation native MCP sync failed");
+    }
 }
 
 pub(crate) fn apply_host_multi_agent(
@@ -873,7 +926,7 @@ fn materialize_host_family_binary_mcp(
         )));
     }
     let features = match product {
-        "delegation" => "delegation".to_string(),
+        "delegation" => "delegation,sessions,collaboration".to_string(),
         "session" => plugins::session_feature_arg(gate.session_features()),
         "plugin-dev" => "plugin-dev".to_string(),
         other => other.to_string(),

@@ -81,6 +81,9 @@ impl CollaborationHost for HostCollaborationHost {
             ("collaboration", "team.delete") => self.delete_team(&input).await,
             ("collaboration", "space.list") => self.list_spaces(&input).await,
             ("collaboration", "space.create") => self.create_space(&input).await,
+            ("collaboration", "space.rename" | "space.update") => {
+                self.rename_space(&input).await
+            }
             ("collaboration", "space.addMember" | "space.add_member") => {
                 self.add_member(&input).await
             }
@@ -103,6 +106,18 @@ impl CollaborationHost for HostCollaborationHost {
             ("collaboration", "space.listMessages" | "space.list_messages") => {
                 self.list_messages(&input).await
             }
+            (
+                "collaboration",
+                "space.listScheduledMessages" | "space.list_scheduled_messages",
+            ) => self.list_scheduled_messages(&input).await,
+            (
+                "collaboration",
+                "space.cancelScheduledMessage" | "space.cancel_scheduled_message",
+            ) => self.cancel_scheduled_message(&input).await,
+            (
+                "collaboration",
+                "space.updateScheduledMessage" | "space.update_scheduled_message",
+            ) => self.update_scheduled_message(&input).await,
             ("collaboration", "space.post") => self.post(&input).await,
             ("collaboration", "space.listConversations" | "space.list_conversations") => {
                 self.list_conversations(&input).await
@@ -217,6 +232,26 @@ impl HostCollaborationHost {
             COLLABORATION_SPACE_CHANGED_EVENT,
             CollaborationSpaceChangedEvent {
                 workspace_id,
+                space_id: space.space_id.clone(),
+                seq: None,
+                member_id: None,
+            },
+        );
+        serde_json::to_value(space).map_err(|error| {
+            CollaborationHostError::new("conversation_control_failed", error.to_string())
+        })
+    }
+
+    async fn rename_space(&self, input: &Value) -> Result<Value, CollaborationHostError> {
+        let space_id = required_text(input, &["spaceId", "space_id", "id"])?;
+        let name = text(input, &["name"]);
+        let space = collaboration::rename_workspace_space(&self.pool, &space_id, &name)
+            .await
+            .map_err(host_error)?;
+        self.events.emit(
+            COLLABORATION_SPACE_CHANGED_EVENT,
+            CollaborationSpaceChangedEvent {
+                workspace_id: space.workspace_id,
                 space_id: space.space_id.clone(),
                 seq: None,
                 member_id: None,
@@ -493,13 +528,89 @@ impl HostCollaborationHost {
         )
         .await
         .map_err(host_error)?;
-        Ok(json!({ "messages": messages }))
+        let scheduled = collaboration::list_space_scheduled_messages(&self.pool, &space_id)
+            .await
+            .unwrap_or_default();
+        Ok(json!({ "messages": messages, "scheduled": scheduled }))
+    }
+
+    async fn list_scheduled_messages(
+        &self,
+        input: &Value,
+    ) -> Result<Value, CollaborationHostError> {
+        let space_id = required_text(input, &["spaceId", "space_id"])?;
+        let scheduled = collaboration::list_space_scheduled_messages(&self.pool, &space_id)
+            .await
+            .map_err(host_error)?;
+        Ok(json!({ "scheduled": scheduled }))
+    }
+
+    async fn cancel_scheduled_message(
+        &self,
+        input: &Value,
+    ) -> Result<Value, CollaborationHostError> {
+        let space_id = required_text(input, &["spaceId", "space_id"])?;
+        let id = required_text(input, &["id", "messageId", "message_id"])?;
+        let cancelled =
+            collaboration::cancel_space_scheduled_message(&self.pool, &space_id, &id)
+                .await
+                .map_err(host_error)?;
+        if let Ok(workspace_id) = collaboration::space_workspace_id(&self.pool, &space_id).await {
+            self.events.emit(
+                COLLABORATION_SPACE_CHANGED_EVENT,
+                CollaborationSpaceChangedEvent {
+                    workspace_id,
+                    space_id,
+                    seq: Some(0),
+                    member_id: None,
+                },
+            );
+        }
+        Ok(json!({ "cancelled": cancelled }))
+    }
+
+    async fn update_scheduled_message(
+        &self,
+        input: &Value,
+    ) -> Result<Value, CollaborationHostError> {
+        let space_id = required_text(input, &["spaceId", "space_id"])?;
+        let id = required_text(input, &["id", "messageId", "message_id"])?;
+        let content = optional_text(input, &["content"]);
+        let delay_seconds = input
+            .get("delaySeconds")
+            .or_else(|| input.get("delay_seconds"))
+            .and_then(Value::as_i64);
+        let updated = collaboration::update_space_scheduled_message(
+            &self.pool,
+            &space_id,
+            &id,
+            content.as_deref(),
+            delay_seconds,
+        )
+        .await
+        .map_err(host_error)?;
+        if let Ok(workspace_id) = collaboration::space_workspace_id(&self.pool, &space_id).await {
+            self.events.emit(
+                COLLABORATION_SPACE_CHANGED_EVENT,
+                CollaborationSpaceChangedEvent {
+                    workspace_id,
+                    space_id,
+                    seq: Some(0),
+                    member_id: None,
+                },
+            );
+        }
+        Ok(json!({ "scheduled": updated }))
     }
 
     async fn post(&self, input: &Value) -> Result<Value, CollaborationHostError> {
         let space_id = required_text(input, &["spaceId", "space_id"])?;
+        let delay_seconds = input
+            .get("delaySeconds")
+            .or_else(|| input.get("delay_seconds"))
+            .and_then(Value::as_i64);
         let delivery = self.delivery.lock().expect("delivery").clone();
-        let posted = collaboration::post_to_space_with(
+        let posted = collaboration::post_to_space_delayed_with(
             &self.pool,
             collaboration::PostToSpace {
                 caller_id: None,
@@ -510,6 +621,7 @@ impl HostCollaborationHost {
                 in_reply_to: optional_text(input, &["inReplyTo", "in_reply_to"]),
                 operation_id: required_uuid(input, &["operationId", "operation_id"])?,
             },
+            delay_seconds,
             &delivery,
         )
         .await

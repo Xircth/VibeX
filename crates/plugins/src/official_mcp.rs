@@ -504,6 +504,8 @@ pub fn advertised_mcp_tools(product: &str, features: u8) -> Vec<PluginMcpToolSta
             tool("update_team", "collaboration"),
             tool("delete_team", "collaboration"),
             tool("list_teams", "collaboration"),
+            tool("list_collaboration_spaces", "collaboration"),
+            tool("list_space_members", "collaboration"),
             tool("create_collaboration_space", "collaboration"),
             tool("add_space_member", "collaboration"),
             tool("set_space_identity", "collaboration"),

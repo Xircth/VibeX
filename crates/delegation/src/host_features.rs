@@ -344,10 +344,12 @@ impl CompanionFeaturePort for HostCompanionFeatures {
                 Err(error) => steer_error(conversation_id, &error),
             };
         }
+        let mut delivery = self.conversations.delivery_context();
+        delivery.space_changed = self.space_changed_listener();
         match collaboration::send_session_input_with(
             &self.pool,
             request,
-            &self.conversations.delivery_context(),
+            &delivery,
         )
         .await
         {
@@ -618,7 +620,18 @@ async fn collaboration_tool(
                 operation_id,
             )
             .await?;
+            if let Some(listener) = on_space_changed.as_ref() {
+                listener(collaboration::CollaborationSpaceChangedEvent {
+                    workspace_id: space.workspace_id,
+                    space_id: space.space_id.clone(),
+                    seq: None,
+                    member_id: None,
+                });
+            }
             Ok(serde_json::to_value(space).unwrap_or(json!({})))
+        }
+        "list_collaboration_spaces" => {
+            collaboration::list_collaboration_spaces_for_caller(pool, caller_id).await
         }
         "add_space_member" => {
             let operation_id = uuid_arg("operation_id").ok_or_else(|| {
@@ -689,8 +702,12 @@ async fn collaboration_tool(
                         .collect()
                 })
                 .unwrap_or_default();
+            let delay_seconds = arguments
+                .get("delay_seconds")
+                .or_else(|| arguments.get("delaySeconds"))
+                .and_then(Value::as_i64);
             let space_id = text("space_id");
-            let posted = collaboration::post_to_space_with(
+            let posted = collaboration::post_to_space_delayed_with(
                 pool,
                 collaboration::PostToSpace {
                     caller_id: Some(caller_id),
@@ -707,6 +724,7 @@ async fn collaboration_tool(
                         .map(str::to_string),
                     operation_id,
                 },
+                delay_seconds,
                 delivery,
             )
             .await?;
@@ -734,13 +752,7 @@ async fn collaboration_tool(
             Ok(json!({ "messages": messages }))
         }
         "list_space_members" => {
-            let members = collaboration::list_space_members(
-                pool,
-                &text("space_id"),
-                collaboration::MessageAudience::Agent,
-            )
-            .await?;
-            Ok(json!({ "members": members }))
+            collaboration::list_space_members_detailed(pool, caller_id, &text("space_id")).await
         }
         _ => Err(collaboration::CollaborationError::new(
             "not_found",

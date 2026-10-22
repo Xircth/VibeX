@@ -353,9 +353,13 @@ pub fn run() {
             }
         });
         let delayed_input_pool = state.deployment.db().pool.clone();
+        let delayed_input_events = state.host.events.clone();
         let delayed_input_delivery =
             conversations::ScopedConversationControl::new(state.conversation_context())
-                .delivery_context();
+                .delivery_context()
+                .with_space_changed(move |event| {
+                    delayed_input_events.emit(server::COLLABORATION_SPACE_CHANGED_EVENT, event);
+                });
         // Setup itself is synchronous. The promoter parks a Tokio task, so it
         // has to start on the desktop runtime.
         tauri::async_runtime::spawn(async move {

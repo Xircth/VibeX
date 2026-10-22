@@ -154,8 +154,10 @@
       "description": "Drag the zones in the diagram to rearrange them; changes apply after saving.",
       "workspaceLabel": "Workspace",
       "kanbanLabel": "Kanban",
+      "collaborationLabel": "Collaboration",
       "dragHint": "Drag one zone onto another to swap them; each zone keeps its size when moved.",
       "kanbanHint": "Arrangement of the session list (A), session monitor (B), and session execution area (C).",
+      "collaborationHint": "Arrangement of collaboration spaces (A), message thread (B), and preview area (C).",
       "hint": "You can still drag the dividers on each page to resize the zones.",
       "zones": {
         "dock": "Sidebar panels",
@@ -167,6 +169,11 @@
         "list": "Session list",
         "monitor": "Session monitor",
         "session": "Session execution"
+      },
+      "collaborationZones": {
+        "spaces": "Collaboration spaces",
+        "thread": "Message thread",
+        "preview": "Preview"
       }
     }
   },
@@ -1611,7 +1618,7 @@
     "multiAgentDays": "List window (days)",
     "multiAgentHours": "Delay cap (hours)",
     "multiAgentRangeError": "Depth 1–8, cache at least 0, list window 1–90, delay cap 1–168.",
-    "multiAgentDefaultsTitle": "Delegation defaults",
+    "multiAgentDefaultsTitle": "Default Agent delegation config",
     "multiAgentDefaultsHint": "Applies only to new child sessions started by delegate_to_agent.",
     "utilityFeaturesTitle": "Utilities",
     "sessionFeaturesTitle": "Sessions",

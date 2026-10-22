@@ -106,6 +106,8 @@ impl CompanionFeatures {
             | "update_team"
             | "delete_team"
             | "list_teams"
+            | "list_collaboration_spaces"
+            | "list_space_members"
             | "create_collaboration_space"
             | "add_space_member"
             | "set_space_identity"
@@ -555,6 +557,8 @@ impl Companion {
             | "update_team"
             | "delete_team"
             | "list_teams"
+            | "list_collaboration_spaces"
+            | "list_space_members"
             | "create_collaboration_space"
             | "add_space_member"
             | "set_space_identity"
@@ -1101,6 +1105,8 @@ mod tests {
                 "create_team",
                 "update_team",
                 "delete_team",
+                "list_collaboration_spaces",
+                "list_space_members",
                 "create_collaboration_space",
                 "add_space_member",
                 "set_space_identity",
@@ -1111,7 +1117,8 @@ mod tests {
         assert!(!names.contains(&"cancel_session_turn"));
         assert!(!names.contains(&"wait_for_session"));
         assert!(!names.contains(&"delegate_to_agent"));
-        assert!(!names.contains(&"list_space_members"));
+        assert!(names.contains(&"list_collaboration_spaces"));
+        assert!(names.contains(&"list_space_members"));
     }
 
     #[test]

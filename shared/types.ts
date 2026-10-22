@@ -2120,9 +2120,9 @@ export type ConversationInputEvent = { "kind": "submitted", input_id: string, op
 
 export type ConversationInputPayload = { agentId: AgentId, workspaceId: string, executorProfileId?: JsonValue | null, text: string, displayText?: string | null, images?: Array<string>, modeOverride?: string | null, configOverrides?: Array<AgentSessionConfigOverride>, workflowRefs?: Array<ConversationWorkflowRef>, fileRefs?: Array<ConversationFileRef>, };
 
-export type ConversationInputStatus = "queued" | "claimed" | "dispatched" | "cancelled";
+export type ConversationInputStatus = "queued" | "scheduled" | "claimed" | "dispatched" | "cancelled";
 
-export type ConversationInputView = { id: string, conversationId: string, operationId: string, revision: bigint, sortKey: bigint, status: ConversationInputStatus, payload: ConversationInputPayload, principal: JsonValue, claimToken: string | null, claimDeadline: string | null, turnId: string | null, createdAt: string, updatedAt: string, };
+export type ConversationInputView = { id: string, conversationId: string, operationId: string, revision: bigint, sortKey: bigint, status: ConversationInputStatus, payload: ConversationInputPayload, principal: JsonValue, claimToken: string | null, claimDeadline: string | null, turnId: string | null, createdAt: string, updatedAt: string, deliverAt?: string | null, };
 
 export type ConversationInputSubmission = { input: ConversationInputView, turn: ConversationTurnSnapshot | null, };
 

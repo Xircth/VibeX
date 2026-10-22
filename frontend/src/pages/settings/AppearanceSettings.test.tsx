@@ -16,6 +16,7 @@ const mocks = vi.hoisted(() => ({
   setUiLanguage: vi.fn(),
   setLayoutArrangement: vi.fn(),
   setKanbanArrangement: vi.fn(),
+  setCollaborationArrangement: vi.fn(),
   setKanbanSessionListView: vi.fn(),
   setKanbanBoardStyle: vi.fn(),
   setSettingsNavFloat: vi.fn(),
@@ -71,13 +72,20 @@ vi.mock('@/lib/layoutArrangement', () => {
     bottom: 'terminal',
   };
   const kanban = { left: 'list', center: 'monitor', right: 'session' };
+  const collaboration = {
+    left: 'spaces',
+    center: 'thread',
+    right: 'preview',
+  };
   return {
     arrangementsEqual: (a: object, b: object) =>
       JSON.stringify(a) === JSON.stringify(b),
     useLayoutArrangement: () => workspace,
     useKanbanArrangement: () => kanban,
+    useCollaborationArrangement: () => collaboration,
     setLayoutArrangement: mocks.setLayoutArrangement,
     setKanbanArrangement: mocks.setKanbanArrangement,
+    setCollaborationArrangement: mocks.setCollaborationArrangement,
   };
 });
 
@@ -102,6 +110,7 @@ vi.mock('@/lib/settingsNavFloat', () => ({
 vi.mock('./LayoutArrangementSchematic', () => ({
   WorkspaceLayoutSchematic: () => <div>workspace schematic</div>,
   KanbanLayoutSchematic: () => <div>kanban schematic</div>,
+  CollaborationLayoutSchematic: () => <div>collaboration schematic</div>,
 }));
 
 describe('AppearanceSettings', () => {
@@ -313,12 +322,15 @@ describe('AppearanceSettings', () => {
     });
   });
 
-  it('switches the ABC layout preview between workspace and kanban', async () => {
+  it('switches the ABC layout preview between workspace, kanban, and collaboration', async () => {
     const user = userEvent.setup();
     render(<AppearanceSettings />);
 
     expect(screen.getByText('workspace schematic')).toBeInTheDocument();
     expect(screen.queryByText('kanban schematic')).not.toBeInTheDocument();
+    expect(
+      screen.queryByText('collaboration schematic')
+    ).not.toBeInTheDocument();
     expect(screen.queryByText('Workspace 页面')).not.toBeInTheDocument();
     expect(screen.queryByText('Kanban 页面')).not.toBeInTheDocument();
     expect(
@@ -328,5 +340,12 @@ describe('AppearanceSettings', () => {
     await user.click(screen.getByRole('radio', { name: '看板' }));
     expect(screen.getByText('kanban schematic')).toBeInTheDocument();
     expect(screen.queryByText('workspace schematic')).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole('radio', { name: '协作空间' }));
+    expect(screen.getByText('collaboration schematic')).toBeInTheDocument();
+    expect(screen.queryByText('kanban schematic')).not.toBeInTheDocument();
+    expect(
+      screen.getByText('协作空间（A）、消息区（B）与预览区（C）的排列。')
+    ).toBeInTheDocument();
   });
 });

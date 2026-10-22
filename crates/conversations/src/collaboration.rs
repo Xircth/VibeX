@@ -55,6 +55,23 @@ pub trait IdleTurnDispatcher: Send + Sync {
 pub struct DeliveryContext {
     pub publisher: Option<Arc<dyn crate::ConversationEventPublisher>>,
     pub dispatcher: Option<Arc<dyn IdleTurnDispatcher>>,
+    pub space_changed: Option<Arc<dyn Fn(CollaborationSpaceChangedEvent) + Send + Sync>>,
+}
+
+impl DeliveryContext {
+    pub fn with_space_changed(
+        mut self,
+        listener: impl Fn(CollaborationSpaceChangedEvent) + Send + Sync + 'static,
+    ) -> Self {
+        self.space_changed = Some(Arc::new(listener));
+        self
+    }
+
+    pub fn notify_space_changed(&self, event: CollaborationSpaceChangedEvent) {
+        if let Some(listener) = &self.space_changed {
+            listener(event);
+        }
+    }
 }
 
 /// Why a new child cannot be admitted under the shared collaboration budget.
@@ -1019,14 +1036,21 @@ pub async fn persona_prompt_text(
     pool: &SqlitePool,
     conversation_id: Uuid,
 ) -> Result<Option<String>, CollaborationError> {
-    let prompt: Option<String> = sqlx::query_scalar(
+    let prompt: Option<String> = sqlx::query_scalar::<_, String>(
         "SELECT persona_prompt FROM conversation_personas WHERE conversation_id = ?",
     )
     .bind(conversation_id.to_string())
     .fetch_optional(pool)
     .await
-    .map_err(db)?;
-    Ok(prompt.filter(|value| !value.trim().is_empty()))
+    .map_err(db)?
+    .filter(|value: &String| !value.trim().is_empty());
+    let space_context = member_space_context_text(pool, conversation_id).await?;
+    match (prompt, space_context) {
+        (Some(persona), Some(context)) => Ok(Some(format!("{}\n\n{}", persona.trim(), context))),
+        (Some(persona), None) => Ok(Some(persona)),
+        (None, Some(context)) => Ok(Some(context)),
+        (None, None) => Ok(None),
+    }
 }
 
 /// Standing instruction the user already sees as the first host note.
@@ -1036,11 +1060,16 @@ pub fn prefix_persona_prompt(persona: &str, text: &str) -> String {
     if persona.is_empty() {
         return text.to_string();
     }
+    let header = if persona.starts_with("[协作空间成员身份]") {
+        persona.to_string()
+    } else {
+        format!("人设\n{persona}")
+    };
     let text = text.trim();
     if text.is_empty() {
-        return format!("人设\n{persona}");
+        return header;
     }
-    format!("人设\n{persona}\n\n{text}")
+    format!("{header}\n\n{text}")
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -1135,13 +1164,21 @@ pub async fn send_session_input_with(
     .await?;
     let cap = bounded_delay_cap_hours(input.delay_cap_hours);
     if let Some(when) = scheduled_deadline(&input, cap)? {
-        return schedule_input(pool, &input, &target, when).await;
+        let receipt = schedule_input(pool, &input, &target, when).await?;
+        delivery.notify_space_changed(CollaborationSpaceChangedEvent {
+            workspace_id: target.workspace_id,
+            space_id: format!("session:{}", input.conversation_id),
+            seq: None,
+            member_id: Some(input.caller_id.to_string()),
+        });
+        return Ok(receipt);
     }
     deliver_text(
         pool,
         input.conversation_id,
         input.operation_id,
         &input.text,
+        None,
         &target,
         json!({
             "kind": "companion",
@@ -1286,6 +1323,7 @@ async fn deliver_text(
     conversation_id: Uuid,
     operation_id: Uuid,
     text: &str,
+    display_text: Option<String>,
     target: &SessionHead,
     principal: Value,
     delivery: &DeliveryContext,
@@ -1348,7 +1386,7 @@ async fn deliver_text(
                 workspace_id: target.workspace_id,
                 executor_profile_id: None,
                 text: text.to_string(),
-                display_text: None,
+                display_text,
                 images: Vec::new(),
                 mode_override: None,
                 config_overrides: Vec::new(),
@@ -1698,6 +1736,98 @@ async fn promote_one(
     row: &DueDelay,
     delivery: &DeliveryContext,
 ) -> Result<bool, CollaborationError> {
+    let principal: Value =
+        serde_json::from_str(&row.principal_json).unwrap_or_else(|_| json!({}));
+    if principal.get("kind").and_then(Value::as_str) == Some("collaboration_space_post") {
+        let payload: Value =
+            serde_json::from_str(&row.payload_json).unwrap_or_else(|_| json!({}));
+        let space_id = payload
+            .get("space_id")
+            .and_then(Value::as_str)
+            .or_else(|| principal.get("space_id").and_then(Value::as_str))
+            .unwrap_or_default()
+            .to_string();
+        let caller_id = payload
+            .get("caller_id")
+            .and_then(Value::as_str)
+            .and_then(|v| Uuid::parse_str(v).ok());
+        let content = payload
+            .get("content")
+            .and_then(Value::as_str)
+            .unwrap_or_default()
+            .to_string();
+        let summary = payload
+            .get("summary")
+            .and_then(Value::as_str)
+            .map(str::to_string);
+        let to = payload
+            .get("to")
+            .and_then(Value::as_array)
+            .map(|items| {
+                items
+                    .iter()
+                    .filter_map(Value::as_str)
+                    .map(str::to_string)
+                    .collect::<Vec<_>>()
+            })
+            .unwrap_or_default();
+        let in_reply_to = payload
+            .get("in_reply_to")
+            .and_then(Value::as_str)
+            .map(str::to_string);
+        let operation_id = Uuid::parse_str(&row.operation_id).unwrap_or_else(|_| Uuid::new_v4());
+        match post_to_space_with(
+            pool,
+            PostToSpace {
+                caller_id,
+                space_id: space_id.clone(),
+                content,
+                summary,
+                to,
+                in_reply_to,
+                operation_id,
+            },
+            delivery,
+        )
+        .await
+        {
+            Ok(posted) => {
+                sqlx::query(
+                    r#"UPDATE conversation_delayed_inputs
+                       SET status = 'promoted', promoted_input_id = ?, error = NULL
+                       WHERE id = ? AND status = 'scheduled'"#,
+                )
+                .bind(&posted.message_id)
+                .bind(&row.id)
+                .execute(pool)
+                .await
+                .map_err(db)?;
+                if let Ok(workspace_id) = space_workspace_id(pool, &space_id).await {
+                    delivery.notify_space_changed(CollaborationSpaceChangedEvent {
+                        workspace_id,
+                        space_id,
+                        seq: Some(posted.seq),
+                        member_id: None,
+                    });
+                }
+                return Ok(true);
+            }
+            Err(error) if error.code == "limit_exceeded" => return Ok(false),
+            Err(error) => {
+                mark_delay_failed(pool, &row.id, &error.message).await?;
+                if let Ok(workspace_id) = space_workspace_id(pool, &space_id).await {
+                    delivery.notify_space_changed(CollaborationSpaceChangedEvent {
+                        workspace_id,
+                        space_id,
+                        seq: None,
+                        member_id: None,
+                    });
+                }
+                return Ok(false);
+            }
+        }
+    }
+
     let Ok(conversation_id) = Uuid::parse_str(&row.conversation_id) else {
         mark_delay_failed(pool, &row.id, "invalid conversation").await?;
         return Ok(false);
@@ -1720,14 +1850,19 @@ async fn promote_one(
         .and_then(Value::as_str)
         .unwrap_or_default()
         .to_string();
-    let principal = serde_json::from_str(&row.principal_json).unwrap_or_else(|_| json!({}));
+    let display_text = payload
+        .get("display_text")
+        .or_else(|| payload.get("displayText"))
+        .and_then(Value::as_str)
+        .map(str::to_string);
     let receipt = match deliver_text(
         pool,
         conversation_id,
         operation_id,
         &text,
+        display_text,
         &head,
-        principal,
+        principal.clone(),
         delivery,
     )
     .await
@@ -1749,6 +1884,16 @@ async fn promote_one(
     .execute(pool)
     .await
     .map_err(db)?;
+    let parent_conv = principal
+        .get("parentConversationId")
+        .and_then(Value::as_str)
+        .map(str::to_string);
+    delivery.notify_space_changed(CollaborationSpaceChangedEvent {
+        workspace_id: head.workspace_id,
+        space_id: format!("session:{conversation_id}"),
+        seq: None,
+        member_id: parent_conv,
+    });
     Ok(true)
 }
 
@@ -1900,6 +2045,36 @@ pub async fn create_workspace_space(
     Ok(record)
 }
 
+pub async fn rename_workspace_space(
+    pool: &SqlitePool,
+    space_id: &str,
+    name: &str,
+) -> Result<SpaceRecord, CollaborationError> {
+    let workspace_id = space_workspace_id(pool, space_id).await?;
+    let name = require_name(name)?;
+    let updated = sqlx::query(
+        r#"UPDATE collaboration_spaces
+           SET name = ?
+           WHERE id = ?"#,
+    )
+    .bind(&name)
+    .bind(space_id)
+    .execute(pool)
+    .await
+    .map_err(db)?;
+    if updated.rows_affected() == 0 {
+        return Err(CollaborationError::new(
+            "not_found",
+            "space was not found",
+        ));
+    }
+    Ok(SpaceRecord {
+        space_id: space_id.to_string(),
+        name,
+        workspace_id,
+    })
+}
+
 pub async fn list_workspace_spaces(
     pool: &SqlitePool,
     workspace_id: Uuid,
@@ -1934,12 +2109,24 @@ pub struct WorkspaceConversationOption {
     pub turn_in_flight: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub team_name: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub workspace_name: Option<String>,
 }
 
 pub async fn list_workspace_conversations(
     pool: &SqlitePool,
     workspace_id: Uuid,
 ) -> Result<Vec<WorkspaceConversationOption>, CollaborationError> {
+    let workspace_name = sqlx::query_scalar::<_, Option<String>>(
+        r#"SELECT COALESCE(NULLIF(TRIM(name), ''), NULLIF(TRIM(branch), ''))
+           FROM workspaces WHERE id = ? LIMIT 1"#,
+    )
+    .bind(workspace_id)
+    .fetch_optional(pool)
+    .await
+    .map_err(db)?
+    .flatten()
+    .filter(|value| !value.trim().is_empty());
     let rows = sqlx::query_as::<_, (Uuid, Option<String>, Option<String>, String, String, i64)>(
         r#"SELECT s.id,
                   s.name,
@@ -1988,6 +2175,7 @@ pub async fn list_workspace_conversations(
                     updated_at,
                     turn_in_flight: turn_in_flight_flag != 0,
                     team_name,
+                    workspace_name: workspace_name.clone(),
                 }
             },
         )
@@ -2775,6 +2963,121 @@ pub async fn post_to_space(
     post_to_space_with(pool, input, &DeliveryContext::default()).await
 }
 
+pub async fn post_to_space_delayed_with(
+    pool: &SqlitePool,
+    input: PostToSpace,
+    delay_seconds: Option<i64>,
+    turn_delivery: &DeliveryContext,
+) -> Result<SpacePostResult, CollaborationError> {
+    let seconds = delay_seconds.unwrap_or(0);
+    if seconds <= 0 {
+        return post_to_space_with(pool, input, turn_delivery).await;
+    }
+    let cap_seconds = Duration::hours(HARD_DELAY_HOURS).num_seconds();
+    if seconds > cap_seconds {
+        return Err(CollaborationError::new(
+            "delay_exceeds_cap",
+            format!("delay exceeds {HARD_DELAY_HOURS} hours"),
+        ));
+    }
+    let content = input.content.trim();
+    if content.is_empty() {
+        return Err(CollaborationError::new(
+            "conversation_control_failed",
+            "content must not be empty",
+        ));
+    }
+    let (nickname, sender) = match input.caller_id {
+        Some(caller_id) => {
+            let member = ensure_agent_member(pool, &input.space_id, caller_id).await?;
+            (member.nickname, Some(caller_id))
+        }
+        None => {
+            ensure_user_member(pool, &input.space_id).await?;
+            ("user".to_string(), None)
+        }
+    };
+    let targets = resolve_targets(pool, &input.space_id, sender, &input.to, content).await?;
+    let deliver_at = Utc::now() + Duration::seconds(seconds);
+    let deliver_at_stamp = stamp(deliver_at);
+    let digest = digest_text(content);
+    let principal = json!({
+        "kind": "collaboration_space_post",
+        "space_id": input.space_id,
+        "caller_id": input.caller_id,
+        "nickname": nickname,
+    })
+    .to_string();
+    let payload = json!({
+        "space_id": input.space_id,
+        "caller_id": input.caller_id,
+        "nickname": nickname,
+        "content": content,
+        "summary": input.summary,
+        "to": input.to,
+        "in_reply_to": input.in_reply_to,
+        "operation_id": input.operation_id,
+    });
+    let conv_key = input
+        .caller_id
+        .unwrap_or_else(Uuid::nil)
+        .to_string();
+    let op_key = input.operation_id.to_string();
+    let existing = sqlx::query_as::<_, (String, String, String)>(
+        r#"SELECT id, payload_digest, principal_json FROM conversation_delayed_inputs
+           WHERE conversation_id = ? AND operation_id = ?"#,
+    )
+    .bind(&conv_key)
+    .bind(&op_key)
+    .fetch_optional(pool)
+    .await
+    .map_err(db)?;
+    let delayed_id = if let Some((id, stored_digest, stored_principal)) = existing {
+        if stored_digest != digest || stored_principal != principal {
+            return Err(operation_conflict());
+        }
+        id
+    } else {
+        let id = Uuid::new_v4().to_string();
+        sqlx::query(
+            r#"INSERT INTO conversation_delayed_inputs
+               (id, conversation_id, operation_id, payload_json, payload_digest, principal_json,
+                deliver_at, status, created_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, 'scheduled', ?)"#,
+        )
+        .bind(&id)
+        .bind(&conv_key)
+        .bind(&op_key)
+        .bind(payload.to_string())
+        .bind(&digest)
+        .bind(&principal)
+        .bind(&deliver_at_stamp)
+        .bind(now_stamp())
+        .execute(pool)
+        .await
+        .map_err(db)?;
+        id
+    };
+    let receipts = targets
+        .into_iter()
+        .filter_map(|target| {
+            let conversation_id = target.conversation_id?;
+            Some(DeliveryReceipt {
+                conversation_id,
+                nickname: target.nickname,
+                delivered: "scheduled".to_string(),
+                input_id: None,
+                error_code: None,
+            })
+        })
+        .collect();
+    Ok(SpacePostResult {
+        message_id: delayed_id,
+        seq: 0,
+        receipts,
+    })
+}
+
 pub async fn post_to_space_with(
     pool: &SqlitePool,
     input: PostToSpace,
@@ -2817,7 +3120,10 @@ pub async fn post_to_space_with(
         }
         return deliver_pending(pool, &input.space_id, &message_id, turn_delivery).await;
     }
-    let targets = resolve_targets(pool, &input.space_id, sender, &input.to).await?;
+    let targets = resolve_targets(pool, &input.space_id, sender, &input.to, content).await?;
+    if targets.iter().any(|target| target.conversation_id.is_none()) {
+        let _ = ensure_user_member(pool, &input.space_id).await;
+    }
     let summary = input
         .summary
         .as_deref()
@@ -2834,7 +3140,16 @@ pub async fn post_to_space_with(
         "id": format!("vibex://space-message/{message_id}"),
         "actor": actor,
         "attributedTo": attributed_to,
-        "to": targets.iter().map(|target| member_actor(&input.space_id, &target.nickname)).collect::<Vec<_>>(),
+        "to": targets
+            .iter()
+            .map(|target| {
+                if target.conversation_id.is_none() {
+                    user_actor(&input.space_id)
+                } else {
+                    member_actor(&input.space_id, &target.nickname)
+                }
+            })
+            .collect::<Vec<_>>(),
         "inReplyTo": input.in_reply_to,
         "summary": summary,
         "content": content,
@@ -2865,7 +3180,9 @@ pub async fn post_to_space_with(
         .execute(&mut *conn)
         .await?;
         for target in &targets {
-            let target_id = target.conversation_id.expect("agent member has a conversation");
+            let Some(target_id) = target.conversation_id else {
+                continue;
+            };
             sqlx::query(
                 r#"INSERT INTO collaboration_space_deliveries
                    (space_message_id, conversation_id, operation_id, input_id, status)
@@ -2921,6 +3238,27 @@ async fn deliver_pending(
     .fetch_one(pool)
     .await
     .map_err(db)?;
+    let space_name = sqlx::query_scalar::<_, String>(
+        "SELECT name FROM collaboration_spaces WHERE id = ? LIMIT 1",
+    )
+    .bind(space_id)
+    .fetch_optional(pool)
+    .await
+    .map_err(db)?
+    .unwrap_or_else(|| {
+        if parse_unassigned_space_id(space_id).is_some() {
+            "未定空间".to_string()
+        } else {
+            space_id.to_string()
+        }
+    });
+    let space_members = list_space_members(pool, space_id, MessageAudience::Agent)
+        .await
+        .unwrap_or_default();
+    let member_nicknames: Vec<String> = space_members
+        .iter()
+        .map(|member| member.nickname.clone())
+        .collect();
     let summary = envelope
         .get("summary")
         .and_then(Value::as_str)
@@ -2929,7 +3267,18 @@ async fn deliver_pending(
         .get("content")
         .and_then(Value::as_str)
         .unwrap_or_default();
-    let attention = format!("{summary}\n\n{content}");
+    let display_text = clean_space_display_text(content, &member_nicknames);
+    let attention = build_space_delivery_prompt(
+        space_id,
+        &space_name,
+        message_id,
+        seq,
+        &envelope,
+        &space_members,
+        summary,
+        content,
+        &display_text,
+    );
     let pending = sqlx::query_as::<_, PendingDelivery>(
         r#"SELECT conversation_id, operation_id, input_id, status
            FROM collaboration_space_deliveries
@@ -2987,6 +3336,7 @@ async fn deliver_pending(
             conversation_id,
             operation_id,
             &attention,
+            Some(display_text.clone()),
             &target,
             json!({
                 "kind": "collaboration_space",
@@ -3084,6 +3434,156 @@ pub async fn list_space_messages(
         .collect())
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ScheduledSpaceMessage {
+    pub id: String,
+    pub space_id: String,
+    pub caller_id: Option<String>,
+    pub nickname: String,
+    pub content: String,
+    pub summary: Option<String>,
+    pub to: Vec<String>,
+    pub deliver_at: String,
+    pub created_at: String,
+}
+
+pub async fn list_space_scheduled_messages(
+    pool: &SqlitePool,
+    space_id: &str,
+) -> Result<Vec<ScheduledSpaceMessage>, CollaborationError> {
+    let rows = sqlx::query_as::<_, (String, String, String, String, String)>(
+        r#"SELECT id, payload_json, principal_json, deliver_at, created_at
+           FROM conversation_delayed_inputs
+           WHERE status = 'scheduled'
+             AND json_extract(principal_json, '$.kind') = 'collaboration_space_post'
+             AND json_extract(principal_json, '$.space_id') = ?
+           ORDER BY deliver_at ASC, created_at ASC"#,
+    )
+    .bind(space_id)
+    .fetch_all(pool)
+    .await
+    .map_err(db)?;
+
+    let mut items = Vec::with_capacity(rows.len());
+    for (id, payload_raw, principal_raw, deliver_at, created_at) in rows {
+        let payload: Value = serde_json::from_str(&payload_raw).unwrap_or_else(|_| json!({}));
+        let principal: Value = serde_json::from_str(&principal_raw).unwrap_or_else(|_| json!({}));
+        let caller_id = payload
+            .get("caller_id")
+            .and_then(Value::as_str)
+            .or_else(|| principal.get("caller_id").and_then(Value::as_str))
+            .map(str::to_string);
+        let nickname = payload
+            .get("nickname")
+            .and_then(Value::as_str)
+            .or_else(|| principal.get("nickname").and_then(Value::as_str))
+            .unwrap_or("user")
+            .to_string();
+        let content = payload
+            .get("content")
+            .and_then(Value::as_str)
+            .unwrap_or_default()
+            .to_string();
+        let summary = payload
+            .get("summary")
+            .and_then(Value::as_str)
+            .map(str::to_string);
+        let to = payload
+            .get("to")
+            .and_then(Value::as_array)
+            .map(|arr| {
+                arr.iter()
+                    .filter_map(Value::as_str)
+                    .map(str::to_string)
+                    .collect()
+            })
+            .unwrap_or_default();
+        items.push(ScheduledSpaceMessage {
+            id,
+            space_id: space_id.to_string(),
+            caller_id,
+            nickname,
+            content,
+            summary,
+            to,
+            deliver_at,
+            created_at,
+        });
+    }
+    Ok(items)
+}
+
+pub async fn cancel_space_scheduled_message(
+    pool: &SqlitePool,
+    space_id: &str,
+    id: &str,
+) -> Result<bool, CollaborationError> {
+    let result = sqlx::query(
+        r#"UPDATE conversation_delayed_inputs
+           SET status = 'cancelled'
+           WHERE id = ? AND status = 'scheduled'
+             AND json_extract(principal_json, '$.kind') = 'collaboration_space_post'
+             AND json_extract(principal_json, '$.space_id') = ?"#,
+    )
+    .bind(id)
+    .bind(space_id)
+    .execute(pool)
+    .await
+    .map_err(db)?;
+    Ok(result.rows_affected() > 0)
+}
+
+pub async fn update_space_scheduled_message(
+    pool: &SqlitePool,
+    space_id: &str,
+    id: &str,
+    content: Option<&str>,
+    delay_seconds: Option<i64>,
+) -> Result<Option<ScheduledSpaceMessage>, CollaborationError> {
+    let row = sqlx::query_as::<_, (String, String, String, String)>(
+        r#"SELECT payload_json, principal_json, deliver_at, created_at
+           FROM conversation_delayed_inputs
+           WHERE id = ? AND status = 'scheduled'
+             AND json_extract(principal_json, '$.kind') = 'collaboration_space_post'
+             AND json_extract(principal_json, '$.space_id') = ?"#,
+    )
+    .bind(id)
+    .bind(space_id)
+    .fetch_optional(pool)
+    .await
+    .map_err(db)?;
+    let Some((payload_raw, _principal_raw, deliver_at, _created_at)) = row else {
+        return Ok(None);
+    };
+    let mut payload: Value = serde_json::from_str(&payload_raw).unwrap_or_else(|_| json!({}));
+    if let Some(next_content) = content.map(str::trim).filter(|c| !c.is_empty()) {
+        payload["content"] = json!(next_content);
+    }
+    let next_deliver_at = match delay_seconds.filter(|s| *s > 0) {
+        Some(seconds) => stamp(Utc::now() + Duration::seconds(seconds)),
+        None => deliver_at,
+    };
+    let next_text = payload
+        .get("content")
+        .and_then(Value::as_str)
+        .unwrap_or_default();
+    let digest = digest_text(next_text);
+    sqlx::query(
+        r#"UPDATE conversation_delayed_inputs
+           SET payload_json = ?, payload_digest = ?, deliver_at = ?
+           WHERE id = ? AND status = 'scheduled'"#,
+    )
+    .bind(payload.to_string())
+    .bind(&digest)
+    .bind(&next_deliver_at)
+    .bind(id)
+    .execute(pool)
+    .await
+    .map_err(db)?;
+    let all = list_space_scheduled_messages(pool, space_id).await?;
+    Ok(all.into_iter().find(|item| item.id == id))
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, FromRow)]
 pub struct MemberRecord {
     pub member_id: String,
@@ -3142,14 +3642,446 @@ struct ResolvedTarget {
     nickname: String,
 }
 
+fn is_user_target_name(raw: &str) -> bool {
+    let trimmed = raw.trim().trim_start_matches('@').trim();
+    trimmed.eq_ignore_ascii_case("user") || trimmed == "你" || trimmed == "用户"
+}
+
+fn is_valid_mention_boundary(name: &str, after: Option<char>) -> bool {
+    let Some(next) = after else {
+        return true;
+    };
+    let ends_ascii_word = name
+        .chars()
+        .last()
+        .is_some_and(|ch| ch.is_ascii_alphanumeric() || ch == '_');
+    if ends_ascii_word && (next.is_ascii_alphanumeric() || next == '_') {
+        return false;
+    }
+    true
+}
+
+fn contains_mention_token(content: &str, name: &str) -> bool {
+    let name = name.trim();
+    if name.is_empty() {
+        return false;
+    }
+    let needle = format!("@{name}");
+    for (idx, _) in content.match_indices(&needle) {
+        if idx > 0 {
+            let prev = content[..idx].chars().last();
+            if prev.is_some_and(|ch| ch.is_ascii_alphanumeric() || ch == '_' || ch == '@') {
+                continue;
+            }
+        }
+        let after = content[idx + needle.len()..].chars().next();
+        if is_valid_mention_boundary(name, after) {
+            return true;
+        }
+    }
+    false
+}
+
+pub fn clean_space_display_text(content: &str, member_nicknames: &[String]) -> String {
+    let mut candidates: Vec<String> = member_nicknames
+        .iter()
+        .map(|name| name.trim().to_string())
+        .filter(|name| !name.is_empty())
+        .collect();
+    for builtin in ["User", "user", "你", "用户"] {
+        if !candidates.iter().any(|existing| existing == builtin) {
+            candidates.push(builtin.to_string());
+        }
+    }
+    candidates.sort_by(|a, b| b.chars().count().cmp(&a.chars().count()));
+
+    let mut rest = content.trim();
+    loop {
+        let trimmed = rest.trim_start();
+        let Some(after_at) = trimmed.strip_prefix('@') else {
+            break;
+        };
+        let mut matched_len = None;
+        for cand in &candidates {
+            if let Some(rem) = after_at.strip_prefix(cand.as_str())
+                && is_valid_mention_boundary(cand, rem.chars().next())
+            {
+                matched_len = Some(cand.len());
+                break;
+            }
+        }
+        let Some(len) = matched_len else {
+            break;
+        };
+        rest = after_at[len..].trim_start_matches([' ', '\t', ',', '，', ':', '：']);
+    }
+
+    let mut cleaned = rest.trim().to_string();
+    for cand in &candidates {
+        let token = format!("@{cand}");
+        let mut offset = 0;
+        while let Some(pos) = cleaned[offset..].find(&token) {
+            let idx = offset + pos;
+            let prev_ok = if idx == 0 {
+                true
+            } else {
+                !cleaned[..idx]
+                    .chars()
+                    .last()
+                    .is_some_and(|ch| ch.is_ascii_alphanumeric() || ch == '_' || ch == '@')
+            };
+            let after_idx = idx + token.len();
+            let after_char = cleaned[after_idx..].chars().next();
+            if prev_ok && is_valid_mention_boundary(cand, after_char) {
+                let mut end = after_idx;
+                if cleaned[end..].starts_with(' ') && idx > 0 && cleaned[..idx].ends_with(' ') {
+                    end += 1;
+                }
+                cleaned.replace_range(idx..end, "");
+                offset = idx;
+            } else {
+                offset = after_idx;
+            }
+        }
+    }
+    let final_text = cleaned.trim();
+    if final_text.is_empty() {
+        content.trim().to_string()
+    } else {
+        final_text.to_string()
+    }
+}
+
+fn build_space_delivery_prompt(
+    space_id: &str,
+    space_name: &str,
+    message_id: &str,
+    seq: i64,
+    envelope: &Value,
+    space_members: &[MemberRecord],
+    summary: &str,
+    content: &str,
+    display_text: &str,
+) -> String {
+    let actor = envelope
+        .get("actor")
+        .and_then(Value::as_str)
+        .unwrap_or_default();
+    let attributed_to = envelope.get("attributedTo").and_then(Value::as_str);
+    let user_uri = user_actor(space_id);
+    let sender_label = if actor == user_uri || actor == "user" {
+        "User（用户）".to_string()
+    } else if let Some(nick) = actor.rsplit("/member/").next().filter(|v| *v != actor) {
+        if let Some(conv_uri) = attributed_to {
+            let conv_id = conv_uri.rsplit('/').next().unwrap_or(conv_uri);
+            format!("{nick} (conversation_id: {conv_id})")
+        } else {
+            nick.to_string()
+        }
+    } else {
+        actor.to_string()
+    };
+
+    let to_labels: Vec<String> = envelope
+        .get("to")
+        .and_then(Value::as_array)
+        .map(|items| {
+            items
+                .iter()
+                .filter_map(Value::as_str)
+                .map(|uri| {
+                    if uri == user_uri || uri.ends_with("/user") {
+                        "@User".to_string()
+                    } else if let Some(nick) = uri.rsplit("/member/").next().filter(|v| *v != uri)
+                    {
+                        format!("@{nick}")
+                    } else {
+                        uri.to_string()
+                    }
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+    let recipients_label = if to_labels.is_empty() {
+        "全体成员".to_string()
+    } else {
+        to_labels.join("、")
+    };
+
+    let roster_items: Vec<String> = space_members
+        .iter()
+        .map(|member| match member.conversation_id.as_deref() {
+            Some(cid) => format!("{} (conversation_id: {})", member.nickname, cid),
+            None => member.nickname.clone(),
+        })
+        .collect();
+    let roster_label = if roster_items.is_empty() {
+        "User（用户）".to_string()
+    } else {
+        format!("{}，以及 User（用户）", roster_items.join("、"))
+    };
+
+    let body = if !display_text.trim().is_empty() {
+        display_text.trim()
+    } else {
+        content.trim()
+    };
+    let summary_trimmed = summary.trim();
+    let distinct_summary = !summary_trimmed.is_empty()
+        && summary_trimmed != content.trim()
+        && summary_trimmed != body
+        && !content.trim().starts_with(summary_trimmed)
+        && !body.starts_with(summary_trimmed);
+
+    let mut prompt = format!(
+        "[协作空间消息]\n\
+         - 来源协作空间：{space_name} (space_id: {space_id})\n\
+         - 消息来源：{sender_label}\n\
+         - 收件成员：{recipients_label}\n\
+         - 消息序号：#{seq} (message_id: vibex://space-message/{message_id})\n\
+         - 空间内成员：{roster_label}\n\
+         - 协同交互规则（完整规范见 `vibex-multi-agent` Skill 的 `COLLABORATION-SPACE.md`）：使用 `post_to_space`（传入 `space_id: \"{space_id}\"`）时须遵守：\n\
+           1) 收到 User 消息先应答再执行：若本条消息来自 User 且需要调用工具、排查代码、检索资料或找成员协作，必须先调用一次 `post_to_space`（`to: [\"User\"]`，`content` 以 `@User ` 开头）简短回复已收到及处理计划（1~2 句），然后再继续开展工作，后续视进展向 `@User` 或 `@成员昵称` 同步与交付结果；\n\
+           2) 无需回复即停止：若收到的消息仅是纯确认/礼貌收尾（如“收到”、“已收到”、“好的”、“明白”、“OK”、“谢谢”）或事项已闭环、不需要你提供新信息或执行新动作，直接结束当前回合，严禁再调用 `post_to_space` 回复“好的/收到”；向其他成员发消息时也不要要求“收到请回复”；\n\
+           3) 对用户屏蔽内部参数：向 `@User` 发消息时严禁在正文中包含 `space_id`、`conversation_id`、`delayed_input_id`、`operation_id`、`message_id`、`task_id`、`turn_id`、`seq`、`vibex://` 等用户不可达的系统内部参数；仅在向 `@成员昵称` 发消息且对方确需调用底层跨会话工具时才按需附带；\n\
+           4) 空间感知工具：可按需单次调用 `list_collaboration_spaces`、`list_space_members`、`list_space_messages`（禁止循环轮询等待）。\n\n"
+    );
+    if distinct_summary {
+        prompt.push_str(&format!("摘要：{summary_trimmed}\n\n"));
+    }
+    prompt.push_str(body);
+    prompt
+}
+
+pub async fn member_space_context_text(
+    pool: &SqlitePool,
+    conversation_id: Uuid,
+) -> Result<Option<String>, CollaborationError> {
+    let memberships = sqlx::query_as::<_, (String, String)>(
+        r#"SELECT space_id, nickname
+           FROM collaboration_space_members
+           WHERE conversation_id = ? AND kind = 'agent'
+           ORDER BY space_id"#,
+    )
+    .bind(conversation_id.to_string())
+    .fetch_all(pool)
+    .await
+    .map_err(db)?;
+    if memberships.is_empty() {
+        return Ok(None);
+    }
+
+    let mut sections = Vec::new();
+    for (space_id, my_nickname) in memberships {
+        let space_name = sqlx::query_scalar::<_, String>(
+            "SELECT name FROM collaboration_spaces WHERE id = ? LIMIT 1",
+        )
+        .bind(&space_id)
+        .fetch_optional(pool)
+        .await
+        .map_err(db)?
+        .unwrap_or_else(|| {
+            if parse_unassigned_space_id(&space_id).is_some() {
+                "未定空间".to_string()
+            } else {
+                space_id.clone()
+            }
+        });
+        let members = list_space_members(pool, &space_id, MessageAudience::User)
+            .await
+            .unwrap_or_default();
+        let peers: Vec<String> = members
+            .into_iter()
+            .filter(|m| m.kind == "agent" && m.visible_to_agents != 0)
+            .map(|m| match m.conversation_id.as_deref() {
+                Some(cid) if cid == conversation_id.to_string() => {
+                    format!("{}（你自己, conversation_id: {}）", m.nickname, cid)
+                }
+                Some(cid) => format!("{} (conversation_id: {})", m.nickname, cid),
+                None => m.nickname,
+            })
+            .collect();
+        let peers_label = if peers.is_empty() {
+            "User（用户）".to_string()
+        } else {
+            format!("{}，以及 User（用户）", peers.join("、"))
+        };
+        sections.push(format!(
+            "- 所属协作空间：{space_name} (space_id: {space_id})\n  你的成员昵称：{my_nickname} (conversation_id: {conversation_id})\n  同空间成员：{peers_label}"
+        ));
+    }
+
+    Ok(Some(format!(
+        "[协作空间成员身份]\n\
+         {}\n\
+         - 多智能体协同 MCP 工具：你可以使用 `list_collaboration_spaces`（查看所在协作空间）、`list_space_members`（查看同空间成员详情）、`list_space_messages`（单次读取空间消息）、`post_to_space`（向用户发消息传 `to: [\"User\"]` 并以 `@User ` 开头；向其他成员发消息传 `to: [\"成员昵称\"]` 并以 `@成员昵称 ` 开头）。\n\
+         - 协作空间交互规则（详见 `vibex-multi-agent` Skill 的 `COLLABORATION-SPACE.md`）：\n\
+           1) 接到来自 User 的任务消息时，先调用 `post_to_space` 向 `@User` 发送一条简短接单/计划回复，再继续执行工作，后续按进展向 `@User` 或其他成员发消息；\n\
+           2) 向 `@User` 发消息时严禁暴露 `space_id`、`conversation_id`、`delayed_input_id`、`operation_id`、`message_id`、`seq` 等用户不可达的内部参数（仅向其他成员发消息且确有必要时才可附带）；\n\
+           3) 收到“收到/已收到/好的/明白/谢谢”等纯确认或已闭环消息、无需继续回复时，直接停止，不再调用 `post_to_space` 回复，也不要要求其他成员“收到请回复”。",
+        sections.join("\n")
+    )))
+}
+
+pub async fn list_collaboration_spaces_for_caller(
+    pool: &SqlitePool,
+    caller_id: Uuid,
+) -> Result<Value, CollaborationError> {
+    let caller = live_session(load_session(pool, caller_id).await?)?;
+    let spaces = list_workspace_spaces(pool, caller.workspace_id).await?;
+    let caller_str = caller_id.to_string();
+    let mut items = Vec::new();
+    for space in spaces {
+        let members = list_space_members(pool, &space.space_id, MessageAudience::Agent)
+            .await
+            .unwrap_or_default();
+        let my_member = members
+            .iter()
+            .find(|m| m.conversation_id.as_deref() == Some(caller_str.as_str()));
+        let member_views: Vec<Value> = members
+            .iter()
+            .map(|m| {
+                json!({
+                    "member_id": m.member_id,
+                    "nickname": m.nickname,
+                    "conversation_id": m.conversation_id,
+                    "kind": m.kind,
+                    "is_self": m.conversation_id.as_deref() == Some(caller_str.as_str()),
+                })
+            })
+            .collect();
+        items.push(json!({
+            "space_id": space.space_id,
+            "name": space.name,
+            "workspace_id": space.workspace_id,
+            "is_member": my_member.is_some(),
+            "my_nickname": my_member.map(|m| m.nickname.clone()),
+            "member_count": member_views.len(),
+            "members": member_views,
+            "user_recipient": "User",
+        }));
+    }
+    Ok(json!({
+        "caller_conversation_id": caller_id,
+        "workspace_id": caller.workspace_id,
+        "spaces": items,
+    }))
+}
+
+pub async fn list_space_members_detailed(
+    pool: &SqlitePool,
+    caller_id: Uuid,
+    space_id: &str,
+) -> Result<Value, CollaborationError> {
+    let space_row = load_space_or_unassigned(pool, space_id).await?;
+    let space_name = sqlx::query_scalar::<_, String>(
+        "SELECT name FROM collaboration_spaces WHERE id = ? LIMIT 1",
+    )
+    .bind(space_id)
+    .fetch_optional(pool)
+    .await
+    .map_err(db)?
+    .unwrap_or_else(|| {
+        if parse_unassigned_space_id(space_id).is_some() {
+            "未定空间".to_string()
+        } else {
+            space_id.to_string()
+        }
+    });
+    let members = list_space_members(pool, space_id, MessageAudience::Agent).await?;
+    let workspace_uuid = Uuid::parse_str(&space_row.workspace_id).ok();
+    let conversations = match workspace_uuid {
+        Some(wid) => list_workspace_conversations(pool, wid).await.unwrap_or_default(),
+        None => Vec::new(),
+    };
+    let caller_str = caller_id.to_string();
+    let mut my_nickname = None;
+    let mut detailed = Vec::new();
+    for member in members {
+        if member.conversation_id.as_deref() == Some(caller_str.as_str()) {
+            my_nickname = Some(member.nickname.clone());
+        }
+        let conv_opt = member
+            .conversation_id
+            .as_deref()
+            .and_then(|cid| Uuid::parse_str(cid).ok())
+            .and_then(|cid| conversations.iter().find(|c| c.conversation_id == cid));
+        let persona = match member
+            .conversation_id
+            .as_deref()
+            .and_then(|cid| Uuid::parse_str(cid).ok())
+        {
+            Some(cid) => conversation_persona(pool, cid).await.ok().flatten(),
+            None => None,
+        };
+        detailed.push(json!({
+            "member_id": member.member_id,
+            "conversation_id": member.conversation_id,
+            "nickname": member.nickname,
+            "kind": member.kind,
+            "visible_to_agents": member.visible_to_agents,
+            "is_self": member.conversation_id.as_deref() == Some(caller_str.as_str()),
+            "agent_id": conv_opt.and_then(|c| c.agent_id.clone()).or_else(|| persona.as_ref().map(|p| p.agent_name.clone())),
+            "status": conv_opt.map(|c| c.status.clone()),
+            "turn_in_flight": conv_opt.map(|c| c.turn_in_flight).unwrap_or(false),
+            "team_name": persona.as_ref().and_then(|p| p.team_name.clone()),
+            "summary": persona.as_ref().and_then(|p| p.summary.clone()),
+        }));
+    }
+    Ok(json!({
+        "space_id": space_id,
+        "space_name": space_name,
+        "my_conversation_id": caller_id,
+        "my_nickname": my_nickname,
+        "members": detailed,
+        "user_recipient": {
+            "nickname": "User",
+            "aliases": ["@User", "@你", "@用户"],
+            "usage": "在 post_to_space 的 to 中传入 \"User\" 并在 content 中以 @User 开头即可向用户汇报或提问"
+        }
+    }))
+}
+
 async fn resolve_targets(
     pool: &SqlitePool,
     space_id: &str,
     sender: Option<Uuid>,
     nicknames: &[String],
+    content: &str,
 ) -> Result<Vec<ResolvedTarget>, CollaborationError> {
     let members = list_space_members(pool, space_id, MessageAudience::Agent).await?;
     if nicknames.is_empty() {
+        let mut mentioned = Vec::new();
+        for member in &members {
+            if contains_mention_token(content, &member.nickname) {
+                let conversation_id = member
+                    .conversation_id
+                    .as_deref()
+                    .and_then(|id| Uuid::parse_str(id).ok());
+                if conversation_id == sender {
+                    continue;
+                }
+                if let Some(conversation_id) = conversation_id {
+                    mentioned.push(ResolvedTarget {
+                        conversation_id: Some(conversation_id),
+                        nickname: member.nickname.clone(),
+                    });
+                }
+            }
+        }
+        if sender.is_some()
+            && ["User", "user", "你", "用户"]
+                .iter()
+                .any(|alias| contains_mention_token(content, alias))
+        {
+            mentioned.push(ResolvedTarget {
+                conversation_id: None,
+                nickname: "User".to_string(),
+            });
+        }
+        if !mentioned.is_empty() {
+            return Ok(mentioned);
+        }
         return Ok(members
             .into_iter()
             .filter_map(|member| {
@@ -3165,9 +4097,24 @@ async fn resolve_targets(
             .collect());
     }
     let mut targets = Vec::new();
-    for nickname in nicknames {
-        let nickname = nickname.trim();
-        let Some(member) = members.iter().find(|member| member.nickname == nickname) else {
+    for raw_nickname in nicknames {
+        let nickname = raw_nickname.trim().trim_start_matches('@').trim();
+        if nickname.is_empty() {
+            continue;
+        }
+        if is_user_target_name(nickname) {
+            if sender.is_some() && !targets.iter().any(|t: &ResolvedTarget| t.conversation_id.is_none()) {
+                targets.push(ResolvedTarget {
+                    conversation_id: None,
+                    nickname: "User".to_string(),
+                });
+            }
+            continue;
+        }
+        let Some(member) = members.iter().find(|member| {
+            member.nickname == nickname
+                || member.conversation_id.as_deref() == Some(nickname)
+        }) else {
             return Err(CollaborationError::new(
                 "not_found",
                 "nickname was not found",
@@ -3178,6 +4125,9 @@ async fn resolve_targets(
             .as_deref()
             .and_then(|id| Uuid::parse_str(id).ok());
         if conversation_id == sender {
+            continue;
+        }
+        if targets.iter().any(|t| t.conversation_id == conversation_id && t.nickname == member.nickname) {
             continue;
         }
         targets.push(ResolvedTarget {
@@ -4335,6 +5285,7 @@ mod tests {
             &DeliveryContext {
                 publisher: None,
                 dispatcher: Some(Arc::new(RecordingDispatcher { turn_id })),
+                space_changed: None,
             },
         )
         .await
@@ -5051,5 +6002,186 @@ mod tests {
             .await
             .unwrap_err();
         assert_eq!(cross_workspace.code, "not_found");
+    }
+
+    #[tokio::test]
+    async fn space_delivery_strips_mention_for_display_and_embeds_protocol_context() {
+        let pool = setup_pool().await;
+        let workspace = Uuid::new_v4();
+        let a = Uuid::new_v4();
+        create_session(&pool, a, workspace, Some("小A")).await;
+        let space = space_of(&pool, a).await;
+        post_to_space(
+            &pool,
+            PostToSpace {
+                caller_id: None,
+                space_id: space.clone(),
+                content: " @小A 请你分析我当前项目的性能".to_string(),
+                summary: None,
+                to: vec!["小A".to_string()],
+                in_reply_to: None,
+                operation_id: Uuid::new_v4(),
+            },
+        )
+        .await
+        .unwrap();
+
+        let raw_payload: String = sqlx::query_scalar(
+            "SELECT payload_json FROM conversation_inputs WHERE conversation_id = ?",
+        )
+        .bind(a)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        let payload: Value = serde_json::from_str(&raw_payload).unwrap();
+        assert_eq!(
+            payload["displayText"].as_str(),
+            Some("请你分析我当前项目的性能")
+        );
+        let text = payload["text"].as_str().unwrap();
+        assert!(text.contains("[协作空间消息]"));
+        assert!(text.contains("评审工作"));
+        assert!(text.contains(&space));
+        assert!(text.contains("User（用户）"));
+        assert_eq!(text.matches("请你分析我当前项目的性能").count(), 1);
+
+        let context = persona_prompt_text(&pool, a).await.unwrap().unwrap();
+        assert!(context.contains("[协作空间成员身份]"));
+        assert!(context.contains("小A"));
+        assert!(context.contains(&space));
+
+        // Member can reply to @User in the space and query spaces & members
+        let reply = post_to_space(
+            &pool,
+            PostToSpace {
+                caller_id: Some(a),
+                space_id: space.clone(),
+                content: "@User 性能分析已完成".to_string(),
+                summary: None,
+                to: vec!["User".to_string()],
+                in_reply_to: None,
+                operation_id: Uuid::new_v4(),
+            },
+        )
+        .await
+        .unwrap();
+        assert_eq!(reply.seq, 2);
+        assert!(reply.receipts.is_empty());
+
+        let spaces_view = list_collaboration_spaces_for_caller(&pool, a).await.unwrap();
+        assert_eq!(spaces_view["spaces"][0]["space_id"], space);
+        assert_eq!(spaces_view["spaces"][0]["is_member"], true);
+        assert_eq!(spaces_view["spaces"][0]["my_nickname"], "小A");
+
+        let members_view = list_space_members_detailed(&pool, a, &space).await.unwrap();
+        assert_eq!(members_view["my_nickname"], "小A");
+        assert_eq!(members_view["members"][0]["nickname"], "小A");
+        assert_eq!(members_view["members"][0]["is_self"], true);
+    }
+
+    #[tokio::test]
+    async fn delayed_space_post_schedules_lists_and_promotes_message() {
+        let pool = setup_pool().await;
+        let workspace = Uuid::new_v4();
+        let a = Uuid::new_v4();
+        let b = Uuid::new_v4();
+        create_session(&pool, a, workspace, Some("小A")).await;
+        create_session(&pool, b, workspace, Some("小B")).await;
+        let space = space_of(&pool, a).await;
+        add_space_member(&pool, a, &space, b, "小B", Uuid::new_v4())
+            .await
+            .unwrap();
+
+        let delayed = post_to_space_delayed_with(
+            &pool,
+            PostToSpace {
+                caller_id: Some(a),
+                space_id: space.clone(),
+                content: "@小B 稍后同步检查结果".to_string(),
+                summary: None,
+                to: vec!["小B".to_string()],
+                in_reply_to: None,
+                operation_id: Uuid::new_v4(),
+            },
+            Some(120),
+            &DeliveryContext::default(),
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(delayed.seq, 0);
+        let listed = list_space_scheduled_messages(&pool, &space).await.unwrap();
+        assert_eq!(listed.len(), 1);
+        assert_eq!(listed[0].id, delayed.message_id);
+        assert_eq!(listed[0].caller_id, Some(a.to_string()));
+        assert_eq!(listed[0].nickname, "小A");
+        assert_eq!(listed[0].content, "@小B 稍后同步检查结果");
+
+        // Move deliver_at into the past and promote
+        sqlx::query("UPDATE conversation_delayed_inputs SET deliver_at = '2000-01-01T00:00:00.000Z' WHERE id = ?")
+            .bind(&delayed.message_id)
+            .execute(&pool)
+            .await
+            .unwrap();
+
+        let promoted = promote_due_delayed_inputs(&pool).await.unwrap();
+        assert_eq!(promoted, 1);
+
+        let listed_after = list_space_scheduled_messages(&pool, &space).await.unwrap();
+        assert!(listed_after.is_empty());
+
+        let messages = list_space_messages(&pool, &space, None, None, MessageAudience::User)
+            .await
+            .unwrap();
+        assert_eq!(messages.len(), 1);
+        assert!(
+            messages[0].envelope["content"]
+                .as_str()
+                .unwrap()
+                .contains("稍后同步检查结果")
+        );
+    }
+
+    #[tokio::test]
+    async fn delayed_session_input_visible_in_sender_and_recipient_queues_and_convertible() {
+        let pool = setup_pool().await;
+        let workspace = Uuid::new_v4();
+        let sender = Uuid::new_v4();
+        let recipient = Uuid::new_v4();
+        create_session(&pool, sender, workspace, Some("发送者")).await;
+        create_session(&pool, recipient, workspace, Some("接收者")).await;
+
+        let op_id = Uuid::new_v4();
+        let receipt = send_session_input(
+            &pool,
+            SendSessionInput {
+                caller_id: sender,
+                conversation_id: recipient,
+                operation_id: op_id,
+                text: "延时会话消息".to_string(),
+                policy: CompanionWritePolicy::SameWorkspace,
+                steer: false,
+                steer_supported: true,
+                expected_turn_id: None,
+                delay_seconds: Some(300),
+                deliver_at: None,
+                delay_cap_hours: 24,
+            },
+        )
+        .await
+        .unwrap();
+        assert_eq!(receipt.delivered, "scheduled");
+
+        let control = crate::ConversationInputControl::new(pool.clone());
+        let sender_inputs = control.list(sender).await.unwrap();
+        assert_eq!(sender_inputs.len(), 1);
+        assert_eq!(sender_inputs[0].status, crate::ConversationInputStatus::Scheduled);
+        assert!(sender_inputs[0].deliver_at.is_some());
+        assert_eq!(sender_inputs[0].payload.text, "延时会话消息");
+
+        let recipient_inputs = control.list(recipient).await.unwrap();
+        assert_eq!(recipient_inputs.len(), 1);
+        assert_eq!(recipient_inputs[0].status, crate::ConversationInputStatus::Scheduled);
+        assert!(recipient_inputs[0].deliver_at.is_some());
     }
 }

@@ -329,6 +329,25 @@
     }
   },
   {
+    "name": "list_collaboration_spaces",
+    "description": "List collaboration spaces in this workspace, including which spaces you belong to, your member nickname in each space, and the members in each space.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {}
+    }
+  },
+  {
+    "name": "list_space_members",
+    "description": "List all members and their details (nickname, conversation_id, agent_id, status, team_name, summary, and whether it is yourself) in a collaboration space, plus how to address the user (@User).",
+    "inputSchema": {
+      "type": "object",
+      "required": ["space_id"],
+      "properties": {
+        "space_id": { "type": "string" }
+      }
+    }
+  },
+  {
     "name": "create_collaboration_space",
     "description": "Create an IM space in this workspace and join it. Reuse operation_id to retry the same create. Members must share the workspace.",
     "inputSchema": {
@@ -369,7 +388,7 @@
   },
   {
     "name": "post_to_space",
-    "description": "Post one ActivityStreams Note into a space and return immediately. to is a list of nicknames. Omit to to deliver to every agent member except yourself. The user is not an @ target. Each addressee receives the same text through the conversation input queue. If that member is busy, the input stays queued. A retry with the same operation_id does not submit twice. Do not poll an inbox; list_space_messages reads the log, and send_session_input is how you continue a direct conversation.",
+    "description": "Post one ActivityStreams Note into a collaboration space and return immediately. to is a list of member nicknames (or \"User\" to reply/report to the user). delay_seconds (optional integer, default 0) schedules the message to be posted into the space after the specified number of seconds. Rules (see vibex-multi-agent COLLABORATION-SPACE.md): (1) When receiving a task from User that requires tool calls, investigation, or peer collaboration, FIRST call post_to_space (to: [\"User\"], @User prefix) with a brief 1-2 sentence acknowledgment/plan before starting heavy work, then continue working and post follow-ups/results as needed. (2) Audience filtering: when messaging User (to: [\"User\"]), NEVER expose internal parameters (space_id, conversation_id, delayed_input_id, operation_id, message_id, task_id, turn_id, seq, vibex:// URIs) in content; include such IDs only when messaging another agent member who needs them for cross-session tool calls. (3) Silent closure: do NOT call post_to_space to reply to pure acknowledgments ('收到', '已收到', '好的', '明白', '谢谢') or closed topics when no further reply is needed, and do not ask members for empty '收到请回复' confirmations. Use a new operation_id for each distinct message; reuse operation_id only when retrying the exact same post.",
     "inputSchema": {
       "type": "object",
       "required": ["operation_id", "space_id", "content"],
@@ -379,7 +398,8 @@
         "content": { "type": "string", "minLength": 1 },
         "summary": { "type": "string" },
         "to": { "type": "array", "items": { "type": "string" } },
-        "in_reply_to": { "type": "string" }
+        "in_reply_to": { "type": "string" },
+        "delay_seconds": { "type": "integer", "minimum": 0, "default": 0, "description": "Delay in seconds before posting the message to the collaboration space (default 0 for immediate delivery)." }
       }
     }
   },

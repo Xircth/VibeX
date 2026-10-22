@@ -2,10 +2,12 @@ import { render, screen } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 
 import {
+  DEFAULT_COLLABORATION_ARRANGEMENT,
   DEFAULT_KANBAN_ARRANGEMENT,
   DEFAULT_LAYOUT_ARRANGEMENT,
 } from '@/lib/layoutArrangement';
 import {
+  CollaborationLayoutSchematic,
   KanbanLayoutSchematic,
   WorkspaceLayoutSchematic,
 } from './LayoutArrangementSchematic';
@@ -40,6 +42,23 @@ describe('layout arrangement schematic', () => {
     expect(screen.getByLabelText('会话列表')).toBeInTheDocument();
     expect(screen.getByLabelText('会话监控')).toBeInTheDocument();
     expect(screen.getByLabelText('会话执行')).toBeInTheDocument();
+    expect(
+      screen.queryByRole('button', { name: '恢复默认' })
+    ).not.toBeInTheDocument();
+    expect(document.querySelector('.max-w-md')).toBeNull();
+  });
+
+  it('shows the collaboration page as ABC columns without reset', () => {
+    render(
+      <CollaborationLayoutSchematic
+        value={DEFAULT_COLLABORATION_ARRANGEMENT}
+        onChange={vi.fn()}
+      />
+    );
+
+    expect(screen.getByLabelText('协作空间')).toBeInTheDocument();
+    expect(screen.getByLabelText('消息区')).toBeInTheDocument();
+    expect(screen.getByLabelText('预览区')).toBeInTheDocument();
     expect(
       screen.queryByRole('button', { name: '恢复默认' })
     ).not.toBeInTheDocument();

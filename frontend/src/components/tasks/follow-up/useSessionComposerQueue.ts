@@ -18,6 +18,9 @@ import {
 } from './sessionComposerQueue';
 import { conversationApi } from '@/features/conversation/conversationApi';
 import { listenToConversationEvents } from '@/features/conversation/events';
+import { configuredBackendTransport } from '@/lib/backendTransport';
+
+const COLLABORATION_SPACE_CHANGED_EVENT = 'collaboration-space-changed';
 
 const EMPTY_QUEUE_STATUS: QueueStatus = { status: 'empty', messages: [] };
 
@@ -63,7 +66,13 @@ export function useSessionComposerQueue({
       // A second window can enqueue while this one is idle. Event publication is
       // the fast path; bounded polling guarantees eventual convergence if a host
       // event is missed during suspension or reconnect.
-      refetchInterval: isAttemptRunning ? 15_000 : 30_000,
+      refetchInterval: (query) => {
+        const hasScheduled = query.state.data?.messages.some(
+          (m) => m.status === 'scheduled'
+        );
+        if (hasScheduled) return 2_000;
+        return isAttemptRunning ? 5_000 : 15_000;
+      },
     });
 
   const refreshQueueStatus = useCallback(async () => {
@@ -87,6 +96,39 @@ export function useSessionComposerQueue({
       }
       void refetch();
     }, sessionId)
+      .then((unsubscribe) => {
+        if (!active) {
+          unsubscribe();
+          return;
+        }
+        unlisten = unsubscribe;
+      })
+      .catch(() => {});
+    return () => {
+      active = false;
+      unlisten?.();
+    };
+  }, [refetch, sessionId]);
+
+  useEffect(() => {
+    if (!sessionId) return;
+    let active = true;
+    let unlisten: (() => void) | undefined;
+    configuredBackendTransport
+      .subscribeHostEvents([COLLABORATION_SPACE_CHANGED_EVENT], (event) => {
+        if (!active) return;
+        const payload = event.payload as
+          | { spaceId?: string; memberId?: string }
+          | undefined;
+        if (
+          !payload ||
+          !payload.spaceId ||
+          payload.spaceId === `session:${sessionId}` ||
+          payload.memberId === sessionId
+        ) {
+          void refetch();
+        }
+      })
       .then((unsubscribe) => {
         if (!active) {
           unsubscribe();
@@ -140,7 +182,10 @@ export function useSessionComposerQueue({
         fileRefs: getSessionComposerFileRefs(message),
       };
       const editing = editingInputRef.current;
-      if (editing?.session_id === sessionId && editing.status === 'queued') {
+      if (
+        editing?.session_id === sessionId &&
+        (editing.status === 'queued' || editing.status === 'scheduled')
+      ) {
         const updated = await conversationApi.updateInput({
           conversationId: sessionId,
           inputId: editing.id,
@@ -196,6 +241,41 @@ export function useSessionComposerQueue({
     onSuccess: refresh,
   });
 
+  const delayMutation = useMutation({
+    mutationFn: ({
+      message,
+      delaySeconds,
+    }: {
+      message: QueuedMessage;
+      delaySeconds: number;
+    }) => {
+      const payload: ConversationInputPayload = {
+        agentId: message.executorProfileId.executor,
+        workspaceId: workspaceId ?? '',
+        executorProfileId:
+          message.executorProfileId as unknown as ConversationInputPayload['executorProfileId'],
+        text: message.data.agentMessage ?? message.data.message,
+        displayText: message.data.message,
+        images: message.data.images,
+        workflowRefs: message.data.pluginActions.map((action) => ({
+          pluginId: action.pluginId,
+          workflowId: action.actionId,
+        })),
+        modeOverride,
+        configOverrides,
+        fileRefs: getSessionComposerFileRefs(message.data.message),
+      };
+      return conversationApi.updateInput({
+        conversationId: message.session_id,
+        inputId: message.id,
+        expectedRevision: Number(message.revision),
+        payload,
+        delaySeconds,
+      });
+    },
+    onSuccess: refresh,
+  });
+
   const queueMessage = useCallback(
     async (
       message: string,
@@ -220,26 +300,47 @@ export function useSessionComposerQueue({
   const cancelQueue = useCallback(
     async (message?: QueuedMessage) => {
       const target = message ?? queueStatus.messages.at(-1);
-      if (!target || target.status !== 'queued') return;
+      if (
+        !target ||
+        (target.status !== 'queued' && target.status !== 'scheduled')
+      ) {
+        return;
+      }
       await cancelMutation.mutateAsync(target);
     },
     [cancelMutation, queueStatus.messages]
   );
 
   const beginEditQueue = useCallback((message: QueuedMessage) => {
-    if (message.status !== 'queued') return;
+    if (message.status !== 'queued' && message.status !== 'scheduled') return;
     editingInputRef.current = message;
     setEditingInput(message);
   }, []);
 
+  const delayQueue = useCallback(
+    async (message: QueuedMessage, delaySeconds: number) => {
+      if (
+        (message.status !== 'queued' && message.status !== 'scheduled') ||
+        delaySeconds <= 0
+      ) {
+        return;
+      }
+      await delayMutation.mutateAsync({ message, delaySeconds });
+    },
+    [delayMutation]
+  );
+
   const moveQueue = useCallback(
     async (message: QueuedMessage, direction: -1 | 1) => {
-      const index = queueStatus.messages.findIndex(
+      const normalMessages = queueStatus.messages.filter(
+        (candidate) => candidate.status === 'queued'
+      );
+      const index = normalMessages.findIndex(
         (candidate) => candidate.id === message.id
       );
-      const neighbor = queueStatus.messages[index + direction];
+      const neighbor = normalMessages[index + direction];
       if (!neighbor || message.status !== 'queued') return;
-      const outerNeighbor = queueStatus.messages[index + direction * 2];
+      const outerNeighbor = normalMessages[index + direction * 2];
       const sortKey = outerNeighbor
         ? (neighbor.sortKey + outerNeighbor.sortKey) / 2n
         : neighbor.sortKey + BigInt(direction) * 1024n;
@@ -252,25 +353,32 @@ export function useSessionComposerQueue({
     excludeOperationId: pendingOperationId ?? excludeOperationId,
   });
   const queuedMessages = queueIndicatorState.queuedMessages;
+  const delayedMessages = queueIndicatorState.delayedMessages;
   const isQueued = queueIndicatorState.isQueued;
+  const isDelayedQueued = queueIndicatorState.isDelayedQueued;
 
   return {
     queueStatus,
     queuedMessages,
+    delayedMessages,
     refreshQueueStatus,
     queueMutation,
     cancelMutation,
     reorderMutation,
+    delayMutation,
     queueMessage,
     cancelQueue,
     beginEditQueue,
     editingInput,
     moveQueue,
+    delayQueue,
     isQueueLoading:
       queueMutation.isPending ||
       cancelMutation.isPending ||
-      reorderMutation.isPending,
+      reorderMutation.isPending ||
+      delayMutation.isPending,
     isQueued,
+    isDelayedQueued,
     queueIndicatorState,
   };
 }

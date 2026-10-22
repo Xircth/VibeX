@@ -497,6 +497,7 @@ export function TaskFollowUpSection({
     beginEditQueue,
     editingInput,
     moveQueue,
+    delayQueue,
     isQueued,
     queueIndicatorState,
   } = useSessionComposerQueue({
@@ -1075,12 +1076,14 @@ export function TaskFollowUpSection({
               <MessageQueueIndicator
                 isQueued={queueIndicatorState.isQueued}
                 queuedMessages={queueIndicatorState.queuedMessages}
+                delayedMessages={queueIndicatorState.delayedMessages}
                 canSteerQueued={Boolean(queueSteerChannel)}
                 steeringQueued={isSteering}
                 onSteerQueuedMessage={handleSteerQueuedMessage}
                 onEditQueuedMessage={handleEditQueuedMessage}
                 onDeleteQueuedMessage={cancelQueue}
                 onMoveQueuedMessage={moveQueue}
+                onDelayQueuedMessage={delayQueue}
               />
             </div>
           </div>

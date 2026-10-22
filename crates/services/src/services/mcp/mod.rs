@@ -1681,6 +1681,14 @@ fn canonical_to_codex_entry(spec: &Value) -> Result<toml::Value, McpError> {
                 .get("command")
                 .and_then(Value::as_str)
                 .ok_or_else(|| bad("Codex conversion: stdio MCP spec missing command"))?;
+            if command.contains("vibex-mcp") && !command.contains("vibex-workflow-mcp") {
+                table.insert(
+                    "env_vars".to_string(),
+                    toml::Value::Array(vec![toml::Value::String(
+                        "VIBEX_CONVERSATION_ID".to_string(),
+                    )]),
+                );
+            }
             table.insert(
                 "command".to_string(),
                 toml::Value::String(command.to_string()),

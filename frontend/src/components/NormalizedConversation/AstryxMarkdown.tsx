@@ -465,6 +465,7 @@ export const AstryxMarkdown = memo(function AstryxMarkdown({
       <AstryxMarkdownBase
         display="block"
         autolink="gfm"
+        contentWidth="100%"
         components={components}
         inlinePlugins={inlinePlugins}
         isStreaming={isStreaming}

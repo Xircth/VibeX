@@ -93,6 +93,7 @@ import { createPluginControlApi } from '@/lib/api/plugins';
 import { useBackendTransport } from '@/lib/transport';
 import { logoLeadsWindowChrome } from '@/utils/platform';
 import { useWorkspaceOverlay } from '@/contexts/WorkspaceOverlayContext';
+import { useCollaborationLayoutStore } from '@/features/collaboration/collaborationLayoutStore';
 import { MoreHorizontal } from 'lucide-react';
 
 function ToolbarDivider() {
@@ -239,6 +240,113 @@ export function KanbanLayoutToggles() {
         <TooltipContent side="bottom">
           {t('toolbar.resetKanbanLayout')}
         </TooltipContent>
+      </Tooltip>
+    </div>
+  );
+}
+
+export function CollaborationLayoutToggles() {
+  const { t } = useTranslation('panels');
+  const isSpacesVisible = useCollaborationLayoutStore(
+    (state) => state.isSpacesVisible
+  );
+  const isThreadVisible = useCollaborationLayoutStore(
+    (state) => state.isThreadVisible
+  );
+  const isPreviewVisible = useCollaborationLayoutStore(
+    (state) => state.isPreviewVisible
+  );
+  const hasOpenedSpaceThread = useCollaborationLayoutStore(
+    (state) => state.hasOpenedSpaceThread
+  );
+  const hasMountedPreviewTabs = useCollaborationLayoutStore(
+    (state) => state.hasMountedPreviewTabs
+  );
+  const toggleSpacesVisible = useCollaborationLayoutStore(
+    (state) => state.toggleSpacesVisible
+  );
+  const toggleThreadVisible = useCollaborationLayoutStore(
+    (state) => state.toggleThreadVisible
+  );
+  const togglePreviewVisible = useCollaborationLayoutStore(
+    (state) => state.togglePreviewVisible
+  );
+
+  const effectiveThreadVisible = hasOpenedSpaceThread && isThreadVisible;
+  const effectivePreviewVisible = hasMountedPreviewTabs && isPreviewVisible;
+  const canToggleSpaces =
+    !isSpacesVisible || effectiveThreadVisible || effectivePreviewVisible;
+  const canToggleThread =
+    hasOpenedSpaceThread &&
+    (!isThreadVisible || isSpacesVisible || effectivePreviewVisible);
+  const canTogglePreview =
+    hasMountedPreviewTabs &&
+    (!isPreviewVisible || isSpacesVisible || effectiveThreadVisible);
+
+  const toggleSpacesLabel = t(
+    'toolbar.toggleCollaborationSpaces',
+    '显示/隐藏协作空间列表'
+  );
+  const toggleThreadLabel = t(
+    'toolbar.toggleCollaborationThread',
+    '显示/隐藏消息区'
+  );
+  const togglePreviewLabel = t(
+    'toolbar.toggleCollaborationPreview',
+    '显示/隐藏预览区'
+  );
+
+  return (
+    <div className="flex items-center gap-0.5">
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <Button
+            variant="ghost"
+            size="icon"
+            className="workspace-toolbar-button h-7 w-7"
+            disabled={!canToggleSpaces}
+            onClick={toggleSpacesVisible}
+            aria-label={toggleSpacesLabel}
+            aria-pressed={isSpacesVisible}
+          >
+            <List className="h-3.5 w-3.5" />
+          </Button>
+        </TooltipTrigger>
+        <TooltipContent side="bottom">{toggleSpacesLabel}</TooltipContent>
+      </Tooltip>
+
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <Button
+            variant="ghost"
+            size="icon"
+            className="workspace-toolbar-button h-7 w-7"
+            disabled={!canToggleThread}
+            onClick={toggleThreadVisible}
+            aria-label={toggleThreadLabel}
+            aria-pressed={effectiveThreadVisible}
+          >
+            <MessagesSquare className="h-3.5 w-3.5" />
+          </Button>
+        </TooltipTrigger>
+        <TooltipContent side="bottom">{toggleThreadLabel}</TooltipContent>
+      </Tooltip>
+
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <Button
+            variant="ghost"
+            size="icon"
+            className="workspace-toolbar-button h-7 w-7"
+            disabled={!canTogglePreview}
+            onClick={togglePreviewVisible}
+            aria-label={togglePreviewLabel}
+            aria-pressed={effectivePreviewVisible}
+          >
+            <Columns2 className="h-3.5 w-3.5" />
+          </Button>
+        </TooltipTrigger>
+        <TooltipContent side="bottom">{togglePreviewLabel}</TooltipContent>
       </Tooltip>
     </div>
   );
@@ -796,9 +904,12 @@ export function Toolbar() {
     collaborationEnabled: Boolean(config?.multi_agent_enabled),
   });
   const isWorkspaceTab = effectiveActiveTab === 'workspace';
+  const isCollaborationTab = effectiveActiveTab === COLLABORATION_WORKSPACE_TAB;
   const boardStyle = useKanbanBoardStyle();
-  const hasLeadingControls = isWorkspaceTab || boardStyle === 'canvas';
-  const showLayoutToggles = isWorkspaceTab || boardStyle !== 'canvas';
+  const hasLeadingControls =
+    isWorkspaceTab || (!isCollaborationTab && boardStyle === 'canvas');
+  const showLayoutToggles =
+    isWorkspaceTab || isCollaborationTab || boardStyle !== 'canvas';
   const logoLeads = logoLeadsWindowChrome();
 
   const toolbarItems = usePluginHostContributions('toolbar');
@@ -837,14 +948,18 @@ export function Toolbar() {
         >
           {logoLeads ? <HomeLogoMenu align="start" /> : null}
           {hasLeadingControls ? <WindowChromeLeadingRule /> : null}
-          <WorkspaceBranchControls
-            isWorkspaceTab={isWorkspaceTab}
-            workspaceId={workspaceId}
-          />
+          {!isCollaborationTab ? (
+            <WorkspaceBranchControls
+              isWorkspaceTab={isWorkspaceTab}
+              workspaceId={workspaceId}
+            />
+          ) : null}
 
           <div className="ml-auto flex items-center shrink-0 gap-0.5">
             {isWorkspaceTab ? (
               <WorkspaceLayoutToggles />
+            ) : isCollaborationTab ? (
+              <CollaborationLayoutToggles />
             ) : (
               <KanbanLayoutToggles />
             )}

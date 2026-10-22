@@ -1,8 +1,19 @@
+import { Check, ChevronDown } from 'lucide-react';
 import { useCallback, useEffect, useState } from 'react';
-import type { AgentSessionControlsSnapshot } from 'shared/types';
+import type {
+  AgentSessionControlsSnapshot,
+  ExecutorProfileId,
+} from 'shared/types';
 
+import { AgentIcon, getAgentName } from '@/components/agents/AgentIcon';
 import { SessionControlsFields } from '@/components/sessions/SessionControlsFields';
 import { Button } from '@/components/ui/button';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
@@ -394,21 +405,58 @@ function RoleEditor({
           onChange={(event) => setDraft({ ...draft, name: event.target.value })}
         />
         <Label htmlFor="role-team">团队</Label>
-        <select
-          id="role-team"
-          className="h-8 rounded-md border border-border bg-background px-2 text-sm"
-          value={draft.team_id ?? ''}
-          onChange={(event) =>
-            setDraft({ ...draft, team_id: event.target.value || null })
-          }
-        >
-          <option value="">无</option>
-          {teams.map((team) => (
-            <option key={team.id} value={team.id}>
-              {team.name}
-            </option>
-          ))}
-        </select>
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button
+              id="role-team"
+              type="button"
+              variant="outline"
+              role="combobox"
+              aria-label="团队"
+              className="raised-control h-8 w-full justify-between px-2.5 text-[13px] font-normal"
+            >
+              <span className="truncate">
+                {teams.find((team) => team.id === draft.team_id)?.name ?? '无'}
+              </span>
+              <ChevronDown
+                className="h-3.5 w-3.5 shrink-0 text-muted-foreground"
+                aria-hidden="true"
+              />
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent
+            align="start"
+            className="w-[var(--radix-dropdown-menu-trigger-width)] min-w-[180px]"
+          >
+            <DropdownMenuItem
+              data-state={!draft.team_id ? 'checked' : undefined}
+              onSelect={() => setDraft({ ...draft, team_id: null })}
+            >
+              <span className="flex-1 truncate">无</span>
+              {!draft.team_id ? (
+                <Check className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+              ) : null}
+            </DropdownMenuItem>
+            {teams.map((team) => {
+              const selected = draft.team_id === team.id;
+              return (
+                <DropdownMenuItem
+                  key={team.id}
+                  data-state={selected ? 'checked' : undefined}
+                  onSelect={() => setDraft({ ...draft, team_id: team.id })}
+                >
+                  <span className="flex-1 truncate">{team.name}</span>
+                  {selected ? (
+                    <Check
+                      className="h-3.5 w-3.5 shrink-0"
+                      aria-hidden="true"
+                    />
+                  ) : null}
+                </DropdownMenuItem>
+              );
+            })}
+          </DropdownMenuContent>
+        </DropdownMenu>
         <Label htmlFor="role-summary">简介</Label>
         <Input
           id="role-summary"
@@ -426,20 +474,70 @@ function RoleEditor({
           }
         />
         <Label htmlFor="role-agent">Agent</Label>
-        <select
-          id="role-agent"
-          className="h-8 rounded-md border border-border bg-background px-2 text-sm"
-          value={draft.agent_id}
-          onChange={(event) =>
-            setDraft({ ...draft, agent_id: event.target.value })
-          }
-        >
-          {agents.map((agent) => (
-            <option key={agent.agent_id} value={agent.agent_id}>
-              {agent.name}
-            </option>
-          ))}
-        </select>
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button
+              id="role-agent"
+              type="button"
+              variant="outline"
+              role="combobox"
+              aria-label="Agent"
+              className="raised-control h-8 w-full justify-between px-2.5 text-[13px] font-normal"
+            >
+              <span className="flex min-w-0 items-center gap-2 truncate">
+                {draft.agent_id ? (
+                  <AgentIcon
+                    agent={draft.agent_id as ExecutorProfileId['executor']}
+                    className="h-3.5 w-3.5 shrink-0"
+                  />
+                ) : null}
+                <span className="truncate">
+                  {getAgentName(draft.agent_id) ||
+                    agents.find((agent) => agent.agent_id === draft.agent_id)
+                      ?.name ||
+                    draft.agent_id}
+                </span>
+              </span>
+              <ChevronDown
+                className="h-3.5 w-3.5 shrink-0 text-muted-foreground"
+                aria-hidden="true"
+              />
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent
+            align="start"
+            className="w-[var(--radix-dropdown-menu-trigger-width)] min-w-[180px]"
+          >
+            {agents.map((agent) => {
+              const selected = draft.agent_id === agent.agent_id;
+              return (
+                <DropdownMenuItem
+                  key={agent.agent_id}
+                  data-state={selected ? 'checked' : undefined}
+                  onSelect={() =>
+                    setDraft({ ...draft, agent_id: agent.agent_id })
+                  }
+                >
+                  <span className="flex min-w-0 flex-1 items-center gap-2 truncate">
+                    <AgentIcon
+                      agent={agent.agent_id as ExecutorProfileId['executor']}
+                      className="h-3.5 w-3.5 shrink-0"
+                    />
+                    <span className="truncate">
+                      {getAgentName(agent.agent_id) || agent.name}
+                    </span>
+                  </span>
+                  {selected ? (
+                    <Check
+                      className="h-3.5 w-3.5 shrink-0"
+                      aria-hidden="true"
+                    />
+                  ) : null}
+                </DropdownMenuItem>
+              );
+            })}
+          </DropdownMenuContent>
+        </DropdownMenu>
       </div>
       <RoleControls
         agentId={draft.agent_id}

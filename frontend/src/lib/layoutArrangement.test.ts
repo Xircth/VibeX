@@ -1,15 +1,21 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import {
+  DEFAULT_COLLABORATION_ARRANGEMENT,
   DEFAULT_KANBAN_ARRANGEMENT,
   DEFAULT_LAYOUT_ARRANGEMENT,
   arrangementsEqual,
+  collaborationSlotOfZone,
+  getCollaborationArrangement,
   getKanbanArrangement,
   getLayoutArrangement,
   isDefaultArrangement,
+  isDefaultCollaborationArrangement,
   kanbanSessionResizeHandleSide,
   kanbanSlotOfZone,
+  resetCollaborationArrangement,
   resetKanbanArrangement,
   resetLayoutArrangement,
+  setCollaborationArrangement,
   setKanbanArrangement,
   setLayoutArrangement,
   slotOfZone,
@@ -167,6 +173,51 @@ describe('layoutArrangement', () => {
       );
 
       expect(getKanbanArrangement()).toEqual(DEFAULT_KANBAN_ARRANGEMENT);
+    });
+  });
+
+  describe('collaboration arrangement', () => {
+    beforeEach(() => {
+      resetCollaborationArrangement();
+    });
+
+    it('defaults to spaces/thread/preview and is independent from workspace and kanban', () => {
+      expect(getCollaborationArrangement()).toEqual({
+        left: 'spaces',
+        center: 'thread',
+        right: 'preview',
+      });
+      expect(
+        isDefaultCollaborationArrangement(getCollaborationArrangement())
+      ).toBe(true);
+
+      setLayoutArrangement(
+        swapArrangementSlots(DEFAULT_LAYOUT_ARRANGEMENT, 'center', 'right')
+      );
+      expect(getCollaborationArrangement()).toEqual(
+        DEFAULT_COLLABORATION_ARRANGEMENT
+      );
+    });
+
+    it('persists a swap and reports zone slots', () => {
+      const swapped = swapArrangementSlots(
+        DEFAULT_COLLABORATION_ARRANGEMENT,
+        'left',
+        'right'
+      );
+      setCollaborationArrangement(swapped);
+
+      expect(getCollaborationArrangement()).toEqual({
+        left: 'preview',
+        center: 'thread',
+        right: 'spaces',
+      });
+      expect(
+        collaborationSlotOfZone(getCollaborationArrangement(), 'spaces')
+      ).toBe('right');
+      expect(
+        isDefaultCollaborationArrangement(getCollaborationArrangement())
+      ).toBe(false);
     });
   });
 });

@@ -56,6 +56,7 @@ impl ScopedConversationControl {
             dispatcher: Some(Arc::new(ServiceIdleDispatcher {
                 context: self.context.clone(),
             })),
+            space_changed: None,
         }
     }
 

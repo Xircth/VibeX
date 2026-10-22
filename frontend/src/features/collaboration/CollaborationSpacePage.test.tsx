@@ -113,11 +113,11 @@ describe('CollaborationSpacePage', () => {
           };
         }
         if (method === 'space.listMessages') {
-          if (input?.sinceSeq === 1) {
+          if (input?.sinceSeq === 1 || input?.sinceSeq === 2) {
             return {
               messages: [
                 {
-                  seq: 2,
+                  seq: 3,
                   envelope: { actor: 'space/member/小A', content: '增量消息' },
                 },
               ],
@@ -129,6 +129,13 @@ describe('CollaborationSpacePage', () => {
                 seq: 1,
                 envelope: { actor: 'space/member/小A', content: '你好' },
               },
+              {
+                seq: 2,
+                envelope: {
+                  actor: 'space/member/小B',
+                  content: '请查看 [架构文档](src/arch.md)',
+                },
+              },
             ],
           };
         }
@@ -138,20 +145,26 @@ describe('CollaborationSpacePage', () => {
               {
                 conversation_id: 'conv-1',
                 title: '设计会话',
+                workspace_name: '主工作区',
                 agent_id: 'CLAUDE_CODE',
                 turn_in_flight: true,
+                updated_at: new Date().toISOString(),
               },
               {
                 conversation_id: 'conv-2',
                 title: '前端会话',
+                workspace_name: '前端工作区',
                 agent_id: 'CODEX',
                 turn_in_flight: false,
+                updated_at: new Date().toISOString(),
               },
               {
                 conversation_id: 'conv-3',
                 title: '后端会话',
+                workspace_name: '后端工作区',
                 agent_id: 'CLAUDE_CODE',
                 turn_in_flight: false,
+                updated_at: new Date().toISOString(),
               },
             ],
           };
@@ -181,7 +194,7 @@ describe('CollaborationSpacePage', () => {
         if (method === 'space.post') {
           return {
             message_id: String(input?.operationId ?? 'msg-1'),
-            seq: 2,
+            seq: 3,
             receipts: [
               {
                 conversation_id: 'conv-1',
@@ -204,18 +217,134 @@ describe('CollaborationSpacePage', () => {
     expect(screen.queryByRole('textbox', { name: '昵称' })).toBeNull();
     expect(await screen.findByRole('button', { name: '设计' })).toBeTruthy();
     expect(screen.getByTestId('session-composer-editor')).toBeTruthy();
-    expect(await screen.findByText('你好')).toBeTruthy();
-    expect(screen.getAllByText('1个成员在活跃').length).toBeGreaterThan(0);
+    expect((await screen.findAllByText('你好')).length).toBeGreaterThanOrEqual(
+      1
+    );
+    expect(screen.queryByText(/个成员在活跃/)).toBeNull();
+    expect(screen.getByTestId('composer-current-space')).toHaveTextContent(
+      '设计'
+    );
+    const statsBadge = screen.getByTestId('composer-space-stats');
+    expect(statsBadge).toHaveTextContent(/^2$/);
+    expect(statsBadge.querySelector('svg')).toBeNull();
+    fireEvent.mouseEnter(statsBadge);
+    expect(await screen.findByText('空间成员')).toBeTruthy();
+    fireEvent.mouseLeave(statsBadge);
+
+    // Top horizontal member bar is shown, can filter messages by member, and can be collapsed/expanded
+    expect(screen.getByTestId('collaboration-top-member-bar')).toBeTruthy();
+    expect(screen.getByText('请查看')).toBeTruthy();
+    const filterMemberABtn = screen.getByRole('button', {
+      name: '筛选成员 小A',
+    });
+    await user.click(filterMemberABtn);
+    expect(filterMemberABtn).toHaveAttribute('aria-pressed', 'true');
+    expect(screen.getAllByText('你好').length).toBeGreaterThanOrEqual(1);
+    expect(screen.queryByText('请查看')).toBeNull();
+    await user.click(filterMemberABtn);
+    expect(filterMemberABtn).toHaveAttribute('aria-pressed', 'false');
+    expect(screen.getByText('请查看')).toBeTruthy();
+
+    await user.click(screen.getByRole('button', { name: '收起成员列表' }));
+    expect(screen.queryByTestId('collaboration-top-member-bar')).toBeNull();
+    const collapsedStack = screen.getByTestId('collaboration-top-member-stack');
+    expect(collapsedStack).toBeTruthy();
+    expect(
+      collapsedStack.querySelectorAll('.collaboration-top-member-stack-item')
+    ).toHaveLength(2);
+    await user.click(screen.getByRole('button', { name: '展开成员列表' }));
+    expect(screen.getByTestId('collaboration-top-member-bar')).toBeTruthy();
+
+    // Piano-key message navigation is rendered in the message area
+    expect(
+      document.querySelector('.collaboration-thread .conv-message-nav-rail')
+    ).toBeTruthy();
+
+    // Setting a space tag color colors the rounded-rectangle space N-grid icon background while keeping cells gray
+    await user.click(screen.getByRole('button', { name: '标签 设计' }));
+    await user.click(await screen.findByRole('button', { name: '蓝色' }));
+    const spaceButton = screen.getByRole('button', { name: '设计' });
+    const spaceIcon = spaceButton.querySelector(
+      '[data-tag-color="blue"]'
+    ) as HTMLElement | null;
+    expect(spaceIcon).toBeTruthy();
+    expect(spaceIcon).toHaveAttribute('data-grid-size', '4');
+    expect(
+      spaceIcon?.querySelectorAll('.collaboration-space-icon-cell')
+    ).toHaveLength(4);
+    expect(
+      spaceButton.querySelector('.collaboration-space-tag')
+    ).toBeNull();
 
     // Right preview area is hidden until a member or file is selected
     expect(screen.queryByLabelText('预览')).toBeNull();
+
+    // Clicking a file link in the message area opens a file preview tab in the right Dockview
+    await user.click(screen.getByRole('link', { name: '架构文档' }));
+    expect(await screen.findByTestId('file-preview')).toBeTruthy();
 
     // When spaces exist, the 2 empty-state buttons in the left list body are not shown
     expect(
       screen.queryByRole('button', { name: '新建协作空间' })
     ).toBeNull();
 
-    await user.click(screen.getByRole('button', { name: '小A' }));
+    // User ('你') is invisible and never shown in the collaboration space member list
+    expect(screen.queryByRole('button', { name: '你' })).toBeNull();
+
+    // Member row displays member name ('小A'), last message sent in current space ('你好'), enlarged left Bot avatar, and right Agent icon
+    const memberAButton = screen.getByRole('button', { name: '小A' });
+    expect(
+      screen.getByTestId('collaboration-member-bot-avatar-conv-1')
+    ).toBeTruthy();
+    expect(
+      screen.getByTestId('collaboration-member-row-agent-icon-conv-1')
+    ).toBeTruthy();
+    expect(
+      screen.getByTestId('collaboration-message-bot-avatar-1')
+    ).toBeTruthy();
+    expect(
+      memberAButton
+        .closest('.workspace-session-row')
+        ?.querySelector('.workspace-session-row-marker')
+    ).toBeNull();
+    expect(
+      memberAButton.querySelector('.collaboration-member-name')?.textContent
+    ).toBe('小A');
+    expect(
+      screen.getByTestId('collaboration-member-last-message-conv-1')
+    ).toHaveTextContent('你好');
+    expect(
+      screen.getByTestId('collaboration-member-last-message-conv-2')
+    ).toHaveTextContent('请查看 [架构文档](src/arch.md)');
+    expect(
+      screen.getByRole('button', { name: '修改昵称 小A' }).className
+    ).toContain('collaboration-edit-name-btn');
+
+    // Hovering member row shows member info tooltip at cursor position without duplicate 名称/Agent rows in meta
+    fireEvent.mouseMove(memberAButton, { clientX: 160, clientY: 220 });
+    await user.hover(memberAButton);
+    const hoverInfo = await screen.findByTestId(
+      'collaboration-member-hover-info-conv-1'
+    );
+    expect(hoverInfo).toHaveTextContent('小A');
+    expect(hoverInfo).toHaveTextContent('Claude Code');
+    expect(within(hoverInfo).queryByText('名称')).toBeNull();
+    expect(within(hoverInfo).queryByText('Agent')).toBeNull();
+    expect(
+      screen.getByTestId('collaboration-member-hover-workspace-conv-1')
+    ).toHaveTextContent('主工作区');
+    expect(
+      screen.getByTestId('collaboration-member-hover-team-conv-1')
+    ).toHaveTextContent('-');
+    const tooltipContentEl = hoverInfo.closest(
+      '.collaboration-member-hover-info'
+    ) as HTMLElement | null;
+    expect(tooltipContentEl).toHaveAttribute('data-cursor-positioned', 'true');
+    expect(tooltipContentEl?.style.left).toBe('172px');
+    expect(tooltipContentEl?.style.top).toBe('232px');
+    await user.unhover(memberAButton);
+
+    await user.click(memberAButton);
     const preview = await screen.findByTestId('session-preview');
     expect(preview).toHaveTextContent('conv-1');
     expect(preview).toHaveAttribute('data-embedded', 'true');
@@ -230,15 +359,17 @@ describe('CollaborationSpacePage', () => {
       })
     );
 
-    await user.click(screen.getByRole('button', { name: '你' }));
-    expect(await screen.findByText('没有会话')).toBeTruthy();
-    expect(screen.queryByTestId('session-preview')).toBeNull();
+    // Clicking another member ('小B') opens a second tab in the right Dockview preview bar
+    await user.click(screen.getByRole('button', { name: '小B' }));
+    const previewPane = screen.getByLabelText('预览');
+    expect(within(previewPane).getByText('小A')).toBeTruthy();
+    expect(within(previewPane).getByText('小B')).toBeTruthy();
 
-    // Clicking the member's avatar in the message area also opens that member's session preview
+    // Clicking the member's avatar in the message area also activates that member's session preview tab
     await user.click(screen.getByRole('button', { name: '预览 小A 会话' }));
-    expect(await screen.findByTestId('session-preview')).toHaveTextContent(
-      'conv-1'
-    );
+    expect(
+      await within(previewPane).findAllByTestId('session-preview')
+    ).toBeTruthy();
 
     // Clicking + in top toolbar expands menu with 新建协作空间 and 新建成员
     await user.click(screen.getByRole('button', { name: '新建空间' }));
@@ -250,50 +381,122 @@ describe('CollaborationSpacePage', () => {
     ).toBeTruthy();
     await user.click(createSpaceMenuItem);
 
-    // Form is rendered as a blurred overlay inside the middle message area (.collaboration-thread)
+    // Form is rendered as a white Gaussian blurred overlay inside the middle message area (.collaboration-thread)
     const threadSection = screen.getByRole('region', { name: '设计' });
     const dialogInThread = within(threadSection).getByRole('dialog', {
       name: '新建空间',
     });
     expect(dialogInThread).toBeTruthy();
-    expect(
-      threadSection.querySelector('.collaboration-thread-overlay')
-    ).toBeTruthy();
+    const overlayEl = threadSection.querySelector(
+      '.collaboration-thread-overlay'
+    );
+    expect(overlayEl).toBeTruthy();
+    expect(overlayEl?.className).not.toContain('dialog-backdrop');
     expect(screen.getByRole('textbox', { name: '空间名称' })).toBeTruthy();
 
-    await user.click(screen.getByRole('button', { name: 'Close' }));
+    const closeDialogBtn = screen.getByRole('button', { name: 'Close' });
+    expect(closeDialogBtn.querySelector('svg')).toBeTruthy();
+    await user.click(closeDialogBtn);
     await waitFor(() => {
       expect(screen.queryByRole('dialog', { name: '新建空间' })).toBeNull();
     });
 
-    // Clicking per-space UserPlus button opens the unified 新建成员 overlay pre-set to 从会话新建
+    // Clicking per-space UserPlus button opens the unified 新建成员 overlay pre-set to 基于会话
     await user.click(screen.getByRole('button', { name: '加入成员 设计' }));
     const memberDialog = await within(threadSection).findByRole('dialog', {
       name: '新建成员',
     });
     expect(memberDialog).toBeTruthy();
-    const sourceSelect = within(memberDialog).getByRole('combobox', {
+    const sourceSegmented = within(memberDialog).getByRole('radiogroup', {
       name: '创建方式',
-    }) as HTMLSelectElement;
-    expect(sourceSelect.value).toBe('session');
+    });
+    expect(
+      within(sourceSegmented).getByRole('radio', { name: '基于会话' })
+    ).toHaveAttribute('aria-checked', 'true');
     expect(
       within(memberDialog).getByRole('combobox', { name: '选择会话' })
     ).toBeTruthy();
     expect(
       within(memberDialog).getByRole('textbox', { name: '成员名称' })
     ).toBeTruthy();
+
+    // Avatar customizer field is rendered with 颜色/形状 SegmentedControl on the right of 头像 label, no 表情 tab, no text in color/shape panels, no shadows/highlights/eyeballs
+    const avatarPicker = within(memberDialog).getByTestId(
+      'member-bot-avatar-picker'
+    );
+    expect(avatarPicker).toBeTruthy();
+    const previewBox = within(avatarPicker).getByTestId(
+      'member-bot-avatar-preview'
+    );
+    expect(previewBox.querySelector('defs')).toBeNull();
+    expect(
+      previewBox.querySelector('.collaboration-bot-3d-shadow')
+    ).toBeNull();
+    expect(
+      previewBox.querySelector('.collaboration-bot-avatar-face circle')
+    ).toBeNull();
+    // Idle avatar faces the user directly with neutral expression and idle blink class
+    expect(
+      previewBox.querySelector(
+        '.collaboration-bot-avatar--idle-blink[data-bot-emote="idle"][data-bot-expression="neutral"]'
+      )
+    ).toBeTruthy();
+
+    const avatarAttrSegmented = within(avatarPicker).getByRole('radiogroup', {
+      name: '头像属性',
+    });
+    expect(
+      within(avatarAttrSegmented).getByRole('radio', { name: '颜色' })
+    ).toHaveAttribute('aria-checked', 'true');
+    expect(
+      within(avatarAttrSegmented).queryByRole('radio', { name: '表情' })
+    ).toBeNull();
+
+    const colorPanel = within(avatarPicker).getByTestId(
+      'member-avatar-panel-color'
+    );
+    expect(colorPanel.textContent).toBe('');
+    await user.click(
+      within(colorPanel).getByRole('button', { name: '紫罗兰' })
+    );
+    expect(
+      previewBox.querySelector('[data-bot-color="#8b52ff"]')
+    ).toBeTruthy();
+    expect(
+      previewBox.querySelector('.collaboration-bot-avatar-stage.is-reacting')
+    ).toBeTruthy();
+
+    await user.click(
+      within(avatarAttrSegmented).getByRole('radio', { name: '形状' })
+    );
+    const shapePanel = within(avatarPicker).getByTestId(
+      'member-avatar-panel-shape'
+    );
+    expect(shapePanel.textContent).toBe('');
+    await user.click(within(shapePanel).getByRole('button', { name: '心形' }));
+    expect(
+      previewBox.querySelector('[data-bot-shape="heart"]')
+    ).toBeTruthy();
+
+    // Creation source SegmentedControl items each include an icon
+    for (const radioEl of within(sourceSegmented).getAllByRole('radio')) {
+      expect(radioEl.querySelector('svg')).toBeTruthy();
+    }
   });
 
   it('completes @nickname via SessionComposerInput panel, sends targeted vs broadcast posts, and renders receipts', async () => {
     const user = userEvent.setup();
     renderPage();
 
-    expect(await screen.findByText('你好')).toBeTruthy();
+    expect((await screen.findAllByText('你好')).length).toBeGreaterThanOrEqual(
+      1
+    );
     expect(await screen.findByRole('button', { name: '小A' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: '选择文件' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: '@成员' })).toBeTruthy();
 
     const editor = getComposerEditor();
-    await user.click(editor);
-    await user.type(editor, '@');
+    await user.click(screen.getByRole('button', { name: '@成员' }));
 
     const menu = await screen.findByTestId('composer-at-reference-menu');
     expect(menu).toBeVisible();
@@ -318,7 +521,9 @@ describe('CollaborationSpacePage', () => {
         })
       );
     });
-    expect(await screen.findByText('小A · 已排队')).toBeTruthy();
+    expect(await screen.findByText('小A 已收到')).toBeTruthy();
+    // User message does not render '你' header
+    expect(screen.queryByRole('button', { name: '预览 你 会话' })).toBeNull();
 
     await user.click(editor);
     await user.type(editor, '全员同步一下');
@@ -412,7 +617,7 @@ describe('CollaborationSpacePage', () => {
     await user.click(screen.getByRole('button', { name: '发送' }));
 
     expect(await screen.findByText('没有送达')).toBeTruthy();
-    expect(await screen.findByText('小A · 失败')).toBeTruthy();
+    expect(await screen.findByText('小A 失败')).toBeTruthy();
     expect(editor).toHaveTextContent('@小A 重试这条');
 
     const firstPostCall = collaborationCall.mock.calls.find(
@@ -440,23 +645,30 @@ describe('CollaborationSpacePage', () => {
     const user = userEvent.setup();
     renderPage();
 
-    expect(await screen.findByText('你好')).toBeTruthy();
+    expect((await screen.findAllByText('你好')).length).toBeGreaterThanOrEqual(
+      1
+    );
 
     await act(async () => {
       for (const listener of spaceEventListeners) {
         listener({
           workspaceId: 'workspace-1',
           spaceId: 's1',
-          seq: 2,
+          seq: 3,
         });
       }
     });
 
-    expect(await screen.findByText('增量消息')).toBeTruthy();
+    expect(
+      (await screen.findAllByText('增量消息')).length
+    ).toBeGreaterThanOrEqual(1);
+    expect(
+      screen.getByTestId('collaboration-member-last-message-conv-1')
+    ).toHaveTextContent('增量消息');
     expect(collaborationCall).toHaveBeenCalledWith(
       'collaboration',
       'space.listMessages',
-      { spaceId: 's1', sinceSeq: 1 }
+      { spaceId: 's1', sinceSeq: 2 }
     );
 
     // Drag 小A into 未定空间
@@ -483,11 +695,14 @@ describe('CollaborationSpacePage', () => {
       );
     });
 
+    // Clicking rename button turns the member name directly into an inline input with X and Check buttons (no message area dialog overlay)
     await user.click(screen.getByRole('button', { name: '修改昵称 小A' }));
-    expect(
-      await screen.findByRole('dialog', { name: '修改昵称' })
-    ).toBeTruthy();
+    expect(screen.queryByRole('dialog', { name: '修改昵称' })).toBeNull();
     const input = screen.getByRole('textbox', { name: '昵称' });
+    expect(input).toHaveValue('小A');
+    expect(
+      screen.getByRole('button', { name: '取消修改昵称' })
+    ).toBeTruthy();
     await user.clear(input);
     await user.type(input, '评审A');
     await user.click(screen.getByRole('button', { name: /^修改昵称$/ }));
@@ -503,6 +718,35 @@ describe('CollaborationSpacePage', () => {
         })
       );
     });
+
+    // Clicking space rename button turns space name into an inline input with X and Check buttons
+    await user.click(screen.getByRole('button', { name: '修改名称 设计' }));
+    const spaceNameInput = screen.getByRole('textbox', {
+      name: '修改空间名称输入框',
+    });
+    expect(spaceNameInput).toHaveValue('设计');
+    expect(
+      screen.getByRole('button', { name: '取消修改空间名称' })
+    ).toBeTruthy();
+    await user.clear(spaceNameInput);
+    await user.type(spaceNameInput, '视觉设计');
+    await user.click(
+      screen.getByRole('button', { name: '确认修改空间名称' })
+    );
+
+    await waitFor(() => {
+      expect(collaborationCall).toHaveBeenCalledWith(
+        'collaboration',
+        'space.rename',
+        expect.objectContaining({
+          spaceId: 's1',
+          name: '视觉设计',
+        })
+      );
+    });
+    expect(
+      await screen.findByRole('button', { name: '视觉设计' })
+    ).toBeTruthy();
   });
 
   it('supports search, filtering by agent/activity/member, and batch deleting spaces and members', async () => {
@@ -513,22 +757,59 @@ describe('CollaborationSpacePage', () => {
     expect(await screen.findByRole('button', { name: '小A' })).toBeTruthy();
     expect(await screen.findByRole('button', { name: '小B' })).toBeTruthy();
 
-    // Filter by Agent
+    // Filter by Agent using project standard DropdownMenu combobox
     await user.click(screen.getByRole('button', { name: '筛选' }));
     const agentSelect = await screen.findByRole('combobox', {
       name: '按 Agent',
     });
-    await user.selectOptions(agentSelect, 'CODEX');
+    await user.click(agentSelect);
+    await user.click(await screen.findByRole('menuitem', { name: 'Codex' }));
     expect(screen.getByRole('button', { name: '设计' })).toBeTruthy();
 
     await user.click(screen.getByRole('button', { name: '重置筛选' }));
 
-    // Batch delete mode: selecting space '设计' automatically selects both 小A and 小B;
+    // Collapsing space '设计' renders a horizontal stacked member avatar list after the space name
+    expect(
+      screen.queryByTestId('collaboration-space-collapsed-stack-s1')
+    ).toBeNull();
+    await user.click(screen.getByRole('button', { name: '设计' }));
+    const collapsedStack = await screen.findByTestId(
+      'collaboration-space-collapsed-stack-s1'
+    );
+    expect(collapsedStack).toBeTruthy();
+    expect(
+      collapsedStack.querySelectorAll(
+        '.collaboration-space-collapsed-stack-item'
+      )
+    ).toHaveLength(2);
+    // Re-expand space '设计'
+    await user.click(screen.getByRole('button', { name: '设计' }));
+    expect(
+      screen.queryByTestId('collaboration-space-collapsed-stack-s1')
+    ).toBeNull();
+
+    // Dragging the pane resizer between spaces pane and message thread adjusts --collaboration-spaces-width
+    const spacesResizer = screen.getByTestId('collaboration-spaces-resizer');
+    fireEvent.pointerDown(spacesResizer, { clientX: 296 });
+    fireEvent.pointerMove(window, { clientX: 346 });
+    fireEvent.pointerUp(window);
+    const shell = spacesResizer.closest('.collaboration-shell') as HTMLElement;
+    expect(
+      shell.style.getPropertyValue('--collaboration-spaces-width')
+    ).toBeTruthy();
+
+    // Batch delete mode: checkboxes are placed outside the space and member row components with bolder border class
+    // Selecting space '设计' automatically selects both 小A and 小B;
     // deselecting 小A keeps '设计' and 小B selected so 小A moves to 未定空间 and 小B is archived
     await user.click(screen.getByRole('button', { name: '批量删除' }));
     const spaceCheckbox = screen.getByRole('checkbox', {
       name: '选择空间 设计',
     });
+    expect(spaceCheckbox.className).toContain('collaboration-delete-checkbox');
+    expect(spaceCheckbox.closest('.collaboration-space-row')).toBeNull();
+    expect(
+      spaceCheckbox.closest('.collaboration-space-row-outer')
+    ).toBeTruthy();
     await user.click(spaceCheckbox);
 
     const memberACheckbox = screen.getByRole('checkbox', {
@@ -537,6 +818,13 @@ describe('CollaborationSpacePage', () => {
     const memberBCheckbox = screen.getByRole('checkbox', {
       name: '选择成员 小B',
     });
+    expect(memberACheckbox.className).toContain(
+      'collaboration-delete-checkbox'
+    );
+    expect(memberACheckbox.closest('.collaboration-member-row')).toBeNull();
+    expect(
+      memberACheckbox.closest('.collaboration-member-row-outer')
+    ).toBeTruthy();
     expect(memberACheckbox).toHaveAttribute('aria-checked', 'true');
     expect(memberBCheckbox).toHaveAttribute('aria-checked', 'true');
 
@@ -630,40 +918,66 @@ describe('CollaborationSpacePage', () => {
     );
 
     const { unmount } = renderPage();
-    // Default space is shown in the left space list
+    // Default space is shown in the left space list along with its 3 hover buttons (标签, 修改名称, 加入成员)
     expect(await screen.findByRole('button', { name: '默认空间' })).toBeTruthy();
-    // Left pane shows ONLY 2 centered buttons (新建协作空间, 新建成员) and no 从会话新建成员 button
-    expect(screen.getByRole('button', { name: '新建协作空间' })).toBeTruthy();
-    expect(screen.getByRole('button', { name: '新建成员' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: '标签 默认空间' })).toBeTruthy();
     expect(
-      screen.queryByRole('button', { name: '从会话新建成员' })
-    ).toBeNull();
-    // Middle message area is shown by default even when no user space exists
-    expect(screen.getByTestId('session-composer-editor')).toBeTruthy();
-    expect(screen.getByText('还没有消息')).toBeTruthy();
+      screen.getByRole('button', { name: '修改名称 默认空间' })
+    ).toBeTruthy();
+    expect(
+      screen.getByRole('button', { name: '加入成员 默认空间' })
+    ).toBeTruthy();
+    // Top row has 12px '协作空间' title on the left of the search button
+    const topTitle = screen.getByText('协作空间');
+    expect(topTitle.className).toContain('text-[12px]');
+    // Never show '还没有消息'; composer is NOT rendered when no space is opened;
+    // instead, the white-blurred 新建空间 overlay is shown by default over the message area
+    expect(screen.queryByText('还没有消息')).toBeNull();
+    expect(screen.queryByTestId('session-composer-editor')).toBeNull();
+    const initialSpaceDialog = await screen.findByRole('dialog', {
+      name: '新建空间',
+    });
+    expect(initialSpaceDialog).toBeTruthy();
     // Right preview area is NOT shown by default
     expect(screen.queryByLabelText('预览')).toBeNull();
 
-    // Test unified 新建成员 overlay inside message area (从角色新建 / 从会话新建 / 自定义)
-    await user.click(screen.getByRole('button', { name: '新建成员' }));
+    // Closing 新建空间 dialog when no spaces exist opens Default Space message area with empty-state capsule and 2 action buttons
+    await user.click(
+      within(initialSpaceDialog).getByRole('button', { name: 'Close' })
+    );
+    expect(
+      await screen.findByTestId('collaboration-empty-member-pill')
+    ).toHaveTextContent('当前协作空间暂无成员，请先添加成员');
+    const emptyStateAddMemberBtn = screen.getByRole('button', {
+      name: '添加成员',
+    });
+    const emptyStateCreateSpaceBtn = screen.getByRole('button', {
+      name: '新建协作空间',
+    });
+
+    // Test unified 新建成员 overlay inside message area (基于角色 / 基于会话 / 自定义, without 归属团队)
+    await user.click(emptyStateAddMemberBtn);
     const memberDialog = await screen.findByRole('dialog', {
       name: '新建成员',
     });
     expect(memberDialog).toBeTruthy();
-    const sourceSelector = within(memberDialog).getByRole('combobox', {
-      name: '创建方式',
-    }) as HTMLSelectElement;
     expect(
-      Array.from(sourceSelector.options).map((opt) => opt.textContent)
-    ).toEqual(['从角色新建', '从会话新建', '自定义']);
+      within(memberDialog).queryByRole('combobox', { name: /归属团队/ })
+    ).toBeNull();
+    const sourceSelector = within(memberDialog).getByRole('radiogroup', {
+      name: '创建方式',
+    });
+    const sourceRadioItems = within(sourceSelector).getAllByRole('radio');
+    expect(sourceRadioItems.map((opt) => opt.textContent)).toEqual([
+      '基于角色',
+      '基于会话',
+      '自定义',
+    ]);
+    await user.click(sourceRadioItems[0]);
 
     await user.type(
       within(memberDialog).getByRole('textbox', { name: '成员名称' }),
       '架构助手'
-    );
-    await user.selectOptions(
-      within(memberDialog).getByRole('combobox', { name: '归属团队（可选）' }),
-      'team-1'
     );
     await user.click(
       memberDialog.querySelector('button[type="submit"]') as HTMLButtonElement
@@ -678,13 +992,12 @@ describe('CollaborationSpacePage', () => {
           nickname: '架构助手',
           source: 'role',
           roleId: 'role-1',
-          teamId: 'team-1',
         })
       );
     });
 
-    // Test 新建协作空间 overlay with a non-member session selected (auto English nickname)
-    await user.click(screen.getByRole('button', { name: '新建协作空间' }));
+    // Test 新建协作空间 overlay: clicking dashed + switches directly to 添加成员 dialog with 选择成员 / 新建成员 tabs
+    await user.click(emptyStateCreateSpaceBtn);
     const spaceDialog = await screen.findByRole('dialog', {
       name: '新建空间',
     });
@@ -692,10 +1005,74 @@ describe('CollaborationSpacePage', () => {
       name: '空间名称',
     });
     await user.type(nameInput, '架构评审');
-    const convCheckbox = await within(spaceDialog).findByRole('checkbox');
+
+    // Click dashed + button to open 添加成员 form directly
+    const dashedAddBtn = within(spaceDialog).getByRole('button', {
+      name: '添加或新建协作空间成员',
+    });
+    await user.click(dashedAddBtn);
+    const addMemberDialog = await screen.findByRole('dialog', {
+      name: '添加成员',
+    });
+    expect(
+      within(addMemberDialog).getByRole('button', { name: '选择成员' })
+    ).toBeTruthy();
+    expect(
+      within(addMemberDialog).getByRole('button', { name: '新建成员' })
+    ).toBeTruthy();
+
+    // 选择成员 tab is active by default -> shows 可选成员 with 2-level space -> member list
+    expect(within(addMemberDialog).getByText('可选成员')).toBeTruthy();
+    expect(
+      within(addMemberDialog).getByTestId(
+        'collaboration-picker-space-unassigned:workspace-1'
+      )
+    ).toBeTruthy();
+    const convCheckbox = await within(addMemberDialog).findByRole('checkbox');
     await user.click(convCheckbox);
     await user.click(
-      spaceDialog.querySelector('button[type="submit"]') as HTMLButtonElement
+      within(addMemberDialog).getByRole('button', { name: '完成' })
+    );
+
+    // Click dashed + button again to create a member via 添加成员 -> 新建成员 tab (no 归属团队 field)
+    const spaceDialogAfterChoose = await screen.findByRole('dialog', {
+      name: '新建空间',
+    });
+    await user.click(
+      within(spaceDialogAfterChoose).getByRole('button', {
+        name: '添加或新建协作空间成员',
+      })
+    );
+    const addMemberDialog2 = await screen.findByRole('dialog', {
+      name: '添加成员',
+    });
+    await user.click(
+      within(addMemberDialog2).getByRole('button', { name: '新建成员' })
+    );
+    expect(
+      within(addMemberDialog2).queryByRole('combobox', { name: /归属团队/ })
+    ).toBeNull();
+    await user.type(
+      within(addMemberDialog2).getByRole('textbox', { name: '成员名称' }),
+      '内联评审员'
+    );
+    await user.click(
+      within(addMemberDialog2).getByRole('button', { name: '添加成员' })
+    );
+
+    // Created member chip is displayed under 协作空间成员 with dashed + still after it
+    const finalSpaceDialog = await screen.findByRole('dialog', {
+      name: '新建空间',
+    });
+    expect(await within(finalSpaceDialog).findByText('内联评审员')).toBeTruthy();
+    expect(
+      within(finalSpaceDialog).getByRole('button', {
+        name: '添加或新建协作空间成员',
+      })
+    ).toBeTruthy();
+
+    await user.click(
+      finalSpaceDialog.querySelector('button[type="submit"]') as HTMLButtonElement
     );
 
     expect(
@@ -710,7 +1087,17 @@ describe('CollaborationSpacePage', () => {
         nickname: expect.stringMatching(/^[A-Z][a-z]+/),
       })
     );
-    // Once a space exists, the 2 empty-state buttons in the left pane disappear
+    expect(collaborationCall).toHaveBeenCalledWith(
+      'collaboration',
+      'space.addMember',
+      expect.objectContaining({
+        spaceId: 's-new',
+        conversationId: 'conv-created',
+        nickname: '内联评审员',
+      })
+    );
+    // Once a space is created and opened, composer is rendered and the 2 empty-state buttons disappear
+    expect(await screen.findByTestId('session-composer-editor')).toBeTruthy();
     expect(
       screen.queryByRole('button', { name: '新建协作空间' })
     ).toBeNull();
@@ -726,5 +1113,91 @@ describe('CollaborationSpacePage', () => {
     );
     renderPage();
     expect(await screen.findByText('暂不可用')).toBeTruthy();
+  });
+
+  it('shows flowing blue glow on top member bar chip when member has delayed messages and displays scheduled queue with countdown on hover', async () => {
+    const deliverAt = new Date(Date.now() + 125_000).toISOString();
+    collaborationCall.mockImplementation(
+      async (
+        _capability: string,
+        method: string,
+        input?: Record<string, unknown>
+      ) => {
+        if (method === 'space.list') {
+          return { spaces: [{ space_id: 's1', name: '设计' }] };
+        }
+        if (method === 'space.listMembers') {
+          if (String(input?.spaceId ?? '').startsWith('unassigned:')) {
+            return { members: [] };
+          }
+          return {
+            members: [
+              {
+                member_id: 'm1',
+                nickname: '小A',
+                kind: 'agent',
+                visible_to_agents: 1,
+                conversation_id: 'conv-1',
+              },
+              {
+                member_id: 'm2',
+                nickname: '小B',
+                kind: 'agent',
+                visible_to_agents: 1,
+                conversation_id: 'conv-2',
+              },
+            ],
+          };
+        }
+        if (method === 'space.listMessages') {
+          return {
+            messages: [
+              {
+                seq: 1,
+                envelope: { actor: 'space/member/小A', content: '我先处理一下' },
+              },
+            ],
+            scheduled: [
+              {
+                delayed_input_id: 'space_delayed_1',
+                space_id: 's1',
+                sender_conversation_id: 'conv-1',
+                sender_nickname: '小A',
+                content: '@小B 5分钟后同步检查结果',
+                summary: null,
+                to: ['小B'],
+                deliver_at: deliverAt,
+                status: 'scheduled',
+                created_at: new Date().toISOString(),
+                updated_at: new Date().toISOString(),
+              },
+            ],
+          };
+        }
+        if (method === 'space.listConversations') {
+          return { conversations: [] };
+        }
+        return {};
+      }
+    );
+
+    renderPage();
+    const chipA = await screen.findByTestId('top-member-filter-小A');
+    const chipB = await screen.findByTestId('top-member-filter-小B');
+
+    expect(chipA).toHaveClass('has-delayed-messages');
+    expect(chipA).toHaveAttribute('data-has-delayed-messages', 'true');
+    expect(chipB).not.toHaveClass('has-delayed-messages');
+    expect(chipB).toHaveAttribute('data-has-delayed-messages', 'false');
+
+    fireEvent.mouseEnter(chipA);
+    const popover = await screen.findByTestId('member-delayed-queue-小A');
+    expect(popover).toHaveTextContent('定时消息队列');
+    expect(popover).toHaveTextContent('@小B 5分钟后同步检查结果');
+
+    const timer = screen.getByTestId(
+      'member-delayed-queue-timer-space_delayed_1'
+    );
+    expect(timer.textContent).toMatch(/\d{2}:\d{2}/);
   });
 });

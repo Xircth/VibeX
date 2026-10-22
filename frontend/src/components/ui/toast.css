@@ -268,6 +268,17 @@ html.desktop-toast-shell.dark .vu-toast-surface::before {
   line-height: 18px !important;
 }
 
+/* Astryx labels read font-size from --font-size-base (14px) at a
+   specificity this file cannot override. Toast actions sit beside a
+   14px title, so their label scale is 12px. Icon glyphs stay 16px. */
+.vu-toast-end .astryx-button,
+.vu-desktop-toast-compose .astryx-button {
+  --font-size-base: 12px;
+  --text-label-leading: 16px;
+  font-size: 12px;
+  line-height: 16px;
+}
+
 .vu-desktop-toast-compose .astryx-button {
   flex: 0 0 auto;
 }

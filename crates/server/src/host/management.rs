@@ -299,11 +299,14 @@ pub async fn preflight(
             "agent_runtime" | "combined_runtime"
         )
     });
-    let mut acp_ok = acp.is_some_and(|component| component.exists);
+    let mut acp_ok =
+        view.lifecycle != AgentLifecycleState::Uninstalled && acp.is_some_and(|component| component.exists);
     let mut acp_error = None;
     let mut discovered_acp_path = None;
     if !acp_ok {
-        if let Some(path) = discover_profile_acp(&agent_id).await {
+        if view.lifecycle != AgentLifecycleState::Uninstalled
+            && let Some(path) = discover_profile_acp(&agent_id).await
+        {
             acp_ok = true;
             discovered_acp_path = Some(path);
         } else if acp.is_some() {
@@ -1604,6 +1607,10 @@ fn auth_mode_translation_keys(agent_id: &AgentId, mode: &str) -> (&'static str, 
         ("command_code", "official_subscription") => (
             "agents.authModeOfficialSubscription",
             "agents.authDescCommandCodeSubscription",
+        ),
+        ("zcode", "official_subscription") => (
+            "agents.authModeOfficialSubscription",
+            "agents.authDescZcodeSubscription",
         ),
         ("mimo_code", "official_subscription") => (
             "agents.authModeOfficialSubscription",

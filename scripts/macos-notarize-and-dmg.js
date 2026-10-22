@@ -138,8 +138,55 @@ function isTransientNotaryFailure(output) {
   );
 }
 
-function hdiutilCreateArgs({ volname, srcfolder, dest }) {
+const DMG_LAYOUT = {
+  windowWidth: 540,
+  windowHeight: 360,
+  iconSize: 96,
+  appPosition: { x: 150, y: 175 },
+  applicationFolderPosition: { x: 390, y: 175 },
+  backgroundPath: path.join(
+    workspaceRoot,
+    "src-tauri",
+    "installer",
+    "assets",
+    "dmg-background.png",
+  ),
+};
+
+function dmgFinderAppleScript({
+  volname = PRODUCT_NAME,
+  appName = `${PRODUCT_NAME}.app`,
+  layout = DMG_LAYOUT,
+} = {}) {
+  const left = 200;
+  const top = 140;
+  const right = left + layout.windowWidth;
+  const bottom = top + layout.windowHeight;
   return [
+    'tell application "Finder"',
+    `  tell disk "${volname}"`,
+    "    open",
+    "    set current view of container window to icon view",
+    "    set toolbar visible of container window to false",
+    "    set statusbar visible of container window to false",
+    `    set the bounds of container window to {${left}, ${top}, ${right}, ${bottom}}`,
+    "    set viewOptions to the icon view options of container window",
+    "    set arrangement of viewOptions to not arranged",
+    `    set icon size of viewOptions to ${layout.iconSize}`,
+    '    set background picture of viewOptions to file ".background:background.png"',
+    `    set position of item "${appName}" of container window to {${layout.appPosition.x}, ${layout.appPosition.y}}`,
+    `    set position of item "Applications" of container window to {${layout.applicationFolderPosition.x}, ${layout.applicationFolderPosition.y}}`,
+    "    close",
+    "    open",
+    "    update without registering applications",
+    "    delay 1",
+    "  end tell",
+    "end tell",
+  ].join("\n");
+}
+
+function hdiutilCreateArgs({ volname, srcfolder, dest, format = "UDZO" }) {
+  const args = [
     "create",
     "-volname",
     volname,
@@ -147,11 +194,13 @@ function hdiutilCreateArgs({ volname, srcfolder, dest }) {
     srcfolder,
     "-ov",
     "-format",
-    "UDZO",
-    "-imagekey",
-    "zlib-level=9",
-    dest,
+    format,
   ];
+  if (format === "UDZO") {
+    args.push("-imagekey", "zlib-level=9");
+  }
+  args.push(dest);
+  return args;
 }
 
 function readOption(name, args = process.argv.slice(2)) {
@@ -310,16 +359,80 @@ function detachVolume(productName) {
 function createDmg({ appPath, dmgPath, productName, identity }) {
   fs.mkdirSync(path.dirname(dmgPath), { recursive: true });
   const staging = fs.mkdtempSync(path.join(os.tmpdir(), "vibex-dmg-"));
+  const rwDmgPath = path.join(os.tmpdir(), `vibex-rw-${process.pid}.dmg`);
   try {
     const stagedApp = path.join(staging, path.basename(appPath));
     run("ditto", [appPath, stagedApp]);
     fs.symlinkSync("/Applications", path.join(staging, "Applications"));
+    if (fs.existsSync(DMG_LAYOUT.backgroundPath)) {
+      const bgDir = path.join(staging, ".background");
+      fs.mkdirSync(bgDir, { recursive: true });
+      fs.copyFileSync(
+        DMG_LAYOUT.backgroundPath,
+        path.join(bgDir, "background.png"),
+      );
+    }
     detachVolume(productName);
 
     let lastError = new Error("hdiutil create did not run");
     for (let attempt = 1; attempt <= DMG_ATTEMPTS; attempt += 1) {
       fs.rmSync(dmgPath, { force: true });
+      fs.rmSync(rwDmgPath, { force: true });
       console.log(`Creating DMG (attempt ${attempt}/${DMG_ATTEMPTS}): ${dmgPath}`);
+
+      const rwResult = spawnSync(
+        "hdiutil",
+        hdiutilCreateArgs({
+          volname: productName,
+          srcfolder: staging,
+          dest: rwDmgPath,
+          format: "UDRW",
+        }),
+        { encoding: "utf8", stdio: "inherit" },
+      );
+      if (rwResult.status === 0 && fs.existsSync(rwDmgPath)) {
+        const attachResult = spawnSync(
+          "hdiutil",
+          ["attach", "-readwrite", "-noverify", "-noautoopen", rwDmgPath],
+          { encoding: "utf8", stdio: "inherit" },
+        );
+        if (attachResult.status === 0) {
+          spawnSync(
+            "osascript",
+            [
+              "-e",
+              dmgFinderAppleScript({
+                volname: productName,
+                appName: path.basename(appPath),
+              }),
+            ],
+            { encoding: "utf8", stdio: "inherit" },
+          );
+          spawnSync("sync", [], { stdio: "ignore" });
+          detachVolume(productName);
+        }
+        const convertResult = spawnSync(
+          "hdiutil",
+          [
+            "convert",
+            rwDmgPath,
+            "-format",
+            "UDZO",
+            "-imagekey",
+            "zlib-level=9",
+            "-ov",
+            "-o",
+            dmgPath,
+          ],
+          { encoding: "utf8", stdio: "inherit" },
+        );
+        fs.rmSync(rwDmgPath, { force: true });
+        if (convertResult.status === 0 && fs.existsSync(dmgPath)) {
+          lastError = null;
+          break;
+        }
+      }
+
       const result = spawnSync(
         "hdiutil",
         hdiutilCreateArgs({
@@ -342,6 +455,7 @@ function createDmg({ appPath, dmgPath, productName, identity }) {
       throw lastError;
     }
   } finally {
+    fs.rmSync(rwDmgPath, { force: true });
     fs.rmSync(staging, { recursive: true, force: true });
   }
 
@@ -448,6 +562,8 @@ function main(args = process.argv.slice(2), env = process.env) {
 
 module.exports = {
   DEFAULT_NOTARY_TIMEOUT_SECONDS,
+  DMG_LAYOUT,
+  dmgFinderAppleScript,
   hdiutilCreateArgs,
   hostAppleTarget,
   isTransientNotaryFailure,

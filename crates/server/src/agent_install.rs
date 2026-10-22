@@ -31,7 +31,9 @@ use db::{
     },
 };
 use serde::Serialize;
-use services::services::agent_registry::AgentRegistrySnapshotStore;
+use services::services::{
+    agent_management::AgentManagementApplicationService, agent_registry::AgentRegistrySnapshotStore,
+};
 use sha2::{Digest, Sha256};
 use sqlx::SqlitePool;
 use uuid::Uuid;
@@ -493,7 +495,13 @@ async fn resolve_plan(
             InstallCandidateSource::Registry(Box::new(entry.lock_add_target(snapshot.id)))
         }
         AgentSource::UserDefinition => {
-            anyhow::bail!("user-declared Agents are installed from Settings")
+            let target = AgentManagementApplicationService::new(pool.clone())
+                .user_install_target(agent_id)
+                .await?
+                .ok_or_else(|| {
+                    anyhow::anyhow!("user-declared Agent `{agent_id}` was not found")
+                })?;
+            InstallCandidateSource::UserDefinition(Box::new(target))
         }
         AgentSource::RetiredLegacy => anyhow::bail!("retired Agents cannot be installed"),
     };

@@ -30,18 +30,22 @@ pub fn builtin_contribution_capabilities() -> Vec<AgentContributionCapability> {
         AgentKind::DeepseekHarness,
         AgentKind::Qoder,
         AgentKind::CommandCode,
+        AgentKind::ZCode,
     ]
     .into_iter()
     .map(|agent| {
         let surface = crate::skills::skills_surface(agent);
-        // Command Code documents skill directories. Its native MCP file shape
-        // is not verified, so a skills surface must not advertise an MCP writer.
-        let native_mcp = surface.global_supported && agent != AgentKind::CommandCode;
+        // Command Code and ZCode document skill directories. Their native MCP
+        // file shapes are not verified. ZCode's bridge still accepts stdio MCP
+        // servers on session/new.
+        let native_mcp_file =
+            surface.global_supported && !matches!(agent, AgentKind::CommandCode | AgentKind::ZCode);
+        let mcp_session_new = native_mcp_file || agent == AgentKind::ZCode;
         AgentContributionCapability {
             agent_id: agent.as_str().to_owned(),
             skills_project: surface.global_supported,
-            mcp_session_new: native_mcp,
-            mcp_native_file: native_mcp,
+            mcp_session_new,
+            mcp_native_file: native_mcp_file,
             hooks_project: matches!(
                 agent,
                 AgentKind::ClaudeCode | AgentKind::Codex | AgentKind::Cursor

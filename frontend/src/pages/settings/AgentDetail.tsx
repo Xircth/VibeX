@@ -19,6 +19,13 @@ import type {
 } from 'shared/types';
 
 import { Button } from '@/components/ui/button';
+import {
+  Dialog,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
 import { Switch } from '@/components/ui/switch';
 import type { AgentOperationState } from '@/features/agent-management';
 import { persistFrontendPreference } from '@/lib/frontendPreferences';
@@ -43,7 +50,7 @@ type AgentDetailProps = {
   authentication?: ReactNode;
   diagnostics?: AgentDiagnosticView[];
   checking: boolean;
-  checkingUpdate: boolean;
+  checkingUpdate?: boolean;
   updateCheck: AgentUpdateCheckView | null;
   onSetEnabled: (enabled: boolean) => void;
   onPreflight: () => void;
@@ -58,10 +65,10 @@ type AgentDetailProps = {
     acpVersion?: string;
   }) => Promise<string | null>;
   onRepair: () => void;
-  onCheckUpdate: () => void;
+  onCheckUpdate?: () => void;
   onRollback: () => void;
   onCancelOperation: () => void;
-  onUninstall: () => void;
+  onUninstall: (options?: { clearData?: boolean }) => void;
   onRemove: () => void;
   onExportDiagnostics: () => void;
   onMarkAllDiagnosticsRead?: () => void;
@@ -77,7 +84,6 @@ export function AgentDetail({
   authentication,
   diagnostics = [],
   checking,
-  checkingUpdate,
   updateCheck,
   onSetEnabled,
   onPreflight,
@@ -85,7 +91,6 @@ export function AgentDetail({
   onInstallVersion,
   onPreviewVersions,
   onRepair,
-  onCheckUpdate,
   onRollback,
   onCancelOperation,
   onUninstall,
@@ -97,6 +102,7 @@ export function AgentDetail({
   focusDiagnostics = false,
 }: AgentDetailProps) {
   const { t, i18n } = useTranslation('settings');
+  const [disableDialogOpen, setDisableDialogOpen] = useState(false);
   const [operationDiagnosticsEnabled, setOperationDiagnosticsEnabled] =
     useState(
       () =>
@@ -126,6 +132,7 @@ export function AgentDetail({
   useEffect(() => {
     setCustomVersion('');
     setSpecifiedCompatibilityWarning(null);
+    setDisableDialogOpen(false);
   }, [agent.agent_id]);
   useEffect(() => {
     if (!focusDiagnostics) return;
@@ -197,27 +204,15 @@ export function AgentDetail({
               aria-label={t('agents.enableAgent')}
               checked={agent.enabled}
               disabled={busy || agent.retired}
-              onCheckedChange={onSetEnabled}
+              onCheckedChange={(nextEnabled) => {
+                if (nextEnabled) {
+                  onSetEnabled(true);
+                } else {
+                  setDisableDialogOpen(true);
+                }
+              }}
             />
           </label>
-          <Button
-            size="sm"
-            variant="outline"
-            className="h-8"
-            disabled={busy || agent.retired || checkingUpdate}
-            onClick={onCheckUpdate}
-          >
-            {checkingUpdate ? t('agents.checking') : t('agents.checkUpdates')}
-          </Button>
-          <Button
-            size="sm"
-            variant="outline"
-            className="h-8"
-            disabled={busy || agent.lifecycle === 'uninstalled'}
-            onClick={onUninstall}
-          >
-            {t('agents.fixUninstall')}
-          </Button>
           {!agent.built_in ? (
             <Button
               size="sm"
@@ -232,6 +227,62 @@ export function AgentDetail({
           ) : null}
         </div>
       </header>
+
+      <Dialog
+        aria-labelledby="agent-disable-dialog-title"
+        className="max-w-md"
+        open={disableDialogOpen}
+        onOpenChange={setDisableDialogOpen}
+      >
+        <DialogHeader>
+          <DialogTitle id="agent-disable-dialog-title">
+            {t('agents.disableDialogTitle', { agent: agent.display_name })}
+          </DialogTitle>
+          <DialogDescription>
+            {t('agents.disableDialogDescription')}
+          </DialogDescription>
+        </DialogHeader>
+        <DialogFooter className="flex-wrap">
+          <Button
+            size="sm"
+            variant="ghost"
+            onClick={() => setDisableDialogOpen(false)}
+          >
+            {t('common:cancel')}
+          </Button>
+          <Button
+            size="sm"
+            variant="outline"
+            data-dialog-primary="true"
+            onClick={() => {
+              setDisableDialogOpen(false);
+              onSetEnabled(false);
+            }}
+          >
+            {t('agents.disableOnly')}
+          </Button>
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={() => {
+              setDisableDialogOpen(false);
+              onUninstall({ clearData: false });
+            }}
+          >
+            {t('agents.disableAndUninstall')}
+          </Button>
+          <Button
+            size="sm"
+            variant="destructive"
+            onClick={() => {
+              setDisableDialogOpen(false);
+              onUninstall({ clearData: true });
+            }}
+          >
+            {t('agents.disableAndClearData')}
+          </Button>
+        </DialogFooter>
+      </Dialog>
 
       <div data-basic-guide="settings-agent-auth">{authentication}</div>
 

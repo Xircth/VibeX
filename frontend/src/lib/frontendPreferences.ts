@@ -13,6 +13,7 @@ const STORAGE_KEYS = {
   'vibex:app-icon-style': 'app_icon_style',
   'vibex:layout-arrangement': 'workspace_layout',
   'vibex:kanban-layout-arrangement': 'kanban_layout',
+  'vibex:collaboration-layout-arrangement': 'collaboration_layout',
   'vibex:kanban-session-list-view': 'kanban_session_list_view',
   'vibex:kanban-board-style': 'kanban_board_style',
   'vibex:kanban-canvas-list-visible': 'kanban_canvas_list_visible',

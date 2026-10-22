@@ -274,6 +274,7 @@ pub fn default_history_sources(agent_type: AgentKind) -> Vec<AgentHistorySource>
         | AgentKind::Auggie
         | AgentKind::Trae
         | AgentKind::CommandCode
+        | AgentKind::ZCode
         | AgentKind::QaMock => Vec::new(),
     }
 }
@@ -328,6 +329,7 @@ pub fn configured_history_sources(
             | AgentKind::Auggie
             | AgentKind::Trae
             | AgentKind::CommandCode
+            | AgentKind::ZCode
             | AgentKind::QaMock => None,
         }
         .into_iter()

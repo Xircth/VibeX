@@ -111,24 +111,24 @@ export function useSessionComposerQueue({
   }, [refetch, sessionId]);
 
   useEffect(() => {
-    if (!sessionId) return;
+    if (!sessionId || !configuredBackendTransport.listen) return;
     let active = true;
     let unlisten: (() => void) | undefined;
     configuredBackendTransport
-      .subscribeHostEvents([COLLABORATION_SPACE_CHANGED_EVENT], (event) => {
-        if (!active) return;
-        const payload = event.payload as
-          | { spaceId?: string; memberId?: string }
-          | undefined;
-        if (
-          !payload ||
-          !payload.spaceId ||
-          payload.spaceId === `session:${sessionId}` ||
-          payload.memberId === sessionId
-        ) {
-          void refetch();
+      .listen<{ spaceId?: string; memberId?: string } | undefined>(
+        COLLABORATION_SPACE_CHANGED_EVENT,
+        (payload) => {
+          if (!active) return;
+          if (
+            !payload ||
+            !payload.spaceId ||
+            payload.spaceId === `session:${sessionId}` ||
+            payload.memberId === sessionId
+          ) {
+            void refetch();
+          }
         }
-      })
+      )
       .then((unsubscribe) => {
         if (!active) {
           unsubscribe();

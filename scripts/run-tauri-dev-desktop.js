@@ -259,6 +259,12 @@ function resolveRustHostTriple(env) {
 }
 
 function prepareHostSidecars(env) {
+  const ext = process.platform === 'win32' ? '.exe' : '';
+  if (process.platform === 'win32') {
+    for (const name of ['vibex-mcp', 'vibex-workflow-mcp']) {
+      const binPath = path.join(WORKSPACE_ROOT, "target", "debug", name + ext); if (fs.existsSync(binPath)) { try { fs.unlinkSync(binPath); } catch { try { fs.renameSync(binPath, binPath + ".old-" + Date.now()); } catch {} } }
+    }
+  }
   const build = spawnSync(
     'cargo',
     ['build', '-p', 'vibex-mcp', '-p', 'vibex-workflow-mcp'],
@@ -273,7 +279,6 @@ function prepareHostSidecars(env) {
     console.warn('Warning: cargo build -p vibex-mcp returned non-zero status.');
     return;
   }
-  const ext = process.platform === 'win32' ? '.exe' : '';
   const triple = resolveRustHostTriple(env);
   const binariesDir = path.join(WORKSPACE_ROOT, 'src-tauri', 'binaries');
   fs.mkdirSync(binariesDir, { recursive: true });

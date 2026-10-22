@@ -50,5 +50,14 @@ describe('toast surface contract', () => {
     );
     expect(css).toContain('font-size: 12px !important;');
     expect(css).toContain('line-height: 18px !important;');
+    expect(css).toMatch(
+      /\.vu-toast-end \.astryx-button,[\s\S]*?--font-size-base: 12px;/
+    );
+    expect(css).toMatch(
+      /\.vu-toast-end \.astryx-button,[\s\S]*?font-size: 12px;/
+    );
+    expect(css).toMatch(
+      /\.vu-toast-end \.astryx-button,[\s\S]*?line-height: 16px;/
+    );
   });
 });

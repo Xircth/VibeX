@@ -400,11 +400,8 @@ export function DesktopToastWindow() {
                               holdToast(toast.id);
                             }}
                             onFocus={() => holdToast(toast.id)}
-                            onBlur={(event) => {
-                              if (
-                                !event.currentTarget.value.trim() &&
-                                status !== 'sending'
-                              ) {
+                            onBlur={() => {
+                              if (!draft.trim() && status !== 'sending') {
                                 scheduleRemoval(toast.id, DEFAULT_DURATION_MS);
                               }
                             }}

@@ -68,7 +68,6 @@ export function WebServiceSettings({
   const contextTransport = useBackendTransport();
   const transport = transportOverride ?? contextTransport;
   const { t } = useTranslation(['settings', 'common']);
-  const [config, setConfig] = useState<WebServiceConfig>(DEFAULT_CONFIG);
   const [draft, setDraft] = useState<WebServiceConfig>(DEFAULT_CONFIG);
   const draftRef = useRef(draft);
   draftRef.current = draft;
@@ -90,7 +89,6 @@ export function WebServiceSettings({
       if (!validPort(next.port)) return;
       try {
         const saved = await webServiceApi.updateConfig(next);
-        setConfig(saved);
         setDraft((current) => {
           if (!sameConfig(current, next)) return current;
           draftRef.current = saved;
@@ -167,7 +165,6 @@ export function WebServiceSettings({
           webServiceApi.getConfig(),
           webServiceApi.getStatus(),
         ]);
-        setConfig(savedConfig);
         if (!holdingRef.current) {
           draftRef.current = savedConfig;
           setDraft(savedConfig);
@@ -232,7 +229,6 @@ export function WebServiceSettings({
     try {
       const next = await webServiceApi.start();
       const saved = await webServiceApi.getConfig();
-      setConfig(saved);
       if (!holdingRef.current) {
         draftRef.current = saved;
         setDraft(saved);
@@ -295,7 +291,6 @@ export function WebServiceSettings({
     setSaving(true);
     try {
       const saved = await webServiceApi.generateToken();
-      setConfig(saved);
       setDraft((previous) => {
         const next = { ...previous, token: saved.token };
         draftRef.current = next;

@@ -1,6 +1,18 @@
 import { describe, expect, it } from 'vitest';
-import type { ContentBlock, MessageTurn } from 'shared/types';
-import { activityChartsFromTurns, spanWindow } from './workspaceActivityModel';
+import type {
+  ContentBlock,
+  ExecutionProcess,
+  JsonValue,
+  MessageTurn,
+  TimelineRow,
+} from 'shared/types';
+import {
+  activityChartsFromTurns,
+  collectWorkspaceActivityNotices,
+  collectWorkspaceBackgroundTasks,
+  formatDurationMs,
+  spanWindow,
+} from './workspaceActivityModel';
 
 function text(value: string): ContentBlock {
   return { type: 'text', text: value };
@@ -11,7 +23,8 @@ function tool(
   name: string,
   input: Record<string, unknown> | null,
   startedAt?: string,
-  endedAt?: string
+  endedAt?: string,
+  meta?: JsonValue | null
 ): ContentBlock {
   return {
     type: 'tool_use',
@@ -20,6 +33,7 @@ function tool(
     input_preview: input ? JSON.stringify(input) : null,
     started_at: startedAt ?? null,
     ended_at: endedAt ?? null,
+    meta: meta ?? null,
   };
 }
 
@@ -139,5 +153,187 @@ describe('activityChartsFromTurns', () => {
     expect(spanWindow(charts()[0]?.spans ?? []).endMs).toBe(
       Date.parse('2026-10-16T00:00:11.000Z')
     );
+  });
+});
+
+describe('formatDurationMs', () => {
+  it('formats milliseconds, seconds, and minutes cleanly', () => {
+    expect(formatDurationMs(420)).toBe('420ms');
+    expect(formatDurationMs(2_000)).toBe('2s');
+    expect(formatDurationMs(1_250)).toBe('1.25s');
+    expect(formatDurationMs(14_200)).toBe('14.2s');
+    expect(formatDurationMs(72_000)).toBe('1m 12s');
+  });
+});
+
+describe('collectWorkspaceBackgroundTasks', () => {
+  it('collects ACP terminals, busy user terminals, live agent terminals, running delegations, and running processes', () => {
+    const tasks = collectWorkspaceBackgroundTasks({
+      terminalSessions: [
+        {
+          tabId: 'acp:term-1',
+          sessionId: 'term-1',
+          title: 'pnpm run dev',
+          shellLabel: 'bash',
+          cwd: '/repo',
+          busy: true,
+          source: 'acp',
+          agentSessionId: 's1',
+        },
+        {
+          tabId: 'user:term-2',
+          sessionId: 'term-2',
+          title: 'cargo watch',
+          shellLabel: 'pwsh',
+          cwd: '/repo',
+          busy: true,
+          source: 'workspace',
+        },
+        {
+          tabId: 'user:term-idle',
+          sessionId: 'term-idle',
+          title: 'idle-shell',
+          shellLabel: 'pwsh',
+          cwd: '/repo',
+          busy: false,
+          source: 'workspace',
+        },
+      ],
+      liveAgentTerminals: [
+        {
+          terminalId: 'term-1',
+          agentSessionId: 's1',
+          command: 'pnpm run dev',
+          args: [],
+          cwd: '/repo',
+        },
+        {
+          terminalId: 'term-3',
+          agentSessionId: 's1',
+          command: 'npm',
+          args: ['run', 'watch'],
+          cwd: '/repo',
+        },
+      ],
+      executionProcesses: [
+        {
+          id: 'proc-run',
+          session_id: 's1',
+          run_reason: 'devserver',
+          status: 'running',
+        } as unknown as ExecutionProcess,
+        {
+          id: 'proc-done',
+          session_id: 's1',
+          run_reason: 'setupscript',
+          status: 'completed',
+        } as unknown as ExecutionProcess,
+      ],
+      sessionTimelines: [
+        {
+          sessionId: 's1',
+          sessionName: '会话一',
+          turns: [
+            turn('a-run', 'assistant', '2026-10-16T00:00:01.000Z', [
+              tool(
+                'del-1',
+                'delegate_to_agent',
+                { description: '子 Agent 排查样式' },
+                '2026-10-16T00:00:02.000Z',
+                undefined,
+                { delegation: true }
+              ),
+            ]),
+          ],
+          rows: [],
+        },
+      ],
+    });
+
+    expect(tasks.map((task) => task.label)).toEqual([
+      'pnpm run dev',
+      'cargo watch',
+      'npm run watch',
+      '子 Agent 排查样式',
+      '开发服务器',
+    ]);
+  });
+});
+
+describe('collectWorkspaceActivityNotices', () => {
+  it('collects turn errors, session notices, failed tool results, and failed scripts across workspace sessions', () => {
+    const rows: TimelineRow[] = [
+      {
+        row_id: 'notice-1',
+        revision: 1n,
+        row: {
+          kind: 'session_notice',
+          notice: {
+            severity: 'warning',
+            title: '上下文接近上限',
+            message: '已自动压缩历史消息',
+          },
+        },
+      },
+      {
+        row_id: 'err-1',
+        revision: 2n,
+        row: {
+          kind: 'turn_error',
+          error: {
+            turn_id: 'a-err',
+            error: {
+              message: 'API 请求超时 (504)',
+              code: 'GATEWAY_TIMEOUT',
+              kind: 'service_error',
+            },
+          },
+        },
+      },
+    ];
+
+    const notices = collectWorkspaceActivityNotices({
+      sessions: [
+        { id: 's1', fullName: '会话一', isErrored: false },
+        { id: 's2', fullName: '会话二', isErrored: true },
+      ],
+      sessionTimelines: [
+        {
+          sessionId: 's1',
+          sessionName: '会话一',
+          turns: [
+            turn('a-tool-err', 'assistant', '2026-10-16T00:00:04.000Z', [
+              tool('call-1', 'bash', { command: 'cargo check' }),
+              {
+                type: 'tool_result',
+                tool_use_id: 'call-1',
+                is_error: true,
+                output_preview: 'error[E0425]: cannot find value `x`',
+              },
+            ]),
+          ],
+          rows,
+        },
+      ],
+      executionProcesses: [
+        {
+          id: 'proc-fail',
+          session_id: 's1',
+          run_reason: 'setupscript',
+          status: 'failed',
+          exit_code: 1n,
+        } as unknown as ExecutionProcess,
+      ],
+    });
+
+    expect(notices.map((item) => item.message)).toContain('已自动压缩历史消息');
+    expect(notices.map((item) => item.message)).toContain('API 请求超时 (504)');
+    expect(
+      notices.some((item) => item.message.includes('cannot find value'))
+    ).toBe(true);
+    expect(notices.some((item) => item.title.includes('初始化脚本'))).toBe(
+      true
+    );
+    expect(notices.some((item) => item.sessionName === '会话二')).toBe(true);
   });
 });

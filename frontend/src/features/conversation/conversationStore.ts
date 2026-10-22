@@ -709,7 +709,7 @@ function applyPatchBlocks(
               plausibleTurnStartMs(windowExisting.row.turn.timestamp) !==
               null
                 ? windowExisting.row.turn.timestamp
-                : assistantStartTimestamp(rows, op.row_id),
+                : assistantStartTimestamp(windowRows ? [...windowRows, ...rows] : rows, op.row_id),
             blocks: mergePatchedBlocks(baseBlocks, op.blocks),
             usage: mergeReportedTurnUsage(
               windowExisting.row.turn.usage,
@@ -740,7 +740,7 @@ function applyPatchBlocks(
         ...op,
         blocks: mergePatchedBlocks(baseBlocks, op.blocks),
       },
-      rows
+      windowRows ? [...windowRows, ...rows] : rows
     );
     const nextRows = insertTimelineRow(rows, stub);
     rebuildRowIndex(nextRows, rowIndexById);
@@ -780,7 +780,7 @@ function applyPatchBlocks(
         timestamp:
           plausibleTurnStartMs(existing.row.turn.timestamp) !== null
             ? existing.row.turn.timestamp
-            : assistantStartTimestamp(rows, op.row_id),
+            : assistantStartTimestamp(windowRows ? [...windowRows, ...rows] : rows, op.row_id),
         blocks: mergePatchedBlocks(baseBlocks, op.blocks),
         usage: mergeReportedTurnUsage(existing.row.turn.usage, op.usage),
       },
@@ -996,10 +996,11 @@ function preserveStructuredUserTextFromLiveRows(
     if (row.row.kind !== 'message_turn' || row.row.turn.role !== 'user') {
       return row;
     }
+    const windowTurn = row.row.turn;
     const match = liveUsers.find(
       (live) =>
         live.row.kind === 'message_turn' &&
-        promptsMatch(userTurnText(live.row.turn), userTurnText(row.row.turn))
+        promptsMatch(userTurnText(live.row.turn), userTurnText(windowTurn))
     );
     return match ? preserveStructuredUserText(match, row) : row;
   });

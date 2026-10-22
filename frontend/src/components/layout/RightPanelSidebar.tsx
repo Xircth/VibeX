@@ -14,10 +14,6 @@ import {
   usePluginHostContributions,
 } from '@/hooks/usePluginHostContributions';
 import { contributionIconComponent } from '@/components/plugins/contributionIcon';
-import { useWorktree } from '@/contexts/WorktreeContext';
-import { useKanbanSessionContext } from '@/contexts/KanbanSessionContext';
-import { ViewProcessesDialog } from '@/components/dialogs/tasks/ViewProcessesDialog';
-import { useTaskAttemptWithSession } from '@/hooks/useTaskAttempt';
 
 import {
   Tooltip,
@@ -25,13 +21,8 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from '@/components/ui/tooltip';
-function RightPanelSidebarContent({
-  workspaceId,
-  sessionId,
-}: {
-  workspaceId?: string;
-  sessionId?: string;
-}) {
+
+export function RightPanelSidebar() {
   const { t } = useTranslation(['panels', 'common']);
   const {
     openNewTerminal,
@@ -61,11 +52,7 @@ function RightPanelSidebarContent({
       icon: List,
       label: t('rightPanelSidebar.processes'),
       onClick: () =>
-        ViewProcessesDialog.show({
-          workspaceId,
-          sessionId,
-          initialProcessId: null,
-        }),
+        openOrFocusPanel(PANEL_IDS.PROCESSES, t('rightPanelSidebar.processes')),
     },
     {
       icon: GitCompareArrows,
@@ -144,22 +131,5 @@ function RightPanelSidebarContent({
         })}
       </div>
     </TooltipProvider>
-  );
-}
-
-export function RightPanelSidebar() {
-  const { activeWorktreeId } = useWorktree();
-  const { visibleRightSession } = useKanbanSessionContext();
-  const effectiveWorkspaceId =
-    visibleRightSession?.workspaceId ?? activeWorktreeId ?? undefined;
-  const explicitSessionId = visibleRightSession?.sessionId;
-  const { data: attempt } = useTaskAttemptWithSession(effectiveWorkspaceId);
-  const effectiveSessionId = explicitSessionId ?? attempt?.session?.id;
-
-  return (
-    <RightPanelSidebarContent
-      workspaceId={effectiveWorkspaceId}
-      sessionId={effectiveSessionId}
-    />
   );
 }

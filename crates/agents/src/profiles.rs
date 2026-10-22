@@ -391,6 +391,7 @@ impl BuiltInProfileCatalog {
                 auggie_profile(),
                 trae_profile(),
                 command_code_profile(),
+                zcode_profile(),
             ],
         }
     }
@@ -569,6 +570,11 @@ const COMMAND_CODE_CANDIDATES: &[ProfileExternalCandidate] = &[
     external_acp("cmdc", COMMAND_CODE_ACP_ARGS),
     external_acp("commandcode", COMMAND_CODE_ACP_ARGS),
 ];
+/// `zcode-acp-server server` is the pinned community bridge. Without `server`
+/// the same bin opens a TTY. The official `zcode` binary is not an ACP server.
+const ZCODE_ACP_ARGS: &[&str] = &["server"];
+const ZCODE_CANDIDATES: &[ProfileExternalCandidate] =
+    &[external_acp("zcode-acp-server", ZCODE_ACP_ARGS)];
 
 const fn external(executable: &'static str) -> ProfileExternalCandidate {
     ProfileExternalCandidate {
@@ -2511,6 +2517,15 @@ const COMMAND_CODE_SETTINGS: &[AgentSettingsFeature] = &[
     AgentSettingsFeature::AuthenticationMode,
     AgentSettingsFeature::NativeSkills,
 ];
+/// Official ZCode owns the account. No login command is verified, and Start
+/// Plan's desktop captcha cannot run here. User skills live under
+/// `$ZCODE_HOME/skills` or `~/.zcode/skills`. The bridge accepts stdio MCP on
+/// `session/new`; its config file is not a native MCP writer target.
+const ZCODE_SETTINGS: &[AgentSettingsFeature] = &[
+    AgentSettingsFeature::AuthenticationMode,
+    AgentSettingsFeature::NativeSkills,
+];
+const ZCODE_ACTIONS: &[ProfileManagementAction] = &[];
 const KIMI_SETTINGS: &[AgentSettingsFeature] = &[
     AgentSettingsFeature::AuthenticationMode,
     AgentSettingsFeature::ReusableModelProviders,
@@ -3463,6 +3478,38 @@ fn command_code_profile() -> BuiltInProfile {
         runtime_executable_env: None,
         native_config: &[],
         settings_features: COMMAND_CODE_SETTINGS,
+        authentication_precedence: AuthenticationPrecedence::AccountThenApiKey,
+        authentication_required_by_default: true,
+        account_evidence: None,
+    }
+}
+
+fn zcode_profile() -> BuiltInProfile {
+    BuiltInProfile {
+        agent_id: AgentId::parse("zcode").expect("bundled AgentId"),
+        display_name: "ZCode",
+        description: "ZCode's coding agent through the pinned ACP bridge",
+        icon: ProfileIcon {
+            light: "/agents/zcode.svg",
+            dark: "/agents/zcode.svg",
+        },
+        registry_binding: None,
+        topology: ProfileTopology::NativeAcp,
+        supported_platforms: DESKTOP_PLATFORMS,
+        install_sources: vec![native_npx(
+            "zcode-acp-server",
+            "0.72.0",
+            "zcode-acp-server",
+            ZCODE_ACP_ARGS,
+            ">=22",
+            "sha512-zQzsh/c35NNqLr3iyGwM+UBOyx+93sZ4R3GUFB4ZWjU35r1ThBkDh2Gp/s0d6RpeBI9bysk/bLZlI5DDealBOw==",
+        )],
+        external_candidates: ZCODE_CANDIDATES,
+        dependencies: NODE_22_DEPENDENCIES,
+        management_actions: ZCODE_ACTIONS,
+        runtime_executable_env: None,
+        native_config: &[],
+        settings_features: ZCODE_SETTINGS,
         authentication_precedence: AuthenticationPrecedence::AccountThenApiKey,
         authentication_required_by_default: true,
         account_evidence: None,

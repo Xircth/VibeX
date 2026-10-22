@@ -4,6 +4,8 @@ const test = require("node:test");
 
 const {
   DEFAULT_NOTARY_TIMEOUT_SECONDS,
+  DMG_LAYOUT,
+  dmgFinderAppleScript,
   hdiutilCreateArgs,
   hostAppleTarget,
   isTransientNotaryFailure,
@@ -147,4 +149,30 @@ test("host Apple target follows process.arch", () => {
   const target = hostAppleTarget("arm64");
   assert.equal(target, "aarch64-apple-darwin");
   assert.equal(hostAppleTarget("x64"), "x86_64-apple-darwin");
+});
+
+test("places VibeX on the left and Applications on the right in DMG Finder layout", () => {
+  assert.ok(
+    DMG_LAYOUT.appPosition.x < DMG_LAYOUT.applicationFolderPosition.x,
+    "VibeX must sit to the left of Applications",
+  );
+  assert.equal(
+    DMG_LAYOUT.appPosition.y,
+    DMG_LAYOUT.applicationFolderPosition.y,
+    "VibeX and Applications must share the same vertical alignment",
+  );
+  const script = dmgFinderAppleScript({
+    volname: "VibeX",
+    appName: "VibeX.app",
+  });
+  assert.match(
+    script,
+    /set position of item "VibeX\.app" of container window to \{150, 175\}/,
+  );
+  assert.match(
+    script,
+    /set position of item "Applications" of container window to \{390, 175\}/,
+  );
+  assert.match(script, /set toolbar visible of container window to false/);
+  assert.match(script, /set statusbar visible of container window to false/);
 });

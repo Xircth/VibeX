@@ -1689,6 +1689,11 @@
     "crashReportsPrivacy": "On a crash the app writes a report (time, version, OS, panic message and backtrace) to the local data directory, keeping at most 20. When enabled, the next launch shows the full content and you decide whether to file a GitHub issue — nothing is ever uploaded automatically."
   },
   "agents": {
+    "disableDialogTitle": "Disable {{agent}}",
+    "disableDialogDescription": "After disabling this Agent, you will no longer be able to create sessions with it. You can choose whether to uninstall ACP and clear this Agent's data. Uninstalling only removes the ACP adapter and will not affect your local CLI installation.",
+    "disableOnly": "Disable only",
+    "disableAndUninstall": "Uninstall",
+    "disableAndClearData": "Uninstall and clear data",
     "presetAcp": "ACP presets",
     "communityAcp": "Community",
     "presetAcpBuiltIn": "Built-in",
@@ -1929,6 +1934,7 @@
     "authDescAuggieSubscription": "Sign in with an Augment account.",
     "authDescTraeSubscription": "Sign in with a TRAE account.",
     "authDescCommandCodeSubscription": "Sign in with a Command Code account.",
+    "authDescZcodeSubscription": "Sign in inside official ZCode. Start Plan needs a desktop captcha and cannot be used here.",
     "headlessAccountTokenHint": "Same-account token for a machine without a browser.",
     "headlessAccountTokenClear": "Clear",
     "headlessAccountTokenSaved": "Saved",

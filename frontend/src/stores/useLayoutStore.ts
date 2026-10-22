@@ -20,6 +20,7 @@ export const PANEL_IDS = {
   LOGS: 'logs',
   NOTES: 'notes',
   SESSION_DETAILS: 'session-details',
+  PROCESSES: 'processes',
   SEARCH: 'search',
   SESSION_LIST: 'session-list',
 } as const;

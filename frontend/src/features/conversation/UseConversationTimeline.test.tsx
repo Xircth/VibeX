@@ -437,6 +437,7 @@ describe('useConversationTimeline', () => {
         next_cursor: null,
         rows: [userRow('t-early', 'first', 1n)],
       });
+      await secondPage;
     });
 
     await waitFor(() =>

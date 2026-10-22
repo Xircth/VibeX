@@ -308,6 +308,7 @@ const AGENT_LABELS: Record<string, string> = {
   auggie: 'Auggie',
   trae: 'TRAE CLI',
   command_code: 'Command Code',
+  zcode: 'ZCode',
   qa_mock: 'QA Mock',
 };
 

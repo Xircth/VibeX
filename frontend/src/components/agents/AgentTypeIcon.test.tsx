@@ -10,6 +10,11 @@ describe('AgentTypeIcon', () => {
     ['kimi', 'Kimi Code'],
     ['cursor', 'Cursor'],
     ['deepseek_harness', 'DeepSeek Harness'],
+    ['kiro', 'Kiro CLI'],
+    ['auggie', 'Auggie'],
+    ['trae', 'TRAE CLI'],
+    ['command_code', 'Command Code'],
+    ['zcode', 'ZCode'],
   ])(
     'renders brand artwork for %s instead of the generic glyph',
     (agent, name) => {

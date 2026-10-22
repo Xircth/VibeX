@@ -19,6 +19,11 @@ describe('AgentIcon', () => {
       '/agents/deepseek-harness-light.svg',
     ],
     ['mimo_code', 'MiMo Code', '/agents/mimo-code-light.svg'],
+    ['kiro', 'Kiro CLI', '/agents/kiro.svg'],
+    ['auggie', 'Auggie', '/agents/auggie.svg'],
+    ['trae', 'TRAE CLI', '/agents/trae.svg'],
+    ['command_code', 'Command Code', '/agents/command-code.svg'],
+    ['zcode', 'ZCode', '/agents/zcode.svg'],
   ])('renders the real %s artwork', (agent, name, src) => {
     render(<AgentIcon agent={agent} />);
 

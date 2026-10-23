@@ -24,7 +24,7 @@ import { toast } from '@/components/ui/toast';
 import { createPluginControlApi } from '@/lib/api/plugins';
 import { configuredBackendTransport } from '@/lib/backendTransport';
 import {
-  activatePluginModule,
+  activatePluginModuleSync,
   deactivatePluginModule,
 } from '@/lib/pluginFederation';
 
@@ -45,17 +45,15 @@ const defaultHostTransport: HostCallTransport = async <T>(
 };
 
 setDefaultHostCallTransport(defaultHostTransport);
-setDefaultWorkerInvokeTransport(async <T>(
-  pluginId: string,
-  handler: string,
-  input?: unknown
-): Promise<T> => {
-  return (await defaultPluginApi.invokeContribution(
-    pluginId,
-    handler,
-    input
-  )) as T;
-});
+setDefaultWorkerInvokeTransport(
+  async <T>(pluginId: string, handler: string, input?: unknown): Promise<T> => {
+    return (await defaultPluginApi.invokeContribution(
+      pluginId,
+      handler,
+      input
+    )) as T;
+  }
+);
 
 setPluginQuarantineHandler((pluginId, error) => {
   unloadPluginRuntime(pluginId);
@@ -187,10 +185,22 @@ export function evaluateSingleFileEsmModule(
   return exportsObj;
 }
 
+export type PluginBundleKind = 'system' | 'official' | 'user';
+
+export interface PluginRuntimeMetadata {
+  readonly pluginId: string;
+  readonly bundle: PluginBundleKind;
+  readonly locked: boolean;
+  readonly canUninstallInUi: boolean;
+  readonly generation: number;
+}
+
 export interface DeclarativePluginSpec {
   id?: string;
   name?: string;
   version?: string;
+  bundle?: PluginBundleKind;
+  locked?: boolean;
   dependencies?: Array<{
     kind?: 'plugin' | 'runtime';
     id: string;
@@ -322,12 +332,46 @@ const activeDeclarativeDisposers = new Map<string, () => void>();
 const activeDependencyWatchers = new Map<string, () => void>();
 const activeMarkerDisposers = new Map<string, () => void>();
 const activePluginIds = new Set<string>();
+const activePluginMetadata = new Map<string, PluginRuntimeMetadata>();
+const registeredProfileEntries = new Map<string, PluginProfileEntry>();
 
-function providePluginActiveMarker(pluginId: string): () => void {
+function resolvePluginMetadata(
+  pluginId: string,
+  source?: PluginRuntimeSource,
+  options?: LoadPluginRuntimeOptions
+): PluginRuntimeMetadata {
+  const registered = registeredProfileEntries.get(pluginId);
+  const spec = source?.spec;
+  const bundle: PluginBundleKind =
+    options?.bundle ?? spec?.bundle ?? registered?.bundle ?? 'user';
+  const locked = Boolean(
+    options?.locked ?? spec?.locked ?? registered?.locked ?? bundle === 'system'
+  );
+  return {
+    pluginId,
+    bundle,
+    locked,
+    canUninstallInUi: !locked,
+    generation: options?.generation ?? 1,
+  };
+}
+
+function providePluginActiveMarker(
+  pluginId: string,
+  metadata: PluginRuntimeMetadata
+): () => void {
   activeMarkerDisposers.get(pluginId)?.();
+  activePluginMetadata.set(pluginId, metadata);
   const dispose = serviceContainer.provide(
     `plugin.active:${pluginId}`,
-    { pluginId, active: true },
+    {
+      pluginId,
+      active: true,
+      bundle: metadata.bundle,
+      locked: metadata.locked,
+      canUninstallInUi: metadata.canUninstallInUi,
+      generation: metadata.generation,
+    },
     pluginId
   );
   const cleanup = () => {
@@ -335,17 +379,23 @@ function providePluginActiveMarker(pluginId: string): () => void {
     if (activeMarkerDisposers.get(pluginId) === cleanup) {
       activeMarkerDisposers.delete(pluginId);
     }
+    if (activePluginMetadata.get(pluginId) === metadata) {
+      activePluginMetadata.delete(pluginId);
+    }
   };
   activeMarkerDisposers.set(pluginId, cleanup);
   return cleanup;
 }
 
-function requiredPluginDependencyIds(
-  spec?: DeclarativePluginSpec
-): string[] {
+function requiredPluginDependencyIds(spec?: DeclarativePluginSpec): string[] {
   if (!spec?.dependencies?.length) return [];
   return spec.dependencies
-    .filter((dep) => (dep.kind ?? 'plugin') === 'plugin' && dep.required !== false && dep.id.trim().length > 0)
+    .filter(
+      (dep) =>
+        (dep.kind ?? 'plugin') === 'plugin' &&
+        dep.required !== false &&
+        dep.id.trim().length > 0
+    )
     .map((dep) => dep.id.trim());
 }
 
@@ -391,12 +441,13 @@ function createSchemaSettingsComponent(
 export function applyDeclarativePlugin(
   pluginId: string,
   spec: DeclarativePluginSpec,
-  options?: { callHost?: HostCallTransport }
+  options?: { callHost?: HostCallTransport; generation?: number }
 ): () => void {
   activeDeclarativeDisposers.get(pluginId)?.();
   const callHost = options?.callHost ?? defaultHostTransport;
   const ctx = createPluginContext({
     pluginId,
+    generation: options?.generation,
     callHost,
   });
 
@@ -669,16 +720,85 @@ export type PluginRuntimeSource =
     }
   | { kind: 'declarative'; spec: DeclarativePluginSpec; css?: string };
 
-export async function loadPluginRuntime(
+export interface LoadPluginRuntimeOptions {
+  readonly callHost?: HostCallTransport;
+  readonly generation?: number;
+  readonly bundle?: PluginBundleKind;
+  readonly locked?: boolean;
+}
+
+export interface PluginProfileEntry {
+  readonly id: string;
+  readonly bundle: PluginBundleKind;
+  readonly locked: boolean;
+  readonly source: PluginRuntimeSource;
+}
+
+export function registerSystemBundleProfile(
+  entries: readonly PluginProfileEntry[]
+): void {
+  for (const entry of entries) {
+    registeredProfileEntries.set(entry.id, entry);
+  }
+}
+
+export function getSystemBundleProfileEntry(
+  pluginId: string
+): PluginProfileEntry | undefined {
+  return registeredProfileEntries.get(pluginId);
+}
+
+export function getPluginRuntimeMetadata(
+  pluginId: string
+): PluginRuntimeMetadata | undefined {
+  const active = activePluginMetadata.get(pluginId);
+  if (active) {
+    return active;
+  }
+  const registered = registeredProfileEntries.get(pluginId);
+  if (registered) {
+    return {
+      pluginId,
+      bundle: registered.bundle,
+      locked: registered.locked,
+      canUninstallInUi: !registered.locked,
+      generation: 1,
+    };
+  }
+  return undefined;
+}
+
+export function isSystemBundlePlugin(pluginId: string): boolean {
+  return getPluginRuntimeMetadata(pluginId)?.bundle === 'system';
+}
+
+export function isPluginLocked(pluginId: string): boolean {
+  return Boolean(getPluginRuntimeMetadata(pluginId)?.locked);
+}
+
+export function isPluginRuntimeActive(pluginId: string): boolean {
+  return (
+    activePluginIds.has(pluginId) &&
+    serviceContainer.has(`plugin.active:${pluginId}`)
+  );
+}
+
+export function loadPluginRuntimeSync(
   pluginId: string,
-  source: PluginRuntimeSource,
-  options?: { callHost?: HostCallTransport; generation?: number }
-): Promise<() => void> {
+  source?: PluginRuntimeSource,
+  options?: LoadPluginRuntimeOptions
+): (() => void) | Promise<() => void> {
+  const resolvedSource =
+    source ?? registeredProfileEntries.get(pluginId)?.source;
+  if (!resolvedSource) {
+    throw new Error(`No runtime source provided for plugin "${pluginId}"`);
+  }
+
   activePluginIds.add(pluginId);
   activeDependencyWatchers.get(pluginId)?.();
   activeDependencyWatchers.delete(pluginId);
 
-  const requiredDeps = requiredPluginDependencyIds(source.spec);
+  const requiredDeps = requiredPluginDependencyIds(resolvedSource.spec);
   if (requiredDeps.length > 0) {
     const depServiceKeys = requiredDeps.map((id) => `plugin.active:${id}`);
     let currentInstanceDispose: (() => void) | undefined;
@@ -686,17 +806,35 @@ export async function loadPluginRuntime(
     let cancelled = false;
     const stopWatch = serviceContainer.inject(depServiceKeys, () => {
       let active = true;
-      const p = loadPluginRuntimeImmediate(pluginId, source, options)
-        .then((dispose) => {
+      try {
+        const res = loadPluginRuntimeImmediateSync(
+          pluginId,
+          resolvedSource,
+          options
+        );
+        if (res && typeof (res as Promise<unknown>).then === 'function') {
+          const p = (res as Promise<() => void>)
+            .then((dispose) => {
+              if (!active || cancelled) {
+                dispose();
+              } else {
+                currentInstanceDispose = dispose;
+              }
+            })
+            .catch(() => undefined);
+          if (!initialActivationPromise) {
+            initialActivationPromise = p;
+          }
+        } else {
+          const dispose = res as () => void;
           if (!active || cancelled) {
             dispose();
           } else {
             currentInstanceDispose = dispose;
           }
-        })
-        .catch(() => undefined);
-      if (!initialActivationPromise) {
-        initialActivationPromise = p;
+        }
+      } catch {
+        // Ignore dependency-triggered activation errors.
       }
       return () => {
         active = false;
@@ -709,9 +847,6 @@ export async function loadPluginRuntime(
         }
       };
     });
-    if (initialActivationPromise) {
-      await initialActivationPromise;
-    }
     const fullDispose = () => {
       cancelled = true;
       activeDependencyWatchers.delete(pluginId);
@@ -719,17 +854,64 @@ export async function loadPluginRuntime(
       stopWatch();
     };
     activeDependencyWatchers.set(pluginId, fullDispose);
+    if (initialActivationPromise) {
+      return initialActivationPromise.then(() => fullDispose);
+    }
     return fullDispose;
   }
 
-  return await loadPluginRuntimeImmediate(pluginId, source, options);
+  return loadPluginRuntimeImmediateSync(pluginId, resolvedSource, options);
 }
 
-async function loadPluginRuntimeImmediate(
+export async function loadPluginRuntime(
+  pluginId: string,
+  source?: PluginRuntimeSource,
+  options?: LoadPluginRuntimeOptions
+): Promise<() => void> {
+  return await loadPluginRuntimeSync(pluginId, source, options);
+}
+
+function finalizeModuleActivation(
+  pluginId: string,
+  disposeModule: () => void,
+  disposeDeclarative: (() => void) | undefined,
+  metadata: PluginRuntimeMetadata
+): () => void {
+  clearPluginCrashState(pluginId);
+  const disposeMarker = providePluginActiveMarker(pluginId, metadata);
+  return () => {
+    disposeMarker();
+    disposeDeclarative?.();
+    disposeModule();
+    removePluginCss(pluginId);
+    const blobUrl = activeBlobUrls.get(pluginId);
+    if (blobUrl && typeof URL.revokeObjectURL === 'function') {
+      URL.revokeObjectURL(blobUrl);
+      activeBlobUrls.delete(pluginId);
+    }
+  };
+}
+
+function handleLoadRuntimeError(
+  pluginId: string,
+  error: unknown,
+  disposeDeclarative?: () => void
+): never {
+  disposeDeclarative?.();
+  removePluginCss(pluginId);
+  const normalized =
+    error instanceof Error ? error : new Error(String(error ?? 'Load error'));
+  recordPluginCrash(pluginId, normalized);
+  throw normalized;
+}
+
+function loadPluginRuntimeImmediateSync(
   pluginId: string,
   source: PluginRuntimeSource,
-  options?: { callHost?: HostCallTransport; generation?: number }
-): Promise<() => void> {
+  options?: LoadPluginRuntimeOptions
+): (() => void) | Promise<() => void> {
+  const metadata = resolvePluginMetadata(pluginId, source, options);
+
   if (source.kind === 'declarative') {
     const mergedSpec =
       source.css && !source.spec.css
@@ -737,7 +919,7 @@ async function loadPluginRuntimeImmediate(
         : source.spec;
     const disposeDecl = applyDeclarativePlugin(pluginId, mergedSpec, options);
     clearPluginCrashState(pluginId);
-    const disposeMarker = providePluginActiveMarker(pluginId);
+    const disposeMarker = providePluginActiveMarker(pluginId, metadata);
     return () => {
       disposeMarker();
       disposeDecl();
@@ -757,10 +939,56 @@ async function loadPluginRuntimeImmediate(
       injectPluginCss(pluginId, source.css);
     }
 
-    let mod: unknown;
     if (source.kind === 'module') {
-      mod = source.module;
-    } else if (source.kind === 'esm-code') {
+      const maybeDispose = activatePluginModuleSync(pluginId, source.module, {
+        callHost: options?.callHost ?? defaultHostTransport,
+        generation: metadata.generation,
+      });
+      if (
+        maybeDispose &&
+        typeof (maybeDispose as Promise<unknown>).then === 'function'
+      ) {
+        return (maybeDispose as Promise<() => void>).then(
+          (disposeModule) =>
+            finalizeModuleActivation(
+              pluginId,
+              disposeModule,
+              disposeDeclarative,
+              metadata
+            ),
+          (error) => handleLoadRuntimeError(pluginId, error, disposeDeclarative)
+        );
+      }
+      return finalizeModuleActivation(
+        pluginId,
+        maybeDispose as () => void,
+        disposeDeclarative,
+        metadata
+      );
+    }
+
+    return loadAsyncModuleSource(
+      pluginId,
+      source,
+      options,
+      metadata,
+      disposeDeclarative
+    );
+  } catch (error) {
+    return handleLoadRuntimeError(pluginId, error, disposeDeclarative);
+  }
+}
+
+async function loadAsyncModuleSource(
+  pluginId: string,
+  source: Extract<PluginRuntimeSource, { kind: 'esm-code' | 'esm-url' }>,
+  options: LoadPluginRuntimeOptions | undefined,
+  metadata: PluginRuntimeMetadata,
+  disposeDeclarative: (() => void) | undefined
+): Promise<() => void> {
+  try {
+    let mod: unknown;
+    if (source.kind === 'esm-code') {
       const prevBlob = activeBlobUrls.get(pluginId);
       if (prevBlob && typeof URL.revokeObjectURL === 'function') {
         URL.revokeObjectURL(prevBlob);
@@ -786,35 +1014,51 @@ async function loadPluginRuntimeImmediate(
       mod = await import(/* @vite-ignore */ source.entryUrl);
     }
 
-    const disposeModule = await activatePluginModule(pluginId, mod, {
+    const disposeModule = await activatePluginModuleSync(pluginId, mod, {
       callHost: options?.callHost ?? defaultHostTransport,
+      generation: metadata.generation,
     });
-    clearPluginCrashState(pluginId);
-    const disposeMarker = providePluginActiveMarker(pluginId);
-    return () => {
-      disposeMarker();
-      disposeDeclarative?.();
-      disposeModule();
-      removePluginCss(pluginId);
-      const blobUrl = activeBlobUrls.get(pluginId);
-      if (blobUrl && typeof URL.revokeObjectURL === 'function') {
-        URL.revokeObjectURL(blobUrl);
-        activeBlobUrls.delete(pluginId);
-      }
-    };
+    return finalizeModuleActivation(
+      pluginId,
+      disposeModule,
+      disposeDeclarative,
+      metadata
+    );
   } catch (error) {
-    disposeDeclarative?.();
-    removePluginCss(pluginId);
-    const normalized =
-      error instanceof Error ? error : new Error(String(error ?? 'Load error'));
-    recordPluginCrash(pluginId, normalized);
-    throw normalized;
+    return handleLoadRuntimeError(pluginId, error, disposeDeclarative);
   }
+}
+
+export function loadSystemBundleProfile(options?: {
+  force?: boolean;
+  onlyIds?: readonly string[];
+  callHost?: HostCallTransport;
+}): Map<string, () => void> {
+  const allowedIds = options?.onlyIds ? new Set(options.onlyIds) : null;
+  const disposers = new Map<string, () => void>();
+  for (const [pluginId, entry] of registeredProfileEntries.entries()) {
+    if (allowedIds && !allowedIds.has(pluginId)) {
+      continue;
+    }
+    if (!options?.force && isPluginRuntimeActive(pluginId)) {
+      continue;
+    }
+    const res = loadPluginRuntimeSync(pluginId, entry.source, {
+      bundle: entry.bundle,
+      locked: entry.locked,
+      callHost: options?.callHost,
+    });
+    if (typeof res === 'function') {
+      disposers.set(pluginId, res);
+    }
+  }
+  return disposers;
 }
 
 function unloadPluginRuntimeImmediate(pluginId: string): void {
   activeMarkerDisposers.get(pluginId)?.();
   activeDeclarativeDisposers.get(pluginId)?.();
+  activePluginMetadata.delete(pluginId);
   deactivatePluginModule(pluginId);
   removePluginCss(pluginId);
   const blobUrl = activeBlobUrls.get(pluginId);
@@ -852,6 +1096,8 @@ export const pluginRuntimeLoader = {
       css?: string;
       callHost?: HostCallTransport;
       generation?: number;
+      bundle?: PluginBundleKind;
+      locked?: boolean;
     }
   ): Promise<() => void> {
     return await loadPluginRuntime(
@@ -864,6 +1110,34 @@ export const pluginRuntimeLoader = {
       },
       options
     );
+  },
+  loadProfile(
+    entries: readonly PluginProfileEntry[],
+    options?: { force?: boolean; onlyIds?: readonly string[] }
+  ): Map<string, () => void> {
+    registerSystemBundleProfile(entries);
+    return loadSystemBundleProfile({
+      ...options,
+      force: options?.force ?? true,
+    });
+  },
+  loadSystemBundle(options?: {
+    force?: boolean;
+    onlyIds?: readonly string[];
+  }): Map<string, () => void> {
+    return loadSystemBundleProfile(options);
+  },
+  getMetadata(pluginId: string): PluginRuntimeMetadata | undefined {
+    return getPluginRuntimeMetadata(pluginId);
+  },
+  isSystemBundle(pluginId: string): boolean {
+    return isSystemBundlePlugin(pluginId);
+  },
+  isLocked(pluginId: string): boolean {
+    return isPluginLocked(pluginId);
+  },
+  isActive(pluginId: string): boolean {
+    return isPluginRuntimeActive(pluginId);
   },
   deactivate(pluginId: string): void {
     unloadPluginRuntime(pluginId);

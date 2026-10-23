@@ -1,6 +1,8 @@
 import {
+  type Disposer,
   kanbanViewRegistry,
   type KanbanViewContribution,
+  type VibeXPluginContext,
 } from '@vibex/plugin-sdk';
 import type { PluginContributionCatalogItem } from '@/lib/api/plugins';
 import { contributionMetadata } from '@/hooks/usePluginHostContributions';
@@ -12,26 +14,57 @@ import {
 
 const KANBAN_VIEW_SLOT = 'app.kanban.view';
 
-export function registerBuiltinKanbanViews(): void {
+export interface RegisterBuiltinKanbanViewsOptions {
+  readonly ctx?: VibeXPluginContext;
+  readonly viewIds?: readonly string[];
+  readonly pluginId?: string;
+}
+
+export function registerBuiltinKanbanViews(
+  options?: RegisterBuiltinKanbanViewsOptions
+): Disposer {
+  const allowedIds = options?.viewIds ? new Set(options.viewIds) : null;
+  const disposers: Disposer[] = [];
+  const ownerPluginId =
+    options?.ctx?.pluginId ?? options?.pluginId ?? 'builtin';
+
   for (let i = 0; i < BUILTIN_KANBAN_VIEWS.length; i += 1) {
     const view = BUILTIN_KANBAN_VIEWS[i];
-    if (!kanbanViewRegistry.has(view.id)) {
-      kanbanViewRegistry.register(
-        {
-          id: view.id,
-          title: view.titleKey,
-          titleKey: view.titleKey,
-          hidesBottomDock: view.hidesBottomDock,
-          builtin: true,
-          order: (i + 1) * 10,
-        },
-        'builtin'
+    if (allowedIds && !allowedIds.has(view.id)) {
+      continue;
+    }
+    const contribution: Omit<KanbanViewContribution, 'pluginId'> = {
+      id: view.id,
+      title: view.titleKey,
+      titleKey: view.titleKey,
+      hidesBottomDock: view.hidesBottomDock,
+      builtin: true,
+      order: (i + 1) * 10,
+    };
+    if (options?.ctx) {
+      disposers.push(options.ctx.ui.registerKanbanView(contribution));
+    } else {
+      disposers.push(
+        kanbanViewRegistry.register(
+          { ...contribution, pluginId: ownerPluginId },
+          ownerPluginId
+        )
       );
     }
   }
-}
 
-registerBuiltinKanbanViews();
+  const cleanup: Disposer = () => {
+    for (let i = disposers.length - 1; i >= 0; i -= 1) {
+      disposers[i]?.();
+    }
+  };
+
+  if (options?.ctx) {
+    options.ctx.effect(() => cleanup);
+  }
+
+  return cleanup;
+}
 
 export function isKanbanViewContribution(
   item: PluginContributionCatalogItem

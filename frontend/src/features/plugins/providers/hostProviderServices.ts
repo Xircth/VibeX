@@ -1,4 +1,9 @@
-import { Registry, serviceContainer } from '@vibex/plugin-sdk';
+import {
+  type Disposer,
+  Registry,
+  serviceContainer,
+  type VibeXPluginContext,
+} from '@vibex/plugin-sdk';
 import { attemptsApi, configApi, projectsApi } from '@/lib/api';
 import { createPluginControlApi } from '@/lib/api/plugins';
 import {
@@ -106,9 +111,7 @@ function mergeCatalogWithRuntimeSources(
 ): ProviderCatalogListView {
   const runtimeSources = runtimeModelCatalogRegistry
     .getAll()
-    .filter(
-      (src) => src.agents.length === 0 || src.agents.includes(agentId)
-    );
+    .filter((src) => src.agents.length === 0 || src.agents.includes(agentId));
   if (runtimeSources.length === 0) {
     return baseView;
   }
@@ -238,7 +241,10 @@ export const defaultUsageProviderService: UsageProviderService = {
           current = next;
         }
       } catch (err) {
-        console.warn(`[UsageProviderService] Prober "${prober.id}" failed:`, err);
+        console.warn(
+          `[UsageProviderService] Prober "${prober.id}" failed:`,
+          err
+        );
       }
     }
 
@@ -376,64 +382,119 @@ export const defaultEditorOpenerProviderService: EditorOpenerProviderService = {
   },
 };
 
+interface BuiltinHostProviderBinding {
+  readonly serviceKey: string;
+  readonly pluginId: string;
+  readonly implementation: unknown;
+}
+
+const BUILTIN_HOST_PROVIDER_BINDINGS: readonly BuiltinHostProviderBinding[] = [
+  {
+    serviceKey: 'vibex.model-catalog',
+    pluginId: 'vibex.core.llm-providers',
+    implementation: defaultModelCatalogProviderService,
+  },
+  {
+    serviceKey: 'provider.model.catalog',
+    pluginId: 'vibex.core.llm-providers',
+    implementation: defaultModelCatalogProviderService,
+  },
+  {
+    serviceKey: 'vibex.provider.model-catalog',
+    pluginId: 'vibex.core.llm-providers',
+    implementation: defaultModelCatalogProviderService,
+  },
+  {
+    serviceKey: 'vibex.usage',
+    pluginId: 'vibex.core.credentials',
+    implementation: defaultUsageProviderService,
+  },
+  {
+    serviceKey: 'provider.usage',
+    pluginId: 'vibex.core.credentials',
+    implementation: defaultUsageProviderService,
+  },
+  {
+    serviceKey: 'vibex.provider.usage',
+    pluginId: 'vibex.core.credentials',
+    implementation: defaultUsageProviderService,
+  },
+  {
+    serviceKey: 'vibex.editor',
+    pluginId: 'vibex.core.filesystem',
+    implementation: defaultEditorOpenerProviderService,
+  },
+  {
+    serviceKey: 'provider.editor.opener',
+    pluginId: 'vibex.core.filesystem',
+    implementation: defaultEditorOpenerProviderService,
+  },
+  {
+    serviceKey: 'vibex.provider.editor-opener',
+    pluginId: 'vibex.core.filesystem',
+    implementation: defaultEditorOpenerProviderService,
+  },
+];
+
 let builtinsRegistered = false;
 let disposeBuiltins: Array<() => void> = [];
 
-export function ensureHostProviderServicesRegistered(): void {
-  if (builtinsRegistered) {
-    if (!serviceContainer.has('vibex.model-catalog')) {
-      serviceContainer.provide(
-        'vibex.model-catalog',
-        defaultModelCatalogProviderService
-      );
-    }
-    if (!serviceContainer.has('provider.model.catalog')) {
-      serviceContainer.provide(
-        'provider.model.catalog',
-        defaultModelCatalogProviderService
-      );
-    }
-    if (!serviceContainer.has('vibex.usage')) {
-      serviceContainer.provide('vibex.usage', defaultUsageProviderService);
-    }
-    if (!serviceContainer.has('provider.usage')) {
-      serviceContainer.provide('provider.usage', defaultUsageProviderService);
-    }
-    if (!serviceContainer.has('vibex.editor')) {
-      serviceContainer.provide(
-        'vibex.editor',
-        defaultEditorOpenerProviderService
-      );
-    }
-    if (!serviceContainer.has('provider.editor.opener')) {
-      serviceContainer.provide(
-        'provider.editor.opener',
-        defaultEditorOpenerProviderService
-      );
-    }
-    return;
-  }
+export interface RegisterBuiltinHostProviderServicesOptions {
+  readonly ctx?: VibeXPluginContext;
+  readonly serviceKeys?: readonly string[];
+  readonly pluginId?: string;
+}
+
+export function registerBuiltinHostProviderServices(
+  options?: RegisterBuiltinHostProviderServicesOptions
+): Disposer {
   builtinsRegistered = true;
-  disposeBuiltins = [
-    serviceContainer.provide(
-      'vibex.model-catalog',
-      defaultModelCatalogProviderService
-    ),
-    serviceContainer.provide(
-      'provider.model.catalog',
-      defaultModelCatalogProviderService
-    ),
-    serviceContainer.provide('vibex.usage', defaultUsageProviderService),
-    serviceContainer.provide('provider.usage', defaultUsageProviderService),
-    serviceContainer.provide(
-      'vibex.editor',
-      defaultEditorOpenerProviderService
-    ),
-    serviceContainer.provide(
-      'provider.editor.opener',
-      defaultEditorOpenerProviderService
-    ),
-  ];
+  const allowedKeys = options?.serviceKeys
+    ? new Set(options.serviceKeys)
+    : null;
+  const filterPluginId = options?.ctx?.pluginId ?? options?.pluginId;
+  const targetBindings = allowedKeys
+    ? BUILTIN_HOST_PROVIDER_BINDINGS.filter((b) =>
+        allowedKeys.has(b.serviceKey)
+      )
+    : filterPluginId
+      ? BUILTIN_HOST_PROVIDER_BINDINGS.filter(
+          (b) => b.pluginId === filterPluginId
+        )
+      : BUILTIN_HOST_PROVIDER_BINDINGS;
+
+  const disposers: Disposer[] = [];
+  for (const binding of targetBindings) {
+    if (options?.ctx) {
+      disposers.push(
+        options.ctx.services.provide(binding.serviceKey, binding.implementation)
+      );
+    } else if (!serviceContainer.has(binding.serviceKey)) {
+      const dispose = serviceContainer.provide(
+        binding.serviceKey,
+        binding.implementation,
+        binding.pluginId
+      );
+      disposers.push(dispose);
+      disposeBuiltins.push(dispose);
+    }
+  }
+
+  const cleanup: Disposer = () => {
+    for (let i = disposers.length - 1; i >= 0; i -= 1) {
+      disposers[i]?.();
+    }
+  };
+
+  if (options?.ctx) {
+    options.ctx.effect(() => cleanup);
+  }
+
+  return cleanup;
+}
+
+export function ensureHostProviderServicesRegistered(): Disposer {
+  return registerBuiltinHostProviderServices();
 }
 
 export function resetHostProviderServicesForTest(): void {
@@ -455,35 +516,45 @@ export function resetHostProviderServicesForTest(): void {
 }
 
 export function getModelCatalogService(): ModelCatalogProviderService {
-  ensureHostProviderServicesRegistered();
+  if (!builtinsRegistered) {
+    ensureHostProviderServicesRegistered();
+  }
   return (
     serviceContainer.get<ModelCatalogProviderService>('vibex.model-catalog') ??
     serviceContainer.get<ModelCatalogProviderService>(
       'provider.model.catalog'
+    ) ??
+    serviceContainer.get<ModelCatalogProviderService>(
+      'vibex.provider.model-catalog'
     ) ??
     defaultModelCatalogProviderService
   );
 }
 
 export function getUsageProviderService(): UsageProviderService {
-  ensureHostProviderServicesRegistered();
+  if (!builtinsRegistered) {
+    ensureHostProviderServicesRegistered();
+  }
   return (
     serviceContainer.get<UsageProviderService>('vibex.usage') ??
     serviceContainer.get<UsageProviderService>('provider.usage') ??
+    serviceContainer.get<UsageProviderService>('vibex.provider.usage') ??
     defaultUsageProviderService
   );
 }
 
 export function getEditorOpenerService(): EditorOpenerProviderService {
-  ensureHostProviderServicesRegistered();
+  if (!builtinsRegistered) {
+    ensureHostProviderServicesRegistered();
+  }
   return (
     serviceContainer.get<EditorOpenerProviderService>('vibex.editor') ??
     serviceContainer.get<EditorOpenerProviderService>(
       'provider.editor.opener'
     ) ??
+    serviceContainer.get<EditorOpenerProviderService>(
+      'vibex.provider.editor-opener'
+    ) ??
     defaultEditorOpenerProviderService
   );
 }
-
-// Register default host provider services immediately upon module import.
-ensureHostProviderServicesRegistered();

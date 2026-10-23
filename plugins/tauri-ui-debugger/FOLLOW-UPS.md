@@ -59,3 +59,12 @@ listed here for a separate host PR.
   would pass, but the check isn't actually guarding it.
 - Proposed fix: extend discovery to the `plugins/*/.vibex-plugin/plugin.json`
   layout, and add a fixture test so an empty discovery result fails loudly.
+
+## (f) `pnpm lint` 未覆盖 `vite.vx-source-annotation.ts`
+- 位置：`frontend/package.json` 的 lint 脚本只匹配 `*.config.ts`，匹配不到 `frontend/vite.vx-source-annotation.ts`。
+- 现状：该文件单独跑 eslint（`--max-warnings 0`）是干净的。
+- 改法：在 lint 脚本的 glob 中加入 `vite.*.ts`，或把该文件改名为 `*.config.ts` 形式。
+
+## (g) `tsc -p tsconfig.node.json` 的 TS6307（master 既有问题）
+- 现状：本分支报 2 个 TS6307，master 上本来就有 3 个，与本分支无关。
+- 改法：在 `frontend/tsconfig.node.json` 的 include 中补齐被引用但未包含的文件。

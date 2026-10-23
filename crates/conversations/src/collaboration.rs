@@ -3493,7 +3493,8 @@ async fn deliver_pending(
         &display_text,
     );
     let pending = sqlx::query_as::<_, PendingDelivery>(
-        r#"SELECT conversation_id, operation_id, input_id, status, receipt_state, context_from_seq
+        r#"SELECT conversation_id, operation_id, input_id, status, receipt_state, context_from_seq,
+                  wake_deferred_turn_key
            FROM collaboration_space_deliveries
            WHERE space_message_id = ?"#,
     )
@@ -3551,27 +3552,36 @@ async fn deliver_pending(
             continue;
         }
         if session_is_asleep(pool, conversation_id).await? {
-            let turn_key = wake_turn_key(pool, message_id, &envelope).await?;
-            if !reserve_wake(
-                pool,
-                &turn_key,
-                conversation_id,
-                message_id,
-                wake_cap_per_turn(),
-            )
-            .await?
-            {
-                // Over the per-turn wake cap: stays queued (no input yet), so a
-                // later replay or an explicit mention after waking delivers it.
-                receipts.push(DeliveryReceipt {
+            let released = match delivery.wake_deferred_turn_key.as_deref() {
+                // Held earlier over the cap: deliver once the originating
+                // turn has ended ("next turn"), never stall.
+                Some(key) => !wake_turn_in_flight(pool, key).await?,
+                None => false,
+            };
+            if !released {
+                let turn_key = wake_turn_key(pool, message_id, &envelope).await?;
+                if !reserve_wake(
+                    pool,
+                    &turn_key,
                     conversation_id,
-                    nickname,
-                    delivered: "deferred".to_string(),
-                    state: delivery.receipt_state.clone(),
-                    input_id: None,
-                    error_code: Some("wake_limit_exceeded".to_string()),
-                });
-                continue;
+                    message_id,
+                    wake_cap_per_turn(),
+                )
+                .await?
+                {
+                    // Over the per-turn wake cap: held visibly as
+                    // 'limit_reached' until the originating turn ends.
+                    hold_over_wake_cap(pool, message_id, conversation_id, &turn_key).await?;
+                    receipts.push(DeliveryReceipt {
+                        conversation_id,
+                        nickname,
+                        delivered: "deferred".to_string(),
+                        state: WAKE_LIMIT_REACHED.to_string(),
+                        input_id: None,
+                        error_code: Some("wake_limit_exceeded".to_string()),
+                    });
+                    continue;
+                }
             }
         }
         if !try_acquire_member_write(pool, conversation_id).await? {
@@ -3634,7 +3644,7 @@ async fn deliver_pending(
                 // so never move a receipt backwards.
                 sqlx::query(
                     r#"UPDATE collaboration_space_deliveries
-                       SET input_id = ?, status = ?,
+                       SET input_id = ?, status = ?, wake_deferred_turn_key = NULL,
                            receipt_state = CASE
                              WHEN receipt_state = 'queued' THEN ? ELSE receipt_state END,
                            receipt_updated_at = ?
@@ -3860,7 +3870,10 @@ pub async fn list_message_receipts(
     message_id: &str,
 ) -> Result<Vec<MessageReceipt>, CollaborationError> {
     let rows = sqlx::query_as::<_, (String, String, String, Option<String>)>(
-        r#"SELECT conversation_id, receipt_state, status, receipt_updated_at
+        r#"SELECT conversation_id,
+                  CASE WHEN receipt_state = 'queued' AND wake_deferred_turn_key IS NOT NULL
+                       THEN 'limit_reached' ELSE receipt_state END,
+                  status, COALESCE(receipt_updated_at, wake_deferred_at)
            FROM collaboration_space_deliveries WHERE space_message_id = ?
            ORDER BY conversation_id"#,
     )
@@ -4928,6 +4941,51 @@ async fn wake_turn_key(
         }
     }
     Ok(format!("message:{message_id}"))
+}
+
+/// Receipt state shown for a delivery held over the per-turn wake cap.
+pub const WAKE_LIMIT_REACHED: &str = "limit_reached";
+
+async fn hold_over_wake_cap(
+    pool: &SqlitePool,
+    message_id: &str,
+    conversation_id: Uuid,
+    turn_key: &str,
+) -> Result<(), CollaborationError> {
+    sqlx::query(
+        r#"UPDATE collaboration_space_deliveries
+           SET wake_deferred_turn_key = ?, wake_deferred_at = COALESCE(wake_deferred_at, ?)
+           WHERE space_message_id = ? AND conversation_id = ?"#,
+    )
+    .bind(turn_key)
+    .bind(now_stamp())
+    .bind(message_id)
+    .bind(conversation_id.to_string())
+    .execute(pool)
+    .await
+    .map_err(db)?;
+    Ok(())
+}
+
+/// Whether the turn behind a wake ledger key is still running. `message:`
+/// keys have no turn: they count as ended, so the next sweep releases them.
+async fn wake_turn_in_flight(
+    pool: &SqlitePool,
+    turn_key: &str,
+) -> Result<bool, CollaborationError> {
+    let Some(turn) = turn_key
+        .strip_prefix("turn:")
+        .and_then(|raw| Uuid::parse_str(raw).ok())
+    else {
+        return Ok(false);
+    };
+    let running: Option<i64> =
+        sqlx::query_scalar("SELECT 1 FROM sessions WHERE active_turn_id = ? LIMIT 1")
+            .bind(turn)
+            .fetch_optional(pool)
+            .await
+            .map_err(db)?;
+    Ok(running.is_some())
 }
 
 /// Reserve a wake of sleeping `conversation_id` for `turn_key`. `false` when
@@ -6146,6 +6204,7 @@ struct PendingDelivery {
     status: String,
     receipt_state: String,
     context_from_seq: Option<i64>,
+    wake_deferred_turn_key: Option<String>,
 }
 
 async fn mark_delivery_failed(
@@ -8947,6 +9006,94 @@ mod tests {
         );
         // Replaying the same operation returns the recorded outcome.
         assert_eq!(handoff(&pool, request).await.unwrap(), failed);
+    }
+
+    #[tokio::test]
+    async fn over_cap_wakes_show_limit_reached_and_deliver_after_the_turn_ends() {
+        let pool = setup_pool().await;
+        let workspace = Uuid::new_v4();
+        let a = Uuid::new_v4();
+        create_session(&pool, a, workspace, Some("小A")).await;
+        let space = space_of(&pool, a).await;
+        let mut others = Vec::new();
+        for name in ["小B", "小C", "小D", "小E"] {
+            let id = Uuid::new_v4();
+            create_session(&pool, id, workspace, Some(name)).await;
+            add_space_member(&pool, a, &space, id, name, Uuid::new_v4())
+                .await
+                .unwrap();
+            others.push(id);
+        }
+        sqlx::query(
+            "UPDATE collaboration_thread_members SET last_active_at = '2000-01-01T00:00:00Z'",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+        sleep_idle_sessions(&pool, 30).await.unwrap();
+        // 小A posts mid-turn: one turn may wake at most 3 sleepers.
+        mark_running(&pool, a).await;
+        let posted = post_as(&pool, Some(a), &space, "大家醒醒", &[]).await;
+        let held: Vec<_> = posted
+            .receipts
+            .iter()
+            .filter(|r| r.error_code.as_deref() == Some("wake_limit_exceeded"))
+            .collect();
+        assert_eq!(held.len(), 1);
+        assert_eq!(held[0].state, WAKE_LIMIT_REACHED);
+        let held = held[0].conversation_id;
+        let receipt_of = |receipts: Vec<MessageReceipt>| {
+            receipts
+                .into_iter()
+                .find(|r| r.conversation_id == held.to_string())
+                .unwrap()
+        };
+        let visible = receipt_of(
+            list_message_receipts(&pool, &posted.message_id)
+                .await
+                .unwrap(),
+        );
+        assert_eq!(
+            visible.state, "limit_reached",
+            "visible, not silently queued"
+        );
+        assert!(visible.updated_at.is_some());
+
+        // While the originating turn runs the sweep keeps holding it.
+        redeliver_deferred(&pool, &DeliveryContext::default())
+            .await
+            .unwrap();
+        assert!(inputs_of(&pool, held).await.is_empty());
+        assert_eq!(
+            receipt_of(
+                list_message_receipts(&pool, &posted.message_id)
+                    .await
+                    .unwrap()
+            )
+            .state,
+            "limit_reached"
+        );
+
+        // Turn ends -> the next sweep delivers it; it never stalls.
+        sqlx::query("UPDATE sessions SET active_turn_id = NULL WHERE id = ?")
+            .bind(a)
+            .execute(&pool)
+            .await
+            .unwrap();
+        redeliver_deferred(&pool, &DeliveryContext::default())
+            .await
+            .unwrap();
+        assert_eq!(inputs_of(&pool, held).await.len(), 1);
+        let after = receipt_of(
+            list_message_receipts(&pool, &posted.message_id)
+                .await
+                .unwrap(),
+        );
+        assert_ne!(after.state, "limit_reached");
+        assert_eq!(
+            after.state, "queued",
+            "now an ordinary queued input for its next turn"
+        );
     }
 
     #[tokio::test]

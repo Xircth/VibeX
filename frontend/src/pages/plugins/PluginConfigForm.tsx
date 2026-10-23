@@ -330,7 +330,10 @@ export function PluginConfigForm({
       <div className="settings-surface product-plugin-config-shell">
         <dl className="settings-card grid gap-2 p-3 text-sm">
           {properties.map(([key, schema]) => (
-            <div key={key} className="flex items-baseline justify-between gap-4">
+            <div
+              key={key}
+              className="flex items-baseline justify-between gap-4"
+            >
               <dt className="text-[color:var(--text-muted)]">
                 {schemaTitle(schema, key)}
               </dt>

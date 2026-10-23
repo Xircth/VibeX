@@ -1,7 +1,9 @@
 import type { JsonValue, PluginContext } from './protocol.js';
 import type { Disposer } from './registry.js';
 import {
+  type InjectedServicesRecord,
   type ServiceContainer,
+  type ServiceDecorator,
   type ServiceKey,
   type WaterfallInterceptor,
   serviceContainer,
@@ -23,19 +25,17 @@ export interface PluginWorkerServiceRegistry {
   provide<T>(key: ServiceKey<T> | string, implementation: T): Disposer;
   get<T>(key: ServiceKey<T> | string): T | undefined;
   inject<T>(key: ServiceKey<T> | string): T | undefined;
-  inject(
+  inject<TResolved = InjectedServicesRecord>(
     deps: ReadonlyArray<ServiceKey<unknown> | string>,
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    effect: (resolved: any) => void | Disposer
+    effect: (resolved: TResolved) => void | Disposer
   ): Disposer;
   require<T>(key: ServiceKey<T> | string): T;
   has<T>(key: ServiceKey<T> | string): boolean;
-  intercept<TPayload = unknown, TResult = unknown>(
+  intercept<TPayload = unknown, TResult = TPayload>(
     hookName: string,
     fn:
       | WaterfallInterceptor<TPayload, TResult>
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      | ((previousService: any) => any),
+      | ServiceDecorator<TPayload, TResult>,
     order?: number
   ): Disposer;
   runWaterfall<TPayload, TResult>(
@@ -51,6 +51,24 @@ export function createWorkerServiceRegistry(
   pluginId: string,
   container: ServiceContainer = serviceContainer
 ): PluginWorkerServiceRegistry {
+  function inject<T>(key: ServiceKey<T> | string): T | undefined;
+  function inject<TResolved = InjectedServicesRecord>(
+    deps: ReadonlyArray<ServiceKey<unknown> | string>,
+    effect: (resolved: TResolved) => void | Disposer
+  ): Disposer;
+  function inject<T, TResolved = InjectedServicesRecord>(
+    keyOrDeps:
+      | ServiceKey<T>
+      | string
+      | ReadonlyArray<ServiceKey<unknown> | string>,
+    effect?: (resolved: TResolved) => void | Disposer
+  ): T | undefined | Disposer {
+    if (Array.isArray(keyOrDeps)) {
+      return container.inject(keyOrDeps, effect!, pluginId);
+    }
+    return container.inject(keyOrDeps as ServiceKey<T> | string);
+  }
+
   return {
     provide<T>(key: ServiceKey<T> | string, implementation: T): Disposer {
       return container.provide(key, implementation, pluginId);
@@ -58,32 +76,18 @@ export function createWorkerServiceRegistry(
     get<T>(key: ServiceKey<T> | string): T | undefined {
       return container.get(key);
     },
-    inject(
-      keyOrDeps:
-        | ServiceKey<unknown>
-        | string
-        | ReadonlyArray<ServiceKey<unknown> | string>,
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      effect?: (resolved: any) => void | Disposer
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    ): any {
-      if (Array.isArray(keyOrDeps)) {
-        return container.inject(keyOrDeps, effect!, pluginId);
-      }
-      return container.inject(keyOrDeps as ServiceKey<unknown> | string);
-    },
+    inject,
     require<T>(key: ServiceKey<T> | string): T {
       return container.require(key);
     },
     has<T>(key: ServiceKey<T> | string): boolean {
       return container.has(key);
     },
-    intercept<TPayload = unknown, TResult = unknown>(
+    intercept<TPayload = unknown, TResult = TPayload>(
       hookName: string,
       fn:
         | WaterfallInterceptor<TPayload, TResult>
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        | ((previousService: any) => any),
+        | ServiceDecorator<TPayload, TResult>,
       order = 0
     ): Disposer {
       return container.intercept(hookName, fn, order, pluginId);

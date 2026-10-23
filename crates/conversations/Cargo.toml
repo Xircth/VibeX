@@ -26,6 +26,7 @@ uuid = { workspace = true, features = ["v5"] }
 url = { workspace = true }
 ts-rs = { workspace = true }
 async-trait = { workspace = true }
+futures = { workspace = true }
 tokio = { workspace = true }
 sqlx = { version = "0.8.6", features = ["runtime-tokio", "sqlite", "chrono", "uuid"] }
 

@@ -460,16 +460,16 @@ fn build_new_file_diff(path: &str, new_text: &str) -> String {
 pub(crate) fn extract_tool_call_images(content: &[ToolCallContent]) -> Option<Vec<ImageData>> {
     let mut imgs: Vec<ImageData> = Vec::new();
     for item in content {
-        if let ToolCallContent::Content(c) = item {
-            if let WireBlock::Image(img) = &c.content {
-                imgs.push(ImageData {
-                    data: img.data.clone(),
-                    mime_type: img.mime_type.clone(),
-                    uri: img.uri.clone(),
-                    width: None,
-                    height: None,
-                });
-            }
+        if let ToolCallContent::Content(c) = item
+            && let WireBlock::Image(img) = &c.content
+        {
+            imgs.push(ImageData {
+                data: img.data.clone(),
+                mime_type: img.mime_type.clone(),
+                uri: img.uri.clone(),
+                width: None,
+                height: None,
+            });
         }
     }
     if imgs.is_empty() { None } else { Some(imgs) }

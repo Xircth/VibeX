@@ -263,6 +263,16 @@ impl HostEventBus {
         if durability == EventDurability::Invalidation
             && let Ok(mut last) = self.last_invalidation.write()
         {
+            if last.len() >= 256
+                && !last.contains_key(&channel)
+                && let Some(evict_key) = last
+                    .iter()
+                    .filter(|(key, _)| key.contains(':'))
+                    .min_by_key(|(_, entry)| entry.sequence)
+                    .map(|(key, _)| key.clone())
+            {
+                last.remove(&evict_key);
+            }
             last.insert(channel, event.clone());
         }
         let _ = self.tx.send(event);

@@ -712,10 +712,7 @@ pub fn subscribe_runtime_events() -> tokio::sync::broadcast::Receiver<RuntimeEve
     runtime_event_sender().subscribe()
 }
 
-pub(crate) fn emit_runtime_event(
-    envelope: &ConversationEventEnvelope,
-    event_kind: &str,
-) {
+pub(crate) fn emit_runtime_event(envelope: &ConversationEventEnvelope, event_kind: &str) {
     let _ = runtime_event_sender().send(RuntimeEventNotification {
         id: envelope.id,
         conversation_id: envelope.conversation_id,

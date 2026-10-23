@@ -161,12 +161,16 @@ pub async fn load_all_turns(
 /// Read any existing on-disk JSONL transcript turns for `conversation_id`
 /// without mutating or migrating from SQLite.
 pub fn read_existing_transcript_turns(conversation_id: Uuid) -> Option<Vec<MessageTurn>> {
+    read_existing_transcript_turns_with_external(conversation_id, None)
+}
+
+pub fn read_existing_transcript_turns_with_external(
+    conversation_id: Uuid,
+    external_session_id: Option<&str>,
+) -> Option<Vec<MessageTurn>> {
     isolate_test_transcripts();
     let root = vibex_acp_transcripts_root();
-    let candidates = [
-        conversation_id.simple().to_string(),
-        conversation_id.to_string(),
-    ];
+    let candidates = transcript_session_id_candidates(conversation_id, external_session_id);
     let entries = std::fs::read_dir(&root).ok()?;
     for dir_entry in entries.flatten() {
         let Ok(file_type) = dir_entry.file_type() else {
@@ -189,6 +193,54 @@ pub fn read_existing_transcript_turns(conversation_id: Uuid) -> Option<Vec<Messa
         }
     }
     None
+}
+
+pub async fn flush_and_read_existing_transcript_turns(
+    conversation_id: Uuid,
+    external_session_id: Option<&str>,
+) -> Option<Vec<MessageTurn>> {
+    isolate_test_transcripts();
+    let root = vibex_acp_transcripts_root();
+    let candidates = transcript_session_id_candidates(conversation_id, external_session_id);
+    if let Ok(entries) = std::fs::read_dir(&root) {
+        for dir_entry in entries.flatten() {
+            let Ok(file_type) = dir_entry.file_type() else {
+                continue;
+            };
+            if !file_type.is_dir() {
+                continue;
+            }
+            let Some(agent_dir) = dir_entry.file_name().to_str().map(str::to_string) else {
+                continue;
+            };
+            for sid in &candidates {
+                let _ = acp_transcript::flush_in(&root, &agent_dir, sid).await;
+            }
+        }
+    }
+    read_existing_transcript_turns_with_external(conversation_id, external_session_id)
+}
+
+fn transcript_session_id_candidates(
+    conversation_id: Uuid,
+    external_session_id: Option<&str>,
+) -> Vec<String> {
+    let mut candidates = Vec::with_capacity(3);
+    if let Some(ext) = external_session_id
+        .map(str::trim)
+        .filter(|ext| !ext.is_empty() && safe_component(ext))
+    {
+        candidates.push(ext.to_string());
+    }
+    let simple = conversation_id.simple().to_string();
+    if !candidates.contains(&simple) {
+        candidates.push(simple);
+    }
+    let hyphenated = conversation_id.to_string();
+    if !candidates.contains(&hyphenated) {
+        candidates.push(hyphenated);
+    }
+    candidates
 }
 
 pub fn timeline_from_turns(conversation_id: Uuid, turns: &[MessageTurn]) -> ConversationTimeline {

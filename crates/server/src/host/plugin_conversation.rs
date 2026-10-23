@@ -1,6 +1,5 @@
 use std::{
     path::{Path, PathBuf},
-    process::Command,
     sync::{Arc, OnceLock},
 };
 
@@ -711,8 +710,7 @@ fn ensure_git_repo(dir: &Path) -> Result<(), PluginConversationError> {
     if dir.join(".git").exists() {
         return Ok(());
     }
-    let status = Command::new("git")
-        .arg("init")
+    let status = utils::process::new_hidden_std_command("git", ["init"])
         .current_dir(dir)
         .status()
         .map_err(store_failed)?;

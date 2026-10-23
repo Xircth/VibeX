@@ -100,7 +100,11 @@ export function randomEnglishNickname(
 ): string {
   const taken = new Set(
     Array.from(existingNames)
-      .map((name) => String(name ?? '').trim().toLowerCase())
+      .map((name) =>
+        String(name ?? '')
+          .trim()
+          .toLowerCase()
+      )
       .filter(Boolean)
   );
   const available = ENGLISH_MEMBER_NAMES.filter(
@@ -679,4 +683,3 @@ export function toggleMemberDeleteSelection(
   }
   return nextMembers;
 }
-

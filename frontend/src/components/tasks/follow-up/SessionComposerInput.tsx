@@ -55,10 +55,7 @@ import {
 } from '@/lib/backendTransport';
 import { createPluginApi, createPluginControlApi } from '@/lib/api/plugins';
 import { DOLLAR_COMMANDS, mergeDollarCommands } from '@/lib/dollarCommands';
-import {
-  useSlashCommands,
-  useSlotContributions,
-} from '@vibex/plugin-sdk';
+import { useSlashCommands, useSlotContributions } from '@vibex/plugin-sdk';
 import {
   agentAvailableCommandsToSlashCommands,
   localSkillsToDollarCommands,
@@ -1584,7 +1581,11 @@ export function SessionComposerInput({
           } else {
             insertText = execResult;
           }
-        } else if (typeof execResult === 'object' && execResult !== null && 'then' in execResult) {
+        } else if (
+          typeof execResult === 'object' &&
+          execResult !== null &&
+          'then' in execResult
+        ) {
           void execResult.catch(() => undefined);
         }
       } catch {

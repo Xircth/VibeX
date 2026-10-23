@@ -306,6 +306,51 @@ describe('KanbanSessionConversationView', () => {
     expect(screen.queryByTestId('follow-up-section')).not.toBeInTheDocument();
   });
 
+  it('does not request the create-session form while workspace sessions are still loading', () => {
+    const onCreateSessionRequested = vi.fn();
+    useWorkspaceSessionsMock.mockReturnValue({
+      sessions: [],
+      selectedSession: undefined,
+      selectedSessionId: undefined,
+      selectSession: vi.fn(),
+      selectLatestSession: vi.fn(),
+      isLoading: true,
+      isNewSessionMode: false,
+      isPendingNewSessionMode: false,
+      requestNewSession: vi.fn(),
+      confirmNewSession: vi.fn(),
+      cancelNewSession: vi.fn(),
+      startNewSession: vi.fn(),
+    });
+
+    const queryClient = new QueryClient({
+      defaultOptions: {
+        queries: {
+          retry: false,
+        },
+      },
+    });
+    queryClient.setQueryData(
+      ['taskAttempt', 'workspace-loading'],
+      createWorkspace('workspace-loading')
+    );
+
+    render(
+      <MemoryRouter>
+        <QueryClientProvider client={queryClient}>
+          <KanbanSessionConversationView
+            workspaceId="workspace-loading"
+            interactive={true}
+            showSessionSelector={true}
+            onCreateSessionRequested={onCreateSessionRequested}
+          />
+        </QueryClientProvider>
+      </MemoryRouter>
+    );
+
+    expect(onCreateSessionRequested).not.toHaveBeenCalled();
+  });
+
   it('routes new-session URL requests through the overlay callback', async () => {
     const startNewSession = vi.fn();
     const onCreateSessionRequested = vi.fn();

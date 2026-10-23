@@ -57,9 +57,7 @@ describe('MessageQueueIndicator', () => {
     const delayedQueue = screen.getByTestId('delayed-message-queue');
     expect(delayedQueue).toHaveTextContent('延时发送的消息内容');
 
-    const countdownEl = screen.getByTestId(
-      'delayed-countdown-msg-delayed-1'
-    );
+    const countdownEl = screen.getByTestId('delayed-countdown-msg-delayed-1');
     expect(countdownEl.textContent).toMatch(/\d{2}:\d{2}$/);
 
     // Expand normal queue to interact with items

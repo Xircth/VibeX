@@ -1,5 +1,6 @@
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
+import { MemoryRouter } from 'react-router-dom';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { ConfirmDialog } from '@/components/dialogs/shared/ConfirmDialog';
@@ -67,9 +68,15 @@ function renderForm(
     }),
   };
   render(
-    <BackendTransportProvider transport={transport}>
-      <PluginConfigForm pluginId={pluginId} detail={detail} onSaved={vi.fn()} />
-    </BackendTransportProvider>
+    <MemoryRouter>
+      <BackendTransportProvider transport={transport}>
+        <PluginConfigForm
+          pluginId={pluginId}
+          detail={detail}
+          onSaved={vi.fn()}
+        />
+      </BackendTransportProvider>
+    </MemoryRouter>
   );
   return transport;
 }
@@ -152,24 +159,26 @@ describe('PluginConfigForm', () => {
       }),
     };
     render(
-      <BackendTransportProvider transport={transport}>
-        <PluginConfigForm
-          pluginId="vibex.office"
-          detail={{
-            summary: 'Office',
-            readme: '# Office',
-            contents: [],
-            config: { preview: false },
-            configSchema: {
-              type: 'object',
-              properties: {
-                preview: { type: 'boolean', title: 'Document preview' },
+      <MemoryRouter>
+        <BackendTransportProvider transport={transport}>
+          <PluginConfigForm
+            pluginId="vibex.office"
+            detail={{
+              summary: 'Office',
+              readme: '# Office',
+              contents: [],
+              config: { preview: false },
+              configSchema: {
+                type: 'object',
+                properties: {
+                  preview: { type: 'boolean', title: 'Document preview' },
+                },
               },
-            },
-          }}
-          onSaved={onSaved}
-        />
-      </BackendTransportProvider>
+            }}
+            onSaved={onSaved}
+          />
+        </BackendTransportProvider>
+      </MemoryRouter>
     );
 
     await user.click(screen.getByRole('switch', { name: 'Document preview' }));

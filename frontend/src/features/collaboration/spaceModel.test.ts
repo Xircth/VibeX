@@ -31,8 +31,18 @@ import {
 } from './spaceModel';
 
 const members: SpaceMember[] = [
-  { nickname: '小A', kind: 'agent', visible_to_agents: 1, conversation_id: 'a' },
-  { nickname: '小B', kind: 'agent', visible_to_agents: 1, conversation_id: 'b' },
+  {
+    nickname: '小A',
+    kind: 'agent',
+    visible_to_agents: 1,
+    conversation_id: 'a',
+  },
+  {
+    nickname: '小B',
+    kind: 'agent',
+    visible_to_agents: 1,
+    conversation_id: 'b',
+  },
   {
     nickname: '小AB',
     kind: 'agent',
@@ -45,7 +55,12 @@ const members: SpaceMember[] = [
     visible_to_agents: 0,
     conversation_id: null,
   },
-  { nickname: '隐藏', kind: 'agent', visible_to_agents: 0, conversation_id: 'h' },
+  {
+    nickname: '隐藏',
+    kind: 'agent',
+    visible_to_agents: 0,
+    conversation_id: 'h',
+  },
 ];
 
 describe('collaboration space model', () => {
@@ -202,9 +217,9 @@ describe('collaboration space model', () => {
     expect(sorted.memberConversations.map((c) => c.conversation_id)).toEqual([
       'c-mem-1',
     ]);
-    expect(
-      sorted.nonMemberConversations.map((c) => c.conversation_id)
-    ).toEqual(['c-non-1', 'c-non-2']);
+    expect(sorted.nonMemberConversations.map((c) => c.conversation_id)).toEqual(
+      ['c-non-1', 'c-non-2']
+    );
     expect(sorted.sorted.map((c) => c.conversation_id)).toEqual([
       'c-mem-1',
       'c-non-1',

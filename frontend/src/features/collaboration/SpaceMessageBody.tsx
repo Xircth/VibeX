@@ -31,7 +31,8 @@ export function SpaceMessageBody({
   if (fromYou) {
     const { text: cleanText, images, files } = splitDisplayContentImages(text);
     const hasText =
-      cleanText.trim().length > 0 || (images.length === 0 && files.length === 0);
+      cleanText.trim().length > 0 ||
+      (images.length === 0 && files.length === 0);
     return (
       <div className="conv-entry-item conv-user-msg">
         {images.length > 0 || files.length > 0 ? (

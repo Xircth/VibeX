@@ -1015,9 +1015,11 @@ mod tests {
         let disabled = official_delegation_config(DelegationConfig::default(), &gate);
         assert!(!disabled.enabled);
 
-        let mut limits = plugins::HostDelegationLimits::default();
-        limits.depth_limit = 3;
-        limits.completed_cache_max_mb = 64;
+        let limits = plugins::HostDelegationLimits {
+            depth_limit: 3,
+            completed_cache_max_mb: 64,
+            ..Default::default()
+        };
         gate.set_host_delegation(true, limits);
         let enabled = official_delegation_config(DelegationConfig::default(), &gate);
         assert!(enabled.enabled);

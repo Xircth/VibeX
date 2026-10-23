@@ -66,7 +66,7 @@ export function activatePluginModuleSync(
     generation: options?.generation,
     callHost: options?.callHost,
   });
-  if (!('effects' in ctx)) {
+  if (!('effects' in (ctx as unknown as Record<string, unknown>))) {
     Object.defineProperty(ctx, 'effects', {
       get: () => ctx.scope,
       enumerable: true,

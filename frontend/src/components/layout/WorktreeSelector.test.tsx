@@ -262,6 +262,104 @@ describe('WorktreeSelector', () => {
     );
   });
 
+  it('activates the latest session from cached workspace session summaries on click', async () => {
+    const user = userEvent.setup();
+    const root = workspace({ id: 'root-1', branch: 'dev' });
+    const worktree = workspace({
+      id: 'wt-1',
+      task_id: 'task-wt',
+      branch: 'feat/next',
+      use_worktree: true,
+      container_ref: 'C:/wt/feat',
+    });
+    harness.worktrees = [root, worktree];
+    const { queryClient } = renderSelector();
+    queryClient.setQueryData(
+      ['workspaceSessions', 'wt-1', 'summaries'],
+      [
+        {
+          id: 'session-from-summary',
+          workspace_id: 'wt-1',
+          task_id: 'task-wt',
+          name: 'Summary Session',
+          first_prompt: 'Fix workspace switcher',
+          display_name: 'Summary Session',
+          status: 'inprogress',
+          executor: 'CLAUDE_CODE',
+          agent_id: null,
+          workspace_branch: 'feat/next',
+          workspace_name: null,
+          created_at: '2026-10-24T00:00:00.000Z',
+          updated_at: '2026-10-24T00:00:00.000Z',
+        },
+      ]
+    );
+
+    await user.click(screen.getByRole('button', { name: '选择工作区' }));
+    await user.click(screen.getByRole('menuitem', { name: /feat\/next/ }));
+
+    expect(harness.activateExecutionSession).toHaveBeenCalledWith({
+      sessionId: 'session-from-summary',
+      workspaceId: 'wt-1',
+    });
+    expect(screen.getByTestId('location')).toHaveTextContent(
+      '/local-projects/project-1/workspaces/wt-1/sessions/session-from-summary'
+    );
+    expect(
+      queryClient.getQueryData<WorkspaceWithSession>([
+        'taskAttemptWithSession',
+        'wt-1',
+      ])?.session?.id
+    ).toBe('session-from-summary');
+  });
+
+  it('optimistically updates repoBranches when checking out a branch in the main directory', async () => {
+    const user = userEvent.setup();
+    const root = workspace({
+      id: 'root-1',
+      branch: 'dev',
+      use_worktree: false,
+    });
+    harness.activeWorktreeId = 'root-1';
+    harness.worktrees = [root];
+    harness.repos = [
+      {
+        id: 'repo-1',
+        name: 'vibex',
+        path: 'C:/repo',
+        default_target_branch: 'dev',
+      },
+    ];
+    harness.branches = [
+      branch({ name: 'dev', is_current: true }),
+      branch({ name: 'feat/local', is_current: false }),
+    ];
+    vi.mocked(ConfirmDialog.show).mockResolvedValueOnce('confirmed');
+    vi.mocked(attemptsApi.checkoutBranch).mockResolvedValueOnce(undefined);
+
+    const { queryClient } = renderSelector();
+    queryClient.setQueryData(['repoBranches', 'repo-1'], harness.branches);
+
+    await user.click(screen.getByRole('button', { name: '选择工作区' }));
+    await user.click(screen.getByRole('radio', { name: '分支' }));
+    await user.click(screen.getByRole('menuitem', { name: /feat\/local/ }));
+
+    await waitFor(() =>
+      expect(attemptsApi.checkoutBranch).toHaveBeenCalledWith(
+        'root-1',
+        'repo-1',
+        'feat/local'
+      )
+    );
+    const updatedBranches = queryClient.getQueryData<GitBranch[]>([
+      'repoBranches',
+      'repo-1',
+    ]);
+    expect(updatedBranches?.find((item) => item.is_current)?.name).toBe(
+      'feat/local'
+    );
+  });
+
   it('pins the main directory branch and confirms other checkouts', async () => {
     const user = userEvent.setup();
     const root = workspace({ id: 'root-1', branch: 'dev' });

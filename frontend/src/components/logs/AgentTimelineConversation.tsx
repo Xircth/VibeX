@@ -1038,25 +1038,23 @@ const AgentTimelineConversation = forwardRef<
   );
   const expandableRevision = useExpandableRevision();
   const hideThinking = resolveHideModelThinking(config);
-  const virtualEntries = useMemo(
-    () =>
-      buildTimelineVirtualEntries({
-        items: timelineItems,
-        collapseProcess,
-        hideThinking,
-        processExpanded: (turnId, foldStartIndex) =>
-          isExpandableOpen(`process:${turnId}:${foldStartIndex}`),
-        isContextCompact: (rowKey) => contextCompactByRowKey.has(rowKey),
-      }),
-    [
+  const virtualEntries = useMemo(() => {
+    void expandableRevision;
+    return buildTimelineVirtualEntries({
+      items: timelineItems,
       collapseProcess,
-      config,
-      contextCompactByRowKey,
-      expandableRevision,
       hideThinking,
-      timelineItems,
-    ]
-  );
+      processExpanded: (turnId, foldStartIndex) =>
+        isExpandableOpen(`process:${turnId}:${foldStartIndex}`),
+      isContextCompact: (rowKey) => contextCompactByRowKey.has(rowKey),
+    });
+  }, [
+    collapseProcess,
+    contextCompactByRowKey,
+    expandableRevision,
+    hideThinking,
+    timelineItems,
+  ]);
   const userMessageIndexes = useMemo(
     () =>
       virtualEntries.flatMap((entry, index) => {
@@ -1607,7 +1605,9 @@ const AgentTimelineConversation = forwardRef<
   const latestInterruptedRow = useMemo(() => {
     const latestRow = [...timeline]
       .reverse()
-      .find((row) => row.turn.role === 'user' && !row.turn.id.includes(':steer:'));
+      .find(
+        (row) => row.turn.role === 'user' && !row.turn.id.includes(':steer:')
+      );
     return latestRow?.phase === 'interrupted' ? latestRow : null;
   }, [timeline]);
 
@@ -1626,7 +1626,11 @@ const AgentTimelineConversation = forwardRef<
         map.set(vibexTurnIdFromTimelineRowId(row.turn.id), activeOrdinal);
       }
     }
-    if (conversation.currentTurnId && activeOrdinal !== null && !map.has(conversation.currentTurnId)) {
+    if (
+      conversation.currentTurnId &&
+      activeOrdinal !== null &&
+      !map.has(conversation.currentTurnId)
+    ) {
       map.set(conversation.currentTurnId, activeOrdinal);
     }
     for (const entry of sideRows) {
@@ -1640,7 +1644,9 @@ const AgentTimelineConversation = forwardRef<
       const ord =
         (turnUuid ? map.get(turnUuid) : undefined) ??
         (aliases.userTurnId ? map.get(aliases.userTurnId) : undefined) ??
-        (aliases.assistantTurnId ? map.get(aliases.assistantTurnId) : undefined);
+        (aliases.assistantTurnId
+          ? map.get(aliases.assistantTurnId)
+          : undefined);
       if (ord !== undefined) {
         if (turnUuid) map.set(turnUuid, ord);
         if (aliases.userTurnId) map.set(aliases.userTurnId, ord);
@@ -1648,7 +1654,12 @@ const AgentTimelineConversation = forwardRef<
       }
     }
     return map;
-  }, [conversation.currentTurnId, conversation.userTurnsBeforeOffset, sideRows, timeline]);
+  }, [
+    conversation.currentTurnId,
+    conversation.userTurnsBeforeOffset,
+    sideRows,
+    timeline,
+  ]);
 
   // Latest checkpoint-diff summary per turn, rendered inline at the end of the
   // turn that produced it (rows without a turn_id stay hidden rather than

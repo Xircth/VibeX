@@ -171,16 +171,15 @@ fn user_turn_block(block: &PromptInputBlock) -> ContentBlock {
             if mime_type
                 .as_deref()
                 .is_some_and(|mime| mime.starts_with("image/"))
+                && let Some(data) = blob.clone().filter(|data| !data.is_empty())
             {
-                if let Some(data) = blob.clone().filter(|data| !data.is_empty()) {
-                    return ContentBlock::Image {
-                        data,
-                        mime_type: mime_type.clone().unwrap_or_else(|| "image/png".to_string()),
-                        uri: Some(uri.clone()),
-                        width: None,
-                        height: None,
-                    };
-                }
+                return ContentBlock::Image {
+                    data,
+                    mime_type: mime_type.clone().unwrap_or_else(|| "image/png".to_string()),
+                    uri: Some(uri.clone()),
+                    width: None,
+                    height: None,
+                };
             }
             let mut rendered = uri.clone();
             if let Some(text) = text.as_ref().filter(|text| !text.is_empty()) {
@@ -507,21 +506,19 @@ pub fn project_turns(entries: &[TranscriptEntry]) -> Vec<MessageTurn> {
                 // after an early process exit or transient failure), coalesce it into
                 // the existing trailing user turn instead of rendering two duplicate
                 // consecutive user bubbles.
-                if !entry.steer {
-                    if let Some(last) = turns.last_mut() {
-                        if matches!(last.role, TurnRole::User)
-                            && !last.id.contains(":steer:")
-                            && last.blocks == blocks
-                        {
-                            last.timestamp = epoch_ms_to_utc(entry.t);
-                            steered = false;
-                            prompt_start = Some(turns.len() - 1);
-                            prompt_just_recorded = true;
-                            turn_start_hint = Some(entry.t);
-                            user_prose_open = false;
-                            continue;
-                        }
-                    }
+                if !entry.steer
+                    && let Some(last) = turns.last_mut()
+                    && matches!(last.role, TurnRole::User)
+                    && !last.id.contains(":steer:")
+                    && last.blocks == blocks
+                {
+                    last.timestamp = epoch_ms_to_utc(entry.t);
+                    steered = false;
+                    prompt_start = Some(turns.len() - 1);
+                    prompt_just_recorded = true;
+                    turn_start_hint = Some(entry.t);
+                    user_prose_open = false;
+                    continue;
                 }
                 // A steer is a user message of its own, so it splits the turn
                 // like a prompt — the shape Claude Code's history draws, and
@@ -698,10 +695,10 @@ fn flush(
 /// is false when the part started at a steer rather than at the turn's prompt:
 /// the recorded duration then spans more than this part and is left out.
 fn apply_turn_end(pending: &mut PendingTurn, payload: &serde_json::Value, whole_turn: bool) {
-    if whole_turn {
-        if let Some(ms) = payload.get("durationMs").and_then(|v| v.as_u64()) {
-            pending.duration_ms = Some(ms);
-        }
+    if whole_turn
+        && let Some(ms) = payload.get("durationMs").and_then(|v| v.as_u64())
+    {
+        pending.duration_ms = Some(ms);
     }
     let (model, usage) = turn_end_model_and_usage(payload);
     if model.is_some() {

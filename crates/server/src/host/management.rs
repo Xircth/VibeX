@@ -331,7 +331,24 @@ pub async fn preflight(
         }
     }
     let discovered_acp_version = match (acp, discovered_acp_path.as_ref()) {
-        (None, Some(path)) => probe_first_output_line(path, &["--version"]).await,
+        (None, Some(path)) => {
+            let version_args = catalog
+                .profile(&agent_id)
+                .and_then(|profile| {
+                    profile
+                        .external_candidates
+                        .iter()
+                        .find(|candidate| {
+                            matches!(
+                                candidate.component,
+                                ProfileComponent::AcpAdapter | ProfileComponent::CombinedRuntime
+                            )
+                        })
+                        .map(|candidate| candidate.version_args)
+                })
+                .unwrap_or(&["--version"]);
+            probe_first_output_line(path, version_args).await
+        }
         _ => None,
     };
     let runtime_ok =
@@ -2598,6 +2615,9 @@ async fn resolve_on_path(executable: &str) -> Option<PathBuf> {
 }
 
 async fn probe_first_output_line(path: &Path, args: &[&str]) -> Option<String> {
+    if args.is_empty() {
+        return None;
+    }
     let mut command = utils::process::new_hidden_tokio_command(path, args.iter().copied());
     command.kill_on_drop(true);
     let output = tokio::time::timeout(DIAGNOSTIC_COMMAND_TIMEOUT, command.output())

@@ -1248,10 +1248,7 @@ export function PluginsSettings({
     }
   };
 
-  const applyImport = async (
-    decision: 'reject' | 'keep' | 'replace',
-    permissionIds: string[] = []
-  ) => {
+  const applyImport = async (decision: 'reject' | 'keep' | 'replace') => {
     if (!importPath || !canUseLocalPluginFiles) return;
     setBusy(true);
     try {
@@ -1259,8 +1256,7 @@ export function PluginsSettings({
         importPath,
         developerLink,
         decision,
-        importPackageKind ?? undefined,
-        permissionIds
+        importPackageKind ?? undefined
       );
       setImportPreview(null);
       setImportPath(null);

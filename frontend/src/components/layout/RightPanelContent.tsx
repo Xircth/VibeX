@@ -197,10 +197,14 @@ export function RightPanelContent() {
   const rightSessionWorkspaceId = visibleRightSession?.workspaceId ?? '';
   const rightSessionId = visibleRightSession?.sessionId ?? '';
   const isWorkspaceRoute = effectiveActiveTab === 'workspace' && !!workspaceId;
+  const scopedRightSession =
+    workspaceId && visibleRightSession?.workspaceId !== workspaceId
+      ? null
+      : visibleRightSession;
   const workspaceExecutionWorkspaceId =
-    visibleRightSession?.workspaceId ?? workspaceId;
+    workspaceId ?? scopedRightSession?.workspaceId;
   const workspaceExecutionSessionId =
-    visibleRightSession?.sessionId ?? sessionId;
+    sessionId ?? scopedRightSession?.sessionId;
   const bindExecutionConversation = kanbanBindsExecutionConversation(
     activeViewId,
     executionConversationSurface(workspaceId, sessionId, effectiveActiveTab)
@@ -313,8 +317,12 @@ export function RightPanelContent() {
     () => config?.executor_profile ?? getFirstAvailableProfile(profiles),
     [config?.executor_profile, profiles]
   );
+  const currentOverlayWorkspaceId = workspaceId ?? activeWorktreeId ?? null;
   const [isCreateOverlayOpen, setIsCreateOverlayOpen] = useState(false);
   const [createOverlayProjectId, setCreateOverlayProjectId] = useState<
+    string | null
+  >(null);
+  const [createOverlayWorkspaceId, setCreateOverlayWorkspaceId] = useState<
     string | null
   >(null);
   const [userCreateMode, setUserCreateMode] =
@@ -329,6 +337,8 @@ export function RightPanelContent() {
     open: isCreateOverlayOpen,
     openedForProjectId: createOverlayProjectId,
     currentProjectId: effectiveProjectId,
+    openedForWorkspaceId: createOverlayWorkspaceId,
+    currentWorkspaceId: currentOverlayWorkspaceId,
   });
   const {
     configs: repoBranchConfigs,
@@ -401,6 +411,8 @@ export function RightPanelContent() {
 
   const handleSelectedSession = useCallback(
     (session: { sessionId: string; workspaceId: string }) => {
+      setIsCreateOverlayOpen(false);
+      setCreateOverlayWorkspaceId(null);
       activateExecutionSession(session);
       syncWorkspaceRouteSession(session);
     },
@@ -512,6 +524,7 @@ export function RightPanelContent() {
     (open: boolean) => {
       setIsCreateOverlayOpen(open);
       setCreateOverlayProjectId(open ? (effectiveProjectId ?? null) : null);
+      setCreateOverlayWorkspaceId(open ? currentOverlayWorkspaceId : null);
 
       if (open) {
         sessionControlsPresetRef.current = null;
@@ -526,6 +539,7 @@ export function RightPanelContent() {
     },
     [
       createSessionMutation,
+      currentOverlayWorkspaceId,
       defaultExecutorProfile,
       defaultWorkspaceValue,
       effectiveProjectId,
@@ -540,6 +554,8 @@ export function RightPanelContent() {
         open: true,
         openedForProjectId: createOverlayProjectId,
         currentProjectId: effectiveProjectId,
+        openedForWorkspaceId: createOverlayWorkspaceId,
+        currentWorkspaceId: currentOverlayWorkspaceId,
       })
     ) {
       return;
@@ -548,6 +564,8 @@ export function RightPanelContent() {
     handleCreateOverlayOpenChange(false);
   }, [
     createOverlayProjectId,
+    createOverlayWorkspaceId,
+    currentOverlayWorkspaceId,
     effectiveProjectId,
     handleCreateOverlayOpenChange,
     isCreateOverlayOpen,
@@ -556,19 +574,6 @@ export function RightPanelContent() {
   const openCreateSessionOverlay = useCallback(() => {
     handleCreateOverlayOpenChange(true);
   }, [handleCreateOverlayOpenChange]);
-
-  useEffect(() => {
-    if (!showEmptyCreateForm || isCreateOverlayOpen || !effectiveProjectId) {
-      return;
-    }
-
-    openCreateSessionOverlay();
-  }, [
-    effectiveProjectId,
-    isCreateOverlayOpen,
-    openCreateSessionOverlay,
-    showEmptyCreateForm,
-  ]);
 
   useEffect(() => {
     if (searchParams.get('newSession') !== '1') {

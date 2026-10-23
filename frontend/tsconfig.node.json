@@ -9,7 +9,6 @@
   "include": [
     "vite.config.ts",
     "vite.astryx-richtext-core-alias.ts",
-    "vite.manualChunks.ts",
     "vitest.config.ts"
   ]
 }

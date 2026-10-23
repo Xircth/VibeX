@@ -181,6 +181,26 @@ export function WorkspaceSessionList({
     });
   };
 
+  const prevActiveWorkspaceIdRef = useRef<string | null>(activeWorkspaceId);
+
+  useEffect(() => {
+    const previousWorkspaceId = prevActiveWorkspaceIdRef.current;
+    prevActiveWorkspaceIdRef.current = activeWorkspaceId;
+    if (!activeWorkspaceId || activeWorkspaceId === previousWorkspaceId) {
+      return;
+    }
+
+    setCollapsedIds((current) => {
+      if (!current.has(activeWorkspaceId)) {
+        return current;
+      }
+      const next = new Set(current);
+      next.delete(activeWorkspaceId);
+      writeCollapsedWorkspaceIds(next);
+      return next;
+    });
+  }, [activeWorkspaceId]);
+
   useEffect(() => {
     if (!activeSessionId) return;
     const matchingIds = [

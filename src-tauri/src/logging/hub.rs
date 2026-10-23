@@ -11,10 +11,7 @@ use std::{
 use serde::Serialize;
 use tauri::AppHandle;
 
-use crate::logging::{
-    LOG_APPENDED_EVENT, LogSettings,
-    init::{ReloadHandle, build_env_filter},
-};
+use crate::logging::LOG_APPENDED_EVENT;
 
 pub const LOG_BUFFER_MAX_COUNT: usize = 5_000;
 pub const LOG_BUFFER_MAX_BYTES: usize = 4 * 1024 * 1024;
@@ -66,6 +63,7 @@ impl RingBuffer {
         }
     }
 
+    #[cfg(test)]
     fn snapshot(&self) -> Vec<LogRecord> {
         self.records.iter().map(|(_, r)| r.clone()).collect()
     }
@@ -81,7 +79,6 @@ pub struct LogHub {
     seq: AtomicU64,
     buffer: Mutex<RingBuffer>,
     emitter: RwLock<Option<AppHandle>>,
-    reload: ReloadHandle,
 }
 
 static LOG_HUB: OnceLock<Arc<LogHub>> = OnceLock::new();
@@ -97,12 +94,11 @@ pub fn attach_emitter(app: AppHandle) {
 }
 
 impl LogHub {
-    pub(crate) fn install(reload: ReloadHandle) {
+    pub(crate) fn install() {
         let _ = LOG_HUB.set(Arc::new(Self {
             seq: AtomicU64::new(0),
             buffer: Mutex::new(RingBuffer::new()),
             emitter: RwLock::new(None),
-            reload,
         }));
     }
 
@@ -116,19 +112,6 @@ impl LogHub {
             .unwrap_or_else(|e| e.into_inner())
             .push(rec.clone());
         emit_appended(&rec);
-    }
-
-    pub fn snapshot(&self) -> Vec<LogRecord> {
-        self.buffer
-            .lock()
-            .unwrap_or_else(|e| e.into_inner())
-            .snapshot()
-    }
-
-    pub fn apply_settings(&self, settings: &LogSettings) {
-        let _ = self.reload.modify(|filter| {
-            *filter = build_env_filter(settings);
-        });
     }
 }
 

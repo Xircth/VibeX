@@ -1,7 +1,4 @@
-import type {
-  VibeXPluginContext,
-  VibexPluginModule,
-} from '@vibex/plugin-sdk';
+import type { VibeXPluginContext, VibexPluginModule } from '@vibex/plugin-sdk';
 import {
   pluginRuntimeLoader,
   unloadPluginRuntime,
@@ -10,9 +7,7 @@ import {
 import { ensureCoreFoundationPluginsBootstrapped } from './coreFoundationPlugins';
 import { ensureHostProviderServicesRegistered } from './providers/hostProviderServices';
 
-type RawPluginModuleExport =
-  | VibexPluginModule
-  | { default: VibexPluginModule };
+type RawPluginModuleExport = VibexPluginModule | { default: VibexPluginModule };
 
 export type MonorepoPluginModuleLoader = () => Promise<RawPluginModuleExport>;
 

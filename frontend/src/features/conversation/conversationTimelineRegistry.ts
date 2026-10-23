@@ -36,11 +36,83 @@ const EMPTY_SESSION_MODES: ConversationSessionModesState = {
 };
 const EMPTY_CONFIG_OPTIONS: AgentSessionConfigOption[] = [];
 
+export const STREAM_FLUSH_FRAME_MS = 16;
+export const STREAM_FLUSH_MAX_MS = 192;
+export const STREAM_FLUSH_CHARS_PER_FRAME = 8 * 1024;
+export const STREAM_FLUSH_BLOCK_CHARS = 128;
+const STREAM_QUEUE_CAP = 256;
+
+export function streamFlushDelayMs(liveRunChars: number): number {
+  const frames = Math.max(
+    1,
+    Math.ceil(liveRunChars / STREAM_FLUSH_CHARS_PER_FRAME)
+  );
+  return Math.min(STREAM_FLUSH_MAX_MS, STREAM_FLUSH_FRAME_MS * frames);
+}
+
+export function isPureAppendBatch(batch: ConversationRowOpBatch): boolean {
+  if (batch.ops.length === 0) return false;
+  if (
+    batch.session_modes != null ||
+    batch.session_config_options != null ||
+    batch.available_commands != null
+  ) {
+    return false;
+  }
+  return batch.ops.every((op) => op.op === 'append_text');
+}
+
+export function liveConversationChars(
+  entry: ConversationStoreState['byConversationId'][string] | undefined,
+  pendingBatches: readonly ConversationRowOpBatch[] = []
+): number {
+  let chars = 0;
+  if (entry) {
+    for (const overlay of Object.values(entry.liveText)) {
+      chars += overlay.text.length + overlay.reasoning.length;
+    }
+    const liveRows = entry.liveRows;
+    for (let r = liveRows.length - 1; r >= 0; r -= 1) {
+      const row = liveRows[r];
+      if (
+        row &&
+        row.row.kind === 'message_turn' &&
+        row.row.turn.role === 'assistant' &&
+        row.row.phase === 'streaming'
+      ) {
+        const blocks = row.row.turn.blocks;
+        const lastIdx = blocks.length - 1;
+        for (let i = 0; i < blocks.length; i += 1) {
+          const block = blocks[i];
+          if (!block) continue;
+          if (block.type === 'text' || block.type === 'thinking') {
+            if (i === lastIdx && !entry.liveText[row.row_id]) {
+              chars += block.text.length;
+            }
+          } else {
+            chars += STREAM_FLUSH_BLOCK_CHARS;
+          }
+        }
+        break;
+      }
+    }
+  }
+  for (const batch of pendingBatches) {
+    for (const op of batch.ops) {
+      if (op.op === 'append_text') {
+        chars += op.delta.length;
+      }
+    }
+  }
+  return chars;
+}
+
 type Controller = {
   stopped: boolean;
   loadEpoch: number;
   pendingBatches: ConversationRowOpBatch[];
   flushFrame: number | null;
+  flushTimer: number | null;
   bindTimer: number | null;
   cancelBindIdle: (() => void) | null;
   loadingOlder: boolean;
@@ -213,9 +285,8 @@ export function getConversationPersona(
   if (!conversationId) return null;
   const detail = state.byConversationId[conversationId]?.detail;
   if (!detail) return null;
-  const persona = (
-    detail as { persona?: StoredConversationPersona | null }
-  ).persona;
+  const persona = (detail as { persona?: StoredConversationPersona | null })
+    .persona;
   if (!persona || typeof persona.name !== 'string' || !persona.name.trim()) {
     return null;
   }
@@ -255,6 +326,27 @@ function buildSessionFacts(
   };
 }
 
+function areSessionFactsEqual(
+  a: ConversationSessionFacts,
+  b: ConversationSessionFacts
+): boolean {
+  return (
+    a.sessionId === b.sessionId &&
+    a.hasDetail === b.hasDetail &&
+    a.error === b.error &&
+    a.title === b.title &&
+    a.status === b.status &&
+    a.agentId === b.agentId &&
+    a.model === b.model &&
+    a.acpSessionId === b.acpSessionId &&
+    a.externalSessionId === b.externalSessionId &&
+    a.turnInFlight === b.turnInFlight &&
+    a.sessionStats === b.sessionStats &&
+    a.truncated === b.truncated &&
+    a.loading === b.loading
+  );
+}
+
 /** Stable snapshot for the session-details panel. Does not retain or refresh. */
 export function getConversationSessionFacts(
   conversationId: string | null
@@ -264,6 +356,10 @@ export function getConversationSessionFacts(
   const cached = factsCache.get(conversationId);
   if (cached && cached.entry === entry) return cached.facts;
   const facts = buildSessionFacts(conversationId, entry);
+  if (cached && areSessionFactsEqual(cached.facts, facts)) {
+    cached.entry = entry;
+    return cached.facts;
+  }
   factsCache.set(conversationId, { entry, facts });
   return facts;
 }
@@ -331,6 +427,7 @@ function startController(conversationId: string, slot: Slot): void {
     loadEpoch: 0,
     pendingBatches: [],
     flushFrame: null,
+    flushTimer: null,
     bindTimer: null,
     cancelBindIdle: null,
     loadingOlder: false,
@@ -378,6 +475,17 @@ function startController(conversationId: string, slot: Slot): void {
   void loadDetail(conversationId, controller);
 }
 
+function cancelScheduledFlush(controller: Controller): void {
+  if (controller.flushFrame != null) {
+    cancelAnimationFrame(controller.flushFrame);
+    controller.flushFrame = null;
+  }
+  if (controller.flushTimer != null) {
+    window.clearTimeout(controller.flushTimer);
+    controller.flushTimer = null;
+  }
+}
+
 function stopController(slot: Slot): void {
   const controller = slot.controller;
   slot.keepalive?.();
@@ -386,10 +494,7 @@ function stopController(slot: Slot): void {
   if (!controller) return;
   controller.stopped = true;
   controller.loadEpoch += 1;
-  if (controller.flushFrame != null) {
-    cancelAnimationFrame(controller.flushFrame);
-    controller.flushFrame = null;
-  }
+  cancelScheduledFlush(controller);
   controller.pendingBatches = [];
   if (controller.bindTimer != null) {
     window.clearTimeout(controller.bindTimer);
@@ -486,35 +591,77 @@ function hasTerminalTurnOp(batch: ConversationRowOpBatch): boolean {
   );
 }
 
+function flushPendingBatches(
+  conversationId: string,
+  controller: Controller
+): void {
+  cancelScheduledFlush(controller);
+  if (controller.stopped) return;
+  const batches = controller.pendingBatches;
+  if (batches.length === 0) return;
+  controller.pendingBatches = [];
+  let shouldReloadWindow = false;
+  for (const pending of batches) {
+    if (hasTerminalTurnOp(pending)) {
+      shouldReloadWindow = true;
+    }
+    state = conversationStoreReducer(state, {
+      type: 'row_ops',
+      batch: pending,
+    });
+    watchGap(conversationId, controller);
+  }
+  notify();
+  if (shouldReloadWindow && !controller.stopped) {
+    void loadDetail(conversationId, controller);
+  }
+}
+
 function ensureLive(conversationId: string, controller: Controller): void {
   if (controller.liveStarted || controller.stopped) return;
   controller.liveStarted = true;
   void listenToConversationEvents((batch) => {
     if (controller.stopped || batch.conversation_id !== conversationId) return;
     controller.pendingBatches.push(batch);
-    if (controller.flushFrame != null) return;
-    controller.flushFrame = requestAnimationFrame(() => {
-      controller.flushFrame = null;
-      if (controller.stopped) return;
-      const batches = controller.pendingBatches;
-      if (batches.length === 0) return;
-      controller.pendingBatches = [];
-      let shouldReloadWindow = false;
-      for (const pending of batches) {
-        if (hasTerminalTurnOp(pending)) {
-          shouldReloadWindow = true;
-        }
-        state = conversationStoreReducer(state, {
-          type: 'row_ops',
-          batch: pending,
+    const allPureAppend = controller.pendingBatches.every(isPureAppendBatch);
+    if (!allPureAppend || hasTerminalTurnOp(batch)) {
+      if (controller.flushTimer != null) {
+        flushPendingBatches(conversationId, controller);
+        return;
+      }
+      if (controller.flushFrame == null) {
+        controller.flushFrame = requestAnimationFrame(() => {
+          flushPendingBatches(conversationId, controller);
         });
-        watchGap(conversationId, controller);
       }
-      notify();
-      if (shouldReloadWindow && !controller.stopped) {
-        void loadDetail(conversationId, controller);
+      return;
+    }
+    if (controller.pendingBatches.length >= STREAM_QUEUE_CAP) {
+      flushPendingBatches(conversationId, controller);
+      return;
+    }
+    const liveChars = liveConversationChars(
+      state.byConversationId[conversationId],
+      controller.pendingBatches
+    );
+    if (liveChars > STREAM_FLUSH_CHARS_PER_FRAME) {
+      if (controller.flushFrame != null) {
+        cancelAnimationFrame(controller.flushFrame);
+        controller.flushFrame = null;
       }
-    });
+      if (controller.flushTimer == null) {
+        const delay = streamFlushDelayMs(liveChars);
+        controller.flushTimer = window.setTimeout(() => {
+          flushPendingBatches(conversationId, controller);
+        }, delay);
+      }
+      return;
+    }
+    if (controller.flushFrame == null && controller.flushTimer == null) {
+      controller.flushFrame = requestAnimationFrame(() => {
+        flushPendingBatches(conversationId, controller);
+      });
+    }
   }, conversationId)
     .then((unsubscribe) => {
       if (controller.stopped) {

@@ -385,8 +385,7 @@ pub fn is_retired_plugin_id(id: &str) -> bool {
 }
 
 pub fn listing_is_retired(listing: &CatalogListing) -> bool {
-    is_retired_plugin_id(listing_package_id(listing))
-        || is_retired_plugin_id(&listing.plugin_name)
+    is_retired_plugin_id(listing_package_id(listing)) || is_retired_plugin_id(&listing.plugin_name)
 }
 
 pub fn canonical_listing_id(listing: &CatalogListing) -> String {
@@ -702,7 +701,10 @@ pub fn origin_kind(origin: Option<&str>) -> Option<&'static str> {
     } else if origin.contains("marketplace")
         || matches_origin_host(origin, &marketplace_origin())
         || matches_origin_host(origin, &utils::site_origin())
-        || matches_origin_host(origin, crate::official_catalog::official_marketplace_origin())
+        || matches_origin_host(
+            origin,
+            crate::official_catalog::official_marketplace_origin(),
+        )
     {
         Some("marketplace")
     } else {

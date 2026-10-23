@@ -322,20 +322,18 @@ export function createPluginContext(options) {
     };
     let hookCounter = 0;
     const hooks = {
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
         beforeTurn(fn, order = 0) {
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
             const wrapped = async (turn, next) => {
                 let nextCalled = false;
                 let currentTurn = turn;
                 const callNext = async (nextPayload) => {
                     nextCalled = true;
-                    currentTurn = await next(nextPayload ?? turn);
+                    currentTurn = (await next(nextPayload ?? turn));
                     return currentTurn;
                 };
                 const result = await fn(turn, callNext);
                 if (!nextCalled) {
-                    currentTurn = await next(turn);
+                    currentTurn = (await next(turn));
                 }
                 if (typeof result === 'string' &&
                     result.trim() &&
@@ -403,9 +401,7 @@ export function createPluginContext(options) {
             };
             return track(serviceContainer.intercept('conversation.beforeTurn', wrapped, order, pluginId));
         },
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
         afterTurn(fn, order = 0) {
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
             const wrapped = async (event, next) => {
                 let nextCalled = false;
                 let out = event;
@@ -422,9 +418,7 @@ export function createPluginContext(options) {
             };
             return track(serviceContainer.intercept('conversation.afterTurn', wrapped, order, pluginId));
         },
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
         onRuntimeEvent(fn, order = 0) {
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
             const wrapped = async (event, next) => {
                 let nextCalled = false;
                 let out = event;
@@ -467,16 +461,12 @@ export function createPluginContext(options) {
             return track(serviceContainer.intercept(hookName, fn, order, pluginId));
         },
     };
-    function injectImpl(keyOrDeps, 
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    effect) {
+    function injectImpl(keyOrDeps, effect) {
         if (Array.isArray(keyOrDeps)) {
             if (typeof effect !== 'function') {
                 throw new Error('ctx.services.inject(deps, effect) requires an effect callback');
             }
-            const wrappedEffect = (
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            resolved) => {
+            const wrappedEffect = (resolved) => {
                 const subScope = new EffectScope();
                 scopeStack.push(subScope);
                 try {
@@ -532,6 +522,7 @@ export function createPluginContext(options) {
         pluginId,
         generation,
         scope,
+        effects: scope,
         ui,
         hooks,
         services,

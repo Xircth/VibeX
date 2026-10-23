@@ -29,7 +29,9 @@ export function AstryxStepper({
 
   return (
     <ol
-      aria-label={ariaLabel ?? t('agentStatus.acpStepsAria', { ns: 'statusbar' })}
+      aria-label={
+        ariaLabel ?? t('agentStatus.acpStepsAria', { ns: 'statusbar' })
+      }
       className="astryx-stepper"
     >
       {labels.map((label, index) => {

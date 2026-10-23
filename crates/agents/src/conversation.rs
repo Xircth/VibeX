@@ -1546,17 +1546,55 @@ pub struct ConversationBundlePayload {
 pub const MAX_TIMELINE_PREVIEW_BYTES: usize = 16 * 1024;
 const MAX_TIMELINE_PREVIEW_IMAGES: usize = 4;
 
+/// Return a substring of `s` whose byte length is `<= max_bytes`, aligned to
+/// a UTF-8 character boundary and taken from the TAIL of `s` (so the most
+/// recent output is preserved when truncation is required).
+pub fn truncate_tail_at_char_boundary(s: &str, max_bytes: usize) -> &str {
+    if s.len() <= max_bytes {
+        return s;
+    }
+    let mut start = s.len().saturating_sub(max_bytes);
+    while start < s.len() && !s.is_char_boundary(start) {
+        start += 1;
+    }
+    &s[start..]
+}
+
+/// If the very end of `s` contains a partial ANSI escape sequence, trim it
+/// so downstream ANSI parsers do not render a half-emitted escape sequence.
+pub fn trim_partial_ansi_tail(s: &str) -> &str {
+    let bytes = s.as_bytes();
+    let Some(esc_pos) = bytes.iter().rposition(|&b| b == 0x1B) else {
+        return s;
+    };
+    let after = &bytes[esc_pos + 1..];
+    if after.is_empty() {
+        return &s[..esc_pos];
+    }
+    let terminated = match after[0] {
+        b'[' => after[1..].iter().any(|&b| (0x40..=0x7E).contains(&b)),
+        b']' => {
+            after[1..].contains(&0x07)
+                || after[1..].windows(2).any(|w| w[0] == 0x1B && w[1] == b'\\')
+        }
+        _ => true,
+    };
+    if terminated { s } else { &s[..esc_pos] }
+}
+
 pub fn cap_preview_bytes(value: String) -> String {
     if value.len() <= MAX_TIMELINE_PREVIEW_BYTES {
-        return value;
+        let trimmed = trim_partial_ansi_tail(&value);
+        if trimmed.len() == value.len() {
+            return value;
+        }
+        return trimmed.to_string();
     }
-    let mut end = MAX_TIMELINE_PREVIEW_BYTES;
-    while end > 0 && !value.is_char_boundary(end) {
-        end -= 1;
-    }
-    let mut truncated = value[..end].to_string();
-    truncated.push('…');
-    truncated
+    let tail = trim_partial_ansi_tail(truncate_tail_at_char_boundary(
+        &value,
+        MAX_TIMELINE_PREVIEW_BYTES,
+    ));
+    format!("…\n{tail}")
 }
 
 pub fn cap_json_value(value: serde_json::Value) -> serde_json::Value {
@@ -1741,8 +1779,7 @@ fn parse_payload_json_or_string(raw: &str) -> serde_json::Value {
     if trimmed.is_empty() {
         return serde_json::Value::String(String::new());
     }
-    serde_json::from_str(trimmed)
-        .unwrap_or_else(|_| serde_json::Value::String(trimmed.to_string()))
+    serde_json::from_str(trimmed).unwrap_or_else(|_| serde_json::Value::String(trimmed.to_string()))
 }
 
 fn extract_xml_attr(tag_header: &str, attr_name: &str) -> Option<String> {
@@ -1761,7 +1798,10 @@ fn extract_xml_attr(tag_header: &str, attr_name: &str) -> Option<String> {
 fn trailing_partial_marker_start(tail: &str) -> Option<usize> {
     let prefixes = [COMMENT_OPEN, COMMENT_SPACED_OPEN, FENCE_OPEN, META_OPEN];
     let max_len = prefixes.iter().map(|p| p.len()).max().unwrap_or(0);
-    let search_start = tail.len().saturating_sub(max_len);
+    let mut search_start = tail.len().saturating_sub(max_len);
+    while search_start < tail.len() && !tail.is_char_boundary(search_start) {
+        search_start += 1;
+    }
     for (offset, _) in tail[search_start..].char_indices() {
         let idx = search_start + offset;
         let suffix = &tail[idx..];
@@ -1805,15 +1845,10 @@ pub fn extract_and_strip_internal_messages(
             rest.find(META_OPEN).map(|pos| (pos, META_OPEN)),
         ];
 
-        let earliest = candidates
-            .into_iter()
-            .flatten()
-            .min_by_key(|(pos, _)| *pos);
+        let earliest = candidates.into_iter().flatten().min_by_key(|(pos, _)| *pos);
 
         let Some((rel_pos, marker)) = earliest else {
-            if is_streaming
-                && let Some(partial_rel) = trailing_partial_marker_start(rest)
-            {
+            if is_streaming && let Some(partial_rel) = trailing_partial_marker_start(rest) {
                 visible_text.push_str(&rest[..partial_rel]);
                 has_pending_tail = true;
             } else {
@@ -1949,7 +1984,30 @@ mod event_sourced_tests {
             panic!("oversized JSON must collapse to a truncated string preview");
         };
         assert!(text.len() <= MAX_TIMELINE_PREVIEW_BYTES + 4);
-        assert!(text.ends_with('…'));
+        assert!(text.starts_with("…\n"));
+    }
+
+    #[test]
+    fn cap_preview_bytes_preserves_multibyte_tail_error_summary_and_strips_partial_ansi() {
+        let head_padding = "编译输出日志行：正在构建模块……\n".repeat(600);
+        assert!(head_padding.len() > MAX_TIMELINE_PREVIEW_BYTES);
+        let error_tail = "\u{1b}[31merror[E0308]: 类型不匹配，最终编译失败摘要\u{1b}[0m\n";
+        let trailing_broken_ansi = "\u{1b}[38;5;196";
+        let input = format!("{head_padding}{error_tail}{trailing_broken_ansi}");
+
+        let capped = cap_preview_bytes(input);
+        assert!(capped.starts_with("…\n"));
+        assert!(capped.len() <= MAX_TIMELINE_PREVIEW_BYTES + 4);
+        assert!(
+            capped.contains("error[E0308]: 类型不匹配，最终编译失败摘要"),
+            "tail error summary must be preserved: {capped:?}"
+        );
+        assert!(
+            !capped.ends_with("\u{1b}[38;5;196"),
+            "partial trailing ANSI CSI must be stripped: {capped:?}"
+        );
+        assert!(capped.ends_with("\u{1b}[0m\n"));
+        assert!(!capped.contains('\u{fffd}'));
     }
 
     #[test]
@@ -2274,5 +2332,54 @@ mod event_sourced_tests {
             final_res.captured[2].parsed_payload,
             serde_json::json!({"ok": true})
         );
+    }
+
+    #[test]
+    fn extracts_and_strips_internal_messages_handles_multibyte_utf8_streaming_chunks() {
+        let conv_id = Uuid::new_v4();
+        let turn_id = Uuid::new_v4();
+
+        // Exact crash reproduction: 27-byte string where `27 - 22 = 5` falls inside '个' (bytes 3..6).
+        let exact_crash_chunk = "这个报错是模型 ID ";
+        let crash_res = extract_and_strip_internal_messages(
+            exact_crash_chunk,
+            Some(conv_id),
+            Some(turn_id),
+            true,
+        );
+        assert_eq!(crash_res.visible_text, exact_crash_chunk);
+        assert!(!crash_res.has_pending_tail);
+        assert!(crash_res.captured.is_empty());
+
+        // Stream across every valid UTF-8 boundary of a multi-byte string containing internal markers.
+        let full = "这个报错是模型 ID 配置有误导致的。<!--vibex-internal:token-guard:summary:n1 {\"状态\":\"正常\"}-->请检查配置：\n```vibex-internal:audit:report\n{\"得分\":100}\n```\n<vibex-internal-meta channel=\"telemetry\" nonce=\"n2\">{\"完成\":true}</vibex-internal-meta>修复完成！";
+        let mut prev_visible = String::new();
+        for split in 1..=full.len() {
+            if !full.is_char_boundary(split) {
+                continue;
+            }
+            let partial = &full[..split];
+            let res =
+                extract_and_strip_internal_messages(partial, Some(conv_id), Some(turn_id), true);
+            assert!(
+                res.visible_text.starts_with(&prev_visible),
+                "visible_text must be monotonically append-only during UTF-8 streaming: prev={prev_visible:?}, next={:?} at split={split}",
+                res.visible_text
+            );
+            assert!(
+                !res.visible_text.contains("vibex-internal"),
+                "internal marker leaked into visible_text: {:?}",
+                res.visible_text
+            );
+            prev_visible = res.visible_text;
+        }
+
+        let final_res =
+            extract_and_strip_internal_messages(full, Some(conv_id), Some(turn_id), false);
+        assert_eq!(
+            final_res.visible_text,
+            "这个报错是模型 ID 配置有误导致的。请检查配置：\n\n修复完成！"
+        );
+        assert_eq!(final_res.captured.len(), 3);
     }
 }

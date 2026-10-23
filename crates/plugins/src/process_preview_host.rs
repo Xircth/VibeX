@@ -37,6 +37,7 @@ struct PreviewLease {
     capability_token: String,
     idle_timeout: Duration,
     expires_at: Instant,
+    expiry_abort: Option<tokio::task::AbortHandle>,
 }
 
 #[derive(Default)]
@@ -137,8 +138,12 @@ impl PluginPreviewHost for ExternalProcessPreviewHost {
                 watch.references = watch.references.saturating_add(1);
                 let port = watch.port;
                 let session = register_lease(&mut state, watch_key, port, idle_timeout);
-                drop(state);
-                schedule_expiry(self.state.clone(), session.lease_id.clone(), idle_timeout);
+                schedule_expiry(
+                    &mut state,
+                    self.state.clone(),
+                    session.lease_id.clone(),
+                    idle_timeout,
+                );
                 return Ok(session);
             }
             state.watches.remove(&watch_key);
@@ -202,8 +207,12 @@ impl PluginPreviewHost for ExternalProcessPreviewHost {
             },
         );
         let session = register_lease(&mut state, watch_key, port, idle_timeout);
-        drop(state);
-        schedule_expiry(self.state.clone(), session.lease_id.clone(), idle_timeout);
+        schedule_expiry(
+            &mut state,
+            self.state.clone(),
+            session.lease_id.clone(),
+            idle_timeout,
+        );
         Ok(session)
     }
 
@@ -226,6 +235,9 @@ impl PluginPreviewHost for ExternalProcessPreviewHost {
         let Some(lease) = state.leases.remove(&lease_id) else {
             return Ok(());
         };
+        if let Some(abort) = lease.expiry_abort {
+            abort.abort();
+        }
         let mut remove_watch = false;
         if let Some(watch) = state.watches.get_mut(&lease.watch) {
             watch.references = watch.references.saturating_sub(1);
@@ -249,8 +261,12 @@ impl PluginPreviewHost for ExternalProcessPreviewHost {
             .get(lease_id)
             .map(|lease| lease.idle_timeout)
             .unwrap_or(PREVIEW_LEASE_TTL);
-        drop(state);
-        schedule_expiry(self.state.clone(), lease_id.to_owned(), idle_timeout);
+        schedule_expiry(
+            &mut state,
+            self.state.clone(),
+            lease_id.to_owned(),
+            idle_timeout,
+        );
         Ok(session)
     }
 }
@@ -297,6 +313,7 @@ fn register_lease(
             capability_token: capability_token.clone(),
             idle_timeout,
             expires_at: Instant::now() + idle_timeout,
+            expiry_abort: None,
         },
     );
     PluginPreviewSession {
@@ -340,11 +357,17 @@ fn take_expired_lease(
     }
 }
 
-fn schedule_expiry(state: Arc<Mutex<PreviewState>>, lease_id: String, idle_timeout: Duration) {
-    tokio::spawn(async move {
+fn schedule_expiry(
+    state: &mut PreviewState,
+    state_arc: Arc<Mutex<PreviewState>>,
+    lease_id: String,
+    idle_timeout: Duration,
+) {
+    let lease_id_for_task = lease_id.clone();
+    let handle = tokio::spawn(async move {
         tokio::time::sleep(idle_timeout).await;
-        let mut state = state.lock().await;
-        let Some(lease) = take_expired_lease(&mut state, &lease_id, Instant::now()) else {
+        let mut state = state_arc.lock().await;
+        let Some(lease) = take_expired_lease(&mut state, &lease_id_for_task, Instant::now()) else {
             return;
         };
         let mut remove_watch = false;
@@ -357,6 +380,11 @@ fn schedule_expiry(state: Arc<Mutex<PreviewState>>, lease_id: String, idle_timeo
             let _ = watch.child.wait().await;
         }
     });
+    if let Some(lease) = state.leases.get_mut(&lease_id)
+        && let Some(prev) = lease.expiry_abort.replace(handle.abort_handle())
+    {
+        prev.abort();
+    }
 }
 
 async fn canonical_artifact(file_path: &str) -> Result<PathBuf, PluginPreviewHostError> {
@@ -579,16 +607,17 @@ mod tests {
         let idle = Duration::from_millis(80);
         let session = {
             let mut locked = state.lock().await;
-            register_lease(&mut locked, test_watch(), 43100, idle)
+            let session = register_lease(&mut locked, test_watch(), 43100, idle);
+            schedule_expiry(&mut locked, state.clone(), session.lease_id.clone(), idle);
+            session
         };
-        schedule_expiry(state.clone(), session.lease_id.clone(), idle);
 
         tokio::time::sleep(Duration::from_millis(40)).await;
         {
             let mut locked = state.lock().await;
             renew_lease(&mut locked, &session.lease_id).expect("renew");
+            schedule_expiry(&mut locked, state.clone(), session.lease_id.clone(), idle);
         }
-        schedule_expiry(state.clone(), session.lease_id.clone(), idle);
 
         tokio::time::sleep(Duration::from_millis(60)).await;
         assert!(
@@ -609,9 +638,10 @@ mod tests {
         let idle = Duration::from_millis(60);
         let session = {
             let mut locked = state.lock().await;
-            register_lease(&mut locked, test_watch(), 43100, idle)
+            let session = register_lease(&mut locked, test_watch(), 43100, idle);
+            schedule_expiry(&mut locked, state.clone(), session.lease_id.clone(), idle);
+            session
         };
-        schedule_expiry(state.clone(), session.lease_id.clone(), idle);
         tokio::time::sleep(Duration::from_millis(80)).await;
         assert!(!state.lock().await.leases.contains_key(&session.lease_id));
     }

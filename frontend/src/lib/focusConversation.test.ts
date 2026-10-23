@@ -38,9 +38,7 @@ describe('focusEventMatchesWindow', () => {
 
   it('accepts only the window named on the event', () => {
     expect(focusEventMatchesWindow(payload, 'main')).toBe(true);
-    expect(focusEventMatchesWindow({ windowLabel: 'main' }, 'main')).toBe(
-      true
-    );
+    expect(focusEventMatchesWindow({ windowLabel: 'main' }, 'main')).toBe(true);
     expect(focusEventMatchesWindow(payload, 'settings')).toBe(false);
     expect(focusEventMatchesWindow({ project_id: 'project-1' }, 'main')).toBe(
       false

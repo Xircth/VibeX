@@ -7,7 +7,11 @@ function renderRunningControls(
   props: Partial<Parameters<typeof ActionBarRunningControls>[0]> = {}
 ) {
   return render(
-    <ActionBarRunningControls isStopping={false} onStopExecution={vi.fn()} {...props} />
+    <ActionBarRunningControls
+      isStopping={false}
+      onStopExecution={vi.fn()}
+      {...props}
+    />
   );
 }
 
@@ -23,7 +27,9 @@ describe('ActionBarRunningControls', () => {
     renderRunningControls();
 
     expect(screen.queryByRole('button', { name: '插入当前回合' })).toBeNull();
-    expect(screen.queryByRole('button', { name: '发给 Agent 查阅' })).toBeNull();
+    expect(
+      screen.queryByRole('button', { name: '发给 Agent 查阅' })
+    ).toBeNull();
     expect(screen.queryByRole('button', { name: '纠偏' })).toBeNull();
     expect(screen.getByRole('button', { name: '停止' })).toBeInTheDocument();
   });

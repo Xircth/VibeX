@@ -99,7 +99,9 @@ export function getQueueIndicatorState(
   delayedMessages: QueuedMessage[];
 } {
   const excludeOperationId = options.excludeOperationId ?? null;
-  const allMessages = (status?.status === 'queued' ? status.messages : []).filter(
+  const allMessages = (
+    status?.status === 'queued' ? status.messages : []
+  ).filter(
     (message) =>
       excludeOperationId == null || message.operationId !== excludeOperationId
   );

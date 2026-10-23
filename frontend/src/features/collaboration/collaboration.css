@@ -26,7 +26,10 @@
 
 .collaboration-shell[data-spaces='true'][data-thread='true'][data-preview='false'],
 .collaboration-shell[data-spaces='true'][data-thread='false'][data-preview='true'] {
-  grid-template-columns: var(--collaboration-spaces-width, 18.5rem) minmax(0, 1fr);
+  grid-template-columns: var(--collaboration-spaces-width, 18.5rem) minmax(
+      0,
+      1fr
+    );
 }
 
 .collaboration-shell[data-spaces='true'][data-thread='false'][data-preview='false'],
@@ -72,7 +75,8 @@
   left: auto;
 }
 
-.collaboration-shell[data-thread='false'][data-preview='false'] .collaboration-pane {
+.collaboration-shell[data-thread='false'][data-preview='false']
+  .collaboration-pane {
   border-right: 0;
 }
 
@@ -87,7 +91,8 @@
   display: none !important;
 }
 
-.collaboration-shell[data-thread='false'][data-preview='true'] .collaboration-preview {
+.collaboration-shell[data-thread='false'][data-preview='true']
+  .collaboration-preview {
   border-left: 0;
 }
 
@@ -313,7 +318,9 @@
     );
   background-origin: border-box;
   background-clip: padding-box, border-box;
-  background-size: 100% 100%, 240% 240%;
+  background-size:
+    100% 100%,
+    240% 240%;
   box-shadow:
     0 0 0 1px rgba(59, 130, 246, 0.22),
     0 0 8px rgba(59, 130, 246, 0.32);
@@ -337,19 +344,25 @@
 
 @keyframes collaboration-member-flowing-blue-glow {
   0% {
-    background-position: 0 0, 0% 50%;
+    background-position:
+      0 0,
+      0% 50%;
     box-shadow:
       0 0 0 1px rgba(59, 130, 246, 0.18),
       0 0 6px rgba(59, 130, 246, 0.24);
   }
   50% {
-    background-position: 0 0, 100% 50%;
+    background-position:
+      0 0,
+      100% 50%;
     box-shadow:
       0 0 0 1px rgba(96, 165, 250, 0.38),
       0 0 10px rgba(59, 130, 246, 0.42);
   }
   100% {
-    background-position: 0 0, 200% 50%;
+    background-position:
+      0 0,
+      200% 50%;
     box-shadow:
       0 0 0 1px rgba(59, 130, 246, 0.18),
       0 0 6px rgba(59, 130, 246, 0.24);
@@ -496,7 +509,8 @@
     border-color 140ms ease;
 }
 
-.collaboration-top-member-collapsed-bar .collaboration-top-member-expand-trigger {
+.collaboration-top-member-collapsed-bar
+  .collaboration-top-member-expand-trigger {
   position: static;
   top: auto;
   left: auto;
@@ -790,7 +804,8 @@
   box-shadow: 0 0 0 1.5px hsl(var(--background));
 }
 
-.collaboration-space-collapsed-stack-item + .collaboration-space-collapsed-stack-item {
+.collaboration-space-collapsed-stack-item
+  + .collaboration-space-collapsed-stack-item {
   margin-left: -0.3125rem;
 }
 
@@ -876,7 +891,8 @@
 }
 
 .collaboration-member-row:hover .collaboration-member-meta--hide-on-hover,
-.collaboration-member-row:focus-within .collaboration-member-meta--hide-on-hover {
+.collaboration-member-row:focus-within
+  .collaboration-member-meta--hide-on-hover {
   display: none;
 }
 
@@ -959,9 +975,13 @@
 .dark .collaboration-shell .collaboration-edit-name-btn:hover,
 .dark .collaboration-shell .collaboration-edit-name-btn:focus-visible,
 .dark .collaboration-member-hover-actions .collaboration-edit-name-btn:hover,
-.dark .collaboration-member-hover-actions .collaboration-edit-name-btn:focus-visible,
+.dark
+  .collaboration-member-hover-actions
+  .collaboration-edit-name-btn:focus-visible,
 .dark .collaboration-space-hover-actions .collaboration-edit-name-btn:hover,
-.dark .collaboration-space-hover-actions .collaboration-edit-name-btn:focus-visible {
+.dark
+  .collaboration-space-hover-actions
+  .collaboration-edit-name-btn:focus-visible {
   background: rgba(255, 255, 255, 0.12) !important;
 }
 
@@ -987,7 +1007,9 @@
 }
 
 .collaboration-shell .collaboration-member-row .workspace-session-icon,
-.collaboration-dialog-member-picker .collaboration-member-row .workspace-session-icon {
+.collaboration-dialog-member-picker
+  .collaboration-member-row
+  .workspace-session-icon {
   position: relative;
   width: 1.75rem;
   height: 1.75rem;
@@ -997,7 +1019,9 @@
 }
 
 .collaboration-shell .collaboration-member-row .workspace-session-status,
-.collaboration-dialog-member-picker .collaboration-member-row .workspace-session-status {
+.collaboration-dialog-member-picker
+  .collaboration-member-row
+  .workspace-session-status {
   position: absolute;
   right: 0;
   bottom: 0;
@@ -1005,26 +1029,39 @@
   width: 0.5rem;
   height: 0.5rem;
   border-radius: 999px;
-  box-shadow: 0 0 0 1.5px var(--workspace-session-row-bg, hsl(var(--background)));
+  box-shadow: 0 0 0 1.5px
+    var(--workspace-session-row-bg, hsl(var(--background)));
 }
 
 .collaboration-shell .collaboration-member-row .workspace-session-status--todo,
-.collaboration-dialog-member-picker .collaboration-member-row .workspace-session-status--todo {
+.collaboration-dialog-member-picker
+  .collaboration-member-row
+  .workspace-session-status--todo {
   background: hsl(var(--destructive));
 }
 
-.collaboration-shell .collaboration-member-row .workspace-session-status--inprogress,
-.collaboration-dialog-member-picker .collaboration-member-row .workspace-session-status--inprogress {
+.collaboration-shell
+  .collaboration-member-row
+  .workspace-session-status--inprogress,
+.collaboration-dialog-member-picker
+  .collaboration-member-row
+  .workspace-session-status--inprogress {
   background: hsl(var(--success));
 }
 
-.collaboration-shell .collaboration-member-row .workspace-session-status--inreview,
-.collaboration-dialog-member-picker .collaboration-member-row .workspace-session-status--inreview {
+.collaboration-shell
+  .collaboration-member-row
+  .workspace-session-status--inreview,
+.collaboration-dialog-member-picker
+  .collaboration-member-row
+  .workspace-session-status--inreview {
   background: hsl(var(--warning));
 }
 
 .collaboration-shell .collaboration-member-row .workspace-session-status--done,
-.collaboration-dialog-member-picker .collaboration-member-row .workspace-session-status--done {
+.collaboration-dialog-member-picker
+  .collaboration-member-row
+  .workspace-session-status--done {
   background: hsl(var(--muted-foreground));
 }
 
@@ -1034,7 +1071,9 @@
 }
 
 .collaboration-shell .collaboration-member-row.is-draggable,
-.collaboration-shell .collaboration-member-row.is-draggable .workspace-session-row-main {
+.collaboration-shell
+  .collaboration-member-row.is-draggable
+  .workspace-session-row-main {
   cursor: grab;
   touch-action: none;
 }
@@ -1063,7 +1102,9 @@ body.is-dragging-collaboration-member * {
   white-space: nowrap;
 }
 
-[data-radix-popper-content-wrapper]:has(> .collaboration-member-hover-info[data-cursor-positioned='true']) {
+[data-radix-popper-content-wrapper]:has(
+  > .collaboration-member-hover-info[data-cursor-positioned='true']
+) {
   transform: none !important;
   will-change: auto !important;
   top: 0 !important;
@@ -1117,7 +1158,8 @@ body.is-dragging-collaboration-member * {
 .collaboration-shell .collaboration-member-row.is-selected,
 .collaboration-shell .collaboration-member-row.is-selected:hover,
 .collaboration-dialog-member-picker .collaboration-member-row.is-selected,
-.collaboration-dialog-member-picker .collaboration-member-row.is-selected:hover {
+.collaboration-dialog-member-picker
+  .collaboration-member-row.is-selected:hover {
   --workspace-session-row-bg: var(--surface-control-hover);
   background: var(--surface-control-hover);
   border-color: transparent;
@@ -1145,7 +1187,9 @@ body.is-dragging-collaboration-member * {
   white-space: nowrap;
 }
 
-.collaboration-shell .collaboration-member-row.is-selected .collaboration-member-name {
+.collaboration-shell
+  .collaboration-member-row.is-selected
+  .collaboration-member-name {
   color: var(--text-strong);
 }
 
@@ -1398,17 +1442,20 @@ body.is-dragging-collaboration-member * {
 /* Session Emotes: 12 coordinated expression + 3D motion pairs */
 .collaboration-bot-avatar-stage.collaboration-bot-emote--happy
   .collaboration-bot-3d-head {
-  animation: collaboration-bot-emote-happy 920ms cubic-bezier(0.34, 1.56, 0.64, 1);
+  animation: collaboration-bot-emote-happy 920ms
+    cubic-bezier(0.34, 1.56, 0.64, 1);
 }
 
 .collaboration-bot-avatar-stage.collaboration-bot-emote--happy
   .collaboration-bot-avatar-face {
-  animation: collaboration-bot-face-happy 920ms cubic-bezier(0.34, 1.56, 0.64, 1);
+  animation: collaboration-bot-face-happy 920ms
+    cubic-bezier(0.34, 1.56, 0.64, 1);
 }
 
 .collaboration-bot-avatar-stage.collaboration-bot-emote--curious
   .collaboration-bot-3d-head {
-  animation: collaboration-bot-emote-curious 980ms cubic-bezier(0.22, 1, 0.36, 1);
+  animation: collaboration-bot-emote-curious 980ms
+    cubic-bezier(0.22, 1, 0.36, 1);
 }
 
 .collaboration-bot-avatar-stage.collaboration-bot-emote--curious
@@ -2109,8 +2156,7 @@ body.is-dragging-collaboration-member * {
   .multi-agent-default-picker
   .astryx-button[data-testid^='session-control-'],
 .collaboration-settings-modal-overlay .custom-role-agent-trigger,
-.collaboration-settings-modal-overlay
-  .astryx-button.custom-role-agent-trigger,
+.collaboration-settings-modal-overlay .astryx-button.custom-role-agent-trigger,
 .collaboration-settings-modal-overlay button[role='combobox'],
 .collaboration-settings-modal-overlay [data-testid^='session-control-'],
 .collaboration-settings-modal-overlay
@@ -2148,9 +2194,7 @@ body.is-dragging-collaboration-member * {
   [data-testid^='session-control-'],
 .dark .collaboration-settings-modal-overlay .custom-role-agent-trigger,
 .dark .collaboration-settings-modal-overlay button[role='combobox'],
-.dark
-  .collaboration-settings-modal-overlay
-  [data-testid^='session-control-'] {
+.dark .collaboration-settings-modal-overlay [data-testid^='session-control-'] {
   background: var(--surface-control-solid, #262626) !important;
   background-color: var(--surface-control-solid, #262626) !important;
 }
@@ -2307,7 +2351,8 @@ body.is-dragging-collaboration-member * {
 }
 
 .collaboration-collection-dropzone:hover,
-.collaboration-collection-panel.is-drag-over .collaboration-collection-dropzone {
+.collaboration-collection-panel.is-drag-over
+  .collaboration-collection-dropzone {
   border-color: hsl(214 88% 56%);
   background: rgba(59, 130, 246, 0.08);
   color: var(--text-strong);
@@ -2479,7 +2524,8 @@ body.is-dragging-collaboration-member * {
   transition: opacity 140ms ease;
 }
 
-.collaboration-collection-note-display:hover .collaboration-collection-note-edit-icon {
+.collaboration-collection-note-display:hover
+  .collaboration-collection-note-edit-icon {
   opacity: 1;
 }
 

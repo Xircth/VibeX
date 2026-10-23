@@ -1,4 +1,10 @@
-import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  type ReactNode,
+} from 'react';
 import {
   AlertCircle,
   Bell,
@@ -760,7 +766,6 @@ export function VersionControlSettings() {
           </div>
         </SettingsSection>
       </div>
-
     </div>
   );
 }

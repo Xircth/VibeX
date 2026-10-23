@@ -464,7 +464,7 @@ fn push_version_dirs(root: &Path, dirs: &mut Vec<PathBuf>, join_bin: bool) {
         .map(|entry| entry.path())
         .filter(|path| path.is_dir())
         .collect();
-    versions.sort_by(|left, right| semver_key(right).cmp(&semver_key(left)));
+    versions.sort_by_key(|right| std::cmp::Reverse(semver_key(right)));
     for path in versions {
         if join_bin {
             let bin = path.join("bin");
@@ -484,7 +484,7 @@ fn push_fnm_dirs(fnm_dir: &Path, dirs: &mut Vec<PathBuf>) {
         .map(|entry| entry.path())
         .filter(|path| path.is_dir())
         .collect();
-    versions.sort_by(|left, right| semver_key(right).cmp(&semver_key(left)));
+    versions.sort_by_key(|right| std::cmp::Reverse(semver_key(right)));
     for version in versions {
         let installation = version.join("installation");
         let bin = installation.join("bin");

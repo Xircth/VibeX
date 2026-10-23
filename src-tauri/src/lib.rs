@@ -5,12 +5,9 @@ use tauri::{Emitter, Manager, image::Image};
 mod app_chrome;
 mod app_icon;
 mod app_windows;
-#[allow(dead_code)]
-mod browser_eval;
 mod browser_native;
 pub mod commands;
-pub mod conversation_bundle;
-pub mod conversation_service;
+mod conversation_service;
 mod crash_reports;
 mod deeplink;
 mod delegation;
@@ -21,15 +18,12 @@ mod host_client;
 mod host_windows;
 mod logging;
 mod managed_artifacts;
-mod oneshot_agent;
 mod plugin_dev_server;
 mod window_chrome;
 pub mod windows_webview2;
 
 mod memory_target;
 mod plugin_remote_profiles;
-mod pr_description;
-mod prompt_enhancement;
 mod remote_desktop;
 mod settings_watcher;
 mod state;
@@ -444,9 +438,6 @@ pub fn run() {
             });
         }
         // Bidirectional IM channels: run inbound loops + conversation command dispatch.
-        commands::chat_channel::set_audit_pool(
-            app.state::<state::AppState>().deployment.db().pool.clone(),
-        );
         let host_state = app.state::<state::AppState>();
         let inbound_pool = host_state.deployment.db().pool.clone();
         let inbound_conversations = host_state.conversation_context();

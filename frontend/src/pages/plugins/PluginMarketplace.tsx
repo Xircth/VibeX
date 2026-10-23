@@ -26,6 +26,7 @@ import {
   PluginVersionBadge,
 } from './PluginAttributeBadges';
 import {
+  FEATURED_OFFICIAL_PRIORITY_IDS,
   officialListingName,
   officialListingSummary,
   pluginCategoryLabel,
@@ -49,15 +50,6 @@ const MARKETPLACE_SKELETON_CARDS = [
   { title: 'w-20', tag: 'w-11', summary: 'w-3/4' },
   { title: 'w-36', tag: 'w-9', summary: 'w-5/6' },
   { title: 'w-24', tag: 'w-12', summary: 'w-full' },
-] as const;
-
-const FEATURED_PRIORITY_IDS = [
-  'vibex.office',
-  'vibex.science',
-  'vibex-plugin-computer-use',
-  'vibex.workflow-creator',
-  'vibex.browser',
-  'vibex.session-enhance',
 ] as const;
 
 function moveTabIndex(
@@ -178,7 +170,7 @@ export function PluginMarketplaceList({
     if (listings.length === 0) return [];
     const prioritized: CatalogListing[] = [];
     const usedKeys = new Set<string>();
-    for (const targetId of FEATURED_PRIORITY_IDS) {
+    for (const targetId of FEATURED_OFFICIAL_PRIORITY_IDS) {
       const found = listings.find(
         (item) =>
           item.offlinePluginId === targetId || item.pluginName === targetId
@@ -290,8 +282,7 @@ function PluginMarketplaceCarousel({
   const [activeIndex, setActiveIndex] = useState(0);
   const [paused, setPaused] = useState(false);
 
-  const safeIndex =
-    listings.length > 0 ? activeIndex % listings.length : 0;
+  const safeIndex = listings.length > 0 ? activeIndex % listings.length : 0;
   const activeListing = listings[safeIndex];
 
   useEffect(() => {
@@ -356,12 +347,8 @@ function PluginMarketplaceCarousel({
               displayName={displayName}
             />
             <div className="dsh-carousel-copy">
-              <h3 className="dsh-carousel-title">
-                {`${displayName}\u200B`}
-              </h3>
-              <p className="dsh-carousel-summary">
-                {`${summary}\u200B`}
-              </p>
+              <h3 className="dsh-carousel-title">{`${displayName}\u200B`}</h3>
+              <p className="dsh-carousel-summary">{`${summary}\u200B`}</p>
             </div>
           </div>
         </div>
@@ -384,7 +371,9 @@ function PluginMarketplaceCarousel({
               <button
                 type="button"
                 className="dsh-carousel-arrow"
-                aria-label={isZh ? '上一个推荐插件' : 'Previous featured plugin'}
+                aria-label={
+                  isZh ? '上一个推荐插件' : 'Previous featured plugin'
+                }
                 onClick={() =>
                   setActiveIndex(
                     (prev) => (prev - 1 + listings.length) % listings.length
@@ -533,9 +522,7 @@ function MarketplaceRow({
               onInstall(listing);
             }}
           >
-            {installing
-              ? t('plugins.installingPlugin')
-              : t('plugins.install')}
+            {installing ? t('plugins.installingPlugin') : t('plugins.install')}
           </Button>
         ) : null}
       </span>

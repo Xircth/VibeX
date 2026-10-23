@@ -11,7 +11,10 @@ export function useBasicGuideHelloSeed(
   const seededRef = useRef(false);
 
   useEffect(() => {
-    if (guide?.state.phase !== 'active' || guide.state.substep !== 'send-hello') {
+    if (
+      guide?.state.phase !== 'active' ||
+      guide.state.substep !== 'send-hello'
+    ) {
       return;
     }
     if (seededRef.current) return;

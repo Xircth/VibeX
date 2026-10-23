@@ -177,7 +177,10 @@ export function PluginStatusItems({
     const targets = refreshTargetsRef.current;
     if (targets.length === 0) return;
     let disposed = false;
+    const isDocumentHidden = () =>
+      typeof document !== 'undefined' && document.visibilityState === 'hidden';
     const tick = async (target: (typeof targets)[number]) => {
+      if (isDocumentHidden()) return;
       try {
         const result = await api.invokeContribution(
           target.pluginId,
@@ -196,9 +199,28 @@ export function PluginStatusItems({
       void tick(target);
       return window.setInterval(() => void tick(target), target.seconds * 1000);
     });
+    const handleVisibilityChange = () => {
+      if (
+        typeof document !== 'undefined' &&
+        document.visibilityState === 'visible'
+      ) {
+        for (const target of targets) {
+          void tick(target);
+        }
+      }
+    };
+    if (typeof document !== 'undefined') {
+      document.addEventListener('visibilitychange', handleVisibilityChange);
+    }
     return () => {
       disposed = true;
       timers.forEach(window.clearInterval);
+      if (typeof document !== 'undefined') {
+        document.removeEventListener(
+          'visibilitychange',
+          handleVisibilityChange
+        );
+      }
     };
   }, [api, refreshSignature]);
 

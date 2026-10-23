@@ -24,6 +24,7 @@ export declare class Registry<T extends RegistryEntry> {
     has(id: string): boolean;
     get size(): number;
     getBySlot(slot: string): readonly T[];
+    private storageKey;
     register(item: T, pluginId?: string): Disposer;
     register(id: string, item: T, pluginId?: string): Disposer;
     unregister(id: string): boolean;

@@ -2,10 +2,22 @@ export function isCreateSessionFormVisibleForProject(input: {
   open: boolean;
   openedForProjectId: string | null | undefined;
   currentProjectId: string | null | undefined;
+  openedForWorkspaceId?: string | null | undefined;
+  currentWorkspaceId?: string | null | undefined;
 }): boolean {
   if (!input.open) return false;
   if (!input.openedForProjectId || !input.currentProjectId) return false;
-  return input.openedForProjectId === input.currentProjectId;
+  if (input.openedForProjectId !== input.currentProjectId) return false;
+  if (
+    input.openedForWorkspaceId !== undefined ||
+    input.currentWorkspaceId !== undefined
+  ) {
+    return (
+      (input.openedForWorkspaceId ?? null) ===
+      (input.currentWorkspaceId ?? null)
+    );
+  }
+  return true;
 }
 
 /**

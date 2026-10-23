@@ -1,7 +1,9 @@
-import { createInterface } from "node:readline";
 import { FrameReassembler, ProtocolFrameError, VIBEX_PLUGIN_API_VERSION, VIBEX_PLUGIN_PROTOCOL_VERSION, encodeProtocolMessage, frameLimitsFromAdvertised, protocolFrameLimits, } from "./protocol.js";
 import { activatePluginWorker, PluginSdkError, } from "./worker.js";
 export async function runStdioPluginWorker(definition) {
+    const readlineModuleId = `node:${"readline"}`;
+    const { createInterface } = (await import(
+    /* @vite-ignore */ readlineModuleId));
     const input = createInterface({ input: process.stdin, crlfDelay: Infinity });
     let worker = null;
     let hostSequence = 0;

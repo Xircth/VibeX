@@ -4,6 +4,8 @@ export interface ServiceKey<T> {
     readonly __type?: T;
 }
 export declare function createServiceKey<T>(id: string): ServiceKey<T>;
+export type InjectedServicesRecord = Record<string, unknown> & Iterable<unknown>;
+export type ServiceDecorator<TService = unknown, TResult = TService> = (previousService: TService) => TResult;
 export type WaterfallInterceptor<TPayload, TResult> = (payload: TPayload, next: (modifiedPayload: TPayload) => Promise<TResult>) => Promise<TResult>;
 /**
  * Cordis-inspired cross-plugin service container with owner-scoped auto-revocation,
@@ -19,10 +21,10 @@ export declare class ServiceContainer {
     provide<T>(key: ServiceKey<T> | string, implementation: T, ownerPluginId?: string): Disposer;
     get<T>(key: ServiceKey<T> | string): T | undefined;
     inject<T>(key: ServiceKey<T> | string): T | undefined;
-    inject(deps: ReadonlyArray<ServiceKey<unknown> | string>, effect: (resolved: any) => void | Disposer, ownerPluginId?: string): Disposer;
+    inject<TResolved = InjectedServicesRecord>(deps: ReadonlyArray<ServiceKey<unknown> | string>, effect: (resolved: TResolved) => void | Disposer, ownerPluginId?: string): Disposer;
     require<T>(key: ServiceKey<T> | string): T;
     has<T>(key: ServiceKey<T> | string): boolean;
-    intercept<TPayload = unknown, TResult = unknown>(hookName: string, fn: WaterfallInterceptor<TPayload, TResult> | ((previousService: any) => any), order?: number, ownerPluginId?: string): Disposer;
+    intercept<TPayload = unknown, TResult = TPayload>(hookName: string, fn: WaterfallInterceptor<TPayload, TResult> | ServiceDecorator<TPayload, TResult>, order?: number, ownerPluginId?: string): Disposer;
     hasInterceptors(hookName: string): boolean;
     runWaterfall<TPayload, TResult = TPayload>(hookName: string, initialPayload: TPayload, terminal?: (payload: TPayload) => Promise<TResult> | TResult, perHookTimeoutMs?: number): Promise<TResult>;
     emitParallel<TPayload>(hookName: string, payload: TPayload): Promise<void>;

@@ -577,8 +577,9 @@ export function CollaborationSpacePage({
   const [createMemberOpen, setCreateMemberOpen] = useState(false);
   const [createMemberSpaceId, setCreateMemberSpaceId] = useState('');
   const [newMemberName, setNewMemberName] = useState('');
-  const [newMemberAvatar, setNewMemberAvatar] =
-    useState<MemberBotAvatarConfig>(() => randomMemberBotAvatar());
+  const [newMemberAvatar, setNewMemberAvatar] = useState<MemberBotAvatarConfig>(
+    () => randomMemberBotAvatar()
+  );
   const [newMemberSource, setNewMemberSource] =
     useState<MemberSourceOption>('role');
   const [newMemberRoleId, setNewMemberRoleId] = useState('');
@@ -605,9 +606,8 @@ export function CollaborationSpacePage({
   const [renameError, setRenameError] = useState('');
 
   // Inline Rename Space state
-  const [virtualDefaultSpaceName, setVirtualDefaultSpaceName] = useState<string>(
-    COPY.defaultSpaceName
-  );
+  const [virtualDefaultSpaceName, setVirtualDefaultSpaceName] =
+    useState<string>(COPY.defaultSpaceName);
   const [renameSpaceOpen, setRenameSpaceOpen] = useState(false);
   const [renameSpaceTargetId, setRenameSpaceTargetId] = useState('');
   const [renameSpaceName, setRenameSpaceName] = useState('');
@@ -759,7 +759,8 @@ export function CollaborationSpacePage({
     spaces.find((space) => space.space_id === selectedId) ?? null;
   const isDefaultVirtualSpaceSelected =
     spaces.length === 0 && selectedId === VIRTUAL_DEFAULT_SPACE_ID;
-  const hasOpenedSpaceThread = Boolean(selected) || isDefaultVirtualSpaceSelected;
+  const hasOpenedSpaceThread =
+    Boolean(selected) || isDefaultVirtualSpaceSelected;
   const hasMountedPreviewTabs = previewTabs.length > 0;
   const hasActiveOverlay = createOpen || createMemberOpen;
   const hasThread =
@@ -857,7 +858,10 @@ export function CollaborationSpacePage({
   }, [membersBySpace]);
 
   const allUniqueMembers = useMemo(() => {
-    const seen = new Map<string, { conversationId: string; nickname: string }>();
+    const seen = new Map<
+      string,
+      { conversationId: string; nickname: string }
+    >();
     for (const group of Object.values(membersBySpace)) {
       for (const member of agentRoster(group)) {
         const convId = String(member.conversation_id ?? '').trim();
@@ -1220,7 +1224,10 @@ export function CollaborationSpacePage({
   const loadRolesAndAgents = useCallback(async () => {
     try {
       const [rolePage, agentPage] = await Promise.all([
-        collaborationCall<{ roles?: RoleOption[] }>('collaboration', 'role.list'),
+        collaborationCall<{ roles?: RoleOption[] }>(
+          'collaboration',
+          'role.list'
+        ),
         collaborationCall<{ agents?: AgentOption[] }>(
           'collaboration',
           'role.agents'
@@ -1231,7 +1238,9 @@ export function CollaborationSpacePage({
       setRoles(nextRoles);
       setAgents(nextAgents);
       setNewMemberRoleId((current) => current || nextRoles[0]?.id || '');
-      setNewMemberAgentId((current) => current || nextAgents[0]?.agent_id || '');
+      setNewMemberAgentId(
+        (current) => current || nextAgents[0]?.agent_id || ''
+      );
       setInlineMemberRoleId((current) => current || nextRoles[0]?.id || '');
       setInlineMemberAgentId(
         (current) => current || nextAgents[0]?.agent_id || ''
@@ -1522,7 +1531,14 @@ export function CollaborationSpacePage({
       window.removeEventListener('online', handleReconnect);
       window.removeEventListener('vibex:host-client-changed', handleReconnect);
     };
-  }, [loadConversations, openSpaceKey, selectedId, spaces, unassignedId, workspace]);
+  }, [
+    loadConversations,
+    openSpaceKey,
+    selectedId,
+    spaces,
+    unassignedId,
+    workspace,
+  ]);
 
   const prevActivePreviewKeyRef = useRef<string>('');
   useEffect(() => {
@@ -1643,7 +1659,10 @@ export function CollaborationSpacePage({
   };
 
   const updateMemberAvatar = useCallback(
-    (keys: ReadonlyArray<string | undefined>, config: MemberBotAvatarConfig) => {
+    (
+      keys: ReadonlyArray<string | undefined>,
+      config: MemberBotAvatarConfig
+    ) => {
       setMemberAvatars((current) => {
         const next = { ...current };
         for (const rawKey of keys) {
@@ -2548,7 +2567,9 @@ export function CollaborationSpacePage({
   const openSpaceCollectionTab = useCallback(
     (spaceId: string, name?: string) => {
       if (!spaceId || spaceId === VIRTUAL_DEFAULT_SPACE_ID) return;
-      const spaceMembers = agentRoster(membersBySpace[spaceId] ?? EMPTY_MEMBERS);
+      const spaceMembers = agentRoster(
+        membersBySpace[spaceId] ?? EMPTY_MEMBERS
+      );
       const spaceAvatars = spaceMembers.map((member) =>
         getMemberAvatar(
           member.conversation_id ?? undefined,
@@ -2836,13 +2857,10 @@ export function CollaborationSpacePage({
     [scheduledMessages, selected?.space_id]
   );
 
-  const handleEditSpaceQueuedMessage = useCallback(
-    (message: QueuedMessage) => {
-      setEditingSpaceMessageId(message.id);
-      restoreDraft(message.data.message);
-    },
-    []
-  );
+  const handleEditSpaceQueuedMessage = useCallback((message: QueuedMessage) => {
+    setEditingSpaceMessageId(message.id);
+    restoreDraft(message.data.message);
+  }, []);
 
   const handleDeleteSpaceQueuedMessage = useCallback(
     async (message: QueuedMessage) => {
@@ -2990,7 +3008,9 @@ export function CollaborationSpacePage({
 
   const selectedTagConfig = selected ? spaceTags[selected.space_id] : undefined;
   const selectedTagPreset = selectedTagConfig
-    ? SPACE_TAG_PRESETS.find((preset) => preset.id === selectedTagConfig.colorId)
+    ? SPACE_TAG_PRESETS.find(
+        (preset) => preset.id === selectedTagConfig.colorId
+      )
     : undefined;
 
   const clearComposerMembersCloseTimeout = useCallback(() => {
@@ -3032,8 +3052,7 @@ export function CollaborationSpacePage({
     }
     for (const member of membersBySpace[VIRTUAL_DEFAULT_SPACE_ID] ??
       EMPTY_MEMBERS) {
-      const key =
-        member.conversation_id || member.member_id || member.nickname;
+      const key = member.conversation_id || member.member_id || member.nickname;
       if (key) assignedKeys.add(String(key));
     }
     return agentRoster(membersBySpace[unassignedId] ?? EMPTY_MEMBERS).filter(
@@ -3096,9 +3115,7 @@ export function CollaborationSpacePage({
           const conv = member.conversation_id
             ? conversationById.get(member.conversation_id)
             : undefined;
-          return (
-            String(conv?.agent_id ?? '').toLowerCase() === targetAgent
-          );
+          return String(conv?.agent_id ?? '').toLowerCase() === targetAgent;
         });
         if (!matchesAgent) return false;
       }
@@ -3178,9 +3195,7 @@ export function CollaborationSpacePage({
       {
         value: 'session',
         label: COPY.memberSourceSession,
-        icon: (
-          <MessageSquare className="h-3 w-3 shrink-0" aria-hidden="true" />
-        ),
+        icon: <MessageSquare className="h-3 w-3 shrink-0" aria-hidden="true" />,
       },
       {
         value: 'custom',
@@ -3411,7 +3426,9 @@ export function CollaborationSpacePage({
             type="button"
             className="workspace-session-row-main"
             aria-label={name}
-            onClick={() => togglePendingSpaceMemberConvSelection(conversationId)}
+            onClick={() =>
+              togglePendingSpaceMemberConvSelection(conversationId)
+            }
           >
             <span className="workspace-session-icon" aria-hidden="true">
               <MemberBotAvatar
@@ -3543,444 +3560,450 @@ export function CollaborationSpacePage({
               'is-dragging'
           )}
           onPointerDown={(event) => {
-          if (!canDrag || event.button !== 0) return;
-          const targetEl = event.target as HTMLElement | null;
-          if (
-            targetEl?.closest(
-              '.collaboration-member-hover-actions, input, [role="checkbox"]'
-            )
-          ) {
-            return;
-          }
-          const startX = event.clientX;
-          const startY = event.clientY;
-          const payload = {
-            fromSpaceId: spaceId,
-            conversationId,
-            nickname: String(member.nickname ?? name),
-          };
-          let activeDrag = false;
-          let currentTargetSpace = '';
-
-          const resolveSpaceIdAtPoint = (
-            clientX: number,
-            clientY: number
-          ): string => {
-            if (typeof document.elementsFromPoint === 'function') {
-              const els = document.elementsFromPoint(clientX, clientY);
-              for (const el of els) {
-                const spaceEl = (el as HTMLElement).closest?.(
-                  '[data-space-id]'
-                ) as HTMLElement | null;
-                if (spaceEl?.dataset.spaceId) {
-                  return spaceEl.dataset.spaceId;
-                }
-              }
-            }
-            const allSpaceEls =
-              document.querySelectorAll<HTMLElement>('[data-space-id]');
-            for (const spaceEl of allSpaceEls) {
-              const rect = spaceEl.getBoundingClientRect();
-              if (
-                clientX >= rect.left &&
-                clientX <= rect.right &&
-                clientY >= rect.top &&
-                clientY <= rect.bottom
-              ) {
-                return spaceEl.dataset.spaceId ?? '';
-              }
-            }
-            return '';
-          };
-
-          const handlePointerMove = (moveEvent: PointerEvent) => {
-            const dx = moveEvent.clientX - startX;
-            const dy = moveEvent.clientY - startY;
-            if (!activeDrag && Math.hypot(dx, dy) < 5) {
+            if (!canDrag || event.button !== 0) return;
+            const targetEl = event.target as HTMLElement | null;
+            if (
+              targetEl?.closest(
+                '.collaboration-member-hover-actions, input, [role="checkbox"]'
+              )
+            ) {
               return;
             }
-            if (!activeDrag) {
-              activeDrag = true;
-              suppressNextMemberClickRef.current = true;
-              setDraggingMember(payload);
-              document.body.classList.add('is-dragging-collaboration-member');
-            }
-            setPointerDragCursor({
-              x: moveEvent.clientX,
-              y: moveEvent.clientY,
-            });
-            const hoveredSpaceId = resolveSpaceIdAtPoint(
-              moveEvent.clientX,
-              moveEvent.clientY
-            );
-            currentTargetSpace = hoveredSpaceId;
-            setDropTargetSpaceId(hoveredSpaceId);
-          };
+            const startX = event.clientX;
+            const startY = event.clientY;
+            const payload = {
+              fromSpaceId: spaceId,
+              conversationId,
+              nickname: String(member.nickname ?? name),
+            };
+            let activeDrag = false;
+            let currentTargetSpace = '';
 
-          const cleanup = () => {
-            window.removeEventListener('pointermove', handlePointerMove);
-            window.removeEventListener('pointerup', handlePointerUp);
-            window.removeEventListener('pointercancel', handlePointerCancel);
-            document.body.classList.remove('is-dragging-collaboration-member');
-            setPointerDragCursor(null);
-            setDraggingMember(null);
-            setDropTargetSpaceId('');
-          };
-
-          const handlePointerUp = (upEvent: PointerEvent) => {
-            const finalSpaceId =
-              resolveSpaceIdAtPoint(upEvent.clientX, upEvent.clientY) ||
-              currentTargetSpace;
-            const wasDragging = activeDrag;
-            cleanup();
-            if (wasDragging) {
-              window.setTimeout(() => {
-                suppressNextMemberClickRef.current = false;
-              }, 0);
-              if (finalSpaceId && finalSpaceId !== payload.fromSpaceId) {
-                void moveMemberBetweenSpaces(
-                  payload.fromSpaceId,
-                  finalSpaceId,
-                  payload.conversationId,
-                  payload.nickname
-                );
-              }
-            }
-          };
-
-          const handlePointerCancel = () => {
-            cleanup();
-            suppressNextMemberClickRef.current = false;
-          };
-
-          window.addEventListener('pointermove', handlePointerMove);
-          window.addEventListener('pointerup', handlePointerUp);
-          window.addEventListener('pointercancel', handlePointerCancel);
-        }}
-        onDragStart={(event) => {
-          if (!canDrag) return;
-          const payload = {
-            fromSpaceId: spaceId,
-            conversationId,
-            nickname: String(member.nickname ?? name),
-          };
-          setDraggingMember(payload);
-          const serialized = JSON.stringify(payload);
-          event.dataTransfer?.setData(
-            'application/x-vibex-space-member',
-            serialized
-          );
-          event.dataTransfer?.setData('text/plain', serialized);
-          if (event.dataTransfer) {
-            event.dataTransfer.effectAllowed = 'move';
-          }
-        }}
-        onDragEnd={() => {
-          setDraggingMember(null);
-          setPointerDragCursor(null);
-          setDropTargetSpaceId('');
-        }}
-      >
-        {isEditingMemberName ? (
-          <div className="flex w-full flex-col gap-1.5 py-1">
-            <form
-              className="workspace-session-row-main is-editing flex items-center gap-1.5"
-              onSubmit={(event) => {
-                event.preventDefault();
-                void renameMember().catch((cause: unknown) =>
-                  setRenameError(surfaceErrorCopy(cause))
-                );
-              }}
-            >
-              <span
-                className="workspace-session-icon shrink-0"
-                aria-hidden="true"
-              >
-                <MemberBotAvatar
-                  config={renameAvatar}
-                  sessionActive={Boolean(
-                    isRunning || conv?.status === 'inprogress'
-                  )}
-                  className="h-7 w-7"
-                  data-testid={`collaboration-member-bot-avatar-${conversationId || name}`}
-                />
-                <span
-                  className={cn(
-                    'workspace-session-status',
-                    `workspace-session-status--${tone}`
-                  )}
-                />
-              </span>
-              <Input
-                aria-label={t('collaborationSpace.nickname', '昵称')}
-                value={renameNickname}
-                onChange={(event) => {
-                  setRenameNickname(event.target.value);
-                  setRenameOperationId(crypto.randomUUID());
-                }}
-                onKeyDown={(event) => {
-                  if (event.key === 'Escape') {
-                    event.preventDefault();
-                    event.stopPropagation();
-                    setRenameOpen(false);
-                    setRenameError('');
+            const resolveSpaceIdAtPoint = (
+              clientX: number,
+              clientY: number
+            ): string => {
+              if (typeof document.elementsFromPoint === 'function') {
+                const els = document.elementsFromPoint(clientX, clientY);
+                for (const el of els) {
+                  const spaceEl = (el as HTMLElement).closest?.(
+                    '[data-space-id]'
+                  ) as HTMLElement | null;
+                  if (spaceEl?.dataset.spaceId) {
+                    return spaceEl.dataset.spaceId;
                   }
-                }}
-                placeholder={t('collaborationSpace.nickname', '昵称')}
-                className="workspace-session-title-input h-6 min-w-0 flex-1 px-1.5 text-[12px]"
-                autoFocus
-              />
-              <Button
-                type="button"
-                variant="icon"
-                size="icon"
-                className="collaboration-expand h-6 w-6 shrink-0"
-                aria-label="取消修改昵称"
-                onClick={() => {
-                  setRenameOpen(false);
-                  setRenameError('');
+                }
+              }
+              const allSpaceEls =
+                document.querySelectorAll<HTMLElement>('[data-space-id]');
+              for (const spaceEl of allSpaceEls) {
+                const rect = spaceEl.getBoundingClientRect();
+                if (
+                  clientX >= rect.left &&
+                  clientX <= rect.right &&
+                  clientY >= rect.top &&
+                  clientY <= rect.bottom
+                ) {
+                  return spaceEl.dataset.spaceId ?? '';
+                }
+              }
+              return '';
+            };
+
+            const handlePointerMove = (moveEvent: PointerEvent) => {
+              const dx = moveEvent.clientX - startX;
+              const dy = moveEvent.clientY - startY;
+              if (!activeDrag && Math.hypot(dx, dy) < 5) {
+                return;
+              }
+              if (!activeDrag) {
+                activeDrag = true;
+                suppressNextMemberClickRef.current = true;
+                setDraggingMember(payload);
+                document.body.classList.add('is-dragging-collaboration-member');
+              }
+              setPointerDragCursor({
+                x: moveEvent.clientX,
+                y: moveEvent.clientY,
+              });
+              const hoveredSpaceId = resolveSpaceIdAtPoint(
+                moveEvent.clientX,
+                moveEvent.clientY
+              );
+              currentTargetSpace = hoveredSpaceId;
+              setDropTargetSpaceId(hoveredSpaceId);
+            };
+
+            const cleanup = () => {
+              window.removeEventListener('pointermove', handlePointerMove);
+              window.removeEventListener('pointerup', handlePointerUp);
+              window.removeEventListener('pointercancel', handlePointerCancel);
+              document.body.classList.remove(
+                'is-dragging-collaboration-member'
+              );
+              setPointerDragCursor(null);
+              setDraggingMember(null);
+              setDropTargetSpaceId('');
+            };
+
+            const handlePointerUp = (upEvent: PointerEvent) => {
+              const finalSpaceId =
+                resolveSpaceIdAtPoint(upEvent.clientX, upEvent.clientY) ||
+                currentTargetSpace;
+              const wasDragging = activeDrag;
+              cleanup();
+              if (wasDragging) {
+                window.setTimeout(() => {
+                  suppressNextMemberClickRef.current = false;
+                }, 0);
+                if (finalSpaceId && finalSpaceId !== payload.fromSpaceId) {
+                  void moveMemberBetweenSpaces(
+                    payload.fromSpaceId,
+                    finalSpaceId,
+                    payload.conversationId,
+                    payload.nickname
+                  );
+                }
+              }
+            };
+
+            const handlePointerCancel = () => {
+              cleanup();
+              suppressNextMemberClickRef.current = false;
+            };
+
+            window.addEventListener('pointermove', handlePointerMove);
+            window.addEventListener('pointerup', handlePointerUp);
+            window.addEventListener('pointercancel', handlePointerCancel);
+          }}
+          onDragStart={(event) => {
+            if (!canDrag) return;
+            const payload = {
+              fromSpaceId: spaceId,
+              conversationId,
+              nickname: String(member.nickname ?? name),
+            };
+            setDraggingMember(payload);
+            const serialized = JSON.stringify(payload);
+            event.dataTransfer?.setData(
+              'application/x-vibex-space-member',
+              serialized
+            );
+            event.dataTransfer?.setData('text/plain', serialized);
+            if (event.dataTransfer) {
+              event.dataTransfer.effectAllowed = 'move';
+            }
+          }}
+          onDragEnd={() => {
+            setDraggingMember(null);
+            setPointerDragCursor(null);
+            setDropTargetSpaceId('');
+          }}
+        >
+          {isEditingMemberName ? (
+            <div className="flex w-full flex-col gap-1.5 py-1">
+              <form
+                className="workspace-session-row-main is-editing flex items-center gap-1.5"
+                onSubmit={(event) => {
+                  event.preventDefault();
+                  void renameMember().catch((cause: unknown) =>
+                    setRenameError(surfaceErrorCopy(cause))
+                  );
                 }}
               >
-                <X className="h-3.5 w-3.5" aria-hidden="true" />
-              </Button>
-              <Button
-                type="submit"
-                variant="icon"
-                size="icon"
-                className="collaboration-expand h-6 w-6 shrink-0"
-                aria-label={t(
-                  'collaborationSpace.renameMember',
-                  COPY.renameMember
-                )}
-                disabled={!renameNickname.trim()}
-              >
-                <Check className="h-3.5 w-3.5" aria-hidden="true" />
-              </Button>
-            </form>
-            <div className="px-2 pb-1">
-              <MemberBotAvatarPicker
-                value={renameAvatar}
-                onChange={setRenameAvatar}
-                compact
-              />
-            </div>
-          </div>
-        ) : (
-          <>
-            <TooltipProvider delayDuration={280}>
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <button
-                    type="button"
-                    className="workspace-session-row-main"
-                    aria-label={name}
-                    onMouseEnter={(event) => {
-                      if (event.clientX > 0 || event.clientY > 0) {
-                        setMemberHoverCursorPos({
-                          x: event.clientX,
-                          y: event.clientY,
-                        });
-                      }
-                    }}
-                    onMouseMove={(event) => {
-                      if (event.clientX > 0 || event.clientY > 0) {
-                        setMemberHoverCursorPos({
-                          x: event.clientX,
-                          y: event.clientY,
-                        });
-                      }
-                    }}
-                    onClick={() => {
-                      if (suppressNextMemberClickRef.current) {
-                        suppressNextMemberClickRef.current = false;
-                        return;
-                      }
-                      if (
-                        isDeleteMode &&
-                        member.kind === 'agent' &&
-                        conversationId
-                      ) {
-                        handleToggleMemberDelete(spaceId, conversationId);
-                        return;
-                      }
-                      selectMemberForPreview(spaceId, member);
-                    }}
-                  >
-                    <span
-                      className="workspace-session-icon"
-                      aria-hidden="true"
-                    >
-                      <MemberBotAvatar
-                        config={getMemberAvatar(conversationId, name)}
-                        sessionActive={Boolean(
-                          isRunning || conv?.status === 'inprogress'
-                        )}
-                        className="h-7 w-7"
-                        data-testid={`collaboration-member-bot-avatar-${conversationId || name}`}
-                      />
-                      <span
-                        className={cn(
-                          'workspace-session-status',
-                          `workspace-session-status--${tone}`
-                        )}
-                      />
-                    </span>
-                    <span className="collaboration-member-title-group">
-                      <span className="collaboration-member-name">{name}</span>
-                      {lastMessageText ? (
-                        <span
-                          className="collaboration-member-subtitle collaboration-member-last-message"
-                          data-testid={`collaboration-member-last-message-${conversationId || name}`}
-                        >
-                          {lastMessageText}
-                        </span>
-                      ) : null}
-                    </span>
-                    <span
-                      className={cn(
-                        'workspace-session-meta-idle gap-1.5',
-                        !isDeleteMode &&
-                          member.kind === 'agent' &&
-                          Boolean(conversationId) &&
-                          'collaboration-member-meta--hide-on-hover'
-                      )}
-                    >
-                      {isRunning ? (
-                        <Loader2
-                          className="h-3.5 w-3.5 shrink-0 animate-spin text-[hsl(var(--warning))]"
-                          aria-hidden="true"
-                        />
-                      ) : null}
-                      {compactAge ? (
-                        <span className="workspace-session-age">
-                          {compactAge}
-                        </span>
-                      ) : null}
-                      <span
-                        className="inline-flex shrink-0 items-center"
-                        data-testid={`collaboration-member-row-agent-icon-${conversationId || name}`}
-                      >
-                        {resolvedAgentId ? (
-                          <AgentIcon
-                            agent={
-                              resolvedAgentId as ExecutorProfileId['executor']
-                            }
-                            className="h-3.5 w-3.5 shrink-0"
-                          />
-                        ) : (
-                          <Bot
-                            className="h-3.5 w-3.5 shrink-0 text-muted-foreground"
-                            aria-hidden="true"
-                          />
-                        )}
-                      </span>
-                    </span>
-                  </button>
-                </TooltipTrigger>
-                {!draggingMember ? (
-                  <TooltipContent
-                    side="right"
-                    align="start"
-                    sideOffset={8}
-                    data-cursor-positioned={
-                      memberHoverCursorPos ? 'true' : 'false'
+                <span
+                  className="workspace-session-icon shrink-0"
+                  aria-hidden="true"
+                >
+                  <MemberBotAvatar
+                    config={renameAvatar}
+                    sessionActive={Boolean(
+                      isRunning || conv?.status === 'inprogress'
+                    )}
+                    className="h-7 w-7"
+                    data-testid={`collaboration-member-bot-avatar-${conversationId || name}`}
+                  />
+                  <span
+                    className={cn(
+                      'workspace-session-status',
+                      `workspace-session-status--${tone}`
+                    )}
+                  />
+                </span>
+                <Input
+                  aria-label={t('collaborationSpace.nickname', '昵称')}
+                  value={renameNickname}
+                  onChange={(event) => {
+                    setRenameNickname(event.target.value);
+                    setRenameOperationId(crypto.randomUUID());
+                  }}
+                  onKeyDown={(event) => {
+                    if (event.key === 'Escape') {
+                      event.preventDefault();
+                      event.stopPropagation();
+                      setRenameOpen(false);
+                      setRenameError('');
                     }
-                    style={
-                      memberHoverCursorPos
-                        ? ({
-                            '--member-hover-x': `${memberHoverCursorPos.x + 12}px`,
-                            '--member-hover-y': `${memberHoverCursorPos.y + 12}px`,
-                            position: 'fixed',
-                            left: `${memberHoverCursorPos.x + 12}px`,
-                            top: `${memberHoverCursorPos.y + 12}px`,
-                          } as CSSProperties)
-                        : undefined
-                    }
-                    className="session-card-hover-info collaboration-member-hover-info"
-                    onClick={(event) => event.stopPropagation()}
-                    onPointerDown={(event) => event.stopPropagation()}
-                  >
-                    <div
-                      className="session-card-hover-body"
-                      data-testid={`collaboration-member-hover-info-${conversationId || name}`}
-                    >
-                      <div className="session-card-hover-name">{name}</div>
-                      <div className="session-card-hover-agent">
-                        {resolvedAgentId ? (
-                          <AgentIcon
-                            agent={
-                              resolvedAgentId as ExecutorProfileId['executor']
-                            }
-                            className="h-3.5 w-3.5"
-                          />
-                        ) : (
-                          <Bot className="h-3.5 w-3.5 text-muted-foreground" />
-                        )}
-                        <span>{agentDisplayName}</span>
-                      </div>
-                      <div className="session-card-hover-meta">
-                        <div className="session-card-hover-field">
-                          <div className="session-card-hover-label">工作区</div>
-                          <div
-                            className={cn(
-                              'session-card-hover-value',
-                              workspaceDisplayLabel === '-' && 'is-empty'
-                            )}
-                            data-testid={`collaboration-member-hover-workspace-${conversationId || name}`}
-                          >
-                            {workspaceDisplayLabel}
-                          </div>
-                        </div>
-                        <div className="session-card-hover-field">
-                          <div className="session-card-hover-label">
-                            所属团队
-                          </div>
-                          <div
-                            className={cn(
-                              'session-card-hover-value',
-                              teamDisplayLabel === '-' && 'is-empty'
-                            )}
-                            data-testid={`collaboration-member-hover-team-${conversationId || name}`}
-                          >
-                            {teamDisplayLabel}
-                          </div>
-                        </div>
-                      </div>
-                    </div>
-                  </TooltipContent>
-                ) : null}
-              </Tooltip>
-            </TooltipProvider>
-            {!isDeleteMode && member.kind === 'agent' && conversationId ? (
-              <div className="collaboration-member-hover-actions">
+                  }}
+                  placeholder={t('collaborationSpace.nickname', '昵称')}
+                  className="workspace-session-title-input h-6 min-w-0 flex-1 px-1.5 text-[12px]"
+                  autoFocus
+                />
                 <Button
                   type="button"
                   variant="icon"
                   size="icon"
-                  className="collaboration-expand collaboration-edit-name-btn"
-                  aria-label={t('collaborationSpace.renameMemberAria', {
-                    name,
-                    defaultValue: `${COPY.renameMember} ${name}`,
-                  })}
+                  className="collaboration-expand h-6 w-6 shrink-0"
+                  aria-label="取消修改昵称"
                   onClick={() => {
-                    setRenameSpaceId(spaceId);
-                    setRenameConversationId(conversationId);
-                    setRenameNickname(String(member.nickname ?? name));
-                    setRenameAvatar(getMemberAvatar(conversationId, name));
-                    setRenameOperationId(crypto.randomUUID());
+                    setRenameOpen(false);
                     setRenameError('');
-                    setRenameOpen(true);
                   }}
                 >
-                  <Pencil className="h-3.5 w-3.5" aria-hidden="true" />
+                  <X className="h-3.5 w-3.5" aria-hidden="true" />
                 </Button>
+                <Button
+                  type="submit"
+                  variant="icon"
+                  size="icon"
+                  className="collaboration-expand h-6 w-6 shrink-0"
+                  aria-label={t(
+                    'collaborationSpace.renameMember',
+                    COPY.renameMember
+                  )}
+                  disabled={!renameNickname.trim()}
+                >
+                  <Check className="h-3.5 w-3.5" aria-hidden="true" />
+                </Button>
+              </form>
+              <div className="px-2 pb-1">
+                <MemberBotAvatarPicker
+                  value={renameAvatar}
+                  onChange={setRenameAvatar}
+                  compact
+                />
               </div>
-            ) : null}
-          </>
-        )}
-        {isEditingMemberName && renameError ? (
-          <p className="collaboration-error px-2 text-xs">{renameError}</p>
-        ) : null}
+            </div>
+          ) : (
+            <>
+              <TooltipProvider delayDuration={280}>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <button
+                      type="button"
+                      className="workspace-session-row-main"
+                      aria-label={name}
+                      onMouseEnter={(event) => {
+                        if (event.clientX > 0 || event.clientY > 0) {
+                          setMemberHoverCursorPos({
+                            x: event.clientX,
+                            y: event.clientY,
+                          });
+                        }
+                      }}
+                      onMouseMove={(event) => {
+                        if (event.clientX > 0 || event.clientY > 0) {
+                          setMemberHoverCursorPos({
+                            x: event.clientX,
+                            y: event.clientY,
+                          });
+                        }
+                      }}
+                      onClick={() => {
+                        if (suppressNextMemberClickRef.current) {
+                          suppressNextMemberClickRef.current = false;
+                          return;
+                        }
+                        if (
+                          isDeleteMode &&
+                          member.kind === 'agent' &&
+                          conversationId
+                        ) {
+                          handleToggleMemberDelete(spaceId, conversationId);
+                          return;
+                        }
+                        selectMemberForPreview(spaceId, member);
+                      }}
+                    >
+                      <span
+                        className="workspace-session-icon"
+                        aria-hidden="true"
+                      >
+                        <MemberBotAvatar
+                          config={getMemberAvatar(conversationId, name)}
+                          sessionActive={Boolean(
+                            isRunning || conv?.status === 'inprogress'
+                          )}
+                          className="h-7 w-7"
+                          data-testid={`collaboration-member-bot-avatar-${conversationId || name}`}
+                        />
+                        <span
+                          className={cn(
+                            'workspace-session-status',
+                            `workspace-session-status--${tone}`
+                          )}
+                        />
+                      </span>
+                      <span className="collaboration-member-title-group">
+                        <span className="collaboration-member-name">
+                          {name}
+                        </span>
+                        {lastMessageText ? (
+                          <span
+                            className="collaboration-member-subtitle collaboration-member-last-message"
+                            data-testid={`collaboration-member-last-message-${conversationId || name}`}
+                          >
+                            {lastMessageText}
+                          </span>
+                        ) : null}
+                      </span>
+                      <span
+                        className={cn(
+                          'workspace-session-meta-idle gap-1.5',
+                          !isDeleteMode &&
+                            member.kind === 'agent' &&
+                            Boolean(conversationId) &&
+                            'collaboration-member-meta--hide-on-hover'
+                        )}
+                      >
+                        {isRunning ? (
+                          <Loader2
+                            className="h-3.5 w-3.5 shrink-0 animate-spin text-[hsl(var(--warning))]"
+                            aria-hidden="true"
+                          />
+                        ) : null}
+                        {compactAge ? (
+                          <span className="workspace-session-age">
+                            {compactAge}
+                          </span>
+                        ) : null}
+                        <span
+                          className="inline-flex shrink-0 items-center"
+                          data-testid={`collaboration-member-row-agent-icon-${conversationId || name}`}
+                        >
+                          {resolvedAgentId ? (
+                            <AgentIcon
+                              agent={
+                                resolvedAgentId as ExecutorProfileId['executor']
+                              }
+                              className="h-3.5 w-3.5 shrink-0"
+                            />
+                          ) : (
+                            <Bot
+                              className="h-3.5 w-3.5 shrink-0 text-muted-foreground"
+                              aria-hidden="true"
+                            />
+                          )}
+                        </span>
+                      </span>
+                    </button>
+                  </TooltipTrigger>
+                  {!draggingMember ? (
+                    <TooltipContent
+                      side="right"
+                      align="start"
+                      sideOffset={8}
+                      data-cursor-positioned={
+                        memberHoverCursorPos ? 'true' : 'false'
+                      }
+                      style={
+                        memberHoverCursorPos
+                          ? ({
+                              '--member-hover-x': `${memberHoverCursorPos.x + 12}px`,
+                              '--member-hover-y': `${memberHoverCursorPos.y + 12}px`,
+                              position: 'fixed',
+                              left: `${memberHoverCursorPos.x + 12}px`,
+                              top: `${memberHoverCursorPos.y + 12}px`,
+                            } as CSSProperties)
+                          : undefined
+                      }
+                      className="session-card-hover-info collaboration-member-hover-info"
+                      onClick={(event) => event.stopPropagation()}
+                      onPointerDown={(event) => event.stopPropagation()}
+                    >
+                      <div
+                        className="session-card-hover-body"
+                        data-testid={`collaboration-member-hover-info-${conversationId || name}`}
+                      >
+                        <div className="session-card-hover-name">{name}</div>
+                        <div className="session-card-hover-agent">
+                          {resolvedAgentId ? (
+                            <AgentIcon
+                              agent={
+                                resolvedAgentId as ExecutorProfileId['executor']
+                              }
+                              className="h-3.5 w-3.5"
+                            />
+                          ) : (
+                            <Bot className="h-3.5 w-3.5 text-muted-foreground" />
+                          )}
+                          <span>{agentDisplayName}</span>
+                        </div>
+                        <div className="session-card-hover-meta">
+                          <div className="session-card-hover-field">
+                            <div className="session-card-hover-label">
+                              工作区
+                            </div>
+                            <div
+                              className={cn(
+                                'session-card-hover-value',
+                                workspaceDisplayLabel === '-' && 'is-empty'
+                              )}
+                              data-testid={`collaboration-member-hover-workspace-${conversationId || name}`}
+                            >
+                              {workspaceDisplayLabel}
+                            </div>
+                          </div>
+                          <div className="session-card-hover-field">
+                            <div className="session-card-hover-label">
+                              所属团队
+                            </div>
+                            <div
+                              className={cn(
+                                'session-card-hover-value',
+                                teamDisplayLabel === '-' && 'is-empty'
+                              )}
+                              data-testid={`collaboration-member-hover-team-${conversationId || name}`}
+                            >
+                              {teamDisplayLabel}
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    </TooltipContent>
+                  ) : null}
+                </Tooltip>
+              </TooltipProvider>
+              {!isDeleteMode && member.kind === 'agent' && conversationId ? (
+                <div className="collaboration-member-hover-actions">
+                  <Button
+                    type="button"
+                    variant="icon"
+                    size="icon"
+                    className="collaboration-expand collaboration-edit-name-btn"
+                    aria-label={t('collaborationSpace.renameMemberAria', {
+                      name,
+                      defaultValue: `${COPY.renameMember} ${name}`,
+                    })}
+                    onClick={() => {
+                      setRenameSpaceId(spaceId);
+                      setRenameConversationId(conversationId);
+                      setRenameNickname(String(member.nickname ?? name));
+                      setRenameAvatar(getMemberAvatar(conversationId, name));
+                      setRenameOperationId(crypto.randomUUID());
+                      setRenameError('');
+                      setRenameOpen(true);
+                    }}
+                  >
+                    <Pencil className="h-3.5 w-3.5" aria-hidden="true" />
+                  </Button>
+                </div>
+              ) : null}
+            </>
+          )}
+          {isEditingMemberName && renameError ? (
+            <p className="collaboration-error px-2 text-xs">{renameError}</p>
+          ) : null}
         </div>
       </div>
     );
@@ -4012,10 +4035,7 @@ export function CollaborationSpacePage({
         : rawSpaceMembers;
     const visibleAgentCount = rawSpaceMembers.length;
     const spaceMemberAvatars = rawSpaceMembers.map((member) =>
-      getMemberAvatar(
-        member.conversation_id ?? undefined,
-        displayName(member)
-      )
+      getMemberAvatar(member.conversation_id ?? undefined, displayName(member))
     );
     const tagConfig = spaceTags[space.space_id];
     const tagPreset = tagConfig
@@ -4036,10 +4056,7 @@ export function CollaborationSpacePage({
         key={space.space_id}
         data-space-id={space.space_id}
         data-testid={`collaboration-space-group-${space.space_id}`}
-        className={cn(
-          'collaboration-space',
-          isDropTarget && 'is-drop-target'
-        )}
+        className={cn('collaboration-space', isDropTarget && 'is-drop-target')}
         onDragOver={(event) => {
           event.preventDefault();
           if (event.dataTransfer) {
@@ -4102,231 +4119,230 @@ export function CollaborationSpacePage({
           <div
             className={cn(
               'workspace-session-row collaboration-space-row flex-1 min-w-0',
-              !isUnassigned &&
-                space.space_id === selectedId &&
-                'is-selected'
+              !isUnassigned && space.space_id === selectedId && 'is-selected'
             )}
           >
             {isEditingSpaceName ? (
-            <form
-              className="workspace-session-row-main collaboration-space-header-main is-editing flex items-center gap-1.5"
-              onSubmit={(event) => {
-                event.preventDefault();
-                void renameSpace().catch((cause: unknown) =>
-                  setRenameSpaceError(surfaceErrorCopy(cause))
-                );
-              }}
-            >
-              <CollaborationSpaceIcon
-                avatars={spaceMemberAvatars}
-                tagPreset={tagPreset}
-              />
-              <Input
-                aria-label="修改空间名称输入框"
-                value={renameSpaceName}
-                onChange={(event) => setRenameSpaceName(event.target.value)}
-                onKeyDown={(event) => {
-                  if (event.key === 'Escape') {
-                    event.preventDefault();
-                    event.stopPropagation();
-                    setRenameSpaceOpen(false);
-                    setRenameSpaceError('');
-                  }
-                }}
-                placeholder={t('collaborationSpace.spaceName', '空间名称')}
-                className="workspace-session-title-input h-6 min-w-0 flex-1 px-1.5 text-[12px]"
-                autoFocus
-              />
-              <Button
-                type="button"
-                variant="icon"
-                size="icon"
-                className="collaboration-expand h-6 w-6 shrink-0"
-                aria-label="取消修改空间名称"
-                onClick={() => {
-                  setRenameSpaceOpen(false);
-                  setRenameSpaceError('');
-                }}
-              >
-                <X className="h-3.5 w-3.5" aria-hidden="true" />
-              </Button>
-              <Button
-                type="submit"
-                variant="icon"
-                size="icon"
-                className="collaboration-expand h-6 w-6 shrink-0"
-                aria-label="确认修改空间名称"
-                disabled={!renameSpaceName.trim()}
-              >
-                <Check className="h-3.5 w-3.5" aria-hidden="true" />
-              </Button>
-            </form>
-          ) : (
-            <>
-              <button
-                type="button"
-                className="workspace-session-row-main collaboration-space-header-main"
-                aria-label={space.name}
-                aria-expanded={open}
-                onClick={() => {
-                  if (!isUnassigned && !isVirtualDefault) {
-                    const nextOpen =
-                      space.space_id === selectedId && !hasActiveOverlay
-                        ? !open
-                        : true;
-                    selectSpace(space.space_id, nextOpen);
-                  } else if (isVirtualDefault) {
-                    const nextOpen =
-                      selectedId === VIRTUAL_DEFAULT_SPACE_ID &&
-                      !hasActiveOverlay
-                        ? !open
-                        : true;
-                    closeAllOverlays();
-                    setSelectedId(VIRTUAL_DEFAULT_SPACE_ID);
-                    setThreadVisible(true);
-                    setExpanded((current) => ({
-                      ...current,
-                      [space.space_id]: nextOpen,
-                    }));
-                  } else {
-                    setExpanded((current) => ({
-                      ...current,
-                      [space.space_id]: !open,
-                    }));
-                  }
+              <form
+                className="workspace-session-row-main collaboration-space-header-main is-editing flex items-center gap-1.5"
+                onSubmit={(event) => {
+                  event.preventDefault();
+                  void renameSpace().catch((cause: unknown) =>
+                    setRenameSpaceError(surfaceErrorCopy(cause))
+                  );
                 }}
               >
                 <CollaborationSpaceIcon
                   avatars={spaceMemberAvatars}
                   tagPreset={tagPreset}
                 />
-                <span className="workspace-session-title is-cjk">
-                  {space.name}
-                </span>
-                {!open && spaceMemberAvatars.length > 0 ? (
-                  <span
-                    className="collaboration-space-collapsed-member-stack"
-                    data-testid={`collaboration-space-collapsed-stack-${space.space_id}`}
-                    aria-hidden="true"
-                  >
-                    {spaceMemberAvatars.map((avatar, index) => (
-                      <span
-                        key={index}
-                        className="collaboration-space-collapsed-stack-item"
-                        style={{ zIndex: spaceMemberAvatars.length - index }}
-                      >
-                        <MemberBotAvatar
-                          config={avatar}
-                          animated={false}
-                          className="h-3.5 w-3.5"
-                        />
-                      </span>
-                    ))}
-                  </span>
-                ) : null}
-                <span
-                  className={cn(
-                    'collaboration-space-meta',
-                    hasSpaceHoverActions &&
-                      'collaboration-space-meta--hide-on-hover'
-                  )}
-                >
-                  <span className="workspace-session-group-count">
-                    {visibleAgentCount}
-                  </span>
-                </span>
-              </button>
-              {hasSpaceHoverActions ? (
-                <div className="collaboration-space-hover-actions">
-                  <Popover>
-                    <PopoverTrigger asChild>
-                      <Button
-                        type="button"
-                        variant="icon"
-                        size="icon"
-                        className="collaboration-expand"
-                        aria-label={`标签 ${space.name}`}
-                      >
-                        <Tag className="h-3.5 w-3.5" aria-hidden="true" />
-                      </Button>
-                    </PopoverTrigger>
-                    <PopoverContent align="end" className="w-52 p-2.5">
-                      <div className="flex flex-col gap-2">
-                        <span className="text-xs font-medium text-[var(--text-strong)]">
-                          {COPY.spaceTagLabel}
-                        </span>
-                        <div className="flex flex-wrap gap-1.5">
-                          {SPACE_TAG_PRESETS.map((preset) => {
-                            const selectedTag = tagConfig?.colorId === preset.id;
-                            return (
-                              <button
-                                key={preset.id}
-                                type="button"
-                                className={cn(
-                                  'collaboration-tag-swatch',
-                                  selectedTag && 'is-selected'
-                                )}
-                                onClick={() =>
-                                  updateSpaceTag(
-                                    space.space_id,
-                                    selectedTag
-                                      ? null
-                                      : {
-                                          colorId: preset.id,
-                                          label: tagConfig?.label,
-                                        }
-                                  )
-                                }
-                              >
-                                <span
-                                  className="collaboration-space-tag-dot"
-                                  style={{
-                                    backgroundColor: `hsl(${preset.hue})`,
-                                  }}
-                                />
-                                <span>{preset.label}</span>
-                              </button>
-                            );
-                          })}
-                        </div>
-                      </div>
-                    </PopoverContent>
-                  </Popover>
-                  <Button
-                    type="button"
-                    variant="icon"
-                    size="icon"
-                    className="collaboration-expand collaboration-edit-name-btn"
-                    aria-label={`修改名称 ${space.name}`}
-                    onClick={(event) => {
+                <Input
+                  aria-label="修改空间名称输入框"
+                  value={renameSpaceName}
+                  onChange={(event) => setRenameSpaceName(event.target.value)}
+                  onKeyDown={(event) => {
+                    if (event.key === 'Escape') {
+                      event.preventDefault();
                       event.stopPropagation();
-                      setRenameSpaceTargetId(space.space_id);
-                      setRenameSpaceName(space.name);
+                      setRenameSpaceOpen(false);
                       setRenameSpaceError('');
-                      setRenameSpaceOpen(true);
-                    }}
-                  >
-                    <Pencil className="h-3.5 w-3.5" aria-hidden="true" />
-                  </Button>
-                  <Button
-                    type="button"
-                    variant="icon"
-                    size="icon"
-                    className="collaboration-expand"
-                    aria-label={t('collaborationSpace.addMemberAria', {
-                      name: space.name,
-                      defaultValue: `${COPY.addMember} ${space.name}`,
-                    })}
-                    onClick={() =>
-                      openCreateMemberDialog(space.space_id, 'session')
                     }
+                  }}
+                  placeholder={t('collaborationSpace.spaceName', '空间名称')}
+                  className="workspace-session-title-input h-6 min-w-0 flex-1 px-1.5 text-[12px]"
+                  autoFocus
+                />
+                <Button
+                  type="button"
+                  variant="icon"
+                  size="icon"
+                  className="collaboration-expand h-6 w-6 shrink-0"
+                  aria-label="取消修改空间名称"
+                  onClick={() => {
+                    setRenameSpaceOpen(false);
+                    setRenameSpaceError('');
+                  }}
+                >
+                  <X className="h-3.5 w-3.5" aria-hidden="true" />
+                </Button>
+                <Button
+                  type="submit"
+                  variant="icon"
+                  size="icon"
+                  className="collaboration-expand h-6 w-6 shrink-0"
+                  aria-label="确认修改空间名称"
+                  disabled={!renameSpaceName.trim()}
+                >
+                  <Check className="h-3.5 w-3.5" aria-hidden="true" />
+                </Button>
+              </form>
+            ) : (
+              <>
+                <button
+                  type="button"
+                  className="workspace-session-row-main collaboration-space-header-main"
+                  aria-label={space.name}
+                  aria-expanded={open}
+                  onClick={() => {
+                    if (!isUnassigned && !isVirtualDefault) {
+                      const nextOpen =
+                        space.space_id === selectedId && !hasActiveOverlay
+                          ? !open
+                          : true;
+                      selectSpace(space.space_id, nextOpen);
+                    } else if (isVirtualDefault) {
+                      const nextOpen =
+                        selectedId === VIRTUAL_DEFAULT_SPACE_ID &&
+                        !hasActiveOverlay
+                          ? !open
+                          : true;
+                      closeAllOverlays();
+                      setSelectedId(VIRTUAL_DEFAULT_SPACE_ID);
+                      setThreadVisible(true);
+                      setExpanded((current) => ({
+                        ...current,
+                        [space.space_id]: nextOpen,
+                      }));
+                    } else {
+                      setExpanded((current) => ({
+                        ...current,
+                        [space.space_id]: !open,
+                      }));
+                    }
+                  }}
+                >
+                  <CollaborationSpaceIcon
+                    avatars={spaceMemberAvatars}
+                    tagPreset={tagPreset}
+                  />
+                  <span className="workspace-session-title is-cjk">
+                    {space.name}
+                  </span>
+                  {!open && spaceMemberAvatars.length > 0 ? (
+                    <span
+                      className="collaboration-space-collapsed-member-stack"
+                      data-testid={`collaboration-space-collapsed-stack-${space.space_id}`}
+                      aria-hidden="true"
+                    >
+                      {spaceMemberAvatars.map((avatar, index) => (
+                        <span
+                          key={index}
+                          className="collaboration-space-collapsed-stack-item"
+                          style={{ zIndex: spaceMemberAvatars.length - index }}
+                        >
+                          <MemberBotAvatar
+                            config={avatar}
+                            animated={false}
+                            className="h-3.5 w-3.5"
+                          />
+                        </span>
+                      ))}
+                    </span>
+                  ) : null}
+                  <span
+                    className={cn(
+                      'collaboration-space-meta',
+                      hasSpaceHoverActions &&
+                        'collaboration-space-meta--hide-on-hover'
+                    )}
                   >
-                    <UserPlus className="h-3.5 w-3.5" aria-hidden="true" />
-                  </Button>
-                </div>
-              ) : null}
-            </>
-          )}
+                    <span className="workspace-session-group-count">
+                      {visibleAgentCount}
+                    </span>
+                  </span>
+                </button>
+                {hasSpaceHoverActions ? (
+                  <div className="collaboration-space-hover-actions">
+                    <Popover>
+                      <PopoverTrigger asChild>
+                        <Button
+                          type="button"
+                          variant="icon"
+                          size="icon"
+                          className="collaboration-expand"
+                          aria-label={`标签 ${space.name}`}
+                        >
+                          <Tag className="h-3.5 w-3.5" aria-hidden="true" />
+                        </Button>
+                      </PopoverTrigger>
+                      <PopoverContent align="end" className="w-52 p-2.5">
+                        <div className="flex flex-col gap-2">
+                          <span className="text-xs font-medium text-[var(--text-strong)]">
+                            {COPY.spaceTagLabel}
+                          </span>
+                          <div className="flex flex-wrap gap-1.5">
+                            {SPACE_TAG_PRESETS.map((preset) => {
+                              const selectedTag =
+                                tagConfig?.colorId === preset.id;
+                              return (
+                                <button
+                                  key={preset.id}
+                                  type="button"
+                                  className={cn(
+                                    'collaboration-tag-swatch',
+                                    selectedTag && 'is-selected'
+                                  )}
+                                  onClick={() =>
+                                    updateSpaceTag(
+                                      space.space_id,
+                                      selectedTag
+                                        ? null
+                                        : {
+                                            colorId: preset.id,
+                                            label: tagConfig?.label,
+                                          }
+                                    )
+                                  }
+                                >
+                                  <span
+                                    className="collaboration-space-tag-dot"
+                                    style={{
+                                      backgroundColor: `hsl(${preset.hue})`,
+                                    }}
+                                  />
+                                  <span>{preset.label}</span>
+                                </button>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      </PopoverContent>
+                    </Popover>
+                    <Button
+                      type="button"
+                      variant="icon"
+                      size="icon"
+                      className="collaboration-expand collaboration-edit-name-btn"
+                      aria-label={`修改名称 ${space.name}`}
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        setRenameSpaceTargetId(space.space_id);
+                        setRenameSpaceName(space.name);
+                        setRenameSpaceError('');
+                        setRenameSpaceOpen(true);
+                      }}
+                    >
+                      <Pencil className="h-3.5 w-3.5" aria-hidden="true" />
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="icon"
+                      size="icon"
+                      className="collaboration-expand"
+                      aria-label={t('collaborationSpace.addMemberAria', {
+                        name: space.name,
+                        defaultValue: `${COPY.addMember} ${space.name}`,
+                      })}
+                      onClick={() =>
+                        openCreateMemberDialog(space.space_id, 'session')
+                      }
+                    >
+                      <UserPlus className="h-3.5 w-3.5" aria-hidden="true" />
+                    </Button>
+                  </div>
+                ) : null}
+              </>
+            )}
           </div>
         </div>
         {isEditingSpaceName && renameSpaceError ? (
@@ -4542,7 +4558,9 @@ export function CollaborationSpacePage({
               <div className="grid grid-cols-2 gap-2">
                 <Button
                   type="button"
-                  variant={spaceAddMemberTab === 'select' ? 'default' : 'outline'}
+                  variant={
+                    spaceAddMemberTab === 'select' ? 'default' : 'outline'
+                  }
                   onClick={() => setSpaceAddMemberTab('select')}
                   className="h-8 text-xs"
                 >
@@ -4550,7 +4568,9 @@ export function CollaborationSpacePage({
                 </Button>
                 <Button
                   type="button"
-                  variant={spaceAddMemberTab === 'create' ? 'default' : 'outline'}
+                  variant={
+                    spaceAddMemberTab === 'create' ? 'default' : 'outline'
+                  }
                   onClick={() => {
                     if (!inlineMemberRoleId && roles[0]?.id) {
                       setInlineMemberRoleId(roles[0].id);
@@ -5096,7 +5116,9 @@ export function CollaborationSpacePage({
                             )}
                             aria-label={COPY.filterLabel}
                           >
-                            <Filter className={SESSION_LIST_ACTION_ICON_CLASS} />
+                            <Filter
+                              className={SESSION_LIST_ACTION_ICON_CLASS}
+                            />
                           </Button>
                         </PopoverTrigger>
                         <PopoverContent align="end" className="w-60 p-3">
@@ -5301,8 +5323,7 @@ export function CollaborationSpacePage({
                   {visibleRoster.map((member) => {
                     const nick = displayName(member);
                     const convId = member.conversation_id ?? '';
-                    const memberHoverKey =
-                      member.member_id ?? (convId || nick);
+                    const memberHoverKey = member.member_id ?? (convId || nick);
                     const memberConv = convId
                       ? conversationById.get(convId)
                       : undefined;
@@ -5332,10 +5353,7 @@ export function CollaborationSpacePage({
                       hasDelayedMessages &&
                       hoveredDelayedMemberKey === memberHoverKey;
                     return (
-                      <Popover
-                        key={memberHoverKey}
-                        open={isDelayedPopoverOpen}
-                      >
+                      <Popover key={memberHoverKey} open={isDelayedPopoverOpen}>
                         <PopoverTrigger asChild>
                           <button
                             type="button"
@@ -5573,123 +5591,121 @@ export function CollaborationSpacePage({
                       </Button>
                     </div>
                   </div>
-                ) : selected && filteredMessages.length > 0
-                  ? filteredMessages.map((message) => {
-                      const author = messageAuthor(message.envelope);
-                      const fromYou = author === COPY.you;
-                      const name = fromYou
-                        ? t('collaborationSpace.you', COPY.you)
-                        : author || COPY.you;
-                      const authorConversationId = resolveMessageConversationId(
-                        message.envelope,
-                        members
-                      );
-                      const authorConv = authorConversationId
-                        ? conversationById.get(authorConversationId)
-                        : undefined;
-                      const messageReceipts = resolveMessageReceipts(
-                        message.envelope,
-                        receiptsBySeq[message.seq] ?? EMPTY_RECEIPTS
-                      );
-                      const messageKey = String(message.seq);
-                      return (
-                        <article
-                          key={message.seq}
-                          ref={(node) => {
-                            if (node) {
-                              messageItemRefs.current.set(messageKey, node);
-                            } else {
-                              messageItemRefs.current.delete(messageKey);
-                            }
-                          }}
-                          className="collaboration-message"
-                        >
-                          {!fromYou ? (
-                            <div className="collaboration-message-header">
-                              <button
-                                type="button"
-                                className="collaboration-message-avatar"
-                                aria-label={`预览 ${name} 会话`}
-                                onClick={() => {
-                                  if (!authorConversationId) return;
-                                  const agentId = authorConv?.agent_id
-                                    ? String(authorConv.agent_id)
-                                    : undefined;
-                                  openPreviewItem({
-                                    id: memberPreviewPanelId(
-                                      authorConversationId
-                                    ),
-                                    kind: 'member',
-                                    title: name,
-                                    workspaceId: workspace,
-                                    conversationId: authorConversationId,
-                                    ...(agentId ? { agentId } : {}),
-                                    spaceId: selected.space_id,
-                                  });
-                                }}
-                              >
-                                <MemberBotAvatar
-                                  config={getMemberAvatar(
-                                    authorConversationId,
-                                    name
-                                  )}
-                                  sessionActive={Boolean(
-                                    authorConv?.turn_in_flight ||
-                                      authorConv?.status === 'inprogress'
-                                  )}
-                                  className="h-5 w-5"
-                                  data-testid={`collaboration-message-bot-avatar-${message.seq}`}
-                                />
-                              </button>
-                              <p className="collaboration-message-name">
-                                {name}
-                              </p>
-                            </div>
-                          ) : null}
-                          <SpaceMessageBody
-                            fromYou={fromYou}
-                            text={bubbleText(message.envelope)}
-                            workspacePath={workspacePath}
-                            workspaceId={workspace || undefined}
-                          />
-                          {messageReceipts.length > 0 ? (
-                            <ul className="collaboration-receipts">
-                              {messageReceipts.map((receipt, index) => {
-                                const status = receiptStatusCopy(
-                                  receipt,
-                                  receiptLabels
-                                );
-                                const failed =
-                                  receipt.delivered === 'failed' ||
-                                  Boolean(receipt.error_code);
-                                return (
-                                  <li
-                                    key={
-                                      receipt.conversation_id ??
-                                      receipt.nickname ??
-                                      `${message.seq}-${index}`
-                                    }
-                                    className="collaboration-receipt"
-                                    data-status={
-                                      failed
-                                        ? 'failed'
-                                        : (receipt.delivered ?? 'queued')
-                                    }
-                                  >
-                                    <span>
-                                      {receipt.nickname
-                                        ? `${receipt.nickname} ${status}`
-                                        : status}
-                                    </span>
-                                  </li>
-                                );
-                              })}
-                            </ul>
-                          ) : null}
-                        </article>
-                      );
-                    })
-                  : null}
+                ) : selected && filteredMessages.length > 0 ? (
+                  filteredMessages.map((message) => {
+                    const author = messageAuthor(message.envelope);
+                    const fromYou = author === COPY.you;
+                    const name = fromYou
+                      ? t('collaborationSpace.you', COPY.you)
+                      : author || COPY.you;
+                    const authorConversationId = resolveMessageConversationId(
+                      message.envelope,
+                      members
+                    );
+                    const authorConv = authorConversationId
+                      ? conversationById.get(authorConversationId)
+                      : undefined;
+                    const messageReceipts = resolveMessageReceipts(
+                      message.envelope,
+                      receiptsBySeq[message.seq] ?? EMPTY_RECEIPTS
+                    );
+                    const messageKey = String(message.seq);
+                    return (
+                      <article
+                        key={message.seq}
+                        ref={(node) => {
+                          if (node) {
+                            messageItemRefs.current.set(messageKey, node);
+                          } else {
+                            messageItemRefs.current.delete(messageKey);
+                          }
+                        }}
+                        className="collaboration-message"
+                      >
+                        {!fromYou ? (
+                          <div className="collaboration-message-header">
+                            <button
+                              type="button"
+                              className="collaboration-message-avatar"
+                              aria-label={`预览 ${name} 会话`}
+                              onClick={() => {
+                                if (!authorConversationId) return;
+                                const agentId = authorConv?.agent_id
+                                  ? String(authorConv.agent_id)
+                                  : undefined;
+                                openPreviewItem({
+                                  id: memberPreviewPanelId(
+                                    authorConversationId
+                                  ),
+                                  kind: 'member',
+                                  title: name,
+                                  workspaceId: workspace,
+                                  conversationId: authorConversationId,
+                                  ...(agentId ? { agentId } : {}),
+                                  spaceId: selected.space_id,
+                                });
+                              }}
+                            >
+                              <MemberBotAvatar
+                                config={getMemberAvatar(
+                                  authorConversationId,
+                                  name
+                                )}
+                                sessionActive={Boolean(
+                                  authorConv?.turn_in_flight ||
+                                    authorConv?.status === 'inprogress'
+                                )}
+                                className="h-5 w-5"
+                                data-testid={`collaboration-message-bot-avatar-${message.seq}`}
+                              />
+                            </button>
+                            <p className="collaboration-message-name">{name}</p>
+                          </div>
+                        ) : null}
+                        <SpaceMessageBody
+                          fromYou={fromYou}
+                          text={bubbleText(message.envelope)}
+                          workspacePath={workspacePath}
+                          workspaceId={workspace || undefined}
+                        />
+                        {messageReceipts.length > 0 ? (
+                          <ul className="collaboration-receipts">
+                            {messageReceipts.map((receipt, index) => {
+                              const status = receiptStatusCopy(
+                                receipt,
+                                receiptLabels
+                              );
+                              const failed =
+                                receipt.delivered === 'failed' ||
+                                Boolean(receipt.error_code);
+                              return (
+                                <li
+                                  key={
+                                    receipt.conversation_id ??
+                                    receipt.nickname ??
+                                    `${message.seq}-${index}`
+                                  }
+                                  className="collaboration-receipt"
+                                  data-status={
+                                    failed
+                                      ? 'failed'
+                                      : (receipt.delivered ?? 'queued')
+                                  }
+                                >
+                                  <span>
+                                    {receipt.nickname
+                                      ? `${receipt.nickname} ${status}`
+                                      : status}
+                                  </span>
+                                </li>
+                              );
+                            })}
+                          </ul>
+                        ) : null}
+                      </article>
+                    );
+                  })
+                ) : null}
               </div>
 
               <ConversationSelectionToolbar
@@ -5708,9 +5724,7 @@ export function CollaborationSpacePage({
                 <div className="conv-message-nav-anchor">
                   <ConversationMessageNav
                     entries={navEntries}
-                    activeIndex={
-                      activeNavIndex ?? navEntries.length - 1
-                    }
+                    activeIndex={activeNavIndex ?? navEntries.length - 1}
                     onSelect={scrollToMessage}
                   />
                 </div>

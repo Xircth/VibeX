@@ -1,6 +1,6 @@
 import type { JsonValue, PluginContext } from './protocol.js';
 import type { Disposer } from './registry.js';
-import { type ServiceContainer, type ServiceKey, type WaterfallInterceptor } from './services.js';
+import { type InjectedServicesRecord, type ServiceContainer, type ServiceDecorator, type ServiceKey, type WaterfallInterceptor } from './services.js';
 export interface Disposable {
     dispose(): void | Promise<void>;
 }
@@ -11,10 +11,10 @@ export interface PluginWorkerServiceRegistry {
     provide<T>(key: ServiceKey<T> | string, implementation: T): Disposer;
     get<T>(key: ServiceKey<T> | string): T | undefined;
     inject<T>(key: ServiceKey<T> | string): T | undefined;
-    inject(deps: ReadonlyArray<ServiceKey<unknown> | string>, effect: (resolved: any) => void | Disposer): Disposer;
+    inject<TResolved = InjectedServicesRecord>(deps: ReadonlyArray<ServiceKey<unknown> | string>, effect: (resolved: TResolved) => void | Disposer): Disposer;
     require<T>(key: ServiceKey<T> | string): T;
     has<T>(key: ServiceKey<T> | string): boolean;
-    intercept<TPayload = unknown, TResult = unknown>(hookName: string, fn: WaterfallInterceptor<TPayload, TResult> | ((previousService: any) => any), order?: number): Disposer;
+    intercept<TPayload = unknown, TResult = TPayload>(hookName: string, fn: WaterfallInterceptor<TPayload, TResult> | ServiceDecorator<TPayload, TResult>, order?: number): Disposer;
     runWaterfall<TPayload, TResult>(hookName: string, initialPayload: TPayload, terminal: (payload: TPayload) => Promise<TResult>, perHookTimeoutMs?: number): Promise<TResult>;
     subscribe(listener: () => void): Disposer;
 }

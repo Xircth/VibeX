@@ -39,6 +39,8 @@ import {
 } from './registry.js';
 import {
   EffectScope,
+  type InjectedServicesRecord,
+  type ServiceDecorator,
   serviceContainer,
   type ServiceKey,
   type WaterfallInterceptor,
@@ -276,18 +278,40 @@ export type BeforeTurnHookPayload = PromptTurnContextInput & {
   internalPromptContributions?: InternalPromptContributionBlock[];
 };
 
+export type BeforeTurnSimpleHook = (
+  turn: BeforeTurnHookPayload
+) =>
+  | Promise<PromptTurnContributionResult | string | null | void>
+  | PromptTurnContributionResult
+  | string
+  | null
+  | void;
+
+export type BeforeTurnHook<
+  TPayload = BeforeTurnHookPayload,
+  TResult = PromptTurnContributionResult | string | void | TPayload,
+> = BeforeTurnSimpleHook | WaterfallInterceptor<TPayload, TResult>;
+
+export type AfterTurnSimpleHook = (
+  event: AfterTurnHookEvent
+) => void | Promise<void>;
+
+export type AfterTurnHook<
+  TPayload = AfterTurnHookEvent,
+  TResult = TPayload,
+> = AfterTurnSimpleHook | WaterfallInterceptor<TPayload, TResult>;
+
+export type RuntimeEventSimpleHook = (
+  event: RuntimeEventHookPayload
+) => void | Promise<void>;
+
+export type RuntimeEventHook<
+  TPayload = RuntimeEventHookPayload,
+  TResult = TPayload,
+> = RuntimeEventSimpleHook | WaterfallInterceptor<TPayload, TResult>;
+
 export interface PluginHooksNamespace {
-  beforeTurn(
-    fn: (
-      turn: BeforeTurnHookPayload
-    ) =>
-      | Promise<PromptTurnContributionResult | string | null | void>
-      | PromptTurnContributionResult
-      | string
-      | null
-      | void,
-    order?: number
-  ): Disposer;
+  beforeTurn(fn: BeforeTurnSimpleHook, order?: number): Disposer;
   beforeTurn<
     TPayload = BeforeTurnHookPayload,
     TResult = PromptTurnContributionResult | string | void | TPayload,
@@ -295,18 +319,12 @@ export interface PluginHooksNamespace {
     fn: WaterfallInterceptor<TPayload, TResult>,
     order?: number
   ): Disposer;
-  afterTurn(
-    fn: (event: AfterTurnHookEvent) => void | Promise<void>,
-    order?: number
-  ): Disposer;
+  afterTurn(fn: AfterTurnSimpleHook, order?: number): Disposer;
   afterTurn<TPayload = AfterTurnHookEvent, TResult = TPayload>(
     fn: WaterfallInterceptor<TPayload, TResult>,
     order?: number
   ): Disposer;
-  onRuntimeEvent(
-    fn: (event: RuntimeEventHookPayload) => void | Promise<void>,
-    order?: number
-  ): Disposer;
+  onRuntimeEvent(fn: RuntimeEventSimpleHook, order?: number): Disposer;
   onRuntimeEvent<TPayload = RuntimeEventHookPayload, TResult = TPayload>(
     fn: WaterfallInterceptor<TPayload, TResult>,
     order?: number
@@ -337,18 +355,16 @@ export interface PluginServicesNamespace {
   provide<T>(key: ServiceKey<T> | string, implementation: T): Disposer;
   get<T>(key: ServiceKey<T> | string): T | undefined;
   inject<T>(key: ServiceKey<T> | string): T | undefined;
-  inject(
+  inject<TResolved = InjectedServicesRecord>(
     deps: ReadonlyArray<ServiceKey<unknown> | string>,
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    effect: (resolved: any) => void | Disposer
+    effect: (resolved: TResolved) => void | Disposer
   ): Disposer;
   require<T>(key: ServiceKey<T> | string): T;
-  intercept<TPayload = unknown, TResult = unknown>(
+  intercept<TPayload = unknown, TResult = TPayload>(
     hookName: string,
     fn:
       | WaterfallInterceptor<TPayload, TResult>
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      | ((previousService: any) => any),
+      | ServiceDecorator<TPayload, TResult>,
     order?: number
   ): Disposer;
   onChange<T>(key: ServiceKey<T> | string, listener: () => void): Disposer;
@@ -396,6 +412,7 @@ export interface VibeXPluginContext {
   readonly pluginId: string;
   readonly generation: number;
   readonly scope: EffectScope;
+  readonly effects: EffectScope;
 
   readonly ui: PluginUiNamespace;
   readonly hooks: PluginHooksNamespace;
@@ -939,98 +956,101 @@ export function createPluginContext(
   let hookCounter = 0;
 
   const hooks: PluginHooksNamespace = {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    beforeTurn(fn: any, order = 0) {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const wrapped: WaterfallInterceptor<any, any> = async (turn, next) => {
-        let nextCalled = false;
-        let currentTurn = turn;
-        const callNext = async (nextPayload: unknown) => {
-          nextCalled = true;
-          currentTurn = await next(nextPayload ?? turn);
-          return currentTurn;
-        };
-        const result = await (fn as WaterfallInterceptor<unknown, unknown>)(
-          turn,
-          callNext
-        );
-        if (!nextCalled) {
-          currentTurn = await next(turn);
-        }
-        if (
-          typeof result === 'string' &&
-          result.trim() &&
-          currentTurn &&
-          typeof currentTurn === 'object' &&
-          Array.isArray(currentTurn.internalPromptContributions)
-        ) {
-          currentTurn.internalPromptContributions.push({
-            pluginId,
-            label: null,
-            content: result.trim(),
-            priority: order,
-          });
-          return currentTurn;
-        }
-        if (
-          result &&
-          typeof result === 'object' &&
-          !Array.isArray(result) &&
-          ('content' in result ||
-            'hiddenContext' in result ||
-            'appendPrompt' in result ||
-            'prependSystemPrompt' in result ||
-            'blocks' in result ||
-            ('text' in result && !('internalPromptContributions' in result)))
-        ) {
-          const r = result as PromptTurnContributionResult;
-          if (
-            typeof r.text === 'string' &&
-            r.text.trim() &&
-            currentTurn &&
-            typeof currentTurn === 'object'
-          ) {
-            currentTurn = { ...currentTurn, text: r.text };
+    beforeTurn<
+      TPayload = BeforeTurnHookPayload,
+      TResult = PromptTurnContributionResult | string | void | TPayload,
+    >(fn: BeforeTurnHook<TPayload, TResult>, order = 0) {
+      const wrapped: WaterfallInterceptor<BeforeTurnHookPayload, unknown> =
+        async (turn, next) => {
+          let nextCalled = false;
+          let currentTurn: BeforeTurnHookPayload = turn;
+          const callNext = async (nextPayload: BeforeTurnHookPayload) => {
+            nextCalled = true;
+            currentTurn = (await next(
+              nextPayload ?? turn
+            )) as BeforeTurnHookPayload;
+            return currentTurn;
+          };
+          const result = await (
+            fn as WaterfallInterceptor<BeforeTurnHookPayload, unknown>
+          )(turn, callNext);
+          if (!nextCalled) {
+            currentTurn = (await next(turn)) as BeforeTurnHookPayload;
           }
-          const content =
-            r.content?.trim() ||
-            r.hiddenContext?.trim() ||
-            r.appendPrompt?.trim() ||
-            r.prependSystemPrompt?.trim();
           if (
-            content &&
+            typeof result === 'string' &&
+            result.trim() &&
             currentTurn &&
             typeof currentTurn === 'object' &&
             Array.isArray(currentTurn.internalPromptContributions)
           ) {
             currentTurn.internalPromptContributions.push({
               pluginId,
-              label: r.label ?? null,
-              content,
-              priority: r.priority ?? order,
+              label: null,
+              content: result.trim(),
+              priority: order,
             });
+            return currentTurn;
           }
           if (
-            Array.isArray(r.blocks) &&
-            currentTurn &&
-            typeof currentTurn === 'object' &&
-            Array.isArray(currentTurn.internalPromptContributions)
+            result &&
+            typeof result === 'object' &&
+            !Array.isArray(result) &&
+            ('content' in result ||
+              'hiddenContext' in result ||
+              'appendPrompt' in result ||
+              'prependSystemPrompt' in result ||
+              'blocks' in result ||
+              ('text' in result && !('internalPromptContributions' in result)))
           ) {
-            for (const block of r.blocks) {
-              const blockContent = block?.content?.trim();
-              if (!blockContent) continue;
+            const r = result as PromptTurnContributionResult;
+            if (
+              typeof r.text === 'string' &&
+              r.text.trim() &&
+              currentTurn &&
+              typeof currentTurn === 'object'
+            ) {
+              currentTurn = { ...currentTurn, text: r.text };
+            }
+            const content =
+              r.content?.trim() ||
+              r.hiddenContext?.trim() ||
+              r.appendPrompt?.trim() ||
+              r.prependSystemPrompt?.trim();
+            if (
+              content &&
+              currentTurn &&
+              typeof currentTurn === 'object' &&
+              Array.isArray(currentTurn.internalPromptContributions)
+            ) {
               currentTurn.internalPromptContributions.push({
                 pluginId,
-                label: block.label ?? null,
-                content: blockContent,
-                priority: block.priority ?? r.priority ?? (order || 100),
+                label: r.label ?? null,
+                content,
+                priority: r.priority ?? order,
               });
             }
+            if (
+              Array.isArray(r.blocks) &&
+              currentTurn &&
+              typeof currentTurn === 'object' &&
+              Array.isArray(currentTurn.internalPromptContributions)
+            ) {
+              for (const block of r.blocks) {
+                const blockContent = block?.content?.trim();
+                if (!blockContent) continue;
+                currentTurn.internalPromptContributions.push({
+                  pluginId,
+                  label: block.label ?? null,
+                  content: blockContent,
+                  priority: block.priority ?? r.priority ?? (order || 100),
+                });
+              }
+            }
+            return currentTurn;
           }
-          return currentTurn;
-        }
-        return result !== undefined ? result : currentTurn;
-      };
+          return result !== undefined ? result : currentTurn;
+        };
       return track(
         serviceContainer.intercept(
           'conversation.beforeTurn',
@@ -1040,21 +1060,24 @@ export function createPluginContext(
         )
       );
     },
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    afterTurn(fn: any, order = 0) {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const wrapped: WaterfallInterceptor<any, any> = async (event, next) => {
+    afterTurn<TPayload = AfterTurnHookEvent, TResult = TPayload>(
+      fn: AfterTurnHook<TPayload, TResult>,
+      order = 0
+    ) {
+      const wrapped: WaterfallInterceptor<AfterTurnHookEvent, unknown> = async (
+        event,
+        next
+      ) => {
         let nextCalled = false;
-        let out = event;
-        const callNext = async (nextPayload: unknown) => {
+        let out: unknown = event;
+        const callNext = async (nextPayload: AfterTurnHookEvent) => {
           nextCalled = true;
           out = await next(nextPayload ?? event);
           return out;
         };
-        const res = await (fn as WaterfallInterceptor<unknown, unknown>)(
-          event,
-          callNext
-        );
+        const res = await (
+          fn as WaterfallInterceptor<AfterTurnHookEvent, unknown>
+        )(event, callNext);
         if (!nextCalled) {
           out = await next(event);
         }
@@ -1069,26 +1092,27 @@ export function createPluginContext(
         )
       );
     },
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    onRuntimeEvent(fn: any, order = 0) {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const wrapped: WaterfallInterceptor<any, any> = async (event, next) => {
-        let nextCalled = false;
-        let out = event;
-        const callNext = async (nextPayload: unknown) => {
-          nextCalled = true;
-          out = await next(nextPayload ?? event);
-          return out;
+    onRuntimeEvent<TPayload = RuntimeEventHookPayload, TResult = TPayload>(
+      fn: RuntimeEventHook<TPayload, TResult>,
+      order = 0
+    ) {
+      const wrapped: WaterfallInterceptor<RuntimeEventHookPayload, unknown> =
+        async (event, next) => {
+          let nextCalled = false;
+          let out: unknown = event;
+          const callNext = async (nextPayload: RuntimeEventHookPayload) => {
+            nextCalled = true;
+            out = await next(nextPayload ?? event);
+            return out;
+          };
+          const res = await (
+            fn as WaterfallInterceptor<RuntimeEventHookPayload, unknown>
+          )(event, callNext);
+          if (!nextCalled) {
+            out = await next(event);
+          }
+          return res !== undefined ? res : out;
         };
-        const res = await (fn as WaterfallInterceptor<unknown, unknown>)(
-          event,
-          callNext
-        );
-        if (!nextCalled) {
-          out = await next(event);
-        }
-        return res !== undefined ? res : out;
-      };
       return track(
         serviceContainer.intercept('runtime.event', wrapped, order, pluginId)
       );
@@ -1140,18 +1164,16 @@ export function createPluginContext(
   };
 
   function injectImpl<T>(key: ServiceKey<T> | string): T | undefined;
-  function injectImpl(
+  function injectImpl<TResolved = InjectedServicesRecord>(
     deps: ReadonlyArray<ServiceKey<unknown> | string>,
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    effect: (resolved: any) => void | Disposer
+    effect: (resolved: TResolved) => void | Disposer
   ): Disposer;
-  function injectImpl<T>(
+  function injectImpl<T, TResolved = InjectedServicesRecord>(
     keyOrDeps:
       | ServiceKey<T>
       | string
       | ReadonlyArray<ServiceKey<unknown> | string>,
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    effect?: (resolved: any) => void | Disposer
+    effect?: (resolved: TResolved) => void | Disposer
   ): T | undefined | Disposer {
     if (Array.isArray(keyOrDeps)) {
       if (typeof effect !== 'function') {
@@ -1159,10 +1181,7 @@ export function createPluginContext(
           'ctx.services.inject(deps, effect) requires an effect callback'
         );
       }
-      const wrappedEffect = (
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        resolved: Record<string, any> & Iterable<any>
-      ): Disposer => {
+      const wrappedEffect = (resolved: TResolved): Disposer => {
         const subScope = new EffectScope();
         scopeStack.push(subScope);
         try {
@@ -1177,7 +1196,9 @@ export function createPluginContext(
           subScope.dispose();
         };
       };
-      return track(serviceContainer.inject(keyOrDeps, wrappedEffect, pluginId));
+      return track(
+        serviceContainer.inject(keyOrDeps, wrappedEffect, pluginId)
+      );
     }
     return serviceContainer.inject(keyOrDeps as ServiceKey<T> | string);
   }
@@ -1193,12 +1214,11 @@ export function createPluginContext(
     require<T>(key: ServiceKey<T> | string): T {
       return serviceContainer.require(key);
     },
-    intercept<TPayload = unknown, TResult = unknown>(
+    intercept<TPayload = unknown, TResult = TPayload>(
       hookName: string,
       fn:
         | WaterfallInterceptor<TPayload, TResult>
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        | ((previousService: any) => any),
+        | ServiceDecorator<TPayload, TResult>,
       order = 0
     ): Disposer {
       return track(
@@ -1229,6 +1249,7 @@ export function createPluginContext(
     pluginId,
     generation,
     scope,
+    effects: scope,
 
     ui,
     hooks,

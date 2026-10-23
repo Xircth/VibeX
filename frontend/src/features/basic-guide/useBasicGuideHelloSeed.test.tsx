@@ -18,7 +18,11 @@ function Harness({
   return null;
 }
 
-function renderSeed(substep: string, value: string, onChange: (next: string) => void) {
+function renderSeed(
+  substep: string,
+  value: string,
+  onChange: (next: string) => void
+) {
   const ctx = {
     state: {
       phase: 'active',

@@ -27,6 +27,7 @@ import {
   isPluginLocked,
   isPluginRuntimeActive,
   isSystemBundlePlugin,
+  loadPluginRuntime,
   pluginRuntimeLoader,
 } from './PluginRuntimeLoader';
 

@@ -24,6 +24,84 @@ use vibex_plugin_sdk::protocol::{
 
 use crate::PluginPackage;
 
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GrantLimits {
+    #[serde(default = "default_max_concurrency")]
+    pub max_concurrency: usize,
+    #[serde(default = "default_max_requests_per_minute")]
+    pub max_requests_per_minute: u32,
+    #[serde(default = "default_max_request_bytes")]
+    pub max_request_bytes: usize,
+    #[serde(default = "default_timeout_ms")]
+    pub timeout_ms: u64,
+}
+
+fn default_max_concurrency() -> usize {
+    4
+}
+
+fn default_max_requests_per_minute() -> u32 {
+    120
+}
+
+fn default_max_request_bytes() -> usize {
+    1_048_576
+}
+
+fn default_timeout_ms() -> u64 {
+    30_000
+}
+
+impl Default for GrantLimits {
+    fn default() -> Self {
+        Self {
+            max_concurrency: default_max_concurrency(),
+            max_requests_per_minute: default_max_requests_per_minute(),
+            max_request_bytes: default_max_request_bytes(),
+            timeout_ms: default_timeout_ms(),
+        }
+    }
+}
+
+impl GrantLimits {
+    pub fn from_scope(scope: &Value) -> Self {
+        let mut limits = Self::default();
+        let source = scope.get("limits").unwrap_or(scope);
+        if let Some(val) = source
+            .get("maxRequestBytes")
+            .or_else(|| source.get("max_request_bytes"))
+            .or_else(|| scope.get("maxRequestBytes"))
+            .or_else(|| scope.get("max_request_bytes"))
+            .and_then(Value::as_u64)
+        {
+            limits.max_request_bytes = usize::try_from(val).unwrap_or(usize::MAX);
+        }
+        if let Some(val) = source
+            .get("maxConcurrency")
+            .or_else(|| source.get("max_concurrency"))
+            .and_then(Value::as_u64)
+        {
+            limits.max_concurrency = usize::try_from(val).unwrap_or(4);
+        }
+        if let Some(val) = source
+            .get("maxRequestsPerMinute")
+            .or_else(|| source.get("max_requests_per_minute"))
+            .and_then(Value::as_u64)
+        {
+            limits.max_requests_per_minute = u32::try_from(val).unwrap_or(120);
+        }
+        if let Some(val) = source
+            .get("timeoutMs")
+            .or_else(|| source.get("timeout_ms"))
+            .and_then(Value::as_u64)
+        {
+            limits.timeout_ms = val;
+        }
+        limits
+    }
+}
+
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CapabilityGrant {
@@ -33,9 +111,93 @@ pub struct CapabilityGrant {
     pub trust_tier: String,
 }
 
+impl CapabilityGrant {
+    pub fn limits(&self) -> GrantLimits {
+        GrantLimits::from_scope(&self.scope)
+    }
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct HostCapabilityGrant {
+    pub capability: String,
+    #[serde(default)]
+    pub scope: Value,
+    #[serde(default = "default_grant_trust_tier")]
+    pub trust_tier: String,
+    #[serde(default)]
+    pub limits: GrantLimits,
+}
+
+impl HostCapabilityGrant {
+    pub fn new(capability: impl Into<String>, scope: Value) -> Self {
+        let limits = GrantLimits::from_scope(&scope);
+        Self {
+            capability: capability.into(),
+            scope,
+            trust_tier: default_grant_trust_tier(),
+            limits,
+        }
+    }
+
+    pub fn with_limits(mut self, limits: GrantLimits) -> Self {
+        self.limits = limits;
+        self
+    }
+
+    pub fn with_trust_tier(mut self, trust_tier: impl Into<String>) -> Self {
+        self.trust_tier = trust_tier.into();
+        self
+    }
+
+    pub fn effective_limits(&self) -> GrantLimits {
+        if self.limits != GrantLimits::default() {
+            self.limits
+        } else {
+            GrantLimits::from_scope(&self.scope)
+        }
+    }
+}
+
+impl From<CapabilityGrant> for HostCapabilityGrant {
+    fn from(grant: CapabilityGrant) -> Self {
+        let limits = GrantLimits::from_scope(&grant.scope);
+        Self {
+            capability: grant.capability,
+            scope: grant.scope,
+            trust_tier: grant.trust_tier,
+            limits,
+        }
+    }
+}
+
+impl From<&CapabilityGrant> for HostCapabilityGrant {
+    fn from(grant: &CapabilityGrant) -> Self {
+        let limits = GrantLimits::from_scope(&grant.scope);
+        Self {
+            capability: grant.capability.clone(),
+            scope: grant.scope.clone(),
+            trust_tier: grant.trust_tier.clone(),
+            limits,
+        }
+    }
+}
+
+impl From<HostCapabilityGrant> for CapabilityGrant {
+    fn from(grant: HostCapabilityGrant) -> Self {
+        Self {
+            capability: grant.capability,
+            scope: grant.scope,
+            trust_tier: grant.trust_tier,
+        }
+    }
+}
+
 fn default_grant_trust_tier() -> String {
     "sandboxed_worker".to_owned()
 }
+
+pub type BrokerError = WorkerHostError;
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -163,31 +325,34 @@ impl ScopedCapabilityBroker {
 }
 
 enum HostedChild {
-    Command(Child),
+    Command(Option<Child>),
 }
 
 impl HostedChild {
     fn id(&self) -> Option<u32> {
         match self {
-            Self::Command(child) => child.id(),
+            Self::Command(child) => child.as_ref().and_then(Child::id),
         }
     }
 
     fn try_wait(&mut self) -> std::io::Result<Option<std::process::ExitStatus>> {
         match self {
-            Self::Command(child) => child.try_wait(),
+            Self::Command(Some(child)) => child.try_wait(),
+            Self::Command(None) => Ok(None),
         }
     }
 
     async fn kill(&mut self) -> std::io::Result<()> {
         match self {
-            Self::Command(child) => child.kill().await,
+            Self::Command(Some(child)) => child.kill().await,
+            Self::Command(None) => Ok(()),
         }
     }
 
     async fn wait(&mut self) -> std::io::Result<()> {
         match self {
-            Self::Command(child) => child.wait().await.map(|_| ()),
+            Self::Command(Some(child)) => child.wait().await.map(|_| ()),
+            Self::Command(None) => Ok(()),
         }
     }
 }
@@ -195,13 +360,16 @@ impl HostedChild {
 impl Drop for HostedChild {
     fn drop(&mut self) {
         match self {
-            Self::Command(child) => {
-                let _ = child.start_kill();
-                for _ in 0..50 {
-                    if matches!(child.try_wait(), Ok(Some(_)) | Err(_)) {
-                        break;
+            Self::Command(child_opt) => {
+                if let Some(mut child) = child_opt.take() {
+                    let _ = child.start_kill();
+                    if matches!(child.try_wait(), Ok(None))
+                        && let Ok(handle) = tokio::runtime::Handle::try_current()
+                    {
+                        handle.spawn(async move {
+                            let _ = child.wait().await;
+                        });
                     }
-                    std::thread::sleep(Duration::from_millis(2));
                 }
             }
         }
@@ -250,6 +418,8 @@ struct SharedNodeProcess {
 #[derive(Default)]
 pub struct SharedNodeWorkerHost {
     inner: Mutex<Option<SharedNodeProcess>>,
+    pid: std::sync::atomic::AtomicU32,
+    running: std::sync::atomic::AtomicBool,
 }
 
 impl SharedNodeWorkerHost {
@@ -257,30 +427,46 @@ impl SharedNodeWorkerHost {
         Self::default()
     }
 
-    pub async fn is_running(&self) -> bool {
-        let mut guard = self.inner.lock().await;
+    fn sync_status(&self, guard: &mut Option<SharedNodeProcess>) {
         if let Some(process) = guard.as_mut() {
             if matches!(process.child.try_wait(), Ok(Some(_)) | Err(_)) {
                 *guard = None;
-                return false;
+                self.running.store(false, Ordering::Release);
+                self.pid.store(0, Ordering::Release);
+                return;
             }
-            return !process.mounted_slots.is_empty();
+            let is_running = !process.mounted_slots.is_empty();
+            self.running.store(is_running, Ordering::Release);
+            self.pid.store(
+                if is_running {
+                    process.pid.unwrap_or(0)
+                } else {
+                    0
+                },
+                Ordering::Release,
+            );
+        } else {
+            self.running.store(false, Ordering::Release);
+            self.pid.store(0, Ordering::Release);
         }
-        false
+    }
+
+    pub async fn is_running(&self) -> bool {
+        if let Ok(mut guard) = self.inner.try_lock() {
+            self.sync_status(&mut guard);
+        }
+        self.running.load(Ordering::Acquire)
     }
 
     pub async fn pid(&self) -> Option<u32> {
-        let mut guard = self.inner.lock().await;
-        if let Some(process) = guard.as_mut() {
-            if matches!(process.child.try_wait(), Ok(Some(_)) | Err(_)) {
-                *guard = None;
-                return None;
-            }
-            if !process.mounted_slots.is_empty() {
-                return process.pid;
-            }
+        if let Ok(mut guard) = self.inner.try_lock() {
+            self.sync_status(&mut guard);
         }
-        None
+        if !self.running.load(Ordering::Acquire) {
+            return None;
+        }
+        let pid = self.pid.load(Ordering::Acquire);
+        (pid != 0).then_some(pid)
     }
 
     pub async fn mounted_slot_count(&self) -> usize {
@@ -306,6 +492,45 @@ impl SharedNodeWorkerHost {
                     .collect()
             })
             .unwrap_or_default()
+    }
+
+    pub async fn invoke_slot(
+        &self,
+        plugin_id: &str,
+        generation: u64,
+        handler: &str,
+        input: Value,
+        request_timeout: Duration,
+    ) -> Result<Value, WorkerHostError> {
+        let mut guard = self.inner.lock().await;
+        let Some(process) = guard.as_mut() else {
+            return Err(WorkerHostError::new(
+                "worker_terminal",
+                "Shared Node worker process is not running",
+            ));
+        };
+        let slot_key = (plugin_id.to_owned(), generation);
+        if !process.mounted_slots.contains(&slot_key) {
+            return Err(WorkerHostError::new(
+                "worker_terminal",
+                "Shared Node worker slot is no longer mounted",
+            ));
+        }
+        let spec = process.slot_specs.get(&slot_key).cloned().ok_or_else(|| {
+            WorkerHostError::new(
+                "worker_terminal",
+                "Shared Node worker slot specification is missing",
+            )
+        })?;
+        exchange_muxed(
+            process,
+            &spec.broker,
+            spec.frame_codec,
+            "invoke",
+            json!({ "handler": handler, "input": input }),
+            request_timeout,
+        )
+        .await
     }
 }
 
@@ -463,15 +688,18 @@ impl WorkerHost {
             .brokers
             .insert(slot_key.clone(), scoped_broker.clone());
 
-        let handshake_result = mount_and_activate_slot_muxed(process, &slot_spec).await.and_then(|handlers| {
-            validate_registrations(package, &handlers)?;
-            Ok(handlers)
-        });
+        let handshake_result = mount_and_activate_slot_muxed(process, &slot_spec)
+            .await
+            .and_then(|handlers| {
+                validate_registrations(package, &handlers)?;
+                Ok(handlers)
+            });
 
         match handshake_result {
             Ok(handlers) => {
                 process.mounted_slots.insert(slot_key.clone());
                 process.slot_specs.insert(slot_key, slot_spec);
+                shared_host.sync_status(&mut guard);
                 drop(guard);
                 Ok(Self {
                     activation: WorkerActivation {
@@ -495,10 +723,14 @@ impl WorkerHost {
                 process.brokers.remove(&slot_key);
                 process.mounted_slots.remove(&slot_key);
                 process.slot_specs.remove(&slot_key);
-                let unmounted_cleanly =
-                    unmount_slot_muxed_checked(process, &plugin_id, generation, Duration::from_secs(1))
-                        .await
-                        .is_ok();
+                let unmounted_cleanly = unmount_slot_muxed_checked(
+                    process,
+                    &plugin_id,
+                    generation,
+                    Duration::from_secs(1),
+                )
+                .await
+                .is_ok();
                 if process.mounted_slots.is_empty() {
                     let _ = process.child.kill().await;
                     let _ = process.child.wait().await;
@@ -520,6 +752,7 @@ impl WorkerHost {
                         }
                     }
                 }
+                shared_host.sync_status(&mut guard);
                 Err(error)
             }
         }
@@ -604,6 +837,8 @@ impl WorkerHost {
             terminal_error: None,
         };
         let granted_capabilities = vec!["*".to_owned()];
+        let package_digest = crate::package_content_digest(&package_root)
+            .map_err(|error| WorkerHostError::new("worker_package_invalid", error.to_string()))?;
         let initialized = exchange(
             &mut process,
             &scoped_broker,
@@ -617,8 +852,7 @@ impl WorkerHost {
                     "id": package.id.as_str(),
                 },
                 "packageVersion": package.version,
-                "packageDigest": crate::package_content_digest(&package_root)
-                    .unwrap_or_default(),
+                "packageDigest": package_digest.clone(),
                 "generationId": generation,
                 "declaredContributions": [],
                 "packageClass": package.package_class,
@@ -670,8 +904,6 @@ impl WorkerHost {
             .map(str::to_owned)
             .collect::<Vec<_>>();
         validate_registrations(package, &handlers)?;
-        let package_digest = crate::package_content_digest(&package_root)
-            .map_err(|error| WorkerHostError::new("worker_package_invalid", error.to_string()))?;
         Ok(Self {
             activation: WorkerActivation {
                 plugin_id: package.id.as_str().to_owned(),
@@ -736,6 +968,10 @@ impl WorkerHost {
     pub async fn invoke(&self, handler: &str, input: Value) -> Result<Value, WorkerHostError> {
         self.invoke_with_timeout(handler, input, self.request_timeout)
             .await
+    }
+
+    pub async fn invoke_slot(&self, handler: &str, input: Value) -> Result<Value, WorkerHostError> {
+        self.invoke(handler, input).await
     }
 
     pub async fn invoke_with_timeout(
@@ -865,6 +1101,7 @@ impl WorkerHost {
                             }
                         }
                     }
+                    host.sync_status(&mut guard);
                 }
                 result
             }
@@ -908,6 +1145,7 @@ impl WorkerHost {
                 }
                 let mut guard = host.inner.lock().await;
                 let Some(process) = guard.as_mut() else {
+                    host.sync_status(&mut guard);
                     return Ok(());
                 };
                 let slot_key = (
@@ -938,6 +1176,7 @@ impl WorkerHost {
                     let _ = process.child.wait().await;
                     *guard = None;
                 }
+                host.sync_status(&mut guard);
                 Ok(())
             }
         }
@@ -1153,7 +1392,8 @@ class SharedServiceContainer {
   provide(key, implementation, ownerPluginId) {
     const id = normalizeServiceKey(key);
     const slot = als.getStore();
-    const resolvedOwner = ownerPluginId ?? slot?.pluginId;
+    const resolvedOwner =
+      ownerPluginId ?? (slot ? slotKey(slot.pluginId, slot.generation) : undefined);
     const record = { id, ownerPluginId: resolvedOwner, value: implementation };
     this.records.set(id, record);
     servicesMap.set(id, implementation);
@@ -1182,7 +1422,8 @@ class SharedServiceContainer {
       );
     }
     const slot = als.getStore();
-    const resolvedOwner = ownerPluginId ?? slot?.pluginId;
+    const resolvedOwner =
+      ownerPluginId ?? (slot ? slotKey(slot.pluginId, slot.generation) : undefined);
     const depIds = keyOrDeps.map((dep) => normalizeServiceKey(dep));
     let currentCleanup;
     let disposed = false;
@@ -1261,7 +1502,8 @@ class SharedServiceContainer {
 
   intercept(hookName, fn, order = 0, ownerPluginId) {
     const slot = als.getStore();
-    const resolvedOwner = ownerPluginId ?? slot?.pluginId;
+    const resolvedOwner =
+      ownerPluginId ?? (slot ? slotKey(slot.pluginId, slot.generation) : undefined);
     if (this.records.has(hookName) && fn.length <= 1) {
       const prevRecord = this.records.get(hookName);
       const decoratedValue = fn(prevRecord.value);
@@ -1389,11 +1631,25 @@ class SharedServiceContainer {
     };
   }
 
-  disposeByPlugin(pluginId) {
+  disposeByPlugin(pluginId, generation) {
     let removedCount = 0;
-    const owned = this.pluginOwnedDisposers.get(pluginId);
-    if (owned) {
-      this.pluginOwnedDisposers.delete(pluginId);
+    const targetKey =
+      generation !== undefined && generation !== null
+        ? slotKey(pluginId, generation)
+        : null;
+    const matchesOwner = (owner) => {
+      if (!owner) return false;
+      if (targetKey !== null) {
+        return owner === targetKey;
+      }
+      return (
+        owner === pluginId ||
+        (typeof owner === "string" && owner.startsWith(`${pluginId}#`))
+      );
+    };
+    for (const [ownerKey, owned] of Array.from(this.pluginOwnedDisposers.entries())) {
+      if (!matchesOwner(ownerKey)) continue;
+      this.pluginOwnedDisposers.delete(ownerKey);
       for (const disposer of Array.from(owned)) {
         try {
           disposer();
@@ -1403,14 +1659,14 @@ class SharedServiceContainer {
     }
     for (const [hookName, entries] of this.interceptors.entries()) {
       const before = entries.length;
-      const filtered = entries.filter((e) => e.ownerPluginId !== pluginId);
+      const filtered = entries.filter((e) => !matchesOwner(e.ownerPluginId));
       removedCount += before - filtered.length;
       if (filtered.length === 0) this.interceptors.delete(hookName);
       else if (filtered.length !== before) this.interceptors.set(hookName, filtered);
     }
     const removedIds = [];
     for (const [id, record] of this.records.entries()) {
-      if (record.ownerPluginId === pluginId) {
+      if (matchesOwner(record.ownerPluginId)) {
         this.records.delete(id);
         servicesMap.delete(id);
         removedIds.push(id);
@@ -1423,8 +1679,8 @@ class SharedServiceContainer {
     return removedCount;
   }
 
-  disposePlugin(pluginId) {
-    return this.disposeByPlugin(pluginId);
+  disposePlugin(pluginId, generation) {
+    return this.disposeByPlugin(pluginId, generation);
   }
 
   clear() {
@@ -1654,7 +1910,7 @@ function attachExportedWorkerLoop(slot, mod) {
   const handlers = new Map();
   const disposables = [];
   const controller = new AbortController();
-  const scopedServices = createScopedServices(slot.pluginId);
+  const scopedServices = createScopedServices(slotKey(slot.pluginId, slot.generation));
   let workerDisposed = false;
   let hostPending = new Map();
   let hostSeq = 0;
@@ -1675,7 +1931,7 @@ function attachExportedWorkerLoop(slot, mod) {
     }
     disposables.length = 0;
     handlers.clear();
-    sharedServiceContainer.disposeByPlugin(slot.pluginId);
+    sharedServiceContainer.disposeByPlugin(slot.pluginId, slot.generation);
   };
   slot.disposeWorker = runDisposeSequence;
 
@@ -1868,7 +2124,7 @@ for await (const rawLine of hostInput) {
       try {
         await existing.disposeWorker?.();
       } catch {}
-      sharedServiceContainer.disposeByPlugin(existing.pluginId);
+      sharedServiceContainer.disposeByPlugin(existing.pluginId, existing.generation);
       try {
         existing.stdin.end();
       } catch {}
@@ -1910,7 +2166,7 @@ for await (const rawLine of hostInput) {
       });
     } catch (err) {
       slots.delete(key);
-      sharedServiceContainer.disposeByPlugin(msg.pluginId);
+      sharedServiceContainer.disposeByPlugin(msg.pluginId, msg.generation);
       const text = err instanceof Error ? err.message : String(err);
       sendMux({
         pluginId: msg.pluginId,
@@ -1934,7 +2190,7 @@ for await (const rawLine of hostInput) {
       try {
         await slot.disposeWorker?.();
       } catch {}
-      sharedServiceContainer.disposeByPlugin(slot.pluginId);
+      sharedServiceContainer.disposeByPlugin(slot.pluginId, slot.generation);
       if (slot.stderrBuffer.trim().length > 0) {
         sendMux({
           pluginId: slot.pluginId,
@@ -1949,7 +2205,7 @@ for await (const rawLine of hostInput) {
       } catch {}
       slots.delete(key);
     } else if (msg.pluginId) {
-      sharedServiceContainer.disposeByPlugin(msg.pluginId);
+      sharedServiceContainer.disposeByPlugin(msg.pluginId, msg.generation);
     }
     sendMux({
       pluginId: msg.pluginId,
@@ -2070,9 +2326,7 @@ async fn mount_and_activate_slot_muxed(
     let handlers = response
         .get("handlers")
         .and_then(Value::as_array)
-        .ok_or_else(|| {
-            WorkerHostError::new("worker_registration_invalid", "handlers are missing")
-        })?
+        .ok_or_else(|| WorkerHostError::new("worker_registration_invalid", "handlers are missing"))?
         .iter()
         .filter_map(Value::as_str)
         .map(str::to_owned)
@@ -2085,7 +2339,9 @@ async fn remount_survivor_slot(
     spec: MountedSlotSpec,
 ) -> Result<(), WorkerHostError> {
     let slot_key = (spec.plugin_id.clone(), spec.generation);
-    process.brokers.insert(slot_key.clone(), spec.broker.clone());
+    process
+        .brokers
+        .insert(slot_key.clone(), spec.broker.clone());
     match mount_and_activate_slot_muxed(process, &spec).await {
         Ok(_) => {
             process.mounted_slots.insert(slot_key.clone());
@@ -2139,7 +2395,7 @@ fn spawn_shared_node_runner(
     })?;
     let stderr = child.stderr.take();
     Ok((
-        HostedChild::Command(child),
+        HostedChild::Command(Some(child)),
         pid,
         Box::new(stdin),
         Box::new(stdout),
@@ -2280,7 +2536,8 @@ async fn unmount_slot_muxed(
     plugin_id: &str,
     generation: u64,
 ) -> Result<(), WorkerHostError> {
-    let _ = unmount_slot_muxed_checked(process, plugin_id, generation, Duration::from_secs(2)).await;
+    let _ =
+        unmount_slot_muxed_checked(process, plugin_id, generation, Duration::from_secs(2)).await;
     Ok(())
 }
 
@@ -2497,7 +2754,7 @@ fn spawn_hosted_worker(
     })?;
     let stderr = child.stderr.take();
     Ok((
-        HostedChild::Command(child),
+        HostedChild::Command(Some(child)),
         Box::new(stdin),
         Box::new(stdout),
         stderr,
@@ -2938,6 +3195,24 @@ mod worker_host_tests {
             recent_plugin_logs("demo.two", 0)
                 .iter()
                 .any(|line| line.text == "other")
+        );
+    }
+
+    #[test]
+    fn shared_node_runner_scopes_services_by_generation_during_hot_reload() {
+        assert!(
+            SHARED_NODE_RUNNER_SCRIPT
+                .contains("createScopedServices(slotKey(slot.pluginId, slot.generation))"),
+            "scoped services must key ownership by (pluginId, generation)"
+        );
+        assert!(
+            SHARED_NODE_RUNNER_SCRIPT.contains("disposeByPlugin(pluginId, generation)"),
+            "service disposal must accept generation so hot-reload does not wipe newer generation services"
+        );
+        assert!(
+            SHARED_NODE_RUNNER_SCRIPT
+                .contains("sharedServiceContainer.disposeByPlugin(slot.pluginId, slot.generation)"),
+            "unmounting a slot must dispose only that slot's generation"
         );
     }
 }

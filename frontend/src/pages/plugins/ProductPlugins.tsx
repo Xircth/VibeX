@@ -203,10 +203,9 @@ export function PluginCatalogPage() {
         ? 'core'
         : 'installed';
   const setCatalogMode = (mode: PluginCatalogMode) => {
-    setSearchParams(
-      mode === 'installed' ? {} : { tab: mode },
-      { replace: true }
-    );
+    setSearchParams(mode === 'installed' ? {} : { tab: mode }, {
+      replace: true,
+    });
   };
   const [marketPage, setMarketPage] = useState<CatalogPage | null>(null);
   const [marketLoading, setMarketLoading] = useState(
@@ -559,7 +558,11 @@ export function PluginCatalogPage() {
       }
     }
     if (typeof window !== 'undefined') {
-      window.open(OFFICIAL_MARKETPLACE_WEB_URL, '_blank', 'noopener,noreferrer');
+      window.open(
+        OFFICIAL_MARKETPLACE_WEB_URL,
+        '_blank',
+        'noopener,noreferrer'
+      );
     }
   }, [supports]);
 
@@ -1032,7 +1035,10 @@ function CoreFoundationInventoryView({ query }: { query: string }) {
   };
 
   return (
-    <div className="dsh-plugin-groups dsh-inventory-container" data-core-inventory>
+    <div
+      className="dsh-plugin-groups dsh-inventory-container"
+      data-core-inventory
+    >
       {CORE_PLUGIN_PLANES.map((plane) => {
         const items = filtered.filter(
           (entry) => entry.descriptor.plane === plane.id

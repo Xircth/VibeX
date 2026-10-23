@@ -12,7 +12,7 @@ use services::services::agent_management_runtime::AgentManagementRuntimeState;
 use sqlx::SqlitePool;
 
 use crate::{
-    ServerApplicationDomains, ServerDomainDependencies,
+    ServerApplicationDomains,
     automation_runtime::HeadlessAutomationRuntime,
     host::events::{HostEventBus, TerminalBridgeRegistry},
     host_runtime::AutomationOwnership,
@@ -161,7 +161,7 @@ pub fn host_application_core(
     agent_management_runtime: Arc<AgentManagementRuntimeState>,
     delegation_broker: Option<Arc<delegation::DelegationBroker>>,
 ) -> ApplicationCore<SqliteConversationRepository> {
-    let domains = Arc::new(ServerApplicationDomains::new(ServerDomainDependencies {
+    let domains = Arc::new(ServerApplicationDomains {
         pool: pool.clone(),
         plugin_control_plane: plugin_control_plane.clone(),
         preview_host,
@@ -179,7 +179,8 @@ pub fn host_application_core(
         terminal_bridges,
         agent_management_runtime,
         delegation_broker,
-    }));
+        prompt_enhancement: Arc::new(tokio::sync::Mutex::new(None)),
+    });
     let companion = companion_memory.map(|memory| {
         std::sync::Arc::new(crate::companion_session::CompanionSessionAdapter::new(
             memory,

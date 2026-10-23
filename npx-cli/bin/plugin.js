@@ -354,6 +354,7 @@ async function installUnpackedSnapshot(unpacked, flags, lock = {}) {
     ...lock,
   });
   if (imported) {
+    const enabled = await enableOnHost(picked.id);
     writeImportedMarker(packed.output, `${picked.publisher}/${picked.id}`);
     log(`Installed ${picked.publisher}/${picked.id} on the Host.`);
     if (lock.locked && (lock.gitRef || lock.gitSha)) {
@@ -361,7 +362,11 @@ async function installUnpackedSnapshot(unpacked, flags, lock = {}) {
     } else if (!lock.locked) {
       log("Source is unlocked (no #tag). Reinstall with #tag to pin.");
     }
-    log("Enable it in Settings → Plugins. New sessions pick it up after enable.");
+    if (enabled) {
+      log("Enabled on the Host. New sessions pick it up immediately.");
+    } else {
+      log("Enable it in Settings → Plugins. New sessions pick it up after enable.");
+    }
     return;
   }
   log(

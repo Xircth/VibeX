@@ -5,7 +5,7 @@
 //! adapters can observe the resulting conversation log through their normal
 //! snapshot/replay seam.
 
-use std::sync::Arc;
+use std::{collections::HashMap, sync::Arc};
 
 use agents::{
     AgentConnectionStatus, AgentContentBlock, AgentEvent, AgentEventEnvelope,
@@ -43,10 +43,14 @@ use crate::{
 /// Transport-neutral recorder used by all application hosts.
 pub struct ConversationAgentEventRecorder {
     pool: SqlitePool,
-    deployment: Arc<dyn Deployment>,
+    deployment: Option<Arc<dyn Deployment>>,
     conversation_context: Option<ConversationContext>,
     event_publisher: Option<Arc<dyn ConversationEventPublisher>>,
     coalescer: ConversationEventCoalescer,
+    active_turn_cache: HashMap<Uuid, Option<Uuid>>,
+    cached_turn_epoch: u64,
+    #[cfg(test)]
+    turn_db_lookups: usize,
 }
 
 /// Events committed by one recorder operation plus completion effects claimed by
@@ -73,7 +77,7 @@ struct MappedConversationEventRecord {
     source: &'static str,
     event_kind: String,
     event: ConversationEvent,
-    raw_json: String,
+    raw_json: Option<String>,
     idempotency_key: String,
     first_agent_sequence: i64,
     last_agent_sequence: i64,
@@ -84,20 +88,28 @@ impl ConversationAgentEventRecorder {
     pub fn new(pool: SqlitePool, deployment: Arc<dyn Deployment>) -> Self {
         Self {
             pool,
-            deployment,
+            deployment: Some(deployment),
             conversation_context: None,
             event_publisher: None,
             coalescer: ConversationEventCoalescer::default(),
+            active_turn_cache: HashMap::new(),
+            cached_turn_epoch: db::models::conversation::active_turn_mutation_epoch(),
+            #[cfg(test)]
+            turn_db_lookups: 0,
         }
     }
 
     pub fn with_context(context: ConversationContext) -> Self {
         Self {
             pool: context.deployment.db().pool.clone(),
-            deployment: context.deployment.clone(),
+            deployment: Some(context.deployment.clone()),
             event_publisher: Some(context.event_publisher.clone()),
             conversation_context: Some(context),
             coalescer: ConversationEventCoalescer::default(),
+            active_turn_cache: HashMap::new(),
+            cached_turn_epoch: db::models::conversation::active_turn_mutation_epoch(),
+            #[cfg(test)]
+            turn_db_lookups: 0,
         }
     }
 
@@ -195,7 +207,14 @@ impl ConversationAgentEventRecorder {
 
         let source = conversation_event_source(&envelope.event);
         let event_kind = conversation_event_kind(&event);
-        let raw_json = serde_json::to_string(&envelope.event)?;
+        if is_terminal_conversation_event(&event) {
+            self.active_turn_cache.remove(&conversation_id);
+        }
+        let raw_json = if crate::jsonl_history::is_transcript_delta(&event) {
+            None
+        } else {
+            Some(serde_json::to_string(&envelope.event)?)
+        };
         let connection_id = envelope.connection_id.to_string();
         let idempotency_key = format!("agent:{}:{event_kind}", envelope.sequence);
         let complete_reply = matches!(
@@ -252,12 +271,10 @@ impl ConversationAgentEventRecorder {
 
             if terminal
                 && let Some(turn_id) = mapped.turn_id
-                && let Some(file_event) = finalize_checkpoint_file_changes(
-                    self.deployment.as_ref(),
-                    mapped.conversation_id,
-                    turn_id,
-                )
-                .await?
+                && let Some(deployment) = self.deployment.as_deref()
+                && let Some(file_event) =
+                    finalize_checkpoint_file_changes(deployment, mapped.conversation_id, turn_id)
+                        .await?
             {
                 crate::service::emit_runtime_event(&file_event, "file_change");
                 batch.events.push(file_event);
@@ -362,11 +379,77 @@ impl ConversationAgentEventRecorder {
     }
 
     async fn event_turn_id(
-        &self,
+        &mut self,
         conversation_id: Uuid,
         event: &AgentEvent,
     ) -> Result<Option<Uuid>, sqlx::Error> {
-        resolve_agent_event_turn_id(&self.pool, conversation_id, event).await
+        let current_epoch = db::models::conversation::active_turn_mutation_epoch();
+        if self.cached_turn_epoch != current_epoch {
+            self.active_turn_cache.clear();
+            self.cached_turn_epoch = current_epoch;
+        }
+
+        match event {
+            AgentEvent::PromptStarted { snapshot } => {
+                #[cfg(test)]
+                {
+                    self.turn_db_lookups += 1;
+                }
+                let turn_id =
+                    bind_prompt_turn(&self.pool, conversation_id, &snapshot.id.to_string()).await?;
+                self.active_turn_cache.insert(conversation_id, turn_id);
+                Ok(turn_id)
+            }
+            AgentEvent::PromptFinished { .. } | AgentEvent::TurnCompleted { .. } => {
+                #[cfg(test)]
+                {
+                    self.turn_db_lookups += 1;
+                }
+                let turn_id =
+                    resolve_agent_event_turn_id(&self.pool, conversation_id, event).await?;
+                self.active_turn_cache.remove(&conversation_id);
+                Ok(turn_id)
+            }
+            AgentEvent::ConnectionStatusChanged { snapshot }
+                if matches!(
+                    snapshot.status,
+                    AgentConnectionStatus::Disconnected
+                        | AgentConnectionStatus::Failed
+                        | AgentConnectionStatus::Ready
+                ) =>
+            {
+                self.active_turn_cache.remove(&conversation_id);
+                #[cfg(test)]
+                {
+                    self.turn_db_lookups += 1;
+                }
+                resolve_agent_event_turn_id(&self.pool, conversation_id, event).await
+            }
+            event if binds_only_to_in_flight_turn(event) => {
+                let turn_id = if let Some(&cached) = self.active_turn_cache.get(&conversation_id) {
+                    cached
+                } else {
+                    #[cfg(test)]
+                    {
+                        self.turn_db_lookups += 1;
+                    }
+                    let resolved = in_flight_active_turn_id(&self.pool, conversation_id).await?;
+                    self.active_turn_cache.insert(conversation_id, resolved);
+                    resolved
+                };
+                if matches!(event, AgentEvent::Error { .. }) {
+                    self.active_turn_cache.remove(&conversation_id);
+                }
+                Ok(turn_id)
+            }
+            _ => {
+                #[cfg(test)]
+                {
+                    self.turn_db_lookups += 1;
+                }
+                resolve_agent_event_turn_id(&self.pool, conversation_id, event).await
+            }
+        }
     }
 }
 
@@ -386,7 +469,7 @@ fn ephemeral_record(
         event_kind: mapped.event_kind.clone(),
         event_version: CURRENT_EVENT_VERSION,
         normalized_json: normalized_json.to_string(),
-        raw_json: Some(mapped.raw_json.clone()),
+        raw_json: mapped.raw_json.clone(),
         idempotency_key: Some(mapped.idempotency_key.clone()),
         created_at: Utc::now(),
     }
@@ -407,7 +490,7 @@ fn append_event_input<'a>(
         source: mapped.source,
         event_kind: &mapped.event_kind,
         normalized_json,
-        raw_json: Some(&mapped.raw_json),
+        raw_json: mapped.raw_json.as_deref(),
         idempotency_key: Some(&mapped.idempotency_key),
     }
 }
@@ -575,18 +658,25 @@ async fn in_flight_active_turn_id(
     .await
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum CoalescedDeltaKind {
-    AssistantText,
-    AssistantReasoning,
+#[derive(Debug, Clone)]
+enum CoalescedPayload {
+    AssistantText {
+        text: String,
+        message_id: Option<String>,
+    },
+    AssistantReasoning {
+        text: String,
+        message_id: Option<String>,
+    },
+    ToolCallUpsert {
+        tool_call: ConversationToolCallPatch,
+    },
 }
 
 #[derive(Debug, Clone)]
 struct PendingConversationDelta {
     base: MappedConversationEventRecord,
-    kind: CoalescedDeltaKind,
-    text: String,
-    message_id: Option<String>,
+    payload: CoalescedPayload,
     chunk_count: usize,
 }
 
@@ -600,8 +690,8 @@ impl ConversationEventCoalescer {
         &mut self,
         record: MappedConversationEventRecord,
     ) -> Vec<MappedConversationEventRecord> {
-        match streaming_delta_parts(&record.event) {
-            Some((kind, text, message_id)) => self.push_delta(record, kind, text, message_id),
+        match coalesced_payload_from_event(&record.event) {
+            Some(payload) => self.push_coalesceable(record, payload),
             None => {
                 let mut ready = self.flush();
                 ready.push(record);
@@ -618,28 +708,21 @@ impl ConversationEventCoalescer {
             .collect()
     }
 
-    fn push_delta(
+    fn push_coalesceable(
         &mut self,
         record: MappedConversationEventRecord,
-        kind: CoalescedDeltaKind,
-        text: String,
-        message_id: Option<String>,
+        payload: CoalescedPayload,
     ) -> Vec<MappedConversationEventRecord> {
         if let Some(pending) = &mut self.pending
-            && pending.can_merge(&record, kind, &message_id)
+            && pending.try_merge(&record, &payload)
         {
-            pending.text.push_str(&text);
-            pending.base.last_agent_sequence = record.last_agent_sequence;
-            pending.chunk_count += 1;
             return Vec::new();
         }
 
         let ready = self.flush();
         self.pending = Some(PendingConversationDelta {
             base: record,
-            kind,
-            text,
-            message_id,
+            payload,
             chunk_count: 1,
         });
         ready
@@ -647,63 +730,151 @@ impl ConversationEventCoalescer {
 }
 
 impl PendingConversationDelta {
-    fn can_merge(
-        &self,
-        record: &MappedConversationEventRecord,
-        kind: CoalescedDeltaKind,
-        message_id: &Option<String>,
-    ) -> bool {
-        self.kind == kind
-            && self.base.conversation_id == record.conversation_id
+    fn has_same_context(&self, record: &MappedConversationEventRecord) -> bool {
+        self.base.conversation_id == record.conversation_id
             && self.base.turn_id == record.turn_id
             && self.base.connection_id == record.connection_id
             && self.base.source == record.source
-            && &self.message_id == message_id
+    }
+
+    fn try_merge(
+        &mut self,
+        record: &MappedConversationEventRecord,
+        incoming: &CoalescedPayload,
+    ) -> bool {
+        if !self.has_same_context(record) {
+            return false;
+        }
+        match (&mut self.payload, incoming) {
+            (
+                CoalescedPayload::AssistantText {
+                    text: pending_text,
+                    message_id: pending_id,
+                },
+                CoalescedPayload::AssistantText {
+                    text: next_text,
+                    message_id: next_id,
+                },
+            )
+            | (
+                CoalescedPayload::AssistantReasoning {
+                    text: pending_text,
+                    message_id: pending_id,
+                },
+                CoalescedPayload::AssistantReasoning {
+                    text: next_text,
+                    message_id: next_id,
+                },
+            ) if pending_id == next_id => {
+                pending_text.push_str(next_text);
+                self.base.last_agent_sequence = record.last_agent_sequence;
+                self.chunk_count += 1;
+                true
+            }
+            (
+                CoalescedPayload::ToolCallUpsert {
+                    tool_call: pending_tool,
+                },
+                CoalescedPayload::ToolCallUpsert {
+                    tool_call: next_tool,
+                },
+            ) if pending_tool.tool_call_id == next_tool.tool_call_id => {
+                merge_tool_call_patch(pending_tool, next_tool);
+                self.base.last_agent_sequence = record.last_agent_sequence;
+                self.chunk_count += 1;
+                true
+            }
+            _ => false,
+        }
     }
 
     fn into_record(mut self) -> MappedConversationEventRecord {
-        self.base.event = match self.kind {
-            CoalescedDeltaKind::AssistantText => ConversationEvent::AssistantTextDelta {
-                text: self.text,
-                message_id: self.message_id,
-            },
-            CoalescedDeltaKind::AssistantReasoning => ConversationEvent::AssistantReasoningDelta {
-                text: self.text,
-                message_id: self.message_id,
-            },
+        self.base.event = match self.payload {
+            CoalescedPayload::AssistantText { text, message_id } => {
+                ConversationEvent::AssistantTextDelta { text, message_id }
+            }
+            CoalescedPayload::AssistantReasoning { text, message_id } => {
+                ConversationEvent::AssistantReasoningDelta { text, message_id }
+            }
+            CoalescedPayload::ToolCallUpsert { tool_call } => {
+                ConversationEvent::ToolCallUpsert { tool_call }
+            }
         };
         self.base.event_kind = conversation_event_kind(&self.base.event);
         self.base.idempotency_key = format!(
             "agent:{}-{}:{}",
             self.base.first_agent_sequence, self.base.last_agent_sequence, self.base.event_kind
         );
-        self.base.raw_json = serde_json::json!({
-            "coalesced": true,
-            "first_sequence": self.base.first_agent_sequence,
-            "last_sequence": self.base.last_agent_sequence,
-            "chunk_count": self.chunk_count,
-            "kind": self.base.event_kind,
-        })
-        .to_string();
+        self.base.raw_json = Some(
+            serde_json::json!({
+                "coalesced": true,
+                "first_sequence": self.base.first_agent_sequence,
+                "last_sequence": self.base.last_agent_sequence,
+                "chunk_count": self.chunk_count,
+                "kind": self.base.event_kind,
+            })
+            .to_string(),
+        );
         self.base.complete_reply = false;
         self.base
     }
 }
 
-fn streaming_delta_parts(
-    event: &ConversationEvent,
-) -> Option<(CoalescedDeltaKind, String, Option<String>)> {
+fn merge_tool_call_patch(
+    target: &mut ConversationToolCallPatch,
+    incoming: &ConversationToolCallPatch,
+) {
+    if let Some(title) = &incoming.title {
+        target.title = Some(title.clone());
+    }
+    if let Some(kind) = &incoming.kind {
+        target.kind = Some(kind.clone());
+    }
+    if let Some(status) = &incoming.status {
+        target.status = Some(status.clone());
+    }
+    if let Some(raw_input) = &incoming.raw_input {
+        target.raw_input = Some(raw_input.clone());
+    }
+    if let Some(raw_output) = &incoming.raw_output {
+        target.raw_output = Some(raw_output.clone());
+    }
+    if let Some(raw_output_append) = &incoming.raw_output_append {
+        target.raw_output_append = Some(raw_output_append.clone());
+    }
+    if let Some(content) = &incoming.content {
+        target.content = Some(content.clone());
+    }
+    if let Some(locations) = &incoming.locations
+        && (!locations.is_empty() || target.locations.is_none())
+    {
+        target.locations = Some(locations.clone());
+    }
+    if let Some(metadata) = &incoming.metadata {
+        target.metadata = Some(metadata.clone());
+    }
+    if !incoming.images.is_empty() {
+        target.images = incoming.images.clone();
+    }
+}
+
+fn coalesced_payload_from_event(event: &ConversationEvent) -> Option<CoalescedPayload> {
     match event {
-        ConversationEvent::AssistantTextDelta { text, message_id } => Some((
-            CoalescedDeltaKind::AssistantText,
-            text.clone(),
-            message_id.clone(),
-        )),
-        ConversationEvent::AssistantReasoningDelta { text, message_id } => Some((
-            CoalescedDeltaKind::AssistantReasoning,
-            text.clone(),
-            message_id.clone(),
-        )),
+        ConversationEvent::AssistantTextDelta { text, message_id } => {
+            Some(CoalescedPayload::AssistantText {
+                text: text.clone(),
+                message_id: message_id.clone(),
+            })
+        }
+        ConversationEvent::AssistantReasoningDelta { text, message_id } => {
+            Some(CoalescedPayload::AssistantReasoning {
+                text: text.clone(),
+                message_id: message_id.clone(),
+            })
+        }
+        ConversationEvent::ToolCallUpsert { tool_call } => Some(CoalescedPayload::ToolCallUpsert {
+            tool_call: tool_call.clone(),
+        }),
         _ => None,
     }
 }
@@ -732,39 +903,69 @@ pub fn start_agent_event_persistence(
 /// host-specific live fan-out (desktop/headless `agent-events`).
 pub fn start_agent_event_persistence_with_observer(
     context: ConversationContext,
+    receiver: mpsc::Receiver<AgentEventEnvelope>,
+    on_envelope: impl FnMut(&AgentEventEnvelope) + Send + 'static,
+) -> JoinHandle<()> {
+    start_agent_event_persistence_loop(
+        move || ConversationAgentEventRecorder::with_context(context.clone()),
+        receiver,
+        on_envelope,
+    )
+}
+
+fn start_agent_event_persistence_loop(
+    mut make_recorder: impl FnMut() -> ConversationAgentEventRecorder + Send + 'static,
     mut receiver: mpsc::Receiver<AgentEventEnvelope>,
-    on_envelope: impl Fn(&AgentEventEnvelope) + Send + 'static,
+    mut on_envelope: impl FnMut(&AgentEventEnvelope) + Send + 'static,
 ) -> JoinHandle<()> {
     tokio::spawn(async move {
-        let mut recorder = ConversationAgentEventRecorder::with_context(context);
-        let mut flush_interval = time::interval(AGENT_EVENT_STREAM_FLUSH_INTERVAL);
-        flush_interval.set_missed_tick_behavior(MissedTickBehavior::Skip);
+        use futures::FutureExt as _;
+
         loop {
-            tokio::select! {
-                _ = flush_interval.tick() => {
-                    if let Err(error) = recorder.flush_buffered().await {
-                        tracing::warn!(%error, "failed to flush conversation events");
-                    }
-                }
-                received = receiver.recv() => {
-                    match received {
-                        Some(envelope) => {
-                            if let Err(error) = recorder.record_buffered(&envelope).await {
-                                tracing::warn!(
-                                    sequence = envelope.sequence,
-                                    %error,
-                                    "failed to persist agent runtime event"
-                                );
-                            }
-                            on_envelope(&envelope);
-                        }
-                        None => {
+            let mut recorder = make_recorder();
+            let mut flush_interval = time::interval(AGENT_EVENT_STREAM_FLUSH_INTERVAL);
+            flush_interval.set_missed_tick_behavior(MissedTickBehavior::Skip);
+
+            let step = std::panic::AssertUnwindSafe(async {
+                loop {
+                    tokio::select! {
+                        _ = flush_interval.tick() => {
                             if let Err(error) = recorder.flush_buffered().await {
                                 tracing::warn!(%error, "failed to flush conversation events");
                             }
-                            break;
+                        }
+                        received = receiver.recv() => {
+                            match received {
+                                Some(envelope) => {
+                                    if let Err(error) = recorder.record_buffered(&envelope).await {
+                                        tracing::warn!(
+                                            sequence = envelope.sequence,
+                                            %error,
+                                            "failed to persist agent runtime event"
+                                        );
+                                    }
+                                    on_envelope(&envelope);
+                                }
+                                None => {
+                                    if let Err(error) = recorder.flush_buffered().await {
+                                        tracing::warn!(%error, "failed to flush conversation events");
+                                    }
+                                    break;
+                                }
+                            }
                         }
                     }
+                }
+            })
+            .catch_unwind()
+            .await;
+
+            match step {
+                Ok(()) => break,
+                Err(_) => {
+                    tracing::error!(
+                        "agent event persistence worker panicked; respawning to keep receiver alive"
+                    );
                 }
             }
         }
@@ -1218,10 +1419,26 @@ async fn persist_session_linked_external_id(
 }
 
 fn conversation_event_kind(event: &ConversationEvent) -> String {
-    serde_json::to_value(event)
-        .ok()
-        .and_then(|value| value["kind"].as_str().map(str::to_string))
-        .unwrap_or_else(|| "unknown".to_string())
+    match event {
+        ConversationEvent::AssistantTextDelta { .. } => "assistant_text_delta".to_string(),
+        ConversationEvent::AssistantReasoningDelta { .. } => {
+            "assistant_reasoning_delta".to_string()
+        }
+        ConversationEvent::AssistantContentAppended { .. } => {
+            "assistant_content_appended".to_string()
+        }
+        ConversationEvent::ToolCallUpsert { .. } => "tool_call_upsert".to_string(),
+        ConversationEvent::PlanUpdated { .. } => "plan_updated".to_string(),
+        ConversationEvent::UsageUpdated { .. } => "usage_updated".to_string(),
+        ConversationEvent::TurnCompleted { .. } => "turn_completed".to_string(),
+        ConversationEvent::TurnFailed { .. } => "turn_failed".to_string(),
+        ConversationEvent::TurnCancelled { .. } => "turn_cancelled".to_string(),
+        ConversationEvent::TurnInterrupted { .. } => "turn_interrupted".to_string(),
+        _ => serde_json::to_value(event)
+            .ok()
+            .and_then(|value| value["kind"].as_str().map(str::to_string))
+            .unwrap_or_else(|| "unknown".to_string()),
+    }
 }
 
 #[cfg(test)]
@@ -1286,7 +1503,12 @@ mod tests {
         ));
         assert_eq!(ready.len(), 2);
         assert_eq!(ready[0].idempotency_key, "agent:10-11:assistant_text_delta");
-        assert!(ready[0].raw_json.contains("\"chunk_count\":2"));
+        assert!(
+            ready[0]
+                .raw_json
+                .as_deref()
+                .is_some_and(|raw| raw.contains("\"chunk_count\":2"))
+        );
         assert!(matches!(
             &ready[0].event,
             ConversationEvent::AssistantTextDelta { text, .. } if text == "hello"
@@ -1295,6 +1517,72 @@ mod tests {
             ready[1].event,
             ConversationEvent::TurnCompleted { .. }
         ));
+    }
+
+    #[test]
+    fn shared_recorder_coalesces_consecutive_same_item_tool_call_upserts() {
+        let mut coalescer = ConversationEventCoalescer::default();
+        for idx in 0..10 {
+            let emitted = coalescer.push(mapped_record(
+                100 + idx,
+                ConversationEvent::ToolCallUpsert {
+                    tool_call: super::ConversationToolCallPatch {
+                        tool_call_id: "tool-stream-1".to_string(),
+                        title: (idx == 0).then(|| "Run cargo test".to_string()),
+                        kind: (idx == 0).then(|| "execute".to_string()),
+                        status: Some(if idx == 9 { "completed" } else { "running" }.to_string()),
+                        raw_input: (idx == 0)
+                            .then(|| serde_json::json!({ "command": "cargo test" })),
+                        raw_output: Some(serde_json::json!(format!("output-step-{idx}"))),
+                        raw_output_append: Some(format!("chunk-{idx}")),
+                        content: Some(serde_json::json!({ "text": format!("output-step-{idx}") })),
+                        locations: (idx == 0).then(|| {
+                            vec![super::ConversationFileLocation {
+                                path: "src/lib.rs".to_string(),
+                                line: Some(42),
+                                column: None,
+                            }]
+                        }),
+                        metadata: (idx == 5).then(|| serde_json::json!({ "exitCode": 0 })),
+                        images: Vec::new(),
+                    },
+                },
+            ));
+            assert!(
+                emitted.is_empty(),
+                "same tool_call_id upserts should stay buffered until flush"
+            );
+        }
+
+        let flushed = coalescer.flush();
+        assert_eq!(flushed.len(), 1);
+        assert_eq!(flushed[0].idempotency_key, "agent:100-109:tool_call_upsert");
+        assert!(
+            flushed[0]
+                .raw_json
+                .as_deref()
+                .is_some_and(|raw| raw.contains("\"chunk_count\":10"))
+        );
+        let ConversationEvent::ToolCallUpsert { tool_call } = &flushed[0].event else {
+            panic!("expected coalesced ToolCallUpsert");
+        };
+        assert_eq!(tool_call.tool_call_id, "tool-stream-1");
+        assert_eq!(tool_call.title.as_deref(), Some("Run cargo test"));
+        assert_eq!(tool_call.kind.as_deref(), Some("execute"));
+        assert_eq!(tool_call.status.as_deref(), Some("completed"));
+        assert_eq!(
+            tool_call.raw_input,
+            Some(serde_json::json!({ "command": "cargo test" }))
+        );
+        assert_eq!(
+            tool_call.raw_output,
+            Some(serde_json::json!("output-step-9"))
+        );
+        assert_eq!(tool_call.locations.as_ref().map(Vec::len), Some(1));
+        assert_eq!(
+            tool_call.metadata,
+            Some(serde_json::json!({ "exitCode": 0 }))
+        );
     }
 
     #[test]
@@ -1643,7 +1931,7 @@ mod tests {
             source: "acp",
             event_kind: conversation_event_kind(&event),
             event,
-            raw_json: "{}".to_string(),
+            raw_json: None,
             idempotency_key: format!("agent:{sequence}:test"),
             first_agent_sequence: sequence,
             last_agent_sequence: sequence,
@@ -2016,5 +2304,159 @@ mod tests {
             .expect("event persisted");
         assert_eq!(record.conversation_id, conversation_id);
         assert_eq!(record.turn_id, None);
+    }
+
+    #[tokio::test]
+    async fn resilient_agent_event_loop_recovers_after_panic_and_keeps_receiver_alive() {
+        use std::sync::{
+            Arc,
+            atomic::{AtomicUsize, Ordering},
+        };
+
+        use tokio::sync::mpsc;
+
+        let pool = setup_pool().await;
+        let (tx, rx) = mpsc::channel(16);
+        let processed = Arc::new(AtomicUsize::new(0));
+        let processed_clone = Arc::clone(&processed);
+
+        let handle = super::start_agent_event_persistence_loop(
+            move || super::ConversationAgentEventRecorder {
+                pool: pool.clone(),
+                deployment: None,
+                conversation_context: None,
+                event_publisher: None,
+                coalescer: super::ConversationEventCoalescer::default(),
+                active_turn_cache: std::collections::HashMap::new(),
+                cached_turn_epoch: db::models::conversation::active_turn_mutation_epoch(),
+                turn_db_lookups: 0,
+            },
+            rx,
+            move |env| {
+                if env.sequence == 1 {
+                    panic!("simulated panic on malformed event");
+                }
+                processed_clone.fetch_add(1, Ordering::SeqCst);
+            },
+        );
+
+        let mut env1 = envelope(message_chunk());
+        env1.sequence = 1;
+        tx.send(env1).await.expect("send first event");
+
+        let mut env2 = envelope(message_chunk());
+        env2.sequence = 2;
+        tx.send(env2)
+            .await
+            .expect("receiver must stay open after worker panic");
+
+        drop(tx);
+        handle.await.expect("loop task finishes cleanly");
+        assert_eq!(
+            processed.load(Ordering::SeqCst),
+            1,
+            "second event after panic must still be processed"
+        );
+    }
+
+    #[tokio::test]
+    async fn streaming_100_message_chunks_caches_active_turn_and_skips_per_chunk_raw_json() {
+        use std::sync::{Arc, Mutex};
+
+        #[derive(Default)]
+        struct CapturingPublisher {
+            unpersisted: Mutex<Vec<db::models::conversation_event::ConversationEventRecord>>,
+        }
+
+        #[async_trait::async_trait]
+        impl crate::ConversationEventPublisher for CapturingPublisher {
+            async fn publish(
+                &self,
+                _record: &db::models::conversation_event::ConversationEventRecord,
+            ) {
+            }
+
+            async fn publish_unpersisted(
+                &self,
+                record: &db::models::conversation_event::ConversationEventRecord,
+            ) {
+                self.unpersisted.lock().unwrap().push(record.clone());
+            }
+        }
+
+        let pool = setup_pool().await;
+        let prompt_id = AgentPromptId::new();
+        let (conversation_id, turn_id) =
+            seed_conversation_turn(&pool, &prompt_id.to_string(), "stream test").await;
+        let publisher = Arc::new(CapturingPublisher::default());
+        let connection_id = AgentConnectionId::new();
+
+        let mut recorder = super::ConversationAgentEventRecorder {
+            pool: pool.clone(),
+            deployment: None,
+            conversation_context: None,
+            event_publisher: Some(publisher.clone()),
+            coalescer: super::ConversationEventCoalescer::default(),
+            active_turn_cache: std::collections::HashMap::new(),
+            cached_turn_epoch: db::models::conversation::active_turn_mutation_epoch(),
+            turn_db_lookups: 0,
+        };
+
+        let mut expected_text = String::new();
+        for seq in 1..=100_i64 {
+            let token = format!("tok-{seq} ");
+            expected_text.push_str(&token);
+            let env = AgentEventEnvelope {
+                sequence: seq,
+                workspace_id: Uuid::new_v4(),
+                connection_id: connection_id.clone(),
+                session_id: Some(AgentSessionId(conversation_id)),
+                event: AgentEvent::MessageChunk {
+                    content: AgentContentBlock::Text { text: token },
+                },
+                created_at: Utc::now(),
+            };
+            let batch = recorder
+                .record_buffered(&env)
+                .await
+                .expect("record buffered chunk");
+            assert!(batch.events.is_empty());
+            assert!(
+                recorder
+                    .coalescer
+                    .pending
+                    .as_ref()
+                    .expect("pending delta exists")
+                    .base
+                    .raw_json
+                    .is_none(),
+                "per-chunk map_record must not serialize raw_json for transcript deltas"
+            );
+        }
+
+        assert_eq!(
+            recorder.turn_db_lookups, 1,
+            "100 consecutive streaming chunks must query SQLite at most once for active_turn_id"
+        );
+
+        let flushed = recorder
+            .flush_buffered()
+            .await
+            .expect("flush buffered chunks");
+        assert!(flushed.events.is_empty());
+        assert_eq!(recorder.turn_db_lookups, 1);
+
+        let published = publisher.unpersisted.lock().unwrap();
+        assert_eq!(published.len(), 1);
+        assert_eq!(published[0].conversation_id, conversation_id);
+        assert_eq!(published[0].turn_id, Some(turn_id));
+        assert_eq!(published[0].event_kind, "assistant_text_delta");
+        let event: ConversationEvent =
+            serde_json::from_str(&published[0].normalized_json).expect("deserialize delta");
+        assert!(matches!(
+            event,
+            ConversationEvent::AssistantTextDelta { text, message_id: None }
+                if text == expected_text
+        ));
     }
 }

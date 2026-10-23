@@ -9,10 +9,7 @@ import {
   type MouseEvent as ReactMouseEvent,
   type ReactNode,
 } from 'react';
-import {
-  type SlotContribution,
-  useSlotContributions,
-} from '@vibex/plugin-sdk';
+import { type SlotContribution, useSlotContributions } from '@vibex/plugin-sdk';
 import { useTranslation } from 'react-i18next';
 import {
   readClipboardViaBridge,
@@ -178,7 +175,10 @@ function buildPluginContextMenuItems(
 
   return contributions
     .filter((contrib) => {
-      if (contrib.slot === 'file-tree.context-menu' && target instanceof Element) {
+      if (
+        contrib.slot === 'file-tree.context-menu' &&
+        target instanceof Element
+      ) {
         if (!isFileTree && !contrib.when) return false;
       }
       if (contrib.when) {
@@ -208,9 +208,7 @@ function withPluginItems(
   if (pluginItems.length === 0) return baseItems;
   if (baseItems.length === 0) return pluginItems;
   const existingIds = new Set(
-    baseItems
-      .filter((item) => item.type !== 'separator')
-      .map((item) => item.id)
+    baseItems.filter((item) => item.type !== 'separator').map((item) => item.id)
   );
   const freshPluginItems = pluginItems.filter(
     (item) => item.type !== 'separator' && !existingIds.has(item.id)

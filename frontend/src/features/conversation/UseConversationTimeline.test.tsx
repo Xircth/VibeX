@@ -1,7 +1,10 @@
 import { act, renderHook, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { useConversationTimeline } from './useConversationTimeline';
-import { resetConversationTimelineRegistryForTests } from './conversationTimelineRegistry';
+import {
+  resetConversationTimelineRegistryForTests,
+  streamFlushDelayMs,
+} from './conversationTimelineRegistry';
 import { TIMELINE_OLDER_PAGE_SIZE } from './timelinePaging';
 import { resetConversationKeepaliveForTests } from './conversationKeepalive';
 import { publishOptimisticConversationTurn } from './optimisticTurnEvents';
@@ -514,10 +517,7 @@ describe('useConversationTimeline', () => {
       projection_version: 2,
       cursor: '0',
       next_cursor: null,
-      rows: [
-        userRow('t-early', 'first', 1n),
-        userRow('t-mid', 'earlier', 40n),
-      ],
+      rows: [userRow('t-early', 'first', 1n), userRow('t-mid', 'earlier', 40n)],
     });
 
     const openDetail = {
@@ -1056,5 +1056,173 @@ describe('useConversationTimeline', () => {
       await Promise.resolve();
     });
     expect(result.current.error).toBeNull();
+  });
+
+  it('computes adaptive streamFlushDelayMs from live character count', () => {
+    expect(streamFlushDelayMs(0)).toBe(16);
+    expect(streamFlushDelayMs(1024)).toBe(16);
+    expect(streamFlushDelayMs(8192)).toBe(16);
+    expect(streamFlushDelayMs(8193)).toBe(32);
+    expect(streamFlushDelayMs(16384)).toBe(32);
+    expect(streamFlushDelayMs(16385)).toBe(48);
+    expect(streamFlushDelayMs(120000)).toBe(192);
+  });
+
+  it('widens the flush window when liveText exceeds 8192 chars and flushes immediately on terminal op', async () => {
+    detailMock.mockResolvedValue(detail());
+
+    const scheduledTimeouts: Array<{
+      id: number;
+      cb: () => void;
+      delay: number;
+      cancelled: boolean;
+    }> = [];
+    const originalSetTimeout = window.setTimeout.bind(window);
+    const originalClearTimeout = window.clearTimeout.bind(window);
+    const setTimeoutSpy = vi.spyOn(window, 'setTimeout').mockImplementation(((
+      handler: TimerHandler,
+      timeout?: number,
+      ...args: unknown[]
+    ) => {
+      if (typeof handler === 'function' && (timeout ?? 0) >= 16) {
+        const entry = {
+          id: scheduledTimeouts.length + 1000,
+          cb: () => (handler as (...a: unknown[]) => void)(...args),
+          delay: timeout ?? 0,
+          cancelled: false,
+        };
+        scheduledTimeouts.push(entry);
+        return entry.id as unknown as number;
+      }
+      return originalSetTimeout(handler, timeout, ...args);
+    }) as typeof window.setTimeout);
+    const clearTimeoutSpy = vi
+      .spyOn(window, 'clearTimeout')
+      .mockImplementation(((id?: number) => {
+        const match = scheduledTimeouts.find((entry) => entry.id === id);
+        if (match) {
+          match.cancelled = true;
+          return;
+        }
+        originalClearTimeout(id);
+      }) as typeof window.clearTimeout);
+
+    try {
+      const { result } = renderHook(() =>
+        useConversationTimeline(CONVERSATION_ID)
+      );
+
+      await waitFor(() => expect(result.current.loading).toBe(false));
+      await waitFor(() => expect(listeners).toHaveLength(1));
+
+      // Seed user turn via normal rAF
+      act(() => {
+        listeners[0]?.(
+          batch([{ op: 'upsert', row: userRow('t1', 'long reply', 1n) }], 1n)
+        );
+        flushFrames();
+      });
+
+      // Stream > 8192 chars of pure append_text: should schedule adaptive setTimeout (32ms)
+      const chunk1 = 'a'.repeat(5000);
+      const chunk2 = 'b'.repeat(5000);
+      act(() => {
+        listeners[0]?.(
+          batch(
+            [
+              {
+                op: 'append_text',
+                row_id: 't1:assistant',
+                revision: 2n,
+                stream: 'text',
+                delta: chunk1,
+              },
+            ],
+            2n
+          )
+        );
+        listeners[0]?.(
+          batch(
+            [
+              {
+                op: 'append_text',
+                row_id: 't1:assistant',
+                revision: 3n,
+                stream: 'text',
+                delta: chunk2,
+              },
+            ],
+            3n
+          )
+        );
+      });
+
+      const activeTimeouts = scheduledTimeouts.filter((t) => !t.cancelled);
+      expect(activeTimeouts).toHaveLength(1);
+      expect(activeTimeouts[0]?.delay).toBe(32);
+
+      // Firing the adaptive timer flushes the 10,000-char coalesced overlay
+      act(() => {
+        activeTimeouts[0]?.cb();
+      });
+
+      const assistantAfterTimer = result.current.timeline.find(
+        (row) => row.turn.role === 'assistant'
+      );
+      expect(assistantAfterTimer?.turn.blocks).toEqual([
+        { type: 'text', text: chunk1 + chunk2 },
+      ]);
+
+      // Next pure append_text while liveText is 10,000 chars arms another adaptive timer,
+      // and a terminal upsert immediately cancels that timer and flushes in the same turn.
+      const chunk3 = 'c'.repeat(2000);
+      act(() => {
+        listeners[0]?.(
+          batch(
+            [
+              {
+                op: 'append_text',
+                row_id: 't1:assistant',
+                revision: 4n,
+                stream: 'text',
+                delta: chunk3,
+              },
+            ],
+            4n
+          )
+        );
+      });
+
+      const secondTimeout = scheduledTimeouts[scheduledTimeouts.length - 1];
+      expect(secondTimeout?.cancelled).toBe(false);
+      expect(secondTimeout?.delay).toBe(32);
+
+      act(() => {
+        listeners[0]?.(
+          batch(
+            [
+              {
+                op: 'upsert',
+                row: assistantRow('t1', chunk1 + chunk2 + chunk3, 5n),
+              },
+            ],
+            5n
+          )
+        );
+      });
+
+      // Terminal batch must cancel the pending adaptive timer and flush immediately
+      expect(secondTimeout?.cancelled).toBe(true);
+      const settledAssistant = result.current.timeline.find(
+        (row) => row.turn.role === 'assistant'
+      );
+      expect(settledAssistant?.phase).toBe('settled');
+      expect(settledAssistant?.turn.blocks).toEqual([
+        { type: 'text', text: chunk1 + chunk2 + chunk3 },
+      ]);
+    } finally {
+      setTimeoutSpy.mockRestore();
+      clearTimeoutSpy.mockRestore();
+    }
   });
 });

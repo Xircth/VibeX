@@ -41,11 +41,12 @@ export function Slot({
   const items = visible.map((item) => {
     const Component = item.component;
     const ownerPluginId = item.pluginId ?? 'builtin';
+    const itemKey = `${ownerPluginId}:${item.id}`;
     if (!Component) {
       return null;
     }
     const node = (
-      <PluginBoundary key={item.id} pluginId={ownerPluginId} slot={name}>
+      <PluginBoundary key={itemKey} pluginId={ownerPluginId} slot={name}>
         <Component
           {...(slotProps ?? {})}
           pluginId={ownerPluginId}
@@ -54,7 +55,7 @@ export function Slot({
       </PluginBoundary>
     );
     return itemClassName ? (
-      <div key={item.id} className={itemClassName}>
+      <div key={itemKey} className={itemClassName}>
         {node}
       </div>
     ) : (

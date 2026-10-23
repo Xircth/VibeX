@@ -278,7 +278,10 @@ export function CollaborationSpaceCollectionDockviewPanel(
   }, [paramSpaceAvatars, spaceId, spaceName]);
 
   const getAvatar = useCallback(
-    (conversationId?: string | null, nickname?: string): MemberBotAvatarConfig => {
+    (
+      conversationId?: string | null,
+      nickname?: string
+    ): MemberBotAvatarConfig => {
       const convKey = conversationId?.trim() ?? '';
       const nickKey = nickname?.trim() ?? '';
       if (convKey && memberAvatars[convKey]) return memberAvatars[convKey];
@@ -417,9 +420,7 @@ export function CollaborationSpaceCollectionDockviewPanel(
       setSubmitting(true);
       try {
         for (const file of files) {
-          const nativePath = (
-            file as File & { path?: string }
-          ).path?.trim();
+          const nativePath = (file as File & { path?: string }).path?.trim();
           const kind =
             file.type.startsWith('image/') ||
             attachmentPreviewKind(file.name, file.type) === 'image'
@@ -478,8 +479,7 @@ export function CollaborationSpaceCollectionDockviewPanel(
           displayName ||
           fullPath.replace(/\\/g, '/').split('/').filter(Boolean).pop() ||
           'file';
-        const kind =
-          attachmentPreviewKind(name) === 'image' ? 'image' : 'file';
+        const kind = attachmentPreviewKind(name) === 'image' ? 'image' : 'file';
         await collaborationCall('collaboration', 'space.addCollectionItem', {
           spaceId,
           projectId: projectId || undefined,
@@ -514,9 +514,7 @@ export function CollaborationSpaceCollectionDockviewPanel(
         if (!isDragOver) setIsDragOver(true);
       }}
       onDragLeave={(event) => {
-        if (
-          !event.currentTarget.contains(event.relatedTarget as Node | null)
-        ) {
+        if (!event.currentTarget.contains(event.relatedTarget as Node | null)) {
           setIsDragOver(false);
         }
       }}

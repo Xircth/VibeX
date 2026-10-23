@@ -36,35 +36,124 @@ impl RuntimeEventSink for NoopEventSink {
 
 const PERSIST_EVENT_CHANNEL_CAPACITY: usize = 8192;
 
-struct BoundedRuntimeEventSink {
-    sender: mpsc::Sender<AgentEventEnvelope>,
+#[derive(Default)]
+struct OverflowQueueState {
+    queue: VecDeque<AgentEventEnvelope>,
+    draining: bool,
 }
 
-impl RuntimeEventSink for BoundedRuntimeEventSink {
-    fn emit(&self, envelope: AgentEventEnvelope) {
-        match self.sender.try_send(envelope) {
-            Ok(()) | Err(mpsc::error::TrySendError::Closed(_)) => {}
-            Err(mpsc::error::TrySendError::Full(envelope)) => {
-                // Never `block_in_place` on the caller: several emit sites still
-                // hold `RuntimeState` write, and waiting here deadlocked every
-                // concurrent session at "生成中". Overflow is rare (8192 buffer);
-                // a blocking pool thread preserves the event without pinning the
-                // runtime lock.
-                let sender = self.sender.clone();
-                if tokio::runtime::Handle::try_current().is_ok() {
-                    tokio::task::spawn_blocking(move || {
-                        let _ = sender.blocking_send(envelope);
-                    });
-                } else {
-                    let _ = sender.blocking_send(envelope);
+struct BoundedRuntimeEventSink {
+    sender: mpsc::Sender<AgentEventEnvelope>,
+    overflow: Arc<std::sync::Mutex<OverflowQueueState>>,
+    #[cfg(test)]
+    drain_task_spawns: Arc<std::sync::atomic::AtomicUsize>,
+}
+
+impl BoundedRuntimeEventSink {
+    fn new(sender: mpsc::Sender<AgentEventEnvelope>) -> Self {
+        Self {
+            sender,
+            overflow: Arc::new(std::sync::Mutex::new(OverflowQueueState::default())),
+            #[cfg(test)]
+            drain_task_spawns: Arc::new(std::sync::atomic::AtomicUsize::new(0)),
+        }
+    }
+
+    fn spawn_drain_worker(&self) {
+        #[cfg(test)]
+        self.drain_task_spawns
+            .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+
+        let sender = self.sender.clone();
+        let overflow = Arc::clone(&self.overflow);
+        if let Ok(handle) = tokio::runtime::Handle::try_current() {
+            handle.spawn(async move {
+                Self::drain_overflow_loop(sender, overflow).await;
+            });
+        } else {
+            loop {
+                let next = {
+                    let mut guard = overflow.lock().expect("overflow queue lock poisoned");
+                    let Some(front) = guard.queue.pop_front() else {
+                        guard.draining = false;
+                        break;
+                    };
+                    front
+                };
+                if sender.blocking_send(next).is_err() {
+                    let mut guard = overflow.lock().expect("overflow queue lock poisoned");
+                    guard.queue.clear();
+                    guard.draining = false;
+                    break;
                 }
+            }
+        }
+    }
+
+    async fn drain_overflow_loop(
+        sender: mpsc::Sender<AgentEventEnvelope>,
+        overflow: Arc<std::sync::Mutex<OverflowQueueState>>,
+    ) {
+        loop {
+            let next_to_await = {
+                let mut guard = overflow.lock().expect("overflow queue lock poisoned");
+                loop {
+                    let Some(front) = guard.queue.pop_front() else {
+                        guard.draining = false;
+                        return;
+                    };
+                    match sender.try_send(front) {
+                        Ok(()) => continue,
+                        Err(mpsc::error::TrySendError::Closed(_)) => {
+                            guard.queue.clear();
+                            guard.draining = false;
+                            return;
+                        }
+                        Err(mpsc::error::TrySendError::Full(front)) => {
+                            break front;
+                        }
+                    }
+                }
+            };
+
+            if sender.send(next_to_await).await.is_err() {
+                let mut guard = overflow.lock().expect("overflow queue lock poisoned");
+                guard.queue.clear();
+                guard.draining = false;
+                return;
             }
         }
     }
 }
 
+impl RuntimeEventSink for BoundedRuntimeEventSink {
+    fn emit(&self, envelope: AgentEventEnvelope) {
+        let should_spawn = {
+            let mut guard = self.overflow.lock().expect("overflow queue lock poisoned");
+            if !guard.draining && guard.queue.is_empty() {
+                match self.sender.try_send(envelope) {
+                    Ok(()) | Err(mpsc::error::TrySendError::Closed(_)) => false,
+                    Err(mpsc::error::TrySendError::Full(envelope)) => {
+                        guard.queue.push_back(envelope);
+                        guard.draining = true;
+                        true
+                    }
+                }
+            } else {
+                guard.queue.push_back(envelope);
+                false
+            }
+        };
+
+        if should_spawn {
+            self.spawn_drain_worker();
+        }
+    }
+}
+
 /// A lossless persist path for Conversation events. The channel is bounded so a
-/// fast Agent cannot grow Host RAM without bound; the producer waits when full.
+/// fast Agent cannot grow Host RAM without bound; overflow events are queued into
+/// a single-consumer FIFO drain worker rather than spawning blocking OS threads.
 /// Live observers continue to use the bounded broadcast channel.
 const CONVERSATION_ID_ENV: &str = "VIBEX_CONVERSATION_ID";
 
@@ -81,7 +170,7 @@ pub fn runtime_event_channel() -> (
     mpsc::Receiver<AgentEventEnvelope>,
 ) {
     let (sender, receiver) = mpsc::channel(PERSIST_EVENT_CHANNEL_CAPACITY);
-    (Arc::new(BoundedRuntimeEventSink { sender }), receiver)
+    (Arc::new(BoundedRuntimeEventSink::new(sender)), receiver)
 }
 
 #[derive(Debug, Clone)]
@@ -456,6 +545,7 @@ impl AgentRuntime {
             .and_then(|session| session.queue.active())
     }
 
+    #[allow(clippy::type_complexity)]
     fn prompt_to_dispatch_after_manager_event_locked(
         state: &RuntimeState,
         manager_event: &AgentConnectionManagerEvent,
@@ -2374,7 +2464,9 @@ impl AgentRuntime {
                 }
             }
             AgentEvent::PromptFinished { finished } => {
-                if let Some(prompt) = state.prompts.get_mut(&finished.prompt_id) {
+                if let Some(prompt) = state.prompts.get_mut(&finished.prompt_id)
+                    && !matches!(prompt.status, AgentPromptStatus::Failed { .. })
+                {
                     prompt.status = AgentPromptStatus::Completed {
                         stop_reason: finished.stop_reason.clone(),
                     };
@@ -5392,5 +5484,59 @@ mod tests {
             );
             tokio::time::sleep(Duration::from_millis(10)).await;
         }
+    }
+
+    #[tokio::test]
+    async fn bounded_runtime_event_sink_preserves_strict_fifo_order_under_backpressure() {
+        let (sender, mut receiver) = mpsc::channel(4);
+        let sink = Arc::new(BoundedRuntimeEventSink::new(sender));
+        let connection_id = AgentConnectionId::new();
+        let session_id = AgentSessionId::new();
+        let workspace_id = Uuid::new_v4();
+
+        for seq in 1..=500_i64 {
+            let event = if seq == 500 {
+                AgentEvent::PromptFinished {
+                    finished: crate::AgentPromptFinished {
+                        prompt_id: AgentPromptId::new(),
+                        stop_reason: Some("end_turn".to_string()),
+                        usage: None,
+                    },
+                }
+            } else {
+                AgentEvent::MessageChunk {
+                    content: AgentContentBlock::Text {
+                        text: format!("chunk-{seq}"),
+                    },
+                }
+            };
+            sink.emit(AgentEventEnvelope {
+                sequence: seq,
+                workspace_id,
+                connection_id,
+                session_id: Some(session_id),
+                event,
+                created_at: Utc::now(),
+            });
+        }
+
+        assert_eq!(
+            sink.drain_task_spawns
+                .load(std::sync::atomic::Ordering::SeqCst),
+            1,
+            "500 overflowing synchronous emits must spawn at most 1 async drain task and 0 blocking threads"
+        );
+
+        let mut received_sequences = Vec::with_capacity(500);
+        for _ in 1..=500 {
+            let env = tokio::time::timeout(Duration::from_secs(2), receiver.recv())
+                .await
+                .expect("drain timed out")
+                .expect("channel remained open");
+            received_sequences.push(env.sequence);
+        }
+
+        let expected: Vec<i64> = (1..=500).collect();
+        assert_eq!(received_sequences, expected);
     }
 }

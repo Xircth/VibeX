@@ -43,6 +43,8 @@ import {
   useOptionalPanelActionsContext,
   type PanelActions,
 } from '@/contexts/PanelActionsContext';
+import { findHostBrowserContribution } from '@/features/host-browser/hostBrowserEngine';
+import { usePluginHostContributions } from '@/hooks/usePluginHostContributions';
 import { registerImagePreviewSource } from '@/lib/imagePreviewRegistry';
 import { PANEL_IDS } from '@/stores/useLayoutStore';
 import {
@@ -150,7 +152,9 @@ export function CollaborationMemberSessionDockviewPanel(
 
   return (
     <div className="collaboration-preview-frame h-full w-full">
-      <Suspense fallback={<p className="collaboration-preview-empty">加载中</p>}>
+      <Suspense
+        fallback={<p className="collaboration-preview-empty">加载中</p>}
+      >
         <SessionPreview {...sessionPreviewProps} />
       </Suspense>
     </div>
@@ -162,7 +166,9 @@ export function CollaborationFileDockviewPanel(
 ) {
   return (
     <div className="collaboration-preview-frame h-full w-full">
-      <Suspense fallback={<p className="collaboration-preview-empty">加载中</p>}>
+      <Suspense
+        fallback={<p className="collaboration-preview-empty">加载中</p>}
+      >
         <FilePreviewPanel {...props} />
       </Suspense>
     </div>
@@ -478,6 +484,9 @@ export function CollaborationPreviewScope({
   onRunInEditorGroup: (groupId: string, action: () => void) => void;
 }) {
   const parent = useOptionalPanelActionsContext();
+  const pluginPanels = usePluginHostContributions('app_panel');
+  const pluginPanelsRef = useRef(pluginPanels);
+  pluginPanelsRef.current = pluginPanels;
   const onOpenFileRef = useRef(onOpenFile);
   onOpenFileRef.current = onOpenFile;
   const onOpenWorkspacePanelRef = useRef(onOpenWorkspacePanel);
@@ -604,13 +613,20 @@ export function CollaborationPreviewScope({
         });
       },
       openWebPreview: (url?: string | null) => {
+        const browserPanel = findHostBrowserContribution(
+          pluginPanelsRef.current
+        );
+        if (!browserPanel) {
+          parent?.openWebPreview(url);
+          return;
+        }
         onOpenWorkspacePanelRef.current({
-          id: 'plugin:vibex.browser:browser',
+          id: `plugin:${browserPanel.pluginId}:${browserPanel.id}`,
           component: PLUGIN_PANEL_COMPONENT,
           title: 'Browser',
           params: {
-            pluginId: 'vibex.browser',
-            contributionId: 'browser',
+            pluginId: browserPanel.pluginId,
+            contributionId: browserPanel.id,
             title: 'Browser',
             requestedUrl: url ?? null,
           },

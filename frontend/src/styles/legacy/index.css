@@ -6875,30 +6875,30 @@ html.dark {
   }
 
   :is(
-      .settings-sidebar,
-      .settings-nav-groups,
-      .settings-search-results
-    )::-webkit-scrollbar {
+    .settings-sidebar,
+    .settings-nav-groups,
+    .settings-search-results
+  )::-webkit-scrollbar {
     width: 3px;
     height: 3px;
     background: transparent;
   }
 
   :is(
-      .settings-sidebar,
-      .settings-nav-groups,
-      .settings-search-results
-    )::-webkit-scrollbar-track,
+    .settings-sidebar,
+    .settings-nav-groups,
+    .settings-search-results
+  )::-webkit-scrollbar-track,
   :is(
-      .settings-sidebar,
-      .settings-nav-groups,
-      .settings-search-results
-    )::-webkit-scrollbar-track-piece,
+    .settings-sidebar,
+    .settings-nav-groups,
+    .settings-search-results
+  )::-webkit-scrollbar-track-piece,
   :is(
-      .settings-sidebar,
-      .settings-nav-groups,
-      .settings-search-results
-    )::-webkit-scrollbar-corner {
+    .settings-sidebar,
+    .settings-nav-groups,
+    .settings-search-results
+  )::-webkit-scrollbar-corner {
     margin-block: 10px;
     border: none;
     background: transparent;
@@ -6906,10 +6906,10 @@ html.dark {
   }
 
   :is(
-      .settings-sidebar,
-      .settings-nav-groups,
-      .settings-search-results
-    )::-webkit-scrollbar-thumb {
+    .settings-sidebar,
+    .settings-nav-groups,
+    .settings-search-results
+  )::-webkit-scrollbar-thumb {
     border: 0;
     border-radius: 999px;
     background: hsl(var(--muted-foreground) / 0.28);
@@ -9125,7 +9125,7 @@ html.host-windows :where(.legacy-design) .vu-toast-surface {
 :is(.settings-page, .plan-usage-page) .agent-management-bar-item.is-selected {
   border-color: var(--border-subtle);
   color: var(--text-strong);
-  background: var(--surface-control);
+  background: var(--surface-raised-control);
   box-shadow: var(--shadow-card);
 }
 
@@ -14211,6 +14211,8 @@ html.host-windows :where(.legacy-design) .vu-toast-surface {
 }
 
 .settings-page .product-plugins-header .chat-channel-heading__actions {
+  width: 100%;
+  justify-content: space-between;
   gap: 12px;
 }
 
@@ -16136,7 +16138,6 @@ html.host-windows :where(.legacy-design) .vu-toast-surface {
   }
 }
 
-
 /* DSH-modeled Plugin Manager & Core Foundation Inventory Styles */
 .settings-page .dsh-plugins-page .product-plugin-list {
   padding: 0;
@@ -16216,8 +16217,12 @@ html.host-windows :where(.legacy-design) .vu-toast-surface {
   transition: background-color 0.14s ease;
 }
 
-.settings-page .dsh-plugin-card.product-plugin-row + .dsh-plugin-card.product-plugin-row,
-.settings-page .dsh-market-row.product-plugin-card + .dsh-market-row.product-plugin-card {
+.settings-page
+  .dsh-plugin-card.product-plugin-row
+  + .dsh-plugin-card.product-plugin-row,
+.settings-page
+  .dsh-market-row.product-plugin-card
+  + .dsh-market-row.product-plugin-card {
   border-top: 0;
 }
 
@@ -16264,7 +16269,10 @@ html.host-windows :where(.legacy-design) .vu-toast-surface {
 }
 
 .settings-page .dsh-plugin-card .product-plugin-row-title strong,
-.settings-page .dsh-market-row.product-plugin-card .product-plugin-row-title strong {
+.settings-page
+  .dsh-market-row.product-plugin-card
+  .product-plugin-row-title
+  strong {
   color: var(--text-primary);
   font-size: 0.875rem;
   font-weight: 500;
@@ -16844,11 +16852,19 @@ html.host-windows :where(.legacy-design) .vu-toast-surface {
 
 .settings-page .product-plugin-card:hover {
   border-color: var(--border-strong);
-  background: color-mix(in srgb, var(--text-primary) 8%, var(--surface-card-strong));
+  background: color-mix(
+    in srgb,
+    var(--text-primary) 8%,
+    var(--surface-card-strong)
+  );
   box-shadow: var(--shadow-card);
 }
 
-.settings-page .product-plugin-config-block > legend .product-plugin-config-copy strong {
+.settings-page
+  .product-plugin-config-block
+  > legend
+  .product-plugin-config-copy
+  strong {
   font-size: 1rem;
 }
 
@@ -17594,7 +17610,11 @@ html.host-windows :where(.legacy-design) .vu-toast-surface {
 
 .settings-page
   .dsh-detail-page
-  :is(.product-plugin-detail-nav, .dsh-detail-header, .product-plugin-underline-tabs) {
+  :is(
+    .product-plugin-detail-nav,
+    .dsh-detail-header,
+    .product-plugin-underline-tabs
+  ) {
   padding-inline-end: 20px;
 }
 
@@ -17613,9 +17633,7 @@ html.host-windows :where(.legacy-design) .vu-toast-surface {
   border: 1px solid var(--border-subtle);
 }
 
-.settings-page
-  .dsh-plugin-mode-segmented
-  .astryx-segmented-control-item {
+.settings-page .dsh-plugin-mode-segmented .astryx-segmented-control-item {
   height: 26px !important;
   min-height: 26px !important;
   gap: 6px;
@@ -17624,9 +17642,7 @@ html.host-windows :where(.legacy-design) .vu-toast-surface {
   font-weight: 600;
 }
 
-.settings-page
-  .dsh-plugin-mode-segmented
-  .astryx-segmented-control-item__icon,
+.settings-page .dsh-plugin-mode-segmented .astryx-segmented-control-item__icon,
 .settings-page
   .dsh-plugin-mode-segmented
   .astryx-segmented-control-item__icon
@@ -17643,15 +17659,52 @@ html.host-windows :where(.legacy-design) .vu-toast-surface {
   align-items: center;
 }
 
+.settings-page .dsh-add-plugin-button.primary-control {
+  display: inline-flex;
+  align-items: stretch;
+  height: 32px !important;
+  min-height: 32px !important;
+  padding: 0 !important;
+  gap: 0 !important;
+  border-radius: 14px !important;
+  overflow: hidden;
+}
+
+.settings-page .dsh-add-plugin-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 12px 0 14px;
+}
+
+.settings-page .dsh-add-plugin-divider {
+  width: 1px;
+  align-self: stretch;
+  background: color-mix(
+    in srgb,
+    var(--settings-button-primary-fg) 22%,
+    transparent
+  );
+  flex-shrink: 0;
+}
+
+.settings-page .dsh-add-plugin-caret-cell {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 10px;
+}
+
 .settings-page .dsh-add-plugin-caret {
-  margin-left: 2px;
-  opacity: 0.75;
+  margin-left: 0;
+  opacity: 0.9;
 }
 
 .settings-page .dsh-add-plugin-menu {
   position: absolute;
   top: calc(100% + 6px);
-  right: 0;
+  left: 0;
+  right: auto;
   z-index: 60;
   display: flex;
   flex-direction: column;
@@ -17703,7 +17756,8 @@ html.host-windows :where(.legacy-design) .vu-toast-surface {
 .settings-page .dsh-github-popconfirm {
   position: absolute;
   top: calc(100% + 8px);
-  right: 0;
+  left: 0;
+  right: auto;
   z-index: 65;
   display: flex;
   flex-direction: column;
@@ -17863,6 +17917,3 @@ html.host-windows :where(.legacy-design) .vu-toast-surface {
   gap: 6px;
   margin-top: 2px;
 }
-
-
-

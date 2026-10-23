@@ -1,6 +1,6 @@
 import type { JsonValue } from './protocol.js';
 import { type CapturedInternalMessage, type CommandContribution, type ConversationModeContribution, type Disposer, type InternalMessageCaptureContribution, type InternalPromptContributionBlock, type KanbanViewContribution, type MarkdownRendererContribution, type OverlayContribution, type PanelContribution, type PromptContextContribution, type PromptTurnContextInput, type PromptTurnContributionResult, type ProviderContribution, type SettingSectionContribution, type SettingsPageContribution, type SlashCommandContribution, type SlotContribution, type ThemeContribution, type ViewContribution } from './registry.js';
-import { EffectScope, type ServiceKey, type WaterfallInterceptor } from './services.js';
+import { EffectScope, type InjectedServicesRecord, type ServiceDecorator, type ServiceKey, type WaterfallInterceptor } from './services.js';
 export interface HostCallRequestObject {
     readonly pluginId: string;
     readonly capability: string;
@@ -146,12 +146,18 @@ export interface RuntimeEventHookPayload {
 export type BeforeTurnHookPayload = PromptTurnContextInput & {
     internalPromptContributions?: InternalPromptContributionBlock[];
 };
+export type BeforeTurnSimpleHook = (turn: BeforeTurnHookPayload) => Promise<PromptTurnContributionResult | string | null | void> | PromptTurnContributionResult | string | null | void;
+export type BeforeTurnHook<TPayload = BeforeTurnHookPayload, TResult = PromptTurnContributionResult | string | void | TPayload> = BeforeTurnSimpleHook | WaterfallInterceptor<TPayload, TResult>;
+export type AfterTurnSimpleHook = (event: AfterTurnHookEvent) => void | Promise<void>;
+export type AfterTurnHook<TPayload = AfterTurnHookEvent, TResult = TPayload> = AfterTurnSimpleHook | WaterfallInterceptor<TPayload, TResult>;
+export type RuntimeEventSimpleHook = (event: RuntimeEventHookPayload) => void | Promise<void>;
+export type RuntimeEventHook<TPayload = RuntimeEventHookPayload, TResult = TPayload> = RuntimeEventSimpleHook | WaterfallInterceptor<TPayload, TResult>;
 export interface PluginHooksNamespace {
-    beforeTurn(fn: (turn: BeforeTurnHookPayload) => Promise<PromptTurnContributionResult | string | null | void> | PromptTurnContributionResult | string | null | void, order?: number): Disposer;
+    beforeTurn(fn: BeforeTurnSimpleHook, order?: number): Disposer;
     beforeTurn<TPayload = BeforeTurnHookPayload, TResult = PromptTurnContributionResult | string | void | TPayload>(fn: WaterfallInterceptor<TPayload, TResult>, order?: number): Disposer;
-    afterTurn(fn: (event: AfterTurnHookEvent) => void | Promise<void>, order?: number): Disposer;
+    afterTurn(fn: AfterTurnSimpleHook, order?: number): Disposer;
     afterTurn<TPayload = AfterTurnHookEvent, TResult = TPayload>(fn: WaterfallInterceptor<TPayload, TResult>, order?: number): Disposer;
-    onRuntimeEvent(fn: (event: RuntimeEventHookPayload) => void | Promise<void>, order?: number): Disposer;
+    onRuntimeEvent(fn: RuntimeEventSimpleHook, order?: number): Disposer;
     onRuntimeEvent<TPayload = RuntimeEventHookPayload, TResult = TPayload>(fn: WaterfallInterceptor<TPayload, TResult>, order?: number): Disposer;
     captureInternalMessage(contribution: Omit<InternalMessageCaptureContribution, 'pluginId' | 'id'> & {
         id?: string;
@@ -168,9 +174,9 @@ export interface PluginServicesNamespace {
     provide<T>(key: ServiceKey<T> | string, implementation: T): Disposer;
     get<T>(key: ServiceKey<T> | string): T | undefined;
     inject<T>(key: ServiceKey<T> | string): T | undefined;
-    inject(deps: ReadonlyArray<ServiceKey<unknown> | string>, effect: (resolved: any) => void | Disposer): Disposer;
+    inject<TResolved = InjectedServicesRecord>(deps: ReadonlyArray<ServiceKey<unknown> | string>, effect: (resolved: TResolved) => void | Disposer): Disposer;
     require<T>(key: ServiceKey<T> | string): T;
-    intercept<TPayload = unknown, TResult = unknown>(hookName: string, fn: WaterfallInterceptor<TPayload, TResult> | ((previousService: any) => any), order?: number): Disposer;
+    intercept<TPayload = unknown, TResult = TPayload>(hookName: string, fn: WaterfallInterceptor<TPayload, TResult> | ServiceDecorator<TPayload, TResult>, order?: number): Disposer;
     onChange<T>(key: ServiceKey<T> | string, listener: () => void): Disposer;
 }
 export interface PluginHostNamespace {
@@ -221,6 +227,7 @@ export interface VibeXPluginContext {
     readonly pluginId: string;
     readonly generation: number;
     readonly scope: EffectScope;
+    readonly effects: EffectScope;
     readonly ui: PluginUiNamespace;
     readonly hooks: PluginHooksNamespace;
     readonly services: PluginServicesNamespace;

@@ -2823,6 +2823,61 @@ describe('conversationStore (row-op dumb container)', () => {
       )
     ).toEqual(['acp-0', 'acp-1', 'acp-2:steer:2', 'acp-3']);
   });
+
+  it('preserves entry.rows reference across pure append_text streaming deltas on an active live row', () => {
+    const detail = emptyDetail([
+      fileTurn('acp-1', 'user', 'hello', 1n, 'settled'),
+    ]);
+    detail.timeline.last_sequence = 1n;
+    let state = conversationStoreReducer(emptyConversationStoreState, {
+      type: 'load_success',
+      conversationId: CONVERSATION_ID,
+      detail,
+    });
+
+    // First batch upserts the streaming user row and creates the live assistant row.
+    state = conversationStoreReducer(state, {
+      type: 'row_ops',
+      batch: batch(
+        [
+          { op: 'upsert', row: streamingUser('t2', 'question', 2n) },
+          {
+            op: 'append_text',
+            row_id: 't2:assistant',
+            revision: 3n,
+            stream: 'text',
+            delta: 'Token 1 ',
+          },
+        ],
+        2n
+      ),
+    });
+    const rowsAfterFirstDelta = entryOf(state).rows;
+    const sideRowsAfterFirstDelta = sideRowsForEntry(entryOf(state));
+
+    // Subsequent append_text deltas on the same live row only update textBuffers
+    // and must preserve entry.rows identity so side-row WeakMap caches remain valid.
+    state = conversationStoreReducer(state, {
+      type: 'row_ops',
+      batch: batch(
+        [
+          {
+            op: 'append_text',
+            row_id: 't2:assistant',
+            revision: 4n,
+            stream: 'text',
+            delta: 'Token 2 ',
+          },
+        ],
+        3n
+      ),
+    });
+    expect(entryOf(state).rows).toBe(rowsAfterFirstDelta);
+    expect(sideRowsForEntry(entryOf(state))).toBe(sideRowsAfterFirstDelta);
+    expect(assistantTexts(timelineTurnsForEntry(entryOf(state)))).toEqual([
+      'Token 1 Token 2 ',
+    ]);
+  });
 });
 
 function textOf(blocks: ContentBlock[]): string {

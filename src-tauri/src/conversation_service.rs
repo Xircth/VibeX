@@ -12,9 +12,7 @@ use std::sync::Arc;
 
 use agents::AgentContentBlock;
 pub use conversations::{
-    ConversationContext, ConversationRuntimeState, ConversationServiceError,
-    ConversationSessionService, ConversationStartTurnInput, ConversationTurnSnapshot,
-    finalize_checkpoint_file_changes,
+    ConversationServiceError, ConversationSessionService, ConversationStartTurnInput,
 };
 use db::models::{conversation_event::ConversationEventRecord, repo::Repo, workspace::Workspace};
 use sqlx::SqlitePool;
@@ -24,7 +22,6 @@ use tauri::AppHandle;
 /// [`conversations::ConversationHost`] so the orchestration core stays decoupled from
 /// `AppState` and the command layer.
 pub struct AppConversationHost {
-    pub deployment: Arc<dyn deployment::Deployment>,
     pub official_mcp: Arc<plugins::OfficialMcpRuntime>,
 }
 

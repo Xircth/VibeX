@@ -25,19 +25,18 @@ use agents::{
     conversation::{
         AcpAuthenticationObservationSnapshot, AcpCapabilitySnapshot, AgentExecutionStats,
         AgentPromptCapabilities, CapturedInternalMessage, ContentBlock,
-        ConversationAgentConnectionStatus,
-        ConversationArtifactPreviewReference, ConversationArtifactReference,
-        ConversationBundleChecksum, ConversationBundleManifest, ConversationBundlePayload,
-        ConversationDelegation, ConversationDelegationResult, ConversationDelegationView,
-        ConversationDetail, ConversationError, ConversationErrorView, ConversationEvent,
-        ConversationEventEnvelope, ConversationEventsPage, ConversationFeedbackRequest,
-        ConversationFeedbackResponse, ConversationFileChange, ConversationFileChangeSummary,
-        ConversationFileLocation, ConversationFileRef, ConversationInputBlock,
-        ConversationInputEvent, ConversationInputPayload, ConversationNoticeAction,
-        ConversationPermissionRequest, ConversationPermissionResponse, ConversationPermissionView,
-        ConversationPlanEntry, ConversationQuestionRequest, ConversationQuestionResponse,
-        ConversationRelationKind, ConversationRelationVisibility, ConversationRowOp,
-        ConversationRowOpBatch, ConversationRowPage, ConversationSessionModes,
+        ConversationAgentConnectionStatus, ConversationArtifactPreviewReference,
+        ConversationArtifactReference, ConversationBundleChecksum, ConversationBundleManifest,
+        ConversationBundlePayload, ConversationDelegation, ConversationDelegationResult,
+        ConversationDelegationView, ConversationDetail, ConversationError, ConversationErrorView,
+        ConversationEvent, ConversationEventEnvelope, ConversationEventsPage,
+        ConversationFeedbackRequest, ConversationFeedbackResponse, ConversationFileChange,
+        ConversationFileChangeSummary, ConversationFileLocation, ConversationFileRef,
+        ConversationInputBlock, ConversationInputEvent, ConversationInputPayload,
+        ConversationNoticeAction, ConversationPermissionRequest, ConversationPermissionResponse,
+        ConversationPermissionView, ConversationPlanEntry, ConversationQuestionRequest,
+        ConversationQuestionResponse, ConversationRelationKind, ConversationRelationVisibility,
+        ConversationRowOp, ConversationRowOpBatch, ConversationRowPage, ConversationSessionModes,
         ConversationSessionNotice, ConversationSteeringEvent, ConversationSummary,
         ConversationTerminalPatch, ConversationTerminalView, ConversationTimeline,
         ConversationTimelinePage, ConversationTimelineRow, ConversationToolCallPatch,
@@ -84,9 +83,11 @@ use api_types::{
 };
 use application::{ConversationLiveFeedbackNote, ConversationOutputView};
 use conversations::{
-    ConversationChildSummaryView, ConversationInputStatus, ConversationInputSubmission,
-    ConversationInputView, ConversationRelationView, ConversationSearchHit,
-    ConversationSteeringReceipt, ConversationSteeringStatus,
+    ConversationChildSummaryView, ConversationExportResult, ConversationForkContinuity,
+    ConversationForkResult, ConversationImportResult, ConversationInputStatus,
+    ConversationInputSubmission, ConversationInputView, ConversationRelationView,
+    ConversationSearchHit, ConversationSteeringReceipt, ConversationSteeringStatus,
+    ConversationTurnSnapshot,
     collaboration::{CollaborationSpaceChangedEvent, ConversationPersonaView},
 };
 use db::models::{
@@ -128,19 +129,12 @@ use services::services::{
     },
 };
 use ts_rs::TS;
-use vibex::{
-    commands::{
-        artifact_preview::ArtifactPreviewLeaseDto,
-        attention::{AttentionInbox, AttentionItem, AttentionItemKind},
-        conversations::{ConversationActiveBinding, ConversationCurrentTurn, DbConversationDetail},
-        crash_reports::{CrashReportMeta, CrashReportsInfo},
-        sessions::{SessionContinuityMode, SessionSummary},
-    },
-    conversation_bundle::{
-        ConversationExportResult, ConversationForkContinuity, ConversationForkResult,
-        ConversationImportResult,
-    },
-    conversation_service::ConversationTurnSnapshot,
+use vibex::commands::{
+    artifact_preview::ArtifactPreviewLeaseDto,
+    attention::{AttentionInbox, AttentionItem, AttentionItemKind},
+    conversations::{ConversationActiveBinding, ConversationCurrentTurn, DbConversationDetail},
+    crash_reports::{CrashReportMeta, CrashReportsInfo},
+    sessions::{SessionContinuityMode, SessionSummary},
 };
 use workflows::{
     AgentStepSpec, ApprovalStepSpec, ClaimedWorkflowStep, CompletionPolicy, DebugRunScope,

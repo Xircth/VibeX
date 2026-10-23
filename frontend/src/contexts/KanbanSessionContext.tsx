@@ -349,7 +349,27 @@ export function KanbanSessionProvider({ children }: { children: ReactNode }) {
     [commitLayoutState]
   );
 
-  const visibleRightSession = layoutState.rightSession;
+  const visibleRightSession = useMemo<KanbanSessionPlacement | null>(() => {
+    if (
+      activeWorktreeId &&
+      layoutState.rightSession &&
+      layoutState.rightSession.workspaceId !== activeWorktreeId
+    ) {
+      return activeWorkspaceWithSession?.id === activeWorktreeId &&
+        activeWorkspaceWithSession.session?.id
+        ? {
+            sessionId: activeWorkspaceWithSession.session.id,
+            workspaceId: activeWorktreeId,
+          }
+        : null;
+    }
+    return layoutState.rightSession;
+  }, [
+    activeWorkspaceWithSession?.id,
+    activeWorkspaceWithSession?.session?.id,
+    activeWorktreeId,
+    layoutState.rightSession,
+  ]);
   const isRightSessionPending =
     !visibleRightSession &&
     !!activeWorktreeId &&

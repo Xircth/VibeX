@@ -13,10 +13,10 @@ function readFile(relativePath) {
 }
 
 test('历史消息流兼容 LogMsg::Finished 字符串完成事件', () => {
-  const source = readFile('src/utils/streamJsonPatchEntries.ts');
+  const source = readFile('src/hooks/useTauriPatchStream.ts');
 
-  assert.match(source, /msg === 'Finished' \|\| data\?\.finished !== undefined/);
-  assert.match(source, /opts\.onFinished\?\.\(snapshot\.entries\)/);
+  assert.match(source, /msg === 'Finished'/);
+  assert.match(source, /finishedRef\.current = true/);
 });
 
 test('terminal fit and writes are guarded by the live xterm instance', () => {

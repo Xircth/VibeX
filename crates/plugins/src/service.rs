@@ -96,14 +96,14 @@ impl PluginService {
         };
         self.plugins
             .write()
-            .expect("plugin registry poisoned")
+            .unwrap_or_else(|p| p.into_inner())
             .insert(manifest.id.as_str().to_owned(), record);
         Ok(manifest)
     }
 
     pub async fn enable(&self, plugin_id: &str) -> Result<EnableResult, PluginError> {
         let manifest = {
-            let mut plugins = self.plugins.write().expect("plugin registry poisoned");
+            let mut plugins = self.plugins.write().unwrap_or_else(|p| p.into_inner());
             let record = plugins
                 .get_mut(plugin_id)
                 .ok_or_else(|| PluginError::not_found(plugin_id))?;
@@ -137,7 +137,7 @@ impl PluginService {
             };
             self.plugins
                 .write()
-                .expect("plugin registry poisoned")
+                .unwrap_or_else(|p| p.into_inner())
                 .get_mut(plugin_id)
                 .expect("plugin cannot disappear during enable")
                 .skills
@@ -163,7 +163,7 @@ impl PluginService {
             };
             self.plugins
                 .write()
-                .expect("plugin registry poisoned")
+                .unwrap_or_else(|p| p.into_inner())
                 .get_mut(plugin_id)
                 .expect("plugin cannot disappear during enable")
                 .dependencies
@@ -172,7 +172,7 @@ impl PluginService {
 
         for provider in provider_ids(&manifest) {
             let managed_tool = {
-                let plugins = self.plugins.read().expect("plugin registry poisoned");
+                let plugins = self.plugins.read().unwrap_or_else(|p| p.into_inner());
                 match plugins
                     .get(plugin_id)
                     .expect("plugin cannot disappear during enable")
@@ -204,7 +204,7 @@ impl PluginService {
             };
             self.plugins
                 .write()
-                .expect("plugin registry poisoned")
+                .unwrap_or_else(|p| p.into_inner())
                 .get_mut(plugin_id)
                 .expect("plugin cannot disappear during enable")
                 .providers
@@ -218,7 +218,7 @@ impl PluginService {
     }
 
     pub fn snapshot(&self, plugin_id: &str) -> Result<PluginSnapshot, PluginError> {
-        let plugins = self.plugins.read().expect("plugin registry poisoned");
+        let plugins = self.plugins.read().unwrap_or_else(|p| p.into_inner());
         let record = plugins
             .get(plugin_id)
             .ok_or_else(|| PluginError::not_found(plugin_id))?;
@@ -226,7 +226,7 @@ impl PluginService {
     }
 
     pub fn disable(&self, plugin_id: &str) -> Result<PluginSnapshot, PluginError> {
-        let mut plugins = self.plugins.write().expect("plugin registry poisoned");
+        let mut plugins = self.plugins.write().unwrap_or_else(|p| p.into_inner());
         let record = plugins
             .get_mut(plugin_id)
             .ok_or_else(|| PluginError::not_found(plugin_id))?;

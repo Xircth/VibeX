@@ -3723,7 +3723,7 @@ mod tests {
             other => other.map(ToString::to_string).unwrap_or_default(),
         };
         assert!(output.len() <= crate::conversation::MAX_TIMELINE_PREVIEW_BYTES + 4);
-        assert!(output.ends_with('…'));
+        assert!(output.starts_with("…\n"));
         assert!(
             sessions[0].messages[0].content.len()
                 <= crate::conversation::MAX_TIMELINE_PREVIEW_BYTES + 4

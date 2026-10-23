@@ -31,7 +31,8 @@ impl HostServiceSupervisor {
             .map(|service| {
                 let lease = lease.clone();
                 tokio::spawn(async move {
-                    let mut interval = tokio::time::interval(Duration::from_secs(service.seconds));
+                    let mut interval =
+                        tokio::time::interval(Duration::from_secs(service.seconds.max(1)));
                     interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
                     let busy = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
                     loop {
@@ -47,12 +48,17 @@ impl HostServiceSupervisor {
             .collect();
         self.tasks
             .lock()
-            .unwrap()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
             .insert(plugin_id.to_owned(), handles);
     }
 
     pub fn stop(&self, plugin_id: &str) {
-        if let Some(handles) = self.tasks.lock().unwrap().remove(plugin_id) {
+        if let Some(handles) = self
+            .tasks
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .remove(plugin_id)
+        {
             for handle in handles {
                 handle.abort();
             }

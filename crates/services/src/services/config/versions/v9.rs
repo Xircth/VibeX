@@ -476,11 +476,13 @@ mod tests {
         assert!(!loaded.multi_agent_enabled);
         assert_eq!(loaded.multi_agent_depth_limit, 1);
 
-        let mut wide = Config::default();
-        wide.multi_agent_depth_limit = 99;
-        wide.multi_agent_completed_cache_max_mb = 2_000_000;
-        wide.multi_agent_conversation_list_default_days = 0;
-        wide.multi_agent_delay_max_hours = 999;
+        let mut wide = Config {
+            multi_agent_depth_limit: 99,
+            multi_agent_completed_cache_max_mb: 2_000_000,
+            multi_agent_conversation_list_default_days: 0,
+            multi_agent_delay_max_hours: 999,
+            ..Default::default()
+        };
         wide.clamp_multi_agent();
         assert_eq!(wide.multi_agent_depth_limit, 8);
         assert_eq!(wide.multi_agent_completed_cache_max_mb, 1_000_000);

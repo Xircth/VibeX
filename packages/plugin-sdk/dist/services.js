@@ -34,9 +34,7 @@ export class ServiceContainer {
     get(key) {
         return this.inject(key);
     }
-    inject(keyOrDeps, 
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    effect, ownerPluginId) {
+    inject(keyOrDeps, effect, ownerPluginId) {
         if (!Array.isArray(keyOrDeps)) {
             const id = normalizeServiceId(keyOrDeps);
             return this.services.get(id)?.value;
@@ -75,9 +73,7 @@ export class ServiceContainer {
                     },
                 });
                 try {
-                    currentCleanup = effect(
-                    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                    resolved);
+                    currentCleanup = effect(resolved);
                 }
                 catch {
                     // Isolate effect execution errors.
@@ -131,9 +127,7 @@ export class ServiceContainer {
     intercept(hookName, fn, order = 0, ownerPluginId) {
         if (this.services.has(hookName) && fn.length <= 1) {
             const prevRecord = this.services.get(hookName);
-            const decoratedValue = 
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            fn(prevRecord.value);
+            const decoratedValue = fn(prevRecord.value);
             const nextRecord = {
                 id: hookName,
                 ownerPluginId: ownerPluginId ?? prevRecord.ownerPluginId,

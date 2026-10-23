@@ -53,6 +53,58 @@ struct SpawnedPluginProcess {
     child: tokio::process::Child,
 }
 
+#[async_trait]
+pub trait AgentInvocationHandler: Send + Sync {
+    fn is_visible_to(&self, caller_plugin_id: &str) -> bool {
+        let _ = caller_plugin_id;
+        true
+    }
+
+    async fn invoke(
+        &self,
+        caller_plugin_id: &str,
+        handler_id: &str,
+        input: Value,
+    ) -> Result<Value, crate::WorkerHostError>;
+}
+
+struct FnAgentInvocationHandler<F> {
+    visible_to: Option<std::collections::HashSet<String>>,
+    callback: F,
+}
+
+#[async_trait]
+impl<F, Fut> AgentInvocationHandler for FnAgentInvocationHandler<F>
+where
+    F: Fn(String, String, Value) -> Fut + Send + Sync + 'static,
+    Fut: std::future::Future<Output = Result<Value, crate::WorkerHostError>> + Send + 'static,
+{
+    fn is_visible_to(&self, caller_plugin_id: &str) -> bool {
+        self.visible_to
+            .as_ref()
+            .is_none_or(|allowed| allowed.contains(caller_plugin_id) || allowed.contains("*"))
+    }
+
+    async fn invoke(
+        &self,
+        caller_plugin_id: &str,
+        handler_id: &str,
+        input: Value,
+    ) -> Result<Value, crate::WorkerHostError> {
+        (self.callback)(caller_plugin_id.to_owned(), handler_id.to_owned(), input).await
+    }
+}
+
+struct RegisteredAgentHandler {
+    handler: Arc<dyn AgentInvocationHandler>,
+    allowed_plugins: Option<std::collections::HashSet<String>>,
+}
+
+struct PreviewLeaseEntry {
+    _lease: crate::ActivationLease,
+    expiry_abort: Option<tokio::task::AbortHandle>,
+}
+
 pub struct HostCapabilityBroker {
     plugins: Arc<crate::PluginControlPlane>,
     previews: Arc<dyn crate::PluginPreviewHost>,
@@ -62,10 +114,15 @@ pub struct HostCapabilityBroker {
     conversations: Arc<dyn crate::PluginConversationHost>,
     collaboration: Arc<dyn crate::CollaborationHost>,
     browser: Arc<browser_host::BrowserService>,
+    http_client: reqwest::Client,
     settings_saved: std::sync::Mutex<Option<Arc<dyn Fn() + Send + Sync>>>,
     artifacts: Mutex<HashMap<String, ArtifactAuthorization>>,
-    preview_leases: Arc<Mutex<HashMap<String, crate::ActivationLease>>>,
+    preview_leases: Arc<Mutex<HashMap<String, PreviewLeaseEntry>>>,
     spawned_processes: Mutex<HashMap<String, SpawnedPluginProcess>>,
+    capability_grants: Mutex<HashMap<String, Vec<crate::HostCapabilityGrant>>>,
+    agent_handlers: Mutex<HashMap<String, RegisteredAgentHandler>>,
+    workspace_root: std::sync::RwLock<Option<std::path::PathBuf>>,
+    plugin_data_root: std::sync::RwLock<Option<std::path::PathBuf>>,
 }
 
 impl HostCapabilityBroker {
@@ -115,6 +172,10 @@ impl HostCapabilityBroker {
         remote_profiles: Arc<dyn crate::RemoteProfileHost>,
         bind_prompts: Arc<crate::ProviderBindPrompts>,
     ) -> Self {
+        let _ = rustls::crypto::aws_lc_rs::default_provider().install_default();
+        let http_client = reqwest::Client::builder()
+            .build()
+            .unwrap_or_else(|_| reqwest::Client::new());
         Self {
             plugins,
             previews,
@@ -124,11 +185,122 @@ impl HostCapabilityBroker {
             conversations: Arc::new(crate::UnavailablePluginConversationHost),
             collaboration: Arc::new(crate::UnavailableCollaborationHost),
             browser: Arc::new(browser_host::BrowserService::unavailable()),
+            http_client,
             settings_saved: std::sync::Mutex::new(None),
             artifacts: Mutex::new(HashMap::new()),
             preview_leases: Arc::new(Mutex::new(HashMap::new())),
             spawned_processes: Mutex::new(HashMap::new()),
+            capability_grants: Mutex::new(HashMap::new()),
+            agent_handlers: Mutex::new(HashMap::new()),
+            workspace_root: std::sync::RwLock::new(None),
+            plugin_data_root: std::sync::RwLock::new(None),
         }
+    }
+
+    pub fn set_workspace_root(&self, root: impl Into<std::path::PathBuf>) {
+        if let Ok(mut guard) = self.workspace_root.write() {
+            *guard = Some(root.into());
+        }
+    }
+
+    pub fn set_plugin_data_root(&self, root: impl Into<std::path::PathBuf>) {
+        if let Ok(mut guard) = self.plugin_data_root.write() {
+            *guard = Some(root.into());
+        }
+    }
+
+    pub async fn grant_capability(
+        &self,
+        plugin_id: impl Into<String>,
+        grant: crate::HostCapabilityGrant,
+    ) {
+        self.capability_grants
+            .lock()
+            .await
+            .entry(plugin_id.into())
+            .or_default()
+            .push(grant);
+    }
+
+    pub async fn set_capability_grants(
+        &self,
+        plugin_id: impl Into<String>,
+        grants: Vec<crate::HostCapabilityGrant>,
+    ) {
+        self.capability_grants
+            .lock()
+            .await
+            .insert(plugin_id.into(), grants);
+    }
+
+    pub async fn register_agent_handler(
+        &self,
+        handler_id: impl Into<String>,
+        handler: Arc<dyn AgentInvocationHandler>,
+    ) {
+        self.agent_handlers.lock().await.insert(
+            handler_id.into(),
+            RegisteredAgentHandler {
+                handler,
+                allowed_plugins: None,
+            },
+        );
+    }
+
+    pub async fn register_scoped_agent_handler<I, S>(
+        &self,
+        handler_id: impl Into<String>,
+        allowed_plugins: I,
+        handler: Arc<dyn AgentInvocationHandler>,
+    ) where
+        I: IntoIterator<Item = S>,
+        S: Into<String>,
+    {
+        self.agent_handlers.lock().await.insert(
+            handler_id.into(),
+            RegisteredAgentHandler {
+                handler,
+                allowed_plugins: Some(allowed_plugins.into_iter().map(Into::into).collect()),
+            },
+        );
+    }
+
+    pub async fn register_agent_handler_fn<F, Fut>(
+        &self,
+        handler_id: impl Into<String>,
+        visible_to: Option<Vec<String>>,
+        callback: F,
+    ) where
+        F: Fn(String, String, Value) -> Fut + Send + Sync + 'static,
+        Fut: std::future::Future<Output = Result<Value, crate::WorkerHostError>> + Send + 'static,
+    {
+        let visible_set = visible_to.map(|items| items.into_iter().collect());
+        self.agent_handlers.lock().await.insert(
+            handler_id.into(),
+            RegisteredAgentHandler {
+                handler: Arc::new(FnAgentInvocationHandler {
+                    visible_to: visible_set.clone(),
+                    callback,
+                }),
+                allowed_plugins: visible_set,
+            },
+        );
+    }
+
+    pub async fn unregister_agent_handler(&self, handler_id: &str) {
+        self.agent_handlers.lock().await.remove(handler_id);
+    }
+
+    pub async fn publish_event(
+        &self,
+        topic: &str,
+        event_type: &str,
+        payload: &Value,
+    ) -> Result<u64, crate::WorkerHostError> {
+        self.plugins
+            .publish_event(topic, event_type, payload)
+            .await
+            .map_err(|error| broker_error("events_publish_failed", error))
     }
 
     pub async fn kill_plugin_processes(&self, plugin_id: &str) -> usize {
@@ -170,7 +342,10 @@ impl HostCapabilityBroker {
     }
 
     pub fn set_settings_saved_hook(&self, hook: impl Fn() + Send + Sync + 'static) {
-        *self.settings_saved.lock().expect("settings hook") = Some(Arc::new(hook));
+        *self
+            .settings_saved
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner()) = Some(Arc::new(hook));
     }
 
     pub fn bind_prompts(&self) -> Arc<crate::ProviderBindPrompts> {
@@ -221,8 +396,11 @@ impl HostCapabilityBroker {
         lease_id: Option<&str>,
     ) -> Result<(), crate::PluginPreviewHostError> {
         let result = self.previews.close_preview(file_path, lease_id).await;
-        if let Some(lease_id) = lease_id {
-            self.preview_leases.lock().await.remove(lease_id);
+        if let Some(lease_id) = lease_id
+            && let Some(entry) = self.preview_leases.lock().await.remove(lease_id)
+            && let Some(abort) = entry.expiry_abort
+        {
+            abort.abort();
         }
         result
     }
@@ -232,17 +410,16 @@ impl HostCapabilityBroker {
         lease_id: &str,
     ) -> Result<crate::PluginPreviewSession, crate::PluginPreviewHostError> {
         let lease = self.previews.renew_preview(lease_id).await?;
-        if self
-            .preview_leases
-            .lock()
-            .await
-            .contains_key(&lease.lease_id)
-        {
-            schedule_preview_lease_drop(
+        let mut preview_leases = self.preview_leases.lock().await;
+        if let Some(entry) = preview_leases.get_mut(&lease.lease_id) {
+            let abort = schedule_preview_lease_drop(
                 self.preview_leases.clone(),
                 lease.lease_id.clone(),
                 lease.expires_at_unix_ms,
             );
+            if let Some(prev) = entry.expiry_abort.replace(abort) {
+                prev.abort();
+            }
         }
         Ok(lease)
     }
@@ -664,15 +841,21 @@ impl HostCapabilityBroker {
             .ok_or_else(|| {
                 broker_error("generation_stale", "Preview generation is no longer active")
             })?;
-        self.preview_leases
-            .lock()
-            .await
-            .insert(lease.lease_id.clone(), activation_lease);
-        schedule_preview_lease_drop(
+        let abort = schedule_preview_lease_drop(
             self.preview_leases.clone(),
             lease.lease_id.clone(),
             lease.expires_at_unix_ms,
         );
+        if let Some(prev) = self.preview_leases.lock().await.insert(
+            lease.lease_id.clone(),
+            PreviewLeaseEntry {
+                _lease: activation_lease,
+                expiry_abort: Some(abort),
+            },
+        ) && let Some(prev_abort) = prev.expiry_abort
+        {
+            prev_abort.abort();
+        }
         Ok(json!({
             "leaseId": lease.lease_id,
             "port": lease.loopback_port,
@@ -986,25 +1169,27 @@ impl HostCapabilityBroker {
                 plugin
                     .write_config(input.clone())
                     .map_err(|error| broker_error("config_schema_invalid", error))?;
-                let hook = self.settings_saved.lock().expect("settings hook").clone();
+                let hook = self
+                    .settings_saved
+                    .lock()
+                    .unwrap_or_else(|poisoned| poisoned.into_inner())
+                    .clone();
                 if let Some(hook) = hook {
                     hook();
                 }
                 Ok(input)
             }
-            "secrets.get" => Ok(json!({ "present": false })),
-            "secrets.put" | "secrets.delete" => Ok(json!({ "present": false })),
-            "network.fetch" => execute_network_fetch(input).await,
-            "files.read" | "files.write" | "files.stat" | "files.list" => Err(broker_error(
-                "files_root_denied",
-                "File roots are bound to workspace and plugin-data sessions",
-            )),
-            "events.subscribe" => Ok(json!({ "cursor": 0 })),
-            "events.ack" => Ok(json!({})),
-            "agent.invoke" => Err(broker_error(
-                "handler_not_visible",
-                "Cross-plugin handlers are not visible",
-            )),
+            "secrets.get" | "secrets.put" | "secrets.delete" => {
+                self.call_secrets(plugin_id, &key, input).await
+            }
+            "network.fetch" => execute_network_fetch(&self.http_client, input).await,
+            "files.read" | "files.write" | "files.stat" | "files.list" => {
+                self.call_files(plugin_id, &key, input).await
+            }
+            "events.subscribe" | "events.ack" | "events.publish" => {
+                self.call_events(plugin_id, &key, input).await
+            }
+            "agent.invoke" => self.call_agent_invoke(plugin_id, input).await,
             "app.notify.toast" => {
                 let title = input
                     .get("title")
@@ -1351,9 +1536,1042 @@ impl HostCapabilityBroker {
             )),
         }
     }
+
+    async fn effective_grants_for_plugin(
+        &self,
+        plugin_id: &str,
+    ) -> Vec<crate::HostCapabilityGrant> {
+        let mut grants = self
+            .capability_grants
+            .lock()
+            .await
+            .get(plugin_id)
+            .cloned()
+            .unwrap_or_default();
+        if let Ok(persisted) = self.plugins.capability_grants(plugin_id).await {
+            grants.extend(persisted.into_iter().map(crate::HostCapabilityGrant::from));
+        }
+        if let Ok(Some(installed)) = self.plugins.plugin(plugin_id).await {
+            for permission in &installed.package.permissions {
+                grants.push(
+                    crate::HostCapabilityGrant::new(
+                        permission.capability.clone(),
+                        permission.scope.clone(),
+                    )
+                    .with_trust_tier(permission.trust_tier.clone()),
+                );
+            }
+        }
+        grants
+    }
+
+    async fn call_secrets(
+        &self,
+        plugin_id: &str,
+        key: &str,
+        input: Value,
+    ) -> Result<Value, crate::WorkerHostError> {
+        let grants = self.effective_grants_for_plugin(plugin_id).await;
+        let max_request_bytes = grants
+            .iter()
+            .filter(|grant| capability_matches(&grant.capability, key, "secrets"))
+            .map(|grant| grant.effective_limits().max_request_bytes)
+            .min()
+            .unwrap_or_else(|| crate::GrantLimits::default().max_request_bytes);
+        let request_bytes = serde_json::to_vec(&input)
+            .map(|bytes| bytes.len())
+            .unwrap_or(0);
+        if request_bytes > max_request_bytes {
+            return Err(broker_error(
+                "secrets_limit_exceeded",
+                format!(
+                    "Secret request size ({request_bytes} bytes) exceeds limit ({max_request_bytes} bytes)"
+                ),
+            ));
+        }
+
+        let secret_key = input
+            .get("key")
+            .or_else(|| input.get("secretKey"))
+            .or_else(|| input.get("secret_key"))
+            .or_else(|| input.get("name"))
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .ok_or_else(|| broker_error("secret_key_missing", "secret key is required"))?;
+
+        match key {
+            "secrets.get" => {
+                let value = self
+                    .plugins
+                    .secret_get(plugin_id, secret_key)
+                    .await
+                    .map_err(|error| broker_error("secrets_storage_failed", error))?;
+                let present = value.is_some();
+                // NEVER write the secret plaintext value into HostAuditEntry!
+                self.audit(
+                    plugin_id,
+                    "plugin_secret_get",
+                    json!({
+                        "secretKey": secret_key,
+                        "present": present,
+                        "status": "ok",
+                    }),
+                )
+                .await;
+                Ok(json!({
+                    "present": present,
+                    "value": value,
+                }))
+            }
+            "secrets.put" => {
+                let secret_value = input
+                    .get("value")
+                    .or_else(|| input.get("secret"))
+                    .and_then(Value::as_str)
+                    .ok_or_else(|| {
+                        broker_error("secret_value_missing", "secret value string is required")
+                    })?;
+                if secret_value.len() > max_request_bytes {
+                    return Err(broker_error(
+                        "secrets_limit_exceeded",
+                        format!(
+                            "Secret value size ({} bytes) exceeds limit ({max_request_bytes} bytes)",
+                            secret_value.len()
+                        ),
+                    ));
+                }
+                self.plugins
+                    .secret_put(plugin_id, secret_key, secret_value)
+                    .await
+                    .map_err(|error| broker_error("secrets_storage_failed", error))?;
+                // NEVER write the secret plaintext value into HostAuditEntry!
+                self.audit(
+                    plugin_id,
+                    "plugin_secret_put",
+                    json!({
+                        "secretKey": secret_key,
+                        "present": true,
+                        "status": "ok",
+                    }),
+                )
+                .await;
+                Ok(json!({
+                    "present": true,
+                }))
+            }
+            "secrets.delete" => {
+                let deleted = self
+                    .plugins
+                    .secret_delete(plugin_id, secret_key)
+                    .await
+                    .map_err(|error| broker_error("secrets_storage_failed", error))?;
+                self.audit(
+                    plugin_id,
+                    "plugin_secret_delete",
+                    json!({
+                        "secretKey": secret_key,
+                        "deleted": deleted,
+                        "status": "ok",
+                    }),
+                )
+                .await;
+                Ok(json!({
+                    "present": false,
+                    "deleted": deleted,
+                }))
+            }
+            _ => Err(broker_error(
+                "capability_unimplemented",
+                format!("{key} is not implemented"),
+            )),
+        }
+    }
+
+    async fn authorized_file_roots_and_limits(
+        &self,
+        plugin_id: &str,
+        operation_key: &str,
+    ) -> Result<(Vec<std::path::PathBuf>, crate::GrantLimits), crate::WorkerHostError> {
+        let grants = self.effective_grants_for_plugin(plugin_id).await;
+        let matching: Vec<&crate::HostCapabilityGrant> = grants
+            .iter()
+            .filter(|grant| capability_matches(&grant.capability, operation_key, "files"))
+            .collect();
+        if matching.is_empty() {
+            return Err(broker_error(
+                "files_root_denied",
+                "File roots are bound to workspace and plugin-data sessions",
+            ));
+        }
+
+        let default_workspace_root = self
+            .workspace_root
+            .read()
+            .ok()
+            .and_then(|guard| guard.clone());
+        let default_plugin_data_root = self
+            .plugin_data_root
+            .read()
+            .ok()
+            .and_then(|guard| guard.clone());
+
+        let mut candidate_roots = Vec::new();
+        let mut limits = crate::GrantLimits::default();
+        let mut has_custom_limit = false;
+
+        for grant in matching {
+            let grant_limits = grant.effective_limits();
+            if !has_custom_limit || grant_limits.max_request_bytes < limits.max_request_bytes {
+                limits = grant_limits;
+                has_custom_limit = true;
+            }
+            collect_grant_roots(
+                plugin_id,
+                &grant.scope,
+                default_workspace_root.as_deref(),
+                default_plugin_data_root.as_deref(),
+                &mut candidate_roots,
+            );
+        }
+
+        let mut canonical_roots = Vec::new();
+        for root in candidate_roots {
+            if let Ok(canonical) = std::fs::canonicalize(&root)
+                && !canonical_roots.contains(&canonical)
+            {
+                canonical_roots.push(canonical);
+            }
+        }
+
+        if canonical_roots.is_empty() {
+            return Err(broker_error(
+                "files_root_denied",
+                "File roots are bound to workspace and plugin-data sessions",
+            ));
+        }
+
+        Ok((canonical_roots, limits))
+    }
+
+    async fn call_files(
+        &self,
+        plugin_id: &str,
+        key: &str,
+        input: Value,
+    ) -> Result<Value, crate::WorkerHostError> {
+        use base64::Engine as _;
+
+        let (authorized_roots, limits) = self
+            .authorized_file_roots_and_limits(plugin_id, key)
+            .await?;
+
+        let raw_request_len = serde_json::to_vec(&input)
+            .map(|bytes| bytes.len())
+            .unwrap_or(0);
+        if raw_request_len > limits.max_request_bytes {
+            return Err(broker_error(
+                "files_limit_exceeded",
+                format!(
+                    "File request payload ({raw_request_len} bytes) exceeds max_request_bytes ({} bytes)",
+                    limits.max_request_bytes
+                ),
+            ));
+        }
+
+        let requested_path = input
+            .get("path")
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .unwrap_or(".");
+        let preferred_root = select_preferred_root(
+            plugin_id,
+            &input,
+            &authorized_roots,
+            self.workspace_root
+                .read()
+                .ok()
+                .and_then(|g| g.clone())
+                .as_deref(),
+            self.plugin_data_root
+                .read()
+                .ok()
+                .and_then(|g| g.clone())
+                .as_deref(),
+        );
+
+        match key {
+            "files.read" => {
+                let target = resolve_authorized_file_path(
+                    requested_path,
+                    preferred_root.as_deref(),
+                    &authorized_roots,
+                    false,
+                    false,
+                )?;
+                let metadata = tokio::fs::metadata(&target)
+                    .await
+                    .map_err(|error| broker_error("files_io_error", error))?;
+                if !metadata.is_file() {
+                    return Err(broker_error(
+                        "files_not_a_file",
+                        format!("`{}` is not a regular file", target.display()),
+                    ));
+                }
+                if metadata.len() > (limits.max_request_bytes as u64) {
+                    return Err(broker_error(
+                        "files_limit_exceeded",
+                        format!(
+                            "File size ({} bytes) exceeds max_request_bytes ({} bytes)",
+                            metadata.len(),
+                            limits.max_request_bytes
+                        ),
+                    ));
+                }
+                let bytes = tokio::fs::read(&target)
+                    .await
+                    .map_err(|error| broker_error("files_io_error", error))?;
+                if bytes.len() > limits.max_request_bytes {
+                    return Err(broker_error(
+                        "files_limit_exceeded",
+                        format!(
+                            "File size ({} bytes) exceeds max_request_bytes ({} bytes)",
+                            bytes.len(),
+                            limits.max_request_bytes
+                        ),
+                    ));
+                }
+                let encoding = input
+                    .get("encoding")
+                    .and_then(Value::as_str)
+                    .unwrap_or("utf8")
+                    .trim()
+                    .to_ascii_lowercase();
+                let content = match encoding.as_str() {
+                    "base64" => base64::engine::general_purpose::STANDARD.encode(&bytes),
+                    "utf8" | "utf-8" | "text" => String::from_utf8(bytes.clone())
+                        .map_err(|error| broker_error("files_invalid_utf8", error))?,
+                    other => {
+                        return Err(broker_error(
+                            "files_invalid_encoding",
+                            format!("Unsupported file encoding `{other}`"),
+                        ));
+                    }
+                };
+                Ok(json!({
+                    "path": target.to_string_lossy(),
+                    "content": content,
+                    "encoding": if encoding == "base64" { "base64" } else { "utf8" },
+                    "size": bytes.len(),
+                }))
+            }
+            "files.write" => {
+                let encoding = input
+                    .get("encoding")
+                    .and_then(Value::as_str)
+                    .unwrap_or("utf8")
+                    .trim()
+                    .to_ascii_lowercase();
+                let raw_content = input
+                    .get("content")
+                    .or_else(|| input.get("data"))
+                    .and_then(Value::as_str)
+                    .ok_or_else(|| broker_error("files_content_missing", "content is required"))?;
+                let bytes = match encoding.as_str() {
+                    "base64" => base64::engine::general_purpose::STANDARD
+                        .decode(raw_content)
+                        .map_err(|error| broker_error("files_invalid_base64", error))?,
+                    "utf8" | "utf-8" | "text" => raw_content.as_bytes().to_vec(),
+                    other => {
+                        return Err(broker_error(
+                            "files_invalid_encoding",
+                            format!("Unsupported file encoding `{other}`"),
+                        ));
+                    }
+                };
+                if bytes.len() > limits.max_request_bytes {
+                    return Err(broker_error(
+                        "files_limit_exceeded",
+                        format!(
+                            "Write payload ({} bytes) exceeds max_request_bytes ({} bytes)",
+                            bytes.len(),
+                            limits.max_request_bytes
+                        ),
+                    ));
+                }
+                let create_dirs = input
+                    .get("createDirs")
+                    .or_else(|| input.get("create_dirs"))
+                    .and_then(Value::as_bool)
+                    .unwrap_or(true);
+                let target = resolve_authorized_file_path(
+                    requested_path,
+                    preferred_root.as_deref(),
+                    &authorized_roots,
+                    true,
+                    create_dirs,
+                )?;
+                let parent = target.parent().ok_or_else(|| {
+                    broker_error("files_root_denied", "Target file must have a valid parent")
+                })?;
+                let temp_name =
+                    format!(".vibex-tmp-{}-{}", std::process::id(), uuid::Uuid::new_v4());
+                let temp_path = parent.join(temp_name);
+                let write_result = async {
+                    let mut file = tokio::fs::File::create(&temp_path).await?;
+                    file.write_all(&bytes).await?;
+                    file.flush().await?;
+                    drop(file);
+                    tokio::fs::rename(&temp_path, &target).await
+                }
+                .await;
+                if let Err(error) = write_result {
+                    let _ = tokio::fs::remove_file(&temp_path).await;
+                    return Err(broker_error("files_io_error", error));
+                }
+                Ok(json!({
+                    "path": target.to_string_lossy(),
+                    "bytesWritten": bytes.len(),
+                    "size": bytes.len(),
+                }))
+            }
+            "files.stat" => {
+                let target = resolve_authorized_file_path(
+                    requested_path,
+                    preferred_root.as_deref(),
+                    &authorized_roots,
+                    false,
+                    false,
+                )?;
+                let metadata = tokio::fs::metadata(&target)
+                    .await
+                    .map_err(|error| broker_error("files_io_error", error))?;
+                let modified_at_ms = metadata
+                    .modified()
+                    .ok()
+                    .and_then(|time| time.duration_since(std::time::UNIX_EPOCH).ok())
+                    .map(|duration| duration.as_millis() as u64)
+                    .unwrap_or(0);
+                Ok(json!({
+                    "exists": true,
+                    "path": target.to_string_lossy(),
+                    "size": metadata.len(),
+                    "is_file": metadata.is_file(),
+                    "isFile": metadata.is_file(),
+                    "is_dir": metadata.is_dir(),
+                    "isDir": metadata.is_dir(),
+                    "modified_at_ms": modified_at_ms,
+                    "modifiedAtMs": modified_at_ms,
+                }))
+            }
+            "files.list" => {
+                let target = resolve_authorized_file_path(
+                    requested_path,
+                    preferred_root.as_deref(),
+                    &authorized_roots,
+                    false,
+                    false,
+                )?;
+                let metadata = tokio::fs::metadata(&target)
+                    .await
+                    .map_err(|error| broker_error("files_io_error", error))?;
+                if !metadata.is_dir() {
+                    return Err(broker_error(
+                        "files_not_a_directory",
+                        format!("`{}` is not a directory", target.display()),
+                    ));
+                }
+                let mut read_dir = tokio::fs::read_dir(&target)
+                    .await
+                    .map_err(|error| broker_error("files_io_error", error))?;
+                let mut entries = Vec::new();
+                while let Some(entry) = read_dir
+                    .next_entry()
+                    .await
+                    .map_err(|error| broker_error("files_io_error", error))?
+                {
+                    let entry_path = entry.path();
+                    let Ok(canonical_entry) = std::fs::canonicalize(&entry_path) else {
+                        continue;
+                    };
+                    if !authorized_roots
+                        .iter()
+                        .any(|root| canonical_entry.starts_with(root))
+                    {
+                        continue;
+                    }
+                    let Ok(entry_meta) = tokio::fs::metadata(&canonical_entry).await else {
+                        continue;
+                    };
+                    let modified_at_ms = entry_meta
+                        .modified()
+                        .ok()
+                        .and_then(|time| time.duration_since(std::time::UNIX_EPOCH).ok())
+                        .map(|duration| duration.as_millis() as u64)
+                        .unwrap_or(0);
+                    let name = entry.file_name().to_string_lossy().into_owned();
+                    entries.push(json!({
+                        "name": name,
+                        "path": canonical_entry.to_string_lossy(),
+                        "size": entry_meta.len(),
+                        "is_file": entry_meta.is_file(),
+                        "isFile": entry_meta.is_file(),
+                        "is_dir": entry_meta.is_dir(),
+                        "isDir": entry_meta.is_dir(),
+                        "modified_at_ms": modified_at_ms,
+                        "modifiedAtMs": modified_at_ms,
+                    }));
+                }
+                entries.sort_by(|left, right| {
+                    left["name"]
+                        .as_str()
+                        .unwrap_or_default()
+                        .cmp(right["name"].as_str().unwrap_or_default())
+                });
+                Ok(json!({
+                    "path": target.to_string_lossy(),
+                    "entries": entries,
+                }))
+            }
+            _ => Err(broker_error(
+                "capability_unimplemented",
+                format!("{key} is not implemented"),
+            )),
+        }
+    }
+
+    async fn call_events(
+        &self,
+        plugin_id: &str,
+        key: &str,
+        input: Value,
+    ) -> Result<Value, crate::WorkerHostError> {
+        match key {
+            "events.subscribe" => {
+                let topic = input
+                    .get("topic")
+                    .and_then(Value::as_str)
+                    .map(str::trim)
+                    .filter(|value| !value.is_empty());
+                let event_type = input
+                    .get("eventType")
+                    .or_else(|| input.get("event_type"))
+                    .and_then(Value::as_str)
+                    .map(str::trim)
+                    .filter(|value| !value.is_empty());
+                let since_cursor = input
+                    .get("cursor")
+                    .or_else(|| input.get("sinceCursor"))
+                    .or_else(|| input.get("since_cursor"))
+                    .and_then(Value::as_u64);
+                let limit = input
+                    .get("limit")
+                    .and_then(Value::as_u64)
+                    .and_then(|value| usize::try_from(value).ok())
+                    .unwrap_or(100);
+                let batch = self
+                    .plugins
+                    .events_subscribe(plugin_id, topic, event_type, since_cursor, limit)
+                    .await
+                    .map_err(|error| broker_error("events_subscribe_failed", error))?;
+                Ok(json!({
+                    "cursor": batch.cursor,
+                    "ackedCursor": batch.acked_cursor,
+                    "acked_cursor": batch.acked_cursor,
+                    "events": batch.events,
+                }))
+            }
+            "events.ack" => {
+                let cursor = input
+                    .get("cursor")
+                    .and_then(Value::as_u64)
+                    .ok_or_else(|| broker_error("events_cursor_missing", "cursor is required"))?;
+                let subscription_key = input
+                    .get("subscriptionKey")
+                    .or_else(|| input.get("subscription_key"))
+                    .and_then(Value::as_str)
+                    .map(str::trim)
+                    .filter(|value| !value.is_empty())
+                    .map(str::to_owned)
+                    .unwrap_or_else(|| {
+                        let topic = input.get("topic").and_then(Value::as_str);
+                        let event_type = input
+                            .get("eventType")
+                            .or_else(|| input.get("event_type"))
+                            .and_then(Value::as_str);
+                        crate::control_plane::event_subscription_key(topic, event_type)
+                    });
+                let acked = self
+                    .plugins
+                    .events_ack(plugin_id, &subscription_key, cursor)
+                    .await
+                    .map_err(|error| broker_error("events_ack_failed", error))?;
+                Ok(json!({
+                    "cursor": acked,
+                    "ackedCursor": acked,
+                    "acked_cursor": acked,
+                }))
+            }
+            "events.publish" => {
+                let topic = input
+                    .get("topic")
+                    .and_then(Value::as_str)
+                    .map(str::trim)
+                    .filter(|value| !value.is_empty())
+                    .unwrap_or("default");
+                let event_type = input
+                    .get("eventType")
+                    .or_else(|| input.get("event_type"))
+                    .and_then(Value::as_str)
+                    .map(str::trim)
+                    .filter(|value| !value.is_empty())
+                    .unwrap_or("message");
+                let payload = input.get("payload").cloned().unwrap_or(Value::Null);
+                let cursor = self.publish_event(topic, event_type, &payload).await?;
+                Ok(json!({
+                    "cursor": cursor,
+                }))
+            }
+            _ => Err(broker_error(
+                "capability_unimplemented",
+                format!("{key} is not implemented"),
+            )),
+        }
+    }
+
+    async fn call_agent_invoke(
+        &self,
+        plugin_id: &str,
+        input: Value,
+    ) -> Result<Value, crate::WorkerHostError> {
+        let grants = self.effective_grants_for_plugin(plugin_id).await;
+        let agent_grants: Vec<&crate::HostCapabilityGrant> = grants
+            .iter()
+            .filter(|grant| capability_matches(&grant.capability, "agent.invoke", "agent"))
+            .collect();
+        if agent_grants.is_empty() {
+            return Err(broker_error(
+                "permission_denied",
+                format!("Plugin `{plugin_id}` is not granted `agent.invoke` capability"),
+            ));
+        }
+
+        let max_request_bytes = agent_grants
+            .iter()
+            .map(|grant| grant.effective_limits().max_request_bytes)
+            .min()
+            .unwrap_or_else(|| crate::GrantLimits::default().max_request_bytes);
+        let raw_request_len = serde_json::to_vec(&input)
+            .map(|bytes| bytes.len())
+            .unwrap_or(0);
+        if raw_request_len > max_request_bytes {
+            return Err(broker_error(
+                "agent_invoke_limit_exceeded",
+                format!(
+                    "agent.invoke payload ({raw_request_len} bytes) exceeds limit ({max_request_bytes} bytes)"
+                ),
+            ));
+        }
+
+        let handler_id = input
+            .get("handler")
+            .or_else(|| input.get("handlerId"))
+            .or_else(|| input.get("handler_id"))
+            .or_else(|| input.get("command"))
+            .or_else(|| input.get("target"))
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .ok_or_else(|| broker_error("handler_not_visible", "handler is required"))?
+            .to_owned();
+
+        if !agent_grants
+            .iter()
+            .any(|grant| grant_allows_agent_handler(&grant.scope, &handler_id))
+        {
+            return Err(broker_error(
+                "permission_denied",
+                format!("Plugin `{plugin_id}` is not authorized to invoke handler `{handler_id}`"),
+            ));
+        }
+
+        let payload = input
+            .get("input")
+            .or_else(|| input.get("params"))
+            .or_else(|| input.get("payload"))
+            .or_else(|| input.get("args"))
+            .cloned()
+            .unwrap_or_else(|| input.clone());
+
+        let registered = {
+            let handlers = self.agent_handlers.lock().await;
+            handlers.get(&handler_id).map(|entry| {
+                let allowed_by_scope = entry
+                    .allowed_plugins
+                    .as_ref()
+                    .is_none_or(|allowed| allowed.contains(plugin_id) || allowed.contains("*"));
+                let visible = allowed_by_scope && entry.handler.is_visible_to(plugin_id);
+                (entry.handler.clone(), visible)
+            })
+        };
+
+        if let Some((handler, visible)) = registered {
+            if !visible {
+                return Err(broker_error(
+                    "handler_not_visible",
+                    format!("Handler `{handler_id}` is not visible to `{plugin_id}`"),
+                ));
+            }
+            let output = handler.invoke(plugin_id, &handler_id, payload).await?;
+            self.audit(
+                plugin_id,
+                "plugin_agent_invoke",
+                json!({
+                    "handler": handler_id,
+                    "status": "ok",
+                }),
+            )
+            .await;
+            return Ok(output);
+        }
+
+        if let Ok(Some((target_plugin_id, command_name))) = self
+            .plugins
+            .resolve_dynamic_command_target(&handler_id)
+            .await
+            && (target_plugin_id == plugin_id
+                || self
+                    .plugins
+                    .has_command_handler(&target_plugin_id, &command_name))
+        {
+            let output = self
+                .plugins
+                .invoke_plugin_command(&target_plugin_id, &command_name, payload)
+                .await?;
+            self.audit(
+                plugin_id,
+                "plugin_agent_invoke",
+                json!({
+                    "handler": handler_id,
+                    "targetPluginId": target_plugin_id,
+                    "command": command_name,
+                    "status": "ok",
+                }),
+            )
+            .await;
+            return Ok(output);
+        }
+
+        Err(broker_error(
+            "handler_not_visible",
+            format!("Cross-plugin handler `{handler_id}` is not registered or not visible"),
+        ))
+    }
 }
 
-async fn execute_network_fetch(input: Value) -> Result<Value, crate::WorkerHostError> {
+fn capability_matches(granted: &str, requested_key: &str, domain: &str) -> bool {
+    let granted = granted.trim();
+    granted == "*"
+        || granted == domain
+        || granted == format!("{domain}.*")
+        || granted == requested_key
+        || (domain == "files"
+            && matches!(
+                granted,
+                "files.rw" | "files.readwrite" | "workspace.files" | "storage.files"
+            ))
+        || (domain == "files"
+            && requested_key != "files.write"
+            && matches!(granted, "files.read" | "files.ro" | "files.readonly"))
+}
+
+fn grant_allows_agent_handler(scope: &Value, handler_id: &str) -> bool {
+    let Some(obj) = scope.as_object() else {
+        return true;
+    };
+    if let Some(single) = obj.get("handler").and_then(Value::as_str) {
+        return single == "*" || single == handler_id;
+    }
+    if let Some(list) = obj
+        .get("handlers")
+        .or_else(|| obj.get("allowed_handlers"))
+        .or_else(|| obj.get("allowedHandlers"))
+        .and_then(Value::as_array)
+    {
+        return list.iter().filter_map(Value::as_str).any(|pattern| {
+            pattern == "*"
+                || pattern == handler_id
+                || pattern
+                    .strip_suffix(".*")
+                    .is_some_and(|prefix| handler_id.starts_with(&format!("{prefix}.")))
+        });
+    }
+    true
+}
+
+fn collect_grant_roots(
+    plugin_id: &str,
+    scope: &Value,
+    default_workspace_root: Option<&std::path::Path>,
+    default_plugin_data_root: Option<&std::path::Path>,
+    out: &mut Vec<std::path::PathBuf>,
+) {
+    match scope {
+        Value::String(path_str) => {
+            let trimmed = path_str.trim();
+            if trimmed == "workspace" || trimmed == "workspace_root" {
+                if let Some(ws) = default_workspace_root {
+                    out.push(ws.to_path_buf());
+                }
+            } else if trimmed == "plugin_data" || trimmed == "plugin_data_dir" {
+                if let Some(data_root) = default_plugin_data_root {
+                    let plugin_dir = data_root.join(plugin_id);
+                    let _ = std::fs::create_dir_all(&plugin_dir);
+                    out.push(plugin_dir);
+                }
+            } else if !trimmed.is_empty() {
+                out.push(std::path::PathBuf::from(trimmed));
+            }
+        }
+        Value::Array(items) => {
+            for item in items {
+                collect_grant_roots(
+                    plugin_id,
+                    item,
+                    default_workspace_root,
+                    default_plugin_data_root,
+                    out,
+                );
+            }
+        }
+        Value::Object(map) => {
+            for key in ["workspace_root", "workspaceRoot", "workspace"] {
+                match map.get(key) {
+                    Some(Value::String(path)) if !path.trim().is_empty() => {
+                        out.push(std::path::PathBuf::from(path.trim()));
+                    }
+                    Some(Value::Bool(true)) => {
+                        if let Some(ws) = default_workspace_root {
+                            out.push(ws.to_path_buf());
+                        }
+                    }
+                    _ => {}
+                }
+            }
+            for key in ["plugin_data_dir", "pluginDataDir", "plugin_data", "dataDir"] {
+                match map.get(key) {
+                    Some(Value::String(path)) if !path.trim().is_empty() => {
+                        let dir = std::path::PathBuf::from(path.trim());
+                        let _ = std::fs::create_dir_all(&dir);
+                        out.push(dir);
+                    }
+                    Some(Value::Bool(true)) => {
+                        if let Some(data_root) = default_plugin_data_root {
+                            let plugin_dir = data_root.join(plugin_id);
+                            let _ = std::fs::create_dir_all(&plugin_dir);
+                            out.push(plugin_dir);
+                        }
+                    }
+                    _ => {}
+                }
+            }
+            if let Some(Value::String(root)) = map.get("root")
+                && !root.trim().is_empty()
+            {
+                out.push(std::path::PathBuf::from(root.trim()));
+            }
+            for key in ["roots", "allowed_roots", "allowedRoots", "paths"] {
+                if let Some(Value::Array(roots)) = map.get(key) {
+                    for item in roots {
+                        if let Some(path) = item.as_str().map(str::trim).filter(|s| !s.is_empty()) {
+                            out.push(std::path::PathBuf::from(path));
+                        }
+                    }
+                }
+            }
+        }
+        _ => {}
+    }
+}
+
+fn select_preferred_root(
+    plugin_id: &str,
+    input: &Value,
+    authorized_roots: &[std::path::PathBuf],
+    default_workspace_root: Option<&std::path::Path>,
+    default_plugin_data_root: Option<&std::path::Path>,
+) -> Option<std::path::PathBuf> {
+    let scope_hint = input
+        .get("root")
+        .or_else(|| input.get("scope"))
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())?;
+    let candidate = match scope_hint {
+        "workspace" | "workspace_root" | "workspaceRoot" => {
+            default_workspace_root.map(std::path::Path::to_path_buf)
+        }
+        "plugin_data" | "plugin_data_dir" | "pluginDataDir" => {
+            default_plugin_data_root.map(|root| root.join(plugin_id))
+        }
+        other => Some(std::path::PathBuf::from(other)),
+    }?;
+    let canonical = std::fs::canonicalize(candidate).ok()?;
+    authorized_roots
+        .iter()
+        .find(|authorized| canonical.starts_with(*authorized))
+        .map(|_| canonical)
+}
+
+fn resolve_authorized_file_path(
+    requested_path: &str,
+    preferred_root: Option<&std::path::Path>,
+    authorized_roots: &[std::path::PathBuf],
+    for_write: bool,
+    create_dirs: bool,
+) -> Result<std::path::PathBuf, crate::WorkerHostError> {
+    use std::path::{Component, Path};
+
+    let raw_path = Path::new(requested_path);
+    for component in raw_path.components() {
+        if matches!(component, Component::ParentDir) {
+            return Err(broker_error(
+                "files_root_denied",
+                "Path traversal (`..`) is not permitted outside authorized roots",
+            ));
+        }
+    }
+
+    let roots_to_try: Vec<&std::path::PathBuf> = if let Some(preferred) = preferred_root {
+        authorized_roots
+            .iter()
+            .filter(|root| preferred.starts_with(*root))
+            .collect()
+    } else {
+        authorized_roots.iter().collect()
+    };
+
+    if raw_path.is_absolute() {
+        return verify_candidate_under_roots(raw_path, &roots_to_try, for_write, create_dirs);
+    }
+
+    let base_root = preferred_root
+        .or_else(|| authorized_roots.first().map(std::path::PathBuf::as_path))
+        .ok_or_else(|| {
+            broker_error(
+                "files_root_denied",
+                "No authorized file root is configured for this plugin",
+            )
+        })?;
+    let joined = if requested_path.is_empty() || requested_path == "." {
+        base_root.to_path_buf()
+    } else {
+        base_root.join(raw_path)
+    };
+    verify_candidate_under_roots(&joined, &roots_to_try, for_write, create_dirs)
+}
+
+fn verify_candidate_under_roots(
+    candidate: &std::path::Path,
+    authorized_roots: &[&std::path::PathBuf],
+    for_write: bool,
+    create_dirs: bool,
+) -> Result<std::path::PathBuf, crate::WorkerHostError> {
+    let mut existing_ancestor = candidate;
+    while !existing_ancestor.exists() {
+        existing_ancestor = existing_ancestor.parent().ok_or_else(|| {
+            broker_error("files_root_denied", "Target path has no existing ancestor")
+        })?;
+    }
+    let canonical_ancestor = std::fs::canonicalize(existing_ancestor)
+        .map_err(|error| broker_error("files_root_denied", error))?;
+    if !authorized_roots
+        .iter()
+        .any(|root| canonical_ancestor.starts_with(root))
+    {
+        return Err(broker_error(
+            "files_root_denied",
+            "Target path escapes the plugin's authorized file roots",
+        ));
+    }
+
+    if for_write {
+        let parent = candidate.parent().ok_or_else(|| {
+            broker_error(
+                "files_root_denied",
+                "Write path must have a parent directory",
+            )
+        })?;
+        if !parent.exists() {
+            if create_dirs {
+                std::fs::create_dir_all(parent)
+                    .map_err(|error| broker_error("files_io_error", error))?;
+            } else {
+                return Err(broker_error(
+                    "files_parent_not_found",
+                    format!("Parent directory `{}` does not exist", parent.display()),
+                ));
+            }
+        }
+        let canonical_parent = std::fs::canonicalize(parent)
+            .map_err(|error| broker_error("files_root_denied", error))?;
+        if !authorized_roots
+            .iter()
+            .any(|root| canonical_parent.starts_with(root))
+        {
+            return Err(broker_error(
+                "files_root_denied",
+                "Target parent directory escapes the plugin's authorized file roots",
+            ));
+        }
+        let file_name = candidate.file_name().ok_or_else(|| {
+            broker_error(
+                "files_invalid_path",
+                "Write target must include a file name",
+            )
+        })?;
+        let resolved = canonical_parent.join(file_name);
+        if resolved.exists() {
+            let canonical_existing = std::fs::canonicalize(&resolved)
+                .map_err(|error| broker_error("files_root_denied", error))?;
+            if !authorized_roots
+                .iter()
+                .any(|root| canonical_existing.starts_with(root))
+            {
+                return Err(broker_error(
+                    "files_root_denied",
+                    "Target symlink escapes the plugin's authorized file roots",
+                ));
+            }
+            return Ok(canonical_existing);
+        }
+        Ok(resolved)
+    } else {
+        if !candidate.exists() {
+            return Err(broker_error(
+                "files_not_found",
+                format!("File or directory `{}` does not exist", candidate.display()),
+            ));
+        }
+        let canonical_target = std::fs::canonicalize(candidate)
+            .map_err(|error| broker_error("files_root_denied", error))?;
+        if !authorized_roots
+            .iter()
+            .any(|root| canonical_target.starts_with(root))
+        {
+            return Err(broker_error(
+                "files_root_denied",
+                "Target path escapes the plugin's authorized file roots",
+            ));
+        }
+        Ok(canonical_target)
+    }
+}
+
+async fn execute_network_fetch(
+    client: &reqwest::Client,
+    input: Value,
+) -> Result<Value, crate::WorkerHostError> {
     use base64::Engine as _;
     let url = input
         .get("url")
@@ -1382,12 +2600,9 @@ async fn execute_network_fetch(input: Value) -> Result<Value, crate::WorkerHostE
         .and_then(Value::as_u64)
         .unwrap_or(30_000)
         .clamp(100, 120_000);
-    let _ = rustls::crypto::aws_lc_rs::default_provider().install_default();
-    let client = reqwest::Client::builder()
-        .timeout(Duration::from_millis(timeout_ms))
-        .build()
-        .map_err(|error| broker_error("network_request_failed", error))?;
-    let mut request = client.request(method, parsed_url);
+    let mut request = client
+        .request(method, parsed_url)
+        .timeout(Duration::from_millis(timeout_ms));
     if let Some(headers) = input.get("headers").and_then(Value::as_object) {
         for (name, value) in headers {
             if let Some(value_str) = value.as_str() {
@@ -1452,15 +2667,16 @@ async fn execute_network_fetch(input: Value) -> Result<Value, crate::WorkerHostE
 }
 
 fn schedule_preview_lease_drop(
-    preview_leases: std::sync::Arc<Mutex<HashMap<String, crate::ActivationLease>>>,
+    preview_leases: std::sync::Arc<Mutex<HashMap<String, PreviewLeaseEntry>>>,
     lease_id: String,
     expires_at_unix_ms: u64,
-) {
+) -> tokio::task::AbortHandle {
     let delay = Duration::from_millis(expires_at_unix_ms.saturating_sub(unix_time_millis()));
     tokio::spawn(async move {
         tokio::time::sleep(delay).await;
         preview_leases.lock().await.remove(&lease_id);
-    });
+    })
+    .abort_handle()
 }
 
 fn unix_time_millis() -> u64 {
@@ -1725,5 +2941,592 @@ mod tests {
                 .unwrap_or_default()
                 .contains("hello-exec")
         );
+    }
+
+    #[tokio::test]
+    async fn files_capabilities_enforce_roots_prevent_traversal_and_respect_limits() {
+        use base64::Engine as _;
+
+        let broker = sqlite_broker().await;
+        let temp = tempfile::tempdir().expect("tempdir");
+        let workspace_dir = temp.path().join("workspace");
+        let outside_dir = temp.path().join("outside");
+        std::fs::create_dir_all(&workspace_dir).expect("create workspace");
+        std::fs::create_dir_all(&outside_dir).expect("create outside");
+        let outside_file = outside_dir.join("secret.txt");
+        std::fs::write(&outside_file, "classified").expect("write outside");
+
+        // Without any grant, files.* must fail closed with files_root_denied
+        let denied = broker
+            .call(
+                "vibex.files-test",
+                1,
+                "files",
+                "read",
+                json!({ "path": "notes.txt" }),
+            )
+            .await
+            .expect_err("ungranted plugin must be denied");
+        assert_eq!(denied.code(), "files_root_denied");
+
+        broker
+            .grant_capability(
+                "vibex.files-test",
+                crate::HostCapabilityGrant::new(
+                    "files.*",
+                    json!({
+                        "workspace_root": workspace_dir.to_string_lossy(),
+                        "max_request_bytes": 256,
+                    }),
+                ),
+            )
+            .await;
+
+        // 1. Atomic write with automatic parent directory creation
+        let write_res = broker
+            .call(
+                "vibex.files-test",
+                1,
+                "files",
+                "write",
+                json!({
+                    "path": "nested/dir/hello.txt",
+                    "content": "hello world",
+                    "encoding": "utf8",
+                }),
+            )
+            .await
+            .expect("files.write utf8");
+        assert_eq!(write_res["bytesWritten"], 11);
+
+        // 2. Read back as utf8 and base64
+        let read_utf8 = broker
+            .call(
+                "vibex.files-test",
+                1,
+                "files",
+                "read",
+                json!({
+                    "path": "nested/dir/hello.txt",
+                    "encoding": "utf8",
+                }),
+            )
+            .await
+            .expect("files.read utf8");
+        assert_eq!(read_utf8["content"], "hello world");
+        assert_eq!(read_utf8["size"], 11);
+
+        let read_b64 = broker
+            .call(
+                "vibex.files-test",
+                1,
+                "files",
+                "read",
+                json!({
+                    "path": "nested/dir/hello.txt",
+                    "encoding": "base64",
+                }),
+            )
+            .await
+            .expect("files.read base64");
+        assert_eq!(
+            read_b64["content"],
+            base64::engine::general_purpose::STANDARD.encode(b"hello world")
+        );
+
+        // 3. Stat file and directory
+        let stat_res = broker
+            .call(
+                "vibex.files-test",
+                1,
+                "files",
+                "stat",
+                json!({ "path": "nested/dir/hello.txt" }),
+            )
+            .await
+            .expect("files.stat");
+        assert_eq!(stat_res["size"], 11);
+        assert_eq!(stat_res["is_file"], true);
+        assert_eq!(stat_res["is_dir"], false);
+        assert!(stat_res["modified_at_ms"].as_u64().unwrap_or(0) > 0);
+
+        // 4. List directory
+        let list_res = broker
+            .call(
+                "vibex.files-test",
+                1,
+                "files",
+                "list",
+                json!({ "path": "nested/dir" }),
+            )
+            .await
+            .expect("files.list");
+        let entries = list_res["entries"].as_array().expect("entries array");
+        assert_eq!(entries.len(), 1);
+        assert_eq!(entries[0]["name"], "hello.txt");
+        assert_eq!(entries[0]["is_file"], true);
+
+        // 5. Reject `..` path traversal
+        let traversal_err = broker
+            .call(
+                "vibex.files-test",
+                1,
+                "files",
+                "read",
+                json!({ "path": "../outside/secret.txt" }),
+            )
+            .await
+            .expect_err("path traversal must be blocked");
+        assert_eq!(traversal_err.code(), "files_root_denied");
+
+        // 6. Reject absolute path outside authorized root
+        let outside_err = broker
+            .call(
+                "vibex.files-test",
+                1,
+                "files",
+                "read",
+                json!({ "path": outside_file.to_string_lossy() }),
+            )
+            .await
+            .expect_err("outside root must be blocked");
+        assert_eq!(outside_err.code(), "files_root_denied");
+
+        // 7. Enforce GrantLimits.max_request_bytes
+        let oversized = "x".repeat(512);
+        let limit_err = broker
+            .call(
+                "vibex.files-test",
+                1,
+                "files",
+                "write",
+                json!({
+                    "path": "nested/oversized.txt",
+                    "content": oversized,
+                }),
+            )
+            .await
+            .expect_err("oversized write must be rejected");
+        assert_eq!(limit_err.code(), "files_limit_exceeded");
+    }
+
+    #[tokio::test]
+    async fn secrets_capabilities_isolate_namespaces_persist_and_redact_audit_logs() {
+        let broker = sqlite_broker().await;
+        let super_secret = "sk-live-998877665544332211-top-secret-value";
+
+        // Initially absent
+        let initial = broker
+            .call(
+                "vibex.plugin-a",
+                1,
+                "secrets",
+                "get",
+                json!({ "key": "openai_api_key" }),
+            )
+            .await
+            .expect("secrets.get initial");
+        assert_eq!(initial, json!({ "present": false, "value": null }));
+
+        // Store secret for plugin-a
+        let put_res = broker
+            .call(
+                "vibex.plugin-a",
+                1,
+                "secrets",
+                "put",
+                json!({
+                    "key": "openai_api_key",
+                    "value": super_secret,
+                }),
+            )
+            .await
+            .expect("secrets.put");
+        assert_eq!(put_res, json!({ "present": true }));
+
+        // Read back from plugin-a
+        let get_a = broker
+            .call(
+                "vibex.plugin-a",
+                1,
+                "secrets",
+                "get",
+                json!({ "key": "openai_api_key" }),
+            )
+            .await
+            .expect("secrets.get plugin-a");
+        assert_eq!(
+            get_a,
+            json!({
+                "present": true,
+                "value": super_secret,
+            })
+        );
+
+        // Cross-plugin isolation: plugin-b cannot read plugin-a's secret
+        let get_b = broker
+            .call(
+                "vibex.plugin-b",
+                1,
+                "secrets",
+                "get",
+                json!({ "key": "openai_api_key" }),
+            )
+            .await
+            .expect("secrets.get plugin-b");
+        assert_eq!(get_b, json!({ "present": false, "value": null }));
+
+        // Verify audit logs recorded the secret key and outcome, but NEVER the plaintext secret value
+        let audits = broker
+            .plugins
+            .audit_events("vibex.plugin-a")
+            .await
+            .expect("list audit");
+        assert!(!audits.is_empty());
+        for entry in &audits {
+            let serialized = serde_json::to_string(&entry.evidence).expect("serialize evidence");
+            assert!(
+                !serialized.contains(super_secret),
+                "Audit entry leaked plaintext secret: {serialized}"
+            );
+            assert_eq!(entry.evidence["secretKey"], "openai_api_key");
+        }
+
+        // Delete secret
+        let delete_res = broker
+            .call(
+                "vibex.plugin-a",
+                1,
+                "secrets",
+                "delete",
+                json!({ "key": "openai_api_key" }),
+            )
+            .await
+            .expect("secrets.delete");
+        assert_eq!(delete_res, json!({ "present": false, "deleted": true }));
+
+        let after_delete = broker
+            .call(
+                "vibex.plugin-a",
+                1,
+                "secrets",
+                "get",
+                json!({ "key": "openai_api_key" }),
+            )
+            .await
+            .expect("secrets.get after delete");
+        assert_eq!(after_delete, json!({ "present": false, "value": null }));
+    }
+
+    #[tokio::test]
+    async fn events_subscribe_and_ack_track_monotonic_cursors_and_topic_filters() {
+        let broker = sqlite_broker().await;
+
+        let initial = broker
+            .call("vibex.git", 1, "events", "subscribe", json!({}))
+            .await
+            .expect("initial subscribe");
+        assert_eq!(initial["cursor"], 0);
+        assert_eq!(initial["events"], json!([]));
+
+        let c1 = broker
+            .publish_event("git", "branch.changed", &json!({ "branch": "main" }))
+            .await
+            .expect("publish 1");
+        let c2 = broker
+            .publish_event("workspace", "file.saved", &json!({ "path": "src/lib.rs" }))
+            .await
+            .expect("publish 2");
+        let c3 = broker
+            .publish_event("git", "commit.created", &json!({ "sha": "abc1234" }))
+            .await
+            .expect("publish 3");
+        assert_eq!((c1, c2, c3), (1, 2, 3));
+
+        // Filter by topic = "git"
+        let git_batch = broker
+            .call(
+                "vibex.git",
+                1,
+                "events",
+                "subscribe",
+                json!({ "topic": "git" }),
+            )
+            .await
+            .expect("subscribe git topic");
+        assert_eq!(git_batch["cursor"], 3);
+        let events = git_batch["events"].as_array().expect("events array");
+        assert_eq!(events.len(), 2);
+        assert_eq!(events[0]["cursor"], 1);
+        assert_eq!(events[0]["eventType"], "branch.changed");
+        assert_eq!(events[1]["cursor"], 3);
+        assert_eq!(events[1]["eventType"], "commit.created");
+
+        // Ack cursor 1 on topic "git"
+        let ack_res = broker
+            .call(
+                "vibex.git",
+                1,
+                "events",
+                "ack",
+                json!({ "topic": "git", "cursor": 1 }),
+            )
+            .await
+            .expect("ack cursor 1");
+        assert_eq!(ack_res["cursor"], 1);
+
+        // Subsequent subscribe for topic "git" without explicit cursor resumes after acked cursor 1
+        let next_batch = broker
+            .call(
+                "vibex.git",
+                1,
+                "events",
+                "subscribe",
+                json!({ "topic": "git" }),
+            )
+            .await
+            .expect("subscribe after ack");
+        let next_events = next_batch["events"].as_array().expect("next events");
+        assert_eq!(next_events.len(), 1);
+        assert_eq!(next_events[0]["cursor"], 3);
+        assert_eq!(next_batch["ackedCursor"], 1);
+    }
+
+    #[tokio::test]
+    async fn agent_invoke_enforces_grants_visibility_and_dispatches_handlers() {
+        let broker = sqlite_broker().await;
+
+        broker
+            .register_agent_handler_fn(
+                "code.summarize",
+                Some(vec!["vibex.authorized".to_owned()]),
+                |caller, handler_id, input| async move {
+                    Ok(json!({
+                        "caller": caller,
+                        "handler": handler_id,
+                        "echo": input,
+                    }))
+                },
+            )
+            .await;
+
+        // 1. Plugin without `agent.invoke` grant gets permission_denied
+        let ungranted = broker
+            .call(
+                "vibex.authorized",
+                1,
+                "agent",
+                "invoke",
+                json!({
+                    "handler": "code.summarize",
+                    "input": { "file": "main.rs" },
+                }),
+            )
+            .await
+            .expect_err("missing grant must fail");
+        assert_eq!(ungranted.code(), "permission_denied");
+
+        // Grant `agent.invoke` to both `vibex.authorized` and `vibex.other`
+        for plugin_id in ["vibex.authorized", "vibex.other"] {
+            broker
+                .grant_capability(
+                    plugin_id,
+                    crate::HostCapabilityGrant::new(
+                        "agent.invoke",
+                        json!({ "handlers": ["code.*"] }),
+                    ),
+                )
+                .await;
+        }
+
+        // 2. Authorized + visible plugin succeeds
+        let ok_res = broker
+            .call(
+                "vibex.authorized",
+                1,
+                "agent",
+                "invoke",
+                json!({
+                    "handler": "code.summarize",
+                    "input": { "file": "main.rs" },
+                }),
+            )
+            .await
+            .expect("authorized agent.invoke");
+        assert_eq!(ok_res["caller"], "vibex.authorized");
+        assert_eq!(ok_res["handler"], "code.summarize");
+        assert_eq!(ok_res["echo"], json!({ "file": "main.rs" }));
+
+        // 3. Granted plugin that is not in handler's visibility list gets handler_not_visible
+        let invisible = broker
+            .call(
+                "vibex.other",
+                1,
+                "agent",
+                "invoke",
+                json!({
+                    "handler": "code.summarize",
+                    "input": { "file": "main.rs" },
+                }),
+            )
+            .await
+            .expect_err("invisible handler must fail");
+        assert_eq!(invisible.code(), "handler_not_visible");
+    }
+
+    #[tokio::test]
+    async fn dynamic_plugin_command_router_validates_active_generation_and_dispatches_handler() {
+        let control_plane = Arc::new(PluginControlPlane::new(Arc::new(
+            crate::InMemoryPluginRegistry::default(),
+        )));
+        let temp = tempfile::tempdir().expect("tempdir");
+        std::fs::write(temp.path().join("README.md"), "# Dynamic Command Test").expect("readme");
+        let mut package = crate::PluginPackage::for_test(
+            "vibex.dynamic-test",
+            "Dynamic Command Test",
+            "1.0.0",
+            crate::PluginSourceKind::Snapshot,
+            temp.path(),
+        );
+        package.invocations.push(crate::InvocationDefinition {
+            id: "ping".to_owned(),
+            label: "Ping".to_owned(),
+            prompt: "Ping".to_owned(),
+            skill: None,
+            required_skills: Vec::new(),
+            required_runtimes: Vec::new(),
+            handler: Some("ping".to_owned()),
+            artifact_intent: None,
+            kind: crate::InvocationKind::Command,
+        });
+        control_plane
+            .import(package, crate::ConflictDecision::Replace)
+            .await
+            .expect("import plugin");
+
+        control_plane
+            .register_command_fn(
+                "vibex.dynamic-test",
+                "ping",
+                |plugin_id, command, input| async move {
+                    Ok(json!({
+                        "pluginId": plugin_id,
+                        "command": command,
+                        "pong": input,
+                    }))
+                },
+            )
+            .expect("register command handler");
+
+        // While disabled / no active generation, invoking must fail with plugin_not_active
+        let inactive_err = control_plane
+            .invoke_plugin_command("vibex.dynamic-test", "ping", json!({ "seq": 1 }))
+            .await
+            .expect_err("inactive plugin command must fail");
+        assert_eq!(inactive_err.code(), "plugin_not_active");
+
+        // Enable plugin so it publishes an active generation
+        control_plane
+            .set_enabled("vibex.dynamic-test", true)
+            .await
+            .expect("enable plugin");
+
+        // Resolve `<plugin_id>.<command_name>` dynamically
+        let resolved = control_plane
+            .resolve_dynamic_command_target("vibex.dynamic-test.ping")
+            .await
+            .expect("resolve dynamic command")
+            .expect("matched target");
+        assert_eq!(
+            resolved,
+            ("vibex.dynamic-test".to_owned(), "ping".to_owned())
+        );
+
+        let result = control_plane
+            .invoke_plugin_command(&resolved.0, &resolved.1, json!({ "seq": 42 }))
+            .await
+            .expect("invoke active plugin command");
+        assert_eq!(
+            result,
+            json!({
+                "pluginId": "vibex.dynamic-test",
+                "command": "ping",
+                "pong": { "seq": 42 },
+            })
+        );
+    }
+
+    #[tokio::test]
+    async fn dynamic_plugin_command_router_forwards_to_active_worker_slot() {
+        let Some(node) = std::env::var_os("PATH").and_then(|path| {
+            std::env::split_paths(&path)
+                .map(|directory| directory.join(if cfg!(windows) { "node.exe" } else { "node" }))
+                .find(|candidate| candidate.is_file())
+        }) else {
+            return;
+        };
+        let control_plane = Arc::new(PluginControlPlane::new(Arc::new(
+            crate::InMemoryPluginRegistry::default(),
+        )));
+        let previews = Arc::new(ExternalProcessPreviewHost::new(control_plane.clone()));
+        let broker = Arc::new(HostCapabilityBroker::new(control_plane.clone(), previews));
+        let temp = tempfile::tempdir().expect("tempdir");
+        std::fs::write(
+            temp.path().join("worker.mjs"),
+            r#"import{createInterface}from'node:readline';for await(const l of createInterface({input:process.stdin})){const m=JSON.parse(l);const result=m.method==='initialize'?{protocolVersion:'1.1',sdkVersion:'1.0.0',registrations:['rpc.echo'],requestedFeatures:[]}:m.method==='activate'?{handlers:['rpc.echo']}:m.method==='invoke'?{slotHandled:true,handler:m.params?.handler,echo:m.params?.input}:null;console.log(JSON.stringify({id:m.id,ok:true,result}));}"#,
+        )
+        .expect("write worker.mjs");
+
+        let mut package = crate::PluginPackage::for_test(
+            "vibex.worker-rpc",
+            "Worker RPC Test",
+            "1.0.0",
+            crate::PluginSourceKind::DeveloperLink,
+            temp.path(),
+        );
+        package.entrypoints.worker = Some("worker.mjs".to_owned());
+        package.invocations.push(crate::InvocationDefinition {
+            id: "rpc.echo".to_owned(),
+            label: "Echo".to_owned(),
+            prompt: "Echo".to_owned(),
+            skill: None,
+            required_skills: Vec::new(),
+            required_runtimes: Vec::new(),
+            handler: Some("rpc.echo".to_owned()),
+            artifact_intent: None,
+            kind: crate::InvocationKind::Command,
+        });
+
+        control_plane
+            .import(package, crate::ConflictDecision::Replace)
+            .await
+            .expect("import worker plugin");
+        control_plane
+            .activate_and_enable(&node, "vibex.worker-rpc", &[], broker.clone())
+            .await
+            .expect("activate worker plugin");
+
+        let resolved = control_plane
+            .resolve_dynamic_command_target("vibex.worker-rpc.rpc.echo")
+            .await
+            .expect("resolve worker command")
+            .expect("matched worker target");
+        assert_eq!(
+            resolved,
+            ("vibex.worker-rpc".to_owned(), "rpc.echo".to_owned())
+        );
+
+        let response = control_plane
+            .invoke_plugin_command(&resolved.0, &resolved.1, json!({ "hello": "worker" }))
+            .await
+            .expect("invoke worker slot command");
+        assert_eq!(response["slotHandled"], true);
+        assert_eq!(response["handler"], "rpc.echo");
+        assert_eq!(response["echo"], json!({ "hello": "worker" }));
+
+        control_plane
+            .deactivate_worker("vibex.worker-rpc")
+            .await
+            .expect("deactivate worker");
     }
 }

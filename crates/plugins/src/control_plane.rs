@@ -38,6 +38,54 @@ pub struct PluginAuditEvent {
     pub evidence: serde_json::Value,
 }
 
+pub type HostAuditEntry = PluginAuditEvent;
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PluginBusEvent {
+    pub cursor: u64,
+    pub topic: String,
+    pub event_type: String,
+    pub payload: serde_json::Value,
+    pub created_at: String,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PluginEventSubscriptionBatch {
+    pub cursor: u64,
+    pub acked_cursor: u64,
+    pub events: Vec<PluginBusEvent>,
+}
+
+#[async_trait]
+pub trait PluginCommandHandler: Send + Sync {
+    async fn handle(
+        &self,
+        plugin_id: &str,
+        command_name: &str,
+        input: serde_json::Value,
+    ) -> Result<serde_json::Value, WorkerHostError>;
+}
+
+struct FnPluginCommandHandler<F>(F);
+
+#[async_trait]
+impl<F, Fut> PluginCommandHandler for FnPluginCommandHandler<F>
+where
+    F: Fn(String, String, serde_json::Value) -> Fut + Send + Sync + 'static,
+    Fut: std::future::Future<Output = Result<serde_json::Value, WorkerHostError>> + Send + 'static,
+{
+    async fn handle(
+        &self,
+        plugin_id: &str,
+        command_name: &str,
+        input: serde_json::Value,
+    ) -> Result<serde_json::Value, WorkerHostError> {
+        (self.0)(plugin_id.to_owned(), command_name.to_owned(), input).await
+    }
+}
+
 #[derive(Clone, Debug, PartialEq)]
 pub struct ImportConflict {
     pub plugin_id: String,
@@ -223,6 +271,60 @@ pub trait PluginRegistry: Send + Sync {
         prefix: Option<&str>,
     ) -> Result<Vec<String>, PluginError>;
     async fn kv_clear(&self, plugin_id: &str) -> Result<u64, PluginError>;
+    async fn secret_get(
+        &self,
+        plugin_id: &str,
+        secret_key: &str,
+    ) -> Result<Option<String>, PluginError> {
+        let _ = (plugin_id, secret_key);
+        Ok(None)
+    }
+    async fn secret_put(
+        &self,
+        plugin_id: &str,
+        secret_key: &str,
+        value: &str,
+    ) -> Result<(), PluginError> {
+        let _ = (plugin_id, secret_key, value);
+        Ok(())
+    }
+    async fn secret_delete(&self, plugin_id: &str, secret_key: &str) -> Result<bool, PluginError> {
+        let _ = (plugin_id, secret_key);
+        Ok(false)
+    }
+    async fn publish_event(
+        &self,
+        topic: &str,
+        event_type: &str,
+        payload: &serde_json::Value,
+    ) -> Result<u64, PluginError> {
+        let _ = (topic, event_type, payload);
+        Ok(0)
+    }
+    async fn events_subscribe(
+        &self,
+        plugin_id: &str,
+        topic: Option<&str>,
+        event_type: Option<&str>,
+        since_cursor: Option<u64>,
+        limit: usize,
+    ) -> Result<PluginEventSubscriptionBatch, PluginError> {
+        let _ = (plugin_id, topic, event_type, since_cursor, limit);
+        Ok(PluginEventSubscriptionBatch {
+            cursor: 0,
+            acked_cursor: 0,
+            events: Vec::new(),
+        })
+    }
+    async fn events_ack(
+        &self,
+        plugin_id: &str,
+        subscription_key: &str,
+        cursor: u64,
+    ) -> Result<u64, PluginError> {
+        let _ = (plugin_id, subscription_key);
+        Ok(cursor)
+    }
     async fn quarantine_plugin(&self, plugin_id: &str, reason: &str) -> Result<(), PluginError>;
     async fn quarantine_reason(&self, plugin_id: &str) -> Result<Option<String>, PluginError>;
 }
@@ -240,6 +342,10 @@ pub struct InMemoryPluginRegistry {
     published_contributions: RwLock<BTreeMap<String, Vec<crate::ContributionDescriptor>>>,
     audit: RwLock<Vec<(String, PluginAuditEvent)>>,
     kv_store: RwLock<BTreeMap<(String, String), serde_json::Value>>,
+    secrets_store: RwLock<BTreeMap<(String, String), String>>,
+    next_event_cursor: AtomicU64,
+    events_log: RwLock<Vec<PluginBusEvent>>,
+    event_offsets: RwLock<BTreeMap<(String, String), u64>>,
     quarantined: RwLock<BTreeMap<String, String>>,
 }
 
@@ -325,6 +431,19 @@ impl PluginRegistry for InMemoryPluginRegistry {
 
     async fn delete_plugin(&self, plugin_id: &str) -> Result<(), PluginError> {
         self.plugins.write().map_err(lock_error)?.remove(plugin_id);
+        self.published_generations
+            .write()
+            .map_err(lock_error)?
+            .remove(plugin_id);
+        self.published_contributions
+            .write()
+            .map_err(lock_error)?
+            .remove(plugin_id);
+        self.grants.write().map_err(lock_error)?.remove(plugin_id);
+        self.kv_store
+            .write()
+            .map_err(lock_error)?
+            .retain(|(owner, _), _| owner != plugin_id);
         self.quarantined
             .write()
             .map_err(lock_error)?
@@ -337,6 +456,14 @@ impl PluginRegistry for InMemoryPluginRegistry {
             .write()
             .map_err(lock_error)?
             .retain(|(owner, _, _), _| owner != plugin_id);
+        self.secrets_store
+            .write()
+            .map_err(lock_error)?
+            .retain(|(owner, _), _| owner != plugin_id);
+        self.event_offsets
+            .write()
+            .map_err(lock_error)?
+            .retain(|(owner, _), _| owner != plugin_id);
         Ok(())
     }
 
@@ -703,6 +830,131 @@ impl PluginRegistry for InMemoryPluginRegistry {
         Ok((before.saturating_sub(store.len())) as u64)
     }
 
+    async fn secret_get(
+        &self,
+        plugin_id: &str,
+        secret_key: &str,
+    ) -> Result<Option<String>, PluginError> {
+        let stored = self
+            .secrets_store
+            .read()
+            .map_err(lock_error)?
+            .get(&(plugin_id.to_owned(), secret_key.to_owned()))
+            .cloned();
+        stored
+            .map(|ciphertext| decrypt_plugin_secret(plugin_id, secret_key, &ciphertext))
+            .transpose()
+    }
+
+    async fn secret_put(
+        &self,
+        plugin_id: &str,
+        secret_key: &str,
+        value: &str,
+    ) -> Result<(), PluginError> {
+        let ciphertext = encrypt_plugin_secret(plugin_id, secret_key, value)?;
+        self.secrets_store
+            .write()
+            .map_err(lock_error)?
+            .insert((plugin_id.to_owned(), secret_key.to_owned()), ciphertext);
+        Ok(())
+    }
+
+    async fn secret_delete(&self, plugin_id: &str, secret_key: &str) -> Result<bool, PluginError> {
+        Ok(self
+            .secrets_store
+            .write()
+            .map_err(lock_error)?
+            .remove(&(plugin_id.to_owned(), secret_key.to_owned()))
+            .is_some())
+    }
+
+    async fn publish_event(
+        &self,
+        topic: &str,
+        event_type: &str,
+        payload: &serde_json::Value,
+    ) -> Result<u64, PluginError> {
+        let cursor = self.next_event_cursor.fetch_add(1, Ordering::SeqCst) + 1;
+        let event = PluginBusEvent {
+            cursor,
+            topic: topic.to_owned(),
+            event_type: event_type.to_owned(),
+            payload: payload.clone(),
+            created_at: std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_millis()
+                .to_string(),
+        };
+        self.events_log.write().map_err(lock_error)?.push(event);
+        Ok(cursor)
+    }
+
+    async fn events_subscribe(
+        &self,
+        plugin_id: &str,
+        topic: Option<&str>,
+        event_type: Option<&str>,
+        since_cursor: Option<u64>,
+        limit: usize,
+    ) -> Result<PluginEventSubscriptionBatch, PluginError> {
+        let subscription_key = event_subscription_key(topic, event_type);
+        let acked_cursor = self
+            .event_offsets
+            .read()
+            .map_err(lock_error)?
+            .get(&(plugin_id.to_owned(), subscription_key))
+            .copied()
+            .unwrap_or(0);
+        let floor_cursor = since_cursor.unwrap_or(acked_cursor);
+        let max_items = limit.clamp(1, 500);
+        let events_log = self.events_log.read().map_err(lock_error)?;
+        let latest_cursor = events_log.last().map(|event| event.cursor).unwrap_or(0);
+        let events: Vec<PluginBusEvent> = events_log
+            .iter()
+            .filter(|event| {
+                event.cursor > floor_cursor
+                    && topic
+                        .filter(|value| !value.is_empty())
+                        .is_none_or(|wanted| event.topic == wanted)
+                    && event_type
+                        .filter(|value| !value.is_empty())
+                        .is_none_or(|wanted| event.event_type == wanted)
+            })
+            .take(max_items)
+            .cloned()
+            .collect();
+        let cursor = events
+            .last()
+            .map(|event| event.cursor)
+            .unwrap_or_else(|| floor_cursor.max(latest_cursor));
+        Ok(PluginEventSubscriptionBatch {
+            cursor,
+            acked_cursor,
+            events,
+        })
+    }
+
+    async fn events_ack(
+        &self,
+        plugin_id: &str,
+        subscription_key: &str,
+        cursor: u64,
+    ) -> Result<u64, PluginError> {
+        let key = if subscription_key.trim().is_empty() {
+            "*:*".to_owned()
+        } else {
+            subscription_key.trim().to_owned()
+        };
+        let mut offsets = self.event_offsets.write().map_err(lock_error)?;
+        let entry = offsets.entry((plugin_id.to_owned(), key)).or_insert(0);
+        if cursor > *entry {
+            *entry = cursor;
+        }
+        Ok(*entry)
+    }
+
     async fn quarantine_plugin(&self, plugin_id: &str, reason: &str) -> Result<(), PluginError> {
         {
             let mut plugins = self.plugins.write().map_err(lock_error)?;
@@ -738,6 +990,7 @@ impl PluginRegistry for InMemoryPluginRegistry {
 pub struct SqlitePluginRegistry {
     pool: SqlitePool,
     kv_table_ready: tokio::sync::OnceCell<()>,
+    kv_table_initialized: std::sync::atomic::AtomicBool,
 }
 
 impl SqlitePluginRegistry {
@@ -745,10 +998,17 @@ impl SqlitePluginRegistry {
         Self {
             pool,
             kv_table_ready: tokio::sync::OnceCell::new(),
+            kv_table_initialized: std::sync::atomic::AtomicBool::new(false),
         }
     }
 
     async fn ensure_kv_table(&self) -> Result<(), PluginError> {
+        if self
+            .kv_table_initialized
+            .load(std::sync::atomic::Ordering::Acquire)
+        {
+            return Ok(());
+        }
         self.kv_table_ready
             .get_or_try_init(|| async {
                 sqlx::query(
@@ -758,6 +1018,71 @@ impl SqlitePluginRegistry {
                         value_json TEXT NOT NULL,
                         updated_at TEXT NOT NULL DEFAULT (datetime('now', 'subsec')),
                         PRIMARY KEY (plugin_id, key)
+                    )",
+                )
+                .execute(&self.pool)
+                .await
+                .map_err(registry_error)?;
+                sqlx::query(
+                    "CREATE TABLE IF NOT EXISTS plugin_secrets_storage (
+                        plugin_id      TEXT NOT NULL,
+                        secret_key     TEXT NOT NULL,
+                        ciphertext_b64 TEXT NOT NULL,
+                        updated_at     TEXT NOT NULL DEFAULT (datetime('now', 'subsec')),
+                        PRIMARY KEY (plugin_id, secret_key)
+                    )",
+                )
+                .execute(&self.pool)
+                .await
+                .map_err(registry_error)?;
+                sqlx::query(
+                    "CREATE TABLE IF NOT EXISTS plugin_events_log (
+                        cursor       INTEGER PRIMARY KEY AUTOINCREMENT,
+                        topic        TEXT NOT NULL,
+                        event_type   TEXT NOT NULL,
+                        payload_json TEXT NOT NULL,
+                        created_at   TEXT NOT NULL DEFAULT (datetime('now', 'subsec'))
+                    )",
+                )
+                .execute(&self.pool)
+                .await
+                .map_err(registry_error)?;
+                sqlx::query(
+                    "CREATE TABLE IF NOT EXISTS plugin_event_subscriptions (
+                        plugin_id        TEXT NOT NULL,
+                        subscription_key TEXT NOT NULL,
+                        acked_cursor     INTEGER NOT NULL DEFAULT 0,
+                        updated_at       TEXT NOT NULL DEFAULT (datetime('now', 'subsec')),
+                        PRIMARY KEY (plugin_id, subscription_key)
+                    )",
+                )
+                .execute(&self.pool)
+                .await
+                .map_err(registry_error)?;
+                sqlx::query(
+                    "CREATE TABLE IF NOT EXISTS plugin_installations_v4 (
+                        plugin_id              TEXT PRIMARY KEY,
+                        publisher              TEXT NOT NULL,
+                        current_package_digest TEXT NOT NULL,
+                        rollback_package_digest TEXT,
+                        data_retention         TEXT NOT NULL DEFAULT 'retain'
+                            CHECK (data_retention IN ('retain','delete_on_uninstall')),
+                        installed_at           TEXT NOT NULL,
+                        updated_at             TEXT NOT NULL
+                    )",
+                )
+                .execute(&self.pool)
+                .await
+                .map_err(registry_error)?;
+                sqlx::query(
+                    "CREATE TABLE IF NOT EXISTS plugin_audit_v4 (
+                        sequence      INTEGER PRIMARY KEY AUTOINCREMENT,
+                        plugin_id     TEXT,
+                        publisher     TEXT,
+                        operation_id  TEXT,
+                        event         TEXT NOT NULL,
+                        evidence_json TEXT NOT NULL,
+                        created_at    TEXT NOT NULL
                     )",
                 )
                 .execute(&self.pool)
@@ -775,6 +1100,8 @@ impl SqlitePluginRegistry {
                 )
                 .execute(&self.pool)
                 .await;
+                self.kv_table_initialized
+                    .store(true, std::sync::atomic::Ordering::Release);
                 Ok(())
             })
             .await
@@ -954,12 +1281,26 @@ impl PluginRegistry for SqlitePluginRegistry {
     }
 
     async fn delete_plugin(&self, plugin_id: &str) -> Result<(), PluginError> {
+        self.ensure_kv_table().await?;
         let mut transaction = self.pool.begin().await.map_err(registry_error)?;
-        sqlx::query("DELETE FROM plugin_installations_v4 WHERE plugin_id = ?")
-            .bind(plugin_id)
-            .execute(&mut *transaction)
-            .await
-            .map_err(registry_error)?;
+        for statement in [
+            "DELETE FROM plugin_contributions_v4 WHERE plugin_id = ?",
+            "DELETE FROM plugin_generations_v4 WHERE plugin_id = ?",
+            "DELETE FROM plugin_activation_intents_v4 WHERE plugin_id = ?",
+            "DELETE FROM plugin_runtime_locks_v4 WHERE plugin_id = ?",
+            "DELETE FROM plugin_packages_v4 WHERE plugin_id = ?",
+            "DELETE FROM plugin_kv_storage WHERE plugin_id = ?",
+            "DELETE FROM plugin_secrets_storage WHERE plugin_id = ?",
+            "DELETE FROM plugin_event_subscriptions WHERE plugin_id = ?",
+            "DELETE FROM plugin_installations_v4 WHERE plugin_id = ?",
+        ] {
+            sqlx::query(statement)
+                .bind(plugin_id)
+                .execute(&mut *transaction)
+                .await
+                .map_err(registry_error)?;
+        }
+        gc_runtime_locks(&mut transaction).await?;
         transaction.commit().await.map_err(registry_error)?;
         Ok(())
     }
@@ -1434,6 +1775,7 @@ impl PluginRegistry for SqlitePluginRegistry {
         event: &str,
         evidence: &serde_json::Value,
     ) -> Result<(), PluginError> {
+        self.ensure_kv_table().await?;
         let evidence_json = serde_json::to_string(evidence).map_err(registry_error)?;
         // A bind refusal is evidence even when the install row is gone or
         // never existed — joining on installations would silently drop it.
@@ -1460,6 +1802,7 @@ impl PluginRegistry for SqlitePluginRegistry {
     }
 
     async fn list_audit(&self, plugin_id: &str) -> Result<Vec<PluginAuditEvent>, PluginError> {
+        self.ensure_kv_table().await?;
         let rows = sqlx::query(
             "SELECT event, evidence_json FROM plugin_audit_v4
              WHERE plugin_id = ? ORDER BY sequence",
@@ -1591,6 +1934,205 @@ impl PluginRegistry for SqlitePluginRegistry {
         Ok(result.rows_affected())
     }
 
+    async fn secret_get(
+        &self,
+        plugin_id: &str,
+        secret_key: &str,
+    ) -> Result<Option<String>, PluginError> {
+        self.ensure_kv_table().await?;
+        let ciphertext: Option<String> = sqlx::query_scalar(
+            "SELECT ciphertext_b64 FROM plugin_secrets_storage
+             WHERE plugin_id = ? AND secret_key = ?",
+        )
+        .bind(plugin_id)
+        .bind(secret_key)
+        .fetch_optional(&self.pool)
+        .await
+        .map_err(registry_error)?;
+        ciphertext
+            .map(|value| decrypt_plugin_secret(plugin_id, secret_key, &value))
+            .transpose()
+    }
+
+    async fn secret_put(
+        &self,
+        plugin_id: &str,
+        secret_key: &str,
+        value: &str,
+    ) -> Result<(), PluginError> {
+        self.ensure_kv_table().await?;
+        let ciphertext = encrypt_plugin_secret(plugin_id, secret_key, value)?;
+        sqlx::query(
+            "INSERT INTO plugin_secrets_storage (plugin_id, secret_key, ciphertext_b64, updated_at)
+             VALUES (?, ?, ?, datetime('now', 'subsec'))
+             ON CONFLICT(plugin_id, secret_key) DO UPDATE SET
+               ciphertext_b64 = excluded.ciphertext_b64,
+               updated_at = excluded.updated_at",
+        )
+        .bind(plugin_id)
+        .bind(secret_key)
+        .bind(ciphertext)
+        .execute(&self.pool)
+        .await
+        .map_err(registry_error)?;
+        Ok(())
+    }
+
+    async fn secret_delete(&self, plugin_id: &str, secret_key: &str) -> Result<bool, PluginError> {
+        self.ensure_kv_table().await?;
+        let result = sqlx::query(
+            "DELETE FROM plugin_secrets_storage WHERE plugin_id = ? AND secret_key = ?",
+        )
+        .bind(plugin_id)
+        .bind(secret_key)
+        .execute(&self.pool)
+        .await
+        .map_err(registry_error)?;
+        Ok(result.rows_affected() > 0)
+    }
+
+    async fn publish_event(
+        &self,
+        topic: &str,
+        event_type: &str,
+        payload: &serde_json::Value,
+    ) -> Result<u64, PluginError> {
+        self.ensure_kv_table().await?;
+        let payload_json = serde_json::to_string(payload).map_err(registry_error)?;
+        let result = sqlx::query(
+            "INSERT INTO plugin_events_log (topic, event_type, payload_json, created_at)
+             VALUES (?, ?, ?, datetime('now', 'subsec'))",
+        )
+        .bind(topic)
+        .bind(event_type)
+        .bind(payload_json)
+        .execute(&self.pool)
+        .await
+        .map_err(registry_error)?;
+        u64::try_from(result.last_insert_rowid()).map_err(registry_error)
+    }
+
+    async fn events_subscribe(
+        &self,
+        plugin_id: &str,
+        topic: Option<&str>,
+        event_type: Option<&str>,
+        since_cursor: Option<u64>,
+        limit: usize,
+    ) -> Result<PluginEventSubscriptionBatch, PluginError> {
+        self.ensure_kv_table().await?;
+        let subscription_key = event_subscription_key(topic, event_type);
+        let acked_cursor = sqlx::query_scalar::<_, i64>(
+            "SELECT acked_cursor FROM plugin_event_subscriptions
+             WHERE plugin_id = ? AND subscription_key = ?",
+        )
+        .bind(plugin_id)
+        .bind(&subscription_key)
+        .fetch_optional(&self.pool)
+        .await
+        .map_err(registry_error)?
+        .and_then(|value| u64::try_from(value).ok())
+        .unwrap_or(0);
+        let floor_cursor = since_cursor.unwrap_or(acked_cursor);
+        let max_items = i64::try_from(limit.clamp(1, 500)).unwrap_or(100);
+        let latest_cursor =
+            sqlx::query_scalar::<_, Option<i64>>("SELECT MAX(cursor) FROM plugin_events_log")
+                .fetch_one(&self.pool)
+                .await
+                .map_err(registry_error)?
+                .and_then(|value| u64::try_from(value).ok())
+                .unwrap_or(0);
+        let topic_filter = topic.filter(|value| !value.is_empty());
+        let type_filter = event_type.filter(|value| !value.is_empty());
+        let rows = sqlx::query(
+            "SELECT cursor, topic, event_type, payload_json, created_at
+             FROM plugin_events_log
+             WHERE cursor > ?
+               AND (? IS NULL OR topic = ?)
+               AND (? IS NULL OR event_type = ?)
+             ORDER BY cursor ASC
+             LIMIT ?",
+        )
+        .bind(i64::try_from(floor_cursor).unwrap_or(i64::MAX))
+        .bind(topic_filter)
+        .bind(topic_filter)
+        .bind(type_filter)
+        .bind(type_filter)
+        .bind(max_items)
+        .fetch_all(&self.pool)
+        .await
+        .map_err(registry_error)?;
+        let mut events = Vec::with_capacity(rows.len());
+        for row in rows {
+            let cursor_i64: i64 = row.try_get("cursor").map_err(registry_error)?;
+            let cursor = u64::try_from(cursor_i64).map_err(registry_error)?;
+            let topic: String = row.try_get("topic").map_err(registry_error)?;
+            let event_type: String = row.try_get("event_type").map_err(registry_error)?;
+            let payload_json: String = row.try_get("payload_json").map_err(registry_error)?;
+            let payload = serde_json::from_str(&payload_json).map_err(registry_error)?;
+            let created_at: String = row.try_get("created_at").map_err(registry_error)?;
+            events.push(PluginBusEvent {
+                cursor,
+                topic,
+                event_type,
+                payload,
+                created_at,
+            });
+        }
+        let cursor = events
+            .last()
+            .map(|event| event.cursor)
+            .unwrap_or_else(|| floor_cursor.max(latest_cursor));
+        Ok(PluginEventSubscriptionBatch {
+            cursor,
+            acked_cursor,
+            events,
+        })
+    }
+
+    async fn events_ack(
+        &self,
+        plugin_id: &str,
+        subscription_key: &str,
+        cursor: u64,
+    ) -> Result<u64, PluginError> {
+        self.ensure_kv_table().await?;
+        let key = if subscription_key.trim().is_empty() {
+            "*:*".to_owned()
+        } else {
+            subscription_key.trim().to_owned()
+        };
+        let cursor_i64 = i64::try_from(cursor).map_err(registry_error)?;
+        sqlx::query(
+            "INSERT INTO plugin_event_subscriptions
+                 (plugin_id, subscription_key, acked_cursor, updated_at)
+             VALUES (?, ?, ?, datetime('now', 'subsec'))
+             ON CONFLICT(plugin_id, subscription_key) DO UPDATE SET
+                 acked_cursor = CASE
+                     WHEN excluded.acked_cursor > plugin_event_subscriptions.acked_cursor
+                     THEN excluded.acked_cursor
+                     ELSE plugin_event_subscriptions.acked_cursor
+                 END,
+                 updated_at = excluded.updated_at",
+        )
+        .bind(plugin_id)
+        .bind(&key)
+        .bind(cursor_i64)
+        .execute(&self.pool)
+        .await
+        .map_err(registry_error)?;
+        let saved = sqlx::query_scalar::<_, i64>(
+            "SELECT acked_cursor FROM plugin_event_subscriptions
+             WHERE plugin_id = ? AND subscription_key = ?",
+        )
+        .bind(plugin_id)
+        .bind(&key)
+        .fetch_one(&self.pool)
+        .await
+        .map_err(registry_error)?;
+        u64::try_from(saved).map_err(registry_error)
+    }
+
     async fn quarantine_plugin(&self, plugin_id: &str, reason: &str) -> Result<(), PluginError> {
         self.ensure_kv_table().await?;
         let result = sqlx::query(
@@ -1656,6 +2198,7 @@ pub struct PluginControlPlane {
     worker_restore: tokio::sync::RwLock<Option<WorkerRestore>>,
     lazy_activation_lock: tokio::sync::Mutex<()>,
     catalog_changes: tokio::sync::broadcast::Sender<u64>,
+    command_handlers: RwLock<BTreeMap<(String, String), Arc<dyn PluginCommandHandler>>>,
 }
 
 impl PluginControlPlane {
@@ -1669,6 +2212,7 @@ impl PluginControlPlane {
             worker_restore: tokio::sync::RwLock::new(None),
             lazy_activation_lock: tokio::sync::Mutex::new(()),
             catalog_changes: tokio::sync::broadcast::channel(16).0,
+            command_handlers: RwLock::new(BTreeMap::new()),
         }
     }
 
@@ -1717,13 +2261,46 @@ impl PluginControlPlane {
                 }
                 if let Some(plugin) = self.plugin(&plugin_id).await?
                     && plugin.activation != PluginActivation::Enabled
-                    && plugin.entrypoints.worker.is_none()
                 {
-                    self.set_enabled(&plugin_id, true).await?;
+                    if plugin.entrypoints.worker.is_none() {
+                        self.set_enabled(&plugin_id, true).await?;
+                    } else if plugin.runtimes.is_empty() {
+                        self.enable_deferred_worker(&plugin_id).await?;
+                    }
                 }
             }
         }
         self.catalog().await
+    }
+
+    async fn enable_deferred_worker(&self, plugin_id: &str) -> Result<(), PluginError> {
+        let plugin = self
+            .registry
+            .plugin(plugin_id)
+            .await?
+            .ok_or_else(|| PluginError::not_found(plugin_id))?;
+        self.require_plugin_dependencies(&plugin.package).await?;
+        let generation = self.registry.create_candidate(plugin_id).await?;
+        let grants = candidate_capability_grants(&plugin.package, &[], &[])?;
+        let contributions = descriptors_for_package(&plugin.package, generation);
+        if let Err(error) = self
+            .registry
+            .publish_candidate(
+                plugin_id,
+                generation,
+                &plugin.package,
+                &contributions,
+                &grants,
+            )
+            .await
+        {
+            let _ = self
+                .registry
+                .fail_candidate(generation, error.message())
+                .await;
+            return Err(error);
+        }
+        self.refresh_live_projections().await
     }
 
     /// Replaces already-installed official packages when the Host embed changed.
@@ -1924,12 +2501,31 @@ impl PluginControlPlane {
             loop {
                 match crashes.recv().await {
                     Ok(plugin_id) => {
-                        if let Err(error) = plane.withdraw_live_generation(&plugin_id).await {
-                            tracing::warn!(
-                                plugin_id = %plugin_id,
-                                %error,
-                                "failed to withdraw plugin generation after Worker crash"
-                            );
+                        let now_ms = std::time::SystemTime::now()
+                            .duration_since(std::time::UNIX_EPOCH)
+                            .unwrap_or_default()
+                            .as_millis() as u64;
+                        let recent_crashes = crate::recent_plugin_crashes(&plugin_id)
+                            .into_iter()
+                            .filter(|crash| now_ms.saturating_sub(crash.at_unix_ms) <= 60_000)
+                            .count();
+                        if recent_crashes >= 3 {
+                            if let Err(error) = plane
+                                .quarantine_plugin(
+                                    &plugin_id,
+                                    "Quarantined after repeated worker crashes",
+                                )
+                                .await
+                            {
+                                tracing::warn!(
+                                    plugin_id = %plugin_id,
+                                    %error,
+                                    "failed to quarantine plugin after repeated Worker crashes"
+                                );
+                            }
+                        } else {
+                            plane.host_services.stop(&plugin_id);
+                            let _ = plane.activations.deactivate(&plugin_id).await;
                         }
                     }
                     Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => continue,
@@ -2417,14 +3013,38 @@ impl PluginControlPlane {
         })
     }
 
+    async fn activate_discovered_user_plugin(
+        &self,
+        package: &PluginPackage,
+        plugin_id: &str,
+        has_worker: bool,
+    ) {
+        if has_worker {
+            let restore = self.worker_restore.read().await.clone();
+            if let Some(restore) = restore {
+                let grants = candidate_capability_grants(package, &[], &[]).unwrap_or_default();
+                let _ = self
+                    .activate_and_enable(
+                        &restore.node_executable,
+                        plugin_id,
+                        &grants,
+                        restore.broker,
+                    )
+                    .await;
+            }
+        } else {
+            let _ = self.set_enabled(plugin_id, true).await;
+        }
+    }
+
     /// Scans a user plugins directory (e.g. `~/.vibex/plugins`) for subdirectories containing
     /// `.vibex-plugin/plugin.json` or root `plugin.json`, automatically importing, enabling,
     /// hot-reloading, and reconciling deleted user plugins.
     pub async fn discover_user_plugins_in(&self, dir: &Path) -> Result<Vec<String>, PluginError> {
         let installed = self.registry.list_plugins().await?;
-        let installed_by_id: std::collections::HashMap<String, InstalledPlugin> = installed
+        let installed_by_id: std::collections::HashMap<&str, &InstalledPlugin> = installed
             .iter()
-            .map(|plugin| (plugin.id().to_owned(), plugin.clone()))
+            .map(|plugin| (plugin.id(), plugin))
             .collect();
         let mut discovered = Vec::new();
 
@@ -2436,10 +3056,9 @@ impl PluginControlPlane {
             if plugin.source.kind == crate::PluginSourceKind::DeveloperLink
                 && parent_matches
                 && !plugin.source.path.is_dir()
+                && self.uninstall(plugin.id()).await.is_ok()
             {
-                if self.uninstall(plugin.id()).await.is_ok() {
-                    discovered.push(plugin.id().to_owned());
-                }
+                discovered.push(plugin.id().to_owned());
             }
         }
 
@@ -2462,7 +3081,7 @@ impl PluginControlPlane {
             let plugin_id = package.id.as_str().to_owned();
             let has_worker = package.entrypoints.worker.is_some();
 
-            if let Some(existing) = installed_by_id.get(&plugin_id) {
+            if let Some(existing) = installed_by_id.get(plugin_id.as_str()) {
                 let Ok(digest) = crate::package_content_digest(&path) else {
                     continue;
                 };
@@ -2481,23 +3100,8 @@ impl PluginControlPlane {
                     .is_ok()
                 {
                     if existing.activation == PluginActivation::Enabled || was_quarantined {
-                        if has_worker {
-                            let restore = self.worker_restore.read().await.clone();
-                            if let Some(restore) = restore {
-                                let grants = candidate_capability_grants(&package, &[], &[])
-                                    .unwrap_or_default();
-                                let _ = self
-                                    .activate_and_enable(
-                                        &restore.node_executable,
-                                        &plugin_id,
-                                        &grants,
-                                        restore.broker,
-                                    )
-                                    .await;
-                            }
-                        } else {
-                            let _ = self.set_enabled(&plugin_id, true).await;
-                        }
+                        self.activate_discovered_user_plugin(&package, &plugin_id, has_worker)
+                            .await;
                     }
                     discovered.push(plugin_id);
                 }
@@ -2509,23 +3113,8 @@ impl PluginControlPlane {
                 .await
                 .is_ok()
             {
-                if has_worker {
-                    let restore = self.worker_restore.read().await.clone();
-                    if let Some(restore) = restore {
-                        let grants =
-                            candidate_capability_grants(&package, &[], &[]).unwrap_or_default();
-                        let _ = self
-                            .activate_and_enable(
-                                &restore.node_executable,
-                                &plugin_id,
-                                &grants,
-                                restore.broker,
-                            )
-                            .await;
-                    }
-                } else {
-                    let _ = self.set_enabled(&plugin_id, true).await;
-                }
+                self.activate_discovered_user_plugin(&package, &plugin_id, has_worker)
+                    .await;
                 discovered.push(plugin_id);
             }
         }
@@ -2857,12 +3446,10 @@ impl PluginControlPlane {
                 }
             }
         } else {
-            Some(self.activations.prepare_lightweight_candidate_at(
-                generation,
-                &package,
-                grants,
-                broker,
-            )?)
+            Some(
+                self.activations
+                    .prepare_lightweight_candidate_at(generation, &package, grants, broker)?,
+            )
         };
         let contributions = descriptors_for_package(&package, generation);
         if let Err(error) = self
@@ -3010,11 +3597,15 @@ impl PluginControlPlane {
     }
 
     pub async fn activation_lease(&self, plugin_id: &str) -> Option<ActivationLease> {
-        if let Some(lease) = self.activations.lease(plugin_id).await {
+        if let Some(lease) = self.activations.lease(plugin_id).await
+            && !lease.is_terminal().await
+        {
             return Some(lease);
         }
         let _guard = self.lazy_activation_lock.lock().await;
-        if let Some(lease) = self.activations.lease(plugin_id).await {
+        if let Some(lease) = self.activations.lease(plugin_id).await
+            && !lease.is_terminal().await
+        {
             return Some(lease);
         }
         let restore = self.worker_restore.read().await.clone()?;
@@ -3468,6 +4059,227 @@ impl PluginControlPlane {
 
     pub async fn kv_clear(&self, plugin_id: &str) -> Result<u64, PluginError> {
         self.registry.kv_clear(plugin_id).await
+    }
+
+    pub async fn secret_get(
+        &self,
+        plugin_id: &str,
+        secret_key: &str,
+    ) -> Result<Option<String>, PluginError> {
+        self.registry.secret_get(plugin_id, secret_key).await
+    }
+
+    pub async fn secret_put(
+        &self,
+        plugin_id: &str,
+        secret_key: &str,
+        value: &str,
+    ) -> Result<(), PluginError> {
+        self.registry.secret_put(plugin_id, secret_key, value).await
+    }
+
+    pub async fn secret_delete(
+        &self,
+        plugin_id: &str,
+        secret_key: &str,
+    ) -> Result<bool, PluginError> {
+        self.registry.secret_delete(plugin_id, secret_key).await
+    }
+
+    pub async fn publish_event(
+        &self,
+        topic: &str,
+        event_type: &str,
+        payload: &serde_json::Value,
+    ) -> Result<u64, PluginError> {
+        self.registry
+            .publish_event(topic, event_type, payload)
+            .await
+    }
+
+    pub async fn events_subscribe(
+        &self,
+        plugin_id: &str,
+        topic: Option<&str>,
+        event_type: Option<&str>,
+        since_cursor: Option<u64>,
+        limit: usize,
+    ) -> Result<PluginEventSubscriptionBatch, PluginError> {
+        self.registry
+            .events_subscribe(plugin_id, topic, event_type, since_cursor, limit)
+            .await
+    }
+
+    pub async fn events_ack(
+        &self,
+        plugin_id: &str,
+        subscription_key: &str,
+        cursor: u64,
+    ) -> Result<u64, PluginError> {
+        self.registry
+            .events_ack(plugin_id, subscription_key, cursor)
+            .await
+    }
+
+    pub fn register_command_handler(
+        &self,
+        plugin_id: impl Into<String>,
+        command_name: impl Into<String>,
+        handler: Arc<dyn PluginCommandHandler>,
+    ) -> Result<(), PluginError> {
+        self.command_handlers
+            .write()
+            .map_err(lock_error)?
+            .insert((plugin_id.into(), command_name.into()), handler);
+        Ok(())
+    }
+
+    pub fn register_command_fn<F, Fut>(
+        &self,
+        plugin_id: impl Into<String>,
+        command_name: impl Into<String>,
+        handler: F,
+    ) -> Result<(), PluginError>
+    where
+        F: Fn(String, String, serde_json::Value) -> Fut + Send + Sync + 'static,
+        Fut: std::future::Future<Output = Result<serde_json::Value, WorkerHostError>>
+            + Send
+            + 'static,
+    {
+        self.register_command_handler(
+            plugin_id,
+            command_name,
+            Arc::new(FnPluginCommandHandler(handler)),
+        )
+    }
+
+    pub fn unregister_command_handlers(&self, plugin_id: &str) -> Result<(), PluginError> {
+        self.command_handlers
+            .write()
+            .map_err(lock_error)?
+            .retain(|(owner, _), _| owner != plugin_id);
+        Ok(())
+    }
+
+    pub fn has_command_handler(&self, plugin_id: &str, command_name: &str) -> bool {
+        self.command_handlers.read().ok().is_some_and(|handlers| {
+            handlers.contains_key(&(plugin_id.to_owned(), command_name.to_owned()))
+                || handlers.contains_key(&(plugin_id.to_owned(), "*".to_owned()))
+        })
+    }
+
+    /// Resolves a dynamic command identifier (`<plugin_id>.<command_name>` or
+    /// `<plugin_id>:<command_name>`) against the installed plugin catalog.
+    pub async fn resolve_dynamic_command_target(
+        &self,
+        qualified_command: &str,
+    ) -> Result<Option<(String, String)>, PluginError> {
+        let trimmed = qualified_command.trim();
+        if trimmed.is_empty() {
+            return Ok(None);
+        }
+        if let Some((plugin_id, command_name)) = trimmed.split_once(':') {
+            let plugin_id = plugin_id.trim();
+            let command_name = command_name.trim();
+            if !plugin_id.is_empty() && !command_name.is_empty() {
+                return Ok(Some((plugin_id.to_owned(), command_name.to_owned())));
+            }
+        }
+        let mut candidate_ids: BTreeSet<String> = self
+            .registry
+            .list_plugins()
+            .await?
+            .into_iter()
+            .map(|plugin| plugin.id().to_owned())
+            .collect();
+        if let Ok(handlers) = self.command_handlers.read() {
+            for (plugin_id, _) in handlers.keys() {
+                candidate_ids.insert(plugin_id.clone());
+            }
+        }
+        let mut best_match: Option<(String, String)> = None;
+        for plugin_id in candidate_ids {
+            if let Some(rest) = trimmed.strip_prefix(&plugin_id)
+                && let Some(command_name) = rest.strip_prefix('.')
+                && !command_name.is_empty()
+            {
+                let replace = best_match
+                    .as_ref()
+                    .is_none_or(|(current_id, _)| plugin_id.len() > current_id.len());
+                if replace {
+                    best_match = Some((plugin_id, command_name.to_owned()));
+                }
+            }
+        }
+        Ok(best_match)
+    }
+
+    /// Routes a dynamic plugin RPC command after verifying the target plugin is
+    /// in an active generation. Dispatches to a registered Rust
+    /// `PluginCommandHandler` if present, or forwards to the plugin's active
+    /// Worker slot (Tier 2 `SharedNodeWorkerHost` or Tier 3 Dedicated/Sidecar).
+    pub async fn invoke_plugin_command(
+        &self,
+        plugin_id: &str,
+        command_name: &str,
+        input: serde_json::Value,
+    ) -> Result<serde_json::Value, WorkerHostError> {
+        let plugin_id = plugin_id.trim();
+        let command_name = command_name.trim();
+        if plugin_id.is_empty() || command_name.is_empty() {
+            return Err(WorkerHostError::external(
+                "invalid_plugin_command",
+                "pluginId and command are required",
+            ));
+        }
+        let plugin = self
+            .registry
+            .plugin(plugin_id)
+            .await
+            .map_err(|error| WorkerHostError::external("plugin_registry_failed", error))?
+            .ok_or_else(|| {
+                WorkerHostError::external(
+                    "plugin_not_found",
+                    format!("Plugin `{plugin_id}` is not installed"),
+                )
+            })?;
+        let is_live = self
+            .plugin_is_live(plugin_id)
+            .await
+            .map_err(|error| WorkerHostError::external("plugin_registry_failed", error))?;
+        if plugin.activation != PluginActivation::Enabled || !is_live {
+            return Err(WorkerHostError::external(
+                "plugin_not_active",
+                format!("Plugin `{plugin_id}` does not have an active generation"),
+            ));
+        }
+
+        let rust_handler = self.command_handlers.read().ok().and_then(|handlers| {
+            handlers
+                .get(&(plugin_id.to_owned(), command_name.to_owned()))
+                .cloned()
+                .or_else(|| {
+                    handlers
+                        .get(&(plugin_id.to_owned(), "*".to_owned()))
+                        .cloned()
+                })
+        });
+        if let Some(handler) = rust_handler {
+            return handler.handle(plugin_id, command_name, input).await;
+        }
+
+        if let Some(lease) = self.activation_lease(plugin_id).await
+            && !lease.is_lightweight()
+        {
+            return lease
+                .invoke_with_timeout(command_name, input, std::time::Duration::from_secs(30))
+                .await;
+        }
+
+        Err(WorkerHostError::external(
+            "plugin_command_not_found",
+            format!("Plugin `{plugin_id}` does not expose command `{command_name}`"),
+        ))
     }
 
     pub async fn quarantine_plugin(
@@ -3942,4 +4754,98 @@ fn package_publisher(package: &PluginPackage) -> &str {
 
 fn plugin_dependencies(package: &PluginPackage) -> Vec<crate::PluginDependency> {
     package.plugin_dependencies()
+}
+
+pub(crate) fn event_subscription_key(topic: Option<&str>, event_type: Option<&str>) -> String {
+    let topic_part = topic
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .unwrap_or("*");
+    let type_part = event_type
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .unwrap_or("*");
+    format!("{topic_part}:{type_part}")
+}
+
+fn secret_stream_byte(plugin_id: &str, secret_key: &str, nonce: &[u8], counter: usize) -> u8 {
+    use sha2::{Digest, Sha256};
+    let mut hasher = Sha256::new();
+    hasher.update(b"vibex.plugin_secrets.v1:");
+    hasher.update(plugin_id.as_bytes());
+    hasher.update([0u8]);
+    hasher.update(secret_key.as_bytes());
+    hasher.update([0u8]);
+    hasher.update(nonce);
+    hasher.update((counter / 32).to_le_bytes());
+    let digest = hasher.finalize();
+    digest[counter % 32]
+}
+
+fn secret_auth_tag(plugin_id: &str, secret_key: &str, nonce: &[u8], ciphertext: &[u8]) -> [u8; 32] {
+    use sha2::{Digest, Sha256};
+    let mut hasher = Sha256::new();
+    hasher.update(b"vibex.plugin_secrets.mac.v1:");
+    hasher.update(plugin_id.as_bytes());
+    hasher.update([0u8]);
+    hasher.update(secret_key.as_bytes());
+    hasher.update([0u8]);
+    hasher.update(nonce);
+    hasher.update(ciphertext);
+    hasher.finalize().into()
+}
+
+fn encrypt_plugin_secret(
+    plugin_id: &str,
+    secret_key: &str,
+    plaintext: &str,
+) -> Result<String, PluginError> {
+    use base64::Engine as _;
+    use sha2::{Digest, Sha256};
+    let mut nonce_hasher = Sha256::new();
+    nonce_hasher.update(uuid::Uuid::new_v4().as_bytes());
+    nonce_hasher.update(plugin_id.as_bytes());
+    nonce_hasher.update(secret_key.as_bytes());
+    let nonce_full = nonce_hasher.finalize();
+    let nonce = &nonce_full[..16];
+    let plain_bytes = plaintext.as_bytes();
+    let mut cipher_bytes = Vec::with_capacity(plain_bytes.len());
+    for (idx, byte) in plain_bytes.iter().enumerate() {
+        cipher_bytes.push(*byte ^ secret_stream_byte(plugin_id, secret_key, nonce, idx));
+    }
+    let tag = secret_auth_tag(plugin_id, secret_key, nonce, &cipher_bytes);
+    let mut envelope = Vec::with_capacity(1 + 16 + 32 + cipher_bytes.len());
+    envelope.push(1u8);
+    envelope.extend_from_slice(nonce);
+    envelope.extend_from_slice(&tag);
+    envelope.extend_from_slice(&cipher_bytes);
+    Ok(base64::engine::general_purpose::STANDARD.encode(envelope))
+}
+
+fn decrypt_plugin_secret(
+    plugin_id: &str,
+    secret_key: &str,
+    encoded: &str,
+) -> Result<String, PluginError> {
+    use base64::Engine as _;
+    let envelope = base64::engine::general_purpose::STANDARD
+        .decode(encoded)
+        .map_err(registry_error)?;
+    if envelope.len() < 1 + 16 + 32 || envelope[0] != 1u8 {
+        return Err(PluginError::registry("invalid plugin secret envelope"));
+    }
+    let nonce = &envelope[1..17];
+    let tag = &envelope[17..49];
+    let cipher_bytes = &envelope[49..];
+    let expected_tag = secret_auth_tag(plugin_id, secret_key, nonce, cipher_bytes);
+    if tag != expected_tag.as_slice() {
+        return Err(PluginError::registry(
+            "plugin secret authentication tag mismatch",
+        ));
+    }
+    let mut plain_bytes = Vec::with_capacity(cipher_bytes.len());
+    for (idx, byte) in cipher_bytes.iter().enumerate() {
+        plain_bytes.push(*byte ^ secret_stream_byte(plugin_id, secret_key, nonce, idx));
+    }
+    String::from_utf8(plain_bytes).map_err(registry_error)
 }

@@ -92,6 +92,7 @@ fn infer_single_repo_working_dir(
     }
 }
 
+#[cfg(test)]
 fn normalized_repo_default_working_dir(repo: &Repo) -> Option<String> {
     repo.default_working_dir
         .as_deref()
@@ -146,6 +147,7 @@ pub fn resolve_workspace_agent_working_dir(
         .or_else(|| infer_single_repo_working_dir(workspace, container_ref, repos))
 }
 
+#[cfg(test)]
 pub fn resolve_workspace_repo_script_working_dir(
     workspace: &Workspace,
     container_ref: &str,

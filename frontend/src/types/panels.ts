@@ -49,16 +49,6 @@ export interface TerminalPanelParams {
   terminalShelf?: boolean;
 }
 
-/** Params for the Web Preview panel (built-in browser / dev-server preview). */
-export interface WebPreviewPanelParams {
-  /** URL the panel was asked to load (e.g. a link clicked in a conversation). */
-  requestedUrl: string | null;
-  /** Monotonic marker so re-opening the same URL re-applies it. */
-  requestedUrlNonce: number;
-  /** Favicon published by the active CEF page for the outer workspace tab. */
-  faviconUrl?: string | null;
-}
-
 export function buildPreviewPanelParams(
   filePath: string,
   options?: OpenFilePreviewOptions

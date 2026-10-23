@@ -1,5 +1,11 @@
 import { serviceContainer, } from './services.js';
 export function createWorkerServiceRegistry(pluginId, container = serviceContainer) {
+    function inject(keyOrDeps, effect) {
+        if (Array.isArray(keyOrDeps)) {
+            return container.inject(keyOrDeps, effect, pluginId);
+        }
+        return container.inject(keyOrDeps);
+    }
     return {
         provide(key, implementation) {
             return container.provide(key, implementation, pluginId);
@@ -7,16 +13,7 @@ export function createWorkerServiceRegistry(pluginId, container = serviceContain
         get(key) {
             return container.get(key);
         },
-        inject(keyOrDeps, 
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        effect
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        ) {
-            if (Array.isArray(keyOrDeps)) {
-                return container.inject(keyOrDeps, effect, pluginId);
-            }
-            return container.inject(keyOrDeps);
-        },
+        inject,
         require(key) {
             return container.require(key);
         },

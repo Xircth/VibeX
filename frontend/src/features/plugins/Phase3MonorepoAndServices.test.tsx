@@ -67,7 +67,8 @@ describe('Phase 3: Monorepo Official Plugins, Host Provider Services & Cross-Plu
           'deepseek-official',
         ])
       );
-      const catalogView = await getModelCatalogService().listCatalog('opencode');
+      const catalogView =
+        await getModelCatalogService().listCatalog('opencode');
       expect(catalogView.templates.map((t) => t.id)).toEqual(
         expect.arrayContaining(['openrouter', 'siliconflow'])
       );
@@ -92,9 +93,7 @@ describe('Phase 3: Monorepo Official Plugins, Host Provider Services & Cross-Plu
       const composerIds = slotRegistry
         .getBySlot('composer.actions')
         .map((s) => s.id);
-      expect(composerIds).toEqual(
-        expect.arrayContaining(['enhance-prompt'])
-      );
+      expect(composerIds).toEqual(expect.arrayContaining(['enhance-prompt']));
 
       // Verify context menu from notes plugin
       const contextMenuIds = slotRegistry
@@ -346,7 +345,9 @@ describe('Phase 3: Monorepo Official Plugins, Host Provider Services & Cross-Plu
       editorType: 'NEOVIM_GUI',
       filePath: 'src/main.rs',
     });
-    expect(openRes.url).toBe('neovide://open?attempt=attempt-42&file=src/main.rs');
+    expect(openRes.url).toBe(
+      'neovide://open?attempt=attempt-42&file=src/main.rs'
+    );
 
     // Deactivating the plugin cleanly restores default host provider behavior
     pluginRuntimeLoader.deactivate('plugin.host-provider-extender');

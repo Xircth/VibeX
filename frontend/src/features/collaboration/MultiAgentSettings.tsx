@@ -1,11 +1,4 @@
-import {
-  Check,
-  ChevronDown,
-  Pencil,
-  Plus,
-  Trash2,
-  X,
-} from 'lucide-react';
+import { Check, ChevronDown, Pencil, Plus, Trash2, X } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useTranslation } from 'react-i18next';
@@ -680,7 +673,9 @@ export function MultiAgentSettings({
                       type="submit"
                       variant="primary"
                       data-dialog-primary="true"
-                      disabled={!roleName.trim() || !roleAgentId || isSavingRole}
+                      disabled={
+                        !roleName.trim() || !roleAgentId || isSavingRole
+                      }
                     >
                       {editingRoleId ? '保存' : '新建角色'}
                     </Button>

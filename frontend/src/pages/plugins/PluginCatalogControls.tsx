@@ -7,7 +7,6 @@ import {
   GitBranch,
   Loader2,
   PackageOpen,
-  PackagePlus,
   Store,
 } from 'lucide-react';
 import { type ReactNode, useEffect, useRef, useState } from 'react';
@@ -24,7 +23,9 @@ import { errorMessage } from './pluginQueries';
 export const OFFICIAL_MARKETPLACE_WEB_URL =
   'https://vibex.xforever.xin/marketplace';
 
-export function normalizeGithubRepositoryInput(rawInput: string): string | null {
+export function normalizeGithubRepositoryInput(
+  rawInput: string
+): string | null {
   const trimmed = rawInput.trim();
   if (!trimmed) return null;
   if (/^https?:\/\/github\.com\/[^/\s]+\/[^/\s]+/i.test(trimmed)) {
@@ -129,7 +130,11 @@ export function PluginCatalogActions({
     if (onOpenExternalMarketplace) {
       void onOpenExternalMarketplace();
     } else if (typeof window !== 'undefined') {
-      window.open(OFFICIAL_MARKETPLACE_WEB_URL, '_blank', 'noopener,noreferrer');
+      window.open(
+        OFFICIAL_MARKETPLACE_WEB_URL,
+        '_blank',
+        'noopener,noreferrer'
+      );
     }
   };
 
@@ -176,12 +181,10 @@ export function PluginCatalogActions({
     <div className="product-plugins-header-actions">
       {search}
       {canAdd ? (
-        <div
-          ref={containerRef}
-          className="dsh-add-plugin-anchor"
-        >
+        <div ref={containerRef} className="dsh-add-plugin-anchor">
           <Button
             type="button"
+            className="dsh-add-plugin-button"
             disabled={adding}
             aria-haspopup="menu"
             aria-expanded={menuOpen}
@@ -190,16 +193,22 @@ export function PluginCatalogActions({
               setMenuOpen((prev) => !prev);
             }}
           >
-            {adding ? (
-              <Loader2 aria-hidden="true" className="h-3.5 w-3.5 animate-spin" />
-            ) : (
-              <PackagePlus aria-hidden="true" className="h-3.5 w-3.5" />
-            )}
-            <span>{t('plugins.addPlugin')}</span>
-            <ChevronDown
-              aria-hidden="true"
-              className="dsh-add-plugin-caret h-3.5 w-3.5"
-            />
+            <span className="dsh-add-plugin-label">
+              {adding ? (
+                <Loader2
+                  aria-hidden="true"
+                  className="h-3.5 w-3.5 animate-spin"
+                />
+              ) : null}
+              <span>{t('plugins.addPlugin')}</span>
+            </span>
+            <span aria-hidden="true" className="dsh-add-plugin-divider" />
+            <span aria-hidden="true" className="dsh-add-plugin-caret-cell">
+              <ChevronDown
+                aria-hidden="true"
+                className="dsh-add-plugin-caret h-3.5 w-3.5"
+              />
+            </span>
           </Button>
 
           {menuOpen ? (
@@ -214,7 +223,10 @@ export function PluginCatalogActions({
                 className="dsh-add-plugin-menu-item"
                 onClick={handleSelectPackage}
               >
-                <FolderArchive aria-hidden="true" className="dsh-add-menu-icon" />
+                <FolderArchive
+                  aria-hidden="true"
+                  className="dsh-add-menu-icon"
+                />
                 <span>{isZh ? '安装包' : 'Package Archive'}</span>
               </button>
               <button
@@ -253,7 +265,9 @@ export function PluginCatalogActions({
               <div className="dsh-github-popconfirm-head">
                 <GitBranch aria-hidden="true" className="h-3.5 w-3.5" />
                 <strong>
-                  {isZh ? '从 GitHub 仓库添加插件' : 'Add from GitHub Repository'}
+                  {isZh
+                    ? '从 GitHub 仓库添加插件'
+                    : 'Add from GitHub Repository'}
                 </strong>
               </div>
 
@@ -313,10 +327,7 @@ export function PluginCatalogActions({
                         : 'Pulling repository and inspecting package...'}
                     </span>
                   </div>
-                  <div
-                    className="dsh-github-pull-progress"
-                    aria-hidden="true"
-                  >
+                  <div className="dsh-github-pull-progress" aria-hidden="true">
                     <span className="dsh-github-pull-progress-bar" />
                   </div>
                 </div>

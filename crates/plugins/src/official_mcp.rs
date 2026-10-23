@@ -97,7 +97,10 @@ pub struct OfficialMcpRuntime {
 
 impl OfficialMcpRuntime {
     pub fn bindings(&self) -> Vec<OfficialMcpBinding> {
-        self.bindings.lock().unwrap().clone()
+        self.bindings
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .clone()
     }
 
     pub fn allow_delegation_mcp(&self) -> bool {
@@ -167,21 +170,31 @@ impl OfficialMcpRuntime {
     }
 
     pub fn set_http_base(&self, base: Option<String>) {
-        *self.http_base.lock().unwrap() = base;
+        *self.http_base.lock().unwrap_or_else(|p| p.into_inner()) = base;
     }
 
     pub fn http_base(&self) -> Option<String> {
-        self.http_base.lock().unwrap().clone()
+        self.http_base
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .clone()
     }
 
     pub fn reset(&self) {
         self.host_delegation.store(false, Ordering::SeqCst);
         self.host_limits_ready.store(false, Ordering::SeqCst);
-        *self.host_limits.lock().unwrap() = HostDelegationLimits::default();
-        *self.host_delegation_token.lock().unwrap() = None;
-        self.bindings.lock().unwrap().clear();
+        *self.host_limits.lock().unwrap_or_else(|p| p.into_inner()) =
+            HostDelegationLimits::default();
+        *self
+            .host_delegation_token
+            .lock()
+            .unwrap_or_else(|p| p.into_inner()) = None;
+        self.bindings
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .clear();
         self.session_features.store(0, Ordering::SeqCst);
-        *self.http_base.lock().unwrap() = None;
+        *self.http_base.lock().unwrap_or_else(|p| p.into_inner()) = None;
     }
 
     /// Publish or withdraw the host delegation binding. A plugin package cannot
@@ -192,7 +205,7 @@ impl OfficialMcpRuntime {
         limits.conversation_list_default_days = limits.conversation_list_default_days.clamp(1, 90);
         limits.delay_max_hours = limits.delay_max_hours.clamp(1, 168);
         self.host_delegation.store(enabled, Ordering::SeqCst);
-        *self.host_limits.lock().unwrap() = limits;
+        *self.host_limits.lock().unwrap_or_else(|p| p.into_inner()) = limits;
         self.host_limits_ready.store(true, Ordering::SeqCst);
         self.reinsert_host_delegation();
     }
@@ -201,7 +214,12 @@ impl OfficialMcpRuntime {
         if !self.host_limits_ready.load(Ordering::SeqCst) {
             return None;
         }
-        Some(self.host_limits.lock().unwrap().clone())
+        Some(
+            self.host_limits
+                .lock()
+                .unwrap_or_else(|p| p.into_inner())
+                .clone(),
+        )
     }
 
     pub fn sync_from_plugins(&self, plugins: &[InstalledPlugin]) {
@@ -230,18 +248,21 @@ impl OfficialMcpRuntime {
                 bindings.push(binding);
             }
         }
-        *self.bindings.lock().unwrap() = bindings;
+        *self.bindings.lock().unwrap_or_else(|p| p.into_inner()) = bindings;
         self.session_features.store(session_bits, Ordering::SeqCst);
         if let Some(base) = http_base {
-            *self.http_base.lock().unwrap() = Some(base);
+            *self.http_base.lock().unwrap_or_else(|p| p.into_inner()) = Some(base);
         }
         self.reinsert_host_delegation();
     }
 
     fn reinsert_host_delegation(&self) {
         let enabled = self.host_delegation.load(Ordering::SeqCst);
-        let mut token_slot = self.host_delegation_token.lock().unwrap();
-        let mut bindings = self.bindings.lock().unwrap();
+        let mut token_slot = self
+            .host_delegation_token
+            .lock()
+            .unwrap_or_else(|p| p.into_inner());
+        let mut bindings = self.bindings.lock().unwrap_or_else(|p| p.into_inner());
         bindings.retain(|binding| binding.product != "delegation");
         if !enabled {
             return;
@@ -265,7 +286,10 @@ impl OfficialMcpRuntime {
             self.session_features
                 .store(binding.features, Ordering::SeqCst);
         }
-        self.bindings.lock().unwrap().push(binding);
+        self.bindings
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .push(binding);
     }
 
     fn has_product(&self, product: &str) -> bool {
@@ -687,11 +711,7 @@ fn plugin_mcp_row(
 }
 
 pub(crate) fn live_plugin_mcp(plugin: &InstalledPlugin) -> Value {
-    crate::PluginPackage::inspect(&plugin.source.path, plugin.source.kind)
-        .ok()
-        .map(|package| package.mcp)
-        .filter(|mcp| mcp.is_object())
-        .unwrap_or_else(|| plugin.mcp.clone())
+    plugin.package.mcp.clone()
 }
 
 pub(crate) fn live_plugin_config(plugin: &InstalledPlugin) -> Value {

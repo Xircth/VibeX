@@ -6,44 +6,42 @@ import { Button } from '@/components/ui/button';
 import { Progress } from '@/components/ui/progress';
 import type { AgentOperationState } from '@/features/agent-management';
 
-const operationStages: Record<
-  AgentOperationState['kind'],
-  readonly string[]
-> = {
-  install: [
-    'stageEnvCheck',
-    'stageAcpCheck',
-    'stagePrepare',
-    'stageInstall',
-    'stageVerify',
-    'stageComplete',
-  ],
-  update: [
-    'stageEnvCheck',
-    'stageAcpCheck',
-    'stagePrepare',
-    'stageUpdate',
-    'stageVerify',
-    'stageComplete',
-  ],
-  repair: [
-    'stageEnvCheck',
-    'stageAcpCheck',
-    'stagePrepare',
-    'stageRepair',
-    'stageVerify',
-    'stageComplete',
-  ],
-  rollback: ['stagePrepare', 'stageRollback', 'stageVerify', 'stageComplete'],
-  uninstall: [
-    'stagePrepare',
-    'stageUninstall',
-    'stageCleanup',
-    'stageComplete',
-  ],
-  remove: ['stagePrepare', 'stageRemove', 'stageCleanup', 'stageComplete'],
-  check: ['stagePrepare', 'stageCheck', 'stageSummary', 'stageComplete'],
-};
+const operationStages: Record<AgentOperationState['kind'], readonly string[]> =
+  {
+    install: [
+      'stageEnvCheck',
+      'stageAcpCheck',
+      'stagePrepare',
+      'stageInstall',
+      'stageVerify',
+      'stageComplete',
+    ],
+    update: [
+      'stageEnvCheck',
+      'stageAcpCheck',
+      'stagePrepare',
+      'stageUpdate',
+      'stageVerify',
+      'stageComplete',
+    ],
+    repair: [
+      'stageEnvCheck',
+      'stageAcpCheck',
+      'stagePrepare',
+      'stageRepair',
+      'stageVerify',
+      'stageComplete',
+    ],
+    rollback: ['stagePrepare', 'stageRollback', 'stageVerify', 'stageComplete'],
+    uninstall: [
+      'stagePrepare',
+      'stageUninstall',
+      'stageCleanup',
+      'stageComplete',
+    ],
+    remove: ['stagePrepare', 'stageRemove', 'stageCleanup', 'stageComplete'],
+    check: ['stagePrepare', 'stageCheck', 'stageSummary', 'stageComplete'],
+  };
 
 function stageIndexForProgress(progress: number, stageCount: number) {
   if (stageCount === 6) {

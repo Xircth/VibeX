@@ -21,6 +21,8 @@ pub struct HostRowOpPublisher {
     pool: SqlitePool,
     projectors: ConversationRowProjectors,
     events: std::sync::Arc<HostEventBus>,
+    conversation_locks:
+        std::sync::Mutex<std::collections::HashMap<Uuid, std::sync::Arc<tokio::sync::Mutex<()>>>>,
 }
 
 impl HostRowOpPublisher {
@@ -33,7 +35,29 @@ impl HostRowOpPublisher {
             pool,
             projectors,
             events,
+            conversation_locks: std::sync::Mutex::new(std::collections::HashMap::new()),
         }
+    }
+
+    fn conversation_lock(&self, conversation_id: Uuid) -> std::sync::Arc<tokio::sync::Mutex<()>> {
+        let mut map = self
+            .conversation_locks
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        map.entry(conversation_id)
+            .or_insert_with(|| std::sync::Arc::new(tokio::sync::Mutex::new(())))
+            .clone()
+    }
+
+    fn prune_conversation_locks(
+        &self,
+        active: &std::collections::HashMap<Uuid, CachedRowProjector>,
+    ) {
+        let mut map = self
+            .conversation_locks
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        map.retain(|id, lock| active.contains_key(id) || std::sync::Arc::strong_count(lock) > 1);
     }
 }
 
@@ -41,11 +65,20 @@ impl HostRowOpPublisher {
 impl ConversationEventPublisher for HostRowOpPublisher {
     async fn publish(&self, record: &ConversationEventRecord) {
         let conversation_id = record.conversation_id;
-        let mut map = self.projectors.lock().await;
-        let publish_after = map
-            .get(&conversation_id)
-            .map(|entry| entry.db_cursor)
-            .unwrap_or_else(|| record.sequence.saturating_sub(1));
+        let conv_lock = self.conversation_lock(conversation_id);
+        let _conv_guard = conv_lock.lock().await;
+
+        let after_sequence = record.sequence.saturating_sub(1);
+        let (mut publish_after, mut has_projector) = {
+            let mut map = self.projectors.lock().await;
+            match map.get_mut(&conversation_id) {
+                Some(entry) => {
+                    entry.sync_if_rebuilt(conversation_id);
+                    (entry.db_cursor, true)
+                }
+                None => (after_sequence, false),
+            }
+        };
         let mut new_records = match ConversationEventRecord::events_since(
             &self.pool,
             conversation_id,
@@ -60,6 +93,31 @@ impl ConversationEventPublisher for HostRowOpPublisher {
                 return;
             }
         };
+        if new_records.is_empty()
+            && has_projector
+            && after_sequence < publish_after
+            && let Ok(max_seq) =
+                ConversationEventRecord::max_sequence(&self.pool, conversation_id).await
+            && max_seq < publish_after
+        {
+            self.projectors.lock().await.remove(&conversation_id);
+            publish_after = after_sequence;
+            has_projector = false;
+            new_records = match ConversationEventRecord::events_since(
+                &self.pool,
+                conversation_id,
+                publish_after,
+                2000,
+            )
+            .await
+            {
+                Ok(records) => records,
+                Err(error) => {
+                    tracing::warn!(%conversation_id, %error, "row-op emit: reading events failed");
+                    return;
+                }
+            };
+        }
         if new_records.is_empty() && record.sequence > publish_after {
             new_records.push(record.clone());
         }
@@ -90,19 +148,24 @@ impl ConversationEventPublisher for HostRowOpPublisher {
             .iter()
             .any(|item| item.event_kind == "conversation_input");
 
-        if let std::collections::hash_map::Entry::Vacant(entry) = map.entry(conversation_id) {
+        let loaded_projector = if !has_projector {
             match IncrementalRowProjector::load(&self.pool, conversation_id, publish_after).await {
-                Ok(projector) => {
-                    entry.insert(CachedRowProjector::new(projector));
-                }
+                Ok(projector) => Some(CachedRowProjector::new(projector)),
                 Err(error) => {
                     tracing::warn!(%conversation_id, %error, "row-op emit: projector load failed");
                     return;
                 }
             }
-        }
+        } else {
+            None
+        };
+
         let mut ops = Vec::new();
         let should_emit = {
+            let mut map = self.projectors.lock().await;
+            if let Some(projector) = loaded_projector {
+                map.entry(conversation_id).or_insert(projector);
+            }
             let entry = map
                 .get_mut(&conversation_id)
                 .expect("projector present after insert");
@@ -125,16 +188,16 @@ impl ConversationEventPublisher for HostRowOpPublisher {
                 && session_config_options.is_none()
                 && available_commands.is_none()
                 && !queue_changed);
-            if will_emit {
+            let result = if will_emit {
                 entry.last_emitted_sequence = last_sequence;
                 Some((previous_sequence, last_sequence))
             } else {
                 None
-            }
+            };
+            evict_least_recently_used_projectors(&mut map, conversation_id);
+            self.prune_conversation_locks(&map);
+            result
         };
-
-        evict_least_recently_used_projectors(&mut map, conversation_id);
-        drop(map);
 
         if let Some((previous_sequence, last_sequence)) = should_emit {
             let emit_global = !ops.iter().all(|op| {
@@ -191,32 +254,42 @@ impl ConversationEventPublisher for HostRowOpPublisher {
 
     async fn publish_unpersisted(&self, record: &ConversationEventRecord) {
         let conversation_id = record.conversation_id;
-        let mut map = self.projectors.lock().await;
-        if let std::collections::hash_map::Entry::Vacant(entry) = map.entry(conversation_id) {
+        let conv_lock = self.conversation_lock(conversation_id);
+        let _conv_guard = conv_lock.lock().await;
+
+        let has_projector = self.projectors.lock().await.contains_key(&conversation_id);
+        let loaded_projector = if !has_projector {
             match IncrementalRowProjector::load_through_latest(&self.pool, conversation_id).await {
-                Ok(projector) => {
-                    entry.insert(CachedRowProjector::new(projector));
-                }
+                Ok(projector) => Some(CachedRowProjector::new(projector)),
                 Err(error) => {
                     tracing::warn!(%conversation_id, %error, "row-op emit: projector load failed");
                     return;
                 }
             }
-        }
-        let entry = map
-            .get_mut(&conversation_id)
-            .expect("projector present after insert");
-        entry.touch();
-        let cursor = entry.last_emitted_sequence;
-        let ops = match entry.apply_unpersisted(record) {
-            Ok(ops) => ops,
-            Err(error) => {
-                tracing::warn!(%error, "row-op emit: unpersisted fold failed");
-                return;
-            }
+        } else {
+            None
         };
-        evict_least_recently_used_projectors(&mut map, conversation_id);
-        drop(map);
+        let (cursor, ops) = {
+            let mut map = self.projectors.lock().await;
+            if let Some(projector) = loaded_projector {
+                map.entry(conversation_id).or_insert(projector);
+            }
+            let entry = map
+                .get_mut(&conversation_id)
+                .expect("projector present after insert");
+            entry.touch();
+            let cursor = entry.last_emitted_sequence;
+            let ops = match entry.apply_unpersisted(record) {
+                Ok(ops) => ops,
+                Err(error) => {
+                    tracing::warn!(%error, "row-op emit: unpersisted fold failed");
+                    return;
+                }
+            };
+            evict_least_recently_used_projectors(&mut map, conversation_id);
+            self.prune_conversation_locks(&map);
+            (cursor, ops)
+        };
         if ops.is_empty() {
             return;
         }

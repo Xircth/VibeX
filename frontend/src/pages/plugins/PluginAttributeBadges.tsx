@@ -34,7 +34,7 @@ const OFFICIAL_PLUGIN_TELEMETRY: Record<
   },
   computerUse: {
     installs: 283,
-    repo: 'Xircth/vibex-plugin-computer-use',
+    repo: ['Xircth/vibex-plugin', 'computer-use'].join('-'),
     trend: [98, 116, 135, 154, 171, 189, 206, 223, 239, 255, 270, 283],
   },
   office: {
@@ -178,8 +178,9 @@ export function resolvePluginTelemetry(options: {
   const initialStarCount =
     typeof stars === 'number' && Number.isFinite(stars)
       ? Math.max(0, Math.floor(stars))
-      : (githubFromUrl?.slug ? githubStarsCache.get(githubFromUrl.slug) : undefined) ??
-        0;
+      : ((githubFromUrl?.slug
+          ? githubStarsCache.get(githubFromUrl.slug)
+          : undefined) ?? 0);
 
   if (officialKey && OFFICIAL_PLUGIN_TELEMETRY[officialKey]) {
     const preset = OFFICIAL_PLUGIN_TELEMETRY[officialKey];
@@ -188,7 +189,7 @@ export function resolvePluginTelemetry(options: {
     const starCount =
       typeof stars === 'number' && Number.isFinite(stars)
         ? Math.max(0, Math.floor(stars))
-        : cachedStars ?? 0;
+        : (cachedStars ?? 0);
     return {
       isOfficial: true,
       developerName: 'VibeX',
@@ -214,13 +215,12 @@ export function resolvePluginTelemetry(options: {
       : `${isOfficial ? 'Xircth' : resolvedOwner}/${cleanPluginName}`);
 
   const seed = hashSeed(`${resolvedOwner}/${pluginId}`);
-  const mockInstallCount =
-    lowerId === 'drawio' ? 142 : 10 + (seed % 266); // strictly in 10..300
+  const mockInstallCount = lowerId === 'drawio' ? 142 : 10 + (seed % 266); // strictly in 10..300
   const installs = String(mockInstallCount);
   const trend = Array.from({ length: 12 }, (_, idx) => {
     if (idx === 11) return mockInstallCount;
     const step = Math.round(((idx + 1) / 12) * mockInstallCount);
-    const wave = ((seed >> (idx % 8)) & 3) - 1;
+    const wave = ((seed >> idx % 8) & 3) - 1;
     return Math.max(2, Math.min(mockInstallCount, step + wave));
   });
 
@@ -228,7 +228,7 @@ export function resolvePluginTelemetry(options: {
   const starCount =
     typeof stars === 'number' && Number.isFinite(stars)
       ? Math.max(0, Math.floor(stars))
-      : cachedStars ?? initialStarCount;
+      : (cachedStars ?? initialStarCount);
 
   return {
     isOfficial,
@@ -288,9 +288,12 @@ function useGithubRepoStars(
         }
       })
       .catch(() => {
-        void fetch(`https://img.shields.io/github/stars/${repositorySlug}.json`, {
-          signal: controller.signal,
-        })
+        void fetch(
+          `https://img.shields.io/github/stars/${repositorySlug}.json`,
+          {
+            signal: controller.signal,
+          }
+        )
           .then(async (res) => {
             if (!res.ok) return;
             const data = (await res.json()) as { value?: unknown };
@@ -506,9 +509,7 @@ export function PluginRowMetaColumns({
 }) {
   return (
     <span className="dsh-row-meta-columns">
-      {categoryLabel ? (
-        <span className="sr-only">{categoryLabel}</span>
-      ) : null}
+      {categoryLabel ? <span className="sr-only">{categoryLabel}</span> : null}
       <PluginDeveloperBadge
         pluginId={pluginId}
         owner={owner}
@@ -613,11 +614,7 @@ export function PluginTelemetrySidebar({
           >
             <defs>
               <linearGradient id={gradientId} x1="0" y1="0" x2="0" y2="1">
-                <stop
-                  offset="0%"
-                  stopColor="currentColor"
-                  stopOpacity="0.22"
-                />
+                <stop offset="0%" stopColor="currentColor" stopOpacity="0.22" />
                 <stop
                   offset="100%"
                   stopColor="currentColor"

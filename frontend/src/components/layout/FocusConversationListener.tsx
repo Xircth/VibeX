@@ -40,9 +40,7 @@ export function FocusConversationListener() {
           });
           useUiPreferencesStore.getState().setLayoutMode('workspaces');
           useLayoutStore.getState().setActiveTab('workspace');
-          useWindowProjectsStore
-            .getState()
-            .ensureProjectOpen(target.projectId);
+          useWindowProjectsStore.getState().ensureProjectOpen(target.projectId);
           navigate(focused.path);
         }
       );

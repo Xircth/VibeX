@@ -404,7 +404,9 @@ export function GeneralSettings() {
                 className="settings-switch"
                 checked={draft.previous_session_continuation_enabled ?? false}
                 onCheckedChange={(checked: boolean) =>
-                  updateDraft({ previous_session_continuation_enabled: checked })
+                  updateDraft({
+                    previous_session_continuation_enabled: checked,
+                  })
                 }
               />
             </div>

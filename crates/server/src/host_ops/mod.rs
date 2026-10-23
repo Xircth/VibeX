@@ -327,7 +327,11 @@ impl ServerApplicationDomains {
                     .await?,
                     |git, path| git.checkout_branch(path, &args.branch),
                 )
-                .await
+                .await?;
+                Workspace::update_branch_name(&self.pool, args.workspace_id, &args.branch)
+                    .await
+                    .map_err(internal_error)?;
+                Ok(Value::Null)
             }
             DomainCommand::WorkspaceCreateBranch => {
                 let args: WorkspaceBranchArgs = parse(args)?;

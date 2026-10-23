@@ -599,6 +599,7 @@ domain_commands! {
     ConversationImport => "conversation_import" / "conversation.write",
     ConversationFork => "conversation_fork" / "conversation.write",
     AgentScanLocalHistory => "agent_scan_local_history" / "application.call",
+    PluginCommandInvoke => "plugin_command_invoke" / "application.call",
 }
 
 #[async_trait]
@@ -609,6 +610,15 @@ pub trait ApplicationDomainPort: Send + Sync {
         command: DomainCommand,
         args: serde_json::Value,
     ) -> Result<serde_json::Value, ApplicationError>;
+
+    async fn execute_dynamic(
+        &self,
+        _principal: &Principal,
+        command_name: &str,
+        _args: serde_json::Value,
+    ) -> Result<serde_json::Value, ApplicationError> {
+        Err(ApplicationError::not_found(command_name))
+    }
 }
 
 pub(crate) struct UnavailableApplicationDomains;

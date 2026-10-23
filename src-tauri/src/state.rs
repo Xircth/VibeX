@@ -1,20 +1,18 @@
 use std::{
-    collections::{HashMap, HashSet},
+    collections::HashMap,
     sync::{Arc, Mutex as StdMutex},
 };
 
 use agents::{AgentEventEnvelope, AgentRuntime, runtime_event_channel};
 use deployment::Deployment;
-use local_deployment::{LocalDeployment, pty::PtyService};
+use local_deployment::LocalDeployment;
 pub use services::services::agent_management_runtime::{
     AgentManagementRuntimeState, LocalRuntimeEvidence,
 };
 use tauri::Manager;
 use tokio::sync::{Mutex, mpsc};
 
-use crate::commands::{
-    desktop_toast::DesktopToastPayload, local_history::LocalHistoryImportRuntime,
-};
+use crate::commands::desktop_toast::DesktopToastPayload;
 
 #[derive(Default)]
 pub struct DesktopToastRuntimeState {
@@ -23,39 +21,31 @@ pub struct DesktopToastRuntimeState {
     pub idle_generation: u64,
 }
 
+type ConversationTurnLockMap = Arc<Mutex<HashMap<uuid::Uuid, Arc<Mutex<()>>>>>;
+type ConversationRuntimeStateMap =
+    Arc<Mutex<HashMap<uuid::Uuid, conversations::ConversationRuntimeState>>>;
+
 pub struct AppState {
     pub app_handle: tauri::AppHandle,
     pub local_deployment: Arc<LocalDeployment>,
     pub deployment: Arc<dyn Deployment>,
-    /// PTY session registry for terminal commands. A shared (Arc-backed) handle to the
-    /// same registry the deployment owns — kept as a first-class field because
-    /// `PtyService` lives in `local-deployment` and cannot be exposed through the
-    /// object-safe `Deployment` trait without an upward crate dependency.
-    pub pty: PtyService,
-    pub file_tree_watchers: Arc<Mutex<HashSet<String>>>,
-    pub conversation_streams: Arc<Mutex<HashSet<String>>>,
     pub desktop_toast_state: Arc<Mutex<DesktopToastRuntimeState>>,
     pub agent_management_runtime: Arc<AgentManagementRuntimeState>,
     pub agent_runtime: Arc<AgentRuntime>,
     pub conversation_agent_events: StdMutex<Option<mpsc::Receiver<AgentEventEnvelope>>>,
     pub delegation: crate::delegation::DelegationState,
-    pub conversation_turn_locks: Arc<Mutex<HashMap<uuid::Uuid, Arc<Mutex<()>>>>>,
-    pub conversation_runtime_states:
-        Arc<Mutex<HashMap<uuid::Uuid, conversations::ConversationRuntimeState>>>,
+    pub conversation_turn_locks: ConversationTurnLockMap,
+    pub conversation_runtime_states: ConversationRuntimeStateMap,
     /// Per-conversation live incremental projectors (消灭双投影). Cache the folded
     /// state so each newly-appended event turns into row ops in O(1) amortized instead
     /// of re-projecting the turn every frame. Bounded by least recent use, and dropped
     /// when a conversation closes (`forget_conversation_runtime`).
     pub conversation_row_projectors: conversations::ConversationRowProjectors,
-    pub plugin_preview_host: Arc<dyn plugins::PluginPreviewHost>,
     pub plugin_control_plane: Arc<plugins::PluginControlPlane>,
     pub plugin_worker_runtime: Arc<plugins::PluginWorkerRuntimeProvider>,
     pub plugin_capability_broker: Arc<plugins::HostCapabilityBroker>,
-    pub plugin_provider_presets: Arc<server::HostProviderPresetHost>,
-    pub plugin_app_surfaces: Arc<plugins::PluginAppSurfaceHost>,
     pub bundled_plugin_roots: Arc<Vec<std::path::PathBuf>>,
     pub remote_desktop: Arc<crate::remote_desktop::RemoteDesktopRegistry>,
-    pub local_history_import: Arc<StdMutex<LocalHistoryImportRuntime>>,
     pub host: server::HostRuntime,
 }
 
@@ -65,7 +55,6 @@ impl AppState {
         crate::host_bus::install(events.clone());
         let local_deployment = Arc::new(LocalDeployment::new().await?);
         let deployment: Arc<dyn Deployment> = local_deployment.clone();
-        let pty = local_deployment.pty().clone();
         let pool = deployment.db().pool.clone();
         // The event-sourced `conversation_events` log is the single authoritative
         // record (批次D). The first-generation `agent_*` shadow tables are retired;
@@ -112,7 +101,7 @@ impl AppState {
             plugins::HostCapabilityBroker::with_hosts_and_prompts(
                 plugin_control_plane.clone(),
                 plugin_preview_host.clone(),
-                provider_preset_host.clone(),
+                provider_preset_host,
                 remote_profile_host,
                 bind_prompts,
             )
@@ -145,24 +134,15 @@ impl AppState {
         let conversation_turn_locks = Arc::new(Mutex::new(HashMap::new()));
         let conversation_runtime_states = Arc::new(Mutex::new(HashMap::new()));
         let conversation_row_projectors = Arc::new(Mutex::new(HashMap::new()));
-        let conversation_context = conversations::ConversationContext {
-            deployment: deployment.clone(),
-            agent_runtime: agent_runtime.clone(),
-            turn_locks: conversation_turn_locks.clone(),
-            runtime_states: conversation_runtime_states.clone(),
-            row_projectors: conversation_row_projectors.clone(),
-            host: Arc::new(crate::conversation_service::AppConversationHost {
-                deployment: deployment.clone(),
-                official_mcp: plugin_control_plane.official_product_mcp_gate(),
-            }),
-            event_publisher: Arc::new(server::ChatDeliveryPublisher::new(Arc::new(
-                crate::conversation_service::AppConversationEventPublisher {
-                    app_handle: app_handle.clone(),
-                    deployment: deployment.clone(),
-                    row_projectors: conversation_row_projectors.clone(),
-                },
-            ))),
-        };
+        let conversation_context = Self::build_conversation_context(
+            &app_handle,
+            &deployment,
+            &agent_runtime,
+            &conversation_turn_locks,
+            &conversation_runtime_states,
+            &conversation_row_projectors,
+            &plugin_control_plane,
+        );
         plugin_control_plane
             .sync_official_product_mcp_gate()
             .await
@@ -176,7 +156,7 @@ impl AppState {
         let delegation = crate::delegation::build_delegation(
             agent_runtime.clone(),
             pool,
-            conversation_context,
+            conversation_context.clone(),
             plugin_control_plane.official_product_mcp_gate(),
             events.clone(),
         );
@@ -222,54 +202,20 @@ impl AppState {
         }
         let preview_proxy = server::PreviewProxyRegistry::default();
         let agent_management_runtime = Arc::new(AgentManagementRuntimeState::default());
-        let host_conversations = conversations::ConversationContext {
-            deployment: deployment.clone(),
-            agent_runtime: agent_runtime.clone(),
-            turn_locks: conversation_turn_locks.clone(),
-            runtime_states: conversation_runtime_states.clone(),
-            row_projectors: conversation_row_projectors.clone(),
-            host: Arc::new(crate::conversation_service::AppConversationHost {
-                deployment: deployment.clone(),
-                official_mcp: plugin_control_plane.official_product_mcp_gate(),
-            }),
-            event_publisher: Arc::new(server::ChatDeliveryPublisher::new(Arc::new(
-                crate::conversation_service::AppConversationEventPublisher {
-                    app_handle: app_handle.clone(),
-                    deployment: deployment.clone(),
-                    row_projectors: conversation_row_projectors.clone(),
-                },
-            ))),
-        };
+        let host_conversations = conversation_context.clone();
         let host = server::HostRuntime::build(server::HostRuntimeParts {
             pool: deployment.db().pool.clone(),
             conversations: host_conversations,
             plugin_control_plane: plugin_control_plane.clone(),
             companion_memory: Some(delegation.features.clone()),
-            preview_host: plugin_preview_host.clone(),
+            preview_host: plugin_preview_host,
             capability_broker: plugin_capability_broker.clone(),
             host_call: plugin_host_call,
-            app_surfaces: plugin_app_surfaces.clone(),
-            preview_proxy: preview_proxy.clone(),
+            app_surfaces: plugin_app_surfaces,
+            preview_proxy,
             automation: server::HeadlessAutomationRuntime::new(
                 local_deployment.clone(),
-                conversations::ConversationContext {
-                    deployment: deployment.clone(),
-                    agent_runtime: agent_runtime.clone(),
-                    turn_locks: conversation_turn_locks.clone(),
-                    runtime_states: conversation_runtime_states.clone(),
-                    row_projectors: conversation_row_projectors.clone(),
-                    host: Arc::new(crate::conversation_service::AppConversationHost {
-                        deployment: deployment.clone(),
-                        official_mcp: plugin_control_plane.official_product_mcp_gate(),
-                    }),
-                    event_publisher: Arc::new(server::ChatDeliveryPublisher::new(Arc::new(
-                        crate::conversation_service::AppConversationEventPublisher {
-                            app_handle: app_handle.clone(),
-                            deployment: deployment.clone(),
-                            row_projectors: conversation_row_projectors.clone(),
-                        },
-                    ))),
-                },
+                conversation_context,
                 plugin_control_plane.clone(),
             ),
             automation_ownership: server::AutomationOwnership::from_fn(
@@ -289,9 +235,6 @@ impl AppState {
             app_handle,
             local_deployment,
             deployment,
-            pty,
-            file_tree_watchers: Arc::new(Mutex::new(HashSet::new())),
-            conversation_streams: Arc::new(Mutex::new(HashSet::new())),
             desktop_toast_state: Arc::new(Mutex::new(DesktopToastRuntimeState::default())),
             agent_management_runtime,
             agent_runtime,
@@ -300,40 +243,55 @@ impl AppState {
             conversation_turn_locks,
             conversation_runtime_states,
             conversation_row_projectors,
-            plugin_preview_host,
             plugin_control_plane,
             plugin_worker_runtime,
             plugin_capability_broker,
-            plugin_provider_presets: provider_preset_host,
-            plugin_app_surfaces,
             bundled_plugin_roots,
             remote_desktop,
-            local_history_import: Arc::new(StdMutex::new(LocalHistoryImportRuntime::default())),
             host,
         })
+    }
+
+    fn build_conversation_context(
+        app_handle: &tauri::AppHandle,
+        deployment: &Arc<dyn Deployment>,
+        agent_runtime: &Arc<AgentRuntime>,
+        turn_locks: &ConversationTurnLockMap,
+        runtime_states: &ConversationRuntimeStateMap,
+        row_projectors: &conversations::ConversationRowProjectors,
+        plugin_control_plane: &Arc<plugins::PluginControlPlane>,
+    ) -> conversations::ConversationContext {
+        conversations::ConversationContext {
+            deployment: deployment.clone(),
+            agent_runtime: agent_runtime.clone(),
+            turn_locks: turn_locks.clone(),
+            runtime_states: runtime_states.clone(),
+            row_projectors: row_projectors.clone(),
+            host: Arc::new(crate::conversation_service::AppConversationHost {
+                official_mcp: plugin_control_plane.official_product_mcp_gate(),
+            }),
+            event_publisher: Arc::new(server::ChatDeliveryPublisher::new(Arc::new(
+                crate::conversation_service::AppConversationEventPublisher {
+                    app_handle: app_handle.clone(),
+                    deployment: deployment.clone(),
+                    row_projectors: row_projectors.clone(),
+                },
+            ))),
+        }
     }
 
     /// Assemble the [`conversations::ConversationContext`] the orchestration core needs,
     /// injecting the src-tauri-coupled [`AppConversationHost`]. Cheap (Arc clones).
     pub fn conversation_context(&self) -> conversations::ConversationContext {
-        conversations::ConversationContext {
-            deployment: self.deployment.clone(),
-            agent_runtime: self.agent_runtime.clone(),
-            turn_locks: self.conversation_turn_locks.clone(),
-            runtime_states: self.conversation_runtime_states.clone(),
-            row_projectors: self.conversation_row_projectors.clone(),
-            host: Arc::new(crate::conversation_service::AppConversationHost {
-                deployment: self.deployment.clone(),
-                official_mcp: self.plugin_control_plane.official_product_mcp_gate(),
-            }),
-            event_publisher: Arc::new(server::ChatDeliveryPublisher::new(Arc::new(
-                crate::conversation_service::AppConversationEventPublisher {
-                    app_handle: self.app_handle.clone(),
-                    deployment: self.deployment.clone(),
-                    row_projectors: self.conversation_row_projectors.clone(),
-                },
-            ))),
-        }
+        Self::build_conversation_context(
+            &self.app_handle,
+            &self.deployment,
+            &self.agent_runtime,
+            &self.conversation_turn_locks,
+            &self.conversation_runtime_states,
+            &self.conversation_row_projectors,
+            &self.plugin_control_plane,
+        )
     }
 
     pub fn spawn_plugin_worker_provision(&self) {

@@ -824,8 +824,12 @@ describe('Markdown raw HTML', () => {
   });
 
   it('sets prose blocks to 100% max-width instead of capping at 680px', () => {
-    const { container } = renderMarkdown('A long collaboration message paragraph.');
-    const paragraph = container.querySelector('[role="paragraph"]') as HTMLElement | null;
+    const { container } = renderMarkdown(
+      'A long collaboration message paragraph.'
+    );
+    const paragraph = container.querySelector(
+      '[role="paragraph"]'
+    ) as HTMLElement | null;
     expect(paragraph).not.toBeNull();
     expect(paragraph?.style.getPropertyValue('--x-maxWidth')).toBe('100%');
   });

@@ -89,6 +89,10 @@ impl ActivationLease {
         self.host.invoke(handler, input).await
     }
 
+    pub async fn invoke_slot(&self, handler: &str, input: Value) -> Result<Value, WorkerHostError> {
+        self.host.invoke(handler, input).await
+    }
+
     pub async fn invoke_with_timeout(
         &self,
         handler: &str,

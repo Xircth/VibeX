@@ -415,7 +415,6 @@ export function ShortcutSettings() {
           </p>
         </section>
       </div>
-
     </div>
   );
 }

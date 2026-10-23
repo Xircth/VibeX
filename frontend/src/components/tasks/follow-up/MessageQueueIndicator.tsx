@@ -67,7 +67,8 @@ export function MessageQueueIndicator({
   const [delayMinutesInput, setDelayMinutesInput] = useState('5');
   const [nowMs, setNowMs] = useState(() => Date.now());
 
-  const hasNormalQueue = (isQueued ?? queuedMessages.length > 0) && queuedMessages.length > 0;
+  const hasNormalQueue =
+    (isQueued ?? queuedMessages.length > 0) && queuedMessages.length > 0;
   const hasDelayedQueue = delayedMessages.length > 0;
 
   useEffect(() => {
@@ -226,7 +227,9 @@ export function MessageQueueIndicator({
                       ) : null}
                       <QueueAction
                         label={t('messageQueue.moveUp')}
-                        disabled={claimed || index === 0 || !onMoveQueuedMessage}
+                        disabled={
+                          claimed || index === 0 || !onMoveQueuedMessage
+                        }
                         onClick={() => onMoveQueuedMessage?.(message, -1)}
                       >
                         <ChevronsUp className="h-3.5 w-3.5" />

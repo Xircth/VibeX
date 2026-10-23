@@ -1,4 +1,10 @@
-import { act, fireEvent, screen, waitFor, within } from '@testing-library/react';
+import {
+  act,
+  fireEvent,
+  screen,
+  waitFor,
+  within,
+} from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { HotkeysProvider } from 'react-hotkeys-hook';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
@@ -18,7 +24,8 @@ const workspaceSessionsListeners = vi.hoisted(
 );
 
 vi.mock('@/lib/backendTransport', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('@/lib/backendTransport')>();
+  const actual =
+    await importOriginal<typeof import('@/lib/backendTransport')>();
   return {
     ...actual,
     backendListen: vi.fn(
@@ -295,9 +302,7 @@ describe('CollaborationSpacePage', () => {
     expect(
       spaceIcon?.querySelectorAll('.collaboration-space-icon-cell')
     ).toHaveLength(4);
-    expect(
-      spaceButton.querySelector('.collaboration-space-tag')
-    ).toBeNull();
+    expect(spaceButton.querySelector('.collaboration-space-tag')).toBeNull();
 
     // Right preview area is hidden until a member or file is selected
     expect(screen.queryByLabelText('预览')).toBeNull();
@@ -307,9 +312,7 @@ describe('CollaborationSpacePage', () => {
     expect(await screen.findByTestId('file-preview')).toBeTruthy();
 
     // When spaces exist, the 2 empty-state buttons in the left list body are not shown
-    expect(
-      screen.queryByRole('button', { name: '新建协作空间' })
-    ).toBeNull();
+    expect(screen.queryByRole('button', { name: '新建协作空间' })).toBeNull();
 
     // User ('你') is invisible and never shown in the collaboration space member list
     expect(screen.queryByRole('button', { name: '你' })).toBeNull();
@@ -399,9 +402,7 @@ describe('CollaborationSpacePage', () => {
     const createSpaceMenuItem = await screen.findByRole('menuitem', {
       name: '新建协作空间',
     });
-    expect(
-      screen.getByRole('menuitem', { name: '新建成员' })
-    ).toBeTruthy();
+    expect(screen.getByRole('menuitem', { name: '新建成员' })).toBeTruthy();
     await user.click(createSpaceMenuItem);
 
     // Form is rendered as a white Gaussian blurred overlay inside the middle message area (.collaboration-thread)
@@ -452,9 +453,7 @@ describe('CollaborationSpacePage', () => {
       'member-bot-avatar-preview'
     );
     expect(previewBox.querySelector('defs')).toBeNull();
-    expect(
-      previewBox.querySelector('.collaboration-bot-3d-shadow')
-    ).toBeNull();
+    expect(previewBox.querySelector('.collaboration-bot-3d-shadow')).toBeNull();
     expect(
       previewBox.querySelector('.collaboration-bot-avatar-face circle')
     ).toBeNull();
@@ -482,9 +481,7 @@ describe('CollaborationSpacePage', () => {
     await user.click(
       within(colorPanel).getByRole('button', { name: '紫罗兰' })
     );
-    expect(
-      previewBox.querySelector('[data-bot-color="#8b52ff"]')
-    ).toBeTruthy();
+    expect(previewBox.querySelector('[data-bot-color="#8b52ff"]')).toBeTruthy();
     expect(
       previewBox.querySelector('.collaboration-bot-avatar-stage.is-reacting')
     ).toBeTruthy();
@@ -497,9 +494,7 @@ describe('CollaborationSpacePage', () => {
     );
     expect(shapePanel.textContent).toBe('');
     await user.click(within(shapePanel).getByRole('button', { name: '心形' }));
-    expect(
-      previewBox.querySelector('[data-bot-shape="heart"]')
-    ).toBeTruthy();
+    expect(previewBox.querySelector('[data-bot-shape="heart"]')).toBeTruthy();
 
     // Creation source SegmentedControl items each include an icon
     for (const radioEl of within(sourceSegmented).getAllByRole('radio')) {
@@ -722,9 +717,7 @@ describe('CollaborationSpacePage', () => {
     expect(screen.queryByRole('dialog', { name: '修改昵称' })).toBeNull();
     const input = screen.getByRole('textbox', { name: '昵称' });
     expect(input).toHaveValue('小A');
-    expect(
-      screen.getByRole('button', { name: '取消修改昵称' })
-    ).toBeTruthy();
+    expect(screen.getByRole('button', { name: '取消修改昵称' })).toBeTruthy();
     await user.clear(input);
     await user.type(input, '评审A');
     await user.click(screen.getByRole('button', { name: /^修改昵称$/ }));
@@ -752,9 +745,7 @@ describe('CollaborationSpacePage', () => {
     ).toBeTruthy();
     await user.clear(spaceNameInput);
     await user.type(spaceNameInput, '视觉设计');
-    await user.click(
-      screen.getByRole('button', { name: '确认修改空间名称' })
-    );
+    await user.click(screen.getByRole('button', { name: '确认修改空间名称' }));
 
     await waitFor(() => {
       expect(collaborationCall).toHaveBeenCalledWith(
@@ -941,7 +932,9 @@ describe('CollaborationSpacePage', () => {
 
     const { unmount } = renderPage();
     // Default space is shown in the left space list along with its 3 hover buttons (标签, 修改名称, 加入成员)
-    expect(await screen.findByRole('button', { name: '默认空间' })).toBeTruthy();
+    expect(
+      await screen.findByRole('button', { name: '默认空间' })
+    ).toBeTruthy();
     expect(screen.getByRole('button', { name: '标签 默认空间' })).toBeTruthy();
     expect(
       screen.getByRole('button', { name: '修改名称 默认空间' })
@@ -1086,7 +1079,9 @@ describe('CollaborationSpacePage', () => {
     const finalSpaceDialog = await screen.findByRole('dialog', {
       name: '新建空间',
     });
-    expect(await within(finalSpaceDialog).findByText('内联评审员')).toBeTruthy();
+    expect(
+      await within(finalSpaceDialog).findByText('内联评审员')
+    ).toBeTruthy();
     expect(
       within(finalSpaceDialog).getByRole('button', {
         name: '添加或新建协作空间成员',
@@ -1094,7 +1089,9 @@ describe('CollaborationSpacePage', () => {
     ).toBeTruthy();
 
     await user.click(
-      finalSpaceDialog.querySelector('button[type="submit"]') as HTMLButtonElement
+      finalSpaceDialog.querySelector(
+        'button[type="submit"]'
+      ) as HTMLButtonElement
     );
 
     expect(
@@ -1120,9 +1117,7 @@ describe('CollaborationSpacePage', () => {
     );
     // Once a space is created and opened, composer is rendered and the 2 empty-state buttons disappear
     expect(await screen.findByTestId('session-composer-editor')).toBeTruthy();
-    expect(
-      screen.queryByRole('button', { name: '新建协作空间' })
-    ).toBeNull();
+    expect(screen.queryByRole('button', { name: '新建协作空间' })).toBeNull();
     unmount();
 
     collaborationCall.mockImplementation(
@@ -1176,7 +1171,10 @@ describe('CollaborationSpacePage', () => {
             messages: [
               {
                 seq: 1,
-                envelope: { actor: 'space/member/小A', content: '我先处理一下' },
+                envelope: {
+                  actor: 'space/member/小A',
+                  content: '我先处理一下',
+                },
               },
             ],
             scheduled: [
@@ -1274,7 +1272,8 @@ describe('CollaborationSpacePage', () => {
                 project_id: 'proj-1',
                 kind: 'text',
                 name: 'api-contract.md',
-                file_path: 'C:/Users/test/.vibex/proj-1/TeamSpaces/s1/Collection/col-1_api-contract.md',
+                file_path:
+                  'C:/Users/test/.vibex/proj-1/TeamSpaces/s1/Collection/col-1_api-contract.md',
                 mime_type: 'text/plain',
                 byte_size: 42,
                 note: currentNote,
@@ -1299,7 +1298,8 @@ describe('CollaborationSpacePage', () => {
                 project_id: 'proj-1',
                 kind: 'text',
                 name: 'user-note.md',
-                file_path: 'C:/Users/test/.vibex/proj-1/TeamSpaces/s1/Collection/col-2_user-note.md',
+                file_path:
+                  'C:/Users/test/.vibex/proj-1/TeamSpaces/s1/Collection/col-2_user-note.md',
                 mime_type: 'text/plain',
                 byte_size: 16,
                 note: '用户备注',
@@ -1320,7 +1320,8 @@ describe('CollaborationSpacePage', () => {
             project_id: 'proj-1',
             kind: 'text',
             name: 'api-contract.md',
-            file_path: 'C:/Users/test/.vibex/proj-1/TeamSpaces/s1/Collection/col-1_api-contract.md',
+            file_path:
+              'C:/Users/test/.vibex/proj-1/TeamSpaces/s1/Collection/col-1_api-contract.md',
             byte_size: 42,
             note: currentNote,
             creator_nickname: '小A',
@@ -1337,7 +1338,8 @@ describe('CollaborationSpacePage', () => {
               project_id: 'proj-1',
               kind: 'text',
               name: 'note.txt',
-              file_path: 'C:/Users/test/.vibex/proj-1/TeamSpaces/s1/Collection/col-2_note.txt',
+              file_path:
+                'C:/Users/test/.vibex/proj-1/TeamSpaces/s1/Collection/col-2_note.txt',
               byte_size: 12,
               note: '新增备注',
               creator_nickname: '你',
@@ -1408,7 +1410,9 @@ describe('CollaborationSpacePage', () => {
     ).toBe(true);
 
     expect(
-      await within(collectionPanel).findByTestId('collection-item-creator-col-1')
+      await within(collectionPanel).findByTestId(
+        'collection-item-creator-col-1'
+      )
     ).toHaveTextContent('小A');
     expect(
       within(collectionPanel).getByTestId('collection-item-creator-col-2')

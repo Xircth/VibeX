@@ -512,14 +512,19 @@ function applyRowOpBatch(
     }
   }
 
-  liveRows = dropSeededInitialPrompt(entry.conversationId, liveRows);
-  windowRows = dropSeededInitialPrompt(entry.conversationId, windowRows);
-  const rows = combineWindowAndLiveRows(
-    entry.conversationId,
-    windowRows,
-    liveRows,
-    liveText
-  );
+  let rows: TimelineRow[];
+  if (windowRows === entry.windowRows && liveRows === entry.liveRows) {
+    rows = entry.rows;
+  } else {
+    liveRows = dropSeededInitialPrompt(entry.conversationId, liveRows);
+    windowRows = dropSeededInitialPrompt(entry.conversationId, windowRows);
+    rows = combineWindowAndLiveRows(
+      entry.conversationId,
+      windowRows,
+      liveRows,
+      liveText
+    );
+  }
 
   const lastSequence = toBigInt(batch.last_sequence);
   const gap = detectSequenceGap(entry.lastSequence, batch);
@@ -546,6 +551,18 @@ function applyRowOpBatch(
   };
 }
 
+function isTerminalMessageRow(row: TimelineRow): boolean {
+  return (
+    row.row.kind === 'message_turn' && TERMINAL_ROW_PHASES.has(row.row.phase)
+  );
+}
+
+function isNonTerminalMessageRow(row: TimelineRow): boolean {
+  return (
+    row.row.kind === 'message_turn' && !TERMINAL_ROW_PHASES.has(row.row.phase)
+  );
+}
+
 /** Insert or replace a row by `row_id` (idempotent by `revision`), clearing its live text. */
 function upsertRow(
   rows: TimelineRow[],
@@ -560,13 +577,20 @@ function upsertRow(
     rows.findIndex((row) => row.row_id === incoming.row_id);
   let nextRows = rows;
   let applied = false;
+  let terminalConverged = false;
   if (index === undefined || index === -1) {
     const windowExisting = windowRows?.find(
       (row) => row.row_id === incoming.row_id
     );
+    const isWindowTerminalTransition = Boolean(
+      windowExisting &&
+        isTerminalMessageRow(incoming) &&
+        isNonTerminalMessageRow(windowExisting)
+    );
     if (
       windowExisting &&
-      incomingRevision < toBigInt(windowExisting.revision)
+      incomingRevision < toBigInt(windowExisting.revision) &&
+      !isWindowTerminalTransition
     ) {
       return { rows, liveText };
     }
@@ -574,21 +598,33 @@ function upsertRow(
       ? preserveAssistantBlocksOnColdUpsert(
           windowExisting,
           preserveStructuredUserText(windowExisting, incoming),
-          liveText[incoming.row_id]
+          liveText[incoming.row_id],
+          isWindowTerminalTransition
         )
       : incoming;
     nextRows = insertTimelineRow(rows, seededIncoming);
     rebuildRowIndex(nextRows, rowIndexById);
     applied = true;
-  } else if (incomingRevision >= toBigInt(rows[index].revision)) {
-    const mergedIncoming = preserveAssistantBlocksOnColdUpsert(
-      rows[index],
-      preserveStructuredUserText(rows[index], incoming),
-      liveText[incoming.row_id]
-    );
-    nextRows = rows.slice();
-    nextRows[index] = mergedIncoming;
-    applied = true;
+    terminalConverged = isWindowTerminalTransition;
+  } else {
+    const existing = rows[index]!;
+    const isTerminalTransition =
+      isTerminalMessageRow(incoming) && isNonTerminalMessageRow(existing);
+    if (incomingRevision >= toBigInt(existing.revision) || isTerminalTransition) {
+      const mergedIncoming = preserveAssistantBlocksOnColdUpsert(
+        existing,
+        preserveStructuredUserText(existing, incoming),
+        liveText[incoming.row_id],
+        isTerminalTransition
+      );
+      nextRows = rows.slice();
+      nextRows[index] =
+        isTerminalTransition && incomingRevision < toBigInt(existing.revision)
+          ? { ...mergedIncoming, revision: existing.revision }
+          : mergedIncoming;
+      applied = true;
+      terminalConverged = isTerminalTransition;
+    }
   }
   // Drop the streaming overlay only when we actually applied a row whose revision is at
   // least the overlay's — that row already folds in every text delta up to its revision.
@@ -597,7 +633,11 @@ function upsertRow(
   // vanish until the next real event re-upserts the row (丢字).
   let nextLive = liveText;
   const overlay = liveText[incoming.row_id];
-  if (applied && overlay && incomingRevision >= overlay.revision) {
+  if (
+    applied &&
+    overlay &&
+    (incomingRevision >= overlay.revision || terminalConverged)
+  ) {
     nextLive = { ...liveText };
     delete nextLive[incoming.row_id];
   }
@@ -632,7 +672,8 @@ function withMergedTurnUsage(
 function preserveAssistantBlocksOnColdUpsert(
   existing: TimelineRow,
   incoming: TimelineRow,
-  overlay: LiveTextOverlay | undefined
+  overlay: LiveTextOverlay | undefined,
+  forceApplyOverlay = false
 ): TimelineRow {
   if (
     existing.row.kind !== 'message_turn' ||
@@ -647,7 +688,7 @@ function preserveAssistantBlocksOnColdUpsert(
   }
   const incomingRevision = toBigInt(incoming.revision);
   const baseBlocks =
-    overlay && incomingRevision >= overlay.revision
+    overlay && (incomingRevision >= overlay.revision || forceApplyOverlay)
       ? overlayLiveText(existing.row.turn.blocks, overlay)
       : existing.row.turn.blocks;
   if (baseBlocks.length === 0) {
@@ -706,10 +747,12 @@ function applyPatchBlocks(
           turn: {
             ...windowExisting.row.turn,
             timestamp:
-              plausibleTurnStartMs(windowExisting.row.turn.timestamp) !==
-              null
+              plausibleTurnStartMs(windowExisting.row.turn.timestamp) !== null
                 ? windowExisting.row.turn.timestamp
-                : assistantStartTimestamp(windowRows ? [...windowRows, ...rows] : rows, op.row_id),
+                : assistantStartTimestamp(
+                    windowRows ? [...windowRows, ...rows] : rows,
+                    op.row_id
+                  ),
             blocks: mergePatchedBlocks(baseBlocks, op.blocks),
             usage: mergeReportedTurnUsage(
               windowExisting.row.turn.usage,
@@ -780,7 +823,10 @@ function applyPatchBlocks(
         timestamp:
           plausibleTurnStartMs(existing.row.turn.timestamp) !== null
             ? existing.row.turn.timestamp
-            : assistantStartTimestamp(windowRows ? [...windowRows, ...rows] : rows, op.row_id),
+            : assistantStartTimestamp(
+                windowRows ? [...windowRows, ...rows] : rows,
+                op.row_id
+              ),
         blocks: mergePatchedBlocks(baseBlocks, op.blocks),
         usage: mergeReportedTurnUsage(existing.row.turn.usage, op.usage),
       },
@@ -2506,23 +2552,39 @@ function isPrimaryUserRow(row: TimelineRow): boolean {
 function orderSameTurnUserBeforeAssistant(
   turns: ConversationTimelineTurn[]
 ): ConversationTimelineTurn[] {
-  const result = [...turns];
-  const keys = new Set<string>();
-  for (const turn of result) {
+  const seenKeys = new Set<string>();
+  const hasPrimaryUser = new Set<string>();
+  const promotedUserByKey = new Map<string, ConversationTimelineTurn>();
+
+  for (const turn of turns) {
     const key = messageTurnPairKey(turn.turn.id);
-    if (key) keys.add(key);
+    if (!key) continue;
+    if (isPrimaryUserTurn(turn) && !hasPrimaryUser.has(key)) {
+      hasPrimaryUser.add(key);
+      if (seenKeys.has(key)) {
+        promotedUserByKey.set(key, turn);
+      }
+    }
+    seenKeys.add(key);
   }
-  for (const key of keys) {
-    const userIndex = result.findIndex(
-      (turn) =>
-        isPrimaryUserTurn(turn) && messageTurnPairKey(turn.turn.id) === key
-    );
-    const firstIndex = result.findIndex(
-      (turn) => messageTurnPairKey(turn.turn.id) === key
-    );
-    if (userIndex < 0 || firstIndex < 0 || userIndex <= firstIndex) continue;
-    const [user] = result.splice(userIndex, 1);
-    if (user) result.splice(firstIndex, 0, user);
+
+  if (promotedUserByKey.size === 0) return turns;
+
+  const result: ConversationTimelineTurn[] = [];
+  const insertedKeys = new Set<string>();
+  for (const turn of turns) {
+    const key = messageTurnPairKey(turn.turn.id);
+    if (key) {
+      const promoted = promotedUserByKey.get(key);
+      if (promoted) {
+        if (turn === promoted) continue;
+        if (!insertedKeys.has(key)) {
+          insertedKeys.add(key);
+          result.push(promoted);
+        }
+      }
+    }
+    result.push(turn);
   }
   return result;
 }

@@ -1101,6 +1101,7 @@ dependencies = [
  "db",
  "deployment",
  "executors",
+ "futures",
  "git",
  "git2",
  "serde",

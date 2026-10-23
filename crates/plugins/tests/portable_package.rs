@@ -380,7 +380,8 @@ fn marketplace_source_rejects_legacy_v1_api_version() {
     let err = PluginPackage::inspect(source.path(), PluginSourceKind::Marketplace)
         .expect_err("marketplace install must reject apiVersion 1.0");
     assert!(
-        err.to_string().contains("unsupported plugin apiVersion `1.0`"),
+        err.to_string()
+            .contains("unsupported plugin apiVersion `1.0`"),
         "unexpected error: {err}"
     );
 }

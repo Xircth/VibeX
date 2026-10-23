@@ -63,14 +63,14 @@ pub fn externalize_image_data_in(image: &mut ImageData, dir: &Path) {
         return;
     }
     let bytes = decode_payload(&image.data);
-    if image.width.is_none() || image.height.is_none() {
-        if let Some((width, height)) = image_dimensions(&bytes) {
-            if image.width.is_none() {
-                image.width = Some(width);
-            }
-            if image.height.is_none() {
-                image.height = Some(height);
-            }
+    if (image.width.is_none() || image.height.is_none())
+        && let Some((width, height)) = image_dimensions(&bytes)
+    {
+        if image.width.is_none() {
+            image.width = Some(width);
+        }
+        if image.height.is_none() {
+            image.height = Some(height);
         }
     }
     let hash = hex_encode(&Sha256::digest(&bytes));
@@ -112,10 +112,10 @@ pub fn spill_content_block_in(block: &mut ContentBlock, dir: &Path) {
             *width = image.width;
             *height = image.height;
         }
-        ContentBlock::ImageGeneration { image, .. } => {
-            if let Some(image) = image {
-                externalize_image_data_in(image, dir);
-            }
+        ContentBlock::ImageGeneration {
+            image: Some(image), ..
+        } => {
+            externalize_image_data_in(image, dir);
         }
         ContentBlock::ToolUse { images, .. } => {
             for image in images {
@@ -171,7 +171,7 @@ fn default_timeline_image_dir() -> PathBuf {
     }
     #[cfg(test)]
     {
-        return std::env::temp_dir().join("vibex-timeline-images-test");
+        std::env::temp_dir().join("vibex-timeline-images-test")
     }
     #[cfg(not(test))]
     {

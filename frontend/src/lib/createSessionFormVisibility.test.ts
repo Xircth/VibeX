@@ -36,6 +36,27 @@ describe('isCreateSessionFormVisibleForProject', () => {
     ).toBe(false);
   });
 
+  it('does not leak an open form into another workspace within the same project', () => {
+    expect(
+      isCreateSessionFormVisibleForProject({
+        open: true,
+        openedForProjectId: 'project-a',
+        currentProjectId: 'project-a',
+        openedForWorkspaceId: 'root-1',
+        currentWorkspaceId: 'wt-1',
+      })
+    ).toBe(false);
+    expect(
+      isCreateSessionFormVisibleForProject({
+        open: true,
+        openedForProjectId: 'project-a',
+        currentProjectId: 'project-a',
+        openedForWorkspaceId: 'wt-1',
+        currentWorkspaceId: 'wt-1',
+      })
+    ).toBe(true);
+  });
+
   it('hides the form when either project id is missing', () => {
     expect(
       isCreateSessionFormVisibleForProject({

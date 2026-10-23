@@ -77,7 +77,7 @@ export function BranchInfoHeader() {
   const { activeWorktreeId } = useWorktree();
   const { visibleRightSession } = useKanbanSessionContext();
   const effectiveWorktreeId =
-    visibleRightSession?.workspaceId ?? activeWorktreeId ?? null;
+    activeWorktreeId ?? visibleRightSession?.workspaceId ?? null;
   const { data: branchStatus } = useWorkspaceBranchStatus(
     effectiveWorktreeId ?? undefined
   );

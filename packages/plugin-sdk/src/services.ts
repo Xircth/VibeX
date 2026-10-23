@@ -19,6 +19,12 @@ interface ProvidedServiceRecord {
   readonly value: unknown;
 }
 
+export type InjectedServicesRecord = Record<string, unknown> & Iterable<unknown>;
+
+export type ServiceDecorator<TService = unknown, TResult = TService> = (
+  previousService: TService
+) => TResult;
+
 export type WaterfallInterceptor<TPayload, TResult> = (
   payload: TPayload,
   next: (modifiedPayload: TPayload) => Promise<TResult>
@@ -68,19 +74,17 @@ export class ServiceContainer {
   }
 
   inject<T>(key: ServiceKey<T> | string): T | undefined;
-  inject(
+  inject<TResolved = InjectedServicesRecord>(
     deps: ReadonlyArray<ServiceKey<unknown> | string>,
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    effect: (resolved: any) => void | Disposer,
+    effect: (resolved: TResolved) => void | Disposer,
     ownerPluginId?: string
   ): Disposer;
-  inject<T>(
+  inject<T, TResolved = InjectedServicesRecord>(
     keyOrDeps:
       | ServiceKey<T>
       | string
       | ReadonlyArray<ServiceKey<unknown> | string>,
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    effect?: (resolved: any) => void | Disposer,
+    effect?: (resolved: TResolved) => void | Disposer,
     ownerPluginId?: string
   ): T | undefined | Disposer {
     if (!Array.isArray(keyOrDeps)) {
@@ -125,10 +129,7 @@ export class ServiceContainer {
           },
         });
         try {
-          currentCleanup = effect(
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            resolved as Record<string, any> & Iterable<any>
-          );
+          currentCleanup = effect(resolved as unknown as TResolved);
         } catch {
           // Isolate effect execution errors.
         }
@@ -186,21 +187,19 @@ export class ServiceContainer {
     return this.services.has(normalizeServiceId(key));
   }
 
-  intercept<TPayload = unknown, TResult = unknown>(
+  intercept<TPayload = unknown, TResult = TPayload>(
     hookName: string,
     fn:
       | WaterfallInterceptor<TPayload, TResult>
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      | ((previousService: any) => any),
+      | ServiceDecorator<TPayload, TResult>,
     order = 0,
     ownerPluginId?: string
   ): Disposer {
     if (this.services.has(hookName) && fn.length <= 1) {
       const prevRecord = this.services.get(hookName)!;
-      const decoratedValue = (
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        fn as (previousService: any) => any
-      )(prevRecord.value);
+      const decoratedValue = (fn as ServiceDecorator<unknown, unknown>)(
+        prevRecord.value
+      );
       const nextRecord: ProvidedServiceRecord = {
         id: hookName,
         ownerPluginId: ownerPluginId ?? prevRecord.ownerPluginId,

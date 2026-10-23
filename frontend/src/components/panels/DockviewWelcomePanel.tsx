@@ -240,7 +240,9 @@ function DockviewWelcomePanel(_props: IDockviewPanelProps) {
   const { projects, isLoading: isProjectsLoading } = useProjects();
   const switchProject = useProjectSwitcher();
   const tauriClient = useTauriClient();
-  const setRailVisible = useWindowProjectsStore((state) => state.setRailVisible);
+  const setRailVisible = useWindowProjectsStore(
+    (state) => state.setRailVisible
+  );
   const [contextMenu, setContextMenu] =
     useState<ProjectContextMenuState | null>(null);
   const [isDeletingProject, setIsDeletingProject] = useState(false);

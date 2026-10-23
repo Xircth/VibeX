@@ -269,7 +269,11 @@ impl BrowserService {
         }
         if let Ok(parsed) = Url::parse(url)
             && policy::navigation_allowed(&parsed)
-            && let Some(record) = self.tabs.lock().expect("browser tabs").get_mut(tab_id)
+            && let Some(record) = self
+                .tabs
+                .lock()
+                .unwrap_or_else(|p| p.into_inner())
+                .get_mut(tab_id)
         {
             record.tab.loading = parsed.as_str() != "about:blank";
         }
@@ -277,7 +281,12 @@ impl BrowserService {
     }
 
     pub fn push_console_line(&self, tab_id: &str, line: ConsoleLine) {
-        if let Some(record) = self.tabs.lock().expect("browser tabs").get_mut(tab_id) {
+        if let Some(record) = self
+            .tabs
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .get_mut(tab_id)
+        {
             record.console.push(line);
         }
     }
@@ -289,7 +298,7 @@ impl BrowserService {
         title: Option<&str>,
         favicon: Option<&str>,
     ) {
-        let mut tabs = self.tabs.lock().expect("browser tabs");
+        let mut tabs = self.tabs.lock().unwrap_or_else(|p| p.into_inner());
         let Some(record) = tabs.get_mut(tab_id) else {
             return;
         };
@@ -320,7 +329,7 @@ impl BrowserService {
     }
 
     fn claim(&self, plugin_id: &str) -> Result<(), BrowserHostError> {
-        let mut occupant = self.occupant.lock().expect("browser occupant");
+        let mut occupant = self.occupant.lock().unwrap_or_else(|p| p.into_inner());
         match occupant.as_deref() {
             None => {
                 *occupant = Some(plugin_id.to_owned());
@@ -335,7 +344,7 @@ impl BrowserService {
     }
 
     pub fn release_occupant(&self, plugin_id: &str) {
-        let mut occupant = self.occupant.lock().expect("browser occupant");
+        let mut occupant = self.occupant.lock().unwrap_or_else(|p| p.into_inner());
         if occupant.as_deref() == Some(plugin_id) {
             occupant.take();
         }
@@ -367,7 +376,7 @@ impl BrowserService {
         };
         let share_level = GrantLevel::Control;
         Self::apply_grant(&mut tab, share_level);
-        let mut tabs = self.tabs.lock().expect("browser tabs");
+        let mut tabs = self.tabs.lock().unwrap_or_else(|p| p.into_inner());
         if let Some(existing) = tabs.get(&tab_id) {
             return existing.tab.clone();
         }
@@ -394,7 +403,7 @@ impl BrowserService {
             self.load_notify.notify_waiters();
             return;
         }
-        let mut tabs = self.tabs.lock().expect("browser tabs");
+        let mut tabs = self.tabs.lock().unwrap_or_else(|p| p.into_inner());
         if let Some(record) = tabs.get_mut(tab_id) {
             record.tab.loading = false;
             let next_origin = origin_of(&parsed);
@@ -523,7 +532,7 @@ impl BrowserService {
             favicon: None,
         };
         Self::apply_grant(&mut tab, share_level);
-        self.tabs.lock().expect("browser tabs").insert(
+        self.tabs.lock().unwrap_or_else(|p| p.into_inner()).insert(
             tab_id,
             TabRecord {
                 tab: tab.clone(),
@@ -545,7 +554,7 @@ impl BrowserService {
         loop {
             let notified = self.load_notify.notified();
             let is_loading = {
-                let tabs = self.tabs.lock().expect("browser tabs");
+                let tabs = self.tabs.lock().unwrap_or_else(|p| p.into_inner());
                 tabs.get(tab_id).is_some_and(|record| record.tab.loading)
             };
             if !is_loading {
@@ -580,7 +589,7 @@ impl BrowserService {
             }
         }
         {
-            let mut tabs = self.tabs.lock().expect("browser tabs");
+            let mut tabs = self.tabs.lock().unwrap_or_else(|p| p.into_inner());
             if let Some(record) = tabs.get_mut(tab_id) {
                 record.tab.loading = false;
             }
@@ -601,7 +610,7 @@ impl BrowserService {
             let _ = self.tab(tab_id)?;
             return Ok(tab_id.to_owned());
         }
-        let tabs = self.tabs.lock().expect("browser tabs");
+        let tabs = self.tabs.lock().unwrap_or_else(|p| p.into_inner());
         if tabs.len() == 1 {
             return Ok(tabs.keys().next().expect("single tab").clone());
         }
@@ -769,7 +778,7 @@ pub async fn dispatch(
         "profile.clear" => {
             let profile_id = required_string(&input, "profileId")?;
             let tab_ids: Vec<String> = {
-                let tabs = service.tabs.lock().expect("browser tabs");
+                let tabs = service.tabs.lock().unwrap_or_else(|p| p.into_inner());
                 tabs.values()
                     .filter(|record| record.tab.profile_id == profile_id)
                     .map(|record| record.tab.tab_id.clone())
@@ -777,7 +786,7 @@ pub async fn dispatch(
             };
             for tab_id in tab_ids {
                 let _ = service.native.close(&tab_id).await;
-                let mut tabs = service.tabs.lock().expect("browser tabs");
+                let mut tabs = service.tabs.lock().unwrap_or_else(|p| p.into_inner());
                 tabs.remove(&tab_id);
             }
             service.native.clear_profile(&profile_id).await?;
@@ -792,7 +801,7 @@ pub async fn dispatch(
                 ));
             }
             let tab_ids: Vec<String> = {
-                let tabs = service.tabs.lock().expect("browser tabs");
+                let tabs = service.tabs.lock().unwrap_or_else(|p| p.into_inner());
                 tabs.values()
                     .filter(|record| record.tab.profile_id == profile_id)
                     .map(|record| record.tab.tab_id.clone())
@@ -800,7 +809,7 @@ pub async fn dispatch(
             };
             for tab_id in tab_ids {
                 let _ = service.native.close(&tab_id).await;
-                let mut tabs = service.tabs.lock().expect("browser tabs");
+                let mut tabs = service.tabs.lock().unwrap_or_else(|p| p.into_inner());
                 tabs.remove(&tab_id);
             }
             let mut settings = service.settings();
@@ -853,14 +862,14 @@ pub async fn dispatch(
             let tab_id = required_string(&input, "tabId")?;
             service.native.close(&tab_id).await?;
             {
-                let mut tabs = service.tabs.lock().expect("browser tabs");
+                let mut tabs = service.tabs.lock().unwrap_or_else(|p| p.into_inner());
                 tabs.remove(&tab_id);
             }
             Ok(json!({ "ok": true, "tabId": tab_id }))
         }
         "tab.list" => {
             let tabs: Vec<BrowserTab> = {
-                let guard = service.tabs.lock().expect("browser tabs");
+                let guard = service.tabs.lock().unwrap_or_else(|p| p.into_inner());
                 guard.values().map(|record| record.tab.clone()).collect()
             };
             Ok(json!({ "tabs": tabs }))
@@ -880,7 +889,7 @@ pub async fn dispatch(
             let _ = service.tab(&tab_id)?;
             service.native.navigate(&tab_id, &url).await?;
             {
-                let mut tabs = service.tabs.lock().expect("browser tabs");
+                let mut tabs = service.tabs.lock().unwrap_or_else(|p| p.into_inner());
                 if let Some(record) = tabs.get_mut(&tab_id) {
                     let next_origin = origin_of(&parsed);
                     if record.tab.origin.as_deref() != next_origin.as_deref() {
@@ -921,7 +930,7 @@ pub async fn dispatch(
             let tab_id = required_string(&input, "tabId")?;
             let _ = service.tab(&tab_id)?;
             {
-                let mut tabs = service.tabs.lock().expect("browser tabs");
+                let mut tabs = service.tabs.lock().unwrap_or_else(|p| p.into_inner());
                 if let Some(record) = tabs.get_mut(&tab_id) {
                     record.console.clear();
                 }
@@ -1043,7 +1052,7 @@ pub async fn dispatch(
             let _ = service.tab(&tab_id)?;
             service.native.set_bounds(&tab_id, &bounds).await?;
             {
-                let mut tabs = service.tabs.lock().expect("browser tabs");
+                let mut tabs = service.tabs.lock().unwrap_or_else(|p| p.into_inner());
                 if let Some(record) = tabs.get_mut(&tab_id) {
                     record.bounds = bounds;
                 }
@@ -1057,7 +1066,7 @@ pub async fn dispatch(
                     BrowserHostError::new("browser_invalid", "level is required")
                 })?)
                 .map_err(|error| BrowserHostError::new("browser_invalid", error.to_string()))?;
-            let mut tabs = service.tabs.lock().expect("browser tabs");
+            let mut tabs = service.tabs.lock().unwrap_or_else(|p| p.into_inner());
             let record = tabs.get_mut(&tab_id).ok_or_else(|| {
                 BrowserHostError::new("browser_no_such_tab", format!("no tab {tab_id}"))
             })?;
@@ -1301,7 +1310,7 @@ async fn snapshot(service: &BrowserService, input: &Value) -> Result<Value, Brow
         .map(|n| n as usize);
     let request = SnapshotRequest { max_chars };
     let (incarnation, nav_epoch) = {
-        let tabs = service.tabs.lock().expect("browser tabs");
+        let tabs = service.tabs.lock().unwrap_or_else(|p| p.into_inner());
         let record = tabs.get(&tab_id).ok_or_else(|| {
             BrowserHostError::new("browser_no_such_tab", format!("no tab {tab_id}"))
         })?;
@@ -1365,7 +1374,7 @@ async fn act(service: &BrowserService, input: &Value) -> Result<Value, BrowserHo
         ));
     }
     let current_epoch = {
-        let tabs = service.tabs.lock().expect("browser tabs");
+        let tabs = service.tabs.lock().unwrap_or_else(|p| p.into_inner());
         let record = tabs.get(&tab_id).ok_or_else(|| {
             BrowserHostError::new("browser_no_such_tab", format!("no tab {tab_id}"))
         })?;
@@ -1426,7 +1435,7 @@ fn console_read(service: &BrowserService, input: &Value) -> Result<Value, Browse
         limit,
     };
     let read = {
-        let tabs = service.tabs.lock().expect("browser tabs");
+        let tabs = service.tabs.lock().unwrap_or_else(|p| p.into_inner());
         let record = tabs.get(&tab_id).ok_or_else(|| {
             BrowserHostError::new("browser_no_such_tab", format!("no tab {tab_id}"))
         })?;
@@ -1530,7 +1539,7 @@ async fn screenshot(service: &BrowserService, input: &Value) -> Result<Value, Br
     };
     let (url, viewport, region) = if let (Some(gen_token), Some(r)) = (&generation, &target) {
         let current_epoch = {
-            let tabs = service.tabs.lock().expect("browser tabs");
+            let tabs = service.tabs.lock().unwrap_or_else(|p| p.into_inner());
             let record = tabs.get(&tab_id).ok_or_else(|| {
                 BrowserHostError::new("browser_no_such_tab", format!("no tab {tab_id}"))
             })?;
@@ -1607,7 +1616,11 @@ async fn eval_ask(
             )
         })?;
     let expires_at = now_ms() + crate::confirm::EVAL_CONFIRM_TIMEOUT.as_millis() as i64;
-    let plugin_id = service.occupant.lock().expect("browser occupant").clone();
+    let plugin_id = service
+        .occupant
+        .lock()
+        .unwrap_or_else(|p| p.into_inner())
+        .clone();
     service.native.notify(json!({
         "kind": "eval.request",
         "pluginId": plugin_id,
@@ -1650,7 +1663,11 @@ async fn eval_run(
                 )
             })?;
         let expires_at = now_ms() + crate::confirm::EVAL_CONFIRM_TIMEOUT.as_millis() as i64;
-        let plugin_id = service.occupant.lock().expect("browser occupant").clone();
+        let plugin_id = service
+            .occupant
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .clone();
         service.native.notify(json!({
             "kind": "eval.request",
             "pluginId": plugin_id,

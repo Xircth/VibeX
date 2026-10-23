@@ -29,6 +29,6 @@
       "react-dom/client": ["./node_modules/@types/react-dom/client.d.ts"]
     }
   },
-  "include": ["src", "tests"],
+  "include": ["src", "tests", "vite.manualChunks.ts"],
   "references": [{ "path": "./tsconfig.node.json" }]
 }

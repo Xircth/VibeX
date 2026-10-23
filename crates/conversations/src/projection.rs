@@ -125,16 +125,16 @@ static EMITTED_INTERNAL_MESSAGE_KEYS: std::sync::OnceLock<
     std::sync::Mutex<std::collections::HashSet<String>>,
 > = std::sync::OnceLock::new();
 
-fn internal_message_sender() -> &'static tokio::sync::broadcast::Sender<agents::CapturedInternalMessage>
-{
+fn internal_message_sender()
+-> &'static tokio::sync::broadcast::Sender<agents::CapturedInternalMessage> {
     INTERNAL_MESSAGE_TX.get_or_init(|| {
         let (tx, _) = tokio::sync::broadcast::channel(256);
         tx
     })
 }
 
-fn internal_message_listeners() -> &'static std::sync::RwLock<Vec<std::sync::Arc<InternalMessageListenerFn>>>
-{
+fn internal_message_listeners()
+-> &'static std::sync::RwLock<Vec<std::sync::Arc<InternalMessageListenerFn>>> {
     INTERNAL_MESSAGE_LISTENERS.get_or_init(|| std::sync::RwLock::new(Vec::new()))
 }
 
@@ -145,8 +145,8 @@ fn emitted_internal_message_keys() -> &'static std::sync::Mutex<std::collections
 
 /// Subscribe to structured internal side-channel messages captured and stripped from
 /// Assistant turns.
-pub fn subscribe_internal_messages() -> tokio::sync::broadcast::Receiver<agents::CapturedInternalMessage>
-{
+pub fn subscribe_internal_messages()
+-> tokio::sync::broadcast::Receiver<agents::CapturedInternalMessage> {
     internal_message_sender().subscribe()
 }
 
@@ -1111,7 +1111,9 @@ impl ConversationProjector {
             ConversationStateApplier::apply_record(&mut *conn, record).await?;
             fold.apply(record)?;
         }
-        Self::persist_snapshot(&mut *conn, conversation_id, &fold).await
+        Self::persist_snapshot(&mut *conn, conversation_id, &fold).await?;
+        record_rebuilt_projector_fold(conversation_id, &fold);
+        Ok(())
     }
 
     /// Truncate the conversation to *before* the user turn at `ordinal`: delete that
@@ -1466,6 +1468,67 @@ impl ConversationProjector {
     }
 }
 
+#[derive(Clone)]
+struct RebuiltProjectorEntry {
+    generation: u64,
+    fold: ProjectionFold,
+}
+
+static REBUILT_PROJECTOR_STATES: std::sync::OnceLock<
+    std::sync::Mutex<HashMap<Uuid, RebuiltProjectorEntry>>,
+> = std::sync::OnceLock::new();
+
+fn record_rebuilt_projector_fold(conversation_id: Uuid, fold: &ProjectionFold) {
+    let mut map = REBUILT_PROJECTOR_STATES
+        .get_or_init(|| std::sync::Mutex::new(HashMap::new()))
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    let next_gen = map
+        .get(&conversation_id)
+        .map(|entry| entry.generation.saturating_add(1))
+        .unwrap_or(1);
+    if map.len() >= 64
+        && !map.contains_key(&conversation_id)
+        && let Some(first_key) = map.keys().next().copied()
+    {
+        map.remove(&first_key);
+    }
+    map.insert(
+        conversation_id,
+        RebuiltProjectorEntry {
+            generation: next_gen,
+            fold: fold.clone(),
+        },
+    );
+}
+
+fn current_projector_generation(conversation_id: Uuid) -> u64 {
+    REBUILT_PROJECTOR_STATES
+        .get()
+        .and_then(|lock| {
+            lock.lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner())
+                .get(&conversation_id)
+                .map(|entry| entry.generation)
+        })
+        .unwrap_or(0)
+}
+
+fn is_turn_terminal_event_record(record: &ConversationEventRecord) -> bool {
+    matches!(
+        record.event_kind.as_str(),
+        "turn_completed" | "turn_failed" | "turn_cancelled" | "turn_interrupted"
+    ) || matches!(
+        conversation_event_from_record(record),
+        ParsedEvent::Known(
+            ConversationEvent::TurnCompleted { .. }
+                | ConversationEvent::TurnFailed { .. }
+                | ConversationEvent::TurnCancelled { .. }
+                | ConversationEvent::TurnInterrupted { .. }
+        )
+    )
+}
+
 /// A live, per-conversation incremental projector: it holds the folded state in
 /// memory and turns each newly-appended event into row ops via [`ProjectionFold::apply`]
 /// — the O(1)-amortized realtime path that eliminates the double projection. One
@@ -1473,6 +1536,7 @@ impl ConversationProjector {
 /// `emit_conversation_row_ops_after` in the Tauri layer feeds it in sequence order.
 pub struct IncrementalRowProjector {
     fold: ProjectionFold,
+    generation: u64,
 }
 
 impl IncrementalRowProjector {
@@ -1483,6 +1547,7 @@ impl IncrementalRowProjector {
         conversation_id: Uuid,
         up_to_sequence: i64,
     ) -> Result<Self, sqlx::Error> {
+        let generation = current_projector_generation(conversation_id);
         let mut fold =
             ConversationProjector::load_fold_from_snapshot(pool, conversation_id).await?;
         // A snapshot ahead of the cursor (e.g. after a truncate/retry rewind) can't be
@@ -1503,7 +1568,7 @@ impl IncrementalRowProjector {
                 fold.apply(record)?;
             }
         }
-        Ok(Self { fold })
+        Ok(Self { fold, generation })
     }
 
     /// Fold one newly-appended event and return the row ops it produced.
@@ -1533,7 +1598,10 @@ impl IncrementalRowProjector {
     fn at_sequence(sequence: i64) -> Self {
         let mut fold = ProjectionFold::default();
         fold.last_sequence = sequence;
-        Self { fold }
+        Self {
+            fold,
+            generation: 0,
+        }
     }
 }
 
@@ -1553,17 +1621,20 @@ pub struct CachedRowProjector {
     pub db_cursor: i64,
     has_unpersisted: bool,
     last_used: Instant,
+    generation: u64,
 }
 
 impl CachedRowProjector {
     pub fn new(projector: IncrementalRowProjector) -> Self {
         let last_emitted_sequence = projector.last_sequence();
+        let generation = projector.generation;
         Self {
             projector,
             last_emitted_sequence,
             db_cursor: last_emitted_sequence,
             has_unpersisted: false,
             last_used: Instant::now(),
+            generation,
         }
     }
 
@@ -1575,6 +1646,30 @@ impl CachedRowProjector {
         self.has_unpersisted
     }
 
+    /// Synchronize with the latest rebuilt/truncated state if `truncate_to_turn_ordinal`
+    /// or `rebuild_projection` ran since this projector was initialized.
+    pub fn sync_if_rebuilt(&mut self, conversation_id: Uuid) -> bool {
+        let Some(lock) = REBUILT_PROJECTOR_STATES.get() else {
+            return false;
+        };
+        let map = lock
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        let Some(entry) = map.get(&conversation_id) else {
+            return false;
+        };
+        if entry.generation <= self.generation {
+            return false;
+        }
+        self.projector.fold = entry.fold.clone();
+        self.projector.generation = entry.generation;
+        self.db_cursor = self.projector.last_sequence();
+        self.last_emitted_sequence = self.db_cursor;
+        self.has_unpersisted = false;
+        self.generation = entry.generation;
+        true
+    }
+
     /// Fold one durable event. `None` means this sequence was already consumed.
     /// When in-memory deltas have passed the SQLite sequence, the event is
     /// renumbered so the fold does not drop it.
@@ -1582,11 +1677,23 @@ impl CachedRowProjector {
         &mut self,
         record: &ConversationEventRecord,
     ) -> Result<Option<Vec<ConversationRowOp>>, sqlx::Error> {
+        self.sync_if_rebuilt(record.conversation_id);
         if record.sequence <= self.db_cursor {
-            return Ok(None);
+            if matches!(
+                conversation_event_from_record(record),
+                ParsedEvent::Known(ConversationEvent::UserTurnCreated { .. })
+            ) {
+                self.db_cursor = record.sequence.saturating_sub(1);
+                self.last_emitted_sequence = self.db_cursor;
+                self.projector.fold.last_sequence = self.db_cursor;
+            } else {
+                return Ok(None);
+            }
         }
         self.db_cursor = record.sequence;
-        self.has_unpersisted = false;
+        if is_turn_terminal_event_record(record) {
+            self.has_unpersisted = false;
+        }
         let mut folded = record.clone();
         if folded.sequence <= self.projector.last_sequence() {
             folded.sequence = self.projector.last_sequence().saturating_add(1);
@@ -1599,6 +1706,7 @@ impl CachedRowProjector {
         &mut self,
         record: &ConversationEventRecord,
     ) -> Result<Vec<ConversationRowOp>, sqlx::Error> {
+        self.sync_if_rebuilt(record.conversation_id);
         let mut folded = record.clone();
         folded.sequence = self.projector.last_sequence().saturating_add(1);
         self.has_unpersisted = true;
@@ -1665,7 +1773,7 @@ pub fn evict_least_recently_used_projectors(
 
 /// Mutable accumulator that folds events into a conversation timeline. Persisted to
 /// the snapshot table via [`ProjectionSnapshotState`] so reads can resume from it.
-#[derive(Default)]
+#[derive(Default, Clone)]
 struct ProjectionFold {
     turns: BTreeMap<Uuid, ProjectedTurn>,
     turn_order: Vec<Uuid>,
@@ -1799,7 +1907,10 @@ impl ProjectionFold {
             match stream {
                 TimelineTextStream::Text => {
                     if !turn.assistant.blocks.is_empty()
-                        && !matches!(turn.assistant.blocks.last(), Some(ContentBlock::Text { .. }))
+                        && !matches!(
+                            turn.assistant.blocks.last(),
+                            Some(ContentBlock::Text { .. })
+                        )
                     {
                         turn.trailing_raw_text.clear();
                         turn.emitted_internal_count = 0;
@@ -3228,22 +3339,28 @@ fn settle_turn(
             Some(ContentBlock::Text { text }) => {
                 if extracted.visible_text.is_empty() {
                     turn.assistant.blocks.pop();
+                    turn.trailing_raw_text.clear();
                 } else {
-                    *text = extracted.visible_text;
+                    *text = extracted.visible_text.clone();
+                    turn.trailing_raw_text = extracted.visible_text;
                 }
             }
             _ if !extracted.visible_text.is_empty() => {
+                turn.trailing_raw_text = extracted.visible_text.clone();
                 turn.assistant.blocks.push(ContentBlock::Text {
                     text: extracted.visible_text,
                 });
             }
-            _ => {}
+            _ => {
+                turn.trailing_raw_text.clear();
+            }
         }
-        turn.trailing_raw_text.clear();
         turn.emitted_internal_count = 0;
     }
     turn.revision = record.sequence;
-    turn.phase = phase.into();
+    if !(turn.phase == "failed" && phase == "settled") {
+        turn.phase = phase.into();
+    }
     turn.assistant.completed_at = Some(record.created_at);
     turn.assistant.duration_ms = Some(
         record
@@ -3656,6 +3773,8 @@ fn insert_mid_turn_user_slice(
             completed_at: None,
             agent_message_id: None,
         };
+        turn.trailing_raw_text.clear();
+        turn.emitted_internal_count = 0;
     }
     if !blocks.is_empty() {
         turn.prefix_segments.push(MessageTurn {
@@ -3969,6 +4088,196 @@ mod tests {
         assert_eq!(cached.db_cursor, 5);
         assert_eq!(cached.projector.last_sequence(), 6);
         assert!(!cached.has_unpersisted());
+    }
+
+    #[test]
+    fn intermediate_persisted_events_do_not_clear_has_unpersisted() {
+        let conversation_id = Uuid::new_v4();
+        let mut cached = CachedRowProjector::new(IncrementalRowProjector::at_sequence(4));
+        cached
+            .apply_unpersisted(&record_of(
+                conversation_id,
+                0,
+                ConversationEvent::AssistantTextDelta {
+                    text: "streaming".into(),
+                    message_id: None,
+                },
+            ))
+            .expect("delta");
+        assert!(cached.has_unpersisted());
+
+        cached
+            .apply_persisted(&record_of(
+                conversation_id,
+                5,
+                ConversationEvent::UsageUpdated {
+                    usage: agents::conversation::ConversationUsage {
+                        context_used: Some(128),
+                        context_window_max: Some(4096),
+                        ..Default::default()
+                    },
+                },
+            ))
+            .expect("usage update");
+        assert_eq!(cached.db_cursor, 5);
+        assert!(
+            cached.has_unpersisted(),
+            "mid-turn UsageUpdated must not clear has_unpersisted while streaming text is in memory"
+        );
+
+        cached
+            .apply_persisted(&record_of(
+                conversation_id,
+                6,
+                ConversationEvent::TurnCompleted { stop_reason: None },
+            ))
+            .expect("completed");
+        assert!(!cached.has_unpersisted());
+    }
+
+    #[tokio::test]
+    async fn cached_row_projector_recovers_after_truncate_to_turn_ordinal() {
+        let pool = setup_pool().await;
+        let (conversation_id, turn1_id) = seed_turn(&pool).await;
+
+        append_event(
+            &pool,
+            conversation_id,
+            Some(turn1_id),
+            "user",
+            ConversationEvent::UserTurnCreated {
+                blocks: vec![ConversationInputBlock::Text {
+                    text: "first".into(),
+                }],
+                workflow_refs: Vec::new(),
+            },
+            None,
+        )
+        .await;
+        for idx in 2..=9 {
+            append_event(
+                &pool,
+                conversation_id,
+                Some(turn1_id),
+                "acp",
+                ConversationEvent::AssistantTextDelta {
+                    text: format!("chunk-{idx} "),
+                    message_id: None,
+                },
+                None,
+            )
+            .await;
+        }
+        let turn1_end = append_event(
+            &pool,
+            conversation_id,
+            Some(turn1_id),
+            "acp",
+            ConversationEvent::TurnCompleted { stop_reason: None },
+            None,
+        )
+        .await;
+        assert_eq!(turn1_end.sequence, 10);
+
+        let turn2 = ConversationTurnRecord::create_pending(
+            &pool,
+            Uuid::new_v4(),
+            CreateConversationTurn {
+                conversation_id,
+                prompt_id: Some("prompt-2"),
+                text_preview: Some("second"),
+                input_blocks_json: "[]",
+            },
+        )
+        .await
+        .expect("create turn 2");
+        assert_eq!(turn2.ordinal, 2);
+        let turn2_id = turn2.id;
+        append_event(
+            &pool,
+            conversation_id,
+            Some(turn2_id),
+            "user",
+            ConversationEvent::UserTurnCreated {
+                blocks: vec![ConversationInputBlock::Text {
+                    text: "second".into(),
+                }],
+                workflow_refs: Vec::new(),
+            },
+            None,
+        )
+        .await;
+        for idx in 12..=19 {
+            append_event(
+                &pool,
+                conversation_id,
+                Some(turn2_id),
+                "acp",
+                ConversationEvent::AssistantTextDelta {
+                    text: format!("chunk-{idx} "),
+                    message_id: None,
+                },
+                None,
+            )
+            .await;
+        }
+        let turn2_end = append_event(
+            &pool,
+            conversation_id,
+            Some(turn2_id),
+            "acp",
+            ConversationEvent::TurnCompleted { stop_reason: None },
+            None,
+        )
+        .await;
+        assert_eq!(turn2_end.sequence, 20);
+
+        let mut cached = CachedRowProjector::new(
+            IncrementalRowProjector::load_through_latest(&pool, conversation_id)
+                .await
+                .expect("load projector at seq 20"),
+        );
+        assert_eq!(cached.db_cursor, 20);
+
+        ConversationProjector::truncate_to_turn_ordinal(&pool, conversation_id, 2)
+            .await
+            .expect("truncate to ordinal 2");
+
+        let turn2_retry = ConversationTurnRecord::create_pending(
+            &pool,
+            Uuid::new_v4(),
+            CreateConversationTurn {
+                conversation_id,
+                prompt_id: Some("prompt-2-retry"),
+                text_preview: Some("second retry"),
+                input_blocks_json: "[]",
+            },
+        )
+        .await
+        .expect("create turn 2 retry");
+        let turn2_retry_id = turn2_retry.id;
+        let retry_event = append_event(
+            &pool,
+            conversation_id,
+            Some(turn2_retry_id),
+            "user",
+            ConversationEvent::UserTurnCreated {
+                blocks: vec![ConversationInputBlock::Text {
+                    text: "second retry".into(),
+                }],
+                workflow_refs: Vec::new(),
+            },
+            None,
+        )
+        .await;
+        assert_eq!(retry_event.sequence, 11);
+
+        let ops = cached
+            .apply_persisted(&retry_event)
+            .expect("apply_persisted succeeds")
+            .expect("must not drop sequence 11 after truncation rewind from 20 to 10");
+        assert!(!ops.is_empty());
+        assert_eq!(cached.db_cursor, 11);
     }
 
     async fn setup_pool() -> SqlitePool {
@@ -6199,10 +6508,7 @@ mod tests {
             .await
             .expect("load session")
             .expect("session");
-        assert_eq!(
-            session.status,
-            db::models::session::SessionStatus::InReview
-        );
+        assert_eq!(session.status, db::models::session::SessionStatus::InReview);
         let viewed: Option<Uuid> =
             sqlx::query_scalar("SELECT last_viewed_turn_id FROM sessions WHERE id = ?")
                 .bind(conversation_id)
@@ -6238,10 +6544,7 @@ mod tests {
             .await
             .expect("load session")
             .expect("session");
-        assert_eq!(
-            session.status,
-            db::models::session::SessionStatus::InReview
-        );
+        assert_eq!(session.status, db::models::session::SessionStatus::InReview);
     }
 
     #[tokio::test]
@@ -9110,7 +9413,8 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn projector_strips_internal_messages_across_streaming_deltas_and_emits_captured_messages() {
+    async fn projector_strips_internal_messages_across_streaming_deltas_and_emits_captured_messages()
+     {
         let pool = setup_pool().await;
         let (conversation_id, turn_id) = seed_turn(&pool).await;
         let user_rec = append_event(
@@ -9175,9 +9479,60 @@ mod tests {
         assert_eq!(captured.plugin_id, "vibex.memory");
         assert_eq!(captured.channel, "vibex.memory:extract:n77");
         assert_eq!(captured.nonce, "n77");
+        assert_eq!(captured.parsed_payload, serde_json::json!({"key": "val"}));
+    }
+
+    #[tokio::test]
+    async fn projector_handles_multibyte_utf8_streaming_deltas_without_panicking() {
+        let pool = setup_pool().await;
+        let (conversation_id, turn_id) = seed_turn(&pool).await;
+        let user_rec = append_event(
+            &pool,
+            conversation_id,
+            Some(turn_id),
+            "user",
+            ConversationEvent::UserTurnCreated {
+                blocks: vec![ConversationInputBlock::Text {
+                    text: "你好".into(),
+                }],
+                workflow_refs: Vec::new(),
+            },
+            None,
+        )
+        .await;
+        let mut projector = IncrementalRowProjector::load(&pool, conversation_id, 0)
+            .await
+            .expect("load projector");
+        projector.apply(&user_rec).expect("apply user");
+
+        // Exact crash sequence: 27-byte Chinese + ASCII text delta ("这个报错是模型 ID ")
+        let chunk = append_event(
+            &pool,
+            conversation_id,
+            Some(turn_id),
+            "acp",
+            ConversationEvent::AssistantTextDelta {
+                text: "这个报错是模型 ID ".into(),
+                message_id: None,
+            },
+            None,
+        )
+        .await;
+        let ops = projector.apply(&chunk).expect("apply multibyte chunk");
         assert_eq!(
-            captured.parsed_payload,
-            serde_json::json!({"key": "val"})
+            ops,
+            vec![ConversationRowOp::AppendText {
+                row_id: format!("{turn_id}:assistant"),
+                revision: chunk.sequence,
+                stream: TimelineTextStream::Text,
+                delta: "这个报错是模型 ID ".into(),
+            }]
+        );
+        assert_eq!(
+            projector.fold.turns[&turn_id].assistant.blocks,
+            vec![ContentBlock::Text {
+                text: "这个报错是模型 ID ".into()
+            }]
         );
     }
 }

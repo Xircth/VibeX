@@ -364,11 +364,7 @@
   top: 0;
   z-index: 8;
   padding-bottom: 8px;
-  background: color-mix(
-    in srgb,
-    var(--surface-shell) 84%,
-    transparent
-  );
+  background: color-mix(in srgb, var(--surface-shell) 84%, transparent);
   backdrop-filter: blur(6px);
 }
 

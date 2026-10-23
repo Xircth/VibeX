@@ -1,7 +1,4 @@
-import {
-  disposePluginRegistrations,
-  globalServices,
-} from '@vibex/plugin-sdk';
+import { disposePluginRegistrations, globalServices } from '@vibex/plugin-sdk';
 import { Component, type ErrorInfo, type ReactNode } from 'react';
 
 export const CRASH_QUARANTINE_THRESHOLD = 3;
@@ -86,6 +83,7 @@ export interface PluginBoundaryFallbackProps {
 export interface PluginBoundaryProps {
   pluginId: string;
   slot?: string;
+  slotName?: string;
   children: ReactNode;
   fallback?: ReactNode | ((props: PluginBoundaryFallbackProps) => ReactNode);
   onRetry?: () => void;
@@ -108,9 +106,13 @@ export class PluginBoundary extends Component<
     crashCount: getPluginCrashCount(this.props.pluginId),
   };
 
-  static getDerivedStateFromError(error: unknown): Partial<PluginBoundaryState> {
+  static getDerivedStateFromError(
+    error: unknown
+  ): Partial<PluginBoundaryState> {
     const normalized =
-      error instanceof Error ? error : new Error(String(error ?? 'Unknown error'));
+      error instanceof Error
+        ? error
+        : new Error(String(error ?? 'Unknown error'));
     return { error: normalized };
   }
 
@@ -145,13 +147,13 @@ export class PluginBoundary extends Component<
       this.state.error ??
       (quarantined
         ? (crashLedger.get(this.props.pluginId)?.lastError ??
-            new Error('Plugin quarantined after repeated crashes'))
+          new Error('Plugin quarantined after repeated crashes'))
         : null);
 
     if (error || quarantined) {
       const fallbackProps: PluginBoundaryFallbackProps = {
         pluginId: this.props.pluginId,
-        slot: this.props.slot,
+        slot: this.props.slot ?? this.props.slotName,
         error: error ?? new Error('Plugin render error'),
         quarantined,
         crashCount: this.state.crashCount,

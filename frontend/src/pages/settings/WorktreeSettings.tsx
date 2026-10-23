@@ -84,7 +84,10 @@ export function WorktreeSettings() {
     flush: flushWorktree,
     holdingRef: worktreeHoldingRef,
   } = useLiveSettingsCommit(
-    async (next: { workspace_dir: string | null; git_branch_prefix: string }) => {
+    async (next: {
+      workspace_dir: string | null;
+      git_branch_prefix: string;
+    }) => {
       if (validateBranchPrefix(next.git_branch_prefix, t)) return;
       try {
         const savedConfig = await updateAndSaveConfig({
@@ -464,7 +467,11 @@ export function WorktreeSettings() {
                     value={draft.cleanup_prompt_threshold}
                     onChange={(event) => {
                       const parsed = Number.parseInt(event.target.value, 10);
-                      if (!Number.isInteger(parsed) || parsed < 1 || parsed > 999) {
+                      if (
+                        !Number.isInteger(parsed) ||
+                        parsed < 1 ||
+                        parsed > 999
+                      ) {
                         return;
                       }
                       updateDraft({ cleanup_prompt_threshold: parsed }, true);

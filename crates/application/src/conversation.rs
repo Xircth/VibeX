@@ -2623,6 +2623,22 @@ where
         self.domains.execute(principal, command, args).await
     }
 
+    pub async fn execute_dynamic_domain(
+        &self,
+        principal: &Principal,
+        command_name: &str,
+        args: serde_json::Value,
+    ) -> Result<serde_json::Value, ApplicationError> {
+        if !principal.allows("application.call") {
+            return Err(ApplicationError::forbidden(
+                "principal lacks application.call",
+            ));
+        }
+        self.domains
+            .execute_dynamic(principal, command_name, args)
+            .await
+    }
+
     pub async fn offline_conversation_cache(
         &self,
         principal: &Principal,

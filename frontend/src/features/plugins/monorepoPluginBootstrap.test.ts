@@ -19,7 +19,7 @@ import {
 } from './PluginRuntimeLoader';
 import {
   MONOREPO_OFFICIAL_PLUGIN_BUNDLES,
-   bootstrapMonorepoOfficialPlugins,
+  bootstrapMonorepoOfficialPlugins,
   getMonorepoPluginBundle,
   getMonorepoPluginLoadCount,
   isMonorepoPluginModuleLoaded,
@@ -339,18 +339,16 @@ describe('monorepoPluginBootstrap (Dynamic Lazy Loading & Official Plugins Close
 
   it('executes closed-loop capabilities for prompt-enhancer, notes, and kanban-views', async () => {
     await bootstrapMonorepoOfficialPlugins({
-      onlyIds: [
-        'vibex.prompt-enhancer',
-        'vibex.notes',
-        'vibex.kanban-views',
-      ],
+      onlyIds: ['vibex.prompt-enhancer', 'vibex.notes', 'vibex.kanban-views'],
     });
 
     // 1. Prompt Enhancer closed loop: config modes + beforeTurn waterfall hook
     const promptEnhancer = serviceContainer.get<{
       enhance: (text: string) => string;
       enhanceAsync: (text: string) => Promise<string>;
-      setConfig: (patch: Record<string, unknown>) => Promise<Record<string, unknown>>;
+      setConfig: (
+        patch: Record<string, unknown>
+      ) => Promise<Record<string, unknown>>;
       getConfig: () => Record<string, unknown>;
     }>('vibex.prompt-enhancer')!;
     expect(promptEnhancer).toBeDefined();
@@ -385,10 +383,16 @@ describe('monorepoPluginBootstrap (Dynamic Lazy Loading & Official Plugins Close
     const notesService = serviceContainer.get<{
       listNotes: () => Promise<Array<{ id: string; text: string }>>;
       addNote: (text: string) => Promise<Array<{ id: string; text: string }>>;
-      searchNotes: (query: string) => Promise<Array<{ id: string; text: string }>>;
-      deleteNote: (idOrIdx: string | number) => Promise<Array<{ id: string; text: string }>>;
+      searchNotes: (
+        query: string
+      ) => Promise<Array<{ id: string; text: string }>>;
+      deleteNote: (
+        idOrIdx: string | number
+      ) => Promise<Array<{ id: string; text: string }>>;
       exportMarkdown: () => Promise<string>;
-      subscribe: (fn: (items: Array<{ id: string; text: string }>) => void) => () => void;
+      subscribe: (
+        fn: (items: Array<{ id: string; text: string }>) => void
+      ) => () => void;
     }>('vibex.notes')!;
     expect(notesService).toBeDefined();
 
@@ -429,12 +433,14 @@ describe('monorepoPluginBootstrap (Dynamic Lazy Loading & Official Plugins Close
     const kanbanService = serviceContainer.get<{
       defaultViews: string[];
       registeredViews: string[];
-      triageTasks: (
-        tasks?: Array<Record<string, unknown>>
-      ) => Promise<{
+      triageTasks: (tasks?: Array<Record<string, unknown>>) => Promise<{
         totalTasks: number;
         buckets: Record<string, unknown[]>;
-        metrics: { completedCount: number; blockedCount: number; completionRate: number };
+        metrics: {
+          completedCount: number;
+          blockedCount: number;
+          completionRate: number;
+        };
       }>;
       cycleFilterPreset: () => Promise<string>;
       getFoundationStatus: () => { connected: boolean; serviceKey: string };
@@ -447,9 +453,25 @@ describe('monorepoPluginBootstrap (Dynamic Lazy Loading & Official Plugins Close
     ]);
 
     const report = await kanbanService.triageTasks([
-      { id: 't1', title: 'Urgent production crash', priority: 'urgent', status: 'todo' },
-      { id: 't2', title: 'Blocked migration [blocked]', priority: 'high', status: 'in_progress', blocked: true },
-      { id: 't3', title: 'Completed unit tests', priority: 'normal', status: 'done' },
+      {
+        id: 't1',
+        title: 'Urgent production crash',
+        priority: 'urgent',
+        status: 'todo',
+      },
+      {
+        id: 't2',
+        title: 'Blocked migration [blocked]',
+        priority: 'high',
+        status: 'in_progress',
+        blocked: true,
+      },
+      {
+        id: 't3',
+        title: 'Completed unit tests',
+        priority: 'normal',
+        status: 'done',
+      },
     ]);
     expect(report.totalTasks).toBe(3);
     expect(report.buckets.urgent.length).toBeGreaterThanOrEqual(1);

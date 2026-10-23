@@ -40,13 +40,13 @@ use crate::{
 pub struct ServerApplicationDomains {
     pub(crate) pool: SqlitePool,
     pub(crate) plugin_control_plane: Arc<plugins::PluginControlPlane>,
-    preview_host: Arc<dyn plugins::PluginPreviewHost>,
+    pub(crate) preview_host: Arc<dyn plugins::PluginPreviewHost>,
     pub(crate) capability_broker: Arc<plugins::HostCapabilityBroker>,
     pub(crate) host_call: Arc<plugins::PluginHostCall>,
-    app_surfaces: Arc<plugins::PluginAppSurfaceHost>,
-    preview_proxy: PreviewProxyRegistry,
-    automation: HeadlessAutomationRuntime,
-    automation_ownership: AutomationOwnership,
+    pub(crate) app_surfaces: Arc<plugins::PluginAppSurfaceHost>,
+    pub(crate) preview_proxy: PreviewProxyRegistry,
+    pub(crate) automation: HeadlessAutomationRuntime,
+    pub(crate) automation_ownership: AutomationOwnership,
     pub(crate) conversations: ConversationContext,
     pub(crate) deployment: Arc<LocalDeployment>,
     pub(crate) runtime_root: std::path::PathBuf,
@@ -67,70 +67,7 @@ pub(crate) struct PromptEnhancementRun {
     pub prompt_id: Option<agents::AgentPromptId>,
 }
 
-pub struct ServerDomainDependencies {
-    pub pool: SqlitePool,
-    pub plugin_control_plane: Arc<plugins::PluginControlPlane>,
-    pub preview_host: Arc<dyn plugins::PluginPreviewHost>,
-    pub capability_broker: Arc<plugins::HostCapabilityBroker>,
-    pub host_call: Arc<plugins::PluginHostCall>,
-    pub app_surfaces: Arc<plugins::PluginAppSurfaceHost>,
-    pub preview_proxy: PreviewProxyRegistry,
-    pub automation: HeadlessAutomationRuntime,
-    pub automation_ownership: AutomationOwnership,
-    pub conversations: ConversationContext,
-    pub deployment: Arc<LocalDeployment>,
-    pub runtime_root: std::path::PathBuf,
-    pub worker_runtime: Arc<plugins::PluginWorkerRuntimeProvider>,
-    pub events: Arc<HostEventBus>,
-    pub terminal_bridges: Arc<TerminalBridgeRegistry>,
-    pub agent_management_runtime:
-        Arc<services::services::agent_management_runtime::AgentManagementRuntimeState>,
-    pub delegation_broker: Option<Arc<delegation::DelegationBroker>>,
-}
-
 impl ServerApplicationDomains {
-    pub fn new(dependencies: ServerDomainDependencies) -> Self {
-        let ServerDomainDependencies {
-            pool,
-            plugin_control_plane,
-            preview_host,
-            capability_broker,
-            host_call,
-            app_surfaces,
-            preview_proxy,
-            automation,
-            automation_ownership,
-            conversations,
-            deployment,
-            runtime_root,
-            worker_runtime,
-            events,
-            terminal_bridges,
-            agent_management_runtime,
-            delegation_broker,
-        } = dependencies;
-        Self {
-            pool,
-            plugin_control_plane,
-            preview_host,
-            capability_broker,
-            host_call,
-            app_surfaces,
-            preview_proxy,
-            automation,
-            automation_ownership,
-            conversations,
-            deployment,
-            runtime_root,
-            worker_runtime,
-            events,
-            terminal_bridges,
-            agent_management_runtime,
-            delegation_broker,
-            prompt_enhancement: Arc::new(Mutex::new(None)),
-        }
-    }
-
     fn automation_store(&self) -> SqliteAutomationStore {
         SqliteAutomationStore::new(self.pool.clone())
     }
@@ -180,6 +117,7 @@ impl ServerApplicationDomains {
             DomainCommand::PluginSurfaceRevoke => self.plugin_surface_revoke(args).await,
             DomainCommand::PluginHostCall => self.plugin_host_call(args).await,
             DomainCommand::PluginInvokeContribution => self.plugin_invoke_contribution(args).await,
+            DomainCommand::PluginCommandInvoke => self.plugin_command_invoke(args).await,
             DomainCommand::ProjectList => self.project_list().await,
             DomainCommand::ProjectRepositories => self.project_repositories(args).await,
             DomainCommand::RepoBranches => self.repo_branches(args).await,
@@ -320,9 +258,7 @@ impl ServerApplicationDomains {
             | DomainCommand::FrontendPreferencesUpdate
             | DomainCommand::ProjectWorktreeSettingsGet
             | DomainCommand::ProjectWorktreeSettingsUpdate
-            | DomainCommand::ReadBinaryAsset => {
-                Box::pin(self.product_command(command, args)).await
-            }
+            | DomainCommand::ReadBinaryAsset => Box::pin(self.product_command(command, args)).await,
             DomainCommand::SubscribeDiffStream
             | DomainCommand::SubscribeConversationStream
             | DomainCommand::SubscribeExecutionProcessesStream
@@ -726,6 +662,7 @@ impl ServerApplicationDomains {
                 .await
                 .map_err(internal_error)?
                 .ok_or_else(|| ApplicationError::not_found(format!("plugin {}", args.plugin_id)))?;
+            let has_worker = plugin.package.entrypoints.worker.is_some();
             self.ensure_plugin_runtimes(&plugin).await?;
             let grants = plugins::candidate_capability_grants(&plugin.package, &[], &[])
                 .map_err(plugin_error)?;
@@ -733,19 +670,26 @@ impl ServerApplicationDomains {
                 .validate_runtime_readiness(&args.plugin_id)
                 .await
                 .map_err(|error| ApplicationError::conflict(error.to_string()))?;
-            control_plane
-                .activate_and_enable(
-                    &self
-                        .worker_runtime
-                        .resolve()
-                        .await
-                        .map_err(internal_error)?,
-                    &args.plugin_id,
-                    &grants,
-                    self.capability_broker.clone(),
-                )
-                .await
-                .map_err(|error| ApplicationError::conflict(error.to_string()))?;
+            if has_worker {
+                control_plane
+                    .activate_and_enable(
+                        &self
+                            .worker_runtime
+                            .resolve()
+                            .await
+                            .map_err(internal_error)?,
+                        &args.plugin_id,
+                        &grants,
+                        self.capability_broker.clone(),
+                    )
+                    .await
+                    .map_err(|error| ApplicationError::conflict(error.to_string()))?;
+            } else {
+                control_plane
+                    .set_enabled(&args.plugin_id, true)
+                    .await
+                    .map_err(internal_error)?;
+            }
         } else {
             self.capability_broker
                 .kill_plugin_processes(&args.plugin_id)
@@ -971,6 +915,16 @@ impl ServerApplicationDomains {
             .import(package, decision)
             .await
             .map_err(plugin_error)?;
+        if decision != plugins::ConflictDecision::KeepInstalled
+            && let Ok(enabled_item) = self
+                .plugin_control_set_enabled(json!({
+                    "pluginId": imported.plugin.id(),
+                    "enabled": true,
+                }))
+                .await
+        {
+            return Ok(enabled_item);
+        }
         Ok(plugin_control_item(&imported.plugin))
     }
 
@@ -1147,8 +1101,7 @@ impl ServerApplicationDomains {
                     listing,
                 })
         };
-        serde_json::to_value(detail)
-            .map_err(|error| ApplicationError::internal(error.to_string()))
+        serde_json::to_value(detail).map_err(|error| ApplicationError::internal(error.to_string()))
     }
 
     async fn plugin_marketplace_install(&self, args: Value) -> Result<Value, ApplicationError> {
@@ -1460,6 +1413,89 @@ impl ServerApplicationDomains {
             let _ = self.apply_default_plugin_mcp_projections(&plugin).await;
         }
         Ok(value)
+    }
+
+    async fn plugin_command_invoke(&self, args: Value) -> Result<Value, ApplicationError> {
+        let plugin_id = args
+            .get("pluginId")
+            .or_else(|| args.get("plugin_id"))
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .unwrap_or_default()
+            .to_owned();
+        let command_name = args
+            .get("command")
+            .or_else(|| args.get("commandName"))
+            .or_else(|| args.get("command_name"))
+            .or_else(|| args.get("handler"))
+            .or_else(|| args.get("method"))
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .unwrap_or_default()
+            .to_owned();
+        let input = args
+            .get("input")
+            .or_else(|| args.get("params"))
+            .or_else(|| args.get("args"))
+            .or_else(|| args.get("payload"))
+            .cloned()
+            .unwrap_or(Value::Null);
+
+        let (resolved_plugin_id, resolved_command) =
+            if !plugin_id.is_empty() && !command_name.is_empty() {
+                (plugin_id, command_name)
+            } else if plugin_id.is_empty() && !command_name.is_empty() {
+                self.plugin_control_plane()
+                    .await?
+                    .resolve_dynamic_command_target(&command_name)
+                    .await
+                    .map_err(plugin_error)?
+                    .ok_or_else(|| {
+                        ApplicationError::bad_request(
+                            "pluginId and command are required for plugin.command.invoke",
+                        )
+                    })?
+            } else {
+                return Err(ApplicationError::bad_request(
+                    "pluginId and command are required",
+                ));
+            };
+
+        self.plugin_control_plane()
+            .await?
+            .invoke_plugin_command(&resolved_plugin_id, &resolved_command, input)
+            .await
+            .map_err(plugin_worker_command_error)
+    }
+
+    async fn invoke_dynamic_plugin_command(
+        &self,
+        qualified_command: &str,
+        args: Value,
+    ) -> Result<Value, ApplicationError> {
+        if matches!(
+            qualified_command,
+            "plugin.command.invoke" | "plugin_command_invoke"
+        ) {
+            return self.plugin_command_invoke(args).await;
+        }
+        let control_plane = self.plugin_control_plane().await?;
+        let Some((plugin_id, command_name)) = control_plane
+            .resolve_dynamic_command_target(qualified_command)
+            .await
+            .map_err(plugin_error)?
+        else {
+            return Err(ApplicationError::not_found(qualified_command));
+        };
+        let input = args
+            .get("input")
+            .or_else(|| args.get("params"))
+            .cloned()
+            .unwrap_or(args);
+        control_plane
+            .invoke_plugin_command(&plugin_id, &command_name, input)
+            .await
+            .map_err(plugin_worker_command_error)
     }
 
     async fn plugin_surface_revoke(&self, args: Value) -> Result<Value, ApplicationError> {
@@ -2349,6 +2385,19 @@ impl ApplicationDomainPort for ServerApplicationDomains {
         )
         .await
     }
+
+    async fn execute_dynamic(
+        &self,
+        _principal: &Principal,
+        command_name: &str,
+        args: Value,
+    ) -> Result<Value, ApplicationError> {
+        crate::host::events::bind_host_events(
+            self.events.clone(),
+            self.invoke_dynamic_plugin_command(command_name, args),
+        )
+        .await
+    }
 }
 
 struct UnifiedActionCatalog {
@@ -2856,6 +2905,17 @@ pub(crate) fn plugin_error(error: plugins::PluginError) -> ApplicationError {
         | "native_operation_unsupported" => ApplicationError::conflict(error.message()),
         "tool_platform_unsupported" => ApplicationError::capability_unavailable(error.message()),
         _ => ApplicationError::internal(error.message()),
+    }
+}
+
+fn plugin_worker_command_error(error: plugins::WorkerHostError) -> ApplicationError {
+    match error.code() {
+        "plugin_not_found" | "plugin_command_not_found" => {
+            ApplicationError::not_found(error.to_string())
+        }
+        "invalid_plugin_command" => ApplicationError::bad_request(error.to_string()),
+        "plugin_not_active" => ApplicationError::conflict(error.to_string()),
+        _ => ApplicationError::internal(error.to_string()),
     }
 }
 

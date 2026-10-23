@@ -1,5 +1,5 @@
 use std::{
-    collections::{BTreeMap, HashMap, VecDeque},
+    collections::{BTreeMap, HashMap},
     future::Future,
     path::{Path, PathBuf},
     process::ExitStatus,
@@ -187,18 +187,10 @@ impl KiroExecuteCommandRequest {
     }
 }
 
-const MAX_TOOL_PREVIEW_BYTES: usize = 16 * 1024;
 const MAX_TOOL_PREVIEW_IMAGES: usize = 4;
 
 fn truncate_preview(value: String) -> String {
-    if value.len() <= MAX_TOOL_PREVIEW_BYTES {
-        return value;
-    }
-    let mut end = MAX_TOOL_PREVIEW_BYTES;
-    while end > 0 && !value.is_char_boundary(end) {
-        end -= 1;
-    }
-    value[..end].to_string()
+    crate::conversation::cap_preview_bytes(value)
 }
 
 fn json_preview(value: Option<&serde_json::Value>) -> Option<String> {
@@ -275,7 +267,6 @@ fn acp_tool_content_preview(content: &[ToolCallContent]) -> Option<String> {
 const DEFAULT_HANDSHAKE_TIMEOUT_SECS: u64 = 60;
 const DEFAULT_SESSION_PREP_TIMEOUT_SECS: u64 = 60;
 const DEFAULT_PROMPT_IDLE_TIMEOUT_SECS: u64 = 600;
-const STDERR_RING_BUFFER_BYTES: usize = 8 * 1024;
 const HANDSHAKE_TIMEOUT_ENV: &str = "VIBEX_ACP_SPAWN_HANDSHAKE_TIMEOUT_SECS";
 const SESSION_PREP_TIMEOUT_ENV: &str = "VIBEX_ACP_SESSION_PREP_TIMEOUT_SECS";
 const FULL_GATE_FIXTURE_PROMPT: &str = "__vibex_agent_full_gate_fixture__";
@@ -450,43 +441,766 @@ struct SessionRestoreSupport {
     resume: bool,
 }
 
+use crate::stderr_tail::{StderrTail, sanitize_diagnostic, summarize_parser_error};
+
+const DEFAULT_THROTTLE_WINDOW: Duration = Duration::from_secs(10);
+const EMPTY_TURN_STDERR_MAX_LINES: usize = 20;
+const EMPTY_TURN_STDERR_MAX_BYTES: usize = 2048;
+
+/// Leading-edge log rate limiter for noisy per-frame ACP deserialization warnings.
+///
+/// The first event in a window is emitted immediately (`Some(suppressed)` where
+/// `suppressed` is the count suppressed in the *preceding* window). Subsequent
+/// events within `window` increment the counter and return `None`.
 #[derive(Debug)]
-struct StderrRingBuffer {
-    capacity: usize,
-    bytes: VecDeque<u8>,
+pub struct LeadingEdgeThrottle {
+    window_ns: u64,
+    epoch: std::time::Instant,
+    window_start_ns: std::sync::atomic::AtomicU64,
+    suppressed_in_window: std::sync::atomic::AtomicU64,
+    state_lock: std::sync::Mutex<()>,
 }
 
-impl StderrRingBuffer {
-    fn new(capacity: usize) -> Self {
+const NO_WINDOW: u64 = u64::MAX;
+
+impl LeadingEdgeThrottle {
+    pub fn new(window: Duration) -> Self {
+        let nanos = window.as_nanos().min(u64::MAX as u128 - 1) as u64;
         Self {
-            capacity,
-            bytes: VecDeque::with_capacity(capacity),
+            window_ns: nanos,
+            epoch: std::time::Instant::now(),
+            window_start_ns: std::sync::atomic::AtomicU64::new(NO_WINDOW),
+            suppressed_in_window: std::sync::atomic::AtomicU64::new(0),
+            state_lock: std::sync::Mutex::new(()),
         }
     }
 
-    fn push(&mut self, bytes: &[u8]) {
-        if self.capacity == 0 {
-            return;
-        }
-        for byte in bytes {
-            if self.bytes.len() == self.capacity {
-                self.bytes.pop_front();
-            }
-            self.bytes.push_back(*byte);
-        }
+    pub fn check(&self) -> Option<u64> {
+        let now_ns = self.epoch.elapsed().as_nanos().min(u64::MAX as u128 - 1) as u64;
+        self.check_at(now_ns)
     }
 
-    fn summary(&self) -> Option<String> {
-        if self.bytes.is_empty() {
+    pub fn check_at(&self, elapsed_ns: u64) -> Option<u64> {
+        let start = self.window_start_ns.load(Ordering::Acquire);
+        if start != NO_WINDOW && elapsed_ns.saturating_sub(start) < self.window_ns {
+            self.suppressed_in_window.fetch_add(1, Ordering::Relaxed);
             return None;
         }
-        Some(
-            String::from_utf8_lossy(&self.bytes.iter().copied().collect::<Vec<_>>())
-                .trim()
-                .to_string(),
-        )
-        .filter(|summary| !summary.is_empty())
+
+        let _guard = self
+            .state_lock
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        let start = self.window_start_ns.load(Ordering::Relaxed);
+        if start != NO_WINDOW && elapsed_ns.saturating_sub(start) < self.window_ns {
+            self.suppressed_in_window.fetch_add(1, Ordering::Relaxed);
+            return None;
+        }
+
+        let suppressed = self.suppressed_in_window.swap(0, Ordering::Relaxed);
+        self.window_start_ns.store(elapsed_ns, Ordering::Release);
+        Some(suppressed)
     }
+
+    pub fn flush(&self) -> u64 {
+        let _guard = self
+            .state_lock
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        self.window_start_ns.store(NO_WINDOW, Ordering::Release);
+        self.suppressed_in_window.swap(0, Ordering::Relaxed)
+    }
+}
+
+impl Default for LeadingEdgeThrottle {
+    fn default() -> Self {
+        Self::new(DEFAULT_THROTTLE_WINDOW)
+    }
+}
+
+pub(crate) fn dropped_update_log_line(
+    connection_id: &AgentConnectionId,
+    session_id: Option<AgentSessionId>,
+    tag: Option<&str>,
+    error: &str,
+    suppressed: u64,
+) -> String {
+    let tag_part = tag.unwrap_or("<missing>");
+    let session_part = session_id
+        .map(|id| id.to_string())
+        .unwrap_or_else(|| "-".to_string());
+    if suppressed > 0 {
+        format!(
+            "[ACP] ignoring unreadable session/update (connection={connection_id}, session={session_part}, sessionUpdate={tag_part}, +{suppressed} suppressed in previous 10s window): {error}"
+        )
+    } else {
+        format!(
+            "[ACP] ignoring unreadable session/update (connection={connection_id}, session={session_part}, sessionUpdate={tag_part}): {error}"
+        )
+    }
+}
+
+/// Remove `"data": null` from a JSON-RPC error response line (alone or in a batch).
+///
+/// `agent-client-protocol` preserves an explicit `"data": null` as `Some(Value::Null)`
+/// and formats it as `"{message}: null"`. Messages with a `"method"` field keep
+/// their payload untouched.
+pub(crate) fn omit_null_error_data(line: String) -> String {
+    if !line.contains("null") || has_null_error_data(&line) == Some(false) {
+        return line;
+    }
+    let Ok(mut message) = serde_json::from_str::<serde_json::Value>(&line) else {
+        return line;
+    };
+    let omit = |message: &mut serde_json::Value| {
+        message.get("method").is_none()
+            && message
+                .get_mut("error")
+                .and_then(serde_json::Value::as_object_mut)
+                .is_some_and(|error| {
+                    if error.get("data").is_some_and(serde_json::Value::is_null) {
+                        error.remove("data");
+                        true
+                    } else {
+                        false
+                    }
+                })
+    };
+    let changed = match &mut message {
+        serde_json::Value::Object(_) => omit(&mut message),
+        serde_json::Value::Array(batch) => batch.iter_mut().fold(false, |acc, m| omit(m) || acc),
+        _ => false,
+    };
+    if changed {
+        serde_json::to_string(&message).unwrap_or(line)
+    } else {
+        line
+    }
+}
+
+fn has_null_error_data(line: &str) -> Option<bool> {
+    use serde::de::{IgnoredAny, MapAccess, SeqAccess, Visitor};
+
+    struct Message(bool);
+    struct ErrorData(bool);
+
+    impl<'de> Deserialize<'de> for Message {
+        fn deserialize<D: serde::Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
+            struct V;
+            impl<'de> Visitor<'de> for V {
+                type Value = Message;
+                fn expecting(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+                    f.write_str("any JSON value")
+                }
+                fn visit_map<A: MapAccess<'de>>(self, mut map: A) -> Result<Message, A::Error> {
+                    let mut has_method = false;
+                    let mut null_data = false;
+                    while let Some(key) = map.next_key::<&str>()? {
+                        match key {
+                            "method" => {
+                                map.next_value::<IgnoredAny>()?;
+                                has_method = true;
+                            }
+                            "error" => null_data = map.next_value::<ErrorData>()?.0,
+                            _ => {
+                                map.next_value::<IgnoredAny>()?;
+                            }
+                        }
+                    }
+                    Ok(Message(!has_method && null_data))
+                }
+                fn visit_seq<A: SeqAccess<'de>>(self, mut seq: A) -> Result<Message, A::Error> {
+                    let mut any = false;
+                    while let Some(Message(hit)) = seq.next_element()? {
+                        any |= hit;
+                    }
+                    Ok(Message(any))
+                }
+                fn visit_bool<E>(self, _: bool) -> Result<Message, E> {
+                    Ok(Message(false))
+                }
+                fn visit_i64<E>(self, _: i64) -> Result<Message, E> {
+                    Ok(Message(false))
+                }
+                fn visit_u64<E>(self, _: u64) -> Result<Message, E> {
+                    Ok(Message(false))
+                }
+                fn visit_f64<E>(self, _: f64) -> Result<Message, E> {
+                    Ok(Message(false))
+                }
+                fn visit_str<E>(self, _: &str) -> Result<Message, E> {
+                    Ok(Message(false))
+                }
+                fn visit_unit<E>(self) -> Result<Message, E> {
+                    Ok(Message(false))
+                }
+            }
+            d.deserialize_any(V)
+        }
+    }
+
+    impl<'de> Deserialize<'de> for ErrorData {
+        fn deserialize<D: serde::Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
+            struct V;
+            impl<'de> Visitor<'de> for V {
+                type Value = ErrorData;
+                fn expecting(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+                    f.write_str("any JSON value")
+                }
+                fn visit_map<A: MapAccess<'de>>(self, mut map: A) -> Result<ErrorData, A::Error> {
+                    let mut null_data = false;
+                    while let Some(key) = map.next_key::<&str>()? {
+                        if key == "data" {
+                            null_data = map.next_value::<Option<IgnoredAny>>()?.is_none();
+                        } else {
+                            map.next_value::<IgnoredAny>()?;
+                        }
+                    }
+                    Ok(ErrorData(null_data))
+                }
+                fn visit_seq<A: SeqAccess<'de>>(self, mut seq: A) -> Result<ErrorData, A::Error> {
+                    while seq.next_element::<IgnoredAny>()?.is_some() {}
+                    Ok(ErrorData(false))
+                }
+                fn visit_bool<E>(self, _: bool) -> Result<ErrorData, E> {
+                    Ok(ErrorData(false))
+                }
+                fn visit_i64<E>(self, _: i64) -> Result<ErrorData, E> {
+                    Ok(ErrorData(false))
+                }
+                fn visit_u64<E>(self, _: u64) -> Result<ErrorData, E> {
+                    Ok(ErrorData(false))
+                }
+                fn visit_f64<E>(self, _: f64) -> Result<ErrorData, E> {
+                    Ok(ErrorData(false))
+                }
+                fn visit_str<E>(self, _: &str) -> Result<ErrorData, E> {
+                    Ok(ErrorData(false))
+                }
+                fn visit_unit<E>(self) -> Result<ErrorData, E> {
+                    Ok(ErrorData(false))
+                }
+            }
+            d.deserialize_any(V)
+        }
+    }
+
+    serde_json::from_str::<Message>(line).ok().map(|m| m.0)
+}
+
+/// Sanitize `usage_update` JSON payloads where an agent emitted `null` for
+/// non-optional numeric fields (`used`, `size`, or `cost.amount` / `cost.currency`).
+pub(crate) fn fix_usage_update_nulls(val: &mut serde_json::Value) -> bool {
+    let Some(obj) = val.as_object_mut() else {
+        return false;
+    };
+    if obj.get("sessionUpdate").and_then(|v| v.as_str()) != Some("usage_update") {
+        return false;
+    }
+    let mut changed = false;
+    for key in ["used", "size"] {
+        if obj.get(key).is_some_and(|v| v.is_null()) {
+            obj.insert(key.to_string(), serde_json::json!(0));
+            changed = true;
+        }
+    }
+    if let Some(cost) = obj.get("cost")
+        && let Some(cost_obj) = cost.as_object()
+        && (cost_obj.get("amount").is_none_or(|v| v.is_null())
+            || cost_obj.get("currency").is_none_or(|v| v.is_null()))
+    {
+        obj.remove("cost");
+        changed = true;
+    }
+    changed
+}
+
+pub(crate) fn sanitize_incoming_jsonrpc_line(line: String) -> String {
+    let line = omit_null_error_data(line);
+    if !line.contains("null") || !line.contains("usage_update") {
+        return line;
+    }
+    let Ok(mut message) = serde_json::from_str::<serde_json::Value>(&line) else {
+        return line;
+    };
+    let mut changed = fix_usage_update_nulls(&mut message);
+    if let Some(params) = message.get_mut("params") {
+        changed |= fix_usage_update_nulls(params);
+        if let Some(update) = params.get_mut("update") {
+            changed |= fix_usage_update_nulls(update);
+        }
+    }
+    if changed {
+        serde_json::to_string(&message).unwrap_or(line)
+    } else {
+        line
+    }
+}
+
+/// Tracks whether a single `session/prompt` turn produced any user-visible output
+/// and whether any incoming updates were dropped as unreadable.
+#[derive(Debug, Default)]
+pub(crate) struct TurnOutputProbe {
+    produced: AtomicBool,
+    dropped_updates: std::sync::atomic::AtomicU64,
+    first_dropped_tag: std::sync::Mutex<Option<String>>,
+    first_dropped_error: std::sync::Mutex<Option<String>>,
+}
+
+impl TurnOutputProbe {
+    pub(crate) fn note_rendered(&self) {
+        self.produced.store(true, Ordering::Release);
+    }
+
+    pub(crate) fn record_agent_event(&self, event: &AgentEvent) {
+        let visible = match event {
+            AgentEvent::MessageChunk { content } | AgentEvent::ThoughtChunk { content } => {
+                agent_content_has_output(content)
+            }
+            AgentEvent::ToolCall { .. }
+            | AgentEvent::ToolCallUpdate { .. }
+            | AgentEvent::Plan { .. }
+            | AgentEvent::PermissionRequested { .. }
+            | AgentEvent::PermissionResponded { auto: true, .. }
+            | AgentEvent::ElicitationRequested { .. } => true,
+            _ => false,
+        };
+        if visible {
+            self.note_rendered();
+        }
+    }
+
+    pub(crate) fn note_dropped(&self, tag: Option<&str>, error: &str) {
+        let prev = self.dropped_updates.fetch_add(1, Ordering::AcqRel);
+        if prev == 0 {
+            if let Ok(mut guard) = self.first_dropped_tag.lock() {
+                *guard = tag.map(str::to_string);
+            }
+            if let Ok(mut guard) = self.first_dropped_error.lock() {
+                *guard = Some(sanitize_diagnostic(error));
+            }
+        }
+    }
+
+    pub(crate) fn has_output(&self) -> bool {
+        self.produced.load(Ordering::Acquire)
+    }
+
+    pub(crate) fn dropped_summary(&self) -> (u64, Option<String>, Option<String>) {
+        let count = self.dropped_updates.load(Ordering::Acquire);
+        let tag = self
+            .first_dropped_tag
+            .lock()
+            .ok()
+            .and_then(|mut guard| guard.take());
+        let error = self
+            .first_dropped_error
+            .lock()
+            .ok()
+            .and_then(|mut guard| guard.take());
+        (count, tag, error)
+    }
+}
+
+fn agent_content_has_output(content: &AgentContentBlock) -> bool {
+    match content {
+        AgentContentBlock::Text { text } => !text.is_empty(),
+        AgentContentBlock::Image { .. }
+        | AgentContentBlock::Resource { .. }
+        | AgentContentBlock::Protocol { .. } => true,
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum EmptyTurnCause {
+    UnreadableUpdates,
+    AgentStderr,
+    SilentEndTurn,
+}
+
+impl EmptyTurnCause {
+    pub(crate) fn as_str(self) -> &'static str {
+        match self {
+            Self::UnreadableUpdates => "unreadable_updates",
+            Self::AgentStderr => "agent_stderr",
+            Self::SilentEndTurn => "silent_end_turn",
+        }
+    }
+}
+
+pub(crate) fn diagnose_empty_turn(dropped_count: u64, stderr: &str) -> EmptyTurnCause {
+    if dropped_count > 0 {
+        EmptyTurnCause::UnreadableUpdates
+    } else if !stderr.trim().is_empty() {
+        EmptyTurnCause::AgentStderr
+    } else {
+        EmptyTurnCause::SilentEndTurn
+    }
+}
+
+pub(crate) fn build_empty_turn_details(
+    probe: &TurnOutputProbe,
+    stderr_tail: &StderrTail,
+    stderr_mark: u64,
+) -> (EmptyTurnCause, String, serde_json::Value) {
+    let (dropped_count, dropped_tag, dropped_error) = probe.dropped_summary();
+    let slice = stderr_tail.tail_since(
+        stderr_mark,
+        EMPTY_TURN_STDERR_MAX_LINES,
+        EMPTY_TURN_STDERR_MAX_BYTES,
+    );
+    let stderr_trimmed = slice.lines.join("\n").trim().to_string();
+    let cause = diagnose_empty_turn(dropped_count, &stderr_trimmed);
+
+    let mut obj = serde_json::Map::new();
+    obj.insert("cause".into(), serde_json::json!(cause.as_str()));
+    if dropped_count > 0 {
+        obj.insert("droppedUpdates".into(), serde_json::json!(dropped_count));
+        if let Some(tag) = dropped_tag {
+            obj.insert("firstDroppedTag".into(), serde_json::json!(tag));
+        }
+        if let Some(err) = dropped_error {
+            obj.insert("firstDroppedError".into(), serde_json::json!(err));
+        }
+    }
+    if !stderr_trimmed.is_empty() {
+        let scope_label = match slice.scope {
+            crate::stderr_tail::TailScope::ThisTurn => "this_turn",
+            crate::stderr_tail::TailScope::Recent => "recent",
+        };
+        obj.insert("stderr".into(), serde_json::json!(stderr_trimmed.clone()));
+        obj.insert("stderrScope".into(), serde_json::json!(scope_label));
+    }
+    (cause, stderr_trimmed, serde_json::Value::Object(obj))
+}
+
+pub(crate) fn finish_turn_reason(
+    stop_reason: &acp::schema::v1::StopReason,
+    has_output: bool,
+    cancelled: bool,
+) -> String {
+    if cancelled {
+        return "cancelled".to_string();
+    }
+    match stop_reason {
+        acp::schema::v1::StopReason::EndTurn => {
+            if has_output {
+                "end_turn".to_string()
+            } else {
+                "turn_failed_empty".to_string()
+            }
+        }
+        acp::schema::v1::StopReason::MaxTokens => "turn_failed_max_tokens".to_string(),
+        acp::schema::v1::StopReason::MaxTurnRequests => "turn_failed_max_turn_requests".to_string(),
+        acp::schema::v1::StopReason::Refusal => "turn_failed_refusal".to_string(),
+        acp::schema::v1::StopReason::Cancelled => "cancelled".to_string(),
+        other => acp_enum_label(other),
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub(crate) struct AirSessionFailure {
+    pub kind: Option<String>,
+    pub title: Option<String>,
+    pub message: Option<String>,
+    pub retry_after_ms: Option<u64>,
+}
+
+impl AirSessionFailure {
+    pub(crate) fn error_code(&self) -> String {
+        let Some(kind) = self
+            .kind
+            .as_deref()
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+        else {
+            return "session_failure".to_string();
+        };
+        let mut normalized = String::with_capacity(kind.len());
+        let mut prev_sep = false;
+        for ch in kind.chars() {
+            if ch.is_ascii_alphanumeric() {
+                if ch.is_ascii_uppercase() && !normalized.is_empty() && !prev_sep {
+                    normalized.push('_');
+                }
+                normalized.push(ch.to_ascii_lowercase());
+                prev_sep = false;
+            } else if !normalized.is_empty() && !prev_sep {
+                normalized.push('_');
+                prev_sep = true;
+            }
+        }
+        let trimmed = normalized.trim_matches('_');
+        if trimmed.is_empty() {
+            "session_failure".to_string()
+        } else {
+            trimmed.to_string()
+        }
+    }
+
+    pub(crate) fn format_message(&self) -> String {
+        let title = self
+            .title
+            .as_deref()
+            .map(str::trim)
+            .filter(|s| !s.is_empty());
+        let message = self
+            .message
+            .as_deref()
+            .map(str::trim)
+            .filter(|s| !s.is_empty());
+        let kind = self
+            .kind
+            .as_deref()
+            .map(str::trim)
+            .filter(|s| !s.is_empty());
+        let mut base = match (title, message) {
+            (Some(t), Some(m)) if t == m || m.starts_with(t) => m.to_string(),
+            (Some(t), Some(m)) => format!("{t}: {m}"),
+            (Some(t), None) => t.to_string(),
+            (None, Some(m)) => m.to_string(),
+            (None, None) => match kind {
+                Some(kind) => format!("Agent 会话失败 [{kind}]"),
+                _ => "Agent 会话执行失败".to_string(),
+            },
+        };
+        if let Some(kind) = kind
+            && !base.contains(kind)
+        {
+            base = format!("[{kind}] {base}");
+        }
+        if let Some(ms) = self.retry_after_ms.filter(|ms| *ms > 0) {
+            let secs = ms.div_ceil(1000);
+            base.push_str(&format!("（建议等待 {secs}s 后重试）"));
+        }
+        sanitize_diagnostic(&base)
+    }
+}
+
+pub(crate) fn extract_session_failure(value: &serde_json::Value) -> Option<AirSessionFailure> {
+    let candidate = value
+        .pointer("/_meta/jetbrains.air/sessionFailure")
+        .or_else(|| value.pointer("/_meta/jetbrains/air/sessionFailure"))
+        .or_else(|| value.pointer("/_meta/jetbrains/sessionFailure"))
+        .or_else(|| value.pointer("/_meta/air/sessionFailure"))
+        .or_else(|| value.pointer("/_meta/sessionFailure"))
+        .or_else(|| value.pointer("/jetbrains.air/sessionFailure"))
+        .or_else(|| value.pointer("/jetbrains/air/sessionFailure"))
+        .or_else(|| value.pointer("/jetbrains/sessionFailure"))
+        .or_else(|| value.pointer("/air/sessionFailure"))
+        .or_else(|| value.get("sessionFailure"))?;
+    parse_session_failure_value(candidate)
+}
+
+pub(crate) fn extract_session_failure_from_meta(
+    meta: Option<&serde_json::Map<String, serde_json::Value>>,
+) -> Option<AirSessionFailure> {
+    let meta = meta?;
+    let wrapped = serde_json::Value::Object(meta.clone());
+    extract_session_failure(&wrapped)
+}
+
+fn parse_session_failure_value(value: &serde_json::Value) -> Option<AirSessionFailure> {
+    if let Some(text) = value.as_str().map(str::trim).filter(|s| !s.is_empty()) {
+        return Some(AirSessionFailure {
+            kind: None,
+            title: None,
+            message: Some(sanitize_diagnostic(text)),
+            retry_after_ms: None,
+        });
+    }
+    let obj = value.as_object()?;
+    let pick_str = |keys: &[&str]| -> Option<String> {
+        keys.iter().find_map(|key| {
+            obj.get(*key)
+                .and_then(serde_json::Value::as_str)
+                .map(str::trim)
+                .filter(|s| !s.is_empty())
+                .map(sanitize_diagnostic)
+        })
+    };
+    let kind = pick_str(&["kind", "category", "type", "code"]);
+    let title = pick_str(&["title", "summary"]);
+    let message = pick_str(&[
+        "userMessage",
+        "user_message",
+        "message",
+        "details",
+        "description",
+        "reason",
+        "error",
+    ]);
+    let retry_after_ms = ["retryAfterMs", "retry_after_ms"]
+        .iter()
+        .find_map(|key| obj.get(*key).and_then(serde_json::Value::as_u64))
+        .or_else(|| {
+            ["retryAfterSeconds", "retry_after_seconds", "retryAfter"]
+                .iter()
+                .find_map(|key| {
+                    obj.get(*key)
+                        .and_then(serde_json::Value::as_u64)
+                        .map(|secs| secs.saturating_mul(1000))
+                })
+        });
+    if kind.is_none() && title.is_none() && message.is_none() && retry_after_ms.is_none() {
+        return None;
+    }
+    Some(AirSessionFailure {
+        kind,
+        title,
+        message,
+        retry_after_ms,
+    })
+}
+
+pub(crate) fn turn_failure_error_event(
+    response: &acp::schema::v1::PromptResponse,
+    probe: &TurnOutputProbe,
+    stderr_tail: &StderrTail,
+    stderr_mark: u64,
+) -> Option<AgentErrorEvent> {
+    let meta = response.meta.as_ref();
+    let finish_reason = finish_turn_reason(&response.stop_reason, probe.has_output(), false);
+    let air_failure = extract_session_failure_from_meta(meta);
+    match finish_reason.as_str() {
+        "turn_failed_empty" => {
+            if let Some(failure) = air_failure {
+                return Some(AgentErrorEvent {
+                    message: failure.format_message(),
+                    code: Some("turn_failed_empty".to_string()),
+                    raw: meta.map(|m| serde_json::Value::Object(m.clone())),
+                });
+            }
+            let (cause, stderr_text, details) =
+                build_empty_turn_details(probe, stderr_tail, stderr_mark);
+            let message = match cause {
+                EmptyTurnCause::UnreadableUpdates => {
+                    if stderr_text.is_empty() {
+                        "Agent 发送了无法识别的流式更新，导致本回合未显示任何有效输出。"
+                            .to_string()
+                    } else {
+                        format!(
+                            "Agent 发送了无法识别的流式更新，导致本回合未显示任何有效输出。最近 stderr: {stderr_text}"
+                        )
+                    }
+                }
+                EmptyTurnCause::AgentStderr => format!(
+                    "Agent 未产生任何输出即结束了回合（StopReason::EndTurn）。最近 stderr: {stderr_text}"
+                ),
+                EmptyTurnCause::SilentEndTurn => {
+                    "Agent 未产生任何输出即结束了回合（StopReason::EndTurn）。可能是认证失效、网络中断或上游服务异常。"
+                        .to_string()
+                }
+            };
+            Some(AgentErrorEvent {
+                message,
+                code: Some("turn_failed_empty".to_string()),
+                raw: Some(details),
+            })
+        }
+        "turn_failed_refusal" => {
+            let message = air_failure
+                .as_ref()
+                .map(AirSessionFailure::format_message)
+                .unwrap_or_else(|| {
+                    "模型拒绝了本次请求（StopReason::Refusal）：Agent 结束了回合但未生成回复。"
+                        .to_string()
+                });
+            Some(AgentErrorEvent {
+                message,
+                code: Some("turn_failed_refusal".to_string()),
+                raw: meta.map(|m| serde_json::Value::Object(m.clone())),
+            })
+        }
+        "turn_failed_max_tokens" => {
+            let message = air_failure
+                .as_ref()
+                .map(AirSessionFailure::format_message)
+                .unwrap_or_else(|| {
+                    "已达到单轮最大输出 Token 限制（StopReason::MaxTokens），回复在完成前被截断。"
+                        .to_string()
+                });
+            Some(AgentErrorEvent {
+                message,
+                code: Some("turn_failed_max_tokens".to_string()),
+                raw: meta.map(|m| serde_json::Value::Object(m.clone())),
+            })
+        }
+        "turn_failed_max_turn_requests" => {
+            let message = air_failure
+                .as_ref()
+                .map(AirSessionFailure::format_message)
+                .unwrap_or_else(|| {
+                    "已达到单轮最大模型请求次数限制（StopReason::MaxTurnRequests），Agent 已停止继续执行。"
+                        .to_string()
+                });
+            Some(AgentErrorEvent {
+                message,
+                code: Some("turn_failed_max_turn_requests".to_string()),
+                raw: meta.map(|m| serde_json::Value::Object(m.clone())),
+            })
+        }
+        _ => air_failure.map(|failure| AgentErrorEvent {
+            message: failure.format_message(),
+            code: Some(failure.error_code()),
+            raw: meta.map(|m| serde_json::Value::Object(m.clone())),
+        }),
+    }
+}
+
+pub(crate) fn format_acp_prompt_error(
+    error: &acp::Error,
+    stderr_tail: &StderrTail,
+    stderr_mark: u64,
+) -> AgentErrorEvent {
+    if let Some(failure) = error.data.as_ref().and_then(extract_session_failure) {
+        return AgentErrorEvent {
+            message: failure.format_message(),
+            code: Some(failure.error_code()),
+            raw: error.data.clone(),
+        };
+    }
+    let mut message = sanitize_diagnostic(&error.to_string());
+    if i32::from(error.code) == -32603 {
+        let recent_stderr = stderr_tail.since(stderr_mark);
+        let trimmed = recent_stderr.trim();
+        if !trimmed.is_empty() && !message.contains(trimmed) {
+            message = format!("{message}. Recent stderr: {trimmed}");
+        }
+    }
+    AgentErrorEvent {
+        message,
+        code: acp_error_code_str(error),
+        raw: error.data.clone(),
+    }
+}
+
+pub(crate) fn build_client_capabilities() -> ClientCapabilities {
+    let air_contract = serde_json::json!({
+        "version": 1,
+        "sessionFailure": true,
+        "asyncTasks": true,
+        "recommendedValue": true,
+        "capabilities": ["sessionFailure", "asyncTasks", "recommendedValue"],
+    });
+    let mut meta = serde_json::Map::new();
+    meta.insert("jetbrains.air".to_string(), air_contract.clone());
+    meta.insert(
+        "jetbrains".to_string(),
+        serde_json::json!({ "air": air_contract }),
+    );
+    ClientCapabilities::new()
+        .terminal(true)
+        .session(ClientSessionCapabilities::new().config_options(
+            SessionConfigOptionsCapabilities::new().boolean(BooleanConfigOptionCapabilities::new()),
+        ))
+        .elicitation(
+            // Form mode only: it covers AskUserQuestion and MCP
+            // form elicitations. URL mode needs a browser hand-off
+            // flow the app doesn't have yet.
+            ElicitationCapabilities::new().form(ElicitationFormCapabilities::new()),
+        )
+        .meta(meta)
 }
 
 fn handshake_timeout() -> Duration {
@@ -1576,6 +2290,8 @@ impl AgentConnectionManager {
     }
 }
 
+type ActiveTurnProbeSlot = Arc<std::sync::Mutex<Option<(AgentSessionId, Arc<TurnOutputProbe>)>>>;
+
 #[derive(Debug, Clone)]
 struct AgentConnectionRunner {
     snapshot: ManagedAgentConnectionSnapshot,
@@ -1611,6 +2327,9 @@ struct AgentConnectionRunner {
     handshake_started: Instant,
     live_conn: Arc<Mutex<Option<ConnectionTo<Agent>>>>,
     grok_catalog: Arc<Mutex<Option<GrokModelCatalog>>>,
+    stderr_tail: Arc<StderrTail>,
+    active_turn_probe: ActiveTurnProbeSlot,
+    update_log_throttle: Arc<LeadingEdgeThrottle>,
 }
 
 /// Non-standard wire surface an ACP agent requires for its vendor-advertised
@@ -1783,6 +2502,44 @@ impl AgentConnectionRunner {
             handshake_started: Instant::now(),
             live_conn: Arc::new(Mutex::new(None)),
             grok_catalog: Arc::new(Mutex::new(None)),
+            stderr_tail: Arc::new(StderrTail::new()),
+            active_turn_probe: Arc::new(std::sync::Mutex::new(None)),
+            update_log_throttle: Arc::new(LeadingEdgeThrottle::default()),
+        }
+    }
+
+    fn record_turn_probe_event(&self, session_id: Option<AgentSessionId>, event: &AgentEvent) {
+        if let Some(session_id) = session_id
+            && let Ok(guard) = self.active_turn_probe.lock()
+            && let Some((active_session_id, probe)) = guard.as_ref()
+            && *active_session_id == session_id
+        {
+            probe.record_agent_event(event);
+        }
+    }
+
+    fn note_dropped_update(
+        &self,
+        session_id: Option<AgentSessionId>,
+        tag: Option<&str>,
+        error: &str,
+    ) {
+        let sanitized_error = sanitize_diagnostic(error);
+        if let Ok(guard) = self.active_turn_probe.lock()
+            && let Some((active_session_id, probe)) = guard.as_ref()
+            && session_id.is_none_or(|sid| sid == *active_session_id)
+        {
+            probe.note_dropped(tag, &sanitized_error);
+        }
+        if let Some(suppressed) = self.update_log_throttle.check() {
+            let line = dropped_update_log_line(
+                &self.snapshot.connection_id,
+                session_id,
+                tag,
+                &sanitized_error,
+                suppressed,
+            );
+            tracing::warn!("{line}");
         }
     }
 
@@ -2493,11 +3250,25 @@ impl AgentConnectionRunner {
         let (mut to_acp_writer, acp_incoming_reader) = tokio::io::duplex(64 * 1024);
         let (stdout_closed_tx, stdout_closed_rx) = oneshot::channel::<()>();
         tokio::spawn(async move {
-            let mut stdout_stream = ReaderStream::new(stdout);
-            while let Some(result) = stdout_stream.next().await {
-                match result {
-                    Ok(bytes) => {
-                        if to_acp_writer.write_all(&bytes).await.is_err() {
+            use tokio::io::{AsyncBufReadExt, BufReader};
+            let mut reader = BufReader::new(stdout);
+            let mut line_buf = Vec::with_capacity(4096);
+            loop {
+                line_buf.clear();
+                match reader.read_until(b'\n', &mut line_buf).await {
+                    Ok(0) => break,
+                    Ok(_) => {
+                        if let Ok(raw_str) = std::str::from_utf8(&line_buf) {
+                            let has_newline = raw_str.ends_with('\n');
+                            let trimmed = raw_str.trim_end_matches(['\r', '\n']);
+                            let cleaned = sanitize_incoming_jsonrpc_line(trimmed.to_string());
+                            if to_acp_writer.write_all(cleaned.as_bytes()).await.is_err() {
+                                break;
+                            }
+                            if has_newline && to_acp_writer.write_all(b"\n").await.is_err() {
+                                break;
+                            }
+                        } else if to_acp_writer.write_all(&line_buf).await.is_err() {
                             break;
                         }
                     }
@@ -2523,26 +3294,15 @@ impl AgentConnectionRunner {
                 }
             }
         });
-        let stderr_buffer = Arc::new(Mutex::new(StderrRingBuffer::new(STDERR_RING_BUFFER_BYTES)));
         if let Some(stderr) = stderr {
-            let runner_for_stderr = self.clone();
-            let stderr_buffer_for_task = Arc::clone(&stderr_buffer);
+            let stderr_tail = Arc::clone(&self.stderr_tail);
             tokio::spawn(async move {
                 let mut stderr_stream = ReaderStream::new(stderr);
                 while let Some(result) = stderr_stream.next().await {
                     match result {
                         Ok(bytes) => {
-                            stderr_buffer_for_task.lock().await.push(&bytes);
-                            runner_for_stderr.emit(
-                                None,
-                                None,
-                                AgentEvent::RawAcpDiagnostic {
-                                    raw: serde_json::json!({
-                                        "kind": "stderr",
-                                        "text": String::from_utf8_lossy(&bytes).to_string(),
-                                    }),
-                                },
-                            );
+                            let text = String::from_utf8_lossy(&bytes);
+                            stderr_tail.push(&text);
                         }
                         Err(_) => break,
                     }
@@ -2629,20 +3389,7 @@ impl AgentConnectionRunner {
             )
             .connect_with(transport, |conn: ConnectionTo<Agent>| async move {
                 *runner.live_conn.lock().await = Some(conn.clone());
-                let client_capabilities = ClientCapabilities::new()
-                    .terminal(true)
-                    .session(
-                        ClientSessionCapabilities::new().config_options(
-                            SessionConfigOptionsCapabilities::new()
-                                .boolean(BooleanConfigOptionCapabilities::new()),
-                        ),
-                    )
-                    .elicitation(
-                        // Form mode only: it covers AskUserQuestion and MCP
-                        // form elicitations. URL mode needs a browser hand-off
-                        // flow the app doesn't have yet.
-                        ElicitationCapabilities::new().form(ElicitationFormCapabilities::new()),
-                    );
+                let client_capabilities = build_client_capabilities();
                 let initialize = AcpAuthStatusAdapter::initialize(
                     &conn,
                     InitializeRequest::new(ProtocolVersion::LATEST)
@@ -2896,7 +3643,7 @@ impl AgentConnectionRunner {
                                 .run_prompt(
                                     &conn,
                                     RunPromptRequest {
-                                        acp_session_id,
+                                        acp_session_id: acp_session_id.clone(),
                                         session_id,
                                         prompt_id,
                                         blocks,
@@ -2924,6 +3671,18 @@ impl AgentConnectionRunner {
                                 }
                                 Ok(RunPromptOutcome::Closed) => break,
                                 Err(error) => {
+                                    // `run_prompt` already wrote the user prompt.
+                                    // Close that transcript turn before the error
+                                    // event, or a reopen shows an unfinished send.
+                                    runner
+                                        .record_turn_end(
+                                            &acp_session_id,
+                                            session_id,
+                                            "error",
+                                            0,
+                                            None,
+                                        )
+                                        .await;
                                     runner
                                         .fail_active_turn(
                                             session_id,
@@ -3103,14 +3862,14 @@ impl AgentConnectionRunner {
             let _ = kill_process_group(&mut child).await;
         }
         if handshake_timed_out.load(Ordering::SeqCst) {
-            let stderr = stderr_buffer.lock().await.summary();
+            let stderr = self.stderr_tail.summary();
             return Err(AgentError::Runtime(format_handshake_timeout_error(
                 handshake_timeout_duration,
                 stderr,
             )));
         }
         let prompt_in_flight = self.active_prompt.lock().await.is_some();
-        let stderr = stderr_buffer.lock().await.summary();
+        let stderr = self.stderr_tail.summary();
         resolve_acp_process_stop(stop, prompt_in_flight, stderr)
     }
 
@@ -4697,8 +5456,8 @@ impl AgentConnectionRunner {
         // connection-death fallback in `run()` fail this exact turn; it is cleared
         // before every self-terminal `return` below so a terminal event is emitted
         // exactly once (never doubled, never dropped). A `?`-propagated error
-        // (e.g. apply_session_overrides) deliberately leaves it set so `run()`
-        // closes the turn.
+        // (for example the cancel notification) deliberately leaves it set so
+        // `run()` closes the turn.
         *self.active_prompt.lock().await = Some((session_id, prompt_id));
         *self.last_activity.lock().await = Instant::now();
         if let Some(stored) = self.session_controls.write().await.get_mut(&session_id) {
@@ -4712,6 +5471,14 @@ impl AgentConnectionRunner {
         // Start each turn with a clean streaming accumulator so snapshot dedup
         // scopes to this turn and never accretes text across turns.
         self.stream_dedup.lock().await.remove(&acp_session_id);
+        let wire_blocks: Vec<ContentBlock> = blocks.into_iter().map(agent_block_to_acp).collect();
+        let recorded_blocks: Vec<ContentBlock> = display_blocks
+            .map(|blocks| blocks.into_iter().map(agent_block_to_acp).collect())
+            .unwrap_or_else(|| wire_blocks.clone());
+        // The message is already accepted. Reopening a conversation reads the
+        // transcript, so write the prompt before session overrides: a rejected
+        // model (or any other override error) must not erase it.
+        self.record_prompt(&acp_session_id, &recorded_blocks).await;
         if let Err(error) = self
             .apply_session_overrides(
                 conn,
@@ -4722,6 +5489,8 @@ impl AgentConnectionRunner {
             )
             .await
         {
+            self.record_turn_end(&acp_session_id, session_id, "error", 0, None)
+                .await;
             self.fail_active_turn(
                 session_id,
                 prompt_id,
@@ -4732,12 +5501,12 @@ impl AgentConnectionRunner {
         }
         self.record_confirmed_controls(session_id, confirmed_mode.as_deref(), &confirmed_config)
             .await;
-        let wire_blocks: Vec<ContentBlock> = blocks.into_iter().map(agent_block_to_acp).collect();
-        let recorded_blocks: Vec<ContentBlock> = display_blocks
-            .map(|blocks| blocks.into_iter().map(agent_block_to_acp).collect())
-            .unwrap_or_else(|| wire_blocks.clone());
-        self.record_prompt(&acp_session_id, &recorded_blocks).await;
         let turn_started = Instant::now();
+        let stderr_mark = self.stderr_tail.mark();
+        let turn_probe = Arc::new(TurnOutputProbe::default());
+        if let Ok(mut guard) = self.active_turn_probe.lock() {
+            *guard = Some((session_id, Arc::clone(&turn_probe)));
+        }
         let request = PromptRequest::new(SessionId::new(acp_session_id.clone()), wire_blocks);
         let prompt_future = conn.send_request(request).block_task();
         tokio::pin!(prompt_future);
@@ -4745,6 +5514,9 @@ impl AgentConnectionRunner {
         loop {
             tokio::select! {
                 result = &mut prompt_future => {
+                    if let Ok(mut guard) = self.active_turn_probe.lock() {
+                        *guard = None;
+                    }
                     // A turn that ends (normally or with an error) must release any
                     // permission still pending in the in-memory map; otherwise its
                     // oneshot sender leaks and the runtime/DB state diverge. The
@@ -4778,7 +5550,21 @@ impl AgentConnectionRunner {
                                 .get(&session_id)
                                 .and_then(|state| state.last_turn_usage.clone())
                                 .or_else(|| usage.clone());
-                            let stop_label = acp_enum_label(&response.stop_reason);
+                            let turn_failure = turn_failure_error_event(
+                                &response,
+                                &turn_probe,
+                                &self.stderr_tail,
+                                stderr_mark,
+                            );
+                            let stop_label = if turn_failure.is_some() {
+                                finish_turn_reason(
+                                    &response.stop_reason,
+                                    turn_probe.has_output(),
+                                    false,
+                                )
+                            } else {
+                                acp_enum_label(&response.stop_reason)
+                            };
                             self.record_turn_end(
                                 &acp_session_id,
                                 session_id,
@@ -4787,6 +5573,13 @@ impl AgentConnectionRunner {
                                 recorded_usage.as_ref(),
                             )
                             .await;
+                            if let Some(error) = turn_failure {
+                                self.emit(
+                                    Some(session_id),
+                                    Some(prompt_id),
+                                    AgentEvent::Error { error },
+                                );
+                            }
                             self.emit(
                                 Some(session_id),
                                 Some(prompt_id),
@@ -4829,16 +5622,15 @@ impl AgentConnectionRunner {
                                 recorded_err_usage.as_ref(),
                             )
                             .await;
+                            let error_event = format_acp_prompt_error(
+                                &error,
+                                &self.stderr_tail,
+                                stderr_mark,
+                            );
                             self.emit(
                                 Some(session_id),
                                 Some(prompt_id),
-                                AgentEvent::Error {
-                                    error: AgentErrorEvent {
-                                        message: error.to_string(),
-                                        code: acp_error_code_str(&error),
-                                        raw: error.data.clone(),
-                                    },
-                                },
+                                AgentEvent::Error { error: error_event },
                             );
                         }
                     }
@@ -4898,6 +5690,9 @@ impl AgentConnectionRunner {
                             },
                         },
                     );
+                    if let Ok(mut guard) = self.active_turn_probe.lock() {
+                        *guard = None;
+                    }
                     *self.active_prompt.lock().await = None;
                     return Ok(RunPromptOutcome::RetireConnection);
                 }
@@ -4923,6 +5718,9 @@ impl AgentConnectionRunner {
                                     command = cmd_rx.recv() => {
                                         match command {
                                             Some(AgentConnectionCommand::Disconnect) | None => {
+                                                if let Ok(mut guard) = self.active_turn_probe.lock() {
+                                                    *guard = None;
+                                                }
                                                 *self.active_prompt.lock().await = None;
                                                 self.record_turn_end(
                                                     &acp_session_id,
@@ -5020,6 +5818,9 @@ impl AgentConnectionRunner {
                                     },
                                 },
                             );
+                            if let Ok(mut guard) = self.active_turn_probe.lock() {
+                                *guard = None;
+                            }
                             *self.active_prompt.lock().await = None;
                             if !acknowledged {
                                 // Leaving this process alive holds the agent's
@@ -5142,6 +5943,9 @@ impl AgentConnectionRunner {
                                     },
                                 },
                             );
+                            if let Ok(mut guard) = self.active_turn_probe.lock() {
+                                *guard = None;
+                            }
                             *self.active_prompt.lock().await = None;
                             return Ok(RunPromptOutcome::Closed);
                         }
@@ -5437,6 +6241,7 @@ impl AgentConnectionRunner {
                 );
             }
         }
+        self.record_turn_probe_event(session_id, &event);
         send_manager_event(
             &self.event_tx,
             AgentConnectionManagerEvent {
@@ -5461,6 +6266,9 @@ impl AgentConnectionRunner {
                 error: turn_error_event_from_connection_failure(&error),
             },
         );
+        if let Ok(mut guard) = self.active_turn_probe.lock() {
+            *guard = None;
+        }
         *self.active_prompt.lock().await = None;
     }
 
@@ -5831,17 +6639,19 @@ impl AcpClientBridge {
                 .remove(&permission_id.to_string())
         {
             let _ = pending.tx.send(response.clone());
+            let event = AgentEvent::PermissionResponded {
+                permission_id,
+                response: response.clone(),
+                auto: true,
+            };
+            self.apply.record_turn_probe_event(Some(session_id), &event);
             send_manager_event(
                 &self.event_tx,
                 AgentConnectionManagerEvent {
                     connection_id: self.connection_id,
                     session_id: Some(session_id),
                     prompt_id: None,
-                    event: AgentEvent::PermissionResponded {
-                        permission_id,
-                        response: response.clone(),
-                        auto: true,
-                    },
+                    event,
                 },
             );
             return Ok(RequestPermissionResponse::new(permission_response_outcome(
@@ -5849,15 +6659,17 @@ impl AcpClientBridge {
             )));
         }
 
+        let event = AgentEvent::PermissionRequested {
+            request: request.clone(),
+        };
+        self.apply.record_turn_probe_event(Some(session_id), &event);
         send_manager_event(
             &self.event_tx,
             AgentConnectionManagerEvent {
                 connection_id: self.connection_id,
                 session_id: Some(session_id),
                 prompt_id: None,
-                event: AgentEvent::PermissionRequested {
-                    request: request.clone(),
-                },
+                event,
             },
         );
 
@@ -5911,11 +6723,9 @@ impl AcpClientBridge {
             return Err(acp::Error::method_not_found());
         };
         let question = parsed.map_err(|error| {
-            tracing::warn!(
-                method = %ext.method,
-                error = %error,
-                "invalid vendor question ext-method params"
-            );
+            let sanitized = sanitize_diagnostic(&error);
+            self.apply
+                .note_dropped_update(None, Some(ext.method.as_ref()), &sanitized);
             acp::Error::invalid_params()
         })?;
         let sessions = self.session_map.read().await;
@@ -5954,13 +6764,15 @@ impl AcpClientBridge {
             message,
             requested_schema,
         };
+        let event = AgentEvent::ElicitationRequested { request };
+        self.apply.record_turn_probe_event(Some(session_id), &event);
         send_manager_event(
             &self.event_tx,
             AgentConnectionManagerEvent {
                 connection_id: self.connection_id,
                 session_id: Some(session_id),
                 prompt_id: None,
-                event: AgentEvent::ElicitationRequested { request },
+                event,
             },
         );
 
@@ -5981,8 +6793,15 @@ impl AcpClientBridge {
         &self,
         ext: agent_client_protocol::schema::v1::ExtNotification,
     ) -> Result<(), acp::Error> {
-        let params: serde_json::Value =
-            serde_json::from_str(ext.params.get()).unwrap_or(serde_json::Value::Null);
+        let params: serde_json::Value = match serde_json::from_str(ext.params.get()) {
+            Ok(value) => value,
+            Err(error) => {
+                let summary = summarize_parser_error(&error);
+                self.apply
+                    .note_dropped_update(None, Some(ext.method.as_ref()), &summary);
+                serde_json::Value::Null
+            }
+        };
         if ext.method.as_ref() == GROK_MODELS_UPDATE_METHOD {
             self.handle_grok_models_update(&params).await;
             return Ok(());
@@ -6141,17 +6960,30 @@ impl AcpClientBridge {
         }
         if updates.is_empty() {
             if crate::grok_subagent::is_vendor_session_update(ext.method.as_ref()) {
-                if let Ok(notification) =
-                    serde_json::from_value::<SessionNotification>(params.clone())
-                {
-                    // `session_notification` already folds `turn_completed.usage`.
-                    // Emitting here as well would double-count the same prompt.
-                    return self.session_notification(notification).await;
-                }
-                if session_id.is_some()
-                    && let Some(usage) = usage_from_session_notification_params(&params)
-                {
-                    self.emit_end_turn_usage(session_id, usage).await;
+                match serde_json::from_value::<SessionNotification>(params.clone()) {
+                    Ok(notification) => {
+                        // `session_notification` already folds `turn_completed.usage`.
+                        // Emitting here as well would double-count the same prompt.
+                        return self.session_notification(notification).await;
+                    }
+                    Err(error) => {
+                        if session_id.is_some()
+                            && let Some(usage) = usage_from_session_notification_params(&params)
+                        {
+                            self.emit_end_turn_usage(session_id, usage).await;
+                        } else if session_notice::from_session_notification_params(&params)
+                            .is_none()
+                        {
+                            let tag = params
+                                .get("update")
+                                .and_then(|u| u.get("sessionUpdate"))
+                                .and_then(serde_json::Value::as_str)
+                                .unwrap_or(ext.method.as_ref());
+                            let summary = summarize_parser_error(&error);
+                            self.apply
+                                .note_dropped_update(session_id, Some(tag), &summary);
+                        }
+                    }
                 }
             }
             let diagnostic = session_notice::from_session_notification_params(&params)
@@ -6169,23 +7001,25 @@ impl AcpClientBridge {
             return Ok(());
         }
         for update in updates {
+            let event = AgentEvent::ToolCallUpdate {
+                update: AgentToolCallUpdate {
+                    id: update.tool_call_id,
+                    title: None,
+                    status: None,
+                    content: None,
+                    input_preview: None,
+                    meta: Some(update.meta),
+                    images: Vec::new(),
+                },
+            };
+            self.apply.record_turn_probe_event(session_id, &event);
             send_manager_event(
                 &self.event_tx,
                 AgentConnectionManagerEvent {
                     connection_id: self.connection_id,
                     session_id,
                     prompt_id: None,
-                    event: AgentEvent::ToolCallUpdate {
-                        update: AgentToolCallUpdate {
-                            id: update.tool_call_id,
-                            title: None,
-                            status: None,
-                            content: None,
-                            input_preview: None,
-                            meta: Some(update.meta),
-                            images: Vec::new(),
-                        },
-                    },
+                    event,
                 },
             );
         }
@@ -6567,6 +7401,14 @@ impl AcpClientBridge {
                         raw: session_notice::diagnostic_payload(&notice),
                     })
                 } else {
+                    let tag = raw_notification
+                        .get("sessionUpdate")
+                        .and_then(serde_json::Value::as_str);
+                    self.apply.note_dropped_update(
+                        session_id,
+                        tag,
+                        "unrecognized sessionUpdate variant",
+                    );
                     bound_meta_fields(&mut raw_notification);
                     Some(AgentEvent::RawAcpDiagnostic {
                         raw: raw_notification,
@@ -6589,6 +7431,7 @@ impl AcpClientBridge {
                 // (CodeG applies before `session_modes` / `session_config_options`).
                 return Ok(());
             }
+            self.apply.record_turn_probe_event(session_id, &event);
             send_manager_event(
                 &self.event_tx,
                 AgentConnectionManagerEvent {
@@ -10069,13 +10912,16 @@ mod tests {
     }
 
     #[test]
-    fn stderr_ring_buffer_keeps_recent_bytes() {
-        let mut buffer = StderrRingBuffer::new(6);
+    fn stderr_tail_redacts_and_summarizes_recent_lines() {
+        let tail = StderrTail::new();
 
-        buffer.push(b"abc");
-        buffer.push(b"defgh");
+        tail.push("first line");
+        tail.push("api_key=sk-live-abcdefghijklmnop");
 
-        assert_eq!(buffer.summary().as_deref(), Some("cdefgh"));
+        assert_eq!(
+            tail.summary().as_deref(),
+            Some("first line\napi_key=<redacted>")
+        );
     }
 
     #[test]
@@ -10563,5 +11409,302 @@ mod tests {
             commands[3].input_schema,
             Some(serde_json::json!({ "hint": "<env>" }))
         );
+    }
+
+    /// A rejected session override happens before `session/prompt`. The user
+    /// message is already accepted, and reopening the conversation reads the
+    /// transcript, so the prompt must be on disk even though the turn failed.
+    #[tokio::test]
+    async fn failed_session_override_keeps_the_user_prompt_in_the_transcript() {
+        let prompt_text = "remember this prompt after the model override fails";
+        let (event_tx, mut event_rx) = mpsc::unbounded_channel();
+        let runner = dummy_runner(event_tx);
+        let session_id = AgentSessionId::new();
+        let acp_session_id = format!("override-fail-{}", uuid::Uuid::new_v4().simple());
+        runner.session_controls.write().await.insert(
+            session_id,
+            SessionControlState {
+                config_options: vec![
+                    AcpSessionConfigOption::select(
+                        "model",
+                        "Model",
+                        "gemini-3.8-flash-high",
+                        vec![
+                            SessionConfigSelectOption::new(
+                                "gemini-3.8-flash-high",
+                                "Gemini 3.8 Flash",
+                            ),
+                            SessionConfigSelectOption::new("gemini-4-argon", "Gemini 4 Argon"),
+                        ],
+                    )
+                    .category(Some(SessionConfigOptionCategory::Model)),
+                ],
+                ..Default::default()
+            },
+        );
+
+        let (client_write, agent_read) = tokio::io::duplex(64 * 1024);
+        let (agent_write, client_read) = tokio::io::duplex(64 * 1024);
+        let agent_transport =
+            acp::ByteStreams::new(agent_write.compat_write(), agent_read.compat());
+        tokio::spawn(async move {
+            let _ = acp::Agent.builder().connect_to(agent_transport).await;
+        });
+        let client_transport =
+            acp::ByteStreams::new(client_write.compat_write(), client_read.compat());
+        let (_cmd_tx, mut cmd_rx) = mpsc::channel(1);
+        let request = RunPromptRequest {
+            acp_session_id: acp_session_id.clone(),
+            session_id,
+            prompt_id: AgentPromptId::new(),
+            blocks: vec![AgentContentBlock::Text {
+                text: prompt_text.to_string(),
+            }],
+            display_blocks: Some(vec![AgentContentBlock::Text {
+                text: prompt_text.to_string(),
+            }]),
+            mode_override: None,
+            config_overrides: vec![AgentSessionConfigOverride {
+                key: "model".to_string(),
+                value: "gemini-4-argon".to_string(),
+            }],
+        };
+        let outcome = tokio::time::timeout(
+            Duration::from_secs(5),
+            acp::Client
+                .builder()
+                .name("VibeX")
+                .connect_with(client_transport, async move |conn| {
+                    runner.run_prompt(&conn, request, &mut cmd_rx).await
+                }),
+        )
+        .await
+        .expect("session override failure hung")
+        .expect("override rejection must settle the turn");
+        assert_eq!(outcome, RunPromptOutcome::Settled);
+
+        let mut saw_override_failure = false;
+        while let Ok(event) = event_rx.try_recv() {
+            if let AgentEvent::Error { error } = event.event
+                && error.message.contains("ACP session overrides failed")
+            {
+                saw_override_failure = true;
+            }
+        }
+        assert!(
+            saw_override_failure,
+            "the turn must fail at session overrides, before session/prompt"
+        );
+
+        let root = crate::acp_transcript::vibex_acp_transcripts_root();
+        let agent_dir = jsonl_agent_dir("antigravity");
+        let _ = crate::acp_transcript::flush_in(&root, &agent_dir, &acp_session_id).await;
+        let transcript = crate::acp_transcript::read_chain_in(&root, &agent_dir, &acp_session_id);
+        let turns = crate::parsers::acp_native::project_turns(&transcript.entries);
+        let user_texts: Vec<String> = turns
+            .iter()
+            .filter(|turn| matches!(turn.role, crate::conversation::TurnRole::User))
+            .flat_map(|turn| turn.blocks.iter())
+            .filter_map(|block| match block {
+                crate::conversation::ContentBlock::Text { text } => Some(text.clone()),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(
+            user_texts,
+            vec![prompt_text.to_string()],
+            "reopening the conversation reads this transcript; the sent message must still be there"
+        );
+        assert!(
+            transcript.entries.iter().any(|entry| {
+                entry.k == crate::acp_transcript::EntryKind::TurnEnd
+                    && entry.p.get("stopReason").and_then(|value| value.as_str()) == Some("error")
+            }),
+            "a failed override must close the transcript turn"
+        );
+    }
+
+    #[test]
+    fn silent_end_turn_without_output_emits_turn_failed_empty_with_redacted_stderr() {
+        let tail = StderrTail::new();
+        tail.push("startup banner");
+        let mark = tail.mark();
+        tail.push("FATAL: upstream 401 with Authorization: Bearer sk-secret-token-1234567890");
+
+        let probe = TurnOutputProbe::default();
+        let response = acp::schema::v1::PromptResponse::new(acp::schema::v1::StopReason::EndTurn);
+
+        let error = turn_failure_error_event(&response, &probe, &tail, mark)
+            .expect("empty EndTurn must produce turn_failed_empty error");
+        assert_eq!(error.code.as_deref(), Some("turn_failed_empty"));
+        assert!(
+            error.message.contains("<redacted>"),
+            "stderr diagnostic must be redacted: {}",
+            error.message
+        );
+        assert!(
+            !error.message.contains("sk-secret-token"),
+            "raw secret must never leak: {}",
+            error.message
+        );
+        assert!(
+            !error.message.contains("startup banner"),
+            "stderr before turn mark must be excluded: {}",
+            error.message
+        );
+        assert_eq!(
+            finish_turn_reason(&response.stop_reason, probe.has_output(), false),
+            "turn_failed_empty"
+        );
+    }
+
+    #[test]
+    fn end_turn_with_visible_output_does_not_emit_turn_failure() {
+        let tail = StderrTail::new();
+        let mark = tail.mark();
+        tail.push("harmless warning on stderr");
+
+        let probe = TurnOutputProbe::default();
+        probe.note_rendered();
+        let response = acp::schema::v1::PromptResponse::new(acp::schema::v1::StopReason::EndTurn);
+
+        assert!(turn_failure_error_event(&response, &probe, &tail, mark).is_none());
+        assert_eq!(
+            finish_turn_reason(&response.stop_reason, probe.has_output(), false),
+            "end_turn"
+        );
+    }
+
+    #[test]
+    fn refusal_max_tokens_and_max_turn_requests_emit_structured_turn_failure_errors() {
+        let tail = StderrTail::new();
+        let mark = tail.mark();
+        let probe = TurnOutputProbe::default();
+        probe.note_rendered();
+
+        let refusal = acp::schema::v1::PromptResponse::new(acp::schema::v1::StopReason::Refusal);
+        let refusal_err = turn_failure_error_event(&refusal, &probe, &tail, mark)
+            .expect("StopReason::Refusal must emit error");
+        assert_eq!(refusal_err.code.as_deref(), Some("turn_failed_refusal"));
+        assert!(refusal_err.message.contains("StopReason::Refusal"));
+
+        let max_tokens =
+            acp::schema::v1::PromptResponse::new(acp::schema::v1::StopReason::MaxTokens);
+        let max_tokens_err = turn_failure_error_event(&max_tokens, &probe, &tail, mark)
+            .expect("StopReason::MaxTokens must emit error");
+        assert_eq!(
+            max_tokens_err.code.as_deref(),
+            Some("turn_failed_max_tokens")
+        );
+        assert!(max_tokens_err.message.contains("StopReason::MaxTokens"));
+
+        let max_requests =
+            acp::schema::v1::PromptResponse::new(acp::schema::v1::StopReason::MaxTurnRequests);
+        let max_requests_err = turn_failure_error_event(&max_requests, &probe, &tail, mark)
+            .expect("StopReason::MaxTurnRequests must emit error");
+        assert_eq!(
+            max_requests_err.code.as_deref(),
+            Some("turn_failed_max_turn_requests")
+        );
+        assert!(
+            max_requests_err
+                .message
+                .contains("StopReason::MaxTurnRequests")
+        );
+    }
+
+    #[test]
+    fn jetbrains_air_capabilities_and_session_failure_extraction_work() {
+        let caps = build_client_capabilities();
+        let meta = caps.meta.expect("client capabilities must include _meta");
+        assert_eq!(
+            meta.get("jetbrains.air")
+                .and_then(|v| v.get("sessionFailure")),
+            Some(&serde_json::json!(true))
+        );
+
+        let rpc_err = acp::Error::internal_error().data(serde_json::json!({
+            "_meta": {
+                "jetbrains.air": {
+                    "sessionFailure": {
+                        "type": "RateLimitExceeded",
+                        "reason": "Quota exhausted for claude-sonnet",
+                        "userMessage": "Rate limit reached; please wait 60 seconds."
+                    }
+                }
+            }
+        }));
+        let tail = StderrTail::new();
+        let mark = tail.mark();
+        let formatted = format_acp_prompt_error(&rpc_err, &tail, mark);
+        assert!(
+            formatted
+                .message
+                .contains("Rate limit reached; please wait 60 seconds."),
+            "expected userMessage in formatted error: {}",
+            formatted.message
+        );
+        assert!(
+            formatted.message.contains("[RateLimitExceeded]"),
+            "expected failure type in formatted error: {}",
+            formatted.message
+        );
+
+        let mut response_meta = serde_json::Map::new();
+        response_meta.insert(
+            "jetbrains.air".to_string(),
+            serde_json::json!({
+                "sessionFailure": {
+                    "type": "AuthenticationFailed",
+                    "userMessage": "Session token expired, please re-authenticate."
+                }
+            }),
+        );
+        let response = acp::schema::v1::PromptResponse::new(acp::schema::v1::StopReason::EndTurn)
+            .meta(response_meta);
+        let probe = TurnOutputProbe::default();
+        let empty_err = turn_failure_error_event(&response, &probe, &tail, mark)
+            .expect("empty EndTurn with sessionFailure must surface error");
+        assert_eq!(empty_err.code.as_deref(), Some("turn_failed_empty"));
+        assert!(
+            empty_err
+                .message
+                .contains("Session token expired, please re-authenticate."),
+            "expected sessionFailure userMessage in empty turn error: {}",
+            empty_err.message
+        );
+    }
+
+    #[test]
+    fn omit_null_error_data_and_fix_usage_update_nulls_clean_non_conformant_frames() {
+        let error_frame = r#"{"jsonrpc":"2.0","id":0,"error":{"code":-32601,"message":"\"session/list\": Method not found","data":null}}"#;
+        let cleaned_error = sanitize_incoming_jsonrpc_line(error_frame.to_string());
+        let parsed_error: serde_json::Value = serde_json::from_str(&cleaned_error).unwrap();
+        assert!(parsed_error["error"].get("data").is_none());
+        assert_eq!(
+            parsed_error["error"]["message"],
+            "\"session/list\": Method not found"
+        );
+
+        let usage_frame = r#"{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"s1","update":{"sessionUpdate":"usage_update","size":null,"used":null,"cost":{"amount":0.01,"currency":null}}}}"#;
+        let cleaned_usage = sanitize_incoming_jsonrpc_line(usage_frame.to_string());
+        let parsed_usage: serde_json::Value = serde_json::from_str(&cleaned_usage).unwrap();
+        assert_eq!(parsed_usage["params"]["update"]["size"], 0);
+        assert_eq!(parsed_usage["params"]["update"]["used"], 0);
+        assert!(parsed_usage["params"]["update"].get("cost").is_none());
+    }
+
+    #[test]
+    fn leading_edge_throttle_suppresses_bursts_and_reports_count_after_window() {
+        let window = Duration::from_secs(10);
+        let throttle = LeadingEdgeThrottle::new(window);
+        let window_ns = window.as_nanos() as u64;
+
+        assert_eq!(throttle.check_at(0), Some(0));
+        for ms in 1..=25 {
+            assert_eq!(throttle.check_at(ms * 100_000_000), None);
+        }
+        assert_eq!(throttle.check_at(window_ns + 1_000_000), Some(25));
+        assert_eq!(throttle.flush(), 0);
     }
 }

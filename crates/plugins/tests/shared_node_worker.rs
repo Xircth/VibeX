@@ -577,10 +577,7 @@ async fn shared_node_plugins_collaborate_via_service_container_and_revoke_on_dis
         .unwrap();
     assert_eq!(active_res["hasService"], json!(true));
     assert_eq!(active_res["doubled"], json!(42));
-    assert_eq!(
-        active_res["prompt"],
-        json!("hello [enriched-by-provider]")
-    );
+    assert_eq!(active_res["prompt"], json!("hello [enriched-by-provider]"));
 
     // Disable provider plugin -> its services and waterfall interceptors must be automatically revoked
     control
@@ -702,10 +699,7 @@ async fn shared_node_async_timeout_isolates_faulty_slot_and_hard_crash_recovers_
         .activation_lease("dev.vibex.shared-1")
         .await
         .unwrap();
-    let faulty_lease = control
-        .activation_lease("dev.vibex.faulty")
-        .await
-        .unwrap();
+    let faulty_lease = control.activation_lease("dev.vibex.faulty").await.unwrap();
 
     // 1. Trigger async timeout on faulty plugin -> must isolate only faulty slot and keep initial_pid alive!
     let timeout_err = faulty_lease
@@ -731,10 +725,7 @@ async fn shared_node_async_timeout_isolates_faulty_slot_and_hard_crash_recovers_
         .activate_and_enable(&node, "dev.vibex.faulty", &[], broker.clone())
         .await
         .unwrap();
-    let faulty_lease_2 = control
-        .activation_lease("dev.vibex.faulty")
-        .await
-        .unwrap();
+    let faulty_lease_2 = control.activation_lease("dev.vibex.faulty").await.unwrap();
     let _crash_err = faulty_lease_2
         .invoke("faulty.crash", json!({}))
         .await
@@ -756,4 +747,3 @@ async fn shared_node_async_timeout_isolates_faulty_slot_and_hard_crash_recovers_
     assert_eq!(survivor_probe["pid"], json!(recovered_pid));
     assert_eq!(survivor_probe["index"], json!(1));
 }
-

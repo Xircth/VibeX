@@ -461,9 +461,7 @@ describe('settings page alignment', () => {
     const searchIcon = declarationsFor(
       '.settings-page .settings-list-search > svg'
     );
-    const searchInput = declarationsMatching(
-      '.settings-list-search > input'
-    );
+    const searchInput = declarationsMatching('.settings-list-search > input');
     const agentBar = declarationsMatching('.agent-management-bar');
     const topTabBar = declarationsMatching(
       '.agent-management-bar.settings-top-tab-bar'
@@ -486,7 +484,9 @@ describe('settings page alignment', () => {
     expect(topTabBar.get('gap')).toBe('4px');
     expect(topTabItem.get('flex')).toBe('1 1 0%');
     expect(topTabItem.get('justify-content')).toBe('center');
-    expect(selectedItem.get('background')).toBe('var(--surface-control)');
+    expect(selectedItem.get('background')).toBe(
+      'var(--surface-raised-control)'
+    );
     expect(selectedItem.get('box-shadow')).toBe('var(--shadow-card)');
   });
 });

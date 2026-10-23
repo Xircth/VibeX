@@ -330,13 +330,11 @@ describe('product plugin experience', () => {
         /通过插件扩展平台能力，新建会话后生效|Extend the platform with plugins/i
       )
     ).not.toBeInTheDocument();
-    const heading = screen
-      .getByRole('heading', { name: '插件' })
-      .closest('.chat-channel-heading');
+    const heading = search.closest('.chat-channel-heading');
     expect(heading).toBeTruthy();
     expect(
-      screen.getByRole('heading', { name: '插件' }).parentElement
-    ).toHaveClass('chat-channel-heading__copy');
+      screen.queryByRole('heading', { name: '插件' })
+    ).not.toBeInTheDocument();
     const addPlugin = screen.getByRole('button', {
       name: /添加插件|add plugin/i,
     });
@@ -351,14 +349,15 @@ describe('product plugin experience', () => {
         Node.DOCUMENT_POSITION_FOLLOWING
     ).toBeTruthy();
     expect(
+      addPlugin.querySelector('.dsh-add-plugin-divider')
+    ).toBeInTheDocument();
+    expect(
       screen.getByRole('radio', { name: /已安装|installed/i })
     ).toHaveAttribute('aria-checked', 'true');
     expect(
       screen.getByRole('radio', { name: /插件市场|marketplace/i })
     ).toBeVisible();
-    expect(
-      screen.getByRole('radio', { name: /内置底座|core/i })
-    ).toBeVisible();
+    expect(screen.getByRole('radio', { name: /内置底座|core/i })).toBeVisible();
     expect(addPlugin).toHaveClass('primary-control');
     expect(
       screen.getByRole('region', { name: /插件目录|plugin catalog/i })
@@ -805,15 +804,11 @@ describe('product plugin experience', () => {
       'aria-selected',
       'true'
     );
-    expect(
-      screen.getByRole('tab', { name: /^(设计|Design)$/ })
-    ).toBeVisible();
+    expect(screen.getByRole('tab', { name: /^(设计|Design)$/ })).toBeVisible();
     expect(
       screen.getByRole('tab', { name: /^(开发|Development)$/ })
     ).toBeVisible();
-    expect(
-      screen.getByRole('tab', { name: /^(科研|Science)$/ })
-    ).toBeVisible();
+    expect(screen.getByRole('tab', { name: /^(科研|Science)$/ })).toBeVisible();
     expect(
       screen.getByRole('tab', { name: /^(AI增强|AI Enhancement)$/ })
     ).toBeVisible();
@@ -828,9 +823,7 @@ describe('product plugin experience', () => {
       .closest('.product-plugin-card');
     expect(officeRow).not.toBeNull();
     expect(within(officeRow as HTMLElement).getByText('vibex')).toBeVisible();
-    expect(
-      within(officeRow as HTMLElement).getByText('AIGC')
-    ).toBeVisible();
+    expect(within(officeRow as HTMLElement).getByText('AIGC')).toBeVisible();
     expect(
       within(officeRow as HTMLElement).getByText(/已安装|Installed/)
     ).toBeVisible();
@@ -1758,7 +1751,9 @@ describe('product plugin experience', () => {
     expect(screen.getByRole('heading', { name: 'MCP' })).toBeVisible();
     expect(screen.getByText('Computer Use')).toBeVisible();
     expect(screen.getByText('Computer Use MCP')).toBeVisible();
-    expect(screen.getByText('app/settings-pages/computer-use.md')).toBeVisible();
+    expect(
+      screen.getByText('app/settings-pages/computer-use.md')
+    ).toBeVisible();
     expect(screen.getByText('app/status/computer-use-status.md')).toBeVisible();
   });
 
@@ -1767,9 +1762,13 @@ describe('product plugin experience', () => {
       ...drawioPlugin,
       id: 'acme.devtools',
       name: 'Acme Devtools',
-      skills: [{ id: 'code-audit', path: 'contents/skills/code-audit/SKILL.md' }],
+      skills: [
+        { id: 'code-audit', path: 'contents/skills/code-audit/SKILL.md' },
+      ],
       mcpServers: ['devtools-mcp'],
-      hooks: [{ id: 'pre-tool-guard', path: 'contents/hooks/pre-tool-guard.json' }],
+      hooks: [
+        { id: 'pre-tool-guard', path: 'contents/hooks/pre-tool-guard.json' },
+      ],
       appContributions: [
         {
           id: 'devtools-panel',

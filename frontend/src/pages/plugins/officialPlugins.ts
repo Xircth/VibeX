@@ -6,6 +6,15 @@ export const PLUGIN_DEVELOPMENT_PLUGIN_ID = 'vibex.plugin-development';
 export const PLUGIN_DEVELOPMENT_DOCS_URL =
   'https://vibex.xforver.xin/docs/developers';
 
+export const FEATURED_OFFICIAL_PRIORITY_IDS = [
+  'vibex.office',
+  'vibex.science',
+  'vibex-plugin-computer-use',
+  'vibex.workflow-creator',
+  'vibex.browser',
+  'vibex.session-enhance',
+] as const;
+
 export const OFFICIAL_PLUGIN_I18N_KEY = {
   'vibex.browser': 'browser',
   'vibex.office': 'office',
@@ -361,7 +370,11 @@ export function isOpenSourcePluginOrigin(source: {
   }
   if (kind === 'github') return true;
   const origin = `${source.repo ?? ''}\n${source.sourceOrigin ?? ''}\n${source.homepage ?? ''}`;
-  if (/github\.com|gitlab\.com|codeberg\.org|bitbucket\.org|\.git(?:$|[/?#])/i.test(origin)) {
+  if (
+    /github\.com|gitlab\.com|codeberg\.org|bitbucket\.org|\.git(?:$|[/?#])/i.test(
+      origin
+    )
+  ) {
     return true;
   }
   return false;

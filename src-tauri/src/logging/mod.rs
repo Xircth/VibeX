@@ -12,7 +12,6 @@ pub use hub::attach_emitter;
 pub use init::init_logging;
 use serde::{Deserialize, Serialize};
 
-pub const LOG_SETTINGS_CHANGED_EVENT: &str = "log-settings://changed";
 pub const LOG_APPENDED_EVENT: &str = "logs://appended";
 
 /// Minimum severity captured by the subscriber. `Off` disables capture.
@@ -55,12 +54,4 @@ pub struct LogSettings {
     pub level: LogLevel,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub targets: Vec<TargetDirective>,
-}
-
-/// Settings plus whether `VIBEX_LOG` / `RUST_LOG` currently owns the live filter.
-#[derive(Debug, Clone, Serialize)]
-pub struct LogSettingsView {
-    pub level: LogLevel,
-    pub targets: Vec<TargetDirective>,
-    pub env_locked: bool,
 }

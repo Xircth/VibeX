@@ -147,9 +147,9 @@ describe('PluginMarketplaceLogo', () => {
 
   it('respects VIBEX_SITE_URL for allowlisted marketplace icon host', () => {
     vi.stubEnv('VIBEX_SITE_URL', 'https://site.example.com/');
-    expect(
-      allowedMarketplaceIconUrl('https://site.example.com/foo.png')
-    ).toBe('https://site.example.com/foo.png');
+    expect(allowedMarketplaceIconUrl('https://site.example.com/foo.png')).toBe(
+      'https://site.example.com/foo.png'
+    );
     expect(
       allowedMarketplaceIconUrl('https://vibex.xforever.xin/foo.png')
     ).toBeNull();

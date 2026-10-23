@@ -44,7 +44,10 @@ export class Registry {
         if (direct)
             return direct;
         for (const item of this.items.values()) {
-            if (item.pluginId && `${item.pluginId}:${item.id}` === id) {
+            if (item.id === id ||
+                (item.pluginId &&
+                    (`${item.pluginId}:${item.id}` === id ||
+                        `plugin:${item.pluginId}/${item.id}` === id))) {
                 return item;
             }
         }
@@ -69,6 +72,14 @@ export class Registry {
         this.slotSnapshots.set(slot, filtered);
         return filtered;
     }
+    storageKey(item) {
+        if (item.pluginId &&
+            !item.id.startsWith(`${item.pluginId}:`) &&
+            !item.id.startsWith(`plugin:${item.pluginId}/`)) {
+            return `${item.pluginId}:${item.id}`;
+        }
+        return item.id;
+    }
     register(idOrItem, itemOrPluginId, maybePluginId) {
         const item = typeof idOrItem === 'string'
             ? { ...itemOrPluginId, id: idOrItem }
@@ -77,19 +88,32 @@ export class Registry {
             ? maybePluginId
             : itemOrPluginId;
         const normalized = pluginId && !item.pluginId ? { ...item, pluginId } : item;
-        this.items.set(normalized.id, normalized);
+        const key = this.storageKey(normalized);
+        this.items.set(key, normalized);
         this.rebuildSnapshot();
         this.emit();
         return () => {
-            if (this.items.get(normalized.id) === normalized) {
-                this.items.delete(normalized.id);
+            if (this.items.get(key) === normalized) {
+                this.items.delete(key);
                 this.rebuildSnapshot();
                 this.emit();
             }
         };
     }
     unregister(id) {
-        const deleted = this.items.delete(id);
+        let deleted = this.items.delete(id);
+        if (!deleted) {
+            for (const [key, item] of this.items.entries()) {
+                if (item.id === id ||
+                    (item.pluginId &&
+                        (`${item.pluginId}:${item.id}` === id ||
+                            `plugin:${item.pluginId}/${item.id}` === id))) {
+                    this.items.delete(key);
+                    deleted = true;
+                    break;
+                }
+            }
+        }
         if (deleted) {
             this.rebuildSnapshot();
             this.emit();
@@ -127,7 +151,11 @@ export class Registry {
             if (orderDiff !== 0) {
                 return orderDiff;
             }
-            return a.id.localeCompare(b.id);
+            const idDiff = a.id.localeCompare(b.id);
+            if (idDiff !== 0) {
+                return idDiff;
+            }
+            return (a.pluginId ?? '').localeCompare(b.pluginId ?? '');
         });
         this.snapshot = Object.freeze(next);
         this.slotSnapshots.clear();

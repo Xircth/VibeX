@@ -342,19 +342,11 @@ where
     persist_lock(pool, plan, &installation).await?;
     let working_dir = data_dir.join("agents").join(plan.agent_id.as_str());
     tokio::fs::create_dir_all(&working_dir).await?;
-    match tokio::time::timeout(
-        std::time::Duration::from_secs(30),
-        verify_handshake(&plan.agent_id, &installation.launch_lock, &working_dir),
-    )
-    .await
-    {
-        Ok(Ok(())) => {}
-        Ok(Err(error)) => {
+    match verify_handshake(&plan.agent_id, &installation.launch_lock, &working_dir).await {
+        Ok(()) => {}
+        Err(error) => {
             println!("Installed CLI; ACP handshake will be retried when a session starts ({error})")
         }
-        Err(_) => println!(
-            "Installed CLI; ACP handshake timed out and will be retried when a session starts"
-        ),
     }
     println!(
         "Installed {} runtime {} / ACP {}",
@@ -560,6 +552,12 @@ async fn try_adopt(
     };
     let mut components = Vec::new();
     for candidate in profile.external_candidates {
+        if candidate.version_args.is_empty() {
+            if candidate.component == ProfileComponent::AgentRuntime {
+                continue;
+            }
+            return Ok(None);
+        }
         let Some(path) = utils::shell::resolve_executable_path(candidate.executable).await else {
             if candidate.component == ProfileComponent::AgentRuntime {
                 continue;
@@ -568,7 +566,9 @@ async fn try_adopt(
         };
         let path =
             utils::process::prefer_direct_spawn_executable(tokio::fs::canonicalize(&path).await?);
-        let version = probe_version(&path).await.unwrap_or_default();
+        let version = probe_version(&path, candidate.version_args)
+            .await
+            .unwrap_or_default();
         if version.is_empty() {
             if candidate.component == ProfileComponent::AgentRuntime {
                 continue;
@@ -615,7 +615,8 @@ async fn install_plan(
 ) -> anyhow::Result<InstalledPlan> {
     let mut components = Vec::new();
     for component in &plan.components {
-        if let Some(existing) = existing_component(component).await {
+        let version_args = component_version_args(&plan.agent_id, &component.component_id);
+        if let Some(existing) = existing_component(component, version_args).await {
             println!(
                 "Reusing {} {} at {}",
                 component.component_id,
@@ -637,7 +638,7 @@ async fn install_plan(
                 install_binary(&plan.agent_id, component, user_env).await?
             }
         };
-        let version = probe_version(&path)
+        let version = probe_version(&path, version_args)
             .await
             .unwrap_or_else(|| component.version.clone());
         components.push(InstalledComponent {
@@ -729,7 +730,32 @@ fn build_installed_plan(
     })
 }
 
-async fn existing_component(component: &PlannedInstallComponent) -> Option<(PathBuf, String)> {
+fn component_version_args(agent_id: &AgentId, component_id: &str) -> &'static [&'static str] {
+    let catalog = BuiltInProfileCatalog::bundled();
+    let Some(profile) = catalog.profile(agent_id) else {
+        return &["--version"];
+    };
+    let expected = match component_id {
+        "agent_runtime" => ProfileComponent::AgentRuntime,
+        "acp_adapter" => ProfileComponent::AcpAdapter,
+        "combined_runtime" => ProfileComponent::CombinedRuntime,
+        _ => return &["--version"],
+    };
+    profile
+        .external_candidates
+        .iter()
+        .find(|candidate| candidate.component == expected)
+        .map(|candidate| candidate.version_args)
+        .unwrap_or(&["--version"])
+}
+
+async fn existing_component(
+    component: &PlannedInstallComponent,
+    version_args: &[&str],
+) -> Option<(PathBuf, String)> {
+    if version_args.is_empty() {
+        return None;
+    }
     let command = component.command.trim();
     if command.is_empty() || command == "npm" || command == "uv" {
         return None;
@@ -737,7 +763,7 @@ async fn existing_component(component: &PlannedInstallComponent) -> Option<(Path
     let path = utils::shell::resolve_executable_path(command).await?;
     let path =
         utils::process::prefer_direct_spawn_executable(tokio::fs::canonicalize(path).await.ok()?);
-    let version = probe_version(&path).await?;
+    let version = probe_version(&path, version_args).await?;
     existing_path_satisfies_component(&component.component_id, &version, &component.version)
         .then_some((path, version))
 }
@@ -1206,34 +1232,105 @@ async fn install_binary(
         };
     tokio::fs::create_dir_all(&user_env.user_bin).await?;
     let destination = user_bin_destination(&user_env.user_bin, &component.command, &staged);
-    tokio::fs::copy(&staged, &destination).await?;
-    if let Some(profile) = BuiltInProfileCatalog::bundled().profile(agent_id) {
-        let siblings = profile.binary_required_siblings(cfg!(windows));
-        if let Some(staged_dir) = staged.parent() {
-            for sibling in siblings {
-                let name = Path::new(sibling)
-                    .file_name()
-                    .and_then(|name| name.to_str())
-                    .unwrap_or(sibling);
-                let source = staged_dir.join(name);
-                if !source.is_file() {
-                    anyhow::bail!("extracted archive is missing required sibling `{name}`");
-                }
-                tokio::fs::copy(&source, user_env.user_bin.join(name)).await?;
-            }
-        }
-    }
+    let siblings = BuiltInProfileCatalog::bundled()
+        .profile(agent_id)
+        .map(|profile| profile.binary_required_siblings(cfg!(windows)))
+        .unwrap_or(&[]);
+    let install_result =
+        install_staged_binary_and_siblings(&staged, &destination, &user_env.user_bin, siblings)
+            .await;
     let _ = tokio::fs::remove_dir_all(&staging).await;
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        let mut permissions = tokio::fs::metadata(&destination).await?.permissions();
-        permissions.set_mode(0o755);
-        tokio::fs::set_permissions(&destination, permissions).await?;
-    }
+    install_result?;
     Ok(utils::process::prefer_direct_spawn_executable(
         tokio::fs::canonicalize(destination).await?,
     ))
+}
+
+async fn install_staged_binary_and_siblings(
+    staged: &Path,
+    destination: &Path,
+    user_bin: &Path,
+    siblings: &[&str],
+) -> anyhow::Result<()> {
+    replace_executable_file(staged, destination).await?;
+    if let Some(staged_dir) = staged.parent() {
+        for sibling in siblings {
+            let name = Path::new(sibling)
+                .file_name()
+                .and_then(|name| name.to_str())
+                .unwrap_or(sibling);
+            let source = staged_dir.join(name);
+            if !source.is_file() {
+                anyhow::bail!("extracted archive is missing required sibling `{name}`");
+            }
+            replace_executable_file(&source, &user_bin.join(name)).await?;
+        }
+    }
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let mut permissions = tokio::fs::metadata(destination).await?.permissions();
+        permissions.set_mode(0o755);
+        tokio::fs::set_permissions(destination, permissions).await?;
+    }
+    Ok(())
+}
+
+/// Replaces `destination` with `source` in the same directory so an active or
+/// lingering process holding `destination` open (Windows `ERROR_SHARING_VIOLATION`
+/// / `os error 32` or Unix `ETXTBSY`) does not block binary ACP updates.
+async fn replace_executable_file(source: &Path, destination: &Path) -> anyhow::Result<()> {
+    let parent = destination
+        .parent()
+        .ok_or_else(|| anyhow::anyhow!("destination `{}` has no parent", destination.display()))?;
+    let file_name = destination
+        .file_name()
+        .and_then(|name| name.to_str())
+        .ok_or_else(|| {
+            anyhow::anyhow!("destination `{}` has no file name", destination.display())
+        })?;
+    cleanup_stale_replaced_files(parent, file_name).await;
+
+    let temp_new = parent.join(format!(".{file_name}.new-{}", Uuid::new_v4()));
+    tokio::fs::copy(source, &temp_new).await?;
+
+    if tokio::fs::rename(&temp_new, destination).await.is_ok() {
+        return Ok(());
+    }
+
+    let aside = parent.join(format!(".{file_name}.old-{}", Uuid::new_v4()));
+    let moved_aside = tokio::fs::rename(destination, &aside).await.is_ok();
+    match tokio::fs::rename(&temp_new, destination).await {
+        Ok(()) => {
+            if moved_aside {
+                let _ = tokio::fs::remove_file(&aside).await;
+            }
+            Ok(())
+        }
+        Err(error) => {
+            let _ = tokio::fs::remove_file(&temp_new).await;
+            if moved_aside {
+                let _ = tokio::fs::rename(&aside, destination).await;
+            }
+            Err(error.into())
+        }
+    }
+}
+
+async fn cleanup_stale_replaced_files(parent: &Path, file_name: &str) {
+    let old_prefix = format!(".{file_name}.old-");
+    let new_prefix = format!(".{file_name}.new-");
+    let Ok(mut entries) = tokio::fs::read_dir(parent).await else {
+        return;
+    };
+    while let Ok(Some(entry)) = entries.next_entry().await {
+        let Some(name) = entry.file_name().to_str().map(str::to_string) else {
+            continue;
+        };
+        if name.starts_with(&old_prefix) || name.starts_with(&new_prefix) {
+            let _ = tokio::fs::remove_file(entry.path()).await;
+        }
+    }
 }
 
 fn is_kiro_official_installer(agent_id: &AgentId, source: &str) -> bool {
@@ -1415,11 +1512,11 @@ async fn install_kiro_windows_with_fallback(
             if path.is_file()
                 && let Some(name) = path.file_name()
             {
-                tokio::fs::copy(&path, user_env.user_bin.join(name)).await?;
+                replace_executable_file(&path, &user_env.user_bin.join(name)).await?;
             }
         }
     } else {
-        tokio::fs::copy(&staged_exe, user_env.user_bin.join("kiro-cli.exe")).await?;
+        replace_executable_file(&staged_exe, &user_env.user_bin.join("kiro-cli.exe")).await?;
     }
     utils::shell::expose_user_bin_to_process_path(&user_env.user_bin);
     let dest = user_env.user_bin.join("kiro-cli.exe");
@@ -1675,10 +1772,11 @@ async fn verify_handshake(
             env: HashMap::new(),
         })
         .await;
-    ready
-        .await
+    let readiness = tokio::time::timeout(std::time::Duration::from_secs(30), ready).await;
+    let _ = manager.disconnect(connection_id).await;
+    readiness
+        .map_err(|_| anyhow::anyhow!("ACP handshake timed out"))?
         .map_err(|_| anyhow::anyhow!("ACP process exited before initialize"))??;
-    manager.disconnect(connection_id).await?;
     Ok(())
 }
 
@@ -1792,10 +1890,13 @@ async fn persist_lock(
     Ok(())
 }
 
-async fn probe_version(executable: &Path) -> Option<String> {
+async fn probe_version(executable: &Path, version_args: &[&str]) -> Option<String> {
+    if version_args.is_empty() {
+        return None;
+    }
     let mut command =
-        utils::process::new_hidden_tokio_command(executable, std::iter::empty::<&str>());
-    command.arg("--version").kill_on_drop(true);
+        utils::process::new_hidden_tokio_command(executable, version_args.iter().copied());
+    command.kill_on_drop(true);
     let output = tokio::time::timeout(std::time::Duration::from_secs(5), command.output())
         .await
         .ok()?
@@ -1898,7 +1999,7 @@ mod tests {
     fn managed_node_runtime_is_under_the_user_toolchain_root() {
         let root = PathBuf::from("/tmp/vibex-share");
         let runtime = managed_node_runtime(&root).expect("current platform has managed Node");
-        let path = runtime.node.to_string_lossy();
+        let path = runtime.node.to_string_lossy().replace('\\', "/");
         assert!(
             path.contains("agent-tools/node"),
             "managed Node must live under agent-tools: {path}"
@@ -1990,6 +2091,83 @@ Read-Host "Press Enter to exit"
             !sanitized.lines().any(|line| line.trim()
                 == "Remove-Item -Path $tempDir -Recurse -Force -ErrorAction SilentlyContinue"),
             "tempDir removal must be commented out so MSI fallback can reuse the downloaded file: {sanitized}"
+        );
+    }
+
+    #[test]
+    fn antigravity_component_version_args_remain_empty_so_install_does_not_spawn_blocking_version_probe()
+     {
+        let antigravity = AgentId::parse("antigravity").unwrap();
+        assert!(
+            component_version_args(&antigravity, "combined_runtime").is_empty(),
+            "Antigravity blocks on --version and must not be spawned for version probing"
+        );
+    }
+
+    #[tokio::test]
+    async fn binary_install_replaces_in_use_executable_and_siblings_without_sharing_violation() {
+        let temp = tempfile::tempdir().unwrap();
+        let staging = temp.path().join("staging");
+        let user_bin = temp.path().join("bin");
+        tokio::fs::create_dir_all(&staging).await.unwrap();
+        tokio::fs::create_dir_all(&user_bin).await.unwrap();
+
+        let dest_exe = user_bin.join(if cfg!(windows) {
+            "agy_acp_server.exe"
+        } else {
+            "agy_acp_server"
+        });
+        let dest_sibling = user_bin.join(if cfg!(windows) {
+            "localharness_external.exe"
+        } else {
+            "localharness_external"
+        });
+        tokio::fs::write(&dest_exe, b"old-server").await.unwrap();
+        tokio::fs::write(&dest_sibling, b"old-sibling")
+            .await
+            .unwrap();
+
+        // Simulate Windows image section lock (no FILE_SHARE_WRITE, only read/delete sharing,
+        // or even no delete sharing if we test rename fallback when overwrite is denied).
+        // On Windows, a running .exe allows FILE_SHARE_READ | FILE_SHARE_DELETE (rename works,
+        // opening for write fails with os error 32).
+        #[cfg(windows)]
+        let (_locked_exe, _locked_sibling) = {
+            use std::os::windows::fs::OpenOptionsExt;
+            const FILE_SHARE_READ: u32 = 0x00000001;
+            const FILE_SHARE_DELETE: u32 = 0x00000004;
+            let f1 = std::fs::OpenOptions::new()
+                .read(true)
+                .share_mode(FILE_SHARE_READ | FILE_SHARE_DELETE)
+                .open(&dest_exe)
+                .unwrap();
+            let f2 = std::fs::OpenOptions::new()
+                .read(true)
+                .share_mode(FILE_SHARE_READ | FILE_SHARE_DELETE)
+                .open(&dest_sibling)
+                .unwrap();
+            // Verify direct copy fails with os error 32 (ERROR_SHARING_VIOLATION)
+            let direct_err = std::fs::copy(&dest_exe, &dest_exe).unwrap_err();
+            assert_eq!(direct_err.raw_os_error(), Some(32));
+            (f1, f2)
+        };
+
+        let staged_exe = staging.join(dest_exe.file_name().unwrap());
+        let staged_sibling = staging.join(dest_sibling.file_name().unwrap());
+        tokio::fs::write(&staged_exe, b"new-server").await.unwrap();
+        tokio::fs::write(&staged_sibling, b"new-sibling")
+            .await
+            .unwrap();
+
+        let sibling_name = dest_sibling.file_name().unwrap().to_str().unwrap();
+        install_staged_binary_and_siblings(&staged_exe, &dest_exe, &user_bin, &[sibling_name])
+            .await
+            .expect("updating a running/locked binary and its sibling must succeed");
+
+        assert_eq!(tokio::fs::read(&dest_exe).await.unwrap(), b"new-server");
+        assert_eq!(
+            tokio::fs::read(&dest_sibling).await.unwrap(),
+            b"new-sibling"
         );
     }
 }

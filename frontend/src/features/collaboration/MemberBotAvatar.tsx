@@ -309,14 +309,7 @@ function renderBotShape(
       );
     case 'capsule':
       return (
-        <rect
-          x="7.5"
-          y="15"
-          width="49"
-          height="34"
-          rx="17"
-          {...commonProps}
-        />
+        <rect x="7.5" y="15" width="49" height="34" rx="17" {...commonProps} />
       );
     case 'triangle':
       return (
@@ -710,8 +703,9 @@ export function MemberBotAvatar({
 
   const activeReactionEmote: BotSessionEmote =
     isReactingNow && reactionKey
-      ? SESSION_EMOTE_SEQUENCE[(reactionKey - 1) % SESSION_EMOTE_SEQUENCE.length]
-          .emote
+      ? SESSION_EMOTE_SEQUENCE[
+          (reactionKey - 1) % SESSION_EMOTE_SEQUENCE.length
+        ].emote
       : sessionEmote;
 
   const effectiveExpression: BotAvatarExpression =

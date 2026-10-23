@@ -63,8 +63,10 @@ async fn watch_with_notify(
         tokio::select! {
             event = event_rx.recv() => {
                 match event {
-                    Some(Ok(_)) => {
-                        deadline = Some(tokio::time::Instant::now() + DEBOUNCE);
+                    Some(Ok(event)) => {
+                        if !should_ignore_watch_event(&event) {
+                            deadline = Some(tokio::time::Instant::now() + DEBOUNCE);
+                        }
                     }
                     Some(Err(error)) => tracing::debug!(%error, "linked Plugin watch event failed"),
                     None => {
@@ -90,6 +92,18 @@ async fn sleep_until(deadline: Option<tokio::time::Instant>) {
         Some(when) => tokio::time::sleep_until(when).await,
         None => std::future::pending::<()>().await,
     }
+}
+
+fn should_ignore_watch_event(event: &Event) -> bool {
+    !event.paths.is_empty()
+        && event.paths.iter().all(|path| {
+            path.components().any(|component| {
+                matches!(
+                    component.as_os_str().to_str(),
+                    Some(".git" | "node_modules" | "target")
+                )
+            })
+        })
 }
 
 async fn poll_loop(plane: Arc<PluginControlPlane>) {

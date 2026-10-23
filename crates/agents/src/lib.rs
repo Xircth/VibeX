@@ -72,6 +72,7 @@ pub mod session_gate;
 pub mod shell_flavor;
 pub mod skills;
 pub mod state;
+pub mod stderr_tail;
 pub mod terminal;
 pub mod user_definition;
 pub mod user_environment;

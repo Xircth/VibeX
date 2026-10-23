@@ -1,5 +1,3 @@
-// @ts-nocheck — vite.manualChunks.ts lives in the node project; tsc
-// does not emit its .d.ts during `tsc --noEmit`.
 import { describe, expect, it } from 'vitest';
 import { createManualChunks } from '../../vite.manualChunks';
 
@@ -50,14 +48,18 @@ describe('createManualChunks', () => {
     expect(createManualChunks('C:/repo/node_modules/react/index.js')).toBe(
       'vendor-react'
     );
+    expect(createManualChunks('C:/repo/node_modules/react-dom/client.js')).toBe(
+      'vendor-react'
+    );
     expect(
-      createManualChunks('C:/repo/node_modules/react-dom/client.js')
+      createManualChunks(
+        'C:/repo/node_modules/@radix-ui/react-dialog/dist/index.js'
+      )
     ).toBe('vendor-react');
     expect(
-      createManualChunks('C:/repo/node_modules/@radix-ui/react-dialog/dist/index.js')
-    ).toBe('vendor-react');
-    expect(
-      createManualChunks('C:/repo/node_modules/lucide-react/dist/esm/icons/eye.js')
+      createManualChunks(
+        'C:/repo/node_modules/lucide-react/dist/esm/icons/eye.js'
+      )
     ).toBe('vendor-react');
   });
 

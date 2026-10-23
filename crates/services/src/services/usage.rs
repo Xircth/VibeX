@@ -244,10 +244,10 @@ impl VendorLogRoots {
 }
 
 fn env_or_home(env_key: &str, relative: &str) -> Option<PathBuf> {
-    if let Some(value) = std::env::var_os(env_key) {
-        if !value.is_empty() {
-            return Some(PathBuf::from(value));
-        }
+    if let Some(value) = std::env::var_os(env_key)
+        && !value.is_empty()
+    {
+        return Some(PathBuf::from(value));
     }
     dirs::home_dir().map(|home| home.join(relative))
 }
@@ -709,17 +709,14 @@ pub fn build_project_usage_statistics(
         add_optional_tokens(&mut daily.protocol, session.tokens.protocol.as_ref());
         add_optional_tokens(&mut daily.vendor, session.tokens.vendor_log.as_ref());
         add_optional_cost(&mut daily.cost, session.cost);
-        match session.turns {
-            Some(turns) => {
-                daily.turns = Some(daily.turns.unwrap_or(0).saturating_add(turns));
-                daily.turns_reported = true;
-            }
-            None => {}
+        if let Some(turns) = session.turns {
+            daily.turns = Some(daily.turns.unwrap_or(0).saturating_add(turns));
+            daily.turns_reported = true;
         }
-        if let Some(model) = session.model.as_deref().and_then(concrete_model_id) {
-            if !daily.models_used.iter().any(|existing| existing == &model) {
-                daily.models_used.push(model);
-            }
+        if let Some(model) = session.model.as_deref().and_then(concrete_model_id)
+            && !daily.models_used.iter().any(|existing| existing == &model)
+        {
+            daily.models_used.push(model);
         }
 
         let model_key = session

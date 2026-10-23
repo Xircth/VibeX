@@ -24,8 +24,9 @@ export function useProviderCatalogList(agentId: string, enabled: boolean) {
   );
   const catalogItems = usePluginHostContributions();
   const runtimeCatalogSources = useRegistry(runtimeModelCatalogRegistry);
-  const injectedCatalogService =
-    usePluginService<ModelCatalogProviderService>('vibex.model-catalog');
+  const injectedCatalogService = usePluginService<ModelCatalogProviderService>(
+    'vibex.model-catalog'
+  );
   const contributions = useMemo(
     () =>
       catalogItems.filter(

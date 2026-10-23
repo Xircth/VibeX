@@ -356,7 +356,11 @@ export function IDELayout({
   toolbarContent,
 }: IDELayoutProps) {
   useAgentLongRunningTerminals();
-  const { projectId: routeProjectId, workspaceId, sessionId } = useParams<{
+  const {
+    projectId: routeProjectId,
+    workspaceId,
+    sessionId,
+  } = useParams<{
     projectId?: string;
     workspaceId?: string;
     sessionId?: string;

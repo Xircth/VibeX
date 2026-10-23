@@ -53,7 +53,10 @@ describe('Phase 5: beforeTurn Implicit Prompt Contributions, InternalMessageCapt
       }),
     });
 
-    ctxRules.hooks.beforeTurn(() => 'Always run cargo check before finishing.', 20);
+    ctxRules.hooks.beforeTurn(
+      () => 'Always run cargo check before finishing.',
+      20
+    );
 
     const api = createConversationApi(fakeTransport);
     await api.startTurn({
@@ -195,9 +198,9 @@ describe('Phase 5: beforeTurn Implicit Prompt Contributions, InternalMessageCapt
       css: '.ai-chip { color: var(--text-primary); }',
     });
 
-    expect(
-      slotRegistry.get('user.git-unpushed:git-unpushed')?.label
-    ).toBe('↑3 unpushed');
+    expect(slotRegistry.get('user.git-unpushed:git-unpushed')?.label).toBe(
+      '↑3 unpushed'
+    );
 
     const extracted = extractAndStripInternalMessages(
       'Pushing now.\n```vibex-internal:git.autoPush:n1\n{"branch":"feat/nextgen","pushed":3}\n```',
@@ -211,9 +214,7 @@ describe('Phase 5: beforeTurn Implicit Prompt Contributions, InternalMessageCapt
 
     dispose();
     unloadPluginRuntime('user.git-unpushed');
-    expect(
-      slotRegistry.get('user.git-unpushed:git-unpushed')
-    ).toBeUndefined();
+    expect(slotRegistry.get('user.git-unpushed:git-unpushed')).toBeUndefined();
   });
 
   it('supports createPluginTestHarness, beforeTurn draft text rewriting, onRuntimeEvent, and TypeScript import type stripping', async () => {

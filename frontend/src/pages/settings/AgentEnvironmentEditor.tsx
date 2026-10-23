@@ -96,7 +96,10 @@ export function AgentEnvironmentEditor({
     request && (structureDirty || Object.keys(request.values).length > 0)
   );
   const { writeNow } = useLiveSettingsCommit(
-    async (commit: { request: AgentEnvironmentPatchRequest; token: number }) => {
+    async (commit: {
+      request: AgentEnvironmentPatchRequest;
+      token: number;
+    }) => {
       onDirtyChangeRef.current?.(false);
       setSaving(true);
       setError(null);

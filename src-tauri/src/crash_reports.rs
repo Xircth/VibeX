@@ -97,6 +97,7 @@ pub fn is_valid_report_id(id: &str) -> bool {
 }
 
 /// Millisecond timestamp encoded in a valid report id.
+#[cfg(test)]
 pub fn report_created_at_ms(id: &str) -> Option<i64> {
     id.strip_prefix(CRASH_FILE_PREFIX)?
         .strip_suffix(CRASH_FILE_SUFFIX)?

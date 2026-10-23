@@ -7,8 +7,6 @@ use tracing_subscriber::{EnvFilter, Registry, fmt, prelude::*, reload};
 
 use crate::logging::{LogLevel, LogSettings, hub::LogHub, layer::BufferEmitLayer};
 
-pub type ReloadHandle = reload::Handle<EnvFilter, Registry>;
-
 fn settings_path() -> std::path::PathBuf {
     utils::assets::asset_dir().join("logging.json")
 }
@@ -18,22 +16,6 @@ pub fn load_persisted_settings() -> LogSettings {
         .ok()
         .and_then(|raw| serde_json::from_str(&raw).ok())
         .unwrap_or_default()
-}
-
-pub fn persist_settings(settings: &LogSettings) -> Result<(), String> {
-    let path = settings_path();
-    if let Some(parent) = path.parent() {
-        std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
-    }
-    std::fs::write(
-        path,
-        serde_json::to_vec_pretty(settings).map_err(|e| e.to_string())?,
-    )
-    .map_err(|e| e.to_string())
-}
-
-pub fn env_level_is_set() -> bool {
-    env_level_override().is_some()
 }
 
 fn env_level_override() -> Option<String> {
@@ -52,16 +34,6 @@ pub fn is_valid_target(target: &str) -> bool {
     target
         .split("::")
         .all(|seg| !seg.is_empty() && seg.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_'))
-}
-
-pub fn sanitize_settings(mut settings: LogSettings) -> LogSettings {
-    settings
-        .targets
-        .retain(|t| is_valid_target(t.target.trim()));
-    for t in &mut settings.targets {
-        t.target = t.target.trim().to_string();
-    }
-    settings
 }
 
 /// Global level + per-target overrides. When capture is not `Off`, keep a few
@@ -125,7 +97,7 @@ pub fn init_logging() -> WorkerGuard {
         }
         None => build_env_filter(&settings),
     };
-    let (filter_layer, reload) = reload::Layer::new(initial_filter);
+    let (filter_layer, _reload) = reload::Layer::new(initial_filter);
     let logs_dir = utils::assets::logs_dir();
     let file = init_file_writer(&logs_dir);
 
@@ -150,7 +122,7 @@ pub fn init_logging() -> WorkerGuard {
         }
     };
 
-    LogHub::install(reload);
+    LogHub::install();
     tracing::info!("logging initialized; log dir = {}", logs_dir.display());
     guard
 }

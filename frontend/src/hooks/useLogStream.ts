@@ -1,6 +1,7 @@
 import { useEffect, useState, useRef } from 'react';
 import type { PatchType } from 'shared/types';
-import { backendCall, backendListen } from '@/lib/backendTransport';
+import { getBackendTransport } from '@/lib/transport/transportRegistry';
+import type { RemoteEvent } from '@/lib/transport/backendTransport';
 
 type LogEntry = Extract<PatchType, { type: 'STDOUT' } | { type: 'STDERR' }>;
 
@@ -31,7 +32,6 @@ function appendCappedLogs(prev: LogEntry[], next: LogEntry[]): LogEntry[] {
 export const useLogStream = (processId: string): UseLogStreamResult => {
   const [logs, setLogs] = useState<LogEntry[]>([]);
   const [error, setError] = useState<string | null>(null);
-  // Track current processId to prevent stale events from contaminating logs
   const currentProcessIdRef = useRef<string>(processId);
 
   useEffect(() => {
@@ -39,104 +39,95 @@ export const useLogStream = (processId: string): UseLogStreamResult => {
       return;
     }
 
-    // Update the ref to track the current processId
     currentProcessIdRef.current = processId;
-
-    // Clear logs when process changes
     setLogs([]);
     setError(null);
 
     let cancelled = false;
-    let unlisten: (() => void) | null = null;
+    let iterator: AsyncIterator<RemoteEvent> | undefined;
 
-    const setup = async () => {
+    const applyMessage = (raw: unknown) => {
+      if (cancelled || currentProcessIdRef.current !== processId) return;
+      const msg = raw as TauriLogMsg;
       try {
-        // 1. Start listening BEFORE invoking the subscribe command
-        //    so we don't miss events emitted immediately after.
-        unlisten = await backendListen<TauriLogMsg>(
-          `log-stream:${processId}`,
-          (msg) => {
-            if (cancelled || currentProcessIdRef.current !== processId) return;
-
-            try {
-              // Handle Stdout
-              if (typeof msg === 'object' && msg !== null && 'Stdout' in msg) {
-                setLogs((prev) =>
-                  appendCappedLogs(prev, [
-                    { type: 'STDOUT', content: msg.Stdout },
-                  ])
-                );
-                return;
-              }
-
-              // Handle Stderr
-              if (typeof msg === 'object' && msg !== null && 'Stderr' in msg) {
-                setLogs((prev) =>
-                  appendCappedLogs(prev, [
-                    { type: 'STDERR', content: msg.Stderr },
-                  ])
-                );
-                return;
-              }
-
-              // Handle JsonPatch (batch of log entries)
-              if (
-                typeof msg === 'object' &&
-                msg !== null &&
-                'JsonPatch' in msg
-              ) {
-                const patches = msg.JsonPatch;
-                const newEntries: LogEntry[] = [];
-                for (const patch of patches) {
-                  const value = patch?.value;
-                  if (!value || !value.type) continue;
-                  if (value.type === 'STDOUT' || value.type === 'STDERR') {
-                    newEntries.push({
-                      type: value.type,
-                      content: value.content,
-                    });
-                  }
-                }
-                if (newEntries.length > 0) {
-                  setLogs((prev) => appendCappedLogs(prev, newEntries));
-                }
-                return;
-              }
-
-              // Handle Finished: no further events expected
-              if (msg === 'Finished') {
-                return;
-              }
-            } catch (err) {
-              console.error('Failed to process log stream event:', err);
-            }
-          }
-        );
-
-        if (cancelled) {
-          unlisten?.();
+        if (typeof msg === 'object' && msg !== null && 'Stdout' in msg) {
+          setLogs((prev) =>
+            appendCappedLogs(prev, [{ type: 'STDOUT', content: msg.Stdout }])
+          );
           return;
         }
 
-        // 2. Invoke the subscribe command to start the backend stream.
-        await backendCall('subscribe_log_stream', { processId });
+        if (typeof msg === 'object' && msg !== null && 'Stderr' in msg) {
+          setLogs((prev) =>
+            appendCappedLogs(prev, [{ type: 'STDERR', content: msg.Stderr }])
+          );
+          return;
+        }
 
-        if (!cancelled) {
-          setError(null);
+        if (typeof msg === 'object' && msg !== null && 'JsonPatch' in msg) {
+          const patches = msg.JsonPatch;
+          const newEntries: LogEntry[] = [];
+          for (const patch of patches) {
+            const value = patch?.value;
+            if (!value || !value.type) continue;
+            if (value.type === 'STDOUT' || value.type === 'STDERR') {
+              newEntries.push({
+                type: value.type,
+                content: value.content,
+              });
+            }
+          }
+          if (newEntries.length > 0) {
+            setLogs((prev) => appendCappedLogs(prev, newEntries));
+          }
+          return;
+        }
+      } catch (err) {
+        console.error('Failed to process log stream event:', err);
+      }
+    };
+
+    const setup = async () => {
+      const transport = getBackendTransport();
+      if (!transport.subscribe) {
+        setError('patch stream subscribe_log_stream is not available');
+        return;
+      }
+      try {
+        const subscription = transport.subscribe({
+          subscription_id: globalThis.crypto.randomUUID(),
+          resource: 'patch_stream',
+          stream: 'log',
+          args: { processId },
+        });
+        iterator = subscription[Symbol.asyncIterator]();
+        if (cancelled) {
+          void iterator.return?.();
+          return;
+        }
+        setError(null);
+        while (!cancelled) {
+          const next = await iterator.next();
+          if (next.done || cancelled) break;
+          const payload = (next.value as RemoteEvent).payload;
+          applyMessage(payload);
+          if (payload === 'Finished') break;
         }
       } catch (err) {
         if (!cancelled) {
           console.error('Failed to subscribe to log stream:', err);
           setError(err instanceof Error ? err.message : 'Failed to connect');
         }
+      } finally {
+        void iterator?.return?.();
       }
     };
 
-    setup();
+    void setup();
 
     return () => {
       cancelled = true;
-      unlisten?.();
+      void iterator?.return?.();
     };
   }, [processId]);
 

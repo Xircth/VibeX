@@ -83,7 +83,7 @@ impl ConversationTurnRecord {
         .fetch_one(&mut *conn)
         .await?;
 
-        sqlx::query_as::<_, Self>(&format!(
+        let turn = sqlx::query_as::<_, Self>(&format!(
             r#"INSERT INTO conversation_turns (
                    id, conversation_id, ordinal, prompt_id, status,
                    text_preview, input_blocks_json
@@ -98,7 +98,9 @@ impl ConversationTurnRecord {
         .bind(input.text_preview)
         .bind(input.input_blocks_json)
         .fetch_one(&mut *conn)
-        .await
+        .await?;
+        super::conversation::bump_active_turn_mutation_epoch();
+        Ok(turn)
     }
 
     pub async fn find_by_ordinal(
@@ -333,6 +335,7 @@ impl ConversationTurnRecord {
         .bind(id)
         .execute(executor)
         .await?;
+        super::conversation::bump_active_turn_mutation_epoch();
         Ok(())
     }
 
@@ -357,6 +360,7 @@ impl ConversationTurnRecord {
         .bind(id)
         .execute(executor)
         .await?;
+        super::conversation::bump_active_turn_mutation_epoch();
         Ok(())
     }
 
@@ -381,6 +385,7 @@ impl ConversationTurnRecord {
         .bind(id)
         .execute(executor)
         .await?;
+        super::conversation::bump_active_turn_mutation_epoch();
         Ok(())
     }
 
@@ -409,6 +414,7 @@ impl ConversationTurnRecord {
         .bind(id)
         .execute(executor)
         .await?;
+        super::conversation::bump_active_turn_mutation_epoch();
         Ok(())
     }
 

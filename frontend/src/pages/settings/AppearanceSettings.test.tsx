@@ -163,9 +163,7 @@ describe('AppearanceSettings', () => {
     const group = screen.getByRole('radiogroup', { name: '应用主题' });
     expect(group).toBeInTheDocument();
     expect(screen.queryByText(/Ayu Mirage/)).not.toBeInTheDocument();
-    expect(
-      screen.getByRole('checkbox', { name: 'Light' })
-    ).not.toBeChecked();
+    expect(screen.getByRole('checkbox', { name: 'Light' })).not.toBeChecked();
     expect(screen.getByRole('checkbox', { name: 'Dark' })).not.toBeChecked();
     expect(screen.getByRole('checkbox', { name: 'System' })).toBeChecked();
   });

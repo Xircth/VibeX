@@ -5542,7 +5542,11 @@ pub async fn add_to_space_collection_with(
                 "content exceeds maximum allowed size of 200MB",
             ));
         }
-        let default_title = format!("note-{}", &item_id[..8.min(item_id.len())]);
+        let mut title_end = 8.min(item_id.len());
+        while title_end > 0 && !item_id.is_char_boundary(title_end) {
+            title_end -= 1;
+        }
+        let default_title = format!("note-{}", &item_id[..title_end]);
         let desired_name = input
             .file_name
             .as_deref()

@@ -456,8 +456,9 @@ function KanbanSessionConversationContent({
   );
   const shouldShowNewSessionPrompt =
     interactive &&
-    !activeSession &&
     !requestedSessionLoading &&
+    !sessionState.isLoading &&
+    !activeSession &&
     sessionState.sessions.length === 0 &&
     !sessionState.isNewSessionMode;
   const requestedEmptyCreateRef = useRef(false);

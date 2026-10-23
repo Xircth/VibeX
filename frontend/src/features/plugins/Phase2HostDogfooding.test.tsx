@@ -430,9 +430,9 @@ describe('Phase 2: Host Shell Dogfooding + Tier-0/Tier-1 Single-File Loader + Ne
     );
 
     // Verify dynamic panelComponents proxy lookup for plugin panel
-    expect(
-      typeof panelComponents['plugin:acme.super-plugin/inspector']
-    ).toBe('function');
+    expect(typeof panelComponents['plugin:acme.super-plugin/inspector']).toBe(
+      'function'
+    );
 
     // Verify Composer `/` slash command and `@` action registration
     const slashOpts = sdkSlashCommandsToComposerCommands(

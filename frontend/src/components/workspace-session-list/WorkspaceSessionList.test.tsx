@@ -605,4 +605,60 @@ describe('WorkspaceSessionList', () => {
     ).toBeTruthy();
     expect(getComputedStyle(actions as Element).position).not.toBe('absolute');
   });
+
+  it('automatically expands a collapsed workspace group when activeWorkspaceId switches to it', () => {
+    localStorage.setItem(
+      WORKSPACE_SESSION_GROUPS_COLLAPSED_KEY,
+      JSON.stringify(['workspace-2'])
+    );
+    const sessions = [
+      session({
+        id: 'session-1',
+        firstPrompt: 'Root session',
+      }),
+      session({
+        id: 'session-2',
+        placement: { sessionId: 'session-2', workspaceId: 'workspace-2' },
+        workspace: {
+          ...session().workspace,
+          id: 'workspace-2',
+          branch: 'feat/wt-2',
+          use_worktree: true,
+        },
+        branch: 'feat/wt-2',
+        workspaceName: 'feat/wt-2',
+        firstPrompt: 'Worktree session',
+      }),
+    ];
+
+    const { rerender } = renderList(
+      <WorkspaceSessionList
+        sessions={sessions}
+        isLoading={false}
+        activeSessionId={null}
+        activeWorkspaceId="workspace-1"
+        onSessionClick={vi.fn()}
+      />
+    );
+
+    expect(
+      screen.queryByRole('button', { name: /Worktree session/ })
+    ).not.toBeInTheDocument();
+
+    rerender(
+      <TooltipProvider>
+        <WorkspaceSessionList
+          sessions={sessions}
+          isLoading={false}
+          activeSessionId={null}
+          activeWorkspaceId="workspace-2"
+          onSessionClick={vi.fn()}
+        />
+      </TooltipProvider>
+    );
+
+    expect(
+      screen.getByRole('button', { name: /Worktree session/ })
+    ).toBeInTheDocument();
+  });
 });

@@ -362,6 +362,8 @@ impl FromStr for RegisteredCommand {
             "workflow_pause_step" => Ok(Self::WorkflowPauseStep),
             "workflow_step_input" => Ok(Self::WorkflowStepInput),
             "workflow_fork" => Ok(Self::WorkflowFork),
+            "plugin.command.invoke" => Ok(Self::Domain(DomainCommand::PluginCommandInvoke)),
+            "cancel_prompt_enhancement" => Ok(Self::Domain(DomainCommand::CancelEnhancePrompt)),
             _ => DomainCommand::from_str(value).map(Self::Domain),
         }
     }
@@ -679,15 +681,20 @@ where
         operation_id: OperationId,
         args: serde_json::Value,
     ) -> Result<CommandResponse<serde_json::Value>, ErrorEnvelope> {
-        let command = RegisteredCommand::from_str(command).map_err(|()| {
-            ErrorEnvelope::new(
-                ErrorCode::NotFound,
-                format!("command `{command}` is not registered"),
-                false,
-                operation_id,
-            )
-        })?;
-        Box::pin(self.execute(principal, command, operation_id, args)).await
+        if let Ok(registered) = RegisteredCommand::from_str(command) {
+            return Box::pin(self.execute(principal, registered, operation_id, args)).await;
+        }
+        let data = Box::pin(self.core.execute_dynamic_domain(principal, command, args))
+            .await
+            .map_err(|error| {
+                let mut envelope = error.into_envelope();
+                if matches!(envelope.code, ErrorCode::NotFound) {
+                    envelope.message = format!("command `{command}` is not registered");
+                }
+                envelope.operation_id = operation_id;
+                envelope
+            })?;
+        Ok(CommandResponse::new(operation_id, data))
     }
 
     pub async fn execute(
@@ -1480,12 +1487,15 @@ where
                     .map_err(|error| with_operation_id(error, operation_id))?;
                 serialize_result(command, operation_id, result)?
             }
-            RegisteredCommand::Domain(command) => Box::pin(self.core.execute_domain(principal, command, args)).await
-                .map_err(|error| {
-                    let mut envelope = error.into_envelope();
-                    envelope.operation_id = operation_id;
-                    envelope
-                })?,
+            RegisteredCommand::Domain(command) => {
+                Box::pin(self.core.execute_domain(principal, command, args))
+                    .await
+                    .map_err(|error| {
+                        let mut envelope = error.into_envelope();
+                        envelope.operation_id = operation_id;
+                        envelope
+                    })?
+            }
         };
 
         Ok(CommandResponse::new(operation_id, data))
@@ -1620,5 +1630,112 @@ mod tests {
         assert!(Arc::ptr_eq(registry.core(), &core));
         let cloned = registry.clone();
         assert!(Arc::ptr_eq(cloned.core(), &core));
+    }
+
+    #[tokio::test]
+    async fn dynamic_plugin_commands_route_through_domain_port_and_aliases_parse() {
+        use std::sync::Arc;
+
+        use async_trait::async_trait;
+        use remote_protocol::OperationId;
+        use serde_json::{Value, json};
+
+        use crate::{
+            ApplicationCore, ApplicationDomainPort, ApplicationError, CommandRegistry,
+            DomainCommand, Principal, SqliteConversationRepository,
+        };
+
+        struct FakeDomainPort;
+
+        #[async_trait]
+        impl ApplicationDomainPort for FakeDomainPort {
+            async fn execute(
+                &self,
+                _principal: &Principal,
+                command: DomainCommand,
+                args: Value,
+            ) -> Result<Value, ApplicationError> {
+                match command {
+                    DomainCommand::PluginCommandInvoke => Ok(json!({
+                        "routed": "static_plugin_command_invoke",
+                        "args": args,
+                    })),
+                    DomainCommand::CancelEnhancePrompt => Ok(json!({
+                        "routed": "cancel_prompt_enhancement",
+                        "args": args,
+                    })),
+                    other => Err(ApplicationError::capability_unavailable(other.as_str())),
+                }
+            }
+
+            async fn execute_dynamic(
+                &self,
+                _principal: &Principal,
+                command_name: &str,
+                args: Value,
+            ) -> Result<Value, ApplicationError> {
+                if command_name == "vibex.custom.echo" {
+                    Ok(json!({
+                        "routed": "dynamic_plugin_command",
+                        "command": command_name,
+                        "args": args,
+                    }))
+                } else {
+                    Err(ApplicationError::not_found(format!(
+                        "unsupported command: {command_name}"
+                    )))
+                }
+            }
+        }
+
+        assert_eq!(
+            "plugin.command.invoke"
+                .parse::<RegisteredCommand>()
+                .expect("alias")
+                .as_str(),
+            "plugin_command_invoke"
+        );
+        assert_eq!(
+            "cancel_prompt_enhancement"
+                .parse::<RegisteredCommand>()
+                .expect("alias")
+                .as_str(),
+            "cancel_enhance_prompt"
+        );
+
+        let pool = sqlx::SqlitePool::connect_lazy("sqlite::memory:").expect("pool");
+        let core = ApplicationCore::with_domains(
+            SqliteConversationRepository::new(pool),
+            Arc::new(FakeDomainPort),
+        );
+        let registry = CommandRegistry::new(core);
+        let principal = Principal::local_desktop();
+
+        let alias_res = registry
+            .execute_name(
+                &principal,
+                "plugin.command.invoke",
+                OperationId::new(),
+                json!({ "pluginId": "vibex.custom", "command": "echo", "input": { "x": 1 } }),
+            )
+            .await
+            .expect("plugin.command.invoke should route");
+        assert_eq!(
+            alias_res.data["routed"],
+            json!("static_plugin_command_invoke")
+        );
+
+        let dynamic_res = registry
+            .execute_name(
+                &principal,
+                "vibex.custom.echo",
+                OperationId::new(),
+                json!({ "hello": "world" }),
+            )
+            .await
+            .expect("dynamic plugin command should route via execute_dynamic");
+        assert_eq!(dynamic_res.data["routed"], json!("dynamic_plugin_command"));
+        assert_eq!(dynamic_res.data["command"], json!("vibex.custom.echo"));
+        assert_eq!(dynamic_res.data["args"]["hello"], json!("world"));
     }
 }

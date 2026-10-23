@@ -30,6 +30,31 @@ pub mod channels {
 
 pub use conversations::ConversationRowProjectors;
 
+static CONVERSATION_PROJECTOR_LOCKS: std::sync::OnceLock<
+    std::sync::Mutex<std::collections::HashMap<Uuid, std::sync::Arc<tokio::sync::Mutex<()>>>>,
+> = std::sync::OnceLock::new();
+
+fn conversation_projector_lock(conversation_id: Uuid) -> std::sync::Arc<tokio::sync::Mutex<()>> {
+    let mut map = CONVERSATION_PROJECTOR_LOCKS
+        .get_or_init(|| std::sync::Mutex::new(std::collections::HashMap::new()))
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    map.entry(conversation_id)
+        .or_insert_with(|| std::sync::Arc::new(tokio::sync::Mutex::new(())))
+        .clone()
+}
+
+fn prune_conversation_projector_locks(
+    active: &std::collections::HashMap<Uuid, CachedRowProjector>,
+) {
+    if let Some(locks) = CONVERSATION_PROJECTOR_LOCKS.get() {
+        let mut map = locks
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        map.retain(|id, lock| active.contains_key(id) || std::sync::Arc::strong_count(lock) > 1);
+    }
+}
+
 /// Publish committed events as frontend row operations in durable sequence order.
 /// This is the single realtime path to the frontend (消灭双投影): the frontend consumes
 /// `ConversationRowOpBatch` and never folds raw events. It feeds the conversation's
@@ -54,19 +79,22 @@ async fn emit_conversation_row_ops_after_inner(
     conversation_id: Uuid,
     after_sequence: i64,
 ) {
-    // Cursor read, tail read, projector load and fold all happen inside one critical
-    // section. Splitting them let two publishers disagree on the cursor: the one that
-    // won the map insert loaded its projector *at* the other's first unpublished
-    // sequence, silently folding that event into the baseline, and the other then
-    // skipped it as already applied. The ops for that sequence were never emitted —
-    // and at a turn boundary the lost op is the terminal one, so the composer kept
-    // showing a stop button until the user reloaded.
-    let mut map = projectors.lock().await;
-    let publish_after = map
-        .get(&conversation_id)
-        .map(|entry| entry.db_cursor)
-        .unwrap_or(after_sequence);
-    let new_records =
+    // Serialize cursor read, SQLite tail read, projector load, and fold per conversation
+    // without holding the global `projectors` mutex across `.await` points.
+    let conv_lock = conversation_projector_lock(conversation_id);
+    let _conv_guard = conv_lock.lock().await;
+
+    let (mut publish_after, mut has_projector) = {
+        let mut map = projectors.lock().await;
+        match map.get_mut(&conversation_id) {
+            Some(entry) => {
+                entry.sync_if_rebuilt(conversation_id);
+                (entry.db_cursor, true)
+            }
+            None => (after_sequence, false),
+        }
+    };
+    let mut new_records =
         match ConversationEventRecord::events_since(pool, conversation_id, publish_after, 2000)
             .await
         {
@@ -76,6 +104,30 @@ async fn emit_conversation_row_ops_after_inner(
                 return;
             }
         };
+    if new_records.is_empty()
+        && has_projector
+        && after_sequence < publish_after
+        && let Ok(max_seq) = ConversationEventRecord::max_sequence(pool, conversation_id).await
+        && max_seq < publish_after
+    {
+        projectors.lock().await.remove(&conversation_id);
+        publish_after = after_sequence;
+        has_projector = false;
+        new_records = match ConversationEventRecord::events_since(
+            pool,
+            conversation_id,
+            publish_after,
+            2000,
+        )
+        .await
+        {
+            Ok(records) => records,
+            Err(error) => {
+                tracing::warn!(%conversation_id, %error, "row-op emit: reading events failed");
+                return;
+            }
+        };
+    }
     if new_records.is_empty() {
         return;
     }
@@ -106,19 +158,24 @@ async fn emit_conversation_row_ops_after_inner(
         .iter()
         .any(|record| record.event_kind == "conversation_input");
 
-    if let std::collections::hash_map::Entry::Vacant(entry) = map.entry(conversation_id) {
+    let loaded_projector = if !has_projector {
         match IncrementalRowProjector::load(pool, conversation_id, publish_after).await {
-            Ok(projector) => {
-                entry.insert(CachedRowProjector::new(projector));
-            }
+            Ok(projector) => Some(CachedRowProjector::new(projector)),
             Err(error) => {
                 tracing::warn!(%conversation_id, %error, "row-op emit: projector load failed");
                 return;
             }
         }
-    }
+    } else {
+        None
+    };
+
     let mut ops = Vec::new();
     let should_emit = {
+        let mut map = projectors.lock().await;
+        if let Some(projector) = loaded_projector {
+            map.entry(conversation_id).or_insert(projector);
+        }
         let entry = map.get_mut(&conversation_id).expect("projector present");
         entry.touch();
         let previous_sequence = entry.last_emitted_sequence;
@@ -139,12 +196,15 @@ async fn emit_conversation_row_ops_after_inner(
             && session_config_options.is_none()
             && available_commands.is_none()
             && !queue_changed);
-        if will_emit {
+        let result = if will_emit {
             entry.last_emitted_sequence = last_sequence;
             Some((previous_sequence, last_sequence))
         } else {
             None
-        }
+        };
+        evict_least_recently_used_projectors(&mut map, conversation_id);
+        prune_conversation_projector_locks(&map);
+        result
     };
 
     if let Some((previous_sequence, last_sequence)) = should_emit {
@@ -175,15 +235,6 @@ async fn emit_conversation_row_ops_after_inner(
             bus.emit(channels::CONVERSATION_EVENTS, &batch);
         }
     }
-
-    // The projector is a pure cache of the folded timeline, so it must stay bounded —
-    // otherwise one leaks per conversation ever streamed (the map is only otherwise
-    // cleared by `close_conversation`, which the UI never calls). Evict by least
-    // recent use rather than on turn settle: settle is the busiest moment on this
-    // path, and dropping the projector there guaranteed a cold reload right when
-    // several publishers were racing, plus a full replay of the turn's events.
-    evict_least_recently_used_projectors(&mut map, conversation_id);
-    drop(map);
 
     let workbench_changed = new_records.iter().any(|record| {
         matches!(
@@ -220,20 +271,28 @@ pub async fn emit_unpersisted_row_op(
     record: &ConversationEventRecord,
 ) {
     let conversation_id = record.conversation_id;
-    let mut map = projectors.lock().await;
-    if let std::collections::hash_map::Entry::Vacant(entry) = map.entry(conversation_id) {
+    let conv_lock = conversation_projector_lock(conversation_id);
+    let _conv_guard = conv_lock.lock().await;
+
+    let has_projector = projectors.lock().await.contains_key(&conversation_id);
+    let loaded_projector = if !has_projector {
         match IncrementalRowProjector::load_through_latest(pool, conversation_id).await {
-            Ok(projector) => {
-                entry.insert(CachedRowProjector::new(projector));
-            }
+            Ok(projector) => Some(CachedRowProjector::new(projector)),
             Err(error) => {
                 tracing::warn!(%conversation_id, %error, "row-op emit: projector load failed");
                 return;
             }
         }
-    }
+    } else {
+        None
+    };
+
     let mut ops = Vec::new();
     let cursor = {
+        let mut map = projectors.lock().await;
+        if let Some(projector) = loaded_projector {
+            map.entry(conversation_id).or_insert(projector);
+        }
         let entry = map.get_mut(&conversation_id).expect("projector present");
         entry.touch();
         let cursor = entry.last_emitted_sequence;
@@ -244,10 +303,10 @@ pub async fn emit_unpersisted_row_op(
                 return;
             }
         }
+        evict_least_recently_used_projectors(&mut map, conversation_id);
+        prune_conversation_projector_locks(&map);
         cursor
     };
-    evict_least_recently_used_projectors(&mut map, conversation_id);
-    drop(map);
     if ops.is_empty() {
         return;
     }
@@ -383,56 +442,74 @@ pub fn start_agent_event_forwarding(app: &AppHandle, state: &AppState) {
         .expect("conversation event forwarding must start exactly once");
 
     tauri::async_runtime::spawn(async move {
-        let mut recorder = ConversationAgentEventRecorder::with_context(conversation_context);
-        let mut flush_interval = time::interval(CONVERSATION_STREAM_FLUSH_INTERVAL);
-        flush_interval.set_missed_tick_behavior(MissedTickBehavior::Skip);
+        use futures::FutureExt as _;
 
         loop {
-            tokio::select! {
-                _ = flush_interval.tick() => {
-                    match recorder.flush_buffered().await {
-                        Ok(batch) => handle_recorded_conversation_batch(
-                        &conversation_pool,
-                        &app_handle,
-                        batch,
-                    ).await,
-                        Err(error) => tracing::warn!(%error, "Failed to flush conversation events"),
-                    }
-                }
-                received = agent_events.recv() => {
-                    match received {
-                        Some(event) => {
-                            match recorder.record_buffered(&event).await {
+            let mut recorder =
+                ConversationAgentEventRecorder::with_context(conversation_context.clone());
+            let mut flush_interval = time::interval(CONVERSATION_STREAM_FLUSH_INTERVAL);
+            flush_interval.set_missed_tick_behavior(MissedTickBehavior::Skip);
+
+            let step = std::panic::AssertUnwindSafe(async {
+                loop {
+                    tokio::select! {
+                        _ = flush_interval.tick() => {
+                            match recorder.flush_buffered().await {
                                 Ok(batch) => handle_recorded_conversation_batch(
                                     &conversation_pool,
                                     &app_handle,
                                     batch,
                                 ).await,
-                                Err(error) => {
-                                    tracing::warn!(
-                                        sequence = event.sequence,
-                                        error = %error,
-                                        "Failed to persist conversation event"
-                                    );
+                                Err(error) => tracing::warn!(%error, "Failed to flush conversation events"),
+                            }
+                        }
+                        received = agent_events.recv() => {
+                            match received {
+                                Some(event) => {
+                                    match recorder.record_buffered(&event).await {
+                                        Ok(batch) => handle_recorded_conversation_batch(
+                                            &conversation_pool,
+                                            &app_handle,
+                                            batch,
+                                        ).await,
+                                        Err(error) => {
+                                            tracing::warn!(
+                                                sequence = event.sequence,
+                                                error = %error,
+                                                "Failed to persist conversation event"
+                                            );
+                                        }
+                                    }
+                                    if should_emit_agent_event(&event.event)
+                                    {
+                                        crate::host_bus::bus()
+                                            .emit(channels::AGENT_EVENTS, &event);
+                                    }
+                                }
+                                None => {
+                                    if let Ok(batch) = recorder.flush_buffered().await {
+                                        handle_recorded_conversation_batch(
+                                            &conversation_pool,
+                                            &app_handle,
+                                            batch,
+                                        ).await;
+                                    }
+                                    break;
                                 }
                             }
-                            if should_emit_agent_event(&event.event)
-                            {
-                                crate::host_bus::bus()
-                                    .emit(channels::AGENT_EVENTS, &event);
-                            }
-                        }
-                        None => {
-                            if let Ok(batch) = recorder.flush_buffered().await {
-                                handle_recorded_conversation_batch(
-                                    &conversation_pool,
-                                    &app_handle,
-                                    batch,
-                                ).await;
-                            }
-                            break;
                         }
                     }
+                }
+            })
+            .catch_unwind()
+            .await;
+
+            match step {
+                Ok(()) => break,
+                Err(_) => {
+                    tracing::error!(
+                        "Desktop agent event forwarding worker panicked; respawning to keep receiver alive"
+                    );
                 }
             }
         }

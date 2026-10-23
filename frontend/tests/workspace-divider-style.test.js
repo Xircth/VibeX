@@ -73,7 +73,7 @@ test('Dockview 横竖分隔条统一使用 workspace divider 变量', () => {
 test('Dockview 标签将状态背景绘制在圆角标题面而不是外层矩形容器', () => {
   const source = readFile('src/styles/dockview-ayu.css');
   const panelRegistry = readFile(
-    'src/components/layout/panels/PanelRegistry.tsx'
+    'src/components/layout/panels/WorkspaceDockviewTab.tsx'
   );
   const ideLayout = readFile('src/components/layout/IDELayout.tsx');
 

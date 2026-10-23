@@ -1780,10 +1780,10 @@ async fn probe_kimi_plan_usage(context: &PlanProbeContext) -> PlanUsageResult {
         Err(result) => return result,
     };
     let now_ms = chrono::Utc::now().timestamp_millis();
-    if is_token_expired(credentials.expires_at_ms, now_ms + 5 * 60 * 1000) {
-        if let Err(result) = refresh_kimi_credentials(&client, &mut credentials).await {
-            return result;
-        }
+    if is_token_expired(credentials.expires_at_ms, now_ms + 5 * 60 * 1000)
+        && let Err(result) = refresh_kimi_credentials(&client, &mut credentials).await
+    {
+        return result;
     }
     let url = format!("{}/usages", kimi_coding_base(context));
     let response = match client

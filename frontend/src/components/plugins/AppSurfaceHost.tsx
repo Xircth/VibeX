@@ -3,6 +3,7 @@ import { AlertTriangle, Loader2, RotateCw } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 
+import { PluginBoundary } from '@/components/plugins/PluginBoundary';
 import { useTheme } from '@/components/ThemeProvider';
 import { Button } from '@/components/ui/button';
 
@@ -642,11 +643,17 @@ export function AppSurfaceHost({
           {t('plugins.surfaceDisabled')}
         </p>
       ) : registeredInProcessView?.component ? (
-        <registeredInProcessView.component
+        <PluginBoundary
           pluginId={pluginId}
-          surfaceId={surfaceId}
           slot={descriptor.slot ?? 'plugin.detail.panel'}
-        />
+        >
+          <registeredInProcessView.component
+            pluginId={pluginId}
+            surfaceId={surfaceId}
+            slot={descriptor.slot ?? 'plugin.detail.panel'}
+            context={context}
+          />
+        </PluginBoundary>
       ) : loading ? (
         <p className="plugin-app-surface-state" role="status">
           <Loader2 className="animate-spin" aria-hidden="true" />

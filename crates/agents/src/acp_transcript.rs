@@ -302,13 +302,12 @@ impl PendingPromptGuard {
 
 impl Drop for PendingPromptGuard {
     fn drop(&mut self) {
-        if let Ok(mut counts) = PENDING_PROMPTS.lock() {
-            if let std::collections::hash_map::Entry::Occupied(mut e) = counts.entry(self.0.clone())
-            {
-                *e.get_mut() -= 1;
-                if *e.get() == 0 {
-                    e.remove();
-                }
+        if let Ok(mut counts) = PENDING_PROMPTS.lock()
+            && let std::collections::hash_map::Entry::Occupied(mut e) = counts.entry(self.0.clone())
+        {
+            *e.get_mut() -= 1;
+            if *e.get() == 0 {
+                e.remove();
             }
         }
     }
@@ -1118,11 +1117,11 @@ pub fn parse_transcript(content: &str) -> Transcript {
             continue;
         }
         // A header is distinguished by its `kind` field, not its position.
-        if out.header.is_none() {
-            if let Some(header) = parse_header_line(line) {
-                out.header = Some(header);
-                continue;
-            }
+        if out.header.is_none()
+            && let Some(header) = parse_header_line(line)
+        {
+            out.header = Some(header);
+            continue;
         }
         if let Ok(entry) = serde_json::from_str::<TranscriptEntry>(line) {
             out.entries.push(entry);

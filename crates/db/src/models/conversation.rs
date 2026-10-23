@@ -6,6 +6,8 @@
 //! identifiers may remain on `sessions` for compatibility and import repair, but
 //! they are not the product history source.
 
+use std::sync::atomic::{AtomicU64, Ordering};
+
 use api_types::AgentId;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
@@ -14,6 +16,16 @@ use ts_rs::TS;
 use uuid::Uuid;
 
 use super::session::SessionStatus;
+
+static ACTIVE_TURN_MUTATION_EPOCH: AtomicU64 = AtomicU64::new(1);
+
+pub fn bump_active_turn_mutation_epoch() {
+    ACTIVE_TURN_MUTATION_EPOCH.fetch_add(1, Ordering::Release);
+}
+
+pub fn active_turn_mutation_epoch() -> u64 {
+    ACTIVE_TURN_MUTATION_EPOCH.load(Ordering::Acquire)
+}
 
 /// Legacy summary shape used by existing Tauri commands while the workbench
 /// switches to canonical event projection.
@@ -478,6 +490,7 @@ impl ConversationRecord {
         .bind(id)
         .execute(&mut *conn)
         .await?;
+        bump_active_turn_mutation_epoch();
         Ok(())
     }
 
@@ -495,6 +508,7 @@ impl ConversationRecord {
         .bind(turn_id)
         .execute(&mut *conn)
         .await?;
+        bump_active_turn_mutation_epoch();
         Ok(())
     }
 

@@ -78,6 +78,39 @@ describe('@vibex/plugin-sdk v2 core', () => {
     expect(reg.getAll()).toEqual([]);
   });
 
+  it('namespaces items by pluginId so two plugins registering the same bare id do not overwrite each other', () => {
+    const reg = new Registry<{
+      id: string;
+      pluginId?: string;
+      slot: string;
+      label: string;
+    }>();
+    const disposeAlpha = reg.register({
+      id: 'settings',
+      pluginId: 'plugin.alpha',
+      slot: 'status.right',
+      label: 'Alpha Settings',
+    });
+    const disposeBeta = reg.register({
+      id: 'settings',
+      pluginId: 'plugin.beta',
+      slot: 'status.right',
+      label: 'Beta Settings',
+    });
+
+    expect(reg.getAll()).toHaveLength(2);
+    expect(reg.get('plugin.alpha:settings')?.label).toBe('Alpha Settings');
+    expect(reg.get('plugin.beta:settings')?.label).toBe('Beta Settings');
+    expect(reg.has('settings')).toBe(true);
+
+    disposeAlpha();
+    expect(reg.getAll()).toHaveLength(1);
+    expect(reg.get('plugin.beta:settings')?.label).toBe('Beta Settings');
+
+    disposeBeta();
+    expect(reg.getAll()).toEqual([]);
+  });
+
   it('tracks plugin context registrations, services, and LIFO effects and disposes them cleanly', async () => {
     const calls: string[] = [];
     const GitServiceKey = createServiceKey<{ getBranch(): string }>('vibex.git');

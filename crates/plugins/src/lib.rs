@@ -11,11 +11,11 @@ mod collaboration_host;
 mod contribution;
 mod control_plane;
 mod conversation_host;
+mod digest;
 mod error;
 mod host_call;
 mod host_capability_broker;
 mod host_service;
-mod isolated;
 mod language_runtimes;
 mod link_watch;
 mod manifest;
@@ -66,9 +66,10 @@ pub use contribution::{
     ContributionCatalog, ContributionDescriptor, ContributionKind, ResolvedFileOpener,
 };
 pub use control_plane::{
-    ActivationRecoveryFailure, BundledPluginActivation, ConflictDecision, ImportConflict,
-    ImportDisposition, ImportResult, InMemoryPluginRegistry, InstalledPlugin, PluginAuditEvent,
-    PluginControlPlane, PluginRegistry, RuntimeInstallation, SqlitePluginRegistry,
+    ActivationRecoveryFailure, BundledPluginActivation, ConflictDecision, HostAuditEntry,
+    ImportConflict, ImportDisposition, ImportResult, InMemoryPluginRegistry, InstalledPlugin,
+    PluginAuditEvent, PluginBusEvent, PluginCommandHandler, PluginControlPlane,
+    PluginEventSubscriptionBatch, PluginRegistry, RuntimeInstallation, SqlitePluginRegistry,
     candidate_capability_grants,
 };
 pub use conversation_host::{
@@ -86,7 +87,7 @@ pub use host_call::{
     prepare_plugin_mcp_projection, spawnable_fs_path, strip_mcp_advertisement_fields,
 };
 pub use host_capability_broker::{
-    HostCapabilityBroker, PluginToastNotification, subscribe_plugin_toasts,
+    AgentInvocationHandler, HostCapabilityBroker, PluginToastNotification, subscribe_plugin_toasts,
 };
 pub use language_runtimes::{
     LanguageRuntimeLock, PLUGIN_WORKER_CPYTHON_VERSION, plugin_worker_cpython_lock,
@@ -173,10 +174,10 @@ pub use runtime::{
 };
 pub use service::PluginService;
 pub use worker_host::{
-    CapabilityBroker, CapabilityGrant, DenyCapabilityBroker, PluginCrash, PluginLogLine,
-    ScopedCapabilityBroker, SharedNodeWorkerHost, WorkerActivation, WorkerHost, WorkerHostError,
-    recent_plugin_crashes, recent_plugin_logs, record_plugin_crash, record_plugin_log,
-    subscribe_worker_crashes,
+    BrokerError, CapabilityBroker, CapabilityGrant, DenyCapabilityBroker, GrantLimits,
+    HostCapabilityGrant, PluginCrash, PluginLogLine, ScopedCapabilityBroker, SharedNodeWorkerHost,
+    WorkerActivation, WorkerHost, WorkerHostError, recent_plugin_crashes, recent_plugin_logs,
+    record_plugin_crash, record_plugin_log, subscribe_worker_crashes,
 };
 pub use worker_http::{
     validate_loopback_mcp_url, worker_http_handler, worker_http_mcp_spec_from_endpoint,

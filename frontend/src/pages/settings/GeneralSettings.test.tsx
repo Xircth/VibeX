@@ -225,7 +225,9 @@ describe('GeneralSettings Agent model catalogs', () => {
       });
     });
     expect(screen.queryByText('暂不可用')).not.toBeInTheDocument();
-    expect(screen.queryByRole('heading', { name: '角色' })).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole('heading', { name: '角色' })
+    ).not.toBeInTheDocument();
     expect(screen.queryByText('默认Agent委派配置')).toBeInTheDocument();
   });
 
@@ -248,14 +250,16 @@ describe('GeneralSettings Agent model catalogs', () => {
     });
 
     expect(await screen.findByText('默认Agent委派配置')).toBeInTheDocument();
-    expect(
-      screen.getByTestId('multi-agent-default-picker')
-    ).toHaveClass('multi-agent-default-picker');
+    expect(screen.getByTestId('multi-agent-default-picker')).toHaveClass(
+      'multi-agent-default-picker'
+    );
     const defaultAgentSelect = await screen.findByRole('combobox', {
       name: '默认Agent委派配置',
     });
     expect(defaultAgentSelect).toBeInTheDocument();
-    expect(screen.queryByTestId('session-control-mode')).not.toBeInTheDocument();
+    expect(
+      screen.queryByTestId('session-control-mode')
+    ).not.toBeInTheDocument();
 
     // Custom Roles section has header create button and empty container create button
     expect(screen.getByText('自定义角色')).toBeInTheDocument();
@@ -424,9 +428,7 @@ describe('GeneralSettings Agent model catalogs', () => {
     expect(
       screen.queryByRole('combobox', { name: 'Agent' })
     ).not.toBeInTheDocument();
-    expect(
-      screen.queryByText('使用自定义优化提示词')
-    ).not.toBeInTheDocument();
+    expect(screen.queryByText('使用自定义优化提示词')).not.toBeInTheDocument();
 
     await user.click(screen.getByRole('switch', { name: '提示词优化' }));
 

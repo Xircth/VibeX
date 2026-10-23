@@ -21,58 +21,14 @@ pub struct PluginDevConnection {
 }
 
 #[derive(Clone)]
-pub struct DesktopPreviewProxy {
-    endpoint: Arc<str>,
-    registry: server::PreviewProxyRegistry,
-}
+pub struct DesktopPreviewProxy;
 
 impl DesktopPreviewProxy {
-    pub async fn start() -> anyhow::Result<Self> {
-        Self::start_with_registry(server::PreviewProxyRegistry::default()).await
-    }
-
     pub async fn start_with_registry(
         registry: server::PreviewProxyRegistry,
     ) -> anyhow::Result<Self> {
-        let endpoint = server::start_loopback_preview_proxy(registry.clone()).await?;
-        Ok(Self {
-            endpoint: Arc::from(endpoint),
-            registry,
-        })
-    }
-
-    pub async fn register(&self, lease: &plugins::PluginPreviewSession) -> anyhow::Result<String> {
-        let lease_id = uuid::Uuid::parse_str(&lease.lease_id)?;
-        self.registry
-            .register(
-                lease_id,
-                lease.loopback_port,
-                &lease.capability_token,
-                lease.expires_at_unix_ms,
-            )
-            .await?;
-        Ok(format!(
-            "{}/api/v1/previews/{lease_id}/c/{}/",
-            self.endpoint, lease.capability_token
-        ))
-    }
-
-    pub async fn revoke(&self, lease_id: &str) {
-        if let Ok(lease_id) = uuid::Uuid::parse_str(lease_id) {
-            self.registry.revoke(lease_id).await;
-        }
-    }
-
-    pub async fn renew(&self, lease: &plugins::PluginPreviewSession) -> anyhow::Result<()> {
-        let lease_id = uuid::Uuid::parse_str(&lease.lease_id)?;
-        self.registry
-            .renew(lease_id, lease.expires_at_unix_ms)
-            .await?;
-        Ok(())
-    }
-
-    pub fn registry(&self) -> server::PreviewProxyRegistry {
-        self.registry.clone()
+        let _endpoint = server::start_loopback_preview_proxy(registry).await?;
+        Ok(Self)
     }
 }
 

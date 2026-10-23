@@ -320,9 +320,7 @@ describe('DockviewWelcomePanel', () => {
 
     expect(screen.getByText('修复窗口选择器缩略图')).toBeInTheDocument();
     expect(screen.getByText('整理电脑控制设置文案')).toBeInTheDocument();
-    expect(
-      screen.queryByText('不应出现的第五个会话')
-    ).not.toBeInTheDocument();
+    expect(screen.queryByText('不应出现的第五个会话')).not.toBeInTheDocument();
 
     expect(screen.getByText('vibex-plugin-computer-use')).toBeInTheDocument();
     expect(screen.getByText('VibeX')).toBeInTheDocument();
@@ -341,14 +339,17 @@ describe('DockviewWelcomePanel', () => {
     expect(
       screen.getByRole('button', { name: /打开 Agent 设置/ })
     ).toBeInTheDocument();
-    expect(
-      screen.getByRole('link', { name: '去官网查看' })
-    ).toHaveAttribute('href', 'https://vibex.com/docs');
+    expect(screen.getByRole('link', { name: '去官网查看' })).toHaveAttribute(
+      'href',
+      'https://vibex.com/docs'
+    );
 
     expect(
       screen.queryByRole('button', { name: /搜索项目/ })
     ).not.toBeInTheDocument();
-    expect(screen.queryByText('超级 Agent Coding 平台')).not.toBeInTheDocument();
+    expect(
+      screen.queryByText('超级 Agent Coding 平台')
+    ).not.toBeInTheDocument();
   });
 
   it('creates a session in the execution area from Start', () => {

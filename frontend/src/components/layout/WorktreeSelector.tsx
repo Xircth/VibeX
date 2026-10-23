@@ -2,12 +2,17 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useQueryClient, type QueryClient } from '@tanstack/react-query';
 import { useNavigate, useParams } from 'react-router-dom';
-import { Check, ChevronDown, Copy, GitBranch } from 'lucide-react';
+import {
+  Check,
+  ChevronDown,
+  Copy,
+  GitBranch as GitBranchIcon,
+} from 'lucide-react';
 import {
   SegmentedControl,
   SegmentedControlItem,
 } from '@astryxdesign/core/SegmentedControl';
-import type { Workspace } from 'shared/types';
+import type { GitBranch, Session, Workspace } from 'shared/types';
 import { Button } from '@/components/ui/button';
 import {
   DropdownMenu,
@@ -26,10 +31,14 @@ import { paths } from '@/lib/paths';
 import { useLayoutStore } from '@/stores/useLayoutStore';
 import { useFileTreeStore } from '@/stores/useFileTreeStore';
 import { deriveWorkspaceRootPath } from '@/components/panels/workspaceRootPath';
-import { attemptsApi } from '@/lib/api';
+import { attemptsApi, sessionsApi, type SessionSummary } from '@/lib/api';
+import { conversationApi } from '@/features/conversation/conversationApi';
 import { ConfirmDialog } from '@/components/dialogs/shared/ConfirmDialog';
 import { toast } from '@/components/ui/toast';
-import type { WorkspaceWithSession } from '@/types/attempt';
+import {
+  createWorkspaceWithSession,
+  type WorkspaceWithSession,
+} from '@/types/attempt';
 import {
   buildBranchSegment,
   orderWorkspacesForSelector,
@@ -40,13 +49,85 @@ type SwitcherMode = 'workspace' | 'branch';
 
 const SESSION_STALE_MS = 30_000;
 
+function resolveCachedWorkspaceSession(
+  queryClient: QueryClient,
+  workspaceId: string
+): Session | undefined {
+  const cachedAttempt = queryClient.getQueryData<WorkspaceWithSession>([
+    'taskAttemptWithSession',
+    workspaceId,
+  ]);
+  if (cachedAttempt?.session) {
+    return cachedAttempt.session;
+  }
+
+  const summaries = queryClient.getQueryData<SessionSummary[]>([
+    'workspaceSessions',
+    workspaceId,
+    'summaries',
+  ]);
+  const latestSummary =
+    summaries?.find((summary) => summary.status !== 'archived') ??
+    summaries?.[0];
+  if (!latestSummary) {
+    return undefined;
+  }
+
+  return (
+    queryClient.getQueryData<Session>(['session', latestSummary.id]) ?? {
+      id: latestSummary.id,
+      workspace_id: latestSummary.workspace_id,
+      task_id: latestSummary.task_id,
+      name: latestSummary.name,
+      initial_prompt: latestSummary.first_prompt,
+      status: latestSummary.status,
+      executor: latestSummary.executor,
+      external_session_id: null,
+      agent_id: latestSummary.agent_id,
+      parent_session_id: null,
+      parent_tool_use_id: null,
+      delegation_call_id: null,
+      created_at: latestSummary.created_at,
+      updated_at: latestSummary.updated_at,
+    }
+  );
+}
+
 /**
  * The file tree reads `attempt`. Session follow reads `taskAttempt`.
  * Both have to be warm before the route changes, or the old directory stays.
  */
-function rememberWorkspace(queryClient: QueryClient, workspace: Workspace) {
+function rememberWorkspace(
+  queryClient: QueryClient,
+  workspace: Workspace,
+  session?: Session
+) {
   queryClient.setQueryData(['attempt', workspace.id], workspace);
   queryClient.setQueryData(['taskAttempt', workspace.id], workspace);
+  if (session) {
+    queryClient.setQueryData(['session', session.id], session);
+    queryClient.setQueryData(
+      ['taskAttemptWithSession', workspace.id],
+      createWorkspaceWithSession(workspace, session)
+    );
+    return;
+  }
+
+  const summaries = queryClient.getQueryData<SessionSummary[]>([
+    'workspaceSessions',
+    workspace.id,
+    'summaries',
+  ]);
+  if (
+    summaries &&
+    summaries.length === 0 &&
+    !queryClient.getQueryData(['taskAttemptWithSession', workspace.id])
+  ) {
+    queryClient.setQueryData(
+      ['taskAttemptWithSession', workspace.id],
+      createWorkspaceWithSession(workspace, undefined)
+    );
+  }
 }
 
 function checkoutErrorMessage(error: unknown, fallback: string): string {
@@ -94,7 +175,6 @@ export function WorktreeSelector() {
   );
   const setDiffFilePath = useFileTreeStore((state) => state.setDiffFilePath);
 
-  const effectiveWorktreeId = activeWorktreeId ?? workspaceId ?? null;
   const selectorWorkspaces = useMemo(() => {
     const nextWorkspaces = worktrees.map((item) => item.workspace);
     if (
@@ -105,6 +185,10 @@ export function WorktreeSelector() {
     }
     return orderWorkspacesForSelector(nextWorkspaces);
   }, [routeWorkspace, worktrees]);
+  const projectRootWorkspace =
+    selectorWorkspaces.find((workspace) => !workspace.use_worktree) ?? null;
+  const effectiveWorktreeId =
+    activeWorktreeId ?? workspaceId ?? projectRootWorkspace?.id ?? null;
   const activeWorkspace = useMemo(
     () =>
       selectorWorkspaces.find(
@@ -117,8 +201,6 @@ export function WorktreeSelector() {
     primaryRepoBranches.find((branch) => branch.is_current)?.name ??
     primaryRepo?.default_target_branch ??
     null;
-  const projectRootWorkspace =
-    selectorWorkspaces.find((workspace) => !workspace.use_worktree) ?? null;
   const currentDirectoryBranch = inWorktree
     ? (activeWorkspace?.branch ?? null)
     : (mainDirectoryBranch ?? activeWorkspace?.branch ?? null);
@@ -141,6 +223,7 @@ export function WorktreeSelector() {
   );
 
   const displayLabel =
+    currentDirectoryBranch?.trim() ||
     activeWorkspace?.branch?.trim() ||
     mainDirectoryBranch ||
     project?.name ||
@@ -156,7 +239,12 @@ export function WorktreeSelector() {
 
   const prefetchWorkspaceSession = useCallback(
     (workspace: Workspace) => {
-      rememberWorkspace(queryClient, workspace);
+      const session = resolveCachedWorkspaceSession(queryClient, workspace.id);
+      rememberWorkspace(queryClient, workspace, session);
+      if (session?.id) {
+        conversationApi.prefetchDetail(session.id);
+        return;
+      }
       void queryClient.prefetchQuery({
         queryKey: ['taskAttemptWithSession', workspace.id],
         queryFn: () => attemptsApi.getWithSession(workspace.id),
@@ -166,20 +254,32 @@ export function WorktreeSelector() {
     [queryClient]
   );
 
+  useEffect(() => {
+    if (!open) {
+      return;
+    }
+    selectorWorkspaces.forEach((workspace) => {
+      const session = resolveCachedWorkspaceSession(queryClient, workspace.id);
+      rememberWorkspace(queryClient, workspace, session);
+    });
+  }, [open, queryClient, selectorWorkspaces]);
+
   const activateWorkspace = useCallback(
     (workspace: Workspace) => {
       setOpen(false);
-      if (!projectId || workspace.id === effectiveWorktreeId) {
+      const isAlreadyBoundToTarget =
+        workspace.id === effectiveWorktreeId &&
+        workspace.id === activeWorktreeId &&
+        (!workspaceId || workspace.id === workspaceId);
+      if (!projectId || isAlreadyBoundToTarget) {
         return;
       }
 
-      rememberWorkspace(queryClient, workspace);
-      const cached = queryClient.getQueryData<WorkspaceWithSession>([
-        'taskAttemptWithSession',
-        workspace.id,
-      ]);
-      const sessionId = cached?.session?.id;
+      const session = resolveCachedWorkspaceSession(queryClient, workspace.id);
+      rememberWorkspace(queryClient, workspace, session);
+      const sessionId = session?.id;
       if (sessionId) {
+        conversationApi.prefetchDetail(sessionId);
         activateExecutionSession({
           sessionId,
           workspaceId: workspace.id,
@@ -199,6 +299,7 @@ export function WorktreeSelector() {
     },
     [
       activateExecutionSession,
+      activeWorktreeId,
       effectiveWorktreeId,
       navigate,
       projectId,
@@ -208,6 +309,7 @@ export function WorktreeSelector() {
       setDiffFilePath,
       setRootPath,
       setSelectedFilePath,
+      workspaceId,
       workspaceRepoNames,
     ]
   );
@@ -236,6 +338,7 @@ export function WorktreeSelector() {
           return;
         }
 
+        const previousBranch = currentDirectoryBranch;
         await attemptsApi.checkoutBranch(
           effectiveWorktreeId,
           primaryRepo.id,
@@ -265,10 +368,51 @@ export function WorktreeSelector() {
               : current
         );
         if (primaryRepo.id) {
+          queryClient.setQueryData<GitBranch[]>(
+            ['repoBranches', primaryRepo.id],
+            (current) =>
+              current?.map((branch) => {
+                const isTarget =
+                  branch.name.trim().toLowerCase() ===
+                  branchName.trim().toLowerCase();
+                const isPrevious =
+                  previousBranch != null &&
+                  branch.name.trim().toLowerCase() ===
+                    previousBranch.trim().toLowerCase();
+                if (!inWorktree) {
+                  return {
+                    ...branch,
+                    is_current: isTarget,
+                  };
+                }
+                if (isTarget) {
+                  return {
+                    ...branch,
+                    is_worktree: true,
+                    worktree_path:
+                      activeWorkspace?.container_ref ?? branch.worktree_path,
+                  };
+                }
+                if (isPrevious) {
+                  return {
+                    ...branch,
+                    is_worktree: false,
+                    worktree_path: null,
+                  };
+                }
+                return branch;
+              })
+          );
           void queryClient.invalidateQueries({
             queryKey: ['repoBranches', primaryRepo.id],
           });
         }
+        void queryClient.invalidateQueries({
+          queryKey: ['projectWorktrees', projectId],
+        });
+        void queryClient.invalidateQueries({
+          queryKey: ['workspaceBranchStatus', effectiveWorktreeId],
+        });
         void queryClient.invalidateQueries({
           queryKey: ['taskAttempt', effectiveWorktreeId],
         });
@@ -287,7 +431,16 @@ export function WorktreeSelector() {
         setSwitchingBranch(false);
       }
     },
-    [effectiveWorktreeId, primaryRepo?.id, projectId, queryClient, t]
+    [
+      activeWorkspace?.container_ref,
+      currentDirectoryBranch,
+      effectiveWorktreeId,
+      inWorktree,
+      primaryRepo?.id,
+      projectId,
+      queryClient,
+      t,
+    ]
   );
 
   const handleBranchSelect = useCallback(
@@ -301,11 +454,30 @@ export function WorktreeSelector() {
           selectorWorkspaces.find(
             (workspace) => workspace.id === entry.workspaceId
           ) ?? projectRootWorkspace;
-        if (!target) {
+        if (target) {
+          activateWorkspace(target);
+          return;
+        }
+        if (!projectId) {
           toast.error(t('worktreeSelector.branchSwitchFailed'));
           return;
         }
-        activateWorkspace(target);
+        void sessionsApi
+          .ensureProjectWorkspace({
+            project_id: projectId,
+            branch: entry.name,
+          })
+          .then((workspace) => {
+            activateWorkspace(workspace);
+          })
+          .catch((error) => {
+            toast.error(
+              checkoutErrorMessage(
+                error,
+                t('worktreeSelector.branchSwitchFailed')
+              )
+            );
+          });
         return;
       }
       void checkoutDirectoryBranch(entry.name);
@@ -313,6 +485,7 @@ export function WorktreeSelector() {
     [
       activateWorkspace,
       checkoutDirectoryBranch,
+      projectId,
       projectRootWorkspace,
       selectorWorkspaces,
       t,
@@ -369,7 +542,7 @@ export function WorktreeSelector() {
           data-testid="workspace-switcher"
           disabled={switchingBranch}
         >
-          <GitBranch className="h-3 w-3 shrink-0 text-muted-foreground" />
+          <GitBranchIcon className="h-3 w-3 shrink-0 text-muted-foreground" />
           <span className="truncate font-medium">{displayLabel}</span>
           <ChevronDown className="h-3 w-3 shrink-0 text-muted-foreground" />
         </Button>
@@ -435,7 +608,9 @@ export function WorktreeSelector() {
                       onFocus={() => prefetchWorkspaceSession(workspace)}
                     >
                       <span className="min-w-0 flex-1 truncate font-mono text-xs">
-                        {workspace.branch}
+                        {workspace.use_worktree
+                          ? workspace.branch
+                          : mainDirectoryBranch || workspace.branch}
                       </span>
                       <span
                         className={

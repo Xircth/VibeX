@@ -34,9 +34,7 @@ type Props = {
   config: AgentNativeConfigView | null;
   saving: boolean;
   conflictMessage?: string | null;
-  onSave: (
-    request: AgentNativeConfigPatchRequest
-  ) => void | Promise<void>;
+  onSave: (request: AgentNativeConfigPatchRequest) => void | Promise<void>;
   onSaveFile?: (request: AgentNativeConfigFileWriteRequest) => void;
   onReloadConflict?: () => void;
   onAdoptExternal?: () => void;

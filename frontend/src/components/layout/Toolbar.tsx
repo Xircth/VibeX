@@ -57,6 +57,7 @@ import { OpenInIdeButton } from '@/components/ide/OpenInIdeButton';
 import { useLocalDesktopHost } from '@/lib/desktopShell';
 import { useProjectRepos } from '@/hooks';
 import { useProjectWorktrees } from '@/hooks/useProjectWorktrees';
+import { useShallow } from 'zustand/react/shallow';
 import { PANEL_IDS, useLayoutStore } from '@/stores/useLayoutStore';
 import { useWindowProjectsStore } from '@/stores/useWindowProjectsStore';
 import type { WorkspaceTab } from '@/stores/useLayoutStore';
@@ -362,7 +363,15 @@ export function WorkspaceLayoutToggles() {
     resetLayout,
     isEditorAreaVisible,
     toggleEditorArea,
-  } = useLayoutStore();
+  } = useLayoutStore(
+    useShallow((state) => ({
+      toggleRightPanel: state.toggleRightPanel,
+      isRightPanelVisible: state.isRightPanelVisible,
+      resetLayout: state.resetLayout,
+      isEditorAreaVisible: state.isEditorAreaVisible,
+      toggleEditorArea: state.toggleEditorArea,
+    }))
+  );
   const { toggleFileTree, openNewTerminal, isPanelOpen } = usePanelActions();
   const isTerminalOpen = isPanelOpen(PANEL_IDS.TERMINAL);
 
@@ -588,7 +597,12 @@ function WorkspaceTabSwitcher() {
   const { data: primaryRepoBranches = [] } = useRepoBranches(primaryRepo?.id, {
     enabled: Boolean(primaryRepo?.id),
   });
-  const { activeTab, setActiveTab } = useLayoutStore();
+  const { activeTab, setActiveTab } = useLayoutStore(
+    useShallow((state) => ({
+      activeTab: state.activeTab,
+      setActiveTab: state.setActiveTab,
+    }))
+  );
   const { config } = useUserSystem();
   const collaborationEnabled = Boolean(config?.multi_agent_enabled);
   const { setChromeOccluded, waitForOverlayReady } = useWorkspaceOverlay();

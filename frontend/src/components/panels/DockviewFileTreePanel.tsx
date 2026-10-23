@@ -103,6 +103,10 @@ function DockviewFileTreePanel(_props: IDockviewPanelProps) {
   const workspaceAgentWorkingDir = workspace?.agent_working_dir ?? null;
   const workspaceBelongsToCurrentProject =
     Boolean(projectId) && workspace?.project_id === projectId;
+  const effectiveWorkspaceRepos = useMemo(
+    () => (workspaceRepos.length > 0 ? workspaceRepos : (repos ?? [])),
+    [repos, workspaceRepos]
+  );
   const workspaceRootCandidates = useMemo(() => {
     if (!activeWorktreeId || !workspaceBelongsToCurrentProject) {
       return [];
@@ -113,14 +117,14 @@ function DockviewFileTreePanel(_props: IDockviewPanelProps) {
         use_worktree: workspaceUsesWorktree,
         agent_working_dir: workspaceAgentWorkingDir,
       },
-      workspaceRepos
+      effectiveWorkspaceRepos
     );
   }, [
     activeWorktreeId,
+    effectiveWorkspaceRepos,
     workspaceAgentWorkingDir,
     workspaceBelongsToCurrentProject,
     workspaceContainerRef,
-    workspaceRepos,
     workspaceUsesWorktree,
   ]);
   const resolvedWorkspaceRootPath = useMemo(

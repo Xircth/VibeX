@@ -50,7 +50,10 @@ export function PluginSettingsSections() {
           </section>
         );
       })}
-      <Slot name="settings.section" itemClassName="settings-section space-y-3" />
+      <Slot
+        name="settings.section"
+        itemClassName="settings-section space-y-3"
+      />
       {sections.map((section) => {
         const metadata = contributionMetadata(section);
         const surfaceId = String(metadata.surfaceId ?? section.id);

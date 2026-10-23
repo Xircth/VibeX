@@ -31,10 +31,10 @@ pub(super) fn parse_acp_transcript(path: &Path) -> Result<Option<VendorLogUsage>
 
     for value in &lines {
         if value.get("kind").and_then(Value::as_str) == Some("header") {
-            if let Some(id) = value.get("session_id").and_then(Value::as_str) {
-                if !id.is_empty() {
-                    session_id = id.to_string();
-                }
+            if let Some(id) = value.get("session_id").and_then(Value::as_str)
+                && !id.is_empty()
+            {
+                session_id = id.to_string();
             }
             continue;
         }
@@ -168,10 +168,10 @@ pub(super) fn parse_codebuddy_session(path: &Path) -> Result<Option<VendorLogUsa
         if first_timestamp == 0 {
             first_timestamp = value.get("timestamp").and_then(Value::as_i64).unwrap_or(0);
         }
-        if let Some(id) = value.get("sessionId").and_then(Value::as_str) {
-            if !id.is_empty() {
-                session_id = id.to_string();
-            }
+        if let Some(id) = value.get("sessionId").and_then(Value::as_str)
+            && !id.is_empty()
+        {
+            session_id = id.to_string();
         }
         remember_model(&mut model, value.get("model").and_then(Value::as_str));
         let Some(parsed) = codebuddy_usage(&value) else {
@@ -212,21 +212,20 @@ fn parse_assistant_jsonl(
     let mut first_timestamp = 0_i64;
 
     for value in read_json_lines(path)? {
-        if first_timestamp == 0 {
-            if let Some(text) = value.get("timestamp").and_then(Value::as_str) {
-                first_timestamp = chrono::DateTime::parse_from_rfc3339(text)
-                    .map(|value| value.timestamp_millis())
-                    .unwrap_or(0);
-            }
+        if first_timestamp == 0
+            && let Some(text) = value.get("timestamp").and_then(Value::as_str)
+        {
+            first_timestamp = chrono::DateTime::parse_from_rfc3339(text)
+                .map(|value| value.timestamp_millis())
+                .unwrap_or(0);
         }
         if let Some(id) = value
             .get("sessionId")
             .or_else(|| value.get("session_id"))
             .and_then(Value::as_str)
+            && !id.is_empty()
         {
-            if !id.is_empty() {
-                session_id = id.to_string();
-            }
+            session_id = id.to_string();
         }
         if value.get("type").and_then(Value::as_str) != Some("assistant") {
             continue;

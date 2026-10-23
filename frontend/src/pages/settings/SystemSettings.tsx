@@ -286,10 +286,7 @@ export function SystemSettings() {
     [writeNow]
   );
 
-  const updateProxyDraft = (
-    next: SystemProxySettings,
-    settle = false
-  ) => {
+  const updateProxyDraft = (next: SystemProxySettings, settle = false) => {
     proxyDraftRef.current = next;
     setProxyDraft(next);
     if (settle) writeProxySettled(next);

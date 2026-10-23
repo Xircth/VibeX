@@ -169,3 +169,7 @@ as ordinary conversations (one per extra space) rather than being merged back.
   bigrams, with no word segmentation or embeddings.
 - Long-term facts depend on agents calling `memory_write` (see `MEMORY.md`).
   Automatic distillation exists only as a hook, so it is future work.
+
+## Open questions for final review
+
+- `crates/plugins/src/official_mcp.rs`: the official collaboration tool list does not include the three space-collection tools (`list_space_collection`, `add_to_space_collection`, `read_space_collection_item`) added in fba44df4, although vibex-mcp exposes them and `tool_schema.json` declares them. fba44df4 predates this redesign, so it is unclear whether the omission is intentional. Left unchanged pending owner decision.

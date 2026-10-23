@@ -40,14 +40,13 @@ pub use domain::{AdapterCapabilities, ApplicationDomainPort, DomainCommand};
 pub use error::ApplicationError;
 pub use notification::{NotificationProjector, TerminalNotificationEvidence};
 pub use principal::Principal;
-pub use workflow::ensure_member_session_workspace;
 pub use workflow::{
     AcceptWorkflowCandidateRequest, CancelWorkflowRequest, CompleteWorkflowStepRequest,
     DebugWorkflowRequest, DecideWorkflowRequest, ForkWorkflowRequest, PauseWorkflowRequest,
     PauseWorkflowStepRequest, PublishWorkflowRequest, ResumePausedWorkflowRequest,
     ResumeWorkflowRequest, StartWorkflowRequest, SubmitWorkflowStepInputRequest,
     ValidateWorkflowRequest, WorkflowAgentDispatcher, WorkflowExecutionPort,
-    WorkflowStoreExecutionPort,
+    WorkflowStoreExecutionPort, ensure_member_session_workspace,
 };
 pub use workflows::{
     CompletionPolicy, DebugRunScope, WorkflowDefinition, WorkflowDefinitionSummary,

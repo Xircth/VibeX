@@ -10,9 +10,8 @@ use db::models::{
     conversation_input::ConversationInputRecord,
     conversation_side_effects::ConversationFileChangeRecord,
     conversation_turn::ConversationTurnRecord,
-    task::{CreateTask, Task, TaskStatus},
-    workspace::{CreateWorkspace, Workspace},
-    workspace_repo::{CreateWorkspaceRepo, WorkspaceRepo},
+    task::Task,
+    workspace::Workspace,
 };
 use uuid::Uuid;
 use workflows::{
@@ -817,11 +816,7 @@ async fn create_isolated_step_workspace(
     .await
 }
 
-/// Create (or reuse) a worktree-backed child workspace of
-/// `parent_workspace_id` on `branch`, covering every repo of the parent.
-/// Shared by workflow `write_isolated` steps and collaboration members'
-/// WriteIsolated sessions. Returns the workspace id and checkpoint evidence.
-pub(crate) async fn create_isolated_workspace(
+async fn create_isolated_workspace(
     context: &ConversationContext,
     parent_workspace_id: Uuid,
     isolated_workspace_id: Uuid,
@@ -829,127 +824,23 @@ pub(crate) async fn create_isolated_workspace(
     title: String,
     purpose: &str,
 ) -> Result<(Uuid, serde_json::Value), ApplicationError> {
-    let pool = &context.deployment.db().pool;
-    let parent = Workspace::find_by_id(pool, parent_workspace_id)
-        .await
-        .map_err(|error| ApplicationError::internal(error.to_string()))?
-        .ok_or_else(|| ApplicationError::not_found("workflow workspace not found"))?;
-    let repos = WorkspaceRepo::find_repos_with_target_branch_for_workspace(pool, parent.id)
-        .await
-        .map_err(|error| ApplicationError::internal(error.to_string()))?;
-    if repos.is_empty() {
-        return Err(ApplicationError::bad_request(
-            "write_isolated requires at least one repository",
-        ));
-    }
-    let agent_working_dir = match repos.as_slice() {
-        [repo] => Some(repo.repo.default_working_dir.as_deref().map_or_else(
-            || repo.repo.name.clone(),
-            |subdir| {
-                std::path::PathBuf::from(&repo.repo.name)
-                    .join(subdir)
-                    .to_string_lossy()
-                    .into_owned()
-            },
-        )),
-        _ => None,
-    };
-    let workspace = if let Some(existing) = Workspace::find_by_id(pool, isolated_workspace_id)
-        .await
-        .map_err(|error| ApplicationError::internal(error.to_string()))?
-    {
-        existing
-    } else {
-        let task = Task::create(
-            pool,
-            &CreateTask {
-                project_id: parent.project_id,
-                title,
-                description: None,
-                status: Some(TaskStatus::Todo),
-                parent_workspace_id: Some(parent.id),
-                image_ids: None,
-            },
-            Uuid::new_v4(),
-        )
-        .await
-        .map_err(|error| ApplicationError::internal(error.to_string()))?;
-        let workspace = Workspace::create(
-            pool,
-            &CreateWorkspace {
-                project_id: parent.project_id,
-                parent_workspace_id: Some(parent.id),
-                branch: branch.clone(),
-                container_ref: None,
-                use_worktree: true,
-                agent_working_dir,
-            },
-            isolated_workspace_id,
-            task.id,
-        )
-        .await
-        .map_err(|error| ApplicationError::internal(error.to_string()))?;
-        WorkspaceRepo::create_many(
-            pool,
-            workspace.id,
-            &repos
-                .iter()
-                .map(|repo| CreateWorkspaceRepo {
-                    repo_id: repo.repo.id,
-                    target_branch: repo.target_branch.clone(),
-                })
-                .collect::<Vec<_>>(),
-        )
-        .await
-        .map_err(|error| ApplicationError::internal(error.to_string()))?;
-        workspace
-    };
-
-    if let Err(error) = context
-        .deployment
-        .container()
-        .ensure_container_exists(&workspace)
-        .await
-    {
-        let _ = context.deployment.container().delete(&workspace).await;
-        let _ = Workspace::delete(pool, workspace.id).await;
-        let _ = Task::delete(pool, workspace.task_id).await;
-        return Err(ApplicationError::internal(format!(
-            "failed to create isolated {purpose} worktree: {error}"
-        )));
-    }
-    let materialized = Workspace::find_by_id(pool, workspace.id)
-        .await
-        .map_err(|error| ApplicationError::internal(error.to_string()))?
-        .ok_or_else(|| ApplicationError::internal("isolated workspace disappeared"))?;
-    let mut checkpoints = Vec::new();
-    for repo in &repos {
-        let path = materialized
-            .repo_path(&repo.repo)
-            .ok_or_else(|| ApplicationError::internal("isolated repo path is unavailable"))?;
-        let head = context
-            .deployment
-            .git()
-            .get_head_info(&path)
-            .map_err(|error| ApplicationError::internal(error.to_string()))?;
-        checkpoints.push(serde_json::json!({
-            "repoId": repo.repo.id,
-            "path": path,
-            "targetBranch": repo.target_branch,
-            "headCommit": head.oid,
-        }));
-    }
-    Ok((
-        workspace.id,
-        serde_json::json!({
-            "isolated": true,
-            "workspaceId": workspace.id,
-            "parentWorkspaceId": parent.id,
-            "branch": branch,
-            "checkpoint": checkpoints,
-            "autoMerge": false,
-        }),
-    ))
+    conversations::isolated_workspace::create_isolated_workspace(
+        context,
+        parent_workspace_id,
+        isolated_workspace_id,
+        branch,
+        title,
+        purpose,
+    )
+    .await
+    .map_err(|error| match error {
+        conversations::isolated_workspace::IsolatedWorkspaceError::NoRepositories => {
+            ApplicationError::bad_request(error.to_string())
+        }
+        conversations::isolated_workspace::IsolatedWorkspaceError::Other(message) => {
+            ApplicationError::internal(message)
+        }
+    })
 }
 
 fn render_agent_prompt(
@@ -1853,39 +1744,18 @@ pub async fn ensure_member_session_workspace(
     conversation_id: Uuid,
 ) -> Result<Option<Uuid>, ApplicationError> {
     let pool = &context.deployment.db().pool;
-    let plan = conversations::collaboration::plan_member_write(pool, conversation_id)
+    let Some(session) = db::models::session::Session::find_by_id(pool, conversation_id)
         .await
-        .map_err(|error| ApplicationError::internal(error.message.clone()))?;
-    let Some(plan) = plan else {
+        .map_err(|error| ApplicationError::internal(error.to_string()))?
+    else {
         return Ok(None);
     };
-    if let Some(existing) = plan.isolated_workspace_id {
-        return Ok(Some(existing));
-    }
-    if !plan.needs_isolated_workspace() {
-        return Ok(None);
-    }
-    let isolated_id = Uuid::new_v5(
-        &Uuid::NAMESPACE_OID,
-        format!("vibex-member-worktree:{conversation_id}").as_bytes(),
-    );
-    let (workspace_id, evidence) = create_isolated_workspace(
+    let workspace_id = conversations::isolated_workspace::execution_workspace_id(
         context,
-        plan.workspace_id,
-        isolated_id,
-        format!("member/{}/{conversation_id}", plan.member_id),
-        format!("Member session {conversation_id}"),
-        "member session",
-    )
-    .await?;
-    conversations::collaboration::record_member_session_workspace(
-        pool,
-        &plan,
         conversation_id,
-        workspace_id,
-        &evidence,
+        session.workspace_id,
     )
     .await
-    .map_err(|error| ApplicationError::internal(error.message.clone()))?;
-    Ok(Some(workspace_id))
+    .map_err(|error| ApplicationError::internal(error.message))?;
+    Ok((workspace_id != session.workspace_id).then_some(workspace_id))
 }

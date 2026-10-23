@@ -3552,8 +3552,14 @@ async fn deliver_pending(
         }
         if session_is_asleep(pool, conversation_id).await? {
             let turn_key = wake_turn_key(pool, message_id, &envelope).await?;
-            if !reserve_wake(pool, &turn_key, conversation_id, message_id, wake_cap_per_turn())
-                .await?
+            if !reserve_wake(
+                pool,
+                &turn_key,
+                conversation_id,
+                message_id,
+                wake_cap_per_turn(),
+            )
+            .await?
             {
                 // Over the per-turn wake cap: stays queued (no input yet), so a
                 // later replay or an explicit mention after waking delivers it.
@@ -3596,7 +3602,8 @@ async fn deliver_pending(
                 from
             }
         };
-        let missed = missed_group_context(pool, space_id, conversation_id, context_from, seq).await?;
+        let missed =
+            missed_group_context(pool, space_id, conversation_id, context_from, seq).await?;
         let packed = match missed {
             Some(missed) => format!("{missed}\n\n{attention}"),
             None => attention.clone(),
@@ -3714,7 +3721,10 @@ async fn context_window_start(
         None => None,
     };
     let floor = (seq - 1 - MISSED_CONTEXT_LIMIT).max(0);
-    Ok(last_seen.map_or(floor, |seen| seen.max(floor)).min(seq - 1).max(0))
+    Ok(last_seen
+        .map_or(floor, |seen| seen.max(floor))
+        .min(seq - 1)
+        .max(0))
 }
 
 async fn binding_last_seen_seq(
@@ -3770,13 +3780,19 @@ async fn missed_group_context(
         if envelope.get("attributedTo").and_then(Value::as_str) == Some(own.as_str()) {
             continue;
         }
-        let actor = envelope.get("actor").and_then(Value::as_str).unwrap_or_default();
+        let actor = envelope
+            .get("actor")
+            .and_then(Value::as_str)
+            .unwrap_or_default();
         let who = if actor == user_uri {
             "User".to_string()
         } else {
             actor.rsplit("/member/").next().unwrap_or(actor).to_string()
         };
-        let content = envelope.get("content").and_then(Value::as_str).unwrap_or_default();
+        let content = envelope
+            .get("content")
+            .and_then(Value::as_str)
+            .unwrap_or_default();
         lines.push(format!("[#{seq}] {who}: {content}"));
     }
     if lines.is_empty() {
@@ -3854,12 +3870,14 @@ pub async fn list_message_receipts(
     .map_err(db)?;
     Ok(rows
         .into_iter()
-        .map(|(conversation_id, state, delivered, updated_at)| MessageReceipt {
-            conversation_id,
-            state,
-            delivered,
-            updated_at,
-        })
+        .map(
+            |(conversation_id, state, delivered, updated_at)| MessageReceipt {
+                conversation_id,
+                state,
+                delivered,
+                updated_at,
+            },
+        )
         .collect())
 }
 
@@ -5132,7 +5150,11 @@ pub async fn handoff_with(
         None
     };
     let envelope_json = serde_json::to_string(&input.envelope).unwrap_or_default();
-    let status = if rejection.is_some() { "rejected" } else { "accepted" };
+    let status = if rejection.is_some() {
+        "rejected"
+    } else {
+        "accepted"
+    };
     sqlx::query(
         r#"INSERT INTO collaboration_handoffs
            (id, space_id, from_conversation_id, to_nickname, to_conversation_id,
@@ -5187,7 +5209,10 @@ pub async fn handoff_with(
     };
     let message_id = posted.as_ref().ok().map(|result| result.message_id.clone());
     if let Some(reason) = failure {
-        let report_id = Uuid::new_v5(&Uuid::NAMESPACE_OID, format!("handoff-report:{handoff_id}").as_bytes());
+        let report_id = Uuid::new_v5(
+            &Uuid::NAMESPACE_OID,
+            format!("handoff-report:{handoff_id}").as_bytes(),
+        );
         let report = post_to_space_with(
             pool,
             PostToSpace {
@@ -5240,11 +5265,17 @@ pub async fn handoff_with(
         }))
 }
 
-pub async fn handoff(pool: &SqlitePool, input: Handoff) -> Result<HandoffResult, CollaborationError> {
+pub async fn handoff(
+    pool: &SqlitePool,
+    input: Handoff,
+) -> Result<HandoffResult, CollaborationError> {
     handoff_with(pool, input, &DeliveryContext::default()).await
 }
 
-async fn load_handoff(pool: &SqlitePool, id: &str) -> Result<Option<HandoffRow>, CollaborationError> {
+async fn load_handoff(
+    pool: &SqlitePool,
+    id: &str,
+) -> Result<Option<HandoffRow>, CollaborationError> {
     sqlx::query_as::<_, HandoffRow>(
         r#"SELECT id, status, depth, message_id, reason, report_message_id, envelope_json,
                   to_nickname, space_id, from_conversation_id
@@ -5322,6 +5353,60 @@ impl MemberWritePlan {
         self.access == MemberWriteAccess::WriteIsolated
             && !self.primary
             && self.isolated_workspace_id.is_none()
+    }
+}
+
+/// Creates the worktree workspace for a WriteIsolated member session.
+/// `Ok(None)` means isolation is not applicable (e.g. no repositories).
+#[async_trait::async_trait]
+pub trait IsolatedWorkspaceProvisioner: Send + Sync {
+    async fn provision(
+        &self,
+        plan: &MemberWritePlan,
+        conversation_id: Uuid,
+        isolated_workspace_id: Uuid,
+    ) -> Result<Option<(Uuid, Value)>, String>;
+}
+
+/// Deterministic id of a member session's worktree workspace.
+pub fn member_worktree_workspace_id(conversation_id: Uuid) -> Uuid {
+    Uuid::new_v5(
+        &Uuid::NAMESPACE_OID,
+        format!("vibex-member-worktree:{conversation_id}").as_bytes(),
+    )
+}
+
+/// Workspace a turn of `conversation_id` must *execute* in. Non-primary
+/// member sessions under WriteIsolated get (and keep) their own worktree;
+/// everything else runs in `session_workspace_id`. The session row keeps its
+/// own workspace, which collaboration checks continue to use.
+pub async fn execution_workspace_id(
+    pool: &SqlitePool,
+    conversation_id: Uuid,
+    session_workspace_id: Uuid,
+    provisioner: &dyn IsolatedWorkspaceProvisioner,
+) -> Result<Uuid, CollaborationError> {
+    let Some(plan) = plan_member_write(pool, conversation_id).await? else {
+        return Ok(session_workspace_id);
+    };
+    if plan.access != MemberWriteAccess::WriteIsolated || plan.primary {
+        return Ok(session_workspace_id);
+    }
+    if let Some(existing) = plan.isolated_workspace_id {
+        return Ok(existing);
+    }
+    let isolated = member_worktree_workspace_id(conversation_id);
+    match provisioner
+        .provision(&plan, conversation_id, isolated)
+        .await
+        .map_err(|error| CollaborationError::new("workspace_isolation_failed", error))?
+    {
+        Some((workspace_id, evidence)) => {
+            record_member_session_workspace(pool, &plan, conversation_id, workspace_id, &evidence)
+                .await?;
+            Ok(workspace_id)
+        }
+        None => Ok(session_workspace_id),
     }
 }
 
@@ -5413,7 +5498,10 @@ pub async fn record_member_session_workspace(
 
 /// Whether a session is doing (or about to do) work: running turn or
 /// queued/claimed input.
-async fn session_busy(pool: &SqlitePool, conversation_id: Uuid) -> Result<bool, CollaborationError> {
+async fn session_busy(
+    pool: &SqlitePool,
+    conversation_id: Uuid,
+) -> Result<bool, CollaborationError> {
     let busy: i64 = sqlx::query_scalar(
         r#"SELECT
              EXISTS (SELECT 1 FROM sessions WHERE id = ? AND active_turn_id IS NOT NULL)
@@ -5580,7 +5668,11 @@ pub async fn resolve_member_target(
     if parse_unassigned_space_id(&thread_id).is_some() {
         thread_id = identity::direct_thread_id(member_id);
     }
-    if identity::load_member(pool, member_id).await.map_err(db)?.is_none() {
+    if identity::load_member(pool, member_id)
+        .await
+        .map_err(db)?
+        .is_none()
+    {
         return Err(CollaborationError::new("not_found", "member was not found"));
     }
     let thread_workspace = match identity::load_thread(pool, &thread_id).await.map_err(db)? {
@@ -5660,7 +5752,14 @@ async fn resolve_seat_target(
     conversation_id: Uuid,
     nickname: &str,
 ) -> Result<Uuid, CollaborationError> {
-    let resolved = attach_seat(pool, space_id, conversation_id, nickname, SeatMode::PerThread).await?;
+    let resolved = attach_seat(
+        pool,
+        space_id,
+        conversation_id,
+        nickname,
+        SeatMode::PerThread,
+    )
+    .await?;
     if resolved != conversation_id {
         sqlx::query(
             "UPDATE collaboration_space_members SET conversation_id = ? WHERE space_id = ? AND conversation_id = ?",
@@ -5703,7 +5802,10 @@ async fn existing_member_seat(
     if bound == conversation_id {
         return Ok(None);
     }
-    ensure_agent_member(pool, space_id, bound).await.map(Some).or(Ok(None))
+    ensure_agent_member(pool, space_id, bound)
+        .await
+        .map(Some)
+        .or(Ok(None))
 }
 
 async fn insert_member(
@@ -8318,14 +8420,22 @@ mod tests {
             .unwrap();
         let forked = Uuid::parse_str(in_second.conversation_id.as_deref().unwrap()).unwrap();
         assert_ne!(forked, b);
-        let forked_session = load_session(&pool, forked).await.unwrap().expect("forked session");
+        let forked_session = load_session(&pool, forked)
+            .await
+            .unwrap()
+            .expect("forked session");
         assert_eq!(forked_session.workspace_id, workspace);
 
         let member = identity::member_id_for_conversation(b);
         assert_eq!(resolve_session(&pool, &member, &first).await.unwrap(), b);
-        assert_eq!(resolve_session(&pool, &member, &second).await.unwrap(), forked);
         assert_eq!(
-            resolve_member_target(&pool, a, &member, &second).await.unwrap(),
+            resolve_session(&pool, &member, &second).await.unwrap(),
+            forked
+        );
+        assert_eq!(
+            resolve_member_target(&pool, a, &member, &second)
+                .await
+                .unwrap(),
             forked
         );
         let other_workspace = Uuid::new_v4();
@@ -8481,7 +8591,9 @@ mod tests {
             .execute(&pool)
             .await
             .unwrap();
-        let receipts = list_message_receipts(&pool, &posted.message_id).await.unwrap();
+        let receipts = list_message_receipts(&pool, &posted.message_id)
+            .await
+            .unwrap();
         let state_of = |receipts: &[MessageReceipt]| {
             receipts
                 .iter()
@@ -8494,7 +8606,9 @@ mod tests {
 
         // b answers in the thread: replied.
         let reply = post_as(&pool, Some(b), &space, "看完了", &["User"]).await;
-        let receipts = list_message_receipts(&pool, &posted.message_id).await.unwrap();
+        let receipts = list_message_receipts(&pool, &posted.message_id)
+            .await
+            .unwrap();
         assert_eq!(state_of(&receipts), "replied");
 
         let messages = list_space_messages(&pool, &space, None, None, MessageAudience::User)
@@ -8559,7 +8673,10 @@ mod tests {
         assert!(to_b[0].contains("missed_group_messages"));
         assert!(to_b[0].contains("先看接口"));
         assert!(to_b[0].contains("接口没问题"));
-        assert_eq!(seen(member_b.clone()).await, Some(mention.message_id.clone()));
+        assert_eq!(
+            seen(member_b.clone()).await,
+            Some(mention.message_id.clone())
+        );
 
         // Nothing new since: the next mention packs no backlog.
         post_as(&pool, None, &space, "@小B 再补一句", &[]).await;
@@ -8621,16 +8738,24 @@ mod tests {
         }
         // Busy sessions never sleep.
         mark_running(&pool, others[3]).await;
-        sqlx::query("UPDATE collaboration_thread_members SET last_active_at = '2000-01-01T00:00:00Z'")
-            .execute(&pool)
-            .await
-            .unwrap();
-        assert_eq!(sleep_idle_sessions(&pool, 0).await.unwrap(), 0, "0 disables");
+        sqlx::query(
+            "UPDATE collaboration_thread_members SET last_active_at = '2000-01-01T00:00:00Z'",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+        assert_eq!(
+            sleep_idle_sessions(&pool, 0).await.unwrap(),
+            0,
+            "0 disables"
+        );
         let slept = sleep_idle_sessions(&pool, 30).await.unwrap();
         assert_eq!(slept, 4, "a + three idle members");
         assert!(session_is_asleep(&pool, others[0]).await.unwrap());
         assert!(!session_is_asleep(&pool, others[3]).await.unwrap());
-        let preview = preview_space_wake(&pool, &space, None, "大家", &[]).await.unwrap();
+        let preview = preview_space_wake(&pool, &space, None, "大家", &[])
+            .await
+            .unwrap();
         assert_eq!(preview.asleep, 4);
 
         // One user message is one turn: only DEFAULT_WAKE_CAP_PER_TURN (3)
@@ -8649,7 +8774,11 @@ mod tests {
         assert_eq!(woken, 3);
         assert_eq!(deferred.len(), 1);
         assert_eq!(deferred[0].delivered, "deferred");
-        assert!(inputs_of(&pool, deferred[0].conversation_id).await.is_empty());
+        assert!(
+            inputs_of(&pool, deferred[0].conversation_id)
+                .await
+                .is_empty()
+        );
         // The awake (busy) member was delivered without using the cap.
         assert_eq!(inputs_of(&pool, others[3]).await.len(), 1);
         // Woken sessions are awake again.
@@ -8715,16 +8844,38 @@ mod tests {
     async fn handoff_delivers_envelope_and_enforces_depth() {
         let pool = setup_pool().await;
         let (space, ids) = handoff_team(&pool).await;
-        let first = hand(&pool, ids[0], &space, "小B", "实现登录").await.unwrap();
+        let first = hand(&pool, ids[0], &space, "小B", "实现登录")
+            .await
+            .unwrap();
         assert_eq!((first.status.as_str(), first.depth), ("accepted", 1));
         let to_b = inputs_of(&pool, ids[1]).await;
         assert_eq!(to_b.len(), 1);
-        for part in ["<done>", "接口草案已完成", "<inputs_constraints>", "<ask>", "实现登录"] {
+        for part in [
+            "<done>",
+            "接口草案已完成",
+            "<inputs_constraints>",
+            "<ask>",
+            "实现登录",
+        ] {
             assert!(to_b[0].contains(part), "missing {part}");
         }
-        assert_eq!(hand(&pool, ids[1], &space, "小C", "写测试").await.unwrap().depth, 2);
-        assert_eq!(hand(&pool, ids[2], &space, "小D", "跑测试").await.unwrap().depth, 3);
-        let too_deep = hand(&pool, ids[3], &space, "小A", "再转").await.unwrap_err();
+        assert_eq!(
+            hand(&pool, ids[1], &space, "小C", "写测试")
+                .await
+                .unwrap()
+                .depth,
+            2
+        );
+        assert_eq!(
+            hand(&pool, ids[2], &space, "小D", "跑测试")
+                .await
+                .unwrap()
+                .depth,
+            3
+        );
+        let too_deep = hand(&pool, ids[3], &space, "小A", "再转")
+            .await
+            .unwrap_err();
         assert_eq!(too_deep.code, "limit_exceeded");
         let recorded: (String, i64, Option<String>) = sqlx::query_as(
             "SELECT status, depth, reason FROM collaboration_handoffs WHERE from_conversation_id = ?",
@@ -8788,7 +8939,12 @@ mod tests {
             .find(|m| m.envelope["id"] == json!(format!("vibex://space-message/{report}")))
             .expect("report in thread");
         assert_eq!(posted.origin, "agent");
-        assert!(posted.envelope["content"].as_str().unwrap().contains("失败"));
+        assert!(
+            posted.envelope["content"]
+                .as_str()
+                .unwrap()
+                .contains("失败")
+        );
         // Replaying the same operation returns the recorded outcome.
         assert_eq!(handoff(&pool, request).await.unwrap(), failed);
     }
@@ -8839,6 +8995,163 @@ mod tests {
         assert!(plan_member_write(&pool, loose).await.unwrap().is_none());
     }
 
+    /// Test provisioner: real `git worktree add` per isolated session.
+    struct GitWorktreeProvisioner {
+        repo: std::path::PathBuf,
+        dirs: std::sync::Mutex<std::collections::HashMap<Uuid, std::path::PathBuf>>,
+        calls: std::sync::atomic::AtomicUsize,
+    }
+
+    #[async_trait::async_trait]
+    impl IsolatedWorkspaceProvisioner for GitWorktreeProvisioner {
+        async fn provision(
+            &self,
+            _plan: &MemberWritePlan,
+            conversation_id: Uuid,
+            isolated: Uuid,
+        ) -> Result<Option<(Uuid, Value)>, String> {
+            self.calls.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            let dir = self.repo.with_file_name(format!("wt-{isolated}"));
+            git(
+                &self.repo,
+                &[
+                    "worktree",
+                    "add",
+                    "-b",
+                    &format!("member/{conversation_id}"),
+                    dir.to_str().unwrap(),
+                ],
+            );
+            self.dirs.lock().unwrap().insert(isolated, dir);
+            Ok(Some((
+                isolated,
+                json!({ "branch": format!("member/{conversation_id}") }),
+            )))
+        }
+    }
+
+    fn git(dir: &std::path::Path, args: &[&str]) -> String {
+        let out = std::process::Command::new("git")
+            .args([
+                "-c",
+                "user.name=t",
+                "-c",
+                "user.email=t@t",
+                "-c",
+                "commit.gpgsign=false",
+            ])
+            .args(args)
+            .current_dir(dir)
+            .output()
+            .expect("git");
+        assert!(
+            out.status.success(),
+            "git {args:?}: {}",
+            String::from_utf8_lossy(&out.stderr)
+        );
+        String::from_utf8_lossy(&out.stdout).into_owned()
+    }
+
+    #[tokio::test]
+    async fn two_sessions_of_one_member_write_one_repo_concurrently_without_conflict() {
+        let pool = setup_pool().await;
+        let workspace = Uuid::new_v4();
+        let a = Uuid::new_v4();
+        let b = Uuid::new_v4();
+        create_session(&pool, a, workspace, Some("小A")).await;
+        create_session(&pool, b, workspace, Some("小B")).await;
+        let first = space_of(&pool, a).await;
+        let second = space_of(&pool, a).await;
+        add_space_member(&pool, a, &first, b, "小B", Uuid::new_v4())
+            .await
+            .unwrap();
+        let forked = Uuid::parse_str(
+            add_space_member(&pool, a, &second, b, "小B", Uuid::new_v4())
+                .await
+                .unwrap()
+                .conversation_id
+                .as_deref()
+                .unwrap(),
+        )
+        .unwrap();
+
+        let root = tempfile::tempdir().unwrap();
+        let repo = root.path().join("repo");
+        std::fs::create_dir(&repo).unwrap();
+        git(&repo, &["init", "-q", "-b", "main"]);
+        std::fs::write(repo.join("shared.txt"), "base\n").unwrap();
+        git(&repo, &["add", "."]);
+        git(&repo, &["commit", "-qm", "base"]);
+        let provisioner = GitWorktreeProvisioner {
+            repo: repo.clone(),
+            dirs: Default::default(),
+            calls: Default::default(),
+        };
+
+        // Both sessions dispatch a turn at the same time.
+        let (primary_ws, forked_ws) = tokio::join!(
+            execution_workspace_id(&pool, b, workspace, &provisioner),
+            execution_workspace_id(&pool, forked, workspace, &provisioner),
+        );
+        let (primary_ws, forked_ws) = (primary_ws.unwrap(), forked_ws.unwrap());
+        assert_eq!(primary_ws, workspace, "primary keeps the native checkout");
+        assert_eq!(forked_ws, member_worktree_workspace_id(forked));
+        let dir_of = |id: Uuid| {
+            if id == workspace {
+                repo.clone()
+            } else {
+                provisioner.dirs.lock().unwrap()[&id].clone()
+            }
+        };
+        let (primary_dir, forked_dir) = (dir_of(primary_ws), dir_of(forked_ws));
+        assert_ne!(primary_dir, forked_dir);
+
+        // Concurrent writes to the same file in the same repo.
+        let writes = [
+            (primary_dir.clone(), "from primary\n"),
+            (forked_dir.clone(), "from fork\n"),
+        ]
+        .map(|(dir, text)| {
+            std::thread::spawn(move || {
+                std::fs::write(dir.join("shared.txt"), text).unwrap();
+                git(&dir, &["commit", "-qam", text.trim()]);
+            })
+        });
+        for write in writes {
+            write.join().unwrap();
+        }
+        assert_eq!(
+            std::fs::read_to_string(primary_dir.join("shared.txt")).unwrap(),
+            "from primary\n"
+        );
+        assert_eq!(
+            std::fs::read_to_string(forked_dir.join("shared.txt")).unwrap(),
+            "from fork\n"
+        );
+        assert!(git(&repo, &["status", "--porcelain"]).trim().is_empty());
+        assert!(
+            git(&forked_dir, &["status", "--porcelain"])
+                .trim()
+                .is_empty()
+        );
+
+        // Later turns reuse the recorded worktree; the session row is untouched.
+        let again = execution_workspace_id(&pool, forked, workspace, &provisioner)
+            .await
+            .unwrap();
+        assert_eq!(again, forked_ws);
+        assert_eq!(
+            provisioner.calls.load(std::sync::atomic::Ordering::SeqCst),
+            1
+        );
+        let plan = plan_member_write(&pool, forked).await.unwrap().unwrap();
+        assert_eq!(
+            plan.workspace_id, workspace,
+            "collaboration still sees the session workspace"
+        );
+        assert_eq!(plan.isolated_workspace_id, Some(forked_ws));
+    }
+
     #[tokio::test]
     async fn write_serialized_member_sessions_take_turns() {
         let pool = setup_pool().await;
@@ -8865,10 +9178,18 @@ mod tests {
         set_member_write_access(&pool, &member, MemberWriteAccess::WriteSerialized)
             .await
             .unwrap();
-        assert!(set_member_write_access(&pool, "ghost", MemberWriteAccess::WriteSerialized)
-            .await
-            .is_err());
-        assert!(!plan_member_write(&pool, forked).await.unwrap().unwrap().needs_isolated_workspace());
+        assert!(
+            set_member_write_access(&pool, "ghost", MemberWriteAccess::WriteSerialized)
+                .await
+                .is_err()
+        );
+        assert!(
+            !plan_member_write(&pool, forked)
+                .await
+                .unwrap()
+                .unwrap()
+                .needs_isolated_workspace()
+        );
 
         // b's first-space session takes the lease and is busy.
         assert!(try_acquire_member_write(&pool, b).await.unwrap());
@@ -8880,7 +9201,10 @@ mod tests {
             .iter()
             .find(|r| r.conversation_id == forked)
             .unwrap();
-        assert_eq!(deferred.error_code.as_deref(), Some("write_serialized_busy"));
+        assert_eq!(
+            deferred.error_code.as_deref(),
+            Some("write_serialized_busy")
+        );
         assert!(inputs_of(&pool, forked).await.is_empty());
 
         // b finishes; the sweeper retry delivers the deferred message.
@@ -8890,9 +9214,19 @@ mod tests {
             .await
             .unwrap();
         let _ = turn;
-        assert_eq!(redeliver_deferred(&pool, &DeliveryContext::default()).await.unwrap(), 1);
+        assert_eq!(
+            redeliver_deferred(&pool, &DeliveryContext::default())
+                .await
+                .unwrap(),
+            1
+        );
         assert_eq!(inputs_of(&pool, forked).await.len(), 1);
-        assert_eq!(redeliver_deferred(&pool, &DeliveryContext::default()).await.unwrap(), 0);
+        assert_eq!(
+            redeliver_deferred(&pool, &DeliveryContext::default())
+                .await
+                .unwrap(),
+            0
+        );
     }
 
     #[tokio::test]

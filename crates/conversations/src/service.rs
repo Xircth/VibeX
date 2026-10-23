@@ -1083,7 +1083,14 @@ impl ConversationSessionService {
         self.interrupt_orphaned_turn(input.conversation_id).await?;
 
         let pool = &self.ctx.deployment.db().pool;
-        let workspace = Workspace::find_by_id(pool, input.workspace_id)
+        let execution_workspace_id = crate::isolated_workspace::execution_workspace_id(
+            &self.ctx,
+            input.conversation_id,
+            input.workspace_id,
+        )
+        .await
+        .map_err(|error| ConversationServiceError::Internal(error.message))?;
+        let workspace = Workspace::find_by_id(pool, execution_workspace_id)
             .await?
             .ok_or_else(|| {
                 ConversationServiceError::NotFound(format!(
@@ -2403,7 +2410,14 @@ impl ConversationSessionService {
                     "Conversation {conversation_id} has no supported coding agent"
                 ))
             })?;
-        let workspace = Workspace::find_by_id(pool, persisted_session.workspace_id)
+        let execution_workspace_id = crate::isolated_workspace::execution_workspace_id(
+            &self.ctx,
+            conversation_id,
+            persisted_session.workspace_id,
+        )
+        .await
+        .map_err(|error| ConversationServiceError::Internal(error.message))?;
+        let workspace = Workspace::find_by_id(pool, execution_workspace_id)
             .await?
             .ok_or_else(|| {
                 ConversationServiceError::NotFound(format!(

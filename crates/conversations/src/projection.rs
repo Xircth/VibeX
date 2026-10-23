@@ -1652,9 +1652,7 @@ impl CachedRowProjector {
         let Some(lock) = REBUILT_PROJECTOR_STATES.get() else {
             return false;
         };
-        let map = lock
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        let map = lock.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
         let Some(entry) = map.get(&conversation_id) else {
             return false;
         };

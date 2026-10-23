@@ -11,12 +11,12 @@ import {
 import {
   AlertTriangle,
   CheckCircle2,
+  ChevronDown,
   CircleAlert,
   Info,
   Loader2,
   X,
 } from 'lucide-react';
-import { Button } from '@astryxdesign/core/Button';
 import { useTranslation } from 'react-i18next';
 import i18n from '@/i18n';
 
@@ -115,98 +115,8 @@ function resumeToast(id: ToastId) {
   if (item) scheduleToast(item);
 }
 
-function collectDetailRows(options: ToastOptions): ToastDetail[] {
-  const rows: ToastDetail[] = [];
-  if (options.description != null) {
-    rows.push({ description: options.description });
-  }
-  if (options.details?.length) {
-    rows.push(...options.details);
-  }
-  return rows;
-}
-
-// Rust and Windows I/O errors end in a parenthetical such as "(os error 32)".
-// That suffix is the diagnostic; the sentence before it is the title.
-const TRAILING_DETAIL = /^(.*?)[ \t]*[（(]([^()（）\n]+)[)）]\s*$/;
-
-function technicalDetail(inner: string): string | null {
-  const text = inner.trim();
-  if (!text || /[\u3400-\u9fff]/.test(text)) return null;
-  if (/os error\s+\d+/i.test(text)) return text;
-  if (/\berror\b/i.test(text) && /\d/.test(text)) return text;
-  if (/[\\/]/.test(text)) return text;
-  if (/\d/.test(text)) return text;
-  if (/^[A-Z][A-Z0-9_.:-]{2,}$/.test(text)) return text;
-  return null;
-}
-
-function splitTechnicalDetail(
-  message: ReactNode
-): { title: string; detail: string } | null {
-  if (typeof message !== 'string') return null;
-  const match = message.match(TRAILING_DETAIL);
-  if (!match) return null;
-  const title = match[1].trim();
-  const detail = technicalDetail(match[2]);
-  if (!title || !detail) return null;
-  return { title, detail };
-}
-
-function presentToast(
-  kind: ToastKind,
-  message: ReactNode,
-  options: ToastOptions
-): { message: ReactNode; detailRows: ToastDetail[] } {
-  const detailRows = collectDetailRows(options);
-  if (kind !== 'error' && kind !== 'warning') {
-    return { message, detailRows };
-  }
-  const split = splitTechnicalDetail(message);
-  if (!split) return { message, detailRows };
-  return {
-    message: split.title,
-    detailRows: [{ description: split.detail, mono: true }, ...detailRows],
-  };
-}
-
-function toastButtonCopy(
-  label: ReactNode | undefined,
-  fallback: string
-): { label: string; children?: ReactNode } {
-  if (typeof label === 'string') {
-    return { label };
-  }
-  if (typeof label === 'number') {
-    return { label: String(label) };
-  }
-  if (label == null) {
-    return { label: fallback };
-  }
-  return { label: fallback, children: label };
-}
-
-function ToastActionButton({
-  action,
-  variant,
-  onClick,
-}: {
-  action: ToastAction;
-  variant: 'primary' | 'secondary';
-  onClick: (event: React.MouseEvent<HTMLButtonElement>) => void;
-}) {
-  const copy = toastButtonCopy(action.label, '');
-  return (
-    <Button
-      type="button"
-      variant={variant}
-      size="sm"
-      label={copy.label}
-      onClick={onClick}
-    >
-      {copy.children}
-    </Button>
-  );
+function fallbackTitle(kind: ToastKind): string {
+  return i18n.t(`app:toast.${kind}Title`);
 }
 
 function ToastStatusIcon({ kind }: { kind: ToastKind }) {
@@ -246,15 +156,11 @@ function ToastCard({
 }) {
   const detailsId = useId();
   const [expanded, setExpanded] = useState(false);
-  const presented = presentToast(kind, message, options);
-  const detailRows = presented.detailRows;
-  const hasDetails = detailRows.length > 0;
+  const hasDescription = options.description != null;
+  const title = hasDescription ? message : fallbackTitle(kind);
+  const summary = hasDescription ? options.description : message;
+  const hasDetails = Boolean(options.details?.length);
   const showClose = options.closeButton !== false && kind !== 'loading';
-  const hasActions = Boolean(options.cancel || options.action);
-  const detailsCopy = toastButtonCopy(
-    options.detailsLabel,
-    i18n.t('app:toast.showDetails')
-  );
 
   const runAction =
     (action: ToastAction) => (event: React.MouseEvent<HTMLButtonElement>) => {
@@ -311,7 +217,7 @@ function ToastCard({
       onBlurCapture={handleBlur}
     >
       <div className="vu-toast-heading">
-        <span className="vu-toast-icon">
+        <span className="vu-toast-icon-tile">
           <ToastStatusIcon kind={kind} />
         </span>
         <div className="vu-toast-copy">

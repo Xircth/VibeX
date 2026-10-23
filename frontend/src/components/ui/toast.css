@@ -17,7 +17,6 @@
   overflow-y: auto;
   overscroll-behavior: contain;
   pointer-events: none;
-  background: transparent;
   font-family: var(--font-ui);
 }
 
@@ -37,69 +36,38 @@
   border: 0;
   box-shadow: none;
   pointer-events: auto;
-  animation: vu-toast-enter 180ms ease-out backwards;
+  animation: vu-toast-enter 180ms ease-out both;
 }
 
 .vu-toast-surface {
-  --toast-shadow:
-    0 1px 2px hsl(220 36% 8% / 0.1), 0 10px 28px hsl(220 36% 8% / 0.16);
   width: 100%;
-  overflow: visible;
+  overflow: hidden;
   color: var(--text-primary, hsl(213 10% 30%));
-  background: var(--surface-dialog);
-  border: 0;
+  background: var(--surface-popover);
+  border: 1px solid var(--border-glass);
   border-radius: var(--radius);
-  box-shadow:
-    var(--toast-shadow),
-    inset 0 1px 0 var(--highlight-edge);
-}
-
-.dark .vu-toast-surface {
-  --toast-shadow:
-    0 1px 2px hsl(210 40% 2% / 0.36), 0 12px 32px hsl(210 40% 2% / 0.52);
-}
-
-/* The desktop toast window is transparent. WebView2 paints box-shadow as an
-   opaque rectangle behind the rounded card, so that window uses drop-shadow. */
-html.desktop-toast-shell .vu-toast-surface {
-  position: relative;
-  isolation: isolate;
-  box-shadow: none;
-}
-
-html.desktop-toast-shell .vu-toast-surface::before {
-  content: '';
-  position: absolute;
-  z-index: -1;
-  inset: 0;
-  border-radius: inherit;
-  background: var(--surface-dialog);
-  pointer-events: none;
-  filter: drop-shadow(0 1px 2px hsl(220 36% 8% / 0.1))
-    drop-shadow(0 10px 28px hsl(220 36% 8% / 0.16));
-}
-
-html.desktop-toast-shell.dark .vu-toast-surface::before {
-  filter: drop-shadow(0 1px 2px hsl(210 40% 2% / 0.36))
-    drop-shadow(0 12px 32px hsl(210 40% 2% / 0.52));
+  box-shadow: inset 0 1px 0 var(--highlight-edge);
+  backdrop-filter: blur(24px) saturate(1.55);
+  -webkit-backdrop-filter: blur(24px) saturate(1.55);
 }
 
 .vu-toast-heading {
   display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 10px 10px 10px 14px;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 14px;
 }
 
-.vu-toast-icon {
+.vu-toast-icon-tile {
   display: inline-flex;
-  width: 16px;
-  height: 16px;
-  flex: 0 0 16px;
+  width: 28px;
+  height: 28px;
+  flex: 0 0 28px;
   align-items: center;
   justify-content: center;
+  border-radius: var(--radius);
   color: var(--text-muted, hsl(213 8% 45%));
-  background: transparent;
+  background: var(--surface-control, hsl(220 20% 20% / 0.06));
 }
 
 .vu-toast-status-icon {
@@ -107,20 +75,20 @@ html.desktop-toast-shell.dark .vu-toast-surface::before {
   height: 16px;
 }
 
-.vu-toast-surface[data-kind='success'] .vu-toast-icon {
+.vu-toast-surface[data-kind='success'] .vu-toast-icon-tile {
   color: hsl(var(--success, 78 100% 35%));
 }
 
-.vu-toast-surface[data-kind='info'] .vu-toast-icon,
-.vu-toast-surface[data-kind='loading'] .vu-toast-icon {
-  color: hsl(var(--primary, 0 0% 10.59%));
+.vu-toast-surface[data-kind='info'] .vu-toast-icon-tile,
+.vu-toast-surface[data-kind='loading'] .vu-toast-icon-tile {
+  color: hsl(var(--primary, 0 0% 9.02%));
 }
 
-.vu-toast-surface[data-kind='warning'] .vu-toast-icon {
+.vu-toast-surface[data-kind='warning'] .vu-toast-icon-tile {
   color: hsl(var(--warning, 38 92% 50%));
 }
 
-.vu-toast-surface[data-kind='error'] .vu-toast-icon {
+.vu-toast-surface[data-kind='error'] .vu-toast-icon-tile {
   color: hsl(var(--destructive, 0 96% 53%));
 }
 
@@ -134,33 +102,90 @@ html.desktop-toast-shell.dark .vu-toast-surface::before {
 }
 
 .vu-toast-title {
-  display: -webkit-box;
-  width: 100%;
-  min-width: 0;
-  overflow: hidden;
-  -webkit-box-orient: vertical;
-  -webkit-line-clamp: 3;
-  line-clamp: 3;
   color: var(--text-strong, hsl(222 30% 16%));
   font-size: 14px;
-  font-weight: 400;
+  font-weight: 600;
   line-height: 20px;
+}
+
+.vu-toast-summary {
+  margin-top: 4px;
+  color: var(--text-muted, hsl(213 8% 45%));
+  font-size: 12px;
+  font-weight: 400;
+  line-height: 18px;
   overflow-wrap: anywhere;
 }
 
-.vu-toast-end {
-  display: flex;
-  flex-shrink: 0;
+.vu-toast-close {
+  display: inline-flex;
+  width: 28px;
+  height: 28px;
+  flex: 0 0 28px;
   align-items: center;
-  gap: 4px;
+  justify-content: center;
+  margin: 0;
+  padding: 0;
+  color: var(--text-muted, hsl(213 8% 45%));
+  background: transparent;
+  border: 0;
+  border-radius: var(--radius);
+  cursor: pointer;
+}
+
+.vu-toast-close:hover {
+  color: var(--text-strong, hsl(222 30% 16%));
+  background: var(--surface-control-hover, hsl(220 20% 20% / 0.1));
+}
+
+.vu-toast-close svg {
+  width: 15px;
+  height: 15px;
+}
+
+.vu-toast-details-section,
+.vu-toast-actions {
+  margin: 0 14px 14px 50px;
+}
+
+.vu-toast-details-section {
+  margin-top: -2px;
+}
+
+.vu-toast-disclosure {
+  display: flex;
+  width: 100%;
+  min-height: 28px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 0;
+  color: var(--text-primary, hsl(213 10% 30%));
+  background: transparent;
+  border: 0;
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 16px;
+  cursor: pointer;
+}
+
+.vu-toast-disclosure svg {
+  width: 14px;
+  height: 14px;
+  transition: transform 160ms ease;
+}
+
+.vu-toast-disclosure svg.is-expanded {
+  transform: rotate(180deg);
 }
 
 .vu-toast-details {
   max-height: min(42dvh, 360px);
-  margin: 0 14px 12px;
+  margin-top: 8px;
   overflow-y: auto;
   overscroll-behavior: contain;
   background: var(--surface-control, hsl(220 20% 20% / 0.06));
+  border: 1px solid var(--border-subtle, hsl(220 16% 28% / 0.09));
   border-radius: var(--radius);
 }
 
@@ -195,19 +220,45 @@ html.desktop-toast-shell.dark .vu-toast-surface::before {
   overflow-wrap: anywhere;
 }
 
-.vu-toast-detail-row:not(:has(.vu-toast-detail-title)) .vu-toast-detail-copy {
-  margin-top: 0;
-}
-
 .vu-toast-detail-copy-mono {
   font-family: 'IBM Plex Mono', ui-monospace, monospace;
+}
+
+.vu-toast-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.vu-toast-action {
+  min-height: 30px;
+  padding: 0 12px;
+  border: 1px solid transparent;
+  border-radius: var(--radius);
+  font-family: inherit;
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 16px;
+  cursor: pointer;
+}
+
+.vu-toast-action-secondary {
+  color: var(--text-primary, hsl(213 10% 30%));
+  background: var(--surface-control, hsl(220 20% 20% / 0.06));
+  border-color: var(--border-subtle, hsl(220 16% 28% / 0.09));
+}
+
+.vu-toast-action-primary {
+  color: hsl(var(--primary-foreground, 0 0% 100%));
+  background: hsl(var(--primary, 0 0% 9.02%));
 }
 
 .vu-desktop-toast-copy {
   display: flex;
   min-width: 0;
   flex: 1;
-  align-items: center;
+  flex-direction: column;
+  align-items: flex-start;
   padding: 0;
   text-align: left;
   background: transparent;
@@ -217,9 +268,6 @@ html.desktop-toast-shell.dark .vu-toast-surface::before {
 
 .vu-desktop-toast-app-icon {
   position: relative;
-  width: 28px;
-  height: 28px;
-  flex: 0 0 28px;
   overflow: visible;
   color: inherit;
   background: transparent;
@@ -238,54 +286,78 @@ html.desktop-toast-shell.dark .vu-toast-surface::before {
   height: 13px;
   padding: 2px;
   color: currentColor;
-  background: var(--surface-dialog);
+  background: var(--surface-popover);
   border-radius: 999px;
 }
 
-.vu-toast-surface[data-kind='success'] .vu-desktop-toast-status-badge {
-  color: hsl(var(--success, 78 100% 35%));
+.vu-desktop-toast-copy .vu-toast-summary {
+  display: -webkit-box;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
 }
 
-.vu-toast-surface[data-kind='error'] .vu-desktop-toast-status-badge {
-  color: hsl(var(--destructive, 0 96% 53%));
+.vu-desktop-toast-reply {
+  margin: -2px 14px 14px 50px;
+  padding: 10px;
+  background: var(--surface-control, hsl(220 20% 20% / 0.06));
+  border: 1px solid var(--border-subtle, hsl(220 16% 28% / 0.09));
+  border-radius: var(--radius);
 }
 
-.vu-desktop-toast-compose {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  margin: 0 14px 12px;
-}
-
-.vu-desktop-toast-compose-field {
+.vu-desktop-toast-input {
   min-width: 0;
+  height: 32px;
   flex: 1;
-}
-
-.vu-desktop-toast-compose .astryx-text-input input {
-  font-size: 12px !important;
-  font-weight: 400;
-  line-height: 18px !important;
-}
-
-/* Astryx labels read font-size from --font-size-base (14px) at a
-   specificity this file cannot override. Toast actions sit beside a
-   14px title, so their label scale is 12px. Icon glyphs stay 16px. */
-.vu-toast-end .astryx-button,
-.vu-desktop-toast-compose .astryx-button {
-  --font-size-base: 12px;
-  --text-label-leading: 16px;
+  padding: 0 10px;
+  color: var(--text-strong, hsl(222 30% 16%));
+  background: var(--surface-content);
+  border: 1px solid var(--border-subtle, hsl(220 16% 28% / 0.09));
+  border-radius: var(--radius);
+  outline: none;
+  font-family: inherit;
   font-size: 12px;
-  line-height: 16px;
+  line-height: 18px;
 }
 
-.vu-desktop-toast-compose .astryx-button {
-  flex: 0 0 auto;
+.vu-desktop-toast-input:focus {
+  border-color: hsl(var(--primary, 0 0% 9.02%) / 0.5);
+}
+
+.vu-desktop-toast-input:disabled {
+  opacity: 0.6;
+}
+
+.vu-desktop-toast-send {
+  display: inline-flex;
+  width: 32px;
+  height: 32px;
+  flex: 0 0 32px;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  color: hsl(var(--primary-foreground, 0 0% 100%));
+  background: hsl(var(--primary, 0 0% 9.02%));
+  border: 0;
+  border-radius: var(--radius);
+  cursor: pointer;
+}
+
+.vu-desktop-toast-send:disabled {
+  cursor: default;
+  opacity: 0.4;
+}
+
+.vu-desktop-toast-send svg,
+.vu-desktop-toast-sent svg,
+.vu-desktop-toast-reply-action svg {
+  width: 14px;
+  height: 14px;
 }
 
 .vu-desktop-toast-hint,
 .vu-desktop-toast-sent {
-  margin: 0 14px 12px;
+  margin-top: 6px;
   color: var(--text-muted, hsl(213 8% 45%));
   font-size: 12px;
   font-weight: 400;
@@ -300,17 +372,24 @@ html.desktop-toast-shell.dark .vu-toast-surface::before {
   display: flex;
   align-items: center;
   gap: 6px;
+  margin-top: 0;
   color: hsl(var(--success, 78 100% 35%));
   font-weight: 500;
 }
 
-.vu-desktop-toast-sent svg {
-  width: 14px;
-  height: 14px;
+.vu-desktop-toast-reply-action {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
 }
 
-.vu-desktop-toast-copy:focus-visible {
-  outline: 2px solid hsl(var(--primary, 0 0% 10.59%) / 0.48);
+.vu-toast-close:focus-visible,
+.vu-toast-disclosure:focus-visible,
+.vu-toast-action:focus-visible,
+.vu-desktop-toast-copy:focus-visible,
+.vu-desktop-toast-input:focus-visible,
+.vu-desktop-toast-send:focus-visible {
+  outline: 2px solid hsl(var(--primary, 0 0% 9.02%) / 0.48);
   outline-offset: 2px;
 }
 
@@ -345,6 +424,7 @@ html.desktop-toast-shell.dark .vu-toast-surface::before {
   .vu-toast-viewport .vu-toast-countdown-ring,
   .vu-toast-viewport .vu-toast-progress > span,
   .vu-toast-host,
+  .vu-toast-disclosure svg,
   .vu-toast-status-icon-loading {
     animation: none;
     transition: none;

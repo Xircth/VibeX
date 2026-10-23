@@ -348,7 +348,7 @@ export function DesktopToastWindow() {
                 role={toast.kind === 'error' ? 'alert' : 'status'}
               >
                 <div className="vu-toast-heading">
-                  <span className="vu-toast-icon vu-desktop-toast-app-icon">
+                  <span className="vu-toast-icon-tile vu-desktop-toast-app-icon">
                     <Logo showText={false} />
                     <span
                       className="vu-desktop-toast-status-badge"
@@ -407,62 +407,26 @@ export function DesktopToastWindow() {
                     ) : null}
                     <X aria-hidden="true" />
                   </button>
-                  <div className="vu-toast-end">
-                    {replyExpanded ? null : (
-                      <>
-                        <Button
-                          type="button"
-                          variant="ghost"
-                          size="sm"
-                          label={t('desktopToast.quickReply')}
-                          onClick={() => {
-                            holdToast(toast.id);
-                            setExpandedReplies((previous) => ({
-                              ...previous,
-                              [toast.id]: true,
-                            }));
-                          }}
-                        />
-                        <Button
-                          type="button"
-                          variant="primary"
-                          size="sm"
-                          label={t('desktopToast.openConversation')}
-                          onClick={() => void handleActivate(toast)}
-                        />
-                      </>
-                    )}
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="sm"
-                      isIconOnly
-                      icon={<X aria-hidden="true" />}
-                      label={t('desktopToast.closeAriaLabel')}
-                      onClick={() => removeToast(toast.id)}
-                    />
-                  </div>
                 </div>
 
                 {replyExpanded ? (
-                  status === 'sent' ? (
-                    <div className="vu-desktop-toast-sent">
-                      <CheckCircle2 aria-hidden="true" />
-                      {t('desktopToast.sentHint')}
-                    </div>
-                  ) : (
-                    <>
-                      <div className="vu-desktop-toast-compose">
-                        <div className="vu-desktop-toast-compose-field">
-                          <TextInput
-                            label={t('desktopToast.replyInputAriaLabel')}
-                            isLabelHidden
-                            size="md"
-                            width="100%"
+                  <div className="vu-desktop-toast-reply">
+                    {status === 'sent' ? (
+                      <div className="vu-desktop-toast-sent">
+                        <CheckCircle2 aria-hidden="true" />
+                        {t('desktopToast.sentHint')}
+                      </div>
+                    ) : (
+                      <>
+                        <div className="flex items-center gap-2">
+                          <input
                             value={draft}
-                            isDisabled={isSending}
+                            disabled={isSending}
                             placeholder={t('desktopToast.replyPlaceholder')}
-                            onChange={(value) => {
+                            aria-label={t('desktopToast.replyInputAriaLabel')}
+                            className="vu-desktop-toast-input"
+                            onChange={(event) => {
+                              const value = event.target.value;
                               setDrafts((previous) => ({
                                 ...previous,
                                 [toast.id]: value,
@@ -470,37 +434,74 @@ export function DesktopToastWindow() {
                               holdToast(toast.id);
                             }}
                             onFocus={() => holdToast(toast.id)}
-                            onBlur={() => {
-                              if (!draft.trim() && status !== 'sending') {
+                            onBlur={(event) => {
+                              // 失焦且无草稿时恢复自动消失；发送中（输入禁用）不重排。
+                              if (
+                                !event.target.value.trim() &&
+                                status !== 'sending'
+                              ) {
                                 scheduleRemoval(toast.id, DEFAULT_DURATION_MS);
                               }
                             }}
-                            onEnter={() => {
-                              void handleReplySubmit(toast);
+                            onKeyDown={(event) => {
+                              if (event.key === 'Enter' && !event.shiftKey) {
+                                event.preventDefault();
+                                void handleReplySubmit(toast);
+                              }
                             }}
                           />
+                          <button
+                            type="button"
+                            aria-label={t('desktopToast.sendReplyAriaLabel')}
+                            disabled={isSending || draft.trim().length === 0}
+                            className="vu-desktop-toast-send"
+                            onClick={() => void handleReplySubmit(toast)}
+                          >
+                            {isSending ? (
+                              <Loader2 className="animate-spin" />
+                            ) : (
+                              <Send />
+                            )}
+                          </button>
                         </div>
-                        <Button
-                          type="button"
-                          variant="primary"
-                          size="md"
-                          isIconOnly
-                          isDisabled={isSending || draft.trim().length === 0}
-                          isLoading={isSending}
-                          icon={<Send aria-hidden="true" />}
-                          label={t('desktopToast.sendReplyAriaLabel')}
-                          onClick={() => void handleReplySubmit(toast)}
-                        />
-                      </div>
-                      {status === 'error' ? (
-                        <div className="vu-desktop-toast-hint vu-desktop-toast-error">
-                          {replyError[toast.id] ??
-                            t('desktopToast.replySendFailed')}
-                        </div>
-                      ) : null}
-                    </>
-                  )
-                ) : null}
+                        {status === 'error' ? (
+                          <div className="vu-desktop-toast-hint vu-desktop-toast-error">
+                            {replyError[toast.id] ??
+                              t('desktopToast.replySendFailed')}
+                          </div>
+                        ) : (
+                          <div className="vu-desktop-toast-hint">
+                            {t('desktopToast.clickCardHint')}
+                          </div>
+                        )}
+                      </>
+                    )}
+                  </div>
+                ) : (
+                  <div className="vu-toast-actions">
+                    <button
+                      type="button"
+                      className="vu-toast-action vu-toast-action-secondary vu-desktop-toast-reply-action"
+                      onClick={() => {
+                        holdToast(toast.id);
+                        setExpandedReplies((previous) => ({
+                          ...previous,
+                          [toast.id]: true,
+                        }));
+                      }}
+                    >
+                      <MessageSquare aria-hidden="true" />
+                      {t('desktopToast.quickReply')}
+                    </button>
+                    <button
+                      type="button"
+                      className="vu-toast-action vu-toast-action-primary"
+                      onClick={() => void handleActivate(toast)}
+                    >
+                      {t('desktopToast.openConversation')}
+                    </button>
+                  </div>
+                )}
               </article>
             );
           })}

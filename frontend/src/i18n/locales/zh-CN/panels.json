@@ -596,6 +596,7 @@
     "resolveAgentTypeFailed": "无法确定该会话的智能体类型",
     "replySendFailed": "回复发送失败，请稍后重试。",
     "sentHint": "已发送，可在主窗口查看回复",
+    "clickCardHint": "点击上方卡片回到该会话",
     "replyPlaceholder": "直接回复…",
     "replyInputAriaLabel": "回复该会话",
     "sendReplyAriaLabel": "发送回复",

@@ -50,6 +50,7 @@ pub use cli::{
 pub use companion_session::CompanionSessionAdapter;
 pub use composition::{HeadlessServer, ServerBootstrapConfig, ServerBootstrapError};
 pub use config::{ListenPolicyError, ServerConfig};
+pub use delegation_runtime::VibexDelegationInjector;
 pub use domains::{ServerApplicationDomains, ServerDomainDependencies};
 pub use host::{
     HostEvent, HostEventBus, account_flow,

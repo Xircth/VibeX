@@ -1,6 +1,4 @@
 import {
-  lazy,
-  Suspense,
   useCallback,
   useEffect,
   useMemo,
@@ -8,7 +6,6 @@ import {
   useState,
   type ChangeEvent,
   type CSSProperties,
-  type MouseEvent as ReactMouseEvent,
   type PointerEvent as ReactPointerEvent,
   type ReactNode,
 } from 'react';
@@ -16,9 +13,6 @@ import {
   DockviewReact,
   type DockviewApi,
   type DockviewReadyEvent,
-  type IDockviewHeaderActionsProps,
-  type IDockviewPanelHeaderProps,
-  type IDockviewPanelProps,
 } from 'dockview-react';
 import {
   AtSign,
@@ -28,20 +22,13 @@ import {
   ChevronLeft,
   ChevronRight,
   Clock,
-  Columns2,
-  FileDiff,
-  FileText,
   Filter,
-  GitCompare,
-  Globe,
-  Image as ImageIcon,
+  LayoutGrid,
   Loader2,
   MessageSquare,
   Paperclip,
   Pencil,
   Plus,
-  Rows2,
-  SquareTerminal,
   Tag,
   Trash2,
   UserPlus,
@@ -52,27 +39,20 @@ import type {
   AgentSessionControlsSnapshot,
   ExecutorProfileId,
 } from 'shared/types';
-import { ChatMessage, ChatMessageBubble } from '@astryxdesign/core/Chat';
 import {
   SegmentedControl,
   SegmentedControlItem,
 } from '@astryxdesign/core/SegmentedControl';
 
-import FileIcon from '@/components/FileIcon';
 import { useCollaborationArrangement } from '@/lib/layoutArrangement';
 import { AgentIcon, getAgentName } from '@/components/agents/AgentIcon';
 import { useOptionalUserSystem } from '@/components/ConfigProvider';
-import { useAppContextMenu } from '@/components/context-menu';
 import { ConversationMessageNav } from '@/components/conversation-thread/ConversationMessageNav';
 import type { ConversationMessageNavEntry } from '@/components/conversation-thread/messageNavEntries';
 import {
   SESSION_LIST_ACTION_BUTTON_CLASS,
   SESSION_LIST_ACTION_ICON_CLASS,
 } from '@/components/kanban/session-hub/utils';
-import {
-  PLUGIN_PANEL_COMPONENT,
-  panelComponents,
-} from '@/components/layout/panels/PanelRegistry';
 import { WorkspaceTabAddMenu } from '@/components/layout/panels/WorkspaceTabAddMenu';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
@@ -96,15 +76,23 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from '@/components/ui/tooltip';
-import { AstryxMarkdown } from '@/components/NormalizedConversation/AstryxMarkdown';
-import { UserMessageMarkdown } from '@/components/NormalizedConversation/UserMessageMarkdown';
+import { ConversationSelectionToolbar } from '@/components/NormalizedConversation/ConversationSelectionToolbar';
 import { ActionBarUtilityButtons } from '@/components/tasks/follow-up/ActionBarUtilityButtons';
 import { ComposerPrimaryActionButton } from '@/components/tasks/follow-up/ComposerPrimaryActionButton';
-import { relativePathInsideRoot } from '@/components/tasks/follow-up/composerHostFileDrop';
 import {
   MessageQueueIndicator,
   formatCountdownTimer,
 } from '@/components/tasks/follow-up/MessageQueueIndicator';
+import {
+  clearComposerImageAttachments,
+  createUploadedImageAttachment,
+  revokeComposerImagePreviewUrl,
+  type SessionComposerImageAttachment,
+} from '@/components/tasks/follow-up/sessionComposerImages';
+import {
+  formatQuoteToken,
+  quoteTokenChipLabel,
+} from '@/components/tasks/follow-up/sessionComposerStructuredTokens';
 import type { QueuedMessage } from '@/components/tasks/follow-up/sessionComposerQueue';
 import {
   advertisedSessionConfigValues,
@@ -114,32 +102,33 @@ import {
   visibleSessionConfigOptions,
 } from '@/components/tasks/follow-up/SessionConfigOptionSelectors';
 import { SessionComposerFrame } from '@/components/tasks/follow-up/SessionComposerFrame';
-import { SessionComposerInput } from '@/components/tasks/follow-up/SessionComposerInput';
+import {
+  SessionComposerAttachmentDrawer,
+  SessionComposerInput,
+} from '@/components/tasks/follow-up/SessionComposerInput';
 import { SessionSettingsSummary } from '@/components/tasks/follow-up/SessionSettingsSummary';
 import { useSessionComposerPromptEnhancement } from '@/components/tasks/follow-up/useSessionComposerPromptEnhancement';
+import { toast } from '@/components/ui/toast';
 import { SessionListDeleteControl } from '@/components/workspace-session-list/SessionListDeleteControl';
 import { SessionListSearchControl } from '@/components/workspace-session-list/SessionListSearchControl';
 import {
   formatCompactSessionAge,
   workspaceSessionStatusTone,
 } from '@/components/workspace-session-list/workspaceSessionListModel';
-import {
-  PanelActionsContext,
-  useOptionalPanelActionsContext,
-  type PanelActions,
-} from '@/contexts/PanelActionsContext';
 import { useOptionalProject } from '@/contexts/ProjectContext';
 import { loadAgentSessionControlsCatalog } from '@/features/agents/sessionControlsQuery';
 import { useAttemptRepo } from '@/hooks/useAttemptRepo';
 import { useMediaQuery } from '@/hooks/useMediaQuery';
-import { registerImagePreviewSource } from '@/lib/imagePreviewRegistry';
-import { cn } from '@/lib/utils';
-import { PANEL_IDS } from '@/stores/useLayoutStore';
+import { imagesApi, sessionsApi } from '@/lib/api';
+import { backendListen } from '@/lib/backendTransport';
+import { requestComposerTokenInsert } from '@/lib/composerInsert';
 import {
-  buildPreviewPanelParams,
-  type OpenFilePreviewOptions,
-  type PreviewPanelParams,
-} from '@/types/panels';
+  WORKSPACE_SESSIONS_CHANGED_EVENT,
+  type WorkspaceSessionsChangedPayload,
+} from '@/lib/sessionQueryCache';
+import { cn } from '@/lib/utils';
+import { type PreviewPanelParams } from '@/types/panels';
+import { prepareImageFileForUpload } from '@/utils/clipboard';
 import '@/styles/conversation.css';
 import '@/styles/dockview-ayu.css';
 
@@ -148,6 +137,21 @@ import {
   listenCollaborationSpaceChanged,
 } from './collaborationApi';
 import { useCollaborationLayoutStore } from './collaborationLayoutStore';
+import {
+  COLLABORATION_PREVIEW_COMPONENTS,
+  CollaborationPreviewDockviewTab,
+  CollaborationPreviewHeaderActions,
+  CollaborationPreviewScope,
+  filePreviewPanelId,
+  filePreviewTitle,
+  memberPreviewPanelId,
+  previewMemberKey,
+  type PreviewTabItem,
+} from './CollaborationPreviewDockview';
+import {
+  CollaborationSpaceIcon,
+  spaceCollectionPreviewPanelId,
+} from './CollaborationSpaceCollectionPanel';
 import {
   COPY,
   SPACE_TAG_PRESETS,
@@ -189,6 +193,7 @@ import {
   writeMemberBotAvatars,
   type MemberBotAvatarConfig,
 } from './MemberBotAvatar';
+import { SpaceMessageBody, bubbleText } from './SpaceMessageBody';
 import './collaboration.css';
 
 if (
@@ -207,18 +212,6 @@ if (
     }
   ).ResizeObserver = FallbackResizeObserver;
 }
-
-const SessionPreview = lazy(() =>
-  import('@/components/kanban/KanbanSessionConversationView').then(
-    (module) => ({
-      default: module.KanbanSessionConversationView,
-    })
-  )
-);
-
-const FilePreviewPanel = lazy(
-  () => import('@/components/panels/DockviewPreviewPanel')
-);
 
 type Space = { space_id: string; name: string };
 type SpaceMessage = {
@@ -276,474 +269,22 @@ type DraftSpaceMemberMeta = {
   avatar?: MemberBotAvatarConfig;
 };
 
-type MemberSessionPanelParams = {
-  workspaceId: string;
-  conversationId: string;
-  nickname: string;
-  agentId?: string;
-};
-
-type PreviewTabItem =
-  | {
-      id: string;
-      kind: 'member';
-      title: string;
-      workspaceId: string;
-      conversationId: string;
-      agentId?: string;
-      spaceId: string;
-    }
-  | {
-      id: string;
-      kind: 'file';
-      title: string;
-      fileParams: PreviewPanelParams;
-    }
-  | {
-      id: string;
-      kind: 'workspace-panel';
-      component: string;
-      title: string;
-      params?: Record<string, unknown>;
-    };
-
 const EMPTY_MEMBERS: SpaceMember[] = [];
 const EMPTY_MESSAGES: SpaceMessage[] = [];
 const EMPTY_RECEIPTS: DeliveryReceipt[] = [];
 
-function CollaborationSpaceIcon({
-  avatars,
-  tagPreset,
-  className,
-}: {
-  avatars: readonly MemberBotAvatarConfig[];
-  tagPreset?: (typeof SPACE_TAG_PRESETS)[number];
-  className?: string;
-}) {
-  const isSingle = avatars.length === 1;
-  const gridCols = avatars.length > 4 ? 3 : 2;
-  const cellCount = gridCols * gridCols;
-
-  return (
-    <span
-      className={cn(
-        'collaboration-space-icon',
-        isSingle
-          ? 'collaboration-space-icon--single'
-          : 'collaboration-space-icon--grid',
-        className
-      )}
-      data-testid="collaboration-space-icon"
-      data-tag-color={tagPreset?.id}
-      data-grid-size={isSingle ? 1 : cellCount}
-      style={
-        tagPreset
-          ? ({
-              '--space-icon-bg': `hsl(${tagPreset.hue})`,
-              backgroundColor: `hsl(${tagPreset.hue})`,
-            } as CSSProperties)
-          : undefined
-      }
-      aria-hidden="true"
-    >
-      {isSingle ? (
-        <MemberBotAvatar
-          config={avatars[0]}
-          animated={false}
-          className="collaboration-space-icon-single-avatar"
-        />
-      ) : (
-        <span
-          className={cn(
-            'collaboration-space-icon-grid',
-            gridCols === 3
-              ? 'collaboration-space-icon-grid--3x3'
-              : 'collaboration-space-icon-grid--2x2'
-          )}
-        >
-          {Array.from({ length: cellCount }, (_, index) => {
-            const avatar = avatars[index];
-            return (
-              <span
-                key={index}
-                className="collaboration-space-icon-cell"
-                data-testid="collaboration-space-icon-cell"
-              >
-                {avatar ? (
-                  <MemberBotAvatar
-                    config={avatar}
-                    animated={false}
-                    className="collaboration-space-icon-cell-avatar"
-                  />
-                ) : null}
-              </span>
-            );
-          })}
-        </span>
-      )}
-    </span>
-  );
-}
-
-function memberPreviewPanelId(conversationId: string): string {
-  return `member:${conversationId}`;
-}
-
-function filePreviewPanelId(params: PreviewPanelParams): string {
-  if (params.imagePreviewId) {
-    return `image:${params.imagePreviewId}`;
-  }
-  const normalizedPath = String(params.filePath ?? '').replace(/\\/g, '/');
-  return `${params.mode === 'diff' ? 'diff' : 'file'}:${normalizedPath}`;
-}
-
-function filePreviewTitle(params: PreviewPanelParams): string {
-  const display = params.displayPath?.trim();
-  if (display) return display;
-  const rawPath = String(params.filePath ?? '').replace(/\\/g, '/');
-  const baseName = rawPath.split('/').filter(Boolean).pop();
-  return baseName || '预览';
-}
-
-function bubbleText(envelope: SpaceMessage['envelope']): string {
-  const content = String(envelope.content ?? '');
-  const summary = String(envelope.summary ?? '');
-  if (!summary || summary === content || content.startsWith(summary)) {
-    return content;
-  }
-  return `${summary}\n\n${content}`;
-}
-
-function collaborationImagePreviewId(imageUrl: string): string {
-  let hash = 5381;
-  for (let index = 0; index < imageUrl.length; index += 1) {
-    hash = ((hash << 5) + hash + imageUrl.charCodeAt(index)) | 0;
-  }
-  return `collaboration-image:${(hash >>> 0).toString(36)}`;
-}
-
-function previewMemberKey(spaceId: string, member: SpaceMember): string {
-  return `${spaceId}:${member.member_id ?? member.conversation_id ?? member.nickname ?? ''}`;
-}
-
-function CollaborationMemberSessionDockviewPanel(
-  props: IDockviewPanelProps<MemberSessionPanelParams>
-) {
-  const { workspaceId, conversationId } = props.params;
-  const sessionPreviewProps = useMemo(
-    () => ({
-      workspaceId,
-      sessionId: conversationId,
-      interactive: true,
-      showSessionSelector: false,
-      markViewed: false,
-      embedded: true,
-      className: 'h-full',
-      imagePreviewPresentation: 'dialog' as const,
-      conversationWidthMode: 'workspace' as const,
-    }),
-    [conversationId, workspaceId]
-  );
-
-  return (
-    <div className="collaboration-preview-frame h-full w-full">
-      <Suspense fallback={<p className="collaboration-preview-empty">加载中</p>}>
-        <SessionPreview {...sessionPreviewProps} />
-      </Suspense>
-    </div>
-  );
-}
-
-function CollaborationFileDockviewPanel(
-  props: IDockviewPanelProps<PreviewPanelParams>
-) {
-  return (
-    <div className="collaboration-preview-frame h-full w-full">
-      <Suspense fallback={<p className="collaboration-preview-empty">加载中</p>}>
-        <FilePreviewPanel {...props} />
-      </Suspense>
-    </div>
-  );
-}
-
-const COLLABORATION_PREVIEW_COMPONENTS = {
-  ...panelComponents,
-  'member-session': CollaborationMemberSessionDockviewPanel,
-  'file-preview': CollaborationFileDockviewPanel,
-};
-
-function CollaborationPreviewDockviewTab(props: IDockviewPanelHeaderProps) {
-  const { api, containerApi, params } = props;
-  const { openSurfaceMenu } = useAppContextMenu();
-  const [title, setTitle] = useState(api.title ?? '');
-  const [tabParams, setTabParams] = useState<Record<string, unknown>>(
-    (params as Record<string, unknown> | undefined) ?? {}
-  );
-  const isMiddleMouseButton = useRef(false);
-
+function DelayedMessageCountdown({ deliverAt }: { deliverAt: string }) {
+  const [tickNow, setTickNow] = useState(() => Date.now());
   useEffect(() => {
-    const disposable = api.onDidTitleChange((event) => {
-      setTitle(event.title ?? '');
-    });
-    if (title !== (api.title ?? '')) {
-      setTitle(api.title ?? '');
-    }
-    return () => disposable.dispose();
-  }, [api, title]);
-
-  useEffect(() => {
-    const disposable = api.onDidParametersChange((nextParams) => {
-      setTabParams((nextParams as Record<string, unknown>) ?? {});
-    });
-    return () => disposable.dispose();
-  }, [api]);
-
-  const closeTab = useCallback(
-    (event?: ReactPointerEvent | ReactMouseEvent) => {
-      event?.preventDefault();
-      event?.stopPropagation();
-      api.close();
-    },
-    [api]
-  );
-
-  const splitTab = useCallback(
-    (direction: 'below' | 'left' | 'right') => {
-      const currentGroup = api.group;
-      if (!currentGroup) return;
-      const panel = containerApi.getPanel(api.id);
-      if (!panel) return;
-      const nextGroup = containerApi.addGroup({
-        referenceGroup: currentGroup,
-        direction,
-      });
-      panel.api.moveTo({ group: nextGroup });
-      panel.api.setActive();
-    },
-    [api.group, api.id, containerApi]
-  );
-
-  const agentId =
-    typeof tabParams.agentId === 'string' ? tabParams.agentId : '';
-  const filePath =
-    typeof tabParams.filePath === 'string' ? tabParams.filePath : '';
-  const imagePreviewId =
-    typeof tabParams.imagePreviewId === 'string'
-      ? tabParams.imagePreviewId
-      : '';
-  const mode = typeof tabParams.mode === 'string' ? tabParams.mode : '';
-
-  return (
-    <div
-      data-testid="dockview-dv-default-tab"
-      title={title}
-      className="dv-default-tab workspace-tab-surface"
-      onContextMenu={(event) => {
-        const group = api.group;
-        const panels = group?.panels ?? [];
-        const index = panels.findIndex((panel) => panel.id === api.id);
-        openSurfaceMenu(event.nativeEvent, [
-          {
-            type: 'submenu',
-            id: 'close',
-            label: '关闭',
-            children: [
-              {
-                id: 'close-current',
-                label: '关闭当前标签页',
-                onSelect: () => closeTab(),
-              },
-              {
-                id: 'close-others',
-                label: '关闭其他标签页',
-                disabled: panels.length <= 1,
-                onSelect: () => {
-                  panels
-                    .filter((panel) => panel.id !== api.id)
-                    .forEach((panel) => panel.api.close());
-                },
-              },
-              {
-                id: 'close-right',
-                label: '关闭右侧标签页',
-                disabled: index < 0 || index >= panels.length - 1,
-                onSelect: () => {
-                  panels.slice(index + 1).forEach((panel) => panel.api.close());
-                },
-              },
-            ],
-          },
-          {
-            type: 'submenu',
-            id: 'split',
-            label: '拆分',
-            children: [
-              {
-                id: 'split-right',
-                label: '向右拆分',
-                onSelect: () => splitTab('right'),
-              },
-              {
-                id: 'split-down',
-                label: '向下拆分',
-                onSelect: () => splitTab('below'),
-              },
-              {
-                id: 'split-left',
-                label: '向左拆分',
-                onSelect: () => splitTab('left'),
-              },
-            ],
-          },
-        ]);
-      }}
-      onPointerDown={(event) => {
-        isMiddleMouseButton.current = event.button === 1;
-      }}
-      onPointerUp={(event) => {
-        if (isMiddleMouseButton.current && event.button === 1) {
-          isMiddleMouseButton.current = false;
-          closeTab(event);
-        }
-      }}
-      onPointerLeave={() => {
-        isMiddleMouseButton.current = false;
-      }}
-    >
-      {api.component === 'member-session' ? (
-        <span
-          className="workspace-tab-icon"
-          data-tab-icon="member"
-          data-testid="workspace-tab-icon"
-        >
-          {agentId ? (
-            <AgentIcon
-              agent={agentId as ExecutorProfileId['executor']}
-              className="h-3.5 w-3.5"
-            />
-          ) : (
-            <MessageSquare className="h-3.5 w-3.5" />
-          )}
-        </span>
-      ) : filePath ? (
-        mode === 'diff' ? (
-          <FileDiff
-            aria-hidden="true"
-            className="workspace-tab-icon"
-            data-tab-icon="diff"
-            data-testid="workspace-tab-icon"
-          />
-        ) : (
-          <span
-            className="workspace-tab-icon"
-            data-tab-icon="file"
-            data-testid="workspace-tab-icon"
-          >
-            <FileIcon filePath={filePath} />
-          </span>
-        )
-      ) : imagePreviewId ? (
-        <ImageIcon
-          aria-hidden="true"
-          className="workspace-tab-icon"
-          data-tab-icon="image"
-          data-testid="workspace-tab-icon"
-        />
-      ) : api.component === PANEL_IDS.DIFFS ? (
-        <GitCompare
-          aria-hidden="true"
-          className="workspace-tab-icon"
-          data-tab-icon="diffs"
-          data-testid="workspace-tab-icon"
-        />
-      ) : api.component === PANEL_IDS.NOTES ? (
-        <FileText
-          aria-hidden="true"
-          className="workspace-tab-icon"
-          data-tab-icon="notes"
-          data-testid="workspace-tab-icon"
-        />
-      ) : api.component === PANEL_IDS.TERMINAL ? (
-        <SquareTerminal
-          aria-hidden="true"
-          className="workspace-tab-icon"
-          data-tab-icon="terminal"
-          data-testid="workspace-tab-icon"
-        />
-      ) : api.component === PLUGIN_PANEL_COMPONENT ? (
-        <Globe
-          aria-hidden="true"
-          className="workspace-tab-icon"
-          data-tab-icon="browser"
-          data-testid="workspace-tab-icon"
-        />
-      ) : (
-        <MessageSquare
-          aria-hidden="true"
-          className="workspace-tab-icon"
-          data-tab-icon="chat"
-          data-testid="workspace-tab-icon"
-        />
-      )}
-      <span className="dv-default-tab-content">{title}</span>
-      <div
-        className="dv-default-tab-action rounded-full"
-        onPointerDown={(event) => event.preventDefault()}
-        onClick={closeTab}
-        aria-label={`Close ${title}`}
-        role="button"
-      >
-        <X className="h-3 w-3" />
-      </div>
-    </div>
-  );
-}
-
-function CollaborationPreviewHeaderActions(props: IDockviewHeaderActionsProps) {
-  const { containerApi, group } = props;
-  const activePanel = group.activePanel;
-
-  const handleSplit = (direction: 'right' | 'below') => {
-    const targetPanel = group.activePanel;
-    if (!targetPanel) return;
-    const panel = containerApi.getPanel(targetPanel.id);
-    if (!panel) return;
-    const nextGroup = containerApi.addGroup({
-      referenceGroup: group,
-      direction,
-    });
-    panel.api.moveTo({ group: nextGroup });
-    panel.api.setActive();
-  };
-
-  if (!activePanel) return null;
-
-  return (
-    <div className="flex h-full items-center gap-0.5 pr-1.5">
-      <Button
-        type="button"
-        variant="ghost"
-        size="icon"
-        className="h-6 w-6 p-0 text-muted-foreground hover:text-foreground"
-        aria-label="向右拆分"
-        title="向右拆分"
-        onClick={() => handleSplit('right')}
-      >
-        <Columns2 className="h-3.5 w-3.5" aria-hidden="true" />
-      </Button>
-      <Button
-        type="button"
-        variant="ghost"
-        size="icon"
-        className="h-6 w-6 p-0 text-muted-foreground hover:text-foreground"
-        aria-label="向下拆分"
-        title="向下拆分"
-        onClick={() => handleSplit('below')}
-      >
-        <Rows2 className="h-3.5 w-3.5" aria-hidden="true" />
-      </Button>
-    </div>
-  );
+    setTickNow(Date.now());
+    const intervalId = window.setInterval(() => {
+      setTickNow(Date.now());
+    }, 1000);
+    return () => {
+      window.clearInterval(intervalId);
+    };
+  }, [deliverAt]);
+  return <span>{formatCountdownTimer(deliverAt, tickNow)}</span>;
 }
 
 type CollaborationSelectOption<T extends string = string> = {
@@ -919,209 +460,6 @@ function CustomAgentControls({
           );
         }}
       />
-    </div>
-  );
-}
-
-function CollaborationPreviewScope({
-  children,
-  onOpenFile,
-  onOpenWorkspacePanel,
-  onRunInEditorGroup,
-}: {
-  children: ReactNode;
-  onOpenFile: (params: PreviewPanelParams) => void;
-  onOpenWorkspacePanel: (item: {
-    id: string;
-    component: string;
-    title: string;
-    params?: Record<string, unknown>;
-  }) => void;
-  onRunInEditorGroup: (groupId: string, action: () => void) => void;
-}) {
-  const parent = useOptionalPanelActionsContext();
-  const onOpenFileRef = useRef(onOpenFile);
-  onOpenFileRef.current = onOpenFile;
-  const onOpenWorkspacePanelRef = useRef(onOpenWorkspacePanel);
-  onOpenWorkspacePanelRef.current = onOpenWorkspacePanel;
-  const onRunInEditorGroupRef = useRef(onRunInEditorGroup);
-  onRunInEditorGroupRef.current = onRunInEditorGroup;
-  const value = useMemo<PanelActions>(() => {
-    const noop = () => {};
-    const noopFalse = () => false;
-    const base: PanelActions = parent ?? {
-      openOrFocusPanel: noop,
-      openFilePreview: () => 'opened' as const,
-      renameFilePreviews: noop,
-      openImagePreview: noop,
-      openWebPreview: noop,
-      revealInFileTree: noop,
-      openDiffPreview: noop,
-      openDiffPreviewAtPath: noop,
-      openMergePanel: noop,
-      openCommitDiff: noop,
-      openNewTerminal: noop,
-      openTerminalEditorTab: noop,
-      showTerminal: noop,
-      toggleEditorArea: noop,
-      runInEditorGroup: (_groupId, action) => action(),
-      splitEditorPanel: noopFalse,
-      sortEditorGroupByName: noop,
-      openPanelInNewEditorGroup: noopFalse,
-      canOpenPanelInNewEditorGroup: noopFalse,
-      splitActiveEditor: noopFalse,
-      canSplitActiveEditor: noopFalse,
-      closePanel: noop,
-      toggleFileTree: noop,
-      showFileTree: noop,
-      toggleGitPanel: noop,
-      toggleSearchPanel: noop,
-      toggleSessionList: noop,
-      placeLeftDockPanel: noop,
-      measureLeftDock: () => null,
-      isLeftDockSplit: noopFalse,
-      unsplitLeftDock: noop,
-      isPanelOpen: noopFalse,
-      focusKanban: noop,
-      openLogs: noop,
-      openNotes: noop,
-      openPluginPanel: noop,
-      setDockviewApi: noop,
-    };
-    return {
-      ...base,
-      openFilePreview: (filePath: string, options?: OpenFilePreviewOptions) => {
-        onOpenFileRef.current(buildPreviewPanelParams(filePath, options));
-        return 'opened' as const;
-      },
-      openDiffPreview: () => {
-        onOpenWorkspacePanelRef.current({
-          id: PANEL_IDS.DIFFS,
-          component: PANEL_IDS.DIFFS,
-          title: '变更',
-        });
-      },
-      openDiffPreviewAtPath: (
-        path: string,
-        options?: OpenFilePreviewOptions & { title?: string }
-      ) => {
-        onOpenFileRef.current(
-          buildPreviewPanelParams(path, { ...options, mode: 'diff' })
-        );
-      },
-      openImagePreview: (
-        imageUrl: string,
-        options?: { title?: string | null }
-      ) => {
-        const imagePreviewId = collaborationImagePreviewId(imageUrl);
-        registerImagePreviewSource(imagePreviewId, imageUrl);
-        onOpenFileRef.current({
-          ...buildPreviewPanelParams('', {
-            displayPath: options?.title ?? null,
-          }),
-          imagePreviewId,
-        });
-      },
-      openNotes: () => {
-        onOpenWorkspacePanelRef.current({
-          id: PANEL_IDS.NOTES,
-          component: PANEL_IDS.NOTES,
-          title: '笔记',
-        });
-      },
-      openTerminalEditorTab: (shell?: string) => {
-        const suffix = Date.now().toString(36);
-        onOpenWorkspacePanelRef.current({
-          id: `${PANEL_IDS.TERMINAL}-editor-${suffix}`,
-          component: PANEL_IDS.TERMINAL,
-          title: '终端',
-          params: {
-            surface: 'editor',
-            tabId: suffix,
-            ...(shell ? { shell } : {}),
-          },
-        });
-      },
-      openNewTerminal: () => {
-        const suffix = Date.now().toString(36);
-        onOpenWorkspacePanelRef.current({
-          id: `${PANEL_IDS.TERMINAL}-editor-${suffix}`,
-          component: PANEL_IDS.TERMINAL,
-          title: '终端',
-          params: {
-            surface: 'editor',
-            tabId: suffix,
-          },
-        });
-      },
-      openPluginPanel: (options) => {
-        const id =
-          options.panelId ||
-          `plugin:${options.pluginId}:${options.contributionId}`;
-        onOpenWorkspacePanelRef.current({
-          id,
-          component: PLUGIN_PANEL_COMPONENT,
-          title: options.title || '插件',
-          params: options as unknown as Record<string, unknown>,
-        });
-      },
-      openWebPreview: (url?: string | null) => {
-        onOpenWorkspacePanelRef.current({
-          id: 'plugin:vibex.browser:browser',
-          component: PLUGIN_PANEL_COMPONENT,
-          title: 'Browser',
-          params: {
-            pluginId: 'vibex.browser',
-            contributionId: 'browser',
-            title: 'Browser',
-            requestedUrl: url ?? null,
-          },
-        });
-      },
-      runInEditorGroup: (groupId: string, action: () => void) => {
-        onRunInEditorGroupRef.current(groupId, action);
-      },
-    };
-  }, [parent]);
-
-  return (
-    <PanelActionsContext.Provider value={value}>
-      {children}
-    </PanelActionsContext.Provider>
-  );
-}
-
-function SpaceMessageBody({
-  fromYou,
-  text,
-  workspacePath,
-}: {
-  fromYou: boolean;
-  text: string;
-  workspacePath?: string;
-}) {
-  if (fromYou) {
-    return (
-      <ChatMessage
-        sender="user"
-        density="compact"
-        className="vibex-user-message"
-      >
-        <ChatMessageBubble className="conv-user-bubble">
-          <UserMessageMarkdown value={text} workspacePath={workspacePath} />
-        </ChatMessageBubble>
-      </ChatMessage>
-    );
-  }
-  return (
-    <div className="conv-entry-item conv-assistant-msg px-4 py-2 text-sm">
-      <div className="conv-assistant-body">
-        <AstryxMarkdown
-          value={text}
-          workspacePath={workspacePath}
-          rawHtml={false}
-        />
-      </div>
     </div>
   );
 }
@@ -1392,7 +730,6 @@ export function CollaborationSpacePage({
     string | null
   >(null);
   const delayedMemberCloseTimeoutRef = useRef<number | null>(null);
-  const [delayedTickNow, setDelayedTickNow] = useState(() => Date.now());
   const messagesRef = useRef<SpaceMessage[]>([]);
   messagesRef.current = messages;
   const [selectedMemberKey, setSelectedMemberKey] = useState('');
@@ -1708,6 +1045,154 @@ export function CollaborationSpacePage({
     [addOrFocusDockviewTab]
   );
 
+  const inFlightConversationsRef = useRef<Promise<void> | null>(null);
+  const loadConversations = useCallback(async () => {
+    if (!workspace) return;
+    if (inFlightConversationsRef.current) {
+      return inFlightConversationsRef.current;
+    }
+    const task = (async () => {
+      try {
+        const page = await collaborationCall<{
+          conversations?: ConversationOption[];
+        }>('collaboration', 'space.listConversations', {
+          workspaceId: workspace,
+        });
+        setConversations(page.conversations ?? []);
+      } catch {
+        // Ignore background metadata fetch errors if collaboration is disabled
+      } finally {
+        inFlightConversationsRef.current = null;
+      }
+    })();
+    inFlightConversationsRef.current = task;
+    return task;
+  }, [workspace]);
+
+  const reloadSpaceMembers = useCallback(async (spaceId: string) => {
+    if (!spaceId) return;
+    const memberPage = await collaborationCall<{ members?: SpaceMember[] }>(
+      'collaboration',
+      'space.listMembers',
+      { spaceId }
+    );
+    setMembersBySpace((current) => ({
+      ...current,
+      [spaceId]: memberPage.members ?? [],
+    }));
+  }, []);
+
+  const markMemberConversationViewed = useCallback(
+    (conversationId: string) => {
+      const trimmed = conversationId.trim();
+      if (!trimmed) return;
+      const conv = conversationById.get(trimmed);
+      if (!conv || conv.turn_in_flight || conv.status !== 'inreview') {
+        return;
+      }
+      setConversations((current) =>
+        current.map((item) =>
+          item.conversation_id === trimmed && !item.turn_in_flight
+            ? { ...item, status: 'done' }
+            : item
+        )
+      );
+      void sessionsApi
+        .markViewed(trimmed)
+        .then(() => {
+          void loadConversations();
+        })
+        .catch(() => {
+          void loadConversations();
+        });
+    },
+    [conversationById, loadConversations]
+  );
+
+  const getMemberLastMessageInSpace = useCallback(
+    (spaceId: string, member: SpaceMember): string => {
+      const spaceMessages =
+        spaceId === selectedId
+          ? messages
+          : (messagesBySpace[spaceId] ?? EMPTY_MESSAGES);
+      if (spaceMessages.length === 0) return '';
+      const spaceMembers = membersBySpace[spaceId] ?? EMPTY_MEMBERS;
+      const targetConvId = String(member.conversation_id ?? '').trim();
+      const targetName = displayName(member).trim();
+      for (let index = spaceMessages.length - 1; index >= 0; index -= 1) {
+        const msg = spaceMessages[index];
+        if (!msg?.envelope) continue;
+        const author = messageAuthor(msg.envelope).trim();
+        if (!author || author === COPY.you) continue;
+        const msgConvId = resolveMessageConversationId(
+          msg.envelope,
+          spaceMembers
+        );
+        if (
+          (targetConvId && msgConvId && msgConvId === targetConvId) ||
+          (targetName && author === targetName)
+        ) {
+          return bubbleText(msg.envelope).replace(/\s+/g, ' ').trim();
+        }
+      }
+      return '';
+    },
+    [membersBySpace, messages, messagesBySpace, selectedId]
+  );
+
+  const markSpaceInReviewMembersViewed = useCallback(
+    (spaceId: string) => {
+      const trimmedSpaceId = spaceId.trim();
+      if (!trimmedSpaceId || trimmedSpaceId === VIRTUAL_DEFAULT_SPACE_ID) {
+        return;
+      }
+      const spaceRoster = agentRoster(
+        membersBySpace[trimmedSpaceId] ?? EMPTY_MEMBERS
+      );
+      for (const member of spaceRoster) {
+        const convId = String(member.conversation_id ?? '').trim();
+        if (!convId) continue;
+        const conv = conversationById.get(convId);
+        if (!conv || conv.turn_in_flight || conv.status !== 'inreview') {
+          continue;
+        }
+        const memberName = displayName(member).trim();
+        if (
+          trimmedSpaceId === selectedId &&
+          selectedFilterMemberNicknames.size > 0 &&
+          !selectedFilterMemberNicknames.has(memberName)
+        ) {
+          continue;
+        }
+        if (!getMemberLastMessageInSpace(trimmedSpaceId, member)) {
+          continue;
+        }
+        markMemberConversationViewed(convId);
+      }
+    },
+    [
+      conversationById,
+      getMemberLastMessageInSpace,
+      markMemberConversationViewed,
+      membersBySpace,
+      selectedFilterMemberNicknames,
+      selectedId,
+    ]
+  );
+
+  const markActivePreviewMemberViewed = useCallback(() => {
+    if (!showPreview || !activePreviewTabId) return;
+    const activeTab = previewTabs.find((tab) => tab.id === activePreviewTabId);
+    if (activeTab?.kind === 'member' && activeTab.conversationId) {
+      markMemberConversationViewed(activeTab.conversationId);
+    }
+  }, [
+    activePreviewTabId,
+    markMemberConversationViewed,
+    previewTabs,
+    showPreview,
+  ]);
+
   const openPreviewItem = useCallback(
     (item: PreviewTabItem) => {
       setPreviewTabs((current) => {
@@ -1721,27 +1206,16 @@ export function CollaborationSpacePage({
       });
       setActivePreviewTabId(item.id);
       setPreviewVisible(true);
+      if (item.kind === 'member' && item.conversationId) {
+        markMemberConversationViewed(item.conversationId);
+      }
       const api = previewDockviewApiRef.current;
       if (api) {
         addOrFocusDockviewTab(api, item, true);
       }
     },
-    [addOrFocusDockviewTab, setPreviewVisible]
+    [addOrFocusDockviewTab, markMemberConversationViewed, setPreviewVisible]
   );
-
-  const loadConversations = useCallback(async () => {
-    if (!workspace) return;
-    try {
-      const page = await collaborationCall<{
-        conversations?: ConversationOption[];
-      }>('collaboration', 'space.listConversations', {
-        workspaceId: workspace,
-      });
-      setConversations(page.conversations ?? []);
-    } catch {
-      // Ignore background metadata fetch errors if collaboration is disabled
-    }
-  }, [workspace]);
 
   const loadRolesAndAgents = useCallback(async () => {
     try {
@@ -1767,8 +1241,11 @@ export function CollaborationSpacePage({
     }
   }, []);
 
+  const loadedMemberSpaceKeyRef = useRef('');
   useEffect(() => {
     overlayOpenedByUserRef.current = false;
+    loadedMemberSpaceKeyRef.current = '';
+    inFlightConversationsRef.current = null;
     setExpanded({});
     setMembersBySpace({});
     setMessagesBySpace({});
@@ -1828,8 +1305,8 @@ export function CollaborationSpacePage({
     const allSpaceIds = spaces.map((space) => space.space_id);
     const memberIds = Array.from(
       new Set([
-        ...ids,
         ...allSpaceIds,
+        ...ids,
         ...(selectedId && selectedId !== VIRTUAL_DEFAULT_SPACE_ID
           ? [selectedId]
           : []),
@@ -1837,27 +1314,33 @@ export function CollaborationSpacePage({
       ])
     );
     if (memberIds.length === 0) return;
+    const nextMemberSpaceKey = `${workspace}:${memberIds.join('\n')}`;
+    const shouldLoadMembers =
+      loadedMemberSpaceKeyRef.current !== nextMemberSpaceKey;
     let cancelled = false;
     const load = async () => {
-      const memberPages = await Promise.all(
-        memberIds.map((spaceId) =>
-          collaborationCall<{ members?: SpaceMember[] }>(
-            'collaboration',
-            'space.listMembers',
-            { spaceId }
+      if (shouldLoadMembers) {
+        const memberPages = await Promise.all(
+          memberIds.map((spaceId) =>
+            collaborationCall<{ members?: SpaceMember[] }>(
+              'collaboration',
+              'space.listMembers',
+              { spaceId }
+            )
+              .then((page) => [spaceId, page?.members ?? []] as const)
+              .catch(() => [spaceId, [] as SpaceMember[]] as const)
           )
-            .then((page) => [spaceId, page?.members ?? []] as const)
-            .catch(() => [spaceId, [] as SpaceMember[]] as const)
-        )
-      );
-      if (cancelled) return;
-      setMembersBySpace((current) => {
-        const next = { ...current };
-        for (const [spaceId, nextMembers] of memberPages) {
-          next[spaceId] = nextMembers;
-        }
-        return next;
-      });
+        );
+        if (cancelled) return;
+        loadedMemberSpaceKeyRef.current = nextMemberSpaceKey;
+        setMembersBySpace((current) => {
+          const next = { ...current };
+          for (const [spaceId, nextMembers] of memberPages) {
+            next[spaceId] = nextMembers;
+          }
+          return next;
+        });
+      }
       if (!selectedId || selectedId === VIRTUAL_DEFAULT_SPACE_ID) return;
       const messagePage = await collaborationCall<{
         messages?: SpaceMessage[];
@@ -1899,6 +1382,7 @@ export function CollaborationSpacePage({
     ]);
     let cancelled = false;
     let unlisten: (() => void) | undefined;
+    let unlistenWorkspaceSessions: (() => void) | undefined;
 
     const refreshSpaceMembers = async (spaceId: string) => {
       const page = await collaborationCall<{ members?: SpaceMember[] }>(
@@ -1974,19 +1458,42 @@ export function CollaborationSpacePage({
         });
         void loadConversations();
       }
-      if (
-        event.seq !== undefined &&
-        selectedId &&
-        selectedId !== VIRTUAL_DEFAULT_SPACE_ID &&
-        event.spaceId === selectedId
-      ) {
-        void syncIncrementalMessages(selectedId).catch((cause: unknown) => {
-          if (!cancelled) setError(surfaceErrorCopy(cause));
-        });
+      if (event.seq !== undefined) {
+        void loadConversations();
+        if (
+          selectedId &&
+          selectedId !== VIRTUAL_DEFAULT_SPACE_ID &&
+          event.spaceId === selectedId
+        ) {
+          void syncIncrementalMessages(selectedId).catch((cause: unknown) => {
+            if (!cancelled) setError(surfaceErrorCopy(cause));
+          });
+        }
       }
     }).then((stop) => {
       if (cancelled) stop();
       else unlisten = stop;
+    });
+
+    void backendListen<WorkspaceSessionsChangedPayload>(
+      WORKSPACE_SESSIONS_CHANGED_EVENT,
+      (payload) => {
+        if (cancelled) return;
+        const payloadWorkspaceId = String(payload?.workspace_id ?? '').trim();
+        const payloadConversationId = String(
+          payload?.conversation_id ?? ''
+        ).trim();
+        if (
+          !payloadWorkspaceId ||
+          payloadWorkspaceId === workspace ||
+          Boolean(payloadConversationId)
+        ) {
+          void loadConversations();
+        }
+      }
+    ).then((stop) => {
+      if (cancelled) stop();
+      else unlistenWorkspaceSessions = stop;
     });
 
     const handleReconnect = () => {
@@ -2011,10 +1518,42 @@ export function CollaborationSpacePage({
     return () => {
       cancelled = true;
       unlisten?.();
+      unlistenWorkspaceSessions?.();
       window.removeEventListener('online', handleReconnect);
       window.removeEventListener('vibex:host-client-changed', handleReconnect);
     };
   }, [loadConversations, openSpaceKey, selectedId, spaces, unassignedId, workspace]);
+
+  const prevActivePreviewKeyRef = useRef<string>('');
+  useEffect(() => {
+    const currentKey =
+      showPreview && activePreviewTabId ? activePreviewTabId : '';
+    const prevKey = prevActivePreviewKeyRef.current;
+    prevActivePreviewKeyRef.current = currentKey;
+    if (!currentKey || currentKey === prevKey) return;
+    const activeTab = previewTabs.find((tab) => tab.id === currentKey);
+    if (activeTab?.kind === 'member' && activeTab.conversationId) {
+      markMemberConversationViewed(activeTab.conversationId);
+    }
+  }, [
+    activePreviewTabId,
+    markMemberConversationViewed,
+    previewTabs,
+    showPreview,
+  ]);
+
+  const pendingViewedSpaceIdRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (
+      !pendingViewedSpaceIdRef.current ||
+      pendingViewedSpaceIdRef.current !== selectedId
+    ) {
+      return;
+    }
+    if (messages.length === 0) return;
+    markSpaceInReviewMembersViewed(selectedId);
+    pendingViewedSpaceIdRef.current = null;
+  }, [markSpaceInReviewMembersViewed, messages, selectedId]);
 
   useEffect(() => {
     setMessages([]);
@@ -2029,17 +1568,6 @@ export function CollaborationSpacePage({
     setOperationId(crypto.randomUUID());
     setSelectedFilterMemberNicknames(new Set());
   }, [selectedId]);
-
-  useEffect(() => {
-    if (scheduledMessages.length === 0) return;
-    setDelayedTickNow(Date.now());
-    const intervalId = window.setInterval(() => {
-      setDelayedTickNow(Date.now());
-    }, 1000);
-    return () => {
-      window.clearInterval(intervalId);
-    };
-  }, [scheduledMessages.length]);
 
   useEffect(() => {
     if ((!createMemberOpen && !createOpen) || !workspace) return;
@@ -2235,9 +1763,11 @@ export function CollaborationSpacePage({
 
   const selectSpace = (spaceId: string, nextExpanded = true) => {
     closeAllOverlays();
+    pendingViewedSpaceIdRef.current = spaceId;
     setSelectedId(spaceId);
     setThreadVisible(true);
     setExpanded((current) => ({ ...current, [spaceId]: nextExpanded }));
+    markSpaceInReviewMembersViewed(spaceId);
   };
 
   const selectMemberForPreview = (spaceId: string, member: SpaceMember) => {
@@ -2313,6 +1843,43 @@ export function CollaborationSpacePage({
     });
   };
 
+  const requestCreateMemberSession = async (params: {
+    spaceId: string;
+    nickname: string;
+    source: Exclude<MemberSourceOption, 'session'>;
+    roleId: string;
+    agentId: string;
+    modeId: string;
+    configValues: Record<string, string>;
+    personaPrompt: string;
+  }) => {
+    const created = await collaborationCall<{
+      space_id?: string;
+      member_id?: string;
+      conversation_id?: string;
+      nickname?: string;
+    }>('collaboration', 'space.createMember', {
+      workspaceId: workspace,
+      spaceId: params.spaceId,
+      nickname: params.nickname,
+      source: params.source,
+      ...(params.source === 'role'
+        ? { roleId: params.roleId }
+        : {
+            agentId: params.agentId,
+            modeId: params.modeId,
+            configValues: params.configValues,
+            personaPrompt: params.personaPrompt,
+          }),
+      operationId: crypto.randomUUID(),
+    });
+    const resolvedAgentId =
+      params.source === 'role'
+        ? roles.find((item) => item.id === params.roleId)?.agent_id
+        : params.agentId;
+    return { created, resolvedAgentId };
+  };
+
   const submitInlineCreateMember = async () => {
     const trimmedNickname = inlineMemberName.trim();
     if (!trimmedNickname || !workspace || inlineMemberSubmitting) return;
@@ -2350,35 +1917,21 @@ export function CollaborationSpacePage({
 
     setInlineMemberSubmitting(true);
     try {
-      const created = await collaborationCall<{
-        space_id?: string;
-        member_id?: string;
-        conversation_id?: string;
-        nickname?: string;
-      }>('collaboration', 'space.createMember', {
-        workspaceId: workspace,
+      const { created, resolvedAgentId } = await requestCreateMemberSession({
         spaceId: '',
         nickname: trimmedNickname,
         source: inlineMemberSource,
-        ...(inlineMemberSource === 'role'
-          ? { roleId: inlineMemberRoleId }
-          : {
-              agentId: inlineMemberAgentId,
-              modeId: inlineMemberModeId,
-              configValues: inlineMemberConfigValues,
-              personaPrompt: inlineMemberPersonaPrompt,
-            }),
-        operationId: crypto.randomUUID(),
+        roleId: inlineMemberRoleId,
+        agentId: inlineMemberAgentId,
+        modeId: inlineMemberModeId,
+        configValues: inlineMemberConfigValues,
+        personaPrompt: inlineMemberPersonaPrompt,
       });
 
       const createdConvId =
         created?.conversation_id ||
         created?.member_id ||
         `draft-member-${crypto.randomUUID()}`;
-      const resolvedAgentId =
-        inlineMemberSource === 'role'
-          ? roles.find((item) => item.id === inlineMemberRoleId)?.agent_id
-          : inlineMemberAgentId;
 
       const finalInlineNickname = created?.nickname || trimmedNickname;
       updateMemberAvatar(
@@ -2405,13 +1958,7 @@ export function CollaborationSpacePage({
 
       await loadConversations();
       if (unassignedId) {
-        const memberPage = await collaborationCall<{
-          members?: SpaceMember[];
-        }>('collaboration', 'space.listMembers', { spaceId: unassignedId });
-        setMembersBySpace((current) => ({
-          ...current,
-          [unassignedId]: memberPage.members ?? [],
-        }));
+        await reloadSpaceMembers(unassignedId);
       }
     } catch (cause) {
       setInlineMemberError(surfaceErrorCopy(cause));
@@ -2501,15 +2048,7 @@ export function CollaborationSpacePage({
           : [...current, nextCreated]
       );
       selectSpace(createdSpaceId);
-      const memberPage = await collaborationCall<{ members?: SpaceMember[] }>(
-        'collaboration',
-        'space.listMembers',
-        { spaceId: createdSpaceId }
-      );
-      setMembersBySpace((current) => ({
-        ...current,
-        [createdSpaceId]: memberPage.members ?? [],
-      }));
+      await reloadSpaceMembers(createdSpaceId);
     }
     const page = await collaborationCall<{ spaces?: Space[] }>(
       'collaboration',
@@ -2553,15 +2092,7 @@ export function CollaborationSpacePage({
       setCreateMemberError('');
       setCreateMemberOpen(false);
       await loadConversations();
-      const memberPage = await collaborationCall<{ members?: SpaceMember[] }>(
-        'collaboration',
-        'space.listMembers',
-        { spaceId: targetSpaceId }
-      );
-      setMembersBySpace((current) => ({
-        ...current,
-        [targetSpaceId]: memberPage.members ?? [],
-      }));
+      await reloadSpaceMembers(targetSpaceId);
       setExpanded((current) => ({ ...current, [targetSpaceId]: true }));
       return;
     }
@@ -2575,25 +2106,15 @@ export function CollaborationSpacePage({
         ? createMemberSpaceId
         : '';
 
-    const created = await collaborationCall<{
-      space_id?: string;
-      member_id?: string;
-      conversation_id?: string;
-      nickname?: string;
-    }>('collaboration', 'space.createMember', {
-      workspaceId: workspace,
+    const { created, resolvedAgentId } = await requestCreateMemberSession({
       spaceId: targetSpaceId,
       nickname: trimmedNickname,
       source: newMemberSource,
-      ...(newMemberSource === 'role'
-        ? { roleId: newMemberRoleId }
-        : {
-            agentId: newMemberAgentId,
-            modeId: newMemberModeId,
-            configValues: newMemberConfigValues,
-            personaPrompt: newMemberPersonaPrompt,
-          }),
-      operationId: crypto.randomUUID(),
+      roleId: newMemberRoleId,
+      agentId: newMemberAgentId,
+      modeId: newMemberModeId,
+      configValues: newMemberConfigValues,
+      personaPrompt: newMemberPersonaPrompt,
     });
 
     const effectiveSpaceId = created?.space_id || targetSpaceId || unassignedId;
@@ -2613,22 +2134,10 @@ export function CollaborationSpacePage({
 
     await loadConversations();
     if (effectiveSpaceId) {
-      const memberPage = await collaborationCall<{ members?: SpaceMember[] }>(
-        'collaboration',
-        'space.listMembers',
-        { spaceId: effectiveSpaceId }
-      );
-      setMembersBySpace((current) => ({
-        ...current,
-        [effectiveSpaceId]: memberPage.members ?? [],
-      }));
+      await reloadSpaceMembers(effectiveSpaceId);
       setExpanded((current) => ({ ...current, [effectiveSpaceId]: true }));
     }
     if (created?.conversation_id) {
-      const resolvedAgentId =
-        newMemberSource === 'role'
-          ? roles.find((item) => item.id === newMemberRoleId)?.agent_id
-          : newMemberAgentId;
       openPreviewItem({
         id: memberPreviewPanelId(created.conversation_id),
         kind: 'member',
@@ -2977,33 +2486,137 @@ export function CollaborationSpacePage({
       setFollowUpError: (message) => setError(message ?? ''),
     });
 
+  const [attachedImages, setAttachedImages] = useState<
+    SessionComposerImageAttachment[]
+  >([]);
+  const attachedImagesRef = useRef<SessionComposerImageAttachment[]>([]);
+  useEffect(() => {
+    attachedImagesRef.current = attachedImages;
+  }, [attachedImages]);
+  useEffect(
+    () => () => {
+      clearComposerImageAttachments(attachedImagesRef.current);
+    },
+    []
+  );
+
+  const handleRemoveAttachedImage = useCallback((id: string) => {
+    setAttachedImages((prev) => {
+      const target = prev.find((item) => item.id === id);
+      if (target) {
+        revokeComposerImagePreviewUrl(target);
+      }
+      return prev.filter((item) => item.id !== id);
+    });
+  }, []);
+
+  const handleAttachFiles = useCallback(
+    async (files: File[]) => {
+      if (files.length === 0) return;
+      setError('');
+      for (const file of files) {
+        try {
+          const prepared = await prepareImageFileForUpload(file);
+          const response = workspace
+            ? await imagesApi
+                .uploadForAttempt(workspace, prepared)
+                .catch(() => imagesApi.upload(prepared))
+            : await imagesApi.upload(prepared);
+          const nextAttachment = createUploadedImageAttachment(
+            response,
+            URL.createObjectURL(file)
+          );
+          setAttachedImages((prev) => [...prev, nextAttachment]);
+        } catch (cause) {
+          setError(surfaceErrorCopy(cause));
+        }
+      }
+    },
+    [workspace]
+  );
+
   const handleComposerFileSelect = useCallback(
     (event: ChangeEvent<HTMLInputElement>) => {
       const files = Array.from(event.target.files ?? []);
       event.target.value = '';
       if (files.length === 0) return;
-
-      const tokens = files
-        .map((file) => {
-          const nativePath = (
-            file as File & { path?: string; webkitRelativePath?: string }
-          ).path;
-          const relative = nativePath
-            ? (relativePathInsideRoot(nativePath, workspacePath) ?? nativePath)
-            : file.webkitRelativePath || file.name;
-          return relative ? `@${relative.replace(/\\/g, '/')}` : '';
-        })
-        .filter(Boolean);
-      if (tokens.length === 0) return;
-
-      const joined = `${tokens.join(' ')} `;
-      const next =
-        draft.length > 0 && !/\s$/.test(draft)
-          ? `${draft} ${joined}`
-          : `${draft}${joined}`;
-      restoreDraft(next);
+      void handleAttachFiles(files);
     },
-    [draft, workspacePath]
+    [handleAttachFiles]
+  );
+
+  const openSpaceCollectionTab = useCallback(
+    (spaceId: string, name?: string) => {
+      if (!spaceId || spaceId === VIRTUAL_DEFAULT_SPACE_ID) return;
+      const spaceMembers = agentRoster(membersBySpace[spaceId] ?? EMPTY_MEMBERS);
+      const spaceAvatars = spaceMembers.map((member) =>
+        getMemberAvatar(
+          member.conversation_id ?? undefined,
+          displayName(member)
+        )
+      );
+      const tagColorId = spaceTags[spaceId]?.colorId;
+      openWorkspacePanel({
+        id: spaceCollectionPreviewPanelId(spaceId),
+        component: 'space-collection',
+        title: '群收藏',
+        params: {
+          spaceId,
+          spaceName: name ?? '协作空间',
+          spaceAvatars,
+          tagColorId,
+          projectId: projectContext?.projectId ?? undefined,
+          workspaceId: workspace || undefined,
+          workspacePath,
+        },
+      });
+    },
+    [
+      getMemberAvatar,
+      membersBySpace,
+      openWorkspacePanel,
+      projectContext?.projectId,
+      spaceTags,
+      workspace,
+      workspacePath,
+    ]
+  );
+
+  const handleQuoteSelection = useCallback((selectedText: string) => {
+    const trimmed = selectedText.trim();
+    if (!trimmed) return;
+    requestComposerTokenInsert({
+      value: formatQuoteToken(trimmed),
+      label: quoteTokenChipLabel(trimmed),
+      conversationId: 'collaboration-space-composer',
+    });
+  }, []);
+
+  const handleAddSelectionToCollection = useCallback(
+    async (selectedText: string) => {
+      const trimmed = selectedText.trim();
+      if (
+        !trimmed ||
+        !selected ||
+        selected.space_id === VIRTUAL_DEFAULT_SPACE_ID
+      ) {
+        return;
+      }
+      try {
+        await collaborationCall('collaboration', 'space.addCollectionItem', {
+          spaceId: selected.space_id,
+          projectId: projectContext?.projectId ?? undefined,
+          kind: 'text',
+          content: trimmed,
+          creatorNickname: 'User',
+        });
+        toast.success('已添加到群收藏');
+        openSpaceCollectionTab(selected.space_id, selected.name);
+      } catch (cause) {
+        setError(surfaceErrorCopy(cause));
+      }
+    },
+    [openSpaceCollectionTab, projectContext?.projectId, selected]
   );
 
   const handleTriggerAtMember = useCallback(() => {
@@ -3062,16 +2675,20 @@ export function CollaborationSpacePage({
   }, [draft]);
 
   const send = async (rawText: string) => {
-    const content = rawText.trim();
+    const textPart = rawText.trim();
+    const attachmentMarkdown = attachedImages
+      .map((img) => `![${img.name}](${img.path})`)
+      .join('\n');
+    const content = [textPart, attachmentMarkdown].filter(Boolean).join('\n\n');
     if (!selected || !content || sending) return;
-    if (strayMentions(content, members).length > 0) {
+    if (textPart && strayMentions(textPart, members).length > 0) {
       restoreDraft(rawText);
       setError(COPY.nicknameMissing);
       return;
     }
     setSending(true);
     try {
-      const recipients = postRecipients(content, members);
+      const recipients = postRecipients(textPart || content, members);
       const posted = await collaborationCall<{
         seq?: number;
         receipts?: DeliveryReceipt[];
@@ -3117,8 +2734,13 @@ export function CollaborationSpacePage({
       }
       setDraft('');
       replaceDraftRef.current?.('');
+      setAttachedImages((prev) => {
+        clearComposerImageAttachments(prev);
+        return [];
+      });
       setError('');
       setOperationId(crypto.randomUUID());
+      void loadConversations();
       const sinceSeq = latestMessageSeq(messagesRef.current);
       const messagePage = await collaborationCall<{
         messages?: SpaceMessage[];
@@ -3682,37 +3304,6 @@ export function CollaborationSpacePage({
       .pop();
     return pathName || projectContext?.project?.name || workspace;
   }, [projectContext?.project?.name, workspace, workspacePath]);
-
-  const getMemberLastMessageInSpace = useCallback(
-    (spaceId: string, member: SpaceMember): string => {
-      const spaceMessages =
-        spaceId === selectedId
-          ? messages
-          : (messagesBySpace[spaceId] ?? EMPTY_MESSAGES);
-      if (spaceMessages.length === 0) return '';
-      const spaceMembers = membersBySpace[spaceId] ?? EMPTY_MEMBERS;
-      const targetConvId = String(member.conversation_id ?? '').trim();
-      const targetName = displayName(member).trim();
-      for (let index = spaceMessages.length - 1; index >= 0; index -= 1) {
-        const msg = spaceMessages[index];
-        if (!msg?.envelope) continue;
-        const author = messageAuthor(msg.envelope).trim();
-        if (!author || author === COPY.you) continue;
-        const msgConvId = resolveMessageConversationId(
-          msg.envelope,
-          spaceMembers
-        );
-        if (
-          (targetConvId && msgConvId && msgConvId === targetConvId) ||
-          (targetName && author === targetName)
-        ) {
-          return bubbleText(msg.envelope).replace(/\s+/g, ' ').trim();
-        }
-      }
-      return '';
-    },
-    [membersBySpace, messages, messagesBySpace, selectedId]
-  );
 
   const pickerSpaceGroups = useMemo(() => {
     const groups: Array<{ space: Space; members: SpaceMember[] }> = [];
@@ -5654,12 +5245,47 @@ export function CollaborationSpacePage({
                 ? virtualDefaultSpaceName
                 : t('collaborationSpace.title', '协作空间'))
             }
+            onPointerDownCapture={() => {
+              if (selected) {
+                markSpaceInReviewMembersViewed(selected.space_id);
+              }
+            }}
+            onWheelCapture={() => {
+              if (selected) {
+                markSpaceInReviewMembersViewed(selected.space_id);
+              }
+            }}
+            onKeyDownCapture={() => {
+              if (selected) {
+                markSpaceInReviewMembersViewed(selected.space_id);
+              }
+            }}
           >
             {selected && topMemberBarExpanded ? (
               <div
                 className="collaboration-top-member-bar"
                 data-testid="collaboration-top-member-bar"
               >
+                <button
+                  type="button"
+                  className={cn(
+                    'collaboration-top-collection-btn',
+                    activePreviewTabId ===
+                      spaceCollectionPreviewPanelId(selected.space_id) &&
+                      'is-active'
+                  )}
+                  aria-label="群收藏"
+                  title="群收藏"
+                  data-testid="collaboration-open-collection-btn"
+                  onClick={() =>
+                    openSpaceCollectionTab(selected.space_id, selected.name)
+                  }
+                >
+                  <LayoutGrid
+                    className="h-3.5 w-3.5 shrink-0"
+                    aria-hidden="true"
+                  />
+                </button>
                 <Button
                   type="button"
                   variant="icon"
@@ -5804,12 +5430,9 @@ export function CollaborationSpacePage({
                                         className="h-2.5 w-2.5 shrink-0"
                                         aria-hidden="true"
                                       />
-                                      <span>
-                                        {formatCountdownTimer(
-                                          item.deliver_at,
-                                          delayedTickNow
-                                        )}
-                                      </span>
+                                      <DelayedMessageCountdown
+                                        deliverAt={item.deliver_at}
+                                      />
                                     </span>
                                   </div>
                                 );
@@ -5826,50 +5449,102 @@ export function CollaborationSpacePage({
 
             <div className="collaboration-thread-body">
               {selected && !topMemberBarExpanded ? (
-                <button
-                  type="button"
-                  className="collaboration-top-member-expand-trigger"
-                  aria-label="展开成员列表"
-                  title="展开成员列表"
-                  data-testid="collaboration-top-member-collapsed-stack"
-                  onClick={() => setTopMemberBarExpanded(true)}
+                <div
+                  className="collaboration-top-member-collapsed-bar"
+                  data-testid="collaboration-top-member-collapsed-bar"
                 >
-                  {visibleRoster.length > 0 ? (
-                    <span
-                      className="collaboration-top-member-stack"
-                      data-testid="collaboration-top-member-stack"
-                    >
-                      {visibleRoster.slice(0, 5).map((member, idx) => {
-                        const nick = displayName(member);
-                        const convId = member.conversation_id ?? '';
-                        return (
-                          <span
-                            key={member.member_id ?? convId ?? nick}
-                            className="collaboration-top-member-stack-item"
-                            style={{ zIndex: 10 - idx }}
-                          >
-                            <MemberBotAvatar
-                              config={getMemberAvatar(convId, nick)}
-                              className="h-3.5 w-3.5 shrink-0"
-                            />
-                          </span>
-                        );
-                      })}
-                      {visibleRoster.length > 5 ? (
-                        <span className="collaboration-top-member-stack-item collaboration-top-member-stack-more">
-                          +{visibleRoster.length - 5}
-                        </span>
-                      ) : null}
-                    </span>
-                  ) : null}
-                  <ChevronRight
-                    className="h-3.5 w-3.5 shrink-0 text-muted-foreground"
+                  <button
+                    type="button"
+                    className={cn(
+                      'collaboration-top-collection-btn is-collapsed-bar',
+                      activePreviewTabId ===
+                        spaceCollectionPreviewPanelId(selected.space_id) &&
+                        'is-active'
+                    )}
+                    aria-label="群收藏"
+                    title="群收藏"
+                    data-testid="collaboration-open-collection-btn"
+                    onClick={() =>
+                      openSpaceCollectionTab(selected.space_id, selected.name)
+                    }
+                  >
+                    <LayoutGrid
+                      className="h-3.5 w-3.5 shrink-0"
+                      aria-hidden="true"
+                    />
+                  </button>
+                  <span
+                    className="collaboration-top-member-collapsed-divider"
                     aria-hidden="true"
                   />
-                </button>
+                  <button
+                    type="button"
+                    className="collaboration-top-member-expand-trigger"
+                    aria-label="展开成员列表"
+                    title="展开成员列表"
+                    data-testid="collaboration-top-member-collapsed-stack"
+                    onClick={() => setTopMemberBarExpanded(true)}
+                  >
+                    {visibleRoster.length > 0 ? (
+                      <span
+                        className="collaboration-top-member-stack"
+                        data-testid="collaboration-top-member-stack"
+                      >
+                        {visibleRoster.slice(0, 5).map((member, idx) => {
+                          const nick = displayName(member);
+                          const convId = member.conversation_id ?? '';
+                          return (
+                            <span
+                              key={member.member_id ?? convId ?? nick}
+                              className="collaboration-top-member-stack-item"
+                              style={{ zIndex: 10 - idx }}
+                            >
+                              <MemberBotAvatar
+                                config={getMemberAvatar(convId, nick)}
+                                className="h-3.5 w-3.5 shrink-0"
+                              />
+                            </span>
+                          );
+                        })}
+                        {visibleRoster.length > 5 ? (
+                          <span className="collaboration-top-member-stack-item collaboration-top-member-stack-more">
+                            +{visibleRoster.length - 5}
+                          </span>
+                        ) : null}
+                      </span>
+                    ) : null}
+                    <ChevronRight
+                      className="h-3.5 w-3.5 shrink-0 text-muted-foreground"
+                      aria-hidden="true"
+                    />
+                  </button>
+                </div>
               ) : null}
 
-              <div ref={threadLogRef} className="collaboration-thread-log">
+              <div
+                ref={threadLogRef}
+                className="collaboration-thread-log"
+                onPointerDownCapture={() => {
+                  if (selected) {
+                    markSpaceInReviewMembersViewed(selected.space_id);
+                  }
+                }}
+                onWheelCapture={() => {
+                  if (selected) {
+                    markSpaceInReviewMembersViewed(selected.space_id);
+                  }
+                }}
+                onScroll={() => {
+                  if (selected) {
+                    markSpaceInReviewMembersViewed(selected.space_id);
+                  }
+                }}
+                onKeyDownCapture={() => {
+                  if (selected) {
+                    markSpaceInReviewMembersViewed(selected.space_id);
+                  }
+                }}
+              >
                 {isDefaultVirtualSpaceSelected ? (
                   <div
                     className="collaboration-default-space-empty"
@@ -5975,6 +5650,7 @@ export function CollaborationSpacePage({
                             fromYou={fromYou}
                             text={bubbleText(message.envelope)}
                             workspacePath={workspacePath}
+                            workspaceId={workspace || undefined}
                           />
                           {messageReceipts.length > 0 ? (
                             <ul className="collaboration-receipts">
@@ -6016,6 +5692,18 @@ export function CollaborationSpacePage({
                   : null}
               </div>
 
+              <ConversationSelectionToolbar
+                rootRef={threadLogRef}
+                onQuote={handleQuoteSelection}
+                onAddToCollection={
+                  selected && !isDefaultVirtualSpaceSelected
+                    ? (selectedText) => {
+                        void handleAddSelectionToCollection(selectedText);
+                      }
+                    : undefined
+                }
+              />
+
               {selected && navEntries.length > 0 ? (
                 <div className="conv-message-nav-anchor">
                   <ConversationMessageNav
@@ -6046,7 +5734,16 @@ export function CollaborationSpacePage({
                     void handleDelaySpaceQueuedMessage(message, delaySeconds);
                   }}
                 />
-                <SessionComposerFrame>
+                <SessionComposerFrame
+                  drawer={
+                    <SessionComposerAttachmentDrawer
+                      images={attachedImages}
+                      disabled={sending}
+                      taskAttemptId={workspace || undefined}
+                      onRemoveImage={handleRemoveAttachedImage}
+                    />
+                  }
+                >
                   <div className="composer-topbar flex items-center justify-between gap-2 px-1 pb-0 text-xs">
                     <div
                       className="flex min-w-0 items-center gap-1.5 text-xs font-medium text-foreground"
@@ -6149,6 +5846,7 @@ export function CollaborationSpacePage({
                     disabled={sending}
                     replaceValueRef={replaceDraftRef}
                     context={{
+                      sessionId: 'collaboration-space-composer',
                       workspaceId: workspace || undefined,
                       workspacePath,
                       repoId: repoIds[0],
@@ -6159,14 +5857,9 @@ export function CollaborationSpacePage({
                     onSubmit={(value) => {
                       void send(value);
                     }}
-                    onAttachImages={() =>
-                      setError(
-                        t(
-                          'collaborationSpace.attachmentsUnsupported',
-                          COPY.attachmentsUnsupported
-                        )
-                      )
-                    }
+                    onAttachImages={(files) => {
+                      void handleAttachFiles(files);
+                    }}
                   />
                   <div className="flex items-center gap-1 pt-1">
                     <input
@@ -6217,7 +5910,10 @@ export function CollaborationSpacePage({
                       action="send"
                       label={t('collaborationSpace.send', '发送')}
                       pending={sending}
-                      disabled={!draft.trim() || sending}
+                      disabled={
+                        (!draft.trim() && attachedImages.length === 0) ||
+                        sending
+                      }
                       onClick={() => {
                         void send(draft);
                       }}
@@ -6240,6 +5936,9 @@ export function CollaborationSpacePage({
               !showPreview && 'hidden'
             )}
             aria-label={t('collaborationSpace.previewTitle', '预览')}
+            onPointerDownCapture={markActivePreviewMemberViewed}
+            onWheelCapture={markActivePreviewMemberViewed}
+            onKeyDownCapture={markActivePreviewMemberViewed}
           >
             {showPreview && hasThread ? (
               <div

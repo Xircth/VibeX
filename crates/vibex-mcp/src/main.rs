@@ -112,7 +112,10 @@ impl CompanionFeatures {
             | "add_space_member"
             | "set_space_identity"
             | "post_to_space"
-            | "list_space_messages" => self.collaboration,
+            | "list_space_messages"
+            | "list_space_collection"
+            | "add_to_space_collection"
+            | "read_space_collection_item" => self.collaboration,
             _ => false,
         }
     }
@@ -563,7 +566,10 @@ impl Companion {
             | "add_space_member"
             | "set_space_identity"
             | "post_to_space"
-            | "list_space_messages" => Ok(BrokerMessage::Collaborate(BrokerCollaborateRequest {
+            | "list_space_messages"
+            | "list_space_collection"
+            | "add_to_space_collection"
+            | "read_space_collection_item" => Ok(BrokerMessage::Collaborate(BrokerCollaborateRequest {
                 token,
                 name: name.to_string(),
                 arguments: arguments.clone(),

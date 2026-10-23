@@ -4,6 +4,7 @@ import { HotkeysProvider } from 'react-hotkeys-hook';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { renderWithQueryClient as render } from '@/test/QueryClientHarness';
+import { sessionsApi } from '@/lib/api';
 
 import { CollaborationSpacePage } from './CollaborationSpacePage';
 
@@ -12,6 +13,27 @@ const sessionPreviewSpy = vi.hoisted(() => vi.fn());
 const spaceEventListeners = vi.hoisted(
   () => new Set<(payload: unknown) => void>()
 );
+const workspaceSessionsListeners = vi.hoisted(
+  () => new Set<(payload: unknown) => void>()
+);
+
+vi.mock('@/lib/backendTransport', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/lib/backendTransport')>();
+  return {
+    ...actual,
+    backendListen: vi.fn(
+      async (event: string, handler: (payload: unknown) => void) => {
+        if (event === 'workspace-sessions-changed') {
+          workspaceSessionsListeners.add(handler);
+          return () => {
+            workspaceSessionsListeners.delete(handler);
+          };
+        }
+        return () => undefined;
+      }
+    ),
+  };
+});
 
 vi.mock('./collaborationApi', () => ({
   COLLABORATION_SPACE_CHANGED_EVENT: 'vibex://collaboration-space-changed',
@@ -73,6 +95,7 @@ describe('CollaborationSpacePage', () => {
     collaborationCall.mockReset();
     sessionPreviewSpy.mockReset();
     spaceEventListeners.clear();
+    workspaceSessionsListeners.clear();
     collaborationCall.mockImplementation(
       async (
         _capability: string,
@@ -611,7 +634,6 @@ describe('CollaborationSpacePage', () => {
         getData: () => '',
       },
     });
-    expect(await screen.findByText('空间消息只发送文字')).toBeTruthy();
     expect(editor).toHaveTextContent('@小A 重试这条');
 
     await user.click(screen.getByRole('button', { name: '发送' }));
@@ -1199,5 +1221,382 @@ describe('CollaborationSpacePage', () => {
       'member-delayed-queue-timer-space_delayed_1'
     );
     expect(timer.textContent).toMatch(/\d{2}:\d{2}/);
+  });
+
+  it('opens space collection tab from leftmost 4-squares button and displays items, expandable read receipts, and user message attachments', async () => {
+    const user = userEvent.setup();
+    let currentNote = '核心接口契约';
+    collaborationCall.mockImplementation(
+      async (
+        _capability: string,
+        method: string,
+        input?: Record<string, unknown>
+      ) => {
+        if (method === 'space.list') {
+          return { spaces: [{ space_id: 's1', name: '设计' }] };
+        }
+        if (method === 'space.listMembers') {
+          if (String(input?.spaceId ?? '').startsWith('unassigned:')) {
+            return { members: [] };
+          }
+          return {
+            members: [
+              {
+                member_id: 'm1',
+                nickname: '小A',
+                kind: 'agent',
+                visible_to_agents: 1,
+                conversation_id: 'conv-1',
+              },
+            ],
+          };
+        }
+        if (method === 'space.listMessages') {
+          return {
+            messages: [
+              {
+                seq: 1,
+                envelope: {
+                  actor: 'space/s1/user',
+                  content: '请查看附件\n\n![spec.pdf](.vibe-images/spec.pdf)',
+                },
+              },
+            ],
+            scheduled: [],
+          };
+        }
+        if (method === 'space.listCollection') {
+          return {
+            items: [
+              {
+                id: 'col-1',
+                space_id: 's1',
+                project_id: 'proj-1',
+                kind: 'text',
+                name: 'api-contract.md',
+                file_path: 'C:/Users/test/.vibex/proj-1/TeamSpaces/s1/Collection/col-1_api-contract.md',
+                mime_type: 'text/plain',
+                byte_size: 42,
+                note: currentNote,
+                creator_conversation_id: 'conv-1',
+                creator_nickname: '小A',
+                created_at: '2026-10-23T01:00:00Z',
+                text_content: 'GET /api/v1/spaces',
+                reads: [
+                  {
+                    id: 'read-1',
+                    item_id: 'col-1',
+                    space_id: 's1',
+                    reader_conversation_id: 'conv-2',
+                    reader_nickname: '小B',
+                    read_at: '2026-10-23T01:05:00Z',
+                  },
+                ],
+              },
+              {
+                id: 'col-2',
+                space_id: 's1',
+                project_id: 'proj-1',
+                kind: 'text',
+                name: 'user-note.md',
+                file_path: 'C:/Users/test/.vibex/proj-1/TeamSpaces/s1/Collection/col-2_user-note.md',
+                mime_type: 'text/plain',
+                byte_size: 16,
+                note: '用户备注',
+                creator_conversation_id: null,
+                creator_nickname: '你',
+                created_at: '2026-10-23T01:10:00Z',
+                text_content: '用户添加的收藏内容',
+                reads: [],
+              },
+            ],
+          };
+        }
+        if (method === 'space.updateCollectionItem') {
+          currentNote = String(input?.note ?? '');
+          return {
+            id: 'col-1',
+            space_id: 's1',
+            project_id: 'proj-1',
+            kind: 'text',
+            name: 'api-contract.md',
+            file_path: 'C:/Users/test/.vibex/proj-1/TeamSpaces/s1/Collection/col-1_api-contract.md',
+            byte_size: 42,
+            note: currentNote,
+            creator_nickname: '小A',
+            created_at: '2026-10-23T01:00:00Z',
+            text_content: 'GET /api/v1/spaces',
+            reads: [],
+          };
+        }
+        if (method === 'space.addCollectionItem') {
+          return {
+            item: {
+              id: 'col-2',
+              space_id: 's1',
+              project_id: 'proj-1',
+              kind: 'text',
+              name: 'note.txt',
+              file_path: 'C:/Users/test/.vibex/proj-1/TeamSpaces/s1/Collection/col-2_note.txt',
+              byte_size: 12,
+              note: '新增备注',
+              creator_nickname: '你',
+              created_at: '2026-10-23T01:10:00Z',
+              text_content: '新的收藏内容',
+              reads: [],
+            },
+          };
+        }
+        if (method === 'space.listConversations') {
+          return { conversations: [] };
+        }
+        return {};
+      }
+    );
+
+    renderPage();
+
+    // 1. User message attachment card is rendered with stripped markdown text
+    expect(await screen.findByText('请查看附件')).toBeTruthy();
+    expect(await screen.findByText('spec.pdf')).toBeTruthy();
+
+    // 2. Leftmost 4-squares Space Collection button is rendered in expanded top member bar
+    const openCollectionBtn = await screen.findByTestId(
+      'collaboration-open-collection-btn'
+    );
+    expect(openCollectionBtn).toBeTruthy();
+
+    // Collapse top member bar and verify the collection button remains separate from avatar stack on the far left
+    await user.click(screen.getByRole('button', { name: '收起成员列表' }));
+    const collapsedBar = await screen.findByTestId(
+      'collaboration-top-member-collapsed-bar'
+    );
+    const collapsedCollectionBtn = within(collapsedBar).getByTestId(
+      'collaboration-open-collection-btn'
+    );
+    const avatarStack = within(collapsedBar).getByTestId(
+      'collaboration-top-member-stack'
+    );
+    expect(avatarStack.contains(collapsedCollectionBtn)).toBe(false);
+
+    // 3. Click the 4-squares button to open the Space Collection tab in Dockview
+    await user.click(collapsedCollectionBtn);
+
+    const collectionPanel = await screen.findByTestId(
+      'collaboration-space-collection-panel'
+    );
+    expect(collectionPanel).toBeTruthy();
+
+    // Collaboration space name is rendered as a badge component in the panel header
+    const spaceChip = within(collectionPanel).getByTestId(
+      'collaboration-collection-space-chip'
+    );
+    expect(spaceChip).toHaveTextContent('设计');
+
+    // Dropzone is placed at the bottom (after the list)
+    const listEl = within(collectionPanel).getByTestId(
+      'collaboration-collection-list'
+    );
+    const dropzoneEl = within(collectionPanel).getByTestId(
+      'collaboration-collection-dropzone'
+    );
+    expect(
+      Boolean(
+        listEl.compareDocumentPosition(dropzoneEl) &
+          Node.DOCUMENT_POSITION_FOLLOWING
+      )
+    ).toBe(true);
+
+    expect(
+      await within(collectionPanel).findByTestId('collection-item-creator-col-1')
+    ).toHaveTextContent('小A');
+    expect(
+      within(collectionPanel).getByTestId('collection-item-creator-col-2')
+    ).toHaveTextContent('User');
+    expect(
+      within(collectionPanel).getByTestId('collection-item-content-col-1')
+    ).toHaveTextContent('GET /api/v1/spaces');
+    expect(
+      within(collectionPanel).getByTestId('collection-item-note-col-1')
+    ).toHaveTextContent('核心接口契约');
+
+    // Edit note inline
+    await user.click(
+      within(collectionPanel).getByTestId('collection-item-note-edit-col-1')
+    );
+    const noteInput = within(collectionPanel).getByTestId(
+      'collection-item-note-input-col-1'
+    );
+    await user.clear(noteInput);
+    await user.type(noteInput, '已更新的接口契约备注');
+    await user.click(
+      within(collectionPanel).getByTestId('collection-item-note-save-col-1')
+    );
+    expect(collaborationCall).toHaveBeenCalledWith(
+      'collaboration',
+      'space.updateCollectionItem',
+      expect.objectContaining({
+        spaceId: 's1',
+        itemId: 'col-1',
+        note: '已更新的接口契约备注',
+      })
+    );
+    expect(
+      await within(collectionPanel).findByText('已更新的接口契约备注')
+    ).toBeTruthy();
+
+    // Read receipts are collapsed by default and expand on click
+    expect(
+      within(collectionPanel).queryByTestId('collection-item-reads-list-col-1')
+    ).toBeNull();
+    await user.click(
+      within(collectionPanel).getByTestId('collection-item-reads-toggle-col-1')
+    );
+    const readsList = await within(collectionPanel).findByTestId(
+      'collection-item-reads-list-col-1'
+    );
+    expect(readsList).toHaveTextContent('小B');
+
+    // Collapse the collection item -> only header row (avatar, member name, content type) remains visible
+    await user.click(
+      within(collectionPanel).getByTestId(
+        'collection-item-collapse-toggle-col-1'
+      )
+    );
+    expect(
+      within(collectionPanel).getByTestId('collection-item-col-1')
+    ).toHaveAttribute('data-collapsed', 'true');
+    expect(
+      within(collectionPanel).getByTestId('collection-item-creator-col-1')
+    ).toHaveTextContent('小A');
+    expect(
+      within(collectionPanel).getByTestId('collection-item-kind-col-1')
+    ).toHaveTextContent('文本');
+    expect(
+      within(collectionPanel).queryByTestId('collection-item-content-col-1')
+    ).toBeNull();
+    expect(
+      within(collectionPanel).queryByTestId('collection-item-note-col-1')
+    ).toBeNull();
+  });
+
+  it('updates member avatar status indicator dots in real time on turn lifecycle events', async () => {
+    let conv2State = {
+      conversation_id: 'conv-2',
+      title: '小B会话',
+      workspace_name: '主工作区',
+      agent_id: 'CODEX',
+      turn_in_flight: false,
+      status: 'todo',
+      updated_at: new Date().toISOString(),
+    };
+
+    const defaultImpl = collaborationCall.getMockImplementation();
+    collaborationCall.mockImplementation(
+      async (
+        capability: string,
+        method: string,
+        input?: Record<string, unknown>
+      ) => {
+        if (method === 'space.listConversations') {
+          return {
+            conversations: [
+              {
+                conversation_id: 'conv-1',
+                title: '设计会话',
+                workspace_name: '主工作区',
+                agent_id: 'CLAUDE_CODE',
+                turn_in_flight: true,
+                status: 'inprogress',
+                updated_at: new Date().toISOString(),
+              },
+              conv2State,
+            ],
+          };
+        }
+        return defaultImpl?.(capability, method, input);
+      }
+    );
+
+    renderPage();
+
+    const memberAButton = await screen.findByRole('button', { name: '小A' });
+    const memberBButton = await screen.findByRole('button', { name: '小B' });
+
+    expect(
+      memberAButton.querySelector('.workspace-session-status--inprogress')
+    ).not.toBeNull();
+    expect(
+      memberBButton.querySelector('.workspace-session-status--todo')
+    ).not.toBeNull();
+
+    // Turn starts for 小B -> workspace-sessions-changed fires -> status dot becomes green (inprogress)
+    conv2State = {
+      ...conv2State,
+      turn_in_flight: true,
+      status: 'inprogress',
+    };
+    await act(async () => {
+      for (const listener of workspaceSessionsListeners) {
+        listener({
+          workspace_id: 'workspace-1',
+          conversation_id: 'conv-2',
+        });
+      }
+    });
+
+    await waitFor(() => {
+      expect(
+        memberBButton.querySelector('.workspace-session-status--inprogress')
+      ).not.toBeNull();
+    });
+
+    // Open 小B's preview while turn is in flight
+    await userEvent.click(memberBButton);
+    const markViewedSpy = vi
+      .spyOn(sessionsApi, 'markViewed')
+      .mockImplementation(async (sessionId: string) => {
+        if (sessionId === 'conv-2') {
+          conv2State = {
+            ...conv2State,
+            turn_in_flight: false,
+            status: 'done',
+          };
+        }
+        return {} as never;
+      });
+
+    // Turn finishes unviewed -> status dot becomes yellow (inreview) and stays yellow even with preview open
+    conv2State = {
+      ...conv2State,
+      turn_in_flight: false,
+      status: 'inreview',
+    };
+    await act(async () => {
+      for (const listener of workspaceSessionsListeners) {
+        listener({
+          workspace_id: 'workspace-1',
+          conversation_id: 'conv-2',
+        });
+      }
+    });
+
+    await waitFor(() => {
+      expect(
+        memberBButton.querySelector('.workspace-session-status--inreview')
+      ).not.toBeNull();
+    });
+    expect(markViewedSpy).not.toHaveBeenCalled();
+
+    // User clicks member to view preview (or interacts with space/preview) -> marks viewed and status dot becomes gray (done)
+    await userEvent.click(memberBButton);
+
+    await waitFor(() => {
+      expect(markViewedSpy).toHaveBeenCalledWith('conv-2');
+      expect(
+        memberBButton.querySelector('.workspace-session-status--done')
+      ).not.toBeNull();
+    });
+    markViewedSpy.mockRestore();
   });
 });

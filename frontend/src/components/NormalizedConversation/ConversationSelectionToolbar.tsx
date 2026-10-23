@@ -6,7 +6,7 @@ import {
   type RefObject,
 } from 'react';
 import { createPortal } from 'react-dom';
-import { FileText, Quote } from 'lucide-react';
+import { BookmarkPlus, FileText, Quote } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { usePortalContainer } from '@/contexts/PortalContainerContext';
 import { NativeSurfaceOcclusionHold } from '@/contexts/WorkspaceOverlayContext';
@@ -24,9 +24,13 @@ import {
 export function ConversationSelectionToolbar({
   rootRef,
   conversationId,
+  onQuote,
+  onAddToCollection,
 }: {
   rootRef: RefObject<HTMLElement | null>;
   conversationId?: string | null;
+  onQuote?: (selectedText: string) => void;
+  onAddToCollection?: (selectedText: string) => void;
 }) {
   const { t } = useTranslation('common');
   const portalContainer = usePortalContainer();
@@ -94,6 +98,26 @@ export function ConversationSelectionToolbar({
 
   if (!state) return null;
 
+  const handleQuote = () => {
+    if (onQuote) {
+      onQuote(state.text);
+    } else {
+      requestComposerTokenInsert({
+        value: formatQuoteToken(state.text),
+        label: quoteTokenChipLabel(state.text),
+        conversationId,
+      });
+    }
+    window.getSelection()?.removeAllRanges();
+    hide();
+  };
+
+  const handleCopy = () => {
+    void writeClipboardViaBridge(state.text);
+    window.getSelection()?.removeAllRanges();
+    hide();
+  };
+
   return createPortal(
     <div
       ref={toolbarRef}
@@ -104,32 +128,57 @@ export function ConversationSelectionToolbar({
       data-testid="conversation-selection-toolbar"
     >
       <NativeSurfaceOcclusionHold />
-      <button
-        type="button"
-        onClick={() => {
-          void writeClipboardViaBridge(state.text);
-          window.getSelection()?.removeAllRanges();
-          hide();
-        }}
-      >
-        <FileText aria-hidden="true" />
-        {t('contextMenu.copyText')}
-      </button>
-      <button
-        type="button"
-        onClick={() => {
-          requestComposerTokenInsert({
-            value: formatQuoteToken(state.text),
-            label: quoteTokenChipLabel(state.text),
-            conversationId,
-          });
-          window.getSelection()?.removeAllRanges();
-          hide();
-        }}
-      >
-        <Quote aria-hidden="true" />
-        {t('contextMenu.quote')}
-      </button>
+      {onAddToCollection ? (
+        <>
+          <button
+            type="button"
+            onClick={handleQuote}
+            data-testid="conversation-selection-quote"
+          >
+            <Quote aria-hidden="true" />
+            {t('contextMenu.quote', { defaultValue: '引用' })}
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              onAddToCollection(state.text);
+              window.getSelection()?.removeAllRanges();
+              hide();
+            }}
+            data-testid="conversation-selection-add-to-collection"
+          >
+            <BookmarkPlus aria-hidden="true" />
+            {t('contextMenu.addToCollection', { defaultValue: '添加到群收藏' })}
+          </button>
+          <button
+            type="button"
+            onClick={handleCopy}
+            data-testid="conversation-selection-copy"
+          >
+            <FileText aria-hidden="true" />
+            {t('contextMenu.copyText', { defaultValue: '复制文本' })}
+          </button>
+        </>
+      ) : (
+        <>
+          <button
+            type="button"
+            onClick={handleCopy}
+            data-testid="conversation-selection-copy"
+          >
+            <FileText aria-hidden="true" />
+            {t('contextMenu.copyText', { defaultValue: '复制文本' })}
+          </button>
+          <button
+            type="button"
+            onClick={handleQuote}
+            data-testid="conversation-selection-quote"
+          >
+            <Quote aria-hidden="true" />
+            {t('contextMenu.quote', { defaultValue: '引用' })}
+          </button>
+        </>
+      )}
     </div>,
     portalContainer ?? document.body
   );

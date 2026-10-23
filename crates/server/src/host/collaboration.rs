@@ -119,6 +119,25 @@ impl CollaborationHost for HostCollaborationHost {
                 "space.updateScheduledMessage" | "space.update_scheduled_message",
             ) => self.update_scheduled_message(&input).await,
             ("collaboration", "space.post") => self.post(&input).await,
+            (
+                "collaboration",
+                "space.listCollection" | "space.list_collection",
+            ) => self.list_collection(&input).await,
+            (
+                "collaboration",
+                "space.addCollectionItem" | "space.add_collection_item",
+            ) => self.add_collection_item(&input).await,
+            (
+                "collaboration",
+                "space.readCollectionItem" | "space.read_collection_item",
+            ) => self.read_collection_item(&input).await,
+            (
+                "collaboration",
+                "space.updateCollectionItem"
+                | "space.update_collection_item"
+                | "space.updateCollectionItemNote"
+                | "space.update_collection_item_note",
+            ) => self.update_collection_item(&input).await,
             ("collaboration", "space.listConversations" | "space.list_conversations") => {
                 self.list_conversations(&input).await
             }
@@ -639,6 +658,122 @@ impl HostCollaborationHost {
             },
         );
         serde_json::to_value(posted).map_err(|error| {
+            CollaborationHostError::new("conversation_control_failed", error.to_string())
+        })
+    }
+
+    async fn list_collection(&self, input: &Value) -> Result<Value, CollaborationHostError> {
+        let space_id = required_text(input, &["spaceId", "space_id"])?;
+        let limit = input.get("limit").and_then(Value::as_i64);
+        let delivery = self.delivery.lock().expect("delivery").clone();
+        let items = collaboration::list_space_collection_with(
+            &self.pool,
+            &space_id,
+            None,
+            limit,
+            MessageAudience::User,
+            &delivery,
+        )
+        .await
+        .map_err(host_error)?;
+        Ok(json!({ "items": items }))
+    }
+
+    async fn add_collection_item(&self, input: &Value) -> Result<Value, CollaborationHostError> {
+        let space_id = required_text(input, &["spaceId", "space_id"])?;
+        let operation_id = optional_text(input, &["operationId", "operation_id"])
+            .and_then(|v| Uuid::parse_str(&v).ok())
+            .unwrap_or_else(Uuid::new_v4);
+        let delivery = self.delivery.lock().expect("delivery").clone();
+        let item = collaboration::add_to_space_collection_with(
+            &self.pool,
+            collaboration::AddSpaceCollectionItem {
+                caller_id: None,
+                space_id: space_id.clone(),
+                content: optional_text(input, &["content"]),
+                source_path: optional_text(input, &["sourcePath", "source_path"]),
+                base64_data: optional_text(input, &["base64Data", "base64_data"]),
+                file_name: optional_text(input, &["fileName", "file_name", "name"]),
+                note: optional_text(input, &["note"]),
+                operation_id,
+            },
+            &delivery,
+        )
+        .await
+        .map_err(host_error)?;
+        if let Ok(workspace_id) = collaboration::space_workspace_id(&self.pool, &space_id).await {
+            self.events.emit(
+                COLLABORATION_SPACE_CHANGED_EVENT,
+                CollaborationSpaceChangedEvent {
+                    workspace_id,
+                    space_id,
+                    seq: None,
+                    member_id: None,
+                },
+            );
+        }
+        serde_json::to_value(item).map_err(|error| {
+            CollaborationHostError::new("conversation_control_failed", error.to_string())
+        })
+    }
+
+    async fn read_collection_item(&self, input: &Value) -> Result<Value, CollaborationHostError> {
+        let space_id = required_text(input, &["spaceId", "space_id"])?;
+        let item_id = required_text(input, &["itemId", "item_id", "id"])?;
+        let delivery = self.delivery.lock().expect("delivery").clone();
+        let item = collaboration::read_space_collection_item_with(
+            &self.pool,
+            &space_id,
+            &item_id,
+            None,
+            MessageAudience::User,
+            &delivery,
+        )
+        .await
+        .map_err(host_error)?;
+        if let Ok(workspace_id) = collaboration::space_workspace_id(&self.pool, &space_id).await {
+            self.events.emit(
+                COLLABORATION_SPACE_CHANGED_EVENT,
+                CollaborationSpaceChangedEvent {
+                    workspace_id,
+                    space_id,
+                    seq: None,
+                    member_id: None,
+                },
+            );
+        }
+        serde_json::to_value(item).map_err(|error| {
+            CollaborationHostError::new("conversation_control_failed", error.to_string())
+        })
+    }
+
+    async fn update_collection_item(&self, input: &Value) -> Result<Value, CollaborationHostError> {
+        let space_id = required_text(input, &["spaceId", "space_id"])?;
+        let item_id = required_text(input, &["itemId", "item_id", "id"])?;
+        let note = text(input, &["note"]);
+        let delivery = self.delivery.lock().expect("delivery").clone();
+        let item = collaboration::update_space_collection_item_note_with(
+            &self.pool,
+            &space_id,
+            &item_id,
+            &note,
+            MessageAudience::User,
+            &delivery,
+        )
+        .await
+        .map_err(host_error)?;
+        if let Ok(workspace_id) = collaboration::space_workspace_id(&self.pool, &space_id).await {
+            self.events.emit(
+                COLLABORATION_SPACE_CHANGED_EVENT,
+                CollaborationSpaceChangedEvent {
+                    workspace_id,
+                    space_id,
+                    seq: None,
+                    member_id: None,
+                },
+            );
+        }
+        serde_json::to_value(item).map_err(|error| {
             CollaborationHostError::new("conversation_control_failed", error.to_string())
         })
     }

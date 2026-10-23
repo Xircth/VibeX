@@ -595,11 +595,14 @@ export function RightPanelContent() {
   // from a useLayoutEffect keyed on these props — fresh object literals per
   // render would re-run that effect every render and, combined with the
   // placement provider's version bump, loop into "Maximum update depth".
+  const shouldAutoMarkSessionViewed =
+    effectiveActiveTab === 'workspace' || effectiveActiveTab === 'kanban';
   const workspaceConversationViewProps = useMemo(
     () => ({
       workspaceId: workspaceExecutionWorkspaceId!,
       sessionId: workspaceExecutionSessionId,
       interactive: true,
+      markViewed: shouldAutoMarkSessionViewed,
       showSessionSelector: true,
       onSessionCreated: handleCreatedSession,
       onSessionSelected: handleSelectedSession,
@@ -611,6 +614,7 @@ export function RightPanelContent() {
     [
       workspaceExecutionWorkspaceId,
       workspaceExecutionSessionId,
+      shouldAutoMarkSessionViewed,
       handleCreatedSession,
       handleSelectedSession,
       openCreateSessionOverlay,
@@ -623,6 +627,7 @@ export function RightPanelContent() {
             workspaceId: rightSessionWorkspaceId,
             sessionId: rightSessionId,
             interactive: true,
+            markViewed: shouldAutoMarkSessionViewed,
             showSessionSelector: true,
             onSessionCreated: handleCreatedSession,
             onSessionSelected: handleSelectedSession,
@@ -636,6 +641,7 @@ export function RightPanelContent() {
       openCreateSessionOverlay,
       rightSessionId,
       rightSessionWorkspaceId,
+      shouldAutoMarkSessionViewed,
     ]
   );
 

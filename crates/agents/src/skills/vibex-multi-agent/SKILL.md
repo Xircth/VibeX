@@ -16,6 +16,7 @@ description: 在同一工作区开展协作空间群组协同、跨成员分工�
 | 在协作空间向 `@User` 应答/汇报，或向 `@成员昵称` 分工/交接 | `post_to_space` | 见 [`COLLABORATION-SPACE.md`](COLLABORATION-SPACE.md) |
 | 创建协作空间、拉入成员、修改自己在空间内的昵称 | `create_collaboration_space`、`add_space_member`、`set_space_identity` | 见 [`COLLABORATION-SPACE.md`](COLLABORATION-SPACE.md) |
 | 按需回看协作空间历史消息（单次读取，非阻塞轮询） | `list_space_messages` | 见 [`COLLABORATION-SPACE.md`](COLLABORATION-SPACE.md) |
+| 在协作空间「群收藏」（共享临界区）中查看、写入或读取跨成员共享的文本、图片、文件产物 | `list_space_collection`、`add_to_space_collection`、`read_space_collection_item` | 见 [`COLLABORATION-SPACE.md`](COLLABORATION-SPACE.md) |
 | 创建持久化一等会话，或基于自定义角色创建会话 | `list_roles`、`create_conversation` | 见 [`SESSION-AND-DELEGATION.md`](SESSION-AND-DELEGATION.md) |
 | 查看工作区近期会话列表或读取指定会话详情 | `list_conversations`、`get_session_info` | 见 [`SESSION-AND-DELEGATION.md`](SESSION-AND-DELEGATION.md) |
 | 向已有会话点对点发送指令、插话（steer）或延时投递 | `send_session_input`、`wait_for_session`、`cancel_session_turn` | 见 [`SESSION-AND-DELEGATION.md`](SESSION-AND-DELEGATION.md) |
@@ -44,9 +45,10 @@ description: 在同一工作区开展协作空间群组协同、跨成员分工�
    - **发给用户（`@User`）的消息**：使用面向人类用户的自然业务与技术语言。**严禁在发给用户的正文中包含用户不可达的系统内部标识或协议字段**，包括 `space_id`、`conversation_id`、`member_id`、`operation_id`、`message_id`、`task_id`、`delayed_input_id`、`turn_id`、`expected_turn_id`、`seq`、`vibex://...` 等。介绍自己或同空间成员时，只说昵称、职责与可提供的帮助。
    - **发给其他成员（`@成员昵称`）的消息**：优先用成员昵称、文件路径与模块接口沟通；**仅当对方确实需要调用 `get_session_info`、`send_session_input` 等底层跨会话工具时**，才在发给该成员的消息中按需附带 `conversation_id`、`delayed_input_id` 等参数。
 
-4. **群组式分工协同：主责清晰、上下游交接明确（Group Ownership）**
+4. **群组式分工协同与群收藏临界区（Group Ownership & Space Collection）**
    - **精准点名**：协作任务必须明确 `to: ["成员昵称"]` 并在正文开头写 `@成员昵称 `，避免全员广播导致无人认领或多人重复劳动。
    - **牵头与交接**：多成员协作同一需求时，由被用户点名的牵头成员拆解任务并分派，上下游交接时一条消息交代清楚「已完成结论/改动路径 + 需对方接手的具体事项 + 完成后向谁反馈」。
+   - **群收藏（临界区）共享规范**：群收藏用于沉淀跨工作区/跨成员共享的文本片段、设计规范、截图或文件（实际持久化在项目外部的 `~/.vibex/{projectId}/TeamSpaces/{spaceId}/Collection/{name}`，数据库中仅保存地址索引 `file_path` 与元数据）。成员写入时调用 `add_to_space_collection`（传 `content` 文本或 `source_path` 本地文件路径及 `note` 备注，**严禁直接传入二进制数据**）；成员访问时先调用 `list_space_collection` 或 `read_space_collection_item` 获取 `file_path` 地址并登记读取记录，再用文件读取工具访问该 `file_path`。
 
 ## 4. 常见异常处理
 

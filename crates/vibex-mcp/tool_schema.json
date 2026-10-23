@@ -415,5 +415,45 @@
         "limit": { "type": "integer", "minimum": 1, "maximum": 200 }
       }
     }
+  },
+  {
+    "name": "list_space_collection",
+    "description": "List items in the collaboration space's shared Collection (critical section / 群收藏). Returns each item's metadata (item_id, creator_nickname, item_kind, file_name, mime_type, byte_size, note, created_at, read_receipts) and its disk address (file_path) outside the project workspace (~/.vibex/{projectId}/TeamSpaces/{spaceId}/Collection/{name}). Never returns raw binary payloads. Calling this tool also records a read receipt for your member identity.",
+    "inputSchema": {
+      "type": "object",
+      "required": ["space_id"],
+      "properties": {
+        "space_id": { "type": "string", "description": "Target collaboration space ID." },
+        "limit": { "type": "integer", "minimum": 1, "maximum": 200 }
+      }
+    }
+  },
+  {
+    "name": "add_to_space_collection",
+    "description": "Add a new independent record (text, image, or file) to the collaboration space's shared Collection (群收藏). The space collection stores only address indices and metadata in the database while writing or copying the actual content to ~/.vibex/{projectId}/TeamSpaces/{spaceId}/Collection/{name} outside any project worktree so all space members across different workspaces can access it. Agents MUST NOT pass raw binary blobs: pass either `content` (text/markdown string) OR `source_path` (path to an existing image or file up to 200MB on disk), plus an optional `note` (remark) and `file_name`.",
+    "inputSchema": {
+      "type": "object",
+      "required": ["space_id"],
+      "properties": {
+        "operation_id": { "type": "string", "format": "uuid", "description": "Optional UUID for idempotent retry." },
+        "space_id": { "type": "string", "description": "Target collaboration space ID." },
+        "content": { "type": "string", "description": "Text or Markdown content to save as a text record in the collection. Mutually exclusive with source_path." },
+        "source_path": { "type": "string", "description": "Local file or image path (absolute or workspace-relative, max 200MB) to copy into the shared collection directory. Mutually exclusive with content." },
+        "file_name": { "type": "string", "description": "Optional display/storage file name in the collection directory." },
+        "note": { "type": "string", "description": "Optional remark/note describing the purpose or context of this collection item." }
+      }
+    }
+  },
+  {
+    "name": "read_space_collection_item",
+    "description": "Register a read receipt on a specific item in the collaboration space Collection (群收藏) and return its metadata and `file_path` address on disk. After calling this tool, read the file at the returned `file_path` using your file-reading tools.",
+    "inputSchema": {
+      "type": "object",
+      "required": ["space_id", "item_id"],
+      "properties": {
+        "space_id": { "type": "string", "description": "Target collaboration space ID." },
+        "item_id": { "type": "string", "description": "ID of the collection item to read." }
+      }
+    }
   }
 ]

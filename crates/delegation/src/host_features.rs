@@ -754,6 +754,108 @@ async fn collaboration_tool(
         "list_space_members" => {
             collaboration::list_space_members_detailed(pool, caller_id, &text("space_id")).await
         }
+        "list_space_collection" => {
+            let space_id = text("space_id");
+            let items = collaboration::list_space_collection_with(
+                pool,
+                &space_id,
+                Some(caller_id),
+                arguments.get("limit").and_then(Value::as_i64),
+                collaboration::MessageAudience::Agent,
+                delivery,
+            )
+            .await?;
+            if let Some(listener) = on_space_changed.as_ref()
+                && !items.is_empty()
+                && let Ok(workspace_id) = collaboration::space_workspace_id(pool, &space_id).await
+            {
+                listener(collaboration::CollaborationSpaceChangedEvent {
+                    workspace_id,
+                    space_id,
+                    seq: None,
+                    member_id: None,
+                });
+            }
+            Ok(json!({ "items": items }))
+        }
+        "add_to_space_collection" => {
+            let operation_id = uuid_arg("operation_id").unwrap_or_else(Uuid::new_v4);
+            let space_id = text("space_id");
+            let item = collaboration::add_to_space_collection_with(
+                pool,
+                collaboration::AddSpaceCollectionItem {
+                    caller_id: Some(caller_id),
+                    space_id: space_id.clone(),
+                    content: arguments
+                        .get("content")
+                        .and_then(Value::as_str)
+                        .map(str::to_string),
+                    source_path: arguments
+                        .get("source_path")
+                        .or_else(|| arguments.get("sourcePath"))
+                        .and_then(Value::as_str)
+                        .map(str::to_string),
+                    base64_data: arguments
+                        .get("base64_data")
+                        .or_else(|| arguments.get("base64Data"))
+                        .and_then(Value::as_str)
+                        .map(str::to_string),
+                    file_name: arguments
+                        .get("file_name")
+                        .or_else(|| arguments.get("fileName"))
+                        .and_then(Value::as_str)
+                        .map(str::to_string),
+                    note: arguments
+                        .get("note")
+                        .and_then(Value::as_str)
+                        .map(str::to_string),
+                    operation_id,
+                },
+                delivery,
+            )
+            .await?;
+            if let Some(listener) = on_space_changed.as_ref()
+                && let Ok(workspace_id) = collaboration::space_workspace_id(pool, &space_id).await
+            {
+                listener(collaboration::CollaborationSpaceChangedEvent {
+                    workspace_id,
+                    space_id,
+                    seq: None,
+                    member_id: None,
+                });
+            }
+            Ok(serde_json::to_value(item).unwrap_or(json!({})))
+        }
+        "read_space_collection_item" => {
+            let space_id = text("space_id");
+            let item_id = arguments
+                .get("item_id")
+                .or_else(|| arguments.get("itemId"))
+                .or_else(|| arguments.get("id"))
+                .and_then(Value::as_str)
+                .unwrap_or_default()
+                .to_string();
+            let item = collaboration::read_space_collection_item_with(
+                pool,
+                &space_id,
+                &item_id,
+                Some(caller_id),
+                collaboration::MessageAudience::Agent,
+                delivery,
+            )
+            .await?;
+            if let Some(listener) = on_space_changed.as_ref()
+                && let Ok(workspace_id) = collaboration::space_workspace_id(pool, &space_id).await
+            {
+                listener(collaboration::CollaborationSpaceChangedEvent {
+                    workspace_id,
+                    space_id,
+                    seq: None,
+                    member_id: None,
+                });
+            }
+            Ok(serde_json::to_value(item).unwrap_or(json!({})))
+        }
         _ => Err(collaboration::CollaborationError::new(
             "not_found",
             "unknown collaboration tool",

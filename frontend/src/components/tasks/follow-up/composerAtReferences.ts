@@ -31,6 +31,7 @@ export type AtReferenceItem = {
   label: string;
   detail?: string;
   insertText: string;
+  onActivate?: () => void | Promise<void>;
 };
 
 export type AtReferenceGroup = {
@@ -44,6 +45,7 @@ export type AtReferenceAction = {
   title: string;
   detail?: string;
   insertText: string;
+  onActivate?: () => void | Promise<void>;
 };
 
 export type AtReferenceHost = {
@@ -314,6 +316,7 @@ export function buildAtReferenceGroups(
       label: action.title,
       detail: action.detail,
       insertText: action.insertText,
+      onActivate: action.onActivate,
     }));
 
   const hosts = (sources.hosts ?? [])

@@ -1,0 +1,15 @@
+{
+  "schemaVersion": 1,
+  "items": [
+    {
+      "path": "contents/skills/vibex-browser/SKILL.md",
+      "kind": "skill",
+      "title": "VibeX Browser"
+    },
+    {
+      "path": "contents/mcps/browser.json",
+      "kind": "mcp",
+      "title": "Browser"
+    }
+  ]
+}

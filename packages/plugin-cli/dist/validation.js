@@ -10,7 +10,17 @@ const TOP_LEVEL = new Set([
     "publisher",
     "version",
     "name",
+    "description",
     "readme",
+    "settingsSchema",
+    "themes",
+    "main",
+    "styles",
+    "slashCommands",
+    "commands",
+    "toolbarItems",
+    "statusItems",
+    "composerActions",
     "engines",
     "content",
     "config",
@@ -66,19 +76,21 @@ export async function validatePlugin(root) {
         }
     }
     exact(manifest, "manifestVersion", 4, diagnostics);
-    exact(manifest, "apiVersion", "1.0", diagnostics);
+    if (manifest.apiVersion !== "1.0" && manifest.apiVersion !== "2.0") {
+        diagnostics.push(error("apiVersion_invalid", "apiVersion is invalid"));
+    }
     pattern(manifest, "id", /^[a-z0-9][a-z0-9._-]{1,62}$/, diagnostics);
     pattern(manifest, "publisher", /^[a-z0-9][a-z0-9._-]{0,62}$/, diagnostics);
     pattern(manifest, "version", /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:[-+][0-9A-Za-z.-]+)?$/, diagnostics);
     string(manifest, "name", diagnostics);
     exact(manifest, "readme", "README.md", diagnostics);
     await validateReadme(pluginRoot, diagnostics);
-    await validateConfig(pluginRoot, manifest.config, diagnostics);
+    await validateConfig(pluginRoot, manifest.config, manifest.apiVersion, diagnostics);
     await validateContent(pluginRoot, manifest.content, diagnostics);
-    await validateDependencies(pluginRoot, manifest.dependencies, diagnostics);
+    await validateDependencies(pluginRoot, manifest.dependencies, manifest.apiVersion, diagnostics);
     await validateEntrypoints(pluginRoot, manifest.entrypoints, diagnostics);
     validatePermissions(manifest.permissions, diagnostics);
-    await validateIntegrations(pluginRoot, manifest.integrations, diagnostics);
+    await validateIntegrations(pluginRoot, manifest.integrations, manifest.apiVersion, diagnostics);
     if (!isObject(manifest.engines)) {
         diagnostics.push(error("engines_invalid", "engines is required"));
     }
@@ -111,8 +123,10 @@ async function validateReadme(root, diagnostics) {
         diagnostics.push(error("readme_unreadable", message(cause), path));
     }
 }
-async function validateConfig(root, declaration, diagnostics) {
+async function validateConfig(root, declaration, apiVersion, diagnostics) {
     const path = join(root, "config.json");
+    if (apiVersion === "2.0" && declaration === undefined)
+        return;
     if (!isObject(declaration) || !isObject(declaration.schema)) {
         diagnostics.push(error("config_schema_invalid", "config.schema is required"));
     }
@@ -218,7 +232,7 @@ async function validateContent(root, declaration, diagnostics) {
         diagnostics.push(error("content_index_invalid", message(cause), path));
     }
 }
-async function validateDependencies(root, value, diagnostics) {
+async function validateDependencies(root, value, apiVersion, diagnostics) {
     if (value === undefined)
         return;
     if (!Array.isArray(value)) {
@@ -227,6 +241,8 @@ async function validateDependencies(root, value, diagnostics) {
     }
     for (const dependency of value) {
         if (isObject(dependency) && String(dependency.kind) === "plugin") {
+            if (apiVersion === "2.0" && typeof dependency.id === "string" && dependency.id.trim())
+                continue;
             diagnostics.push(error("dependency_kind_unsupported", "dependencies.kind=plugin is not supported; only runtime dependencies are allowed"));
             continue;
         }
@@ -269,7 +285,14 @@ async function validateEntrypoints(root, value, diagnostics) {
         }
     }
     if (isObject(value.app)) {
-        if (value.app.protocol !== "1.0" ||
+        if (value.app.protocol === "2.0") {
+            const hasEntry = typeof value.app.entry === "string" && (await safeFile(root, value.app.entry));
+            const hasStyles = typeof value.app.styles === "string" && (await safeFile(root, value.app.styles));
+            if (!hasEntry && !hasStyles) {
+                diagnostics.push(error("app_entrypoint_invalid", "App entrypoint is invalid"));
+            }
+        }
+        else if (value.app.protocol !== "1.0" ||
             typeof value.app.root !== "string" ||
             typeof value.app.document !== "string" ||
             !(await safeFile(root, join(value.app.root, value.app.document)))) {
@@ -291,7 +314,7 @@ function validatePermissions(value, diagnostics) {
         }
     }
 }
-async function validateIntegrations(root, value, diagnostics) {
+async function validateIntegrations(root, value, apiVersion, diagnostics) {
     if (!Array.isArray(value) || value.length === 0) {
         diagnostics.push(error("integration_required", "At least one integration is required"));
         return;
@@ -390,14 +413,14 @@ async function validateIntegrations(root, value, diagnostics) {
                 diagnostics.push(error("app_surface_invalid", "App surface declaration is invalid"));
             }
         }
-        validateHostChrome(integration, diagnostics);
+        validateHostChrome(integration, diagnostics, apiVersion);
     }
 }
 /**
  * The Host drops a chrome contribution it cannot render rather than failing the
  * whole plugin, so these checks are what turns a typo into a build error.
  */
-function validateHostChrome(integration, diagnostics) {
+function validateHostChrome(integration, diagnostics, apiVersion) {
     const kind = String(integration.kind);
     const icon = integration.icon;
     if (icon !== undefined &&
@@ -445,8 +468,15 @@ function validateHostChrome(integration, diagnostics) {
     };
     switch (kind) {
         case "app.command":
-            requireText("title");
-            requireText("handler");
+            if (apiVersion === "2.0") {
+                if (typeof integration.title !== "string" && typeof integration.label !== "string") {
+                    requireText("title");
+                }
+            }
+            else {
+                requireText("title");
+                requireText("handler");
+            }
             break;
         case "app.toolbar":
             requireSlot("toolbar.main");

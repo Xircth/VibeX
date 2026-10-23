@@ -247,6 +247,7 @@ impl ConversationAgentEventRecorder {
                 created_at: record.created_at,
             };
             let terminal = is_terminal_conversation_event(&durable.event);
+            crate::service::emit_runtime_event(&durable, &mapped.event_kind);
             batch.events.push(durable);
 
             if terminal
@@ -258,6 +259,7 @@ impl ConversationAgentEventRecorder {
                 )
                 .await?
             {
+                crate::service::emit_runtime_event(&file_event, "file_change");
                 batch.events.push(file_event);
             }
 
@@ -265,6 +267,35 @@ impl ConversationAgentEventRecorder {
             // The desktop publisher reads the durable tail, so one publication includes both.
             if let Some(publisher) = &self.event_publisher {
                 publisher.publish(&record).await;
+            }
+
+            if terminal && let Some(turn_id) = mapped.turn_id {
+                let (status, stop_reason, error_message) = match &mapped.event {
+                    ConversationEvent::TurnCompleted { stop_reason, .. } => {
+                        ("completed".to_string(), stop_reason.clone(), None)
+                    }
+                    ConversationEvent::TurnFailed { error } => {
+                        ("failed".to_string(), None, Some(error.message.clone()))
+                    }
+                    ConversationEvent::TurnCancelled { reason } => {
+                        ("cancelled".to_string(), reason.clone(), None)
+                    }
+                    ConversationEvent::TurnInterrupted { reason } => {
+                        ("interrupted".to_string(), reason.clone(), None)
+                    }
+                    _ => ("completed".to_string(), None, None),
+                };
+                let after_event = crate::service::AfterTurnEvent {
+                    conversation_id: mapped.conversation_id,
+                    turn_id,
+                    status,
+                    stop_reason,
+                    error_message,
+                };
+                if let Some(context) = &self.conversation_context {
+                    context.host.after_turn(&after_event).await;
+                }
+                crate::service::emit_after_turn_event(after_event);
             }
 
             // A terminal Turn makes the conversation idle. Pump the next durable

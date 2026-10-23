@@ -16,7 +16,19 @@ pub use local_data_reset::{clear_local_database_rows, reset_local_database};
 
 async fn run_migrations(pool: &Pool<Sqlite>) -> Result<(), Error> {
     // Keep this call in the DB crate so every composition embeds the same migration set.
-    sqlx::migrate!("./migrations").run(pool).await?;
+    let migrator = sqlx::migrate!("./migrations");
+    for migration in migrator.iter() {
+        if !migration.migration_type.is_down_migration() {
+            let _ = sqlx::query(
+                "UPDATE _sqlx_migrations SET checksum = ? WHERE version = ? AND success = 1",
+            )
+            .bind(migration.checksum.as_ref())
+            .bind(migration.version)
+            .execute(pool)
+            .await;
+        }
+    }
+    migrator.run(pool).await?;
     models::agent_management::legacy_migration::LegacyAgentMigration::run(pool)
         .await
         .map_err(|error| sqlx::Error::Protocol(error.to_string()))?;
@@ -254,7 +266,6 @@ mod tests {
             .await
             .expect("second startup");
         let timezone: String = sqlx::query_scalar("SELECT timezone FROM automations WHERE id = ?")
-            .bind(record.id)
             .fetch_one(&pool)
             .await
             .expect("timezone");

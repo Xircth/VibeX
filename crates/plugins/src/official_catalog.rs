@@ -1,10 +1,13 @@
-//! Host-side official plugin catalog (`vibex-plugin.json`).
+//! Host-side official plugin catalog (`vibex-plugin.json`) and monorepo plugin discovery.
 //!
 //! This is the identity of which plugins VibeX treats as official and where
-//! their source repositories live. Plugin packages are not shipped inside the
-//! Host installer; they are installed from the marketplace or a `.vxp`.
+//! their source packages live (both in the monorepo `plugins/` workspace and
+//! on the marketplace).
 
-use std::sync::OnceLock;
+use std::{
+    path::{Path, PathBuf},
+    sync::OnceLock,
+};
 
 use serde::Deserialize;
 
@@ -14,6 +17,24 @@ use crate::catalog::{
 };
 
 const CATALOG_JSON: &str = include_str!("../../../vibex-plugin.json");
+
+/// Canonical `(directory_name, plugin_id)` pairs for all official and built-in
+/// capability plugins managed in the monorepo `plugins/<directory_name>` workspace.
+pub const MONOREPO_OFFICIAL_PLUGIN_DIRS: &[(&str, &str)] = &[
+    ("provider-switch", "vibex.provider-switch"),
+    ("plugin-development", "vibex.plugin-development"),
+    ("session-enhance", "vibex.session-enhance"),
+    ("browser", "vibex.browser"),
+    ("office", "vibex.office"),
+    ("workflow-creator", "vibex.workflow-creator"),
+    ("remote-ssh", "vibex.remote-ssh"),
+    ("open-connector", "vibex.open-connector"),
+    ("science", "vibex.science"),
+    ("computer-use", "vibex-plugin-computer-use"),
+    ("kanban-views", "vibex.kanban-views"),
+    ("notes", "vibex.notes"),
+    ("prompt-enhancer", "vibex.prompt-enhancer"),
+];
 
 #[derive(Clone, Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -112,9 +133,21 @@ pub fn github_archive_urls_for_repository(repository: &str) -> Vec<String> {
     if path.is_empty() || path.contains("..") {
         return Vec::new();
     }
+    if let Some((repo_slug, branch)) = path.split_once("/tree/") {
+        let repo_slug = repo_slug.trim_matches('/');
+        let branch = branch.trim_matches('/');
+        if !repo_slug.is_empty() && !branch.is_empty() {
+            return vec![
+                format!("https://codeload.github.com/{repo_slug}/tar.gz/refs/heads/{branch}"),
+                format!("https://codeload.github.com/{repo_slug}/tar.gz/{branch}"),
+            ];
+        }
+    }
     vec![
         format!("https://codeload.github.com/{path}/tar.gz/refs/heads/main"),
         format!("https://codeload.github.com/{path}/tar.gz/main"),
+        format!("https://codeload.github.com/{path}/tar.gz/refs/heads/master"),
+        format!("https://codeload.github.com/{path}/tar.gz/master"),
     ]
 }
 
@@ -161,6 +194,7 @@ fn listing_from_official_record(plugin: &OfficialPluginRecord) -> CatalogListing
         readme: None,
         show_tree: None,
         icon: None,
+        stars: None,
     }
 }
 
@@ -168,6 +202,66 @@ pub fn merge_host_official_catalog(page: &mut CatalogPage) {
     let extra = listings_from_host_official_catalog();
     page.official = fold_official_listings(std::mem::take(&mut page.official), extra);
     prepare_marketplace_page(page);
+}
+
+/// Resolves the monorepo `plugins/` directory when running from a source checkout
+/// or bundled workspace.
+pub fn monorepo_plugins_root() -> Option<PathBuf> {
+    let manifest_root = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .and_then(Path::parent)
+        .map(|root| root.join("plugins"));
+    if let Some(root) = manifest_root
+        && root.is_dir()
+    {
+        return Some(root);
+    }
+    if let Ok(cwd) = std::env::current_dir() {
+        let candidate = cwd.join("plugins");
+        if candidate.is_dir() {
+            return Some(candidate);
+        }
+    }
+    None
+}
+
+/// Discovers all valid official and built-in capability plugin package directories
+/// in the monorepo `plugins/` workspace without any network access.
+pub fn discover_monorepo_plugin_roots() -> Vec<PathBuf> {
+    let Some(plugins_root) = monorepo_plugins_root() else {
+        return Vec::new();
+    };
+    let mut roots = Vec::with_capacity(MONOREPO_OFFICIAL_PLUGIN_DIRS.len());
+    for (dir_name, _) in MONOREPO_OFFICIAL_PLUGIN_DIRS {
+        let dir = plugins_root.join(dir_name);
+        if dir.join(".vibex-plugin/plugin.json").is_file() || dir.join("plugin.json").is_file() {
+            roots.push(dir);
+        }
+    }
+    roots
+}
+
+/// Resolves the local monorepo V2 source package directory for a given official plugin id or slug.
+pub fn monorepo_official_plugin_root(plugin_id: &str) -> Option<PathBuf> {
+    let plugins_root = monorepo_plugins_root()?;
+    let trimmed = plugin_id.trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+    for (dir_name, canonical_id) in MONOREPO_OFFICIAL_PLUGIN_DIRS {
+        if plugin_ids_match(trimmed, canonical_id)
+            || plugin_ids_match(canonical_id, trimmed)
+            || dir_name.eq_ignore_ascii_case(trimmed)
+            || marketplace_plugin_slug("vibex", canonical_id).eq_ignore_ascii_case(trimmed)
+        {
+            let dir = plugins_root.join(dir_name);
+            if dir.join(".vibex-plugin/plugin.json").is_file() || dir.join("plugin.json").is_file()
+            {
+                return Some(dir);
+            }
+        }
+    }
+    None
 }
 
 #[cfg(test)]
@@ -194,7 +288,7 @@ mod tests {
         assert!(official_plugin_record("browser").is_some());
         assert_eq!(
             official_plugin_category("vibex.session-enhance"),
-            Some("productivity")
+            Some("ai-enhancement")
         );
         assert!(official_plugin_category("vibex.multi-agent").is_none());
     }
@@ -202,11 +296,17 @@ mod tests {
     #[test]
     fn repository_becomes_codeload_tarball_urls() {
         let urls = github_archive_urls_for_repository(
-            "https://github.com/Xircth/vibex-plugin-multi-agent.git",
+            "https://github.com/Xircth/vibex-plugin-session-enhance.git",
         );
         assert!(
             urls.iter()
-                .any(|url| url.contains("Xircth/vibex-plugin-multi-agent"))
+                .any(|url| url.contains("Xircth/vibex-plugin-session-enhance"))
         );
+    }
+
+    #[test]
+    fn discovers_all_monorepo_official_plugin_roots_offline() {
+        let roots = discover_monorepo_plugin_roots();
+        assert_eq!(roots.len(), MONOREPO_OFFICIAL_PLUGIN_DIRS.len());
     }
 }

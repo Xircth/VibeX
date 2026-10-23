@@ -60,12 +60,12 @@ fn write_official_package(root: &std::path::Path) {
     std::fs::write(
         root.join(".vibex-plugin/plugin.json"),
         r#"{
-          "manifestVersion":4,"apiVersion":"1.0",
-          "id":"vibex.remote-ssh","publisher":"vibex","name":"Remote SSH","version":"1.0.2",
+          "manifestVersion":4,"apiVersion":"2.0",
+          "id":"vibex.remote-ssh","publisher":"vibex","name":"Remote SSH","version":"2.0.0",
           "readme":"README.md",
           "content":{"root":"contents","index":".vibex-plugin/content.index.json"},
           "config":{"schema":{"type":"object","properties":{},"additionalProperties":false}},
-          "engines":{"vibex":">=0.1.3","pluginSdk":"^1.0.0"},
+          "engines":{"vibex":">=0.1.3","pluginSdk":"^2.0.0"},
           "integrations":[{"id":"remote","kind":"content.skill","resource":"contents/skills/remote"}]
         }"#,
     )

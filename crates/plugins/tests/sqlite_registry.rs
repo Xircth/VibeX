@@ -776,3 +776,63 @@ async fn catalog_and_activation_survive_control_plane_restart() {
             .unwrap();
     assert_eq!(contributions, 1);
 }
+
+#[tokio::test]
+async fn quarantine_state_persists_across_restart_and_clears_on_reenable() {
+    let pool = pool().await;
+    let root = tempfile::tempdir().unwrap();
+    let plane = PluginControlPlane::new(Arc::new(SqlitePluginRegistry::new(pool.clone())));
+    plane
+        .import(
+            PluginPackage::for_test(
+                "dev.vibex.crashy",
+                "Crashy",
+                "1.0.0",
+                PluginSourceKind::Snapshot,
+                root.path(),
+            ),
+            ConflictDecision::Reject,
+        )
+        .await
+        .expect("import plugin");
+    plane
+        .set_enabled("dev.vibex.crashy", true)
+        .await
+        .expect("enable plugin");
+
+    assert_eq!(
+        plane.quarantine_reason("dev.vibex.crashy").await.unwrap(),
+        None
+    );
+
+    plane
+        .quarantine_plugin("dev.vibex.crashy", "Crashed 3 times in 60s")
+        .await
+        .expect("quarantine plugin");
+
+    drop(plane);
+
+    let restarted = PluginControlPlane::new(Arc::new(SqlitePluginRegistry::new(pool.clone())));
+    let plugin = restarted.plugin("dev.vibex.crashy").await.unwrap().unwrap();
+    assert_eq!(plugin.activation, plugins::PluginActivation::Disabled);
+    assert_eq!(
+        restarted
+            .quarantine_reason("dev.vibex.crashy")
+            .await
+            .unwrap()
+            .as_deref(),
+        Some("Crashed 3 times in 60s")
+    );
+
+    restarted
+        .set_enabled("dev.vibex.crashy", true)
+        .await
+        .expect("re-enable plugin");
+    assert_eq!(
+        restarted
+            .quarantine_reason("dev.vibex.crashy")
+            .await
+            .unwrap(),
+        None
+    );
+}

@@ -315,11 +315,11 @@ fn marketplace_install_copies_a_temp_package_into_durable_storage() {
     write(
         &source.path().join(".vibex-plugin/plugin.json"),
         r#"{
-          "manifestVersion":4,"apiVersion":"1.0",
-          "id":"drawio","publisher":"vibex","name":"Drawio","version":"1.0.0",
+          "manifestVersion":4,"apiVersion":"2.0",
+          "id":"drawio","publisher":"vibex","name":"Drawio","version":"2.0.0",
           "readme":"README.md","content":{"root":"contents","index":".vibex-plugin/content.index.json"},
           "config":{"schema":{"type":"object","additionalProperties":false}},
-          "engines":{"vibex":">=0.1.3 <1.0.0","pluginSdk":"^1.0.0"},
+          "engines":{"vibex":">=0.1.3 <1.0.0","pluginSdk":"^2.0.0"},
           "integrations":[{"id":"drawio","kind":"content.skill","resource":"contents/skills/drawio"}]
         }"#,
     );
@@ -348,6 +348,41 @@ fn marketplace_install_copies_a_temp_package_into_durable_storage() {
     installed
         .product_detail()
         .expect("detail still loads after the download temp dir is gone");
+}
+
+#[test]
+fn marketplace_source_rejects_legacy_v1_api_version() {
+    let source = tempfile::tempdir().expect("download source");
+    write(
+        &source.path().join(".vibex-plugin/plugin.json"),
+        r#"{
+          "manifestVersion":4,"apiVersion":"1.0",
+          "id":"legacy.drawio","publisher":"vibex","name":"Legacy Drawio","version":"1.0.0",
+          "readme":"README.md","content":{"root":"contents","index":".vibex-plugin/content.index.json"},
+          "config":{"schema":{"type":"object","additionalProperties":false}},
+          "engines":{"vibex":">=0.1.3 <1.0.0","pluginSdk":"^1.0.0"},
+          "integrations":[{"id":"drawio","kind":"content.skill","resource":"contents/skills/drawio"}]
+        }"#,
+    );
+    write(
+        &source.path().join("README.md"),
+        "---\nsummary: Legacy v1 plugin.\n---\n# Legacy Drawio\n",
+    );
+    write(&source.path().join("config.json"), "{}");
+    write(
+        &source.path().join(".vibex-plugin/content.index.json"),
+        r#"{"schemaVersion":1,"items":[{"path":"contents/skills/drawio/SKILL.md","kind":"skill","title":"Drawio"}]}"#,
+    );
+    write(
+        &source.path().join("contents/skills/drawio/SKILL.md"),
+        "---\nname: drawio\ndescription: Drawio\n---\n",
+    );
+    let err = PluginPackage::inspect(source.path(), PluginSourceKind::Marketplace)
+        .expect_err("marketplace install must reject apiVersion 1.0");
+    assert!(
+        err.to_string().contains("unsupported plugin apiVersion `1.0`"),
+        "unexpected error: {err}"
+    );
 }
 
 #[test]
@@ -1090,4 +1125,447 @@ fn rejects_a_vxp_whose_entries_escape_the_staging_root() {
 
     assert!(error.to_string().contains("unsafe archive entry path"));
     assert!(!fixture.path().join("outside").exists());
+}
+
+#[test]
+fn v4_api_v2_accepts_plugin_dependencies_and_single_file_app_entry() {
+    let root = tempfile::tempdir().expect("package root");
+    write(
+        &root.path().join(".vibex-plugin/plugin.json"),
+        r#"{
+          "manifestVersion":4,"apiVersion":"2.0",
+          "id":"dev.vibex.consumer","publisher":"dev.vibex","name":"Consumer","version":"1.0.0",
+          "readme":"README.md",
+          "content":{"root":"contents","index":".vibex-plugin/content.index.json"},
+          "engines":{"vibex":">=0.1.3 <1.0.0","pluginSdk":"^2.0.0"},
+          "entrypoints":{"app":{"entry":"app/main.js","protocol":"2.0"}},
+          "dependencies":[{"kind":"plugin","id":"dev.vibex.provider","versionRange":"^1.0.0"}],
+          "integrations":[{"id":"status-chip","kind":"app.status","label":"Consumer Status"}]
+        }"#,
+    );
+    write(
+        &root.path().join("README.md"),
+        "---\nsummary: Consumer\n---\n# Consumer\n",
+    );
+    write(
+        &root.path().join(".vibex-plugin/content.index.json"),
+        r#"{"schemaVersion":1,"items":[]}"#,
+    );
+    write(
+        &root.path().join("app/main.js"),
+        "export default { apiVersion: '2.0', activate() {} };\n",
+    );
+
+    let package = PluginPackage::inspect(root.path(), PluginSourceKind::Snapshot)
+        .expect("inspect v4 apiVersion 2.0 plugin");
+    assert_eq!(package.api_version, "2.0");
+    assert_eq!(package.entrypoints.app.as_deref(), Some("app/main.js"));
+    let deps = package
+        .extensions
+        .get("_pluginDependencies")
+        .and_then(|v| v.as_array())
+        .expect("plugin dependencies preserved");
+    assert_eq!(deps.len(), 1);
+    assert_eq!(
+        deps[0].get("id").and_then(|v| v.as_str()),
+        Some("dev.vibex.provider")
+    );
+}
+
+#[test]
+fn monorepo_official_v2_plugins_in_plugins_dir_are_valid() {
+    let repo_root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .and_then(|p| p.parent())
+        .expect("workspace root");
+    for (dir_name, expected_id) in [
+        ("provider-switch", "vibex.provider-switch"),
+        ("plugin-development", "vibex.plugin-development"),
+        ("session-enhance", "vibex.session-enhance"),
+        ("browser", "vibex.browser"),
+        ("office", "vibex.office"),
+        ("workflow-creator", "vibex.workflow-creator"),
+        ("remote-ssh", "vibex.remote-ssh"),
+        ("open-connector", "vibex.open-connector"),
+        ("science", "vibex.science"),
+        ("computer-use", "vibex-plugin-computer-use"),
+        ("kanban-views", "vibex.kanban-views"),
+        ("notes", "vibex.notes"),
+        ("prompt-enhancer", "vibex.prompt-enhancer"),
+    ] {
+        let plugin_dir = repo_root.join("plugins").join(dir_name);
+        let package = PluginPackage::inspect(&plugin_dir, PluginSourceKind::Snapshot)
+            .unwrap_or_else(|err| panic!("failed to inspect {dir_name}: {err}"));
+        assert_eq!(package.id.as_str(), expected_id);
+        assert_eq!(package.api_version, "2.0");
+        assert!(
+            package.warnings.is_empty(),
+            "monorepo plugin {dir_name} emitted inspect warnings: {:?}",
+            package.warnings
+        );
+        assert!(
+            package.product_detail().is_ok(),
+            "product detail for {dir_name} must load offline"
+        );
+    }
+}
+
+#[tokio::test]
+async fn monorepo_plugins_bootstrap_offline_in_topological_order_and_cascade_dependents() {
+    let control = plugins::PluginControlPlane::new(std::sync::Arc::new(
+        plugins::InMemoryPluginRegistry::default(),
+    ));
+    let installed = control
+        .bootstrap_monorepo_plugins(true)
+        .await
+        .expect("offline bootstrap of all 13 monorepo plugins");
+    assert_eq!(installed.len(), 13);
+
+    let opencode_catalog = control
+        .list_provider_catalog("opencode")
+        .await
+        .expect("list opencode provider catalog from monorepo provider-switch");
+    let template_ids: Vec<&str> = opencode_catalog
+        .templates
+        .iter()
+        .map(|tpl| tpl.id.as_str())
+        .collect();
+    assert!(
+        template_ids.contains(&"openrouter") && template_ids.contains(&"deepseek"),
+        "expected openrouter & deepseek in opencode catalog, got {template_ids:?}"
+    );
+
+    let topo = control
+        .topological_activation_order()
+        .await
+        .expect("topological order");
+    let provider_pos = topo
+        .iter()
+        .position(|id| id == "vibex.provider-switch")
+        .expect("provider-switch in topo order");
+    let session_pos = topo
+        .iter()
+        .position(|id| id == "vibex.session-enhance")
+        .expect("session-enhance in topo order");
+    assert!(
+        provider_pos < session_pos,
+        "provider-switch must precede dependent session-enhance in topological activation order"
+    );
+
+    let dependents = control
+        .dependent_plugins("vibex.provider-switch")
+        .await
+        .expect("dependents of provider-switch");
+    assert_eq!(dependents, vec!["vibex.session-enhance".to_owned()]);
+
+    assert!(
+        control
+            .active_generation("vibex.provider-switch")
+            .await
+            .is_some()
+    );
+    assert!(
+        control
+            .active_generation("vibex.session-enhance")
+            .await
+            .is_some()
+    );
+
+    // Disabling upstream `vibex.provider-switch` cascades to withdraw `vibex.session-enhance`'s live generation.
+    control
+        .set_enabled("vibex.provider-switch", false)
+        .await
+        .expect("disable upstream provider-switch");
+    assert!(
+        control
+            .active_generation("vibex.provider-switch")
+            .await
+            .is_none()
+    );
+    assert!(
+        control
+            .active_generation("vibex.session-enhance")
+            .await
+            .is_none(),
+        "dependent plugin must be automatically suspended when upstream is disabled"
+    );
+
+    // Re-enabling upstream `vibex.provider-switch` automatically remounts `vibex.session-enhance`.
+    control
+        .set_enabled("vibex.provider-switch", true)
+        .await
+        .expect("re-enable upstream provider-switch");
+    assert!(
+        control
+            .active_generation("vibex.provider-switch")
+            .await
+            .is_some()
+    );
+    assert!(
+        control
+            .active_generation("vibex.session-enhance")
+            .await
+            .is_some(),
+        "dependent plugin must automatically resume when upstream is re-enabled"
+    );
+}
+
+#[tokio::test]
+async fn tier0_declarative_root_plugin_json_inspects_and_emits_declarative_runtime_source() {
+    let root = tempfile::tempdir().expect("tier0 root");
+    write(
+        &root.path().join("plugin.json"),
+        r##"{
+          "apiVersion": "2.0",
+          "id": "community.catppuccin-theme",
+          "name": "Catppuccin Theme",
+          "version": "1.0.0",
+          "styles": "styles.css",
+          "themes": [
+            {
+              "id": "catppuccin-mocha",
+              "label": "Catppuccin Mocha",
+              "appearance": "dark",
+              "variables": { "--bg-primary": "#1e1e2e" }
+            }
+          ],
+          "settingsSchema": {
+            "title": "Catppuccin Settings",
+            "type": "object",
+            "properties": {
+              "accent": { "type": "string", "default": "mauve" }
+            }
+          },
+          "slashCommands": [
+            {
+              "name": "mocha",
+              "description": "Switch to Mocha prompt",
+              "prompt": "Apply Mocha style"
+            }
+          ]
+        }"##,
+    );
+    write(
+        &root.path().join("styles.css"),
+        ".catppuccin-badge { color: #cba6f7; }\n",
+    );
+
+    let package =
+        PluginPackage::inspect(root.path(), PluginSourceKind::Snapshot).expect("inspect tier0");
+    assert_eq!(package.id.as_str(), "community.catppuccin-theme");
+    assert_eq!(package.api_version, "2.0");
+    assert_eq!(package.manifest_version, 4);
+    assert_eq!(package.publisher.as_deref(), Some("local"));
+    assert_eq!(
+        package.entrypoints.app_styles.as_deref(),
+        Some("styles.css")
+    );
+    assert!(package.product_detail().is_ok());
+
+    let control = plugins::PluginControlPlane::new(std::sync::Arc::new(
+        plugins::InMemoryPluginRegistry::default(),
+    ));
+    control
+        .import(package, plugins::ConflictDecision::Reject)
+        .await
+        .expect("import tier0 plugin");
+    control
+        .set_enabled("community.catppuccin-theme", true)
+        .await
+        .expect("enable tier0 plugin");
+
+    let catalog = control.contributions().await.expect("catalog");
+    let runtime_surface = catalog
+        .items
+        .iter()
+        .find(|item| {
+            item.plugin_id == "community.catppuccin-theme"
+                && item.kind == plugins::ContributionKind::AppSurface
+                && item.id == "__runtime__"
+        })
+        .expect("emits __runtime__ AppSurface descriptor");
+    assert_eq!(
+        runtime_surface
+            .metadata
+            .get("slot")
+            .and_then(serde_json::Value::as_str),
+        Some("plugin.runtime")
+    );
+    let runtime_source = runtime_surface
+        .metadata
+        .get("runtimeSource")
+        .expect("runtimeSource metadata");
+    assert_eq!(
+        runtime_source
+            .get("kind")
+            .and_then(serde_json::Value::as_str),
+        Some("declarative")
+    );
+    assert!(
+        runtime_source
+            .get("css")
+            .and_then(serde_json::Value::as_str)
+            .unwrap_or_default()
+            .contains(".catppuccin-badge")
+    );
+}
+
+#[tokio::test]
+async fn tier1_single_file_main_js_plugin_inspects_and_emits_esm_code_runtime_source() {
+    let root = tempfile::tempdir().expect("tier1 root");
+    write(
+        &root.path().join("plugin.json"),
+        r##"{
+          "apiVersion": "2.0",
+          "id": "community.pomodoro",
+          "name": "Pomodoro Timer",
+          "version": "0.1.0",
+          "main": "main.js",
+          "styles": "styles.css"
+        }"##,
+    );
+    write(
+        &root.path().join("main.js"),
+        "export default { apiVersion: '2.0', activate(ctx) { ctx.ui.registerStatusBarItem({ id: 'pomo', label: '25:00' }); } };\n",
+    );
+    write(
+        &root.path().join("styles.css"),
+        ".pomo { font-weight: 600; }\n",
+    );
+
+    let package =
+        PluginPackage::inspect(root.path(), PluginSourceKind::Snapshot).expect("inspect tier1");
+    assert_eq!(package.id.as_str(), "community.pomodoro");
+    assert_eq!(package.entrypoints.app.as_deref(), Some("main.js"));
+    assert_eq!(
+        package.entrypoints.app_styles.as_deref(),
+        Some("styles.css")
+    );
+
+    let control = plugins::PluginControlPlane::new(std::sync::Arc::new(
+        plugins::InMemoryPluginRegistry::default(),
+    ));
+    control
+        .import(package, plugins::ConflictDecision::Reject)
+        .await
+        .expect("import tier1 plugin");
+    control
+        .set_enabled("community.pomodoro", true)
+        .await
+        .expect("enable tier1 plugin");
+
+    let catalog = control.contributions().await.expect("catalog");
+    let runtime_surface = catalog
+        .items
+        .iter()
+        .find(|item| {
+            item.plugin_id == "community.pomodoro"
+                && item.kind == plugins::ContributionKind::AppSurface
+                && item.id == "__runtime__"
+        })
+        .expect("emits __runtime__ AppSurface descriptor");
+    let runtime_source = runtime_surface
+        .metadata
+        .get("runtimeSource")
+        .expect("runtimeSource metadata");
+    assert_eq!(
+        runtime_source
+            .get("kind")
+            .and_then(serde_json::Value::as_str),
+        Some("esm-code")
+    );
+    assert!(
+        runtime_source
+            .get("code")
+            .and_then(serde_json::Value::as_str)
+            .unwrap_or_default()
+            .contains("registerStatusBarItem")
+    );
+    assert!(
+        runtime_source
+            .get("css")
+            .and_then(serde_json::Value::as_str)
+            .unwrap_or_default()
+            .contains(".pomo")
+    );
+}
+
+#[tokio::test]
+async fn user_plugins_dir_auto_discovers_enables_hot_reloads_and_removes_plugins() {
+    let user_dir = tempfile::tempdir().expect("user plugins dir");
+    let plugin_dir = user_dir.path().join("user.pomodoro");
+    write(
+        &plugin_dir.join("plugin.json"),
+        r##"{
+          "apiVersion": "2.0",
+          "id": "user.pomodoro",
+          "name": "User Pomodoro",
+          "version": "0.1.0",
+          "main": "main.js"
+        }"##,
+    );
+    write(
+        &plugin_dir.join("main.js"),
+        "export default { apiVersion: '2.0', activate(ctx) { ctx.ui.registerStatusItem({ id: 'pomo', label: '25:00' }); } };\n",
+    );
+
+    let control = plugins::PluginControlPlane::new(std::sync::Arc::new(
+        plugins::InMemoryPluginRegistry::default(),
+    ));
+    let changed = control
+        .discover_user_plugins_in(user_dir.path())
+        .await
+        .expect("discover user plugins");
+    assert_eq!(changed, vec!["user.pomodoro".to_string()]);
+
+    let catalog1 = control.contributions().await.expect("catalog 1");
+    let surface1 = catalog1
+        .items
+        .iter()
+        .find(|item| item.plugin_id == "user.pomodoro" && item.id == "__runtime__")
+        .expect("user.pomodoro runtime surface");
+    assert_eq!(surface1.generation, 1);
+
+    // Modify main.js and re-run discovery -> hot-reloads to generation 2
+    write(
+        &plugin_dir.join("main.js"),
+        "export default { apiVersion: '2.0', activate(ctx) { ctx.ui.registerStatusItem({ id: 'pomo', label: '50:00' }); } };\n",
+    );
+    let changed2 = control
+        .discover_user_plugins_in(user_dir.path())
+        .await
+        .expect("hot reload user plugins");
+    assert_eq!(changed2, vec!["user.pomodoro".to_string()]);
+
+    let catalog2 = control.contributions().await.expect("catalog 2");
+    let surface2 = catalog2
+        .items
+        .iter()
+        .find(|item| item.plugin_id == "user.pomodoro" && item.id == "__runtime__")
+        .expect("user.pomodoro runtime surface after reload");
+    assert!(surface2.generation >= 2);
+    assert!(
+        surface2
+            .metadata
+            .get("runtimeSource")
+            .and_then(|s| s.get("code"))
+            .and_then(serde_json::Value::as_str)
+            .unwrap_or_default()
+            .contains("50:00")
+    );
+
+    // Delete plugin directory -> auto-removes from control plane
+    fs::remove_dir_all(&plugin_dir).expect("remove plugin dir");
+    let changed3 = control
+        .discover_user_plugins_in(user_dir.path())
+        .await
+        .expect("reconcile removed user plugin");
+    assert_eq!(changed3, vec!["user.pomodoro".to_string()]);
+    let catalog3 = control.contributions().await.expect("catalog 3");
+    assert!(
+        !catalog3
+            .items
+            .iter()
+            .any(|item| item.plugin_id == "user.pomodoro")
+    );
 }

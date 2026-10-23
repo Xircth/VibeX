@@ -1,0 +1,13 @@
+{
+  "name": "vibex.office",
+  "version": "2.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "generate-skills": "node scripts/generate-skills.mjs",
+    "validate": "node ../VibeX/packages/plugin-cli/dist/cli.js validate",
+    "test": "node ../VibeX/packages/plugin-cli/dist/cli.js test",
+    "build": "node scripts/generate-skills.mjs && node ../VibeX/packages/plugin-cli/dist/cli.js build",
+    "pack": "node ../VibeX/packages/plugin-cli/dist/cli.js pack"
+  }
+}

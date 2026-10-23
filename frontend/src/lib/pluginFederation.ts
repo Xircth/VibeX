@@ -1,13 +1,8 @@
-import { createInstance } from '@module-federation/runtime';
+import * as PluginSdk from '@vibex/plugin-sdk';
 import * as React from 'react';
-import * as ReactDOM from 'react-dom';
-import { createRoot } from 'react-dom/client';
 
-export type PluginRemoteRef = {
-  name: string;
-  entry: string;
-  module: string;
-};
+(globalThis as Record<string, unknown>).__VIBEX_REACT__ = React;
+PluginSdk.bindExternalStoreHook(React.useSyncExternalStore);
 
 export type PluginRemoteEnvironment = {
   pluginId: string;
@@ -22,146 +17,94 @@ export type PluginRemoteEnvironment = {
   ) => Promise<unknown>;
 };
 
-type RemoteModule = {
-  default?: unknown;
-  mount?: (
-    root: HTMLElement,
-    environment?: PluginRemoteEnvironment
-  ) => void | (() => void);
-};
+const activePluginDisposers = new Map<string, () => void>();
 
-type FederationRuntime = ReturnType<typeof createInstance>;
+export async function activatePluginModule(
+  pluginId: string,
+  module: unknown,
+  options?: { callHost?: PluginSdk.HostCallTransport }
+): Promise<() => void> {
+  deactivatePluginModule(pluginId);
 
-let host: FederationRuntime | null = null;
+  const rec =
+    module && typeof module === 'object'
+      ? (module as Record<string, unknown>)
+      : {};
+  const candidate = PluginSdk.isVibeXPluginDefinition(rec.default)
+    ? rec.default
+    : PluginSdk.isVibeXPluginDefinition(module)
+      ? module
+      : null;
+  const activateFn = candidate
+    ? candidate.activate.bind(candidate)
+    : typeof rec.activate === 'function'
+      ? (rec.activate as (
+          ctx: PluginSdk.VibeXPluginContext
+        ) => void | (() => void) | Promise<void | (() => void)>)
+      : typeof rec.default === 'function'
+        ? (rec.default as (
+            ctx: PluginSdk.VibeXPluginContext
+          ) => void | (() => void) | Promise<void | (() => void)>)
+        : typeof module === 'function'
+          ? (module as (
+              ctx: PluginSdk.VibeXPluginContext
+            ) => void | (() => void) | Promise<void | (() => void)>)
+          : null;
 
-function federationHost(): FederationRuntime {
-  if (host) return host;
-  host = createInstance({
-    name: 'vibex_host',
-    remotes: [],
-    shared: {
-      react: {
-        version: '19.2.8',
-        scope: 'default',
-        lib: () => React,
-        shareConfig: { singleton: true, requiredVersion: false },
-      },
-      'react-dom': {
-        version: '19.2.8',
-        scope: 'default',
-        lib: () => ReactDOM,
-        shareConfig: { singleton: true, requiredVersion: false },
-      },
-    },
+  if (!activateFn) {
+    throw new Error('plugin_activate_export_missing');
+  }
+
+  const ctx = PluginSdk.createPluginContext({
+    pluginId,
+    callHost: options?.callHost,
   });
-  return host;
-}
-
-export function parseRemoteRef(value: unknown): PluginRemoteRef | null {
-  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
-  const remote = value as Record<string, unknown>;
-  if (typeof remote.name !== 'string' || !remote.name) return null;
-  if (typeof remote.entry !== 'string' || !remote.entry) return null;
-  return {
-    name: remote.name,
-    entry: remote.entry,
-    module:
-      typeof remote.module === 'string' && remote.module
-        ? remote.module
-        : './view',
-  };
-}
-
-export function isHttpRemoteEntry(entry: string): boolean {
-  return /^https?:\/\//.test(entry);
-}
-
-const LOAD_REMOTE_TIMEOUT_MS = 8_000;
-
-/** Live mounts of each remote name. Unregister only after the last one goes. */
-const remoteUsers = new Map<string, number>();
-
-function releaseRemote(name: string): void {
-  const next = (remoteUsers.get(name) ?? 0) - 1;
-  if (next > 0) {
-    remoteUsers.set(name, next);
-    return;
-  }
-  remoteUsers.delete(name);
-  const runtime = host;
-  if (!runtime || !name) return;
-  const unregister = (
-    runtime as FederationRuntime & {
-      unregisterRemotes?: (
-        remotes: string[],
-        options?: { force?: boolean }
-      ) => void | Promise<void>;
+  let returnedDisposer: void | (() => void);
+  const dispose = () => {
+    activePluginDisposers.delete(pluginId);
+    try {
+      if (typeof returnedDisposer === 'function') {
+        returnedDisposer();
+      }
+    } finally {
+      try {
+        candidate?.deactivate?.();
+      } finally {
+        ctx.dispose();
+      }
     }
-  ).unregisterRemotes;
-  if (typeof unregister === 'function') {
-    void unregister.call(runtime, [name], { force: true });
+  };
+  activePluginDisposers.set(pluginId, dispose);
+
+  try {
+    const maybePromise = activateFn(ctx);
+    if (
+      maybePromise &&
+      typeof (maybePromise as Promise<unknown>).then === 'function'
+    ) {
+      returnedDisposer = await maybePromise;
+    } else {
+      returnedDisposer = maybePromise as void | (() => void);
+    }
+  } catch (error) {
+    activePluginDisposers.delete(pluginId);
+    ctx.dispose();
+    throw error;
+  }
+
+  return dispose;
+}
+
+export function deactivatePluginModule(pluginId: string): void {
+  const dispose = activePluginDisposers.get(pluginId);
+  if (dispose) {
+    dispose();
+  } else {
+    PluginSdk.disposePluginRegistrations(pluginId);
+    PluginSdk.globalServices.disposePlugin(pluginId);
   }
 }
 
-export function unloadPluginRemote(name: string): void {
-  if (!name) return;
-  releaseRemote(name);
-}
-
-/** Count a live mount before any async load, so cleanup can always release once. */
-export function retainPluginRemote(name: string): void {
-  if (!name) return;
-  remoteUsers.set(name, (remoteUsers.get(name) ?? 0) + 1);
-}
-
-export async function loadPluginRemote(
-  remote: PluginRemoteRef
-): Promise<RemoteModule> {
-  const runtime = federationHost();
-  await runtime.registerRemotes(
-    [{ name: remote.name, entry: remote.entry, type: 'module' }],
-    { force: true }
-  );
-  return await loadRegisteredRemote(runtime, remote);
-}
-
-async function loadRegisteredRemote(
-  runtime: FederationRuntime,
-  remote: PluginRemoteRef
-): Promise<RemoteModule> {
-  const loaded = await Promise.race([
-    runtime.loadRemote<RemoteModule>(
-      `${remote.name}/${remote.module.replace(/^\.\//, '')}`
-    ),
-    new Promise<RemoteModule>((_, reject) => {
-      globalThis.setTimeout(
-        () => reject(new Error('plugin_remote_timeout')),
-        LOAD_REMOTE_TIMEOUT_MS
-      );
-    }),
-  ]);
-  if (loaded) return loaded;
-  throw new Error('plugin_remote_export_missing');
-}
-
-export function mountRemoteModule(
-  module: RemoteModule,
-  root: HTMLElement,
-  environment?: PluginRemoteEnvironment
-): (() => void) | void {
-  if (typeof module.mount === 'function') {
-    return module.mount(root, environment);
-  }
-  const View = module.default;
-  if (typeof View === 'function') {
-    const reactRoot = createRoot(root);
-    reactRoot.render(
-      React.createElement(
-        View as React.ComponentType<{ environment?: PluginRemoteEnvironment }>,
-        { environment }
-      )
-    );
-    return () => reactRoot.unmount();
-  }
-  throw new Error('plugin_remote_export_missing');
+export function isPluginModuleActive(pluginId: string): boolean {
+  return activePluginDisposers.has(pluginId);
 }

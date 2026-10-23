@@ -35,6 +35,7 @@ import { resolveCreateSessionHref } from '@/lib/createSessionHref';
 import { sessionsApi } from '@/lib/api';
 import { cn } from '@/lib/utils';
 import { ConfirmDialog } from '@/components/dialogs/shared/ConfirmDialog';
+import { useKanbanViewContributions } from '@vibex/plugin-sdk';
 import { TooltipProvider } from '@/components/ui/tooltip';
 import { useKanbanViews } from '@/hooks/useKanbanViews';
 import { useKanbanBoardStyle } from '@/lib/kanbanBoardStyle';
@@ -119,6 +120,7 @@ export function KanbanBoard() {
   const views = useKanbanViews();
   const boardStyle = useKanbanBoardStyle();
   const pluginViews = usePluginHostContributions('kanban_view');
+  const sdkKanbanViews = useKanbanViewContributions();
   const resolvedViewId = resolveKanbanViewId(activeViewId, views, boardStyle);
   useEffect(() => {
     if (resolvedViewId && resolvedViewId !== activeViewId) {
@@ -252,7 +254,30 @@ export function KanbanBoard() {
                               (item) =>
                                 item.pluginId === view.pluginId &&
                                 item.id === view.contributionId
-                            ) ?? null)
+                            ) ??
+                            (() => {
+                              const sdkMatch = sdkKanbanViews.find(
+                                (item) =>
+                                  item.pluginId === view.pluginId &&
+                                  (item.id === view.contributionId ||
+                                    item.id ===
+                                      `${view.pluginId}:${view.contributionId}`)
+                              );
+                              if (!sdkMatch || !view.contributionId) {
+                                return null;
+                              }
+                              return {
+                                pluginId: view.pluginId,
+                                id: view.contributionId,
+                                kind: 'kanban_view' as const,
+                                label: sdkMatch.title,
+                                generation: 1,
+                                metadata: {
+                                  hidesBottomDock:
+                                    sdkMatch.hidesBottomDock !== false,
+                                },
+                              };
+                            })())
                           : null
                       }
                     />

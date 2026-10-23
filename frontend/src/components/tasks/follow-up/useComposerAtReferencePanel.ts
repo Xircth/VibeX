@@ -546,15 +546,19 @@ export function useComposerAtReferencePanel({
       const handle = composerHandleRef.current;
       if (!editor || !handle) return;
       deleteTriggerText(editor, triggerStartRef.current);
+      if (item.onActivate) {
+        void Promise.resolve(item.onActivate()).catch(() => undefined);
+      }
       if (item.tab === 'member') {
         const mention = `${item.insertText} `;
         if (!insertComposerTextWithUndo(editor, mention)) {
           handle.insertText(mention);
         }
-      } else {
+        onChange(handle.getValue());
+      } else if (item.insertText) {
         handle.insertToken(atReferenceItemToToken(item));
+        onChange(handle.getValue());
       }
-      onChange(handle.getValue());
       close();
     },
     [close, composerHandleRef, composerRootRef, onChange]

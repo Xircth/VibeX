@@ -1,3 +1,4 @@
+import type { SlashCommandContribution } from '@vibex/plugin-sdk';
 import type { SlashCommandDescription } from 'shared/types';
 import type { AgentAvailableCommand } from '@/features/agents/types';
 import type { AgentLocalSkill } from '@/lib/api';
@@ -14,6 +15,7 @@ export type ComposerSlashCommand = SlashCommandDescription & {
   sourceId: string;
   displayLabel?: string;
   prompt?: string;
+  execute?: (args: string) => void | string | Promise<void | string>;
 };
 
 export type ComposerCommandSourceId = 'slash' | 'dollar' | 'file' | 'tag';
@@ -124,6 +126,28 @@ export function pluginComposerSlashContributions(
     });
 }
 
+export function sdkSlashCommandsToComposerCommands(
+  items: readonly SlashCommandContribution[]
+): ComposerSlashCommand[] {
+  return items.flatMap((item) => {
+    const name = normalizeCommandName(item.name || item.id);
+    if (!name) return [];
+    const pluginId = item.pluginId ?? 'builtin';
+    return [
+      {
+        name,
+        displayLabel: item.title ?? item.name,
+        description: item.description || undefined,
+        kind: 'COMMAND' as const,
+        sourceKind: 'plugin' as const,
+        sourceId: `${pluginId}/${item.id}`,
+        prompt: item.prompt,
+        execute: item.execute,
+      },
+    ];
+  });
+}
+
 export function localSkillsToDollarCommands(
   skills: AgentLocalSkill[]
 ): DollarCommandDescription[] {
@@ -189,12 +213,16 @@ export function mergeComposerSlashCommands({
     const command = byName.get(name);
     return command ? [command] : [];
   });
+  const seenPluginKeys = new Set<string>();
+  const deduplicatedPlugins = pluginCommands.flatMap((command) => {
+    const normalizedName = normalizeCommandName(command.name) ?? command.name;
+    if (seenPluginKeys.has(normalizedName)) return [];
+    seenPluginKeys.add(normalizedName);
+    return [{ ...command, name: normalizedName }];
+  });
   return [
     ...nativeCommands,
-    ...pluginCommands.map((command) => ({
-      ...command,
-      name: normalizeCommandName(command.name) ?? command.name,
-    })),
+    ...deduplicatedPlugins,
     ...skillCommands.map((command) => ({
       ...command,
       name: normalizeCommandName(command.name) ?? command.name,

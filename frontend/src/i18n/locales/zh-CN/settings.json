@@ -643,32 +643,55 @@
     "catalogModeAria": "插件目录类型",
     "installedTab": "已安装",
     "marketplaceTab": "插件市场",
+    "coreModulesTab": "内置底座",
+    "officialGroupTitle": "官方扩展插件",
+    "thirdPartyGroupTitle": "已安装插件",
+    "morePlugins": "更多",
+    "collapsePlugins": "收起",
+    "componentsTitle": "组件",
+    "componentsSummary": "共 {{total}} 个 · {{running}} 运行中 · {{off}} 已关闭",
+    "sourceSectionTitle": "来源信息",
+    "codeSourceLabel": "代码来源",
+    "currentVersionLabel": "当前版本",
+    "packageIdLabel": "插件包标识",
+    "publisherLabel": "发布者",
+    "statusRunning": "运行中",
+    "statusOff": "已关闭",
+    "statusProblem": "异常",
+    "officialBadge": "官方",
     "allCategory": "全部",
     "officialCategory": "官方",
     "communityCategory": "社区",
     "marketplaceCategoriesAria": "插件分类",
     "listingCategory": {
       "official": "官方",
-      "productivity": "效率",
-      "agent": "Agent",
-      "workflow": "工作流",
-      "mcp": "MCP",
+      "design": "设计",
+      "development": "开发",
+      "science": "科研",
+      "ai-enhancement": "AI增强",
+      "utilities": "实用工具",
+      "aigc": "AIGC",
+      "productivity": "实用工具",
+      "agent": "AI增强",
+      "workflow": "AIGC",
+      "mcp": "开发",
       "other": "其他",
       "community": "社区"
     },
     "readmeTab": "README",
-    "contentsTab": "插件内容",
+    "contentsTab": "组件",
     "packageTab": "包结构",
-    "contentsCatalog": "插件内容",
+    "contentsCatalog": "组件",
     "contentsEmpty": "没有可展示的插件内容",
     "contentKind": {
       "package": "包结构",
+      "ui": "UI",
       "skill": "Skill",
       "mcp": "MCP",
       "hook": "Hook",
       "workflow": "Workflow",
       "runtime": "Runtime",
-      "viewer": "Viewer",
+      "viewer": "UI",
       "other": "其他"
     },
     "marketplaceLoading": "正在加载插件市场",
@@ -808,25 +831,25 @@
       "hostSurface": {
         "name": "结构面示例",
         "summary": "增加一个顶级 Tab、一个工作区面板和一个看板视图。",
-        "readme": "# 结构面示例\n\n结构面的参考插件。打开后会出现一个 Tab、一个面板和一个看板视图；关掉后一起消失。",
+        "readme": "# 结构面示例\n\n面向宿主结构面（App Surface）的官方参考插件。启用后会在工作区注册一组隔离表面，停用后自动撤销会话。\n\n## 包含组件\n\n- **顶级导航页 (`top-level-tab`)**：在应用主栏增加独立表面入口。\n- **工作区侧栏 (`workspace-panel`)**：在会话与代码视图旁挂载伴随面板。\n- **看板扩展视图 (`kanban-view`)**：为项目看板注册自定义视图。\n\n## 生命周期\n\n所有表面均通过 `AppSurfaceHost` 沙箱桥接通信，按代次（Generation）原子切换。",
         "config": {}
       },
       "providerSwitch": {
         "name": "供应商预置",
         "summary": "在新建供应商表单中提供按 Agent 分组的预置模板。",
-        "readme": "# ProviderSwitch\n\n启用后，设置 → Agent → 鉴权 → 供应商的新建表单会列出预置端点。点选只填名称、地址和模型；密钥仍由你填写。\n\n禁用后预置从新建表单消失。已经保存的供应商不受影响。",
+        "readme": "# ProviderSwitch\n\n启用后，**设置 → Agent → 鉴权 → 供应商** 的新建表单会列出按 Agent 分组的官方预置端点。\n\n## 核心行为\n\n- **一键填充模板**：点选预置只填写名称、Base URL 与推荐模型标识，API 密钥仍由你在本机填写。\n- **无侵入停用**：停用插件后，预置模板从新建表单中移除，已经保存的供应商配置不受影响。",
         "config": {}
       },
       "providerImport": {
         "name": "环境变量导入供应商",
         "summary": "把环境变量里已有的 OpenAI 兼容供应商导入 Model Provider 预设。",
-        "readme": "# 环境变量导入供应商\n\n读取进程环境里已经导出的 OpenAI 兼容端点，出现在 设置 → 智能体 → 导入。\n\n导入只写预设。把 Agent 绑到某个预设仍会先问你。\n\n没有 API 密钥的项会列出，但不能勾选。",
+        "readme": "# 环境变量导入供应商\n\n自动扫描当前进程环境中已导出的 OpenAI 兼容端点，并在 **设置 → 智能体 → 导入** 中提供一键导入。\n\n## 导入规则\n\n- **只写预设**：导入操作仅写入 Model Provider 预设库，把具体 Agent 绑定到预设前仍会由你确认。\n- **密钥校验**：未检测到有效 API Key 的环境变量项会置灰列出，防止误绑空凭据。",
         "config": {}
       },
       "remoteSsh": {
         "name": "Remote SSH",
         "summary": "通过 SSH 在远端安装并启动 VibeX Server，把本机接到该 Host。",
-        "readme": "# Remote SSH\n\n在能 SSH 登录的服务器上安装 VibeX Server，经隧道加入远程连接列表并把应用接到该 Host。\n\n卸载后已保存的 SSH Host 默认保留。",
+        "readme": "# Remote SSH\n\n在可通过 SSH 登录的远程服务器上一键部署并启动 `VibeX Server`，经安全隧道加入远程连接列表并将桌面客户端挂载到该 Host。\n\n## 核心能力\n\n- **远端引导安装**：自动检测远端架构并拉起匹配的 `vibex-server` 守护进程。\n- **SSH 端口转发**：通过本机回环隧道转发 Remote Protocol 与 WebSocket 事件流。\n- **连接持久化**：卸载或停用插件后，已保存的 SSH Host 配置默认保留。",
         "config": {}
       },
       "openConnector": {
@@ -902,7 +925,25 @@
       "computerUse": {
         "name": "电脑控制",
         "summary": "桌面窗口与应用的感知和自动化控制：无障碍树、截图、键鼠输入、窗口级授权和全局紧急停止。",
-        "readme": "# 电脑控制\n\n让 Agent 在你共享的窗口里查看和操作桌面。共享按窗口、应用或全屏授予，分「仅查看」和「允许控制」。\n\n启用后，新开或重新绑定的会话会带上电脑控制的 MCP 和 Skill。全局紧急停止会立刻撤销授权并打断正在执行的动作。\n\n窗口边缘的呼吸光带由设置里的「显示桌面共享状态指示条」控制。",
+        "readme": "# 电脑控制\n\n让 Agent 在你共享的窗口里查看和操作桌面。共享按窗口、应用或全屏授予，分「仅查看」和「允许控制」。\n\n## 授权与能力\n\n- **窗口与屏幕感知**：获取目标窗口的无障碍树（Accessibility Tree）快照与高清区域截图。\n- **键鼠自动化交互**：在授权为「允许控制」的窗口内执行点击、拖拽、滚动与键盘输入。\n- **紧急中断保护**：启用后，新开或重新绑定的会话会带上电脑控制的 `MCP` 和 `Skill`。全局紧急停止会立刻撤销授权并打断正在执行的动作。\n\n## 状态指示\n\n窗口边缘的呼吸光带由设置里的「显示桌面共享状态指示条」控制。",
+        "config": {}
+      },
+      "kanbanViews": {
+        "name": "看板视图增强",
+        "summary": "提供内置看板过滤命令、迭代速率追踪与任务分级归纳工作流。",
+        "readme": "# 看板视图增强\n\n为 VibeX 看板提供多维任务分组、迭代速率统计与 `/kanban` 快速分流技能。\n\n## 核心组件\n\n- **多维过滤视图**：按优先级、负责智能体、阻塞状态与迭代周期快速切换看板切片。\n- **速率追踪卡片**：自动统计每个冲刺周期的吞吐量与状态流转耗时。\n- **智能分流技能**：在 Composer 中调用 `/kanban` 自动将模糊需求拆解为结构化卡片。",
+        "config": {}
+      },
+      "notes": {
+        "name": "工作区笔记",
+        "summary": "在工作区内记录项目速记、会话复盘笔记，并支持右键一键摘录对话片段。",
+        "readme": "# 工作区笔记\n\n提供项目级速记本、`/note` 斜杠记录命令以及对话消息右键一键摘录能力。\n\n## 使用方式\n\n- **斜杠速记**：在对话框输入 `/note` 即可将当前结论追加到工作区笔记。\n- **上下文摘录**：在任意对话回合上右键选择「摘录到工作区笔记」，保留代码块与引用来源。",
+        "config": {}
+      },
+      "promptEnhancer": {
+        "name": "提示词增强器",
+        "summary": "在输入框提供 @enhance 提示词润色动作与 /enhance 结构化上下文扩写技能。",
+        "readme": "# 提示词增强器\n\n在发送给智能体前对模糊需求进行结构化拆解、边界条件补充与上下文增强。\n\n## 增强管线\n\n- **`@enhance` 内联润色**：根据当前仓库技术栈自动补全验收标准与文件约束。\n- **`/enhance` 深度扩写**：将一句话需求转化为包含目标、非目标与验证步骤的执行规约。",
         "config": {}
       }
     },
@@ -1989,10 +2030,22 @@
     "dshPresetBuiltin": "内置",
     "dshPresetCurrent": "当前",
     "dshPreset": {
-      "standard": { "name": "Standard", "summary": "完整工具与默认权限" },
-      "code": { "name": "Code", "summary": "面向编码任务的精简配置" },
-      "minimal": { "name": "Minimal", "summary": "最少工具，适合只读问答" },
-      "cordis": { "name": "Cordis", "summary": "完整插件运行时" }
+      "standard": {
+        "name": "Standard",
+        "summary": "完整工具与默认权限"
+      },
+      "code": {
+        "name": "Code",
+        "summary": "面向编码任务的精简配置"
+      },
+      "minimal": {
+        "name": "Minimal",
+        "summary": "最少工具，适合只读问答"
+      },
+      "cordis": {
+        "name": "Cordis",
+        "summary": "完整插件运行时"
+      }
     },
     "dshSandbox": {
       "workspace-write": "工作区可写",
@@ -2286,7 +2339,6 @@
     "moveBackward": "向后移动",
     "checking": "正在检查…",
     "checkUpdates": "检查更新",
-
     "actionKind": {
       "login": "登录 {{agent}}",
       "logout": "退出 {{agent}}",
@@ -2488,9 +2540,7 @@
     "customAcpVersionLabel": "ACP 版本",
     "customVersionPlaceholder": "例如 1.2.3",
     "customVersionTrustHint": "空字段会安装 npm latest。只写入 ACP 启动包。",
-
     "repairInstallation": "修复安装",
-    "officialInstallGuide": "官方安装指南",
     "kiroSilentInstallFailedTitle": "Kiro 静默安装未能完成，请通过官方网页下载安装",
     "kiroSilentInstallFailedDescription": "可打开 Kiro 官方安装页面下载安装器，安装完成后回到 VibeX 点击“立即检查”。",
     "operationComplete": "操作已完成",
@@ -2589,7 +2639,6 @@
     "noMatchingAgents": "没有匹配的 Agent。",
     "noAgentsInCategory": "当前分类没有 Agent。",
     "add": "添加",
-
     "addVariable": "添加变量",
     "aiSdkPackage": "AI SDK 包",
     "apiAdapter": "API 适配器",

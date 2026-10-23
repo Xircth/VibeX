@@ -474,6 +474,7 @@ impl WorkflowAgentDispatcher {
                         .collect(),
                     workflow_refs: Vec::new(),
                     file_refs: Vec::new(),
+                    internal_prompt_contributions: Vec::new(),
                 },
                 principal: serde_json::json!({
                     "id": "workflow-dispatcher",
@@ -1155,6 +1156,7 @@ impl WorkflowStoreExecutionPort {
                         .collect(),
                     workflow_refs: Vec::new(),
                     file_refs: Vec::new(),
+                    internal_prompt_contributions: Vec::new(),
                 },
                 principal: serde_json::json!({
                     "id": "workflow-step-interaction",

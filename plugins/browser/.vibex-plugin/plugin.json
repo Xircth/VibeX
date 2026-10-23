@@ -1,0 +1,272 @@
+{
+  "$schema": "https://schemas.vibex.dev/plugin/v4/plugin.schema.json",
+  "manifestVersion": 4,
+  "apiVersion": "2.0",
+  "id": "vibex.browser",
+  "publisher": "vibex",
+  "version": "2.0.0",
+  "name": "Browser",
+  "readme": "README.md",
+  "engines": {
+    "vibex": ">=0.1.3 <1.0.0",
+    "pluginSdk": "^2.0.0"
+  },
+  "content": {
+    "root": "contents",
+    "index": ".vibex-plugin/content.index.json"
+  },
+  "config": {
+    "schema": {
+      "type": "object",
+      "x-vibex-config-form": false,
+      "additionalProperties": false,
+      "properties": {
+        "defaultTarget": {
+          "type": "object",
+          "title": "Where links open",
+          "description": "Default destination for links clicked across VibeX surfaces.",
+          "additionalProperties": false,
+          "properties": {
+            "transcript": {
+              "type": "string",
+              "enum": [
+                "builtin",
+                "system",
+                "ask"
+              ]
+            },
+            "toolCard": {
+              "type": "string",
+              "enum": [
+                "builtin",
+                "system",
+                "ask"
+              ]
+            },
+            "terminal": {
+              "type": "string",
+              "enum": [
+                "builtin",
+                "system",
+                "ask"
+              ]
+            },
+            "editor": {
+              "type": "string",
+              "enum": [
+                "builtin",
+                "system",
+                "ask"
+              ]
+            },
+            "notification": {
+              "type": "string",
+              "enum": [
+                "builtin",
+                "system",
+                "ask"
+              ]
+            }
+          }
+        },
+        "hostRules": {
+          "type": "array",
+          "title": "Site rules",
+          "description": "Per-host routing rules evaluated in order before default link targets.",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "pattern",
+              "action"
+            ],
+            "properties": {
+              "pattern": {
+                "type": "string"
+              },
+              "action": {
+                "type": "string",
+                "enum": [
+                  "builtin",
+                  "system",
+                  "block"
+                ]
+              }
+            }
+          }
+        },
+        "toolsEnabled": {
+          "type": "boolean",
+          "title": "Agent tools",
+          "description": "Let agents list, read, and act on shared tabs."
+        },
+        "defaultGrant": {
+          "type": "string",
+          "title": "Default share level",
+          "description": "Applied when a new tab is opened.",
+          "enum": [
+            "none",
+            "read",
+            "control"
+          ]
+        },
+        "originGrants": {
+          "type": "object",
+          "title": "Remembered origin grants",
+          "description": "Per-origin share levels remembered across tabs."
+        },
+        "evalEnabled": {
+          "type": "boolean",
+          "title": "Run page JavaScript",
+          "description": "Allow agents to run JavaScript on shared tabs."
+        },
+        "evalApproval": {
+          "type": "string",
+          "title": "JavaScript approval mode",
+          "description": "Whether every eval snippet requires interactive confirmation or runs silently on control-shared tabs.",
+          "enum": [
+            "ask",
+            "silent"
+          ]
+        },
+        "serviceAutoOpen": {
+          "type": "string",
+          "title": "Local service detection",
+          "description": "How VibeX responds when a dev server prints a localhost URL.",
+          "enum": [
+            "off",
+            "toast",
+            "auto"
+          ]
+        },
+        "terminalClickMenu": {
+          "type": "boolean",
+          "title": "Alt-click menu in terminal",
+          "description": "Show a target chooser when Alt-clicking a URL in the terminal."
+        },
+        "devtools": {
+          "type": "boolean",
+          "title": "Allow DevTools",
+          "description": "Enable the WebView inspector button and context menu on built-in tabs."
+        },
+        "surfaceOverride": {
+          "type": "string",
+          "title": "Surface mode",
+          "description": "Force a separate browser window or use the platform default embedded surface.",
+          "enum": [
+            "auto",
+            "window"
+          ]
+        },
+        "suspendBackgroundTabs": {
+          "type": "boolean",
+          "title": "Suspend hidden tabs",
+          "description": "Park hidden browser tabs to reduce background CPU and memory usage."
+        },
+        "signInUserAgent": {
+          "type": "boolean",
+          "title": "Compatibility User-Agent",
+          "description": "Send a standard desktop browser User-Agent string for OAuth and SSO sign-in pages."
+        },
+        "profiles": {
+          "type": "array",
+          "title": "Browser profiles",
+          "description": "Isolated cookie and storage profiles for built-in browser tabs.",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "id",
+              "label"
+            ],
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "label": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "newTabProfile": {
+          "type": "string",
+          "title": "Default profile for new tabs",
+          "description": "Profile ID used when opening a new tab without an explicit profile."
+        }
+      }
+    }
+  },
+  "entrypoints": {
+    "worker": {
+      "path": "dist/worker.mjs",
+      "runtime": "node",
+      "protocol": "1.1"
+    },
+    "app": {
+      "entry": "app/main.js",
+      "protocol": "2.0"
+    }
+  },
+  "integrations": [
+    {
+      "id": "browser",
+      "kind": "app.panel",
+      "title": "Browser",
+      "icon": "globe",
+      "handler": "surface.createSession",
+      "defaultPosition": "center",
+      "multiInstance": true,
+      "engine": "host-browser",
+      "allowedMethods": [
+        "browser.dispatch"
+      ]
+    },
+    {
+      "id": "browser-settings",
+      "kind": "app.settings.page",
+      "title": "浏览器",
+      "icon": "globe",
+      "handler": "surface.createSession",
+      "allowedMethods": [
+        "browser.dispatch"
+      ]
+    },
+    {
+      "id": "settings",
+      "kind": "app.surface",
+      "slot": "plugin.detail.panel",
+      "label": "浏览器设置",
+      "appEntrypoint": "app",
+      "handler": "surface.createSession",
+      "allowedMethods": [
+        "browser.dispatch"
+      ],
+      "minHeight": 240
+    },
+    {
+      "id": "open",
+      "kind": "app.rail.section",
+      "title": "Browser",
+      "icon": "globe",
+      "opens": {
+        "kind": "app.panel",
+        "id": "browser",
+        "instance": "focus"
+      }
+    },
+    {
+      "id": "browser-tools",
+      "kind": "content.mcp",
+      "resource": "contents/mcps/browser.json"
+    },
+    {
+      "id": "vibex-browser",
+      "kind": "content.skill",
+      "resource": "contents/skills/vibex-browser"
+    }
+  ],
+  "interface": {
+    "icon": "assets/icon.svg"
+  }
+}

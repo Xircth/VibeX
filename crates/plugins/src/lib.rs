@@ -85,7 +85,9 @@ pub use host_call::{
     PluginHostCallContext, attach_host_call_env, bind_packaged_stdio_paths,
     prepare_plugin_mcp_projection, spawnable_fs_path, strip_mcp_advertisement_fields,
 };
-pub use host_capability_broker::HostCapabilityBroker;
+pub use host_capability_broker::{
+    HostCapabilityBroker, PluginToastNotification, subscribe_plugin_toasts,
+};
 pub use language_runtimes::{
     LanguageRuntimeLock, PLUGIN_WORKER_CPYTHON_VERSION, plugin_worker_cpython_lock,
 };
@@ -104,8 +106,9 @@ pub use native::{
     parse_official_plugin_import_commands,
 };
 pub use official_catalog::{
-    OfficialPluginCatalog, OfficialPluginRecord, listings_from_host_official_catalog,
-    merge_host_official_catalog, official_marketplace_home, official_marketplace_origin,
+    OfficialPluginCatalog, OfficialPluginRecord, github_archive_urls_for_repository,
+    listings_from_host_official_catalog, merge_host_official_catalog,
+    monorepo_official_plugin_root, official_marketplace_home, official_marketplace_origin,
     official_plugin_catalog, official_plugin_category, official_plugin_record,
 };
 pub use official_mcp::{
@@ -127,11 +130,11 @@ pub use package::{
     AppToolbarContribution, CONTRIBUTION_ICONS, CapabilityRequest, FileOpenerContribution,
     FileOpenerTarget, HostServiceContribution, InvocationDefinition, InvocationKind,
     KANBAN_VIEW_SLOT, PackageAppContributions, PackageFormat, PackageSkill, PackageWarning,
-    PluginContentDocument, PluginContentIndex, PluginContentItem, PluginEntrypoints, PluginPackage,
-    PluginProductDetail, PluginSource, PluginSourceKind, PreviewProcessContribution,
-    PreviewProviderContribution, ProviderImportSourceContribution, RemoteModuleRef,
-    RemoteProvisionerContribution, RuntimeContribution, RuntimeInstall, SETTINGS_PAGE_SLOT,
-    SETTINGS_SECTION_SLOT, TIMELINE_CARD_SLOT, package_content_digest,
+    PluginContentDocument, PluginContentIndex, PluginContentItem, PluginDependency,
+    PluginEntrypoints, PluginPackage, PluginProductDetail, PluginSource, PluginSourceKind,
+    PreviewProcessContribution, PreviewProviderContribution, ProviderImportSourceContribution,
+    RemoteModuleRef, RemoteProvisionerContribution, RuntimeContribution, RuntimeInstall,
+    SETTINGS_PAGE_SLOT, SETTINGS_SECTION_SLOT, TIMELINE_CARD_SLOT, package_content_digest,
 };
 pub use plugin_mcp::{
     PluginMcpAdmission, PluginMcpKind, admit_plugin_mcp, admit_plugin_mcp_servers,
@@ -171,8 +174,9 @@ pub use runtime::{
 pub use service::PluginService;
 pub use worker_host::{
     CapabilityBroker, CapabilityGrant, DenyCapabilityBroker, PluginCrash, PluginLogLine,
-    ScopedCapabilityBroker, WorkerActivation, WorkerHost, WorkerHostError, recent_plugin_crashes,
-    recent_plugin_logs, record_plugin_crash, record_plugin_log, subscribe_worker_crashes,
+    ScopedCapabilityBroker, SharedNodeWorkerHost, WorkerActivation, WorkerHost, WorkerHostError,
+    recent_plugin_crashes, recent_plugin_logs, record_plugin_crash, record_plugin_log,
+    subscribe_worker_crashes,
 };
 pub use worker_http::{
     validate_loopback_mcp_url, worker_http_handler, worker_http_mcp_spec_from_endpoint,

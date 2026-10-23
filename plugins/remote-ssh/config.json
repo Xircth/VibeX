@@ -1,0 +1,9 @@
+{
+  "name": "",
+  "host": "",
+  "port": 22,
+  "user": "",
+  "jump": "",
+  "dataDir": "",
+  "rememberPassword": false
+}

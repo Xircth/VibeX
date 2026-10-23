@@ -87,7 +87,7 @@ impl ConversationExecutionPort for ConversationSessionExecutionPort {
                 conversation_id,
                 executor_profile_id,
                 text: request.text,
-                display_text: None,
+                display_text: request.display_text,
                 images: request.images,
                 mode_override: request.mode_override,
                 config_overrides,
@@ -100,6 +100,7 @@ impl ConversationExecutionPort for ConversationSessionExecutionPort {
                     })
                     .collect(),
                 file_refs: Vec::new(),
+                internal_prompt_contributions: request.internal_prompt_contributions,
                 queued_input_claim: None,
                 operation_id: request.operation_id,
             })

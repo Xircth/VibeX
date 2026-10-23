@@ -1,0 +1,27 @@
+{
+  "name": "vibex.browser",
+  "version": "2.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "node ../VibeX/packages/plugin-cli/dist/cli.js dev",
+    "build": "node ../VibeX/packages/plugin-cli/dist/cli.js build",
+    "validate": "node ../VibeX/packages/plugin-cli/dist/cli.js validate",
+    "test": "node ../VibeX/packages/plugin-cli/dist/cli.js test",
+    "package": "node ../VibeX/packages/plugin-cli/dist/cli.js package"
+  },
+  "dependencies": {
+    "@vibex/plugin-sdk": "link:../VibeX/packages/plugin-sdk",
+    "react": "19.2.8",
+    "react-dom": "19.2.8"
+  },
+  "devDependencies": {
+    "@module-federation/vite": "^1.9.0",
+    "@types/node": "^22.10.2",
+    "@types/react": "^19.0.10",
+    "@types/react-dom": "^19.0.4",
+    "@vibex/plugin-cli": "link:../VibeX/packages/plugin-cli",
+    "typescript": "^5.9.2",
+    "vite": "^6.3.0"
+  }
+}

@@ -596,6 +596,162 @@ pub async fn create_delegated_conversation(
     Ok(input.id)
 }
 
+/// Context passed to `beforeTurn` hooks prior to constructing the Agent prompt.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BeforeTurnContext {
+    pub conversation_id: Uuid,
+    pub workspace_id: Uuid,
+    pub agent_id: AgentId,
+    pub text: String,
+    pub display_text: String,
+    pub origin: String,
+}
+
+/// Event payload emitted to `afterTurn` hooks when a turn reaches a terminal state.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AfterTurnEvent {
+    pub conversation_id: Uuid,
+    pub turn_id: Uuid,
+    pub status: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub stop_reason: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub error_message: Option<String>,
+}
+
+/// Normalized runtime event notification broadcast to `onRuntimeEvent` plugin hooks.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RuntimeEventNotification {
+    pub id: Uuid,
+    pub conversation_id: Uuid,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub turn_id: Option<Uuid>,
+    pub sequence: i64,
+    pub source: String,
+    pub kind: String,
+    pub event: ConversationEvent,
+}
+
+type BeforeTurnHookFn =
+    dyn Fn(&BeforeTurnContext) -> Vec<agents::InternalPromptBlock> + Send + Sync + 'static;
+type AfterTurnHookFn = dyn Fn(&AfterTurnEvent) + Send + Sync + 'static;
+
+static BEFORE_TURN_HOOKS: std::sync::OnceLock<std::sync::RwLock<Vec<Arc<BeforeTurnHookFn>>>> =
+    std::sync::OnceLock::new();
+static AFTER_TURN_HOOKS: std::sync::OnceLock<std::sync::RwLock<Vec<Arc<AfterTurnHookFn>>>> =
+    std::sync::OnceLock::new();
+static AFTER_TURN_TX: std::sync::OnceLock<tokio::sync::broadcast::Sender<AfterTurnEvent>> =
+    std::sync::OnceLock::new();
+static RUNTIME_EVENT_TX: std::sync::OnceLock<
+    tokio::sync::broadcast::Sender<RuntimeEventNotification>,
+> = std::sync::OnceLock::new();
+
+fn before_turn_hooks() -> &'static std::sync::RwLock<Vec<Arc<BeforeTurnHookFn>>> {
+    BEFORE_TURN_HOOKS.get_or_init(|| std::sync::RwLock::new(Vec::new()))
+}
+
+fn after_turn_hooks() -> &'static std::sync::RwLock<Vec<Arc<AfterTurnHookFn>>> {
+    AFTER_TURN_HOOKS.get_or_init(|| std::sync::RwLock::new(Vec::new()))
+}
+
+fn after_turn_sender() -> &'static tokio::sync::broadcast::Sender<AfterTurnEvent> {
+    AFTER_TURN_TX.get_or_init(|| {
+        let (tx, _) = tokio::sync::broadcast::channel(256);
+        tx
+    })
+}
+
+fn runtime_event_sender() -> &'static tokio::sync::broadcast::Sender<RuntimeEventNotification> {
+    RUNTIME_EVENT_TX.get_or_init(|| {
+        let (tx, _) = tokio::sync::broadcast::channel(512);
+        tx
+    })
+}
+
+/// Register a programmable `beforeTurn` hook that can contribute implicit
+/// [`agents::InternalPromptBlock`] items to every turn.
+pub fn register_before_turn_hook<F>(hook: F)
+where
+    F: Fn(&BeforeTurnContext) -> Vec<agents::InternalPromptBlock> + Send + Sync + 'static,
+{
+    if let Ok(mut guard) = before_turn_hooks().write() {
+        guard.push(Arc::new(hook));
+    }
+}
+
+/// Register a programmable `afterTurn` hook invoked when a turn finishes.
+pub fn register_after_turn_hook<F>(hook: F)
+where
+    F: Fn(&AfterTurnEvent) + Send + Sync + 'static,
+{
+    if let Ok(mut guard) = after_turn_hooks().write() {
+        guard.push(Arc::new(hook));
+    }
+}
+
+/// Clears globally registered `beforeTurn` and `afterTurn` hooks (primarily for tests).
+pub fn clear_turn_hooks() {
+    if let Ok(mut guard) = before_turn_hooks().write() {
+        guard.clear();
+    }
+    if let Ok(mut guard) = after_turn_hooks().write() {
+        guard.clear();
+    }
+}
+
+/// Subscribe to terminal turn lifecycle events (`afterTurn`).
+pub fn subscribe_after_turn_events() -> tokio::sync::broadcast::Receiver<AfterTurnEvent> {
+    after_turn_sender().subscribe()
+}
+
+/// Subscribe to normalized durable runtime events (`onRuntimeEvent`).
+pub fn subscribe_runtime_events() -> tokio::sync::broadcast::Receiver<RuntimeEventNotification> {
+    runtime_event_sender().subscribe()
+}
+
+pub(crate) fn emit_runtime_event(
+    envelope: &ConversationEventEnvelope,
+    event_kind: &str,
+) {
+    let _ = runtime_event_sender().send(RuntimeEventNotification {
+        id: envelope.id,
+        conversation_id: envelope.conversation_id,
+        turn_id: envelope.turn_id,
+        sequence: envelope.sequence,
+        source: envelope.source.clone(),
+        kind: event_kind.to_owned(),
+        event: envelope.event.clone(),
+    });
+}
+
+pub(crate) fn collect_registered_before_turn_contributions(
+    ctx: &BeforeTurnContext,
+) -> Vec<agents::InternalPromptBlock> {
+    let hooks = before_turn_hooks()
+        .read()
+        .map(|guard| guard.clone())
+        .unwrap_or_default();
+    let mut out = Vec::new();
+    for hook in hooks {
+        out.extend(hook(ctx));
+    }
+    out
+}
+
+pub(crate) fn emit_after_turn_event(event: AfterTurnEvent) {
+    let _ = after_turn_sender().send(event.clone());
+    let hooks = after_turn_hooks()
+        .read()
+        .map(|guard| guard.clone())
+        .unwrap_or_default();
+    for hook in hooks {
+        hook(&event);
+    }
+}
+
 /// Injected src-tauri-coupled operations the turn lifecycle needs but that don't
 /// belong in this crate (workspace path resolution, prompt-block building from the
 /// workspace, agent launch settings). Implemented in the shell (`AppState`).
@@ -631,6 +787,17 @@ pub trait ConversationHost: Send + Sync {
     fn product_mcp_server_names(&self) -> Vec<String> {
         Vec::new()
     }
+
+    /// Optional `beforeTurn` hook allowing the Host to contribute implicit prompt blocks.
+    async fn before_turn(
+        &self,
+        _ctx: &BeforeTurnContext,
+    ) -> Result<Vec<agents::InternalPromptBlock>, ConversationServiceError> {
+        Ok(Vec::new())
+    }
+
+    /// Optional `afterTurn` hook invoked when a turn reaches a terminal state.
+    async fn after_turn(&self, _event: &AfterTurnEvent) {}
 }
 
 /// Receives a conversation event at the recorder boundary. `publish` runs after a
@@ -728,6 +895,9 @@ pub struct ConversationStartTurnInput {
     /// Structured workflow identities retained in the durable turn event.
     pub workflow_refs: Vec<ConversationWorkflowRef>,
     pub file_refs: Vec<agents::ConversationFileRef>,
+    /// Implicit plugin prompt contributions injected into the Agent prompt under
+    /// `<vibex-plugin-context>` while hidden from the user-facing timeline.
+    pub internal_prompt_contributions: Vec<agents::InternalPromptBlock>,
     /// Present only when this turn was claimed from the durable input queue.
     /// InputDispatched(input -> turn) is persisted before any Agent prompt send.
     pub queued_input_claim: Option<QueuedConversationInputClaim>,
@@ -956,13 +1126,44 @@ impl ConversationSessionService {
             Some(persona) => crate::collaboration::prefix_persona_prompt(persona, &input.text),
             None => input.text.clone(),
         };
-        let agent_text = match smart_reminder.as_deref() {
+        let mut agent_text = match smart_reminder.as_deref() {
             Some(reminder) if !prompt_text.trim().is_empty() => {
                 format!("{prompt_text}\n\n{reminder}")
             }
             Some(reminder) => reminder.to_string(),
             None => prompt_text,
         };
+
+        let before_turn_ctx = BeforeTurnContext {
+            conversation_id: input.conversation_id,
+            workspace_id: input.workspace_id,
+            agent_id: input.agent_id.clone(),
+            text: input.text.clone(),
+            display_text: display_text.clone(),
+            origin: origin.to_string(),
+        };
+        let mut internal_contributions = input.internal_prompt_contributions.clone();
+        internal_contributions.extend(self.ctx.host.before_turn(&before_turn_ctx).await?);
+        internal_contributions.extend(collect_registered_before_turn_contributions(
+            &before_turn_ctx,
+        ));
+        match agents::format_internal_prompt_contributions(&internal_contributions) {
+            Ok(Some(plugin_context_block)) => {
+                if agent_text.trim().is_empty() {
+                    agent_text = plugin_context_block;
+                } else {
+                    agent_text = format!("{agent_text}\n\n{plugin_context_block}");
+                }
+            }
+            Ok(None) => {}
+            Err(total_bytes) => {
+                return Err(ConversationServiceError::BadRequest(format!(
+                    "internalPromptContributions size ({total_bytes} bytes) exceeds maximum allowed {} bytes (16 KiB)",
+                    agents::MAX_INTERNAL_PROMPT_CONTRIBUTIONS_BYTES
+                )));
+            }
+        }
+
         let agent_blocks = self
             .ctx
             .host
@@ -1309,6 +1510,15 @@ impl ConversationSessionService {
                     state.recovery_status = Some("send_failed".to_string());
                 })
                 .await;
+                let after_event = AfterTurnEvent {
+                    conversation_id: input.conversation_id,
+                    turn_id,
+                    status: "failed".to_string(),
+                    stop_reason: None,
+                    error_message: Some(error.to_string()),
+                };
+                self.ctx.host.after_turn(&after_event).await;
+                emit_after_turn_event(after_event);
                 Err(error)
             }
         }
@@ -1432,6 +1642,7 @@ impl ConversationSessionService {
                     config_overrides: payload.config_overrides,
                     workflow_refs: payload.workflow_refs,
                     file_refs: payload.file_refs,
+                    internal_prompt_contributions: payload.internal_prompt_contributions,
                     queued_input_claim: Some(QueuedConversationInputClaim {
                         input_id,
                         claim_token,
@@ -2095,6 +2306,7 @@ impl ConversationSessionService {
                 config_overrides,
                 workflow_refs: Vec::new(),
                 file_refs: Vec::new(),
+                internal_prompt_contributions: Vec::new(),
                 queued_input_claim: None,
                 operation_id: None,
             },
@@ -3897,6 +4109,7 @@ fn start_turn_input_payload(
         config_overrides: input.config_overrides.clone(),
         workflow_refs: input.workflow_refs.clone(),
         file_refs: input.file_refs.clone(),
+        internal_prompt_contributions: input.internal_prompt_contributions.clone(),
     })
 }
 

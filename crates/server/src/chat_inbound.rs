@@ -1854,6 +1854,7 @@ async fn send_task(
             config_overrides: Vec::new(),
             workflow_refs: Vec::new(),
             file_refs: Vec::new(),
+            internal_prompt_contributions: Vec::new(),
             queued_input_claim: None,
             operation_id: None,
         })

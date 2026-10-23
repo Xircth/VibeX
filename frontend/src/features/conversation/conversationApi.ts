@@ -1,4 +1,10 @@
 import {
+  type InternalPromptContributionBlock,
+  promptContextRegistry,
+  resolveBeforeTurnPromptContributions,
+  serviceContainer,
+} from '@vibex/plugin-sdk';
+import {
   callApplicationCommand,
   configuredBackendTransport,
   type BackendTransport,
@@ -42,6 +48,7 @@ export type ConversationStartTurnRequest = {
   modeOverride?: string | null;
   configOverrides?: AgentSessionConfigOverride[];
   workflowRefs?: ConversationWorkflowRef[];
+  internalPromptContributions?: InternalPromptContributionBlock[];
 };
 
 export type ConversationLiveFeedbackNote = {
@@ -253,31 +260,99 @@ export function createConversationApi(transport: BackendTransport) {
     ): Promise<AgentSessionControlsSnapshot> =>
       call('conversation_rebind_session', { conversationId }),
 
-    startTurn: (
+    startTurn: async (
       request: ConversationStartTurnRequest
-    ): Promise<ConversationTurnSnapshot> =>
-      call('conversation_start_turn', {
+    ): Promise<ConversationTurnSnapshot> => {
+      const hasBeforeTurnHooks =
+        promptContextRegistry.size > 0 ||
+        serviceContainer.hasInterceptors('conversation.beforeTurn') ||
+        Boolean(request.internalPromptContributions?.length);
+      if (!hasBeforeTurnHooks) {
+        return call('conversation_start_turn', {
+          request: {
+            ...request,
+            images: request.images ?? [],
+          },
+        });
+      }
+      const resolved = await resolveBeforeTurnPromptContributions({
+        conversationId: request.conversationId,
+        workspaceId: request.workspaceId,
+        agentId: request.agentId,
+        text: request.text,
+        internalPromptContributions: request.internalPromptContributions,
+      });
+      return call('conversation_start_turn', {
         request: {
           ...request,
+          text: resolved.agentPromptText,
+          ...(resolved.agentPromptText !== request.text && !request.displayText
+            ? { displayText: request.text }
+            : {}),
+          ...(resolved.internalPromptContributions.length > 0
+            ? {
+                internalPromptContributions:
+                  resolved.internalPromptContributions,
+              }
+            : {}),
           images: request.images ?? [],
         },
-      }),
+      });
+    },
 
-    submitInput: (
+    submitInput: async (
       conversationId: string,
       payload: ConversationInputPayload,
       operationId?: string
-    ): Promise<ConversationInputSubmission> =>
-      operationId
+    ): Promise<ConversationInputSubmission> => {
+      const hasBeforeTurnHooks =
+        promptContextRegistry.size > 0 ||
+        serviceContainer.hasInterceptors('conversation.beforeTurn') ||
+        Boolean(
+          (
+            payload as ConversationInputPayload & {
+              internalPromptContributions?: InternalPromptContributionBlock[];
+            }
+          ).internalPromptContributions?.length
+        );
+      let effectivePayload = payload;
+      if (hasBeforeTurnHooks) {
+        const resolved = await resolveBeforeTurnPromptContributions({
+          conversationId,
+          workspaceId: payload.workspaceId,
+          agentId: payload.agentId,
+          text: payload.text,
+          internalPromptContributions: (
+            payload as ConversationInputPayload & {
+              internalPromptContributions?: InternalPromptContributionBlock[];
+            }
+          ).internalPromptContributions,
+        });
+        effectivePayload = {
+          ...payload,
+          text: resolved.agentPromptText,
+          ...(resolved.agentPromptText !== payload.text && !payload.displayText
+            ? { displayText: payload.text }
+            : {}),
+          ...(resolved.internalPromptContributions.length > 0
+            ? {
+                internalPromptContributions:
+                  resolved.internalPromptContributions as ConversationInputPayload['internalPromptContributions'],
+              }
+            : {}),
+        };
+      }
+      return operationId
         ? callApplicationCommand(
             transport,
             'conversation_input_submit',
-            { request: { conversationId, payload } },
+            { request: { conversationId, payload: effectivePayload } },
             { operationId }
           )
         : callApplicationCommand(transport, 'conversation_input_submit', {
-            request: { conversationId, payload },
-          }),
+            request: { conversationId, payload: effectivePayload },
+          });
+    },
 
     steer: (
       request: {

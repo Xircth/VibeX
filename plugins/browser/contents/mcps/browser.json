@@ -1,0 +1,23 @@
+{
+  "managedRuntime": {
+    "source": "runtime/mcp-server.mjs",
+    "entrypoint": "dist/mcp/mcp-server.mjs",
+    "protocolRevision": "2026-07-28",
+    "defaultBinding": "all-compatible-agents"
+  },
+  "tools": [
+    { "name": "browser_list_tabs", "group": "browser" },
+    { "name": "browser_open_tab", "group": "browser" },
+    { "name": "browser_navigate", "group": "browser" },
+    { "name": "browser_close_tab", "group": "browser" },
+    { "name": "browser_snapshot", "group": "browser" },
+    { "name": "browser_console_messages", "group": "browser" },
+    { "name": "browser_screenshot", "group": "browser" },
+    { "name": "browser_click", "group": "browser" },
+    { "name": "browser_hover", "group": "browser" },
+    { "name": "browser_type", "group": "browser" },
+    { "name": "browser_press_key", "group": "browser" },
+    { "name": "browser_select_option", "group": "browser" },
+    { "name": "browser_eval", "group": "browser" }
+  ]
+}

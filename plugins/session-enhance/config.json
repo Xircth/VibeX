@@ -1,0 +1,6 @@
+{
+  "feedback": true,
+  "question": true,
+  "sessionInfo": true,
+  "sessionControl": true
+}

@@ -1,4 +1,11 @@
 import type { JsonValue, PluginContext } from './protocol.js';
+import type { Disposer } from './registry.js';
+import {
+  type ServiceContainer,
+  type ServiceKey,
+  type WaterfallInterceptor,
+  serviceContainer,
+} from './services.js';
 
 export interface Disposable {
   dispose(): void | Promise<void>;
@@ -12,9 +19,98 @@ export interface PluginHostClient {
   ): Promise<T>;
 }
 
+export interface PluginWorkerServiceRegistry {
+  provide<T>(key: ServiceKey<T> | string, implementation: T): Disposer;
+  get<T>(key: ServiceKey<T> | string): T | undefined;
+  inject<T>(key: ServiceKey<T> | string): T | undefined;
+  inject(
+    deps: ReadonlyArray<ServiceKey<unknown> | string>,
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    effect: (resolved: any) => void | Disposer
+  ): Disposer;
+  require<T>(key: ServiceKey<T> | string): T;
+  has<T>(key: ServiceKey<T> | string): boolean;
+  intercept<TPayload = unknown, TResult = unknown>(
+    hookName: string,
+    fn:
+      | WaterfallInterceptor<TPayload, TResult>
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      | ((previousService: any) => any),
+    order?: number
+  ): Disposer;
+  runWaterfall<TPayload, TResult>(
+    hookName: string,
+    initialPayload: TPayload,
+    terminal: (payload: TPayload) => Promise<TResult>,
+    perHookTimeoutMs?: number
+  ): Promise<TResult>;
+  subscribe(listener: () => void): Disposer;
+}
+
+export function createWorkerServiceRegistry(
+  pluginId: string,
+  container: ServiceContainer = serviceContainer
+): PluginWorkerServiceRegistry {
+  return {
+    provide<T>(key: ServiceKey<T> | string, implementation: T): Disposer {
+      return container.provide(key, implementation, pluginId);
+    },
+    get<T>(key: ServiceKey<T> | string): T | undefined {
+      return container.get(key);
+    },
+    inject(
+      keyOrDeps:
+        | ServiceKey<unknown>
+        | string
+        | ReadonlyArray<ServiceKey<unknown> | string>,
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      effect?: (resolved: any) => void | Disposer
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    ): any {
+      if (Array.isArray(keyOrDeps)) {
+        return container.inject(keyOrDeps, effect!, pluginId);
+      }
+      return container.inject(keyOrDeps as ServiceKey<unknown> | string);
+    },
+    require<T>(key: ServiceKey<T> | string): T {
+      return container.require(key);
+    },
+    has<T>(key: ServiceKey<T> | string): boolean {
+      return container.has(key);
+    },
+    intercept<TPayload = unknown, TResult = unknown>(
+      hookName: string,
+      fn:
+        | WaterfallInterceptor<TPayload, TResult>
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        | ((previousService: any) => any),
+      order = 0
+    ): Disposer {
+      return container.intercept(hookName, fn, order, pluginId);
+    },
+    runWaterfall<TPayload, TResult>(
+      hookName: string,
+      initialPayload: TPayload,
+      terminal: (payload: TPayload) => Promise<TResult>,
+      perHookTimeoutMs?: number
+    ): Promise<TResult> {
+      return container.runWaterfall(
+        hookName,
+        initialPayload,
+        terminal,
+        perHookTimeoutMs
+      );
+    },
+    subscribe(listener: () => void): Disposer {
+      return container.subscribe(listener);
+    },
+  };
+}
+
 export interface PluginWorkerEnvironment {
   context: PluginContext;
   host: PluginHostClient;
+  services: PluginWorkerServiceRegistry;
   signal: AbortSignal;
   log: {
     debug(message: string, fields?: JsonValue): void;
@@ -26,14 +122,14 @@ export interface PluginWorkerEnvironment {
 
 export function normalizePluginContext(
   context: Partial<PluginContext> &
-    Pick<PluginContext, "pluginId" | "pluginVersion" | "generation">
+    Pick<PluginContext, 'pluginId' | 'pluginVersion' | 'generation'>
 ): PluginContext {
   return {
     pluginId: context.pluginId,
     pluginVersion: context.pluginVersion,
     generation: context.generation,
-    packageClass: context.packageClass ?? "full-trust",
-    grantedCapabilities: context.grantedCapabilities ?? ["*"],
+    packageClass: context.packageClass ?? 'full-trust',
+    grantedCapabilities: context.grantedCapabilities ?? ['*'],
   };
 }
 
@@ -68,7 +164,9 @@ export function definePluginWorker(
 
 export async function activatePluginWorker(
   definition: PluginWorkerDefinition,
-  environment: Omit<PluginWorkerEnvironment, 'signal'>
+  environment: Omit<PluginWorkerEnvironment, 'signal' | 'services'> & {
+    services?: PluginWorkerServiceRegistry;
+  }
 ): Promise<ActivatedPluginWorker> {
   if (definition.apiVersion !== '1.0') {
     throw new PluginSdkError(
@@ -80,8 +178,12 @@ export async function activatePluginWorker(
   const handlers = new Map<string, PluginHandler>();
   const disposables: Array<Disposable | (() => void | Promise<void>)> = [];
   let disposed = false;
+  const scopedServices =
+    environment.services ??
+    createWorkerServiceRegistry(environment.context.pluginId);
   const workerEnvironment: PluginWorkerEnvironment = {
     ...environment,
+    services: scopedServices,
     signal: controller.signal,
   };
   const registrar: PluginWorkerRegistrar = {
@@ -135,6 +237,7 @@ export async function activatePluginWorker(
           errors.push(error);
         }
       }
+      serviceContainer.disposeByPlugin(environment.context.pluginId);
       handlers.clear();
       if (errors.length) {
         throw new AggregateError(errors, 'Plugin worker disposal failed');

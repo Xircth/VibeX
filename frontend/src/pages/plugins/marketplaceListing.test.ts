@@ -31,30 +31,39 @@ function listing(
 }
 
 describe('marketplace listing categories', () => {
-  it('treats official as the vibex owner and topics as real categories', () => {
-    const session = listing('vibex', 'vibex.session-enhance', 'productivity');
+  it('exposes the 8 DSH category tabs and classifies official & community listings into categories', () => {
+    const session = listing('vibex', 'vibex.session-enhance', 'ai-enhancement');
     const notes = listing('acme', 'notes', 'community');
-    const drawio = listing('vibex', 'drawio', 'productivity');
+    const drawio = listing('vibex', 'drawio', 'design');
     const listings = flattenMarketplaceListings([session], [notes, drawio]);
 
     expect(listingTopicCategory('official')).toBeNull();
     expect(listingTopicCategory('community')).toBeNull();
-    expect(listingTopicCategory('productivity')).toBe('productivity');
+    expect(listingTopicCategory('design')).toBe('design');
+    expect(listingTopicCategory('ai-enhancement')).toBe('ai-enhancement');
     expect(marketplaceCategoryTabIds(listings)).toEqual([
       'all',
-      'official',
-      'productivity',
+      'design',
+      'development',
+      'science',
+      'ai-enhancement',
+      'utilities',
+      'aigc',
+      'other',
     ]);
     expect(
-      listingsInMarketplaceTab(listings, 'official').map(
+      listingsInMarketplaceTab(listings, 'ai-enhancement').map(
         (item) => item.pluginName
       )
-    ).toEqual(['vibex.session-enhance', 'drawio']);
+    ).toEqual(['vibex.session-enhance']);
     expect(
-      listingsInMarketplaceTab(listings, 'productivity').map(
+      listingsInMarketplaceTab(listings, 'design').map(
         (item) => item.pluginName
       )
-    ).toEqual(['vibex.session-enhance', 'drawio']);
+    ).toEqual(['drawio']);
+    expect(
+      listingsInMarketplaceTab(listings, 'other').map((item) => item.pluginName)
+    ).toEqual(['notes']);
     expect(
       listingsInMarketplaceTab(listings, 'all').map((item) => item.pluginName)
     ).toEqual(['vibex.session-enhance', 'notes', 'drawio']);

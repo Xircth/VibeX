@@ -178,6 +178,7 @@ impl ServerApplicationDomains {
             DomainCommand::PluginSurfaceOpen => self.plugin_surface_open(args).await,
             DomainCommand::PluginSurfaceInvoke => self.plugin_surface_invoke(args).await,
             DomainCommand::PluginSurfaceRevoke => self.plugin_surface_revoke(args).await,
+            DomainCommand::PluginHostCall => self.plugin_host_call(args).await,
             DomainCommand::PluginInvokeContribution => self.plugin_invoke_contribution(args).await,
             DomainCommand::ProjectList => self.project_list().await,
             DomainCommand::ProjectRepositories => self.project_repositories(args).await,
@@ -253,8 +254,12 @@ impl ServerApplicationDomains {
             | DomainCommand::WorkspaceCreateFromPr
             | DomainCommand::WorkspaceRunSetupScript
             | DomainCommand::WorkspaceRunCleanupScript
-            | DomainCommand::WorkspaceRunArchiveScript => self.product_command(command, args).await,
-            DomainCommand::AgentScanLocalHistory => self.surface_command(command, args).await,
+            | DomainCommand::WorkspaceRunArchiveScript => {
+                Box::pin(self.product_command(command, args)).await
+            }
+            DomainCommand::AgentScanLocalHistory => {
+                Box::pin(self.surface_command(command, args)).await
+            }
             DomainCommand::WorkspaceCreate
             | DomainCommand::WorkspaceUpdate
             | DomainCommand::WorkspaceDelete
@@ -315,7 +320,9 @@ impl ServerApplicationDomains {
             | DomainCommand::FrontendPreferencesUpdate
             | DomainCommand::ProjectWorktreeSettingsGet
             | DomainCommand::ProjectWorktreeSettingsUpdate
-            | DomainCommand::ReadBinaryAsset => self.product_command(command, args).await,
+            | DomainCommand::ReadBinaryAsset => {
+                Box::pin(self.product_command(command, args)).await
+            }
             DomainCommand::SubscribeDiffStream
             | DomainCommand::SubscribeConversationStream
             | DomainCommand::SubscribeExecutionProcessesStream
@@ -325,7 +332,7 @@ impl ServerApplicationDomains {
             | DomainCommand::SubscribeScratchStream
             | DomainCommand::SubscribeLogStream
             | DomainCommand::SubscribeSlashCommandsStream => {
-                self.subscribe_stream(command, args).await
+                Box::pin(self.subscribe_stream(command, args)).await
             }
             DomainCommand::AgentConnect
             | DomainCommand::AgentPrepareSession
@@ -448,12 +455,12 @@ impl ServerApplicationDomains {
             | DomainCommand::OpenCodeProviderDisconnect
             | DomainCommand::OpenCodeProviderImport
             | DomainCommand::OpenCodeProviderSetEnabled => {
-                self.surface_command(command, args).await
+                Box::pin(self.surface_command(command, args)).await
             }
             other if crate::host::catalog::handles(other) => {
-                crate::host::catalog::dispatch(self, other, args).await
+                Box::pin(crate::host::catalog::dispatch(self, other, args)).await
             }
-            other => self.host_ops(other, args).await,
+            other => Box::pin(self.host_ops(other, args)).await,
         }
     }
 
@@ -740,6 +747,9 @@ impl ServerApplicationDomains {
                 .await
                 .map_err(|error| ApplicationError::conflict(error.to_string()))?;
         } else {
+            self.capability_broker
+                .kill_plugin_processes(&args.plugin_id)
+                .await;
             if let Some(plugin) = control_plane
                 .plugin(&args.plugin_id)
                 .await
@@ -748,10 +758,22 @@ impl ServerApplicationDomains {
                 Self::remove_plugin_projections(&plugin).await?;
                 self.mark_plugin_bindings_disabled(&args.plugin_id).await?;
             }
-            control_plane
-                .set_enabled(&args.plugin_id, false)
-                .await
-                .map_err(internal_error)?;
+            if let Some(reason) = args
+                .quarantine_reason
+                .as_deref()
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+            {
+                control_plane
+                    .quarantine_plugin(&args.plugin_id, reason)
+                    .await
+                    .map_err(internal_error)?;
+            } else {
+                control_plane
+                    .set_enabled(&args.plugin_id, false)
+                    .await
+                    .map_err(internal_error)?;
+            }
         }
         self.refresh_official_product_runtime().await?;
         let plugin = control_plane
@@ -908,6 +930,12 @@ impl ServerApplicationDomains {
             plugins::PluginPackage::materialize(&source, &storage, source_kind)
                 .map_err(plugin_error)?
         };
+        if package.api_version != "2.0" {
+            return Err(ApplicationError::bad_request(format!(
+                "unsupported plugin apiVersion `{}`; VibeX v2 plugin architecture requires apiVersion \"2.0\"",
+                package.api_version
+            )));
+        }
         package.source.kind = source_kind;
         package.source.origin = args.origin;
         package.source.git_ref = args.git_ref;
@@ -1091,13 +1119,36 @@ impl ServerApplicationDomains {
             .ok_or_else(|| {
                 ApplicationError::not_found(format!("{}/{}", args.owner, args.plugin_name))
             })?;
-        serde_json::to_value(plugins::CatalogPluginDetail {
-            summary: listing.summary.clone(),
-            readme: listing.readme.clone().unwrap_or_default(),
-            contents: Vec::new(),
-            listing,
-        })
-        .map_err(|error| ApplicationError::internal(error.to_string()))
+        let detail = if listing.show_tree == Some(false) {
+            plugins::CatalogPluginDetail {
+                summary: listing.summary.clone(),
+                readme: listing.readme.clone().unwrap_or_default(),
+                contents: Vec::new(),
+                listing,
+            }
+        } else {
+            let package_id = listing
+                .offline_plugin_id
+                .as_deref()
+                .unwrap_or(&listing.plugin_name);
+            plugins::monorepo_official_plugin_root(package_id)
+                .and_then(|local_root| {
+                    plugins::PluginPackage::inspect(
+                        &local_root,
+                        plugins::PluginSourceKind::Marketplace,
+                    )
+                    .ok()
+                })
+                .map(|package| plugins::detail_from_package(&package, listing.clone()))
+                .unwrap_or_else(|| plugins::CatalogPluginDetail {
+                    summary: listing.summary.clone(),
+                    readme: listing.readme.clone().unwrap_or_default(),
+                    contents: Vec::new(),
+                    listing,
+                })
+        };
+        serde_json::to_value(detail)
+            .map_err(|error| ApplicationError::internal(error.to_string()))
     }
 
     async fn plugin_marketplace_install(&self, args: Value) -> Result<Value, ApplicationError> {
@@ -1121,6 +1172,55 @@ impl ServerApplicationDomains {
                 args.owner, args.plugin_name
             )));
         }
+        let mut last_error =
+            ApplicationError::not_found(format!("{}/{}", args.owner, args.plugin_name));
+        let conflict_decision = args.conflict.clone().unwrap_or_else(|| "reject".into());
+        let origin_url = plugins::marketplace_listing_url(&args.owner, &args.plugin_name);
+        let github_urls = plugins::official_github_archive_urls(&args.owner, &args.plugin_name);
+        for url in &github_urls {
+            match download_marketplace_archive(url).await {
+                Ok(archive) => {
+                    match self
+                        .plugin_control_import(json!({
+                            "path": archive.to_string_lossy(),
+                            "developerLink": false,
+                            "conflictDecision": conflict_decision,
+                            "origin": origin_url,
+                            "gitRef": args.tag.clone().or_else(|| Some("main".to_owned())),
+                            "locked": true,
+                        }))
+                        .await
+                    {
+                        Ok(result) => return Ok(result),
+                        Err(error) => last_error = error,
+                    }
+                }
+                Err(error) => last_error = error,
+            }
+        }
+        if let Some(monorepo_root) = plugins::monorepo_official_plugin_root(&args.plugin_name)
+            .or_else(|| {
+                plugins::monorepo_official_plugin_root(&format!(
+                    "{}.{}",
+                    args.owner, args.plugin_name
+                ))
+            })
+        {
+            match self
+                .plugin_control_import(json!({
+                    "path": monorepo_root.to_string_lossy(),
+                    "developerLink": false,
+                    "conflictDecision": conflict_decision,
+                    "origin": origin_url,
+                    "gitRef": args.tag.clone().or_else(|| Some("2.0.0".to_owned())),
+                    "locked": true,
+                }))
+                .await
+            {
+                Ok(result) => return Ok(result),
+                Err(error) => last_error = error,
+            }
+        }
         if let Ok(listing) =
             plugins::fetch_artifact(&args.owner, &args.plugin_name, args.tag.as_deref()).await
             && let Some(url) = listing.download_url.clone()
@@ -1132,32 +1232,13 @@ impl ServerApplicationDomains {
                 .plugin_control_import(json!({
                     "path": archive.to_string_lossy(),
                     "developerLink": false,
-                    "conflictDecision": args.conflict.unwrap_or_else(|| "reject".into()),
-                    "origin": plugins::marketplace_listing_url(&args.owner, &args.plugin_name),
+                    "conflictDecision": conflict_decision,
+                    "origin": origin_url,
                     "gitRef": listing.tag,
                     "locked": true,
                     "showTree": listing.show_tree,
                 }))
                 .await;
-        }
-        let mut last_error =
-            ApplicationError::not_found(format!("{}/{}", args.owner, args.plugin_name));
-        for url in plugins::official_github_archive_urls(&args.owner, &args.plugin_name) {
-            match download_marketplace_archive(&url).await {
-                Ok(archive) => {
-                    return self
-                        .plugin_control_import(json!({
-                            "path": archive.to_string_lossy(),
-                            "developerLink": false,
-                            "conflictDecision": args.conflict.unwrap_or_else(|| "reject".into()),
-                            "origin": plugins::marketplace_listing_url(&args.owner, &args.plugin_name),
-                            "gitRef": args.tag,
-                            "locked": true,
-                        }))
-                        .await;
-                }
-                Err(error) => last_error = error,
-            }
         }
         Err(last_error)
     }
@@ -1268,6 +1349,9 @@ impl ServerApplicationDomains {
             )));
         };
         Self::remove_plugin_projections(&plugin).await?;
+        self.capability_broker
+            .kill_plugin_processes(&args.plugin_id)
+            .await;
         let snapshot = matches!(
             plugin.source.kind,
             plugins::PluginSourceKind::Snapshot | plugins::PluginSourceKind::Marketplace
@@ -1277,8 +1361,11 @@ impl ServerApplicationDomains {
             .uninstall(&args.plugin_id)
             .await
             .map_err(plugin_error)?;
-        if !retain_data && let Some(source) = snapshot {
-            remove_managed_plugin_snapshot(&self.runtime_root, &source)?;
+        if !retain_data {
+            let _ = self.plugin_control_plane.kv_clear(&args.plugin_id).await;
+            if let Some(source) = snapshot {
+                remove_managed_plugin_snapshot(&self.runtime_root, &source)?;
+            }
         }
         let reclaimed = self
             .plugin_control_plane
@@ -1382,6 +1469,60 @@ impl ServerApplicationDomains {
             .await
             .map_err(app_surface_error)?;
         Ok(Value::Null)
+    }
+
+    async fn plugin_host_call(&self, args: Value) -> Result<Value, ApplicationError> {
+        #[derive(Deserialize)]
+        #[serde(rename_all = "camelCase")]
+        struct PluginHostCallArgs {
+            plugin_id: String,
+            capability: String,
+            operation: String,
+            #[serde(default)]
+            input: Value,
+        }
+        let args: PluginHostCallArgs = parse(args)?;
+        let plugin_id = args.plugin_id.trim();
+        let capability = args.capability.trim();
+        let operation = args.operation.trim();
+        if plugin_id.is_empty() || capability.is_empty() || operation.is_empty() {
+            return Err(ApplicationError::bad_request(
+                "pluginId, capability, and operation are required",
+            ));
+        }
+        let is_self_diagnostic =
+            capability == "plugin.self" && matches!(operation, "quarantine" | "status" | "doctor");
+        if !is_self_diagnostic {
+            if let Ok(Some(reason)) = self.plugin_control_plane.quarantine_reason(plugin_id).await {
+                return Err(ApplicationError::forbidden(format!(
+                    "plugin_quarantined: {reason}"
+                )));
+            }
+            if let Ok(Some(installed)) = self.plugin_control_plane.plugin(plugin_id).await
+                && installed.activation != plugins::PluginActivation::Enabled
+            {
+                return Err(ApplicationError::forbidden(format!(
+                    "plugin_disabled: plugin `{plugin_id}` is not enabled"
+                )));
+            }
+        }
+        let generation = self
+            .plugin_control_plane
+            .active_generation(plugin_id)
+            .await
+            .unwrap_or(0);
+        plugins::CapabilityBroker::call(
+            &*self.capability_broker,
+            plugin_id,
+            generation,
+            capability,
+            operation,
+            args.input,
+        )
+        .await
+        .map_err(|error| {
+            ApplicationError::bad_request(format!("{}: {}", error.code(), error.message()))
+        })
     }
 
     async fn plugin_open_file_preview(&self, args: Value) -> Result<Value, ApplicationError> {
@@ -2238,6 +2379,8 @@ struct PluginInvokeContributionArgs {
 struct PluginEnabledArgs {
     plugin_id: String,
     enabled: bool,
+    #[serde(default)]
+    quarantine_reason: Option<String>,
 }
 
 #[derive(Deserialize)]

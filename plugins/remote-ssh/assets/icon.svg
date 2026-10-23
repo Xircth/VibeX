@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="36" height="36" viewBox="0 0 36 36" fill="none">
+  <rect x="2.5" y="3.5" width="31" height="29" rx="8" fill="url(#ssh_bg)" />
+  <rect x="3" y="4" width="30" height="28" rx="7.5" stroke="#22D3EE" stroke-opacity="0.35" />
+  <path d="M9 14L14 18.5L9 23" stroke="#22D3EE" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" />
+  <path d="M16.5 23H24" stroke="#E0F2FE" stroke-width="2.2" stroke-linecap="round" />
+  <circle cx="26.5" cy="11.5" r="3" fill="#10B981" />
+  <circle cx="26.5" cy="11.5" r="5" stroke="#10B981" stroke-opacity="0.35" stroke-width="1.4" />
+  <defs>
+    <linearGradient id="ssh_bg" x1="3" y1="4" x2="33" y2="32" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#0F172A" />
+      <stop offset="0.6" stop-color="#1E293B" />
+      <stop offset="1" stop-color="#083344" />
+    </linearGradient>
+  </defs>
+</svg>

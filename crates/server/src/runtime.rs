@@ -39,6 +39,7 @@ pub(crate) struct ServerState<R> {
     pub(crate) preview_client: reqwest::Client,
     pub(crate) pty: PtyService,
     pub(crate) events: Arc<crate::HostEventBus>,
+    pub(crate) plugin_control_plane: Option<Arc<plugins::PluginControlPlane>>,
 }
 
 pub struct ServerRuntime<R> {
@@ -180,6 +181,7 @@ where
                     .expect("build loopback-only preview client"),
                 pty,
                 events,
+                plugin_control_plane: None,
             }),
         }
     }
@@ -218,6 +220,7 @@ impl ServerRuntime<application::SqliteConversationRepository> {
                     .expect("build loopback-only preview client"),
                 pty,
                 events: host.events.clone(),
+                plugin_control_plane: Some(host.plugin_control_plane.clone()),
             }),
         }
     }
@@ -254,6 +257,10 @@ where
         Router::new()
             .route("/health", get(health::<R>))
             .route("/api/v1/auth/pairings/redeem", post(redeem_pairing::<R>))
+            .route(
+                "/api/v1/plugin-artifacts/{plugin_id}/{*path}",
+                get(crate::plugin_artifact::serve_runtime_plugin_artifact::<R>),
+            )
             .route(
                 "/api/v1/previews/{lease_id}",
                 get(crate::preview_proxy::proxy_root::<R>),

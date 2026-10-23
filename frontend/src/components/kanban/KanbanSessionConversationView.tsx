@@ -20,6 +20,11 @@ import { createWorkspaceWithSession } from '@/types/attempt';
 import VirtualizedList, {
   type VirtualizedListRef,
 } from '@/components/logs/VirtualizedList';
+import {
+  PluginConversationModeSwitcher,
+  PluginConversationModeTakeover,
+  useActivePluginConversationMode,
+} from '@/components/plugins/PluginConversationModeHost';
 import { TaskFollowUpSection } from '@/components/tasks/TaskFollowUpSection';
 import { ActiveExecutorProfileProvider } from '@/contexts/ActiveExecutorProfileContext';
 import { EntriesProvider } from '@/contexts/EntriesContext';
@@ -469,6 +474,13 @@ function KanbanSessionConversationContent({
     onCreateSessionRequested?.();
   }, [onCreateSessionRequested, shouldShowNewSessionPrompt]);
 
+  const { activeMode } = useActivePluginConversationMode();
+  const isPluginModeTakeover = Boolean(
+    interactive &&
+      activeMode &&
+      activeMode.takeover !== false &&
+      (activeMode.component || activeMode.render)
+  );
   const conversationKey = buildSessionConversationKey(
     attempt.id,
     activeSession?.id ?? attempt.session?.id
@@ -484,12 +496,22 @@ function KanbanSessionConversationContent({
           <RetryUiProvider attemptId={attempt.id}>
             <ActiveExecutorProfileProvider>
               <div className="flex h-full min-h-0 flex-col">
+                {interactive && !shouldShowNewSessionPrompt ? (
+                  <PluginConversationModeSwitcher />
+                ) : null}
                 {shouldShowNewSessionPrompt ? (
                   <RightPanelNewSessionPrompt
                     className="flex-1"
                     onCreateSession={() => {
                       onCreateSessionRequested?.();
                     }}
+                  />
+                ) : isPluginModeTakeover && activeMode ? (
+                  <PluginConversationModeTakeover
+                    mode={activeMode}
+                    workspaceId={attempt.id}
+                    sessionId={activeSession?.id ?? attempt.session?.id}
+                    taskId={taskId}
                   />
                 ) : (
                   <div className="min-h-0 flex-1 overflow-hidden">
@@ -504,6 +526,7 @@ function KanbanSessionConversationContent({
                 )}
                 {interactive &&
                 !shouldShowNewSessionPrompt &&
+                !isPluginModeTakeover &&
                 !isAtConversationBottom ? (
                   <div className="pointer-events-none relative z-20 h-0">
                     <button
@@ -517,7 +540,9 @@ function KanbanSessionConversationContent({
                     </button>
                   </div>
                 ) : null}
-                {interactive && !shouldShowNewSessionPrompt ? (
+                {interactive &&
+                !shouldShowNewSessionPrompt &&
+                !isPluginModeTakeover ? (
                   <div className="shrink-0">
                     <TaskFollowUpSection
                       taskId={taskId}

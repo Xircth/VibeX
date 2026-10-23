@@ -1,45 +1,42 @@
+import { commandRegistry, defineVibeXPlugin } from '@vibex/plugin-sdk';
 import { describe, expect, it } from 'vitest';
 
 import {
-  isHttpRemoteEntry,
-  loadPluginRemote,
-  parseRemoteRef,
-  unloadPluginRemote,
+  activatePluginModule,
+  deactivatePluginModule,
+  isPluginModuleActive,
 } from './pluginFederation';
 
-describe('plugin federation remotes', () => {
-  it('accepts a named HTTP remote and defaults the module', () => {
-    expect(
-      parseRemoteRef({
-        name: 'host_surface',
-        entry: 'http://127.0.0.1:9/remoteEntry.js',
-      })
-    ).toEqual({
-      name: 'host_surface',
-      entry: 'http://127.0.0.1:9/remoteEntry.js',
-      module: './view',
+describe('v2 plugin module lifecycle', () => {
+  it('activates a v2 plugin module and disposes all registrations on deactivate', async () => {
+    const pluginId = 'vibex.test-lifecycle';
+    const module = defineVibeXPlugin({
+      id: pluginId,
+      activate(ctx) {
+        ctx.ui.registerCommand({
+          id: 'vibex.test-lifecycle.ping',
+          title: 'Ping',
+          handler: () => undefined,
+        });
+      },
     });
-    expect(isHttpRemoteEntry('http://127.0.0.1:9/remoteEntry.js')).toBe(true);
-    expect(isHttpRemoteEntry('dist/remoteEntry.js')).toBe(false);
+
+    await activatePluginModule(pluginId, module);
+    expect(isPluginModuleActive(pluginId)).toBe(true);
+    expect(commandRegistry.has('vibex.test-lifecycle.ping')).toBe(true);
+
+    deactivatePluginModule(pluginId);
+    expect(isPluginModuleActive(pluginId)).toBe(false);
+    expect(commandRegistry.has('vibex.test-lifecycle.ping')).toBe(false);
   });
 
-  it('rejects an incomplete remote', () => {
-    expect(parseRemoteRef({ name: 'host_surface' })).toBeNull();
-    expect(parseRemoteRef(null)).toBeNull();
-  });
-
-  it('unloads a remote without requiring a prior load', () => {
-    expect(() => unloadPluginRemote('host_surface')).not.toThrow();
-  });
-
-  it('unregisters after a failed remote load without throwing', async () => {
+  it('rejects modules without an activate export', async () => {
     await expect(
-      loadPluginRemote({
-        name: 'host_surface',
-        entry: 'http://127.0.0.1:9/remoteEntry.js',
-        module: './view',
-      })
-    ).rejects.toThrow('plugin_remote_export_missing');
-    expect(() => unloadPluginRemote('host_surface')).not.toThrow();
+      activatePluginModule('vibex.invalid', { notAPlugin: true })
+    ).rejects.toThrow('plugin_activate_export_missing');
+  });
+
+  it('allows safe deactivation when plugin was never activated', () => {
+    expect(() => deactivatePluginModule('vibex.nonexistent')).not.toThrow();
   });
 });

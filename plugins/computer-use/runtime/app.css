@@ -1,0 +1,399 @@
+/* Iframe fallback only. On the host, body.legacy-design already paints
+   settings cards, the 0.875rem radius, and status pills. */
+body:not(.legacy-design) .settings-page {
+  color-scheme: light dark;
+  --radius: 0.5rem;
+  --foreground: 0 0% 13%;
+  --muted-foreground: 0 0% 42%;
+  --destructive: 0 78% 55%;
+  --destructive-foreground: 0 0% 100%;
+  --warning: 36 92% 45%;
+  --success: 145 68% 36%;
+  --text-strong: hsl(0 0% 12%);
+  --text-muted: hsl(0 0% 42%);
+}
+
+html.dark body:not(.legacy-design) .settings-page,
+body.dark:not(.legacy-design) .settings-page,
+html[data-theme='dark'] body:not(.legacy-design) .settings-page {
+  --foreground: 210 20% 92%;
+  --muted-foreground: 212 9% 58%;
+  --destructive: 0 74% 58%;
+  --destructive-foreground: 0 0% 100%;
+  --warning: 38 92% 56%;
+  --success: 145 65% 48%;
+  --text-strong: hsl(210 20% 92%);
+  --text-muted: hsl(212 9% 58%);
+}
+
+body:not(.legacy-design) .settings-page,
+body:not(.legacy-design) .settings-page *,
+body:not(.legacy-design) .settings-page *::before,
+body:not(.legacy-design) .settings-page *::after {
+  box-sizing: border-box;
+}
+
+body:not(.legacy-design) .settings-page {
+  margin: 0;
+  font-family: var(--font-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif);
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--text-strong);
+}
+
+body:not(.legacy-design) .settings-page .settings-content {
+  display: flex;
+  flex-direction: column;
+  width: min(100%, 860px);
+  min-height: 100%;
+  margin: 0 auto;
+  padding: 0.25rem 0.5rem 1.5rem;
+}
+
+body:not(.legacy-design) .settings-page .settings-page-header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.75rem;
+  margin-bottom: 1rem;
+}
+
+body:not(.legacy-design) .settings-page .settings-page-header h2 {
+  margin: 0;
+  color: var(--text-strong);
+  font-size: 1rem;
+  font-weight: 600;
+}
+
+body:not(.legacy-design) .settings-page .settings-page-header p {
+  margin: 0.25rem 0 0;
+  color: var(--text-muted);
+  font-size: 0.75rem;
+}
+
+body:not(.legacy-design) .settings-page .settings-sections {
+  display: grid;
+  gap: 1rem;
+}
+
+body:not(.legacy-design) .settings-page .settings-section > div:first-child h3 {
+  margin: 0;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.75rem;
+  font-weight: 600;
+}
+
+body:not(.legacy-design) .settings-page .settings-section > div:first-child p {
+  margin: 0.25rem 0 0;
+  color: var(--text-muted);
+  font-size: 0.75rem;
+}
+
+body:not(.legacy-design) .settings-page .settings-card {
+  margin-top: 0.5rem;
+  border: 1px solid var(--border-content);
+  border-radius: var(--radius);
+  background: var(--surface-content);
+}
+
+body:not(.legacy-design) .settings-page .settings-card > :not([hidden]) {
+  padding: 0.75rem 1rem;
+}
+
+body:not(.legacy-design) .settings-page .settings-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  min-height: 2.75rem;
+}
+
+body:not(.legacy-design) .settings-page .settings-row--stacked {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  justify-content: flex-start;
+}
+
+body:not(.legacy-design) .settings-page .settings-subrows {
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+body:not(.legacy-design) .settings-page .settings-subrows > .settings-row {
+  margin-inline: 1.5rem 1rem;
+  padding-block: 0.75rem;
+}
+
+body:not(.legacy-design) .settings-page .settings-row :where(label,
+body:not(.legacy-design) .settings-row__label) {
+  font-size: 0.75rem;
+  line-height: 1.35;
+}
+
+.settings-page .astryx-button[data-size='compact'] .astryx-button-icon svg,
+.settings-page .astryx-button[data-size='mini'] .astryx-button-icon svg {
+  width: 100%;
+  height: 100%;
+}
+
+body:not(.legacy-design) .settings-page .settings-row__description,
+.legacy-design .settings-page .settings-row__description,
+.settings-page .settings-row__description,
+.settings-page .settings-section__description {
+  margin: 0.2rem 0 0;
+  color: var(--text-muted);
+  font-size: 0.75rem;
+  line-height: 1.45;
+}
+
+body:not(.legacy-design) .settings-page .settings-status-pill-neutral,
+body:not(.legacy-design) .settings-page .settings-status-pill-success,
+body:not(.legacy-design) .settings-page .settings-status-pill-warning,
+body:not(.legacy-design) .settings-page .settings-status-pill-danger {
+  display: inline-flex;
+  align-items: center;
+  border: 1px solid transparent;
+  border-radius: var(--radius);
+  padding: 0.125rem 0.5rem;
+  font-size: 0.75rem;
+  font-weight: 500;
+}
+
+body:not(.legacy-design) .settings-page .settings-status-pill-neutral {
+  border-color: var(--border-content);
+  background: var(--surface-control);
+  color: var(--text-muted);
+}
+
+body:not(.legacy-design) .settings-page .settings-status-pill-success {
+  border-color: hsl(var(--success) / 0.35);
+  background: hsl(var(--success) / 0.12);
+  color: hsl(var(--success));
+}
+
+body:not(.legacy-design) .settings-page .settings-status-pill-warning {
+  border-color: hsl(var(--warning) / 0.35);
+  background: hsl(var(--warning) / 0.12);
+  color: hsl(var(--warning));
+}
+
+body:not(.legacy-design) .settings-page .settings-status-pill-danger {
+  border-color: hsl(var(--destructive) / 0.35);
+  background: hsl(var(--destructive) / 0.12);
+  color: hsl(var(--destructive));
+}
+
+body:not(.legacy-design) .settings-page .settings-meta-chip,
+body:not(.legacy-design) .settings-page .settings-kbd {
+  border: 1px solid var(--border-content);
+  border-radius: 0.375rem;
+  background: var(--surface-control);
+  color: var(--text-muted);
+  padding: 0.125rem 0.375rem;
+  font-size: 0.75rem;
+}
+
+body:not(.legacy-design) .settings-page .settings-action-bar {
+  position: sticky;
+  bottom: 0.5rem;
+  z-index: 20;
+  margin-top: 1rem;
+}
+
+body:not(.legacy-design) .settings-page .settings-action-bar__stage {
+  border: 1px solid var(--border-glass);
+  border-radius: 0.75rem;
+  background: var(--surface-content);
+  padding: 0.5rem 0.875rem;
+}
+
+body:not(.legacy-design) .settings-page .settings-action-bar__inner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+body:not(.legacy-design) .settings-page .settings-action-bar__actions {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+body:not(.legacy-design) .settings-page button,
+body:not(.legacy-design) .settings-page select,
+body:not(.legacy-design) .settings-page input {
+  font: inherit;
+}
+
+body:not(.legacy-design) .settings-page button[role='switch'] {
+  position: relative;
+  display: inline-flex;
+  width: 2.25rem;
+  height: 1.25rem;
+  flex-shrink: 0;
+  cursor: pointer;
+  align-items: center;
+  border-radius: 9999px;
+  border: 1px solid var(--border-content);
+  background: var(--surface-control);
+  padding: 0;
+  transition: background-color 140ms ease;
+}
+
+body:not(.legacy-design) .settings-page button[role='switch'][data-state='checked'] {
+  background: hsl(var(--primary));
+  border-color: hsl(var(--primary));
+}
+
+body:not(.legacy-design) .settings-page button[role='switch'] > span {
+  display: block;
+  width: 0.95rem;
+  height: 0.95rem;
+  border-radius: 9999px;
+  background: var(--text-muted);
+  transform: translateX(2px);
+  transition: transform 140ms ease, background-color 140ms ease;
+}
+
+body:not(.legacy-design) .settings-page button[role='switch'][data-state='checked'] > span {
+  background: #fff;
+  transform: translateX(16px);
+}
+
+.legacy-design .settings-page .astryx-field .astryx-text-input,
+.settings-page .astryx-field .astryx-text-input {
+  box-sizing: border-box !important;
+  position: relative !important;
+  z-index: 1;
+  display: flex !important;
+  align-items: center !important;
+  width: 100% !important;
+  height: var(--size-element-md, 32px) !important;
+  min-height: var(--size-element-md, 32px) !important;
+  gap: var(--spacing-2, 8px) !important;
+  padding-block: var(--spacing-1, 4px) !important;
+  padding-inline: var(--spacing-2, 8px) !important;
+  border-width: var(--border-width, 1px) !important;
+  border-style: solid !important;
+  border-color: var(--color-border-emphasized, #CCD3DB) !important;
+  border-radius: var(--_field-radius, var(--radius-element, 8px)) !important;
+  background: var(--color-background-surface, #FFFFFF) !important;
+  background-color: var(--color-background-surface, #FFFFFF) !important;
+  background-image: none !important;
+  box-shadow: none !important;
+  outline: none !important;
+  cursor: text !important;
+  transition:
+    border-color var(--duration-fast, 175ms) var(--ease-standard, cubic-bezier(0.24, 1, 0.4, 1)),
+    box-shadow var(--duration-fast, 175ms) var(--ease-standard, cubic-bezier(0.24, 1, 0.4, 1)) !important;
+}
+.dark .legacy-design .settings-page .astryx-field .astryx-text-input,
+.legacy-design.dark .settings-page .astryx-field .astryx-text-input,
+.dark .settings-page .astryx-field .astryx-text-input {
+  border-color: var(--color-border-emphasized, #494D53) !important;
+  background: var(--color-background-surface, #1F1F22) !important;
+  background-color: var(--color-background-surface, #1F1F22) !important;
+}
+.legacy-design .settings-page .astryx-field .astryx-text-input:hover:not(:focus-within),
+.settings-page .astryx-field .astryx-text-input:hover:not(:focus-within) {
+  box-shadow: inset 0px 0px 0px 2px color-mix(in srgb, var(--color-border-emphasized, #CCD3DB) 30%, transparent) !important;
+}
+.dark .legacy-design .settings-page .astryx-field .astryx-text-input:hover:not(:focus-within),
+.legacy-design.dark .settings-page .astryx-field .astryx-text-input:hover:not(:focus-within),
+.dark .settings-page .astryx-field .astryx-text-input:hover:not(:focus-within) {
+  box-shadow: inset 0px 0px 0px 2px color-mix(in srgb, var(--color-border-emphasized, #494D53) 30%, transparent) !important;
+}
+.legacy-design .settings-page .astryx-field .astryx-text-input:focus-within,
+.settings-page .astryx-field .astryx-text-input:focus-within {
+  border-color: var(--color-accent, hsl(0 0% 9%)) !important;
+  box-shadow: inset 0px 0px 0px 2px var(--color-accent-muted, hsl(0 0% 9% / 0.16)) !important;
+}
+.dark .legacy-design .settings-page .astryx-field .astryx-text-input:focus-within,
+.legacy-design.dark .settings-page .astryx-field .astryx-text-input:focus-within,
+.dark .settings-page .astryx-field .astryx-text-input:focus-within {
+  border-color: var(--color-accent, hsl(210 20% 92%)) !important;
+  box-shadow: inset 0px 0px 0px 2px var(--color-accent-muted, hsl(210 20% 92% / 0.2)) !important;
+}
+.legacy-design .settings-page .astryx-field .astryx-text-input > input.astryx-text-input__inner,
+.legacy-design .settings-page .astryx-field .astryx-text-input > input.astryx-text-input__inner:hover,
+.legacy-design .settings-page .astryx-field .astryx-text-input > input.astryx-text-input__inner:focus,
+.legacy-design .settings-page .astryx-field .astryx-text-input > input.astryx-text-input__inner:focus-visible,
+.settings-page .astryx-field .astryx-text-input > input.astryx-text-input__inner,
+.settings-page .astryx-field .astryx-text-input > input.astryx-text-input__inner:hover,
+.settings-page .astryx-field .astryx-text-input > input.astryx-text-input__inner:focus,
+.settings-page .astryx-field .astryx-text-input > input.astryx-text-input__inner:focus-visible {
+  appearance: none !important;
+  -webkit-appearance: none !important;
+  display: block !important;
+  flex: 1 1 0% !important;
+  width: 100% !important;
+  min-width: 0 !important;
+  height: auto !important;
+  min-height: 0 !important;
+  max-height: none !important;
+  padding: 0 !important;
+  padding-inline: 0 !important;
+  margin: 0 !important;
+  border: 0 !important;
+  border-width: 0 !important;
+  border-style: none !important;
+  border-color: transparent !important;
+  border-radius: 0 !important;
+  background: transparent !important;
+  background-color: transparent !important;
+  background-image: none !important;
+  box-shadow: none !important;
+  outline: none !important;
+  font-family: var(--font-family-body, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif) !important;
+  font-size: 12px !important;
+  line-height: 1.4286 !important;
+  color: var(--color-text-primary, #0A1317) !important;
+}
+.dark .legacy-design .settings-page .astryx-field .astryx-text-input > input.astryx-text-input__inner,
+.legacy-design.dark .settings-page .astryx-field .astryx-text-input > input.astryx-text-input__inner,
+.dark .settings-page .astryx-field .astryx-text-input > input.astryx-text-input__inner {
+  color: var(--color-text-primary, #DFE2E5) !important;
+}
+.legacy-design .settings-page .astryx-field .astryx-text-input > input.astryx-text-input__inner::placeholder,
+.settings-page .astryx-field .astryx-text-input > input.astryx-text-input__inner::placeholder {
+  color: var(--color-text-secondary, #4E606F) !important;
+  opacity: 1 !important;
+}
+.dark .legacy-design .settings-page .astryx-field .astryx-text-input > input.astryx-text-input__inner::placeholder,
+.legacy-design.dark .settings-page .astryx-field .astryx-text-input > input.astryx-text-input__inner::placeholder,
+.dark .settings-page .astryx-field .astryx-text-input > input.astryx-text-input__inner::placeholder {
+  color: var(--color-text-secondary, #AAAFB5) !important;
+  opacity: 1 !important;
+}
+.legacy-design .settings-page .astryx-field .astryx-text-input > button.astryx-text-input__clear,
+.settings-page .astryx-field .astryx-text-input > button.astryx-text-input__clear {
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  width: 16px !important;
+  height: 16px !important;
+  min-width: 16px !important;
+  min-height: 16px !important;
+  padding: 0 !important;
+  margin: 0 !important;
+  border: 0 !important;
+  border-radius: var(--radius-element, 8px) !important;
+  background: transparent !important;
+  background-color: transparent !important;
+  box-shadow: none !important;
+  color: var(--color-icon-secondary, #4E606F) !important;
+  cursor: pointer !important;
+  flex-shrink: 0 !important;
+  outline: none !important;
+}
+.dark .legacy-design .settings-page .astryx-field .astryx-text-input > button.astryx-text-input__clear,
+.legacy-design.dark .settings-page .astryx-field .astryx-text-input > button.astryx-text-input__clear,
+.dark .settings-page .astryx-field .astryx-text-input > button.astryx-text-input__clear {
+  color: var(--color-icon-secondary, #AAAFB5) !important;
+}

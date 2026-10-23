@@ -9,4 +9,5 @@ export interface LinkedPackage {
     identity: PluginIdentity;
     packageDigest: string;
 }
+export declare function resolvePluginDirectoryInput(input?: string): string;
 export declare function inspectLinkedPackage(root: string): Promise<LinkedPackage>;

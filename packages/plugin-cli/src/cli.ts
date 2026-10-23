@@ -13,10 +13,14 @@ import {
 } from "./pluginRun.js";
 import {
   doctorOnProductHost,
+  enableOnProductHost,
   importLinkedOnProductHost,
   uninstallOnProductHost,
 } from "./productHost.js";
-import { inspectLinkedPackage } from "./pluginControl.js";
+import {
+  inspectLinkedPackage,
+  resolvePluginDirectoryInput,
+} from "./pluginControl.js";
 import { scaffoldPlugin } from "./scaffold.js";
 import { testPlugin } from "./pluginTest.js";
 import { validatePlugin } from "./validation.js";
@@ -33,6 +37,7 @@ Commands:
   build [dir]
   test [dir] [--host]
   dev [dir]
+  reload [id|dir]
   install --link [dir]
   uninstall [dir] [--delete-data]
   pack [dir] [--output file.vxp]
@@ -101,9 +106,21 @@ try {
       console.log(`${result.output}\nsha256:${result.lock.packageDigest}`);
       break;
     }
+    case "reload": {
+      const target = resolvePluginDirectoryInput(positional(args) ?? ".");
+      const plugin = await inspectLinkedPackage(target);
+      const result = await importLinkedOnProductHost(plugin.root, plugin.identity);
+      if (!result.queued) {
+        await enableOnProductHost(plugin.identity.id).catch(() => undefined);
+      }
+      console.log(
+        `Reloaded ${result.plugin.publisher}/${result.plugin.id} generation ${result.generation} (${result.packageDigest || plugin.packageDigest})`,
+      );
+      break;
+    }
     case "install": {
       if (!args.includes("--link")) throw new Error("install_requires_--link");
-      const root = resolve(positional(args) ?? ".");
+      const root = resolvePluginDirectoryInput(positional(args) ?? ".");
       await buildPlugin(root);
       const plugin = await inspectLinkedPackage(root);
       const result = await importLinkedOnProductHost(plugin.root, plugin.identity);
@@ -113,7 +130,7 @@ try {
       break;
     }
     case "uninstall": {
-      const root = resolve(positional(args) ?? ".");
+      const root = resolvePluginDirectoryInput(positional(args) ?? ".");
       const plugin = await inspectLinkedPackage(root);
       const result = await uninstallOnProductHost(
         plugin.identity.id,
@@ -164,7 +181,7 @@ try {
       break;
     }
     case "doctor": {
-      const root = resolve(positional(args) ?? ".");
+      const root = resolvePluginDirectoryInput(positional(args) ?? ".");
       const plugin = await inspectLinkedPackage(root);
       const report = await doctorOnProductHost(plugin.identity.id);
       console.log(JSON.stringify(report, null, 2));

@@ -1,0 +1,30 @@
+{
+  "defaultTarget": {
+    "transcript": "builtin",
+    "toolCard": "builtin",
+    "terminal": "builtin",
+    "editor": "builtin",
+    "notification": "builtin"
+  },
+  "hostRules": [],
+  "toolsEnabled": true,
+  "defaultGrant": "control",
+  "originGrants": {
+    "https://github.com": "control"
+  },
+  "evalEnabled": true,
+  "evalApproval": "ask",
+  "serviceAutoOpen": "toast",
+  "terminalClickMenu": true,
+  "devtools": true,
+  "surfaceOverride": "window",
+  "suspendBackgroundTabs": true,
+  "signInUserAgent": true,
+  "profiles": [
+    {
+      "id": "default",
+      "label": "默认"
+    }
+  ],
+  "newTabProfile": "default"
+}

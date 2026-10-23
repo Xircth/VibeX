@@ -1,4 +1,6 @@
+import { useSlotContributions } from '@vibex/plugin-sdk';
 import { AppSurfaceHost } from '@/components/plugins/AppSurfaceHost';
+import { Slot } from '@/components/plugins/Slot';
 import {
   contributionMetadata,
   usePluginHostContributions,
@@ -10,10 +12,15 @@ const transport = createBackendAppSurfaceTransport(configuredBackendTransport);
 
 export function PluginTimelineCards() {
   const cards = usePluginHostContributions('timeline_card');
-  if (cards.length === 0) return null;
+  const slotCards = useSlotContributions('conversation.timeline.card');
+  if (cards.length === 0 && slotCards.length === 0) return null;
 
   return (
     <div className="flex flex-col gap-2 px-3 pb-2">
+      <Slot
+        name="conversation.timeline.card"
+        itemClassName="overflow-hidden rounded-lg border border-border/60 bg-card"
+      />
       {cards.map((card) => {
         const metadata = contributionMetadata(card);
         const surfaceId = String(metadata.surfaceId ?? card.id);

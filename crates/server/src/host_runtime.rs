@@ -50,6 +50,7 @@ pub struct HostRuntime {
     pub adapter: AdapterCapabilities,
     pub automation_ownership: AutomationOwnership,
     pub agent_management_runtime: Arc<AgentManagementRuntimeState>,
+    pub plugin_control_plane: Arc<PluginControlPlane>,
 }
 
 pub struct HostRuntimeParts {
@@ -111,7 +112,7 @@ impl HostRuntime {
         if let Some(conversation_host) = parts.conversation_host {
             conversation_host.attach_core(core.clone());
         }
-        spawn_plugin_contribution_bridge(plugin_control_plane, events.clone());
+        spawn_plugin_contribution_bridge(plugin_control_plane.clone(), events.clone());
         Self {
             commands: CommandRegistry::from_core(core.clone()),
             core,
@@ -121,6 +122,7 @@ impl HostRuntime {
             adapter: parts.adapter,
             automation_ownership: parts.automation_ownership,
             agent_management_runtime,
+            plugin_control_plane,
         }
     }
 
@@ -142,6 +144,52 @@ fn spawn_plugin_contribution_bridge(
     control_plane: Arc<PluginControlPlane>,
     events: Arc<HostEventBus>,
 ) {
+    let internal_events = events.clone();
+    tokio::spawn(async move {
+        let mut rx = conversations::subscribe_internal_messages();
+        loop {
+            match rx.recv().await {
+                Ok(message) => internal_events.emit("plugin-internal-message", message),
+                Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => continue,
+                Err(tokio::sync::broadcast::error::RecvError::Closed) => break,
+            }
+        }
+    });
+    let after_turn_events = events.clone();
+    tokio::spawn(async move {
+        let mut rx = conversations::subscribe_after_turn_events();
+        loop {
+            match rx.recv().await {
+                Ok(after_turn) => after_turn_events.emit("conversation-after-turn", after_turn),
+                Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => continue,
+                Err(tokio::sync::broadcast::error::RecvError::Closed) => break,
+            }
+        }
+    });
+    let runtime_events = events.clone();
+    tokio::spawn(async move {
+        let mut rx = conversations::subscribe_runtime_events();
+        loop {
+            match rx.recv().await {
+                Ok(runtime_event) => {
+                    runtime_events.emit("conversation-runtime-event", runtime_event)
+                }
+                Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => continue,
+                Err(tokio::sync::broadcast::error::RecvError::Closed) => break,
+            }
+        }
+    });
+    let plugin_toast_events = events.clone();
+    tokio::spawn(async move {
+        let mut rx = plugins::subscribe_plugin_toasts();
+        loop {
+            match rx.recv().await {
+                Ok(toast) => plugin_toast_events.emit("plugin-notify-toast", toast),
+                Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => continue,
+                Err(tokio::sync::broadcast::error::RecvError::Closed) => break,
+            }
+        }
+    });
     tokio::spawn(async move {
         let mut changes = control_plane.subscribe_catalog_changes();
         loop {

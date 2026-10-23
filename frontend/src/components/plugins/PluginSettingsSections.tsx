@@ -1,4 +1,7 @@
+import { useSettingSections, useSlotContributions } from '@vibex/plugin-sdk';
 import { AppSurfaceHost } from '@/components/plugins/AppSurfaceHost';
+import { PluginBoundary } from '@/components/plugins/PluginBoundary';
+import { Slot } from '@/components/plugins/Slot';
 import {
   contributionMetadata,
   usePluginHostContributions,
@@ -10,10 +13,44 @@ const transport = createBackendAppSurfaceTransport(configuredBackendTransport);
 
 export function PluginSettingsSections() {
   const sections = usePluginHostContributions('settings_section');
-  if (sections.length === 0) return null;
+  const sdkSections = useSettingSections();
+  const slotSections = useSlotContributions('settings.section');
+  if (
+    sections.length === 0 &&
+    sdkSections.length === 0 &&
+    slotSections.length === 0
+  ) {
+    return null;
+  }
 
   return (
     <>
+      {sdkSections.map((section) => {
+        const SectionComponent = section.component;
+        return (
+          <section
+            key={section.id}
+            className="settings-section space-y-3"
+            data-testid={`plugin-setting-section-${section.id}`}
+          >
+            <h2 className="text-sm font-medium text-foreground">
+              {section.title}
+            </h2>
+            {SectionComponent ? (
+              <PluginBoundary
+                pluginId={section.pluginId ?? 'builtin'}
+                slot="settings.section"
+              >
+                <SectionComponent
+                  pluginId={section.pluginId ?? 'builtin'}
+                  sectionId={section.id}
+                />
+              </PluginBoundary>
+            ) : null}
+          </section>
+        );
+      })}
+      <Slot name="settings.section" itemClassName="settings-section space-y-3" />
       {sections.map((section) => {
         const metadata = contributionMetadata(section);
         const surfaceId = String(metadata.surfaceId ?? section.id);

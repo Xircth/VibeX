@@ -1,4 +1,5 @@
-import { useEffect, useState } from 'react';
+import { usePanels } from '@vibex/plugin-sdk';
+import { useEffect, useMemo, useState } from 'react';
 import type { IDockviewPanelProps } from 'dockview-react';
 import { useParams } from 'react-router-dom';
 import { PluginRemoteView } from '@/components/plugins/PluginRemoteView';
@@ -8,6 +9,7 @@ import {
   contributionMetadata,
   usePluginHostContributions,
 } from '@/hooks/usePluginHostContributions';
+import type { PluginContributionCatalogItem } from '@/lib/api/plugins';
 import { parsePluginSurfaceId } from '@/lib/hostSurfaceIds';
 import { isWorkspaceSurfaceActive } from '@/lib/workspaceSurface';
 import { useLayoutStore } from '@/stores/useLayoutStore';
@@ -36,10 +38,28 @@ export default function PluginDockviewPanel(props: IDockviewPanelProps) {
   const pluginId = params.pluginId ?? parsed?.pluginId ?? '';
   const contributionId = params.contributionId ?? parsed?.contributionId ?? '';
   const panels = usePluginHostContributions('app_panel');
-  const item =
-    panels.find(
+  const sdkPanels = usePanels();
+  const item = useMemo<PluginContributionCatalogItem | null>(() => {
+    const catalogMatch = panels.find(
       (panel) => panel.pluginId === pluginId && panel.id === contributionId
-    ) ?? null;
+    );
+    if (catalogMatch) return catalogMatch;
+    const sdkMatch = sdkPanels.find(
+      (panel) =>
+        panel.pluginId === pluginId &&
+        (panel.id === contributionId ||
+          panel.id === `${pluginId}:${contributionId}`)
+    );
+    if (!sdkMatch) return null;
+    return {
+      pluginId,
+      id: contributionId,
+      kind: 'app_panel',
+      label: sdkMatch.title,
+      generation: 1,
+      metadata: sdkMatch.icon ? { icon: sdkMatch.icon } : {},
+    };
+  }, [contributionId, panels, pluginId, sdkPanels]);
   const panelVisible =
     dockVisible && isWorkspaceSurfaceActive(workspaceId, sessionId, activeTab);
 

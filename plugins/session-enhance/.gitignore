@@ -1,0 +1,3 @@
+node_modules/
+*.vxp
+.DS_Store

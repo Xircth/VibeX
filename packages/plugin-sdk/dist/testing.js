@@ -1,3 +1,5 @@
+import { createPluginContext, } from './context.js';
+import { commandRegistry, conversationModeRegistry, kanbanViewRegistry, markdownRegistry, overlayRegistry, panelRegistry, settingRegistry, settingsPageRegistry, slashCommandRegistry, slotRegistry, viewRegistry, } from './registry.js';
 import { activatePluginWorker, PluginSdkError, } from './worker.js';
 export async function createWorkerHarness(definition, options = {}) {
     const hostCalls = [];
@@ -68,88 +70,8 @@ function assertRequiredHandlers(worker, requiredHandlers) {
         }
     }
 }
-export async function createAppHarness(definition, options) {
-    const controller = new AbortController();
-    const listeners = new Map();
-    let ready = false;
-    let revoked = false;
-    let artifact = options.artifact ? { ...options.artifact } : undefined;
-    let artifactRevision = 0;
-    let cleanup;
-    const bridge = {
-        pluginId: options.pluginId ?? 'dev.vibex.test',
-        generation: options.generation ?? 1,
-        artifact: artifact
-            ? {
-                name: artifact.name,
-                async readText() {
-                    assertSurfaceActive(revoked);
-                    return { ...artifact };
-                },
-                async writeText(content, expectedRevision) {
-                    assertSurfaceActive(revoked);
-                    if (artifact.revision !== expectedRevision) {
-                        throw new PluginSdkError('artifact_revision_conflict', 'The artifact changed outside this editor');
-                    }
-                    artifactRevision += 1;
-                    artifact = {
-                        ...artifact,
-                        content,
-                        revision: `sha256:test-${artifactRevision}`,
-                    };
-                    return { revision: artifact.revision };
-                },
-            }
-            : undefined,
-        async invoke(handler, input = null) {
-            assertSurfaceActive(revoked);
-            return (await (options.invoke?.(handler, input) ?? null));
-        },
-        subscribe(channel, listener) {
-            assertSurfaceActive(revoked);
-            const channelListeners = listeners.get(channel) ?? new Set();
-            channelListeners.add(listener);
-            listeners.set(channel, channelListeners);
-            return () => channelListeners.delete(listener);
-        },
-        ready() {
-            assertSurfaceActive(revoked);
-            ready = true;
-        },
-    };
-    cleanup = await definition.mount({
-        bridge,
-        root: options.root,
-        signal: controller.signal,
-        slot: options.slot,
-    });
-    const revoke = () => {
-        if (revoked)
-            return;
-        revoked = true;
-        controller.abort();
-        listeners.clear();
-    };
-    return {
-        bridge,
-        signal: controller.signal,
-        get ready() {
-            return ready;
-        },
-        emit(channel, payload) {
-            assertSurfaceActive(revoked);
-            for (const listener of listeners.get(channel) ?? [])
-                listener(payload);
-        },
-        revoke,
-        async dispose() {
-            revoke();
-            await cleanup?.();
-        },
-    };
-}
 /**
- * In-memory Host: implements storage, secrets, log, artifact, and doctor.
+ * In-memory Host: implements storage, secrets, log, artifact, network, exec, notify, and doctor.
  * Every other catalog operation fails with capability_unimplemented.
  */
 function createMemoryHostClient(hostCalls) {
@@ -157,79 +79,240 @@ function createMemoryHostClient(hostCalls) {
     const kv = new Map();
     const secrets = new Map();
     let artifact = {
-        name: "memory.txt",
-        content: "",
-        revision: "sha256:test-0",
+        name: 'memory.txt',
+        content: '',
+        revision: 'sha256:test-0',
     };
     return {
         async call(capability, operation, input = null) {
             hostCalls.push({ capability, operation, input });
             const key = `${capability}.${operation}`;
             switch (key) {
-                case "storage.settings.get":
+                case 'storage.settings.get':
                     return { ...settings };
-                case "storage.settings.put":
+                case 'storage.settings.put':
                     Object.assign(settings, input?.value ?? input);
                     return { ...settings };
-                case "storage.kv.get":
-                    return (kv.get(String(input?.key)) ?? null);
-                case "storage.kv.put": {
+                case 'storage.kv.get':
+                    return (kv.get(String(input?.key)) ??
+                        null);
+                case 'storage.kv.put': {
                     const rec = input;
                     if (rec.key)
                         kv.set(rec.key, rec.value ?? null);
                     return (rec.value ?? null);
                 }
-                case "storage.kv.delete":
+                case 'storage.kv.delete':
                     kv.delete(String(input?.key));
                     return null;
-                case "storage.kv.list":
+                case 'storage.kv.list':
                     return [...kv.keys()];
-                case "storage.database.execute":
-                case "storage.database.query":
-                    return { rows: [], changes: 0 };
-                case "secrets.get": {
-                    const name = String(input?.name ?? "");
-                    const value = secrets.get(name);
-                    return (value === undefined ? { present: false } : { present: true, value });
+                case 'storage.kv.clear': {
+                    const removed = kv.size;
+                    kv.clear();
+                    return { removed };
                 }
-                case "secrets.put": {
+                case 'network.fetch':
+                    return {
+                        status: 200,
+                        ok: true,
+                        statusText: 'OK',
+                        headers: {},
+                        body: '',
+                        bodyText: '',
+                    };
+                case 'exec.run':
+                    return {
+                        exitCode: 0,
+                        stdout: '',
+                        stderr: '',
+                        success: true,
+                    };
+                case 'exec.spawn':
+                    return {
+                        processId: 'proc-test-1',
+                        pid: 12345,
+                    };
+                case 'exec.kill':
+                    return {
+                        killed: true,
+                        processId: input?.processId,
+                    };
+                case 'exec.status':
+                    return {
+                        processId: String(input?.processId ?? 'proc-test-1'),
+                        running: false,
+                        exitCode: 0,
+                    };
+                case 'app.notify.toast':
+                    return { notified: true };
+                case 'storage.database.execute':
+                case 'storage.database.query':
+                    return { rows: [], changes: 0 };
+                case 'secrets.get': {
+                    const name = String(input?.name ?? '');
+                    const value = secrets.get(name);
+                    return (value === undefined
+                        ? { present: false }
+                        : { present: true, value });
+                }
+                case 'secrets.put': {
                     const rec = input;
                     if (rec.name)
-                        secrets.set(rec.name, rec.value ?? "");
+                        secrets.set(rec.name, rec.value ?? '');
                     return { present: true };
                 }
-                case "secrets.delete":
-                    secrets.delete(String(input?.name ?? ""));
+                case 'secrets.delete':
+                    secrets.delete(String(input?.name ?? ''));
                     return { present: false };
-                case "log.debug":
-                case "log.info":
-                case "log.warn":
-                case "log.error":
+                case 'log.debug':
+                case 'log.info':
+                case 'log.warn':
+                case 'log.error':
                     return {};
-                case "artifact.readText":
+                case 'artifact.readText':
                     return { ...artifact };
-                case "artifact.writeText": {
+                case 'artifact.writeText': {
                     const rec = input;
-                    if (rec.expectedRevision && rec.expectedRevision !== artifact.revision) {
-                        throw new PluginSdkError("artifact_revision_conflict", "The artifact changed outside this editor");
+                    if (rec.expectedRevision &&
+                        rec.expectedRevision !== artifact.revision) {
+                        throw new PluginSdkError('artifact_revision_conflict', 'The artifact changed outside this editor');
                     }
                     artifact = {
                         ...artifact,
-                        content: rec.content ?? "",
+                        content: rec.content ?? '',
                         revision: `sha256:test-${Date.now()}`,
                     };
                     return { revision: artifact.revision };
                 }
-                case "plugin.self.doctor":
+                case 'plugin.self.doctor':
                     return { diagnostics: [], recentCrashes: [] };
                 default:
-                    throw new PluginSdkError("capability_unimplemented", `${key} is not implemented by the in-memory harness`);
+                    throw new PluginSdkError('capability_unimplemented', `${key} is not implemented by the in-memory harness`);
             }
         },
     };
 }
-function assertSurfaceActive(revoked) {
-    if (revoked) {
-        throw new PluginSdkError('surface_revoked', 'The App surface token has been revoked');
-    }
+function isDirectPluginTarget(value) {
+    return (typeof value === 'function' ||
+        (typeof value === 'object' &&
+            value !== null &&
+            'activate' in value &&
+            typeof value.activate === 'function'));
+}
+export function createPluginTestHarness(optionsOrPlugin = {}) {
+    const direct = isDirectPluginTarget(optionsOrPlugin);
+    const defaultPlugin = direct
+        ? optionsOrPlugin
+        : optionsOrPlugin.plugin;
+    const pluginId = direct
+        ? typeof optionsOrPlugin === 'object' && optionsOrPlugin.id
+            ? optionsOrPlugin.id
+            : 'dev.vibex.test'
+        : (optionsOrPlugin.pluginId ?? 'dev.vibex.test');
+    const generation = direct ? 1 : (optionsOrPlugin.generation ?? 1);
+    const hostCalls = [];
+    const memoryHost = (!direct ? optionsOrPlugin.host : undefined) ??
+        createMemoryHostClient(hostCalls);
+    const ctx = createPluginContext({
+        pluginId,
+        generation,
+        callHost: async (_pid, capability, operation, input) => {
+            return (await memoryHost.call(capability, operation, input ?? null));
+        },
+    });
+    let deactivateFn;
+    let customDisposer;
+    return {
+        pluginId,
+        ctx,
+        hostCalls,
+        registries: {
+            slot: slotRegistry,
+            command: commandRegistry,
+            view: viewRegistry,
+            panel: panelRegistry,
+            kanbanView: kanbanViewRegistry,
+            settingsPage: settingsPageRegistry,
+            setting: settingRegistry,
+            slashCommand: slashCommandRegistry,
+            markdown: markdownRegistry,
+            conversationMode: conversationModeRegistry,
+            overlay: overlayRegistry,
+        },
+        async activate(pluginArg) {
+            const target = pluginArg ?? defaultPlugin;
+            if (!target) {
+                throw new Error('createPluginTestHarness.activate() requires a plugin definition or activate function');
+            }
+            const fn = typeof target === 'function' ? target : target.activate;
+            deactivateFn =
+                typeof target === 'object' && target !== null
+                    ? target.deactivate
+                    : undefined;
+            const result = await fn(ctx);
+            if (typeof result === 'function') {
+                customDisposer = result;
+            }
+        },
+        getSlots(slot) {
+            const all = slot ? slotRegistry.getBySlot(slot) : slotRegistry.getAll();
+            return all.filter((item) => item.pluginId === pluginId);
+        },
+        getCommands() {
+            return commandRegistry
+                .getAll()
+                .filter((item) => item.pluginId === pluginId);
+        },
+        getViews() {
+            return viewRegistry.getAll().filter((item) => item.pluginId === pluginId);
+        },
+        getPanels() {
+            return panelRegistry
+                .getAll()
+                .filter((item) => item.pluginId === pluginId);
+        },
+        getKanbanViews() {
+            return kanbanViewRegistry
+                .getAll()
+                .filter((item) => item.pluginId === pluginId);
+        },
+        getSettingsPages() {
+            return settingsPageRegistry
+                .getAll()
+                .filter((item) => item.pluginId === pluginId);
+        },
+        getSettingsSections() {
+            return settingRegistry
+                .getAll()
+                .filter((item) => item.pluginId === pluginId);
+        },
+        getSlashCommands() {
+            return slashCommandRegistry
+                .getAll()
+                .filter((item) => item.pluginId === pluginId);
+        },
+        getMarkdownRenderers() {
+            return markdownRegistry
+                .getAll()
+                .filter((item) => item.pluginId === pluginId);
+        },
+        getConversationModes() {
+            return conversationModeRegistry
+                .getAll()
+                .filter((item) => item.pluginId === pluginId);
+        },
+        getOverlays() {
+            return overlayRegistry
+                .getAll()
+                .filter((item) => item.pluginId === pluginId);
+        },
+        async dispose() {
+            customDisposer?.();
+            customDisposer = undefined;
+            await deactivateFn?.();
+            deactivateFn = undefined;
+            ctx.dispose();
+        },
+    };
 }

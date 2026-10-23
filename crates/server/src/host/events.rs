@@ -192,6 +192,16 @@ pub const HOST_EVENT_CHANNELS: &[HostEventChannel] = &[
         required_scope: "conversation.read",
     },
     HostEventChannel {
+        prefix: "plugin-internal-message",
+        durability: EventDurability::BestEffort,
+        required_scope: "conversation.read",
+    },
+    HostEventChannel {
+        prefix: "conversation-after-turn",
+        durability: EventDurability::BestEffort,
+        required_scope: "conversation.read",
+    },
+    HostEventChannel {
         prefix: "provider-bind-confirm",
         durability: EventDurability::BestEffort,
         required_scope: "plugin.write",

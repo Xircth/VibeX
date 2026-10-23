@@ -31,6 +31,8 @@ import {
   X,
   type LucideIcon,
 } from 'lucide-react';
+import { panelRegistry, type PanelContribution } from '@vibex/plugin-sdk';
+import { PluginBoundary } from '@/components/plugins/PluginBoundary';
 import { contributionIconComponent } from '@/components/plugins/contributionIcon';
 import FileIcon from '@/components/FileIcon';
 import { Button } from '@/components/ui/button';
@@ -197,12 +199,191 @@ const PANEL_COMPONENT_MAP: Record<PanelId, React.FC<IDockviewPanelProps>> = {
  */
 export const PLUGIN_PANEL_COMPONENT = 'plugin-panel';
 
-export const panelComponents: Record<string, React.FC<IDockviewPanelProps>> = {
+export const BUILTIN_PANEL_CONTRIBUTIONS: readonly PanelContribution[] = [
+  {
+    id: PANEL_IDS.KANBAN,
+    title: 'Kanban',
+    zone: 'editor',
+    builtin: true,
+    component: PANEL_COMPONENT_MAP[PANEL_IDS.KANBAN],
+  },
+  {
+    id: PANEL_IDS.FILE_TREE,
+    title: 'File Explorer',
+    zone: 'left',
+    builtin: true,
+    component: PANEL_COMPONENT_MAP[PANEL_IDS.FILE_TREE],
+  },
+  {
+    id: PANEL_IDS.PREVIEW,
+    title: 'Preview',
+    zone: 'editor',
+    builtin: true,
+    multiInstance: true,
+    component: PANEL_COMPONENT_MAP[PANEL_IDS.PREVIEW],
+  },
+  {
+    id: PANEL_IDS.DIFFS,
+    title: 'Diffs',
+    zone: 'editor',
+    builtin: true,
+    component: PANEL_COMPONENT_MAP[PANEL_IDS.DIFFS],
+  },
+  {
+    id: PANEL_IDS.TERMINAL,
+    title: 'Terminal',
+    zone: 'bottom',
+    builtin: true,
+    multiInstance: true,
+    component: PANEL_COMPONENT_MAP[PANEL_IDS.TERMINAL],
+  },
+  {
+    id: PANEL_IDS.AI_CHAT,
+    title: 'AI Chat',
+    zone: 'session',
+    builtin: true,
+    component: PANEL_COMPONENT_MAP[PANEL_IDS.AI_CHAT],
+  },
+  {
+    id: PANEL_IDS.GIT,
+    title: 'Git',
+    zone: 'left',
+    builtin: true,
+    component: PANEL_COMPONENT_MAP[PANEL_IDS.GIT],
+  },
+  {
+    id: PANEL_IDS.MERGE,
+    title: 'Merge',
+    zone: 'editor',
+    builtin: true,
+    component: PANEL_COMPONENT_MAP[PANEL_IDS.MERGE],
+  },
+  {
+    id: PANEL_IDS.WELCOME,
+    title: 'Welcome',
+    zone: 'editor',
+    builtin: true,
+    component: PANEL_COMPONENT_MAP[PANEL_IDS.WELCOME],
+  },
+  {
+    id: PANEL_IDS.LOGS,
+    title: 'Logs',
+    zone: 'editor',
+    builtin: true,
+    component: PANEL_COMPONENT_MAP[PANEL_IDS.LOGS],
+  },
+  {
+    id: PANEL_IDS.NOTES,
+    title: 'Notes',
+    zone: 'editor',
+    builtin: true,
+    component: PANEL_COMPONENT_MAP[PANEL_IDS.NOTES],
+  },
+  {
+    id: PANEL_IDS.SESSION_DETAILS,
+    title: 'Session Details',
+    zone: 'editor',
+    builtin: true,
+    component: PANEL_COMPONENT_MAP[PANEL_IDS.SESSION_DETAILS],
+  },
+  {
+    id: PANEL_IDS.PROCESSES,
+    title: 'Processes',
+    zone: 'editor',
+    builtin: true,
+    component: PANEL_COMPONENT_MAP[PANEL_IDS.PROCESSES],
+  },
+  {
+    id: PANEL_IDS.SEARCH,
+    title: 'Search',
+    zone: 'left',
+    builtin: true,
+    component: PANEL_COMPONENT_MAP[PANEL_IDS.SEARCH],
+  },
+  {
+    id: PANEL_IDS.SESSION_LIST,
+    title: 'Session List',
+    zone: 'left',
+    builtin: true,
+    component: PANEL_COMPONENT_MAP[PANEL_IDS.SESSION_LIST],
+  },
+];
+
+export function registerBuiltinPanels(): void {
+  for (const contribution of BUILTIN_PANEL_CONTRIBUTIONS) {
+    if (!panelRegistry.has(contribution.id)) {
+      panelRegistry.register(contribution, 'builtin');
+    }
+  }
+}
+
+registerBuiltinPanels();
+
+const BASE_PANEL_COMPONENTS: Record<string, React.FC<IDockviewPanelProps>> = {
   ...PANEL_COMPONENT_MAP,
   [PLUGIN_PANEL_COMPONENT]: lazyPanel(
     () => import('@/components/layout/panels/PluginDockviewPanel')
   ),
 };
+
+const dynamicPanelWrappers = new Map<string, React.FC<IDockviewPanelProps>>();
+
+function findPanelEntry(panelId: string): PanelContribution | undefined {
+  const direct = panelRegistry.get(panelId);
+  if (direct) return direct;
+  if (panelId.startsWith('plugin:')) {
+    const normalized = panelId.slice('plugin:'.length).replace('/', ':');
+    return panelRegistry.get(normalized);
+  }
+  return undefined;
+}
+
+function getOrCreateDynamicPanelWrapper(
+  panelId: string
+): React.FC<IDockviewPanelProps> | undefined {
+  const entry = findPanelEntry(panelId);
+  if (!entry?.component) return undefined;
+  let wrapper = dynamicPanelWrappers.get(panelId);
+  if (!wrapper) {
+    wrapper = function DynamicRegisteredPanel(props: IDockviewPanelProps) {
+      const current = findPanelEntry(panelId);
+      const Comp = current?.component as
+        | React.ComponentType<IDockviewPanelProps>
+        | undefined;
+      if (!Comp) return null;
+      return (
+        <PluginBoundary
+          pluginId={current?.pluginId ?? 'builtin'}
+          slot={current?.title ?? panelId}
+        >
+          <Comp {...props} />
+        </PluginBoundary>
+      );
+    };
+    dynamicPanelWrappers.set(panelId, wrapper);
+  }
+  return wrapper;
+}
+
+export const panelComponents: Record<string, React.FC<IDockviewPanelProps>> =
+  new Proxy(BASE_PANEL_COMPONENTS, {
+    get(target, prop, receiver) {
+      if (typeof prop === 'string' && prop in target) {
+        return Reflect.get(target, prop, receiver);
+      }
+      if (typeof prop === 'string') {
+        const dynamic = getOrCreateDynamicPanelWrapper(prop);
+        if (dynamic) return dynamic;
+      }
+      return Reflect.get(target, prop, receiver);
+    },
+    has(target, prop) {
+      if (typeof prop === 'string') {
+        return prop in target || Boolean(findPanelEntry(prop)?.component);
+      }
+      return Reflect.has(target, prop);
+    },
+  });
 
 type WorkspaceDockviewTabProps = IDockviewPanelHeaderProps &
   React.HTMLAttributes<HTMLDivElement> & {
@@ -306,8 +487,15 @@ function WorkspaceTabIcon({
     );
   }
 
-  if (component === PLUGIN_PANEL_COMPONENT) {
-    const PluginIcon = contributionIconComponent(params.icon, Puzzle);
+  if (
+    component === PLUGIN_PANEL_COMPONENT ||
+    (!PANEL_TAB_ICONS[component as PanelId] && panelRegistry.has(component))
+  ) {
+    const registeredIcon = panelRegistry.get(component)?.icon;
+    const PluginIcon = contributionIconComponent(
+      params.icon ?? registeredIcon,
+      Puzzle
+    );
     return (
       <PluginIcon
         aria-hidden="true"

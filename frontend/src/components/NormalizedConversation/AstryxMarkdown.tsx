@@ -28,6 +28,8 @@ import { atReferenceChipLabel } from '@/components/tasks/follow-up/sessionCompos
 import { useImageMetadata } from '@/hooks/useImageMetadata';
 import { useOpenImagePreview } from '@/hooks/useOpenImagePreview';
 import { useOptionalPanelActionsContext } from '@/contexts/PanelActionsContext';
+import { findMarkdownRenderer, useMarkdownRenderers } from '@vibex/plugin-sdk';
+import { PluginBoundary } from '@/components/plugins/PluginBoundary';
 import { CodeBlock, CompactCodeBlock } from './CodeBlock';
 import { MermaidDiagram } from './MermaidDiagram';
 import { parseTagReferenceHref } from '@/lib/tagReferenceMarkers';
@@ -212,6 +214,73 @@ type MarkdownComponentContext = {
   isStreaming?: boolean;
 };
 
+function encodeFenceInfoLanguages(markdownText: string): string {
+  return markdownText.replace(
+    /^(`{3,}|~{3,})([A-Za-z0-9_+-]+)/gm,
+    (_match, fence: string, lang: string) => {
+      if (!lang.includes('-') && !lang.includes('+')) {
+        return `${fence}${lang}`;
+      }
+      const encoded = lang
+        .replace(/-/g, '__vx_dash__')
+        .replace(/\+/g, '__vx_plus__');
+      return `${fence}${encoded}`;
+    }
+  );
+}
+
+function decodeFenceInfoLanguage(language?: string): string | undefined {
+  if (!language) return language;
+  return language.replace(/__vx_dash__/g, '-').replace(/__vx_plus__/g, '+');
+}
+
+function MarkdownCodeSwitch({
+  code,
+  language: rawLanguage,
+  taskAttemptId,
+  taskId,
+  workspacePath,
+  isStreaming,
+}: MarkdownComponentContext & { code: string; language?: string }) {
+  const renderers = useMarkdownRenderers();
+  const language = decodeFenceInfoLanguage(rawLanguage);
+  const customRenderer =
+    renderers.length > 0 ? findMarkdownRenderer(code, language) : undefined;
+  if (customRenderer) {
+    const pluginId = customRenderer.pluginId ?? 'unknown-plugin';
+    const CustomComponent = customRenderer.component;
+    const rendererProps = {
+      code,
+      language,
+      isStreaming,
+      workspacePath,
+      taskAttemptId,
+      taskId,
+    };
+    return (
+      <PluginBoundary pluginId={pluginId} slot="markdown.codeblock">
+        {CustomComponent ? (
+          <CustomComponent {...rendererProps} />
+        ) : customRenderer.render ? (
+          (customRenderer.render(rendererProps) as ReactNode)
+        ) : null}
+      </PluginBoundary>
+    );
+  }
+  if (language?.toLowerCase() === 'mermaid') {
+    return <MermaidDiagram value={code} />;
+  }
+  const className =
+    language && language !== 'plaintext' ? `language-${language}` : undefined;
+  const isSingleLine = !code.includes('\n');
+  if (isSingleLine) {
+    return <CompactCodeBlock className={className} value={code} />;
+  }
+  return (
+    <CodeBlock className={className} value={code} isStreaming={isStreaming} />
+  );
+}
+
 function createMarkdownComponents({
   taskAttemptId,
   taskId,
@@ -219,23 +288,16 @@ function createMarkdownComponents({
   isStreaming,
 }: MarkdownComponentContext): MarkdownProps['components'] {
   return {
-    code: ({ code, language }) => {
-      if (language?.toLowerCase() === 'mermaid') {
-        return <MermaidDiagram value={code} />;
-      }
-      const className = language ? `language-${language}` : undefined;
-      const isSingleLine = !code.includes('\n');
-      if (isSingleLine) {
-        return <CompactCodeBlock className={className} value={code} />;
-      }
-      return (
-        <CodeBlock
-          className={className}
-          value={code}
-          isStreaming={isStreaming}
-        />
-      );
-    },
+    code: ({ code, language }) => (
+      <MarkdownCodeSwitch
+        code={code}
+        language={language}
+        taskAttemptId={taskAttemptId}
+        taskId={taskId}
+        workspacePath={workspacePath}
+        isStreaming={isStreaming}
+      />
+    ),
     inlineCode: ({ children }) => {
       const text = flattenNodeText(children).trim();
       const resource = resolveMarkdownInlineResource(text, workspacePath);
@@ -412,7 +474,7 @@ export const AstryxMarkdown = memo(function AstryxMarkdown({
         : { text: withLinks, html: [] };
     const withMath = protectConversationMath(protectedHtml.text);
     return {
-      text: withMath.text,
+      text: encodeFenceInfoLanguages(withMath.text),
       math: withMath.math,
       html: protectedHtml.html,
     };

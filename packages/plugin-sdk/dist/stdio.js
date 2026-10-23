@@ -187,3 +187,26 @@ function createStderrLogger() {
         error: (message, fields) => write("error", message, fields),
     };
 }
+const SHARED_HOST_GLOBAL_KEY = "__VIBEX_SHARED_PLUGIN_HOST__";
+/**
+ * Returns the shared Node plugin host runtime if the current worker is
+ * executing inside VibeX's multiplexed `SharedNodeWorkerHost` process, or
+ * `null` when running in a standalone single-plugin process.
+ */
+export function getSharedNodePluginHost() {
+    const candidate = globalThis[SHARED_HOST_GLOBAL_KEY];
+    if (candidate &&
+        typeof candidate === "object" &&
+        candidate.slots instanceof Map &&
+        candidate.services instanceof Map) {
+        return candidate;
+    }
+    return null;
+}
+/**
+ * Returns `true` when this worker is executing inside the multiplexed
+ * `SharedNodeWorkerHost` Node.js process.
+ */
+export function isSharedNodePluginHost() {
+    return getSharedNodePluginHost() !== null;
+}

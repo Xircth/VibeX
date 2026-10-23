@@ -9,6 +9,10 @@ import {
   type MouseEvent as ReactMouseEvent,
   type ReactNode,
 } from 'react';
+import {
+  type SlotContribution,
+  useSlotContributions,
+} from '@vibex/plugin-sdk';
 import { useTranslation } from 'react-i18next';
 import {
   readClipboardViaBridge,
@@ -153,10 +157,82 @@ function withSelectionCopy(
   ];
 }
 
+function buildPluginContextMenuItems(
+  contributions: readonly SlotContribution[],
+  target: EventTarget | null
+): ProductContextMenuItem[] {
+  if (contributions.length === 0) return [];
+  const selectedText = getContextMenuSelectedText(target).trim();
+  const isFileTree =
+    target instanceof Element &&
+    Boolean(
+      target.closest(
+        '[data-panel-id="file-tree"], [data-testid*="file-tree"], .file-tree'
+      )
+    );
+  const contextPayload: Record<string, unknown> = {
+    target,
+    selectedText,
+    zone: isFileTree ? 'file-tree' : 'message',
+  };
+
+  return contributions
+    .filter((contrib) => {
+      if (contrib.slot === 'file-tree.context-menu' && target instanceof Element) {
+        if (!isFileTree && !contrib.when) return false;
+      }
+      if (contrib.when) {
+        try {
+          return Boolean(contrib.when(contextPayload));
+        } catch {
+          return false;
+        }
+      }
+      return true;
+    })
+    .map((contrib) => ({
+      id: `plugin-ctx:${contrib.pluginId ?? 'builtin'}:${contrib.id}`,
+      label: contrib.label ?? contrib.id,
+      onSelect: () => {
+        void Promise.resolve(contrib.onActivate?.(contextPayload)).catch(
+          () => undefined
+        );
+      },
+    }));
+}
+
+function withPluginItems(
+  baseItems: ProductContextMenuItem[],
+  pluginItems: ProductContextMenuItem[]
+): ProductContextMenuItem[] {
+  if (pluginItems.length === 0) return baseItems;
+  if (baseItems.length === 0) return pluginItems;
+  const existingIds = new Set(
+    baseItems
+      .filter((item) => item.type !== 'separator')
+      .map((item) => item.id)
+  );
+  const freshPluginItems = pluginItems.filter(
+    (item) => item.type !== 'separator' && !existingIds.has(item.id)
+  );
+  if (freshPluginItems.length === 0) return baseItems;
+  return [
+    ...baseItems,
+    { type: 'separator', id: 'plugin-context-menu-sep' },
+    ...freshPluginItems,
+  ];
+}
+
 export function AppContextMenuHost({ children }: { children: ReactNode }) {
   const { t } = useTranslation('common');
   const [menu, setMenu] = useState<OpenProductContextMenuInput | null>(null);
   const targetRef = useRef<EventTarget | null>(null);
+  const messageMenuContribs = useSlotContributions('message.context-menu');
+  const fileTreeMenuContribs = useSlotContributions('file-tree.context-menu');
+  const allPluginMenuContribs = useMemo(
+    () => [...messageMenuContribs, ...fileTreeMenuContribs],
+    [messageMenuContribs, fileTreeMenuContribs]
+  );
 
   const close = useCallback(() => setMenu(null), []);
 
@@ -176,14 +252,23 @@ export function AppContextMenuHost({ children }: { children: ReactNode }) {
       event.preventDefault();
       event.stopPropagation();
       targetRef.current = event.target;
+      const baseItems = withSelectionCopy(
+        items,
+        event.target,
+        t('contextMenu.copy')
+      );
+      const pluginItems = buildPluginContextMenuItems(
+        allPluginMenuContribs,
+        event.target
+      );
       open({
         x: event.clientX,
         y: event.clientY,
-        items: withSelectionCopy(items, event.target, t('contextMenu.copy')),
+        items: withPluginItems(baseItems, pluginItems),
       });
       return true;
     },
-    [open, t]
+    [allPluginMenuContribs, open, t]
   );
 
   useEffect(() => {
@@ -204,6 +289,19 @@ export function AppContextMenuHost({ children }: { children: ReactNode }) {
         });
         return;
       }
+      const pluginItems = buildPluginContextMenuItems(
+        allPluginMenuContribs,
+        event.target
+      );
+      if (pluginItems.length > 0) {
+        targetRef.current = event.target;
+        open({
+          x: event.clientX,
+          y: event.clientY,
+          items: pluginItems,
+        });
+        return;
+      }
       close();
     };
     document.addEventListener('contextmenu', onCapture, true);
@@ -212,7 +310,7 @@ export function AppContextMenuHost({ children }: { children: ReactNode }) {
       document.removeEventListener('contextmenu', onCapture, true);
       document.removeEventListener('contextmenu', onBubble);
     };
-  }, [close, open, t]);
+  }, [allPluginMenuContribs, close, open, t]);
 
   const value = useMemo(
     () => ({ open, close, openSurfaceMenu }),

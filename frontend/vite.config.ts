@@ -78,10 +78,47 @@ window.__vite_plugin_react_preamble_installed__ = true;`,
     }),
   ],
   resolve: {
-    alias: {
-      '@': path.resolve(__dirname, './src'),
-      shared: path.resolve(__dirname, '../shared'),
-    },
+    dedupe: ['react', 'react-dom'],
+    alias: [
+      { find: '@', replacement: path.resolve(__dirname, './src') },
+      { find: 'shared', replacement: path.resolve(__dirname, '../shared') },
+      {
+        find: '@vibex/plugin-sdk',
+        replacement: path.resolve(
+          __dirname,
+          '../packages/plugin-sdk/src/index.ts'
+        ),
+      },
+      {
+        find: /^react$/,
+        replacement: path.resolve(__dirname, './node_modules/react'),
+      },
+      {
+        find: /^react\/jsx-runtime$/,
+        replacement: path.resolve(
+          __dirname,
+          './node_modules/react/jsx-runtime.js'
+        ),
+      },
+      {
+        find: /^react\/jsx-dev-runtime$/,
+        replacement: path.resolve(
+          __dirname,
+          './node_modules/react/jsx-dev-runtime.js'
+        ),
+      },
+      {
+        find: /^react-dom$/,
+        replacement: path.resolve(__dirname, './node_modules/react-dom'),
+      },
+      {
+        find: /^react-dom\/client$/,
+        replacement: path.resolve(
+          __dirname,
+          './node_modules/react-dom/client.js'
+        ),
+      },
+    ],
   },
   server: {
     port: parseInt(process.env.FRONTEND_PORT || '3000', 10),
@@ -110,7 +147,7 @@ window.__vite_plugin_react_preamble_installed__ = true;`,
     ],
   },
   optimizeDeps: {
-    include: ['lucide-react', '@module-federation/runtime'],
+    include: ['lucide-react'],
     exclude: ['@astryxdesign/richtext'],
   },
   build: {

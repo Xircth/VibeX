@@ -1,3 +1,5 @@
+import { usePanels, useSlotContributions } from '@vibex/plugin-sdk';
+import { useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
   Terminal,
@@ -14,6 +16,7 @@ import {
   usePluginHostContributions,
 } from '@/hooks/usePluginHostContributions';
 import { contributionIconComponent } from '@/components/plugins/contributionIcon';
+import { Slot } from '@/components/plugins/Slot';
 
 import {
   Tooltip,
@@ -32,6 +35,8 @@ export function RightPanelSidebar() {
     openPluginPanel,
   } = usePanelActionsContext();
   const railSections = usePluginHostContributions('app_rail_section');
+  const sdkRailSlots = useSlotContributions('rail.sections');
+  const sdkPanels = usePanels();
 
   const buttons = [
     {
@@ -66,6 +71,123 @@ export function RightPanelSidebar() {
     },
   ];
 
+  const pluginRailItems = useMemo(() => {
+    const seen = new Set<string>();
+    const items: Array<{
+      key: string;
+      label: string;
+      icon: ReturnType<typeof contributionIconComponent>;
+      onClick: () => void;
+    }> = [];
+
+    for (const slotItem of sdkRailSlots) {
+      if (slotItem.component || slotItem.render) continue;
+      const pluginId = slotItem.pluginId ?? 'plugin';
+      const rawId = slotItem.id.startsWith(`${pluginId}:`)
+        ? slotItem.id.slice(pluginId.length + 1)
+        : slotItem.id;
+      const key = `${pluginId}:${rawId}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      const label = slotItem.label ?? slotItem.tooltip ?? rawId;
+      const iconName = slotItem.icon ?? null;
+      const opens =
+        slotItem.metadata?.opens &&
+        typeof slotItem.metadata.opens === 'object' &&
+        !Array.isArray(slotItem.metadata.opens)
+          ? (slotItem.metadata.opens as { id?: string; instance?: string })
+          : null;
+      const contributionId = typeof opens?.id === 'string' ? opens.id : rawId;
+      items.push({
+        key,
+        label,
+        icon: contributionIconComponent(iconName, Puzzle),
+        onClick: () => {
+          if (slotItem.onActivate) {
+            void Promise.resolve(slotItem.onActivate()).catch(() => undefined);
+            return;
+          }
+          openPluginPanel({
+            title: label,
+            pluginId,
+            contributionId,
+            icon: iconName,
+            multiInstance: true,
+            instance: opens?.instance === 'new' ? 'new' : 'focus',
+          });
+        },
+      });
+    }
+
+    for (const panel of sdkPanels) {
+      if (panel.builtin || panel.zone === 'left') continue;
+      const pluginId = panel.pluginId ?? 'plugin';
+      const rawId = panel.id.startsWith(`${pluginId}:`)
+        ? panel.id.slice(pluginId.length + 1)
+        : panel.id;
+      const key = `${pluginId}:${rawId}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      const iconName = panel.icon ?? null;
+      items.push({
+        key,
+        label: panel.title,
+        icon: contributionIconComponent(iconName, Puzzle),
+        onClick: () =>
+          openPluginPanel({
+            title: panel.title,
+            pluginId,
+            contributionId: rawId,
+            icon: iconName,
+            multiInstance: panel.multiInstance !== false,
+            instance: 'focus',
+          }),
+      });
+    }
+
+    for (const item of railSections) {
+      const metadata = contributionMetadata(item);
+      const icon = typeof metadata.icon === 'string' ? metadata.icon : null;
+      const opens =
+        metadata.opens &&
+        typeof metadata.opens === 'object' &&
+        !Array.isArray(metadata.opens)
+          ? (metadata.opens as {
+              kind?: string;
+              id?: string;
+              instance?: string;
+            })
+          : null;
+      const contributionId = typeof opens?.id === 'string' ? opens.id : item.id;
+      const key = `${item.pluginId}:${item.id}`;
+      if (seen.has(key) || seen.has(`${item.pluginId}:${contributionId}`)) {
+        continue;
+      }
+      seen.add(key);
+      items.push({
+        key,
+        label: item.label,
+        icon: contributionIconComponent(icon, Puzzle),
+        onClick: () =>
+          openPluginPanel({
+            title: item.label,
+            pluginId: item.pluginId,
+            contributionId,
+            icon,
+            multiInstance: true,
+            instance: opens?.instance === 'new' ? 'new' : 'focus',
+          }),
+      });
+    }
+
+    return items;
+  }, [openPluginPanel, railSections, sdkPanels, sdkRailSlots]);
+
+  const hasCustomRailComponents = useMemo(
+    () => sdkRailSlots.some((item) => Boolean(item.component || item.render)),
+    [sdkRailSlots]
+  );
+
   return (
     <TooltipProvider delayDuration={200}>
       <div className="workspace-chrome workspace-divider-left relative flex w-9 shrink-0 flex-col items-center gap-0.5 pt-2">
@@ -89,36 +211,15 @@ export function RightPanelSidebar() {
 
         <div className="my-1 h-px w-5 bg-border" />
 
-        {railSections.map((item) => {
-          const metadata = contributionMetadata(item);
-          const icon = typeof metadata.icon === 'string' ? metadata.icon : null;
-          const Icon = contributionIconComponent(icon, Puzzle);
-          const opens =
-            metadata.opens &&
-            typeof metadata.opens === 'object' &&
-            !Array.isArray(metadata.opens)
-              ? (metadata.opens as {
-                  kind?: string;
-                  id?: string;
-                  instance?: string;
-                })
-              : null;
-          const contributionId =
-            typeof opens?.id === 'string' ? opens.id : item.id;
+        {hasCustomRailComponents ? <Slot name="rail.sections" /> : null}
+
+        {pluginRailItems.map((item) => {
+          const Icon = item.icon;
           return (
-            <Tooltip key={`${item.pluginId}:${item.id}`}>
+            <Tooltip key={item.key}>
               <TooltipTrigger asChild>
                 <button
-                  onClick={() =>
-                    openPluginPanel({
-                      title: item.label,
-                      pluginId: item.pluginId,
-                      contributionId,
-                      icon,
-                      multiInstance: true,
-                      instance: opens?.instance === 'new' ? 'new' : 'focus',
-                    })
-                  }
+                  onClick={item.onClick}
                   className="workspace-side-rail-button flex h-7 w-7 items-center justify-center"
                   aria-label={item.label}
                 >

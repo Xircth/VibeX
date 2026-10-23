@@ -1,0 +1,242 @@
+:root {
+  color-scheme: light dark;
+  --radius: 0.5rem;
+  --background: 0 0% 98%;
+  --foreground: 0 0% 13%;
+  --card: 0 0% 96%;
+  --card-foreground: 0 0% 13%;
+  --primary: 215 90% 52%;
+  --primary-foreground: 0 0% 100%;
+  --muted: 0 0% 92%;
+  --muted-foreground: 0 0% 42%;
+  --destructive: 0 78% 55%;
+  --destructive-foreground: 0 0% 100%;
+  --warning: 36 92% 45%;
+  --success: 145 68% 36%;
+  --border: 0 0% 78%;
+  --border-content: hsl(0 0% 82%);
+  --border-subtle: hsl(0 0% 86%);
+  --border-glass: hsl(0 0% 80%);
+  --surface-content: hsl(0 0% 96%);
+  --surface-control: hsl(0 0% 93%);
+  --surface-control-hover: hsl(0 0% 89%);
+  --text-strong: hsl(0 0% 12%);
+  --text-muted: hsl(0 0% 42%);
+}
+
+html[data-theme='dark'] {
+  --background: 222 22% 11%;
+  --foreground: 210 20% 92%;
+  --card: 222 22% 15%;
+  --card-foreground: 210 20% 92%;
+  --primary: 215 90% 56%;
+  --primary-foreground: 0 0% 100%;
+  --muted: 222 16% 20%;
+  --muted-foreground: 212 9% 58%;
+  --destructive: 0 74% 58%;
+  --destructive-foreground: 0 0% 100%;
+  --warning: 38 92% 56%;
+  --success: 145 65% 48%;
+  --border: 210 16% 28%;
+  --border-content: hsl(210 16% 24%);
+  --border-subtle: hsl(210 16% 22%);
+  --border-glass: hsl(210 16% 28%);
+  --surface-content: hsl(222 22% 15%);
+  --surface-control: hsl(222 18% 18%);
+  --surface-control-hover: hsl(222 18% 22%);
+  --text-strong: hsl(210 20% 92%);
+  --text-muted: hsl(212 9% 58%);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  padding: 0;
+  font-family: var(--font-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif);
+  font-size: 13px;
+  line-height: 1.45;
+  color: var(--text-strong);
+  background: transparent;
+}
+
+.settings-page .settings-content {
+  display: flex;
+  flex-direction: column;
+  width: min(100%, 860px);
+  min-height: 100%;
+  margin: 0 auto;
+  padding: 0.25rem 0.5rem 1.5rem;
+}
+
+.settings-page .settings-page-header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.75rem;
+  margin-bottom: 1rem;
+}
+
+.settings-page .settings-page-header h2 {
+  margin: 0;
+  color: var(--text-strong);
+  font-size: 1rem;
+  font-weight: 600;
+}
+
+.settings-page .settings-page-header p {
+  margin: 0.25rem 0 0;
+  color: var(--text-muted);
+  font-size: 0.8125rem;
+}
+
+.settings-page .settings-sections {
+  display: grid;
+  gap: 1rem;
+}
+
+.settings-page .settings-section > div:first-child h3 {
+  margin: 0;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.875rem;
+  font-weight: 600;
+}
+
+.settings-page .settings-section > div:first-child p {
+  margin: 0.25rem 0 0;
+  color: var(--text-muted);
+  font-size: 0.8125rem;
+}
+
+.settings-page .settings-card {
+  margin-top: 0.5rem;
+  border: 1px solid var(--border-content);
+  border-radius: var(--radius);
+  background: var(--surface-content);
+}
+
+.settings-page .settings-card > :not([hidden]) {
+  padding: 0.75rem 1rem;
+}
+
+.settings-page .settings-card > :not([hidden]) + :not([hidden]) {
+  border-top: 1px solid var(--border-subtle);
+}
+
+.settings-page .settings-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  min-height: 2.75rem;
+}
+
+.settings-page .settings-row--stacked {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  justify-content: flex-start;
+}
+
+.settings-page .settings-row__description {
+  margin: 0.2rem 0 0;
+  color: var(--text-muted);
+  font-size: 0.75rem;
+}
+
+.settings-page .settings-status-pill-neutral,
+.settings-page .settings-status-pill-success,
+.settings-page .settings-status-pill-warning,
+.settings-page .settings-status-pill-danger {
+  display: inline-flex;
+  align-items: center;
+  border: 1px solid transparent;
+  border-radius: var(--radius);
+  padding: 0.125rem 0.5rem;
+  font-size: 0.75rem;
+  font-weight: 500;
+}
+
+.settings-page .settings-status-pill-neutral {
+  border-color: var(--border-content);
+  background: var(--surface-control);
+  color: var(--text-muted);
+}
+
+.settings-page .settings-status-pill-success {
+  border-color: hsl(var(--success) / 0.35);
+  background: hsl(var(--success) / 0.12);
+  color: hsl(var(--success));
+}
+
+.settings-page .settings-status-pill-warning {
+  border-color: hsl(var(--warning) / 0.35);
+  background: hsl(var(--warning) / 0.12);
+  color: hsl(var(--warning));
+}
+
+.settings-page .settings-status-pill-danger {
+  border-color: hsl(var(--destructive) / 0.35);
+  background: hsl(var(--destructive) / 0.12);
+  color: hsl(var(--destructive));
+}
+
+.settings-page .settings-meta-chip,
+.settings-page .settings-kbd {
+  border: 1px solid var(--border-content);
+  border-radius: 0.375rem;
+  background: var(--surface-control);
+  color: var(--text-muted);
+  padding: 0.125rem 0.375rem;
+  font-size: 0.75rem;
+}
+
+.flex { display: flex; }
+.flex-wrap { flex-wrap: wrap; }
+.flex-1 { flex: 1 1 0%; }
+.items-center { align-items: center; }
+.justify-between { justify-content: space-between; }
+.gap-1\.5 { gap: 0.375rem; }
+.gap-2 { gap: 0.5rem; }
+.gap-2\.5 { gap: 0.625rem; }
+.w-36 { width: 9rem; }
+.w-44 { width: 11rem; }
+.w-48 { width: 12rem; }
+.w-52 { width: 13rem; }
+.w-56 { width: 14rem; }
+.max-w-xs { max-width: 20rem; }
+.min-w-0 { min-width: 0; }
+.min-w-\[15rem\] { min-width: 15rem; }
+.truncate { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.font-mono { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; }
+.font-medium { font-weight: 500; }
+.font-semibold { font-weight: 600; }
+.text-sm { font-size: 0.8125rem; }
+.text-xs { font-size: 0.75rem; }
+.text-\[11px\] { font-size: 11px; }
+.text-muted-foreground { color: var(--text-muted); }
+.text-destructive { color: hsl(var(--destructive)); }
+.cursor-pointer { cursor: pointer; }
+.rounded-md { border-radius: var(--radius); }
+.border { border: 1px solid var(--border-content); }
+.px-3 { padding-left: 0.75rem; padding-right: 0.75rem; }
+.py-1\.5 { padding-top: 0.375rem; padding-bottom: 0.375rem; }
+.py-2 { padding-top: 0.5rem; padding-bottom: 0.5rem; }
+.py-2\.5 { padding-top: 0.625rem; padding-bottom: 0.625rem; }
+.mt-3 { margin-top: 0.75rem; }
+
+.browser-plugin-config-empty {
+  padding: 0.25rem 0.5rem 1rem;
+  color: var(--text-muted);
+  font-size: 0.8125rem;
+  line-height: 1.5;
+}
+
+.browser-plugin-config-empty p {
+  margin: 0;
+}

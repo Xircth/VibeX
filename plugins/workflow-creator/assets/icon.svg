@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="36" height="36" viewBox="0 0 36 36" fill="none">
+  <rect x="2.5" y="2.5" width="31" height="31" rx="8.5" fill="url(#wf_bg)" />
+  <path d="M12.5 11H17.5C19.7 11 20.5 12.5 20.5 15V18C20.5 19.6 21.8 21 23.5 21H24.5" stroke="#DDD6FE" stroke-width="1.8" stroke-linecap="round" />
+  <path d="M12.5 25H17.5C19.7 25 20.5 23.5 20.5 21" stroke="#C4B5FD" stroke-width="1.8" stroke-linecap="round" />
+  <rect x="5.5" y="7.5" width="8" height="7" rx="2.2" fill="#F5F3FF" />
+  <rect x="5.5" y="21.5" width="8" height="7" rx="2.2" fill="#EDE9FE" fill-opacity="0.9" />
+  <rect x="22.5" y="14.5" width="8" height="7" rx="2.2" fill="#38BDF8" />
+  <circle cx="9.5" cy="11" r="1.5" fill="#7C3AED" />
+  <circle cx="9.5" cy="25" r="1.5" fill="#6D28D9" />
+  <path d="M25.3 18L26.5 19.2L28.5 16.8" stroke="#0F172A" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" />
+  <defs>
+    <linearGradient id="wf_bg" x1="3" y1="3" x2="33" y2="33" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#6D28D9" />
+      <stop offset="0.55" stop-color="#5B21B6" />
+      <stop offset="1" stop-color="#312E81" />
+    </linearGradient>
+  </defs>
+</svg>

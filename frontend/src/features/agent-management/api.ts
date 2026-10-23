@@ -50,6 +50,7 @@ import type {
   PlanUsageResult,
 } from 'shared/types';
 
+import { getUsageProviderService } from '@/features/plugins/providers/hostProviderServices';
 import { backendCall } from '@/lib/backendTransport';
 
 export const agentManagementApi = {
@@ -66,7 +67,9 @@ export const agentManagementApi = {
     backendCall('agent_management_detail', { agentId }),
 
   planUsage: (agentId: AgentId): Promise<PlanUsageResult> =>
-    backendCall('agent_plan_usage', { agentId }),
+    getUsageProviderService().probeAgentUsage(agentId, (id) =>
+      backendCall('agent_plan_usage', { agentId: id })
+    ),
 
   registry: (): Promise<AgentRegistryView> =>
     backendCall('agent_registry_view'),

@@ -1,0 +1,65 @@
+{
+  "lockVersion": 1,
+  "packageDigest": "2b4f41d60e1b60f603c3654718ba318daa85d8e59351f9505b7cc458aefb2104",
+  "files": [
+    {
+      "path": ".gitignore",
+      "size": 30,
+      "sha256": "bbff771e663eb3bf6d014b90a6904fd19e56c495ff1ea371a3519a7574a428fa"
+    },
+    {
+      "path": ".vibex-plugin/content.index.json",
+      "size": 812,
+      "sha256": "2b5fc1c3e1141d7d55cf710099962f2fed35d50df0010cbfd0bb02aed9a3def8"
+    },
+    {
+      "path": ".vibex-plugin/plugin.json",
+      "size": 803,
+      "sha256": "ac718a796b1ce4287e9b5023eb080a251940ae69ed98e5c3754f3022b1a243e5"
+    },
+    {
+      "path": "LICENSE",
+      "size": 1062,
+      "sha256": "478be3a34d5e25cca9737aad3631c5fc90010fcbea2c555aceff3e9028d26962"
+    },
+    {
+      "path": "README.md",
+      "size": 3420,
+      "sha256": "6c842ae77decf033da4ada4dd5528fbf36d2a3136b717e998ce9f5fdc5aa6c3f"
+    },
+    {
+      "path": "assets/icon.svg",
+      "size": 423,
+      "sha256": "77f4d74791b2eb71cf7ef3148a5c469a1bb4a5d7dbf5577d678bacc8daf44ccf"
+    },
+    {
+      "path": "contents/skills/vibex-plugin-development/SKILL.md",
+      "size": 11906,
+      "sha256": "1848d7fe578aab142c2ab42000d5591ad5493899220b599e52add421e80da640"
+    },
+    {
+      "path": "contents/skills/vibex-plugin-development/references/contract.md",
+      "size": 6173,
+      "sha256": "7a1ad970ecc44ba45c5c8a64fa6d70c4f9836dd6ff74ced6a453065f0ecad0ee"
+    },
+    {
+      "path": "contents/skills/vibex-plugin-development/references/link.md",
+      "size": 2500,
+      "sha256": "ecdb67423b586e663ecce16a4ff152e73078561eecd720591807cf91b67f68df"
+    },
+    {
+      "path": "contents/skills/vibex-plugin-development/references/runtime.md",
+      "size": 5122,
+      "sha256": "93b824475240036c9831e4a7ef2d3f2319094c85681aa977f2b197031a5e605d"
+    },
+    {
+      "path": "contents/skills/vibex-plugin-development/references/templates.md",
+      "size": 2214,
+      "sha256": "ccd06634d2f27546aa16875ad8e87f9322e3c6e67e2844a6974653e97dbf8c31"
+    }
+  ],
+  "build": {
+    "cliVersion": "1.0.0",
+    "reproducible": true
+  }
+}

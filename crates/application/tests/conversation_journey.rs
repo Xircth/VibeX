@@ -420,10 +420,12 @@ async fn start_turn_is_launched_through_the_injected_execution_port() {
                 conversation_id,
                 executor_profile_id: None,
                 text: "Stream this turn".to_string(),
+                display_text: None,
                 images: Vec::new(),
                 mode_override: None,
                 config_overrides: Vec::new(),
                 workflow_refs: Vec::new(),
+                internal_prompt_contributions: Vec::new(),
                 operation_id: None,
             },
         )

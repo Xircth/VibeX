@@ -136,18 +136,7 @@ mod tests {
         );
         assert_eq!(admitted.kind, PluginMcpKind::HostFamily);
         assert_eq!(admitted.server_id, "vibex-delegation-mcp");
-        assert_eq!(
-            admitted
-                .tools
-                .iter()
-                .map(|tool| tool.name.as_str())
-                .collect::<Vec<_>>(),
-            [
-                "delegate_to_agent",
-                "get_delegation_status",
-                "cancel_delegation"
-            ]
-        );
+        assert_eq!(admitted.tools, crate::advertised_mcp_tools("delegation", 0));
     }
 
     #[test]

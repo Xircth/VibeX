@@ -73,7 +73,29 @@ pub struct ConversationInputPayload {
     pub workflow_refs: Vec<ConversationWorkflowRef>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub file_refs: Vec<ConversationFileRef>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub internal_prompt_contributions: Vec<InternalPromptBlock>,
 }
+
+/// Implicit context block contributed by a plugin (`beforeTurn` hook or prompt context
+/// contributor). Injected into the Agent prompt under `<vibex-plugin-context>` while kept
+/// completely invisible in the user-facing `UserTurnCreated` timeline blocks.
+#[derive(Debug, Clone, Eq, PartialEq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(rename_all = "camelCase")]
+#[ts(export)]
+pub struct InternalPromptBlock {
+    pub plugin_id: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub label: Option<String>,
+    pub content: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub priority: Option<i32>,
+}
+
+/// Maximum total UTF-8 byte size for all `internal_prompt_contributions` combined in a
+/// single turn (16 KiB).
+pub const MAX_INTERNAL_PROMPT_CONTRIBUTIONS_BYTES: usize = 16 * 1024;
 
 #[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]
@@ -1601,6 +1623,320 @@ fn cap_tool_preview_fields(block: &mut ContentBlock) {
     crate::timeline_images::spill_content_block(block);
 }
 
+/// Validates and formats `internal_prompt_contributions` into an `<vibex-plugin-context>`
+/// block to append to the Agent prompt.
+///
+/// Returns `Err(total_bytes)` if the total UTF-8 byte length of all contribution
+/// contents exceeds [`MAX_INTERNAL_PROMPT_CONTRIBUTIONS_BYTES`] (16 KiB).
+pub fn format_internal_prompt_contributions(
+    contributions: &[InternalPromptBlock],
+) -> Result<Option<String>, usize> {
+    let mut non_empty: Vec<&InternalPromptBlock> = contributions
+        .iter()
+        .filter(|block| !block.content.trim().is_empty())
+        .collect();
+    if non_empty.is_empty() {
+        return Ok(None);
+    }
+
+    let total_bytes: usize = non_empty.iter().map(|block| block.content.len()).sum();
+    if total_bytes > MAX_INTERNAL_PROMPT_CONTRIBUTIONS_BYTES {
+        return Err(total_bytes);
+    }
+
+    non_empty.sort_by(|left, right| {
+        left.priority
+            .unwrap_or(0)
+            .cmp(&right.priority.unwrap_or(0))
+            .then_with(|| left.plugin_id.cmp(&right.plugin_id))
+    });
+
+    let mut sections = Vec::with_capacity(non_empty.len());
+    for block in non_empty {
+        let plugin_id = block.plugin_id.trim();
+        let content = block.content.trim();
+        match block
+            .label
+            .as_deref()
+            .map(str::trim)
+            .filter(|label| !label.is_empty())
+        {
+            Some(label) => {
+                sections.push(format!(
+                    "<plugin-contribution plugin=\"{plugin_id}\" label=\"{label}\">\n{content}\n</plugin-contribution>"
+                ));
+            }
+            None => {
+                sections.push(format!(
+                    "<plugin-contribution plugin=\"{plugin_id}\">\n{content}\n</plugin-contribution>"
+                ));
+            }
+        }
+    }
+
+    Ok(Some(format!(
+        "<vibex-plugin-context>\n{}\n</vibex-plugin-context>",
+        sections.join("\n\n")
+    )))
+}
+
+/// Structured side-channel message extracted and stripped from an Assistant turn.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(rename_all = "camelCase")]
+#[ts(export)]
+pub struct CapturedInternalMessage {
+    pub plugin_id: String,
+    pub channel: String,
+    pub nonce: String,
+    pub raw_payload: String,
+    pub parsed_payload: serde_json::Value,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub conversation_id: Option<Uuid>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub turn_id: Option<Uuid>,
+}
+
+/// Result of scanning an Assistant text buffer for internal side-channel blocks.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct InternalMessageExtraction {
+    /// Cleaned user-visible text with all complete internal frames removed and
+    /// (when `is_streaming == true`) any trailing incomplete internal frame or prefix
+    /// held back so `visible_text` remains strictly monotonically append-only.
+    pub visible_text: String,
+    /// Complete internal messages discovered in the buffer.
+    pub captured: Vec<CapturedInternalMessage>,
+    /// True when the end of the buffer is inside an unclosed internal frame or partial
+    /// opening marker prefix.
+    pub has_pending_tail: bool,
+}
+
+const COMMENT_OPEN: &str = "<!--vibex-internal:";
+const COMMENT_SPACED_OPEN: &str = "<!-- vibex-internal:";
+const FENCE_OPEN: &str = "```vibex-internal:";
+const META_OPEN: &str = "<vibex-internal-meta";
+const META_CLOSE: &str = "</vibex-internal-meta>";
+
+fn parse_internal_header(header: &str) -> (String, String, String) {
+    let trimmed = header.trim();
+    let parts: Vec<&str> = trimmed.splitn(3, ':').collect();
+    match parts.as_slice() {
+        [plugin_id, channel, nonce] => (
+            (*plugin_id).to_string(),
+            (*channel).to_string(),
+            (*nonce).to_string(),
+        ),
+        [first, second] => (
+            (*first).to_string(),
+            format!("{first}:{second}"),
+            (*second).to_string(),
+        ),
+        [single] => ((*single).to_string(), (*single).to_string(), String::new()),
+        _ => (String::new(), trimmed.to_string(), String::new()),
+    }
+}
+
+fn parse_payload_json_or_string(raw: &str) -> serde_json::Value {
+    let trimmed = raw.trim();
+    if trimmed.is_empty() {
+        return serde_json::Value::String(String::new());
+    }
+    serde_json::from_str(trimmed)
+        .unwrap_or_else(|_| serde_json::Value::String(trimmed.to_string()))
+}
+
+fn extract_xml_attr(tag_header: &str, attr_name: &str) -> Option<String> {
+    for quote in ['"', '\''] {
+        let pattern = format!("{attr_name}={quote}");
+        if let Some(start) = tag_header.find(&pattern) {
+            let value_start = start + pattern.len();
+            if let Some(end_rel) = tag_header[value_start..].find(quote) {
+                return Some(tag_header[value_start..value_start + end_rel].to_string());
+            }
+        }
+    }
+    None
+}
+
+fn trailing_partial_marker_start(tail: &str) -> Option<usize> {
+    let prefixes = [COMMENT_OPEN, COMMENT_SPACED_OPEN, FENCE_OPEN, META_OPEN];
+    let max_len = prefixes.iter().map(|p| p.len()).max().unwrap_or(0);
+    let search_start = tail.len().saturating_sub(max_len);
+    for (offset, _) in tail[search_start..].char_indices() {
+        let idx = search_start + offset;
+        let suffix = &tail[idx..];
+        if prefixes
+            .iter()
+            .any(|prefix| prefix.starts_with(suffix) && suffix.len() < prefix.len())
+        {
+            return Some(idx);
+        }
+    }
+    None
+}
+
+/// Scans `raw_text` and strips all `<!--vibex-internal:...-->`,
+/// ```` ```vibex-internal:...\n...\n``` ````, and `<vibex-internal-meta ...>...</vibex-internal-meta>`
+/// frames while capturing their structured payloads.
+///
+/// When `is_streaming` is `true`, any incomplete frame or partial opening marker at the
+/// end of `raw_text` is held back from `visible_text` so streaming deltas never flash
+/// raw `<!--vibex-internal` tags in the chat UI.
+pub fn extract_and_strip_internal_messages(
+    raw_text: &str,
+    conversation_id: Option<Uuid>,
+    turn_id: Option<Uuid>,
+    is_streaming: bool,
+) -> InternalMessageExtraction {
+    let mut visible_text = String::with_capacity(raw_text.len());
+    let mut captured = Vec::new();
+    let mut cursor = 0usize;
+    let mut has_pending_tail = false;
+
+    while cursor < raw_text.len() {
+        let rest = &raw_text[cursor..];
+
+        // Find the earliest opening marker in `rest`.
+        let candidates = [
+            rest.find(COMMENT_OPEN).map(|pos| (pos, COMMENT_OPEN)),
+            rest.find(COMMENT_SPACED_OPEN)
+                .map(|pos| (pos, COMMENT_SPACED_OPEN)),
+            rest.find(FENCE_OPEN).map(|pos| (pos, FENCE_OPEN)),
+            rest.find(META_OPEN).map(|pos| (pos, META_OPEN)),
+        ];
+
+        let earliest = candidates
+            .into_iter()
+            .flatten()
+            .min_by_key(|(pos, _)| *pos);
+
+        let Some((rel_pos, marker)) = earliest else {
+            if is_streaming
+                && let Some(partial_rel) = trailing_partial_marker_start(rest)
+            {
+                visible_text.push_str(&rest[..partial_rel]);
+                has_pending_tail = true;
+            } else {
+                visible_text.push_str(rest);
+            }
+            break;
+        };
+
+        // Append everything before the opening marker to `visible_text`.
+        visible_text.push_str(&rest[..rel_pos]);
+        let frame_start = cursor + rel_pos;
+        let after_marker = &raw_text[frame_start + marker.len()..];
+
+        match marker {
+            COMMENT_OPEN | COMMENT_SPACED_OPEN => {
+                let Some(close_rel) = after_marker.find("-->") else {
+                    has_pending_tail = true;
+                    break;
+                };
+                let body = &after_marker[..close_rel];
+                let ws_pos = body.find(char::is_whitespace);
+                let (header, raw_payload) = match ws_pos {
+                    Some(idx) => (&body[..idx], body[idx..].trim()),
+                    None => (body.trim(), ""),
+                };
+                let (plugin_id, channel, nonce) = parse_internal_header(header);
+                captured.push(CapturedInternalMessage {
+                    plugin_id,
+                    channel,
+                    nonce,
+                    raw_payload: raw_payload.to_string(),
+                    parsed_payload: parse_payload_json_or_string(raw_payload),
+                    conversation_id,
+                    turn_id,
+                });
+                cursor = frame_start + marker.len() + close_rel + "-->".len();
+            }
+            FENCE_OPEN => {
+                let Some(newline_rel) = after_marker.find('\n') else {
+                    has_pending_tail = true;
+                    break;
+                };
+                let header = after_marker[..newline_rel].trim_end_matches('\r').trim();
+                let content_after_header = &after_marker[newline_rel + 1..];
+                let close_match = content_after_header
+                    .find("\n```")
+                    .map(|idx| (idx, "\n```".len()))
+                    .or_else(|| {
+                        content_after_header
+                            .find("```")
+                            .map(|idx| (idx, "```".len()))
+                    });
+                let Some((close_rel, close_len)) = close_match else {
+                    has_pending_tail = true;
+                    break;
+                };
+                let raw_payload = content_after_header[..close_rel].trim();
+                let (plugin_id, channel, nonce) = parse_internal_header(header);
+                captured.push(CapturedInternalMessage {
+                    plugin_id,
+                    channel,
+                    nonce,
+                    raw_payload: raw_payload.to_string(),
+                    parsed_payload: parse_payload_json_or_string(raw_payload),
+                    conversation_id,
+                    turn_id,
+                });
+                cursor = frame_start + marker.len() + newline_rel + 1 + close_rel + close_len;
+            }
+            META_OPEN => {
+                let Some(tag_end_rel) = after_marker.find('>') else {
+                    has_pending_tail = true;
+                    break;
+                };
+                let tag_attrs = &after_marker[..tag_end_rel];
+                let content_after_tag = &after_marker[tag_end_rel + 1..];
+                let Some(close_rel) = content_after_tag.find(META_CLOSE) else {
+                    has_pending_tail = true;
+                    break;
+                };
+                let raw_payload = content_after_tag[..close_rel].trim();
+                let raw_channel = extract_xml_attr(tag_attrs, "channel").unwrap_or_default();
+                let explicit_plugin = extract_xml_attr(tag_attrs, "plugin");
+                let explicit_nonce = extract_xml_attr(tag_attrs, "nonce");
+                let (parsed_plugin, parsed_channel, parsed_nonce) =
+                    parse_internal_header(&raw_channel);
+                let plugin_id = explicit_plugin.unwrap_or(parsed_plugin);
+                let channel = if raw_channel.is_empty() {
+                    parsed_channel
+                } else {
+                    raw_channel
+                };
+                let nonce = explicit_nonce.unwrap_or(parsed_nonce);
+                captured.push(CapturedInternalMessage {
+                    plugin_id,
+                    channel,
+                    nonce,
+                    raw_payload: raw_payload.to_string(),
+                    parsed_payload: parse_payload_json_or_string(raw_payload),
+                    conversation_id,
+                    turn_id,
+                });
+                cursor =
+                    frame_start + marker.len() + tag_end_rel + 1 + close_rel + META_CLOSE.len();
+            }
+            _ => unreachable!(),
+        }
+    }
+
+    if !is_streaming || !captured.is_empty() {
+        // Collapse excessive blank lines left behind by removed blocks.
+        while visible_text.contains("\n\n\n") {
+            visible_text = visible_text.replace("\n\n\n", "\n\n");
+        }
+    }
+
+    InternalMessageExtraction {
+        visible_text,
+        captured,
+        has_pending_tail,
+    }
+}
+
 #[cfg(test)]
 mod event_sourced_tests {
     use super::*;
@@ -1847,5 +2183,96 @@ mod event_sourced_tests {
         assert_eq!(payload.workflow_refs.len(), 1);
         assert_eq!(payload.workflow_refs[0].plugin_id, "vibex.office");
         assert_eq!(payload.workflow_refs[0].workflow_id, "create-presentation");
+    }
+
+    #[test]
+    fn formats_internal_prompt_contributions_and_enforces_16kib_limit() {
+        let blocks = vec![
+            InternalPromptBlock {
+                plugin_id: "b.plugin".to_string(),
+                label: Some("Memory".to_string()),
+                content: "Remember user prefers Rust.".to_string(),
+                priority: Some(20),
+            },
+            InternalPromptBlock {
+                plugin_id: "a.plugin".to_string(),
+                label: None,
+                content: "Emit <!--vibex-internal:a.plugin:summary {\"ok\":true}-->".to_string(),
+                priority: Some(10),
+            },
+        ];
+
+        let formatted = format_internal_prompt_contributions(&blocks)
+            .expect("within 16 KiB limit")
+            .expect("non-empty formatted output");
+        assert!(formatted.starts_with("<vibex-plugin-context>\n"));
+        assert!(formatted.ends_with("\n</vibex-plugin-context>"));
+        let pos_a = formatted.find("plugin=\"a.plugin\"").unwrap();
+        let pos_b = formatted.find("plugin=\"b.plugin\"").unwrap();
+        assert!(pos_a < pos_b, "higher priority (lower number) comes first");
+
+        let oversized = vec![InternalPromptBlock {
+            plugin_id: "oversized".to_string(),
+            label: None,
+            content: "x".repeat(MAX_INTERNAL_PROMPT_CONTRIBUTIONS_BYTES + 1),
+            priority: None,
+        }];
+        let err = format_internal_prompt_contributions(&oversized)
+            .expect_err("16 KiB + 1 byte must be rejected");
+        assert_eq!(err, MAX_INTERNAL_PROMPT_CONTRIBUTIONS_BYTES + 1);
+    }
+
+    #[test]
+    fn extracts_and_strips_internal_messages_across_streaming_chunks() {
+        let conv_id = Uuid::new_v4();
+        let turn_id = Uuid::new_v4();
+        let full = "Hello user! <!--vibex-internal:token-guard:summary:n1 {\"risk\":\"low\"}-->World!\n```vibex-internal:audit:report\n{\"score\":99}\n```\n<vibex-internal-meta channel=\"telemetry\" nonce=\"n2\">{\"ok\":true}</vibex-internal-meta>Done.";
+
+        // Simulate arbitrary chunking across every character boundary and verify monotonic visible_text.
+        let mut prev_visible = String::new();
+        for split in 1..full.len() {
+            if !full.is_char_boundary(split) {
+                continue;
+            }
+            let partial = &full[..split];
+            let res =
+                extract_and_strip_internal_messages(partial, Some(conv_id), Some(turn_id), true);
+            assert!(
+                res.visible_text.starts_with(&prev_visible),
+                "visible_text must be monotonically append-only during streaming: prev={prev_visible:?}, next={:?} at split={split}",
+                res.visible_text
+            );
+            assert!(
+                !res.visible_text.contains("vibex-internal"),
+                "internal marker leaked into visible_text: {:?}",
+                res.visible_text
+            );
+            prev_visible = res.visible_text;
+        }
+
+        let final_res =
+            extract_and_strip_internal_messages(full, Some(conv_id), Some(turn_id), false);
+        assert_eq!(final_res.visible_text, "Hello user! World!\n\nDone.");
+        assert_eq!(final_res.captured.len(), 3);
+        assert_eq!(final_res.captured[0].plugin_id, "token-guard");
+        assert_eq!(final_res.captured[0].channel, "summary");
+        assert_eq!(final_res.captured[0].nonce, "n1");
+        assert_eq!(
+            final_res.captured[0].parsed_payload,
+            serde_json::json!({"risk": "low"})
+        );
+        assert_eq!(final_res.captured[1].plugin_id, "audit");
+        assert_eq!(final_res.captured[1].channel, "audit:report");
+        assert_eq!(final_res.captured[1].nonce, "report");
+        assert_eq!(
+            final_res.captured[1].parsed_payload,
+            serde_json::json!({"score": 99})
+        );
+        assert_eq!(final_res.captured[2].channel, "telemetry");
+        assert_eq!(final_res.captured[2].nonce, "n2");
+        assert_eq!(
+            final_res.captured[2].parsed_payload,
+            serde_json::json!({"ok": true})
+        );
     }
 }

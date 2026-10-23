@@ -1,3 +1,1 @@
-export function definePluginApp(mount) {
-    return { apiVersion: '1.0', mount };
-}
+export { createPluginContext, definePlugin, defineVibeXPlugin, isVibeXPluginDefinition, setDefaultHostCallTransport, setDefaultWorkerInvokeTransport, } from './context.js';

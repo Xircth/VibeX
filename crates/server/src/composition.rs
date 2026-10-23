@@ -351,6 +351,19 @@ impl HeadlessServer {
         if let Err(error) = services::services::mcp::patch_grok_product_mcp_startup_timeout() {
             tracing::warn!(%error, "Grok product MCP startup timeout patch failed");
         }
+        {
+            let idle_recycle = plugin_control_plane.clone();
+            tokio::spawn(async move {
+                let mut interval = tokio::time::interval(std::time::Duration::from_secs(60));
+                interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+                loop {
+                    interval.tick().await;
+                    idle_recycle
+                        .recycle_idle_workers(std::time::Duration::from_secs(10 * 60))
+                        .await;
+                }
+            });
+        }
         start_plugin_artifact_http(plugin_control_plane.clone())
             .await
             .map_err(|error| ServerBootstrapError::Plugin(error.to_string()))?;

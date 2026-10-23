@@ -29,12 +29,22 @@ pub(super) async fn run_developer_link_watch(plane: Arc<PluginControlPlane>) {
     }
 }
 
+pub fn user_plugins_dir() -> Option<PathBuf> {
+    if let Ok(custom) = std::env::var("VIBEX_USER_PLUGINS_DIR")
+        && !custom.trim().is_empty()
+    {
+        return Some(PathBuf::from(custom.trim()));
+    }
+    dirs::home_dir().map(|home| home.join(".vibex").join("plugins"))
+}
+
 async fn watch_with_notify(
     plane: Arc<PluginControlPlane>,
     mut watcher: RecommendedWatcher,
     rx: std::sync::mpsc::Receiver<notify::Result<Event>>,
 ) {
     let mut watched = HashSet::<PathBuf>::new();
+    reload(&plane).await;
     resync_watches(&plane, &mut watcher, &mut watched).await;
     let (event_tx, mut event_rx) = mpsc::unbounded_channel();
     std::thread::Builder::new()
@@ -112,12 +122,18 @@ async fn resync_watches(
     let Ok(plugins) = plane.catalog().await else {
         return;
     };
-    let desired: HashSet<PathBuf> = plugins
+    let mut desired: HashSet<PathBuf> = plugins
         .into_iter()
         .filter(|plugin| plugin.source.kind == PluginSourceKind::DeveloperLink)
         .filter(|plugin| plugin.source.path.is_dir())
         .map(|plugin| plugin.source.path.clone())
         .collect();
+    if let Some(user_dir) = user_plugins_dir() {
+        let _ = std::fs::create_dir_all(&user_dir);
+        if user_dir.is_dir() {
+            desired.insert(user_dir);
+        }
+    }
     for stale in watched.difference(&desired).cloned().collect::<Vec<_>>() {
         let _ = watcher.unwatch(Path::new(&stale));
         watched.remove(&stale);

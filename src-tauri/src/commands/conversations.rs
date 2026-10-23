@@ -148,6 +148,10 @@ pub struct ConversationStartTurnRequest {
     /// Structured Plugin Workflow identities selected in the Composer for this turn.
     #[serde(default, alias = "pluginActions")]
     pub workflow_refs: Vec<ConversationWorkflowRef>,
+    /// Implicit plugin prompt contributions injected into the Agent prompt under
+    /// `<vibex-plugin-context>` while hidden from the user-facing timeline.
+    #[serde(default)]
+    pub internal_prompt_contributions: Vec<agents::InternalPromptBlock>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -675,6 +679,7 @@ pub async fn conversation_start_turn(
                 config_overrides: request.config_overrides,
                 workflow_refs: request.workflow_refs,
                 file_refs: Vec::new(),
+                internal_prompt_contributions: request.internal_prompt_contributions,
                 queued_input_claim: None,
                 operation_id: None,
             },

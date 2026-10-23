@@ -1,0 +1,15 @@
+{
+  "schemaVersion": 1,
+  "items": [
+    {
+      "path": "contents/skills/computer-use/SKILL.md",
+      "kind": "skill",
+      "title": "Computer Use"
+    },
+    {
+      "path": "contents/mcps/computer-use.json",
+      "kind": "mcp",
+      "title": "Computer Use MCP"
+    }
+  ]
+}

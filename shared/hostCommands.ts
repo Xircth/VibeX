@@ -379,6 +379,7 @@ export const HOST_COMMANDS = [
   'plugin_control_set_enabled',
   'plugin_control_uninstall',
   'plugin_control_update',
+  'plugin_host_call',
   'plugin_install',
   'plugin_invoke_contribution',
   'plugin_marketplace_catalog',
@@ -993,6 +994,7 @@ export const HOST_COMMAND_DESCRIPTORS = [
   { name: 'plugin_control_set_enabled', scope: 'plugin.write', kind: 'domain', argShape: 'compat' },
   { name: 'plugin_control_uninstall', scope: 'plugin.write', kind: 'domain', argShape: 'compat' },
   { name: 'plugin_control_update', scope: 'plugin.write', kind: 'domain', argShape: 'compat' },
+  { name: 'plugin_host_call', scope: 'plugin.surface', kind: 'domain', argShape: 'compat' },
   { name: 'plugin_install', scope: 'plugin.write', kind: 'domain', argShape: 'compat' },
   { name: 'plugin_invoke_contribution', scope: 'plugin.surface', kind: 'domain', argShape: 'compat' },
   { name: 'plugin_marketplace_catalog', scope: 'plugin.read', kind: 'domain', argShape: 'compat' },
@@ -1163,6 +1165,8 @@ export const HOST_EVENT_CHANNELS = [
   { prefix: 'terminal-exit', durability: 'best_effort', scope: 'application.call' },
   { prefix: 'plugin-contributions-changed', durability: 'invalidation', scope: 'plugin.read' },
   { prefix: 'plugin-conversation-draft-insert', durability: 'best_effort', scope: 'conversation.read' },
+  { prefix: 'plugin-internal-message', durability: 'best_effort', scope: 'conversation.read' },
+  { prefix: 'conversation-after-turn', durability: 'best_effort', scope: 'conversation.read' },
   { prefix: 'provider-bind-confirm', durability: 'best_effort', scope: 'plugin.write' },
 ] as const;
 

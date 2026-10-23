@@ -113,6 +113,92 @@ const AUTO_PERMISSION_NOTICE_ROW_ID: &str = "notice:auto-permission-approved";
 const AUTO_PERMISSION_NOTICE_TITLE: &str = "已自动批准权限";
 const ANNOUNCEMENT_ROW_PREFIX: &str = "notice:announcement:";
 
+type InternalMessageListenerFn = dyn Fn(&agents::CapturedInternalMessage) + Send + Sync + 'static;
+
+static INTERNAL_MESSAGE_TX: std::sync::OnceLock<
+    tokio::sync::broadcast::Sender<agents::CapturedInternalMessage>,
+> = std::sync::OnceLock::new();
+static INTERNAL_MESSAGE_LISTENERS: std::sync::OnceLock<
+    std::sync::RwLock<Vec<std::sync::Arc<InternalMessageListenerFn>>>,
+> = std::sync::OnceLock::new();
+static EMITTED_INTERNAL_MESSAGE_KEYS: std::sync::OnceLock<
+    std::sync::Mutex<std::collections::HashSet<String>>,
+> = std::sync::OnceLock::new();
+
+fn internal_message_sender() -> &'static tokio::sync::broadcast::Sender<agents::CapturedInternalMessage>
+{
+    INTERNAL_MESSAGE_TX.get_or_init(|| {
+        let (tx, _) = tokio::sync::broadcast::channel(256);
+        tx
+    })
+}
+
+fn internal_message_listeners() -> &'static std::sync::RwLock<Vec<std::sync::Arc<InternalMessageListenerFn>>>
+{
+    INTERNAL_MESSAGE_LISTENERS.get_or_init(|| std::sync::RwLock::new(Vec::new()))
+}
+
+fn emitted_internal_message_keys() -> &'static std::sync::Mutex<std::collections::HashSet<String>> {
+    EMITTED_INTERNAL_MESSAGE_KEYS
+        .get_or_init(|| std::sync::Mutex::new(std::collections::HashSet::new()))
+}
+
+/// Subscribe to structured internal side-channel messages captured and stripped from
+/// Assistant turns.
+pub fn subscribe_internal_messages() -> tokio::sync::broadcast::Receiver<agents::CapturedInternalMessage>
+{
+    internal_message_sender().subscribe()
+}
+
+/// Register an in-process listener invoked whenever a new internal side-channel message
+/// is captured and stripped from an Assistant turn.
+pub fn register_internal_message_listener<F>(listener: F)
+where
+    F: Fn(&agents::CapturedInternalMessage) + Send + Sync + 'static,
+{
+    if let Ok(mut guard) = internal_message_listeners().write() {
+        guard.push(std::sync::Arc::new(listener));
+    }
+}
+
+/// Clears registered internal message listeners and deduplication state (primarily for tests).
+pub fn clear_internal_message_listeners() {
+    if let Ok(mut guard) = internal_message_listeners().write() {
+        guard.clear();
+    }
+    if let Ok(mut guard) = emitted_internal_message_keys().lock() {
+        guard.clear();
+    }
+}
+
+pub(crate) fn emit_captured_internal_message(message: agents::CapturedInternalMessage) {
+    let dedup_key = format!(
+        "{}:{}:{}:{}:{}:{}",
+        message.conversation_id.unwrap_or_default(),
+        message.turn_id.unwrap_or_default(),
+        message.plugin_id,
+        message.channel,
+        message.nonce,
+        message.raw_payload
+    );
+    if let Ok(mut seen) = emitted_internal_message_keys().lock() {
+        if seen.len() >= 4096 {
+            seen.clear();
+        }
+        if !seen.insert(dedup_key) {
+            return;
+        }
+    }
+    let _ = internal_message_sender().send(message.clone());
+    let listeners = internal_message_listeners()
+        .read()
+        .map(|guard| guard.clone())
+        .unwrap_or_default();
+    for listener in listeners {
+        listener(&message);
+    }
+}
+
 pub struct ConversationEventAppender;
 
 impl ConversationEventAppender {
@@ -1693,9 +1779,75 @@ impl ProjectionFold {
             }
             match stream {
                 TimelineTextStream::Text => {
-                    append_text_block(&mut turn.assistant.blocks, text.clone())
+                    if !turn.assistant.blocks.is_empty()
+                        && !matches!(turn.assistant.blocks.last(), Some(ContentBlock::Text { .. }))
+                    {
+                        turn.trailing_raw_text.clear();
+                        turn.emitted_internal_count = 0;
+                    }
+                    let prev_visible = match turn.assistant.blocks.last() {
+                        Some(ContentBlock::Text { text }) => text.clone(),
+                        _ => String::new(),
+                    };
+                    turn.trailing_raw_text.push_str(text);
+                    let extracted = agents::extract_and_strip_internal_messages(
+                        &turn.trailing_raw_text,
+                        Some(record.conversation_id),
+                        Some(turn_id),
+                        true,
+                    );
+                    for captured in extracted
+                        .captured
+                        .iter()
+                        .skip(turn.emitted_internal_count)
+                        .cloned()
+                    {
+                        emit_captured_internal_message(captured);
+                    }
+                    turn.emitted_internal_count = extracted.captured.len();
+
+                    if !extracted.visible_text.is_empty() {
+                        if let Some(ContentBlock::Text { text: existing }) =
+                            turn.assistant.blocks.last_mut()
+                        {
+                            *existing = extracted.visible_text.clone();
+                        } else {
+                            turn.assistant.blocks.push(ContentBlock::Text {
+                                text: extracted.visible_text.clone(),
+                            });
+                        }
+                    }
+
+                    let visible_delta = extracted
+                        .visible_text
+                        .strip_prefix(&prev_visible)
+                        .unwrap_or(&extracted.visible_text)
+                        .to_string();
+                    turn.revision = record.sequence;
+                    let mut ops = Vec::new();
+                    if !visible_delta.is_empty() {
+                        ops.push(ConversationRowOp::AppendText {
+                            row_id: turn.assistant.id.clone(),
+                            revision: record.sequence,
+                            stream,
+                            delta: visible_delta,
+                        });
+                    }
+                    if turn.assistant.usage.is_some() && !turn.usage_announced {
+                        ops.push(ConversationRowOp::PatchBlocks {
+                            row_id: turn.assistant.id.clone(),
+                            revision: record.sequence,
+                            phase: turn.phase.clone(),
+                            blocks: Vec::new(),
+                            usage: turn.assistant.usage.clone(),
+                        });
+                        turn.usage_announced = true;
+                    }
+                    return Ok(ops);
                 }
                 TimelineTextStream::Reasoning => {
+                    turn.trailing_raw_text.clear();
+                    turn.emitted_internal_count = 0;
                     append_thinking_block(&mut turn.assistant.blocks, text.clone())
                 }
             }
@@ -1789,17 +1941,43 @@ impl ProjectionFold {
                     let turn = turns.get_mut(&turn_id).expect("turn exists");
                     let row_existed = !turn.assistant.blocks.is_empty();
                     turn.revision = record.sequence;
-                    turn.assistant.blocks.push(block);
-                    assistant_emit = Some(if row_existed {
-                        let blocks = turn.assistant.blocks.last().cloned().into_iter().collect();
-                        AssistantEmit::Patch {
-                            blocks,
-                            usage: None,
+                    turn.trailing_raw_text.clear();
+                    turn.emitted_internal_count = 0;
+                    let cleaned_block = match block {
+                        ContentBlock::Text { text } => {
+                            let extracted = agents::extract_and_strip_internal_messages(
+                                &text,
+                                Some(record.conversation_id),
+                                Some(turn_id),
+                                false,
+                            );
+                            for captured in extracted.captured {
+                                emit_captured_internal_message(captured);
+                            }
+                            if extracted.visible_text.is_empty() {
+                                None
+                            } else {
+                                Some(ContentBlock::Text {
+                                    text: extracted.visible_text,
+                                })
+                            }
                         }
-                    } else {
-                        AssistantEmit::Full
-                    });
-                    touched_turn_rows = Some(TouchedTurnRows::AssistantOnly(turn_id));
+                        other => Some(other),
+                    };
+                    if let Some(cleaned_block) = cleaned_block {
+                        turn.assistant.blocks.push(cleaned_block);
+                        assistant_emit = Some(if row_existed {
+                            let blocks =
+                                turn.assistant.blocks.last().cloned().into_iter().collect();
+                            AssistantEmit::Patch {
+                                blocks,
+                                usage: None,
+                            }
+                        } else {
+                            AssistantEmit::Full
+                        });
+                        touched_turn_rows = Some(TouchedTurnRows::AssistantOnly(turn_id));
+                    }
                 }
             }
             ConversationEvent::PlanUpdated { entries } => {
@@ -2903,6 +3081,8 @@ impl ProjectionFold {
                     phase: "settled".into(),
                     revision: self.last_sequence.max(1),
                     usage_announced: false,
+                    trailing_raw_text: String::new(),
+                    emitted_internal_count: 0,
                 },
             );
             return;
@@ -2936,6 +3116,12 @@ struct ProjectedTurn {
     /// arrives before the first block must still be announced on the next delta.
     #[serde(default)]
     usage_announced: bool,
+    /// Raw unstripped text accumulated for the current trailing text block.
+    #[serde(default)]
+    trailing_raw_text: String,
+    /// Count of internal messages already emitted for `trailing_raw_text`.
+    #[serde(default)]
+    emitted_internal_count: usize,
 }
 
 fn ensure_turn(
@@ -2980,6 +3166,8 @@ fn ensure_turn(
             phase: "streaming".into(),
             revision: record.sequence,
             usage_announced: false,
+            trailing_raw_text: String::new(),
+            emitted_internal_count: 0,
         },
     );
 }
@@ -2996,6 +3184,38 @@ fn settle_turn(
         .unwrap_or(record.conversation_id);
     ensure_turn(turns, turn_order, turn_id, record);
     let turn = turns.get_mut(&turn_id).expect("turn exists");
+    if !turn.trailing_raw_text.is_empty() {
+        let extracted = agents::extract_and_strip_internal_messages(
+            &turn.trailing_raw_text,
+            Some(record.conversation_id),
+            Some(turn_id),
+            false,
+        );
+        for captured in extracted
+            .captured
+            .into_iter()
+            .skip(turn.emitted_internal_count)
+        {
+            emit_captured_internal_message(captured);
+        }
+        match turn.assistant.blocks.last_mut() {
+            Some(ContentBlock::Text { text }) => {
+                if extracted.visible_text.is_empty() {
+                    turn.assistant.blocks.pop();
+                } else {
+                    *text = extracted.visible_text;
+                }
+            }
+            _ if !extracted.visible_text.is_empty() => {
+                turn.assistant.blocks.push(ContentBlock::Text {
+                    text: extracted.visible_text,
+                });
+            }
+            _ => {}
+        }
+        turn.trailing_raw_text.clear();
+        turn.emitted_internal_count = 0;
+    }
     turn.revision = record.sequence;
     turn.phase = phase.into();
     turn.assistant.completed_at = Some(record.created_at);
@@ -3425,14 +3645,6 @@ fn insert_mid_turn_user_slice(
         });
     }
     turn.revision = record.sequence;
-}
-
-fn append_text_block(blocks: &mut Vec<ContentBlock>, text: String) {
-    if let Some(ContentBlock::Text { text: existing }) = blocks.last_mut() {
-        existing.push_str(&text);
-    } else {
-        blocks.push(ContentBlock::Text { text });
-    }
 }
 
 fn append_thinking_block(blocks: &mut Vec<ContentBlock>, text: String) {
@@ -7942,6 +8154,7 @@ mod tests {
             config_overrides: Vec::new(),
             workflow_refs: Vec::new(),
             file_refs: Vec::new(),
+            internal_prompt_contributions: Vec::new(),
         }
     }
 
@@ -8680,6 +8893,78 @@ mod tests {
         assert!(
             matches!(text_ops.as_slice(), [ConversationRowOp::AppendText { .. }]),
             "a later text delta must not repeat the usage patch, got {text_ops:?}"
+        );
+    }
+
+    #[tokio::test]
+    async fn projector_strips_internal_messages_across_streaming_deltas_and_emits_captured_messages() {
+        let pool = setup_pool().await;
+        let (conversation_id, turn_id) = seed_turn(&pool).await;
+        let user_rec = append_event(
+            &pool,
+            conversation_id,
+            Some(turn_id),
+            "user",
+            ConversationEvent::UserTurnCreated {
+                blocks: vec![ConversationInputBlock::Text { text: "hi".into() }],
+                workflow_refs: Vec::new(),
+            },
+            None,
+        )
+        .await;
+        let mut rx = crate::subscribe_internal_messages();
+        let mut projector = IncrementalRowProjector::load(&pool, conversation_id, 0)
+            .await
+            .expect("load projector");
+        projector.apply(&user_rec).expect("apply user");
+
+        let chunk1 = append_event(
+            &pool,
+            conversation_id,
+            Some(turn_id),
+            "acp",
+            ConversationEvent::AssistantTextDelta {
+                text: "Hello user!\n<vibex-internal-meta channel=\"vibex.memory:extract:n77\">{\"key\":".into(),
+                message_id: None,
+            },
+            None,
+        )
+        .await;
+        projector.apply(&chunk1).expect("apply chunk1");
+        assert_eq!(
+            projector.fold.turns[&turn_id].assistant.blocks,
+            vec![ContentBlock::Text {
+                text: "Hello user!\n".into()
+            }]
+        );
+        assert!(rx.try_recv().is_err());
+
+        let chunk2 = append_event(
+            &pool,
+            conversation_id,
+            Some(turn_id),
+            "acp",
+            ConversationEvent::AssistantTextDelta {
+                text: "\"val\"}</vibex-internal-meta>\n\nHow can I help?".into(),
+                message_id: None,
+            },
+            None,
+        )
+        .await;
+        projector.apply(&chunk2).expect("apply chunk2");
+        assert_eq!(
+            projector.fold.turns[&turn_id].assistant.blocks,
+            vec![ContentBlock::Text {
+                text: "Hello user!\n\nHow can I help?".into()
+            }]
+        );
+        let captured = rx.try_recv().expect("captured internal message");
+        assert_eq!(captured.plugin_id, "vibex.memory");
+        assert_eq!(captured.channel, "vibex.memory:extract:n77");
+        assert_eq!(captured.nonce, "n77");
+        assert_eq!(
+            captured.parsed_payload,
+            serde_json::json!({"key": "val"})
         );
     }
 }

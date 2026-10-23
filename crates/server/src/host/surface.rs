@@ -399,12 +399,8 @@ impl ServerApplicationDomains {
                 self.agent_management_install(args, AgentOperationKind::Update)
                     .await
             }
-            DomainCommand::AgentManagementUninstall => {
-                self.agent_management_uninstall(args).await
-            }
-            DomainCommand::AgentManagementRemove => {
-                self.agent_management_remove(args).await
-            }
+            DomainCommand::AgentManagementUninstall => self.agent_management_uninstall(args).await,
+            DomainCommand::AgentManagementRemove => self.agent_management_remove(args).await,
             DomainCommand::AgentManagementRollback => self.agent_management_rollback(args).await,
             DomainCommand::AgentManagementCheckUpdate => {
                 self.agent_management_check_update(args).await

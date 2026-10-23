@@ -498,9 +498,7 @@ async fn resolve_plan(
             let target = AgentManagementApplicationService::new(pool.clone())
                 .user_install_target(agent_id)
                 .await?
-                .ok_or_else(|| {
-                    anyhow::anyhow!("user-declared Agent `{agent_id}` was not found")
-                })?;
+                .ok_or_else(|| anyhow::anyhow!("user-declared Agent `{agent_id}` was not found"))?;
             InstallCandidateSource::UserDefinition(Box::new(target))
         }
         AgentSource::RetiredLegacy => anyhow::bail!("retired Agents cannot be installed"),

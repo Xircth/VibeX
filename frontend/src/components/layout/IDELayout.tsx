@@ -23,6 +23,8 @@ import {
 } from '@/components/layout/panels/PanelRegistry';
 import { WorkspaceActivityRail } from '@/components/layout/WorkspaceActivityRail';
 import { WorkspaceTabAddMenu } from '@/components/layout/panels/WorkspaceTabAddMenu';
+import { useViews } from '@vibex/plugin-sdk';
+import { PluginOverlays } from '@/components/plugins/PluginOverlays';
 import { PluginRemoteView } from '@/components/plugins/PluginRemoteView';
 import { useActiveSurfaceHidesBottomDock } from '@/hooks/useActiveSurfaceDockPolicy';
 import { useAutoOpenCreatedFilePreviews } from '@/hooks/useAutoOpenCreatedFilePreviews';
@@ -394,15 +396,32 @@ export function IDELayout({
   }, [effectiveActiveTab]);
   const hidesBottomDock = useActiveSurfaceHidesBottomDock(effectiveActiveTab);
   const pluginTabs = usePluginHostContributions('app_tab');
+  const sdkViews = useViews();
   const activePluginTab = (() => {
     const parsed = parsePluginSurfaceId(effectiveActiveTab);
     if (!parsed) return null;
-    return (
-      pluginTabs.find(
-        (item) =>
-          item.pluginId === parsed.pluginId && item.id === parsed.contributionId
-      ) ?? null
+    const catalogMatch = pluginTabs.find(
+      (item) =>
+        item.pluginId === parsed.pluginId && item.id === parsed.contributionId
     );
+    if (catalogMatch) return catalogMatch;
+    const sdkMatch = sdkViews.find(
+      (view) =>
+        view.kind === 'tab' &&
+        view.pluginId === parsed.pluginId &&
+        (view.id === parsed.contributionId ||
+          view.id === `${parsed.pluginId}:${parsed.contributionId}` ||
+          view.id === `plugin:${parsed.pluginId}/${parsed.contributionId}`)
+    );
+    if (!sdkMatch) return null;
+    return {
+      pluginId: parsed.pluginId,
+      id: parsed.contributionId,
+      kind: 'app_tab' as const,
+      label: sdkMatch.title,
+      generation: 1,
+      metadata: sdkMatch.icon ? { icon: sdkMatch.icon } : {},
+    };
   })();
   const serializedLayoutRef = useRef(serializedLayout);
   const layoutChangeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(
@@ -1165,6 +1184,13 @@ export function IDELayout({
     <div className="workspace-shell relative flex h-full w-full flex-col">
       <BrowserEvalConfirm />
       <SearchPalette />
+      <PluginOverlays
+        context={{
+          projectId: projectId ?? null,
+          workspaceId: surfaceWorkspaceId,
+          activeTab: effectiveActiveTab,
+        }}
+      />
       {toolbarContent && (
         <div className="workspace-divider-bottom z-10 shrink-0">
           {toolbarContent}

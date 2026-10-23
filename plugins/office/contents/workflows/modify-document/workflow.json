@@ -1,0 +1,27 @@
+{
+  "label": "修改 DOCX",
+  "entrypoints": [
+    "action",
+    "command"
+  ],
+  "promptBlocks": [
+    {
+      "type": "text",
+      "text": "按要求修改现有 DOCX，保留未指定内容并验证输出。"
+    }
+  ],
+  "requires": {
+    "skills": [
+      "word"
+    ],
+    "runtimes": [
+      "officecli"
+    ]
+  },
+  "artifactIntent": {
+    "mediaTypes": [
+      "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+    ],
+    "previewProvider": "office-preview"
+  }
+}

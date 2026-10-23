@@ -1,0 +1,735 @@
+{
+  "schemaVersion": 1,
+  "items": [
+    {
+      "path": "contents/skills/scientific-brainstorming/SKILL.md",
+      "kind": "skill",
+      "title": "Scientific Brainstorming"
+    },
+    {
+      "path": "contents/skills/hypothesis-generation/SKILL.md",
+      "kind": "skill",
+      "title": "Scientific Hypothesis Generation"
+    },
+    {
+      "path": "contents/skills/experimental-design/SKILL.md",
+      "kind": "skill",
+      "title": "Experimental Design"
+    },
+    {
+      "path": "contents/skills/statistical-power/SKILL.md",
+      "kind": "skill",
+      "title": "Statistical Power & Sample Size"
+    },
+    {
+      "path": "contents/skills/statistical-analysis/SKILL.md",
+      "kind": "skill",
+      "title": "Statistical Analysis"
+    },
+    {
+      "path": "contents/skills/exploratory-data-analysis/SKILL.md",
+      "kind": "skill",
+      "title": "Exploratory Data Analysis"
+    },
+    {
+      "path": "contents/skills/scientific-visualization/SKILL.md",
+      "kind": "skill",
+      "title": "Scientific Visualization"
+    },
+    {
+      "path": "contents/skills/scientific-critical-thinking/SKILL.md",
+      "kind": "skill",
+      "title": "Scientific Critical Thinking"
+    },
+    {
+      "path": "contents/skills/paper-lookup/SKILL.md",
+      "kind": "skill",
+      "title": "Paper Lookup"
+    },
+    {
+      "path": "contents/skills/peer-review/SKILL.md",
+      "kind": "skill",
+      "title": "Peer Review"
+    },
+    {
+      "path": "contents/skills/citation-management/SKILL.md",
+      "kind": "skill",
+      "title": "Citation Management"
+    },
+    {
+      "path": "contents/skills/scholar-evaluation/SKILL.md",
+      "kind": "skill",
+      "title": "Scholar Evaluation"
+    },
+    {
+      "path": "contents/skills/scientific-schematics/SKILL.md",
+      "kind": "skill",
+      "title": "Scientific Schematics and Diagrams"
+    },
+    {
+      "path": "contents/skills/literature-review/SKILL.md",
+      "kind": "skill",
+      "title": "Literature Review"
+    },
+    {
+      "path": "contents/skills/research-lookup/SKILL.md",
+      "kind": "skill",
+      "title": "Research Lookup"
+    },
+    {
+      "path": "contents/skills/bgpt-paper-search/SKILL.md",
+      "kind": "skill",
+      "title": "BGPT Paper Search"
+    },
+    {
+      "path": "contents/skills/paperclip/SKILL.md",
+      "kind": "skill",
+      "title": "Paperclip CLI"
+    },
+    {
+      "path": "contents/skills/paperzilla/SKILL.md",
+      "kind": "skill",
+      "title": "Paperzilla"
+    },
+    {
+      "path": "contents/skills/pyzotero/SKILL.md",
+      "kind": "skill",
+      "title": "Pyzotero"
+    },
+    {
+      "path": "contents/skills/exa-search/SKILL.md",
+      "kind": "skill",
+      "title": "Exa Web Toolkit"
+    },
+    {
+      "path": "contents/skills/parallel-web/SKILL.md",
+      "kind": "skill",
+      "title": "Parallel Web Toolkit"
+    },
+    {
+      "path": "contents/skills/database-lookup/SKILL.md",
+      "kind": "skill",
+      "title": "Database Lookup"
+    },
+    {
+      "path": "contents/skills/usfiscaldata/SKILL.md",
+      "kind": "skill",
+      "title": "U.S. Treasury Fiscal Data API"
+    },
+    {
+      "path": "contents/skills/ncats-arax/SKILL.md",
+      "kind": "skill",
+      "title": "NCATS ARAX"
+    },
+    {
+      "path": "contents/skills/ontology-term-resolution/SKILL.md",
+      "kind": "skill",
+      "title": "Ontology Term Resolution"
+    },
+    {
+      "path": "contents/skills/scientific-writing/SKILL.md",
+      "kind": "skill",
+      "title": "Scientific Writing"
+    },
+    {
+      "path": "contents/skills/research-grants/SKILL.md",
+      "kind": "skill",
+      "title": "Research Grant Writing"
+    },
+    {
+      "path": "contents/skills/venue-templates/SKILL.md",
+      "kind": "skill",
+      "title": "Venue Templates"
+    },
+    {
+      "path": "contents/skills/pptx-posters/SKILL.md",
+      "kind": "skill",
+      "title": "PPTX posters"
+    },
+    {
+      "path": "contents/skills/scientific-slides/SKILL.md",
+      "kind": "skill",
+      "title": "Scientific Slides"
+    },
+    {
+      "path": "contents/skills/markdown-mermaid-writing/SKILL.md",
+      "kind": "skill",
+      "title": "Markdown and Mermaid Writing"
+    },
+    {
+      "path": "contents/skills/generate-image/SKILL.md",
+      "kind": "skill",
+      "title": "Generate Image"
+    },
+    {
+      "path": "contents/skills/open-notebook/SKILL.md",
+      "kind": "skill",
+      "title": "Open Notebook"
+    },
+    {
+      "path": "contents/skills/market-research-reports/SKILL.md",
+      "kind": "skill",
+      "title": "Market Research Reports"
+    },
+    {
+      "path": "contents/skills/liteparse/SKILL.md",
+      "kind": "skill",
+      "title": "LiteParse — Local Document Parsing"
+    },
+    {
+      "path": "contents/skills/markitdown/SKILL.md",
+      "kind": "skill",
+      "title": "MarkItDown"
+    },
+    {
+      "path": "contents/skills/pymc/SKILL.md",
+      "kind": "skill",
+      "title": "PyMC Bayesian Modeling"
+    },
+    {
+      "path": "contents/skills/statsmodels/SKILL.md",
+      "kind": "skill",
+      "title": "Statsmodels: Statistical Modeling and Econometrics"
+    },
+    {
+      "path": "contents/skills/scikit-survival/SKILL.md",
+      "kind": "skill",
+      "title": "scikit-survival"
+    },
+    {
+      "path": "contents/skills/seaborn/SKILL.md",
+      "kind": "skill",
+      "title": "Seaborn Statistical Visualization"
+    },
+    {
+      "path": "contents/skills/aeon/SKILL.md",
+      "kind": "skill",
+      "title": "Aeon Time Series Machine Learning"
+    },
+    {
+      "path": "contents/skills/timesfm-forecasting/SKILL.md",
+      "kind": "skill",
+      "title": "TimesFM Forecasting"
+    },
+    {
+      "path": "contents/skills/networkx/SKILL.md",
+      "kind": "skill",
+      "title": "NetworkX"
+    },
+    {
+      "path": "contents/skills/matlab/SKILL.md",
+      "kind": "skill",
+      "title": "MATLAB and GNU Octave"
+    },
+    {
+      "path": "contents/skills/uncertainty-and-units/SKILL.md",
+      "kind": "skill",
+      "title": "Uncertainty and units"
+    },
+    {
+      "path": "contents/skills/scikit-learn/SKILL.md",
+      "kind": "skill",
+      "title": "Scikit-learn"
+    },
+    {
+      "path": "contents/skills/pytorch-lightning/SKILL.md",
+      "kind": "skill",
+      "title": "PyTorch Lightning"
+    },
+    {
+      "path": "contents/skills/transformers/SKILL.md",
+      "kind": "skill",
+      "title": "Transformers"
+    },
+    {
+      "path": "contents/skills/torch-geometric/SKILL.md",
+      "kind": "skill",
+      "title": "PyTorch Geometric (PyG)"
+    },
+    {
+      "path": "contents/skills/pufferlib/SKILL.md",
+      "kind": "skill",
+      "title": "PufferLib"
+    },
+    {
+      "path": "contents/skills/stable-baselines3/SKILL.md",
+      "kind": "skill",
+      "title": "Stable Baselines3"
+    },
+    {
+      "path": "contents/skills/shap/SKILL.md",
+      "kind": "skill",
+      "title": "SHAP"
+    },
+    {
+      "path": "contents/skills/umap-learn/SKILL.md",
+      "kind": "skill",
+      "title": "UMAP-Learn"
+    },
+    {
+      "path": "contents/skills/matplotlib/SKILL.md",
+      "kind": "skill",
+      "title": "Matplotlib"
+    },
+    {
+      "path": "contents/skills/sympy/SKILL.md",
+      "kind": "skill",
+      "title": "SymPy - Symbolic Mathematics in Python"
+    },
+    {
+      "path": "contents/skills/dask/SKILL.md",
+      "kind": "skill",
+      "title": "Dask"
+    },
+    {
+      "path": "contents/skills/vaex/SKILL.md",
+      "kind": "skill",
+      "title": "Vaex"
+    },
+    {
+      "path": "contents/skills/zarr-python/SKILL.md",
+      "kind": "skill",
+      "title": "Zarr Python"
+    },
+    {
+      "path": "contents/skills/lamindb/SKILL.md",
+      "kind": "skill",
+      "title": "LaminDB"
+    },
+    {
+      "path": "contents/skills/modal/SKILL.md",
+      "kind": "skill",
+      "title": "Modal"
+    },
+    {
+      "path": "contents/skills/nextflow/SKILL.md",
+      "kind": "skill",
+      "title": "Nextflow"
+    },
+    {
+      "path": "contents/skills/dnanexus-integration/SKILL.md",
+      "kind": "skill",
+      "title": "DNAnexus Integration"
+    },
+    {
+      "path": "contents/skills/latchbio-integration/SKILL.md",
+      "kind": "skill",
+      "title": "LatchBio Integration"
+    },
+    {
+      "path": "contents/skills/optimize-for-gpu/SKILL.md",
+      "kind": "skill",
+      "title": "GPU Optimization for Python with NVIDIA"
+    },
+    {
+      "path": "contents/skills/get-available-resources/SKILL.md",
+      "kind": "skill",
+      "title": "Get Available Resources"
+    },
+    {
+      "path": "contents/skills/arbor/SKILL.md",
+      "kind": "skill",
+      "title": "Arbor — Autonomous Optimization via Hypothesis Tree Refinement"
+    },
+    {
+      "path": "contents/skills/autoskill/SKILL.md",
+      "kind": "skill",
+      "title": "autoskill"
+    },
+    {
+      "path": "contents/skills/pi-agent/SKILL.md",
+      "kind": "skill",
+      "title": "Pi Agent"
+    },
+    {
+      "path": "contents/skills/hypogenic/SKILL.md",
+      "kind": "skill",
+      "title": "HypoGeniC"
+    },
+    {
+      "path": "contents/skills/consciousness-council/SKILL.md",
+      "kind": "skill",
+      "title": "Consciousness Council"
+    },
+    {
+      "path": "contents/skills/dhdna-profiler/SKILL.md",
+      "kind": "skill",
+      "title": "DHDNA Profiler — Cognitive Pattern Extraction"
+    },
+    {
+      "path": "contents/skills/polars/SKILL.md",
+      "kind": "skill",
+      "title": "Polars"
+    },
+    {
+      "path": "contents/skills/scanpy/SKILL.md",
+      "kind": "skill",
+      "title": "Scanpy: Single-Cell Analysis"
+    },
+    {
+      "path": "contents/skills/scvelo/SKILL.md",
+      "kind": "skill",
+      "title": "scVelo — RNA Velocity Analysis"
+    },
+    {
+      "path": "contents/skills/anndata/SKILL.md",
+      "kind": "skill",
+      "title": "AnnData"
+    },
+    {
+      "path": "contents/skills/scvi-tools/SKILL.md",
+      "kind": "skill",
+      "title": "scvi-tools"
+    },
+    {
+      "path": "contents/skills/cellxgene-census/SKILL.md",
+      "kind": "skill",
+      "title": "CZ CELLxGENE Census"
+    },
+    {
+      "path": "contents/skills/bulk-rnaseq/SKILL.md",
+      "kind": "skill",
+      "title": "Bulk RNA-seq"
+    },
+    {
+      "path": "contents/skills/pydeseq2/SKILL.md",
+      "kind": "skill",
+      "title": "PyDESeq2"
+    },
+    {
+      "path": "contents/skills/pathway-enrichment/SKILL.md",
+      "kind": "skill",
+      "title": "Pathway Enrichment"
+    },
+    {
+      "path": "contents/skills/arboreto/SKILL.md",
+      "kind": "skill",
+      "title": "Arboreto"
+    },
+    {
+      "path": "contents/skills/waypoint-bio/SKILL.md",
+      "kind": "skill",
+      "title": "Waypoint: Outpost Bio's Open Microbiome Foundation Models"
+    },
+    {
+      "path": "contents/skills/deeptools/SKILL.md",
+      "kind": "skill",
+      "title": "deepTools: NGS Data Analysis Toolkit"
+    },
+    {
+      "path": "contents/skills/gget/SKILL.md",
+      "kind": "skill",
+      "title": "gget"
+    },
+    {
+      "path": "contents/skills/pysam/SKILL.md",
+      "kind": "skill",
+      "title": "pysam"
+    },
+    {
+      "path": "contents/skills/tiledbvcf/SKILL.md",
+      "kind": "skill",
+      "title": "TileDB-VCF"
+    },
+    {
+      "path": "contents/skills/polars-bio/SKILL.md",
+      "kind": "skill",
+      "title": "polars-bio"
+    },
+    {
+      "path": "contents/skills/genomic-coordinates/SKILL.md",
+      "kind": "skill",
+      "title": "Genomic Coordinates"
+    },
+    {
+      "path": "contents/skills/geniml/SKILL.md",
+      "kind": "skill",
+      "title": "Geniml"
+    },
+    {
+      "path": "contents/skills/gtars/SKILL.md",
+      "kind": "skill",
+      "title": "Gtars"
+    },
+    {
+      "path": "contents/skills/onekgpd/SKILL.md",
+      "kind": "skill",
+      "title": "OneKGPd: Individual-Level Queries over the 1000 Genomes Project"
+    },
+    {
+      "path": "contents/skills/genomic-intelligence/SKILL.md",
+      "kind": "skill",
+      "title": "Genomic Intelligence — DNA Sequence Models"
+    },
+    {
+      "path": "contents/skills/pathogen-variant-surveillance/SKILL.md",
+      "kind": "skill",
+      "title": "Pathogen Variant Surveillance"
+    },
+    {
+      "path": "contents/skills/pacsomatic/SKILL.md",
+      "kind": "skill",
+      "title": "pacsomatic"
+    },
+    {
+      "path": "contents/skills/scikit-bio/SKILL.md",
+      "kind": "skill",
+      "title": "scikit-bio"
+    },
+    {
+      "path": "contents/skills/flowio/SKILL.md",
+      "kind": "skill",
+      "title": "FlowIO"
+    },
+    {
+      "path": "contents/skills/biopython/SKILL.md",
+      "kind": "skill",
+      "title": "Biopython: Computational Molecular Biology in Python"
+    },
+    {
+      "path": "contents/skills/depmap/SKILL.md",
+      "kind": "skill",
+      "title": "DepMap — Cancer Dependency Map"
+    },
+    {
+      "path": "contents/skills/rdkit/SKILL.md",
+      "kind": "skill",
+      "title": "RDKit Cheminformatics Toolkit"
+    },
+    {
+      "path": "contents/skills/datamol/SKILL.md",
+      "kind": "skill",
+      "title": "Datamol Cheminformatics Skill"
+    },
+    {
+      "path": "contents/skills/medchem/SKILL.md",
+      "kind": "skill",
+      "title": "Medchem"
+    },
+    {
+      "path": "contents/skills/molfeat/SKILL.md",
+      "kind": "skill",
+      "title": "Molfeat - Molecular Featurization Hub"
+    },
+    {
+      "path": "contents/skills/pyopenms/SKILL.md",
+      "kind": "skill",
+      "title": "PyOpenMS"
+    },
+    {
+      "path": "contents/skills/matchms/SKILL.md",
+      "kind": "skill",
+      "title": "Matchms"
+    },
+    {
+      "path": "contents/skills/torchdrug/SKILL.md",
+      "kind": "skill",
+      "title": "TorchDrug"
+    },
+    {
+      "path": "contents/skills/deepchem/SKILL.md",
+      "kind": "skill",
+      "title": "DeepChem"
+    },
+    {
+      "path": "contents/skills/pytdc/SKILL.md",
+      "kind": "skill",
+      "title": "PyTDC (Therapeutics Data Commons)"
+    },
+    {
+      "path": "contents/skills/diffdock/SKILL.md",
+      "kind": "skill",
+      "title": "DiffDock: Molecular Docking with Diffusion Models"
+    },
+    {
+      "path": "contents/skills/tamarind/SKILL.md",
+      "kind": "skill",
+      "title": "Tamarind Bio"
+    },
+    {
+      "path": "contents/skills/esm/SKILL.md",
+      "kind": "skill",
+      "title": "ESM: Evolutionary Scale Modeling"
+    },
+    {
+      "path": "contents/skills/adaptyv/SKILL.md",
+      "kind": "skill",
+      "title": "Adaptyv Bio Foundry API"
+    },
+    {
+      "path": "contents/skills/molecular-dynamics/SKILL.md",
+      "kind": "skill",
+      "title": "Molecular Dynamics"
+    },
+    {
+      "path": "contents/skills/clinical-decision-support/SKILL.md",
+      "kind": "skill",
+      "title": "Clinical Decision-Support Research and Evaluation"
+    },
+    {
+      "path": "contents/skills/clinical-reports/SKILL.md",
+      "kind": "skill",
+      "title": "Clinical Reports"
+    },
+    {
+      "path": "contents/skills/treatment-plans/SKILL.md",
+      "kind": "skill",
+      "title": "Treatment-Plan Documentation"
+    },
+    {
+      "path": "contents/skills/pkpd-modeling/SKILL.md",
+      "kind": "skill",
+      "title": "Pharmacokinetic and Pharmacodynamic Modelling"
+    },
+    {
+      "path": "contents/skills/relsa-severity-assessment/SKILL.md",
+      "kind": "skill",
+      "title": "RELSA severity assessment and humane endpoint forecasting"
+    },
+    {
+      "path": "contents/skills/pydicom/SKILL.md",
+      "kind": "skill",
+      "title": "pydicom"
+    },
+    {
+      "path": "contents/skills/pathml/SKILL.md",
+      "kind": "skill",
+      "title": "PathML"
+    },
+    {
+      "path": "contents/skills/histolab/SKILL.md",
+      "kind": "skill",
+      "title": "Histolab"
+    },
+    {
+      "path": "contents/skills/omero-integration/SKILL.md",
+      "kind": "skill",
+      "title": "OMERO Integration"
+    },
+    {
+      "path": "contents/skills/neurokit2/SKILL.md",
+      "kind": "skill",
+      "title": "NeuroKit2"
+    },
+    {
+      "path": "contents/skills/neuropixels-analysis/SKILL.md",
+      "kind": "skill",
+      "title": "Neuropixels Data Analysis"
+    },
+    {
+      "path": "contents/skills/benchling-integration/SKILL.md",
+      "kind": "skill",
+      "title": "Benchling Integration"
+    },
+    {
+      "path": "contents/skills/labarchive-integration/SKILL.md",
+      "kind": "skill",
+      "title": "LabArchives Integration"
+    },
+    {
+      "path": "contents/skills/protocolsio-integration/SKILL.md",
+      "kind": "skill",
+      "title": "protocols.io Integration"
+    },
+    {
+      "path": "contents/skills/opentrons-integration/SKILL.md",
+      "kind": "skill",
+      "title": "Opentrons Integration"
+    },
+    {
+      "path": "contents/skills/pylabrobot/SKILL.md",
+      "kind": "skill",
+      "title": "PyLabRobot"
+    },
+    {
+      "path": "contents/skills/ginkgo-cloud-lab/SKILL.md",
+      "kind": "skill",
+      "title": "Ginkgo Cloud Lab"
+    },
+    {
+      "path": "contents/skills/analytical-method-validation/SKILL.md",
+      "kind": "skill",
+      "title": "Analytical Method Validation"
+    },
+    {
+      "path": "contents/skills/iso-standards-readiness/SKILL.md",
+      "kind": "skill",
+      "title": "ISO Standards Readiness Evidence Preparation"
+    },
+    {
+      "path": "contents/skills/bids/SKILL.md",
+      "kind": "skill",
+      "title": "Brain Imaging Data Structure (BIDS)"
+    },
+    {
+      "path": "contents/skills/imaging-data-commons/SKILL.md",
+      "kind": "skill",
+      "title": "Imaging Data Commons"
+    },
+    {
+      "path": "contents/skills/qiskit/SKILL.md",
+      "kind": "skill",
+      "title": "Qiskit"
+    },
+    {
+      "path": "contents/skills/cirq/SKILL.md",
+      "kind": "skill",
+      "title": "Cirq - Quantum Computing with Python"
+    },
+    {
+      "path": "contents/skills/pennylane/SKILL.md",
+      "kind": "skill",
+      "title": "PennyLane"
+    },
+    {
+      "path": "contents/skills/qutip/SKILL.md",
+      "kind": "skill",
+      "title": "QuTiP 5"
+    },
+    {
+      "path": "contents/skills/astropy/SKILL.md",
+      "kind": "skill",
+      "title": "Astropy"
+    },
+    {
+      "path": "contents/skills/pymatgen/SKILL.md",
+      "kind": "skill",
+      "title": "pymatgen"
+    },
+    {
+      "path": "contents/skills/fluidsim/SKILL.md",
+      "kind": "skill",
+      "title": "FluidSim"
+    },
+    {
+      "path": "contents/skills/openpiv/SKILL.md",
+      "kind": "skill",
+      "title": "OpenPIV"
+    },
+    {
+      "path": "contents/skills/simpy/SKILL.md",
+      "kind": "skill",
+      "title": "SimPy"
+    },
+    {
+      "path": "contents/skills/pymoo/SKILL.md",
+      "kind": "skill",
+      "title": "Pymoo - Multi-Objective Optimization in Python"
+    },
+    {
+      "path": "contents/skills/geomaster/SKILL.md",
+      "kind": "skill",
+      "title": "GeoMaster"
+    },
+    {
+      "path": "contents/skills/geopandas/SKILL.md",
+      "kind": "skill",
+      "title": "GeoPandas"
+    },
+    {
+      "path": "contents/skills/lab-hardware-cad/SKILL.md",
+      "kind": "skill",
+      "title": "Lab Hardware CAD"
+    }
+  ]
+}

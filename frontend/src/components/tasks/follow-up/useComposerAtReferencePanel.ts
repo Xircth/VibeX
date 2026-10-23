@@ -521,8 +521,13 @@ export function useComposerAtReferencePanel({
       const handle = composerHandleRef.current;
       if (!editor || !handle) return;
       deleteTriggerText(editor, triggerStartRef.current);
-      handle.insertToken(atReferenceItemToToken(item));
-      onChange(handle.getValue());
+      if (item.onActivate) {
+        void Promise.resolve(item.onActivate()).catch(() => undefined);
+      }
+      if (item.insertText) {
+        handle.insertToken(atReferenceItemToToken(item));
+        onChange(handle.getValue());
+      }
       close();
     },
     [close, composerHandleRef, composerRootRef, onChange]

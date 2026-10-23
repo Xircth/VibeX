@@ -1,0 +1,31 @@
+{
+  "id": "open-connector",
+  "command": "open-connector.exe",
+  "probe": ["migrate"],
+  "distributions": {
+    "darwin-arm64": {
+      "url": "https://github.com/oomol-lab/open-connector/releases/download/v1.6.3/open-connector-darwin-arm64",
+      "sha256": "829ce033b6c20402752802dbdf72f7cde1f16cfbf2ed1a57db08535bac8ca847"
+    },
+    "darwin-x64": {
+      "url": "https://github.com/oomol-lab/open-connector/releases/download/v1.6.3/open-connector-darwin-x64",
+      "sha256": "efe7b5260908b50afc995e822875cecad40323dc576a5b797126ea663cc7c60e"
+    },
+    "linux-arm64": {
+      "url": "https://github.com/oomol-lab/open-connector/releases/download/v1.6.3/open-connector-linux-arm64",
+      "sha256": "7ed1b59276fdb9ed765414517150ee8c764647a9d80e76902947011354a85b19"
+    },
+    "linux-x64": {
+      "url": "https://github.com/oomol-lab/open-connector/releases/download/v1.6.3/open-connector-linux-x64",
+      "sha256": "e8bb0410b60f4377bf6adfebd7d5f33013e8115df5527cabc75b4585a93b1282"
+    },
+    "win32-arm64": {
+      "url": "https://github.com/oomol-lab/open-connector/releases/download/v1.6.3/open-connector-windows-arm64.exe",
+      "sha256": "30e8b2c94eca1cfdfd4d4a2532035d4ee8cf171867981c2e5e86cdf34ee34880"
+    },
+    "win32-x64": {
+      "url": "https://github.com/oomol-lab/open-connector/releases/download/v1.6.3/open-connector-windows-x64.exe",
+      "sha256": "79184bf6d9321ad0bc7dbd1bf2e87dd3b68c65f4beb1c36e61db2f513d419efa"
+    }
+  }
+}

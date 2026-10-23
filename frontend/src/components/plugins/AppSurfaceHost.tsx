@@ -1,3 +1,4 @@
+import { useSettingsPages, useViews } from '@vibex/plugin-sdk';
 import { AlertTriangle, Loader2, RotateCw } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
@@ -363,6 +364,20 @@ export function AppSurfaceHost({
     ]
   );
   const { pluginId, surfaceId, generation } = descriptor;
+  const registeredViews = useViews();
+  const registeredSettingsPages = useSettingsPages();
+  const registeredInProcessView = useMemo(() => {
+    const matchId = (candidate: { pluginId?: string; id: string }) =>
+      candidate.pluginId === pluginId &&
+      (candidate.id === surfaceId ||
+        candidate.id === `${pluginId}:${surfaceId}` ||
+        candidate.id === `plugin:${pluginId}/${surfaceId}`);
+    return (
+      registeredViews.find(matchId) ??
+      registeredSettingsPages.find(matchId) ??
+      null
+    );
+  }, [pluginId, registeredSettingsPages, registeredViews, surfaceId]);
 
   const revoke = useCallback(
     (token: string, reason: string) => {
@@ -398,7 +413,7 @@ export function AppSurfaceHost({
     outgoingSequenceRef.current = 0;
     loadCountRef.current = 0;
     pendingRequestIdsRef.current.clear();
-    if (!enabled) {
+    if (!enabled || registeredInProcessView?.component) {
       setLoading(false);
       return;
     }
@@ -458,6 +473,7 @@ export function AppSurfaceHost({
     revoke,
     surfaceId,
     t,
+    registeredInProcessView,
     tokenFactory,
     transport,
   ]);
@@ -625,6 +641,12 @@ export function AppSurfaceHost({
         <p className="plugin-app-surface-state">
           {t('plugins.surfaceDisabled')}
         </p>
+      ) : registeredInProcessView?.component ? (
+        <registeredInProcessView.component
+          pluginId={pluginId}
+          surfaceId={surfaceId}
+          slot={descriptor.slot ?? 'plugin.detail.panel'}
+        />
       ) : loading ? (
         <p className="plugin-app-surface-state" role="status">
           <Loader2 className="animate-spin" aria-hidden="true" />

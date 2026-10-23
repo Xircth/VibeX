@@ -2089,6 +2089,9 @@ export type PlanUsageWindow = {
  * Codex: `primary` / `secondary`. Claude: `five_hour` / `seven_day` /
  * `seven_day_opus` / `seven_day_sonnet` / `extra_usage`. Grok: `weekly` /
  * `monthly` / `plan_period`. Cursor: `cursor_models` / `other_models`.
+ * Antigravity: `gemini_five_hour` / `gemini_weekly` /
+ * `claude_gpt_five_hour` / `claude_gpt_weekly` / `argon_five_hour` /
+ * `argon_weekly`.
  */
 id: string, usedPercent: number | null, windowMinutes: number | null, resetsAtMs: number | null, };
 
@@ -2108,7 +2111,7 @@ export type ConversationForkResult = { conversationId: string, importedEventCoun
 
 export type ConversationInputEvent = { "kind": "submitted", input_id: string, operation_id: string, revision: bigint, sort_key: bigint, payload_digest: string, payload: ConversationInputPayload, principal: JsonValue, } | { "kind": "updated", input_id: string, revision: bigint, payload_digest: string, payload: ConversationInputPayload, } | { "kind": "reordered", input_id: string, revision: bigint, sort_key: bigint, } | { "kind": "claimed", input_id: string, claim_token: string, claim_deadline: string, } | { "kind": "claim_released", input_id: string, claim_token: string, } | { "kind": "dispatched", input_id: string, claim_token: string, turn_id: string, } | { "kind": "cancelled", input_id: string, revision: bigint, };
 
-export type ConversationInputPayload = { agentId: AgentId, workspaceId: string, executorProfileId?: JsonValue | null, text: string, displayText?: string | null, images?: Array<string>, modeOverride?: string | null, configOverrides?: Array<AgentSessionConfigOverride>, workflowRefs?: Array<ConversationWorkflowRef>, fileRefs?: Array<ConversationFileRef>, };
+export type ConversationInputPayload = { agentId: AgentId, workspaceId: string, executorProfileId?: JsonValue | null, text: string, displayText?: string | null, images?: Array<string>, modeOverride?: string | null, configOverrides?: Array<AgentSessionConfigOverride>, workflowRefs?: Array<ConversationWorkflowRef>, fileRefs?: Array<ConversationFileRef>, internalPromptContributions?: Array<InternalPromptBlock>, };
 
 export type ConversationInputStatus = "queued" | "claimed" | "dispatched" | "cancelled";
 
@@ -2277,3 +2280,7 @@ export type HostTerminalSnapshot = { alive: boolean, data: string, seq: number, 
 export type DeliveryChannel = "none" | "native" | "pull";
 
 export type ForkPointStatus = "named" | "unnamed" | "tail" | "unsupported";
+
+export type CapturedInternalMessage = { pluginId: string, channel: string, nonce: string, rawPayload: string, parsedPayload: JsonValue, conversationId?: string | null, turnId?: string | null, };
+
+export type InternalPromptBlock = { pluginId: string, label?: string | null, content: string, priority?: number | null, };

@@ -1,0 +1,40 @@
+{
+  "schemaVersion": 1,
+  "agentId": "opencode",
+  "templates": [
+    {
+      "id": "openrouter",
+      "name": "OpenRouter",
+      "category": "partner",
+      "surface": "opencode",
+      "providerId": "openrouter",
+      "npm": "@ai-sdk/openai-compatible",
+      "api": "openai-compatible",
+      "baseUrl": "https://openrouter.ai/api/v1",
+      "websiteUrl": "https://openrouter.ai",
+      "models": [
+        {
+          "id": "anthropic/claude-sonnet-4",
+          "name": "Claude Sonnet 4"
+        }
+      ]
+    },
+    {
+      "id": "siliconflow",
+      "name": "SiliconFlow",
+      "category": "partner",
+      "surface": "opencode",
+      "providerId": "siliconflow",
+      "npm": "@ai-sdk/openai-compatible",
+      "api": "openai-compatible",
+      "baseUrl": "https://api.siliconflow.cn/v1",
+      "websiteUrl": "https://siliconflow.cn",
+      "models": [
+        {
+          "id": "Qwen/Qwen2.5-72B-Instruct",
+          "name": "Qwen 2.5 72B Instruct"
+        }
+      ]
+    }
+  ]
+}

@@ -77,11 +77,13 @@ import {
   shouldBindDefaultGitWorkspace,
 } from '@/lib/workspaceDefault';
 import { WorktreeSelector } from '@/components/layout/WorktreeSelector';
+import { useSlotContributions, useViews } from '@vibex/plugin-sdk';
 import {
   contributionMetadata,
   usePluginHostContributions,
 } from '@/hooks/usePluginHostContributions';
 import { contributionIconComponent } from '@/components/plugins/contributionIcon';
+import { Slot } from '@/components/plugins/Slot';
 import { createPluginControlApi } from '@/lib/api/plugins';
 import { useBackendTransport } from '@/lib/transport';
 import { logoLeadsWindowChrome } from '@/utils/platform';
@@ -474,23 +476,66 @@ function WorkspaceTabSwitcher() {
   const { activeTab, setActiveTab } = useLayoutStore();
   const { setChromeOccluded, waitForOverlayReady } = useWorkspaceOverlay();
   const pluginTabs = usePluginHostContributions('app_tab');
+  const sdkViews = useViews();
   const kanbanViews = useKanbanViews();
   const routeTab = workspaceId || sessionId ? 'workspace' : null;
   const tabs: {
     key: WorkspaceTab;
     label: string;
     icon: typeof LayoutDashboard;
-  }[] = [
-    ...(kanbanViews.length > 0
-      ? [{ key: 'kanban', label: t('toolbar.kanban'), icon: LayoutDashboard }]
-      : []),
-    { key: 'workspace', label: t('toolbar.workspace'), icon: Monitor },
-    ...pluginTabs.map((item) => ({
-      key: pluginSurfaceId(item.pluginId, item.id),
-      label: item.label,
-      icon: contributionIconComponent(contributionMetadata(item).icon, Puzzle),
-    })),
-  ];
+  }[] = useMemo(() => {
+    const seen = new Set<string>();
+    const pluginTabItems: {
+      key: WorkspaceTab;
+      label: string;
+      icon: typeof LayoutDashboard;
+    }[] = [];
+    for (const item of pluginTabs) {
+      const key = pluginSurfaceId(item.pluginId, item.id);
+      if (seen.has(key)) continue;
+      seen.add(key);
+      pluginTabItems.push({
+        key,
+        label: item.label,
+        icon: contributionIconComponent(
+          contributionMetadata(item).icon,
+          Puzzle
+        ),
+      });
+    }
+    for (const view of sdkViews) {
+      if (view.kind !== 'tab') continue;
+      const pluginId = view.pluginId ?? 'plugin';
+      const rawId = view.id.startsWith(`${pluginId}:`)
+        ? view.id.slice(pluginId.length + 1)
+        : view.id;
+      const key = pluginSurfaceId(pluginId, rawId);
+      if (seen.has(key)) continue;
+      seen.add(key);
+      pluginTabItems.push({
+        key,
+        label: view.title,
+        icon: contributionIconComponent(view.icon, Puzzle),
+      });
+    }
+    return [
+      ...(kanbanViews.length > 0
+        ? [
+            {
+              key: 'kanban' as WorkspaceTab,
+              label: t('toolbar.kanban'),
+              icon: LayoutDashboard,
+            },
+          ]
+        : []),
+      {
+        key: 'workspace' as WorkspaceTab,
+        label: t('toolbar.workspace'),
+        icon: Monitor,
+      },
+      ...pluginTabItems,
+    ];
+  }, [kanbanViews.length, pluginTabs, sdkViews, t]);
   const availableTabKeys = tabs.map((tab) => tab.key);
   const resolvedActiveTab = fallbackWorkspaceTab(activeTab, availableTabKeys);
   useEffect(() => {
@@ -770,13 +815,60 @@ export function Toolbar() {
   const logoLeads = logoLeadsWindowChrome();
 
   const toolbarItems = usePluginHostContributions('toolbar');
+  const sdkToolbarSlots = useSlotContributions('toolbar.actions');
   const transport = useBackendTransport();
   const pluginApi = useMemo(
     () => createPluginControlApi(transport),
     [transport]
   );
-  const visibleToolbar = toolbarItems.slice(0, 4);
-  const overflowToolbar = toolbarItems.slice(4);
+  const mergedToolbarActions = useMemo(() => {
+    const seen = new Set<string>();
+    const list: Array<{
+      key: string;
+      title: string;
+      icon: ReturnType<typeof contributionIconComponent>;
+      onSelect: () => void;
+    }> = [];
+    for (const slotItem of sdkToolbarSlots) {
+      if (slotItem.component || slotItem.render) continue;
+      const pluginId = slotItem.pluginId ?? 'plugin';
+      const key = `${pluginId}:${slotItem.id}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      list.push({
+        key,
+        title: slotItem.tooltip ?? slotItem.label ?? slotItem.id,
+        icon: contributionIconComponent(slotItem.icon),
+        onSelect: () => {
+          if (slotItem.onActivate) {
+            void Promise.resolve(slotItem.onActivate()).catch(() => undefined);
+          } else {
+            void pluginApi.invokeContribution(pluginId, slotItem.id);
+          }
+        },
+      });
+    }
+    for (const item of toolbarItems) {
+      const key = `${item.pluginId}:${item.id}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      const metadata = contributionMetadata(item);
+      const title = String(metadata.title ?? item.label);
+      const handler =
+        typeof metadata.handler === 'string' ? metadata.handler : item.id;
+      list.push({
+        key,
+        title,
+        icon: contributionIconComponent(metadata.icon),
+        onSelect: () => {
+          void pluginApi.invokeContribution(item.pluginId, handler);
+        },
+      });
+    }
+    return list;
+  }, [pluginApi, sdkToolbarSlots, toolbarItems]);
+  const visibleToolbar = mergedToolbarActions.slice(0, 4);
+  const overflowToolbar = mergedToolbarActions.slice(4);
 
   const handleCreateSession = () => {
     if (!projectId) return;
@@ -817,33 +909,23 @@ export function Toolbar() {
               <KanbanLayoutToggles />
             )}
             {showLayoutToggles ? <ToolbarDivider /> : null}
+            <Slot name="toolbar.actions" />
             {visibleToolbar.map((item) => {
-              const metadata = contributionMetadata(item);
-              const title = String(metadata.title ?? item.label);
-              const handler =
-                typeof metadata.handler === 'string'
-                  ? metadata.handler
-                  : item.id;
-              const Icon = contributionIconComponent(metadata.icon);
+              const Icon = item.icon;
               return (
-                <Tooltip key={`${item.pluginId}:${item.id}`}>
+                <Tooltip key={item.key}>
                   <TooltipTrigger asChild>
                     <Button
                       variant="ghost"
                       size="icon"
                       className="workspace-toolbar-button h-7 w-7"
-                      aria-label={title}
-                      onClick={() =>
-                        void pluginApi.invokeContribution(
-                          item.pluginId,
-                          handler
-                        )
-                      }
+                      aria-label={item.title}
+                      onClick={item.onSelect}
                     >
                       <Icon className="h-3.5 w-3.5" />
                     </Button>
                   </TooltipTrigger>
-                  <TooltipContent side="bottom">{title}</TooltipContent>
+                  <TooltipContent side="bottom">{item.title}</TooltipContent>
                 </Tooltip>
               );
             })}
@@ -861,26 +943,15 @@ export function Toolbar() {
                 </DropdownMenuTrigger>
                 <DropdownMenuContent align="end">
                   {overflowToolbar.map((item) => {
-                    const metadata = contributionMetadata(item);
-                    const title = String(metadata.title ?? item.label);
-                    const handler =
-                      typeof metadata.handler === 'string'
-                        ? metadata.handler
-                        : item.id;
-                    const Icon = contributionIconComponent(metadata.icon);
+                    const Icon = item.icon;
                     return (
                       <DropdownMenuItem
-                        key={`${item.pluginId}:${item.id}`}
+                        key={item.key}
                         className="gap-2"
-                        onSelect={() =>
-                          void pluginApi.invokeContribution(
-                            item.pluginId,
-                            handler
-                          )
-                        }
+                        onSelect={item.onSelect}
                       >
                         <Icon className="h-3.5 w-3.5" />
-                        {title}
+                        {item.title}
                       </DropdownMenuItem>
                     );
                   })}

@@ -1,0 +1,85 @@
+{
+  "schemaVersion": 1,
+  "items": [
+    {
+      "path": "contents/skills/pptx/SKILL.md",
+      "kind": "skill",
+      "title": "PowerPoint"
+    },
+    {
+      "path": "contents/skills/word/SKILL.md",
+      "kind": "skill",
+      "title": "Word"
+    },
+    {
+      "path": "contents/skills/excel/SKILL.md",
+      "kind": "skill",
+      "title": "Excel"
+    },
+    {
+      "path": "contents/skills/morph-ppt/SKILL.md",
+      "kind": "skill",
+      "title": "Morph PPT"
+    },
+    {
+      "path": "contents/skills/morph-ppt-3d/SKILL.md",
+      "kind": "skill",
+      "title": "Morph PPT 3D"
+    },
+    {
+      "path": "contents/skills/pitch-deck/SKILL.md",
+      "kind": "skill",
+      "title": "Pitch deck"
+    },
+    {
+      "path": "contents/skills/academic-paper/SKILL.md",
+      "kind": "skill",
+      "title": "Academic paper"
+    },
+    {
+      "path": "contents/skills/data-dashboard/SKILL.md",
+      "kind": "skill",
+      "title": "Data dashboard"
+    },
+    {
+      "path": "contents/skills/financial-model/SKILL.md",
+      "kind": "skill",
+      "title": "Financial model"
+    },
+    {
+      "path": "contents/skills/word-form/SKILL.md",
+      "kind": "skill",
+      "title": "Word form"
+    },
+    {
+      "path": "contents/workflows/create-document/workflow.json",
+      "kind": "workflow",
+      "title": "创建文档"
+    },
+    {
+      "path": "contents/workflows/modify-document/workflow.json",
+      "kind": "workflow",
+      "title": "修改文档"
+    },
+    {
+      "path": "contents/workflows/create-presentation/workflow.json",
+      "kind": "workflow",
+      "title": "创建演示文稿"
+    },
+    {
+      "path": "contents/workflows/modify-presentation/workflow.json",
+      "kind": "workflow",
+      "title": "修改演示文稿"
+    },
+    {
+      "path": "contents/workflows/analyze-spreadsheet/workflow.json",
+      "kind": "workflow",
+      "title": "分析表格"
+    },
+    {
+      "path": "contents/workflows/generate-spreadsheet/workflow.json",
+      "kind": "workflow",
+      "title": "生成表格"
+    }
+  ]
+}

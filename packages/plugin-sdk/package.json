@@ -1,6 +1,6 @@
 {
   "name": "@vibex/plugin-sdk",
-  "version": "1.0.0",
+  "version": "2.0.0",
   "type": "module",
   "description": "Typed SDK for VibeX App, Agent, and Host plugin contributions",
   "files": [
@@ -18,6 +18,22 @@
     "./app": {
       "types": "./src/app.ts",
       "default": "./dist/app.js"
+    },
+    "./registry": {
+      "types": "./src/registry.ts",
+      "default": "./dist/registry.js"
+    },
+    "./services": {
+      "types": "./src/services.ts",
+      "default": "./dist/services.js"
+    },
+    "./context": {
+      "types": "./src/context.ts",
+      "default": "./dist/context.js"
+    },
+    "./hooks": {
+      "types": "./src/hooks.ts",
+      "default": "./dist/hooks.js"
     },
     "./testing": {
       "types": "./src/testing.ts",

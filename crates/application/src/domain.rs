@@ -161,6 +161,7 @@ domain_commands! {
     PluginSurfaceOpen => "plugin_surface_open" / "plugin.surface",
     PluginSurfaceInvoke => "plugin_surface_invoke" / "plugin.surface",
     PluginSurfaceRevoke => "plugin_surface_revoke" / "plugin.surface",
+    PluginHostCall => "plugin_host_call" / "plugin.surface",
     ProjectList => "get_projects" / "application.call",
     ProjectGet => "get_project" / "application.call",
     ProjectCreate => "create_project" / "application.call",

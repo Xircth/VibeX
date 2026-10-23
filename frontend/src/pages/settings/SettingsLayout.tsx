@@ -50,6 +50,11 @@ import { SETTINGS_SEARCH_ENTRIES } from './settingsSearchCatalog';
 import { applySettingsSearchHighlight } from './settingsSearchQuery';
 import { syncSettingsWindowTitle } from './syncSettingsWindowTitle';
 import {
+  settingsPageRegistry,
+  useSettingSections,
+  useSettingsPages,
+} from '@vibex/plugin-sdk';
+import {
   contributionMetadata,
   usePluginHostContributions,
 } from '@/hooks/usePluginHostContributions';
@@ -169,6 +174,32 @@ const SETTINGS_NAV_GROUPS: Omit<SettingsNavGroup, 'id'>[] = [
   },
 ];
 
+export function registerBuiltinSettingsPages(): void {
+  let order = 10;
+  for (const group of SETTINGS_NAV_GROUPS) {
+    for (const item of group.items) {
+      const id = `builtin:${item.path}`;
+      if (!settingsPageRegistry.has(id)) {
+        settingsPageRegistry.register(
+          {
+            id,
+            title: item.label ?? item.labelKey ?? item.path,
+            titleKey: item.labelKey,
+            group: group.title,
+            path: item.path,
+            builtin: true,
+            order,
+          },
+          'builtin'
+        );
+      }
+      order += 10;
+    }
+  }
+}
+
+registerBuiltinSettingsPages();
+
 function SettingsNavSection({
   title,
   children,
@@ -204,21 +235,62 @@ export function SettingsLayout() {
   const settingsNavFloat = useSettingsNavFloat();
   const logoLeads = logoLeadsWindowChrome();
   const pluginPages = usePluginHostContributions('settings_page');
+  const sdkPages = useSettingsPages();
+  const sdkSections = useSettingSections();
   const [searchQuery, setSearchQuery] = useState('');
   const highlightId = searchParams.get('highlight');
   const searching = searchQuery.trim().length > 0;
 
   const navGroups = useMemo(() => {
+    const seenPaths = new Set<string>();
+    const pluginNavItems: SettingsNavItem[] = [];
+
+    for (const page of pluginPages) {
+      const meta = contributionMetadata(page);
+      const path = `/settings/plugin/${page.pluginId}/${page.id}`;
+      if (seenPaths.has(path)) continue;
+      seenPaths.add(path);
+      pluginNavItems.push({
+        path,
+        label: page.label,
+        icon: contributionIconComponent(meta.icon, Puzzle),
+      });
+    }
+
+    for (const page of sdkPages) {
+      if (page.builtin || page.id.startsWith('builtin:')) continue;
+      const pluginId = page.pluginId ?? 'plugin';
+      const rawId = page.id.startsWith(`${pluginId}:`)
+        ? page.id.slice(pluginId.length + 1)
+        : page.id;
+      const path = page.path ?? `/settings/plugin/${pluginId}/${rawId}`;
+      if (seenPaths.has(path)) continue;
+      seenPaths.add(path);
+      pluginNavItems.push({
+        path,
+        label: page.title,
+        icon: contributionIconComponent(page.icon, Puzzle),
+      });
+    }
+
+    for (const section of sdkSections) {
+      const pluginId = section.pluginId ?? 'plugin';
+      const rawId = section.id.startsWith(`${pluginId}:`)
+        ? section.id.slice(pluginId.length + 1)
+        : section.id;
+      const path = `/settings/plugin/${pluginId}/${rawId}`;
+      if (seenPaths.has(path)) continue;
+      seenPaths.add(path);
+      pluginNavItems.push({
+        path,
+        label: section.title,
+        icon: contributionIconComponent(section.icon, Puzzle),
+      });
+    }
+
     const pluginGroup: Omit<SettingsNavGroup, 'id'> = {
       title: 'For Plugin',
-      items: pluginPages.map((page): SettingsNavItem => {
-        const meta = contributionMetadata(page);
-        return {
-          path: `/settings/plugin/${page.pluginId}/${page.id}`,
-          label: page.label,
-          icon: contributionIconComponent(meta.icon, Puzzle),
-        };
-      }),
+      items: pluginNavItems,
     };
 
     return [...SETTINGS_NAV_GROUPS, pluginGroup]
@@ -230,7 +302,7 @@ export function SettingsLayout() {
         }),
       }))
       .filter((group) => group.items.length > 0);
-  }, [pluginPages, supports]);
+  }, [pluginPages, sdkPages, sdkSections, supports]);
 
   const navigateTo = useCallback(
     (path: string) => {

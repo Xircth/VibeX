@@ -37,6 +37,8 @@ const HOST_PUSH_EVENT_PREFIXES = [
   'agent-events',
   'terminal-output',
   'plugin-contributions-changed',
+  'plugin-internal-message',
+  'conversation-after-turn',
   'provider-bind-confirm',
 ] as const;
 

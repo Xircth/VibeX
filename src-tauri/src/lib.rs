@@ -168,6 +168,15 @@ async fn exit_app(app: tauri::AppHandle) -> Result<(), String> {
 }
 
 pub fn run() {
+    if let Ok(runtime) = tokio::runtime::Builder::new_multi_thread()
+        .enable_all()
+        .thread_stack_size(16 * 1024 * 1024)
+        .build()
+    {
+        let handle = runtime.handle().clone();
+        std::mem::forget(runtime);
+        tauri::async_runtime::set(handle);
+    }
     windows_webview2::install_process_arguments();
     // Install the file+stderr tracing subscriber first so startup is logged. The
     // guard flushes the non-blocking writer on drop; we drop it from RunEvent::Exit

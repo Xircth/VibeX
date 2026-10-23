@@ -1,0 +1,5 @@
+node_modules/
+.DS_Store
+*.log
+native/target/
+.vibex-plugin/dev-remote.json

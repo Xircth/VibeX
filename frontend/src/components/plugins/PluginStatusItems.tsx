@@ -1,9 +1,11 @@
+import { useSlotContributions, useViews } from '@vibex/plugin-sdk';
 import { MoreHorizontal } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import { contributionIconComponent } from '@/components/plugins/contributionIcon';
 import { PluginRemoteView } from '@/components/plugins/PluginRemoteView';
+import { Slot } from '@/components/plugins/Slot';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -38,7 +40,8 @@ interface StatusEntry {
   text: string;
   tooltip?: string;
   refreshSeconds?: number;
-  remote: boolean;
+  hasPopoverView: boolean;
+  onActivate?: () => void | Promise<void>;
 }
 
 function positiveInteger(value: unknown): number | undefined {
@@ -71,41 +74,82 @@ export function PluginStatusItems({
 }) {
   const { t } = useTranslation('common');
   const contributions = usePluginHostContributions('status');
+  const slotName =
+    placement === 'after-mcp' ? 'status.after-mcp' : 'status.bar';
+  const slotItems = useSlotContributions(slotName);
+  const registeredViews = useViews();
   const transport = useBackendTransport();
   const api = useMemo(() => createPluginControlApi(transport), [transport]);
   const [live, setLive] = useState<
     Record<string, { text?: string; tooltip?: string }>
   >({});
 
-  const entries = useMemo<StatusEntry[]>(
-    () =>
-      contributions.flatMap((item) => {
-        const metadata = contributionMetadata(item);
-        const slot =
-          typeof metadata.slot === 'string' ? metadata.slot : 'status.main';
-        const afterMcp = slot === 'status.after-mcp';
-        if (placement === 'after-mcp' ? !afterMcp : afterMcp) return [];
-        const key = `${item.pluginId}:${item.id}`;
-        return [
-          {
-            key,
-            item,
-            pluginId: item.pluginId,
-            handler:
-              typeof metadata.handler === 'string' ? metadata.handler : item.id,
-            icon: contributionIconComponent(metadata.icon),
-            text:
-              live[key]?.text ??
-              (typeof metadata.text === 'string' ? metadata.text : item.label),
-            tooltip: live[key]?.tooltip,
-            refreshSeconds: positiveInteger(metadata.refreshSeconds),
-            remote:
-              metadata.remote !== null && typeof metadata.remote === 'object',
-          },
-        ];
-      }),
-    [contributions, live, placement]
-  );
+  const entries = useMemo<StatusEntry[]>(() => {
+    const seen = new Set<string>();
+    const result: StatusEntry[] = [];
+
+    for (const slotItem of slotItems) {
+      if (slotItem.component || slotItem.render) continue;
+      const pluginId = slotItem.pluginId ?? 'plugin';
+      const key = `${pluginId}:${slotItem.id}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      const text = live[key]?.text ?? slotItem.label ?? slotItem.id;
+      result.push({
+        key,
+        item: {
+          pluginId,
+          id: slotItem.id,
+          kind: 'status',
+          label: text,
+          generation: 1,
+          metadata: slotItem.metadata ?? {},
+        },
+        pluginId,
+        handler: slotItem.id,
+        icon: contributionIconComponent(slotItem.icon),
+        text,
+        tooltip: live[key]?.tooltip ?? slotItem.tooltip,
+        hasPopoverView: registeredViews.some(
+          (view) => view.pluginId === pluginId && view.id === slotItem.id
+        ),
+        onActivate: slotItem.onActivate
+          ? () => slotItem.onActivate?.()
+          : undefined,
+      });
+    }
+
+    for (const item of contributions) {
+      const metadata = contributionMetadata(item);
+      const slot =
+        typeof metadata.slot === 'string' ? metadata.slot : 'status.main';
+      const afterMcp = slot === 'status.after-mcp';
+      if (placement === 'after-mcp' ? !afterMcp : afterMcp) continue;
+      const key = `${item.pluginId}:${item.id}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      result.push({
+        key,
+        item,
+        pluginId: item.pluginId,
+        handler:
+          typeof metadata.handler === 'string' ? metadata.handler : item.id,
+        icon: contributionIconComponent(metadata.icon),
+        text:
+          live[key]?.text ??
+          (typeof metadata.text === 'string' ? metadata.text : item.label),
+        tooltip:
+          live[key]?.tooltip ??
+          (typeof metadata.tooltip === 'string' ? metadata.tooltip : undefined),
+        refreshSeconds: positiveInteger(metadata.refreshSeconds),
+        hasPopoverView: registeredViews.some(
+          (view) => view.pluginId === item.pluginId && view.id === item.id
+        ),
+      });
+    }
+
+    return result;
+  }, [contributions, live, placement, registeredViews, slotItems]);
 
   const refreshTargets = useMemo(
     () =>
@@ -160,6 +204,16 @@ export function PluginStatusItems({
 
   const invoke = useCallback(
     (entry: StatusEntry) => {
+      if (entry.onActivate) {
+        void Promise.resolve(entry.onActivate())
+          .then((result) => {
+            const next = readStatusResult(result);
+            if (next.text === undefined && next.tooltip === undefined) return;
+            setLive((current) => ({ ...current, [entry.key]: next }));
+          })
+          .catch(() => undefined);
+        return;
+      }
       void api
         .invokeContribution(entry.pluginId, entry.handler)
         .then((result) => {
@@ -172,11 +226,17 @@ export function PluginStatusItems({
     [api]
   );
 
-  if (entries.length === 0) return null;
+  const hasCustomSlotComponents = useMemo(
+    () => slotItems.some((item) => Boolean(item.component || item.render)),
+    [slotItems]
+  );
+
+  if (entries.length === 0 && !hasCustomSlotComponents) return null;
 
   if (placement === 'after-mcp') {
     return (
       <>
+        {hasCustomSlotComponents ? <Slot name="status.after-mcp" /> : null}
         {entries.map((entry) => (
           <AfterMcpStatusButton
             key={entry.key}
@@ -193,6 +253,7 @@ export function PluginStatusItems({
 
   return (
     <>
+      {hasCustomSlotComponents ? <Slot name="status.bar" /> : null}
       {inline.map((entry) => {
         const Icon = entry.icon;
         return (
@@ -254,7 +315,7 @@ function AfterMcpStatusButton({
   const label = entry.tooltip ?? entry.text;
   const buttonClass =
     'flex h-4 w-4 items-center justify-center rounded-sm text-secondary-foreground hover:bg-accent/70';
-  if (!entry.remote) {
+  if (!entry.hasPopoverView) {
     return (
       <button
         type="button"

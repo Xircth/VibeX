@@ -8,9 +8,23 @@ export default defineConfig({
     alias: {
       '@': path.resolve(__dirname, './src'),
       shared: path.resolve(__dirname, '../shared'),
-      '@module-federation/runtime': path.resolve(
+      '@vibex/plugin-sdk': path.resolve(
         __dirname,
-        './src/test/moduleFederationRuntimeStub.ts'
+        '../packages/plugin-sdk/src/index.ts'
+      ),
+      react: path.resolve(__dirname, './node_modules/react'),
+      'react/jsx-runtime': path.resolve(
+        __dirname,
+        './node_modules/react/jsx-runtime.js'
+      ),
+      'react/jsx-dev-runtime': path.resolve(
+        __dirname,
+        './node_modules/react/jsx-dev-runtime.js'
+      ),
+      'react-dom': path.resolve(__dirname, './node_modules/react-dom'),
+      'react-dom/client': path.resolve(
+        __dirname,
+        './node_modules/react-dom/client.js'
       ),
     },
   },

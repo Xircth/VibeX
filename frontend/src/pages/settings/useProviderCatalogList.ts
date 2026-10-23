@@ -1,7 +1,14 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
+import { usePluginService, useRegistry } from '@vibex/plugin-sdk';
 
 import { agentManagementErrorMessage as errorMessage } from '@/features/agent-management';
+import {
+  defaultModelCatalogProviderService,
+  getModelCatalogService,
+  runtimeModelCatalogRegistry,
+  type ModelCatalogProviderService,
+} from '@/features/plugins/providers/hostProviderServices';
 import { usePluginHostContributions } from '@/hooks/usePluginHostContributions';
 import { createPluginControlApi } from '@/lib/api/plugins';
 import { useBackendTransport } from '@/lib/transport';
@@ -16,6 +23,9 @@ export function useProviderCatalogList(agentId: string, enabled: boolean) {
     [transport]
   );
   const catalogItems = usePluginHostContributions();
+  const runtimeCatalogSources = useRegistry(runtimeModelCatalogRegistry);
+  const injectedCatalogService =
+    usePluginService<ModelCatalogProviderService>('vibex.model-catalog');
   const contributions = useMemo(
     () =>
       catalogItems.filter(
@@ -29,7 +39,18 @@ export function useProviderCatalogList(agentId: string, enabled: boolean) {
     (highest, item) => Math.max(highest, item.generation),
     0
   );
-  const hasCatalogContributions = contributions.length > 0;
+  const hasRuntimeSources = useMemo(
+    () =>
+      runtimeCatalogSources.some(
+        (src) => src.agents.length === 0 || src.agents.includes(agentId)
+      ),
+    [agentId, runtimeCatalogSources]
+  );
+  const activeService = injectedCatalogService ?? getModelCatalogService();
+  const hasCustomCatalogService =
+    activeService !== defaultModelCatalogProviderService;
+  const hasCatalogContributions =
+    contributions.length > 0 || hasRuntimeSources || hasCustomCatalogService;
   const [catalog, setCatalog] = useState<ProviderCatalogListView | null>(null);
   const [catalogError, setCatalogError] = useState<string | null>(null);
 
@@ -41,11 +62,22 @@ export function useProviderCatalogList(agentId: string, enabled: boolean) {
     }
     let cancelled = false;
     setCatalogError(null);
-    void pluginApi
-      .providerCatalogList(agentId)
-      .then((payload) => {
+    void activeService
+      .listCatalog(agentId, async (id) => {
+        if (contributions.length === 0) {
+          return {
+            agent_id: id,
+            generation: catalogGeneration,
+            templates: [],
+            sources: [],
+          };
+        }
+        return (await pluginApi.providerCatalogList(
+          id
+        )) as ProviderCatalogListView;
+      })
+      .then((view) => {
         if (cancelled) return;
-        const view = payload as ProviderCatalogListView;
         if (
           typeof view?.generation === 'number' &&
           view.generation < catalogGeneration
@@ -73,11 +105,14 @@ export function useProviderCatalogList(agentId: string, enabled: boolean) {
       cancelled = true;
     };
   }, [
+    activeService,
     agentId,
     catalogGeneration,
+    contributions.length,
     enabled,
     hasCatalogContributions,
     pluginApi,
+    runtimeCatalogSources,
     t,
   ]);
 

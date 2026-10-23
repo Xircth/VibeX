@@ -1,0 +1,3 @@
+﻿[build]
+target-dir = "../.git/cargo-target"
+

@@ -1,7 +1,10 @@
 import { describe, expect, it } from 'vitest';
 
-import { definePluginApp } from './app.js';
-import { createAppHarness, createGenerationHarness } from './testing.js';
+import { defineVibeXPlugin } from './app.js';
+import {
+  createGenerationHarness,
+  createPluginTestHarness,
+} from './testing.js';
 import { definePluginWorker } from './worker.js';
 
 describe('plugin testing harnesses', () => {
@@ -25,60 +28,25 @@ describe('plugin testing harnesses', () => {
     await harness.dispose();
   });
 
-  it('routes App bridge calls and revokes the surface token', async () => {
-    let changed: unknown;
-    const app = definePluginApp(({ bridge }) => {
-      bridge.subscribe('changed', (payload) => {
-        changed = payload;
-      });
-      bridge.ready();
-    });
-    const harness = await createAppHarness(app, {
-      root: {} as HTMLElement,
-      invoke: async (handler, input) => ({ handler, input }),
-    });
-
-    expect(harness.ready).toBe(true);
-    await expect(harness.bridge.invoke('hello', { value: 1 })).resolves.toEqual(
-      {
-        handler: 'hello',
-        input: { value: 1 },
-      }
-    );
-    harness.emit('changed', { revision: 2 });
-    expect(changed).toEqual({ revision: 2 });
-
-    harness.revoke();
-    await expect(harness.bridge.invoke('hello')).rejects.toMatchObject({
-      code: 'surface_revoked',
-    });
-    expect(harness.signal.aborted).toBe(true);
-  });
-
-  it('provides a typed artifact editor bridge to App tests', async () => {
-    let opened: unknown;
-    const app = definePluginApp(async ({ bridge }) => {
-      opened = await bridge.artifact?.readText();
-    });
-    const harness = await createAppHarness(app, {
-      root: {} as HTMLElement,
-      artifact: {
-        name: 'architecture.drawio',
-        content: '<mxfile />',
-        revision: 'sha256:first',
+  it('activates a v2 plugin definition and cleans up its registrations on dispose', async () => {
+    const plugin = defineVibeXPlugin({
+      id: 'acme.harness-test',
+      async activate(ctx) {
+        ctx.ui.registerCommand({
+          id: 'acme.hello',
+          title: 'Hello from Harness',
+          handler: () => undefined,
+        });
+        await ctx.storage.kv.set('greeting', 'hello');
       },
     });
+    const harness = createPluginTestHarness(plugin);
+    await harness.activate();
 
-    expect(opened).toEqual({
-      name: 'architecture.drawio',
-      content: '<mxfile />',
-      revision: 'sha256:first',
-    });
-    await expect(
-      harness.bridge.artifact?.writeText(
-        '<mxfile><diagram /></mxfile>',
-        'sha256:first'
-      )
-    ).resolves.toEqual({ revision: expect.stringMatching(/^sha256:/) });
+    expect(harness.getCommands()).toHaveLength(1);
+    await expect(harness.ctx.storage.kv.get('greeting')).resolves.toBe('hello');
+
+    await harness.dispose();
+    expect(harness.getCommands()).toHaveLength(0);
   });
 });

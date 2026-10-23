@@ -1,0 +1,66 @@
+{
+  "$schema": "https://schemas.vibex.dev/plugin/v4/plugin.schema.json",
+  "manifestVersion": 4,
+  "apiVersion": "2.0",
+  "id": "vibex-plugin-computer-use",
+  "publisher": "vibex",
+  "version": "0.34.0",
+  "name": "电脑控制",
+  "readme": "README.md",
+  "engines": {
+    "vibex": ">=0.1.3 <1.0.0",
+    "pluginSdk": "^2.0.0"
+  },
+  "content": {
+    "root": "contents",
+    "index": ".vibex-plugin/content.index.json"
+  },
+  "config": {
+    "schema": {
+      "type": "object",
+      "properties": {},
+      "additionalProperties": false
+    }
+  },
+  "entrypoints": {
+    "worker": {
+      "path": "dist/worker.mjs",
+      "runtime": "node",
+      "protocol": "1.1"
+    },
+    "app": {
+      "entry": "app/main.js",
+      "protocol": "2.0"
+    }
+  },
+  "integrations": [
+    {
+      "id": "computer-use",
+      "kind": "app.settings.page",
+      "title": "电脑控制",
+      "icon": "terminal",
+      "handler": "surface.createSession"
+    },
+    {
+      "id": "computer-use-status",
+      "kind": "app.status",
+      "slot": "status.after-mcp",
+      "text": "电脑控制",
+      "icon": "monitor",
+      "handler": "surface.createSession"
+    },
+    {
+      "id": "computer-use-skill",
+      "kind": "content.skill",
+      "resource": "contents/skills/computer-use"
+    },
+    {
+      "id": "computer-use",
+      "kind": "content.mcp",
+      "resource": "contents/mcps/computer-use.json"
+    }
+  ],
+  "interface": {
+    "icon": "assets/icon.svg"
+  }
+}

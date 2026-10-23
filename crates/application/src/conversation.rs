@@ -449,11 +449,15 @@ pub struct StartConversationTurn {
     pub conversation_id: Uuid,
     pub executor_profile_id: Option<serde_json::Value>,
     pub text: String,
+    #[serde(default)]
+    pub display_text: Option<String>,
     pub images: Vec<String>,
     pub mode_override: Option<String>,
     pub config_overrides: Vec<serde_json::Value>,
     #[serde(default, alias = "pluginActions")]
     pub workflow_refs: Vec<crate::ConversationWorkflowRef>,
+    #[serde(default)]
+    pub internal_prompt_contributions: Vec<agents::InternalPromptBlock>,
     #[serde(default)]
     pub operation_id: Option<uuid::Uuid>,
 }

@@ -1,0 +1,10 @@
+{
+  "schemaVersion": 1,
+  "items": [
+    {
+      "path": "contents/skills/prompt-refinement/SKILL.md",
+      "kind": "skill",
+      "title": "Prompt Refinement & Context Structuring"
+    }
+  ]
+}

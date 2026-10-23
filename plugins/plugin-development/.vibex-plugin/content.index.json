@@ -1,0 +1,30 @@
+{
+  "schemaVersion": 1,
+  "items": [
+    {
+      "path": "contents/skills/vibex-plugin-development/SKILL.md",
+      "kind": "skill",
+      "title": "VibeX 插件开发"
+    },
+    {
+      "path": "contents/skills/vibex-plugin-development/references/contract.md",
+      "kind": "reference",
+      "title": "产品包契约"
+    },
+    {
+      "path": "contents/skills/vibex-plugin-development/references/templates.md",
+      "kind": "reference",
+      "title": "init 模板产物"
+    },
+    {
+      "path": "contents/skills/vibex-plugin-development/references/runtime.md",
+      "kind": "reference",
+      "title": "Worker 与 App 运行时"
+    },
+    {
+      "path": "contents/skills/vibex-plugin-development/references/link.md",
+      "kind": "reference",
+      "title": "链接运行中的 Host"
+    }
+  ]
+}

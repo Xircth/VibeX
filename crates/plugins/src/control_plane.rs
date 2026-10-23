@@ -205,6 +205,26 @@ pub trait PluginRegistry: Send + Sync {
     async fn delete_unreferenced_runtime_artifacts(
         &self,
     ) -> Result<Vec<RuntimeInstallation>, PluginError>;
+    async fn kv_get(
+        &self,
+        plugin_id: &str,
+        key: &str,
+    ) -> Result<Option<serde_json::Value>, PluginError>;
+    async fn kv_put(
+        &self,
+        plugin_id: &str,
+        key: &str,
+        value: &serde_json::Value,
+    ) -> Result<(), PluginError>;
+    async fn kv_delete(&self, plugin_id: &str, key: &str) -> Result<(), PluginError>;
+    async fn kv_list_keys(
+        &self,
+        plugin_id: &str,
+        prefix: Option<&str>,
+    ) -> Result<Vec<String>, PluginError>;
+    async fn kv_clear(&self, plugin_id: &str) -> Result<u64, PluginError>;
+    async fn quarantine_plugin(&self, plugin_id: &str, reason: &str) -> Result<(), PluginError>;
+    async fn quarantine_reason(&self, plugin_id: &str) -> Result<Option<String>, PluginError>;
 }
 
 #[derive(Default)]
@@ -219,6 +239,8 @@ pub struct InMemoryPluginRegistry {
     grants: RwLock<BTreeMap<String, Vec<crate::CapabilityGrant>>>,
     published_contributions: RwLock<BTreeMap<String, Vec<crate::ContributionDescriptor>>>,
     audit: RwLock<Vec<(String, PluginAuditEvent)>>,
+    kv_store: RwLock<BTreeMap<(String, String), serde_json::Value>>,
+    quarantined: RwLock<BTreeMap<String, String>>,
 }
 
 #[async_trait]
@@ -282,6 +304,12 @@ impl PluginRegistry for InMemoryPluginRegistry {
             .get_mut(plugin_id)
             .ok_or_else(|| PluginError::not_found(plugin_id))?;
         plugin.activation = activation;
+        if activation == PluginActivation::Enabled {
+            self.quarantined
+                .write()
+                .map_err(lock_error)?
+                .remove(plugin_id);
+        }
         if activation == PluginActivation::Disabled {
             self.published_generations
                 .write()
@@ -297,6 +325,10 @@ impl PluginRegistry for InMemoryPluginRegistry {
 
     async fn delete_plugin(&self, plugin_id: &str) -> Result<(), PluginError> {
         self.plugins.write().map_err(lock_error)?.remove(plugin_id);
+        self.quarantined
+            .write()
+            .map_err(lock_error)?
+            .remove(plugin_id);
         self.rollback_packages
             .write()
             .map_err(lock_error)?
@@ -471,6 +503,10 @@ impl PluginRegistry for InMemoryPluginRegistry {
             .ok_or_else(|| PluginError::not_found(plugin_id))?;
         installed.package = candidate;
         installed.activation = PluginActivation::Enabled;
+        self.quarantined
+            .write()
+            .map_err(lock_error)?
+            .remove(plugin_id);
         self.grants
             .write()
             .map_err(lock_error)?
@@ -609,15 +645,140 @@ impl PluginRegistry for InMemoryPluginRegistry {
         });
         Ok(removed)
     }
+
+    async fn kv_get(
+        &self,
+        plugin_id: &str,
+        key: &str,
+    ) -> Result<Option<serde_json::Value>, PluginError> {
+        Ok(self
+            .kv_store
+            .read()
+            .map_err(lock_error)?
+            .get(&(plugin_id.to_owned(), key.to_owned()))
+            .cloned())
+    }
+
+    async fn kv_put(
+        &self,
+        plugin_id: &str,
+        key: &str,
+        value: &serde_json::Value,
+    ) -> Result<(), PluginError> {
+        self.kv_store
+            .write()
+            .map_err(lock_error)?
+            .insert((plugin_id.to_owned(), key.to_owned()), value.clone());
+        Ok(())
+    }
+
+    async fn kv_delete(&self, plugin_id: &str, key: &str) -> Result<(), PluginError> {
+        self.kv_store
+            .write()
+            .map_err(lock_error)?
+            .remove(&(plugin_id.to_owned(), key.to_owned()));
+        Ok(())
+    }
+
+    async fn kv_list_keys(
+        &self,
+        plugin_id: &str,
+        prefix: Option<&str>,
+    ) -> Result<Vec<String>, PluginError> {
+        let prefix = prefix.unwrap_or("");
+        Ok(self
+            .kv_store
+            .read()
+            .map_err(lock_error)?
+            .keys()
+            .filter(|(owner, key)| owner == plugin_id && key.starts_with(prefix))
+            .map(|(_, key)| key.clone())
+            .collect())
+    }
+
+    async fn kv_clear(&self, plugin_id: &str) -> Result<u64, PluginError> {
+        let mut store = self.kv_store.write().map_err(lock_error)?;
+        let before = store.len();
+        store.retain(|(owner, _), _| owner != plugin_id);
+        Ok((before.saturating_sub(store.len())) as u64)
+    }
+
+    async fn quarantine_plugin(&self, plugin_id: &str, reason: &str) -> Result<(), PluginError> {
+        {
+            let mut plugins = self.plugins.write().map_err(lock_error)?;
+            if let Some(plugin) = plugins.get_mut(plugin_id) {
+                plugin.activation = PluginActivation::Disabled;
+            }
+        }
+        self.published_generations
+            .write()
+            .map_err(lock_error)?
+            .remove(plugin_id);
+        self.published_contributions
+            .write()
+            .map_err(lock_error)?
+            .remove(plugin_id);
+        self.quarantined
+            .write()
+            .map_err(lock_error)?
+            .insert(plugin_id.to_owned(), reason.to_owned());
+        Ok(())
+    }
+
+    async fn quarantine_reason(&self, plugin_id: &str) -> Result<Option<String>, PluginError> {
+        Ok(self
+            .quarantined
+            .read()
+            .map_err(lock_error)?
+            .get(plugin_id)
+            .cloned())
+    }
 }
 
 pub struct SqlitePluginRegistry {
     pool: SqlitePool,
+    kv_table_ready: tokio::sync::OnceCell<()>,
 }
 
 impl SqlitePluginRegistry {
     pub fn new(pool: SqlitePool) -> Self {
-        Self { pool }
+        Self {
+            pool,
+            kv_table_ready: tokio::sync::OnceCell::new(),
+        }
+    }
+
+    async fn ensure_kv_table(&self) -> Result<(), PluginError> {
+        self.kv_table_ready
+            .get_or_try_init(|| async {
+                sqlx::query(
+                    "CREATE TABLE IF NOT EXISTS plugin_kv_storage (
+                        plugin_id  TEXT NOT NULL,
+                        key        TEXT NOT NULL,
+                        value_json TEXT NOT NULL,
+                        updated_at TEXT NOT NULL DEFAULT (datetime('now', 'subsec')),
+                        PRIMARY KEY (plugin_id, key)
+                    )",
+                )
+                .execute(&self.pool)
+                .await
+                .map_err(registry_error)?;
+                let _ = sqlx::query(
+                    "ALTER TABLE plugin_activation_intents_v4
+                     ADD COLUMN quarantined INTEGER NOT NULL DEFAULT 0 CHECK (quarantined IN (0, 1))",
+                )
+                .execute(&self.pool)
+                .await;
+                let _ = sqlx::query(
+                    "ALTER TABLE plugin_activation_intents_v4
+                     ADD COLUMN quarantine_reason TEXT",
+                )
+                .execute(&self.pool)
+                .await;
+                Ok(())
+            })
+            .await
+            .copied()
     }
 }
 
@@ -755,15 +916,27 @@ impl PluginRegistry for SqlitePluginRegistry {
         plugin_id: &str,
         activation: PluginActivation,
     ) -> Result<(), PluginError> {
-        let result = sqlx::query(
-            "UPDATE plugin_activation_intents_v4 SET enabled = ?, updated_at = datetime('now','subsec')
-             WHERE plugin_id = ?",
-        )
-        .bind(i64::from(activation == PluginActivation::Enabled))
-        .bind(plugin_id)
-        .execute(&self.pool)
-        .await
-        .map_err(registry_error)?;
+        self.ensure_kv_table().await?;
+        let result = if activation == PluginActivation::Enabled {
+            sqlx::query(
+                "UPDATE plugin_activation_intents_v4
+                 SET enabled = 1, quarantined = 0, quarantine_reason = NULL, updated_at = datetime('now','subsec')
+                 WHERE plugin_id = ?",
+            )
+            .bind(plugin_id)
+            .execute(&self.pool)
+            .await
+            .map_err(registry_error)?
+        } else {
+            sqlx::query(
+                "UPDATE plugin_activation_intents_v4 SET enabled = 0, updated_at = datetime('now','subsec')
+                 WHERE plugin_id = ?",
+            )
+            .bind(plugin_id)
+            .execute(&self.pool)
+            .await
+            .map_err(registry_error)?
+        };
         if result.rows_affected() == 0 {
             return Err(PluginError::not_found(plugin_id));
         }
@@ -1045,6 +1218,7 @@ impl PluginRegistry for SqlitePluginRegistry {
         contributions: &[crate::ContributionDescriptor],
         grants: &[CapabilityGrant],
     ) -> Result<(), PluginError> {
+        self.ensure_kv_table().await?;
         let generation = i64::try_from(generation).map_err(registry_error)?;
         let mut transaction = self.pool.begin().await.map_err(registry_error)?;
         let candidate: Option<String> = sqlx::query_scalar(
@@ -1078,7 +1252,8 @@ impl PluginRegistry for SqlitePluginRegistry {
         .map_err(registry_error)?;
         sqlx::query(
             "UPDATE plugin_activation_intents_v4
-             SET enabled = 1, target_digest = ?, updated_at = datetime('now','subsec')
+             SET enabled = 1, quarantined = 0, quarantine_reason = NULL,
+                 target_digest = ?, updated_at = datetime('now','subsec')
              WHERE plugin_id = ?",
         )
         .bind(&candidate)
@@ -1316,6 +1491,153 @@ impl PluginRegistry for SqlitePluginRegistry {
         transaction.commit().await.map_err(registry_error)?;
         Ok(orphans)
     }
+
+    async fn kv_get(
+        &self,
+        plugin_id: &str,
+        key: &str,
+    ) -> Result<Option<serde_json::Value>, PluginError> {
+        self.ensure_kv_table().await?;
+        let raw: Option<String> = sqlx::query_scalar(
+            "SELECT value_json FROM plugin_kv_storage WHERE plugin_id = ? AND key = ?",
+        )
+        .bind(plugin_id)
+        .bind(key)
+        .fetch_optional(&self.pool)
+        .await
+        .map_err(registry_error)?;
+        raw.map(|json_str| serde_json::from_str(&json_str).map_err(registry_error))
+            .transpose()
+    }
+
+    async fn kv_put(
+        &self,
+        plugin_id: &str,
+        key: &str,
+        value: &serde_json::Value,
+    ) -> Result<(), PluginError> {
+        self.ensure_kv_table().await?;
+        let json_str = serde_json::to_string(value).map_err(registry_error)?;
+        sqlx::query(
+            "INSERT INTO plugin_kv_storage (plugin_id, key, value_json, updated_at)
+             VALUES (?, ?, ?, datetime('now', 'subsec'))
+             ON CONFLICT(plugin_id, key) DO UPDATE SET
+               value_json = excluded.value_json,
+               updated_at = excluded.updated_at",
+        )
+        .bind(plugin_id)
+        .bind(key)
+        .bind(json_str)
+        .execute(&self.pool)
+        .await
+        .map_err(registry_error)?;
+        Ok(())
+    }
+
+    async fn kv_delete(&self, plugin_id: &str, key: &str) -> Result<(), PluginError> {
+        self.ensure_kv_table().await?;
+        sqlx::query("DELETE FROM plugin_kv_storage WHERE plugin_id = ? AND key = ?")
+            .bind(plugin_id)
+            .bind(key)
+            .execute(&self.pool)
+            .await
+            .map_err(registry_error)?;
+        Ok(())
+    }
+
+    async fn kv_list_keys(
+        &self,
+        plugin_id: &str,
+        prefix: Option<&str>,
+    ) -> Result<Vec<String>, PluginError> {
+        self.ensure_kv_table().await?;
+        match prefix.filter(|p| !p.is_empty()) {
+            Some(prefix) => {
+                let pattern = format!(
+                    "{}%",
+                    prefix
+                        .replace('\\', "\\\\")
+                        .replace('%', "\\%")
+                        .replace('_', "\\_")
+                );
+                sqlx::query_scalar(
+                    "SELECT key FROM plugin_kv_storage
+                     WHERE plugin_id = ? AND key LIKE ? ESCAPE '\\'
+                     ORDER BY key ASC",
+                )
+                .bind(plugin_id)
+                .bind(pattern)
+                .fetch_all(&self.pool)
+                .await
+                .map_err(registry_error)
+            }
+            None => sqlx::query_scalar(
+                "SELECT key FROM plugin_kv_storage WHERE plugin_id = ? ORDER BY key ASC",
+            )
+            .bind(plugin_id)
+            .fetch_all(&self.pool)
+            .await
+            .map_err(registry_error),
+        }
+    }
+
+    async fn kv_clear(&self, plugin_id: &str) -> Result<u64, PluginError> {
+        self.ensure_kv_table().await?;
+        let result = sqlx::query("DELETE FROM plugin_kv_storage WHERE plugin_id = ?")
+            .bind(plugin_id)
+            .execute(&self.pool)
+            .await
+            .map_err(registry_error)?;
+        Ok(result.rows_affected())
+    }
+
+    async fn quarantine_plugin(&self, plugin_id: &str, reason: &str) -> Result<(), PluginError> {
+        self.ensure_kv_table().await?;
+        let result = sqlx::query(
+            "UPDATE plugin_activation_intents_v4
+             SET enabled = 0, quarantined = 1, quarantine_reason = ?,
+                 updated_at = datetime('now','subsec')
+             WHERE plugin_id = ?",
+        )
+        .bind(reason)
+        .bind(plugin_id)
+        .execute(&self.pool)
+        .await
+        .map_err(registry_error)?;
+        if result.rows_affected() == 0 {
+            return Err(PluginError::not_found(plugin_id));
+        }
+        sqlx::query(
+            "UPDATE plugin_generations_v4 SET state = 'retired'
+             WHERE plugin_id = ? AND state IN ('active','active_degraded','draining')",
+        )
+        .bind(plugin_id)
+        .execute(&self.pool)
+        .await
+        .map_err(registry_error)?;
+        Ok(())
+    }
+
+    async fn quarantine_reason(&self, plugin_id: &str) -> Result<Option<String>, PluginError> {
+        self.ensure_kv_table().await?;
+        let row: Option<(i64, Option<String>)> = sqlx::query_as(
+            "SELECT quarantined, quarantine_reason
+             FROM plugin_activation_intents_v4
+             WHERE plugin_id = ?",
+        )
+        .bind(plugin_id)
+        .fetch_optional(&self.pool)
+        .await
+        .map_err(registry_error)?;
+        match row {
+            Some((quarantined, reason)) if quarantined != 0 => {
+                Ok(Some(reason.unwrap_or_else(|| {
+                    "Quarantined after repeated crashes".to_owned()
+                })))
+            }
+            _ => Ok(None),
+        }
+    }
 }
 
 #[derive(Clone)]
@@ -1369,6 +1691,39 @@ impl PluginControlPlane {
         let roots = utils::assets::existing_official_plugin_roots(data_root);
         self.migrate_builtin_memberships(&roots).await?;
         Ok(roots)
+    }
+
+    /// Bootstraps all monorepo official and built-in capability plugins from
+    /// `plugins/*` offline (zero network calls), respecting topological
+    /// `dependencies.kind=plugin` ordering when `enable_by_default` is true.
+    pub async fn bootstrap_monorepo_plugins(
+        &self,
+        enable_by_default: bool,
+    ) -> Result<Vec<InstalledPlugin>, PluginError> {
+        let roots = crate::official_catalog::discover_monorepo_plugin_roots();
+        let mut imported_ids = BTreeSet::new();
+        for root in &roots {
+            let package = crate::PluginPackage::inspect(root, crate::PluginSourceKind::Snapshot)?;
+            let id = package.id.as_str().to_owned();
+            self.import(package, ConflictDecision::KeepInstalled)
+                .await?;
+            imported_ids.insert(id);
+        }
+        if enable_by_default {
+            let order = self.topological_activation_order().await?;
+            for plugin_id in order {
+                if !imported_ids.contains(&plugin_id) {
+                    continue;
+                }
+                if let Some(plugin) = self.plugin(&plugin_id).await?
+                    && plugin.activation != PluginActivation::Enabled
+                    && plugin.entrypoints.worker.is_none()
+                {
+                    self.set_enabled(&plugin_id, true).await?;
+                }
+            }
+        }
+        self.catalog().await
     }
 
     /// Replaces already-installed official packages when the Host embed changed.
@@ -1749,7 +2104,12 @@ impl PluginControlPlane {
                 "Worker plugins must be enabled through candidate activation",
             ));
         } else {
-            None
+            Some(self.activations.prepare_lightweight_candidate_at(
+                generation,
+                &plugin.package,
+                &grants,
+                Arc::new(crate::DenyCapabilityBroker),
+            )?)
         };
         let contributions = descriptors_for_package(&plugin.package, generation);
         if let Err(error) = self
@@ -2057,8 +2417,128 @@ impl PluginControlPlane {
         })
     }
 
+    /// Scans a user plugins directory (e.g. `~/.vibex/plugins`) for subdirectories containing
+    /// `.vibex-plugin/plugin.json` or root `plugin.json`, automatically importing, enabling,
+    /// hot-reloading, and reconciling deleted user plugins.
+    pub async fn discover_user_plugins_in(&self, dir: &Path) -> Result<Vec<String>, PluginError> {
+        let installed = self.registry.list_plugins().await?;
+        let installed_by_id: std::collections::HashMap<String, InstalledPlugin> = installed
+            .iter()
+            .map(|plugin| (plugin.id().to_owned(), plugin.clone()))
+            .collect();
+        let mut discovered = Vec::new();
+
+        let canonical_dir = dir.canonicalize().ok();
+        for plugin in &installed {
+            let parent_matches = plugin.source.path.parent() == Some(dir)
+                || (canonical_dir.is_some()
+                    && plugin.source.path.parent() == canonical_dir.as_deref());
+            if plugin.source.kind == crate::PluginSourceKind::DeveloperLink
+                && parent_matches
+                && !plugin.source.path.is_dir()
+            {
+                if self.uninstall(plugin.id()).await.is_ok() {
+                    discovered.push(plugin.id().to_owned());
+                }
+            }
+        }
+
+        let Ok(entries) = std::fs::read_dir(dir) else {
+            return Ok(discovered);
+        };
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if !path.is_dir()
+                || (!path.join(".vibex-plugin").join("plugin.json").is_file()
+                    && !path.join("plugin.json").is_file())
+            {
+                continue;
+            }
+            let Ok(package) =
+                crate::PluginPackage::inspect(&path, crate::PluginSourceKind::DeveloperLink)
+            else {
+                continue;
+            };
+            let plugin_id = package.id.as_str().to_owned();
+            let has_worker = package.entrypoints.worker.is_some();
+
+            if let Some(existing) = installed_by_id.get(&plugin_id) {
+                let Ok(digest) = crate::package_content_digest(&path) else {
+                    continue;
+                };
+                if digest == existing.package_digest {
+                    continue;
+                }
+                let was_quarantined = self
+                    .quarantine_reason(&plugin_id)
+                    .await
+                    .ok()
+                    .flatten()
+                    .is_some();
+                if self
+                    .import(package.clone(), ConflictDecision::Replace)
+                    .await
+                    .is_ok()
+                {
+                    if existing.activation == PluginActivation::Enabled || was_quarantined {
+                        if has_worker {
+                            let restore = self.worker_restore.read().await.clone();
+                            if let Some(restore) = restore {
+                                let grants = candidate_capability_grants(&package, &[], &[])
+                                    .unwrap_or_default();
+                                let _ = self
+                                    .activate_and_enable(
+                                        &restore.node_executable,
+                                        &plugin_id,
+                                        &grants,
+                                        restore.broker,
+                                    )
+                                    .await;
+                            }
+                        } else {
+                            let _ = self.set_enabled(&plugin_id, true).await;
+                        }
+                    }
+                    discovered.push(plugin_id);
+                }
+                continue;
+            }
+
+            if self
+                .import(package.clone(), ConflictDecision::KeepInstalled)
+                .await
+                .is_ok()
+            {
+                if has_worker {
+                    let restore = self.worker_restore.read().await.clone();
+                    if let Some(restore) = restore {
+                        let grants =
+                            candidate_capability_grants(&package, &[], &[]).unwrap_or_default();
+                        let _ = self
+                            .activate_and_enable(
+                                &restore.node_executable,
+                                &plugin_id,
+                                &grants,
+                                restore.broker,
+                            )
+                            .await;
+                    }
+                } else {
+                    let _ = self.set_enabled(&plugin_id, true).await;
+                }
+                discovered.push(plugin_id);
+            }
+        }
+        Ok(discovered)
+    }
+
     pub async fn refresh_developer_links(&self) -> Result<Vec<String>, PluginError> {
         let mut changed = Vec::new();
+        if let Some(user_dir) = crate::link_watch::user_plugins_dir()
+            && let Ok(discovered) = self.discover_user_plugins_in(&user_dir).await
+        {
+            changed.extend(discovered);
+        }
         for plugin in self.registry.list_plugins().await? {
             if plugin.source.kind != crate::PluginSourceKind::DeveloperLink {
                 continue;
@@ -2300,11 +2780,13 @@ impl PluginControlPlane {
             .map_err(|error| WorkerHostError::external("plugin_registry_failed", error))?
             .ok_or_else(|| WorkerHostError::external("plugin_not_found", plugin_id))?;
         self.ensure_plugin_dependencies(&plugin.package).await?;
-        let active_matches = self
-            .activations
-            .lease(plugin_id)
-            .await
-            .is_some_and(|lease| lease.activation().package_digest == plugin.package_digest);
+        let active_matches = match self.activations.lease(plugin_id).await {
+            Some(lease) => {
+                !lease.is_terminal().await
+                    && lease.activation().package_digest == plugin.package_digest
+            }
+            None => false,
+        };
         if active_matches && self.plugin_is_live(plugin_id).await.unwrap_or(false) {
             return Ok(plugin);
         }
@@ -2375,7 +2857,12 @@ impl PluginControlPlane {
                 }
             }
         } else {
-            None
+            Some(self.activations.prepare_lightweight_candidate_at(
+                generation,
+                &package,
+                grants,
+                broker,
+            )?)
         };
         let contributions = descriptors_for_package(&package, generation);
         if let Err(error) = self
@@ -2459,7 +2946,20 @@ impl PluginControlPlane {
     /// Returns `true` if a Worker process is currently spawned and holding an active lease,
     /// without triggering on-demand Worker activation.
     pub async fn is_worker_running(&self, plugin_id: &str) -> bool {
-        self.activations.lease(plugin_id).await.is_some()
+        self.activations
+            .lease(plugin_id)
+            .await
+            .is_some_and(|lease| !lease.is_lightweight())
+    }
+
+    /// Total OS worker subprocesses currently alive for this control plane.
+    pub async fn active_worker_process_count(&self) -> usize {
+        self.activations.active_worker_process_count().await
+    }
+
+    /// OS PID of the shared Node worker runner, if currently running.
+    pub async fn shared_node_worker_pid(&self) -> Option<u32> {
+        self.activations.shared_node_worker_pid().await
     }
 
     /// Stops Workers that have not been invoked recently.
@@ -2481,7 +2981,9 @@ impl PluginControlPlane {
                     continue;
                 }
             };
-            if !plugin.package.app.host_services.is_empty() {
+            if plugin.package.entrypoints.worker.is_none()
+                || !plugin.package.app.host_services.is_empty()
+            {
                 continue;
             }
             let Some(idle) = self.activations.idle_elapsed(&plugin_id).await else {
@@ -2601,8 +3103,22 @@ impl PluginControlPlane {
             std::env::var_os("VIBEX_EAGER_PLUGIN_WORKERS").is_some_and(|value| value == "1");
         let mut failures = Vec::new();
         for plugin in self.registry.list_plugins().await? {
-            if plugin.activation != PluginActivation::Enabled || plugin.entrypoints.worker.is_none()
-            {
+            if plugin.activation != PluginActivation::Enabled {
+                continue;
+            }
+            if plugin.entrypoints.worker.is_none() {
+                if let Some(generation) = self.registry.active_generation(plugin.id()).await?
+                    && let Ok(grants) = candidate_capability_grants(&plugin.package, &[], &[])
+                    && let Ok(candidate) = self.activations.prepare_lightweight_candidate_at(
+                        generation,
+                        &plugin.package,
+                        &grants,
+                        broker.clone(),
+                    )
+                {
+                    let drain = self.activations.commit(candidate).await;
+                    self.retire_after_drain(plugin.id().to_owned(), drain);
+                }
                 continue;
             }
             if !plugin.package.content_root().is_dir()
@@ -2764,7 +3280,13 @@ impl PluginControlPlane {
                     .skills
                     .iter()
                     .find(|skill| &skill.id == skill_id)
-                    .map(|skill| plugin.content_root().join(&skill.path))
+                    .map(|skill| {
+                        format!(
+                            "{}/{}",
+                            plugin.content_root().display(),
+                            skill.path.trim_start_matches('/')
+                        )
+                    })
             })
             .collect::<Vec<_>>();
         if !skill_paths.is_empty() || !runtime_paths.is_empty() {
@@ -2773,7 +3295,7 @@ impl PluginControlPlane {
             context.extend(
                 skill_paths
                     .iter()
-                    .map(|path| format!("- Read and follow the Skill at `{}`.", path.display())),
+                    .map(|path| format!("- Read and follow the Skill at `{path}`.")),
             );
             context.extend(runtime_paths.iter().map(|(id, path)| {
                 format!(
@@ -2915,6 +3437,61 @@ impl PluginControlPlane {
         self.registry.list_audit(plugin_id).await
     }
 
+    pub async fn kv_get(
+        &self,
+        plugin_id: &str,
+        key: &str,
+    ) -> Result<Option<serde_json::Value>, PluginError> {
+        self.registry.kv_get(plugin_id, key).await
+    }
+
+    pub async fn kv_put(
+        &self,
+        plugin_id: &str,
+        key: &str,
+        value: &serde_json::Value,
+    ) -> Result<(), PluginError> {
+        self.registry.kv_put(plugin_id, key, value).await
+    }
+
+    pub async fn kv_delete(&self, plugin_id: &str, key: &str) -> Result<(), PluginError> {
+        self.registry.kv_delete(plugin_id, key).await
+    }
+
+    pub async fn kv_list_keys(
+        &self,
+        plugin_id: &str,
+        prefix: Option<&str>,
+    ) -> Result<Vec<String>, PluginError> {
+        self.registry.kv_list_keys(plugin_id, prefix).await
+    }
+
+    pub async fn kv_clear(&self, plugin_id: &str) -> Result<u64, PluginError> {
+        self.registry.kv_clear(plugin_id).await
+    }
+
+    pub async fn quarantine_plugin(
+        &self,
+        plugin_id: &str,
+        reason: &str,
+    ) -> Result<(), PluginError> {
+        let _ = self.withdraw_with_dependents(plugin_id).await;
+        self.registry.quarantine_plugin(plugin_id, reason).await?;
+        let _ = self
+            .registry
+            .record_audit(
+                plugin_id,
+                "quarantined",
+                &serde_json::json!({ "reason": reason }),
+            )
+            .await;
+        self.refresh_live_projections().await
+    }
+
+    pub async fn quarantine_reason(&self, plugin_id: &str) -> Result<Option<String>, PluginError> {
+        self.registry.quarantine_reason(plugin_id).await
+    }
+
     /// Display name for a plugin, for Host prompts that must tell the user who
     /// is asking. Falls back to `None` so callers show the id rather than an
     /// empty string.
@@ -3021,20 +3598,23 @@ impl PluginControlPlane {
                 .await
                 .map_err(|error| WorkerHostError::external("plugin_registry_failed", error))?;
             let Some(installed) = installed else {
+                let publisher = dependency.publisher.as_deref().unwrap_or("local");
                 return Err(WorkerHostError::external(
                     "dependency_unsatisfied",
                     format!(
                         "required plugin `{}/{}` is not installed",
-                        dependency.publisher, dependency.id
+                        publisher, dependency.id
                     ),
                 ));
             };
-            if package_publisher(&installed.package) != dependency.publisher {
+            if let Some(ref expected_publisher) = dependency.publisher
+                && package_publisher(&installed.package) != expected_publisher
+            {
                 return Err(WorkerHostError::external(
                     "dependency_unsatisfied",
                     format!(
                         "required plugin `{}` is not published by `{}`",
-                        dependency.id, dependency.publisher
+                        dependency.id, expected_publisher
                     ),
                 ));
             }
@@ -3063,6 +3643,79 @@ impl PluginControlPlane {
             }
         }
         Ok(())
+    }
+
+    /// Computes the topological activation order of all installed plugins based
+    /// on declared `dependencies.kind=plugin` edges.
+    pub async fn topological_activation_order(&self) -> Result<Vec<String>, PluginError> {
+        let plugins = self.registry.list_plugins().await?;
+        let mut by_id = BTreeMap::new();
+        for plugin in &plugins {
+            by_id.insert(plugin.id().to_owned(), plugin);
+        }
+        let mut visited = BTreeSet::new();
+        let mut visiting = BTreeSet::new();
+        let mut order = Vec::with_capacity(plugins.len());
+
+        fn visit(
+            id: &str,
+            by_id: &BTreeMap<String, &InstalledPlugin>,
+            visited: &mut BTreeSet<String>,
+            visiting: &mut BTreeSet<String>,
+            order: &mut Vec<String>,
+        ) -> Result<(), PluginError> {
+            if visited.contains(id) {
+                return Ok(());
+            }
+            if !visiting.insert(id.to_owned()) {
+                return Err(PluginError::dependency_unsatisfied(format!(
+                    "cyclic plugin dependency involving `{id}`"
+                )));
+            }
+            if let Some(plugin) = by_id.get(id) {
+                for dep in plugin.package.plugin_dependencies() {
+                    if by_id.contains_key(&dep.id) {
+                        visit(&dep.id, by_id, visited, visiting, order)?;
+                    }
+                }
+            }
+            visiting.remove(id);
+            visited.insert(id.to_owned());
+            order.push(id.to_owned());
+            Ok(())
+        }
+
+        for id in by_id.keys() {
+            visit(id, &by_id, &mut visited, &mut visiting, &mut order)?;
+        }
+        Ok(order)
+    }
+
+    /// Returns all installed plugins that transitively depend on `plugin_id`.
+    pub async fn dependent_plugins(&self, plugin_id: &str) -> Result<Vec<String>, PluginError> {
+        let plugins = self.registry.list_plugins().await?;
+        let mut dependents = Vec::new();
+        let mut queue = std::collections::VecDeque::from([plugin_id.to_owned()]);
+        let mut seen = BTreeSet::from([plugin_id.to_owned()]);
+        while let Some(current) = queue.pop_front() {
+            for plugin in &plugins {
+                let id = plugin.id().to_owned();
+                if seen.contains(&id) {
+                    continue;
+                }
+                if plugin
+                    .package
+                    .plugin_dependencies()
+                    .iter()
+                    .any(|dep| dep.required && dep.id == current)
+                {
+                    seen.insert(id.clone());
+                    dependents.push(id.clone());
+                    queue.push_back(id);
+                }
+            }
+        }
+        Ok(dependents)
     }
 
     async fn require_plugin_dependencies(
@@ -3287,15 +3940,6 @@ fn package_publisher(package: &PluginPackage) -> &str {
     package.publisher.as_deref().unwrap_or("legacy.local")
 }
 
-struct PluginDependency {
-    publisher: String,
-    id: String,
-    version_range: String,
-    required: bool,
-}
-
-fn plugin_dependencies(_package: &PluginPackage) -> Vec<PluginDependency> {
-    // ADR-0069: plugins cannot depend on plugins. Runtime requirements
-    // are resolved through Runtime locks, not this graph.
-    Vec::new()
+fn plugin_dependencies(package: &PluginPackage) -> Vec<crate::PluginDependency> {
+    package.plugin_dependencies()
 }

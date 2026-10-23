@@ -1,9 +1,14 @@
 import { useEffect, useMemo, useState } from 'react';
 import { AlertCircle, Check } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
+import { useRegistry } from '@vibex/plugin-sdk';
 import { EditorType, type EditorConfig } from 'shared/types';
 
 import { IdeIcon } from '@/components/ide/IdeIcon';
+import {
+  getEditorOpenerService,
+  runtimeEditorOpenerRegistry,
+} from '@/features/plugins/providers/hostProviderServices';
 import { TextInput } from '@astryxdesign/core/TextInput';
 import { Label } from '@/components/ui/label';
 import {
@@ -13,7 +18,6 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { configApi } from '@/lib/api';
 import { cn } from '@/lib/utils';
 
 type EditorOption = {
@@ -44,8 +48,9 @@ export function ExternalEditorPicker({
   label?: string;
 }) {
   const { t } = useTranslation(['settings', 'common']);
-  const options = useMemo<EditorOption[]>(
-    () => [
+  const customEditorOpeners = useRegistry(runtimeEditorOpenerRegistry);
+  const options = useMemo<EditorOption[]>(() => {
+    const builtin: EditorOption[] = [
       { value: EditorType.VS_CODE, label: 'Visual Studio Code', hint: 'code' },
       {
         value: EditorType.VS_CODE_INSIDERS,
@@ -69,29 +74,40 @@ export function ExternalEditorPicker({
           : t('general.editorFileExplorer'),
         hint: t('general.editorFileManagerHint'),
       },
-      {
-        value: EditorType.CUSTOM,
-        label: t('general.editorCustomCommand'),
-        hint: t('general.editorCustomCommand'),
-      },
-    ],
-    [t]
-  );
+    ];
+    const seen = new Set<string>(builtin.map((opt) => String(opt.value)));
+    for (const custom of customEditorOpeners) {
+      if (seen.has(custom.id)) continue;
+      seen.add(custom.id);
+      builtin.push({
+        value: custom.id as EditorType,
+        label: custom.label,
+        hint: custom.hint,
+      });
+    }
+    builtin.push({
+      value: EditorType.CUSTOM,
+      label: t('general.editorCustomCommand'),
+      hint: t('general.editorCustomCommand'),
+    });
+    return builtin;
+  }, [customEditorOpeners, t]);
   const [availability, setAvailability] = useState<
     Partial<Record<EditorType, boolean>>
   >({});
 
   useEffect(() => {
     let active = true;
+    const editorService = getEditorOpenerService();
     void Promise.all(
       options
         .filter((option) => option.value !== EditorType.CUSTOM)
         .map(async (option) => {
           try {
-            const result = await configApi.checkEditorAvailability(
+            const available = await editorService.checkAvailability(
               option.value
             );
-            return [option.value, result.available] as const;
+            return [option.value, available] as const;
           } catch {
             return [option.value, false] as const;
           }

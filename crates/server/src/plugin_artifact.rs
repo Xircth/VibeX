@@ -24,6 +24,16 @@ pub async fn start_plugin_artifact_http(plugins: Arc<PluginControlPlane>) -> any
     Ok(())
 }
 
+pub async fn serve_runtime_plugin_artifact<R>(
+    State(state): State<Arc<crate::runtime::ServerState<R>>>,
+    Path((plugin_id, path)): Path<(String, String)>,
+) -> Response {
+    let Some(plugins) = state.plugin_control_plane.clone() else {
+        return StatusCode::NOT_FOUND.into_response();
+    };
+    serve_plugin_artifact(State(plugins), Path((plugin_id, path))).await
+}
+
 async fn serve_plugin_artifact(
     State(plugins): State<Arc<PluginControlPlane>>,
     Path((plugin_id, path)): Path<(String, String)>,

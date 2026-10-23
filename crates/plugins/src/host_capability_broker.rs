@@ -1,21 +1,56 @@
-use std::{collections::HashMap, process::Stdio, sync::Arc, time::Duration};
+use std::{
+    collections::HashMap,
+    process::Stdio,
+    sync::{Arc, OnceLock},
+    time::Duration,
+};
 
 use async_trait::async_trait;
+use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use tokio::{
     io::AsyncWriteExt,
     process::Command,
-    sync::Mutex,
+    sync::{Mutex, broadcast},
     time::{Instant, timeout},
 };
 
 const ARTIFACT_HANDLE_TTL: Duration = Duration::from_secs(30);
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PluginToastNotification {
+    pub plugin_id: String,
+    pub title: String,
+    pub message: String,
+    pub variant: String,
+    pub duration_ms: u64,
+}
+
+static PLUGIN_TOAST_TX: OnceLock<broadcast::Sender<PluginToastNotification>> = OnceLock::new();
+
+fn plugin_toast_sender() -> &'static broadcast::Sender<PluginToastNotification> {
+    PLUGIN_TOAST_TX.get_or_init(|| {
+        let (tx, _) = broadcast::channel(128);
+        tx
+    })
+}
+
+pub fn subscribe_plugin_toasts() -> broadcast::Receiver<PluginToastNotification> {
+    plugin_toast_sender().subscribe()
+}
 
 struct ArtifactAuthorization {
     plugin_id: String,
     generation: u64,
     request: crate::PluginPreviewRequest,
     expires_at: Instant,
+}
+
+struct SpawnedPluginProcess {
+    plugin_id: String,
+    pid: Option<u32>,
+    child: tokio::process::Child,
 }
 
 pub struct HostCapabilityBroker {
@@ -28,6 +63,7 @@ pub struct HostCapabilityBroker {
     browser: Arc<browser_host::BrowserService>,
     artifacts: Mutex<HashMap<String, ArtifactAuthorization>>,
     preview_leases: Arc<Mutex<HashMap<String, crate::ActivationLease>>>,
+    spawned_processes: Mutex<HashMap<String, SpawnedPluginProcess>>,
 }
 
 impl HostCapabilityBroker {
@@ -87,7 +123,25 @@ impl HostCapabilityBroker {
             browser: Arc::new(browser_host::BrowserService::unavailable()),
             artifacts: Mutex::new(HashMap::new()),
             preview_leases: Arc::new(Mutex::new(HashMap::new())),
+            spawned_processes: Mutex::new(HashMap::new()),
         }
+    }
+
+    pub async fn kill_plugin_processes(&self, plugin_id: &str) -> usize {
+        let mut processes = self.spawned_processes.lock().await;
+        let ids: Vec<String> = processes
+            .iter()
+            .filter(|(_, proc)| proc.plugin_id == plugin_id)
+            .map(|(id, _)| id.clone())
+            .collect();
+        let mut killed = 0usize;
+        for id in ids {
+            if let Some(mut proc) = processes.remove(&id) {
+                let _ = proc.child.kill().await;
+                killed += 1;
+            }
+        }
+        killed
     }
 
     pub fn with_browser_host(mut self, browser: Arc<browser_host::BrowserService>) -> Self {
@@ -185,6 +239,7 @@ impl crate::CapabilityBroker for HostCapabilityBroker {
             capability,
             "runtime.execute"
                 | "runtime.lock"
+                | "exec"
                 | "artifact.preview"
                 | "artifact"
                 | "storage"
@@ -221,6 +276,7 @@ impl crate::CapabilityBroker for HostCapabilityBroker {
                 self.get_runtime_lock(plugin_id, generation, operation, input)
                     .await
             }
+            "exec" => self.call_exec(plugin_id, operation, input).await,
             "artifact.preview" => self.open_preview(plugin_id, generation, input).await,
             "provider.presets" => {
                 self.call_provider_presets(plugin_id, operation, input)
@@ -237,12 +293,10 @@ impl crate::CapabilityBroker for HostCapabilityBroker {
             )),
             "blob" => crate::blob_store::dispatch_plugin_blob(plugin_id, operation, &input),
             "log" => Ok(json!({})),
-            "plugin.self" if operation == "doctor" => Ok(json!({
-                "pluginId": plugin_id,
-                "generation": generation,
-                "diagnostics": [],
-                "recentCrashes": [],
-            })),
+            "plugin.self" => {
+                self.call_plugin_self(plugin_id, generation, operation, input)
+                    .await
+            }
             "storage" | "secrets" | "files" | "network" | "events" | "agent" | "app" => {
                 self.call_plugin_data(plugin_id, generation, capability, operation, input)
                     .await
@@ -838,7 +892,12 @@ impl HostCapabilityBroker {
                     .get("key")
                     .and_then(Value::as_str)
                     .ok_or_else(|| broker_error("kv_key_missing", "key is required"))?;
-                Ok(plugin_kv(plugin_id).get(name).unwrap_or(Value::Null))
+                let value = self
+                    .plugins
+                    .kv_get(plugin_id, name)
+                    .await
+                    .map_err(|error| broker_error("kv_storage_failed", error))?;
+                Ok(value.unwrap_or(Value::Null))
             }
             "storage.kv.put" => {
                 let name = input
@@ -846,22 +905,38 @@ impl HostCapabilityBroker {
                     .and_then(Value::as_str)
                     .ok_or_else(|| broker_error("kv_key_missing", "key is required"))?;
                 let value = input.get("value").cloned().unwrap_or(Value::Null);
-                plugin_kv(plugin_id).insert(name.to_owned(), value.clone());
+                self.plugins
+                    .kv_put(plugin_id, name, &value)
+                    .await
+                    .map_err(|error| broker_error("kv_storage_failed", error))?;
                 Ok(value)
             }
             "storage.kv.delete" => {
                 if let Some(name) = input.get("key").and_then(Value::as_str) {
-                    plugin_kv(plugin_id).remove(name);
+                    self.plugins
+                        .kv_delete(plugin_id, name)
+                        .await
+                        .map_err(|error| broker_error("kv_storage_failed", error))?;
                 }
                 Ok(json!({}))
             }
-            "storage.kv.list" => Ok(Value::Array(
-                plugin_kv(plugin_id)
-                    .keys()
-                    .into_iter()
-                    .map(Value::String)
-                    .collect(),
-            )),
+            "storage.kv.list" => {
+                let prefix = input.get("prefix").and_then(Value::as_str);
+                let keys = self
+                    .plugins
+                    .kv_list_keys(plugin_id, prefix)
+                    .await
+                    .map_err(|error| broker_error("kv_storage_failed", error))?;
+                Ok(Value::Array(keys.into_iter().map(Value::String).collect()))
+            }
+            "storage.kv.clear" => {
+                let removed = self
+                    .plugins
+                    .kv_clear(plugin_id)
+                    .await
+                    .map_err(|error| broker_error("kv_storage_failed", error))?;
+                Ok(json!({ "removed": removed }))
+            }
             "storage.settings.get" => {
                 let plugin = self
                     .plugins
@@ -892,10 +967,7 @@ impl HostCapabilityBroker {
             }
             "secrets.get" => Ok(json!({ "present": false })),
             "secrets.put" | "secrets.delete" => Ok(json!({ "present": false })),
-            "network.fetch" => Err(broker_error(
-                "network_denied",
-                "Use the language runtime for Full Trust network access; Isolated packages require v5 grant",
-            )),
+            "network.fetch" => execute_network_fetch(input).await,
             "files.read" | "files.write" | "files.stat" | "files.list" => Err(broker_error(
                 "files_root_denied",
                 "File roots are bound to workspace and plugin-data sessions",
@@ -906,61 +978,450 @@ impl HostCapabilityBroker {
                 "handler_not_visible",
                 "Cross-plugin handlers are not visible",
             )),
-            "app.notify.toast" => Ok(json!({})),
+            "app.notify.toast" => {
+                let title = input
+                    .get("title")
+                    .and_then(Value::as_str)
+                    .unwrap_or("")
+                    .to_owned();
+                let message = input
+                    .get("message")
+                    .and_then(Value::as_str)
+                    .unwrap_or("")
+                    .to_owned();
+                let variant = input
+                    .get("variant")
+                    .and_then(Value::as_str)
+                    .unwrap_or("info")
+                    .to_owned();
+                let duration_ms = input
+                    .get("durationMs")
+                    .and_then(Value::as_u64)
+                    .unwrap_or(4_000);
+                self.audit(
+                    plugin_id,
+                    "plugin_toast_notified",
+                    json!({
+                        "title": title,
+                        "message": message,
+                        "variant": variant,
+                        "durationMs": duration_ms,
+                    }),
+                )
+                .await;
+                let _ = plugin_toast_sender().send(PluginToastNotification {
+                    plugin_id: plugin_id.to_owned(),
+                    title: title.clone(),
+                    message: message.clone(),
+                    variant: variant.clone(),
+                    duration_ms,
+                });
+                Ok(json!({
+                    "notified": true,
+                    "title": title,
+                    "message": message,
+                    "variant": variant,
+                    "durationMs": duration_ms,
+                }))
+            }
             _ => Err(broker_error(
                 "capability_unimplemented",
                 format!("{key} is not implemented"),
             )),
         }
     }
-}
 
-fn plugin_kv(plugin_id: &str) -> PluginKv {
-    PluginKv {
-        plugin_id: plugin_id.to_owned(),
+    async fn call_plugin_self(
+        &self,
+        plugin_id: &str,
+        generation: u64,
+        operation: &str,
+        input: Value,
+    ) -> Result<Value, crate::WorkerHostError> {
+        match operation {
+            "doctor" => {
+                let quarantine_reason = self
+                    .plugins
+                    .quarantine_reason(plugin_id)
+                    .await
+                    .unwrap_or(None);
+                Ok(json!({
+                    "pluginId": plugin_id,
+                    "generation": generation,
+                    "quarantined": quarantine_reason.is_some(),
+                    "quarantineReason": quarantine_reason,
+                    "diagnostics": [],
+                    "recentCrashes": [],
+                }))
+            }
+            "status" => {
+                let quarantine_reason = self
+                    .plugins
+                    .quarantine_reason(plugin_id)
+                    .await
+                    .unwrap_or(None);
+                Ok(json!({
+                    "pluginId": plugin_id,
+                    "generation": generation,
+                    "quarantined": quarantine_reason.is_some(),
+                    "quarantineReason": quarantine_reason,
+                }))
+            }
+            "quarantine" => {
+                let reason = input
+                    .get("reason")
+                    .and_then(Value::as_str)
+                    .map(str::trim)
+                    .filter(|value| !value.is_empty())
+                    .unwrap_or("Quarantined after repeated crashes");
+                self.kill_plugin_processes(plugin_id).await;
+                self.plugins
+                    .quarantine_plugin(plugin_id, reason)
+                    .await
+                    .map_err(|error| broker_error("plugin_quarantine_failed", error))?;
+                Ok(json!({
+                    "quarantined": true,
+                    "pluginId": plugin_id,
+                    "reason": reason,
+                }))
+            }
+            _ => Err(broker_error(
+                "capability_unimplemented",
+                format!("plugin.self.{operation} is not implemented"),
+            )),
+        }
+    }
+
+    async fn call_exec(
+        &self,
+        plugin_id: &str,
+        operation: &str,
+        input: Value,
+    ) -> Result<Value, crate::WorkerHostError> {
+        match operation {
+            "run" => {
+                let program = input
+                    .get("program")
+                    .or_else(|| input.get("command"))
+                    .and_then(Value::as_str)
+                    .map(str::trim)
+                    .filter(|value| !value.is_empty())
+                    .ok_or_else(|| broker_error("exec_invalid_program", "program is required"))?;
+                let args: Vec<String> = input
+                    .get("args")
+                    .and_then(Value::as_array)
+                    .map(|items| {
+                        items
+                            .iter()
+                            .filter_map(|item| item.as_str().map(str::to_owned))
+                            .collect()
+                    })
+                    .unwrap_or_default();
+                let timeout_ms = input
+                    .get("timeoutMs")
+                    .and_then(Value::as_u64)
+                    .unwrap_or(60_000)
+                    .clamp(100, 300_000);
+                let mut cmd = utils::process::new_hidden_tokio_command(program, &args);
+                cmd.stdin(Stdio::piped())
+                    .stdout(Stdio::piped())
+                    .stderr(Stdio::piped())
+                    .kill_on_drop(true);
+                if let Some(cwd) = input
+                    .get("cwd")
+                    .and_then(Value::as_str)
+                    .filter(|s| !s.is_empty())
+                {
+                    cmd.current_dir(cwd);
+                }
+                if let Some(env_map) = input.get("env").and_then(Value::as_object) {
+                    for (k, v) in env_map {
+                        if let Some(val) = v.as_str() {
+                            cmd.env(k, val);
+                        }
+                    }
+                }
+                let mut child = cmd
+                    .spawn()
+                    .map_err(|error| broker_error("exec_spawn_failed", error))?;
+                if let Some(stdin_text) = input.get("stdin").and_then(Value::as_str) {
+                    if stdin_text.len() > 16 * 1024 * 1024 {
+                        return Err(broker_error("exec_stdin_too_large", "stdin exceeds 16 MiB"));
+                    }
+                    if let Some(mut stdin) = child.stdin.take() {
+                        stdin
+                            .write_all(stdin_text.as_bytes())
+                            .await
+                            .map_err(|error| broker_error("exec_stdin_failed", error))?;
+                    }
+                } else {
+                    drop(child.stdin.take());
+                }
+                let output = timeout(Duration::from_millis(timeout_ms), child.wait_with_output())
+                    .await
+                    .map_err(|_| broker_error("exec_timeout", "Command execution timed out"))?
+                    .map_err(|error| broker_error("exec_failed", error))?;
+                if output.stdout.len() > 32 * 1024 * 1024 || output.stderr.len() > 4 * 1024 * 1024 {
+                    return Err(broker_error(
+                        "exec_output_too_large",
+                        "Command output exceeds Host limit",
+                    ));
+                }
+                let exit_code = output.status.code().unwrap_or(-1);
+                let stdout = String::from_utf8_lossy(&output.stdout).into_owned();
+                let stderr = String::from_utf8_lossy(&output.stderr).into_owned();
+                self.audit(
+                    plugin_id,
+                    "exec_run",
+                    json!({ "program": program, "exitCode": exit_code }),
+                )
+                .await;
+                Ok(json!({
+                    "exitCode": exit_code,
+                    "stdout": stdout,
+                    "stderr": stderr,
+                    "success": output.status.success(),
+                }))
+            }
+            "spawn" => {
+                let program = input
+                    .get("program")
+                    .or_else(|| input.get("command"))
+                    .and_then(Value::as_str)
+                    .map(str::trim)
+                    .filter(|value| !value.is_empty())
+                    .ok_or_else(|| broker_error("exec_invalid_program", "program is required"))?;
+                let args: Vec<String> = input
+                    .get("args")
+                    .and_then(Value::as_array)
+                    .map(|items| {
+                        items
+                            .iter()
+                            .filter_map(|item| item.as_str().map(str::to_owned))
+                            .collect()
+                    })
+                    .unwrap_or_default();
+                let mut cmd = utils::process::new_hidden_tokio_command(program, &args);
+                cmd.stdin(Stdio::null())
+                    .stdout(Stdio::null())
+                    .stderr(Stdio::null())
+                    .kill_on_drop(true);
+                if let Some(cwd) = input
+                    .get("cwd")
+                    .and_then(Value::as_str)
+                    .filter(|s| !s.is_empty())
+                {
+                    cmd.current_dir(cwd);
+                }
+                if let Some(env_map) = input.get("env").and_then(Value::as_object) {
+                    for (k, v) in env_map {
+                        if let Some(val) = v.as_str() {
+                            cmd.env(k, val);
+                        }
+                    }
+                }
+                let child = cmd
+                    .spawn()
+                    .map_err(|error| broker_error("exec_spawn_failed", error))?;
+                let pid = child.id();
+                let process_id = uuid::Uuid::new_v4().to_string();
+                self.spawned_processes.lock().await.insert(
+                    process_id.clone(),
+                    SpawnedPluginProcess {
+                        plugin_id: plugin_id.to_owned(),
+                        pid,
+                        child,
+                    },
+                );
+                self.audit(
+                    plugin_id,
+                    "exec_spawn",
+                    json!({ "program": program, "processId": process_id, "pid": pid }),
+                )
+                .await;
+                Ok(json!({
+                    "processId": process_id,
+                    "pid": pid,
+                }))
+            }
+            "kill" => {
+                if let Some(process_id) = input
+                    .get("processId")
+                    .and_then(Value::as_str)
+                    .filter(|s| !s.is_empty())
+                {
+                    let mut processes = self.spawned_processes.lock().await;
+                    let belongs = processes
+                        .get(process_id)
+                        .is_some_and(|proc| proc.plugin_id == plugin_id);
+                    if !belongs {
+                        return Err(broker_error(
+                            "exec_process_not_found",
+                            format!("Process {process_id} is not owned by {plugin_id}"),
+                        ));
+                    }
+                    if let Some(mut proc) = processes.remove(process_id) {
+                        let _ = proc.child.kill().await;
+                    }
+                    self.audit(plugin_id, "exec_kill", json!({ "processId": process_id }))
+                        .await;
+                    Ok(json!({
+                        "killed": true,
+                        "processId": process_id,
+                    }))
+                } else {
+                    let count = self.kill_plugin_processes(plugin_id).await;
+                    Ok(json!({
+                        "killed": count > 0,
+                        "killedCount": count,
+                    }))
+                }
+            }
+            "status" => {
+                let process_id = input
+                    .get("processId")
+                    .and_then(Value::as_str)
+                    .filter(|s| !s.is_empty())
+                    .ok_or_else(|| broker_error("exec_process_missing", "processId is required"))?;
+                let mut processes = self.spawned_processes.lock().await;
+                let Some(proc) = processes.get_mut(process_id) else {
+                    return Ok(json!({
+                        "processId": process_id,
+                        "running": false,
+                        "exitCode": Value::Null,
+                    }));
+                };
+                if proc.plugin_id != plugin_id {
+                    return Err(broker_error(
+                        "exec_process_not_found",
+                        format!("Process {process_id} is not owned by {plugin_id}"),
+                    ));
+                }
+                match proc.child.try_wait() {
+                    Ok(Some(status)) => {
+                        let exit_code = status.code();
+                        let pid = proc.pid;
+                        processes.remove(process_id);
+                        Ok(json!({
+                            "processId": process_id,
+                            "pid": pid,
+                            "running": false,
+                            "exitCode": exit_code,
+                        }))
+                    }
+                    Ok(None) => Ok(json!({
+                        "processId": process_id,
+                        "pid": proc.pid,
+                        "running": true,
+                        "exitCode": Value::Null,
+                    })),
+                    Err(error) => Err(broker_error("exec_status_failed", error)),
+                }
+            }
+            _ => Err(broker_error(
+                "capability_unimplemented",
+                format!("exec.{operation} is not implemented"),
+            )),
+        }
     }
 }
 
-struct PluginKv {
-    plugin_id: String,
-}
-
-impl PluginKv {
-    fn store() -> std::sync::MutexGuard<'static, std::collections::HashMap<String, Value>> {
-        use std::{
-            collections::HashMap,
-            sync::{Mutex, OnceLock},
-        };
-        static STORE: OnceLock<Mutex<HashMap<String, Value>>> = OnceLock::new();
-        STORE
-            .get_or_init(|| Mutex::new(HashMap::new()))
-            .lock()
-            .unwrap()
+async fn execute_network_fetch(input: Value) -> Result<Value, crate::WorkerHostError> {
+    use base64::Engine as _;
+    let url = input
+        .get("url")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .ok_or_else(|| broker_error("network_invalid_url", "url is required"))?;
+    let parsed_url =
+        url::Url::parse(url).map_err(|error| broker_error("network_invalid_url", error))?;
+    if !matches!(parsed_url.scheme(), "http" | "https") {
+        return Err(broker_error(
+            "network_invalid_url",
+            "only http and https URLs are supported",
+        ));
     }
-
-    fn namespaced(&self, key: &str) -> String {
-        format!("{}::{key}", self.plugin_id)
+    let method_str = input
+        .get("method")
+        .and_then(Value::as_str)
+        .unwrap_or("GET")
+        .trim()
+        .to_ascii_uppercase();
+    let method = reqwest::Method::from_bytes(method_str.as_bytes())
+        .map_err(|error| broker_error("network_invalid_method", error))?;
+    let timeout_ms = input
+        .get("timeoutMs")
+        .and_then(Value::as_u64)
+        .unwrap_or(30_000)
+        .clamp(100, 120_000);
+    let _ = rustls::crypto::aws_lc_rs::default_provider().install_default();
+    let client = reqwest::Client::builder()
+        .timeout(Duration::from_millis(timeout_ms))
+        .build()
+        .map_err(|error| broker_error("network_request_failed", error))?;
+    let mut request = client.request(method, parsed_url);
+    if let Some(headers) = input.get("headers").and_then(Value::as_object) {
+        for (name, value) in headers {
+            if let Some(value_str) = value.as_str() {
+                request = request.header(name.as_str(), value_str);
+            }
+        }
     }
-
-    fn get(&self, key: &str) -> Option<Value> {
-        Self::store().get(&self.namespaced(key)).cloned()
+    if let Some(body) = input.get("body") {
+        match body {
+            Value::Null => {}
+            Value::String(text) => {
+                request = request.body(text.clone());
+            }
+            other => {
+                request = request
+                    .header(reqwest::header::CONTENT_TYPE, "application/json")
+                    .body(other.to_string());
+            }
+        }
     }
-
-    fn insert(&self, key: String, value: Value) {
-        Self::store().insert(self.namespaced(&key), value);
+    let response = request
+        .send()
+        .await
+        .map_err(|error| broker_error("network_request_failed", error))?;
+    let status = response.status().as_u16();
+    let ok = response.status().is_success();
+    let status_text = response
+        .status()
+        .canonical_reason()
+        .unwrap_or("")
+        .to_owned();
+    let mut response_headers = serde_json::Map::new();
+    for (name, value) in response.headers() {
+        if let Ok(value_str) = value.to_str() {
+            response_headers.insert(
+                name.as_str().to_owned(),
+                Value::String(value_str.to_owned()),
+            );
+        }
     }
-
-    fn remove(&self, key: &str) {
-        Self::store().remove(&self.namespaced(key));
+    let bytes = response
+        .bytes()
+        .await
+        .map_err(|error| broker_error("network_request_failed", error))?;
+    if bytes.len() > 32 * 1024 * 1024 {
+        return Err(broker_error(
+            "network_response_too_large",
+            "Network response exceeds 32 MiB limit",
+        ));
     }
-
-    fn keys(&self) -> Vec<String> {
-        let prefix = format!("{}::", self.plugin_id);
-        Self::store()
-            .keys()
-            .filter_map(|key| key.strip_prefix(&prefix).map(str::to_owned))
-            .collect()
-    }
+    let body = String::from_utf8_lossy(&bytes).into_owned();
+    let body_base64 = base64::engine::general_purpose::STANDARD.encode(&bytes);
+    Ok(json!({
+        "status": status,
+        "ok": ok,
+        "statusText": status_text,
+        "headers": response_headers,
+        "body": body,
+        "bodyText": body,
+        "bodyBase64": body_base64,
+    }))
 }
 
 fn schedule_preview_lease_drop(
@@ -1008,4 +1469,234 @@ fn required_id(input: &Value, field: &str) -> Result<String, crate::WorkerHostEr
 
 fn remote_error(error: crate::RemoteProfileError) -> crate::WorkerHostError {
     crate::WorkerHostError::broker(error.code().as_str(), error)
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::Arc;
+
+    use serde_json::json;
+    use sqlx::sqlite::{SqliteConnectOptions, SqlitePoolOptions};
+    use tokio::{
+        io::{AsyncReadExt, AsyncWriteExt},
+        net::TcpListener,
+    };
+
+    use super::HostCapabilityBroker;
+    use crate::{
+        CapabilityBroker, ExternalProcessPreviewHost, PluginControlPlane, SqlitePluginRegistry,
+    };
+
+    async fn sqlite_broker() -> HostCapabilityBroker {
+        let pool = SqlitePoolOptions::new()
+            .max_connections(1)
+            .connect_with(SqliteConnectOptions::new().filename(":memory:"))
+            .await
+            .expect("memory sqlite pool");
+        let control_plane = Arc::new(PluginControlPlane::new(Arc::new(
+            SqlitePluginRegistry::new(pool),
+        )));
+        let previews = Arc::new(ExternalProcessPreviewHost::new(control_plane.clone()));
+        HostCapabilityBroker::new(control_plane, previews)
+    }
+
+    #[tokio::test]
+    async fn storage_kv_persists_to_sqlite_and_isolates_plugins() {
+        let broker = sqlite_broker().await;
+
+        let missing = broker
+            .call(
+                "vibex.git",
+                1,
+                "storage",
+                "kv.get",
+                json!({ "key": "branch" }),
+            )
+            .await
+            .expect("kv.get missing");
+        assert_eq!(missing, serde_json::Value::Null);
+
+        let stored = broker
+            .call(
+                "vibex.git",
+                1,
+                "storage",
+                "kv.put",
+                json!({ "key": "branch", "value": { "name": "main", "dirty": false } }),
+            )
+            .await
+            .expect("kv.put");
+        assert_eq!(stored, json!({ "name": "main", "dirty": false }));
+
+        broker
+            .call(
+                "vibex.git",
+                1,
+                "storage",
+                "kv.put",
+                json!({ "key": "stash.0", "value": "wip" }),
+            )
+            .await
+            .expect("kv.put stash");
+
+        broker
+            .call(
+                "vibex.other",
+                1,
+                "storage",
+                "kv.put",
+                json!({ "key": "branch", "value": "other-branch" }),
+            )
+            .await
+            .expect("kv.put other");
+
+        let read_back = broker
+            .call(
+                "vibex.git",
+                1,
+                "storage",
+                "kv.get",
+                json!({ "key": "branch" }),
+            )
+            .await
+            .expect("kv.get");
+        assert_eq!(read_back, json!({ "name": "main", "dirty": false }));
+
+        let listed = broker
+            .call(
+                "vibex.git",
+                1,
+                "storage",
+                "kv.list",
+                json!({ "prefix": "stash." }),
+            )
+            .await
+            .expect("kv.list prefix");
+        assert_eq!(listed, json!(["stash.0"]));
+
+        broker
+            .call(
+                "vibex.git",
+                1,
+                "storage",
+                "kv.delete",
+                json!({ "key": "branch" }),
+            )
+            .await
+            .expect("kv.delete");
+        let after_delete = broker
+            .call(
+                "vibex.git",
+                1,
+                "storage",
+                "kv.get",
+                json!({ "key": "branch" }),
+            )
+            .await
+            .expect("kv.get after delete");
+        assert_eq!(after_delete, serde_json::Value::Null);
+
+        let other_intact = broker
+            .call(
+                "vibex.other",
+                1,
+                "storage",
+                "kv.get",
+                json!({ "key": "branch" }),
+            )
+            .await
+            .expect("other plugin kv intact");
+        assert_eq!(other_intact, json!("other-branch"));
+    }
+
+    #[tokio::test]
+    async fn network_fetch_executes_http_requests_through_host() {
+        let broker = sqlite_broker().await;
+        let listener = TcpListener::bind("127.0.0.1:0").await.expect("bind");
+        let addr = listener.local_addr().expect("addr");
+        let server = tokio::spawn(async move {
+            let (mut stream, _) = listener.accept().await.expect("accept");
+            let mut buf = [0u8; 512];
+            let _ = stream.read(&mut buf).await;
+            stream
+                .write_all(
+                    b"HTTP/1.1 200 OK\r\ncontent-type: application/json\r\ncontent-length: 15\r\nconnection: close\r\n\r\n{\"hello\":\"ok!\"}",
+                )
+                .await
+                .expect("write");
+            let _ = stream.shutdown().await;
+        });
+
+        let response = broker
+            .call(
+                "vibex.git",
+                1,
+                "network",
+                "fetch",
+                json!({
+                    "url": format!("http://{addr}/test"),
+                    "method": "POST",
+                    "headers": { "x-plugin": "vibex.git" },
+                    "body": { "ping": true }
+                }),
+            )
+            .await
+            .expect("network.fetch");
+
+        assert_eq!(response["status"], 200);
+        assert_eq!(response["ok"], true);
+        assert_eq!(response["body"], "{\"hello\":\"ok!\"}");
+        assert_eq!(response["bodyText"], "{\"hello\":\"ok!\"}");
+        assert!(response["bodyBase64"].as_str().is_some());
+        server.await.expect("server task");
+    }
+
+    #[tokio::test]
+    async fn exec_run_and_notify_toast_execute_through_host_broker() {
+        let broker = sqlite_broker().await;
+
+        let toast = broker
+            .call(
+                "vibex.git",
+                1,
+                "app",
+                "notify.toast",
+                json!({
+                    "title": "Git Ready",
+                    "message": "Repository initialized",
+                    "variant": "success"
+                }),
+            )
+            .await
+            .expect("app.notify.toast");
+        assert_eq!(toast["notified"], true);
+        assert_eq!(toast["title"], "Git Ready");
+
+        let (program, args) = if cfg!(windows) {
+            ("cmd", vec!["/C", "echo", "hello-exec"])
+        } else {
+            ("sh", vec!["-c", "echo hello-exec"])
+        };
+
+        let exec_res = broker
+            .call(
+                "vibex.git",
+                1,
+                "exec",
+                "run",
+                json!({
+                    "program": program,
+                    "args": args,
+                }),
+            )
+            .await
+            .expect("exec.run");
+        assert_eq!(exec_res["success"], true);
+        assert!(
+            exec_res["stdout"]
+                .as_str()
+                .unwrap_or_default()
+                .contains("hello-exec")
+        );
+    }
 }

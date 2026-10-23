@@ -1,10 +1,13 @@
-//! Host-side official plugin catalog (`vibex-plugin.json`).
+//! Host-side official plugin catalog (`vibex-plugin.json`) and monorepo plugin discovery.
 //!
 //! This is the identity of which plugins VibeX treats as official and where
-//! their source repositories live. Plugin packages are not shipped inside the
-//! Host installer; they are installed from the marketplace or a `.vxp`.
+//! their source packages live (both in the monorepo `plugins/` workspace and
+//! on the marketplace).
 
-use std::sync::OnceLock;
+use std::{
+    path::{Path, PathBuf},
+    sync::OnceLock,
+};
 
 use serde::Deserialize;
 
@@ -14,6 +17,24 @@ use crate::catalog::{
 };
 
 const CATALOG_JSON: &str = include_str!("../../../vibex-plugin.json");
+
+/// Canonical `(directory_name, plugin_id)` pairs for all official and built-in
+/// capability plugins managed in the monorepo `plugins/<directory_name>` workspace.
+pub const MONOREPO_OFFICIAL_PLUGIN_DIRS: &[(&str, &str)] = &[
+    ("provider-switch", "vibex.provider-switch"),
+    ("plugin-development", "vibex.plugin-development"),
+    ("session-enhance", "vibex.session-enhance"),
+    ("browser", "vibex.browser"),
+    ("office", "vibex.office"),
+    ("workflow-creator", "vibex.workflow-creator"),
+    ("remote-ssh", "vibex.remote-ssh"),
+    ("open-connector", "vibex.open-connector"),
+    ("science", "vibex.science"),
+    ("computer-use", "vibex-plugin-computer-use"),
+    ("kanban-views", "vibex.kanban-views"),
+    ("notes", "vibex.notes"),
+    ("prompt-enhancer", "vibex.prompt-enhancer"),
+];
 
 #[derive(Clone, Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -170,6 +191,43 @@ pub fn merge_host_official_catalog(page: &mut CatalogPage) {
     prepare_marketplace_page(page);
 }
 
+/// Resolves the monorepo `plugins/` directory when running from a source checkout
+/// or bundled workspace.
+pub fn monorepo_plugins_root() -> Option<PathBuf> {
+    let manifest_root = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .and_then(Path::parent)
+        .map(|root| root.join("plugins"));
+    if let Some(root) = manifest_root
+        && root.is_dir()
+    {
+        return Some(root);
+    }
+    if let Ok(cwd) = std::env::current_dir() {
+        let candidate = cwd.join("plugins");
+        if candidate.is_dir() {
+            return Some(candidate);
+        }
+    }
+    None
+}
+
+/// Discovers all valid official and built-in capability plugin package directories
+/// in the monorepo `plugins/` workspace without any network access.
+pub fn discover_monorepo_plugin_roots() -> Vec<PathBuf> {
+    let Some(plugins_root) = monorepo_plugins_root() else {
+        return Vec::new();
+    };
+    let mut roots = Vec::with_capacity(MONOREPO_OFFICIAL_PLUGIN_DIRS.len());
+    for (dir_name, _) in MONOREPO_OFFICIAL_PLUGIN_DIRS {
+        let dir = plugins_root.join(dir_name);
+        if dir.join(".vibex-plugin/plugin.json").is_file() || dir.join("plugin.json").is_file() {
+            roots.push(dir);
+        }
+    }
+    roots
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -192,17 +250,24 @@ mod tests {
                 .any(|plugin| plugin.id == "vibex.open-connector")
         );
         assert!(official_plugin_record("browser").is_some());
-        assert_eq!(official_plugin_category("vibex.multi-agent"), Some("agent"));
+        assert_eq!(official_plugin_category("vibex.session-enhance"), Some("productivity"));
+        assert_eq!(official_plugin_category("vibex.multi-agent"), None);
     }
 
     #[test]
     fn repository_becomes_codeload_tarball_urls() {
         let urls = github_archive_urls_for_repository(
-            "https://github.com/Xircth/vibex-plugin-multi-agent.git",
+            "https://github.com/Xircth/vibex-plugin-session-enhance.git",
         );
         assert!(
             urls.iter()
-                .any(|url| url.contains("Xircth/vibex-plugin-multi-agent"))
+                .any(|url| url.contains("Xircth/vibex-plugin-session-enhance"))
         );
+    }
+
+    #[test]
+    fn discovers_all_monorepo_official_plugin_roots_offline() {
+        let roots = discover_monorepo_plugin_roots();
+        assert_eq!(roots.len(), MONOREPO_OFFICIAL_PLUGIN_DIRS.len());
     }
 }

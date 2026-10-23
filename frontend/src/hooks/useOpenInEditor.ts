@@ -1,6 +1,6 @@
 import { useCallback } from 'react';
-import { attemptsApi } from '@/lib/api';
 import { EditorSelectionDialog } from '@/components/dialogs/tasks/EditorSelectionDialog';
+import { getEditorOpenerService } from '@/features/plugins/providers/hostProviderServices';
 import { isLocalDesktopHost } from '@/lib/desktopShell';
 import type { EditorType } from 'shared/types';
 
@@ -20,10 +20,13 @@ export function useOpenInEditor(
       const { editorType, filePath } = options ?? {};
 
       try {
-        const response = await attemptsApi.openEditor(attemptId, {
-          editor_type: editorType ?? null,
-          file_path: filePath ?? null,
-        });
+        const response = await getEditorOpenerService().openAttemptInEditor(
+          attemptId,
+          {
+            editorType: editorType ?? null,
+            filePath: filePath ?? null,
+          }
+        );
 
         // If a URL is returned, open it in a new window/tab
         if (response.url) {

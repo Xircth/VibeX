@@ -1,0 +1,10 @@
+{
+  "schemaVersion": 1,
+  "items": [
+    {
+      "path": "contents/skills/kanban-triage/SKILL.md",
+      "kind": "skill",
+      "title": "Kanban Task Triage"
+    }
+  ]
+}

@@ -114,6 +114,8 @@ pub struct PluginEntrypoints {
     pub app: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub app_document: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub app_styles: Option<String>,
     /// Wire frame for this Worker. `entrypoints.worker.maxFrameMiB` overrides the 32 MiB default.
     #[serde(default = "default_worker_max_frame_bytes")]
     pub worker_max_frame_bytes: usize,
@@ -126,6 +128,7 @@ impl Default for PluginEntrypoints {
             worker_runtime: None,
             app: None,
             app_document: None,
+            app_styles: None,
             worker_max_frame_bytes: default_worker_max_frame_bytes(),
         }
     }
@@ -770,6 +773,26 @@ pub struct PluginContentDocument {
     pub content: String,
 }
 
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PluginDependency {
+    pub id: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub publisher: Option<String>,
+    #[serde(default = "default_dependency_version_range")]
+    pub version_range: String,
+    #[serde(default = "default_dependency_required")]
+    pub required: bool,
+}
+
+fn default_dependency_version_range() -> String {
+    "*".to_owned()
+}
+
+fn default_dependency_required() -> bool {
+    true
+}
+
 fn content_index_version() -> u32 {
     1
 }
@@ -1005,10 +1028,49 @@ impl PluginPackage {
             .filter(|skill| self.skill_is_enabled(skill))
     }
 
+    /// Declared cross-plugin dependencies (`dependencies: [{ "kind": "plugin", ... }]`).
+    pub fn plugin_dependencies(&self) -> Vec<PluginDependency> {
+        let Some(items) = self
+            .extensions
+            .get("_pluginDependencies")
+            .or_else(|| self.manifest.get("_pluginDependencies"))
+            .and_then(Value::as_array)
+        else {
+            return Vec::new();
+        };
+        items
+            .iter()
+            .filter_map(|item| {
+                let obj = item.as_object()?;
+                let id = obj.get("id")?.as_str()?.to_owned();
+                let publisher = obj
+                    .get("publisher")
+                    .and_then(Value::as_str)
+                    .map(str::to_owned);
+                let version_range = obj
+                    .get("versionRange")
+                    .and_then(Value::as_str)
+                    .unwrap_or("*")
+                    .to_owned();
+                let required = obj.get("required").and_then(Value::as_bool).unwrap_or(true);
+                Some(PluginDependency {
+                    id,
+                    publisher,
+                    version_range,
+                    required,
+                })
+            })
+            .collect()
+    }
+
     pub fn product_detail(&self) -> Result<PluginProductDetail, PluginError> {
         let root = self.source.path.as_path();
-        let readme = fs::read_to_string(checked_package_path(root, &self.readme_path)?)
-            .map_err(|error| PluginError::io("read Plugin README", error))?;
+        let readme = match checked_package_path(root, &self.readme_path) {
+            Ok(path) => fs::read_to_string(path)
+                .map_err(|error| PluginError::io("read Plugin README", error))?,
+            Err(_) if self.api_version == "2.0" => self.summary.clone(),
+            Err(error) => return Err(error),
+        };
         let mut contents = Vec::with_capacity(self.content_index.items.len());
         for item in &self.content_index.items {
             let path = checked_package_path(root, &item.path)?;
@@ -1250,13 +1312,20 @@ impl PluginPackage {
                 error,
             )
         })?;
-        let vibex_path = root.join(".vibex-plugin/plugin.json");
-        if !vibex_path.is_file() {
-            return Err(PluginError::invalid_manifest(format!(
-                "missing `{}`",
-                vibex_path.display()
-            )));
-        }
+        let vibex_path = {
+            let nested = root.join(".vibex-plugin/plugin.json");
+            let flat = root.join("plugin.json");
+            if nested.is_file() {
+                nested
+            } else if flat.is_file() {
+                flat
+            } else {
+                return Err(PluginError::invalid_manifest(format!(
+                    "missing `{}`",
+                    nested.display()
+                )));
+            }
+        };
 
         let manifest_text = fs::read_to_string(&vibex_path)
             .map_err(|error| PluginError::io("read portable plugin manifest", error))?;
@@ -1269,25 +1338,32 @@ impl PluginPackage {
         let id = required_string(object, "id")?;
         let name = required_string(object, "name")?;
         let version = required_string(object, "version")?;
-        let manifest_version = object
-            .get("manifestVersion")
-            .and_then(Value::as_u64)
-            .and_then(|value| u32::try_from(value).ok())
-            .unwrap_or_else(legacy_manifest_version);
         let api_version = object
             .get("apiVersion")
             .and_then(Value::as_str)
             .map(str::to_owned)
             .unwrap_or_else(legacy_api_version);
+        let manifest_version = object
+            .get("manifestVersion")
+            .and_then(Value::as_u64)
+            .and_then(|value| u32::try_from(value).ok())
+            .unwrap_or_else(|| {
+                if api_version == "2.0" {
+                    4
+                } else {
+                    legacy_manifest_version()
+                }
+            });
         let publisher = object
             .get("publisher")
             .and_then(Value::as_str)
-            .map(str::to_owned);
+            .map(str::to_owned)
+            .or_else(|| (api_version == "2.0").then(|| "local".to_owned()));
         let readme_path = "README.md".to_owned();
         let uses_product_contract = object
             .get("_productContract")
             .and_then(Value::as_bool)
-            .unwrap_or(false);
+            .unwrap_or(api_version == "2.0");
         let (summary, content_index, config, config_schema) = if uses_product_contract {
             read_product_contract(root, object, &readme_path)?
         } else {
@@ -1359,11 +1435,27 @@ impl PluginPackage {
             .cloned()
             .unwrap_or(Value::Null);
         let has_mcp = mcp.as_object().is_some_and(|mcp| !mcp.is_empty());
+        let has_v2_app_entry = api_version == "2.0"
+            && (entrypoints.app.is_some()
+                || entrypoints.app_styles.is_some()
+                || object.get("themes").is_some()
+                || object.get("settingsSchema").is_some()
+                || object.get("slashCommands").is_some()
+                || object.get("commands").is_some()
+                || object.get("toolbarItems").is_some()
+                || object.get("statusItems").is_some()
+                || object.get("composerActions").is_some()
+                || object
+                    .get("config")
+                    .and_then(Value::as_object)
+                    .and_then(|cfg| cfg.get("schema"))
+                    .is_some());
         if skills.is_empty()
             && runtimes.is_empty()
             && invocations.is_empty()
             && app.is_empty()
             && !has_mcp
+            && !has_v2_app_entry
         {
             return Err(PluginError::contribution_required(&id));
         }
@@ -1380,6 +1472,15 @@ impl PluginPackage {
             "readme",
             "content",
             "config",
+            "settingsSchema",
+            "themes",
+            "main",
+            "styles",
+            "slashCommands",
+            "commands",
+            "toolbarItems",
+            "statusItems",
+            "composerActions",
             "_productContract",
             "author",
             "icon",
@@ -1390,7 +1491,6 @@ impl PluginPackage {
             "runtimes",
             "mcp",
             "actions",
-            "commands",
             "interface",
         ];
         let extensions = object
@@ -1485,20 +1585,77 @@ fn normalize_product_manifest(root: &Path, manifest: &mut Value) -> Result<(), P
     let object = manifest.as_object_mut().ok_or_else(|| {
         PluginError::invalid_manifest("portable plugin manifest must be a JSON object")
     })?;
+    let api_ver = object
+        .get("apiVersion")
+        .and_then(Value::as_str)
+        .unwrap_or("1.0")
+        .to_owned();
+    if api_ver == "2.0" {
+        let main_entry = object
+            .get("main")
+            .and_then(Value::as_str)
+            .map(str::to_owned)
+            .or_else(|| {
+                ["index.js", "index.mjs", "dist/index.js"]
+                    .into_iter()
+                    .find(|candidate| root.join(candidate).is_file())
+                    .map(str::to_owned)
+            });
+        let styles_entry = object
+            .get("styles")
+            .and_then(Value::as_str)
+            .map(str::to_owned)
+            .or_else(|| {
+                root.join("style.css")
+                    .is_file()
+                    .then(|| "style.css".to_owned())
+            });
+        if (main_entry.is_some() || styles_entry.is_some())
+            && object
+                .get("entrypoints")
+                .and_then(Value::as_object)
+                .and_then(|ep| ep.get("app"))
+                .is_none()
+        {
+            let entrypoints = object
+                .entry("entrypoints".to_owned())
+                .or_insert_with(|| Value::Object(Map::new()));
+            if let Some(ep_obj) = entrypoints.as_object_mut() {
+                let mut app_obj = Map::new();
+                if let Some(m) = main_entry {
+                    app_obj.insert("entry".to_owned(), Value::String(m));
+                }
+                if let Some(s) = styles_entry {
+                    app_obj.insert("styles".to_owned(), Value::String(s));
+                }
+                app_obj.insert("protocol".to_owned(), Value::String("2.0".to_owned()));
+                ep_obj.insert("app".to_owned(), Value::Object(app_obj));
+            }
+        }
+    }
+
     // `integrations` stays on the manifest: it is the authored source for the
     // v4-native kinds below, which have no legacy `contributes` equivalent and
     // are parsed into typed contributions by `parse_app_contributions`.
-    let Some(integrations) = object.get("integrations").cloned() else {
+    let integrations_opt = object.get("integrations").cloned();
+    if integrations_opt.is_none() && api_ver != "2.0" {
         return Ok(());
-    };
-    let integrations = integrations
-        .as_array()
-        .ok_or_else(|| PluginError::invalid_manifest("v4 `integrations` must be an array"))?;
-    if integrations.is_empty() {
-        return Err(PluginError::invalid_manifest(
-            "v4 product plugins require at least one integration",
-        ));
     }
+    let integrations = match integrations_opt {
+        Some(value) => {
+            let arr = value
+                .as_array()
+                .ok_or_else(|| PluginError::invalid_manifest("v4 `integrations` must be an array"))?
+                .clone();
+            if arr.is_empty() && api_ver != "2.0" {
+                return Err(PluginError::invalid_manifest(
+                    "v4 product plugins require at least one integration",
+                ));
+            }
+            arr
+        }
+        None => Vec::new(),
+    };
 
     let mut contributes = Map::new();
     let mut skills = Vec::new();
@@ -1637,32 +1794,70 @@ fn normalize_product_manifest(root: &Path, manifest: &mut Value) -> Result<(), P
             .as_array()
             .ok_or_else(|| PluginError::invalid_manifest("v4 `dependencies` must be an array"))?;
         let mut runtimes = Vec::new();
+        let mut plugin_deps = Vec::new();
+        let api_ver = object
+            .get("apiVersion")
+            .and_then(Value::as_str)
+            .unwrap_or("1.0")
+            .to_owned();
         for dependency in dependencies {
             let dependency = dependency.as_object().ok_or_else(|| {
                 PluginError::invalid_manifest("each v4 dependency must be an object")
             })?;
-            if dependency.get("kind").and_then(Value::as_str) != Some("runtime") {
-                return Err(PluginError::coded(
-                    "dependency_kind_unsupported",
-                    "dependencies.kind=plugin is not supported; only runtime dependencies are allowed",
-                ));
+            match dependency.get("kind").and_then(Value::as_str) {
+                Some("runtime") => {
+                    let descriptor = required_string(dependency, "descriptor")?;
+                    let path = checked_package_path(root, &descriptor)?;
+                    let mut runtime: Value = serde_json::from_str(
+                        &fs::read_to_string(&path)
+                            .map_err(|error| PluginError::io("read Runtime dependency", error))?,
+                    )
+                    .map_err(|error| PluginError::invalid_manifest(error.to_string()))?;
+                    let runtime = runtime.as_object_mut().ok_or_else(|| {
+                        PluginError::invalid_manifest("Runtime descriptor must be a JSON object")
+                    })?;
+                    runtime.remove("$schema");
+                    runtime.insert("kindVersion".to_owned(), Value::from(1));
+                    runtimes.push(Value::Object(runtime.clone()));
+                }
+                Some("plugin") if api_ver == "2.0" => {
+                    let dep_id = required_string(dependency, "id")?;
+                    let dep_publisher = dependency
+                        .get("publisher")
+                        .and_then(Value::as_str)
+                        .map(str::to_owned);
+                    let version_range = dependency
+                        .get("versionRange")
+                        .and_then(Value::as_str)
+                        .unwrap_or("*")
+                        .to_owned();
+                    let required = dependency
+                        .get("required")
+                        .and_then(Value::as_bool)
+                        .unwrap_or(true);
+                    let mut dep_obj = serde_json::json!({
+                        "id": dep_id,
+                        "versionRange": version_range,
+                        "required": required,
+                    });
+                    if let Some(pub_name) = dep_publisher {
+                        dep_obj["publisher"] = Value::String(pub_name);
+                    }
+                    plugin_deps.push(dep_obj);
+                }
+                _ => {
+                    return Err(PluginError::coded(
+                        "dependency_kind_unsupported",
+                        "dependencies.kind=plugin is not supported in apiVersion 1.0; use apiVersion 2.0",
+                    ));
+                }
             }
-            let descriptor = required_string(dependency, "descriptor")?;
-            let path = checked_package_path(root, &descriptor)?;
-            let mut runtime: Value = serde_json::from_str(
-                &fs::read_to_string(&path)
-                    .map_err(|error| PluginError::io("read Runtime dependency", error))?,
-            )
-            .map_err(|error| PluginError::invalid_manifest(error.to_string()))?;
-            let runtime = runtime.as_object_mut().ok_or_else(|| {
-                PluginError::invalid_manifest("Runtime descriptor must be a JSON object")
-            })?;
-            runtime.remove("$schema");
-            runtime.insert("kindVersion".to_owned(), Value::from(1));
-            runtimes.push(Value::Object(runtime.clone()));
         }
         if !runtimes.is_empty() {
             contributes.insert("runtimes".to_owned(), Value::Array(runtimes));
+        }
+        if !plugin_deps.is_empty() {
+            object.insert("_pluginDependencies".to_owned(), Value::Array(plugin_deps));
         }
     }
 
@@ -1700,65 +1895,115 @@ fn read_product_contract(
     object: &Map<String, Value>,
     readme_path: &str,
 ) -> Result<(String, PluginContentIndex, Value, Option<Value>), PluginError> {
+    let api_ver = object
+        .get("apiVersion")
+        .and_then(Value::as_str)
+        .unwrap_or("1.0");
     if readme_path != "README.md" {
         return Err(PluginError::invalid_manifest(
             "v4 product plugins require root README.md",
         ));
     }
-    let readme = fs::read_to_string(checked_package_path(root, readme_path)?)
-        .map_err(|error| PluginError::io("read Plugin README", error))?;
-    let summary = read_readme_summary(&readme)?;
-
-    let content = object
-        .get("content")
-        .and_then(Value::as_object)
-        .ok_or_else(|| PluginError::invalid_manifest("v4 product plugins require `content`"))?;
-    if content.get("root").and_then(Value::as_str) != Some("contents") {
-        return Err(PluginError::invalid_manifest(
-            "v4 product content root must be `contents`",
-        ));
-    }
-    let index_path = content
-        .get("index")
-        .and_then(Value::as_str)
-        .ok_or_else(|| PluginError::invalid_manifest("content.index is required"))?;
-    let content_index: PluginContentIndex = serde_json::from_str(
-        &fs::read_to_string(checked_package_path(root, index_path)?)
-            .map_err(|error| PluginError::io("read Plugin content index", error))?,
-    )
-    .map_err(|error| PluginError::invalid_manifest(error.to_string()))?;
-    if content_index.schema_version != 1 {
-        return Err(PluginError::invalid_manifest(
-            "unsupported content index version",
-        ));
-    }
-    for item in &content_index.items {
-        if !item.path.starts_with("contents/") || checked_package_path(root, &item.path).is_err() {
-            return Err(PluginError::invalid_manifest(format!(
-                "content index path is missing or outside contents: `{}`",
-                item.path
-            )));
+    let summary = if api_ver == "2.0" && !root.join(readme_path).is_file() {
+        object
+            .get("description")
+            .and_then(Value::as_str)
+            .or_else(|| object.get("name").and_then(Value::as_str))
+            .unwrap_or_default()
+            .to_owned()
+    } else {
+        let readme = fs::read_to_string(checked_package_path(root, readme_path)?)
+            .map_err(|error| PluginError::io("read Plugin README", error))?;
+        match read_readme_summary(&readme) {
+            Ok(summary) => summary,
+            Err(_) if api_ver == "2.0" => object
+                .get("description")
+                .and_then(Value::as_str)
+                .or_else(|| object.get("name").and_then(Value::as_str))
+                .unwrap_or_default()
+                .to_owned(),
+            Err(err) => return Err(err),
         }
-    }
+    };
 
-    let config: Value = serde_json::from_str(
-        &fs::read_to_string(checked_package_path(root, "config.json")?)
-            .map_err(|error| PluginError::io("read Plugin config", error))?,
-    )
-    .map_err(|error| PluginError::invalid_manifest(format!("invalid config.json: {error}")))?;
-    if !config.is_object() {
-        return Err(PluginError::invalid_manifest(
-            "root config.json must be a JSON object",
-        ));
-    }
+    let content_index = match object.get("content").and_then(Value::as_object) {
+        Some(content) => {
+            if content.get("root").and_then(Value::as_str) != Some("contents") {
+                return Err(PluginError::invalid_manifest(
+                    "v4 product content root must be `contents`",
+                ));
+            }
+            let index_path = content
+                .get("index")
+                .and_then(Value::as_str)
+                .ok_or_else(|| PluginError::invalid_manifest("content.index is required"))?;
+            let content_index: PluginContentIndex = serde_json::from_str(
+                &fs::read_to_string(checked_package_path(root, index_path)?)
+                    .map_err(|error| PluginError::io("read Plugin content index", error))?,
+            )
+            .map_err(|error| PluginError::invalid_manifest(error.to_string()))?;
+            if content_index.schema_version != 1 {
+                return Err(PluginError::invalid_manifest(
+                    "unsupported content index version",
+                ));
+            }
+            for item in &content_index.items {
+                if !item.path.starts_with("contents/")
+                    || checked_package_path(root, &item.path).is_err()
+                {
+                    return Err(PluginError::invalid_manifest(format!(
+                        "content index path is missing or outside contents: `{}`",
+                        item.path
+                    )));
+                }
+            }
+            content_index
+        }
+        None if api_ver == "2.0" => PluginContentIndex {
+            schema_version: 1,
+            items: Vec::new(),
+        },
+        None => {
+            return Err(PluginError::invalid_manifest(
+                "v4 product plugins require `content`",
+            ));
+        }
+    };
+
+    let config: Value = if api_ver == "2.0" && !root.join("config.json").is_file() {
+        serde_json::json!({})
+    } else {
+        let parsed: Value = serde_json::from_str(
+            &fs::read_to_string(checked_package_path(root, "config.json")?)
+                .map_err(|error| PluginError::io("read Plugin config", error))?,
+        )
+        .map_err(|error| PluginError::invalid_manifest(format!("invalid config.json: {error}")))?;
+        if !parsed.is_object() {
+            return Err(PluginError::invalid_manifest(
+                "root config.json must be a JSON object",
+            ));
+        }
+        parsed
+    };
     let config_schema = object
         .get("config")
         .and_then(Value::as_object)
         .and_then(|config| config.get("schema"))
-        .cloned();
-    let config_schema = config_schema.ok_or_else(|| {
-        PluginError::invalid_manifest("v4 product plugins require `config.schema`")
-    })?;
+        .cloned()
+        .or_else(|| {
+            (api_ver == "2.0")
+                .then(|| object.get("settingsSchema").cloned())
+                .flatten()
+        });
+    let config_schema = match config_schema {
+        Some(schema) => schema,
+        None if api_ver == "2.0" => serde_json::json!({ "type": "object" }),
+        None => {
+            return Err(PluginError::invalid_manifest(
+                "v4 product plugins require `config.schema`",
+            ));
+        }
+    };
     validate_config_value(&config_schema, &config, "config")?;
     Ok((summary, content_index, config, Some(config_schema)))
 }
@@ -1983,13 +2228,40 @@ fn parse_entrypoints(
         let Some(value) = entrypoints.get(key) else {
             continue;
         };
+        if key == "app" {
+            if let Some(styles_path) = value
+                .as_object()
+                .and_then(|entrypoint| entrypoint.get("styles"))
+                .and_then(Value::as_str)
+            {
+                if safe_relative_path(styles_path) && root.join(styles_path).is_file() {
+                    parsed.app_styles = Some(styles_path.to_owned());
+                } else {
+                    warnings.push(PackageWarning {
+                        code: "entrypoint_invalid".to_owned(),
+                        message: "ignored missing or unsafe `app.styles` entrypoint".to_owned(),
+                        contribution: Some("app".to_owned()),
+                    });
+                }
+            }
+            if value.as_object().is_some_and(|entrypoint| {
+                entrypoint.get("root").is_none()
+                    && entrypoint.get("entry").is_none()
+                    && entrypoint.get("styles").is_some()
+            }) {
+                continue;
+            }
+        }
         let Some(path) = Some(value).and_then(|value| {
             value.as_str().or_else(|| {
                 let entrypoint = value.as_object()?;
                 if key == "worker" {
                     entrypoint.get("path")?.as_str()
                 } else {
-                    entrypoint.get("root")?.as_str()
+                    entrypoint
+                        .get("root")
+                        .or_else(|| entrypoint.get("entry"))?
+                        .as_str()
                 }
             })
         }) else {
@@ -2267,6 +2539,7 @@ fn parse_v4_ui_contributions(
     warnings: &mut Vec<PackageWarning>,
     contributions: &mut PackageAppContributions,
 ) {
+    let is_v2 = object.get("apiVersion").and_then(Value::as_str) == Some("2.0");
     let integrations = object
         .get("integrations")
         .and_then(Value::as_array)
@@ -2280,16 +2553,16 @@ fn parse_v4_ui_contributions(
             continue;
         };
         let accepted = match kind {
-            "app.command" => parse_command_contribution(integration)
+            "app.command" => parse_command_contribution(integration, is_v2)
                 .map(|item| contributions.commands.push(item))
                 .is_some(),
-            "app.toolbar" => parse_toolbar_contribution(integration)
+            "app.toolbar" => parse_toolbar_contribution(integration, is_v2)
                 .map(|item| contributions.toolbar_items.push(item))
                 .is_some(),
-            "app.status" => parse_status_contribution(integration)
+            "app.status" => parse_status_contribution(integration, is_v2)
                 .map(|item| contributions.status_items.push(item))
                 .is_some(),
-            "app.composer.slash" => parse_composer_slash_contribution(integration)
+            "app.composer.slash" => parse_composer_slash_contribution(integration, is_v2)
                 .map(|item| contributions.composer_slash.push(item))
                 .is_some(),
             "app.timeline.card" => parse_timeline_card_contribution(integration)
@@ -2402,7 +2675,7 @@ fn parse_v4_ui_contributions(
                     contributions.settings_pages.push(item);
                 })
                 .is_some(),
-            "app.composer.action" => parse_composer_action_contribution(integration)
+            "app.composer.action" => parse_composer_action_contribution(integration, is_v2)
                 .map(|item| contributions.composer_actions.push(item))
                 .is_some(),
             "provider.remote.provisioner" => parse_remote_provisioner_contribution(integration)
@@ -2526,31 +2799,50 @@ fn surface_handler(integration: &Map<String, Value>) -> Option<String> {
     contribution_text(integration, "handler").filter(|handler| handler == "surface.createSession")
 }
 
-fn parse_command_contribution(integration: &Map<String, Value>) -> Option<AppCommandContribution> {
+fn parse_command_contribution(
+    integration: &Map<String, Value>,
+    is_v2: bool,
+) -> Option<AppCommandContribution> {
     Some(AppCommandContribution {
         id: contribution_id(integration)?,
-        title: contribution_text(integration, "title")?,
+        title: contribution_text(integration, "title").or_else(|| {
+            is_v2
+                .then(|| contribution_text(integration, "label"))
+                .flatten()
+        })?,
         subtitle: contribution_text(integration, "subtitle"),
         shortcut: contribution_text(integration, "shortcut"),
         icon: contribution_icon(integration).ok()?,
-        handler: contribution_text(integration, "handler")?,
+        handler: contribution_text(integration, "handler")
+            .or_else(|| is_v2.then(|| "app.activate".to_owned()))?,
     })
 }
 
-fn parse_toolbar_contribution(integration: &Map<String, Value>) -> Option<AppToolbarContribution> {
+fn parse_toolbar_contribution(
+    integration: &Map<String, Value>,
+    is_v2: bool,
+) -> Option<AppToolbarContribution> {
     let slot = contribution_text(integration, "slot");
     if slot.as_deref().is_some_and(|slot| slot != "toolbar.main") {
         return None;
     }
     Some(AppToolbarContribution {
         id: contribution_id(integration)?,
-        title: contribution_text(integration, "title")?,
+        title: contribution_text(integration, "title").or_else(|| {
+            is_v2
+                .then(|| contribution_text(integration, "label"))
+                .flatten()
+        })?,
         icon: contribution_icon(integration).ok()?,
-        handler: contribution_text(integration, "handler")?,
+        handler: contribution_text(integration, "handler")
+            .or_else(|| is_v2.then(|| "app.activate".to_owned()))?,
     })
 }
 
-fn parse_status_contribution(integration: &Map<String, Value>) -> Option<AppStatusContribution> {
+fn parse_status_contribution(
+    integration: &Map<String, Value>,
+    is_v2: bool,
+) -> Option<AppStatusContribution> {
     let slot = contribution_text(integration, "slot").unwrap_or_else(default_status_slot);
     if slot != "status.main" && slot != "status.after-mcp" {
         return None;
@@ -2566,9 +2858,14 @@ fn parse_status_contribution(integration: &Map<String, Value>) -> Option<AppStat
     };
     Some(AppStatusContribution {
         id: contribution_id(integration)?,
-        text: contribution_text(integration, "text"),
+        text: contribution_text(integration, "text").or_else(|| {
+            is_v2
+                .then(|| contribution_text(integration, "label"))
+                .flatten()
+        }),
         icon: contribution_icon(integration).ok()?,
-        handler: contribution_text(integration, "handler")?,
+        handler: contribution_text(integration, "handler")
+            .or_else(|| is_v2.then(|| "app.activate".to_owned()))?,
         refresh_seconds,
         slot,
         remote: parse_remote(integration).ok()?,
@@ -2577,6 +2874,7 @@ fn parse_status_contribution(integration: &Map<String, Value>) -> Option<AppStat
 
 fn parse_composer_slash_contribution(
     integration: &Map<String, Value>,
+    is_v2: bool,
 ) -> Option<AppComposerSlashContribution> {
     let id = contribution_id(integration)?;
     let command = contribution_text(integration, "command")
@@ -2591,9 +2889,20 @@ fn parse_composer_slash_contribution(
         return None;
     }
     Some(AppComposerSlashContribution {
-        title: contribution_text(integration, "title")?,
+        title: contribution_text(integration, "title").or_else(|| {
+            is_v2
+                .then(|| contribution_text(integration, "label").or_else(|| Some(command.clone())))
+                .flatten()
+        })?,
         description: contribution_text(integration, "description"),
-        prompt: contribution_text(integration, "prompt")?,
+        prompt: contribution_text(integration, "prompt").or_else(|| {
+            is_v2
+                .then(|| {
+                    contribution_text(integration, "description")
+                        .or_else(|| Some(format!("/{command}")))
+                })
+                .flatten()
+        })?,
         command,
         id,
     })
@@ -2763,15 +3072,24 @@ fn parse_settings_page_contribution(
 
 fn parse_composer_action_contribution(
     integration: &Map<String, Value>,
+    is_v2: bool,
 ) -> Option<AppComposerActionContribution> {
-    let handler = contribution_text(integration, "handler");
+    let mut handler = contribution_text(integration, "handler");
     let prompt = contribution_text(integration, "prompt");
     if handler.is_none() && prompt.is_none() {
-        return None;
+        if is_v2 {
+            handler = Some("app.activate".to_owned());
+        } else {
+            return None;
+        }
     }
     Some(AppComposerActionContribution {
         id: contribution_id(integration)?,
-        title: contribution_text(integration, "title")?,
+        title: contribution_text(integration, "title").or_else(|| {
+            is_v2
+                .then(|| contribution_text(integration, "label"))
+                .flatten()
+        })?,
         icon: contribution_icon(integration).ok()?,
         handler,
         prompt,
@@ -3198,7 +3516,7 @@ fn validate_v4_contract(contract: V4Contract<'_>) -> Result<(), PluginError> {
         runtimes,
         warnings,
     } = contract;
-    const TOP_LEVEL: &[&str] = &[
+    const TOP_LEVEL_V1: &[&str] = &[
         "$schema",
         "manifestVersion",
         "apiVersion",
@@ -3211,6 +3529,7 @@ fn validate_v4_contract(contract: V4Contract<'_>) -> Result<(), PluginError> {
         "content",
         "config",
         "_productContract",
+        "_pluginDependencies",
         "engines",
         "entrypoints",
         "permissions",
@@ -3218,15 +3537,26 @@ fn validate_v4_contract(contract: V4Contract<'_>) -> Result<(), PluginError> {
         "contributes",
         "interface",
     ];
-    if let Some(field) = object
-        .keys()
-        .find(|field| !TOP_LEVEL.contains(&field.as_str()))
-    {
+    const TOP_LEVEL_V2_EXTRA: &[&str] = &[
+        "settingsSchema",
+        "themes",
+        "main",
+        "styles",
+        "slashCommands",
+        "commands",
+        "toolbarItems",
+        "statusItems",
+        "composerActions",
+    ];
+    if let Some(field) = object.keys().find(|field| {
+        !(TOP_LEVEL_V1.contains(&field.as_str())
+            || api_version == "2.0" && TOP_LEVEL_V2_EXTRA.contains(&field.as_str()))
+    }) {
         return Err(PluginError::invalid_manifest(format!(
             "unknown v4 manifest field `{field}`"
         )));
     }
-    if api_version != "1.0" {
+    if !matches!(api_version, "1.0" | "2.0") {
         return Err(PluginError::invalid_manifest(format!(
             "unsupported v4 apiVersion `{api_version}`"
         )));
@@ -3236,7 +3566,8 @@ fn validate_v4_contract(contract: V4Contract<'_>) -> Result<(), PluginError> {
             "v4 plugins require a non-empty publisher",
         ));
     }
-    if !app.surfaces.is_empty()
+    if api_version == "1.0"
+        && !app.surfaces.is_empty()
         && (entrypoints.app.is_none()
             || entrypoints.app_document.is_none()
             || entrypoints.worker.is_none())
@@ -3287,9 +3618,24 @@ fn validate_v4_contract(contract: V4Contract<'_>) -> Result<(), PluginError> {
             }
         }
         if let Some(app) = entrypoints_object.get("app") {
-            validate_v4_object_keys(app, "App entrypoint", &["root", "document", "protocol"])?;
+            validate_v4_object_keys(
+                app,
+                "App entrypoint",
+                &["root", "document", "entry", "styles", "protocol"],
+            )?;
             let app = app.as_object().expect("validated object");
-            if app.get("protocol").and_then(Value::as_str) != Some("1.0")
+            let protocol = app.get("protocol").and_then(Value::as_str);
+            if api_version == "2.0" {
+                let has_doc_or_entry_or_styles =
+                    app.get("document").and_then(Value::as_str).is_some()
+                        || app.get("entry").and_then(Value::as_str).is_some()
+                        || app.get("styles").and_then(Value::as_str).is_some();
+                if !matches!(protocol, Some("1.0" | "2.0") | None) || !has_doc_or_entry_or_styles {
+                    return Err(PluginError::invalid_manifest(
+                        "v4 App entrypoint in apiVersion 2.0 requires entry, styles, or document",
+                    ));
+                }
+            } else if protocol != Some("1.0")
                 || app.get("document").and_then(Value::as_str).is_none()
             {
                 return Err(PluginError::invalid_manifest(
@@ -3417,37 +3763,62 @@ fn validate_v4_contract(contract: V4Contract<'_>) -> Result<(), PluginError> {
         }
         validate_v4_contribution_references(contributes)?;
     }
-    let engines = object
-        .get("engines")
-        .and_then(Value::as_object)
-        .ok_or_else(|| PluginError::invalid_manifest("v4 plugins require engines"))?;
-    if let Some(name) = engines
-        .keys()
-        .find(|name| !matches!(name.as_str(), "vibex" | "pluginSdk"))
-    {
-        return Err(PluginError::invalid_manifest(format!(
-            "unknown v4 engine `{name}`"
-        )));
+    let engines_opt = object.get("engines");
+    if engines_opt.is_none() && api_version != "2.0" {
+        return Err(PluginError::invalid_manifest("v4 plugins require engines"));
     }
-    for (name, actual) in [("vibex", env!("CARGO_PKG_VERSION")), ("pluginSdk", "1.0.0")] {
-        let requirement = engines
-            .get(name)
-            .and_then(Value::as_str)
-            .ok_or_else(|| PluginError::invalid_manifest(format!("engines.{name} is required")))?;
-        let normalized_requirement = requirement
-            .split_whitespace()
-            .collect::<Vec<_>>()
-            .join(", ");
-        let requirement = semver::VersionReq::parse(&normalized_requirement).map_err(|error| {
-            PluginError::invalid_manifest(format!("invalid engines.{name}: {error}"))
-        })?;
-        let actual = semver::Version::parse(actual).map_err(|error| {
-            PluginError::invalid_manifest(format!("invalid host {name} version: {error}"))
-        })?;
-        if !requirement.matches(&actual) {
+    if let Some(engines_val) = engines_opt {
+        let engines = engines_val
+            .as_object()
+            .ok_or_else(|| PluginError::invalid_manifest("v4 plugins require engines"))?;
+        if let Some(name) = engines
+            .keys()
+            .find(|name| !matches!(name.as_str(), "vibex" | "pluginSdk"))
+        {
             return Err(PluginError::invalid_manifest(format!(
-                "engines.{name} does not support {actual}"
+                "unknown v4 engine `{name}`"
             )));
+        }
+        for (name, supported) in [
+            ("vibex", &[env!("CARGO_PKG_VERSION")][..]),
+            ("pluginSdk", &["1.0.0", "2.0.0"][..]),
+        ] {
+            let Some(requirement) = engines.get(name).and_then(Value::as_str) else {
+                if api_version == "2.0" {
+                    continue;
+                }
+                return Err(PluginError::invalid_manifest(format!(
+                    "engines.{name} is required"
+                )));
+            };
+            let normalized_requirement = requirement
+                .split_whitespace()
+                .collect::<Vec<_>>()
+                .join(", ");
+            let requirement =
+                semver::VersionReq::parse(&normalized_requirement).map_err(|error| {
+                    PluginError::invalid_manifest(format!("invalid engines.{name}: {error}"))
+                })?;
+            let mut matched = false;
+            let mut first_actual = None;
+            for actual_str in supported {
+                let actual = semver::Version::parse(actual_str).map_err(|error| {
+                    PluginError::invalid_manifest(format!("invalid host {name} version: {error}"))
+                })?;
+                if first_actual.is_none() {
+                    first_actual = Some(actual.clone());
+                }
+                if requirement.matches(&actual) {
+                    matched = true;
+                    break;
+                }
+            }
+            if !matched {
+                let actual = first_actual.expect("at least one supported version");
+                return Err(PluginError::invalid_manifest(format!(
+                    "engines.{name} does not support {actual}"
+                )));
+            }
         }
     }
     if runtimes.iter().any(|runtime| {

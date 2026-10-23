@@ -687,7 +687,7 @@ where
                 operation_id,
             )
         })?;
-        self.execute(principal, command, operation_id, args).await
+        Box::pin(self.execute(principal, command, operation_id, args)).await
     }
 
     pub async fn execute(
@@ -1480,10 +1480,7 @@ where
                     .map_err(|error| with_operation_id(error, operation_id))?;
                 serialize_result(command, operation_id, result)?
             }
-            RegisteredCommand::Domain(command) => self
-                .core
-                .execute_domain(principal, command, args)
-                .await
+            RegisteredCommand::Domain(command) => Box::pin(self.core.execute_domain(principal, command, args)).await
                 .map_err(|error| {
                     let mut envelope = error.into_envelope();
                     envelope.operation_id = operation_id;

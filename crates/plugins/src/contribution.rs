@@ -639,7 +639,102 @@ fn plugin_templates(plugin: &InstalledPlugin) -> Vec<ContributionTemplate> {
             }),
         }
     }));
+    if let Some(runtime_template) = v2_runtime_source_template(plugin) {
+        templates.push(runtime_template);
+    }
     templates
+}
+
+fn v2_runtime_source_template(plugin: &InstalledPlugin) -> Option<ContributionTemplate> {
+    if plugin.package.api_version != "2.0" {
+        return None;
+    }
+    let root = plugin.package.content_root();
+    let css = plugin
+        .package
+        .entrypoints
+        .app_styles
+        .as_deref()
+        .and_then(|rel| std::fs::read_to_string(root.join(rel)).ok());
+    let code = plugin
+        .package
+        .entrypoints
+        .app
+        .as_deref()
+        .filter(|_| plugin.package.entrypoints.app_document.is_none())
+        .and_then(|rel| {
+            let path = root.join(rel);
+            path.is_file().then(|| std::fs::read_to_string(path).ok())?
+        });
+    let mut spec = plugin.package.manifest.clone();
+    if let Some(spec_obj) = spec.as_object_mut() {
+        if !spec_obj.contains_key("settingsSchema")
+            && let Some(schema) = plugin.package.config_schema.as_ref()
+            && schema.get("properties").is_some()
+        {
+            spec_obj.insert("settingsSchema".to_owned(), schema.clone());
+        }
+        if !spec_obj.contains_key("dependencies")
+            && let Some(plugin_deps) = spec_obj
+                .get("_pluginDependencies")
+                .and_then(Value::as_array)
+                .cloned()
+        {
+            let deps = plugin_deps
+                .into_iter()
+                .map(|mut dep| {
+                    if let Some(obj) = dep.as_object_mut() {
+                        obj.insert("kind".to_owned(), Value::String("plugin".to_owned()));
+                    }
+                    dep
+                })
+                .collect::<Vec<_>>();
+            spec_obj.insert("dependencies".to_owned(), Value::Array(deps));
+        }
+    }
+    let has_declarative_spec = spec.as_object().is_some_and(|obj| {
+        obj.get("themes").is_some()
+            || obj.get("settingsSchema").is_some()
+            || obj.get("slashCommands").is_some()
+            || obj.get("commands").is_some()
+            || obj.get("toolbarItems").is_some()
+            || obj.get("statusItems").is_some()
+            || obj.get("statusBarItems").is_some()
+            || obj.get("composerActions").is_some()
+            || obj.get("railSections").is_some()
+            || obj.get("panels").is_some()
+            || obj.get("tabs").is_some()
+            || obj.get("kanbanViews").is_some()
+            || obj.get("settingsPages").is_some()
+            || obj.get("settingsSections").is_some()
+            || obj.get("providers").is_some()
+    });
+    let runtime_source = if let Some(code) = code {
+        json!({
+            "kind": "esm-code",
+            "code": code,
+            "css": css,
+            "spec": spec,
+        })
+    } else if css.is_some() || has_declarative_spec {
+        json!({
+            "kind": "declarative",
+            "css": css,
+            "spec": spec,
+        })
+    } else {
+        return None;
+    };
+    Some(ContributionTemplate {
+        plugin_id: plugin.id().to_owned(),
+        id: "__runtime__".to_owned(),
+        kind: ContributionKind::AppSurface,
+        label: plugin.package.name.clone(),
+        metadata: json!({
+            "slot": "plugin.runtime",
+            "runtimeSource": runtime_source,
+        }),
+    })
 }
 
 fn status_metadata(plugin: &InstalledPlugin, item: &crate::AppStatusContribution) -> Value {

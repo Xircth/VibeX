@@ -7,6 +7,9 @@ fn main() {
 
     tauri_build::build();
 
+    #[cfg(target_os = "windows")]
+    println!("cargo:rustc-link-arg-bins=/STACK:16777216");
+
     #[cfg(target_os = "linux")]
     println!(
         "cargo:rustc-link-arg-bins=-Wl,-rpath,$ORIGIN:$ORIGIN/../lib/vibex:$ORIGIN/../lib/VibeX"

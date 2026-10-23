@@ -1,0 +1,10 @@
+{
+  "schemaVersion": 1,
+  "items": [
+    {
+      "path": "contents/skills/session-notes/SKILL.md",
+      "kind": "skill",
+      "title": "Workspace & Session Notes"
+    }
+  ]
+}

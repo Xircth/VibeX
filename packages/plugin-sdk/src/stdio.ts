@@ -1,5 +1,3 @@
-import { createInterface } from "node:readline";
-
 import type {
   HostRequest,
   HostResponse,
@@ -16,6 +14,7 @@ import {
   frameLimitsFromAdvertised,
   protocolFrameLimits,
 } from "./protocol.js";
+import type { ServiceContainer } from "./services.js";
 import {
   activatePluginWorker,
   PluginSdkError,
@@ -27,6 +26,10 @@ import {
 export async function runStdioPluginWorker(
   definition: PluginWorkerDefinition,
 ): Promise<void> {
+  const readlineModuleId = `node:${"readline"}`;
+  const { createInterface } = (await import(
+    /* @vite-ignore */ readlineModuleId
+  )) as typeof import("node:readline");
   const input = createInterface({ input: process.stdin, crlfDelay: Infinity });
   let worker: ActivatedPluginWorker | null = null;
   let hostSequence = 0;
@@ -259,4 +262,48 @@ function createStderrLogger() {
     error: (message: string, fields?: JsonValue) =>
       write("error", message, fields),
   };
+}
+
+export interface SharedNodePluginSlotInfo {
+  readonly pluginId: string;
+  readonly generation: number;
+  readonly cwd: string;
+  readonly entrypoint: string;
+  readonly disposed: boolean;
+}
+
+export interface SharedNodePluginHostRuntime {
+  readonly slots: ReadonlyMap<string, SharedNodePluginSlotInfo>;
+  readonly services: Map<string, unknown>;
+  readonly serviceContainer?: ServiceContainer;
+}
+
+const SHARED_HOST_GLOBAL_KEY = "__VIBEX_SHARED_PLUGIN_HOST__" as const;
+
+/**
+ * Returns the shared Node plugin host runtime if the current worker is
+ * executing inside VibeX's multiplexed `SharedNodeWorkerHost` process, or
+ * `null` when running in a standalone single-plugin process.
+ */
+export function getSharedNodePluginHost(): SharedNodePluginHostRuntime | null {
+  const candidate = (globalThis as Record<string, unknown>)[
+    SHARED_HOST_GLOBAL_KEY
+  ] as SharedNodePluginHostRuntime | undefined;
+  if (
+    candidate &&
+    typeof candidate === "object" &&
+    candidate.slots instanceof Map &&
+    candidate.services instanceof Map
+  ) {
+    return candidate;
+  }
+  return null;
+}
+
+/**
+ * Returns `true` when this worker is executing inside the multiplexed
+ * `SharedNodeWorkerHost` Node.js process.
+ */
+export function isSharedNodePluginHost(): boolean {
+  return getSharedNodePluginHost() !== null;
 }

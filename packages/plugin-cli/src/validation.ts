@@ -27,7 +27,17 @@ const TOP_LEVEL = new Set([
   "publisher",
   "version",
   "name",
+  "description",
   "readme",
+  "settingsSchema",
+  "themes",
+  "main",
+  "styles",
+  "slashCommands",
+  "commands",
+  "toolbarItems",
+  "statusItems",
+  "composerActions",
   "engines",
   "content",
   "config",
@@ -85,7 +95,7 @@ export async function validatePlugin(root: string): Promise<ValidationResult> {
     }
   }
   exact(manifest, "manifestVersion", 4, diagnostics);
-  exact(manifest, "apiVersion", "1.0", diagnostics);
+  if (manifest.apiVersion !== "1.0" && manifest.apiVersion !== "2.0") { diagnostics.push(error("apiVersion_invalid", "apiVersion is invalid")); }
   pattern(manifest, "id", /^[a-z0-9][a-z0-9._-]{1,62}$/, diagnostics);
   pattern(manifest, "publisher", /^[a-z0-9][a-z0-9._-]{0,62}$/, diagnostics);
   pattern(
@@ -98,12 +108,12 @@ export async function validatePlugin(root: string): Promise<ValidationResult> {
   exact(manifest, "readme", "README.md", diagnostics);
 
   await validateReadme(pluginRoot, diagnostics);
-  await validateConfig(pluginRoot, manifest.config, diagnostics);
+  await validateConfig(pluginRoot, manifest.config, manifest.apiVersion, diagnostics);
   await validateContent(pluginRoot, manifest.content, diagnostics);
-  await validateDependencies(pluginRoot, manifest.dependencies, diagnostics);
+  await validateDependencies(pluginRoot, manifest.dependencies, manifest.apiVersion, diagnostics);
   await validateEntrypoints(pluginRoot, manifest.entrypoints, diagnostics);
   validatePermissions(manifest.permissions, diagnostics);
-  await validateIntegrations(pluginRoot, manifest.integrations, diagnostics);
+  await validateIntegrations(pluginRoot, manifest.integrations, manifest.apiVersion, diagnostics);
 
   if (!isObject(manifest.engines)) {
     diagnostics.push(error("engines_invalid", "engines is required"));
@@ -154,9 +164,11 @@ async function validateReadme(root: string, diagnostics: Diagnostic[]) {
 async function validateConfig(
   root: string,
   declaration: unknown,
+  apiVersion: unknown,
   diagnostics: Diagnostic[],
 ) {
   const path = join(root, "config.json");
+  if (apiVersion === "2.0" && declaration === undefined) return;
   if (!isObject(declaration) || !isObject(declaration.schema)) {
     diagnostics.push(
       error("config_schema_invalid", "config.schema is required"),
@@ -302,6 +314,7 @@ async function validateContent(
 async function validateDependencies(
   root: string,
   value: unknown,
+  apiVersion: unknown,
   diagnostics: Diagnostic[],
 ) {
   if (value === undefined) return;
@@ -313,6 +326,7 @@ async function validateDependencies(
   }
   for (const dependency of value) {
     if (isObject(dependency) && String(dependency.kind) === "plugin") {
+      if (apiVersion === "2.0" && typeof dependency.id === "string" && dependency.id.trim()) continue;
       diagnostics.push(
         error(
           "dependency_kind_unsupported",
@@ -386,6 +400,13 @@ async function validateEntrypoints(
     }
   }
   if (isObject(value.app)) {
+    if (value.app.protocol === "2.0") {
+      const hasEntry = typeof value.app.entry === "string" && (await safeFile(root, value.app.entry));
+      const hasStyles = typeof value.app.styles === "string" && (await safeFile(root, value.app.styles));
+      if (!hasEntry && !hasStyles) {
+        diagnostics.push(error("app_entrypoint_invalid", "App entrypoint is invalid"));
+      }
+    } else
     if (
       value.app.protocol !== "1.0" ||
       typeof value.app.root !== "string" ||
@@ -422,6 +443,7 @@ function validatePermissions(value: unknown, diagnostics: Diagnostic[]) {
 async function validateIntegrations(
   root: string,
   value: unknown,
+  apiVersion: unknown,
   diagnostics: Diagnostic[],
 ) {
   if (!Array.isArray(value) || value.length === 0) {
@@ -597,7 +619,7 @@ async function validateIntegrations(
         );
       }
     }
-    validateHostChrome(integration, diagnostics);
+    validateHostChrome(integration, diagnostics, apiVersion);
   }
 }
 
@@ -608,6 +630,7 @@ async function validateIntegrations(
 function validateHostChrome(
   integration: Record<string, unknown>,
   diagnostics: Diagnostic[],
+  apiVersion?: unknown,
 ) {
   const kind = String(integration.kind);
   const icon = integration.icon;
@@ -693,8 +716,14 @@ function validateHostChrome(
 
   switch (kind) {
     case "app.command":
-      requireText("title");
-      requireText("handler");
+      if (apiVersion === "2.0") {
+        if (typeof integration.title !== "string" && typeof integration.label !== "string") {
+          requireText("title");
+        }
+      } else {
+        requireText("title");
+        requireText("handler");
+      }
       break;
     case "app.toolbar":
       requireSlot("toolbar.main");

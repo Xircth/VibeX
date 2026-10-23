@@ -56,11 +56,16 @@ import {
 import { createPluginApi, createPluginControlApi } from '@/lib/api/plugins';
 import { DOLLAR_COMMANDS, mergeDollarCommands } from '@/lib/dollarCommands';
 import {
+  useSlashCommands,
+  useSlotContributions,
+} from '@vibex/plugin-sdk';
+import {
   agentAvailableCommandsToSlashCommands,
   localSkillsToDollarCommands,
   mergeComposerSlashCommands,
   pluginComposerSlashContributions,
   pluginInvocationsToSlashCommands,
+  sdkSlashCommandsToComposerCommands,
   slashCatalogReady,
 } from '@/lib/conversation-rendering/commandSources';
 import {
@@ -497,6 +502,7 @@ function toSearchableItem(option: ComposerTypeaheadOption): SearchableItem {
           ? option.key.slice('agent-'.length)
           : undefined,
       commandSourceKind: option.sourceKind,
+      execute: option.execute,
     },
   };
 }
@@ -507,6 +513,7 @@ type ComposerSearchItemData = {
   kind?: SessionComposerStructuredTokenKind;
   agentKind?: string;
   commandSourceKind?: 'native' | 'skill' | 'plugin';
+  execute?: (args: string) => void | string | Promise<void | string>;
 };
 
 function getTokenFromInsertText(
@@ -1227,17 +1234,34 @@ export function SessionComposerInput({
   );
 
   const composerActions = usePluginHostContributions('composer_action');
-  const atReference = useComposerAtReferencePanel({
-    composerRootRef,
-    composerHandleRef,
-    context: {
-      sessionId,
-      workspaceId,
-      repoId,
-      repoIds,
-      projectId,
-      transport,
-      actions: composerActions.map((item) => {
+  const sdkComposerActions = useSlotContributions('composer.actions');
+  const mergedComposerActions = useMemo(() => {
+    const seen = new Set<string>();
+    const fromSdk = sdkComposerActions.map((item) => {
+      const pluginId = item.pluginId ?? 'builtin';
+      const id = `${pluginId}/${item.id}`;
+      seen.add(id);
+      const meta = item.metadata ?? {};
+      const title = item.label ?? String(meta.title ?? item.id);
+      const prompt =
+        typeof meta.prompt === 'string'
+          ? meta.prompt
+          : item.onActivate
+            ? ''
+            : title;
+      return {
+        id,
+        title,
+        detail:
+          item.tooltip ??
+          (typeof meta.title === 'string' ? meta.title : undefined),
+        insertText: prompt,
+        onActivate: item.onActivate ? () => item.onActivate?.() : undefined,
+      };
+    });
+    const fromHost = composerActions
+      .filter((item) => !seen.has(`${item.pluginId}/${item.id}`))
+      .map((item) => {
         const metadata = contributionMetadata(item);
         const prompt =
           typeof metadata.prompt === 'string' ? metadata.prompt : item.label;
@@ -1248,7 +1272,20 @@ export function SessionComposerInput({
             typeof metadata.title === 'string' ? metadata.title : undefined,
           insertText: prompt,
         };
-      }),
+      });
+    return [...fromSdk, ...fromHost];
+  }, [composerActions, sdkComposerActions]);
+  const atReference = useComposerAtReferencePanel({
+    composerRootRef,
+    composerHandleRef,
+    context: {
+      sessionId,
+      workspaceId,
+      repoId,
+      repoIds,
+      projectId,
+      transport,
+      actions: mergedComposerActions,
     },
     disabled,
     onChange,
@@ -1373,6 +1410,7 @@ export function SessionComposerInput({
   });
   const composerSlashContributions =
     usePluginHostContributions('composer_slash');
+  const sdkSlashCommands = useSlashCommands();
   const { data: agentSkills } = useQuery({
     queryKey: [
       'session-composer-agent-skills',
@@ -1411,11 +1449,17 @@ export function SessionComposerInput({
         ),
         skillCommands: [],
         pluginCommands: [
+          ...sdkSlashCommandsToComposerCommands(sdkSlashCommands),
           ...pluginInvocationsToSlashCommands(pluginControlCatalog),
           ...pluginComposerSlashContributions(composerSlashContributions),
         ],
       }),
-    [availableCommands, composerSlashContributions, pluginControlCatalog]
+    [
+      availableCommands,
+      composerSlashContributions,
+      pluginControlCatalog,
+      sdkSlashCommands,
+    ]
   );
   const allDollarCommands = useMemo(
     () =>
@@ -1521,7 +1565,28 @@ export function SessionComposerInput({
   );
   const makeToken = useCallback((item: SearchableItem): ChatComposerToken => {
     const data = item.auxiliaryData as ComposerSearchItemData | undefined;
-    const insertText = data?.insertText ?? '';
+    let insertText = data?.insertText ?? '';
+    if (data?.execute) {
+      try {
+        const execResult = data.execute('');
+        if (typeof execResult === 'string' && execResult.trim()) {
+          const existingToken = getTokenFromInsertText(insertText);
+          if (existingToken) {
+            insertText = formatSessionComposerCommand({
+              type: '/',
+              key: `${existingToken.kind}:${existingToken.label}`,
+              value: execResult,
+            });
+          } else {
+            insertText = execResult;
+          }
+        } else if (typeof execResult === 'object' && execResult !== null && 'then' in execResult) {
+          void execResult.catch(() => undefined);
+        }
+      } catch {
+        // Isolate plugin slash execute errors
+      }
+    }
     const token = getTokenFromInsertText(insertText);
     if (token) {
       return { ...toSessionComposerChatToken(token), value: insertText };

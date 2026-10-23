@@ -518,6 +518,18 @@ export function createPluginControlApi(transport: BackendTransport) {
         input: input ?? null,
         timeoutSeconds: timeoutSeconds ?? null,
       }),
+    hostCall: <T = unknown>(
+      pluginId: string,
+      capability: string,
+      operation: string,
+      input?: unknown
+    ) =>
+      transport.call('plugin_host_call', {
+        pluginId,
+        capability,
+        operation,
+        input: input ?? null,
+      }) as Promise<T>,
     productDetail: (pluginId: string) =>
       transport.call('plugin_product_detail', {
         pluginId,
@@ -599,10 +611,21 @@ export function createPluginControlApi(transport: BackendTransport) {
       });
       return result;
     },
-    setEnabled: (pluginId: string, enabled: boolean) =>
+    setEnabled: (
+      pluginId: string,
+      enabled: boolean,
+      quarantineReason?: string
+    ) =>
       transport.call('plugin_control_set_enabled', {
         pluginId,
         enabled,
+        ...(quarantineReason ? { quarantineReason } : {}),
+      }) as Promise<PluginControlItem>,
+    quarantine: (pluginId: string, reason: string) =>
+      transport.call('plugin_control_set_enabled', {
+        pluginId,
+        enabled: false,
+        quarantineReason: reason,
       }) as Promise<PluginControlItem>,
     rollback: (pluginId: string, permissionIds: string[] = []) =>
       transport.call('plugin_control_rollback', {

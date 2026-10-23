@@ -1,0 +1,36 @@
+{
+  "manifestVersion": 4,
+  "apiVersion": "2.0",
+  "id": "vibex.notes",
+  "publisher": "vibex",
+  "name": "Workspace Notes",
+  "version": "2.0.0",
+  "description": "Built-in project scratchpad, session notes, and context-menu selection capture.",
+  "readme": "README.md",
+  "content": {
+    "root": "contents",
+    "index": ".vibex-plugin/content.index.json"
+  },
+  "engines": {
+    "vibex": ">=0.1.3 <1.0.0",
+    "pluginSdk": "^2.0.0"
+  },
+  "entrypoints": {
+    "app": {
+      "entry": "app/main.js",
+      "protocol": "2.0"
+    }
+  },
+  "integrations": [
+    {
+      "id": "session-notes",
+      "kind": "content.skill",
+      "resource": "contents/skills/session-notes"
+    },
+    {
+      "id": "open-notes",
+      "kind": "app.command",
+      "label": "Open Workspace Notes"
+    }
+  ]
+}

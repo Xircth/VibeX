@@ -1,0 +1,973 @@
+{
+  "$schema": "https://schemas.vibex.dev/plugin/v4/plugin.schema.json",
+  "manifestVersion": 4,
+  "apiVersion": "2.0",
+  "id": "vibex.science",
+  "publisher": "vibex",
+  "version": "1.0.0",
+  "name": "科学研究",
+  "readme": "README.md",
+  "engines": {
+    "vibex": ">=0.1.3 <1.0.0",
+    "pluginSdk": "^2.0.0"
+  },
+  "content": {
+    "root": "contents",
+    "index": ".vibex-plugin/content.index.json"
+  },
+  "config": {
+    "schema": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "domains"
+      ],
+      "properties": {
+        "domains": {
+          "type": "object",
+          "title": "技能领域",
+          "description": "按领域启用技能。关闭的领域不会把技能注入任何 Agent；默认只启用「通用科研方法」。",
+          "properties": {
+            "general": {
+              "type": "boolean",
+              "title": "通用科研方法",
+              "description": "选题构思、假设、实验设计、统计功效与检验、探索性数据分析、科学可视化、批判性思维、文献检索、同行评审、引文管理、成果评估、科研示意图。默认开启。（13 项技能）"
+            },
+            "literature": {
+              "type": "boolean",
+              "title": "文献检索与信息获取",
+              "description": "跨学术文献、网页、公共数据库与本体/知识图谱检索可复现证据，返回可追溯来源。（12 项技能）"
+            },
+            "writing": {
+              "type": "boolean",
+              "title": "科研写作与出版传播",
+              "description": "论文/报告/标书撰写、投稿模板、会议海报与幻灯片、图文表达、文档解析转换。（11 项技能）"
+            },
+            "stats": {
+              "type": "boolean",
+              "title": "统计、数据科学与机器学习",
+              "description": "统计建模与推断、生存分析、时间序列、图网络、降维、经典 ML、深度学习框架、GNN、强化学习与可解释性、符号计算。（19 项技能）"
+            },
+            "infra": {
+              "type": "boolean",
+              "title": "数据工程与计算基础设施",
+              "description": "大表/大数组存储、分布式计算、云 GPU 与 HPC 流水线、GPU 加速与资源探测，以及科研 AI/智能体自动化工具。（17 项技能）"
+            },
+            "singlecell": {
+              "type": "boolean",
+              "title": "单细胞与转录组分析",
+              "description": "单细胞与 bulk 转录组标准链路：数据格式、QC/聚类/降维、RNA velocity、生成式整合、差异表达、通路富集、GRN 推断、群体图谱查询。（10 项技能）"
+            },
+            "genomics": {
+              "type": "boolean",
+              "title": "基因组学与序列变异分析",
+              "description": "基因组区间与变异处理、比对与文件 I/O、坐标/装配转换、变异存储与人群队列查询、DNA 语言模型、病原体变异监测、肿瘤体细胞流程、系统发生分析。（16 项技能）"
+            },
+            "chemistry": {
+              "type": "boolean",
+              "title": "化学信息学与药物发现",
+              "description": "小分子与生物大分子建模：化学信息学工具链、药化规则筛选、分子特征化、质谱/组学分析、分子性质与毒性 ML、分子对接、蛋白语言模型、结合实验 API、分子动力学。（14 项技能）"
+            },
+            "medicine": {
+              "type": "boolean",
+              "title": "医学、临床与生物医学影像",
+              "description": "临床决策支持与报告、治疗与 PK/PD 建模、动物实验严重度评估、DICOM/病理切片/显微影像、神经电生理与生理信号，以及 ELN/LIMS/协议库、实验室机器人自动化与法规合规。（21 项技能）"
+            },
+            "physics": {
+              "type": "boolean",
+              "title": "物理、材料、地球与工程仿真",
+              "description": "量子计算与量子系统模拟、天文与天体物理、材料结构分析、CFD/PIV/离散事件仿真、多目标工程优化、地理空间与遥感、实验硬件 CAD。（13 项技能）"
+            }
+          }
+        }
+      }
+    }
+  },
+  "integrations": [
+    {
+      "id": "scientific-brainstorming",
+      "kind": "content.skill",
+      "resource": "contents/skills/scientific-brainstorming",
+      "domain": "general"
+    },
+    {
+      "id": "hypothesis-generation",
+      "kind": "content.skill",
+      "resource": "contents/skills/hypothesis-generation",
+      "domain": "general"
+    },
+    {
+      "id": "experimental-design",
+      "kind": "content.skill",
+      "resource": "contents/skills/experimental-design",
+      "domain": "general"
+    },
+    {
+      "id": "statistical-power",
+      "kind": "content.skill",
+      "resource": "contents/skills/statistical-power",
+      "domain": "general"
+    },
+    {
+      "id": "statistical-analysis",
+      "kind": "content.skill",
+      "resource": "contents/skills/statistical-analysis",
+      "domain": "general"
+    },
+    {
+      "id": "exploratory-data-analysis",
+      "kind": "content.skill",
+      "resource": "contents/skills/exploratory-data-analysis",
+      "domain": "general"
+    },
+    {
+      "id": "scientific-visualization",
+      "kind": "content.skill",
+      "resource": "contents/skills/scientific-visualization",
+      "domain": "general"
+    },
+    {
+      "id": "scientific-critical-thinking",
+      "kind": "content.skill",
+      "resource": "contents/skills/scientific-critical-thinking",
+      "domain": "general"
+    },
+    {
+      "id": "paper-lookup",
+      "kind": "content.skill",
+      "resource": "contents/skills/paper-lookup",
+      "domain": "general"
+    },
+    {
+      "id": "peer-review",
+      "kind": "content.skill",
+      "resource": "contents/skills/peer-review",
+      "domain": "general"
+    },
+    {
+      "id": "citation-management",
+      "kind": "content.skill",
+      "resource": "contents/skills/citation-management",
+      "domain": "general"
+    },
+    {
+      "id": "scholar-evaluation",
+      "kind": "content.skill",
+      "resource": "contents/skills/scholar-evaluation",
+      "domain": "general"
+    },
+    {
+      "id": "scientific-schematics",
+      "kind": "content.skill",
+      "resource": "contents/skills/scientific-schematics",
+      "domain": "general"
+    },
+    {
+      "id": "literature-review",
+      "kind": "content.skill",
+      "resource": "contents/skills/literature-review",
+      "domain": "literature"
+    },
+    {
+      "id": "research-lookup",
+      "kind": "content.skill",
+      "resource": "contents/skills/research-lookup",
+      "domain": "literature"
+    },
+    {
+      "id": "bgpt-paper-search",
+      "kind": "content.skill",
+      "resource": "contents/skills/bgpt-paper-search",
+      "domain": "literature"
+    },
+    {
+      "id": "paperclip",
+      "kind": "content.skill",
+      "resource": "contents/skills/paperclip",
+      "domain": "literature"
+    },
+    {
+      "id": "paperzilla",
+      "kind": "content.skill",
+      "resource": "contents/skills/paperzilla",
+      "domain": "literature"
+    },
+    {
+      "id": "pyzotero",
+      "kind": "content.skill",
+      "resource": "contents/skills/pyzotero",
+      "domain": "literature"
+    },
+    {
+      "id": "exa-search",
+      "kind": "content.skill",
+      "resource": "contents/skills/exa-search",
+      "domain": "literature"
+    },
+    {
+      "id": "parallel-web",
+      "kind": "content.skill",
+      "resource": "contents/skills/parallel-web",
+      "domain": "literature"
+    },
+    {
+      "id": "database-lookup",
+      "kind": "content.skill",
+      "resource": "contents/skills/database-lookup",
+      "domain": "literature"
+    },
+    {
+      "id": "usfiscaldata",
+      "kind": "content.skill",
+      "resource": "contents/skills/usfiscaldata",
+      "domain": "literature"
+    },
+    {
+      "id": "ncats-arax",
+      "kind": "content.skill",
+      "resource": "contents/skills/ncats-arax",
+      "domain": "literature"
+    },
+    {
+      "id": "ontology-term-resolution",
+      "kind": "content.skill",
+      "resource": "contents/skills/ontology-term-resolution",
+      "domain": "literature"
+    },
+    {
+      "id": "scientific-writing",
+      "kind": "content.skill",
+      "resource": "contents/skills/scientific-writing",
+      "domain": "writing"
+    },
+    {
+      "id": "research-grants",
+      "kind": "content.skill",
+      "resource": "contents/skills/research-grants",
+      "domain": "writing"
+    },
+    {
+      "id": "venue-templates",
+      "kind": "content.skill",
+      "resource": "contents/skills/venue-templates",
+      "domain": "writing"
+    },
+    {
+      "id": "pptx-posters",
+      "kind": "content.skill",
+      "resource": "contents/skills/pptx-posters",
+      "domain": "writing"
+    },
+    {
+      "id": "scientific-slides",
+      "kind": "content.skill",
+      "resource": "contents/skills/scientific-slides",
+      "domain": "writing"
+    },
+    {
+      "id": "markdown-mermaid-writing",
+      "kind": "content.skill",
+      "resource": "contents/skills/markdown-mermaid-writing",
+      "domain": "writing"
+    },
+    {
+      "id": "generate-image",
+      "kind": "content.skill",
+      "resource": "contents/skills/generate-image",
+      "domain": "writing"
+    },
+    {
+      "id": "open-notebook",
+      "kind": "content.skill",
+      "resource": "contents/skills/open-notebook",
+      "domain": "writing"
+    },
+    {
+      "id": "market-research-reports",
+      "kind": "content.skill",
+      "resource": "contents/skills/market-research-reports",
+      "domain": "writing"
+    },
+    {
+      "id": "liteparse",
+      "kind": "content.skill",
+      "resource": "contents/skills/liteparse",
+      "domain": "writing"
+    },
+    {
+      "id": "markitdown",
+      "kind": "content.skill",
+      "resource": "contents/skills/markitdown",
+      "domain": "writing"
+    },
+    {
+      "id": "pymc",
+      "kind": "content.skill",
+      "resource": "contents/skills/pymc",
+      "domain": "stats"
+    },
+    {
+      "id": "statsmodels",
+      "kind": "content.skill",
+      "resource": "contents/skills/statsmodels",
+      "domain": "stats"
+    },
+    {
+      "id": "scikit-survival",
+      "kind": "content.skill",
+      "resource": "contents/skills/scikit-survival",
+      "domain": "stats"
+    },
+    {
+      "id": "seaborn",
+      "kind": "content.skill",
+      "resource": "contents/skills/seaborn",
+      "domain": "stats"
+    },
+    {
+      "id": "aeon",
+      "kind": "content.skill",
+      "resource": "contents/skills/aeon",
+      "domain": "stats"
+    },
+    {
+      "id": "timesfm-forecasting",
+      "kind": "content.skill",
+      "resource": "contents/skills/timesfm-forecasting",
+      "domain": "stats"
+    },
+    {
+      "id": "networkx",
+      "kind": "content.skill",
+      "resource": "contents/skills/networkx",
+      "domain": "stats"
+    },
+    {
+      "id": "matlab",
+      "kind": "content.skill",
+      "resource": "contents/skills/matlab",
+      "domain": "stats"
+    },
+    {
+      "id": "uncertainty-and-units",
+      "kind": "content.skill",
+      "resource": "contents/skills/uncertainty-and-units",
+      "domain": "stats"
+    },
+    {
+      "id": "scikit-learn",
+      "kind": "content.skill",
+      "resource": "contents/skills/scikit-learn",
+      "domain": "stats"
+    },
+    {
+      "id": "pytorch-lightning",
+      "kind": "content.skill",
+      "resource": "contents/skills/pytorch-lightning",
+      "domain": "stats"
+    },
+    {
+      "id": "transformers",
+      "kind": "content.skill",
+      "resource": "contents/skills/transformers",
+      "domain": "stats"
+    },
+    {
+      "id": "torch-geometric",
+      "kind": "content.skill",
+      "resource": "contents/skills/torch-geometric",
+      "domain": "stats"
+    },
+    {
+      "id": "pufferlib",
+      "kind": "content.skill",
+      "resource": "contents/skills/pufferlib",
+      "domain": "stats"
+    },
+    {
+      "id": "stable-baselines3",
+      "kind": "content.skill",
+      "resource": "contents/skills/stable-baselines3",
+      "domain": "stats"
+    },
+    {
+      "id": "shap",
+      "kind": "content.skill",
+      "resource": "contents/skills/shap",
+      "domain": "stats"
+    },
+    {
+      "id": "umap-learn",
+      "kind": "content.skill",
+      "resource": "contents/skills/umap-learn",
+      "domain": "stats"
+    },
+    {
+      "id": "matplotlib",
+      "kind": "content.skill",
+      "resource": "contents/skills/matplotlib",
+      "domain": "stats"
+    },
+    {
+      "id": "sympy",
+      "kind": "content.skill",
+      "resource": "contents/skills/sympy",
+      "domain": "stats"
+    },
+    {
+      "id": "dask",
+      "kind": "content.skill",
+      "resource": "contents/skills/dask",
+      "domain": "infra"
+    },
+    {
+      "id": "vaex",
+      "kind": "content.skill",
+      "resource": "contents/skills/vaex",
+      "domain": "infra"
+    },
+    {
+      "id": "zarr-python",
+      "kind": "content.skill",
+      "resource": "contents/skills/zarr-python",
+      "domain": "infra"
+    },
+    {
+      "id": "lamindb",
+      "kind": "content.skill",
+      "resource": "contents/skills/lamindb",
+      "domain": "infra"
+    },
+    {
+      "id": "modal",
+      "kind": "content.skill",
+      "resource": "contents/skills/modal",
+      "domain": "infra"
+    },
+    {
+      "id": "nextflow",
+      "kind": "content.skill",
+      "resource": "contents/skills/nextflow",
+      "domain": "infra"
+    },
+    {
+      "id": "dnanexus-integration",
+      "kind": "content.skill",
+      "resource": "contents/skills/dnanexus-integration",
+      "domain": "infra"
+    },
+    {
+      "id": "latchbio-integration",
+      "kind": "content.skill",
+      "resource": "contents/skills/latchbio-integration",
+      "domain": "infra"
+    },
+    {
+      "id": "optimize-for-gpu",
+      "kind": "content.skill",
+      "resource": "contents/skills/optimize-for-gpu",
+      "domain": "infra"
+    },
+    {
+      "id": "get-available-resources",
+      "kind": "content.skill",
+      "resource": "contents/skills/get-available-resources",
+      "domain": "infra"
+    },
+    {
+      "id": "arbor",
+      "kind": "content.skill",
+      "resource": "contents/skills/arbor",
+      "domain": "infra"
+    },
+    {
+      "id": "autoskill",
+      "kind": "content.skill",
+      "resource": "contents/skills/autoskill",
+      "domain": "infra"
+    },
+    {
+      "id": "pi-agent",
+      "kind": "content.skill",
+      "resource": "contents/skills/pi-agent",
+      "domain": "infra"
+    },
+    {
+      "id": "hypogenic",
+      "kind": "content.skill",
+      "resource": "contents/skills/hypogenic",
+      "domain": "infra"
+    },
+    {
+      "id": "consciousness-council",
+      "kind": "content.skill",
+      "resource": "contents/skills/consciousness-council",
+      "domain": "infra"
+    },
+    {
+      "id": "dhdna-profiler",
+      "kind": "content.skill",
+      "resource": "contents/skills/dhdna-profiler",
+      "domain": "infra"
+    },
+    {
+      "id": "polars",
+      "kind": "content.skill",
+      "resource": "contents/skills/polars",
+      "domain": "infra"
+    },
+    {
+      "id": "scanpy",
+      "kind": "content.skill",
+      "resource": "contents/skills/scanpy",
+      "domain": "singlecell"
+    },
+    {
+      "id": "scvelo",
+      "kind": "content.skill",
+      "resource": "contents/skills/scvelo",
+      "domain": "singlecell"
+    },
+    {
+      "id": "anndata",
+      "kind": "content.skill",
+      "resource": "contents/skills/anndata",
+      "domain": "singlecell"
+    },
+    {
+      "id": "scvi-tools",
+      "kind": "content.skill",
+      "resource": "contents/skills/scvi-tools",
+      "domain": "singlecell"
+    },
+    {
+      "id": "cellxgene-census",
+      "kind": "content.skill",
+      "resource": "contents/skills/cellxgene-census",
+      "domain": "singlecell"
+    },
+    {
+      "id": "bulk-rnaseq",
+      "kind": "content.skill",
+      "resource": "contents/skills/bulk-rnaseq",
+      "domain": "singlecell"
+    },
+    {
+      "id": "pydeseq2",
+      "kind": "content.skill",
+      "resource": "contents/skills/pydeseq2",
+      "domain": "singlecell"
+    },
+    {
+      "id": "pathway-enrichment",
+      "kind": "content.skill",
+      "resource": "contents/skills/pathway-enrichment",
+      "domain": "singlecell"
+    },
+    {
+      "id": "arboreto",
+      "kind": "content.skill",
+      "resource": "contents/skills/arboreto",
+      "domain": "singlecell"
+    },
+    {
+      "id": "waypoint-bio",
+      "kind": "content.skill",
+      "resource": "contents/skills/waypoint-bio",
+      "domain": "singlecell"
+    },
+    {
+      "id": "deeptools",
+      "kind": "content.skill",
+      "resource": "contents/skills/deeptools",
+      "domain": "genomics"
+    },
+    {
+      "id": "gget",
+      "kind": "content.skill",
+      "resource": "contents/skills/gget",
+      "domain": "genomics"
+    },
+    {
+      "id": "pysam",
+      "kind": "content.skill",
+      "resource": "contents/skills/pysam",
+      "domain": "genomics"
+    },
+    {
+      "id": "tiledbvcf",
+      "kind": "content.skill",
+      "resource": "contents/skills/tiledbvcf",
+      "domain": "genomics"
+    },
+    {
+      "id": "polars-bio",
+      "kind": "content.skill",
+      "resource": "contents/skills/polars-bio",
+      "domain": "genomics"
+    },
+    {
+      "id": "genomic-coordinates",
+      "kind": "content.skill",
+      "resource": "contents/skills/genomic-coordinates",
+      "domain": "genomics"
+    },
+    {
+      "id": "geniml",
+      "kind": "content.skill",
+      "resource": "contents/skills/geniml",
+      "domain": "genomics"
+    },
+    {
+      "id": "gtars",
+      "kind": "content.skill",
+      "resource": "contents/skills/gtars",
+      "domain": "genomics"
+    },
+    {
+      "id": "onekgpd",
+      "kind": "content.skill",
+      "resource": "contents/skills/onekgpd",
+      "domain": "genomics"
+    },
+    {
+      "id": "genomic-intelligence",
+      "kind": "content.skill",
+      "resource": "contents/skills/genomic-intelligence",
+      "domain": "genomics"
+    },
+    {
+      "id": "pathogen-variant-surveillance",
+      "kind": "content.skill",
+      "resource": "contents/skills/pathogen-variant-surveillance",
+      "domain": "genomics"
+    },
+    {
+      "id": "pacsomatic",
+      "kind": "content.skill",
+      "resource": "contents/skills/pacsomatic",
+      "domain": "genomics"
+    },
+    {
+      "id": "scikit-bio",
+      "kind": "content.skill",
+      "resource": "contents/skills/scikit-bio",
+      "domain": "genomics"
+    },
+    {
+      "id": "flowio",
+      "kind": "content.skill",
+      "resource": "contents/skills/flowio",
+      "domain": "genomics"
+    },
+    {
+      "id": "biopython",
+      "kind": "content.skill",
+      "resource": "contents/skills/biopython",
+      "domain": "genomics"
+    },
+    {
+      "id": "depmap",
+      "kind": "content.skill",
+      "resource": "contents/skills/depmap",
+      "domain": "genomics"
+    },
+    {
+      "id": "rdkit",
+      "kind": "content.skill",
+      "resource": "contents/skills/rdkit",
+      "domain": "chemistry"
+    },
+    {
+      "id": "datamol",
+      "kind": "content.skill",
+      "resource": "contents/skills/datamol",
+      "domain": "chemistry"
+    },
+    {
+      "id": "medchem",
+      "kind": "content.skill",
+      "resource": "contents/skills/medchem",
+      "domain": "chemistry"
+    },
+    {
+      "id": "molfeat",
+      "kind": "content.skill",
+      "resource": "contents/skills/molfeat",
+      "domain": "chemistry"
+    },
+    {
+      "id": "pyopenms",
+      "kind": "content.skill",
+      "resource": "contents/skills/pyopenms",
+      "domain": "chemistry"
+    },
+    {
+      "id": "matchms",
+      "kind": "content.skill",
+      "resource": "contents/skills/matchms",
+      "domain": "chemistry"
+    },
+    {
+      "id": "torchdrug",
+      "kind": "content.skill",
+      "resource": "contents/skills/torchdrug",
+      "domain": "chemistry"
+    },
+    {
+      "id": "deepchem",
+      "kind": "content.skill",
+      "resource": "contents/skills/deepchem",
+      "domain": "chemistry"
+    },
+    {
+      "id": "pytdc",
+      "kind": "content.skill",
+      "resource": "contents/skills/pytdc",
+      "domain": "chemistry"
+    },
+    {
+      "id": "diffdock",
+      "kind": "content.skill",
+      "resource": "contents/skills/diffdock",
+      "domain": "chemistry"
+    },
+    {
+      "id": "tamarind",
+      "kind": "content.skill",
+      "resource": "contents/skills/tamarind",
+      "domain": "chemistry"
+    },
+    {
+      "id": "esm",
+      "kind": "content.skill",
+      "resource": "contents/skills/esm",
+      "domain": "chemistry"
+    },
+    {
+      "id": "adaptyv",
+      "kind": "content.skill",
+      "resource": "contents/skills/adaptyv",
+      "domain": "chemistry"
+    },
+    {
+      "id": "molecular-dynamics",
+      "kind": "content.skill",
+      "resource": "contents/skills/molecular-dynamics",
+      "domain": "chemistry"
+    },
+    {
+      "id": "clinical-decision-support",
+      "kind": "content.skill",
+      "resource": "contents/skills/clinical-decision-support",
+      "domain": "medicine"
+    },
+    {
+      "id": "clinical-reports",
+      "kind": "content.skill",
+      "resource": "contents/skills/clinical-reports",
+      "domain": "medicine"
+    },
+    {
+      "id": "treatment-plans",
+      "kind": "content.skill",
+      "resource": "contents/skills/treatment-plans",
+      "domain": "medicine"
+    },
+    {
+      "id": "pkpd-modeling",
+      "kind": "content.skill",
+      "resource": "contents/skills/pkpd-modeling",
+      "domain": "medicine"
+    },
+    {
+      "id": "relsa-severity-assessment",
+      "kind": "content.skill",
+      "resource": "contents/skills/relsa-severity-assessment",
+      "domain": "medicine"
+    },
+    {
+      "id": "pydicom",
+      "kind": "content.skill",
+      "resource": "contents/skills/pydicom",
+      "domain": "medicine"
+    },
+    {
+      "id": "pathml",
+      "kind": "content.skill",
+      "resource": "contents/skills/pathml",
+      "domain": "medicine"
+    },
+    {
+      "id": "histolab",
+      "kind": "content.skill",
+      "resource": "contents/skills/histolab",
+      "domain": "medicine"
+    },
+    {
+      "id": "omero-integration",
+      "kind": "content.skill",
+      "resource": "contents/skills/omero-integration",
+      "domain": "medicine"
+    },
+    {
+      "id": "neurokit2",
+      "kind": "content.skill",
+      "resource": "contents/skills/neurokit2",
+      "domain": "medicine"
+    },
+    {
+      "id": "neuropixels-analysis",
+      "kind": "content.skill",
+      "resource": "contents/skills/neuropixels-analysis",
+      "domain": "medicine"
+    },
+    {
+      "id": "benchling-integration",
+      "kind": "content.skill",
+      "resource": "contents/skills/benchling-integration",
+      "domain": "medicine"
+    },
+    {
+      "id": "labarchive-integration",
+      "kind": "content.skill",
+      "resource": "contents/skills/labarchive-integration",
+      "domain": "medicine"
+    },
+    {
+      "id": "protocolsio-integration",
+      "kind": "content.skill",
+      "resource": "contents/skills/protocolsio-integration",
+      "domain": "medicine"
+    },
+    {
+      "id": "opentrons-integration",
+      "kind": "content.skill",
+      "resource": "contents/skills/opentrons-integration",
+      "domain": "medicine"
+    },
+    {
+      "id": "pylabrobot",
+      "kind": "content.skill",
+      "resource": "contents/skills/pylabrobot",
+      "domain": "medicine"
+    },
+    {
+      "id": "ginkgo-cloud-lab",
+      "kind": "content.skill",
+      "resource": "contents/skills/ginkgo-cloud-lab",
+      "domain": "medicine"
+    },
+    {
+      "id": "analytical-method-validation",
+      "kind": "content.skill",
+      "resource": "contents/skills/analytical-method-validation",
+      "domain": "medicine"
+    },
+    {
+      "id": "iso-standards-readiness",
+      "kind": "content.skill",
+      "resource": "contents/skills/iso-standards-readiness",
+      "domain": "medicine"
+    },
+    {
+      "id": "bids",
+      "kind": "content.skill",
+      "resource": "contents/skills/bids",
+      "domain": "medicine"
+    },
+    {
+      "id": "imaging-data-commons",
+      "kind": "content.skill",
+      "resource": "contents/skills/imaging-data-commons",
+      "domain": "medicine"
+    },
+    {
+      "id": "qiskit",
+      "kind": "content.skill",
+      "resource": "contents/skills/qiskit",
+      "domain": "physics"
+    },
+    {
+      "id": "cirq",
+      "kind": "content.skill",
+      "resource": "contents/skills/cirq",
+      "domain": "physics"
+    },
+    {
+      "id": "pennylane",
+      "kind": "content.skill",
+      "resource": "contents/skills/pennylane",
+      "domain": "physics"
+    },
+    {
+      "id": "qutip",
+      "kind": "content.skill",
+      "resource": "contents/skills/qutip",
+      "domain": "physics"
+    },
+    {
+      "id": "astropy",
+      "kind": "content.skill",
+      "resource": "contents/skills/astropy",
+      "domain": "physics"
+    },
+    {
+      "id": "pymatgen",
+      "kind": "content.skill",
+      "resource": "contents/skills/pymatgen",
+      "domain": "physics"
+    },
+    {
+      "id": "fluidsim",
+      "kind": "content.skill",
+      "resource": "contents/skills/fluidsim",
+      "domain": "physics"
+    },
+    {
+      "id": "openpiv",
+      "kind": "content.skill",
+      "resource": "contents/skills/openpiv",
+      "domain": "physics"
+    },
+    {
+      "id": "simpy",
+      "kind": "content.skill",
+      "resource": "contents/skills/simpy",
+      "domain": "physics"
+    },
+    {
+      "id": "pymoo",
+      "kind": "content.skill",
+      "resource": "contents/skills/pymoo",
+      "domain": "physics"
+    },
+    {
+      "id": "geomaster",
+      "kind": "content.skill",
+      "resource": "contents/skills/geomaster",
+      "domain": "physics"
+    },
+    {
+      "id": "geopandas",
+      "kind": "content.skill",
+      "resource": "contents/skills/geopandas",
+      "domain": "physics"
+    },
+    {
+      "id": "lab-hardware-cad",
+      "kind": "content.skill",
+      "resource": "contents/skills/lab-hardware-cad",
+      "domain": "physics"
+    }
+  ],
+  "interface": {
+    "icon": "assets/icon.svg"
+  },
+  "entrypoints": {
+    "app": {
+      "entry": "app/main.js",
+      "protocol": "2.0"
+    }
+  }
+}

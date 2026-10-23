@@ -1,0 +1,28 @@
+{
+  "managedRuntime": {
+    "source": "runtime/mcp.mjs",
+    "entrypoint": "dist/mcp/computer-use.mjs",
+    "protocolRevision": "2026-07-28",
+    "defaultBinding": "all-compatible-agents"
+  },
+  "tools": [
+    { "name": "computer_list_apps", "group": "computer" },
+    { "name": "computer_list_windows", "group": "computer" },
+    { "name": "computer_snapshot", "group": "computer" },
+    { "name": "computer_screenshot", "group": "computer" },
+    { "name": "computer_verify", "group": "computer" },
+    { "name": "computer_click", "group": "computer" },
+    { "name": "computer_drag", "group": "computer" },
+    { "name": "computer_scroll", "group": "computer" },
+    { "name": "computer_type", "group": "computer" },
+    { "name": "computer_press_key", "group": "computer" },
+    { "name": "computer_hold_key", "group": "computer" },
+    { "name": "computer_set_value", "group": "computer" },
+    { "name": "computer_restore", "group": "computer" },
+    { "name": "computer_invoke_menu", "group": "computer" },
+    { "name": "computer_launch_app", "group": "computer" },
+    { "name": "computer_set_window_frame", "group": "computer" },
+    { "name": "computer_clipboard_read", "group": "computer" },
+    { "name": "computer_clipboard_write", "group": "computer" }
+  ]
+}

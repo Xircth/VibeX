@@ -1,0 +1,50 @@
+{
+  "lockVersion": 1,
+  "packageDigest": "3dcc07a01a69f900716359ee1a9b656360b3474b5af95312bdfb26c6821fb65d",
+  "files": [
+    {
+      "path": ".gitignore",
+      "size": 30,
+      "sha256": "bbff771e663eb3bf6d014b90a6904fd19e56c495ff1ea371a3519a7574a428fa"
+    },
+    {
+      "path": ".vibex-plugin/content.index.json",
+      "size": 278,
+      "sha256": "9c410108cc04c7acc258b562a72da40f41d6abc834bd05dc7ea75a2ffeb7ea66"
+    },
+    {
+      "path": ".vibex-plugin/plugin.json",
+      "size": 1782,
+      "sha256": "16bba380b1ac5317ad711b5b4a392afb794257760afef5f85bcc6b3150721890"
+    },
+    {
+      "path": "LICENSE",
+      "size": 1062,
+      "sha256": "478be3a34d5e25cca9737aad3631c5fc90010fcbea2c555aceff3e9028d26962"
+    },
+    {
+      "path": "README.md",
+      "size": 2487,
+      "sha256": "ae09341f7048972b1f20718146b7c53b01c5fa28a68ddea6c4aa98294431ed34"
+    },
+    {
+      "path": "assets/icon.svg",
+      "size": 354,
+      "sha256": "83c5daa8689e763cc6b1b5053f36e3186dca251aef78518f4a0b022022487f03"
+    },
+    {
+      "path": "contents/mcps/session.json",
+      "size": 358,
+      "sha256": "ea55e0c2a5fea803d764adbb6ffdae466b3b77fe338f036cc86e42eb14778c2f"
+    },
+    {
+      "path": "contents/skills/vibex-session-enhance/SKILL.md",
+      "size": 2007,
+      "sha256": "a1879f14f4fc670009f769759110914d3e80f91b838f9dc95eb8881c318ad8a7"
+    }
+  ],
+  "build": {
+    "cliVersion": "1.0.0",
+    "reproducible": true
+  }
+}

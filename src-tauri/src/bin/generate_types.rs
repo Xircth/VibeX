@@ -24,7 +24,8 @@ use agents::{
     PlanUsageResult, PlanUsageUnavailableReason, PlanUsageWindow, RuntimeSnapshot,
     conversation::{
         AcpAuthenticationObservationSnapshot, AcpCapabilitySnapshot, AgentExecutionStats,
-        AgentPromptCapabilities, ContentBlock, ConversationAgentConnectionStatus,
+        AgentPromptCapabilities, CapturedInternalMessage, ContentBlock,
+        ConversationAgentConnectionStatus,
         ConversationArtifactPreviewReference, ConversationArtifactReference,
         ConversationBundleChecksum, ConversationBundleManifest, ConversationBundlePayload,
         ConversationDelegation, ConversationDelegationResult, ConversationDelegationView,
@@ -41,9 +42,9 @@ use agents::{
         ConversationTerminalPatch, ConversationTerminalView, ConversationTimeline,
         ConversationTimelinePage, ConversationTimelineRow, ConversationToolCallPatch,
         ConversationTurnErrorKind, ConversationUsage, ConversationWorkflowRef, DeliveryChannel,
-        ImageData, MessageTurn, PlanEntry, SessionLoadFailureReason, SessionRecoveryStrategy,
-        SessionStats, SubAgentToolCall, TimelineRow, TimelineTextStream, TurnBlockedReason,
-        TurnRole, TurnUsage,
+        ImageData, InternalPromptBlock, MessageTurn, PlanEntry, SessionLoadFailureReason,
+        SessionRecoveryStrategy, SessionStats, SubAgentToolCall, TimelineRow, TimelineTextStream,
+        TurnBlockedReason, TurnRole, TurnUsage,
     },
 };
 use api_types::{
@@ -799,6 +800,8 @@ fn replacement_declarations() -> BTreeMap<String, String> {
     insert_declaration::<DeliveryChannel>(&mut decls);
     insert_declaration::<ForkPointStatus>(&mut decls);
     insert_declaration::<ConversationInputBlock>(&mut decls);
+    insert_declaration::<InternalPromptBlock>(&mut decls);
+    insert_declaration::<CapturedInternalMessage>(&mut decls);
     insert_declaration::<ConversationInputPayload>(&mut decls);
     insert_declaration::<ConversationFileRef>(&mut decls);
     insert_declaration::<ConversationInputEvent>(&mut decls);

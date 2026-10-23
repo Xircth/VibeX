@@ -17,6 +17,11 @@ import type {
 } from 'shared/types';
 import { usePanelActionsContext } from '@/contexts/PanelActionsContext';
 import {
+  commandRegistry,
+  type CommandContribution,
+  useCommands,
+} from '@vibex/plugin-sdk';
+import {
   contributionMetadata,
   usePluginHostContributions,
 } from '@/hooks/usePluginHostContributions';
@@ -40,8 +45,52 @@ interface PaletteResult {
   workspaceId?: string;
   pluginId?: string;
   handler?: string;
+  onExecute?: () => void | Promise<void>;
   icon?: LucideIcon;
 }
+
+export const BUILTIN_PALETTE_COMMANDS: readonly CommandContribution[] = [
+  {
+    id: 'builtin.open-settings',
+    pluginId: 'builtin',
+    title: 'Open Settings',
+    category: 'Settings',
+    icon: 'settings',
+    order: 100,
+    handler: () => {
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(new CustomEvent('vibex:open-settings'));
+      }
+    },
+  },
+  {
+    id: 'builtin.manage-plugins',
+    pluginId: 'builtin',
+    title: 'Manage Plugins',
+    category: 'Plugins',
+    icon: 'puzzle',
+    order: 110,
+    handler: () => {
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(
+          new CustomEvent('vibex:open-settings', {
+            detail: { section: 'plugins' },
+          })
+        );
+      }
+    },
+  },
+];
+
+export function registerBuiltinCommands(): void {
+  for (const command of BUILTIN_PALETTE_COMMANDS) {
+    if (!commandRegistry.has(command.id)) {
+      commandRegistry.register(command, 'builtin');
+    }
+  }
+}
+
+registerBuiltinCommands();
 
 export function SearchPalette() {
   const {
@@ -57,6 +106,7 @@ export function SearchPalette() {
   const { openSurfaceMenu } = useAppContextMenu();
   const { openFilePreview } = usePanelActionsContext();
   const pluginCommands = usePluginHostContributions('command');
+  const sdkCommands = useCommands();
   const transport = useBackendTransport();
   const pluginApi = useMemo(
     () => createPluginControlApi(transport),
@@ -157,8 +207,34 @@ export function SearchPalette() {
       workspaceId: hit.workspace_id,
     }));
     const needle = paletteQuery.trim().toLocaleLowerCase();
-    const commands: PaletteResult[] = pluginCommands
+    const seenCommandIds = new Set<string>();
+    const sdkCommandResults: PaletteResult[] = sdkCommands
+      .filter((cmd) => {
+        if (!needle) return true;
+        return (
+          cmd.title.toLocaleLowerCase().includes(needle) ||
+          cmd.id.toLocaleLowerCase().includes(needle) ||
+          (cmd.category?.toLocaleLowerCase().includes(needle) ?? false)
+        );
+      })
+      .map((cmd) => {
+        const pluginId = cmd.pluginId ?? 'builtin';
+        const key = `cmd:${pluginId}:${cmd.id}`;
+        seenCommandIds.add(key);
+        return {
+          id: key,
+          kind: 'command' as const,
+          title: cmd.title,
+          subtitle: cmd.category ?? cmd.pluginId,
+          pluginId,
+          onExecute: () => cmd.handler(),
+          icon: contributionIconComponent(cmd.icon, Command),
+        };
+      });
+    const catalogCommands: PaletteResult[] = pluginCommands
       .filter((item) => {
+        const key = `cmd:${item.pluginId}:${item.id}`;
+        if (seenCommandIds.has(key)) return false;
         if (!needle) return true;
         return (
           item.label.toLocaleLowerCase().includes(needle) ||
@@ -181,13 +257,29 @@ export function SearchPalette() {
           icon: contributionIconComponent(metadata.icon, Command),
         };
       });
-    return [...commands, ...conversations, ...files];
-  }, [fileResults, conversationResults, pluginCommands, paletteQuery, t]);
+    return [
+      ...sdkCommandResults,
+      ...catalogCommands,
+      ...conversations,
+      ...files,
+    ];
+  }, [
+    fileResults,
+    conversationResults,
+    pluginCommands,
+    sdkCommands,
+    paletteQuery,
+    t,
+  ]);
 
   const handleSelect = useCallback(
     (result: PaletteResult) => {
-      if (result.kind === 'command' && result.pluginId && result.handler) {
-        void pluginApi.invokeContribution(result.pluginId, result.handler);
+      if (result.kind === 'command') {
+        if (result.onExecute) {
+          void Promise.resolve(result.onExecute()).catch(() => undefined);
+        } else if (result.pluginId && result.handler) {
+          void pluginApi.invokeContribution(result.pluginId, result.handler);
+        }
       } else if (result.kind === 'file' && result.filePath) {
         openFilePreview(result.filePath);
       } else if (
@@ -252,7 +344,7 @@ export function SearchPalette() {
   useEffect(() => {
     if (!listRef.current) return;
     const activeEl = listRef.current.querySelector('[data-active="true"]');
-    activeEl?.scrollIntoView({ block: 'nearest' });
+    activeEl?.scrollIntoView?.({ block: 'nearest' });
   }, [paletteSelectedIndex]);
 
   if (!isSearchPaletteOpen) return null;

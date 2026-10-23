@@ -1,125 +1,19 @@
-import { Loader } from '@/components/ui/loader';
+import {
+  useKanbanViewContributions,
+  usePanels,
+  useSettingsPages,
+  useViews,
+} from '@vibex/plugin-sdk';
 import { AppSurfaceHost } from '@/components/plugins/AppSurfaceHost';
+import { PluginBoundary } from '@/components/plugins/PluginBoundary';
 import { PluginSurfacePlaceholder } from '@/components/plugins/PluginSurfacePlaceholder';
 import { createBackendAppSurfaceTransport } from '@/lib/api/appSurfaceTransport';
 import { configuredBackendTransport } from '@/lib/backendTransport';
-import {
-  isHttpRemoteEntry,
-  loadPluginRemote,
-  mountRemoteModule,
-  parseRemoteRef,
-  retainPluginRemote,
-  unloadPluginRemote,
-} from '@/lib/pluginFederation';
-import type {
-  PluginContributionCatalog,
-  PluginContributionCatalogItem,
-} from '@/lib/api/plugins';
+import type { PluginContributionCatalogItem } from '@/lib/api/plugins';
 import { contributionMetadata } from '@/hooks/usePluginHostContributions';
-import {
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-  type ReactNode,
-  Component,
-} from 'react';
+import { useMemo, useState, type ReactNode } from 'react';
 
 const transport = createBackendAppSurfaceTransport(configuredBackendTransport);
-
-const OPEN_BROKER_KINDS = new Set([
-  'settings_page',
-  'app_tab',
-  'app_panel',
-  'kanban_view',
-  'app_surface',
-]);
-
-function remoteKey(metadata: unknown): string | null {
-  if (!metadata || typeof metadata !== 'object' || Array.isArray(metadata)) {
-    return null;
-  }
-  const remote = (metadata as { remote?: unknown }).remote;
-  if (!remote || typeof remote !== 'object' || Array.isArray(remote))
-    return null;
-  const record = remote as { name?: unknown; module?: unknown };
-  if (typeof record.name !== 'string' || !record.name) return null;
-  const moduleName =
-    typeof record.module === 'string' && record.module
-      ? record.module
-      : './view';
-  return `${record.name}\n${moduleName}`;
-}
-
-/** A status remote is not itself an App surface. Prefer a sibling surface that
- *  publishes the same remote so the view can call the Worker on hosts that
- *  only open settings, tab, and panel sessions. */
-export function brokerSurfaceForStatusRemote(
-  item: PluginContributionCatalogItem,
-  items: PluginContributionCatalogItem[]
-): { surfaceId: string; generation: number } {
-  const own = { surfaceId: item.id, generation: item.generation };
-  const wanted = remoteKey(item.metadata);
-  if (!wanted) return own;
-  const matches = items.filter(
-    (candidate) =>
-      candidate.pluginId === item.pluginId &&
-      candidate.id !== item.id &&
-      OPEN_BROKER_KINDS.has(candidate.kind) &&
-      remoteKey(candidate.metadata) === wanted
-  );
-  const chosen =
-    matches.find((candidate) => candidate.kind === 'settings_page') ??
-    matches[0];
-  if (!chosen) return own;
-  return { surfaceId: chosen.id, generation: chosen.generation };
-}
-
-async function resolveBrokerSurface(
-  item: PluginContributionCatalogItem,
-  slot: string
-): Promise<{ surfaceId: string; generation: number }> {
-  const own = { surfaceId: item.id, generation: item.generation };
-  if (slot !== 'status.after-mcp') return own;
-  try {
-    const catalog = (await configuredBackendTransport.call(
-      'plugin_contribution_catalog'
-    )) as PluginContributionCatalog;
-    return brokerSurfaceForStatusRemote(item, catalog.items ?? []);
-  } catch {
-    return own;
-  }
-}
-
-async function remoteEntryAvailable(entry: string): Promise<boolean> {
-  try {
-    const response = await fetch(entry, {
-      method: 'GET',
-      signal: AbortSignal.timeout(1500),
-    });
-    return response.ok;
-  } catch {
-    return false;
-  }
-}
-
-async function currentWindowLabel(): Promise<string | null> {
-  try {
-    const { getCurrentWindow } = await import('@tauri-apps/api/window');
-    const label = getCurrentWindow().label.trim();
-    return label || null;
-  } catch {
-    return null;
-  }
-}
-
-function opaqueToken(): string {
-  const bytes = new Uint8Array(24);
-  globalThis.crypto.getRandomValues(bytes);
-  return Array.from(bytes, (byte) => byte.toString(16).padStart(2, '0')).join(
-    ''
-  );
-}
 
 export function PluginRemoteView({
   item,
@@ -147,7 +41,16 @@ export function PluginRemoteView({
     return <PluginSurfacePlaceholder reason="missing" />;
   }
   return (
-    <RemoteViewErrorBoundary onRetry={() => setRetry((current) => current + 1)}>
+    <PluginBoundary
+      pluginId={item.pluginId}
+      slot={slot}
+      onRetry={() => setRetry((current) => current + 1)}
+      fallback={({ quarantined, retry: recover }) =>
+        quarantined ? undefined : (
+          <PluginSurfacePlaceholder reason="failed" onRecover={recover} />
+        )
+      }
+    >
       <PluginRemoteViewBody
         key={`${item.pluginId}:${item.id}:${retry}`}
         item={item}
@@ -155,34 +58,8 @@ export function PluginRemoteView({
         workspaceId={workspaceId}
         projectId={projectId}
       />
-    </RemoteViewErrorBoundary>
+    </PluginBoundary>
   );
-}
-
-class RemoteViewErrorBoundary extends Component<
-  { children: ReactNode; onRetry: () => void },
-  { failed: boolean }
-> {
-  state = { failed: false };
-
-  static getDerivedStateFromError() {
-    return { failed: true };
-  }
-
-  render() {
-    if (this.state.failed) {
-      return (
-        <PluginSurfacePlaceholder
-          reason="failed"
-          onRecover={() => {
-            this.setState({ failed: false });
-            this.props.onRetry();
-          }}
-        />
-      );
-    }
-    return this.props.children;
-  }
 }
 
 function PluginRemoteViewBody({
@@ -201,155 +78,34 @@ function PluginRemoteViewBody({
   workspaceId: string | null;
   projectId: string | null;
 }) {
-  const metadata = contributionMetadata(item);
-  const remote = useMemo(() => {
-    const parsed = parseRemoteRef(metadata.remote);
-    if (!parsed || !isHttpRemoteEntry(parsed.entry)) return parsed;
-    const separator = parsed.entry.includes('?') ? '&' : '?';
-    return {
-      ...parsed,
-      entry: `${parsed.entry}${separator}g=${item.generation}`,
-    };
-  }, [item.generation, metadata.remote]);
-  const rootRef = useRef<HTMLDivElement | null>(null);
-  const [remoteState, setRemoteState] = useState<
-    'idle' | 'loading' | 'ready' | 'failed'
-  >(remote && isHttpRemoteEntry(remote.entry) ? 'loading' : 'idle');
-  const surfaceId = item.id;
+  const registeredViews = useViews();
+  const registeredPanels = usePanels();
+  const registeredKanbanViews = useKanbanViewContributions();
+  const registeredSettingsPages = useSettingsPages();
+  const registeredView = useMemo(() => {
+    const matchId = (candidate: { pluginId?: string; id: string }) =>
+      candidate.pluginId === item.pluginId &&
+      (candidate.id === item.id ||
+        candidate.id === `${item.pluginId}:${item.id}` ||
+        candidate.id === `plugin:${item.pluginId}/${item.id}`);
+    return (
+      registeredViews.find(matchId) ??
+      registeredPanels.find(matchId) ??
+      registeredKanbanViews.find(matchId) ??
+      registeredSettingsPages.find(matchId) ??
+      null
+    );
+  }, [
+    item.id,
+    item.pluginId,
+    registeredKanbanViews,
+    registeredPanels,
+    registeredSettingsPages,
+    registeredViews,
+  ]);
 
-  useEffect(() => {
-    if (!remote || !isHttpRemoteEntry(remote.entry)) return;
-    const root = rootRef.current;
-    if (!root) return;
-    retainPluginRemote(remote.name);
-    let disposed = false;
-    let dispose: (() => void) | void;
-    let revoke: (() => void) | undefined;
-    setRemoteState('loading');
-    const clientToken = opaqueToken();
-    void remoteEntryAvailable(remote.entry)
-      .then((available) => {
-        if (!available) throw new Error('plugin_remote_unavailable');
-        return loadPluginRemote(remote);
-      })
-      .then(async (module) => {
-        if (disposed) return;
-        let sequence = 0;
-        let invokeQueue: Promise<unknown> = Promise.resolve();
-        let sessionToken: string | null = null;
-        const broker = await resolveBrokerSurface(item, slot);
-        const openSession = async (): Promise<string | null> => {
-          try {
-            const session = await transport.load({
-              pluginId: item.pluginId,
-              surfaceId: broker.surfaceId,
-              generation: broker.generation,
-              token: clientToken,
-            });
-            sequence = 0;
-            sessionToken = session.token;
-            revoke = () => {
-              void transport.revoke({
-                pluginId: item.pluginId,
-                surfaceId: broker.surfaceId,
-                generation: broker.generation,
-                token: session.token,
-                reason: 'unmount',
-              });
-            };
-            return session.token;
-          } catch {
-            sessionToken = null;
-            return null;
-          }
-        };
-        await openSession();
-        if (disposed) return;
-        const windowLabel = await currentWindowLabel();
-        if (disposed) return;
-        const toError = (err: unknown): Error => {
-          if (err instanceof Error) return err;
-          if (err && typeof err === 'object') {
-            const rec = err as Record<string, unknown>;
-            if (typeof rec.message === 'string' && rec.message.trim()) {
-              return new Error(rec.message);
-            }
-          }
-          return new Error(
-            typeof err === 'string' ? err : 'Plugin invoke failed'
-          );
-        };
-        dispose = mountRemoteModule(module, root, {
-          pluginId: item.pluginId,
-          surfaceId,
-          slot,
-          workspaceId,
-          projectId,
-          windowLabel,
-          invoke: (handler, input) => {
-            const run = async () => {
-              let activeToken = sessionToken ?? (await openSession());
-              if (!activeToken) {
-                throw new Error('Plugin Worker is not available');
-              }
-              sequence += 1;
-              try {
-                return await transport.invoke({
-                  pluginId: item.pluginId,
-                  surfaceId: broker.surfaceId,
-                  generation: broker.generation,
-                  token: activeToken,
-                  requestId: crypto.randomUUID(),
-                  sequence,
-                  method: handler,
-                  params: (input ?? {}) as never,
-                });
-              } catch (err) {
-                const msg = toError(err).message.toLowerCase();
-                if (
-                  msg.includes('expired') ||
-                  msg.includes('revoked') ||
-                  msg.includes('sequence is invalid')
-                ) {
-                  activeToken = await openSession();
-                  if (activeToken) {
-                    sequence += 1;
-                    try {
-                      return await transport.invoke({
-                        pluginId: item.pluginId,
-                        surfaceId: broker.surfaceId,
-                        generation: broker.generation,
-                        token: activeToken,
-                        requestId: crypto.randomUUID(),
-                        sequence,
-                        method: handler,
-                        params: (input ?? {}) as never,
-                      });
-                    } catch (retryErr) {
-                      throw toError(retryErr);
-                    }
-                  }
-                }
-                throw toError(err);
-              }
-            };
-            const next = invokeQueue.then(run, run);
-            invokeQueue = next.catch(() => undefined);
-            return next;
-          },
-        });
-        setRemoteState('ready');
-      })
-      .catch(() => {
-        if (!disposed) setRemoteState('failed');
-      });
-    return () => {
-      disposed = true;
-      dispose?.();
-      revoke?.();
-      unloadPluginRemote(remote.name);
-    };
-  }, [item, projectId, remote, slot, surfaceId, workspaceId]);
+  const metadata = contributionMetadata(item);
+  const surfaceId = item.id;
 
   const surface = useMemo(
     () => ({
@@ -374,25 +130,38 @@ function PluginRemoteViewBody({
       ? 'editor'
       : 'panel';
 
-  if (remote && isHttpRemoteEntry(remote.entry)) {
-    if (remoteState === 'failed') {
-      return (
-        <AppSurfaceHost
-          descriptor={surface}
-          enabled
-          transport={transport}
-          variant={surfaceVariant}
-        />
-      );
-    }
+  const registeredRender =
+    registeredView && 'render' in registeredView
+      ? registeredView.render
+      : undefined;
+
+  if (registeredView?.component) {
+    const RegisteredComponent = registeredView.component;
     return (
       <div className="relative h-full w-full" data-testid="plugin-remote-view">
-        {remoteState !== 'ready' ? (
-          <div className="absolute inset-0 flex items-center justify-center">
-            <Loader size={24} />
-          </div>
-        ) : null}
-        <div ref={rootRef} className="h-full w-full" />
+        <RegisteredComponent
+          pluginId={item.pluginId}
+          surfaceId={surfaceId}
+          slot={slot}
+          workspaceId={workspaceId}
+          projectId={projectId}
+        />
+      </div>
+    );
+  }
+
+  if (typeof registeredRender === 'function') {
+    return (
+      <div className="relative h-full w-full" data-testid="plugin-remote-view">
+        {
+          registeredRender({
+            pluginId: item.pluginId,
+            surfaceId,
+            slot,
+            workspaceId,
+            projectId,
+          }) as ReactNode
+        }
       </div>
     );
   }

@@ -1,10 +1,46 @@
+import { serviceContainer, } from './services.js';
+export function createWorkerServiceRegistry(pluginId, container = serviceContainer) {
+    return {
+        provide(key, implementation) {
+            return container.provide(key, implementation, pluginId);
+        },
+        get(key) {
+            return container.get(key);
+        },
+        inject(keyOrDeps, 
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        effect
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        ) {
+            if (Array.isArray(keyOrDeps)) {
+                return container.inject(keyOrDeps, effect, pluginId);
+            }
+            return container.inject(keyOrDeps);
+        },
+        require(key) {
+            return container.require(key);
+        },
+        has(key) {
+            return container.has(key);
+        },
+        intercept(hookName, fn, order = 0) {
+            return container.intercept(hookName, fn, order, pluginId);
+        },
+        runWaterfall(hookName, initialPayload, terminal, perHookTimeoutMs) {
+            return container.runWaterfall(hookName, initialPayload, terminal, perHookTimeoutMs);
+        },
+        subscribe(listener) {
+            return container.subscribe(listener);
+        },
+    };
+}
 export function normalizePluginContext(context) {
     return {
         pluginId: context.pluginId,
         pluginVersion: context.pluginVersion,
         generation: context.generation,
-        packageClass: context.packageClass ?? "full-trust",
-        grantedCapabilities: context.grantedCapabilities ?? ["*"],
+        packageClass: context.packageClass ?? 'full-trust',
+        grantedCapabilities: context.grantedCapabilities ?? ['*'],
     };
 }
 export function definePluginWorker(setup) {
@@ -18,8 +54,11 @@ export async function activatePluginWorker(definition, environment) {
     const handlers = new Map();
     const disposables = [];
     let disposed = false;
+    const scopedServices = environment.services ??
+        createWorkerServiceRegistry(environment.context.pluginId);
     const workerEnvironment = {
         ...environment,
+        services: scopedServices,
         signal: controller.signal,
     };
     const registrar = {
@@ -68,6 +107,7 @@ export async function activatePluginWorker(definition, environment) {
                     errors.push(error);
                 }
             }
+            serviceContainer.disposeByPlugin(environment.context.pluginId);
             handlers.clear();
             if (errors.length) {
                 throw new AggregateError(errors, 'Plugin worker disposal failed');

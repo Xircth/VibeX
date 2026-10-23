@@ -851,9 +851,9 @@ export default defineConfig({
 async function writeAppSurface(root: string, handlers: string[] | null) {
   await mkdir(join(root, "runtime"), { recursive: true });
   const app = handlers?.includes("hello")
-    ? `import { definePluginApp } from '@vibex/plugin-sdk/app';\nimport './app.css';\n\nexport default definePluginApp(({ root, bridge }) => {\n  const button = document.createElement('button');\n  button.textContent = 'Hello from VibeX';\n  button.addEventListener('click', () => void bridge.invoke('hello'));
+    ? `import { defineVibeXPlugin } from '@vibex/plugin-sdk/app';\nimport './app.css';\n\nexport default defineVibeXPlugin(({ root, bridge }) => {\n  const button = document.createElement('button');\n  button.textContent = 'Hello from VibeX';\n  button.addEventListener('click', () => void bridge.invoke('hello'));
   root.append(button);\n  bridge.ready();\n  return () => button.remove();\n});\n`
-    : `import { definePluginApp } from '@vibex/plugin-sdk/app';\nimport './app.css';\n\nexport default definePluginApp(({ root, bridge }) => {\n  root.innerHTML = '<section class="surface"><p>Ready.</p></section>';\n  bridge.ready();\n  return () => {\n    root.innerHTML = '';\n  };\n});\n`;
+    : `import { defineVibeXPlugin } from '@vibex/plugin-sdk/app';\nimport './app.css';\n\nexport default defineVibeXPlugin(({ root, bridge }) => {\n  root.innerHTML = '<section class="surface"><p>Ready.</p></section>';\n  bridge.ready();\n  return () => {\n    root.innerHTML = '';\n  };\n});\n`;
   await writeFile(join(root, "runtime", "app.mjs"), app);
   await writeFile(
     join(root, "runtime", "app.css"),

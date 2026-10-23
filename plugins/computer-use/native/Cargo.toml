@@ -1,0 +1,64 @@
+[package]
+name = "vibex-computer-helper"
+version = "0.34.0"
+edition = "2021"
+description = "VibeX Computer Use Helper & Daemon"
+license = "MIT"
+
+[[bin]]
+name = "vibex-computer-helper"
+path = "src/main.rs"
+
+[features]
+default = []
+tauri-runtime = []
+computer-helper = []
+
+[dependencies]
+tokio = { version = "1", features = ["full"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+thiserror = "2"
+async-trait = "0.1"
+uuid = { version = "1", features = ["v4"] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+dirs = "6"
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "stream", "json"] }
+futures-util = "0.3"
+flate2 = "1"
+tar = "0.4"
+zip = "2"
+sha2 = "0.10"
+image = { version = "0.25", default-features = false, features = ["png", "jpeg"] }
+base64 = "0.22"
+arboard = "3"
+libc = "0.2"
+axum = "0.8"
+
+[target.'cfg(target_os = "macos")'.dependencies]
+core-foundation = "0.10"
+core-graphics = "0.24"
+
+[target.'cfg(target_os = "windows")'.dependencies]
+windows-sys = { version = "0.59", features = [
+    "Win32_Foundation",
+    "Win32_Graphics_Dwm",
+    "Win32_Graphics_Gdi",
+    "Win32_Storage_FileSystem",
+    "Win32_Storage_Packaging_Appx",
+    "Win32_System_DataExchange",
+    "Win32_System_LibraryLoader",
+    "Win32_System_StationsAndDesktops",
+    "Win32_System_SystemInformation",
+    "Win32_System_Threading",
+    "Win32_UI_HiDpi",
+    "Win32_UI_Input_KeyboardAndMouse",
+    "Win32_UI_Shell",
+    "Win32_UI_WindowsAndMessaging",
+] }
+
+[dev-dependencies]
+tempfile = "3"
+temp-env = "0.3"
+tokio = { version = "1", features = ["full", "test-util"] }

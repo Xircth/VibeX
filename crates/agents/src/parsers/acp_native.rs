@@ -662,8 +662,20 @@ fn flush(
     seq: &mut usize,
     closed: bool,
 ) {
-    let Some(p) = pending.take() else { return };
+    let Some(mut p) = pending.take() else { return };
     if !p.has_content {
+        return;
+    }
+    p.blocks.retain_mut(|block| match block {
+        ContentBlock::Text { text } => {
+            let extracted =
+                crate::conversation::extract_and_strip_internal_messages(text, None, None, false);
+            *text = extracted.visible_text;
+            !text.is_empty()
+        }
+        _ => true,
+    });
+    if p.blocks.is_empty() {
         return;
     }
     turns.push(MessageTurn {

@@ -1,6 +1,6 @@
 import { useCallback } from 'react';
-import { projectsApi } from '@/lib/api';
 import { ProjectEditorSelectionDialog } from '@/components/dialogs/projects/ProjectEditorSelectionDialog';
+import { getEditorOpenerService } from '@/features/plugins/providers/hostProviderServices';
 import { isLocalDesktopHost } from '@/lib/desktopShell';
 import type { EditorType, Project } from 'shared/types';
 
@@ -13,10 +13,13 @@ export function useOpenProjectInEditor(
       if (!project || !isLocalDesktopHost()) return;
 
       try {
-        const response = await projectsApi.openEditor(project.id, {
-          editor_type: editorType ?? null,
-          file_path: null,
-        });
+        const response = await getEditorOpenerService().openProjectInEditor(
+          project.id,
+          {
+            editorType: editorType ?? null,
+            filePath: null,
+          }
+        );
 
         // If a URL is returned, open it in a new window/tab
         if (response.url) {

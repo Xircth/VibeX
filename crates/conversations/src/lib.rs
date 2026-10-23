@@ -51,7 +51,9 @@ pub use projection::{
     CONVERSATION_PROJECTION_VERSION, CachedRowProjector, ConversationEventAppender,
     ConversationProjector, ConversationRowProjectors, ConversationRowWindow,
     ConversationStateApplier, IncrementalRowProjector, OPEN_TIMELINE_ROW_LIMIT,
-    OpenConversationProjection, evict_least_recently_used_projectors, extend_coalesced_row_ops,
+    OpenConversationProjection, clear_internal_message_listeners,
+    evict_least_recently_used_projectors, extend_coalesced_row_ops,
+    register_internal_message_listener, subscribe_internal_messages,
 };
 pub use relation::{
     ConversationChildSummaryView, ConversationRelationControl, ConversationRelationView,
@@ -69,14 +71,17 @@ pub use search::{
     ConversationSearchHit, backfill_missing, reindex_from_projection, search_conversations,
 };
 pub use service::{
-    AgentRuntimeLaunchSettings, ConversationContext, ConversationEventPublisher, ConversationHost,
-    ConversationRuntimeState, ConversationServiceError, ConversationSessionService,
-    ConversationStartTurnInput, ConversationSteerInput, ConversationSteeringReceipt,
-    ConversationSteeringStatus, ConversationTurnSnapshot, CreateDelegatedConversation,
-    CreateForkConversation, CreateWorkflowConversation, ForkVisibleConversation,
-    NoopConversationEventPublisher, QueuedConversationInputClaim, create_delegated_conversation,
-    create_fork_conversation, create_workflow_conversation, finalize_checkpoint_file_changes,
-    fork_visible_conversation, preview_checkpoint_file_changes, remember_creation_session_controls,
+    AfterTurnEvent, AgentRuntimeLaunchSettings, BeforeTurnContext, ConversationContext,
+    ConversationEventPublisher, ConversationHost, ConversationRuntimeState,
+    ConversationServiceError, ConversationSessionService, ConversationStartTurnInput,
+    ConversationSteerInput, ConversationSteeringReceipt, ConversationSteeringStatus,
+    ConversationTurnSnapshot, CreateDelegatedConversation, CreateForkConversation,
+    CreateWorkflowConversation, ForkVisibleConversation, NoopConversationEventPublisher,
+    QueuedConversationInputClaim, RuntimeEventNotification, clear_turn_hooks,
+    create_delegated_conversation, create_fork_conversation, create_workflow_conversation,
+    finalize_checkpoint_file_changes, fork_visible_conversation, preview_checkpoint_file_changes,
+    register_after_turn_hook, register_before_turn_hook, remember_creation_session_controls,
+    subscribe_after_turn_events, subscribe_runtime_events,
 };
 pub use session_info::{
     SessionInfo, agent_session_title_from_patch, derive_session_display_name,

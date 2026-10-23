@@ -1,0 +1,10 @@
+Open Connector plugin for VibeX
+Copyright (c) 2026 VibeX
+
+This plugin launches the Open Connector runtime published by OOMOL Lab
+(https://github.com/oomol-lab/open-connector). That runtime is licensed
+under Apache License 2.0. VibeX does not relicense it. The binary is
+downloaded from GitHub Releases on first enable and is not bundled in
+the VibeX Host family snapshot.
+
+See LICENSE in this directory for the plugin package license.

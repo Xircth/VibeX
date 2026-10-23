@@ -230,4 +230,39 @@ describe("stdio worker protocol", () => {
       error: { code: "worker_frame_too_large" },
     });
   });
+
+  it("detects when running inside the multiplexed SharedNodeWorkerHost", async () => {
+    const { getSharedNodePluginHost, isSharedNodePluginHost } = await import(
+      "./stdio.js"
+    );
+    expect(isSharedNodePluginHost()).toBe(false);
+    expect(getSharedNodePluginHost()).toBeNull();
+
+    const slots = new Map([
+      [
+        "dev.vibex.one#1",
+        {
+          pluginId: "dev.vibex.one",
+          generation: 1,
+          cwd: "/plugins/one",
+          entrypoint: "/plugins/one/worker.mjs",
+          disposed: false,
+        },
+      ],
+    ]);
+    const services = new Map<string, unknown>([["shared.cache", { ok: true }]]);
+    (globalThis as Record<string, unknown>).__VIBEX_SHARED_PLUGIN_HOST__ = {
+      slots,
+      services,
+    };
+    try {
+      expect(isSharedNodePluginHost()).toBe(true);
+      const host = getSharedNodePluginHost();
+      expect(host?.slots.size).toBe(1);
+      expect(host?.services.get("shared.cache")).toEqual({ ok: true });
+    } finally {
+      delete (globalThis as Record<string, unknown>)
+        .__VIBEX_SHARED_PLUGIN_HOST__;
+    }
+  });
 });

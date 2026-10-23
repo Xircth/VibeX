@@ -1,0 +1,12 @@
+{
+  "name": "vibex.plugin-development",
+  "version": "1.2.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "validate": "node ../VibeX/packages/plugin-cli/dist/cli.js validate",
+    "test": "node ../VibeX/packages/plugin-cli/dist/cli.js test",
+    "build": "node ../VibeX/packages/plugin-cli/dist/cli.js build",
+    "pack": "node ../VibeX/packages/plugin-cli/dist/cli.js pack"
+  }
+}

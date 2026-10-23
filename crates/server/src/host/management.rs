@@ -299,8 +299,8 @@ pub async fn preflight(
             "agent_runtime" | "combined_runtime"
         )
     });
-    let mut acp_ok =
-        view.lifecycle != AgentLifecycleState::Uninstalled && acp.is_some_and(|component| component.exists);
+    let mut acp_ok = view.lifecycle != AgentLifecycleState::Uninstalled
+        && acp.is_some_and(|component| component.exists);
     let mut acp_error = None;
     let mut discovered_acp_path = None;
     if !acp_ok {

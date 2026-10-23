@@ -29,6 +29,7 @@ export type ComposerTypeaheadOption = {
   description?: string;
   insertText: string;
   sourceKind?: ComposerSlashCommandSourceKind;
+  execute?: (args: string) => void | string | Promise<void | string>;
 };
 
 export const MAX_TYPEAHEAD_OPTIONS = 50;
@@ -173,9 +174,15 @@ export function slashCommandsToTypeaheadOptions(
   query: string,
   executor: string | null | undefined
 ): ComposerTypeaheadOption[] {
-  if (!executor) return [];
+  const available = executor
+    ? all
+    : all.filter(
+        (command) =>
+          (command as Partial<ComposerSlashCommand>).sourceKind === 'plugin'
+      );
+  if (available.length === 0) return [];
 
-  const filtered = filterSlashCommands(all, query, executor);
+  const filtered = filterSlashCommands(available, query, executor);
   const ordered = [
     ...filtered.filter(
       (command) => !getSlashCommandPresentation(command, executor).isSkill
@@ -201,6 +208,7 @@ export function slashCommandsToTypeaheadOptions(
       label: `${type}${presentation.label}`,
       description: presentation.description ?? command.description ?? undefined,
       sourceKind,
+      execute: composerCommand.execute,
       insertText: formatSessionComposerCommand({
         type,
         key: type === '$' ? name : `${sourceKind}:${sourceId}:${name}`,

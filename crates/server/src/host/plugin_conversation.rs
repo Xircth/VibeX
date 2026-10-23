@@ -390,6 +390,7 @@ impl PluginConversationHost for HostPluginConversationHost {
                         config_overrides: Vec::new(),
                         workflow_refs: Vec::new(),
                         file_refs: Vec::new(),
+                        internal_prompt_contributions: Vec::new(),
                     },
                 },
             )

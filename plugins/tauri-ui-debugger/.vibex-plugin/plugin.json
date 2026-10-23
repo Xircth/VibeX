@@ -36,7 +36,7 @@
         "shortcut": {
           "type": "string",
           "title": "快捷键",
-          "description": "进入/退出选择模式。macOS 上 Alt 为 ⌥、Ctrl 为 ⌘。",
+          "description": "进入/退出选择模式的快捷键；选「关闭」则只能通过悬浮球进入。",
           "enum": [
             "Alt+Shift+C",
             "Ctrl+Shift+X",

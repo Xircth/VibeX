@@ -24,8 +24,11 @@ describe('unified toast', () => {
 
     const title = await screen.findByText('设置已保存');
     expect(title).toBeInTheDocument();
-    expect(screen.queryByText('操作已完成')).not.toBeInTheDocument();
-    expect(title.closest('.vu-toast-surface')).toHaveClass('vu-toast-surface');
+    const surface = title.closest('.vu-toast-surface');
+    // Short toasts render as a capsule; the kind title is only for screen readers.
+    expect(surface).toHaveAttribute('data-layout', 'capsule');
+    expect(title).toHaveClass('vu-toast-title');
+    expect(screen.getByText('操作已完成')).toHaveClass('vu-toast-sr-only');
     expect(
       screen.queryByRole('button', { name: '查看详情' })
     ).not.toBeInTheDocument();
@@ -200,6 +203,76 @@ describe('unified toast', () => {
       'success'
     );
     expect(completed.closest('.vu-toast-host')).toBe(loadingItem);
+  });
+
+  it('resolves localized kind titles for card toasts without a description', async () => {
+    render(<Toaster />);
+
+    act(() => {
+      toast.error('同步失败', {
+        action: { label: '重试', onClick: () => {} },
+      });
+    });
+
+    const title = await screen.findByText('操作失败');
+    expect(title).toHaveClass('vu-toast-title');
+    expect(screen.queryByText(/toast\./)).not.toBeInTheDocument();
+    expect(screen.getByText('同步失败')).toHaveClass('vu-toast-summary');
+  });
+
+  it('defines every toast i18n key in en and zh-CN', async () => {
+    const keys = [
+      'successTitle',
+      'infoTitle',
+      'warningTitle',
+      'errorTitle',
+      'loadingTitle',
+      'showDetails',
+      'hideDetails',
+      'region',
+      'close',
+    ];
+    for (const lng of ['en', 'zh-CN']) {
+      for (const key of keys) {
+        expect(i18n.exists(`app:toast.${key}`, { lng })).toBe(true);
+      }
+    }
+  });
+
+  it('renders footer actions with the shared Button component', async () => {
+    render(<Toaster />);
+
+    act(() => {
+      toast.info('有新版本', {
+        cancel: { label: '稍后', onClick: () => {} },
+        action: { label: '更新', onClick: () => {} },
+      });
+    });
+
+    const primary = await screen.findByRole('button', { name: '更新' });
+    expect(primary).toHaveClass('astryx-button', 'vu-toast-action-primary');
+    expect(screen.getByRole('button', { name: '稍后' })).toHaveClass(
+      'astryx-button',
+      'vu-toast-action-secondary'
+    );
+  });
+
+  it('marks the newest toast as the front of the stack', () => {
+    render(<Toaster />);
+
+    act(() => {
+      toast.info('甲');
+      toast.info('乙');
+    });
+
+    expect(screen.getByText('乙').closest('.vu-toast-host')).toHaveAttribute(
+      'data-stack-index',
+      '0'
+    );
+    expect(screen.getByText('甲').closest('.vu-toast-host')).toHaveAttribute(
+      'data-stack-index',
+      '1'
+    );
   });
 
   it('keeps only the three newest notifications', () => {

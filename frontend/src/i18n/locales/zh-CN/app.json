@@ -20,7 +20,12 @@
     "showDetails": "查看详情",
     "hideDetails": "收起详情",
     "region": "通知",
-    "close": "关闭通知"
+    "close": "关闭通知",
+    "successTitle": "操作已完成",
+    "infoTitle": "提示",
+    "warningTitle": "需要注意",
+    "errorTitle": "操作失败",
+    "loadingTitle": "正在处理"
   },
   "diffCard": {
     "loadingContent": "加载文件内容中…",

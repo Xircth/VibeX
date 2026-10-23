@@ -19,6 +19,7 @@ import {
 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import i18n from '@/i18n';
+import { Button } from '@/components/ui/button';
 
 import './toast.css';
 
@@ -119,6 +120,64 @@ function fallbackTitle(kind: ToastKind): string {
   return i18n.t(`app:toast.${kind}Title`);
 }
 
+// Rust and Windows I/O errors end in a parenthetical such as "(os error 32)".
+// That suffix is the diagnostic; the sentence before it is the title.
+const TRAILING_DETAIL = /^(.*?)[ \t]*[（(]([^()（）\n]+)[)）]\s*$/;
+
+function technicalDetail(inner: string): string | null {
+  const text = inner.trim();
+  if (!text || /[\u3400-\u9fff]/.test(text)) return null;
+  if (/os error\s+\d+/i.test(text)) return text;
+  if (/\berror\b/i.test(text) && /\d/.test(text)) return text;
+  if (/[\\/]/.test(text)) return text;
+  if (/\d/.test(text)) return text;
+  if (/^[A-Z][A-Z0-9_.:-]{2,}$/.test(text)) return text;
+  return null;
+}
+
+function splitTechnicalDetail(
+  message: ReactNode
+): { title: string; detail: string } | null {
+  if (typeof message !== 'string') return null;
+  const match = message.match(TRAILING_DETAIL);
+  if (!match) return null;
+  const title = match[1].trim();
+  const detail = technicalDetail(match[2]);
+  if (!title || !detail) return null;
+  return { title, detail };
+}
+
+type PresentedToast = {
+  title: ReactNode;
+  /** Visible line under the title (only when there is no separate title). */
+  summary: ReactNode | null;
+  /** Collapsed behind the disclosure: description, technical detail, details. */
+  detailRows: ToastDetail[];
+};
+
+function presentToast(
+  kind: ToastKind,
+  message: ReactNode,
+  options: ToastOptions
+): PresentedToast {
+  const detailRows: ToastDetail[] = [];
+  const split =
+    kind === 'error' || kind === 'warning'
+      ? splitTechnicalDetail(message)
+      : null;
+  if (split) detailRows.push({ description: split.detail, mono: true });
+  if (options.description != null) {
+    detailRows.push({ description: options.description });
+  }
+  if (options.details?.length) detailRows.push(...options.details);
+
+  if (split) return { title: split.title, summary: null, detailRows };
+  if (options.description != null) {
+    return { title: message, summary: null, detailRows };
+  }
+  return { title: fallbackTitle(kind), summary: message, detailRows };
+}
+
 function ToastStatusIcon({ kind }: { kind: ToastKind }) {
   const className = 'vu-toast-status-icon';
 
@@ -156,10 +215,9 @@ function ToastCard({
 }) {
   const detailsId = useId();
   const [expanded, setExpanded] = useState(false);
-  const hasDescription = options.description != null;
-  const title = hasDescription ? message : fallbackTitle(kind);
-  const summary = hasDescription ? options.description : message;
-  const hasDetails = Boolean(options.details?.length);
+  const presented = presentToast(kind, message, options);
+  const { title, summary, detailRows } = presented;
+  const hasDetails = detailRows.length > 0;
   const showClose = options.closeButton !== false && kind !== 'loading';
 
   const runAction =
@@ -192,9 +250,7 @@ function ToastCard({
       ? Math.min(1, Math.max(0, options.progress))
       : null;
   const layout =
-    hasDescription || hasDetails || hasActions || progress != null
-      ? 'card'
-      : 'capsule';
+    hasDetails || hasActions || progress != null ? 'card' : 'capsule';
   const countdown =
     Number.isFinite(duration) && duration > 0 && kind !== 'loading'
       ? ({ '--vu-toast-duration': `${duration}ms` } as CSSProperties)
@@ -229,7 +285,9 @@ function ToastCard({
           ) : (
             <>
               <div className="vu-toast-title">{title}</div>
-              <div className="vu-toast-summary">{summary}</div>
+              {summary != null ? (
+                <div className="vu-toast-summary">{summary}</div>
+              ) : null}
             </>
           )}
         </div>
@@ -288,7 +346,9 @@ function ToastCard({
             onClick={toggleDetails}
           >
             <span>
-              {options.detailsLabel ?? i18n.t('app:toast.showDetails')}
+              {expanded
+                ? i18n.t('app:toast.hideDetails')
+                : (options.detailsLabel ?? i18n.t('app:toast.showDetails'))}
             </span>
             <ChevronDown
               className={expanded ? 'is-expanded' : undefined}
@@ -297,7 +357,7 @@ function ToastCard({
           </button>
           {expanded ? (
             <div id={detailsId} className="vu-toast-details">
-              {options.details?.map((detail, index) => (
+              {detailRows.map((detail, index) => (
                 <div className="vu-toast-detail-row" key={index}>
                   {detail.title ? (
                     <div className="vu-toast-detail-title">{detail.title}</div>
@@ -321,22 +381,26 @@ function ToastCard({
       {hasActions ? (
         <div className="vu-toast-actions">
           {options.cancel ? (
-            <button
+            <Button
               type="button"
+              variant="secondary"
+              size="sm"
               className="vu-toast-action vu-toast-action-secondary"
               onClick={runAction(options.cancel)}
             >
               {options.cancel.label}
-            </button>
+            </Button>
           ) : null}
           {options.action ? (
-            <button
+            <Button
               type="button"
+              variant="primary"
+              size="sm"
               className="vu-toast-action vu-toast-action-primary"
               onClick={runAction(options.action)}
             >
               {options.action.label}
-            </button>
+            </Button>
           ) : null}
         </div>
       ) : null}

@@ -117,6 +117,9 @@ impl CollaborationHost for HostCollaborationHost {
             ) => self.update_scheduled_message(&input).await,
             ("collaboration", "space.post") => self.post(&input).await,
             ("collaboration", "space.submit") => self.submit(&input).await,
+            ("collaboration", "member.setWriteAccess" | "member.set_write_access") => {
+                self.set_write_access(&input).await
+            }
             ("collaboration", "space.receipts" | "space.listReceipts" | "space.list_receipts") => {
                 self.receipts(&input).await
             }
@@ -695,6 +698,22 @@ impl HostCollaborationHost {
             "receipts": receipts,
             "deliveries": posted.get("receipts").cloned().unwrap_or(Value::Null),
         }))
+    }
+
+    /// `writeAccess`: `write_isolated` (default) or `write_serialized`.
+    async fn set_write_access(&self, input: &Value) -> Result<Value, CollaborationHostError> {
+        let member_id = required_text(input, &["memberId", "member_id"])?;
+        let raw = required_text(input, &["writeAccess", "write_access"])?;
+        let access = collaboration::MemberWriteAccess::parse(&raw).ok_or_else(|| {
+            CollaborationHostError::new(
+                "conversation_control_failed",
+                "writeAccess must be write_isolated or write_serialized",
+            )
+        })?;
+        collaboration::set_member_write_access(&self.pool, &member_id, access)
+            .await
+            .map_err(host_error)?;
+        Ok(json!({ "memberId": member_id, "writeAccess": access.as_str() }))
     }
 
     async fn receipts(&self, input: &Value) -> Result<Value, CollaborationHostError> {

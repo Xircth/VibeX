@@ -218,9 +218,7 @@ impl HeadlessServer {
             .dispatch_queued_inputs()
             .await
             .map_err(|error| ServerBootstrapError::Conversation(error.to_string()))?;
-        conversations::spawn_idle_session_sweeper(pool.clone());
-        conversations::spawn_delayed_input_promoter(
-            pool.clone(),
+        let space_delivery =
             conversations::ScopedConversationControl::new(conversation_context.clone())
                 .delivery_context()
                 .with_space_changed({
@@ -231,8 +229,9 @@ impl HeadlessServer {
                             event,
                         );
                     }
-                }),
-        );
+                });
+        conversations::spawn_idle_session_sweeper(pool.clone(), space_delivery.clone());
+        conversations::spawn_delayed_input_promoter(pool.clone(), space_delivery);
 
         let preview_host: Arc<dyn PluginPreviewHost> = Arc::new(
             plugins::ExternalProcessPreviewHost::new(plugin_control_plane.clone()),

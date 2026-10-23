@@ -3568,6 +3568,17 @@ async fn deliver_pending(
                 continue;
             }
         }
+        if !try_acquire_member_write(pool, conversation_id).await? {
+            receipts.push(DeliveryReceipt {
+                conversation_id,
+                nickname,
+                delivered: "deferred".to_string(),
+                state: delivery.receipt_state.clone(),
+                input_id: None,
+                error_code: Some("write_serialized_busy".to_string()),
+            });
+            continue;
+        }
         let context_from = match delivery.context_from_seq {
             Some(from) => from,
             None => {
@@ -4857,13 +4868,18 @@ pub async fn sleep_idle_sessions(
     Ok(result.rows_affected())
 }
 
-/// Background sweeper for [`sleep_idle_sessions`], once a minute.
-pub fn spawn_idle_session_sweeper(pool: SqlitePool) {
+/// Background sweeper, once a minute: puts idle sessions to sleep
+/// ([`sleep_idle_sessions`]) and retries deferred deliveries
+/// ([`redeliver_deferred`]).
+pub fn spawn_idle_session_sweeper(pool: SqlitePool, delivery: DeliveryContext) {
     tokio::spawn(async move {
         loop {
             let minutes = idle_sleep_minutes();
             if let Err(error) = sleep_idle_sessions(&pool, minutes).await {
                 tracing::warn!(%error, "idle member session sweep failed");
+            }
+            if let Err(error) = redeliver_deferred(&pool, &delivery).await {
+                tracing::warn!(%error, "deferred delivery sweep failed");
             }
             tokio::time::sleep(std::time::Duration::from_secs(60)).await;
         }
@@ -5238,6 +5254,245 @@ async fn load_handoff(pool: &SqlitePool, id: &str) -> Result<Option<HandoffRow>,
     .fetch_optional(pool)
     .await
     .map_err(db)
+}
+
+/// How several sessions of one member share a repository checkout.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum MemberWriteAccess {
+    /// Default: every extra session gets its own worktree workspace.
+    WriteIsolated,
+    /// Sessions share the checkout and take turns (one writer at a time).
+    WriteSerialized,
+}
+
+impl MemberWriteAccess {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::WriteIsolated => "write_isolated",
+            Self::WriteSerialized => "write_serialized",
+        }
+    }
+
+    pub fn parse(raw: &str) -> Option<Self> {
+        match raw.trim() {
+            "write_isolated" | "isolated" => Some(Self::WriteIsolated),
+            "write_serialized" | "serialized" => Some(Self::WriteSerialized),
+            _ => None,
+        }
+    }
+}
+
+pub async fn set_member_write_access(
+    pool: &SqlitePool,
+    member_id: &str,
+    access: MemberWriteAccess,
+) -> Result<(), CollaborationError> {
+    let updated = sqlx::query("UPDATE collaboration_members SET write_access = ? WHERE id = ?")
+        .bind(access.as_str())
+        .bind(member_id)
+        .execute(pool)
+        .await
+        .map_err(db)?;
+    if updated.rows_affected() == 0 {
+        return Err(CollaborationError::new("not_found", "member was not found"));
+    }
+    Ok(())
+}
+
+/// Repo write plan of one member session.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct MemberWritePlan {
+    pub member_id: String,
+    pub access: MemberWriteAccess,
+    /// Workspace (repo set) the session belongs to.
+    pub workspace_id: Uuid,
+    /// Other live sessions of the same member in that workspace.
+    pub siblings: Vec<Uuid>,
+    /// The member's earliest session in the workspace keeps the native
+    /// checkout; every other one is isolated under WriteIsolated.
+    pub primary: bool,
+    /// Worktree workspace already provisioned for this session, if any.
+    pub isolated_workspace_id: Option<Uuid>,
+}
+
+impl MemberWritePlan {
+    /// True when this session must get its own worktree before writing.
+    pub fn needs_isolated_workspace(&self) -> bool {
+        self.access == MemberWriteAccess::WriteIsolated
+            && !self.primary
+            && self.isolated_workspace_id.is_none()
+    }
+}
+
+/// Plan for `conversation_id`, or `None` when it is not a member session.
+pub async fn plan_member_write(
+    pool: &SqlitePool,
+    conversation_id: Uuid,
+) -> Result<Option<MemberWritePlan>, CollaborationError> {
+    let Some(binding) = seat_binding(pool, conversation_id).await? else {
+        return Ok(None);
+    };
+    let Some(session) = load_session(pool, conversation_id).await? else {
+        return Ok(None);
+    };
+    let access: String =
+        sqlx::query_scalar("SELECT write_access FROM collaboration_members WHERE id = ?")
+            .bind(&binding.member_id)
+            .fetch_one(pool)
+            .await
+            .map_err(db)?;
+    let access = MemberWriteAccess::parse(&access).unwrap_or(MemberWriteAccess::WriteIsolated);
+    let mut same_workspace = Vec::new();
+    for row in identity::member_bindings(pool, &binding.member_id)
+        .await
+        .map_err(db)?
+    {
+        let Ok(id) = Uuid::parse_str(&row.conversation_id) else {
+            continue;
+        };
+        let Some(head) = load_session(pool, id).await? else {
+            continue;
+        };
+        if head.workspace_id == session.workspace_id
+            && head.deleted_at.is_none()
+            && head.status != "archived"
+        {
+            same_workspace.push(id);
+        }
+    }
+    // member_bindings is ordered by joined_at: the first one is primary.
+    let primary = same_workspace.first() == Some(&conversation_id);
+    let siblings = same_workspace
+        .into_iter()
+        .filter(|id| *id != conversation_id)
+        .collect();
+    let isolated_workspace_id: Option<String> = sqlx::query_scalar(
+        "SELECT isolated_workspace_id FROM member_session_workspaces WHERE conversation_id = ?",
+    )
+    .bind(conversation_id.to_string())
+    .fetch_optional(pool)
+    .await
+    .map_err(db)?;
+    Ok(Some(MemberWritePlan {
+        member_id: binding.member_id,
+        access,
+        workspace_id: session.workspace_id,
+        siblings,
+        primary,
+        isolated_workspace_id: isolated_workspace_id.and_then(|raw| Uuid::parse_str(&raw).ok()),
+    }))
+}
+
+/// Record the worktree workspace provisioned for a WriteIsolated session.
+pub async fn record_member_session_workspace(
+    pool: &SqlitePool,
+    plan: &MemberWritePlan,
+    conversation_id: Uuid,
+    isolated_workspace_id: Uuid,
+    evidence: &Value,
+) -> Result<(), CollaborationError> {
+    sqlx::query(
+        r#"INSERT INTO member_session_workspaces
+           (conversation_id, member_id, parent_workspace_id, isolated_workspace_id,
+            evidence_json, created_at)
+           VALUES (?, ?, ?, ?, ?, ?)
+           ON CONFLICT(conversation_id) DO NOTHING"#,
+    )
+    .bind(conversation_id.to_string())
+    .bind(&plan.member_id)
+    .bind(plan.workspace_id.to_string())
+    .bind(isolated_workspace_id.to_string())
+    .bind(evidence.to_string())
+    .bind(now_stamp())
+    .execute(pool)
+    .await
+    .map_err(db)?;
+    Ok(())
+}
+
+/// Whether a session is doing (or about to do) work: running turn or
+/// queued/claimed input.
+async fn session_busy(pool: &SqlitePool, conversation_id: Uuid) -> Result<bool, CollaborationError> {
+    let busy: i64 = sqlx::query_scalar(
+        r#"SELECT
+             EXISTS (SELECT 1 FROM sessions WHERE id = ? AND active_turn_id IS NOT NULL)
+           OR EXISTS (SELECT 1 FROM conversation_inputs
+                      WHERE conversation_id = ? AND status IN ('queued', 'claimed'))"#,
+    )
+    .bind(conversation_id)
+    .bind(conversation_id)
+    .fetch_one(pool)
+    .await
+    .map_err(db)?;
+    Ok(busy != 0)
+}
+
+/// WriteSerialized gate: take the member's write lease for the workspace.
+/// A lease whose holder is no longer busy is stale and is taken over.
+/// Always `true` for sessions that need no serialization.
+pub async fn try_acquire_member_write(
+    pool: &SqlitePool,
+    conversation_id: Uuid,
+) -> Result<bool, CollaborationError> {
+    let Some(plan) = plan_member_write(pool, conversation_id).await? else {
+        return Ok(true);
+    };
+    if plan.access != MemberWriteAccess::WriteSerialized || plan.siblings.is_empty() {
+        return Ok(true);
+    }
+    let holder: Option<String> = sqlx::query_scalar(
+        "SELECT conversation_id FROM member_write_leases WHERE member_id = ? AND workspace_id = ?",
+    )
+    .bind(&plan.member_id)
+    .bind(plan.workspace_id.to_string())
+    .fetch_optional(pool)
+    .await
+    .map_err(db)?;
+    if let Some(holder) = holder.and_then(|raw| Uuid::parse_str(&raw).ok())
+        && holder != conversation_id
+        && session_busy(pool, holder).await?
+    {
+        return Ok(false);
+    }
+    sqlx::query(
+        r#"INSERT INTO member_write_leases (member_id, workspace_id, conversation_id, acquired_at)
+           VALUES (?, ?, ?, ?)
+           ON CONFLICT(member_id, workspace_id) DO UPDATE
+             SET conversation_id = excluded.conversation_id, acquired_at = excluded.acquired_at"#,
+    )
+    .bind(&plan.member_id)
+    .bind(plan.workspace_id.to_string())
+    .bind(conversation_id.to_string())
+    .bind(now_stamp())
+    .execute(pool)
+    .await
+    .map_err(db)?;
+    Ok(true)
+}
+
+/// Retry deliveries that were deferred (wake cap or write serialization):
+/// queued rows with no input yet. Returns how many messages were retried.
+pub async fn redeliver_deferred(
+    pool: &SqlitePool,
+    delivery: &DeliveryContext,
+) -> Result<usize, CollaborationError> {
+    let pending = sqlx::query_as::<_, (String, String)>(
+        r#"SELECT DISTINCT m.space_id, d.space_message_id
+           FROM collaboration_space_deliveries d
+           JOIN collaboration_space_messages m ON m.id = d.space_message_id
+           WHERE d.status = 'queued' AND d.input_id IS NULL
+           LIMIT 100"#,
+    )
+    .fetch_all(pool)
+    .await
+    .map_err(db)?;
+    for (space_id, message_id) in &pending {
+        if let Err(error) = deliver_pending(pool, space_id, message_id, delivery).await {
+            tracing::warn!(%error, %message_id, "deferred space delivery retry failed");
+        }
+    }
+    Ok(pending.len())
 }
 
 /// How an agent seat obtains its conversation.
@@ -8536,6 +8791,108 @@ mod tests {
         assert!(posted.envelope["content"].as_str().unwrap().contains("失败"));
         // Replaying the same operation returns the recorded outcome.
         assert_eq!(handoff(&pool, request).await.unwrap(), failed);
+    }
+
+    #[tokio::test]
+    async fn member_sessions_on_one_repo_default_to_isolated() {
+        let pool = setup_pool().await;
+        let workspace = Uuid::new_v4();
+        let a = Uuid::new_v4();
+        let b = Uuid::new_v4();
+        create_session(&pool, a, workspace, Some("小A")).await;
+        create_session(&pool, b, workspace, Some("小B")).await;
+        let first = space_of(&pool, a).await;
+        let second = space_of(&pool, a).await;
+        add_space_member(&pool, a, &first, b, "小B", Uuid::new_v4())
+            .await
+            .unwrap();
+        let forked = Uuid::parse_str(
+            add_space_member(&pool, a, &second, b, "小B", Uuid::new_v4())
+                .await
+                .unwrap()
+                .conversation_id
+                .as_deref()
+                .unwrap(),
+        )
+        .unwrap();
+        let primary = plan_member_write(&pool, b).await.unwrap().unwrap();
+        assert_eq!(primary.access, MemberWriteAccess::WriteIsolated);
+        assert!(primary.primary);
+        assert_eq!(primary.siblings, vec![forked]);
+        assert!(!primary.needs_isolated_workspace());
+        let extra = plan_member_write(&pool, forked).await.unwrap().unwrap();
+        assert!(!extra.primary);
+        assert!(extra.needs_isolated_workspace());
+        let isolated = Uuid::new_v4();
+        record_member_session_workspace(&pool, &extra, forked, isolated, &json!({}))
+            .await
+            .unwrap();
+        let extra = plan_member_write(&pool, forked).await.unwrap().unwrap();
+        assert_eq!(extra.isolated_workspace_id, Some(isolated));
+        assert!(!extra.needs_isolated_workspace());
+        // Isolated sessions never wait for each other.
+        mark_running(&pool, b).await;
+        assert!(try_acquire_member_write(&pool, forked).await.unwrap());
+        // A conversation without a member identity has no plan.
+        let loose = Uuid::new_v4();
+        create_session(&pool, loose, workspace, Some("散")).await;
+        assert!(plan_member_write(&pool, loose).await.unwrap().is_none());
+    }
+
+    #[tokio::test]
+    async fn write_serialized_member_sessions_take_turns() {
+        let pool = setup_pool().await;
+        let workspace = Uuid::new_v4();
+        let a = Uuid::new_v4();
+        let b = Uuid::new_v4();
+        create_session(&pool, a, workspace, Some("小A")).await;
+        create_session(&pool, b, workspace, Some("小B")).await;
+        let first = space_of(&pool, a).await;
+        let second = space_of(&pool, a).await;
+        add_space_member(&pool, a, &first, b, "小B", Uuid::new_v4())
+            .await
+            .unwrap();
+        let forked = Uuid::parse_str(
+            add_space_member(&pool, a, &second, b, "小B", Uuid::new_v4())
+                .await
+                .unwrap()
+                .conversation_id
+                .as_deref()
+                .unwrap(),
+        )
+        .unwrap();
+        let member = identity::member_id_for_conversation(b);
+        set_member_write_access(&pool, &member, MemberWriteAccess::WriteSerialized)
+            .await
+            .unwrap();
+        assert!(set_member_write_access(&pool, "ghost", MemberWriteAccess::WriteSerialized)
+            .await
+            .is_err());
+        assert!(!plan_member_write(&pool, forked).await.unwrap().unwrap().needs_isolated_workspace());
+
+        // b's first-space session takes the lease and is busy.
+        assert!(try_acquire_member_write(&pool, b).await.unwrap());
+        let turn = mark_running(&pool, b).await;
+        // A delivery to the same member's other session waits.
+        let posted = post_as(&pool, Some(a), &second, "@小B 第二空间的活", &[]).await;
+        let deferred = posted
+            .receipts
+            .iter()
+            .find(|r| r.conversation_id == forked)
+            .unwrap();
+        assert_eq!(deferred.error_code.as_deref(), Some("write_serialized_busy"));
+        assert!(inputs_of(&pool, forked).await.is_empty());
+
+        // b finishes; the sweeper retry delivers the deferred message.
+        sqlx::query("UPDATE sessions SET active_turn_id = NULL WHERE id = ?")
+            .bind(b)
+            .execute(&pool)
+            .await
+            .unwrap();
+        let _ = turn;
+        assert_eq!(redeliver_deferred(&pool, &DeliveryContext::default()).await.unwrap(), 1);
+        assert_eq!(inputs_of(&pool, forked).await.len(), 1);
+        assert_eq!(redeliver_deferred(&pool, &DeliveryContext::default()).await.unwrap(), 0);
     }
 
     #[tokio::test]

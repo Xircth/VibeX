@@ -806,6 +806,29 @@ async fn create_isolated_step_workspace(
     attempt: i64,
     isolated_workspace_id: Uuid,
 ) -> Result<(Uuid, serde_json::Value), ApplicationError> {
+    create_isolated_workspace(
+        context,
+        parent_workspace_id,
+        isolated_workspace_id,
+        format!("workflow/{run_id}/step-{step_id}-attempt-{attempt}"),
+        format!("Workflow {run_id} · {step_id} · attempt {attempt}"),
+        "workflow",
+    )
+    .await
+}
+
+/// Create (or reuse) a worktree-backed child workspace of
+/// `parent_workspace_id` on `branch`, covering every repo of the parent.
+/// Shared by workflow `write_isolated` steps and collaboration members'
+/// WriteIsolated sessions. Returns the workspace id and checkpoint evidence.
+pub(crate) async fn create_isolated_workspace(
+    context: &ConversationContext,
+    parent_workspace_id: Uuid,
+    isolated_workspace_id: Uuid,
+    branch: String,
+    title: String,
+    purpose: &str,
+) -> Result<(Uuid, serde_json::Value), ApplicationError> {
     let pool = &context.deployment.db().pool;
     let parent = Workspace::find_by_id(pool, parent_workspace_id)
         .await
@@ -819,7 +842,6 @@ async fn create_isolated_step_workspace(
             "write_isolated requires at least one repository",
         ));
     }
-    let branch = format!("workflow/{run_id}/step-{step_id}-attempt-{attempt}");
     let agent_working_dir = match repos.as_slice() {
         [repo] => Some(repo.repo.default_working_dir.as_deref().map_or_else(
             || repo.repo.name.clone(),
@@ -838,7 +860,6 @@ async fn create_isolated_step_workspace(
     {
         existing
     } else {
-        let title = format!("Workflow {run_id} · {step_id} · attempt {attempt}");
         let task = Task::create(
             pool,
             &CreateTask {
@@ -894,7 +915,7 @@ async fn create_isolated_step_workspace(
         let _ = Workspace::delete(pool, workspace.id).await;
         let _ = Task::delete(pool, workspace.task_id).await;
         return Err(ApplicationError::internal(format!(
-            "failed to create isolated workflow worktree: {error}"
+            "failed to create isolated {purpose} worktree: {error}"
         )));
     }
     let materialized = Workspace::find_by_id(pool, workspace.id)
@@ -1821,4 +1842,50 @@ mod tests {
 
         assert_eq!(final_assistant_text(&events).as_deref(), Some("最终结论"));
     }
+}
+
+/// Give a collaboration member session its own worktree workspace when the
+/// member's policy is WriteIsolated and another session of the same member
+/// already works in that workspace. Reuses the workflow `write_isolated`
+/// provisioning. Returns the isolated workspace id when one applies.
+pub async fn ensure_member_session_workspace(
+    context: &ConversationContext,
+    conversation_id: Uuid,
+) -> Result<Option<Uuid>, ApplicationError> {
+    let pool = &context.deployment.db().pool;
+    let plan = conversations::collaboration::plan_member_write(pool, conversation_id)
+        .await
+        .map_err(|error| ApplicationError::internal(error.message.clone()))?;
+    let Some(plan) = plan else {
+        return Ok(None);
+    };
+    if let Some(existing) = plan.isolated_workspace_id {
+        return Ok(Some(existing));
+    }
+    if !plan.needs_isolated_workspace() {
+        return Ok(None);
+    }
+    let isolated_id = Uuid::new_v5(
+        &Uuid::NAMESPACE_OID,
+        format!("vibex-member-worktree:{conversation_id}").as_bytes(),
+    );
+    let (workspace_id, evidence) = create_isolated_workspace(
+        context,
+        plan.workspace_id,
+        isolated_id,
+        format!("member/{}/{conversation_id}", plan.member_id),
+        format!("Member session {conversation_id}"),
+        "member session",
+    )
+    .await?;
+    conversations::collaboration::record_member_session_workspace(
+        pool,
+        &plan,
+        conversation_id,
+        workspace_id,
+        &evidence,
+    )
+    .await
+    .map_err(|error| ApplicationError::internal(error.message.clone()))?;
+    Ok(Some(workspace_id))
 }

@@ -22,6 +22,18 @@ export default {
       },
     });
 
+    ctx.ui.registerCommand({
+      id: 'vibex.session-enhance.toggle-hints',
+      title: 'Toggle Session Enhance Turn Hints',
+      category: 'Session',
+      icon: 'message-square',
+      handler: async () => {
+        const current = Boolean(await ctx.storage.kv.get('injectHints'));
+        await ctx.storage.kv.set('injectHints', !current);
+        return { injectHints: !current };
+      },
+    });
+
     ctx.services.inject(
       ['vibex.provider-catalog', 'vibex.usage'],
       ([providerCatalog, usageService]) => {
@@ -36,6 +48,9 @@ export default {
         ctx.services.provide('vibex.session-enhance', {
           activeTemplateCount: templates.length,
           canProbeUsage: typeof usageService?.probeAgentUsage === 'function',
+          async getLastCapturedMeta() {
+            return await ctx.storage.kv.get('lastCapturedMeta');
+          },
         });
       }
     );

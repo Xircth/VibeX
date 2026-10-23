@@ -64,8 +64,22 @@ export default {
       ctx.registerProvider(provider);
     }
 
+    ctx.ui.registerCommand({
+      id: 'vibex.provider-switch.open-catalog',
+      title: 'Browse Model Provider Catalog',
+      category: 'Providers',
+      icon: 'layers',
+      handler: () => {
+        ctx.events.emit('provider-switch:open-catalog', {
+          providerCount: DEFAULT_PROVIDERS.length,
+        });
+      },
+    });
+
     ctx.provideService('vibex.provider-catalog', {
       listProviders: () => DEFAULT_PROVIDERS,
+      getProvider: (id) =>
+        DEFAULT_PROVIDERS.find((p) => p.id === id) ?? undefined,
       listTemplates: (agentId) =>
         agentId
           ? CURATED_TEMPLATES.filter((t) => t.agent_id === agentId)
@@ -83,7 +97,8 @@ export default {
         pluginLabel: 'ProviderSwitch',
         label: 'Official Provider Catalog',
         agents: ['opencode', 'claude-code', 'codex'],
-        description: 'Curated model provider templates grouped by Agent runtime.',
+        description:
+          'Curated model provider templates grouped by Agent runtime.',
         templates: CURATED_TEMPLATES,
       });
       ctx.effect(() => disposeSource);

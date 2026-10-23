@@ -31,9 +31,26 @@
       "resource": "contents/skills/session-notes"
     },
     {
+      "id": "notes",
+      "kind": "app.panel",
+      "title": "Workspace Notes",
+      "icon": "sticky-note",
+      "defaultPosition": "right"
+    },
+    {
       "id": "open-notes",
       "kind": "app.command",
       "label": "Open Workspace Notes"
+    },
+    {
+      "id": "vibex.notes.new",
+      "kind": "app.command",
+      "label": "Create Quick Note"
+    },
+    {
+      "id": "vibex.notes.export-markdown",
+      "kind": "app.command",
+      "label": "Export Workspace Notes as Markdown"
     }
   ]
 }

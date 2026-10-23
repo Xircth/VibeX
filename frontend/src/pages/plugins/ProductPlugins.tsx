@@ -34,6 +34,7 @@ import {
   type CoreFoundationArtworkKey,
   type CorePluginRuntimeSnapshot,
 } from '@/features/plugins/coreFoundationPlugins';
+import { syncMonorepoPluginRuntime } from '@/features/plugins/monorepoPluginBootstrap';
 import {
   appSurfaceDescriptors,
   createBackendAppSurfaceTransport,
@@ -149,10 +150,13 @@ async function activateInstalledPlugin(
     supports: (capability: string) => boolean;
   }
 ): Promise<{ plugin: PluginControlItem; configureError?: unknown }> {
-  if (plugin.enableSupported === false || plugin.enabled) {
+  if (plugin.enableSupported === false) {
     return { plugin };
   }
-  const updated = await deps.api.setEnabled(plugin.id, true);
+  const updated = plugin.enabled
+    ? plugin
+    : await deps.api.setEnabled(plugin.id, true);
+  await syncMonorepoPluginRuntime(plugin.id, true);
   try {
     if (deps.supports('plugin.write')) {
       if (plugin.skills.length > 0) {
@@ -325,6 +329,7 @@ export function PluginCatalogPage() {
       try {
         if (!enabled) {
           const updated = await api.setEnabled(plugin.id, false);
+          await syncMonorepoPluginRuntime(plugin.id, false);
           setPlugins((current) => replacePlugin(current, updated));
           toast.success(t('plugins.productDisabled', { name }));
           return;
@@ -612,6 +617,7 @@ export function PluginCatalogPage() {
     setBusyId(target.id);
     try {
       await api.uninstall(target.id, !deletePluginData);
+      await syncMonorepoPluginRuntime(target.id, false);
       setUninstallTarget(null);
       setPlugins((current) =>
         current.filter((plugin) => plugin.id !== target.id)
@@ -734,12 +740,6 @@ export function PluginCatalogPage() {
     <main className="product-plugins-page dsh-plugins-page">
       <header className="product-plugins-header">
         <div className="chat-channel-heading">
-          <div className="chat-channel-heading__copy">
-            <h2>
-              <Puzzle aria-hidden="true" />
-              <span>{t('plugins.productTitle')}</span>
-            </h2>
-          </div>
           <div className="chat-channel-heading__actions">
             <PluginCatalogActions
               canAdd={canInstall}
@@ -1519,7 +1519,6 @@ export function MarketplacePluginDetailPage() {
       setPlugins((current) => upsertPlugin(current, imported));
       await refresh(false);
       toast.success(t('plugins.productInstalled', { name }));
-      navigate(`/plugins/${encodeURIComponent(imported.id)}`);
       try {
         const { plugin: activated } = await activateInstalledPlugin(imported, {
           api,
@@ -1531,6 +1530,7 @@ export function MarketplacePluginDetailPage() {
           description: errorMessage(error),
         });
       }
+      navigate(`/plugins/${encodeURIComponent(imported.id)}`);
     } catch (error) {
       toast.error(t('plugins.productImportFailed'), {
         description: errorMessage(error),

@@ -31,9 +31,24 @@
       "resource": "contents/skills/kanban-triage"
     },
     {
+      "id": "triage-board",
+      "kind": "app.kanban.view",
+      "label": "Triage Matrix"
+    },
+    {
+      "id": "velocity-timeline",
+      "kind": "app.kanban.view",
+      "label": "Sprint Velocity"
+    },
+    {
       "id": "kanban-filter-command",
       "kind": "app.command",
       "label": "Filter Kanban Tasks"
+    },
+    {
+      "id": "vibex.kanban.triage",
+      "kind": "app.command",
+      "label": "Triage Kanban Board Tasks"
     }
   ]
 }

@@ -18,6 +18,69 @@
     "vibex": ">=0.1.3 <1.0.0",
     "pluginSdk": "^2.0.0"
   },
+  "config": {
+    "schema": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "mode": {
+          "type": "string",
+          "title": "Enhancement Mode",
+          "description": "Strategy used to refine prompts (structured checklist, custom constraint template, or host LLM service).",
+          "enum": [
+            "structured",
+            "custom-template",
+            "host-service"
+          ],
+          "default": "structured"
+        },
+        "autoEnhanceBeforeTurn": {
+          "type": "boolean",
+          "title": "Auto-Enhance Before Turn",
+          "description": "Automatically refine user prompts and inject engineering constraints via the beforeTurn hook.",
+          "default": false
+        },
+        "customConstraintTemplate": {
+          "type": "string",
+          "title": "Custom Constraint Template",
+          "description": "System constraints appended or injected when refining prompts.",
+          "default": "[Constraints: Complete implementation, verify with tests.]"
+        },
+        "includeAcceptanceCriteria": {
+          "type": "boolean",
+          "title": "Include Acceptance Criteria",
+          "description": "Include root-cause analysis and verification steps in structured prompts.",
+          "default": true
+        }
+      }
+    }
+  },
+  "configuration": {
+    "type": "object",
+    "properties": {
+      "mode": {
+        "type": "string",
+        "enum": [
+          "structured",
+          "custom-template",
+          "host-service"
+        ],
+        "default": "structured"
+      },
+      "autoEnhanceBeforeTurn": {
+        "type": "boolean",
+        "default": false
+      },
+      "customConstraintTemplate": {
+        "type": "string",
+        "default": "[Constraints: Complete implementation, verify with tests.]"
+      },
+      "includeAcceptanceCriteria": {
+        "type": "boolean",
+        "default": true
+      }
+    }
+  },
   "entrypoints": {
     "app": {
       "entry": "app/main.js",
@@ -34,6 +97,16 @@
       "id": "enhance-prompt-command",
       "kind": "app.command",
       "label": "Enhance Composer Prompt"
+    },
+    {
+      "id": "enhance-prompt",
+      "kind": "app.composer.action",
+      "label": "Enhance Prompt"
+    },
+    {
+      "id": "enhance",
+      "kind": "app.slash.command",
+      "label": "/enhance"
     }
   ]
 }

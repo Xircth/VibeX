@@ -3,5 +3,9 @@
   "version": "2.0.0",
   "private": true,
   "type": "module",
-  "main": "app/main.js"
+  "main": "app/main.js",
+  "dependencies": {
+    "@vibex/plugin-sdk": "^2.0.0",
+    "react": "^19.2.8"
+  }
 }

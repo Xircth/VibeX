@@ -1,9 +1,15 @@
-import { useEffect, useRef } from 'react';
+import { useCallback, useEffect, useRef } from 'react';
 import {
   buildClickedElementData,
   useClickedElements,
 } from '@/contexts/ClickedElementsProvider';
 import { backendListen } from '@/lib/backendTransport';
+import {
+  type ComposerDraftTargetHandle,
+  type ComposerDraftToken,
+  getActiveComposerDraftTargetId,
+  registerComposerDraftTarget,
+} from '@/lib/composerDraftTargets';
 import { insertPreviewElementToken } from './sessionComposerStructuredTokens';
 
 const DRAFT_INSERT_EVENT = 'plugin-conversation-draft-insert';
@@ -16,7 +22,7 @@ export function useSessionComposerPreviewElementInsertion({
   enabled: boolean;
   getMessage: () => string;
   onChange: (message: string) => void;
-}) {
+}): { markFocused: () => void } {
   const { registerOnElementAdded, workspaceRoot } = useClickedElements();
   const initialMessage = getMessage();
   const getMessageRef = useRef(getMessage);
@@ -61,6 +67,44 @@ export function useSessionComposerPreviewElementInsertion({
     });
   }, [enabled, registerOnElementAdded, workspaceRoot]);
 
+  const insertDraftToken = useCallback((token: ComposerDraftToken) => {
+    const externalMessage = getMessageRef.current();
+    if (externalMessage !== lastExternalMessageRef.current) {
+      lastExternalMessageRef.current = externalMessage;
+      draftMessageRef.current = externalMessage;
+    }
+    const currentMessage = draftMessageRef.current;
+    const next = insertPreviewElementToken({
+      value: currentMessage,
+      selectionStart: currentMessage.length,
+      selectionEnd: currentMessage.length,
+      componentName: token.label,
+      filePath: '',
+      fullMarkdown: token.markdown,
+    });
+    draftMessageRef.current = next.value;
+    onChangeRef.current(next.value);
+  }, []);
+
+  const handleRef = useRef<ComposerDraftTargetHandle | null>(null);
+  const enabledRef = useRef(enabled);
+  enabledRef.current = enabled;
+
+  useEffect(() => {
+    if (!enabled) return undefined;
+    const handle = registerComposerDraftTarget({
+      isEditable: () => enabledRef.current,
+      insert: insertDraftToken,
+    });
+    handleRef.current = handle;
+    return () => {
+      handle.dispose();
+      if (handleRef.current === handle) handleRef.current = null;
+    };
+  }, [enabled, insertDraftToken]);
+
+  // Backend-emitted insertions (e.g. from plugin workers) target only the most
+  // recently focused editable composer, so split views insert exactly once.
   useEffect(() => {
     if (!enabled) return undefined;
     let disposed = false;
@@ -71,22 +115,9 @@ export function useSessionComposerPreviewElementInsertion({
         const label = payload.token?.label?.trim();
         const markdown = payload.token?.markdown?.trim();
         if (!label || !markdown) return;
-        const externalMessage = getMessageRef.current();
-        if (externalMessage !== lastExternalMessageRef.current) {
-          lastExternalMessageRef.current = externalMessage;
-          draftMessageRef.current = externalMessage;
-        }
-        const currentMessage = draftMessageRef.current;
-        const next = insertPreviewElementToken({
-          value: currentMessage,
-          selectionStart: currentMessage.length,
-          selectionEnd: currentMessage.length,
-          componentName: label,
-          filePath: '',
-          fullMarkdown: markdown,
-        });
-        draftMessageRef.current = next.value;
-        onChangeRef.current(next.value);
+        const handle = handleRef.current;
+        if (!handle || getActiveComposerDraftTargetId() !== handle.id) return;
+        insertDraftToken({ label, markdown });
       }
     ).then((dispose) => {
       if (disposed) dispose();
@@ -96,5 +127,11 @@ export function useSessionComposerPreviewElementInsertion({
       disposed = true;
       unlisten?.();
     };
-  }, [enabled]);
+  }, [enabled, insertDraftToken]);
+
+  const markFocused = useCallback(() => {
+    handleRef.current?.markFocused();
+  }, []);
+
+  return { markFocused };
 }

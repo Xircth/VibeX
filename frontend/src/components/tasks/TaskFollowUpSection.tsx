@@ -992,11 +992,12 @@ export function TaskFollowUpSection({
     [localMessage]
   );
 
-  useSessionComposerPreviewElementInsertion({
-    enabled: isEditable,
-    getMessage: getPreviewInsertionMessage,
-    onChange: handleEditorChange,
-  });
+  const { markFocused: markDraftTargetFocused } =
+    useSessionComposerPreviewElementInsertion({
+      enabled: isEditable,
+      getMessage: getPreviewInsertionMessage,
+      onChange: handleEditorChange,
+    });
 
   const { handleAttachImages } = useSessionComposerImageUpload({
     workspaceId,
@@ -1155,7 +1156,10 @@ export function TaskFollowUpSection({
               onRemoveImage={handleRemoveImage}
             />
           }
-          onFocus={handleComposerFocus}
+          onFocus={() => {
+            markDraftTargetFocused();
+            handleComposerFocus();
+          }}
           onBlur={handleComposerBlur}
         >
           {hideComposerForLoadFailure ? null : (

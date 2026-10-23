@@ -290,7 +290,7 @@ describe('CollaborationSpacePage', () => {
       document.querySelector('.collaboration-thread .conv-message-nav-rail')
     ).toBeTruthy();
 
-    // Setting a space tag color colors the rounded-rectangle space N-grid icon background while keeping cells gray
+    // Setting a space tag color draws the group avatar tag ring
     await user.click(screen.getByRole('button', { name: '标签 设计' }));
     await user.click(await screen.findByRole('button', { name: '蓝色' }));
     const spaceButton = screen.getByRole('button', { name: '设计' });
@@ -298,10 +298,11 @@ describe('CollaborationSpacePage', () => {
       '[data-tag-color="blue"]'
     ) as HTMLElement | null;
     expect(spaceIcon).toBeTruthy();
-    expect(spaceIcon).toHaveAttribute('data-grid-size', '4');
-    expect(
-      spaceIcon?.querySelectorAll('.collaboration-space-icon-cell')
-    ).toHaveLength(4);
+    expect(spaceIcon).toHaveClass('group-avatar--tagged');
+    expect(Number(spaceIcon?.getAttribute('data-member-count'))).toBe(
+      spaceIcon?.querySelectorAll('.group-avatar-slot:not([data-overlay])')
+        .length
+    );
     expect(spaceButton.querySelector('.collaboration-space-tag')).toBeNull();
 
     // Right preview area is hidden until a member or file is selected

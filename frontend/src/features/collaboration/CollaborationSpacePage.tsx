@@ -4630,7 +4630,7 @@ export function CollaborationSpacePage({
                                     preset.id === groupTagConfig.colorId
                                 )
                               : undefined;
-                            const groupAvatars = groupMembers.map((member) =>
+                            const groupAvatars = agentRoster(groupMembers).map((member) =>
                               getMemberAvatar(
                                 member.conversation_id ?? undefined,
                                 displayName(member)

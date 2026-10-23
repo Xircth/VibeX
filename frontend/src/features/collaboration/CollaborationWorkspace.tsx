@@ -49,6 +49,7 @@ import {
   type TeamTemplate,
   type ThreadActivity,
   type ThreadFilter,
+  directChatNotices,
 } from './threadModel';
 
 export const COLLABORATION_RECEIPTS_CHANGED_EVENT =
@@ -359,6 +360,28 @@ export function CollaborationWorkspace({
     void loadGroup().catch((cause) => setError(surfaceErrorCopy(cause)));
   }, [loadGroup]);
 
+  const directViewer = selectedMember?.nickname ?? '';
+  // Member-to-member traffic in the direct-chat space, for cross-DM lines.
+  const [directSpaceMessages, setDirectSpaceMessages] = useState<WireMessage[]>(
+    []
+  );
+  const loadDirectSpace = useCallback(async () => {
+    if (!directViewer || !directSpaceId) return;
+    const page = await collaborationCall<{ messages?: WireMessage[] }>(
+      'collaboration',
+      'space.listMessages',
+      { spaceId: directSpaceId, latest: true, limit: 200 }
+    );
+    setDirectSpaceMessages(page.messages ?? []);
+  }, [directSpaceId, directViewer]);
+  useEffect(() => {
+    void loadDirectSpace().catch(() => undefined);
+  }, [loadDirectSpace, reloadToken]);
+  const directNotices = useMemo(
+    () => directChatNotices(directViewer, directSpaceMessages),
+    [directSpaceMessages, directViewer]
+  );
+
   const [threadCards, setThreadCards] = useState<PendingCard[]>([]);
   useEffect(() => {
     const spaceId = selectedSpaceId || (selectedMember ? directSpaceId : '');
@@ -612,6 +635,7 @@ export function CollaborationWorkspace({
       query={query}
       avatarFor={avatarFor}
       directTurns={directTurns}
+      directNotices={directNotices}
       directReceipts={directReceiptStates}
       groupSeats={groupSeats}
       groupMessages={messagesWithReceipts}

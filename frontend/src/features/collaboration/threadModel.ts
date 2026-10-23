@@ -1,3 +1,4 @@
+import type { CrossChatNotice } from './spaceModel';
 /**
  * View model for the member + group-chat collaboration UI.
  *
@@ -522,6 +523,59 @@ export function replyTargetOf<T extends StreamMessage>(
   const target = message.in_reply_to;
   if (!target) return null;
   return messages.find((candidate) => candidate.id === target) ?? null;
+}
+
+/** A cross-DM system line shown in one member's direct chat. */
+export type DirectChatNotice = CrossChatNotice & {
+  key: string;
+  /** Wall-clock time of the underlying space message, for interleaving. */
+  at?: string | null;
+};
+
+/**
+ * Cross-DM notice lines for `viewer`'s direct chat, from member-to-member
+ * (`origin: 'agent'`) messages: the viewer messaging another member gives
+ * `sent_to`; another member messaging (or replying to) the viewer gives
+ * `received_from`. Direct chats only; group chats never call this.
+ */
+export function directChatNotices<
+  T extends StreamMessage & { created_at?: string | null },
+>(viewer: string, messages: readonly T[]): DirectChatNotice[] {
+  if (!viewer) return [];
+  const out: DirectChatNotice[] = [];
+  for (const message of messages) {
+    if (message.origin !== 'agent') continue;
+    const author = actorName(message.envelope.actor);
+    if (!author) continue;
+    const id = message.id ?? String(message.seq);
+    const targets = (message.envelope.to ?? [])
+      .map((target) => actorName(target))
+      .filter(Boolean);
+    if (author === viewer) {
+      for (const target of new Set(targets)) {
+        if (target === viewer) continue;
+        out.push({
+          kind: 'sent_to',
+          nickname: target,
+          key: `${id}:sent_to:${target}`,
+          at: message.created_at,
+        });
+      }
+      continue;
+    }
+    const replyTarget = replyTargetOf(message, messages);
+    const repliesToViewer =
+      replyTarget != null && actorName(replyTarget.envelope.actor) === viewer;
+    if (targets.includes(viewer) || repliesToViewer) {
+      out.push({
+        kind: 'received_from',
+        nickname: author,
+        key: `${id}:received_from:${author}`,
+        at: message.created_at,
+      });
+    }
+  }
+  return out;
 }
 
 export type StreamSegment<T extends StreamMessage> =

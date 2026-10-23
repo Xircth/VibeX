@@ -1,4 +1,10 @@
-import { useRef, useState, type ComponentProps, type ReactNode } from 'react';
+import {
+  Fragment,
+  useRef,
+  useState,
+  type ComponentProps,
+  type ReactNode,
+} from 'react';
 import { ChevronDown, ChevronRight, ExternalLink } from 'lucide-react';
 import type { MessageTurn } from 'shared/types';
 
@@ -7,7 +13,11 @@ import type { AtReferenceMember } from '@/components/tasks/follow-up/composerAtR
 import { MessageTurnView } from '@/components/NormalizedConversation/MessageTurnView';
 
 import { CollabComposer } from './CollabComposer';
-import { MemberMentionProvider } from './MemberMention';
+import {
+  MemberMentionProvider,
+  type MemberMentionCandidate,
+} from './MemberMention';
+import { CrossChatNoticeLine } from './MessageReceiptCheck';
 import type { MemberBotAvatarConfig } from './MemberBotAvatar';
 import { SpaceMessageBody } from './SpaceMessageBody';
 import { ReceiptRow } from './ThreadCards';
@@ -15,6 +25,7 @@ import {
   THREAD_COPY,
   formatDuration,
   processSummary,
+  type DirectChatNotice,
   type ReceiptState,
 } from './threadModel';
 
@@ -174,6 +185,8 @@ export function MemberDirectChatLog({
   onOpenSession,
   expandedKeys,
   inlineCards,
+  notices = [],
+  mentionCandidates = [],
 }: {
   turns: readonly DirectChatTurn[];
   receipts: Readonly<Record<string, ReceiptState>>;
@@ -186,69 +199,108 @@ export function MemberDirectChatLog({
   expandedKeys?: readonly string[];
   /** Pending ask/approval cards for this member, rendered at the end. */
   inlineCards?: ReactNode;
+  /** Cross-DM lines (`已发消息给 [B]` / `已收到 [A] 的消息`), by time. */
+  notices?: readonly DirectChatNotice[];
+  mentionCandidates?: readonly MemberMentionCandidate[];
 }) {
+  const noticesBefore = placeNotices(turns, notices);
+  const renderNotices = (list: readonly DirectChatNotice[] | undefined) =>
+    (list ?? []).map((notice) => (
+      <CrossChatNoticeLine
+        key={notice.key}
+        notice={notice}
+        candidates={mentionCandidates}
+      />
+    ));
   return (
     <div
       className="collab-log collaboration-thread-log"
       data-testid="collab-direct-log"
     >
-      {turns.map((entry) => {
-        if (entry.turn.role === 'user') {
-          return (
-            <article
-              key={entry.key}
-              className="collaboration-message"
-              data-from="you"
-            >
-              <SpaceMessageBody
-                fromYou
-                text={userTurnText(entry.turn)}
-                workspacePath={workspacePath}
-                workspaceId={workspaceId}
-              />
-              <ReceiptRow
-                receipts={
-                  receipts[entry.key]
-                    ? [{ key: entry.key, state: receipts[entry.key] }]
-                    : []
-                }
-              />
-            </article>
-          );
-        }
-        if (entry.turn.role !== 'assistant') return null;
-        const text = finalAssistantText(entry.turn);
-        return (
-          <article
-            key={entry.key}
-            className="collaboration-message"
-            data-from="member"
-          >
-            <div className="collaboration-message-header">
-              <span className="collaboration-message-avatar">{avatar}</span>
-              <p className="collaboration-message-name">{memberName}</p>
-            </div>
-            {text ? (
-              <SpaceMessageBody
-                fromYou={false}
-                text={text}
-                workspacePath={workspacePath}
-                workspaceId={workspaceId}
-              />
-            ) : null}
-            <ProcessFold
-              entry={entry}
-              workspacePath={workspacePath}
-              workspaceId={workspaceId}
-              onOpenSession={onOpenSession}
-              defaultOpen={expandedKeys?.includes(entry.key)}
-            />
-          </article>
-        );
-      })}
+      {turns.map((entry) => (
+        <Fragment key={entry.key}>
+          {renderNotices(noticesBefore.get(entry.key))}
+          {renderTurn(entry)}
+        </Fragment>
+      ))}
+      {renderNotices(noticesBefore.get(TAIL))}
       {inlineCards}
     </div>
   );
+
+  function renderTurn(entry: DirectChatTurn) {
+    if (entry.turn.role === 'user') {
+      return (
+        <article
+          key={entry.key}
+          className="collaboration-message"
+          data-from="you"
+        >
+          <SpaceMessageBody
+            fromYou
+            text={userTurnText(entry.turn)}
+            workspacePath={workspacePath}
+            workspaceId={workspaceId}
+          />
+          <ReceiptRow
+            receipts={
+              receipts[entry.key]
+                ? [{ key: entry.key, state: receipts[entry.key] }]
+                : []
+            }
+          />
+        </article>
+      );
+    }
+    if (entry.turn.role !== 'assistant') return null;
+    const text = finalAssistantText(entry.turn);
+    return (
+      <article
+        key={entry.key}
+        className="collaboration-message"
+        data-from="member"
+      >
+        <div className="collaboration-message-header">
+          <span className="collaboration-message-avatar">{avatar}</span>
+          <p className="collaboration-message-name">{memberName}</p>
+        </div>
+        {text ? (
+          <SpaceMessageBody
+            fromYou={false}
+            text={text}
+            workspacePath={workspacePath}
+            workspaceId={workspaceId}
+          />
+        ) : null}
+        <ProcessFold
+          entry={entry}
+          workspacePath={workspacePath}
+          workspaceId={workspaceId}
+          onOpenSession={onOpenSession}
+          defaultOpen={expandedKeys?.includes(entry.key)}
+        />
+      </article>
+    );
+  }
+}
+
+const TAIL = '\u0000tail';
+
+/** Group notices under the first turn that starts after them (else tail). */
+function placeNotices(
+  turns: readonly DirectChatTurn[],
+  notices: readonly DirectChatNotice[]
+): Map<string, DirectChatNotice[]> {
+  const out = new Map<string, DirectChatNotice[]>();
+  for (const notice of notices) {
+    const at = notice.at ? Date.parse(notice.at) : NaN;
+    const next = Number.isNaN(at)
+      ? undefined
+      : turns.find((entry) => Date.parse(entry.turn.timestamp) > at);
+    const key = next?.key ?? TAIL;
+    out.set(key, [...(out.get(key) ?? []), notice]);
+  }
+  return out;
 }
 
 export function DirectComposer({

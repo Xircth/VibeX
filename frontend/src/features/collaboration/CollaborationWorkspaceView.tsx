@@ -29,6 +29,7 @@ import { ThreadList } from './ThreadList';
 import { ApprovalCard, AskCard, type CardResolution } from './ThreadCards';
 import {
   THREAD_COPY,
+  type DirectChatNotice,
   type ThreadFilter,
   type ThreadListItem,
   type ThreadMember,
@@ -65,6 +66,8 @@ export type CollaborationWorkspaceViewProps = {
   now?: number;
   /** Direct chat with the selected member. */
   directTurns: readonly DirectChatTurn[];
+  /** Cross-DM notice lines for the selected member's direct chat. */
+  directNotices?: readonly DirectChatNotice[];
   directReceipts: Readonly<
     Record<string, import('./threadModel').ReceiptState>
   >;
@@ -290,6 +293,11 @@ export function CollaborationWorkspaceView(
               : undefined
           }
           inlineCards={inlineCards}
+          notices={props.directNotices}
+          mentionCandidates={directComposerMembers.map((member) => ({
+            nickname: member.nickname,
+            avatar: member.avatar,
+          }))}
         />
         <DirectComposer
           memberName={selectedMember.nickname}

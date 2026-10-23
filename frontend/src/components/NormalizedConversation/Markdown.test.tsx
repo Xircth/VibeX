@@ -75,6 +75,31 @@ vi.mock('shiki', () => ({
   createHighlighter: shikiMock.createHighlighter,
 }));
 
+vi.mock('shiki/core', () => ({
+  createHighlighterCore: shikiMock.createHighlighter,
+}));
+
+vi.mock('shiki/engine/javascript', () => ({
+  createJavaScriptRegexEngine: vi.fn(() => ({})),
+}));
+
+vi.mock('shiki/langs', () => ({
+  bundledLanguages: {
+    bash: {},
+    css: {},
+    diff: {},
+    html: {},
+    javascript: {},
+    json: {},
+    markdown: {},
+    python: {},
+    rust: {},
+    tsx: {},
+    typescript: {},
+    yaml: {},
+  },
+}));
+
 vi.mock('mermaid', () => ({
   default: mermaidMock,
 }));

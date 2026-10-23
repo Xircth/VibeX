@@ -76,6 +76,7 @@ fn bounded_feedback_batch(pending: Vec<FeedbackNote>) -> Vec<FeedbackNote> {
     out
 }
 
+#[allow(clippy::too_many_arguments)]
 #[async_trait]
 pub trait CompanionFeaturePort: std::fmt::Debug + Send + Sync {
     async fn feedback(&self, scope: &DelegationScope) -> Value;
@@ -110,6 +111,7 @@ pub trait CompanionFeaturePort: std::fmt::Debug + Send + Sync {
 
     /// Extended send. The default keeps immediate ancestor-scoped sends on
     /// [`session_send`] and refuses steer or delay instead of queueing them.
+    #[allow(clippy::too_many_arguments)]
     async fn session_send_ex(
         &self,
         scope: &DelegationScope,

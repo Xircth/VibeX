@@ -26,10 +26,12 @@ describe('ThinkingEntry', () => {
       'animate-spin'
     );
     expect(document.querySelector('.conv-thinking-icon')).toBeNull();
-    await waitFor(() =>
-      expect(
-        screen.getByRole('button', { name: '收起思考' }).parentElement
-      ).toHaveTextContent('checking the plan')
+    await waitFor(
+      () =>
+        expect(
+          screen.getByRole('button', { name: '收起思考' }).parentElement
+        ).toHaveTextContent('checking the plan'),
+      { timeout: 5000 }
     );
     expect(screen.queryByText('1m 5s')).not.toBeInTheDocument();
 

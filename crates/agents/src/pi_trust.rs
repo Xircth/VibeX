@@ -106,10 +106,15 @@ pub fn project_resources(cwd: &Path, home: &Path) -> Vec<PiProjectResource> {
     }
 
     let user_agents_skills = canonical_path(home).join(".agents").join("skills");
+    let os_home_agents_skills =
+        dirs::home_dir().map(|os_home| canonical_path(&os_home).join(".agents").join("skills"));
     let mut current = start.as_path();
     loop {
         let candidate = current.join(".agents").join("skills");
-        if candidate != user_agents_skills && candidate.exists() {
+        if candidate != user_agents_skills
+            && os_home_agents_skills.as_ref() != Some(&candidate)
+            && candidate.exists()
+        {
             found.push(PiProjectResource {
                 path: candidate.to_string_lossy().into_owned(),
                 kind: ".agents/skills".to_string(),

@@ -11,9 +11,10 @@ function stylesheetRoot() {
 
 function declarationsFor(selector: string) {
   const declarations = new Map<string, string>();
+  const normalizedTarget = selector.replace(/\s+/g, ' ').trim();
   stylesheetRoot().walkRules((rule) => {
     if (
-      rule.selector !== selector ||
+      rule.selector.replace(/\s+/g, ' ').trim() !== normalizedTarget ||
       (rule.parent?.type === 'atrule' && rule.parent.name !== 'layer')
     ) {
       return;
@@ -399,7 +400,7 @@ describe('settings page alignment', () => {
     );
 
     const sidebarScrollbar = declarationsFor(
-      '.settings-sidebar::-webkit-scrollbar'
+      ':is( .settings-sidebar, .settings-nav-groups, .settings-search-results )::-webkit-scrollbar'
     );
     const navGroups = declarationsFor('.settings-nav-groups');
     const sectionTitle = declarationsFor('.settings-nav-section__title');
@@ -411,7 +412,8 @@ describe('settings page alignment', () => {
     );
 
     expect(sidebar.get('border-radius')).toBe('var(--radius)');
-    expect(sidebar.get('overflow-y')).toBe('auto');
+    expect(sidebar.get('overflow')).toBe('hidden');
+    expect(navGroups.get('overflow-y')).toBe('auto');
     expect(sidebar.get('background')).toBe(
       'var(--surface-wash), var(--surface-sidebar)'
     );

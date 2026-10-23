@@ -18,7 +18,7 @@ use agents::{
 };
 use chrono::{DateTime, Utc};
 use db::models::{
-    conversation::{ConversationAgentBindingRecord, DbConversationSummary},
+    conversation::{ConversationAgentBindingRecord, ConversationRecord, DbConversationSummary},
     conversation_event::ConversationEventRecord,
     conversation_turn::ConversationTurnRecord,
 };
@@ -472,15 +472,8 @@ async fn load_turns(
     let (agent_dir, session_id) = transcript_identity(summary, kind);
     let root = vibex_acp_transcripts_root();
 
-    if acp_transcript::transcript_path_in(&root, &agent_dir, &session_id)
-        .is_some_and(|path| path.is_file())
-    {
-        let _ = acp_transcript::flush_in(&root, &agent_dir, &session_id).await;
-    }
-    if let Some(legacy_sid) = legacy_external_session_id(summary).as_deref()
-        && acp_transcript::transcript_path_in(&root, &agent_dir, legacy_sid)
-            .is_some_and(|path| path.is_file())
-    {
+    let _ = acp_transcript::flush_in(&root, &agent_dir, &session_id).await;
+    if let Some(legacy_sid) = legacy_external_session_id(summary).as_deref() {
         let _ = acp_transcript::flush_in(&root, &agent_dir, legacy_sid).await;
     }
 
@@ -497,8 +490,7 @@ async fn load_turns(
     // A file that exists — even a header claimed by an in-flight session/load
     // replay or session bind — is the transcript. Overwriting it would duplicate history.
     if let Some(legacy_sid) = legacy_external_session_id(summary).as_deref()
-        && acp_transcript::transcript_path_in(&root, &agent_dir, legacy_sid)
-            .is_some_and(|path| path.is_file())
+        && acp_transcript::has_entries_in(&root, &agent_dir, legacy_sid)
     {
         let existing = acp_transcript::read_chain_in(&root, &agent_dir, legacy_sid);
         return Ok(project_turns(&existing.entries));
@@ -512,7 +504,7 @@ async fn load_turns(
 
     let timeline = ConversationProjector::project(pool, summary.id).await?;
     let mut extracted = message_turns(&timeline);
-    if !extracted
+    let imported_from_vendor = if !extracted
         .iter()
         .any(|turn| matches!(turn.role, TurnRole::Assistant))
         && let (Some(kind), Some(external)) = (kind, summary.external_session_id.as_deref())
@@ -520,9 +512,28 @@ async fn load_turns(
         && detail.turns.len() > extracted.len()
     {
         extracted = detail.turns;
-    }
+        true
+    } else {
+        false
+    };
     if extracted.is_empty() {
         return Ok(Vec::new());
+    }
+    let has_active_turn = ConversationRecord::find_by_id(pool, summary.id)
+        .await?
+        .is_some_and(|record| record.active_turn_id.is_some());
+    let only_inflight_first_turn = !imported_from_vendor
+        && has_active_turn
+        && extracted
+            .iter()
+            .filter(|turn| matches!(turn.role, TurnRole::User))
+            .count()
+            <= 1
+        && !extracted
+            .iter()
+            .any(|turn| matches!(turn.role, TurnRole::Assistant) && turn.completed_at.is_some());
+    if only_inflight_first_turn {
+        return Ok(extracted);
     }
     write_migrated_transcript(&root, &agent_dir, &session_id, summary, &extracted);
     let written = acp_transcript::read_chain_in(&root, &agent_dir, &session_id);
@@ -1522,7 +1533,7 @@ mod tests {
             serde_json::json!([{ "type": "text", "text": "User 1" }]),
         )
         .await;
-        let _ = acp_transcript::record_entry_in(
+        drop(acp_transcript::record_entry_in(
             root,
             agent_dir,
             session_id,
@@ -1531,7 +1542,7 @@ mod tests {
                 "sessionUpdate": "agent_message_chunk",
                 "content": { "type": "text", "text": "AI 1" }
             }),
-        );
+        ));
         let _ = acp_transcript::record_entry_in(
             root,
             agent_dir,
@@ -1554,7 +1565,7 @@ mod tests {
             ]),
         )
         .await;
-        let _ = acp_transcript::record_entry_in(
+        drop(acp_transcript::record_entry_in(
             root,
             agent_dir,
             session_id,
@@ -1563,7 +1574,7 @@ mod tests {
                 "sessionUpdate": "agent_message_chunk",
                 "content": { "type": "text", "text": "AI 2" }
             }),
-        );
+        ));
         let _ = acp_transcript::record_entry_in(
             root,
             agent_dir,
@@ -1582,7 +1593,7 @@ mod tests {
             serde_json::json!([{ "type": "text", "text": "User 3" }]),
         )
         .await;
-        let _ = acp_transcript::record_entry_in(
+        drop(acp_transcript::record_entry_in(
             root,
             agent_dir,
             session_id,
@@ -1591,8 +1602,8 @@ mod tests {
                 "sessionUpdate": "agent_message_chunk",
                 "content": { "type": "text", "text": "AI 3" }
             }),
-        );
-        let _ = acp_transcript::record_entry_in(
+        ));
+        drop(acp_transcript::record_entry_in(
             root,
             agent_dir,
             session_id,
@@ -1605,8 +1616,8 @@ mod tests {
                 "status": "in_progress",
                 "rawInput": { "command": "cargo test" }
             }),
-        );
-        let _ = acp_transcript::record_entry_in(
+        ));
+        drop(acp_transcript::record_entry_in(
             root,
             agent_dir,
             session_id,
@@ -1622,7 +1633,7 @@ mod tests {
                     }
                 ]
             }),
-        );
+        ));
         let _ = acp_transcript::flush_in(root, agent_dir, session_id).await;
 
         // Mid-stream check before Turn 3 TurnEnd:
@@ -1881,5 +1892,292 @@ mod tests {
             timeline.rows[2].row,
             ConversationTimelineRow::TurnError { .. }
         ));
+    }
+
+    async fn setup_test_pool() -> SqlitePool {
+        use std::str::FromStr;
+
+        use sqlx::sqlite::{SqliteConnectOptions, SqlitePoolOptions};
+
+        let options = SqliteConnectOptions::from_str("sqlite::memory:")
+            .expect("sqlite options")
+            .foreign_keys(false);
+        let pool = SqlitePoolOptions::new()
+            .max_connections(1)
+            .connect_with(options)
+            .await
+            .expect("connect memory db");
+        sqlx::migrate!("../db/migrations")
+            .run(&pool)
+            .await
+            .expect("run migrations");
+        sqlx::query("PRAGMA foreign_keys = OFF")
+            .execute(&pool)
+            .await
+            .expect("disable foreign keys");
+        pool
+    }
+
+    #[tokio::test]
+    async fn inflight_first_turn_load_does_not_duplicate_user_prompt_when_acp_session_binds() {
+        isolate_test_transcripts();
+        let pool = setup_test_pool().await;
+        let conversation_id = Uuid::new_v4();
+        let turn_id = Uuid::new_v4();
+        let workspace_id = Uuid::new_v4();
+        let agent_id = AgentId::parse("codex").expect("agent id");
+
+        ConversationRecord::create(
+            &pool,
+            conversation_id,
+            db::models::conversation::CreateConversationRecord {
+                workspace_id,
+                task_id: None,
+                title: Some("First Turn Test"),
+                initial_prompt: Some("Hello first turn"),
+                status: None,
+                executor: Some("agent"),
+            },
+        )
+        .await
+        .expect("create conversation");
+        db::models::session::Session::update_agent_metadata(
+            &pool,
+            conversation_id,
+            None,
+            Some(&agent_id),
+        )
+        .await
+        .expect("set agent id");
+        ConversationTurnRecord::create_pending(
+            &pool,
+            turn_id,
+            db::models::conversation_turn::CreateConversationTurn {
+                conversation_id,
+                prompt_id: None,
+                text_preview: Some("Hello first turn"),
+                input_blocks_json: "[]",
+            },
+        )
+        .await
+        .expect("create turn");
+        ConversationRecord::update_active_turn(&pool, conversation_id, Some(turn_id))
+            .await
+            .expect("set active turn");
+
+        let created_json = serde_json::to_string(&ConversationEvent::UserTurnCreated {
+            blocks: vec![agents::conversation::ConversationInputBlock::Text {
+                text: "Hello first turn".to_string(),
+            }],
+            workflow_refs: Vec::new(),
+        })
+        .expect("serialize UserTurnCreated");
+        crate::ConversationEventAppender::append(
+            &pool,
+            db::models::conversation_event::AppendConversationEvent {
+                id: Uuid::new_v4(),
+                conversation_id,
+                turn_id: Some(turn_id),
+                binding_id: None,
+                connection_id: None,
+                prompt_id: None,
+                source: "user",
+                event_kind: "user_turn_created",
+                normalized_json: &created_json,
+                raw_json: None,
+                idempotency_key: None,
+            },
+        )
+        .await
+        .expect("append UserTurnCreated");
+
+        // 1. Call load_turns while the first turn is in-flight and ACP session is not bound yet.
+        let summary_inflight = DbConversationSummary::find_by_id(&pool, conversation_id)
+            .await
+            .expect("query summary")
+            .expect("summary exists");
+        let inflight_turns = load_turns(&pool, &summary_inflight)
+            .await
+            .expect("load inflight turns");
+        assert_eq!(inflight_turns.len(), 1);
+
+        let root = vibex_acp_transcripts_root();
+        let simple_sid = conversation_id.simple().to_string();
+        assert!(
+            !acp_transcript::has_entries_in(&root, "codex", &simple_sid),
+            "in-flight first turn must not write a premature migrated transcript under conversation_id.simple()"
+        );
+
+        // 2. Now ACP binds external_session_id and writes header + prompt + assistant update + turn_end.
+        let external_sid = format!("acp-ext-{}", Uuid::new_v4().simple());
+        db::models::session::Session::update_agent_metadata(
+            &pool,
+            conversation_id,
+            Some(&external_sid),
+            Some(&agent_id),
+        )
+        .await
+        .expect("bind external session id");
+
+        let mut header =
+            TranscriptHeader::new("codex", &external_sid, "/workspace", 1_700_000_000_000);
+        if acp_transcript::has_entries_in(&root, "codex", &simple_sid) {
+            header.continues_from = Some(simple_sid.clone());
+        }
+        let _ = acp_transcript::record_header_in(&root, "codex", &header).await;
+        let _ = acp_transcript::record_entry_in(
+            &root,
+            "codex",
+            &external_sid,
+            EntryKind::Prompt,
+            serde_json::json!([{ "type": "text", "text": "Hello first turn" }]),
+        )
+        .await;
+        drop(acp_transcript::record_entry_in(
+            &root,
+            "codex",
+            &external_sid,
+            EntryKind::Update,
+            serde_json::json!({
+                "sessionUpdate": "agent_message_chunk",
+                "content": { "type": "text", "text": "Assistant reply" }
+            }),
+        ));
+        let _ = acp_transcript::record_entry_in(
+            &root,
+            "codex",
+            &external_sid,
+            EntryKind::TurnEnd,
+            serde_json::json!({ "stopReason": "end_turn", "durationMs": 100 }),
+        )
+        .await;
+
+        let summary_bound = DbConversationSummary::find_by_id(&pool, conversation_id)
+            .await
+            .expect("query bound summary")
+            .expect("summary exists");
+        let final_turns = load_turns(&pool, &summary_bound)
+            .await
+            .expect("load final turns");
+        let user_turns: Vec<&MessageTurn> = final_turns
+            .iter()
+            .filter(|t| matches!(t.role, TurnRole::User))
+            .collect();
+        assert_eq!(
+            user_turns.len(),
+            1,
+            "first user turn must appear exactly once, not duplicated across simple_sid and external_sid"
+        );
+        assert_eq!(final_turns.len(), 2);
+    }
+
+    #[tokio::test]
+    async fn fts_reindex_on_settle_indexes_external_session_id_jsonl_assistant_reply() {
+        isolate_test_transcripts();
+        let pool = setup_test_pool().await;
+        let conversation_id = Uuid::new_v4();
+        let turn_id = Uuid::new_v4();
+        let workspace_id = Uuid::new_v4();
+        let agent_id = AgentId::parse("codex").expect("agent id");
+        let external_sid = format!("acp-fts-{}", Uuid::new_v4().simple());
+
+        ConversationRecord::create(
+            &pool,
+            conversation_id,
+            db::models::conversation::CreateConversationRecord {
+                workspace_id,
+                task_id: None,
+                title: Some("FTS External Session Test"),
+                initial_prompt: Some("Find secret keyword"),
+                status: None,
+                executor: Some("agent"),
+            },
+        )
+        .await
+        .expect("create conversation");
+        db::models::session::Session::update_agent_metadata(
+            &pool,
+            conversation_id,
+            Some(&external_sid),
+            Some(&agent_id),
+        )
+        .await
+        .expect("bind external session id");
+        ConversationTurnRecord::create_pending(
+            &pool,
+            turn_id,
+            db::models::conversation_turn::CreateConversationTurn {
+                conversation_id,
+                prompt_id: None,
+                text_preview: Some("Find secret keyword"),
+                input_blocks_json: "[]",
+            },
+        )
+        .await
+        .expect("create turn");
+
+        let root = vibex_acp_transcripts_root();
+        let header = TranscriptHeader::new("codex", &external_sid, "/workspace", 1_700_000_000_000);
+        let _ = acp_transcript::record_header_in(&root, "codex", &header).await;
+        let _ = acp_transcript::record_entry_in(
+            &root,
+            "codex",
+            &external_sid,
+            EntryKind::Prompt,
+            serde_json::json!([{ "type": "text", "text": "Find secret keyword" }]),
+        )
+        .await;
+        drop(acp_transcript::record_entry_in(
+            &root,
+            "codex",
+            &external_sid,
+            EntryKind::Update,
+            serde_json::json!({
+                "sessionUpdate": "agent_message_chunk",
+                "content": { "type": "text", "text": "The magic token is XylophoneQuantum42." }
+            }),
+        ));
+        let _ = acp_transcript::record_entry_in(
+            &root,
+            "codex",
+            &external_sid,
+            EntryKind::TurnEnd,
+            serde_json::json!({ "stopReason": "end_turn", "durationMs": 80 }),
+        )
+        .await;
+
+        let completed_json = serde_json::to_string(&ConversationEvent::TurnCompleted {
+            stop_reason: Some("end_turn".to_string()),
+        })
+        .expect("serialize TurnCompleted");
+        crate::ConversationEventAppender::append(
+            &pool,
+            db::models::conversation_event::AppendConversationEvent {
+                id: Uuid::new_v4(),
+                conversation_id,
+                turn_id: Some(turn_id),
+                binding_id: None,
+                connection_id: None,
+                prompt_id: None,
+                source: "acp",
+                event_kind: "turn_completed",
+                normalized_json: &completed_json,
+                raw_json: None,
+                idempotency_key: None,
+            },
+        )
+        .await
+        .expect("append TurnCompleted (triggers refresh_snapshot_on_settle)");
+
+        let indexed_body: String =
+            sqlx::query_scalar("SELECT body FROM conversation_fts WHERE conversation_id = ?1")
+                .bind(conversation_id)
+                .fetch_one(&pool)
+                .await
+                .expect("fetch FTS body");
+        assert!(
+            indexed_body.contains("XylophoneQuantum42"),
+            "FTS body on settle must include assistant reply from <external_session_id>.jsonl, got: {indexed_body}"
+        );
     }
 }

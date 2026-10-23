@@ -1,5 +1,6 @@
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
+import { MemoryRouter } from 'react-router-dom';
 import { describe, expect, it, vi } from 'vitest';
 
 import ProjectCard from './ProjectCard';
@@ -45,12 +46,14 @@ describe('ProjectCard', () => {
     const user = userEvent.setup();
 
     render(
-      <ProjectCard
-        project={project}
-        isFocused={false}
-        setError={vi.fn()}
-        onEdit={vi.fn()}
-      />
+      <MemoryRouter>
+        <ProjectCard
+          project={project}
+          isFocused={false}
+          setError={vi.fn()}
+          onEdit={vi.fn()}
+        />
+      </MemoryRouter>
     );
 
     expect(screen.getByText(/创建于/)).toBeInTheDocument();

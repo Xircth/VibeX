@@ -57,7 +57,7 @@ async fn launch_gate_integrity_rejects_tampered_components_before_spawn() {
 async fn launch_gate_integrity_rejects_missing_or_relative_components() {
     let lock = SessionLaunchLock {
         agent_id: AgentId::parse("vendor.fixture").unwrap(),
-        absolute_acp_program: PathBuf::from("/fixture/acp"),
+        absolute_acp_program: std::env::temp_dir().join("fixture-acp"),
         args: Vec::new(),
         env: BTreeMap::new(),
         runtime_version: "1.0.0".to_string(),
@@ -66,7 +66,7 @@ async fn launch_gate_integrity_rejects_missing_or_relative_components() {
 
     let missing = LaunchComponentEvidence {
         component_kind: "acp_adapter".to_string(),
-        absolute_path: PathBuf::from("/definitely/missing/vibex-acp"),
+        absolute_path: std::env::temp_dir().join("definitely-missing-vibex-acp"),
         expected_sha256: digest(b"trusted"),
     };
     assert!(matches!(
@@ -92,7 +92,7 @@ async fn launch_gate_integrity_rejects_missing_or_relative_components() {
     LaunchGate::verify(
         SessionLaunchLock {
             agent_id: AgentId::parse("vendor.fixture").unwrap(),
-            absolute_acp_program: PathBuf::from("/fixture/acp"),
+            absolute_acp_program: std::env::temp_dir().join("fixture-acp"),
             args: Vec::new(),
             env: BTreeMap::new(),
             runtime_version: "1.0.0".to_string(),

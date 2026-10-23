@@ -4555,7 +4555,7 @@ html.dark {
     height: 24px;
     flex: none;
     border: 0;
-    border-radius: 6px;
+    border-radius: var(--radius);
     background: transparent;
     color: var(--text-muted);
     cursor: pointer;
@@ -16211,7 +16211,7 @@ html.host-windows :where(.legacy-design) .vu-toast-surface {
   min-height: 68px;
   padding: 10px 12px;
   border: 0;
-  border-radius: 12px;
+  border-radius: var(--radius);
   background: transparent;
   box-shadow: none;
   transition: background-color 0.14s ease;
@@ -16307,7 +16307,7 @@ html.host-windows :where(.legacy-design) .vu-toast-surface {
   width: 48px;
   height: 48px;
   flex-shrink: 0;
-  border-radius: 12px;
+  border-radius: var(--radius);
   border: 1px solid color-mix(in srgb, var(--text-primary) 9%, transparent);
   background: #ffffff;
   box-shadow: 0 1px 2px rgba(15, 23, 42, 0.03);
@@ -16325,7 +16325,7 @@ html.host-windows :where(.legacy-design) .vu-toast-surface {
 .settings-page .product-plugin-card-logo > svg.product-plugin-artwork-svg {
   width: 34px;
   height: 34px;
-  border-radius: 8px;
+  border-radius: var(--radius);
 }
 
 /* Featured Plugins Carousel in Marketplace */
@@ -16339,7 +16339,7 @@ html.host-windows :where(.legacy-design) .vu-toast-surface {
   gap: 12px;
   padding: 18px 22px 14px;
   border: 1px solid var(--border-subtle);
-  border-radius: 16px;
+  border-radius: var(--radius);
   background: linear-gradient(
     135deg,
     #ffffff 0%,
@@ -16620,7 +16620,7 @@ html.host-windows :where(.legacy-design) .vu-toast-surface {
 .settings-page .dsh-core-item-wrap {
   display: flex;
   flex-direction: column;
-  border-radius: 12px;
+  border-radius: var(--radius);
 }
 
 .settings-page .dsh-core-expand-btn {
@@ -16633,7 +16633,7 @@ html.host-windows :where(.legacy-design) .vu-toast-surface {
   min-height: 28px !important;
   padding: 0 !important;
   border: 0;
-  border-radius: 8px;
+  border-radius: var(--radius);
   background: transparent;
   color: var(--text-muted);
   cursor: pointer;
@@ -16656,7 +16656,7 @@ html.host-windows :where(.legacy-design) .vu-toast-surface {
   margin: 4px 12px 10px 60px;
   padding: 12px 14px;
   border: 1px solid var(--border-subtle);
-  border-radius: 10px;
+  border-radius: var(--radius);
   background: var(--surface-raised);
 }
 
@@ -17241,7 +17241,7 @@ html.host-windows :where(.legacy-design) .vu-toast-surface {
   justify-content: center;
   height: 20px;
   padding: 0 8px;
-  border-radius: 4px;
+  border-radius: var(--radius);
   border: 1px solid rgba(16, 185, 129, 0.28);
   background: rgba(16, 185, 129, 0.12);
   color: #059669;
@@ -17353,7 +17353,7 @@ html.host-windows :where(.legacy-design) .vu-toast-surface {
 
 .settings-page .dsh-component-group.product-plugin-contents-group {
   border: 1px solid var(--border-subtle);
-  border-radius: 12px;
+  border-radius: var(--radius);
   background: var(--surface-card-strong);
   overflow: hidden;
 }
@@ -17426,7 +17426,7 @@ html.host-windows :where(.legacy-design) .vu-toast-surface {
   width: 30px;
   height: 30px;
   flex-shrink: 0;
-  border-radius: 8px;
+  border-radius: var(--radius);
   border: 1px solid var(--border-subtle);
   background: var(--surface-raised);
   color: var(--text-secondary);
@@ -17472,7 +17472,7 @@ html.host-windows :where(.legacy-design) .vu-toast-surface {
   align-items: center;
   height: 20px;
   padding: 0 7px;
-  border-radius: 6px;
+  border-radius: var(--radius);
   border: 1px solid var(--border-subtle);
   background: var(--surface-raised);
   color: var(--text-muted);
@@ -17560,7 +17560,7 @@ html.host-windows :where(.legacy-design) .vu-toast-surface {
   align-items: center;
   height: 18px;
   padding: 0 6px;
-  border-radius: 4px;
+  border-radius: var(--radius);
   background: var(--surface-raised);
   color: var(--text-muted);
   font-family: var(--font-mono);
@@ -17666,7 +17666,7 @@ html.host-windows :where(.legacy-design) .vu-toast-surface {
   min-height: 32px !important;
   padding: 0 !important;
   gap: 0 !important;
-  border-radius: 14px !important;
+  border-radius: var(--radius) !important;
   overflow: hidden;
 }
 
@@ -17711,7 +17711,7 @@ html.host-windows :where(.legacy-design) .vu-toast-surface {
   gap: 2px;
   min-width: 168px;
   padding: 5px;
-  border-radius: 10px;
+  border-radius: var(--radius);
   border: 1px solid var(--border-subtle);
   background: var(--surface-dialog);
   box-shadow: var(--shadow-popover);
@@ -17726,7 +17726,7 @@ html.host-windows :where(.legacy-design) .vu-toast-surface {
   min-height: 32px !important;
   padding: 0 10px !important;
   border: 0;
-  border-radius: 7px;
+  border-radius: var(--radius);
   background: transparent;
   color: var(--text-primary);
   font-size: 0.75rem;
@@ -17764,7 +17764,7 @@ html.host-windows :where(.legacy-design) .vu-toast-surface {
   gap: 10px;
   width: 356px;
   padding: 14px;
-  border-radius: 12px;
+  border-radius: var(--radius);
   border: 1px solid var(--border-subtle);
   background: var(--surface-dialog);
   box-shadow: var(--shadow-popover);
@@ -17789,7 +17789,7 @@ html.host-windows :where(.legacy-design) .vu-toast-surface {
   min-width: 0;
   height: 30px;
   padding: 0 10px;
-  border-radius: 7px;
+  border-radius: var(--radius);
   border: 1px solid var(--border-strong);
   background: var(--surface-control-solid);
   color: var(--text-primary);
@@ -17807,7 +17807,7 @@ html.host-windows :where(.legacy-design) .vu-toast-surface {
   flex-direction: column;
   gap: 8px;
   padding: 8px 10px;
-  border-radius: 8px;
+  border-radius: var(--radius);
   border: 1px solid var(--border-subtle);
   background: var(--surface-subtle);
   font-size: 0.75rem;
@@ -17876,7 +17876,7 @@ html.host-windows :where(.legacy-design) .vu-toast-surface {
   align-items: center;
   gap: 10px;
   padding: 8px 10px;
-  border-radius: 9px;
+  border-radius: var(--radius);
   border: 1px solid var(--border-subtle);
   background: var(--surface-card);
 }
@@ -17884,7 +17884,7 @@ html.host-windows :where(.legacy-design) .vu-toast-surface {
 .settings-page .dsh-github-plugin-minicard .product-plugin-icon {
   width: 32px;
   height: 32px;
-  border-radius: 8px;
+  border-radius: var(--radius);
   flex-shrink: 0;
 }
 

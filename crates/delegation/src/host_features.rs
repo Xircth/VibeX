@@ -37,14 +37,16 @@ impl Default for CollaborationLimits {
     }
 }
 
+type SpaceChangedCallback =
+    Arc<dyn Fn(collaboration::CollaborationSpaceChangedEvent) + Send + Sync>;
+
 pub struct HostCompanionFeatures {
     pub memory: Arc<InMemoryCompanionFeatures>,
     pub pool: SqlitePool,
     pub runtime: Arc<AgentRuntime>,
     pub conversations: ScopedConversationControl,
     limits: Mutex<Arc<dyn Fn() -> CollaborationLimits + Send + Sync>>,
-    space_changed:
-        Mutex<Option<Arc<dyn Fn(collaboration::CollaborationSpaceChangedEvent) + Send + Sync>>>,
+    space_changed: Mutex<Option<SpaceChangedCallback>>,
 }
 
 impl std::fmt::Debug for HostCompanionFeatures {
@@ -270,6 +272,7 @@ impl CompanionFeaturePort for HostCompanionFeatures {
         }
     }
 
+    #[allow(clippy::too_many_arguments)]
     async fn session_send_ex(
         &self,
         scope: &DelegationScope,

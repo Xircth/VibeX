@@ -36,6 +36,14 @@ vi.mock('liquid-glass-react', () => ({
   ),
 }));
 
+vi.mock('@/utils/platform', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/utils/platform')>();
+  return {
+    ...actual,
+    usesSolidHostChrome: () => false,
+  };
+});
+
 vi.mock('@tanstack/react-query', () => ({
   useQueryClient: () => ({
     invalidateQueries: vi.fn(),

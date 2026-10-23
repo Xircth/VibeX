@@ -362,7 +362,25 @@ pub async fn load_compact_transcript(
     // JSONL transcript rather than `conversation_events`. When the JSONL file
     // exists on disk, prefer its full user + assistant turn sequence while
     // retaining any brand-new uncommitted user turn at the head of `messages`.
-    if let Some(jsonl_turns) = crate::jsonl_history::read_existing_transcript_turns(conversation_id)
+    let external_session_id = sqlx::query_scalar::<_, Option<String>>(
+        r#"SELECT COALESCE(
+            (SELECT external_session_id FROM sessions WHERE id = ?1),
+            (SELECT acp_session_id FROM conversation_agent_bindings
+             WHERE conversation_id = ?1 AND acp_session_id IS NOT NULL
+             ORDER BY created_at DESC LIMIT 1)
+        )"#,
+    )
+    .bind(conversation_id)
+    .fetch_optional(pool)
+    .await
+    .ok()
+    .flatten()
+    .flatten();
+    if let Some(jsonl_turns) = crate::jsonl_history::flush_and_read_existing_transcript_turns(
+        conversation_id,
+        external_session_id.as_deref(),
+    )
+    .await
     {
         let mut jsonl_messages_rev: Vec<CompactMessage> = Vec::new();
         for turn in jsonl_turns.iter().rev() {
@@ -377,8 +395,8 @@ pub async fn load_compact_transcript(
                 match block {
                     ContentBlock::Text { text } => {
                         let normalized = normalize_session_newlines(text);
-                        if !(role == "user" && is_host_history_prompt(&normalized))
-                            && !normalized.trim().is_empty()
+                        if !(normalized.trim().is_empty()
+                            || role == "user" && is_host_history_prompt(&normalized))
                         {
                             text_parts.push(normalized);
                         }

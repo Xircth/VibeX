@@ -46,19 +46,32 @@ export function mergeOpenTimelineRows(
   if (existing.length === 0) return incoming;
   if (incoming.length === 0) return existing;
   const byId = new Map(existing.map((row) => [row.row_id, row]));
+  const firstSharedIncomingIndex = incoming.findIndex((row) =>
+    byId.has(row.row_id)
+  );
   const firstRow = existing[0]!;
   const firstRevision = revisionOf(firstRow);
   const older: TimelineRow[] = [];
   const newer: TimelineRow[] = [];
-  for (const row of incoming) {
+  for (let index = 0; index < incoming.length; index += 1) {
+    const row = incoming[index]!;
     const previous = byId.get(row.row_id);
     if (previous) {
-      if (revisionOf(row) >= revisionOf(previous)) {
+      if (
+        row.row_id.startsWith('acp-') ||
+        revisionOf(row) >= revisionOf(previous)
+      ) {
         byId.set(row.row_id, row);
       }
       continue;
     }
-    if (revisionOf(row) <= firstRevision) {
+    if (firstSharedIncomingIndex >= 0) {
+      if (index < firstSharedIncomingIndex) {
+        older.push(row);
+      } else {
+        newer.push(row);
+      }
+    } else if (revisionOf(row) <= firstRevision) {
       older.push(row);
     } else {
       newer.push(row);

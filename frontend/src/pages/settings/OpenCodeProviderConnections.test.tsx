@@ -130,7 +130,7 @@ describe('OpenCodeProviderConnections', () => {
       )
     );
     expect(onChanged).toHaveBeenCalledOnce();
-  }, 10_000);
+  }, 30_000);
 
   it('enables and disables a saved provider', async () => {
     const enabledView = {

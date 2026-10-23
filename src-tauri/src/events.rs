@@ -113,20 +113,16 @@ async fn emit_conversation_row_ops_after_inner(
         projectors.lock().await.remove(&conversation_id);
         publish_after = after_sequence;
         has_projector = false;
-        new_records = match ConversationEventRecord::events_since(
-            pool,
-            conversation_id,
-            publish_after,
-            2000,
-        )
-        .await
-        {
-            Ok(records) => records,
-            Err(error) => {
-                tracing::warn!(%conversation_id, %error, "row-op emit: reading events failed");
-                return;
-            }
-        };
+        new_records =
+            match ConversationEventRecord::events_since(pool, conversation_id, publish_after, 2000)
+                .await
+            {
+                Ok(records) => records,
+                Err(error) => {
+                    tracing::warn!(%conversation_id, %error, "row-op emit: reading events failed");
+                    return;
+                }
+            };
     }
     if new_records.is_empty() {
         return;

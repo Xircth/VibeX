@@ -2660,7 +2660,7 @@ mod tests {
         let storage = CustomAgentSkillStorage {
             agent_id: "fixed-reviewer".to_string(),
             shared_store: false,
-            directory: Some(PathBuf::from("/tmp/fixed-reviewer-skills")),
+            directory: Some(std::env::temp_dir().join("fixed-reviewer-skills")),
         };
         let (dirs, _) = resolved_skill_dirs("fixed-reviewer", Some(&storage), None).unwrap();
         assert!(dirs.iter().all(|dir| dir.scope == AgentSkillScope::Global));

@@ -345,7 +345,7 @@ async fn missing_acp_program_fails_with_actionable_error_not_raw_enoent() {
     // `driver_enabled = true` so `connect` actually spawns the ACP program.
     let runtime = AgentRuntime::new_with_driver(Arc::new(TestSink { tx }), true);
 
-    let missing = PathBuf::from("/definitely/not/here/vibex-acp");
+    let missing = std::env::temp_dir().join("definitely-not-here-vibex-acp");
     let result = runtime
         .connect(ConnectAgentInput {
             agent_id: AgentId::parse("grok").unwrap(),

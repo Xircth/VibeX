@@ -214,7 +214,7 @@ fn nav_outline_turn(turn: &MessageTurn) -> MessageTurn {
     };
     MessageTurn {
         id: turn.id.clone(),
-        role: turn.role.clone(),
+        role: turn.role,
         blocks,
         timestamp: turn.timestamp,
         usage: None,
@@ -290,7 +290,7 @@ mod tests {
         roles
             .iter()
             .enumerate()
-            .map(|(i, r)| turn(r.clone(), 1_700_000_000 + i as i64))
+            .map(|(i, r)| turn(*r, 1_700_000_000 + i as i64))
             .collect()
     }
 

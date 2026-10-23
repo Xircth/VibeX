@@ -2878,6 +2878,165 @@ describe('conversationStore (row-op dumb container)', () => {
       'Token 1 Token 2 ',
     ]);
   });
+
+  it('converges a streaming row with high synthetic revision when a lower-revision terminal upsert arrives', () => {
+    const detail = emptyDetail([]);
+    let state = conversationStoreReducer(emptyConversationStoreState, {
+      type: 'load_success',
+      conversationId: CONVERSATION_ID,
+      detail,
+    });
+
+    state = conversationStoreReducer(state, {
+      type: 'row_ops',
+      batch: batch(
+        [
+          { op: 'upsert', row: streamingUser('t1', 'hello', 2n) },
+          {
+            op: 'append_text',
+            row_id: 't1:assistant',
+            revision: 102n,
+            stream: 'text',
+            delta: 'streamed answer',
+          },
+        ],
+        2n
+      ),
+    });
+
+    // Cold projector reload produces TurnCompleted with lower SQLite revision (3n < 102n).
+    state = conversationStoreReducer(state, {
+      type: 'row_ops',
+      batch: batch(
+        [
+          {
+            op: 'upsert',
+            row: timelineRow('t1:user', 3n, {
+              kind: 'message_turn',
+              phase: 'settled',
+              turn: messageTurn('t1:user', 'user', [
+                { type: 'text', text: 'hello' },
+              ]),
+            }),
+          },
+          {
+            op: 'upsert',
+            row: timelineRow('t1:assistant', 3n, {
+              kind: 'message_turn',
+              phase: 'settled',
+              turn: messageTurn('t1:assistant', 'assistant', []),
+            }),
+          },
+        ],
+        3n
+      ),
+    });
+
+    const turns = timelineTurnsForEntry(entryOf(state));
+    const assistant = turns.find((row) => row.turn.role === 'assistant');
+    expect(assistant?.phase).toBe('settled');
+    expect(textOf(assistant?.turn.blocks ?? [])).toBe('streamed answer');
+  });
+
+  it('preserves live streaming reasoning when load_success only contains an earlier settled turn', () => {
+    const detail = emptyDetail([
+      fileTurn('acp-0', 'user', '继续', 1n, 'settled'),
+      fileTurn('acp-1', 'assistant', 'first reply', 2n, 'settled'),
+    ]);
+    detail.timeline.last_sequence = 2n;
+
+    let state = conversationStoreReducer(emptyConversationStoreState, {
+      type: 'load_success',
+      conversationId: CONVERSATION_ID,
+      detail,
+    });
+
+    // Second turn starts streaming reasoning before text arrives.
+    state = conversationStoreReducer(state, {
+      type: 'row_ops',
+      batch: batch(
+        [
+          { op: 'upsert', row: streamingUser('t2', '继续', 3n) },
+          {
+            op: 'append_text',
+            row_id: 't2:assistant',
+            revision: 4n,
+            stream: 'reasoning',
+            delta: 'Thinking deeply about step 2...',
+          },
+        ],
+        3n
+      ),
+    });
+
+    // A concurrent load_success carrying only the first settled turn arrives.
+    state = conversationStoreReducer(state, {
+      type: 'load_success',
+      conversationId: CONVERSATION_ID,
+      detail,
+    });
+
+    const turns = timelineTurnsForEntry(entryOf(state));
+    const assistants = turns.filter((row) => row.turn.role === 'assistant');
+    expect(assistants).toHaveLength(2);
+    expect(
+      assistants[1]?.turn.blocks.some(
+        (b) =>
+          b.type === 'thinking' &&
+          b.text.includes('Thinking deeply about step 2...')
+      )
+    ).toBe(true);
+  });
+
+  it('does not overwrite an already-settled window turn when a subsequent turn uses the identical prompt text', () => {
+    const detail = emptyDetail([
+      fileTurn('acp-0', 'user', '继续', 1n, 'settled'),
+      fileTurn('acp-1', 'assistant', 'Answer for turn 1', 2n, 'settled'),
+    ]);
+    detail.timeline.last_sequence = 2n;
+
+    let state = conversationStoreReducer(emptyConversationStoreState, {
+      type: 'load_success',
+      conversationId: CONVERSATION_ID,
+      detail,
+    });
+
+    // Second turn with identical prompt text "继续" settles in liveRows with a different answer.
+    state = conversationStoreReducer(state, {
+      type: 'row_ops',
+      batch: batch(
+        [
+          {
+            op: 'upsert',
+            row: timelineRow('t2:user', 3n, {
+              kind: 'message_turn',
+              phase: 'settled',
+              turn: messageTurn('t2:user', 'user', [
+                { type: 'text', text: '继续' },
+              ]),
+            }),
+          },
+          {
+            op: 'upsert',
+            row: timelineRow('t2:assistant', 4n, {
+              kind: 'message_turn',
+              phase: 'settled',
+              turn: messageTurn('t2:assistant', 'assistant', [
+                { type: 'text', text: 'Answer for turn 2' },
+              ]),
+            }),
+          },
+        ],
+        4n
+      ),
+    });
+
+    const turns = timelineTurnsForEntry(entryOf(state));
+    expect(assistantTexts(turns)).toEqual([
+      'Answer for turn 1',
+      'Answer for turn 2',
+    ]);
+  });
 });
 
 function textOf(blocks: ContentBlock[]): string {

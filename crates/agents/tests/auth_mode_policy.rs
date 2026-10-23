@@ -102,46 +102,46 @@ fn kiro_subscription_scrubs_the_api_key_and_official_api_keeps_it() {
 
 #[test]
 fn headless_account_tokens_stay_out_of_the_api_key_field() {
-    for (agent_id, env_name) in [
-        ("qoder", "QODER_PERSONAL_ACCESS_TOKEN"),
-        ("auggie", "AUGMENT_SESSION_AUTH"),
-        ("trae", "TRAECLI_PERSONAL_ACCESS_TOKEN"),
+    for (agent_id, env_name, credential_env) in [
+        ("qoder", "QODER_PERSONAL_ACCESS_TOKEN", "QODER_API_KEY"),
+        ("auggie", "AUGMENT_SESSION_AUTH", "AUGMENT_API_TOKEN"),
+        ("trae", "TRAECLI_PERSONAL_ACCESS_TOKEN", "TRAE_API_KEY"),
+        (
+            "command_code",
+            "COMMAND_CODE_AUTH_TOKEN",
+            "COMMAND_CODE_API_KEY",
+        ),
+        ("zcode", "ZCODE_AUTH_TOKEN", "ZHIPU_API_KEY"),
     ] {
         let id = AgentId::parse(agent_id).unwrap();
         let policy = agents::built_in_auth_mode_policy(&id).unwrap();
-        assert_eq!(policy.modes, &["official_subscription"]);
-        assert!(policy.credential_modes.is_empty());
+        assert_eq!(
+            policy.modes,
+            &["official_subscription", "official_api", "model_provider"]
+        );
+        assert_eq!(policy.credential_modes, &["official_api"]);
+        assert_eq!(policy.credential_env, credential_env);
         assert_eq!(agents::headless_account_env(&id), Some(env_name));
         assert!(agents::auth_mode_credential_env(&id, "official_subscription").is_none());
+        assert_eq!(
+            agents::auth_mode_credential_env(&id, "official_api"),
+            Some(credential_env)
+        );
 
         let mut env = HashMap::from([(env_name.to_string(), "keep".to_string())]);
         apply_built_in_auth_mode_policy(&id, &mut env);
         assert_eq!(env.get(env_name).map(String::as_str), Some("keep"));
     }
-
-    let command_code = AgentId::parse("command_code").unwrap();
-    let policy = agents::built_in_auth_mode_policy(&command_code).unwrap();
-    assert_eq!(policy.modes, &["official_subscription"]);
-    assert!(policy.credential_modes.is_empty());
-    assert!(agents::headless_account_env(&command_code).is_none());
-    assert!(agents::auth_mode_credential_env(&command_code, "official_subscription").is_none());
-
-    let zcode = AgentId::parse("zcode").unwrap();
-    let policy = agents::built_in_auth_mode_policy(&zcode).unwrap();
-    assert_eq!(policy.mode_env, "ZCODE_AUTH_MODE");
-    assert_eq!(policy.credential_env, "");
-    assert_eq!(policy.modes, &["official_subscription"]);
-    assert!(policy.credential_modes.is_empty());
-    assert_eq!(policy.default_mode, "official_subscription");
-    assert!(agents::headless_account_env(&zcode).is_none());
-    assert!(agents::auth_mode_credential_env(&zcode, "official_subscription").is_none());
 }
 
 #[test]
 fn qoder_has_only_subscription_and_keeps_the_personal_access_token() {
     let policy = agents::built_in_auth_mode_policy(&AgentId::parse("qoder").unwrap()).unwrap();
-    assert_eq!(policy.modes, &["official_subscription"]);
-    assert!(policy.credential_modes.is_empty());
+    assert_eq!(
+        policy.modes,
+        &["official_subscription", "official_api", "model_provider"]
+    );
+    assert_eq!(policy.credential_modes, &["official_api"]);
 
     let mut env = HashMap::from([(
         "QODER_PERSONAL_ACCESS_TOKEN".to_string(),

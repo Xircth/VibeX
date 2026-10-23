@@ -35,14 +35,15 @@ function renderPage(environment: BackendTransport['environment']) {
 describe('PluginsPage', () => {
   it('renders the product catalog without a duplicate module toolbar', async () => {
     renderPage('desktop');
-    const heading = screen.getByRole('heading', { name: '插件' });
-    expect(heading).toBeVisible();
-    expect(heading.querySelector('svg')).toBeInTheDocument();
+    expect(
+      screen.queryByRole('heading', { name: '插件' })
+    ).not.toBeInTheDocument();
+    expect(screen.getByRole('searchbox', { name: '搜索插件' })).toBeVisible();
     expect(await screen.findByText('没有已安装的插件')).toBeVisible();
     expect(
       screen.queryByText('添加插件后，它会显示在这里。')
     ).not.toBeInTheDocument();
-    expect(screen.getByRole('button', { name: '插件市场' })).toBeVisible();
+    expect(screen.getByRole('radio', { name: '插件市场' })).toBeVisible();
     expect(
       screen.queryByRole('button', { name: '返回 Agent 设置' })
     ).not.toBeInTheDocument();
@@ -52,7 +53,7 @@ describe('PluginsPage', () => {
     'uses the same embedded settings content on %s',
     async (environment) => {
       renderPage(environment);
-      expect(screen.getByRole('heading', { name: '插件' })).toBeVisible();
+      expect(screen.getByRole('searchbox', { name: '搜索插件' })).toBeVisible();
       expect(await screen.findByText('没有已安装的插件')).toBeVisible();
       expect(
         screen.queryByRole('button', { name: '返回项目列表' })

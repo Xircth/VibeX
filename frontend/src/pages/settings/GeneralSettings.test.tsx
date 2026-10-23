@@ -186,9 +186,10 @@ describe('GeneralSettings Agent model catalogs', () => {
 
     await waitFor(() => {
       expect(agentManagementApiMock.bar).toHaveBeenCalledTimes(1);
+      expect(
+        screen.getByRole('combobox', { name: 'Agent' })
+      ).not.toBeDisabled();
     });
-
-    expect(screen.getByRole('combobox', { name: 'Agent' })).not.toBeDisabled();
   });
 
   it('refreshes the selected Agent session config on demand', async () => {

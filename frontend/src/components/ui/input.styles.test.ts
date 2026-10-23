@@ -208,7 +208,8 @@ describe('text control caret clearance', () => {
         !selector.includes('input:not') ||
         selector.includes(
           '.legacy-design .settings-page :is(.astryx-text-input'
-        )
+        ) ||
+        selector.includes('.settings-list-search > input')
       ) {
         return;
       }

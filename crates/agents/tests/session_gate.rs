@@ -23,7 +23,7 @@ fn snapshot(id: &str, lifecycle: AgentLifecycleState, enabled: bool) -> AgentMan
 fn lock(id: &str) -> SessionLaunchLock {
     SessionLaunchLock {
         agent_id: AgentId::parse(id).unwrap(),
-        absolute_acp_program: PathBuf::from("/managed/acp"),
+        absolute_acp_program: std::env::temp_dir().join("managed-acp"),
         args: vec!["serve".to_string()],
         env: BTreeMap::new(),
         runtime_version: "2.0.0".to_string(),

@@ -216,7 +216,15 @@ impl ConversationAgentEventRecorder {
             Some(serde_json::to_string(&envelope.event)?)
         };
         let connection_id = envelope.connection_id.to_string();
-        let idempotency_key = format!("agent:{}:{event_kind}", envelope.sequence);
+        let idempotency_key = match &event {
+            ConversationEvent::PermissionResponded { permission_id, .. } => {
+                format!("conversation:{conversation_id}:permission:{permission_id}:responded")
+            }
+            ConversationEvent::QuestionResponded { question_id, .. } => {
+                format!("conversation:{conversation_id}:question:{question_id}:responded")
+            }
+            _ => format!("agent:{}:{event_kind}", envelope.sequence),
+        };
         let complete_reply = matches!(
             &envelope.event,
             AgentEvent::PromptFinished { finished }
@@ -252,6 +260,18 @@ impl ConversationAgentEventRecorder {
                 }
                 continue;
             }
+            let terminal = is_terminal_conversation_event(&mapped.event);
+            if terminal
+                && let Some(turn_id) = mapped.turn_id
+                && let Some(deployment) = self.deployment.as_deref()
+                && let Some(file_event) =
+                    finalize_checkpoint_file_changes(deployment, mapped.conversation_id, turn_id)
+                        .await?
+            {
+                crate::service::emit_runtime_event(&file_event, "file_change");
+                batch.events.push(file_event);
+            }
+
             let Some(record) = append_mapped_event(&self.pool, &mapped, &normalized_json).await?
             else {
                 continue;
@@ -265,20 +285,8 @@ impl ConversationAgentEventRecorder {
                 event: serde_json::from_str(&record.normalized_json)?,
                 created_at: record.created_at,
             };
-            let terminal = is_terminal_conversation_event(&durable.event);
             crate::service::emit_runtime_event(&durable, &mapped.event_kind);
             batch.events.push(durable);
-
-            if terminal
-                && let Some(turn_id) = mapped.turn_id
-                && let Some(deployment) = self.deployment.as_deref()
-                && let Some(file_event) =
-                    finalize_checkpoint_file_changes(deployment, mapped.conversation_id, turn_id)
-                        .await?
-            {
-                crate::service::emit_runtime_event(&file_event, "file_change");
-                batch.events.push(file_event);
-            }
 
             // Publish only after the terminal checkpoint append.
             // The desktop publisher reads the durable tail, so one publication includes both.
@@ -669,7 +677,7 @@ enum CoalescedPayload {
         message_id: Option<String>,
     },
     ToolCallUpsert {
-        tool_call: ConversationToolCallPatch,
+        tool_call: Box<ConversationToolCallPatch>,
     },
 }
 
@@ -796,9 +804,9 @@ impl PendingConversationDelta {
             CoalescedPayload::AssistantReasoning { text, message_id } => {
                 ConversationEvent::AssistantReasoningDelta { text, message_id }
             }
-            CoalescedPayload::ToolCallUpsert { tool_call } => {
-                ConversationEvent::ToolCallUpsert { tool_call }
-            }
+            CoalescedPayload::ToolCallUpsert { tool_call } => ConversationEvent::ToolCallUpsert {
+                tool_call: *tool_call,
+            },
         };
         self.base.event_kind = conversation_event_kind(&self.base.event);
         self.base.idempotency_key = format!(
@@ -873,7 +881,7 @@ fn coalesced_payload_from_event(event: &ConversationEvent) -> Option<CoalescedPa
             })
         }
         ConversationEvent::ToolCallUpsert { tool_call } => Some(CoalescedPayload::ToolCallUpsert {
-            tool_call: tool_call.clone(),
+            tool_call: Box::new(tool_call.clone()),
         }),
         _ => None,
     }
@@ -2409,7 +2417,7 @@ mod tests {
             let env = AgentEventEnvelope {
                 sequence: seq,
                 workspace_id: Uuid::new_v4(),
-                connection_id: connection_id.clone(),
+                connection_id,
                 session_id: Some(AgentSessionId(conversation_id)),
                 event: AgentEvent::MessageChunk {
                     content: AgentContentBlock::Text { text: token },
@@ -2458,5 +2466,139 @@ mod tests {
             ConversationEvent::AssistantTextDelta { text, message_id: None }
                 if text == expected_text
         ));
+    }
+
+    #[tokio::test]
+    async fn permission_and_question_responses_deduplicate_across_host_and_runtime_recorder() {
+        let pool = setup_pool().await;
+        let prompt_id = AgentPromptId::new();
+        let (conversation_id, turn_id) =
+            seed_conversation_turn(&pool, &prompt_id.to_string(), "interaction dedup").await;
+        let mut recorder = super::ConversationAgentEventRecorder {
+            pool: pool.clone(),
+            deployment: None,
+            conversation_context: None,
+            event_publisher: None,
+            coalescer: super::ConversationEventCoalescer::default(),
+            active_turn_cache: std::collections::HashMap::new(),
+            cached_turn_epoch: db::models::conversation::active_turn_mutation_epoch(),
+            turn_db_lookups: 0,
+        };
+
+        let permission_id = Uuid::new_v4();
+        let host_perm_event = ConversationEvent::PermissionResponded {
+            permission_id: permission_id.to_string(),
+            response: agents::conversation::ConversationPermissionResponse {
+                response: agents::AgentPermissionResponse::Cancelled,
+                auto: false,
+            },
+        };
+        let host_perm_json = serde_json::to_string(&host_perm_event).unwrap();
+        let host_perm_key =
+            format!("conversation:{conversation_id}:permission:{permission_id}:responded");
+        crate::projection::ConversationEventAppender::append(
+            &pool,
+            super::AppendConversationEvent {
+                id: Uuid::new_v4(),
+                conversation_id,
+                turn_id: Some(turn_id),
+                binding_id: None,
+                connection_id: None,
+                prompt_id: None,
+                source: "host",
+                event_kind: "permission_responded",
+                normalized_json: &host_perm_json,
+                raw_json: None,
+                idempotency_key: Some(&host_perm_key),
+            },
+        )
+        .await
+        .expect("append host permission response");
+
+        let runtime_perm_env = AgentEventEnvelope {
+            sequence: 50,
+            workspace_id: Uuid::new_v4(),
+            connection_id: AgentConnectionId::new(),
+            session_id: Some(AgentSessionId(conversation_id)),
+            event: AgentEvent::PermissionResponded {
+                permission_id: agents::AgentPermissionId(permission_id),
+                response: agents::AgentPermissionResponse::Cancelled,
+                auto: false,
+            },
+            created_at: Utc::now(),
+        };
+        recorder
+            .record(&runtime_perm_env)
+            .await
+            .expect("record runtime permission response");
+
+        let perm_count: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM conversation_events WHERE conversation_id = ? AND event_kind = 'permission_responded'",
+        )
+        .bind(conversation_id)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert_eq!(
+            perm_count, 1,
+            "PermissionResponded from host and runtime must deduplicate via shared idempotency_key"
+        );
+
+        let question_id = Uuid::new_v4();
+        let host_q_event = ConversationEvent::QuestionResponded {
+            question_id: question_id.to_string(),
+            response: agents::conversation::ConversationQuestionResponse {
+                answer: "Cancel".to_string(),
+                content: None,
+            },
+        };
+        let host_q_json = serde_json::to_string(&host_q_event).unwrap();
+        let host_q_key = format!("conversation:{conversation_id}:question:{question_id}:responded");
+        crate::projection::ConversationEventAppender::append(
+            &pool,
+            super::AppendConversationEvent {
+                id: Uuid::new_v4(),
+                conversation_id,
+                turn_id: Some(turn_id),
+                binding_id: None,
+                connection_id: None,
+                prompt_id: None,
+                source: "host",
+                event_kind: "question_responded",
+                normalized_json: &host_q_json,
+                raw_json: None,
+                idempotency_key: Some(&host_q_key),
+            },
+        )
+        .await
+        .expect("append host question response");
+
+        let runtime_q_env = AgentEventEnvelope {
+            sequence: 51,
+            workspace_id: Uuid::new_v4(),
+            connection_id: AgentConnectionId::new(),
+            session_id: Some(AgentSessionId(conversation_id)),
+            event: AgentEvent::ElicitationResponded {
+                elicitation_id: agents::AgentElicitationId(question_id),
+                response: agents::AgentElicitationResponse::Cancel,
+            },
+            created_at: Utc::now(),
+        };
+        recorder
+            .record(&runtime_q_env)
+            .await
+            .expect("record runtime question response");
+
+        let q_count: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM conversation_events WHERE conversation_id = ? AND event_kind = 'question_responded'",
+        )
+        .bind(conversation_id)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert_eq!(
+            q_count, 1,
+            "QuestionResponded from host and runtime must deduplicate via shared idempotency_key"
+        );
     }
 }

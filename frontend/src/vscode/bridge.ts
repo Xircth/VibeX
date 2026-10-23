@@ -282,21 +282,23 @@ type IframeMessage = {
 };
 
 // Handle messages from the parent webview (clipboard, add-to input)
-window.addEventListener('message', (e: MessageEvent) => {
-  const data: unknown = e?.data;
-  if (!data || typeof data !== 'object') return;
-  const msg = data as IframeMessage;
-  if (msg.type === 'vscode-iframe-clipboard-paste-result' && msg.requestId) {
-    const fn = pasteResolvers[msg.requestId];
-    if (fn) {
-      fn(msg.text || '');
-      delete pasteResolvers[msg.requestId];
+if (typeof window !== 'undefined') {
+  window.addEventListener('message', (e: MessageEvent) => {
+    const data: unknown = e?.data;
+    if (!data || typeof data !== 'object') return;
+    const msg = data as IframeMessage;
+    if (msg.type === 'vscode-iframe-clipboard-paste-result' && msg.requestId) {
+      const fn = pasteResolvers[msg.requestId];
+      if (fn) {
+        fn(msg.text || '');
+        delete pasteResolvers[msg.requestId];
+      }
     }
-  }
-  if (msg.type === 'VIBE_ADD_TO_INPUT' && typeof msg.text === 'string') {
-    enqueueInsert(msg.text);
-  }
-});
+    if (msg.type === 'VIBE_ADD_TO_INPUT' && typeof msg.text === 'string') {
+      enqueueInsert(msg.text);
+    }
+  });
+}
 
 /** Install keyboard + clipboard handlers when running inside an iframe. */
 export function installVSCodeIframeKeyboardBridge() {

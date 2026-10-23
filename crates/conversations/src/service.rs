@@ -1049,12 +1049,17 @@ impl ConversationSessionService {
         input: ConversationStartTurnInput,
         origin: &str,
     ) -> Result<(ConversationTurnSnapshot, AgentPromptSnapshot), ConversationServiceError> {
+        let conversation_id = input.conversation_id;
         let committed = {
-            let turn_lock = self.turn_lock(input.conversation_id).await;
+            let turn_lock = self.turn_lock(conversation_id).await;
             let _turn_guard = turn_lock.lock().await;
             self.commit_new_turn(input, origin).await?
         };
-        self.complete_committed_turn(committed).await
+        let result = self.complete_committed_turn(committed).await;
+        if result.is_err() {
+            self.spawn_next_queued_input_after_failure(conversation_id);
+        }
+        result
     }
 
     /// Idle-check, claim consumption, and Turn commit. Caller must hold the
@@ -1521,6 +1526,22 @@ impl ConversationSessionService {
         }
     }
 
+    fn spawn_next_queued_input_after_failure(&self, conversation_id: Uuid) {
+        let context = self.ctx.clone();
+        tokio::spawn(async move {
+            if let Err(dispatch_error) = ConversationSessionService::new(context)
+                .dispatch_one_queued_input(conversation_id)
+                .await
+            {
+                tracing::warn!(
+                    %conversation_id,
+                    error = %dispatch_error,
+                    "failed to dispatch the next durable conversation input after send failure"
+                );
+            }
+        });
+    }
+
     async fn turn_lock(&self, conversation_id: Uuid) -> Arc<tokio::sync::Mutex<()>> {
         let mut locks = self.ctx.turn_locks.lock().await;
         Arc::clone(
@@ -1536,6 +1557,17 @@ impl ConversationSessionService {
     /// Agent I/O runs after that lock is dropped: the same tokio Mutex is not
     /// reentrant, and Stop must be able to acquire it during the handshake.
     pub async fn dispatch_next_queued_input(
+        &self,
+        conversation_id: Uuid,
+    ) -> Result<Option<ConversationTurnSnapshot>, ConversationServiceError> {
+        let result = self.dispatch_one_queued_input(conversation_id).await;
+        if result.is_err() {
+            self.spawn_next_queued_input_after_failure(conversation_id);
+        }
+        result
+    }
+
+    async fn dispatch_one_queued_input(
         &self,
         conversation_id: Uuid,
     ) -> Result<Option<ConversationTurnSnapshot>, ConversationServiceError> {
@@ -2023,7 +2055,9 @@ impl ConversationSessionService {
                     auto: false,
                 },
             },
-            Some(format!("permission:{permission_id}:responded")),
+            Some(format!(
+                "conversation:{conversation_id}:permission:{permission_id}:responded"
+            )),
         )
         .await?;
         Ok(())
@@ -2074,7 +2108,9 @@ impl ConversationSessionService {
                     },
                 },
             },
-            Some(format!("question:{question_id}:responded")),
+            Some(format!(
+                "conversation:{conversation_id}:question:{question_id}:responded"
+            )),
         )
         .await?;
         Ok(())
@@ -3321,6 +3357,12 @@ impl ConversationSessionService {
             ConversationAgentBindingRecord::list_for_conversation(pool, input.conversation_id)
                 .await?;
         let latest_binding = bindings.last().cloned();
+        self.update_runtime_state(input.conversation_id, |state| {
+            state.binding_id = latest_binding.as_ref().map(|binding| binding.id);
+            state.connection_id = Some(connection_id.to_string());
+            state.connection_status = Some("ready".to_string());
+        })
+        .await;
 
         match self
             .ctx
@@ -3473,11 +3515,28 @@ impl ConversationSessionService {
         conversation_id: Uuid,
     ) -> Option<(AgentConnectionId, Option<Uuid>)> {
         let snapshot = self.runtime_snapshot(conversation_id).await;
-        snapshot
+        let connection_id = match snapshot
             .connection_id
             .as_deref()
             .and_then(parse_agent_connection_id)
-            .map(|connection_id| (connection_id, snapshot.active_turn_id))
+        {
+            Some(connection_id) => connection_id,
+            None => {
+                self.ctx
+                    .agent_runtime
+                    .live_connection_id(AgentSessionId(conversation_id))
+                    .await?
+            }
+        };
+        let active_turn_id = match snapshot.active_turn_id {
+            Some(turn_id) => Some(turn_id),
+            None => ConversationRecord::find_by_id(&self.ctx.deployment.db().pool, conversation_id)
+                .await
+                .ok()
+                .flatten()
+                .and_then(|record| record.active_turn_id),
+        };
+        Some((connection_id, active_turn_id))
     }
 }
 

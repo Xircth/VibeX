@@ -540,7 +540,72 @@ impl AgentTerminalRegistry {
             return false;
         };
 
+        self.teardown_released_session(terminal_id, session).await;
+        true
+    }
+
+    pub async fn release_all_for_session(
+        &self,
+        session_id: AgentSessionId,
+    ) -> Vec<AgentTerminalId> {
+        let removed: Vec<(AgentTerminalId, Arc<AgentTerminalSession>)> = {
+            let mut sessions = self.sessions.write().await;
+            let ids: Vec<AgentTerminalId> = sessions
+                .iter()
+                .filter(|(_, session)| session.agent_session_id == session_id)
+                .map(|(id, _)| *id)
+                .collect();
+            ids.into_iter()
+                .filter_map(|id| sessions.remove(&id).map(|session| (id, session)))
+                .collect()
+        };
+        let ids: Vec<AgentTerminalId> = removed.iter().map(|(id, _)| *id).collect();
+        futures::future::join_all(
+            removed
+                .into_iter()
+                .map(|(id, session)| self.teardown_released_session(id, session)),
+        )
+        .await;
+        ids
+    }
+
+    pub async fn release_all(&self) {
+        let removed: Vec<(AgentTerminalId, Arc<AgentTerminalSession>)> =
+            self.sessions.write().await.drain().collect();
+        futures::future::join_all(
+            removed
+                .into_iter()
+                .map(|(id, session)| self.teardown_released_session(id, session)),
+        )
+        .await;
+    }
+
+    async fn teardown_released_session(
+        &self,
+        terminal_id: AgentTerminalId,
+        session: Arc<AgentTerminalSession>,
+    ) {
+        let was_running = session.exit_status.read().await.is_none();
         session.kill_notify.notify_one();
+        if was_running {
+            let _ = tokio::time::timeout(KILL_REPORT_BUDGET, async {
+                loop {
+                    if session.exit_status.read().await.is_some() {
+                        break;
+                    }
+                    session.exit_notify.notified().await;
+                }
+            })
+            .await;
+            let mut exit_guard = session.exit_status.write().await;
+            if exit_guard.is_none() {
+                *exit_guard = Some(AgentTerminalExit::Signal {
+                    signal: "SIGKILL".to_string(),
+                });
+                drop(exit_guard);
+                session.exit_notify.notify_waiters();
+            }
+        }
         {
             let mut subscribers = session.subscribers.lock().await;
             for tap in subscribers.drain(..) {
@@ -550,7 +615,6 @@ impl AgentTerminalRegistry {
         let _ = self
             .lifecycle_tx
             .send(AgentTerminalLifecycleEvent::Released { terminal_id });
-        true
     }
 
     pub async fn exists(&self, terminal_id: AgentTerminalId) -> bool {
@@ -761,10 +825,15 @@ async fn own_terminal_process(
                 escalate_at = None;
                 escalated = true;
                 signalled.extend(signal_tree(pid, "SIGKILL").await);
+                let _ = child.start_kill();
             }
             () = session.kill_notify.notified() => {
                 let signal = if escalated { "SIGKILL" } else { "SIGTERM" };
                 signalled.extend(signal_tree(pid, signal).await);
+                #[cfg(windows)]
+                {
+                    let _ = child.start_kill();
+                }
                 if !kill_requested {
                     kill_requested = true;
                     escalate_at = Some(tokio::time::Instant::now() + KILL_ESCALATE_GRACE);
@@ -1301,10 +1370,15 @@ mod tests {
 
     #[test]
     fn explicit_cwd_is_kept_even_when_missing() {
-        let missing = Path::new("/vibex-nonexistent-cwd/does/not/exist");
         let dir = tempfile::tempdir().expect("temp dir");
-        let resolved = resolve_terminal_cwd(Some(missing), dir.path()).expect("keep explicit cwd");
-        assert_eq!(resolved.as_deref(), Some(missing));
+        let missing = dir
+            .path()
+            .join("vibex-nonexistent-cwd")
+            .join("does")
+            .join("not")
+            .join("exist");
+        let resolved = resolve_terminal_cwd(Some(&missing), dir.path()).expect("keep explicit cwd");
+        assert_eq!(resolved.as_deref(), Some(missing.as_path()));
     }
 
     #[test]
@@ -1317,7 +1391,7 @@ mod tests {
 
     #[tokio::test]
     async fn whitespace_command_runs_through_shell() {
-        let output = run_and_capture("echo hello world").await;
+        let output = run_and_capture("echo \"hello world\"").await;
         assert!(
             output.contains("hello world"),
             "shell did not run the whitespace command; got:\n{output}"
@@ -1566,5 +1640,45 @@ mod tests {
         );
         tap.close();
         assert_eq!(tap.recv().await, None);
+    }
+
+    #[tokio::test]
+    async fn release_all_for_session_terminates_running_process_and_unblocks_watchdog() {
+        let registry = AgentTerminalRegistry::new();
+        let session_id = AgentSessionId::new();
+        let (command, args) = if cfg!(windows) {
+            (
+                "powershell.exe".to_string(),
+                vec![
+                    "-NoLogo".to_string(),
+                    "-NoProfile".to_string(),
+                    "-Command".to_string(),
+                    "Start-Sleep -Seconds 30".to_string(),
+                ],
+            )
+        } else {
+            ("sleep".to_string(), vec!["30".to_string()])
+        };
+        let terminal_id = registry
+            .create_terminal(&AgentTerminalCreateRequest {
+                session_id,
+                command,
+                args,
+                cwd: None,
+                env: Vec::new(),
+                output_byte_limit: Some(4096),
+            })
+            .await
+            .expect("create long-running terminal");
+
+        assert!(registry.has_running_for_session(session_id).await);
+
+        let released = registry.release_all_for_session(session_id).await;
+        assert_eq!(released, vec![terminal_id]);
+        assert!(
+            !registry.has_running_for_session(session_id).await,
+            "has_running_for_session must be false immediately after release_all_for_session"
+        );
+        assert!(!registry.exists(terminal_id).await);
     }
 }

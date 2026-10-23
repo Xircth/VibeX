@@ -387,7 +387,7 @@ fn expand_configured_history_path(path: PathBuf, home: Option<&Path>) -> PathBuf
     if let Ok(relative) = path.strip_prefix("~/") {
         return home.join(relative);
     }
-    if path.is_relative() {
+    if path.is_relative() && !path.has_root() {
         return home.join(path);
     }
     path

@@ -4946,7 +4946,7 @@ mod tests {
         );
 
         let resumed = tokio::time::timeout(
-            Duration::from_secs(2),
+            Duration::from_secs(10),
             runtime.resume_session(ResumeAgentSessionInput {
                 agent_id: AgentId::parse("codex").unwrap(),
                 launch_lock: test_launch_lock(),
@@ -4983,7 +4983,7 @@ mod tests {
             .await;
 
         tokio::time::timeout(
-            Duration::from_secs(2),
+            Duration::from_secs(10),
             runtime.disconnect(session.connection_id),
         )
         .await

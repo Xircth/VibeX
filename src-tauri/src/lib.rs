@@ -588,6 +588,9 @@ pub fn run() {
         }
         // Flush the non-blocking log writer on exit before the process leaves.
         if let tauri::RunEvent::Exit = event {
+            tauri::async_runtime::block_on(
+                agents::terminal::agent_terminal_registry().release_all(),
+            );
             log_guard.take();
         }
     });

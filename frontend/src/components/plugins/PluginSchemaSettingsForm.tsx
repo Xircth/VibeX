@@ -255,7 +255,7 @@ export function PluginSchemaSettingsForm({
                         [key]: e.target.value,
                       }));
                     }}
-                    className="h-8 w-full rounded-md border border-border bg-background px-2.5 text-xs text-foreground"
+                    className="raised-control h-8 w-full rounded-md border border-border bg-background px-2.5 text-xs text-foreground"
                   >
                     {prop.enum.map((option) => (
                       <option key={String(option)} value={String(option)}>

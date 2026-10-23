@@ -594,6 +594,11 @@ function upsertRow(
     ) {
       return { rows, liveText };
     }
+    const isOverlayTerminalTransition = Boolean(
+      !windowExisting &&
+        liveText[incoming.row_id] &&
+        isTerminalMessageRow(incoming)
+    );
     const seededIncoming = windowExisting
       ? preserveAssistantBlocksOnColdUpsert(
           windowExisting,
@@ -601,16 +606,25 @@ function upsertRow(
           liveText[incoming.row_id],
           isWindowTerminalTransition
         )
-      : incoming;
+      : preserveAssistantBlocksOnColdUpsert(
+          incoming,
+          incoming,
+          liveText[incoming.row_id],
+          isOverlayTerminalTransition
+        );
     nextRows = insertTimelineRow(rows, seededIncoming);
     rebuildRowIndex(nextRows, rowIndexById);
     applied = true;
-    terminalConverged = isWindowTerminalTransition;
+    terminalConverged =
+      isWindowTerminalTransition || isOverlayTerminalTransition;
   } else {
     const existing = rows[index]!;
     const isTerminalTransition =
       isTerminalMessageRow(incoming) && isNonTerminalMessageRow(existing);
-    if (incomingRevision >= toBigInt(existing.revision) || isTerminalTransition) {
+    if (
+      incomingRevision >= toBigInt(existing.revision) ||
+      isTerminalTransition
+    ) {
       const mergedIncoming = preserveAssistantBlocksOnColdUpsert(
         existing,
         preserveStructuredUserText(existing, incoming),
@@ -1337,6 +1351,16 @@ function isLiveTurnConvergedInWindow(
     const expectedBlocks = overlay
       ? overlayLiveText(liveBaseBlocks, overlay)
       : liveBaseBlocks;
+    if (
+      expectedBlocks.length === 0 &&
+      liveAssistants.some(
+        (row) =>
+          row.row.kind === 'message_turn' &&
+          !TERMINAL_ROW_PHASES.has(row.row.phase)
+      )
+    ) {
+      return false;
+    }
     return windowBlocksCoverLiveBlocks(windowBlocks, expectedBlocks);
   }
 
@@ -1388,6 +1412,23 @@ function windowBlocksCoverLiveBlocks(
     .join('')
     .trim();
   if (liveText.length > 0 && !windowText.includes(liveText)) {
+    return false;
+  }
+  const windowThinking = windowBlocks
+    .flatMap((block) => (block.type === 'thinking' ? [block.text] : []))
+    .join('')
+    .trim();
+  const liveThinking = liveBlocks
+    .flatMap((block) => (block.type === 'thinking' ? [block.text] : []))
+    .join('')
+    .trim();
+  if (liveThinking.length > 0 && !windowThinking.includes(liveThinking)) {
+    return false;
+  }
+  if (
+    liveBlocks.some((block) => block.type === 'plan') &&
+    !windowBlocks.some((block) => block.type === 'plan')
+  ) {
     return false;
   }
   const windowToolIds = new Set(toolUseIdsOf(windowBlocks));
@@ -1572,11 +1613,32 @@ function combineWindowAndLiveRows(
         TERMINAL_ROW_PHASES.has(row.row.phase)
     );
 
+    const windowAssistantBlocks = trailing.assistantRows.flatMap((row) =>
+      row.row.kind === 'message_turn' ? row.row.turn.blocks : []
+    );
+    const liveAssistantBlocks = remainingLive
+      .filter(
+        (row) =>
+          row.row.kind === 'message_turn' && row.row.turn.role === 'assistant'
+      )
+      .flatMap((row) =>
+        row.row.kind === 'message_turn' ? row.row.turn.blocks : []
+      );
+
     const alignsByPrompt =
       trailingUserText !== null &&
       liveUserText !== null &&
       promptsMatch(trailingUserText, liveUserText) &&
-      (trailing.isStreamingOrOpen || liveHasTerminalPhase);
+      !livePromptStartsAfterWindowUser(
+        firstLiveUser,
+        trailing.userRow ?? undefined
+      ) &&
+      (trailing.isStreamingOrOpen ||
+        (liveHasTerminalPhase &&
+          windowBlocksCoverLiveBlocks(
+            windowAssistantBlocks,
+            liveAssistantBlocks
+          )));
 
     const alignsOrphanWindowAssistant =
       trailing.userRow === null &&
@@ -1594,9 +1656,6 @@ function combineWindowAndLiveRows(
       alignsOrphanWindowAssistant ||
       alignsOrphanLiveAssistant
     ) {
-      const windowAssistantBlocks = trailing.assistantRows.flatMap((row) =>
-        row.row.kind === 'message_turn' ? row.row.turn.blocks : []
-      );
       if (windowAssistantBlocks.length > 0 && firstLiveAssistant) {
         remainingLive = remainingLive.map((row) => {
           if (

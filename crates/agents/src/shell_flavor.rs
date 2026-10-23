@@ -53,7 +53,8 @@ pub fn classify_shell_family(shell: &str) -> ShellFamily {
 
     #[cfg(target_os = "windows")]
     {
-        if name.contains("bash")
+        if is_bash_like_posix_shell(shell)
+            || name.contains("bash")
             || name.contains("zsh")
             || name.contains("fish")
             || name.ends_with("sh.exe")

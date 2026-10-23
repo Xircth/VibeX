@@ -107,7 +107,7 @@ fn probe_service_only_adopts_fully_verified_profile_candidates() {
 
     let candidate = ExternalCandidateObservation {
         component_id: "runtime".to_string(),
-        absolute_path: PathBuf::from("/opt/codex"),
+        absolute_path: std::env::temp_dir().join("opt-codex"),
         version: Some("0.146.0".to_string()),
         version_verified: true,
         hash_verified: true,

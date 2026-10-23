@@ -772,9 +772,8 @@ pub async fn create_spawned_conversation(
     let caller = live_session(load_session(pool, input.caller_id).await?)?;
     let request = spawn_request(&input);
     if let Some(stored) = load_create_operation(pool, input.operation_id).await? {
-        if stored.caller_id != input.caller_id.to_string()
-            || stored.request_json != request.to_string()
-        {
+        let request_json = request.to_string();
+        if stored.caller_id != input.caller_id.to_string() || stored.request_json != request_json {
             return Err(operation_conflict());
         }
         return Ok(CreatedConversation {
@@ -814,10 +813,9 @@ pub async fn create_spawned_conversation(
             return Err(operation_conflict());
         }
         if let (Some(existing_name), Some(expected)) = (existing.name.as_deref(), title.as_deref())
+            && existing_name != expected
         {
-            if existing_name != expected {
-                return Err(operation_conflict());
-            }
+            return Err(operation_conflict());
         }
         true
     } else {
@@ -1319,6 +1317,7 @@ enum ClaimGate {
     Reserved,
 }
 
+#[allow(clippy::too_many_arguments)]
 async fn deliver_text(
     pool: &SqlitePool,
     conversation_id: Uuid,
@@ -2642,18 +2641,18 @@ pub async fn host_move_space_member(
         .or_else(|| target.name.clone().filter(|v| !v.trim().is_empty()))
         .unwrap_or_else(|| "成员".to_string());
     let desired_nickname = require_name(&desired_nickname)?;
-    if from_space_id == to_space_id {
-        if let Ok(existing) = ensure_agent_member(pool, to_space_id, conversation_id).await {
-            store_operation(
-                pool,
-                &operation_id.to_string(),
-                Some(to_space_id),
-                &request,
-                &existing,
-            )
-            .await?;
-            return Ok(existing);
-        }
+    if from_space_id == to_space_id
+        && let Ok(existing) = ensure_agent_member(pool, to_space_id, conversation_id).await
+    {
+        store_operation(
+            pool,
+            &operation_id.to_string(),
+            Some(to_space_id),
+            &request,
+            &existing,
+        )
+        .await?;
+        return Ok(existing);
     }
     sqlx::query(
         "DELETE FROM collaboration_space_members WHERE space_id = ? AND conversation_id = ?",
@@ -3058,13 +3057,13 @@ pub async fn set_space_identity(
     if let Some(stored) = load_stored_operation(pool, &operation_id.to_string()).await? {
         return decode_replay(accept_space_replay(&stored, Some(space_id), &request)?);
     }
-    if let Some(owner) = nickname_owner(pool, space_id, &nickname).await? {
-        if owner != member.member_id {
-            return Err(CollaborationError::new(
-                "nickname_taken",
-                "nickname is already used in this space",
-            ));
-        }
+    if let Some(owner) = nickname_owner(pool, space_id, &nickname).await?
+        && owner != member.member_id
+    {
+        return Err(CollaborationError::new(
+            "nickname_taken",
+            "nickname is already used in this space",
+        ));
     }
     sqlx::query(
         "UPDATE collaboration_space_members SET nickname = ? WHERE space_id = ? AND member_id = ?",
@@ -3870,7 +3869,7 @@ pub fn clean_space_display_text(content: &str, member_nicknames: &[String]) -> S
             candidates.push(builtin.to_string());
         }
     }
-    candidates.sort_by(|a, b| b.chars().count().cmp(&a.chars().count()));
+    candidates.sort_by_key(|b| std::cmp::Reverse(b.chars().count()));
 
     let mut rest = content.trim();
     loop {
@@ -3929,6 +3928,7 @@ pub fn clean_space_display_text(content: &str, member_nicknames: &[String]) -> S
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn build_space_delivery_prompt(
     space_id: &str,
     space_name: &str,
@@ -4589,7 +4589,8 @@ async fn same_post_request(
             return Ok(false);
         }
         if !stored.request_json.is_empty() {
-            return Ok(stored.request_json == request.to_string());
+            let request_json = request.to_string();
+            return Ok(stored.request_json == request_json);
         }
     }
     Ok(envelope_matches(envelope_json, request))
@@ -4619,10 +4620,10 @@ fn envelope_matches(raw: &str, request: &Value) -> bool {
     if stored_reply != requested_reply {
         return false;
     }
-    if let Some(summary) = request.get("summary").and_then(Value::as_str) {
-        if envelope.get("summary").and_then(Value::as_str) != Some(summary) {
-            return false;
-        }
+    if let Some(summary) = request.get("summary").and_then(Value::as_str)
+        && envelope.get("summary").and_then(Value::as_str) != Some(summary)
+    {
+        return false;
     }
     let Some(items) = request.get("to").and_then(Value::as_array) else {
         return true;
@@ -4720,12 +4721,13 @@ fn accept_space_replay(
     expected_space: Option<&str>,
     request: &Value,
 ) -> Result<Value, CollaborationError> {
-    if let (Some(stored_space), Some(expected)) = (stored.space_id.as_deref(), expected_space) {
-        if stored_space != expected {
-            return Err(CollaborationError::new("not_found", "space was not found"));
-        }
+    if let (Some(stored_space), Some(expected)) = (stored.space_id.as_deref(), expected_space)
+        && stored_space != expected
+    {
+        return Err(CollaborationError::new("not_found", "space was not found"));
     }
-    if !stored.request_json.is_empty() && stored.request_json != request.to_string() {
+    let request_json = request.to_string();
+    if !stored.request_json.is_empty() && stored.request_json != request_json {
         return Err(operation_conflict());
     }
     Ok(stored.result.clone())
@@ -4903,10 +4905,10 @@ fn vibex_team_spaces_root_dir() -> std::path::PathBuf {
 fn sanitize_collection_segment(raw: &str, fallback: &str) -> String {
     let mut out = String::with_capacity(raw.len());
     for ch in raw.trim().chars() {
-        if ch.is_ascii_alphanumeric() || matches!(ch, '-' | '_' | '.') {
-            out.push(ch);
-        } else if !ch.is_control()
-            && !matches!(ch, '/' | '\\' | ':' | '*' | '?' | '"' | '<' | '>' | '|')
+        if ch.is_ascii_alphanumeric()
+            || matches!(ch, '-' | '_' | '.')
+            || (!ch.is_control()
+                && !matches!(ch, '/' | '\\' | ':' | '*' | '?' | '"' | '<' | '>' | '|'))
         {
             out.push(ch);
         } else {

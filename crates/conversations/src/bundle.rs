@@ -155,8 +155,11 @@ pub async fn export_conversation_bundle(
         )
     });
     if !has_assistant_events
-        && let Some(jsonl_turns) =
-            crate::jsonl_history::read_existing_transcript_turns(conversation_id)
+        && let Some(jsonl_turns) = crate::jsonl_history::flush_and_read_existing_transcript_turns(
+            conversation_id,
+            summary.external_session_id.as_deref(),
+        )
+        .await
     {
         events = merge_jsonl_assistant_events(conversation_id, &turns, events, &jsonl_turns)?;
     }

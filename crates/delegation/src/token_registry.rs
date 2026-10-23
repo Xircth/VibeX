@@ -80,10 +80,12 @@ struct RegisteredToken {
     product: Option<String>,
 }
 
+type ProductGateFn = Arc<dyn Fn(&str) -> bool + Send + Sync>;
+
 #[derive(Default)]
 pub struct TokenRegistry {
     inner: RwLock<HashMap<String, RegisteredToken>>,
-    product_gate: RwLock<Option<Arc<dyn Fn(&str) -> bool + Send + Sync>>>,
+    product_gate: RwLock<Option<ProductGateFn>>,
 }
 
 impl std::fmt::Debug for TokenRegistry {
@@ -174,10 +176,10 @@ impl TokenRegistry {
         };
         if let Some(product) = registered.product.as_deref() {
             let gate = self.product_gate.read().unwrap().clone();
-            if let Some(gate) = gate {
-                if !gate(product) {
-                    return None;
-                }
+            if let Some(gate) = gate
+                && !gate(product)
+            {
+                return None;
             }
         }
         Some(registered.entry)

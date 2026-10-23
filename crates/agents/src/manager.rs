@@ -286,7 +286,7 @@ const CANCEL_ACKNOWLEDGEMENT_TIMEOUT: Duration = Duration::from_secs(10);
 // `run_prompt` owns `cmd_rx` for the whole turn. A Disconnect sent while that
 // future is parked on cancel-ack (or a replaced/wedged sender) would otherwise
 // wait forever, and 继续 after stop would hang on "会话加载异常，正在连接…".
-const DISCONNECT_JOIN_TIMEOUT: Duration = Duration::from_secs(1);
+const DISCONNECT_JOIN_TIMEOUT: Duration = Duration::from_secs(8);
 const AUTH_STATUS_TIMEOUT_SECS: u64 = 5;
 const MAX_CONTENT_META_BYTES: usize = 16 * 1024;
 const CONNECTION_CLOSED_TURN_MESSAGE: &str = "Agent connection closed before the turn completed.";
@@ -2113,6 +2113,59 @@ impl AgentConnectionManager {
             Err(_) => {
                 task.abort();
                 let _ = task.await;
+                let mut session_ids: std::collections::HashSet<AgentSessionId> = connection
+                    .session_map
+                    .read()
+                    .await
+                    .keys()
+                    .copied()
+                    .collect();
+                let pending_permissions = {
+                    let mut guard = connection.pending_permissions.lock().await;
+                    guard.drain().map(|(_, p)| p).collect::<Vec<_>>()
+                };
+                for pending in pending_permissions {
+                    session_ids.insert(pending.session_id);
+                    let response = AgentPermissionResponse::Cancelled;
+                    let _ = pending.tx.send(response.clone());
+                    send_manager_event(
+                        &self.event_tx,
+                        AgentConnectionManagerEvent {
+                            connection_id,
+                            session_id: Some(pending.session_id),
+                            prompt_id: None,
+                            event: AgentEvent::PermissionResponded {
+                                permission_id: pending.permission_id,
+                                response,
+                                auto: false,
+                            },
+                        },
+                    );
+                }
+                if let Some((session_id, prompt_id)) = connection.active_prompt.lock().await.take()
+                {
+                    session_ids.insert(session_id);
+                    send_manager_event(
+                        &self.event_tx,
+                        AgentConnectionManagerEvent {
+                            connection_id,
+                            session_id: Some(session_id),
+                            prompt_id: Some(prompt_id),
+                            event: AgentEvent::Error {
+                                error: AgentErrorEvent {
+                                    message: CONNECTION_CLOSED_TURN_MESSAGE.to_string(),
+                                    code: Some("connection_closed".to_string()),
+                                    raw: None,
+                                },
+                            },
+                        },
+                    );
+                }
+                for session_id in session_ids {
+                    agent_terminal_registry()
+                        .release_all_for_session(session_id)
+                        .await;
+                }
                 Ok(())
             }
         }
@@ -2592,6 +2645,7 @@ impl AgentConnectionRunner {
                 AgentEvent::Error { error: turn_error },
             );
         }
+        self.cancel_all_pending_interactions().await;
     }
 
     async fn run_in_memory(self, mut cmd_rx: mpsc::Receiver<AgentConnectionCommand>) {
@@ -2628,6 +2682,7 @@ impl AgentConnectionRunner {
                     session_id,
                     result_tx,
                 } => {
+                    self.cancel_pending_interactions(session_id).await;
                     self.session_map.write().await.remove(&session_id);
                     self.session_controls.write().await.remove(&session_id);
                     let _ = result_tx.send(Ok(()));
@@ -2803,6 +2858,7 @@ impl AgentConnectionRunner {
                 AgentConnectionCommand::Disconnect => break,
             }
         }
+        self.cancel_all_pending_interactions().await;
     }
 
     async fn run_full_gate_fixture(
@@ -3531,6 +3587,7 @@ impl AgentConnectionRunner {
                             session_id,
                             result_tx,
                         } => {
+                            runner.cancel_pending_interactions(session_id).await;
                             let acp_session_id =
                                 runner.session_map.read().await.get(&session_id).cloned();
                             let result = if supports_close_session {
@@ -5702,83 +5759,92 @@ impl AgentConnectionRunner {
                             if cancel_session == session_id && cancel_prompt == prompt_id =>
                         {
                             self.cancel_pending_interactions(session_id).await;
-                            conn.send_notification(CancelNotification::new(SessionId::new(acp_session_id.clone())))?;
-                            // Hold the turn open until the agent acknowledges by
-                            // answering `session/prompt`. Anything it streams in the
-                            // meantime still belongs to *this* prompt. Disconnect
-                            // must still be able to abort this wait — otherwise
-                            // `run_prompt` owns `cmd_rx` for up to 10s and the
-                            // outer loop never sees Closed.
-                            let cancel_deadline = tokio::time::sleep(CANCEL_ACKNOWLEDGEMENT_TIMEOUT);
-                            tokio::pin!(cancel_deadline);
-                            let acknowledged = loop {
-                                tokio::select! {
-                                    result = &mut prompt_future => break result.is_ok(),
-                                    _ = &mut cancel_deadline => break false,
-                                    command = cmd_rx.recv() => {
-                                        match command {
-                                            Some(AgentConnectionCommand::Disconnect) | None => {
-                                                if let Ok(mut guard) = self.active_turn_probe.lock() {
-                                                    *guard = None;
+                            let acknowledged = if conn
+                                .send_notification(CancelNotification::new(SessionId::new(
+                                    acp_session_id.clone(),
+                                )))
+                                .is_ok()
+                            {
+                                // Hold the turn open until the agent acknowledges by
+                                // answering `session/prompt`. Anything it streams in the
+                                // meantime still belongs to *this* prompt. Disconnect
+                                // must still be able to abort this wait — otherwise
+                                // `run_prompt` owns `cmd_rx` for up to 10s and the
+                                // outer loop never sees Closed.
+                                let cancel_deadline =
+                                    tokio::time::sleep(CANCEL_ACKNOWLEDGEMENT_TIMEOUT);
+                                tokio::pin!(cancel_deadline);
+                                loop {
+                                    tokio::select! {
+                                        result = &mut prompt_future => break result.is_ok(),
+                                        _ = &mut cancel_deadline => break false,
+                                        command = cmd_rx.recv() => {
+                                            match command {
+                                                Some(AgentConnectionCommand::Disconnect) | None => {
+                                                    if let Ok(mut guard) = self.active_turn_probe.lock() {
+                                                        *guard = None;
+                                                    }
+                                                    *self.active_prompt.lock().await = None;
+                                                    self.record_turn_end(
+                                                        &acp_session_id,
+                                                        session_id,
+                                                        "cancelled",
+                                                        turn_started.elapsed().as_millis() as u64,
+                                                        None,
+                                                    )
+                                                    .await;
+                                                    self.emit(
+                                                        Some(session_id),
+                                                        Some(prompt_id),
+                                                        AgentEvent::PromptFinished {
+                                                            finished: AgentPromptFinished {
+                                                                prompt_id,
+                                                                stop_reason: Some("cancelled".to_string()),
+                                                                usage: None,
+                                                            },
+                                                        },
+                                                    );
+                                                    return Ok(RunPromptOutcome::Closed);
                                                 }
-                                                *self.active_prompt.lock().await = None;
-                                                self.record_turn_end(
-                                                    &acp_session_id,
-                                                    session_id,
-                                                    "cancelled",
-                                                    turn_started.elapsed().as_millis() as u64,
-                                                    None,
-                                                )
-                                                .await;
-                                                self.emit(
-                                                    Some(session_id),
-                                                    Some(prompt_id),
-                                                    AgentEvent::Error {
-                                                        error: AgentErrorEvent {
-                                                            message: "Agent connection closed before the turn completed.".to_string(),
-                                                            code: Some("connection_closed".to_string()),
-                                                            raw: None,
+                                                Some(AgentConnectionCommand::Cancel { .. }) => {}
+                                                Some(AgentConnectionCommand::Prompt {
+                                                    session_id: rejected_session,
+                                                    prompt_id: rejected_prompt,
+                                                    ..
+                                                }) => {
+                                                    self.emit(
+                                                        Some(rejected_session),
+                                                        Some(rejected_prompt),
+                                                        AgentEvent::Error {
+                                                            error: AgentErrorEvent {
+                                                                message: "The agent connection was busy with another conversation's turn. Send again.".to_string(),
+                                                                code: Some("prompt_conflict".to_string()),
+                                                                raw: Some(serde_json::json!({
+                                                                    "activePromptId": prompt_id.to_string(),
+                                                                    "activeSessionId": session_id.to_string(),
+                                                                })),
+                                                            },
                                                         },
-                                                    },
-                                                );
-                                                return Ok(RunPromptOutcome::Closed);
-                                            }
-                                            Some(AgentConnectionCommand::Cancel { .. }) => {}
-                                            Some(AgentConnectionCommand::Prompt {
-                                                session_id: rejected_session,
-                                                prompt_id: rejected_prompt,
-                                                ..
-                                            }) => {
-                                                self.emit(
-                                                    Some(rejected_session),
-                                                    Some(rejected_prompt),
-                                                    AgentEvent::Error {
-                                                        error: AgentErrorEvent {
-                                                            message: "The agent connection was busy with another conversation's turn. Send again.".to_string(),
-                                                            code: Some("prompt_conflict".to_string()),
-                                                            raw: Some(serde_json::json!({
-                                                                "activePromptId": prompt_id.to_string(),
-                                                                "activeSessionId": session_id.to_string(),
-                                                            })),
+                                                    );
+                                                }
+                                                Some(other) => {
+                                                    self.emit(
+                                                        Some(session_id),
+                                                        Some(prompt_id),
+                                                        AgentEvent::RawAcpDiagnostic {
+                                                            raw: serde_json::json!({
+                                                                "kind": "ignored_command_during_cancel_handshake",
+                                                                "command": format!("{other:?}"),
+                                                            }),
                                                         },
-                                                    },
-                                                );
-                                            }
-                                            Some(other) => {
-                                                self.emit(
-                                                    Some(session_id),
-                                                    Some(prompt_id),
-                                                    AgentEvent::RawAcpDiagnostic {
-                                                        raw: serde_json::json!({
-                                                            "kind": "ignored_command_during_cancel_handshake",
-                                                            "command": format!("{other:?}"),
-                                                        }),
-                                                    },
-                                                );
+                                                    );
+                                                }
                                             }
                                         }
                                     }
                                 }
+                            } else {
+                                false
                             };
                             if !acknowledged {
                                 // The prompt is still outstanding and the agent may
@@ -6135,6 +6201,37 @@ impl AgentConnectionRunner {
             );
         }
         self.cancel_pending_elicitations(session_id).await;
+        agent_terminal_registry()
+            .release_all_for_session(session_id)
+            .await;
+    }
+
+    async fn cancel_all_pending_interactions(&self) {
+        let mut session_ids: std::collections::HashSet<AgentSessionId> =
+            self.session_map.read().await.keys().copied().collect();
+        session_ids.extend(
+            self.pending_permissions
+                .lock()
+                .await
+                .values()
+                .map(|pending| pending.session_id),
+        );
+        session_ids.extend(
+            self.pending_elicitations
+                .lock()
+                .await
+                .values()
+                .map(|pending| pending.session_id),
+        );
+        if let Some((session_id, _)) = *self.active_prompt.lock().await {
+            session_ids.insert(session_id);
+        }
+        if let Some(session_id) = *self.pending_session_id.lock().await {
+            session_ids.insert(session_id);
+        }
+        for session_id in session_ids {
+            self.cancel_pending_interactions(session_id).await;
+        }
     }
 
     async fn respond_pending_elicitation(
@@ -6764,6 +6861,16 @@ impl AcpClientBridge {
             message,
             requested_schema,
         };
+        let (tx, rx) = oneshot::channel();
+        self.pending_elicitations.lock().await.insert(
+            elicitation_id.to_string(),
+            PendingElicitation {
+                elicitation_id,
+                session_id,
+                tx,
+            },
+        );
+
         let event = AgentEvent::ElicitationRequested { request };
         self.apply.record_turn_probe_event(Some(session_id), &event);
         send_manager_event(
@@ -6773,16 +6880,6 @@ impl AcpClientBridge {
                 session_id: Some(session_id),
                 prompt_id: None,
                 event,
-            },
-        );
-
-        let (tx, rx) = oneshot::channel();
-        self.pending_elicitations.lock().await.insert(
-            elicitation_id.to_string(),
-            PendingElicitation {
-                elicitation_id,
-                session_id,
-                tx,
             },
         );
 
@@ -6806,11 +6903,6 @@ impl AcpClientBridge {
             self.handle_grok_models_update(&params).await;
             return Ok(());
         }
-        let updates = self
-            .grok_subagent
-            .lock()
-            .await
-            .handle_ext(ext.method.as_ref(), &params);
         let bound_session_id = match params
             .get("sessionId")
             .or_else(|| params.get("session_id"))
@@ -6958,6 +7050,19 @@ impl AcpClientBridge {
             }
             return Ok(());
         }
+        if bound_session_id.is_none() {
+            if crate::grok_subagent::is_vendor_session_update(ext.method.as_ref())
+                && let Ok(notification) = serde_json::from_value::<SessionNotification>(params)
+            {
+                return self.session_notification(notification).await;
+            }
+            return Ok(());
+        }
+        let updates = self
+            .grok_subagent
+            .lock()
+            .await
+            .handle_ext(ext.method.as_ref(), &params);
         if updates.is_empty() {
             if crate::grok_subagent::is_vendor_session_update(ext.method.as_ref()) {
                 match serde_json::from_value::<SessionNotification>(params.clone()) {
@@ -7110,6 +7215,10 @@ impl AcpClientBridge {
         if bound_session_id.is_none()
             && session_id.is_some()
             && (is_session_transcript_update(&args.update)
+                || matches!(
+                    args.update,
+                    SessionUpdate::UsageUpdate(_) | SessionUpdate::SessionInfoUpdate(_)
+                )
                 || session_update_is_end_turn_usage(&args.update))
         {
             // Unbound notifications are `session/load` / `session/resume`
@@ -7121,7 +7230,7 @@ impl AcpClientBridge {
             }
             return Ok(());
         }
-        if !matches!(args.update, SessionUpdate::UsageUpdate(_)) {
+        if bound_session_id.is_some() && !matches!(args.update, SessionUpdate::UsageUpdate(_)) {
             self.maybe_emit_grok_usage(session_id, args.meta.as_ref())
                 .await;
         }
@@ -11706,5 +11815,169 @@ mod tests {
         }
         assert_eq!(throttle.check_at(window_ns + 1_000_000), Some(25));
         assert_eq!(throttle.flush(), 0);
+    }
+
+    #[test]
+    fn disconnect_join_timeout_allows_transcript_flush_before_abort() {
+        assert!(DISCONNECT_JOIN_TIMEOUT >= Duration::from_secs(8));
+    }
+
+    #[tokio::test]
+    async fn session_load_replay_suppresses_ext_notifications_and_historical_usage() {
+        let session_id = AgentSessionId::new();
+        let (event_tx, mut event_rx) = mpsc::unbounded_channel();
+        let bridge = AcpClientBridge::new(
+            AgentConnectionId::new(),
+            AgentId::parse("grok").unwrap(),
+            event_tx,
+            Arc::new(RwLock::new(HashMap::new())),
+            Arc::new(RwLock::new(HashMap::new())),
+            Arc::new(Mutex::new(HashMap::new())),
+            Arc::new(Mutex::new(HashMap::new())),
+            Arc::new(Mutex::new(AgentAutoApproveMode::default())),
+            Arc::new(Mutex::new(HashMap::new())),
+            Arc::new(Mutex::new(Instant::now())),
+            Arc::new(Mutex::new(GrokSubagentTracker::default())),
+            Arc::new(Mutex::new(GrokMcpTracker::default())),
+            Arc::new(Mutex::new(Some(session_id))),
+            PathBuf::from("C:/workspace"),
+            HashMap::new(),
+            dummy_runner(mpsc::unbounded_channel().0),
+        );
+
+        let ext = agent_client_protocol::schema::v1::ExtNotification::new(
+            "x.ai/subagent_spawned",
+            serde_json::value::to_raw_value(&serde_json::json!({
+                "sessionId": "acp-replay-1",
+                "subagentId": "sub-1",
+                "toolCallId": "call-1",
+                "agentType": "research",
+                "task": "scan repo"
+            }))
+            .unwrap()
+            .into(),
+        );
+        bridge.handle_ext_notification(ext).await.unwrap();
+
+        let usage_notification: SessionNotification = serde_json::from_value(serde_json::json!({
+            "sessionId": "acp-replay-1",
+            "update": {
+                "sessionUpdate": "usage_update",
+                "used": 1200,
+                "size": 128000
+            }
+        }))
+        .unwrap();
+        bridge
+            .session_notification(usage_notification)
+            .await
+            .unwrap();
+
+        let info_notification: SessionNotification = serde_json::from_value(serde_json::json!({
+            "sessionId": "acp-replay-1",
+            "update": {
+                "sessionUpdate": "session_info_update",
+                "title": "Historical title"
+            }
+        }))
+        .unwrap();
+        bridge
+            .session_notification(info_notification)
+            .await
+            .unwrap();
+
+        let thought_with_meta: SessionNotification = serde_json::from_value(serde_json::json!({
+            "sessionId": "acp-replay-1",
+            "_meta": {
+                "totalTokens": 4096
+            },
+            "update": {
+                "sessionUpdate": "agent_thought_chunk",
+                "content": {
+                    "type": "text",
+                    "text": "replayed thought"
+                }
+            }
+        }))
+        .unwrap();
+        bridge
+            .session_notification(thought_with_meta)
+            .await
+            .unwrap();
+
+        assert!(
+            event_rx.try_recv().is_err(),
+            "session/load replay notifications while unbound must not emit live events"
+        );
+    }
+
+    #[tokio::test]
+    async fn wait_for_question_registers_pending_elicitation_before_emitting_event() {
+        let session_id = AgentSessionId::new();
+        let (event_tx, mut event_rx) = mpsc::unbounded_channel();
+        let runner = dummy_runner(event_tx.clone());
+        let bridge = AcpClientBridge::new(
+            runner.snapshot.connection_id,
+            runner.snapshot.agent_id.clone(),
+            event_tx,
+            Arc::clone(&runner.session_map),
+            Arc::clone(&runner.session_controls),
+            Arc::clone(&runner.pending_permissions),
+            Arc::clone(&runner.pending_elicitations),
+            Arc::clone(&runner.auto_approve_mode),
+            Arc::clone(&runner.stream_dedup),
+            Arc::clone(&runner.last_activity),
+            Arc::clone(&runner.grok_subagent),
+            Arc::clone(&runner.grok_mcp),
+            Arc::clone(&runner.pending_session_id),
+            runner.snapshot.working_dir.clone(),
+            runner.snapshot.env.clone(),
+            runner.clone(),
+        );
+
+        let wait_task = tokio::spawn(async move {
+            bridge
+                .wait_for_question(
+                    session_id,
+                    "Pick one".to_string(),
+                    serde_json::json!({"type": "object"}),
+                )
+                .await
+        });
+
+        let requested = event_rx
+            .recv()
+            .await
+            .expect("ElicitationRequested event must arrive");
+        let elicitation_id = match requested.event {
+            AgentEvent::ElicitationRequested { request } => request.id.to_string(),
+            other => panic!("expected ElicitationRequested, got {other:?}"),
+        };
+
+        assert!(
+            runner
+                .pending_elicitations
+                .lock()
+                .await
+                .contains_key(&elicitation_id),
+            "pending_elicitations must already contain the entry when ElicitationRequested is received"
+        );
+
+        runner
+            .respond_pending_elicitation(
+                &elicitation_id,
+                AgentElicitationResponse::Accept {
+                    content: serde_json::json!({"choice": "A"}),
+                },
+            )
+            .await;
+
+        let response = wait_task.await.unwrap();
+        assert_eq!(
+            response,
+            AgentElicitationResponse::Accept {
+                content: serde_json::json!({"choice": "A"}),
+            }
+        );
     }
 }

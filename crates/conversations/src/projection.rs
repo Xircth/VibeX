@@ -1035,7 +1035,26 @@ impl ConversationProjector {
 
         // Best-effort full-text reindex from the freshly-settled projection.
         // A search-index failure must never block a turn from settling (P1-2).
-        let timeline = match crate::jsonl_history::read_existing_transcript_turns(conversation_id) {
+        let external_session_id = sqlx::query_scalar::<_, Option<String>>(
+            r#"SELECT COALESCE(
+                (SELECT external_session_id FROM sessions WHERE id = ?1),
+                (SELECT acp_session_id FROM conversation_agent_bindings
+                 WHERE conversation_id = ?1 AND acp_session_id IS NOT NULL
+                 ORDER BY created_at DESC LIMIT 1)
+            )"#,
+        )
+        .bind(conversation_id)
+        .fetch_optional(&mut *conn)
+        .await
+        .ok()
+        .flatten()
+        .flatten();
+        let timeline = match crate::jsonl_history::flush_and_read_existing_transcript_turns(
+            conversation_id,
+            external_session_id.as_deref(),
+        )
+        .await
+        {
             Some(turns) => crate::jsonl_history::timeline_from_turns(conversation_id, &turns),
             None => fold.into_timeline(conversation_id),
         };
@@ -1596,8 +1615,10 @@ impl IncrementalRowProjector {
 #[cfg(test)]
 impl IncrementalRowProjector {
     fn at_sequence(sequence: i64) -> Self {
-        let mut fold = ProjectionFold::default();
-        fold.last_sequence = sequence;
+        let fold = ProjectionFold {
+            last_sequence: sequence,
+            ..Default::default()
+        };
         Self {
             fold,
             generation: 0,
@@ -1652,9 +1673,7 @@ impl CachedRowProjector {
         let Some(lock) = REBUILT_PROJECTOR_STATES.get() else {
             return false;
         };
-        let map = lock
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        let map = lock.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
         let Some(entry) = map.get(&conversation_id) else {
             return false;
         };

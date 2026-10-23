@@ -79,4 +79,16 @@ describe('mergeOpenTimelineRows', () => {
       't10:user',
     ]);
   });
+
+  it('places newer incoming rows after existing rows by relative anchor index even when existing[0] has a higher cross-namespace revision', () => {
+    const merged = mergeOpenTimelineRows(
+      [row('t0', 500n), row('t9', 9n)],
+      [row('t9', 9n), row('t10', 10n)]
+    );
+    expect(merged.map((item) => item.row_id)).toEqual([
+      't0:user',
+      't9:user',
+      't10:user',
+    ]);
+  });
 });

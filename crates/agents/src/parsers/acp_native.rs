@@ -695,9 +695,7 @@ fn flush(
 /// is false when the part started at a steer rather than at the turn's prompt:
 /// the recorded duration then spans more than this part and is left out.
 fn apply_turn_end(pending: &mut PendingTurn, payload: &serde_json::Value, whole_turn: bool) {
-    if whole_turn
-        && let Some(ms) = payload.get("durationMs").and_then(|v| v.as_u64())
-    {
+    if whole_turn && let Some(ms) = payload.get("durationMs").and_then(|v| v.as_u64()) {
         pending.duration_ms = Some(ms);
     }
     let (model, usage) = turn_end_model_and_usage(payload);

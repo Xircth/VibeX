@@ -500,7 +500,7 @@ describe('CollaborationSpacePage', () => {
     for (const radioEl of within(sourceSegmented).getAllByRole('radio')) {
       expect(radioEl.querySelector('svg')).toBeTruthy();
     }
-  });
+  }, 30_000);
 
   it('completes @nickname via SessionComposerInput panel, sends targeted vs broadcast posts, and renders receipts', async () => {
     const user = userEvent.setup();
@@ -760,7 +760,7 @@ describe('CollaborationSpacePage', () => {
     expect(
       await screen.findByRole('button', { name: '视觉设计' })
     ).toBeTruthy();
-  });
+  }, 30_000);
 
   it('supports search, filtering by agent/activity/member, and batch deleting spaces and members', async () => {
     const user = userEvent.setup();

@@ -339,11 +339,11 @@ describe('AppearanceSettings', () => {
     expect(screen.getByText('kanban schematic')).toBeInTheDocument();
     expect(screen.queryByText('workspace schematic')).not.toBeInTheDocument();
 
-    await user.click(screen.getByRole('radio', { name: '协作空间' }));
+    await user.click(screen.getByRole('radio', { name: '协作' }));
     expect(screen.getByText('collaboration schematic')).toBeInTheDocument();
     expect(screen.queryByText('kanban schematic')).not.toBeInTheDocument();
     expect(
-      screen.getByText('协作空间（A）、消息区（B）与预览区（C）的排列。')
+      screen.getByText('成员与群聊（A）、消息区（B）与预览区（C）的排列。')
     ).toBeInTheDocument();
   });
 });

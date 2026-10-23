@@ -56,7 +56,7 @@ describe('layout arrangement schematic', () => {
       />
     );
 
-    expect(screen.getByLabelText('协作空间')).toBeInTheDocument();
+    expect(screen.getByLabelText('成员与群聊')).toBeInTheDocument();
     expect(screen.getByLabelText('消息区')).toBeInTheDocument();
     expect(screen.getByLabelText('预览区')).toBeInTheDocument();
     expect(

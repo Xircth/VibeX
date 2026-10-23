@@ -444,7 +444,7 @@
   },
   {
     "name": "request_approval",
-    "description": "Request the user's approval inline in a collaboration thread before a risky action. The user picks allow_once, allow_always (for this group) or deny; the decision arrives as a message starting with [审批 <id>]. Do not perform the action until it is allowed.",
+    "description": "Request the user's approval inline in a collaboration thread before a risky action. The user picks allow_once, allow_always (for this thread: this group or direct chat) or deny; the decision arrives as a message starting with [审批 <id>]. Do not perform the action until it is allowed.",
     "inputSchema": {
       "type": "object",
       "required": ["operation_id", "space_id", "action"],

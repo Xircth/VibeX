@@ -1149,7 +1149,16 @@ mod tests {
                 "add_space_member",
                 "set_space_identity",
                 "post_to_space",
+                "handoff",
+                "ask_person",
+                "request_approval",
+                "resolve_card",
+                "memory_search",
+                "memory_write",
                 "list_space_messages",
+                "list_space_collection",
+                "add_to_space_collection",
+                "read_space_collection_item",
             ]
         );
         assert!(!names.contains(&"cancel_session_turn"));

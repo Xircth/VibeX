@@ -131,7 +131,6 @@ as ordinary conversations (one per extra space) rather than being merged back.
 8. `plugins` test `sqlite_registry`: `runtime_artifacts_are_content_addressed_and_locks_are_package_scoped`
 9. `server` test `headless_bootstrap`: `headless_agent_events_are_persisted_for_websocket_replay`
 10. `server` test `web_domains`: `one_authenticated_application_surface_opens_product_domains_for_the_web_ui`
-11. `vibex-mcp` bin: `tests::collaboration_opens_same_workspace_tools_without_session_control` (expected tool list predates the space-collection tools)
 
 ## Phase 4 — member memory
 

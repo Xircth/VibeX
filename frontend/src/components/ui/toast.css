@@ -1,19 +1,18 @@
 .vu-toast-viewport {
   position: fixed;
-  top: 52px;
-  left: 50%;
+  right: 0;
+  bottom: 0;
   z-index: 100000;
   display: flex;
   width: min(420px, calc(100vw - 24px));
   max-height: calc(100dvh - 64px);
-  flex-direction: column-reverse;
+  flex-direction: column;
   justify-content: flex-end;
-  align-items: center;
+  align-items: flex-end;
   gap: 8px;
   margin: 0;
   /* Gutter keeps the scrollport clip outside the card shadows. */
-  padding: 4px 24px 48px;
-  transform: translateX(-50%);
+  padding: 48px 16px 16px;
   overflow-x: hidden;
   overflow-y: auto;
   overscroll-behavior: contain;
@@ -414,11 +413,9 @@
 
 @media (max-width: 520px) {
   .vu-toast-viewport {
-    left: 0;
     width: 100vw;
     padding-right: 12px;
     padding-left: 12px;
-    transform: none;
   }
 }
 
@@ -492,7 +489,7 @@
 .vu-toast-viewport .vu-toast-host {
   position: relative;
   display: flex;
-  justify-content: center;
+  justify-content: flex-end;
   animation: vu-toast-pop 260ms var(--vu-toast-ease) both;
   transition:
     transform 220ms var(--vu-toast-ease),
@@ -540,7 +537,7 @@
 }
 
 .vu-toast-viewport
-  .vu-toast-surface[data-layout='capsule']:not(:has(.vu-toast-close))
+  .vu-toast-surface[data-layout='capsule'][data-closable='false']
   .vu-toast-heading {
   padding-right: 16px;
 }
@@ -704,18 +701,22 @@
   order: 2;
 }
 
-/* Collapsed stack: older toasts tuck behind the newest. Hover/focus fans out. */
-.vu-toast-viewport .vu-toast-host:not([data-index='0']) {
+/* Collapsed stack (state set from React, no :has()/:hover dependency):
+   newest at the bottom, older toasts peek above it. Expanded fans upward. */
+.vu-toast-viewport[data-expanded='false']
+  .vu-toast-host[data-stack-index]:not([data-stack-index='0']) {
   position: absolute;
-  top: 4px;
-  left: 50%;
+  right: 16px;
+  bottom: 16px;
   width: var(--vu-toast-front-width, 240px);
   height: var(--vu-toast-front-height, 44px);
-  transform-origin: bottom center;
+  transform-origin: top center;
   pointer-events: none;
 }
 
-.vu-toast-viewport .vu-toast-host:not([data-index='0']) .vu-toast-surface {
+.vu-toast-viewport[data-expanded='false']
+  .vu-toast-host:not([data-stack-index='0'])
+  .vu-toast-surface {
   width: 100%;
   height: 100%;
   border-radius: 999px;
@@ -723,66 +724,39 @@
   -webkit-backdrop-filter: none;
 }
 
-.vu-toast-viewport .vu-toast-host:not([data-index='0']) .vu-toast-surface > * {
+.vu-toast-viewport[data-expanded='false']
+  .vu-toast-host:not([data-stack-index='0'])
+  .vu-toast-surface
+  > * {
   visibility: hidden;
 }
 
-.vu-toast-viewport .vu-toast-host[data-index='1'] {
+.vu-toast-viewport[data-expanded='false'] .vu-toast-host[data-stack-index='1'] {
   z-index: -1;
-  transform: translateX(-50%) translateY(10px) scale(0.94);
+  transform: translateY(-10px) scale(0.94);
 }
-.vu-toast-viewport .vu-toast-host[data-index='1'] .vu-toast-surface {
+.vu-toast-viewport[data-expanded='false']
+  .vu-toast-host[data-stack-index='1']
+  .vu-toast-surface {
   background: var(--vu-toast-peek-1);
 }
-.vu-toast-viewport .vu-toast-host[data-index='2'] {
+.vu-toast-viewport[data-expanded='false'] .vu-toast-host[data-stack-index='2'] {
   z-index: -2;
-  transform: translateX(-50%) translateY(20px) scale(0.88);
+  transform: translateY(-20px) scale(0.88);
 }
-.vu-toast-viewport .vu-toast-host[data-index='2'] .vu-toast-surface {
+.vu-toast-viewport[data-expanded='false']
+  .vu-toast-host[data-stack-index='2']
+  .vu-toast-surface {
   background: var(--vu-toast-peek-2);
 }
 
-.vu-toast-viewport:hover .vu-toast-host,
-.vu-toast-viewport:focus-within .vu-toast-host {
-  position: relative;
-  top: auto;
-  left: auto;
-  z-index: auto;
-  width: auto;
-  height: auto;
-  transform: none;
-  pointer-events: auto;
-}
-
-.vu-toast-viewport:hover .vu-toast-host .vu-toast-surface,
-.vu-toast-viewport:focus-within .vu-toast-host .vu-toast-surface {
-  height: auto;
-  background: linear-gradient(
-    180deg,
-    var(--vu-toast-glass),
-    var(--vu-toast-glass-end)
-  );
-  backdrop-filter: blur(24px) saturate(1.8);
-  -webkit-backdrop-filter: blur(24px) saturate(1.8);
-}
-
-.vu-toast-viewport:hover .vu-toast-host .vu-toast-surface[data-layout='card'],
-.vu-toast-viewport:focus-within
-  .vu-toast-host
-  .vu-toast-surface[data-layout='card'] {
-  border-radius: 24px;
-}
-
-.vu-toast-viewport:hover .vu-toast-host .vu-toast-surface > *,
-.vu-toast-viewport:focus-within .vu-toast-host .vu-toast-surface > * {
-  visibility: visible;
-}
-
-/* Reduced transparency: same shape, opaque surface. */
-.reduced-transparency .vu-toast-viewport .vu-toast-surface,
+/* Reduced transparency / no backdrop-filter support: same shape, opaque. */
 .reduced-transparency
-  .vu-toast-viewport:hover
-  .vu-toast-host
+  .vu-toast-viewport
+  .vu-toast-host[data-stack-index='0']
+  .vu-toast-surface,
+.reduced-transparency
+  .vu-toast-viewport[data-expanded='true']
   .vu-toast-surface {
   background: var(--vu-toast-solid);
   backdrop-filter: none;
@@ -790,19 +764,27 @@
 }
 
 @media (prefers-reduced-transparency: reduce) {
-  .vu-toast-viewport .vu-toast-surface,
-  .vu-toast-viewport:hover .vu-toast-host .vu-toast-surface,
-  .vu-toast-viewport:focus-within .vu-toast-host .vu-toast-surface {
+  .vu-toast-viewport .vu-toast-host[data-stack-index='0'] .vu-toast-surface,
+  .vu-toast-viewport[data-expanded='true'] .vu-toast-surface {
     background: var(--vu-toast-solid);
     backdrop-filter: none;
     -webkit-backdrop-filter: none;
   }
 }
 
+@supports not (
+  (backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))
+) {
+  .vu-toast-viewport .vu-toast-host[data-stack-index='0'] .vu-toast-surface,
+  .vu-toast-viewport[data-expanded='true'] .vu-toast-surface {
+    background: var(--vu-toast-solid);
+  }
+}
+
 @keyframes vu-toast-pop {
   from {
     opacity: 0;
-    transform: translateY(-8px) scale(0.96);
+    transform: translate(16px, 10px) scale(0.96);
   }
 }
 

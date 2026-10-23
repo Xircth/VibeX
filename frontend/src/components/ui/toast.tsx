@@ -206,6 +206,7 @@ function ToastCard({
       data-kind={kind}
       data-layout={layout}
       data-held={expanded ? 'true' : undefined}
+      data-closable={showClose ? 'true' : 'false'}
       role={kind === 'error' ? 'alert' : 'status'}
       aria-atomic="true"
       onMouseEnter={() => holdToast(id)}
@@ -404,12 +405,15 @@ export function Toaster({
   const { t } = useTranslation('app');
   const viewportRef = useRef<HTMLElement>(null);
   const newestId = items.at(-1)?.id;
+  const [hovered, setHovered] = useState(false);
+  const [focused, setFocused] = useState(false);
+  const stackExpanded = items.length > 1 && (hovered || focused);
 
   // Collapsed stack: older toasts peek behind the newest one, sized to it.
   useEffect(() => {
     const viewport = viewportRef.current;
     const front = viewport?.querySelector<HTMLElement>(
-      '.vu-toast-host[data-index="0"]'
+      '.vu-toast-host[data-stack-index="0"]'
     );
     if (!viewport || !front || typeof ResizeObserver === 'undefined') return;
     const sync = () => {
@@ -432,6 +436,14 @@ export function Toaster({
   return (
     <section
       ref={viewportRef}
+      data-expanded={stackExpanded ? 'true' : 'false'}
+      onMouseEnter={() => setHovered(true)}
+      onMouseLeave={() => setHovered(false)}
+      onFocus={() => setFocused(true)}
+      onBlur={(event) => {
+        if (!event.currentTarget.contains(event.relatedTarget as Node | null))
+          setFocused(false);
+      }}
       className="vu-toast-viewport"
       data-count={items.length}
       aria-label={t('toast.region')}
@@ -442,7 +454,7 @@ export function Toaster({
         <div
           className="vu-toast-host"
           key={item.id}
-          data-index={items.length - 1 - position}
+          data-stack-index={items.length - 1 - position}
         >
           <ToastCard {...item} />
         </div>

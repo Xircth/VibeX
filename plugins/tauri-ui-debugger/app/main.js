@@ -164,7 +164,8 @@ const UI_ATTR = 'data-vx-debugger-ui';
 const CORNER_KEY = 'vibex.tauri-ui-debugger.corner';
 const CORNER_CONFIG_KEY = 'vibex.tauri-ui-debugger.corner-config';
 const BALL_SIZE = 40;
-const INSET = 12;
+const SIDE_INSET = 16;
+const STATUSBAR_GAP = 12;
 const BOTTOM_RIGHT_RAISE = 96;
 const DRAG_THRESHOLD = 4;
 const SELECT_Z = 2147483000;
@@ -294,6 +295,41 @@ function mainContentRect() {
     }
   }
   return { left, right: vw, top: titlebarBottom() };
+}
+
+/** Top edge of a full-width bottom status bar, or the viewport bottom.
+ * Generic layout heuristic: probes the element at the bottom edge. */
+export function statusbarTop() {
+  const vw = window.innerWidth;
+  const vh = window.innerHeight;
+  let top = vh;
+  const probes = document.elementsFromPoint?.(Math.round(vw / 2), vh - 2) ?? [];
+  for (const node of probes) {
+    if (isOwnUi(node)) continue;
+    const r = node.getBoundingClientRect();
+    if (r.bottom >= vh - 1 && r.height > 0 && r.height < 60 && r.width >= vw * 0.8) {
+      top = Math.min(top, r.top);
+    }
+  }
+  return top;
+}
+
+/** The ball belongs to app windows only, not settings / desktop-toast
+ * auxiliary windows. Prefers the webview window label when the runtime
+ * exposes it; falls back to the auxiliary windows' route prefixes. */
+export function isMainWindow({ label, pathname } = {}) {
+  if (typeof label === 'string' && label) {
+    return !/^(settings|desktop-toast)(-|$)/.test(label);
+  }
+  return !/^\/(settings|plugins|desktop-toast)(\/|$)/.test(pathname || '/');
+}
+
+function currentWindowInfo() {
+  const g = globalThis;
+  return {
+    label: g.__TAURI_INTERNALS__?.metadata?.currentWindow?.label,
+    pathname: g.location?.pathname,
+  };
 }
 
 function modalOpen() {
@@ -454,13 +490,16 @@ function createDebugger(ctx) {
     const top = titlebarBottom() + 8;
     switch (corner) {
       case 'top-left':
-        return { x: INSET, y: top };
+        return { x: SIDE_INSET, y: top };
       case 'top-right':
-        return { x: vw - INSET - BALL_SIZE, y: top };
+        return { x: vw - SIDE_INSET - BALL_SIZE, y: top };
       case 'bottom-right':
-        return { x: vw - INSET - BALL_SIZE, y: vh - BOTTOM_RIGHT_RAISE - BALL_SIZE };
+        return {
+          x: vw - SIDE_INSET - BALL_SIZE,
+          y: Math.min(vh - BOTTOM_RIGHT_RAISE, statusbarTop() - STATUSBAR_GAP) - BALL_SIZE,
+        };
       default:
-        return { x: INSET, y: vh - INSET - BALL_SIZE };
+        return { x: SIDE_INSET, y: statusbarTop() - STATUSBAR_GAP - BALL_SIZE };
     }
   }
 
@@ -502,15 +541,20 @@ function createDebugger(ctx) {
 
   // ---- visibility / availability -----------------------------------------
   function updateVisibility() {
-    const visible = config.showBall && hasSourceAnnotations() && !modalOpen();
+    const visible =
+      config.showBall &&
+      isMainWindow(currentWindowInfo()) &&
+      hasSourceAnnotations() &&
+      !modalOpen();
     ball.style.display = visible || selecting ? 'flex' : 'none';
     if (!visible) hideTip();
+    else if (!ball.hasAttribute('data-dragging')) applyCorner();
   }
 
   async function refreshAvailability() {
     try {
       const res = await ctx.conversation.call('draft.target', {});
-      setDisabled(res && typeof res === 'object' && res.inserted === false);
+      setDisabled(res && typeof res === 'object' && res.available === false);
     } catch {
       /* host without draft.target: leave state as is */
     }
@@ -955,6 +999,8 @@ export default {
   id: PLUGIN_ID,
   activate(ctx) {
     if (typeof document === 'undefined') return undefined;
+    // Main window only: settings / auxiliary windows get no ball, picker or shortcut.
+    if (!isMainWindow(currentWindowInfo())) return undefined;
     const instance = createDebugger(ctx);
     const disposeCommand = ctx.ui?.registerCommand?.({
       id: 'select-element',

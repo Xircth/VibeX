@@ -4,6 +4,7 @@ import {
   buildLabel,
   buildMarkdown,
   formatShortcut,
+  isMainWindow,
   matchesShortcut,
   normalizeConfig,
   contentLevel,
@@ -60,4 +61,17 @@ test('shortcuts are platform aware', () => {
   assert.ok(matchesShortcut(ev, 'Alt+Shift+C', false));
   assert.ok(!matchesShortcut(ev, '关闭', false));
   assert.ok(matchesShortcut({ metaKey: true, shiftKey: true, code: 'KeyX' }, 'Ctrl+Shift+X', true));
+});
+
+test('ball mounts only in app windows', () => {
+  assert.equal(isMainWindow({ label: 'main', pathname: '/plugins' }), true);
+  assert.equal(isMainWindow({ label: 'app-3' }), true);
+  assert.equal(isMainWindow({ label: 'settings' }), false);
+  assert.equal(isMainWindow({ label: 'settings-host-abc' }), false);
+  assert.equal(isMainWindow({ label: 'desktop-toast' }), false);
+  // No runtime label: fall back to route prefixes.
+  assert.equal(isMainWindow({ pathname: '/' }), true);
+  assert.equal(isMainWindow({ pathname: '/settings/plugins' }), false);
+  assert.equal(isMainWindow({ pathname: '/plugins/x' }), false);
+  assert.equal(isMainWindow({ pathname: '/settingsfoo' }), true);
 });

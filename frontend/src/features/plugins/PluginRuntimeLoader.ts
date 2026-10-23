@@ -37,11 +37,14 @@ import {
  * the user is working in", which only the frontend knows. Handle it here so
  * the plugin receives the real `inserted` result instead of a blind receipt.
  */
-function handleLocalComposerDraftCall(
+export function handleLocalComposerDraftCall(
   capability: string,
   operation: string,
   input: unknown
-): { conversationId: null; inserted: boolean } | null {
+):
+  | { conversationId: null; available: boolean }
+  | { conversationId: null; inserted: boolean }
+  | null {
   if (capability !== 'conversation') return null;
   const record =
     input && typeof input === 'object'
@@ -53,7 +56,7 @@ function handleLocalComposerDraftCall(
       : '';
   if (conversationId) return null;
   if (operation === 'draft.target') {
-    return { conversationId: null, inserted: hasActiveComposerDraftTarget() };
+    return { conversationId: null, available: hasActiveComposerDraftTarget() };
   }
   if (operation !== 'draft.insert') return null;
   const token =

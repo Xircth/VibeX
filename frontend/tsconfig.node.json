@@ -9,6 +9,7 @@
   "include": [
     "vite.config.ts",
     "vite.astryx-richtext-core-alias.ts",
-    "vitest.config.ts"
+    "vitest.config.ts",
+    "vite.vx-source-annotation.ts"
   ]
 }

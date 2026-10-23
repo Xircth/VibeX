@@ -158,6 +158,7 @@ module.exports = {
       files: [
         '*.config.{ts,js,cjs,mjs}',
         'vite.astryx-richtext-core-alias.ts',
+        'vite.vx-source-annotation.ts',
         '.eslintrc.cjs',
       ],
       parserOptions: {

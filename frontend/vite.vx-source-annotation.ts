@@ -1,10 +1,32 @@
 import path from 'path';
 
 // Minimal structural Babel types so the config does not need @babel/core as a direct dependency.
-/* eslint-disable @typescript-eslint/no-explicit-any */
-type BabelTypes = any;
-type NodePath = { node: any; parent: any; parentPath: NodePath | null };
-type PluginObj = { name: string; visitor: Record<string, (p: any, state: any) => void> };
+type BabelNode = {
+  type: string;
+  name?: string;
+  id?: BabelNode | null;
+  loc?: { start: { line: number; column: number } } | null;
+  attributes: BabelNode[];
+};
+type NodePath = { node: BabelNode; parent: BabelNode; parentPath: NodePath | null };
+type NodeGuard = (node: unknown, opts?: Record<string, unknown>) => node is BabelNode;
+type BabelTypes = {
+  isFunctionDeclaration: NodeGuard;
+  isClassDeclaration: NodeGuard;
+  isArrowFunctionExpression: NodeGuard;
+  isFunctionExpression: NodeGuard;
+  isVariableDeclarator: NodeGuard;
+  isIdentifier: NodeGuard;
+  isJSXIdentifier: NodeGuard;
+  isJSXAttribute: NodeGuard;
+  jsxAttribute: (name: BabelNode, value: BabelNode) => BabelNode;
+  jsxIdentifier: (name: string) => BabelNode;
+  stringLiteral: (value: string) => BabelNode;
+};
+type PluginObj = {
+  name: string;
+  visitor: { JSXOpeningElement: (p: NodePath, state: { filename?: string }) => void };
+};
 
 /**
  * Dev-only Babel plugin: annotates JSX host elements (lowercase tags) with
@@ -16,7 +38,7 @@ export function vxSourceAnnotation(rootDir: string) {
   return function vxSourceAnnotationPlugin({
     types: t,
   }: {
-    types: typeof BabelTypes;
+    types: BabelTypes;
   }): PluginObj {
     const componentName = (p: NodePath): string | null => {
       let current: NodePath | null = p.parentPath;
@@ -28,9 +50,10 @@ export function vxSourceAnnotation(rootDir: string) {
         } else if (
           (t.isArrowFunctionExpression(node) || t.isFunctionExpression(node)) &&
           t.isVariableDeclarator(current.parent) &&
+          current.parent.id &&
           t.isIdentifier(current.parent.id)
         ) {
-          name = current.parent.id.name;
+          name = current.parent.id.name ?? null;
         }
         if (name && /^[A-Z]/.test(name)) return name;
         current = current.parentPath;
@@ -43,7 +66,7 @@ export function vxSourceAnnotation(rootDir: string) {
       visitor: {
         JSXOpeningElement(p, state) {
           const nameNode = p.node.name;
-          if (!t.isJSXIdentifier(nameNode) || !/^[a-z]/.test(nameNode.name)) return;
+          if (!t.isJSXIdentifier(nameNode) || !/^[a-z]/.test(nameNode.name ?? '')) return;
           const filename = state.filename;
           const loc = p.node.loc;
           if (!filename || !loc || filename.includes('node_modules')) return;

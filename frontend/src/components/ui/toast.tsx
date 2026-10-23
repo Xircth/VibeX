@@ -1,6 +1,9 @@
 import {
+  useEffect,
   useId,
+  useRef,
   useState,
+  type CSSProperties,
   useSyncExternalStore,
   type FocusEvent,
   type ReactNode,
@@ -42,6 +45,8 @@ export type ToastOptions = {
   action?: ToastAction;
   cancel?: ToastAction;
   closeButton?: boolean;
+  /** Determinate progress from 0 to 1. Renders a bar under the copy. */
+  progress?: number;
 };
 
 const DEFAULT_DURATION: Record<Exclude<ToastKind, 'loading'>, number> = {
@@ -141,11 +146,13 @@ function ToastCard({
   kind,
   message,
   options,
+  duration,
 }: {
   id: ToastId;
   kind: ToastKind;
   message: ReactNode;
   options: ToastOptions;
+  duration: number;
 }) {
   const detailsId = useId();
   const [expanded, setExpanded] = useState(false);
@@ -179,10 +186,26 @@ function ToastCard({
     }
   };
 
+  const hasActions = Boolean(options.cancel || options.action);
+  const progress =
+    typeof options.progress === 'number' && Number.isFinite(options.progress)
+      ? Math.min(1, Math.max(0, options.progress))
+      : null;
+  const layout =
+    hasDescription || hasDetails || hasActions || progress != null
+      ? 'card'
+      : 'capsule';
+  const countdown =
+    Number.isFinite(duration) && duration > 0 && kind !== 'loading'
+      ? ({ '--vu-toast-duration': `${duration}ms` } as CSSProperties)
+      : undefined;
+
   return (
     <article
       className="vu-toast-surface"
       data-kind={kind}
+      data-layout={layout}
+      data-held={expanded ? 'true' : undefined}
       role={kind === 'error' ? 'alert' : 'status'}
       aria-atomic="true"
       onMouseEnter={() => holdToast(id)}
@@ -197,8 +220,17 @@ function ToastCard({
           <ToastStatusIcon kind={kind} />
         </span>
         <div className="vu-toast-copy">
-          <div className="vu-toast-title">{title}</div>
-          <div className="vu-toast-summary">{summary}</div>
+          {layout === 'capsule' ? (
+            <>
+              <span className="vu-toast-sr-only">{fallbackTitle(kind)}</span>
+              <div className="vu-toast-title">{message}</div>
+            </>
+          ) : (
+            <>
+              <div className="vu-toast-title">{title}</div>
+              <div className="vu-toast-summary">{summary}</div>
+            </>
+          )}
         </div>
         {showClose ? (
           <button
@@ -207,10 +239,43 @@ function ToastCard({
             aria-label={i18n.t('app:toast.close')}
             onClick={() => removeToast(id)}
           >
+            {countdown ? (
+              <svg
+                className="vu-toast-countdown"
+                viewBox="0 0 28 28"
+                aria-hidden="true"
+                style={countdown}
+              >
+                <circle
+                  className="vu-toast-countdown-track"
+                  cx="14"
+                  cy="14"
+                  r="12"
+                />
+                <circle
+                  className="vu-toast-countdown-ring"
+                  cx="14"
+                  cy="14"
+                  r="12"
+                />
+              </svg>
+            ) : null}
             <X aria-hidden="true" />
           </button>
         ) : null}
       </div>
+
+      {progress != null ? (
+        <div
+          className="vu-toast-progress"
+          role="progressbar"
+          aria-valuemin={0}
+          aria-valuemax={100}
+          aria-valuenow={Math.round(progress * 100)}
+        >
+          <span style={{ transform: `scaleX(${progress})` }} />
+        </div>
+      ) : null}
 
       {hasDetails ? (
         <div className="vu-toast-details-section">
@@ -252,7 +317,7 @@ function ToastCard({
         </div>
       ) : null}
 
-      {options.cancel || options.action ? (
+      {hasActions ? (
         <div className="vu-toast-actions">
           {options.cancel ? (
             <button
@@ -337,16 +402,48 @@ export function Toaster({
 }) {
   const items = useSyncExternalStore(subscribe, getSnapshot, getSnapshot);
   const { t } = useTranslation('app');
+  const viewportRef = useRef<HTMLElement>(null);
+  const newestId = items.at(-1)?.id;
+
+  // Collapsed stack: older toasts peek behind the newest one, sized to it.
+  useEffect(() => {
+    const viewport = viewportRef.current;
+    const front = viewport?.querySelector<HTMLElement>(
+      '.vu-toast-host[data-index="0"]'
+    );
+    if (!viewport || !front || typeof ResizeObserver === 'undefined') return;
+    const sync = () => {
+      const surface = front.firstElementChild as HTMLElement | null;
+      viewport.style.setProperty(
+        '--vu-toast-front-height',
+        `${front.offsetHeight}px`
+      );
+      viewport.style.setProperty(
+        '--vu-toast-front-width',
+        `${surface?.offsetWidth ?? front.offsetWidth}px`
+      );
+    };
+    sync();
+    const observer = new ResizeObserver(sync);
+    observer.observe(front);
+    return () => observer.disconnect();
+  }, [newestId, items.length]);
 
   return (
     <section
+      ref={viewportRef}
       className="vu-toast-viewport"
+      data-count={items.length}
       aria-label={t('toast.region')}
       aria-live="polite"
       aria-relevant="additions text"
     >
-      {items.map((item) => (
-        <div className="vu-toast-host" key={item.id}>
+      {items.map((item, position) => (
+        <div
+          className="vu-toast-host"
+          key={item.id}
+          data-index={items.length - 1 - position}
+        >
           <ToastCard {...item} />
         </div>
       ))}

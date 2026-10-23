@@ -1,15 +1,19 @@
 .vu-toast-viewport {
   position: fixed;
-  right: 12px;
-  bottom: 12px;
+  top: 52px;
+  left: 50%;
   z-index: 100000;
   display: flex;
-  width: min(424px, calc(100vw - 24px));
-  max-height: calc(100dvh - 24px);
-  flex-direction: column;
-  gap: 12px;
+  width: min(420px, calc(100vw - 24px));
+  max-height: calc(100dvh - 64px);
+  flex-direction: column-reverse;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 8px;
   margin: 0;
-  padding: 0;
+  /* Gutter keeps the scrollport clip outside the card shadows. */
+  padding: 4px 24px 48px;
+  transform: translateX(-50%);
   overflow-x: hidden;
   overflow-y: auto;
   overscroll-behavior: contain;
@@ -410,14 +414,18 @@
 
 @media (max-width: 520px) {
   .vu-toast-viewport {
-    right: 12px;
-    bottom: 12px;
-    left: 12px;
-    width: auto;
+    left: 0;
+    width: 100vw;
+    padding-right: 12px;
+    padding-left: 12px;
+    transform: none;
   }
 }
 
 @media (prefers-reduced-motion: reduce) {
+  .vu-toast-viewport .vu-toast-host,
+  .vu-toast-viewport .vu-toast-countdown-ring,
+  .vu-toast-viewport .vu-toast-progress > span,
   .vu-toast-host,
   .vu-toast-disclosure svg,
   .vu-toast-status-icon-loading {
@@ -437,5 +445,372 @@
     background: var(--surface-popover);
     backdrop-filter: none;
     -webkit-backdrop-filter: none;
+  }
+}
+
+/* ------------------------------------------------------------------
+   Glass capsule (in-app Toaster only). Shared classes above stay as-is
+   for the desktop toast window; everything below is viewport-scoped.
+   ------------------------------------------------------------------ */
+.vu-toast-sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
+
+.vu-toast-viewport {
+  --vu-toast-glass: hsl(0 0% 100% / 0.86);
+  --vu-toast-glass-end: hsl(0 0% 98% / 0.8);
+  --vu-toast-solid: #ffffff;
+  --vu-toast-ring: hsl(0 0% 0% / 0.12);
+  --vu-toast-shadow:
+    0 0 0 0.5px hsl(0 0% 0% / 0.12), 0 1px 2px hsl(220 36% 8% / 0.06),
+    0 8px 20px -6px hsl(220 36% 8% / 0.15),
+    0 24px 48px -16px hsl(220 36% 8% / 0.18);
+  --vu-toast-inner: inset 0 1px 0 hsl(0 0% 100% / 0.9);
+  --vu-toast-peek-1: #ededf0;
+  --vu-toast-peek-2: #e0e0e4;
+  --vu-toast-ease: cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.dark .vu-toast-viewport {
+  --vu-toast-glass: hsl(240 2% 20% / 0.86);
+  --vu-toast-glass-end: hsl(0 0% 15% / 0.82);
+  --vu-toast-solid: #262626;
+  --vu-toast-ring: hsl(0 0% 100% / 0.14);
+  --vu-toast-shadow:
+    0 0 0 0.5px hsl(0 0% 100% / 0.14), 0 1px 2px hsl(0 0% 0% / 0.4),
+    0 12px 32px -8px hsl(0 0% 0% / 0.7);
+  --vu-toast-inner: inset 0 1px 0 hsl(0 0% 100% / 0.12);
+  --vu-toast-peek-1: #3a3a3d;
+  --vu-toast-peek-2: #303033;
+}
+
+.vu-toast-viewport .vu-toast-host {
+  position: relative;
+  display: flex;
+  justify-content: center;
+  animation: vu-toast-pop 260ms var(--vu-toast-ease) both;
+  transition:
+    transform 220ms var(--vu-toast-ease),
+    opacity 220ms var(--vu-toast-ease);
+}
+
+.vu-toast-viewport .vu-toast-surface {
+  position: relative;
+  width: auto;
+  max-width: 100%;
+  color: var(--text-primary);
+  background: linear-gradient(
+    180deg,
+    var(--vu-toast-glass),
+    var(--vu-toast-glass-end)
+  );
+  border: 0;
+  box-shadow: var(--vu-toast-shadow), var(--vu-toast-inner);
+  backdrop-filter: blur(24px) saturate(1.8);
+  -webkit-backdrop-filter: blur(24px) saturate(1.8);
+}
+
+.vu-toast-viewport .vu-toast-surface[data-layout='capsule'] {
+  border-radius: 999px;
+}
+
+.vu-toast-viewport .vu-toast-surface[data-layout='card'] {
+  width: 100%;
+  border-radius: 24px;
+}
+
+.vu-toast-viewport .vu-toast-heading {
+  align-items: center;
+  gap: 10px;
+  padding: 6px 6px 6px 7px;
+}
+
+.vu-toast-viewport .vu-toast-surface[data-layout='card'] .vu-toast-heading {
+  align-items: flex-start;
+  padding: 10px 10px 8px;
+}
+
+.vu-toast-viewport .vu-toast-surface[data-layout='capsule'] .vu-toast-heading {
+  padding-right: 6px;
+}
+
+.vu-toast-viewport
+  .vu-toast-surface[data-layout='capsule']:not(:has(.vu-toast-close))
+  .vu-toast-heading {
+  padding-right: 16px;
+}
+
+/* Status icon: crisp stroke on a flat 12% tint. No glow. */
+.vu-toast-viewport .vu-toast-icon-tile {
+  --vu-toast-tone: var(--text-muted);
+  width: 30px;
+  height: 30px;
+  flex: 0 0 30px;
+  color: var(--vu-toast-tone);
+  background: color-mix(in srgb, var(--vu-toast-tone) 12%, transparent);
+  border-radius: 999px;
+  box-shadow: none;
+}
+
+.vu-toast-viewport [data-kind='success'] .vu-toast-icon-tile {
+  --vu-toast-tone: hsl(var(--success));
+}
+.vu-toast-viewport [data-kind='info'] .vu-toast-icon-tile {
+  --vu-toast-tone: hsl(var(--info));
+}
+.vu-toast-viewport [data-kind='warning'] .vu-toast-icon-tile {
+  --vu-toast-tone: hsl(var(--warning));
+}
+.vu-toast-viewport [data-kind='error'] .vu-toast-icon-tile {
+  --vu-toast-tone: hsl(var(--destructive));
+}
+.vu-toast-viewport [data-kind='loading'] .vu-toast-icon-tile {
+  --vu-toast-tone: hsl(var(--primary));
+}
+
+.vu-toast-viewport .vu-toast-status-icon {
+  width: 16px;
+  height: 16px;
+  stroke-width: 2;
+}
+
+.vu-toast-viewport .vu-toast-copy {
+  padding: 1px 0;
+}
+
+.vu-toast-viewport .vu-toast-surface[data-layout='card'] .vu-toast-copy {
+  padding-top: 5px;
+}
+
+.vu-toast-viewport .vu-toast-title {
+  color: var(--text-strong);
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 18px;
+  letter-spacing: -0.005em;
+  overflow-wrap: anywhere;
+}
+
+.vu-toast-viewport .vu-toast-summary {
+  margin-top: 2px;
+}
+
+/* Close button doubles as the auto-dismiss countdown. */
+.vu-toast-viewport .vu-toast-close {
+  position: relative;
+  width: 30px;
+  height: 30px;
+  flex: 0 0 30px;
+  border-radius: 999px;
+}
+
+.vu-toast-viewport .vu-toast-close svg:not(.vu-toast-countdown) {
+  width: 12px;
+  height: 12px;
+}
+
+.vu-toast-viewport .vu-toast-close .vu-toast-countdown {
+  position: absolute;
+  inset: 1px;
+  width: 28px;
+  height: 28px;
+  transform: rotate(-90deg);
+  pointer-events: none;
+}
+
+.vu-toast-countdown circle {
+  fill: none;
+  stroke-width: 1.75;
+}
+
+.vu-toast-countdown-track {
+  stroke: var(--vu-toast-ring);
+}
+
+.vu-toast-countdown-ring {
+  stroke: var(--vu-toast-tone, currentColor);
+  stroke-dasharray: 75.4;
+  stroke-linecap: round;
+  animation: vu-toast-countdown var(--vu-toast-duration, 5s) linear forwards;
+}
+
+.vu-toast-viewport [data-kind] .vu-toast-close {
+  --vu-toast-tone: var(--text-muted);
+}
+.vu-toast-viewport [data-kind='success'] .vu-toast-close {
+  --vu-toast-tone: hsl(var(--success));
+}
+.vu-toast-viewport [data-kind='info'] .vu-toast-close {
+  --vu-toast-tone: hsl(var(--info));
+}
+.vu-toast-viewport [data-kind='warning'] .vu-toast-close {
+  --vu-toast-tone: hsl(var(--warning));
+}
+.vu-toast-viewport [data-kind='error'] .vu-toast-close {
+  --vu-toast-tone: hsl(var(--destructive));
+}
+
+/* The timer restarts from full when hover/focus/expanded ends; so does the ring. */
+.vu-toast-surface:hover .vu-toast-countdown-ring,
+.vu-toast-surface:focus-within .vu-toast-countdown-ring,
+.vu-toast-surface[data-held] .vu-toast-countdown-ring {
+  animation: none;
+}
+
+.vu-toast-progress {
+  height: 3px;
+  margin: 0 18px 12px 47px;
+  overflow: hidden;
+  background: var(--surface-control);
+  border-radius: 999px;
+}
+
+.vu-toast-progress > span {
+  display: block;
+  height: 100%;
+  background: hsl(var(--primary));
+  border-radius: inherit;
+  transform-origin: left;
+  transition: transform 260ms var(--vu-toast-ease);
+}
+
+.vu-toast-viewport .vu-toast-details-section {
+  margin: 0 14px 12px 47px;
+}
+
+.vu-toast-viewport .vu-toast-actions {
+  justify-content: flex-end;
+  margin: 4px 10px 10px 47px;
+}
+
+.vu-toast-viewport .vu-toast-action {
+  min-height: 30px;
+  padding: 0 14px;
+  border-radius: 999px;
+  font-weight: 600;
+}
+
+.vu-toast-viewport .vu-toast-action-secondary {
+  background: var(--surface-control);
+  border-color: var(--border-subtle);
+}
+
+.vu-toast-viewport .vu-toast-action-primary {
+  order: 2;
+}
+
+/* Collapsed stack: older toasts tuck behind the newest. Hover/focus fans out. */
+.vu-toast-viewport .vu-toast-host:not([data-index='0']) {
+  position: absolute;
+  top: 4px;
+  left: 50%;
+  width: var(--vu-toast-front-width, 240px);
+  height: var(--vu-toast-front-height, 44px);
+  transform-origin: bottom center;
+  pointer-events: none;
+}
+
+.vu-toast-viewport .vu-toast-host:not([data-index='0']) .vu-toast-surface {
+  width: 100%;
+  height: 100%;
+  border-radius: 999px;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+
+.vu-toast-viewport .vu-toast-host:not([data-index='0']) .vu-toast-surface > * {
+  visibility: hidden;
+}
+
+.vu-toast-viewport .vu-toast-host[data-index='1'] {
+  z-index: -1;
+  transform: translateX(-50%) translateY(10px) scale(0.94);
+}
+.vu-toast-viewport .vu-toast-host[data-index='1'] .vu-toast-surface {
+  background: var(--vu-toast-peek-1);
+}
+.vu-toast-viewport .vu-toast-host[data-index='2'] {
+  z-index: -2;
+  transform: translateX(-50%) translateY(20px) scale(0.88);
+}
+.vu-toast-viewport .vu-toast-host[data-index='2'] .vu-toast-surface {
+  background: var(--vu-toast-peek-2);
+}
+
+.vu-toast-viewport:hover .vu-toast-host,
+.vu-toast-viewport:focus-within .vu-toast-host {
+  position: relative;
+  top: auto;
+  left: auto;
+  z-index: auto;
+  width: auto;
+  height: auto;
+  transform: none;
+  pointer-events: auto;
+}
+
+.vu-toast-viewport:hover .vu-toast-host .vu-toast-surface,
+.vu-toast-viewport:focus-within .vu-toast-host .vu-toast-surface {
+  height: auto;
+  background: linear-gradient(
+    180deg,
+    var(--vu-toast-glass),
+    var(--vu-toast-glass-end)
+  );
+  backdrop-filter: blur(24px) saturate(1.8);
+  -webkit-backdrop-filter: blur(24px) saturate(1.8);
+}
+
+.vu-toast-viewport:hover .vu-toast-host .vu-toast-surface[data-layout='card'],
+.vu-toast-viewport:focus-within
+  .vu-toast-host
+  .vu-toast-surface[data-layout='card'] {
+  border-radius: 24px;
+}
+
+.vu-toast-viewport:hover .vu-toast-host .vu-toast-surface > *,
+.vu-toast-viewport:focus-within .vu-toast-host .vu-toast-surface > * {
+  visibility: visible;
+}
+
+/* Reduced transparency: same shape, opaque surface. */
+.reduced-transparency .vu-toast-viewport .vu-toast-surface,
+.reduced-transparency
+  .vu-toast-viewport:hover
+  .vu-toast-host
+  .vu-toast-surface {
+  background: var(--vu-toast-solid);
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+
+@media (prefers-reduced-transparency: reduce) {
+  .vu-toast-viewport .vu-toast-surface,
+  .vu-toast-viewport:hover .vu-toast-host .vu-toast-surface,
+  .vu-toast-viewport:focus-within .vu-toast-host .vu-toast-surface {
+    background: var(--vu-toast-solid);
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+  }
+}
+
+@keyframes vu-toast-pop {
+  from {
+    opacity: 0;
+    transform: translateY(-8px) scale(0.96);
+  }
+}
+
+@keyframes vu-toast-countdown {
+  from {
+    stroke-dashoffset: 0;
+  }
+  to {
+    stroke-dashoffset: 75.4;
   }
 }

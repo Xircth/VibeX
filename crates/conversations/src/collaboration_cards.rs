@@ -272,7 +272,10 @@ pub async fn resolve_card(
     let (resolution, reply) = match card.kind {
         CardKind::Ask => {
             let answer = answer.ok_or_else(|| bad("answer is required"))?;
-            (json!({ "answer": answer }), format!("[回复问题 {card_id}] {answer}"))
+            (
+                json!({ "answer": answer }),
+                format!("[回复问题 {card_id}] {answer}"),
+            )
         }
         CardKind::Approval => {
             let decision = decision
@@ -304,12 +307,17 @@ pub async fn resolve_card(
     if claimed.rows_affected() == 0 {
         return Err(bad("card was already resolved"));
     }
-    let members =
-        collaboration::list_space_members(pool, &card.space_id, collaboration::MessageAudience::User)
-            .await?;
+    let members = collaboration::list_space_members(
+        pool,
+        &card.space_id,
+        collaboration::MessageAudience::User,
+    )
+    .await?;
     let nickname = members
         .iter()
-        .find(|member| member.conversation_id.as_deref() == Some(card.from_conversation_id.as_str()))
+        .find(|member| {
+            member.conversation_id.as_deref() == Some(card.from_conversation_id.as_str())
+        })
         .map(|member| member.nickname.clone());
     if let Some(nickname) = nickname {
         let posted = collaboration::post_to_space_with(
@@ -339,4 +347,274 @@ pub async fn resolve_card(
     load_card(pool, card_id)
         .await?
         .ok_or_else(|| CollaborationError::new("not_found", "card was not found"))
+}
+
+#[cfg(test)]
+mod tests {
+    use std::str::FromStr;
+
+    use agents::AgentId;
+    use db::models::session::{CreateSession, Session};
+    use sqlx::sqlite::{SqliteConnectOptions, SqlitePoolOptions};
+
+    use super::*;
+
+    async fn setup_pool() -> SqlitePool {
+        let options = SqliteConnectOptions::from_str("sqlite::memory:")
+            .unwrap()
+            .foreign_keys(false);
+        let pool = SqlitePoolOptions::new()
+            .max_connections(1)
+            .connect_with(options)
+            .await
+            .unwrap();
+        sqlx::migrate!("../db/migrations").run(&pool).await.unwrap();
+        sqlx::query("PRAGMA foreign_keys = OFF")
+            .execute(&pool)
+            .await
+            .unwrap();
+        pool
+    }
+
+    async fn create_session(pool: &SqlitePool, id: Uuid, workspace: Uuid, name: &str) {
+        let input = CreateSession {
+            executor: None,
+            agent_id: Some(AgentId::parse("codex").unwrap()),
+            task_id: None,
+            name: Some(name.to_string()),
+            initial_prompt: None,
+            status: None,
+        };
+        Session::create(pool, &input, id, workspace).await.unwrap();
+    }
+
+    /// Space with members A (asker) and B; C is a live session outside the space.
+    async fn fixture() -> (SqlitePool, String, Uuid, Uuid, Uuid) {
+        let pool = setup_pool().await;
+        let workspace = Uuid::new_v4();
+        let (a, b, c) = (Uuid::new_v4(), Uuid::new_v4(), Uuid::new_v4());
+        create_session(&pool, a, workspace, "小A").await;
+        create_session(&pool, b, workspace, "小B").await;
+        create_session(&pool, c, workspace, "小C").await;
+        let space = collaboration::create_collaboration_space(&pool, a, "群", Uuid::new_v4())
+            .await
+            .unwrap();
+        collaboration::add_space_member(&pool, a, &space.space_id, b, "小B", Uuid::new_v4())
+            .await
+            .unwrap();
+        (pool, space.space_id, a, b, c)
+    }
+
+    fn ask(caller: Uuid, space: &str, op: Uuid) -> PostCard {
+        PostCard {
+            caller_id: caller,
+            space_id: space.to_string(),
+            kind: CardKind::Ask,
+            payload: json!({ "question": "用哪个 <分支>？", "options": ["main", "dev"] }),
+            operation_id: op,
+        }
+    }
+
+    fn approval(caller: Uuid, space: &str) -> PostCard {
+        PostCard {
+            caller_id: caller,
+            space_id: space.to_string(),
+            kind: CardKind::Approval,
+            payload: json!({ "action": "run", "command": "rm -rf dist", "reason": "clean" }),
+            operation_id: Uuid::new_v4(),
+        }
+    }
+
+    #[tokio::test]
+    async fn post_ask_card_creates_pending_card_and_message() {
+        let (pool, space, a, _, _) = fixture().await;
+        let d = DeliveryContext::default();
+        let op = Uuid::new_v4();
+        let card = post_card(&pool, ask(a, &space, op), &d).await.unwrap();
+        assert_eq!(card.id, op.to_string());
+        assert_eq!(card.kind, CardKind::Ask);
+        assert_eq!(card.status, "pending");
+        assert_eq!(card.from_conversation_id, a.to_string());
+        assert!(card.message_id.is_some());
+        assert!(card.resolution.is_none() && card.resolved_at.is_none());
+        // idempotent per operation id
+        let again = post_card(&pool, ask(a, &space, op), &d).await.unwrap();
+        assert_eq!(again.id, card.id);
+        assert_eq!(
+            list_cards(&pool, Some(&space), false).await.unwrap().len(),
+            1
+        );
+        // same op id reused for a different kind conflicts
+        let mut conflict = approval(a, &space);
+        conflict.operation_id = op;
+        assert_eq!(
+            post_card(&pool, conflict, &d).await.unwrap_err().code,
+            "operation_conflict"
+        );
+    }
+
+    #[tokio::test]
+    async fn post_validates_required_field_and_membership() {
+        let (pool, space, a, _, c) = fixture().await;
+        let d = DeliveryContext::default();
+        let mut empty = ask(a, &space, Uuid::new_v4());
+        empty.payload = json!({ "question": "   " });
+        assert!(post_card(&pool, empty, &d).await.is_err());
+        let mut no_action = approval(a, &space);
+        no_action.payload = json!({ "command": "ls" });
+        assert!(post_card(&pool, no_action, &d).await.is_err());
+        assert!(list_cards(&pool, None, false).await.unwrap().is_empty());
+        // C is not a member of the space and cannot post into it
+        assert!(
+            post_card(&pool, ask(c, &space, Uuid::new_v4()), &d)
+                .await
+                .is_err()
+        );
+    }
+
+    #[test]
+    fn render_card_escapes_markup_for_both_kinds() {
+        let ask = render_card(
+            "x",
+            CardKind::Ask,
+            &json!({ "question": "<b>hi</b>", "options": ["a<", "b"] }),
+        );
+        assert!(ask.contains("&lt;b&gt;hi&lt;/b&gt;"));
+        assert!(ask.contains("<options>a&lt;|b</options>"));
+        let appr = render_card(
+            "y",
+            CardKind::Approval,
+            &json!({ "action": "go", "command": "x>y" }),
+        );
+        assert!(appr.starts_with("<card kind=\"approval\" id=\"y\">"));
+        assert!(appr.contains("x&gt;y"));
+    }
+
+    #[tokio::test]
+    async fn list_filters_by_space_and_pending() {
+        let (pool, space, a, b, _) = fixture().await;
+        let d = DeliveryContext::default();
+        let first = post_card(&pool, ask(a, &space, Uuid::new_v4()), &d)
+            .await
+            .unwrap();
+        let second = post_card(&pool, approval(b, &space), &d).await.unwrap();
+        let all = list_cards(&pool, Some(&space), false).await.unwrap();
+        assert_eq!(
+            all.iter().map(|c| c.id.clone()).collect::<Vec<_>>(),
+            vec![second.id.clone(), first.id.clone()]
+        );
+        assert!(
+            list_cards(&pool, Some("nope"), false)
+                .await
+                .unwrap()
+                .is_empty()
+        );
+        resolve_card(&pool, &first.id, None, Some("dev"), &d)
+            .await
+            .unwrap();
+        let pending = list_cards(&pool, Some(&space), true).await.unwrap();
+        assert_eq!(pending.len(), 1);
+        assert_eq!(pending[0].id, second.id);
+        assert_eq!(list_cards(&pool, None, false).await.unwrap().len(), 2);
+    }
+
+    #[tokio::test]
+    async fn resolve_ask_replies_to_asker_and_second_resolve_is_rejected() {
+        let (pool, space, a, _, _) = fixture().await;
+        let d = DeliveryContext::default();
+        let card = post_card(&pool, ask(a, &space, Uuid::new_v4()), &d)
+            .await
+            .unwrap();
+        assert!(
+            resolve_card(&pool, &card.id, None, None, &d).await.is_err(),
+            "answer required"
+        );
+        assert!(
+            resolve_card(&pool, &card.id, None, Some("  "), &d)
+                .await
+                .is_err()
+        );
+        let resolved = resolve_card(&pool, &card.id, None, Some(" dev "), &d)
+            .await
+            .unwrap();
+        assert_eq!(resolved.status, "resolved");
+        assert_eq!(resolved.resolution, Some(json!({ "answer": "dev" })));
+        assert!(resolved.resolved_at.is_some());
+        let reply = resolved.reply_message_id.clone().expect("reply posted");
+        let messages = collaboration::list_space_messages(
+            &pool,
+            &space,
+            None,
+            None,
+            collaboration::MessageAudience::User,
+        )
+        .await
+        .unwrap();
+        let reply_msg = messages
+            .iter()
+            .find(|m| m.envelope.to_string().contains(&reply))
+            .expect("reply message in stream");
+        let text = reply_msg.envelope.to_string();
+        assert!(text.contains("@小A"), "reply addressed to asker: {text}");
+        assert!(!text.contains("@小B"));
+        // resolving twice is rejected and leaves the first resolution intact
+        let err = resolve_card(&pool, &card.id, None, Some("main"), &d)
+            .await
+            .unwrap_err();
+        assert!(err.message.contains("already resolved"));
+        let stored = load_card(&pool, &card.id).await.unwrap().unwrap();
+        assert_eq!(stored.resolution, Some(json!({ "answer": "dev" })));
+        assert_eq!(stored.reply_message_id, Some(reply));
+    }
+
+    #[tokio::test]
+    async fn resolve_approval_validates_decision_and_rejects_twice() {
+        let (pool, space, a, _, _) = fixture().await;
+        let d = DeliveryContext::default();
+        let card = post_card(&pool, approval(a, &space), &d).await.unwrap();
+        assert_eq!(card.kind, CardKind::Approval);
+        assert!(
+            resolve_card(&pool, &card.id, Some("maybe"), None, &d)
+                .await
+                .is_err()
+        );
+        assert!(resolve_card(&pool, &card.id, None, None, &d).await.is_err());
+        let resolved = resolve_card(&pool, &card.id, Some("allow_once"), Some("ok"), &d)
+            .await
+            .unwrap();
+        assert_eq!(
+            resolved.resolution,
+            Some(json!({ "decision": "allow_once", "note": "ok" }))
+        );
+        assert!(resolved.reply_message_id.is_some());
+        assert!(
+            resolve_card(&pool, &card.id, Some("deny"), None, &d)
+                .await
+                .is_err()
+        );
+        assert_eq!(
+            load_card(&pool, &card.id)
+                .await
+                .unwrap()
+                .unwrap()
+                .resolution
+                .unwrap()["decision"],
+            json!("allow_once")
+        );
+    }
+
+    #[tokio::test]
+    async fn resolve_unknown_card_is_not_found() {
+        let (pool, _, _, _, _) = fixture().await;
+        let err = resolve_card(
+            &pool,
+            "missing",
+            None,
+            Some("x"),
+            &DeliveryContext::default(),
+        )
+        .await
+        .unwrap_err();
+        assert_eq!(err.code, "not_found");
+    }
 }

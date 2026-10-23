@@ -428,6 +428,30 @@
     }
   },
   {
+    "name": "memory_search",
+    "description": "Search your own long-term memory (facts) and recent activity across your collaboration threads, ranked by BM25. Results are limited to what is visible from the current thread: private-chat memory is never returned in a group thread, and facts scoped to another thread are hidden.",
+    "inputSchema": {
+      "type": "object",
+      "required": ["query"],
+      "properties": {
+        "query": { "type": "string", "minLength": 1 },
+        "limit": { "type": "integer", "minimum": 1, "maximum": 50, "default": 8 }
+      }
+    }
+  },
+  {
+    "name": "memory_write",
+    "description": "Remember a durable fact for yourself. scope: thread (default, only this thread), global (all your threads) or private (only your private chat with the user). Writes made in a private chat are always stored as private.",
+    "inputSchema": {
+      "type": "object",
+      "required": ["content"],
+      "properties": {
+        "content": { "type": "string", "minLength": 1 },
+        "scope": { "type": "string", "enum": ["thread", "global", "private"] }
+      }
+    }
+  },
+  {
     "name": "list_space_messages",
     "description": "Read the space log since since_seq. This returns immediately. It does not wait for new messages. Agent reads omit how to address the user.",
     "inputSchema": {

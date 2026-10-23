@@ -132,3 +132,34 @@ as ordinary conversations (one per extra space) rather than being merged back.
 9. `server` test `headless_bootstrap`: `headless_agent_events_are_persisted_for_websocket_replay`
 10. `server` test `web_domains`: `one_authenticated_application_surface_opens_product_domains_for_the_web_ui`
 11. `vibex-mcp` bin: `tests::collaboration_opens_same_workspace_tools_without_session_control` (expected tool list predates the space-collection tools)
+
+## Phase 4 — member memory
+
+- **Activity (short-term).** On every completed reply the runtime records one
+  line per turn into `member_activity` (`turn_id` unique, so retries are
+  idempotent). The line comes from a pluggable `ActivitySummarizer`
+  (`member_memory::set_activity_summarizer`). The default
+  `FirstSentencesSummarizer` keeps the first 2 sentences, capped at 240 chars.
+  Rows from `direct:` threads are flagged `private`.
+- **Injection.** `persona_prompt_text_for_turn` appends a `[成员记忆]` block to
+  the member identity context. The block holds the latest N cross-thread entries
+  (`VIBEX_MEMBER_ACTIVITY_LIMIT`, default 8, 0 disables) and the BM25 top facts
+  for the turn's prompt. In a group thread, private activity and private facts
+  are left out entirely, with no placeholder.
+- **Facts (long-term).** `member_facts` has scope `global`, `thread:<id>` or
+  `private`, and origin `agent`, `user` or `distilled`. Full CRUD is in
+  `member_memory`.
+- **Distillation hook.** `FactDistiller` plus `distill_member_memory` and
+  `spawn_memory_distiller`, with a per-member cursor in
+  `member_memory_distill_state`. Facts distilled from private activity are
+  always forced to `private`. No LLM distiller is wired by default.
+- **Agent tools.** MCP `memory_search` and `memory_write` use underscores
+  because MCP tool names reject dots. They are scoped to the calling member
+  and thread. Writes default to the current thread. Writes in a private chat
+  are forced to private. Writes to another thread's scope are rejected. The
+  skill doc is `vibex-multi-agent/MEMORY.md`.
+- **Host ops** (the user's view, which includes private items):
+  - `collaboration/member.memory.list {memberId, scope?}`
+  - `member.memory.update {memberId, factId, content?, scope?}`
+  - `member.memory.delete {memberId, factId}`
+  - `member.activity.list {memberId, limit?}`

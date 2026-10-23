@@ -700,6 +700,19 @@ async fn collaboration_tool(
             }
             Ok(serde_json::to_value(member).unwrap_or(json!({})))
         }
+        "memory_search" => {
+            let limit = arguments
+                .get("limit")
+                .and_then(|v| v.as_u64())
+                .unwrap_or(8)
+                .clamp(1, 50) as usize;
+            Ok(conversations::member_memory::tool_search(pool, caller_id, &text("query"), limit).await?)
+        }
+        "memory_write" => {
+            let scope = arguments.get("scope").and_then(|v| v.as_str());
+            let fact = conversations::member_memory::tool_write(pool, caller_id, &text("content"), scope).await?;
+            Ok(serde_json::to_value(fact).unwrap_or(json!({})))
+        }
         "handoff" => {
             let operation_id = uuid_arg("operation_id").ok_or_else(|| {
                 collaboration::CollaborationError::new("not_found", "operation_id is required")

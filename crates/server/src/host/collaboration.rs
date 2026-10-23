@@ -11,6 +11,7 @@ use async_trait::async_trait;
 use conversations::collaboration::{
     self, CollaborationSpaceChangedEvent, DeliveryContext, MessageAudience, SaveRole, SaveTeam,
 };
+use conversations::member_memory;
 use plugins::{CollaborationHost, CollaborationHostError};
 use serde_json::{Value, json};
 use sqlx::SqlitePool;
@@ -117,6 +118,18 @@ impl CollaborationHost for HostCollaborationHost {
             ) => self.update_scheduled_message(&input).await,
             ("collaboration", "space.post") => self.post(&input).await,
             ("collaboration", "space.submit") => self.submit(&input).await,
+            ("collaboration", "member.memory.list" | "member.memory_list") => {
+                self.memory_list(&input).await
+            }
+            ("collaboration", "member.memory.update" | "member.memory_update") => {
+                self.memory_update(&input).await
+            }
+            ("collaboration", "member.memory.delete" | "member.memory_delete") => {
+                self.memory_delete(&input).await
+            }
+            ("collaboration", "member.activity.list" | "member.activity_list") => {
+                self.activity_list(&input).await
+            }
             ("collaboration", "member.setWriteAccess" | "member.set_write_access") => {
                 self.set_write_access(&input).await
             }
@@ -716,6 +729,55 @@ impl HostCollaborationHost {
         Ok(json!({ "memberId": member_id, "writeAccess": access.as_str() }))
     }
 
+    /// The user's own view of a member's memory: every scope, private included.
+    async fn memory_list(&self, input: &Value) -> Result<Value, CollaborationHostError> {
+        let member_id = required_text(input, &["memberId", "member_id"])?;
+        let scope = optional_text(input, &["scope"]).map(|raw| parse_fact_scope(&raw)).transpose()?;
+        let facts = member_memory::list_facts(&self.pool, &member_id, scope.as_ref())
+            .await
+            .map_err(host_error)?;
+        Ok(json!({ "memberId": member_id, "facts": facts }))
+    }
+
+    async fn memory_update(&self, input: &Value) -> Result<Value, CollaborationHostError> {
+        let member_id = required_text(input, &["memberId", "member_id"])?;
+        let fact_id = fact_id(input)?;
+        let content = optional_text(input, &["content"]);
+        let scope = optional_text(input, &["scope"]).map(|raw| parse_fact_scope(&raw)).transpose()?;
+        let fact = member_memory::update_fact(
+            &self.pool,
+            &member_id,
+            fact_id,
+            content.as_deref(),
+            scope.as_ref(),
+        )
+        .await
+        .map_err(host_error)?;
+        Ok(json!({ "memberId": member_id, "fact": fact }))
+    }
+
+    async fn memory_delete(&self, input: &Value) -> Result<Value, CollaborationHostError> {
+        let member_id = required_text(input, &["memberId", "member_id"])?;
+        let fact_id = fact_id(input)?;
+        let deleted = member_memory::delete_fact(&self.pool, &member_id, fact_id)
+            .await
+            .map_err(host_error)?;
+        Ok(json!({ "memberId": member_id, "factId": fact_id, "deleted": deleted }))
+    }
+
+    async fn activity_list(&self, input: &Value) -> Result<Value, CollaborationHostError> {
+        let member_id = required_text(input, &["memberId", "member_id"])?;
+        let limit = input
+            .get("limit")
+            .and_then(Value::as_u64)
+            .unwrap_or(50)
+            .clamp(1, 500) as usize;
+        let activity = member_memory::list_activity(&self.pool, &member_id, true, limit)
+            .await
+            .map_err(host_error)?;
+        Ok(json!({ "memberId": member_id, "activity": activity }))
+    }
+
     async fn receipts(&self, input: &Value) -> Result<Value, CollaborationHostError> {
         let message_id = required_text(input, &["messageId", "message_id"])?;
         let receipts = collaboration::list_message_receipts(&self.pool, &message_id)
@@ -999,6 +1061,17 @@ fn text(input: &Value, keys: &[&str]) -> String {
         .unwrap_or("")
         .trim()
         .to_string()
+}
+
+fn parse_fact_scope(raw: &str) -> Result<member_memory::FactScope, CollaborationHostError> {
+    member_memory::FactScope::parse(raw).map_err(host_error)
+}
+
+fn fact_id(input: &Value) -> Result<i64, CollaborationHostError> {
+    ["factId", "fact_id", "id"]
+        .iter()
+        .find_map(|key| input.get(*key).and_then(Value::as_i64))
+        .ok_or_else(|| CollaborationHostError::new("conversation_control_failed", "factId is required"))
 }
 
 fn optional_text(input: &Value, keys: &[&str]) -> Option<String> {

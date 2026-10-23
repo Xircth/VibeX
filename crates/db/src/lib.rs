@@ -36,6 +36,9 @@ async fn run_migrations(pool: &Pool<Sqlite>) -> Result<(), Error> {
         .await
         .map_err(|error| sqlx::Error::Protocol(error.to_string()))?;
     models::plugin_v2::PluginV1Migration::retire_all(pool).await?;
+    models::collaboration_identity::MemberIdentityMigration::run(pool)
+        .await
+        .map_err(|error| sqlx::Error::Protocol(error.to_string()))?;
     resolve_legacy_automation_timezones(pool).await?;
     Ok(())
 }

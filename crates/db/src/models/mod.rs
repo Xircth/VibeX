@@ -4,6 +4,7 @@ pub mod agent_setting;
 pub mod attention;
 pub mod automation_v2;
 pub mod chat_channel_message_log;
+pub mod collaboration_identity;
 pub mod conversation;
 pub mod conversation_bundle;
 pub mod conversation_event;

@@ -29,6 +29,7 @@ import { useImageMetadata } from '@/hooks/useImageMetadata';
 import { useOpenImagePreview } from '@/hooks/useOpenImagePreview';
 import { useOptionalPanelActionsContext } from '@/contexts/PanelActionsContext';
 import { findMarkdownRenderer, useMarkdownRenderers } from '@vibex/plugin-sdk';
+import { useMemberMentionInlinePlugin } from '@/features/collaboration/MemberMention';
 import { PluginBoundary } from '@/components/plugins/PluginBoundary';
 import { CodeBlock, CompactCodeBlock } from './CodeBlock';
 import { MermaidDiagram } from './MermaidDiagram';
@@ -480,8 +481,10 @@ export const AstryxMarkdown = memo(function AstryxMarkdown({
     };
   }, [rawHtml, softBreaks, value]);
 
+  const memberMentionPlugin = useMemberMentionInlinePlugin();
   const inlinePlugins = useMemo(
     () => [
+      ...(memberMentionPlugin ? [memberMentionPlugin] : []),
       {
         pattern: MATH_PLACEHOLDER_PATTERN,
         render: (match: RegExpMatchArray, key: string) => {
@@ -508,7 +511,7 @@ export const AstryxMarkdown = memo(function AstryxMarkdown({
         },
       },
     ],
-    [normalizedValue.html, normalizedValue.math, workspacePath]
+    [memberMentionPlugin, normalizedValue.html, normalizedValue.math, workspacePath]
   );
 
   const components = useMemo<MarkdownProps['components']>(

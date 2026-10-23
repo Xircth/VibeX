@@ -9,6 +9,7 @@ import {
   type SessionComposerStructuredToken,
 } from '@/components/tasks/follow-up/sessionComposerStructuredTokens';
 import { SessionComposerTokenChip } from '@/components/tasks/follow-up/SessionComposerStructuredText';
+import { useMemberMentionInlinePlugin } from '@/features/collaboration/MemberMention';
 import { useOptionalPanelActionsContext } from '@/contexts/PanelActionsContext';
 import { applySoftBreaks } from '@/lib/conversation-rendering/streamdownPlugins';
 import {
@@ -222,8 +223,10 @@ export const UserMessageMarkdown = memo(function UserMessageMarkdown({
 }: UserMessageMarkdownProps) {
   const panelActions = useOptionalPanelActionsContext();
   const restricted = useMemo(() => prepareUserMessageMarkdown(value), [value]);
+  const memberMentionPlugin = useMemberMentionInlinePlugin();
   const inlinePlugins = useMemo<MarkdownInlinePlugin[]>(
     () => [
+      ...(memberMentionPlugin ? [memberMentionPlugin] : []),
       {
         pattern: TOKEN_PLACEHOLDER_PATTERN,
         render: (match, key): ReactNode => {
@@ -279,6 +282,7 @@ export const UserMessageMarkdown = memo(function UserMessageMarkdown({
       },
     ],
     [
+      memberMentionPlugin,
       panelActions,
       restricted.links,
       restricted.tokens,

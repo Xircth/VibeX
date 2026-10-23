@@ -263,9 +263,119 @@ export type DeliveryReceipt = {
   conversation_id?: string;
   nickname?: string;
   delivered?: string;
+  /** Three-state receipt from the backend: queued | processing | replied | limit_reached. */
+  state?: string;
   input_id?: string | null;
   error_code?: string | null;
 };
+
+/**
+ * Telegram-style check shown inside the sender's bubble:
+ * - `sent`: single check (queued)
+ * - `delivered`: double check (processing / replied by every target)
+ * - `limited`: single muted check (held by the per-turn wake cap)
+ * - `failed`: single check in the destructive tone
+ */
+export type ReceiptCheckState = 'sent' | 'delivered' | 'limited' | 'failed';
+
+/** Normalized three-state receipt of one target. */
+export function receiptState(
+  receipt: DeliveryReceipt | null | undefined
+): 'queued' | 'processing' | 'replied' | 'limit_reached' | 'failed' {
+  const state = String(receipt?.state ?? '');
+  const delivered = String(receipt?.delivered ?? '');
+  if (state === 'limit_reached') return 'limit_reached';
+  if (
+    delivered === 'failed' ||
+    (typeof receipt?.error_code === 'string' &&
+      receipt.error_code &&
+      receipt.error_code !== 'wake_limit_exceeded' &&
+      receipt.error_code !== 'write_serialized_busy')
+  ) {
+    return 'failed';
+  }
+  if (state === 'replied') return 'replied';
+  if (state === 'processing') return 'processing';
+  if (state === 'queued') return 'queued';
+  // Older payloads without `state`: fall back to the delivery status.
+  if (
+    delivered === 'dispatched' ||
+    delivered === 'claimed' ||
+    delivered === 'started'
+  ) {
+    return 'processing';
+  }
+  return 'queued';
+}
+
+/** Aggregate check for a message sent to one or more targets. */
+export function receiptCheckState(
+  receipts: ReadonlyArray<DeliveryReceipt> | null | undefined
+): ReceiptCheckState | null {
+  if (!Array.isArray(receipts) || receipts.length === 0) return null;
+  const states = receipts.map(receiptState);
+  if (states.every((state) => state === 'processing' || state === 'replied')) {
+    return 'delivered';
+  }
+  if (states.some((state) => state === 'failed')) return 'failed';
+  if (states.some((state) => state === 'limit_reached')) return 'limited';
+  return 'sent';
+}
+
+/** Accessible label for a receipt check, listing each target's state. */
+export function receiptCheckLabel(
+  receipts: ReadonlyArray<DeliveryReceipt> | null | undefined
+): string {
+  if (!Array.isArray(receipts) || receipts.length === 0) return '';
+  const copy: Record<ReturnType<typeof receiptState>, string> = {
+    queued: '已发送',
+    processing: '已收到',
+    replied: '已回复',
+    limit_reached: '已达唤醒上限，稍后送达',
+    failed: '发送失败',
+  };
+  return receipts
+    .map((receipt) => {
+      const status = copy[receiptState(receipt)];
+      return receipt.nickname ? `${receipt.nickname} ${status}` : status;
+    })
+    .join('，');
+}
+
+/** One system line in a member DM about a cross-DM member interaction. */
+export type CrossChatNotice =
+  | { kind: 'sent_to'; nickname: string }
+  | { kind: 'received_from'; nickname: string };
+
+/** Copy around the member mention chip: prefix + chip + suffix. */
+export function crossChatNoticeCopy(notice: CrossChatNotice): {
+  prefix: string;
+  suffix: string;
+} {
+  return notice.kind === 'sent_to'
+    ? { prefix: '已发消息给', suffix: '' }
+    : { prefix: '已收到', suffix: '的消息' };
+}
+
+/**
+ * Notices for a DM-to-DM relay where the user asked member A (in A's DM) to
+ * message member B: A's DM gets `sent_to B` and, once B answers,
+ * `received_from B`; B's DM gets `received_from A` before B's reply.
+ */
+export function crossChatNoticesFor(
+  viewer: string,
+  relay: { from: string; to: string; replied: boolean }
+): CrossChatNotice[] {
+  if (viewer === relay.from) {
+    const out: CrossChatNotice[] = [{ kind: 'sent_to', nickname: relay.to }];
+    if (relay.replied) out.push({ kind: 'received_from', nickname: relay.to });
+    return out;
+  }
+  if (viewer === relay.to) {
+    return [{ kind: 'received_from', nickname: relay.from }];
+  }
+  return [];
+}
 
 export type CollaborationSpaceChangedPayload = {
   workspaceId: string;

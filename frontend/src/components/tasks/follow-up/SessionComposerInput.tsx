@@ -121,6 +121,7 @@ import {
   getSessionComposerStructuredTokenSegments,
   type SessionComposerStructuredToken,
   type SessionComposerStructuredTokenKind,
+  type SessionComposerMemberMention,
 } from './sessionComposerStructuredTokens';
 import { useAgentMentions } from './AgentMention';
 import {
@@ -1034,13 +1035,15 @@ function restoreStructuredTokens(
   composerRoot: HTMLDivElement,
   value: string,
   bareAgentMentions?: Array<{ agent_kind: string; display_name: string }>,
-  savedCaretOffset?: number | null
+  savedCaretOffset?: number | null,
+  memberMentions?: SessionComposerMemberMention[]
 ): void {
   const editor = getSessionComposerEditable(composerRoot);
   if (!editor) return;
 
   const segments = getSessionComposerStructuredTokenSegments(value, {
     bareAgentMentions,
+    memberMentions,
   });
   const tokenSegments = segments.filter((segment) => segment.kind === 'token');
   if (tokenSegments.length === 0) return;
@@ -1292,6 +1295,19 @@ export function SessionComposerInput({
     onChange,
   });
 
+  const memberMentionCandidates = useMemo<
+    SessionComposerMemberMention[] | undefined
+  >(
+    () =>
+      spaceMembers && spaceMembers.length > 0
+        ? spaceMembers.map((member) => ({
+            nickname: member.nickname,
+            ...(member.avatar ? { avatar: member.avatar } : {}),
+          }))
+        : undefined,
+    [spaceMembers]
+  );
+
   const preSyncCaretOffsetRef = useRef<number | null>(null);
   useLayoutEffect(() => {
     const editor = getSessionComposerEditable(composerRootRef.current);
@@ -1299,7 +1315,7 @@ export function SessionComposerInput({
       editor && document.activeElement === editor
         ? getEditorCaretOffset(editor)
         : null;
-  }, [agentMentions.candidates, agentMentions.capability, value]);
+  }, [agentMentions.candidates, agentMentions.capability, memberMentionCandidates, value]);
 
   useEffect(() => {
     const savedCaretOffset = preSyncCaretOffsetRef.current;
@@ -1311,10 +1327,16 @@ export function SessionComposerInput({
         agentMentions.capability === 'supported'
           ? agentMentions.candidates
           : undefined,
-        savedCaretOffset
+        savedCaretOffset,
+        memberMentionCandidates
       );
     }
-  }, [agentMentions.candidates, agentMentions.capability, value]);
+  }, [
+    agentMentions.candidates,
+    agentMentions.capability,
+    memberMentionCandidates,
+    value,
+  ]);
 
   useEffect(() => {
     if (!replaceValueRef) return;

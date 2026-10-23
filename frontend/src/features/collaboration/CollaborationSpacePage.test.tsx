@@ -539,7 +539,10 @@ describe('CollaborationSpacePage', () => {
         })
       );
     });
-    expect(await screen.findByText('小A 已收到')).toBeTruthy();
+    expect(
+      await screen.findByRole('img', { name: '小A 已发送' })
+    ).toHaveAttribute('data-state', 'sent');
+    expect(screen.queryByText('小A 已收到')).toBeNull();
     // User message does not render '你' header
     expect(screen.queryByRole('button', { name: '预览 你 会话' })).toBeNull();
 
@@ -634,7 +637,9 @@ describe('CollaborationSpacePage', () => {
     await user.click(screen.getByRole('button', { name: '发送' }));
 
     expect(await screen.findByText('没有送达')).toBeTruthy();
-    expect(await screen.findByText('小A 失败')).toBeTruthy();
+    expect(
+      await screen.findByRole('img', { name: '小A 发送失败' })
+    ).toHaveAttribute('data-state', 'failed');
     expect(editor).toHaveTextContent('@小A 重试这条');
 
     const firstPostCall = collaborationCall.mock.calls.find(

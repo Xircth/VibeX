@@ -25,6 +25,14 @@ import {
   getBuiltInAgentIconPaths,
 } from '@/components/agents/AgentIcon';
 import { cn } from '@/lib/utils';
+import {
+  MemberMention,
+  MemberMentionContent,
+} from '@/features/collaboration/MemberMention';
+import {
+  deriveMemberBotAvatar,
+  type MemberBotAvatarConfig,
+} from '@/features/collaboration/MemberBotAvatar';
 import { QuoteTokenPreview } from './QuoteTokenPreview';
 import type {
   SessionComposerStructuredToken,
@@ -43,6 +51,7 @@ export const SESSION_COMPOSER_TOKEN_VARIANTS: Record<
   plugin_action: 'pink',
   element: 'blue',
   agent_mention: 'purple',
+  member_mention: 'blue',
   conversation: 'blue',
   commit: 'blue',
   project: 'blue',
@@ -100,6 +109,8 @@ export function SessionComposerTokenIcon({
       return <Puzzle className={className} />;
     case 'agent_mention':
       return <AgentIcon agent={token.value} className={className} />;
+    case 'member_mention':
+      return <Bot className={className} />;
     case 'file':
       return <FileIcon className={className} />;
     case 'tag':
@@ -162,11 +173,31 @@ function restoredSessionComposerTokenIconMarkup(
   );
 }
 
+export function memberMentionTokenAvatar(
+  token: SessionComposerStructuredToken
+): MemberBotAvatarConfig {
+  return (
+    (token.avatar as MemberBotAvatarConfig | undefined) ??
+    deriveMemberBotAvatar(token.label || 'bot')
+  );
+}
+
 export function appendSessionComposerTokenContents(
   element: HTMLElement,
   token: SessionComposerStructuredToken
 ) {
   element.replaceChildren();
+  if (token.kind === 'member_mention') {
+    element.classList.add('member-mention', 'member-mention--composer');
+    element.setAttribute('data-member-mention', token.label);
+    element.innerHTML = renderToStaticMarkup(
+      <MemberMentionContent
+        nickname={token.label}
+        avatar={memberMentionTokenAvatar(token)}
+      />
+    );
+    return;
+  }
   const iconMarkup = restoredSessionComposerTokenIconMarkup(token);
   if (iconMarkup) {
     const iconHost = document.createElement('span');
@@ -191,6 +222,7 @@ export function SessionComposerTokenChip({
   const hideTimerRef = useRef<number | null>(null);
   const [quotePreviewOpen, setQuotePreviewOpen] = useState(false);
   const isQuote = token.kind === 'quote';
+  const isMemberMention = token.kind === 'member_mention';
   const showsPreview = isQuote || token.kind === 'element';
 
   const showQuotePreview = () => {
@@ -210,6 +242,16 @@ export function SessionComposerTokenChip({
       hideTimerRef.current = null;
     }, 120);
   };
+
+  if (isMemberMention) {
+    return (
+      <MemberMention
+        nickname={token.label}
+        avatar={memberMentionTokenAvatar(token)}
+        className={elementProps.className}
+      />
+    );
+  }
 
   return (
     <>

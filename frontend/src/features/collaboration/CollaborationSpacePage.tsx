@@ -169,7 +169,6 @@ import {
   postRecipients,
   randomEnglishNickname,
   readSpaceTags,
-  receiptStatusCopy,
   resolveMessageConversationId,
   resolveMessageReceipts,
   sortConversationsForSpaceMemberPicker,
@@ -193,6 +192,11 @@ import {
   writeMemberBotAvatars,
   type MemberBotAvatarConfig,
 } from './MemberBotAvatar';
+import {
+  MemberMentionProvider,
+  type MemberMentionCandidate,
+} from './MemberMention';
+import { MessageReceiptCheck } from './MessageReceiptCheck';
 import { SpaceMessageBody, bubbleText } from './SpaceMessageBody';
 import './collaboration.css';
 
@@ -1696,6 +1700,30 @@ export function CollaborationSpacePage({
     [draftMemberMetaByConvId, memberAvatars]
   );
 
+  const memberMentionCandidates = useMemo<MemberMentionCandidate[]>(
+    () =>
+      agentRoster(members)
+        .map((member) => {
+          const nick = String(member.nickname ?? '').trim();
+          if (!nick) return null;
+          return {
+            nickname: nick,
+            avatar: getMemberAvatar(member.conversation_id ?? undefined, nick),
+          };
+        })
+        .filter((item): item is MemberMentionCandidate => Boolean(item)),
+    [getMemberAvatar, members]
+  );
+  const composerSpaceMembers = useMemo(() => {
+    const avatarByNick = new Map(
+      memberMentionCandidates.map((item) => [item.nickname, item.avatar])
+    );
+    return spaceMemberRefs.map((ref) => ({
+      ...ref,
+      avatar: avatarByNick.get(ref.nickname),
+    }));
+  }, [memberMentionCandidates, spaceMemberRefs]);
+
   const openFilePreview = useCallback(
     (params: PreviewPanelParams) => {
       openPreviewItem({
@@ -2937,15 +2965,6 @@ export function CollaborationSpacePage({
       }
     },
     [members, selected]
-  );
-
-  const receiptLabels = useMemo(
-    () => ({
-      queued: COPY.receiptQueued,
-      claimed: COPY.receiptClaimed,
-      failed: t('collaborationSpace.receiptFailed', COPY.receiptFailed),
-    }),
-    [t]
   );
 
   const visibleRoster = useMemo(() => agentRoster(members), [members]);
@@ -5539,6 +5558,7 @@ export function CollaborationSpacePage({
                 </div>
               ) : null}
 
+              <MemberMentionProvider candidates={memberMentionCandidates}>
               <div
                 ref={threadLogRef}
                 className="collaboration-thread-log"
@@ -5664,49 +5684,23 @@ export function CollaborationSpacePage({
                         ) : null}
                         <SpaceMessageBody
                           fromYou={fromYou}
+                          bubble
                           text={bubbleText(message.envelope)}
                           workspacePath={workspacePath}
                           workspaceId={workspace || undefined}
+                          footer={
+                            messageReceipts.length > 0 ? (
+                              <MessageReceiptCheck receipts={messageReceipts} />
+                            ) : undefined
+                          }
                         />
-                        {messageReceipts.length > 0 ? (
-                          <ul className="collaboration-receipts">
-                            {messageReceipts.map((receipt, index) => {
-                              const status = receiptStatusCopy(
-                                receipt,
-                                receiptLabels
-                              );
-                              const failed =
-                                receipt.delivered === 'failed' ||
-                                Boolean(receipt.error_code);
-                              return (
-                                <li
-                                  key={
-                                    receipt.conversation_id ??
-                                    receipt.nickname ??
-                                    `${message.seq}-${index}`
-                                  }
-                                  className="collaboration-receipt"
-                                  data-status={
-                                    failed
-                                      ? 'failed'
-                                      : (receipt.delivered ?? 'queued')
-                                  }
-                                >
-                                  <span>
-                                    {receipt.nickname
-                                      ? `${receipt.nickname} ${status}`
-                                      : status}
-                                  </span>
-                                </li>
-                              );
-                            })}
-                          </ul>
-                        ) : null}
                       </article>
                     );
                   })
                 ) : null}
               </div>
+
+              </MemberMentionProvider>
 
               <ConversationSelectionToolbar
                 rootRef={threadLogRef}
@@ -5855,6 +5849,7 @@ export function CollaborationSpacePage({
                     </Popover>
                   </div>
 
+                  <MemberMentionProvider candidates={memberMentionCandidates}>
                   <SessionComposerInput
                     value={draft}
                     disabled={sending}
@@ -5865,7 +5860,7 @@ export function CollaborationSpacePage({
                       workspacePath,
                       repoId: repoIds[0],
                       repoIds,
-                      spaceMembers: spaceMemberRefs,
+                      spaceMembers: composerSpaceMembers,
                     }}
                     onChange={setDraft}
                     onSubmit={(value) => {
@@ -5875,6 +5870,7 @@ export function CollaborationSpacePage({
                       void handleAttachFiles(files);
                     }}
                   />
+                  </MemberMentionProvider>
                   <div className="flex items-center gap-1 pt-1">
                     <input
                       ref={composerFileInputRef}

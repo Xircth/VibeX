@@ -1,0 +1,150 @@
+/* Group-chat bubbles, member mention chip, receipt checks, cross-DM lines.
+ * Tokens only (DESIGN.md / SPEC-ALIGNMENT.md). */
+/* ── Group chat member bubble (reuses the user-bubble surface tokens) ── */
+.collaboration-member-msg {
+  display: flex;
+  justify-content: flex-start;
+  padding: 0.125rem 1rem 0.25rem 2rem;
+}
+
+.collaboration-member-bubble {
+  position: relative;
+  min-width: 0;
+  max-width: 82%;
+  padding: 10px 14px;
+  border: 0;
+  border-radius: var(--radius);
+  background: var(--conv-user-bg);
+  color: var(--conv-user-text, var(--text-primary));
+  font-size: 0.875rem;
+  line-height: 1.43;
+  box-shadow: none;
+}
+
+/* Receipt check sits bottom-right inside the sender's bubble. */
+.collaboration-bubble-footer {
+  display: flex;
+  justify-content: flex-end;
+  margin: 0.125rem -0.25rem -0.25rem 0;
+  line-height: 1;
+}
+
+.collaboration-receipt-check {
+  display: inline-flex;
+  align-items: center;
+  color: var(--text-subtle);
+}
+
+.collaboration-receipt-check[data-state='delivered'] {
+  color: hsl(var(--primary));
+}
+
+.collaboration-receipt-check[data-state='limited'] {
+  color: var(--text-subtle);
+  opacity: 0.6;
+}
+
+.collaboration-receipt-check[data-state='failed'] {
+  color: hsl(var(--destructive));
+}
+
+/* ── Shared member mention chip ── */
+.member-mention {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  max-width: 14rem;
+  margin: 0 0.0625rem;
+  padding: 0 0.375rem 0 0.125rem;
+  border-radius: 999px;
+  vertical-align: middle;
+  line-height: 1.5rem;
+  white-space: nowrap;
+  cursor: default;
+  user-select: all;
+  transition: background-color 120ms ease;
+}
+
+.member-mention:hover {
+  background: var(--surface-control-hover);
+}
+
+.member-mention-avatar {
+  display: inline-flex;
+  flex: 0 0 auto;
+  width: 1.25rem;
+  height: 1.25rem;
+}
+
+.member-mention-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-size: 0.875rem;
+  font-weight: 600;
+}
+
+/* Inside the composer the chip replaces the generic token badge. */
+.member-mention--composer[data-astryx-token] {
+  background: transparent;
+  border: 0;
+  box-shadow: none;
+}
+
+.member-mention--composer[data-astryx-token]:hover {
+  background: var(--surface-control-hover);
+}
+
+.member-mention:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+}
+
+/* ── Cross-DM system line ── */
+.collaboration-cross-chat-notice {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.75rem;
+  width: 100%;
+  margin: 0.375rem 0;
+  color: var(--text-muted);
+  font-size: 0.75rem;
+  line-height: 1.33;
+}
+
+.collaboration-cross-chat-notice::before,
+.collaboration-cross-chat-notice::after {
+  content: '';
+  flex: 1 1 0%;
+  max-width: 9rem;
+  height: 1px;
+  background: var(--border-subtle);
+}
+
+.collaboration-cross-chat-notice-text {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.125rem;
+  white-space: nowrap;
+}
+
+.collaboration-cross-chat-notice .member-mention-name {
+  font-size: 0.75rem;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .member-mention {
+    transition: none;
+  }
+}
+
+/* User bubbles force inherited text colour with !important; keep the
+ * member's avatar colour on the chip name there too. */
+.conv-user-bubble .conv-markdown .member-mention[data-member-mention] .member-mention-name.member-mention-name {
+  color: var(--member-mention-color, inherit) !important;
+}
+
+.member-mention--composer[data-astryx-token] .member-mention-avatar svg {
+  width: 1.25rem;
+  height: 1.25rem;
+}

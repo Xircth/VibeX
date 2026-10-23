@@ -710,13 +710,14 @@
 .collab-group-picker .collaboration-member-row.is-selected {
   background: transparent;
 }
-.collab-picker-checkbox {
-  /* square checkbox (multi-select), never a round radio look */
+.collab-group-picker button.collab-picker-checkbox {
+  /* square checkbox (multi-select), never a round radio look; scoped
+     selector beats the legacy-design global button radius */
   border-radius: calc(var(--radius) * 0.3);
-  border: 1.5px solid var(--border-strong);
-  background: var(--surface-raised-control, var(--surface-card-strong));
+  border: 1.5px solid var(--text-muted);
+  background: transparent;
 }
-.collab-picker-checkbox[aria-checked='true'] {
+.collab-group-picker button.collab-picker-checkbox[aria-checked='true'] {
   border-color: hsl(var(--primary));
   background: hsl(var(--primary));
   color: var(--primary-control-foreground);

@@ -95,3 +95,7 @@ Conversation 面板提供查找，范围是当前投影里用户/助手文本、
 - `AgentPlan` / `ConversationUsage` / `Scratch` 形状变化，需生成类型与投影版本提升。
 - 助手回复里的 “Goal completed” 不再改变 Goal 指示器。
 - 无工作区会话与 LLM 起名仍是明确的后续工作，不是隐藏债。
+
+## Amendment（2026-10-19）
+
+列表和 Composer 上的会话配置只来自已持久化的快照。没有快照就保持缺失，不从角色模板、委派默认或文案补一项 mode。会话人格投影是创建当时的快照；之后编辑角色不回写它。人设提示词不出现在 Composer 一级菜单。

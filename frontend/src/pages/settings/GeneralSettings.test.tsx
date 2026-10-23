@@ -208,6 +208,101 @@ describe('GeneralSettings Agent model catalogs', () => {
     });
   });
 
+  it('turns MultiAgent collaboration on immediately and keeps host records closed until that save lands', async () => {
+    const user = userEvent.setup();
+    const { updateAndSaveConfig } = renderSettings(
+      'opencode/minimax-m2.5-free',
+      { multi_agent_enabled: false }
+    );
+
+    await user.click(
+      await screen.findByRole('switch', { name: 'MultiAgent协同' })
+    );
+
+    await waitFor(() => {
+      expect(updateAndSaveConfig).toHaveBeenCalledWith({
+        multi_agent_enabled: true,
+      });
+    });
+    expect(screen.queryByText('暂不可用')).not.toBeInTheDocument();
+    expect(screen.queryByRole('heading', { name: '角色' })).not.toBeInTheDocument();
+    expect(screen.queryByText('默认Agent委派配置')).toBeInTheDocument();
+  });
+
+  it('shows Default Agent delegation config list without legacy limits or team/role sections when MultiAgent is enabled', async () => {
+    agentsApiMock.capabilityCatalog.mockResolvedValue({
+      modes: [{ id: 'code', label: 'Code' }],
+      current_mode: 'code',
+      config_options: [
+        {
+          key: 'model',
+          label: 'Model',
+          selected_value: 'gpt-5',
+          options: [{ value: 'gpt-5', label: 'GPT-5' }],
+        },
+      ],
+    });
+
+    renderSettings('opencode/minimax-m2.5-free', {
+      multi_agent_enabled: true,
+    });
+
+    expect(await screen.findByText('默认Agent委派配置')).toBeInTheDocument();
+    expect(
+      screen.getByTestId('multi-agent-default-picker')
+    ).toHaveClass('multi-agent-default-picker');
+    const defaultAgentSelect = await screen.findByRole('combobox', {
+      name: '默认Agent委派配置',
+    });
+    expect(defaultAgentSelect).toBeInTheDocument();
+    expect(screen.queryByTestId('session-control-mode')).not.toBeInTheDocument();
+
+    // Custom Roles section has header create button and empty container create button
+    expect(screen.getByText('自定义角色')).toBeInTheDocument();
+    expect(
+      screen.getByTestId('custom-roles-header-create-btn')
+    ).toBeInTheDocument();
+    const rolesContainer = screen.getByTestId('custom-roles-list-container');
+    expect(rolesContainer).toBeInTheDocument();
+    const emptyCreateBtn = screen.getByTestId('custom-roles-empty-create-btn');
+    expect(emptyCreateBtn).toBeInTheDocument();
+
+    // Clicking 新建角色 opens the creation modal with 角色名称 (placeholder 前端工程师), Agent, 会话配置, 人设提示词（可选）
+    await userEvent.setup().click(emptyCreateBtn);
+    const overlay = await screen.findByTestId('custom-role-modal-overlay');
+    expect(overlay).toHaveClass('collaboration-settings-modal-overlay');
+    expect(overlay.style.backdropFilter).toBe('blur(16px)');
+    const dialog = await screen.findByRole('dialog', { name: '新建角色' });
+    expect(dialog).toBeInTheDocument();
+    const roleNameInput = screen.getByRole('textbox', { name: '角色名称' });
+    expect(roleNameInput).toHaveAttribute('placeholder', '前端工程师');
+    const roleAgentTrigger = screen.getByRole('combobox', {
+      name: '选择角色 Agent',
+    });
+    expect(roleAgentTrigger).toBeInTheDocument();
+    expect(roleAgentTrigger).toHaveClass('custom-role-agent-trigger');
+    const sessionConfigSection = screen.getByTestId(
+      'custom-role-session-config'
+    );
+    expect(sessionConfigSection).toBeInTheDocument();
+    expect(sessionConfigSection).not.toHaveClass('border');
+    const personaInput = screen.getByRole('textbox', {
+      name: '人设提示词（可选）',
+    });
+    expect(personaInput).toBeInTheDocument();
+    expect(personaInput).toHaveAttribute('rows', '3');
+    expect(personaInput).toHaveClass('custom-role-persona-textarea');
+    expect(personaInput.style.height).toBe('68px');
+
+    expect(screen.queryByText('委派深度')).not.toBeInTheDocument();
+    expect(screen.queryByText('完成缓存 (MB)')).not.toBeInTheDocument();
+    expect(screen.queryByText('查询窗口（天）')).not.toBeInTheDocument();
+    expect(screen.queryByText('延时上限（小时）')).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole('heading', { name: '团队' })
+    ).not.toBeInTheDocument();
+  });
+
   it('persists a changed general preference through the shared config boundary', async () => {
     const user = userEvent.setup();
     const { updateAndSaveConfig } = renderSettings();

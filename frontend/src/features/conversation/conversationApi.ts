@@ -387,6 +387,7 @@ export function createConversationApi(transport: BackendTransport) {
       inputId: string;
       expectedRevision: number;
       payload: ConversationInputPayload;
+      delaySeconds?: number | null;
     }): Promise<ConversationInputView> =>
       callApplicationCommand(transport, 'conversation_input_update', {
         request,

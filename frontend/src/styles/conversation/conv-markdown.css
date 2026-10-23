@@ -36,6 +36,29 @@
   line-height: 1.7;
 }
 
+.conv-markdown
+  :is(
+    p,
+    h1,
+    h2,
+    h3,
+    h4,
+    h5,
+    h6,
+    ul,
+    ol,
+    blockquote,
+    pre,
+    hr,
+    [role='paragraph'],
+    .astryx-markdown-paragraph,
+    .astryx-markdown-heading,
+    .astryx-markdown-list,
+    .astryx-markdown-blockquote
+  ):not(#\#):not(#\#):not(#\#):not(#\#) {
+  max-width: 100%;
+}
+
 .conv-markdown > * {
   margin: 0;
 }

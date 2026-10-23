@@ -6,6 +6,7 @@ import { Loader2, X } from 'lucide-react';
 import { BranchInfoHeader } from '@/components/layout/BranchInfoHeader';
 import { KanbanSessionConversationView } from '@/components/kanban/KanbanSessionConversationView';
 import { useUserSystem } from '@/components/ConfigProvider';
+import { effectiveWorkspaceTab } from '@/lib/hostSurfaceIds';
 import { useKanbanSessionContext } from '@/contexts/KanbanSessionContext';
 import { kanbanBindsExecutionConversation } from '@/lib/kanbanViews';
 import { RightPanelSessionCreationProvider } from '@/contexts/RightPanelSessionCreationContext';
@@ -175,9 +176,12 @@ export function RightPanelContent() {
     workspaceId?: string;
     sessionId?: string;
   }>();
+  const { profiles, config } = useUserSystem();
   const activeTab = useLayoutStore((state) => state.activeTab);
   const routeTab = workspaceId || sessionId ? 'workspace' : null;
-  const effectiveActiveTab = routeTab ?? activeTab;
+  const effectiveActiveTab = effectiveWorkspaceTab(routeTab, activeTab, {
+    collaborationEnabled: Boolean(config?.multi_agent_enabled),
+  });
   const {
     activeViewId,
     visibleRightSession,
@@ -188,7 +192,6 @@ export function RightPanelContent() {
   } = useKanbanSessionContext();
   const { activeWorktreeId, setActiveWorktree } = useWorktree();
   const { projectId, project } = useProject();
-  const { profiles, config } = useUserSystem();
   const effectiveProjectId = projectId ?? routeProjectId;
   const showRightSession = !!visibleRightSession;
   const rightSessionWorkspaceId = visibleRightSession?.workspaceId ?? '';
@@ -592,11 +595,14 @@ export function RightPanelContent() {
   // from a useLayoutEffect keyed on these props — fresh object literals per
   // render would re-run that effect every render and, combined with the
   // placement provider's version bump, loop into "Maximum update depth".
+  const shouldAutoMarkSessionViewed =
+    effectiveActiveTab === 'workspace' || effectiveActiveTab === 'kanban';
   const workspaceConversationViewProps = useMemo(
     () => ({
       workspaceId: workspaceExecutionWorkspaceId!,
       sessionId: workspaceExecutionSessionId,
       interactive: true,
+      markViewed: shouldAutoMarkSessionViewed,
       showSessionSelector: true,
       onSessionCreated: handleCreatedSession,
       onSessionSelected: handleSelectedSession,
@@ -608,6 +614,7 @@ export function RightPanelContent() {
     [
       workspaceExecutionWorkspaceId,
       workspaceExecutionSessionId,
+      shouldAutoMarkSessionViewed,
       handleCreatedSession,
       handleSelectedSession,
       openCreateSessionOverlay,
@@ -620,6 +627,7 @@ export function RightPanelContent() {
             workspaceId: rightSessionWorkspaceId,
             sessionId: rightSessionId,
             interactive: true,
+            markViewed: shouldAutoMarkSessionViewed,
             showSessionSelector: true,
             onSessionCreated: handleCreatedSession,
             onSessionSelected: handleSelectedSession,
@@ -633,6 +641,7 @@ export function RightPanelContent() {
       openCreateSessionOverlay,
       rightSessionId,
       rightSessionWorkspaceId,
+      shouldAutoMarkSessionViewed,
     ]
   );
 

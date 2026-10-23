@@ -89,3 +89,9 @@ Graph Engineering 模式具有价值，但当前没有稳定领域基础。本�
 - 使用 `@` 作为 Agent Mention：否决。VibeX 选择 `&` 区分 Agent 与其它引用语法。
 - 为每种父 Agent 写一套 delegation 实现：否决。是否可注入由 ACP/MCP 能力决定，
   Agent kind 只提供身份，不改变统一管线。
+
+## Amendment（2026-10-19）
+
+`delegate_to_agent` 保持一次性：子 Turn 终态即结束，父退出仍级联取消，Broker 仍是 first-terminal-wins。
+
+`create_conversation` 不是委派。它创建留在工作区里的一等 Conversation，关系种类是 spawned：只供导航，不级联取消，不套用 first-terminal-wins，也不写入委派调用身份。角色会话用角色自己的 Agent 和配置，不并入委派默认。

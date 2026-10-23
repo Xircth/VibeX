@@ -3,9 +3,12 @@
 //! Injection reads this snapshot. Package identity is taken from declared
 //! `hostFamilyBinary` MCP resources, not from a hardcoded plugin-id match.
 
-use std::sync::{
-    Mutex,
-    atomic::{AtomicU8, Ordering},
+use std::{
+    collections::BTreeMap,
+    sync::{
+        Mutex,
+        atomic::{AtomicBool, AtomicU8, Ordering},
+    },
 };
 
 use serde_json::Value;
@@ -21,6 +24,31 @@ pub const SESSION_FEAT_ALL: u8 =
 
 /// Host-injected / native-projected MCP identity for multi-agent delegation.
 pub const DELEGATION_MCP_NAME: &str = "vibex-delegation-mcp";
+
+/// Sentinel binding id for the host MultiAgent setting. Not an official plugin.
+pub const HOST_MULTI_AGENT_ID: &str = "host.multi-agent";
+
+/// Scalars for the host MultiAgent setting. `completed_cache_max_mb` of 0 is unlimited.
+#[derive(Clone, Debug)]
+pub struct HostDelegationLimits {
+    pub depth_limit: u32,
+    pub completed_cache_max_mb: u64,
+    pub conversation_list_default_days: u32,
+    pub delay_max_hours: u32,
+    pub agent_defaults: BTreeMap<String, (Option<String>, BTreeMap<String, String>)>,
+}
+
+impl Default for HostDelegationLimits {
+    fn default() -> Self {
+        Self {
+            depth_limit: 1,
+            completed_cache_max_mb: 512,
+            conversation_list_default_days: 7,
+            delay_max_hours: 24,
+            agent_defaults: BTreeMap::new(),
+        }
+    }
+}
 
 /// Host-injected / native-projected MCP identity for session enhancement.
 pub const SESSION_MCP_NAME: &str = "vibex-session-mcp";
@@ -61,6 +89,10 @@ pub struct OfficialMcpRuntime {
     bindings: Mutex<Vec<OfficialMcpBinding>>,
     session_features: AtomicU8,
     http_base: Mutex<Option<String>>,
+    host_delegation: AtomicBool,
+    host_limits_ready: AtomicBool,
+    host_limits: Mutex<HostDelegationLimits>,
+    host_delegation_token: Mutex<Option<String>>,
 }
 
 impl OfficialMcpRuntime {
@@ -143,9 +175,33 @@ impl OfficialMcpRuntime {
     }
 
     pub fn reset(&self) {
+        self.host_delegation.store(false, Ordering::SeqCst);
+        self.host_limits_ready.store(false, Ordering::SeqCst);
+        *self.host_limits.lock().unwrap() = HostDelegationLimits::default();
+        *self.host_delegation_token.lock().unwrap() = None;
         self.bindings.lock().unwrap().clear();
         self.session_features.store(0, Ordering::SeqCst);
         *self.http_base.lock().unwrap() = None;
+    }
+
+    /// Publish or withdraw the host delegation binding. A plugin package cannot
+    /// open this gate.
+    pub fn set_host_delegation(&self, enabled: bool, mut limits: HostDelegationLimits) {
+        limits.depth_limit = limits.depth_limit.clamp(1, 8);
+        limits.completed_cache_max_mb = limits.completed_cache_max_mb.min(1_000_000);
+        limits.conversation_list_default_days = limits.conversation_list_default_days.clamp(1, 90);
+        limits.delay_max_hours = limits.delay_max_hours.clamp(1, 168);
+        self.host_delegation.store(enabled, Ordering::SeqCst);
+        *self.host_limits.lock().unwrap() = limits;
+        self.host_limits_ready.store(true, Ordering::SeqCst);
+        self.reinsert_host_delegation();
+    }
+
+    pub fn host_delegation_limits(&self) -> Option<HostDelegationLimits> {
+        if !self.host_limits_ready.load(Ordering::SeqCst) {
+            return None;
+        }
+        Some(self.host_limits.lock().unwrap().clone())
     }
 
     pub fn sync_from_plugins(&self, plugins: &[InstalledPlugin]) {
@@ -179,6 +235,28 @@ impl OfficialMcpRuntime {
         if let Some(base) = http_base {
             *self.http_base.lock().unwrap() = Some(base);
         }
+        self.reinsert_host_delegation();
+    }
+
+    fn reinsert_host_delegation(&self) {
+        let enabled = self.host_delegation.load(Ordering::SeqCst);
+        let mut token_slot = self.host_delegation_token.lock().unwrap();
+        let mut bindings = self.bindings.lock().unwrap();
+        bindings.retain(|binding| binding.product != "delegation");
+        if !enabled {
+            return;
+        }
+        if token_slot.is_none() {
+            *token_slot = Some(uuid::Uuid::new_v4().to_string());
+        }
+        let token = token_slot.clone().unwrap_or_default();
+        bindings.push(OfficialMcpBinding {
+            plugin_id: HOST_MULTI_AGENT_ID.to_owned(),
+            binary_id: "vibex-mcp".to_owned(),
+            product: "delegation".to_owned(),
+            features: 0,
+            token,
+        });
     }
 
     /// Test helper: publish one binding without a package.
@@ -204,6 +282,10 @@ fn binding_from_plugin(plugin: &InstalledPlugin) -> Option<OfficialMcpBinding> {
         let Some(product) = host_family_product(spec) else {
             continue;
         };
+        // Delegation is a host setting. A leftover package must not open the gate.
+        if product == "delegation" {
+            continue;
+        }
         let binary_id = spec
             .get("managedRuntime")?
             .get("binaryId")?
@@ -410,6 +492,25 @@ pub fn advertised_mcp_tools(product: &str, features: u8) -> Vec<PluginMcpToolSta
             tool("delegate_to_agent", "delegation"),
             tool("get_delegation_status", "delegation"),
             tool("cancel_delegation", "delegation"),
+            tool("get_session_info", "collaboration"),
+            tool("list_conversations", "collaboration"),
+            tool("send_session_input", "collaboration"),
+            tool("create_conversation", "collaboration"),
+            tool("create_role", "collaboration"),
+            tool("update_role", "collaboration"),
+            tool("delete_role", "collaboration"),
+            tool("list_roles", "collaboration"),
+            tool("create_team", "collaboration"),
+            tool("update_team", "collaboration"),
+            tool("delete_team", "collaboration"),
+            tool("list_teams", "collaboration"),
+            tool("list_collaboration_spaces", "collaboration"),
+            tool("list_space_members", "collaboration"),
+            tool("create_collaboration_space", "collaboration"),
+            tool("add_space_member", "collaboration"),
+            tool("set_space_identity", "collaboration"),
+            tool("post_to_space", "collaboration"),
+            tool("list_space_messages", "collaboration"),
         ],
         "session" => {
             let mut tools = Vec::new();
@@ -789,7 +890,7 @@ mod tests {
     }
 
     #[test]
-    fn sync_preserves_plugin_lifetime_token() {
+    fn host_delegation_survives_plugin_sync_and_ignores_packages() {
         let runtime = OfficialMcpRuntime::default();
         let package = plugin(
             "vibex.multi-agent",
@@ -805,9 +906,33 @@ mod tests {
             json!({}),
         );
         runtime.sync_from_plugins(std::slice::from_ref(&package));
+        assert!(runtime.delegation_token().is_none());
+        assert!(!runtime.allow_delegation_mcp());
+
+        runtime.set_host_delegation(true, HostDelegationLimits::default());
         let first = runtime.delegation_token().expect("token");
+        assert_eq!(
+            runtime
+                .bindings()
+                .iter()
+                .find(|binding| binding.product == "delegation")
+                .map(|binding| binding.plugin_id.as_str()),
+            Some(HOST_MULTI_AGENT_ID)
+        );
         runtime.sync_from_plugins(&[package]);
         assert_eq!(runtime.delegation_token().as_deref(), Some(first.as_str()));
+        assert_eq!(
+            runtime
+                .bindings()
+                .iter()
+                .filter(|binding| binding.product == "delegation")
+                .count(),
+            1
+        );
+
+        runtime.set_host_delegation(false, HostDelegationLimits::default());
+        assert!(!runtime.allow_delegation_mcp());
+        assert!(runtime.host_delegation_limits().is_some());
     }
 
     #[test]
@@ -846,7 +971,17 @@ mod tests {
         assert_eq!(report.plugins[0].plugin_id, "acme.delegation");
         assert_eq!(report.plugins[0].connection, "unavailable");
         assert_eq!(report.plugins[0].mcp_count, 1);
-        assert_eq!(report.plugins[0].servers[0].tools.len(), 3);
+        let tools = &report.plugins[0].servers[0].tools;
+        assert_eq!(tools, &advertised_mcp_tools("delegation", 0));
+        for name in [
+            "cancel_session_turn",
+            "wait_for_session",
+            "ask_user_question",
+            "check_inbox",
+            "fetch_inbox",
+        ] {
+            assert!(tools.iter().all(|tool| tool.name != name), "{name}");
+        }
         assert_eq!(report.plugins[1].connection, "disabled");
         assert!(
             report.plugins[1]

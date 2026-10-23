@@ -140,6 +140,9 @@ DeepSeek Harness 架构对标，以及产品所有者补充要求（2026-09-04�
 | 浏览器运行时 | Host 系统 WebView（`crates/browser-host`）+ 官方插件 `vibex.browser` | 新增 | Batch 5 |
 | 派生开发 | `vibex-plugin fork`（源码派生 + `derivedFrom` 溯源元数据 + 新身份打包） | 新增 | Batch 6 |
 | git 面板 API 族 | `host.call: git.*`（status / branch / log / stage / commit） | 评估项，Batch 4 后立项 | 未排期 |
+| 会话人格投影 | Conversation 详情附带创建时的角色快照；Composer 只读展示 | 稳定面 | 多智能体协同（2026-10-19） |
+| 工作区聚焦 | `host.call workspace.focusConversation`：聚焦该窗口唯一会话面板 | 稳定面 | 多智能体协同（2026-10-19） |
+| 协同领域 | `host.call collaboration.role.*` / `team.*` / `space.*` | 稳定面 | 多智能体协同（2026-10-19） |
 
 ### 5. 明确不开放面
 
@@ -652,3 +655,11 @@ Batch 4 的 `provider.usage` 验收完成开工。git `host.call` API 族在 Bat
   计量看板插件化后，该槽等于向另一个插件的页面内部插区块，违反原则 8（单层
   扩展）。计量扩展路径收敛为：`provider.usage` 供数、自建 `app.kanban.view`、
   或 fork 官方计量看板。
+
+## Amendment（2026-10-19）
+
+`app.settings.page` 与 `app.tab` 以多智能体协同为官方消费者进入稳定消费：设置页编辑标量和领域记录，顶级 Tab 是协作空间，Tab 不声明独立 engine。Host 只认贡献种类和 `collaboration` / `workspace` 能力，不按插件 ID 分支。卸载或停用插件不删除 Host 领域记录。
+
+## Amendment（2026-10-20）
+
+原则 7 增加一条 L0 例外：协作投递与会话、工作区表面是 L0，只保留一个适配器。插件缝是假想的，因为宿主与插件必须锁版本。MultiAgent协同的页面、MCP 激活、Skill 和设置是宿主能力，默认关闭。2026-10-19 登记的 `host.call collaboration.*` 与 `workspace.focusConversation` 仍然是稳定缝。会话增强与工作流仍是官方插件。宿主不按插件 ID 决定协同是否可用。

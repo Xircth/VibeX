@@ -547,6 +547,8 @@ pub struct UpdateConversationInputRequest {
     pub input_id: Uuid,
     pub expected_revision: u64,
     pub payload: agents::ConversationInputPayload,
+    #[serde(default)]
+    pub delay_seconds: Option<i64>,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, serde::Deserialize)]
@@ -2519,6 +2521,7 @@ where
                 operation_id,
                 expected_revision: request.expected_revision,
                 payload: request.payload,
+                delay_seconds: request.delay_seconds,
             })
             .await
     }

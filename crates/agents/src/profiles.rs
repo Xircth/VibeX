@@ -2504,28 +2504,50 @@ const OPENCODE_SETTINGS: &[AgentSettingsFeature] = &[
 /// live in `~/.qoder/settings.json` `mcpServers`.
 const QODER_SETTINGS: &[AgentSettingsFeature] = &[
     AgentSettingsFeature::AuthenticationMode,
+    AgentSettingsFeature::ReusableModelProviders,
     AgentSettingsFeature::NativeMcp,
     AgentSettingsFeature::NativeSkills,
 ];
 /// Subscription login, plus a same-account headless secret that is not an
-/// official API mode. No verified native MCP or Skills directory.
-const SUBSCRIPTION_AUTH_SETTINGS: &[AgentSettingsFeature] =
-    &[AgentSettingsFeature::AuthenticationMode];
-/// Command Code documents `~/.commandcode/skills` and `.commandcode/skills`.
-/// Its MCP config file shape is not verified, so it is not a native MCP target.
+/// official API mode. Supports native MCP and Skills directories.
+const SUBSCRIPTION_AUTH_SETTINGS: &[AgentSettingsFeature] = &[
+    AgentSettingsFeature::AuthenticationMode,
+    AgentSettingsFeature::NativeMcp,
+    AgentSettingsFeature::NativeSkills,
+];
+const PROVIDER_AUTH_SETTINGS: &[AgentSettingsFeature] = &[
+    AgentSettingsFeature::AuthenticationMode,
+    AgentSettingsFeature::ReusableModelProviders,
+    AgentSettingsFeature::NativeMcp,
+    AgentSettingsFeature::NativeSkills,
+];
+/// Command Code documents `~/.commandcode/skills`, `.commandcode/skills`, and
+/// `~/.commandcode/mcp.json`.
 const COMMAND_CODE_SETTINGS: &[AgentSettingsFeature] = &[
     AgentSettingsFeature::AuthenticationMode,
+    AgentSettingsFeature::ReusableModelProviders,
+    AgentSettingsFeature::NativeMcp,
     AgentSettingsFeature::NativeSkills,
 ];
-/// Official ZCode owns the account. No login command is verified, and Start
-/// Plan's desktop captcha cannot run here. User skills live under
-/// `$ZCODE_HOME/skills` or `~/.zcode/skills`. The bridge accepts stdio MCP on
-/// `session/new`; its config file is not a native MCP writer target.
+/// Official ZCode owns the account. User skills live under
+/// `$ZCODE_HOME/skills` or `~/.zcode/skills`. Client MCP entries live under
+/// `$ZCODE_HOME/mcp.json` and are forwarded over `session/new`.
 const ZCODE_SETTINGS: &[AgentSettingsFeature] = &[
     AgentSettingsFeature::AuthenticationMode,
+    AgentSettingsFeature::ReusableModelProviders,
+    AgentSettingsFeature::NativeMcp,
     AgentSettingsFeature::NativeSkills,
 ];
-const ZCODE_ACTIONS: &[ProfileManagementAction] = &[];
+const ZCODE_ACTIONS: &[ProfileManagementAction] = &[terminal_action(
+    "login",
+    "登录 ZCode",
+    "打开浏览器完成 ZCode 官方账号登录",
+    ProfileManagementActionKind::Login,
+    &[
+        program("zcode", &["login"]),
+        program("zcode-acp-server", &["login"]),
+    ],
+)];
 const KIMI_SETTINGS: &[AgentSettingsFeature] = &[
     AgentSettingsFeature::AuthenticationMode,
     AgentSettingsFeature::ReusableModelProviders,
@@ -2549,6 +2571,7 @@ const CURSOR_SETTINGS: &[AgentSettingsFeature] = &[
 const DEEPSEEK_HARNESS_SETTINGS: &[AgentSettingsFeature] = &[
     AgentSettingsFeature::AuthenticationMode,
     AgentSettingsFeature::DshPlugins,
+    AgentSettingsFeature::NativeMcp,
     AgentSettingsFeature::NativeSkills,
 ];
 /// MiMo Code is an OpenCode fork: Xiaomi OAuth is the official subscription,
@@ -2951,6 +2974,7 @@ fn codebuddy_profile() -> BuiltInProfile {
         native_config: CODEBUDDY_CONFIG,
         settings_features: &[
             AgentSettingsFeature::AuthenticationMode,
+            AgentSettingsFeature::ReusableModelProviders,
             AgentSettingsFeature::NativeMcp,
             AgentSettingsFeature::NativeSkills,
         ],
@@ -3332,14 +3356,17 @@ fn kiro_profile() -> BuiltInProfile {
             artifacts: vec![
                 binary_artifact(
                     "linux-x86_64",
-                    "https://prod.download.cli.kiro.dev/stable/2.32.0/kirocli-x86_64-linux.zip",
-                    "7cea2c90198edc60ccaee9e0d9c9de26902b3824f54a66aa3639a365f7242fbb",
+                    "https://prod.download.cli.kiro.dev/stable/2.33.1/kirocli-x86_64-linux.zip",
+                    "1ea738240f50734581edb1326ea7db24ceb66ad22df39cd01b7669243e2fe828",
                 ),
                 binary_artifact(
                     "linux-aarch64",
-                    "https://prod.download.cli.kiro.dev/stable/2.32.0/kirocli-aarch64-linux.zip",
-                    "f66faaa3fa202e7730979e10ad907c43f83220577609c97fdffbb07fc8ef1848",
+                    "https://prod.download.cli.kiro.dev/stable/2.33.1/kirocli-aarch64-linux.zip",
+                    "8ce43b948650b497020bd1ca1b936db705796a9504d1056111ff577272a6206f",
                 ),
+                tofu_binary_artifact("windows-x86_64", "https://cli.kiro.dev/install.ps1"),
+                tofu_binary_artifact("darwin-aarch64", "https://cli.kiro.dev/install"),
+                tofu_binary_artifact("darwin-x86_64", "https://cli.kiro.dev/install"),
             ],
             entry: None,
         }],
@@ -3382,7 +3409,7 @@ fn auggie_profile() -> BuiltInProfile {
         management_actions: AUGGIE_ACTIONS,
         runtime_executable_env: None,
         native_config: &[],
-        settings_features: SUBSCRIPTION_AUTH_SETTINGS,
+        settings_features: PROVIDER_AUTH_SETTINGS,
         authentication_precedence: AuthenticationPrecedence::AccountThenApiKey,
         authentication_required_by_default: true,
         account_evidence: None,
@@ -3445,7 +3472,7 @@ fn trae_profile() -> BuiltInProfile {
         management_actions: TRAE_ACTIONS,
         runtime_executable_env: None,
         native_config: &[],
-        settings_features: SUBSCRIPTION_AUTH_SETTINGS,
+        settings_features: PROVIDER_AUTH_SETTINGS,
         authentication_precedence: AuthenticationPrecedence::AccountThenApiKey,
         authentication_required_by_default: true,
         account_evidence: None,

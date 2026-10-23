@@ -103,11 +103,20 @@ export function AgentAuthModeControl({
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [tokenDirty, setTokenDirty] = useState(false);
+  const [headlessTokenPresent, setHeadlessTokenPresent] = useState(false);
+  const [loginMethodExpanded, setLoginMethodExpanded] = useState(false);
+  const [tokenInputExpanded, setTokenInputExpanded] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
   const autoPersisted = useRef<string | null>(null);
   const persistModeRef = useRef<
     ((nextMode: string, nextApiKey?: string) => Promise<boolean>) | null
   >(null);
+
+  useEffect(() => {
+    setHeadlessTokenPresent(false);
+    setLoginMethodExpanded(false);
+    setTokenInputExpanded(false);
+  }, [agentId]);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -165,6 +174,16 @@ export function AgentAuthModeControl({
   const displayName = agentDisplayName(agentId);
   const signedIn = accountSessionActive(authentication);
   const showCodexDeviceLogin = agentId === 'codex' && !signedIn;
+  const accountActions = sessionActions(
+    actions?.actions ?? [],
+    signedIn
+  ).filter((action) => !(showCodexDeviceLogin && action.kind === 'login'));
+  const loginAction = accountActions.find((action) => action.kind === 'login');
+  const hasDualSubscriptionLogin =
+    Boolean(view?.headless_account_env) && Boolean(loginAction) && !signedIn;
+  const showHeadlessTokenField =
+    Boolean(view?.headless_account_env) &&
+    (headlessTokenPresent || tokenInputExpanded || !loginAction);
 
   useEffect(() => {
     onDirtyChange?.(dirty);
@@ -354,7 +373,7 @@ export function AgentAuthModeControl({
           {panel === 'configuration' ? headingExtra : null}
           {view && kindTabs.length > 1 ? (
             <div
-              className="agent-auth-mode-tabs"
+              className="agent-auth-mode-tabs astryx-segmented-control"
               role="tablist"
               aria-label={t('settings:agents.authModeAria', {
                 agent: displayName,
@@ -377,7 +396,11 @@ export function AgentAuthModeControl({
                     aria-selected={selected}
                     aria-controls={`${agentId}-auth-mode-panel`}
                     tabIndex={selected ? 0 : -1}
-                    className={cn(selected && 'is-active', draft && 'is-draft')}
+                    className={cn(
+                      'astryx-segmented-control-item',
+                      selected && 'is-active',
+                      draft && 'is-draft'
+                    )}
                     disabled={saving || locked}
                     onClick={() => void selectKind(kind)}
                     onKeyDown={(event) => {
@@ -432,7 +455,7 @@ export function AgentAuthModeControl({
             role={kindTabs.length > 1 ? 'tabpanel' : undefined}
           >
             {kindOptions.length > 1 && panel !== 'account' ? (
-              <div className="agent-auth-mode-submodes">
+              <div className="agent-auth-mode-submodes astryx-segmented-control">
                 {kindOptions.map((option) => (
                   <SubmodeButton
                     key={option.value}
@@ -509,30 +532,15 @@ export function AgentAuthModeControl({
               {showCodexDeviceLogin && panel === 'account' ? (
                 <CodexDeviceLogin onAuthenticated={onAuthenticated} />
               ) : null}
-              {view?.headless_account_env && panel === 'account' ? (
-                <HeadlessAccountTokenField
-                  agentId={agentId}
-                  envName={view.headless_account_env}
-                  locked={locked}
-                  onDirtyChange={setTokenDirty}
-                  onChanged={onChanged}
-                />
-              ) : null}
               {accountExtra && panel === 'account' ? accountExtra : null}
               {panel === 'account' ? (
                 <AccountSessionBar
                   signedIn={signedIn}
                   accountLabel={view?.account_label}
-                  actions={sessionActions(
-                    actions?.actions ?? [],
-                    signedIn
-                  ).filter(
-                    (action) =>
-                      !(showCodexDeviceLogin && action.kind === 'login')
-                  )}
+                  actions={accountActions}
                   extraActions={
                     kindOptions.length > 1 ? (
-                      <div className="agent-auth-mode-submodes">
+                      <div className="agent-auth-mode-submodes astryx-segmented-control">
                         {kindOptions.map((option) => (
                           <SubmodeButton
                             key={option.value}
@@ -549,8 +557,77 @@ export function AgentAuthModeControl({
                   busy={busy}
                   saved={view.mode === mode}
                   allowUnsignedLogin
+                  allowUnavailableLoginClick={hasDualSubscriptionLogin}
                   running={actionRunning}
+                  onLoginClick={
+                    hasDualSubscriptionLogin
+                      ? () => setLoginMethodExpanded((current) => !current)
+                      : undefined
+                  }
                   onRunAction={handleRunAction}
+                />
+              ) : null}
+              {hasDualSubscriptionLogin &&
+              loginMethodExpanded &&
+              loginAction &&
+              panel === 'account' ? (
+                <div
+                  className="agent-auth-login-methods"
+                  role="group"
+                  aria-label={t(
+                    'settings:agents.loginMethodOptions',
+                    '登录方式'
+                  )}
+                >
+                  <Button
+                    size="sm"
+                    variant={tokenInputExpanded ? 'default' : 'outline'}
+                    className="h-8"
+                    disabled={busy || locked}
+                    onClick={() => setTokenInputExpanded((current) => !current)}
+                  >
+                    <KeyRound
+                      aria-hidden="true"
+                      className="mr-1.5 h-3.5 w-3.5"
+                    />
+                    {t('settings:agents.loginWithToken', '输入 Token')}
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="h-8"
+                    disabled={
+                      busy ||
+                      locked ||
+                      !loginAction.available ||
+                      actionRunning !== null
+                    }
+                    onClick={() => void handleRunAction(loginAction.id)}
+                  >
+                    {actionRunning === loginAction.id ? (
+                      <Loader2
+                        aria-hidden="true"
+                        className="mr-1.5 h-3.5 w-3.5 animate-spin"
+                      />
+                    ) : (
+                      <LogIn
+                        aria-hidden="true"
+                        className="mr-1.5 h-3.5 w-3.5"
+                      />
+                    )}
+                    {t('settings:agents.loginWithBrowser', '浏览器登录')}
+                  </Button>
+                </div>
+              ) : null}
+              {view?.headless_account_env && panel === 'account' ? (
+                <HeadlessAccountTokenField
+                  agentId={agentId}
+                  envName={view.headless_account_env}
+                  hidden={!showHeadlessTokenField}
+                  locked={locked}
+                  onDirtyChange={setTokenDirty}
+                  onPresentChange={setHeadlessTokenPresent}
+                  onChanged={onChanged}
                 />
               ) : null}
             </div>
@@ -600,7 +677,11 @@ function SubmodeButton({
   return (
     <button
       type="button"
-      className={cn('agent-auth-mode-submode', active && 'is-active')}
+      aria-pressed={active}
+      className={cn(
+        'agent-auth-mode-submode astryx-segmented-control-item',
+        active && 'is-active'
+      )}
       disabled={disabled}
       onClick={onSelect}
     >
@@ -618,7 +699,9 @@ function AccountSessionBar({
   busy,
   saved,
   allowUnsignedLogin = false,
+  allowUnavailableLoginClick = false,
   running,
+  onLoginClick,
   onRunAction,
 }: {
   signedIn: boolean;
@@ -629,7 +712,9 @@ function AccountSessionBar({
   busy: boolean;
   saved: boolean;
   allowUnsignedLogin?: boolean;
+  allowUnavailableLoginClick?: boolean;
   running: string | null;
+  onLoginClick?: () => void;
   onRunAction?: (actionId: string) => void;
 }) {
   const { t } = useTranslation('settings');
@@ -663,6 +748,9 @@ function AccountSessionBar({
             const modeReady =
               saved ||
               (allowUnsignedLogin && !signedIn && action.kind === 'login');
+            const actionAvailable =
+              action.available ||
+              (allowUnavailableLoginClick && action.kind === 'login');
             return (
               <Button
                 key={action.id}
@@ -683,9 +771,15 @@ function AccountSessionBar({
                 })}
                 aria-label={localizedLabel}
                 disabled={
-                  busy || !modeReady || !action.available || running !== null
+                  busy || !modeReady || !actionAvailable || running !== null
                 }
-                onClick={() => onRunAction?.(action.id)}
+                onClick={() => {
+                  if (action.kind === 'login' && onLoginClick) {
+                    onLoginClick();
+                    return;
+                  }
+                  onRunAction?.(action.id);
+                }}
               >
                 {running === action.id ? (
                   <Loader2

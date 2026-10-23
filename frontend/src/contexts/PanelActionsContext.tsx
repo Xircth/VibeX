@@ -258,7 +258,7 @@ export interface PanelActions {
   setDockviewApi: (api: DockviewApi | null) => void;
 }
 
-const PanelActionsContext = createContext<PanelActions | null>(null);
+export const PanelActionsContext = createContext<PanelActions | null>(null);
 
 export function PanelActionsProvider({ children }: { children: ReactNode }) {
   const queryClient = useQueryClient();

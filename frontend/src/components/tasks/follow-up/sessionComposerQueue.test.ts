@@ -73,7 +73,12 @@ describe('durable session composer queue projection', () => {
       getQueueIndicatorState(queuedStatus(), {
         excludeOperationId: 'operation-1',
       })
-    ).toEqual({ isQueued: false, queuedMessages: [] });
+    ).toEqual({
+      isQueued: false,
+      queuedMessages: [],
+      isDelayedQueued: false,
+      delayedMessages: [],
+    });
   });
 
   it('derives compact visibility while preserving every queued message', () => {
@@ -85,6 +90,31 @@ describe('durable session composer queue projection', () => {
     expect(getQueueIndicatorState(status)).toEqual({
       isQueued: true,
       queuedMessages: status.messages,
+      isDelayedQueued: false,
+      delayedMessages: [],
+    });
+  });
+
+  it('separates scheduled delayed inputs into an independent delayedMessages queue', () => {
+    const delayedInput: ConversationInputView = {
+      ...input,
+      id: 'delayed-1',
+      operationId: 'operation-delayed-1',
+      status: 'scheduled',
+      deliverAt: '2026-08-13T00:05:00.000Z',
+    };
+    const combinedStatus: Extract<QueueStatus, { status: 'queued' }> = {
+      status: 'queued',
+      messages: [
+        inputViewToQueuedMessage(input),
+        inputViewToQueuedMessage(delayedInput),
+      ],
+    };
+    expect(getQueueIndicatorState(combinedStatus)).toEqual({
+      isQueued: true,
+      queuedMessages: [inputViewToQueuedMessage(input)],
+      isDelayedQueued: true,
+      delayedMessages: [inputViewToQueuedMessage(delayedInput)],
     });
   });
 

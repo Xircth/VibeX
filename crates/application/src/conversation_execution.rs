@@ -233,6 +233,9 @@ impl ConversationExecutionPort for ConversationSessionExecutionPort {
     ) -> Result<ConversationInputView, ApplicationError> {
         let conversation_id = request.conversation_id;
         let updated = self.inputs.update(request).await.map_err(map_input_error)?;
+        if updated.status == conversations::ConversationInputStatus::Scheduled {
+            return Ok(updated);
+        }
         if let Err(error) = self.dispatch_next_queued_input(conversation_id).await {
             tracing::warn!(
                 %conversation_id,

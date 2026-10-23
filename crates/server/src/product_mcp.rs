@@ -92,6 +92,9 @@ async fn companion(
         } else {
             TokenPermissions {
                 delegation: true,
+                session_info: true,
+                workspace_write: true,
+                collaboration: true,
                 ..TokenPermissions::default()
             }
         };
@@ -136,6 +139,7 @@ fn rewrite_token(message: &mut BrokerMessage, token: &str, connection_id: &str) 
         BrokerMessage::SessionSend(req) => req.token = token.to_string(),
         BrokerMessage::SessionCancel(req) => req.token = token.to_string(),
         BrokerMessage::SessionWait(req) => req.token = token.to_string(),
+        BrokerMessage::Collaborate(req) => req.token = token.to_string(),
         BrokerMessage::Ping => {}
     }
 }

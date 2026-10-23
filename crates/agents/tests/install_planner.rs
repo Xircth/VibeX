@@ -80,7 +80,7 @@ fn built_in_linux_agents_resolve_supported_runtime_and_acp_plans() {
 }
 
 #[test]
-fn kiro_installs_from_linux_zips_and_refuses_unsigned_desktop_packages() {
+fn kiro_installs_from_linux_zips_and_official_desktop_installers() {
     let planner = InstallPlanner::bundled();
     let environment = InstallEnvironment {
         node_verified: true,
@@ -102,19 +102,39 @@ fn kiro_installs_from_linux_zips_and_refuses_unsigned_desktop_packages() {
             ArtifactTrust::ExpectedSha256 { .. }
         ));
     }
-    for platform in ["windows-x86_64", "darwin-aarch64", "darwin-x86_64"] {
-        let error = planner
+    let windows_plan = planner
+        .plan(InstallPlanningInput {
+            agent_id: AgentId::parse("kiro").unwrap(),
+            source: InstallCandidateSource::BuiltInProfile,
+            platform: "windows-x86_64".to_string(),
+            environment: environment.clone(),
+        })
+        .unwrap();
+    assert_eq!(windows_plan.components[0].command, "kiro-cli");
+    assert_eq!(
+        windows_plan.components[0].resolved_source,
+        "https://cli.kiro.dev/install.ps1"
+    );
+    assert!(matches!(
+        windows_plan.components[0].trust,
+        ArtifactTrust::Tofu
+    ));
+
+    for platform in ["darwin-aarch64", "darwin-x86_64"] {
+        let plan = planner
             .plan(InstallPlanningInput {
                 agent_id: AgentId::parse("kiro").unwrap(),
                 source: InstallCandidateSource::BuiltInProfile,
                 platform: platform.to_string(),
                 environment: environment.clone(),
             })
-            .unwrap_err();
-        assert!(
-            matches!(error, InstallPlanningError::UnsupportedPlatform { .. }),
-            "{platform}: {error:?}"
+            .unwrap();
+        assert_eq!(plan.components[0].command, "kiro-cli");
+        assert_eq!(
+            plan.components[0].resolved_source,
+            "https://cli.kiro.dev/install"
         );
+        assert!(matches!(plan.components[0].trust, ArtifactTrust::Tofu));
     }
 }
 

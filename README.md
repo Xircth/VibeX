@@ -69,7 +69,7 @@ See [platform architecture](https://vibex.com/docs/developers/platform-overview)
 
 A VibeX plugin is an installable, toggleable, configurable product unit. One package can contribute to the UI, agents, the Host, and runtimes. Install, enable, configuration, diagnostics, rollback, and uninstall go through the plugin control plane.
 
-Official bundled plugins cover session extras, multi-agent delegation, workflow authoring, Office previews, and plugin development. MCP servers and Skills are hosted by the Host. Authors can use the TypeScript, JavaScript, Python, and Rust SDKs, then publish through the [plugin marketplace](https://vibex.com/marketplace) or link a development directory.
+Official bundled plugins cover session extras, workflow authoring, Office previews, and plugin development. MCP servers and Skills are hosted by the Host. Authors can use the TypeScript, JavaScript, Python, and Rust SDKs, then publish through the [plugin marketplace](https://vibex.com/marketplace) or link a development directory.
 
 See [Plugin](https://vibex.com/docs/reference/plugin) and [plugin architecture](https://vibex.com/docs/developers/plugin-overview).
 
@@ -92,7 +92,7 @@ See [One Host](https://vibex.com/docs/reference/one-host) and [Connect a Host](h
 
 Collaboration splits into delegation and Graph Workflow. Automation decides when to start.
 
-- **Delegation:** A parent agent hands work to another enabled agent during a conversation. `&` in the input box is a structured mention. Child conversations have their own timeline and turns. This capability comes from the official Multi-agent collaboration plugin.
+- **Delegation:** A parent agent hands work to another enabled agent during a conversation. `&` in the input box is a structured mention. Child conversations have their own timeline and turns. Turn this on under Settings → General → MultiAgent collaboration. It stays off until you do, and only later new sessions receive it.
 - **Graph Workflow:** Steps and dependencies are described as a JSON DAG, then executed. Source files can live in Git. A published definition version is immutable. This capability comes from the official Workflow creator plugin.
 - **Automation:** A manual action or a schedule starts an ordinary turn, or a published Workflow version.
 

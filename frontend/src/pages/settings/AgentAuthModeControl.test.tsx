@@ -1644,6 +1644,97 @@ describe('AgentAuthModeControl', () => {
       'false'
     );
   });
+
+  it('expands token and browser login options below the login button when headless_account_env is present', async () => {
+    vi.spyOn(agentManagementApi, 'authMode').mockResolvedValue({
+      agent_id: 'qoder',
+      mode: 'official_subscription',
+      credential_env: 'QODER_API_KEY',
+      credential_present: false,
+      headless_account_env: 'QODER_PERSONAL_ACCESS_TOKEN',
+      modes: ['official_subscription', 'official_api', 'model_provider'],
+      options: [
+        authOption(
+          'official_subscription',
+          'subscription',
+          'authModeOfficialSubscription',
+          'authDescQoderSubscription'
+        ),
+        authOption(
+          'official_api',
+          'official_api',
+          'authModeOfficialApi',
+          'authDescQoderOfficialApi',
+          'QODER_API_KEY',
+          undefined,
+          'https://openapi.qoder.com'
+        ),
+        authOption(
+          'model_provider',
+          'provider',
+          'authModeProvider',
+          'authDescQoderProvider'
+        ),
+      ],
+    });
+    vi.spyOn(agentManagementApi, 'environment').mockResolvedValue({
+      agent_id: 'qoder',
+      revision: 'rev-1',
+      entries: [],
+    });
+    const onRunAction = vi.fn();
+    const user = userEvent.setup();
+
+    render(
+      <AgentAuthModeControl
+        agentId="qoder"
+        authentication="not_logged_in"
+        actions={{
+          agent_id: 'qoder',
+          actions: [
+            {
+              id: 'login',
+              label: '登录 Qoder',
+              description: '打开浏览器完成 Qoder 官方账号登录',
+              label_key: 'agents.managementAction.qoder.login.label',
+              description_key:
+                'agents.managementAction.qoder.login.description',
+              kind: 'login' as const,
+              available: true,
+              unavailable_reason: null,
+              url: null,
+            },
+          ],
+        }}
+        onRunAction={onRunAction}
+      />
+    );
+
+    const loginBtn = await screen.findByRole('button', { name: '登录 Qoder' });
+    expect(loginBtn).toBeVisible();
+    expect(
+      screen.queryByRole('button', { name: '输入 Token' })
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByLabelText('QODER_PERSONAL_ACCESS_TOKEN')
+    ).not.toBeVisible();
+
+    await user.click(loginBtn);
+    expect(onRunAction).not.toHaveBeenCalled();
+
+    const tokenChoiceBtn = screen.getByRole('button', { name: '输入 Token' });
+    const browserChoiceBtn = screen.getByRole('button', { name: '浏览器登录' });
+    expect(tokenChoiceBtn).toBeVisible();
+    expect(browserChoiceBtn).toBeVisible();
+
+    await user.click(tokenChoiceBtn);
+    expect(
+      await screen.findByLabelText('QODER_PERSONAL_ACCESS_TOKEN')
+    ).toBeVisible();
+
+    await user.click(browserChoiceBtn);
+    expect(onRunAction).toHaveBeenCalledWith('login');
+  });
 });
 
 function authOption(

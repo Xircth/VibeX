@@ -541,83 +541,21 @@ pub async fn plugin_control_catalog(
 pub(crate) async fn refresh_official_product_runtime(
     plane: &plugins::PluginControlPlane,
     broker: &delegation::DelegationBroker,
+    config: &services::services::config::Config,
 ) -> Result<(), AppError> {
-    plane
-        .sync_official_product_mcp_gate()
+    server::refresh_official_product_runtime(plane, broker, config)
         .await
-        .map_err(plugin_error)?;
-    let gate = plane.official_product_mcp_gate();
-
-    let mut config = broker.config_snapshot();
-    config.enabled = gate.allow_delegation_mcp();
-    let delegation_plugin_id = gate
-        .bindings()
-        .into_iter()
-        .find(|binding| binding.product == "delegation")
-        .map(|binding| binding.plugin_id);
-    if let Some(plugin_id) = delegation_plugin_id
-        && let Some(plugin) = plane.plugin(&plugin_id).await.map_err(plugin_error)?
-        && let Ok(detail) = plugin.product_detail()
-    {
-        if let Some(depth) = detail
-            .config
-            .get("depthLimit")
-            .and_then(serde_json::Value::as_u64)
-        {
-            config.depth_limit = depth as u32;
-        }
-        if let Some(mb) = detail
-            .config
-            .get("completedCacheMaxMb")
-            .and_then(serde_json::Value::as_u64)
-        {
-            config.completed_cache_cap_bytes = mb.saturating_mul(1024 * 1024);
-        }
-        config.agent_defaults = parse_agent_defaults(detail.config.get("agentDefaults"));
-    }
-    broker.set_config(config);
-    Ok(())
-}
-
-fn parse_agent_defaults(
-    value: Option<&serde_json::Value>,
-) -> std::collections::BTreeMap<String, delegation::AgentDelegationDefaults> {
-    let Some(object) = value.and_then(serde_json::Value::as_object) else {
-        return std::collections::BTreeMap::new();
-    };
-    object
-        .iter()
-        .filter_map(|(agent_id, defaults)| {
-            let record = defaults.as_object()?;
-            let mode_id = record
-                .get("modeId")
-                .or_else(|| record.get("mode_id"))
-                .and_then(serde_json::Value::as_str)
-                .filter(|mode| !mode.is_empty())
-                .map(str::to_string);
-            let config_values = record
-                .get("configValues")
-                .or_else(|| record.get("config_values"))
-                .and_then(serde_json::Value::as_object)
-                .into_iter()
-                .flatten()
-                .filter_map(|(key, value)| {
-                    value.as_str().map(|value| (key.clone(), value.to_string()))
-                })
-                .collect();
-            Some((
-                agent_id.clone(),
-                delegation::AgentDelegationDefaults {
-                    mode_id,
-                    config_values,
-                },
-            ))
-        })
-        .collect()
+        .map_err(|error| AppError::Internal(error.to_string()))
 }
 
 async fn apply_official_product_runtime(state: &AppState) -> Result<(), AppError> {
-    refresh_official_product_runtime(&state.plugin_control_plane, &state.delegation.broker).await
+    let config = state.deployment.config().read().await.clone();
+    refresh_official_product_runtime(
+        &state.plugin_control_plane,
+        &state.delegation.broker,
+        &config,
+    )
+    .await
 }
 
 #[tauri::command]
@@ -2197,6 +2135,7 @@ pub(crate) async fn refresh_enabled_plugin_projections(state: &AppState) {
             return;
         }
     };
+    let _ = apply_official_product_runtime(state).await;
     if let Err(error) = services::services::mcp::patch_grok_product_mcp_startup_timeout() {
         tracing::warn!(%error, "Grok product MCP startup timeout patch failed");
     }
@@ -3383,7 +3322,7 @@ fn materialize_host_family_binary_mcp(
         )));
     }
     let features = match product {
-        "delegation" => "delegation".to_string(),
+        "delegation" => "delegation,sessions,collaboration".to_string(),
         "session" => plugins::session_feature_arg(gate.session_features()),
         "plugin-dev" => "plugin-dev".to_string(),
         other => other.to_string(),

@@ -231,94 +231,93 @@ export function WorkspaceActivityPanel({
     const selectedTitle = sessionListTitle(selected);
     const selectedTone = workspaceSessionStatusTone(selected);
     const selectedAgent = sessionListAgentKey(selected);
+    const selectedTurns = selectedTimeline?.turns ?? [];
+    const selectedRows = selectedTimeline?.rows ?? [];
+    const selectedFailedTurnIds = selectedTimeline?.failedTurnIds ?? [];
 
     return (
       <TooltipProvider delayDuration={300}>
         <div
-          className="flex h-full min-h-0 flex-1 flex-col gap-3 overflow-y-auto bg-background p-3 text-foreground"
+          className="flex h-full min-h-0 flex-1 flex-col gap-2.5 overflow-hidden bg-background p-3 text-foreground"
           data-panel="processes"
         >
-          <section className={activityCardClass}>
-            <div className="flex items-center justify-between gap-2">
+          <section className="flex shrink-0 items-center justify-between gap-2 rounded-[var(--radius)] border border-[var(--border-subtle)] bg-[var(--surface-card)] px-3 py-2 shadow-none">
+            <div className="flex min-w-0 items-center gap-2">
               <button
                 type="button"
-                className="inline-flex items-center gap-1.5 rounded-[calc(var(--radius)-6px)] px-2 py-1 text-xs font-medium text-muted-foreground transition-colors hover:bg-[var(--surface-control-hover)] hover:text-foreground"
+                className="inline-flex shrink-0 items-center gap-1.5 rounded-[calc(var(--radius)-6px)] px-2 py-1 text-xs font-medium text-muted-foreground transition-colors hover:bg-[var(--surface-control-hover)] hover:text-foreground"
                 onClick={() => setSelectedSessionId(null)}
               >
                 <ArrowLeft className="h-3.5 w-3.5" />
                 {t('workspaceActivity.backToList')}
               </button>
-              <div className="flex items-center gap-2 font-mono text-xs tabular-nums text-muted-foreground">
-                <span>
-                  {t('workspaceActivity.turnsCount', {
-                    count: timelineSummary.turns,
-                  })}
-                </span>
-                <span>·</span>
-                <span>
-                  {t('workspaceActivity.stepsCount', {
-                    count: timelineSummary.steps,
-                  })}
-                </span>
-                {timelineSummary.totalDurationMs > 0 ? (
-                  <>
-                    <span>·</span>
-                    <span className="rounded bg-[var(--surface-control)] px-1.5 py-0.5 text-foreground">
-                      {formatDurationMs(timelineSummary.totalDurationMs)}
-                    </span>
-                  </>
-                ) : null}
-              </div>
+              <span
+                className="h-3.5 w-px shrink-0 bg-[var(--border-subtle)]"
+                aria-hidden="true"
+              />
+              <span
+                className="workspace-session-icon shrink-0"
+                aria-hidden="true"
+              >
+                {selectedAgent ? (
+                  <AgentIcon
+                    agent={selectedAgent as ExecutorProfileId['executor']}
+                    className="h-4 w-4"
+                  />
+                ) : (
+                  <Bot className="h-4 w-4 text-muted-foreground" />
+                )}
+                <span
+                  className={cn(
+                    'workspace-session-status',
+                    `workspace-session-status--${selectedTone}`
+                  )}
+                />
+              </span>
+              <h3 className="min-w-0 truncate text-sm font-semibold text-foreground">
+                {selectedTitle}
+              </h3>
             </div>
 
-            <div className="flex items-center justify-between gap-2 border-t border-[var(--border-subtle)] pt-2">
-              <div className="flex min-w-0 items-center gap-2">
-                <span className="workspace-session-icon" aria-hidden="true">
-                  {selectedAgent ? (
-                    <AgentIcon
-                      agent={selectedAgent as ExecutorProfileId['executor']}
-                      className="h-4 w-4"
-                    />
-                  ) : (
-                    <Bot className="h-4 w-4 text-muted-foreground" />
-                  )}
-                  <span
-                    className={cn(
-                      'workspace-session-status',
-                      `workspace-session-status--${selectedTone}`
-                    )}
-                  />
-                </span>
-                <h3 className="min-w-0 truncate text-sm font-semibold text-foreground">
-                  {selectedTitle}
-                </h3>
-              </div>
-
-              <div className="flex shrink-0 items-center gap-2.5 text-xs text-muted-foreground">
-                <span className="inline-flex items-center gap-1">
-                  <span className="h-2 w-2 rounded-[2px] border border-[hsl(var(--success)/0.75)] bg-[hsl(var(--success)/0.28)]" />
-                  {t('workspaceActivity.kindAssistant')}
-                </span>
-                <span className="inline-flex items-center gap-1">
-                  <span className="h-2 w-2 rounded-[2px] border border-[hsl(var(--warning)/0.8)] bg-[hsl(var(--warning)/0.28)]" />
-                  {t('workspaceActivity.kindTool')}
-                </span>
-                <span className="inline-flex items-center gap-1">
-                  <span className="h-2 w-2 rounded-[2px] border border-[hsl(var(--primary)/0.8)] bg-[hsl(var(--primary)/0.28)]" />
-                  {t('workspaceActivity.kindDelegation')}
-                </span>
-              </div>
+            <div className="flex shrink-0 items-center gap-2 font-mono text-xs tabular-nums text-muted-foreground">
+              <span>
+                {t('workspaceActivity.turnsCount', {
+                  count: timelineSummary.turns,
+                })}
+              </span>
+              <span>·</span>
+              <span>
+                {t('workspaceActivity.stepsCount', {
+                  count: timelineSummary.steps,
+                })}
+              </span>
+              {timelineSummary.totalDurationMs > 0 ? (
+                <>
+                  <span>·</span>
+                  <span className="rounded bg-[var(--surface-control)] px-1.5 py-0.5 text-foreground">
+                    {formatDurationMs(timelineSummary.totalDurationMs)}
+                  </span>
+                </>
+              ) : null}
             </div>
           </section>
 
-          {charts.length === 0 ? (
+          {charts.length === 0 && selectedRows.length === 0 ? (
             <section className={activityCardClass}>
               <p className="py-4 text-center text-xs text-muted-foreground">
                 {t('workspaceActivity.noSpans')}
               </p>
             </section>
           ) : (
-            <SessionFlameGraph charts={charts} />
+            <div className="flex min-h-0 flex-1 flex-col">
+              <SessionFlameGraph
+                turns={selectedTurns}
+                rows={selectedRows}
+                failedTurnIds={selectedFailedTurnIds}
+                charts={charts}
+                onSelectSession={setSelectedSessionId}
+              />
+            </div>
           )}
         </div>
       </TooltipProvider>

@@ -283,6 +283,19 @@ pub async fn install_resolved_plan(
     data_dir: &Path,
     plan: &ResolvedInstallPlan,
 ) -> anyhow::Result<()> {
+    install_resolved_plan_with_progress(pool, data_dir, plan, |_, _| {}).await
+}
+
+pub async fn install_resolved_plan_with_progress<F>(
+    pool: &SqlitePool,
+    data_dir: &Path,
+    plan: &ResolvedInstallPlan,
+    mut on_progress: F,
+) -> anyhow::Result<()>
+where
+    F: FnMut(u8, &str),
+{
+    on_progress(10, "正在进行基础环境检查");
     let home =
         dirs::home_dir().ok_or_else(|| anyhow::anyhow!("could not resolve the home directory"))?;
     let managed_artifacts = utils::path::managed_artifacts_directory(&home, data_dir);
@@ -310,16 +323,21 @@ pub async fn install_resolved_plan(
     if let Some(executable) = uv.as_ref().and_then(|path| path.parent()) {
         utils::shell::expose_user_bin_to_process_path(executable);
     }
+    on_progress(22, "正在检查本地 ACP 组件");
     let mut user_env = UserEnvironmentLayout::for_current_user(&home);
     user_env =
         user_env.with_live_npm_prefix_if_writable(live_npm_global_prefix(node.as_ref()).await);
+    on_progress(35, "正在准备安装环境");
     prepare_user_environment(&user_env).await?;
     let installation = if let Some(adopted) = try_adopt(&plan.agent_id, plan, &user_env).await? {
         println!("Using the user-environment CLI that already matches the planned versions.");
+        on_progress(55, "已复用本地匹配的 ACP 组件");
         adopted
     } else {
+        on_progress(55, "正在安装 ACP 组件");
         install_plan(plan, &mut user_env, node.as_ref(), uv.as_deref()).await?
     };
+    on_progress(85, "正在验证 ACP 组件与握手");
     ensure_installation_matches_plan(plan, &installation)?;
     persist_lock(pool, plan, &installation).await?;
     let working_dir = data_dir.join("agents").join(plan.agent_id.as_str());
@@ -1163,6 +1181,9 @@ async fn install_binary(
     component: &PlannedInstallComponent,
     user_env: &UserEnvironmentLayout,
 ) -> anyhow::Result<PathBuf> {
+    if is_kiro_official_installer(agent_id, &component.resolved_source) {
+        return install_kiro_from_official_installer(component, user_env).await;
+    }
     println!(
         "Downloading {} ({})",
         component.component_id, component.version
@@ -1213,6 +1234,288 @@ async fn install_binary(
     Ok(utils::process::prefer_direct_spawn_executable(
         tokio::fs::canonicalize(destination).await?,
     ))
+}
+
+fn is_kiro_official_installer(agent_id: &AgentId, source: &str) -> bool {
+    let lower = source_path(source).to_ascii_lowercase();
+    agent_id.as_str() == "kiro"
+        && (lower.ends_with(".ps1") || lower.ends_with(".msi") || lower.ends_with("/install"))
+}
+
+fn sanitize_kiro_powershell_script(script: &str) -> String {
+    script
+        .lines()
+        .map(|line| {
+            let trimmed = line.trim();
+            if trimmed.starts_with("Read-Host") {
+                "# Read-Host disabled for unattended install"
+            } else if trimmed.starts_with("Remove-Item") && trimmed.contains("$tempDir") {
+                "# Preserve downloaded MSI in staging for fallback extraction"
+            } else {
+                line
+            }
+        })
+        .collect::<Vec<_>>()
+        .join("\r\n")
+}
+
+async fn install_kiro_from_official_installer(
+    component: &PlannedInstallComponent,
+    user_env: &UserEnvironmentLayout,
+) -> anyhow::Result<PathBuf> {
+    let staging = std::env::temp_dir().join(format!("vibex-kiro-{}", Uuid::new_v4()));
+    tokio::fs::create_dir_all(&staging).await?;
+    let result = if cfg!(windows) {
+        install_kiro_windows_with_fallback(component, user_env, &staging).await
+    } else {
+        install_kiro_unix_installer(component, user_env, &staging).await
+    };
+    let _ = tokio::fs::remove_dir_all(&staging).await;
+    result
+}
+
+async fn resolve_installed_kiro_binary(user_env: &UserEnvironmentLayout) -> Option<PathBuf> {
+    let _ = utils::shell::refresh_process_path_after_install().await;
+    if cfg!(windows) {
+        let mut candidates = Vec::new();
+        for env_key in ["ProgramFiles", "ProgramW6432"] {
+            if let Some(root) = std::env::var_os(env_key).map(PathBuf::from) {
+                candidates.push(root.join("Kiro-Cli").join("kiro-cli.exe"));
+            }
+        }
+        candidates.push(PathBuf::from(r"C:\Program Files\Kiro-Cli\kiro-cli.exe"));
+        candidates.push(user_env.user_bin.join("kiro-cli.exe"));
+        for candidate in candidates {
+            if candidate.is_file() {
+                if let Some(parent) = candidate.parent() {
+                    utils::shell::expose_user_bin_to_process_path(parent);
+                }
+                if let Ok(canon) = tokio::fs::canonicalize(&candidate).await {
+                    return Some(utils::process::prefer_direct_spawn_executable(canon));
+                }
+                return Some(candidate);
+            }
+        }
+    } else {
+        let candidate = user_env.user_bin.join("kiro-cli");
+        if candidate.is_file()
+            && let Ok(canon) = tokio::fs::canonicalize(&candidate).await
+        {
+            return Some(utils::process::prefer_direct_spawn_executable(canon));
+        }
+    }
+    if let Some(resolved) = utils::shell::resolve_executable_path("kiro-cli").await
+        && let Ok(canon) = tokio::fs::canonicalize(&resolved).await
+    {
+        return Some(utils::process::prefer_direct_spawn_executable(canon));
+    }
+    None
+}
+
+async fn install_kiro_windows_with_fallback(
+    component: &PlannedInstallComponent,
+    user_env: &UserEnvironmentLayout,
+    staging: &Path,
+) -> anyhow::Result<PathBuf> {
+    // 1. Try the official https://cli.kiro.dev/install.ps1 script with PowerShell
+    //    ExecutionPolicy Bypass and non-interactive sanitization.
+    if source_path(&component.resolved_source)
+        .to_ascii_lowercase()
+        .ends_with(".ps1")
+    {
+        println!(
+            "Running Kiro official PowerShell installer: {}",
+            component.resolved_source
+        );
+        if let Ok(response) = reqwest::get(&component.resolved_source).await
+            && let Ok(response) = response.error_for_status()
+            && let Ok(script_text) = response.text().await
+        {
+            let sanitized = sanitize_kiro_powershell_script(&script_text);
+            let script_path = staging.join("install.ps1");
+            if tokio::fs::write(&script_path, sanitized).await.is_ok() {
+                let mut cmd = utils::process::new_hidden_tokio_command(
+                    "powershell.exe",
+                    [
+                        "-NoProfile",
+                        "-NonInteractive",
+                        "-ExecutionPolicy",
+                        "Bypass",
+                        "-File",
+                    ],
+                );
+                cmd.arg(&script_path)
+                    .env("TEMP", staging)
+                    .env("TMP", staging)
+                    .stdin(std::process::Stdio::null())
+                    .kill_on_drop(true);
+                let _ = tokio::time::timeout(
+                    std::time::Duration::from_secs(180),
+                    run_command("powershell install.ps1", cmd),
+                )
+                .await;
+                if let Some(installed) = resolve_installed_kiro_binary(user_env).await {
+                    return Ok(installed);
+                }
+            }
+        }
+    }
+
+    // 2. Fallback: Use MSI already downloaded by install.ps1 in staging, or download
+    //    the official Windows MSI from Kiro's manifest.json and verify SHA-256.
+    let msi_from_ps1 = staging.join("kiro-cli-installer").join("kiro-cli.msi");
+    let msi_path = if msi_from_ps1.is_file() {
+        msi_from_ps1
+    } else {
+        download_kiro_windows_msi(component, staging).await?
+    };
+
+    // 2a. Try standard silent MSI install (`msiexec /i <msi> /quiet /norestart`).
+    let mut msi_install = utils::process::new_hidden_tokio_command("msiexec.exe", ["/i"]);
+    msi_install
+        .arg(&msi_path)
+        .arg("/quiet")
+        .arg("/norestart")
+        .stdin(std::process::Stdio::null())
+        .kill_on_drop(true);
+    let _ = tokio::time::timeout(
+        std::time::Duration::from_secs(120),
+        run_command("msiexec /i", msi_install),
+    )
+    .await;
+    if let Some(installed) = resolve_installed_kiro_binary(user_env).await {
+        return Ok(installed);
+    }
+
+    // 2b. Non-admin permission fallback: `msiexec /a <msi> /qn TARGETDIR=<extract_dir>`
+    //     unpacks the MSI into user-writable storage without requiring Administrator privileges.
+    let extract_dir = staging.join("extracted");
+    tokio::fs::create_dir_all(&extract_dir).await?;
+    let target_dir_arg = format!("TARGETDIR={}", extract_dir.display());
+    let mut msi_extract = utils::process::new_hidden_tokio_command("msiexec.exe", ["/a"]);
+    msi_extract
+        .arg(&msi_path)
+        .arg("/qn")
+        .arg(&target_dir_arg)
+        .stdin(std::process::Stdio::null())
+        .kill_on_drop(true);
+    tokio::time::timeout(
+        std::time::Duration::from_secs(120),
+        run_command("msiexec /a", msi_extract),
+    )
+    .await
+    .map_err(|_| anyhow::anyhow!("msiexec administrative extraction timed out"))??;
+
+    let staged_exe = find_staged_executable(&extract_dir, "kiro-cli.exe")?;
+    tokio::fs::create_dir_all(&user_env.user_bin).await?;
+    if let Some(staged_dir) = staged_exe.parent() {
+        for entry in std::fs::read_dir(staged_dir)? {
+            let entry = entry?;
+            let path = entry.path();
+            if path.is_file()
+                && let Some(name) = path.file_name()
+            {
+                tokio::fs::copy(&path, user_env.user_bin.join(name)).await?;
+            }
+        }
+    } else {
+        tokio::fs::copy(&staged_exe, user_env.user_bin.join("kiro-cli.exe")).await?;
+    }
+    utils::shell::expose_user_bin_to_process_path(&user_env.user_bin);
+    let dest = user_env.user_bin.join("kiro-cli.exe");
+    Ok(utils::process::prefer_direct_spawn_executable(
+        tokio::fs::canonicalize(dest).await?,
+    ))
+}
+
+async fn download_kiro_windows_msi(
+    component: &PlannedInstallComponent,
+    staging: &Path,
+) -> anyhow::Result<PathBuf> {
+    let (msi_url, expected_sha256) = if source_path(&component.resolved_source)
+        .to_ascii_lowercase()
+        .ends_with(".msi")
+    {
+        (component.resolved_source.clone(), None)
+    } else {
+        const KIRO_MANIFEST_URL: &str =
+            "https://prod.download.cli.kiro.dev/stable/latest/manifest.json";
+        let manifest: serde_json::Value = reqwest::get(KIRO_MANIFEST_URL)
+            .await?
+            .error_for_status()?
+            .json()
+            .await?;
+        let pkg = manifest
+            .get("packages")
+            .and_then(serde_json::Value::as_array)
+            .and_then(|pkgs| {
+                pkgs.iter().find(|p| {
+                    p.get("os").and_then(serde_json::Value::as_str) == Some("windows")
+                        && p.get("fileType").and_then(serde_json::Value::as_str) == Some("msi")
+                        && p.get("architecture").and_then(serde_json::Value::as_str)
+                            == Some("x86_64")
+                })
+            })
+            .ok_or_else(|| {
+                anyhow::anyhow!("Kiro manifest.json does not contain a Windows x86_64 MSI package")
+            })?;
+        let download = pkg
+            .get("download")
+            .and_then(serde_json::Value::as_str)
+            .ok_or_else(|| anyhow::anyhow!("Kiro MSI package is missing download path"))?;
+        let sha256 = pkg
+            .get("sha256")
+            .and_then(serde_json::Value::as_str)
+            .map(str::to_string);
+        (
+            format!("https://prod.download.cli.kiro.dev/stable/{download}"),
+            sha256,
+        )
+    };
+    println!("Downloading Kiro Windows MSI: {msi_url}");
+    let bytes = reqwest::get(&msi_url)
+        .await?
+        .error_for_status()?
+        .bytes()
+        .await?;
+    if let Some(expected) = expected_sha256 {
+        let actual = format!("{:x}", Sha256::digest(&bytes));
+        if !actual.eq_ignore_ascii_case(&expected) {
+            anyhow::bail!("Kiro MSI SHA-256 mismatch: expected {expected}, found {actual}");
+        }
+    }
+    let msi_path = staging.join("kiro-cli.msi");
+    tokio::fs::write(&msi_path, &bytes).await?;
+    Ok(msi_path)
+}
+
+async fn install_kiro_unix_installer(
+    component: &PlannedInstallComponent,
+    user_env: &UserEnvironmentLayout,
+    staging: &Path,
+) -> anyhow::Result<PathBuf> {
+    println!(
+        "Running Kiro official installer: {}",
+        component.resolved_source
+    );
+    let script_bytes = reqwest::get(&component.resolved_source)
+        .await?
+        .error_for_status()?
+        .bytes()
+        .await?;
+    let script_path = staging.join("install.sh");
+    tokio::fs::write(&script_path, &script_bytes).await?;
+    let mut cmd = utils::process::new_hidden_tokio_command("bash", [&script_path]);
+    cmd.stdin(std::process::Stdio::null()).kill_on_drop(true);
+    tokio::time::timeout(
+        std::time::Duration::from_secs(180),
+        run_command("bash install.sh", cmd),
+    )
+    .await
+    .map_err(|_| anyhow::anyhow!("Kiro installer script timed out"))??;
+    resolve_installed_kiro_binary(user_env)
+        .await
+        .ok_or_else(|| anyhow::anyhow!("Kiro installer finished but `kiro-cli` was not found"))
 }
 
 fn user_bin_destination(user_bin: &Path, command: &str, staged: &Path) -> PathBuf {
@@ -1654,5 +1957,39 @@ mod tests {
     #[test]
     fn host_update_accepts_the_planned_adapter_version() {
         ensure_installation_matches_plan(&acp_plan("1.10.0"), &acp_installation("1.10.0")).unwrap();
+    }
+
+    #[test]
+    fn kiro_powershell_installer_sanitization_removes_interactive_prompt_and_preserves_staged_msi()
+    {
+        let kiro = AgentId::parse("kiro").unwrap();
+        assert!(is_kiro_official_installer(
+            &kiro,
+            "https://cli.kiro.dev/install.ps1"
+        ));
+        assert!(is_kiro_official_installer(
+            &kiro,
+            "https://cli.kiro.dev/install"
+        ));
+        assert!(!is_kiro_official_installer(
+            &kiro,
+            "https://prod.download.cli.kiro.dev/stable/2.33.1/kirocli-x86_64-linux.zip"
+        ));
+
+        let original = r#"
+$tempDir = Join-Path ([System.IO.Path]::GetTempPath()) "kiro-cli-install-$(Get-Random)"
+Remove-Item -Path $tempDir -Recurse -Force -ErrorAction SilentlyContinue
+Read-Host "Press Enter to exit"
+"#;
+        let sanitized = sanitize_kiro_powershell_script(original);
+        assert!(
+            !sanitized.contains("Read-Host \"Press Enter to exit\""),
+            "non-interactive execution must not block on Read-Host: {sanitized}"
+        );
+        assert!(
+            !sanitized.lines().any(|line| line.trim()
+                == "Remove-Item -Path $tempDir -Recurse -Force -ErrorAction SilentlyContinue"),
+            "tempDir removal must be commented out so MSI fallback can reuse the downloaded file: {sanitized}"
+        );
     }
 }

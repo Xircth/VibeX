@@ -238,7 +238,7 @@ export function conversationStoreReducer(
           currentTurnId: action.detail.current_turn?.id ?? entry.currentTurnId,
           loading: false,
           error: null,
-          gap: { kind: 'none' },
+          gap: { kind: 'none' } satisfies ConversationGapState,
           optimisticTurns: keepRealtimeRows
             ? reconcileOptimisticTurns(
                 entry.optimisticTurns,
@@ -709,7 +709,7 @@ function applyPatchBlocks(
               plausibleTurnStartMs(windowExisting.row.turn.timestamp) !==
               null
                 ? windowExisting.row.turn.timestamp
-                : assistantStartTimestamp(rows, op.row_id),
+                : assistantStartTimestamp(windowRows ? [...windowRows, ...rows] : rows, op.row_id),
             blocks: mergePatchedBlocks(baseBlocks, op.blocks),
             usage: mergeReportedTurnUsage(
               windowExisting.row.turn.usage,
@@ -740,7 +740,7 @@ function applyPatchBlocks(
         ...op,
         blocks: mergePatchedBlocks(baseBlocks, op.blocks),
       },
-      rows
+      windowRows ? [...windowRows, ...rows] : rows
     );
     const nextRows = insertTimelineRow(rows, stub);
     rebuildRowIndex(nextRows, rowIndexById);
@@ -780,7 +780,7 @@ function applyPatchBlocks(
         timestamp:
           plausibleTurnStartMs(existing.row.turn.timestamp) !== null
             ? existing.row.turn.timestamp
-            : assistantStartTimestamp(rows, op.row_id),
+            : assistantStartTimestamp(windowRows ? [...windowRows, ...rows] : rows, op.row_id),
         blocks: mergePatchedBlocks(baseBlocks, op.blocks),
         usage: mergeReportedTurnUsage(existing.row.turn.usage, op.usage),
       },
@@ -1929,6 +1929,14 @@ export function sideRowsForEntry(
   }
   sideRowsByEntryRows.set(entry.rows, filtered);
   return filtered;
+}
+
+/** Persona and other standing host notes stay on the timeline. */
+export function isDurableHostNote(row: TimelineRow): boolean {
+  if (row.row_id.startsWith('host-note:')) return true;
+  if (row.row.kind !== 'session_notice') return false;
+  const id = row.row.notice.announcement_id ?? '';
+  return id.startsWith('host-note:');
 }
 
 const INLINE_SIDE_ROW_KINDS = new Set([

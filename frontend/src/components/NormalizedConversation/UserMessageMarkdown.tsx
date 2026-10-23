@@ -9,7 +9,12 @@ import {
   type SessionComposerStructuredToken,
 } from '@/components/tasks/follow-up/sessionComposerStructuredTokens';
 import { SessionComposerTokenChip } from '@/components/tasks/follow-up/SessionComposerStructuredText';
+import { useOptionalPanelActionsContext } from '@/contexts/PanelActionsContext';
 import { applySoftBreaks } from '@/lib/conversation-rendering/streamdownPlugins';
+import {
+  deriveRelativeFilePath,
+  resolveFilePathFromRoot,
+} from '@/utils/filePaths';
 import {
   MarkdownResourceLink,
   resolveMarkdownInlineResource,
@@ -215,6 +220,7 @@ export const UserMessageMarkdown = memo(function UserMessageMarkdown({
   className,
   workspacePath,
 }: UserMessageMarkdownProps) {
+  const panelActions = useOptionalPanelActionsContext();
   const restricted = useMemo(() => prepareUserMessageMarkdown(value), [value]);
   const inlinePlugins = useMemo<MarkdownInlinePlugin[]>(
     () => [
@@ -222,9 +228,32 @@ export const UserMessageMarkdown = memo(function UserMessageMarkdown({
         pattern: TOKEN_PLACEHOLDER_PATTERN,
         render: (match, key): ReactNode => {
           const token = restricted.tokens[Number(match[1])];
-          return token ? (
-            <SessionComposerTokenChip key={key} token={token} />
-          ) : null;
+          if (!token) return null;
+          if (token.kind === 'file' && panelActions) {
+            return (
+              <SessionComposerTokenChip
+                key={key}
+                token={token}
+                className="cursor-pointer"
+                onClick={(event) => {
+                  event.preventDefault();
+                  event.stopPropagation();
+                  const fullPath = resolveFilePathFromRoot(
+                    token.value,
+                    workspacePath
+                  );
+                  const displayPath =
+                    deriveRelativeFilePath(fullPath, workspacePath) ??
+                    token.value;
+                  panelActions.openFilePreview(fullPath, {
+                    displayPath,
+                    title: displayPath,
+                  });
+                }}
+              />
+            );
+          }
+          return <SessionComposerTokenChip key={key} token={token} />;
         },
       },
       {
@@ -249,7 +278,13 @@ export const UserMessageMarkdown = memo(function UserMessageMarkdown({
         },
       },
     ],
-    [restricted.links, restricted.tokens, restricted.underlines, workspacePath]
+    [
+      panelActions,
+      restricted.links,
+      restricted.tokens,
+      restricted.underlines,
+      workspacePath,
+    ]
   );
   const components = useMemo<MarkdownProps['components']>(
     () => ({

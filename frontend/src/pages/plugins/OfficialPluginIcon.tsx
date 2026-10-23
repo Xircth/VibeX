@@ -11,7 +11,6 @@ import {
   Monitor,
   Puzzle,
   Plug,
-  Users,
   Workflow,
 } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
@@ -33,7 +32,6 @@ export const OFFICIAL_GLYPHS: Record<OfficialPluginI18nKey, LucideIcon> = {
   office: FileText,
   workflowCreator: Workflow,
   sessionEnhance: MessageSquareWarning,
-  multiAgent: Users,
   pluginDevelopment: FolderCode,
   hostChrome: Puzzle,
   hostSurface: Layers,

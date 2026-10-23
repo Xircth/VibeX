@@ -32,7 +32,7 @@ mod testing;
 pub use assistant_reply::AssistantReplyAccumulator;
 pub use broker::{DelegationBroker, StatusWait};
 pub use event_emitter::{DelegationCompletedEvent, DelegationEventEmitter, DelegationStartedEvent};
-pub use host_features::HostCompanionFeatures;
+pub use host_features::{CollaborationLimits, HostCompanionFeatures};
 pub use listener::{DelegationListener, default_socket_path};
 pub use lookups::{ChildStatusLookup, ChildStatusRecord, DepthLookup, ParentSessionLookup};
 pub use meta_writer::DelegationMetaWriter;

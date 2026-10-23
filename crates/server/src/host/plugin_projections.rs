@@ -7,6 +7,7 @@ use std::{
 use agents::skills::{self, PluginSkillProjectionStatus};
 use application::ApplicationError;
 use delegation::{AgentDelegationDefaults, DelegationConfig};
+use deployment::Deployment;
 use plugins::{InstalledPlugin, PluginPackage};
 use serde::Deserialize;
 use serde_json::{Value, json};
@@ -208,14 +209,22 @@ impl ServerApplicationDomains {
     }
 
     pub(crate) async fn refresh_official_product_runtime(&self) -> Result<(), ApplicationError> {
+        let config = self.deployment.config().read().await.clone();
         let Some(broker) = self.delegation_broker.as_ref() else {
             self.plugin_control_plane
                 .sync_official_product_mcp_gate()
                 .await
                 .map_err(internal_error)?;
+            apply_host_multi_agent(
+                self.plugin_control_plane
+                    .official_product_mcp_gate()
+                    .as_ref(),
+                None,
+                &config,
+            );
             return Ok(());
         };
-        refresh_official_product_runtime_with(&self.plugin_control_plane, broker).await
+        refresh_official_product_runtime_with(&self.plugin_control_plane, broker, &config).await
     }
 
     async fn enabled_plugin(&self, plugin_id: &str) -> Result<InstalledPlugin, ApplicationError> {
@@ -435,87 +444,133 @@ impl ServerApplicationDomains {
 pub(crate) async fn refresh_official_product_runtime_with(
     plane: &plugins::PluginControlPlane,
     broker: &delegation::DelegationBroker,
+    config: &services::services::config::Config,
+) -> Result<(), ApplicationError> {
+    refresh_official_product_runtime_with_inner(plane, broker, config).await?;
+    sync_host_delegation_native_mcp(
+        plane.official_product_mcp_gate().as_ref(),
+        config.multi_agent_enabled,
+    )
+    .await;
+    Ok(())
+}
+
+pub(crate) async fn refresh_official_product_runtime_with_inner(
+    plane: &plugins::PluginControlPlane,
+    broker: &delegation::DelegationBroker,
+    config: &services::services::config::Config,
 ) -> Result<(), ApplicationError> {
     plane
         .sync_official_product_mcp_gate()
         .await
         .map_err(internal_error)?;
-    let gate = plane.official_product_mcp_gate();
-    let plugin_config = if let Some(plugin_id) = gate
-        .bindings()
-        .into_iter()
-        .find(|binding| binding.product == "delegation")
-        .map(|binding| binding.plugin_id)
-    {
-        match plane.plugin(&plugin_id).await {
-            Ok(Some(plugin)) => plugin.product_detail().ok().map(|detail| detail.config),
-            _ => None,
-        }
-    } else {
-        None
-    };
-    broker.set_config(official_delegation_config(
-        broker.config_snapshot(),
-        gate.as_ref(),
-        plugin_config.as_ref(),
-    ));
+    apply_host_multi_agent(
+        plane.official_product_mcp_gate().as_ref(),
+        Some(broker),
+        config,
+    );
     Ok(())
+}
+
+async fn sync_host_delegation_native_mcp(gate: &plugins::OfficialMcpRuntime, enabled: bool) {
+    let Some(http_base) = gate.http_base().filter(|value| !value.trim().is_empty()) else {
+        return;
+    };
+    if !enabled {
+        let _ = services::services::mcp::uninstall_server(plugins::DELEGATION_MCP_NAME.to_string())
+            .await;
+        return;
+    }
+    let Some(command) = utils::host_bin::locate_runnable_host_family_binary("vibex-mcp") else {
+        tracing::warn!("skipping host delegation native MCP sync; vibex-mcp sidecar is missing");
+        return;
+    };
+    let Some(token) = gate
+        .token_for_product("delegation")
+        .filter(|value| !value.trim().is_empty())
+    else {
+        return;
+    };
+    let spec = plugins::host_family_stdio_spec(
+        &command.to_string_lossy(),
+        "delegation",
+        "delegation,sessions,collaboration",
+        Some(&http_base),
+        Some(&token),
+    );
+    if let Err(error) = services::services::mcp::upsert_local_server(
+        plugins::DELEGATION_MCP_NAME.to_string(),
+        spec,
+        true,
+        Vec::new(),
+    )
+    .await
+    {
+        tracing::warn!(%error, "host delegation native MCP sync failed");
+    }
+}
+
+pub(crate) fn apply_host_multi_agent(
+    gate: &plugins::OfficialMcpRuntime,
+    broker: Option<&delegation::DelegationBroker>,
+    config: &services::services::config::Config,
+) {
+    let mut config = config.clone();
+    config.clamp_multi_agent();
+    let agent_defaults = config
+        .multi_agent_agent_defaults
+        .iter()
+        .map(|(agent_id, defaults)| {
+            (
+                agent_id.clone(),
+                (defaults.mode_id.clone(), defaults.config_values.clone()),
+            )
+        })
+        .collect();
+    gate.set_host_delegation(
+        config.multi_agent_enabled,
+        plugins::HostDelegationLimits {
+            depth_limit: config.multi_agent_depth_limit,
+            completed_cache_max_mb: config.multi_agent_completed_cache_max_mb,
+            conversation_list_default_days: config.multi_agent_conversation_list_default_days,
+            delay_max_hours: config.multi_agent_delay_max_hours,
+            agent_defaults,
+        },
+    );
+    if let Some(broker) = broker {
+        broker.set_config(official_delegation_config(broker.config_snapshot(), gate));
+    }
+    if let Err(error) = skills::sync_host_multi_agent_skill(config.multi_agent_enabled) {
+        tracing::warn!(%error, "multi-agent skill projection failed");
+    }
 }
 
 pub(crate) fn official_delegation_config(
     mut config: DelegationConfig,
     gate: &plugins::OfficialMcpRuntime,
-    plugin_config: Option<&Value>,
 ) -> DelegationConfig {
     config.enabled = gate.allow_delegation_mcp();
-    if let Some(config_value) = plugin_config {
-        if let Some(depth) = config_value.get("depthLimit").and_then(Value::as_u64) {
-            config.depth_limit = depth as u32;
-        }
-        if let Some(mb) = config_value
-            .get("completedCacheMaxMb")
-            .and_then(Value::as_u64)
-        {
-            config.completed_cache_cap_bytes = mb.saturating_mul(1024 * 1024);
-        }
-        config.agent_defaults = parse_agent_defaults(config_value.get("agentDefaults"));
+    if let Some(limits) = gate.host_delegation_limits() {
+        config.depth_limit = limits.depth_limit;
+        config.completed_cache_cap_bytes =
+            limits.completed_cache_max_mb.saturating_mul(1024 * 1024);
+        config.conversation_list_default_days = limits.conversation_list_default_days;
+        config.delay_max_hours = limits.delay_max_hours;
+        config.agent_defaults = limits
+            .agent_defaults
+            .into_iter()
+            .map(|(agent_id, (mode_id, config_values))| {
+                (
+                    agent_id,
+                    AgentDelegationDefaults {
+                        mode_id,
+                        config_values,
+                    },
+                )
+            })
+            .collect();
     }
     config
-}
-
-fn parse_agent_defaults(value: Option<&Value>) -> BTreeMap<String, AgentDelegationDefaults> {
-    let Some(object) = value.and_then(Value::as_object) else {
-        return BTreeMap::new();
-    };
-    object
-        .iter()
-        .filter_map(|(agent_id, defaults)| {
-            let record = defaults.as_object()?;
-            let mode_id = record
-                .get("modeId")
-                .or_else(|| record.get("mode_id"))
-                .and_then(Value::as_str)
-                .filter(|mode| !mode.is_empty())
-                .map(str::to_string);
-            let config_values = record
-                .get("configValues")
-                .or_else(|| record.get("config_values"))
-                .and_then(Value::as_object)
-                .into_iter()
-                .flatten()
-                .filter_map(|(key, value)| {
-                    value.as_str().map(|value| (key.clone(), value.to_string()))
-                })
-                .collect();
-            Some((
-                agent_id.clone(),
-                AgentDelegationDefaults {
-                    mode_id,
-                    config_values,
-                },
-            ))
-        })
-        .collect()
 }
 
 fn plugin_mcp_server_ids(plugin: &InstalledPlugin) -> Vec<String> {
@@ -865,7 +920,7 @@ fn materialize_host_family_binary_mcp(
         )));
     }
     let features = match product {
-        "delegation" => "delegation".to_string(),
+        "delegation" => "delegation,sessions,collaboration".to_string(),
         "session" => plugins::session_feature_arg(gate.session_features()),
         "plugin-dev" => "plugin-dev".to_string(),
         other => other.to_string(),
@@ -955,28 +1010,23 @@ mod tests {
     }
 
     #[test]
-    fn official_delegation_config_follows_the_mcp_gate() {
+    fn official_delegation_config_follows_the_host_setting() {
         let gate = plugins::OfficialMcpRuntime::default();
-        let disabled = official_delegation_config(DelegationConfig::default(), &gate, None);
+        let disabled = official_delegation_config(DelegationConfig::default(), &gate);
         assert!(!disabled.enabled);
 
-        gate.publish_binding(plugins::OfficialMcpBinding {
-            plugin_id: "vibex.multi-agent".into(),
-            binary_id: "vibex-delegation-mcp".into(),
-            product: "delegation".into(),
-            features: 0,
-            token: "token".into(),
-        });
-        let enabled = official_delegation_config(
-            DelegationConfig::default(),
-            &gate,
-            Some(&json!({
-                "depthLimit": 3,
-                "completedCacheMaxMb": 64,
-            })),
-        );
+        let mut limits = plugins::HostDelegationLimits::default();
+        limits.depth_limit = 3;
+        limits.completed_cache_max_mb = 64;
+        gate.set_host_delegation(true, limits);
+        let enabled = official_delegation_config(DelegationConfig::default(), &gate);
         assert!(enabled.enabled);
         assert_eq!(enabled.depth_limit, 3);
         assert_eq!(enabled.completed_cache_cap_bytes, 64 * 1024 * 1024);
+
+        gate.set_host_delegation(false, plugins::HostDelegationLimits::default());
+        let closed = official_delegation_config(DelegationConfig::default(), &gate);
+        assert!(!closed.enabled);
+        assert_eq!(closed.depth_limit, 1);
     }
 }

@@ -1945,6 +1945,9 @@ impl ServerApplicationDomains {
         let requested = tokio::fs::canonicalize(sanitize_absolute(path)?)
             .await
             .map_err(|_| ApplicationError::not_found(format!("path {path}")))?;
+        if conversations::collaboration::is_team_space_collection_file(&requested) {
+            return Ok(requested);
+        }
         let roots = self.sandbox_roots().await?;
         if roots.iter().any(|root| requested.starts_with(root)) {
             return Ok(requested);

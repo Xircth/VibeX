@@ -8,8 +8,10 @@ import type {
 } from 'shared/types';
 import {
   activityChartsFromTurns,
+  buildTrajectoryRecords,
   collectWorkspaceActivityNotices,
   collectWorkspaceBackgroundTasks,
+  deriveTrajectoryTimeline,
   formatDurationMs,
   spanWindow,
 } from './workspaceActivityModel';
@@ -335,5 +337,101 @@ describe('collectWorkspaceActivityNotices', () => {
       true
     );
     expect(notices.some((item) => item.sessionName === '会话二')).toBe(true);
+  });
+});
+
+describe('buildTrajectoryRecords and deriveTrajectoryTimeline', () => {
+  it('folds user turns, assistant messages with usage/thinking, paired tool results, and subtool delegations into a turn-aware ledger and 3-lane timeline', () => {
+    const records = buildTrajectoryRecords({
+      turns: [
+        turn('u1', 'user', '2026-10-16T00:00:00.000Z', [
+          text('执行导航测试并统计用量'),
+        ]),
+        {
+          ...turn(
+            'a1',
+            'assistant',
+            '2026-10-16T00:00:01.000Z',
+            [
+              { type: 'thinking', text: '先运行 bash 再启动子代理' },
+              text('正在执行导航命令'),
+              tool(
+                'call-bash',
+                'bash',
+                { command: 'echo NAVIGATION_OK' },
+                '2026-10-16T00:00:02.000Z',
+                '2026-10-16T00:00:04.000Z'
+              ),
+              {
+                type: 'tool_result',
+                tool_use_id: 'call-bash',
+                is_error: false,
+                output_preview: 'NAVIGATION_OK',
+              },
+              tool(
+                'call-sub',
+                'delegate_to_agent',
+                { description: '子代理检查样式' },
+                '2026-10-16T00:00:04.000Z',
+                '2026-10-16T00:00:08.000Z',
+                { delegation: true }
+              ),
+              {
+                type: 'tool_result',
+                tool_use_id: 'call-sub',
+                is_error: true,
+                output_preview: 'Subagent timeout',
+              },
+            ],
+            '2026-10-16T00:00:09.000Z'
+          ),
+          model: 'deepseek-chat',
+          usage: {
+            input_tokens: 1200n,
+            output_tokens: 340n,
+            cache_read_input_tokens: 800n,
+            cache_creation_input_tokens: 100n,
+            context_used: 2100n,
+            context_window_max: 64000n,
+            cost_amount: 0.012,
+            cost_currency: 'USD',
+          },
+        },
+      ],
+    });
+
+    expect(records.map((r) => r.kind)).toEqual([
+      'user',
+      'assistant',
+      'tool',
+      'subtool',
+    ]);
+    expect(records[0]?.turn).toBe(1);
+    expect(records[0]?.turnStart).toBe(true);
+    expect(records[0]?.lane).toBe(0);
+
+    expect(records[1]?.lane).toBe(1);
+    expect(records[1]?.thinkingText).toBe('先运行 bash 再启动子代理');
+    expect(records[1]?.usage?.inputTokens).toBe(1200);
+    expect(records[1]?.usage?.outputTokens).toBe(340);
+    expect(records[1]?.usage?.cacheReadTokens).toBe(800);
+    expect(records[1]?.model).toBe('deepseek-chat');
+
+    expect(records[2]?.lane).toBe(2);
+    expect(records[2]?.resultPreview).toBe('NAVIGATION_OK');
+    expect(records[2]?.durationMs).toBe(2_000);
+    expect(records[2]?.parentAssistantIndex).toBe(1);
+
+    expect(records[3]?.kind).toBe('subtool');
+    expect(records[3]?.isError).toBe(true);
+    expect(records[3]?.turnEnd).toBe(true);
+    expect(records[3]?.resultPreview).toBe('Subagent timeout');
+
+    const seqTimeline = deriveTrajectoryTimeline(records, 'sequence');
+    expect(seqTimeline?.spans).toHaveLength(4);
+    expect(seqTimeline?.spans.map((s) => s.lane)).toEqual([0, 1, 2, 2]);
+
+    const durTimeline = deriveTrajectoryTimeline(records, 'duration');
+    expect(durTimeline?.spans.length).toBeGreaterThanOrEqual(3);
   });
 });

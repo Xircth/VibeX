@@ -9,6 +9,10 @@ export function agentProvisioningAction(
   items: AgentPreflightItemView[]
 ): AgentProvisioningAction | null {
   if (agent.retired || agent.lifecycle === 'platform_unsupported') return null;
+  const acpItem = items.find((item) => item.id === 'acp');
+  if (acpItem && acpItem.status === 'fail' && !acpItem.repairable) {
+    return null;
+  }
   const acpMissing =
     'acp_version' in agent &&
     !agent.acp_version &&

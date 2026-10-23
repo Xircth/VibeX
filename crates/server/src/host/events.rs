@@ -42,6 +42,8 @@ pub struct HostEventChannel {
     pub required_scope: &'static str,
 }
 
+pub const COLLABORATION_SPACE_CHANGED_EVENT: &str = "vibex://collaboration-space-changed";
+
 /// Catalog of Host push channels. Prefix match is longest-first.
 pub const HOST_EVENT_CHANNELS: &[HostEventChannel] = &[
     HostEventChannel {
@@ -52,6 +54,11 @@ pub const HOST_EVENT_CHANNELS: &[HostEventChannel] = &[
     HostEventChannel {
         prefix: "workspace-sessions-changed",
         durability: EventDurability::Invalidation,
+        required_scope: "application.call",
+    },
+    HostEventChannel {
+        prefix: "workspace-focus-conversation",
+        durability: EventDurability::BestEffort,
         required_scope: "application.call",
     },
     HostEventChannel {
@@ -126,6 +133,11 @@ pub const HOST_EVENT_CHANNELS: &[HostEventChannel] = &[
     },
     HostEventChannel {
         prefix: "vibex://settings-file-changed",
+        durability: EventDurability::Invalidation,
+        required_scope: "application.call",
+    },
+    HostEventChannel {
+        prefix: COLLABORATION_SPACE_CHANGED_EVENT,
         durability: EventDurability::Invalidation,
         required_scope: "application.call",
     },
@@ -543,6 +555,7 @@ mod tests {
             "file-tree-stream",
             "projects-stream",
             "theme-changed",
+            "vibex://collaboration-space-changed",
             "agent-management-snapshot-invalidated",
             "agent-events",
             "slash-commands-stream:codex:default:none:none",

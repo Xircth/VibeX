@@ -252,6 +252,10 @@ pub struct DelegationConfig {
     pub completed_cache_cap_bytes: u64,
     /// Session options applied only when spawning a delegated child.
     pub agent_defaults: std::collections::BTreeMap<String, AgentDelegationDefaults>,
+    /// Default window for `list_conversations` when the caller omits `since_days`.
+    pub conversation_list_default_days: u32,
+    /// Maximum delay a collaboration send may schedule. Hard ceiling is 168.
+    pub delay_max_hours: u32,
 }
 
 impl DelegationConfig {
@@ -261,6 +265,8 @@ impl DelegationConfig {
         self.max_calls_per_parent = self.max_calls_per_parent.clamp(1, 1_024);
         self.child_deadline_ms = self.child_deadline_ms.clamp(1_000, 24 * 60 * 60 * 1_000);
         self.max_result_bytes = self.max_result_bytes.clamp(1_024, 1024 * 1024);
+        self.conversation_list_default_days = self.conversation_list_default_days.clamp(1, 90);
+        self.delay_max_hours = self.delay_max_hours.clamp(1, 168);
         self.agent_defaults.retain(|_, defaults| {
             defaults
                 .mode_id
@@ -301,6 +307,8 @@ impl Default for DelegationConfig {
             max_result_bytes: 256 * 1024,
             completed_cache_cap_bytes: 8 * 1024 * 1024,
             agent_defaults: std::collections::BTreeMap::new(),
+            conversation_list_default_days: 7,
+            delay_max_hours: 24,
         }
     }
 }

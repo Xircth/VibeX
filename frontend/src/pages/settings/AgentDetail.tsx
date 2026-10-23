@@ -1,5 +1,6 @@
 import {
   Download,
+  ExternalLink,
   FileDown,
   Loader2,
   RefreshCw,
@@ -126,6 +127,11 @@ export function AgentDetail({
   const provisioningAction = agentProvisioningAction(agent, items);
   const needsInstall = provisioningAction === 'install';
   const needsRepair = provisioningAction === 'repair';
+  const acpPreflightItem = items.find((item) => item.id === 'acp');
+  const externalInstallUrl =
+    agent.agent_id === 'kiro' && acpPreflightItem?.status === 'fail'
+      ? 'https://kiro.dev/docs/getting-started/installation/'
+      : null;
   const [customVersion, setCustomVersion] = useState('');
   const [specifiedCompatibilityWarning, setSpecifiedCompatibilityWarning] =
     useState<string | null>(null);
@@ -141,7 +147,10 @@ export function AgentDetail({
   }, [focusDiagnostics]);
   const customVersionValid = isValidCustomVersion(customVersion);
   const supportsCustomVersion =
-    agent.built_in && agent.agent_id !== 'hermes' && onInstallVersion != null;
+    agent.built_in &&
+    agent.agent_id !== 'hermes' &&
+    agent.agent_id !== 'kiro' &&
+    onInstallVersion != null;
   useEffect(() => {
     if (!supportsCustomVersion || !customVersionValid || !onPreviewVersions) {
       setSpecifiedCompatibilityWarning(null);
@@ -348,6 +357,26 @@ export function AgentDetail({
               >
                 <Wrench aria-hidden="true" className="mr-1.5 h-3.5 w-3.5" />
                 {t('agents.repairInstallation')}
+              </Button>
+            ) : null}
+            {externalInstallUrl ? (
+              <Button
+                size="sm"
+                variant="outline"
+                className="h-8"
+                onClick={() =>
+                  window.open(
+                    externalInstallUrl,
+                    '_blank',
+                    'noopener,noreferrer'
+                  )
+                }
+              >
+                <ExternalLink
+                  aria-hidden="true"
+                  className="mr-1.5 h-3.5 w-3.5"
+                />
+                {t('agents.officialInstallGuide', '官方安装指南')}
               </Button>
             ) : null}
             <Button

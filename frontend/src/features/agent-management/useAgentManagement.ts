@@ -84,11 +84,38 @@ export function useAgentManagement() {
         lastEventSequence.current = next.sequence;
         if (next.status === 'failed') {
           const message = next.message?.trim();
-          toast.error(
-            i18n.resolvedLanguage?.startsWith('en')
-              ? t('agents.operationFailed')
-              : message || t('agents.operationFailed')
-          );
+          if (
+            next.agent_id === 'kiro' &&
+            (next.kind === 'install' ||
+              next.kind === 'repair' ||
+              next.kind === 'update')
+          ) {
+            const guideDescription = t(
+              'agents.kiroSilentInstallFailedDescription'
+            );
+            toast.error(t('agents.kiroSilentInstallFailedTitle'), {
+              description: message
+                ? `${guideDescription} (${message})`
+                : guideDescription,
+              duration: 12_000,
+              action: {
+                label: t('agents.officialInstallGuide'),
+                onClick: () => {
+                  window.open(
+                    'https://kiro.dev/docs/getting-started/installation/',
+                    '_blank',
+                    'noopener,noreferrer'
+                  );
+                },
+              },
+            });
+          } else {
+            toast.error(
+              i18n.resolvedLanguage?.startsWith('en')
+                ? t('agents.operationFailed')
+                : message || t('agents.operationFailed')
+            );
+          }
         }
         setState((current) => reduceOperationEvent(current, next));
         if (

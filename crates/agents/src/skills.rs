@@ -85,31 +85,33 @@ pub fn skills_surface(agent_type: AgentKind) -> AgentSkillsSurface {
         | AgentKind::Cursor
         | AgentKind::DeepseekHarness
         | AgentKind::Qoder
-        | AgentKind::CommandCode => AgentSkillsSurface {
+        | AgentKind::Kiro
+        | AgentKind::Auggie
+        | AgentKind::Trae
+        | AgentKind::CommandCode
+        | AgentKind::ZCode => AgentSkillsSurface {
             agent_type,
             strategy: AgentSkillsStrategy::Directory,
             global_supported: true,
             project_supported: true,
         },
-        AgentKind::Hermes | AgentKind::ZCode => AgentSkillsSurface {
+        AgentKind::Hermes => AgentSkillsSurface {
             agent_type,
             strategy: AgentSkillsStrategy::Directory,
             global_supported: true,
             project_supported: false,
         },
-        AgentKind::Kiro | AgentKind::Auggie | AgentKind::Trae | AgentKind::QaMock => {
-            AgentSkillsSurface {
-                agent_type,
-                strategy: AgentSkillsStrategy::Unsupported,
-                global_supported: false,
-                project_supported: false,
-            }
-        }
+        AgentKind::QaMock => AgentSkillsSurface {
+            agent_type,
+            strategy: AgentSkillsStrategy::Unsupported,
+            global_supported: false,
+            project_supported: false,
+        },
     }
 }
 
 /// Every agent VibeX manages. Order is used for stable scan/display output.
-const ALL_AGENTS: [AgentKind; 16] = [
+const ALL_AGENTS: [AgentKind; 19] = [
     AgentKind::ClaudeCode,
     AgentKind::Codex,
     AgentKind::Antigravity,
@@ -124,6 +126,9 @@ const ALL_AGENTS: [AgentKind; 16] = [
     AgentKind::Cursor,
     AgentKind::DeepseekHarness,
     AgentKind::Qoder,
+    AgentKind::Kiro,
+    AgentKind::Auggie,
+    AgentKind::Trae,
     AgentKind::CommandCode,
     AgentKind::ZCode,
 ];
@@ -399,15 +404,53 @@ fn skill_dirs(agent: AgentKind, workspace: Option<&Path>) -> Vec<SkillDir> {
         .into_iter()
         .map(|dir| (dir.join("skills"), false))
         .collect(),
-        AgentKind::CommandCode => home
-            .iter()
-            .map(|home| (home.join(".commandcode").join("skills"), false))
-            .collect(),
+        AgentKind::Kiro => {
+            configured_dir("KIRO_HOME", home.as_ref().map(|home| home.join(".kiro")))
+                .into_iter()
+                .map(|dir| (dir.join("skills"), false))
+                .collect()
+        }
+        AgentKind::Auggie => configured_dir(
+            "AUGMENT_HOME",
+            home.as_ref().map(|home| home.join(".augment")),
+        )
+        .into_iter()
+        .map(|dir| (dir.join("skills"), false))
+        .chain(
+            home.iter()
+                .map(|home| (home.join(".agents").join("skills"), false)),
+        )
+        .collect(),
+        AgentKind::Trae => {
+            configured_dir("TRAE_HOME", home.as_ref().map(|home| home.join(".trae")))
+                .into_iter()
+                .map(|dir| (dir.join("skills"), false))
+                .chain(
+                    home.iter()
+                        .map(|home| (home.join(".agents").join("skills"), false)),
+                )
+                .collect()
+        }
+        AgentKind::CommandCode => configured_dir(
+            "COMMAND_CODE_HOME",
+            home.as_ref().map(|home| home.join(".commandcode")),
+        )
+        .into_iter()
+        .map(|dir| (dir.join("skills"), false))
+        .chain(
+            home.iter()
+                .map(|home| (home.join(".agents").join("skills"), false)),
+        )
+        .collect(),
         AgentKind::ZCode => zcode_home()
             .into_iter()
             .map(|dir| (dir.join("skills"), false))
+            .chain(
+                home.iter()
+                    .map(|home| (home.join(".agents").join("skills"), false)),
+            )
             .collect(),
-        AgentKind::Kiro | AgentKind::Auggie | AgentKind::Trae | AgentKind::QaMock => Vec::new(),
+        AgentKind::QaMock => Vec::new(),
     };
     for (path, read_only) in globals {
         out.push(SkillDir {
@@ -431,7 +474,7 @@ fn skill_dirs(agent: AgentKind, workspace: Option<&Path>) -> Vec<SkillDir> {
                 ".clinerules/skills",
                 ".claude/skills",
             ],
-            AgentKind::Hermes | AgentKind::ZCode => &[],
+            AgentKind::Hermes => &[],
             AgentKind::Codebuddy => &[".codebuddy/skills"],
             AgentKind::KimiCode => &[".kimi-code/skills"],
             AgentKind::Pi => &[".pi/skills", ".agents/skills"],
@@ -439,8 +482,12 @@ fn skill_dirs(agent: AgentKind, workspace: Option<&Path>) -> Vec<SkillDir> {
             AgentKind::Cursor => &[".cursor/skills", ".agents/skills"],
             AgentKind::DeepseekHarness => &[".dsh/skills", ".agents/skills"],
             AgentKind::Qoder => &[".qoder/skills"],
-            AgentKind::CommandCode => &[".commandcode/skills"],
-            AgentKind::Kiro | AgentKind::Auggie | AgentKind::Trae | AgentKind::QaMock => &[],
+            AgentKind::Kiro => &[".kiro/skills"],
+            AgentKind::Auggie => &[".augment/skills", ".agents/skills"],
+            AgentKind::Trae => &[".trae/skills", ".agents/skills"],
+            AgentKind::CommandCode => &[".commandcode/skills", ".agents/skills"],
+            AgentKind::ZCode => &[".zcode/skills", ".agents/skills"],
+            AgentKind::QaMock => &[],
         };
         for relative in relatives {
             let mut path = project_base.clone();
@@ -1040,9 +1087,19 @@ fn agent_primary_skill_dir(agent: AgentKind) -> Option<PathBuf> {
             configured_dir("QODER_CONFIG_DIR", home.map(|home| home.join(".qoder")))
                 .map(|dir| dir.join("skills"))
         }
-        AgentKind::CommandCode => home.map(|home| home.join(".commandcode").join("skills")),
+        AgentKind::Kiro => configured_dir("KIRO_HOME", home.map(|home| home.join(".kiro")))
+            .map(|dir| dir.join("skills")),
+        AgentKind::Auggie => configured_dir("AUGMENT_HOME", home.map(|home| home.join(".augment")))
+            .map(|dir| dir.join("skills")),
+        AgentKind::Trae => configured_dir("TRAE_HOME", home.map(|home| home.join(".trae")))
+            .map(|dir| dir.join("skills")),
+        AgentKind::CommandCode => configured_dir(
+            "COMMAND_CODE_HOME",
+            home.map(|home| home.join(".commandcode")),
+        )
+        .map(|dir| dir.join("skills")),
         AgentKind::ZCode => zcode_home().map(|dir| dir.join("skills")),
-        AgentKind::Kiro | AgentKind::Auggie | AgentKind::Trae | AgentKind::QaMock => None,
+        AgentKind::QaMock => None,
     }
 }
 
@@ -1436,6 +1493,64 @@ pub fn project_plugin_skills(
         link,
         &system_skill_hosting_layout(),
     )
+}
+
+pub const HOST_MULTI_AGENT_PLUGIN_ID: &str = "host.multi-agent";
+pub const HOST_MULTI_AGENT_SKILL_ID: &str = "vibex-multi-agent";
+
+/// Project or remove the host MultiAgent skill. Only new sessions pick it up.
+pub fn sync_host_multi_agent_skill(enabled: bool) -> Result<(), SkillError> {
+    sync_host_multi_agent_skill_with_layout(enabled, &system_skill_hosting_layout())
+}
+
+fn sync_host_multi_agent_skill_with_layout(
+    enabled: bool,
+    layout: &SkillHostingLayout,
+) -> Result<(), SkillError> {
+    if !enabled {
+        return remove_plugin_skill_projections_with_layout(
+            HOST_MULTI_AGENT_PLUGIN_ID,
+            &[HOST_MULTI_AGENT_SKILL_ID.to_owned()],
+            layout,
+        );
+    }
+    const HOST_MULTI_AGENT_SKILL_FILES: &[(&str, &str)] = &[
+        (
+            "SKILL.md",
+            include_str!("skills/vibex-multi-agent/SKILL.md"),
+        ),
+        (
+            "COLLABORATION-SPACE.md",
+            include_str!("skills/vibex-multi-agent/COLLABORATION-SPACE.md"),
+        ),
+        (
+            "SESSION-AND-DELEGATION.md",
+            include_str!("skills/vibex-multi-agent/SESSION-AND-DELEGATION.md"),
+        ),
+    ];
+    // Projection accepts the SKILL.md file and copies its parent directory.
+    let skill_dir = std::env::temp_dir().join("vibex-host-multi-agent-skill");
+    remove_if_exists(&skill_dir)?;
+    std::fs::create_dir_all(&skill_dir)?;
+    for (relative_path, contents) in HOST_MULTI_AGENT_SKILL_FILES {
+        let file_path = skill_dir.join(relative_path);
+        if let Some(parent) = file_path.parent() {
+            std::fs::create_dir_all(parent)?;
+        }
+        std::fs::write(&file_path, contents)?;
+    }
+    let skill_file = skill_dir.join("SKILL.md");
+    let agents = AgentKind::built_in_bar_order()
+        .map(|kind| kind.as_str().to_owned())
+        .collect::<BTreeSet<_>>();
+    project_plugin_skills_with_layout(
+        HOST_MULTI_AGENT_PLUGIN_ID,
+        &[(HOST_MULTI_AGENT_SKILL_ID.to_owned(), skill_file)],
+        &agents,
+        false,
+        layout,
+    )?;
+    Ok(())
 }
 
 pub fn remove_plugin_skill_projections(
@@ -2198,6 +2313,35 @@ mod tests {
         assert_eq!(
             std::fs::read_to_string(temp.path().join("claude/office-pptx/SKILL.md")).unwrap(),
             "---\nname: office-pptx\n---\nupdated"
+        );
+    }
+
+    #[test]
+    fn host_multi_agent_skill_projects_from_the_skill_file() {
+        let temp = tempfile::tempdir().unwrap();
+        let layout = SkillHostingLayout {
+            store: temp.path().join("store"),
+            agent_dirs: BTreeMap::from([("codex".to_string(), temp.path().join("codex"))]),
+        };
+
+        sync_host_multi_agent_skill_with_layout(true, &layout).unwrap();
+
+        let projected = temp.path().join("codex/vibex-multi-agent/SKILL.md");
+        assert!(projected.is_file());
+        assert!(
+            std::fs::read_to_string(projected)
+                .unwrap()
+                .contains("name:")
+        );
+        assert!(
+            temp.path()
+                .join("codex/vibex-multi-agent/COLLABORATION-SPACE.md")
+                .is_file()
+        );
+        assert!(
+            temp.path()
+                .join("codex/vibex-multi-agent/SESSION-AND-DELEGATION.md")
+                .is_file()
         );
     }
 

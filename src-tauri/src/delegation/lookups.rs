@@ -30,6 +30,12 @@ impl DepthLookup for DbDepthLookup {
             Err(err) => Err(DelegationError::SubagentRuntimeError(err.to_string())),
         }
     }
+
+    async fn active_durable_children(&self, session_id: Uuid) -> Result<u32, DelegationError> {
+        conversations::collaboration::active_collaboration_children(&self.pool, session_id)
+            .await
+            .map_err(|error| DelegationError::SubagentRuntimeError(error.to_string()))
+    }
 }
 
 /// Recovers a child's terminal status from the DB after the broker's in-memory

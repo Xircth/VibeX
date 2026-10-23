@@ -54,6 +54,35 @@ fn default_auto_update_enabled() -> bool {
     true
 }
 
+fn default_multi_agent_depth_limit() -> u32 {
+    1
+}
+
+fn default_multi_agent_completed_cache_max_mb() -> u64 {
+    512
+}
+
+fn default_multi_agent_conversation_list_default_days() -> u32 {
+    7
+}
+
+fn default_multi_agent_delay_max_hours() -> u32 {
+    24
+}
+
+/// Session options applied only when `delegate_to_agent` starts a child.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize, TS)]
+pub struct MultiAgentAgentDefault {
+    #[serde(default, alias = "modeId", skip_serializing_if = "Option::is_none")]
+    pub mode_id: Option<String>,
+    #[serde(
+        default,
+        alias = "configValues",
+        skip_serializing_if = "std::collections::BTreeMap::is_empty"
+    )]
+    pub config_values: std::collections::BTreeMap<String, String>,
+}
+
 /// How links clicked inside conversation content are opened.
 #[derive(Clone, Copy, Debug, Default, Serialize, Deserialize, TS, PartialEq, Eq)]
 pub enum LinkOpenBehavior {
@@ -147,6 +176,21 @@ pub struct Config {
     /// built-in Web Preview panel.
     #[serde(default)]
     pub link_open_behavior: LinkOpenBehavior,
+    /// Host MultiAgent collaboration. Default off. Only new sessions pick up
+    /// the MCP tools and skill.
+    #[serde(default)]
+    pub multi_agent_enabled: bool,
+    #[serde(default = "default_multi_agent_depth_limit")]
+    pub multi_agent_depth_limit: u32,
+    #[serde(default = "default_multi_agent_completed_cache_max_mb")]
+    #[ts(type = "number")]
+    pub multi_agent_completed_cache_max_mb: u64,
+    #[serde(default = "default_multi_agent_conversation_list_default_days")]
+    pub multi_agent_conversation_list_default_days: u32,
+    #[serde(default = "default_multi_agent_delay_max_hours")]
+    pub multi_agent_delay_max_hours: u32,
+    #[serde(default)]
+    pub multi_agent_agent_defaults: std::collections::BTreeMap<String, MultiAgentAgentDefault>,
 }
 
 impl Config {
@@ -189,7 +233,30 @@ impl Config {
             auto_update_enabled: default_auto_update_enabled(),
             crash_reports_enabled: false,
             link_open_behavior: LinkOpenBehavior::default(),
+            multi_agent_enabled: false,
+            multi_agent_depth_limit: default_multi_agent_depth_limit(),
+            multi_agent_completed_cache_max_mb: default_multi_agent_completed_cache_max_mb(),
+            multi_agent_conversation_list_default_days:
+                default_multi_agent_conversation_list_default_days(),
+            multi_agent_delay_max_hours: default_multi_agent_delay_max_hours(),
+            multi_agent_agent_defaults: std::collections::BTreeMap::new(),
         }
+    }
+
+    pub fn clamp_multi_agent(&mut self) {
+        self.multi_agent_depth_limit = self.multi_agent_depth_limit.clamp(1, 8);
+        self.multi_agent_completed_cache_max_mb =
+            self.multi_agent_completed_cache_max_mb.min(1_000_000);
+        self.multi_agent_conversation_list_default_days =
+            self.multi_agent_conversation_list_default_days.clamp(1, 90);
+        self.multi_agent_delay_max_hours = self.multi_agent_delay_max_hours.clamp(1, 168);
+        self.multi_agent_agent_defaults.retain(|_, defaults| {
+            defaults
+                .mode_id
+                .as_ref()
+                .is_some_and(|mode| !mode.is_empty())
+                || !defaults.config_values.is_empty()
+        });
     }
 
     pub fn from_previous_version(raw_config: &str) -> Result<Self, Error> {
@@ -200,9 +267,10 @@ impl Config {
 
 impl From<String> for Config {
     fn from(raw_config: String) -> Self {
-        if let Ok(config) = serde_json::from_str::<Config>(&raw_config)
+        if let Ok(mut config) = serde_json::from_str::<Config>(&raw_config)
             && config.config_version == "v9"
         {
+            config.clamp_multi_agent();
             return config;
         }
 
@@ -259,6 +327,13 @@ impl Default for Config {
             auto_update_enabled: default_auto_update_enabled(),
             crash_reports_enabled: false,
             link_open_behavior: LinkOpenBehavior::default(),
+            multi_agent_enabled: false,
+            multi_agent_depth_limit: default_multi_agent_depth_limit(),
+            multi_agent_completed_cache_max_mb: default_multi_agent_completed_cache_max_mb(),
+            multi_agent_conversation_list_default_days:
+                default_multi_agent_conversation_list_default_days(),
+            multi_agent_delay_max_hours: default_multi_agent_delay_max_hours(),
+            multi_agent_agent_defaults: std::collections::BTreeMap::new(),
         }
     }
 }
@@ -381,5 +456,35 @@ mod tests {
         assert!(loaded.pr_auto_description_agent_id.is_empty());
         assert!(loaded.pr_auto_description_mode.is_none());
         assert!(loaded.pr_auto_description_session_config.is_empty());
+    }
+
+    #[test]
+    fn multi_agent_stays_off_and_clamps_scalars() {
+        let config = Config::default();
+        assert!(!config.multi_agent_enabled);
+        assert_eq!(config.multi_agent_depth_limit, 1);
+        assert_eq!(config.multi_agent_completed_cache_max_mb, 512);
+        assert_eq!(config.multi_agent_conversation_list_default_days, 7);
+        assert_eq!(config.multi_agent_delay_max_hours, 24);
+
+        let mut saved = serde_json::to_value(Config::default()).expect("serialize");
+        saved
+            .as_object_mut()
+            .expect("object")
+            .remove("multi_agent_enabled");
+        let loaded: Config = serde_json::from_value(saved).expect("load");
+        assert!(!loaded.multi_agent_enabled);
+        assert_eq!(loaded.multi_agent_depth_limit, 1);
+
+        let mut wide = Config::default();
+        wide.multi_agent_depth_limit = 99;
+        wide.multi_agent_completed_cache_max_mb = 2_000_000;
+        wide.multi_agent_conversation_list_default_days = 0;
+        wide.multi_agent_delay_max_hours = 999;
+        wide.clamp_multi_agent();
+        assert_eq!(wide.multi_agent_depth_limit, 8);
+        assert_eq!(wide.multi_agent_completed_cache_max_mb, 1_000_000);
+        assert_eq!(wide.multi_agent_conversation_list_default_days, 1);
+        assert_eq!(wide.multi_agent_delay_max_hours, 168);
     }
 }

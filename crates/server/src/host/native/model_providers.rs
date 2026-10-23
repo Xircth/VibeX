@@ -133,6 +133,12 @@ struct ProviderNativeHomes {
     openclaw: PathBuf,
     cline: PathBuf,
     pi: PathBuf,
+    codebuddy: PathBuf,
+    qoder: PathBuf,
+    auggie: PathBuf,
+    trae: PathBuf,
+    command_code: PathBuf,
+    zcode: PathBuf,
 }
 
 impl ProviderNativeHomes {
@@ -147,6 +153,17 @@ impl ProviderNativeHomes {
             openclaw: resolve_native_home(home, environment, "OPENCLAW_HOME", ".openclaw"),
             cline: resolve_native_home(home, environment, "CLINE_DIR", ".cline/data"),
             pi: resolve_native_home(home, environment, "PI_CODING_AGENT_DIR", ".pi/agent"),
+            codebuddy: resolve_native_home(home, environment, "CODEBUDDY_CONFIG_DIR", ".codebuddy"),
+            qoder: resolve_native_home(home, environment, "QODER_CONFIG_DIR", ".qoder"),
+            auggie: resolve_native_home(home, environment, "AUGMENT_CACHE_DIR", ".augment"),
+            trae: resolve_native_home(home, environment, "TRAE_HOME", ".trae"),
+            command_code: resolve_native_home(
+                home,
+                environment,
+                "COMMAND_CODE_HOME",
+                ".commandcode",
+            ),
+            zcode: resolve_native_home(home, environment, "ZCODE_HOME", ".zcode"),
         }
     }
 
@@ -159,6 +176,12 @@ impl ProviderNativeHomes {
             "hermes" => &self.hermes,
             "openclaw" => &self.openclaw,
             "cline" => &self.cline,
+            "codebuddy" => &self.codebuddy,
+            "qoder" => &self.qoder,
+            "auggie" => &self.auggie,
+            "trae" => &self.trae,
+            "command_code" => &self.command_code,
+            "zcode" => &self.zcode,
             _ if is_antigravity(agent_id) => &self.gemini,
             _ => &self.codex,
         }
@@ -2622,6 +2645,49 @@ async fn capture_projection(
             capture_text_file(&homes.pi.join("models.json"), "models.json", &mut backup).await?;
             capture_text_file(&homes.pi.join("auth.json"), "auth.json", &mut backup).await?;
         }
+        "codebuddy" => {
+            capture_text_file(&homes.codebuddy.join(".env"), ".env", &mut backup).await?;
+        }
+        "qoder" => {
+            capture_text_file(
+                &homes.qoder.join("settings.json"),
+                "settings.json",
+                &mut backup,
+            )
+            .await?;
+        }
+        "auggie" => {
+            capture_text_file(
+                &homes.auggie.join("settings.json"),
+                "settings.json",
+                &mut backup,
+            )
+            .await?;
+        }
+        "trae" => {
+            capture_text_file(
+                &homes.trae.join("traecli.toml"),
+                "traecli.toml",
+                &mut backup,
+            )
+            .await?;
+        }
+        "command_code" => {
+            capture_text_file(
+                &homes.command_code.join("providers.json"),
+                "providers.json",
+                &mut backup,
+            )
+            .await?;
+        }
+        "zcode" => {
+            capture_text_file(
+                &homes.zcode.join("settings.json"),
+                "settings.json",
+                &mut backup,
+            )
+            .await?;
+        }
         _ => unreachable!("validated Agent"),
     }
     Ok(backup)
@@ -2663,6 +2729,10 @@ fn empty_projection_backup(agent_id: &AgentId) -> ProviderProjectionBackup {
         "openclaw" => ["openclaw.json"].as_slice(),
         "cline" => ["globalState.json", "secrets.json"].as_slice(),
         "pi" => ["settings.json", "models.json", "auth.json"].as_slice(),
+        "codebuddy" => [".env"].as_slice(),
+        "qoder" | "auggie" | "zcode" => ["settings.json"].as_slice(),
+        "trae" => ["traecli.toml"].as_slice(),
+        "command_code" => ["providers.json"].as_slice(),
         _ => [].as_slice(),
     } {
         backup.file_values.insert((*key).to_string(), None);
@@ -2914,6 +2984,52 @@ async fn restore_projection(
             restore_text_file(&homes.pi.join("models.json"), "models.json", backup, false).await?;
             restore_text_file(&homes.pi.join("auth.json"), "auth.json", backup, true).await
         }
+        "codebuddy" => restore_text_file(&homes.codebuddy.join(".env"), ".env", backup, true).await,
+        "qoder" => {
+            restore_text_file(
+                &homes.qoder.join("settings.json"),
+                "settings.json",
+                backup,
+                true,
+            )
+            .await
+        }
+        "auggie" => {
+            restore_text_file(
+                &homes.auggie.join("settings.json"),
+                "settings.json",
+                backup,
+                true,
+            )
+            .await
+        }
+        "trae" => {
+            restore_text_file(
+                &homes.trae.join("traecli.toml"),
+                "traecli.toml",
+                backup,
+                true,
+            )
+            .await
+        }
+        "command_code" => {
+            restore_text_file(
+                &homes.command_code.join("providers.json"),
+                "providers.json",
+                backup,
+                true,
+            )
+            .await
+        }
+        "zcode" => {
+            restore_text_file(
+                &homes.zcode.join("settings.json"),
+                "settings.json",
+                backup,
+                true,
+            )
+            .await
+        }
         _ => validate_agent(agent_id),
     }
 }
@@ -3123,9 +3239,206 @@ async fn apply_provider(
         "openclaw" => apply_openclaw(&homes.openclaw, provider).await,
         "cline" => apply_cline(&homes.cline, provider).await,
         "pi" => apply_pi(&homes.pi, provider).await,
+        "codebuddy" => apply_codebuddy(&homes.codebuddy, provider).await,
+        "qoder" => apply_qoder(&homes.qoder, provider).await,
+        "auggie" => apply_auggie(&homes.auggie, provider).await,
+        "trae" => apply_trae(&homes.trae, provider).await,
+        "command_code" => apply_command_code(&homes.command_code, provider).await,
+        "zcode" => apply_zcode(&homes.zcode, provider).await,
         _ if is_antigravity(&provider.agent_id) => apply_antigravity(&homes.gemini, provider).await,
         _ => validate_agent(&provider.agent_id),
     }
+}
+
+async fn apply_codebuddy(
+    codebuddy_home: &Path,
+    provider: &StoredProvider,
+) -> Result<(), super::NativeError> {
+    let path = codebuddy_home.join(".env");
+    let filesystem = TokioNativeFileSystem;
+    let original = filesystem.read(&path).await?;
+    let mut lines: Vec<String> = original
+        .as_deref()
+        .and_then(|bytes| std::str::from_utf8(bytes).ok())
+        .map(|text| {
+            text.lines()
+                .filter(|line| {
+                    let trimmed = line.trim();
+                    !trimmed.starts_with("CODEBUDDY_BASE_URL=")
+                        && !trimmed.starts_with("CODEBUDDY_API_KEY=")
+                        && !trimmed.starts_with("CODEBUDDY_MODEL=")
+                })
+                .map(str::to_string)
+                .collect()
+        })
+        .unwrap_or_default();
+    lines.push(format!("CODEBUDDY_BASE_URL={}", provider.api_url));
+    lines.push(format!("CODEBUDDY_API_KEY={}", provider.api_key));
+    let model = model_default(&provider.model);
+    if !model.trim().is_empty() {
+        lines.push(format!("CODEBUDDY_MODEL={}", model.trim()));
+    }
+    let mut body = lines.join("\n");
+    body.push('\n');
+    apply_projection_mutations(&[NativeFileMutation {
+        path,
+        expected: original,
+        replacement: Some(body.into_bytes()),
+        sensitive: true,
+    }])
+    .await
+}
+
+async fn apply_qoder(
+    qoder_home: &Path,
+    provider: &StoredProvider,
+) -> Result<(), super::NativeError> {
+    apply_generic_json_env_provider(
+        &qoder_home.join("settings.json"),
+        provider,
+        &[
+            ("OPENAI_BASE_URL", &provider.api_url),
+            ("OPENAI_API_KEY", &provider.api_key),
+            ("ANTHROPIC_BASE_URL", &provider.api_url),
+            ("ANTHROPIC_API_KEY", &provider.api_key),
+        ],
+        "OPENAI_MODEL",
+    )
+    .await
+}
+
+async fn apply_auggie(
+    auggie_home: &Path,
+    provider: &StoredProvider,
+) -> Result<(), super::NativeError> {
+    apply_generic_json_env_provider(
+        &auggie_home.join("settings.json"),
+        provider,
+        &[
+            ("AUGMENT_API_URL", &provider.api_url),
+            ("AUGMENT_API_TOKEN", &provider.api_key),
+            ("OPENAI_BASE_URL", &provider.api_url),
+            ("OPENAI_API_KEY", &provider.api_key),
+        ],
+        "OPENAI_MODEL",
+    )
+    .await
+}
+
+async fn apply_trae(trae_home: &Path, provider: &StoredProvider) -> Result<(), super::NativeError> {
+    let path = trae_home.join("traecli.toml");
+    let filesystem = TokioNativeFileSystem;
+    let original = filesystem.read(&path).await?;
+    let mut table = parse_toml_table_bytes(&path, original.as_deref())?;
+    table.insert(
+        "model_provider".to_string(),
+        toml::Value::String("vibex".to_string()),
+    );
+    let model = model_default(&provider.model);
+    if !model.trim().is_empty() {
+        table.insert(
+            "model".to_string(),
+            toml::Value::String(model.trim().to_string()),
+        );
+    }
+    let providers = toml_table_entry(&mut table, "model_providers")?;
+    let vibex = toml_table_entry(providers, "vibex")?;
+    vibex.insert("name".to_string(), toml::Value::String("vibex".to_string()));
+    vibex.insert(
+        "base_url".to_string(),
+        toml::Value::String(provider.api_url.clone()),
+    );
+    vibex.insert(
+        "api_key".to_string(),
+        toml::Value::String(provider.api_key.clone()),
+    );
+    vibex.insert(
+        "wire_api".to_string(),
+        toml::Value::String("responses".to_string()),
+    );
+    write_toml_mutation(&path, original, &table, true).await
+}
+
+async fn apply_command_code(
+    command_code_home: &Path,
+    provider: &StoredProvider,
+) -> Result<(), super::NativeError> {
+    let path = command_code_home.join("providers.json");
+    let filesystem = TokioNativeFileSystem;
+    let original = filesystem.read(&path).await?;
+    let mut document = parse_json_object_bytes(&path, original.as_deref())?;
+    let root = document.as_object_mut().expect("object");
+    root.insert(
+        "defaultProvider".to_string(),
+        Value::String("vibex".to_string()),
+    );
+    let providers = object_entry(root, "providers")?;
+    let model = model_default(&provider.model);
+    providers.insert(
+        "vibex".to_string(),
+        serde_json::json!({
+            "name": provider.name,
+            "baseUrl": provider.api_url,
+            "apiKey": provider.api_key,
+            "model": model,
+        }),
+    );
+    apply_projection_mutations(&[NativeFileMutation {
+        path,
+        expected: original,
+        replacement: Some(
+            serde_json::to_vec_pretty(&document)
+                .map_err(|error| format!("序列化原生配置失败：{error}"))?,
+        ),
+        sensitive: true,
+    }])
+    .await
+}
+
+async fn apply_zcode(
+    zcode_home: &Path,
+    provider: &StoredProvider,
+) -> Result<(), super::NativeError> {
+    apply_generic_json_env_provider(
+        &zcode_home.join("settings.json"),
+        provider,
+        &[
+            ("OPENAI_BASE_URL", &provider.api_url),
+            ("OPENAI_API_KEY", &provider.api_key),
+            ("ANTHROPIC_BASE_URL", &provider.api_url),
+            ("ANTHROPIC_API_KEY", &provider.api_key),
+            ("ZHIPU_API_KEY", &provider.api_key),
+        ],
+        "OPENAI_MODEL",
+    )
+    .await
+}
+
+async fn apply_generic_json_env_provider(
+    path: &Path,
+    provider: &StoredProvider,
+    pairs: &[(&str, &str)],
+    model_env_key: &str,
+) -> Result<(), super::NativeError> {
+    let filesystem = TokioNativeFileSystem;
+    let original = filesystem.read(path).await?;
+    let mut document = parse_json_object_bytes(path, original.as_deref())?;
+    let env = object_entry(document.as_object_mut().expect("object"), "env")?;
+    for (key, value) in pairs {
+        insert_string(env, key, value);
+    }
+    let model = model_default(&provider.model);
+    insert_string(env, model_env_key, model.trim());
+    apply_projection_mutations(&[NativeFileMutation {
+        path: path.to_path_buf(),
+        expected: original,
+        replacement: Some(
+            serde_json::to_vec_pretty(&document)
+                .map_err(|error| format!("序列化原生配置失败：{error}"))?,
+        ),
+        sensitive: true,
+    }])
+    .await
 }
 
 async fn apply_claude(

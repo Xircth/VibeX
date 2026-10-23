@@ -798,7 +798,12 @@ crash_reports_enabled: boolean,
  * How links clicked in conversation content open: system browser or the
  * built-in Web Preview panel.
  */
-link_open_behavior: LinkOpenBehavior, };
+link_open_behavior: LinkOpenBehavior,
+/**
+ * Host MultiAgent collaboration. Default off. Only new sessions pick up
+ * the MCP tools and skill.
+ */
+multi_agent_enabled: boolean, multi_agent_depth_limit: number, multi_agent_completed_cache_max_mb: number, multi_agent_conversation_list_default_days: number, multi_agent_delay_max_hours: number, multi_agent_agent_defaults: { [key in string]?: MultiAgentAgentDefault }, };
 
 export type NotificationConfig = { sound_enabled: boolean, push_enabled: boolean, sound_file: SoundFile, notify_when: NotificationWhen, };
 
@@ -1484,7 +1489,12 @@ session_config_options: Array<AgentSessionConfigOption>,
  * Latest agent-advertised slash/skill catalog. `None` until the agent
  * publishes `available_commands_update`.
  */
-available_commands?: Array<AgentAvailableCommand> | null, };
+available_commands?: Array<AgentAvailableCommand> | null,
+/**
+ * Snapshot of the role used to create this conversation. Absent when the
+ * conversation was not created from a role.
+ */
+persona?: ConversationPersonaView | null, };
 
 export type PlanEntry = { content: string,
 /**
@@ -1663,7 +1673,7 @@ export type ConversationTurnSnapshot = { conversationId: string, turnId: string,
 
 export type ConversationActiveBinding = { id: string, agent_type: string, working_dir: string, acp_session_id?: string | null, status: string, capabilities: AcpCapabilitySnapshot,
 /**
- * True when this binding was created while the multi-agent plugin was on,
+ * True when this binding was created while MultiAgent collaboration was on,
  * so Host delivered `vibex-delegation-mcp` on that session new/resume/rebind.
  */
 delegation_mcp_delivered: boolean, };
@@ -2113,9 +2123,9 @@ export type ConversationInputEvent = { "kind": "submitted", input_id: string, op
 
 export type ConversationInputPayload = { agentId: AgentId, workspaceId: string, executorProfileId?: JsonValue | null, text: string, displayText?: string | null, images?: Array<string>, modeOverride?: string | null, configOverrides?: Array<AgentSessionConfigOverride>, workflowRefs?: Array<ConversationWorkflowRef>, fileRefs?: Array<ConversationFileRef>, internalPromptContributions?: Array<InternalPromptBlock>, };
 
-export type ConversationInputStatus = "queued" | "claimed" | "dispatched" | "cancelled";
+export type ConversationInputStatus = "queued" | "scheduled" | "claimed" | "dispatched" | "cancelled";
 
-export type ConversationInputView = { id: string, conversationId: string, operationId: string, revision: bigint, sortKey: bigint, status: ConversationInputStatus, payload: ConversationInputPayload, principal: JsonValue, claimToken: string | null, claimDeadline: string | null, turnId: string | null, createdAt: string, updatedAt: string, };
+export type ConversationInputView = { id: string, conversationId: string, operationId: string, revision: bigint, sortKey: bigint, status: ConversationInputStatus, payload: ConversationInputPayload, principal: JsonValue, claimToken: string | null, claimDeadline: string | null, turnId: string | null, createdAt: string, updatedAt: string, deliverAt?: string | null, };
 
 export type ConversationInputSubmission = { input: ConversationInputView, turn: ConversationTurnSnapshot | null, };
 
@@ -2161,7 +2171,7 @@ export type WorkflowVersionView = { id: string, definitionId: string, version: b
 
 export type WorkspaceAccess = "native" | "read_only_shared" | "write_serialized" | "write_isolated";
 
-export type ConversationRelationKind = "delegation" | "fork" | "workflow_step";
+export type ConversationRelationKind = "delegation" | "fork" | "workflow_step" | "spawned";
 
 export type ConversationRelationVisibility = "visible" | "hidden";
 
@@ -2284,3 +2294,9 @@ export type ForkPointStatus = "named" | "unnamed" | "tail" | "unsupported";
 export type CapturedInternalMessage = { pluginId: string, channel: string, nonce: string, rawPayload: string, parsedPayload: JsonValue, conversationId?: string | null, turnId?: string | null, };
 
 export type InternalPromptBlock = { pluginId: string, label?: string | null, content: string, priority?: number | null, };
+
+export type ConversationPersonaView = { name: string, team_name?: string | null, summary?: string | null, agent_name: string, };
+
+export type MultiAgentAgentDefault = { mode_id?: string | null, config_values?: { [key in string]?: string }, };
+
+export type CollaborationSpaceChangedEvent = { workspaceId: string, spaceId: string, seq?: number, memberId?: string, };

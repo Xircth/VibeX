@@ -123,7 +123,7 @@
   },
   {
     "name": "send_session_input",
-    "description": "Append one durable input to this parent Conversation or one of its descendants. The operation_id makes retries idempotent: reuse it only for the exact same target and text. The input starts immediately when the target is idle or remains in its durable queue when busy.",
+    "description": "Deliver one instruction to a Conversation and return immediately. With collaboration enabled, the target may be this Conversation, a descendant, or a sibling in the same workspace. Without it, only this Conversation and its descendants are in scope. Another workspace is not_found. Reuse operation_id only for the exact same target and text. Omit delay_seconds and deliver_at, or pass delay_seconds 0, to deliver now: idle targets are dispatched and a busy target stays queued. A positive delay_seconds or deliver_at schedules the input; it does not take a queue position until it is due. Pass steer true only with expected_turn_id to steer that exact in-flight turn. If steering is unsupported, there is no active turn, or the turn changed, the call fails and nothing is queued. Do not wait for the target to finish; continue your own work.",
     "inputSchema": {
       "type": "object",
       "required": ["conversation_id", "operation_id", "text"],
@@ -131,7 +131,7 @@
         "conversation_id": {
           "type": "string",
           "format": "uuid",
-          "description": "The parent Conversation or a descendant created in this companion scope."
+          "description": "Target Conversation id."
         },
         "operation_id": {
           "type": "string",
@@ -141,7 +141,26 @@
         "text": {
           "type": "string",
           "minLength": 1,
-          "description": "The next instruction for the target Conversation."
+          "description": "The instruction for the target Conversation."
+        },
+        "steer": {
+          "type": "boolean",
+          "description": "When true, steer expected_turn_id. Never falls back to the queue."
+        },
+        "expected_turn_id": {
+          "type": "string",
+          "format": "uuid",
+          "description": "Required when steer is true. The in-flight turn this instruction belongs to."
+        },
+        "delay_seconds": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Seconds from now. 0 or omitted delivers immediately. Mutually exclusive with deliver_at."
+        },
+        "deliver_at": {
+          "type": "string",
+          "format": "date-time",
+          "description": "RFC3339 delivery time. Mutually exclusive with delay_seconds."
         }
       }
     }
@@ -188,6 +207,252 @@
           "maximum": 60000,
           "description": "Bounded wait in milliseconds; 0 means wait until the condition is met."
         }
+      }
+    }
+  },
+  {
+    "name": "list_conversations",
+    "description": "List recent Conversations in this workspace. Metadata only: id, title, agent, status, updated time, whether a turn is in flight, parent, and whether it is a one-shot delegation. No message bodies. Omit since_days to use the host default (1–90). Pass project_id or workspace_id only for this workspace; anything else is not_found.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "since_days": { "type": "integer", "minimum": 1, "maximum": 90 },
+        "project_id": { "type": "string", "format": "uuid" },
+        "workspace_id": { "type": "string", "format": "uuid" },
+        "limit": { "type": "integer", "minimum": 1, "maximum": 100 }
+      }
+    }
+  },
+  {
+    "name": "create_conversation",
+    "description": "Create a durable first-class Conversation in this workspace. Pass role_id to snapshot that role, or agent_id to create one directly. This is not delegate_to_agent: the parent exiting does not cancel it, and the first turn does not end the Conversation. Reuse operation_id to retry the same create. After it returns, keep working; use send_session_input when you have a later instruction.",
+    "inputSchema": {
+      "type": "object",
+      "required": ["operation_id"],
+      "properties": {
+        "operation_id": { "type": "string", "format": "uuid" },
+        "role_id": { "type": "string" },
+        "agent_id": { "type": "string" },
+        "title": { "type": "string" },
+        "prompt": { "type": "string" },
+        "mode_id": { "type": "string" },
+        "config_values": { "type": "object" }
+      }
+    }
+  },
+  {
+    "name": "list_roles",
+    "description": "List reusable role templates. A role is not a Conversation.",
+    "inputSchema": { "type": "object", "properties": {} }
+  },
+  {
+    "name": "create_role",
+    "description": "Create a role template. agent_id is the stable agent id. persona_prompt is shown to the user when a Conversation is created from the role. Editing a role later does not rewrite existing Conversations.",
+    "inputSchema": {
+      "type": "object",
+      "required": ["name", "agent_id"],
+      "properties": {
+        "name": { "type": "string" },
+        "team_id": { "type": "string" },
+        "summary": { "type": "string" },
+        "persona_prompt": { "type": "string" },
+        "agent_id": { "type": "string" },
+        "mode_id": { "type": "string" },
+        "config_values": { "type": "object" }
+      }
+    }
+  },
+  {
+    "name": "update_role",
+    "description": "Replace a role template. Existing Conversations keep the snapshot they were created with.",
+    "inputSchema": {
+      "type": "object",
+      "required": ["role_id", "name", "agent_id"],
+      "properties": {
+        "role_id": { "type": "string" },
+        "name": { "type": "string" },
+        "team_id": { "type": "string" },
+        "summary": { "type": "string" },
+        "persona_prompt": { "type": "string" },
+        "agent_id": { "type": "string" },
+        "mode_id": { "type": "string" },
+        "config_values": { "type": "object" }
+      }
+    }
+  },
+  {
+    "name": "delete_role",
+    "description": "Delete a role template. Conversations already created from it remain, including their persona snapshot.",
+    "inputSchema": {
+      "type": "object",
+      "required": ["role_id"],
+      "properties": { "role_id": { "type": "string" } }
+    }
+  },
+  {
+    "name": "list_teams",
+    "description": "List optional role groupings.",
+    "inputSchema": { "type": "object", "properties": {} }
+  },
+  {
+    "name": "create_team",
+    "description": "Create a team. Roles may leave team_id empty.",
+    "inputSchema": {
+      "type": "object",
+      "required": ["name"],
+      "properties": {
+        "name": { "type": "string" },
+        "summary": { "type": "string" }
+      }
+    }
+  },
+  {
+    "name": "update_team",
+    "description": "Rename a team or replace its summary.",
+    "inputSchema": {
+      "type": "object",
+      "required": ["team_id", "name"],
+      "properties": {
+        "team_id": { "type": "string" },
+        "name": { "type": "string" },
+        "summary": { "type": "string" }
+      }
+    }
+  },
+  {
+    "name": "delete_team",
+    "description": "Delete a team. Roles in it become ungrouped. Conversations are kept.",
+    "inputSchema": {
+      "type": "object",
+      "required": ["team_id"],
+      "properties": { "team_id": { "type": "string" } }
+    }
+  },
+  {
+    "name": "list_collaboration_spaces",
+    "description": "List collaboration spaces in this workspace, including which spaces you belong to, your member nickname in each space, and the members in each space.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {}
+    }
+  },
+  {
+    "name": "list_space_members",
+    "description": "List all members and their details (nickname, conversation_id, agent_id, status, team_name, summary, and whether it is yourself) in a collaboration space, plus how to address the user (@User).",
+    "inputSchema": {
+      "type": "object",
+      "required": ["space_id"],
+      "properties": {
+        "space_id": { "type": "string" }
+      }
+    }
+  },
+  {
+    "name": "create_collaboration_space",
+    "description": "Create an IM space in this workspace and join it. Reuse operation_id to retry the same create. Members must share the workspace.",
+    "inputSchema": {
+      "type": "object",
+      "required": ["operation_id", "name"],
+      "properties": {
+        "operation_id": { "type": "string", "format": "uuid" },
+        "name": { "type": "string" }
+      }
+    }
+  },
+  {
+    "name": "add_space_member",
+    "description": "Add a Conversation from this workspace to a space you belong to. nickname is a proposal; the member can rename itself later. Nicknames are unique in the space.",
+    "inputSchema": {
+      "type": "object",
+      "required": ["operation_id", "space_id", "conversation_id", "nickname"],
+      "properties": {
+        "operation_id": { "type": "string", "format": "uuid" },
+        "space_id": { "type": "string" },
+        "conversation_id": { "type": "string", "format": "uuid" },
+        "nickname": { "type": "string" }
+      }
+    }
+  },
+  {
+    "name": "set_space_identity",
+    "description": "Set your own nickname in a space. Later @ resolution uses the new nickname. Messages already posted keep the actor snapshot.",
+    "inputSchema": {
+      "type": "object",
+      "required": ["operation_id", "space_id", "nickname"],
+      "properties": {
+        "operation_id": { "type": "string", "format": "uuid" },
+        "space_id": { "type": "string" },
+        "nickname": { "type": "string" }
+      }
+    }
+  },
+  {
+    "name": "post_to_space",
+    "description": "Post one ActivityStreams Note into a collaboration space and return immediately. to is a list of member nicknames (or \"User\" to reply/report to the user). delay_seconds (optional integer, default 0) schedules the message to be posted into the space after the specified number of seconds. Rules (see vibex-multi-agent COLLABORATION-SPACE.md): (1) When receiving a task from User that requires tool calls, investigation, or peer collaboration, FIRST call post_to_space (to: [\"User\"], @User prefix) with a brief 1-2 sentence acknowledgment/plan before starting heavy work, then continue working and post follow-ups/results as needed. (2) Audience filtering: when messaging User (to: [\"User\"]), NEVER expose internal parameters (space_id, conversation_id, delayed_input_id, operation_id, message_id, task_id, turn_id, seq, vibex:// URIs) in content; include such IDs only when messaging another agent member who needs them for cross-session tool calls. (3) Silent closure: do NOT call post_to_space to reply to pure acknowledgments ('收到', '已收到', '好的', '明白', '谢谢') or closed topics when no further reply is needed, and do not ask members for empty '收到请回复' confirmations. Use a new operation_id for each distinct message; reuse operation_id only when retrying the exact same post.",
+    "inputSchema": {
+      "type": "object",
+      "required": ["operation_id", "space_id", "content"],
+      "properties": {
+        "operation_id": { "type": "string", "format": "uuid" },
+        "space_id": { "type": "string" },
+        "content": { "type": "string", "minLength": 1 },
+        "summary": { "type": "string" },
+        "to": { "type": "array", "items": { "type": "string" } },
+        "in_reply_to": { "type": "string" },
+        "delay_seconds": { "type": "integer", "minimum": 0, "default": 0, "description": "Delay in seconds before posting the message to the collaboration space (default 0 for immediate delivery)." }
+      }
+    }
+  },
+  {
+    "name": "list_space_messages",
+    "description": "Read the space log since since_seq. This returns immediately. It does not wait for new messages. Agent reads omit how to address the user.",
+    "inputSchema": {
+      "type": "object",
+      "required": ["space_id"],
+      "properties": {
+        "space_id": { "type": "string" },
+        "since_seq": { "type": "integer", "minimum": 0 },
+        "limit": { "type": "integer", "minimum": 1, "maximum": 200 }
+      }
+    }
+  },
+  {
+    "name": "list_space_collection",
+    "description": "List items in the collaboration space's shared Collection (critical section / 群收藏). Returns each item's metadata (item_id, creator_nickname, item_kind, file_name, mime_type, byte_size, note, created_at, read_receipts) and its disk address (file_path) outside the project workspace (~/.vibex/{projectId}/TeamSpaces/{spaceId}/Collection/{name}). Never returns raw binary payloads. Calling this tool also records a read receipt for your member identity.",
+    "inputSchema": {
+      "type": "object",
+      "required": ["space_id"],
+      "properties": {
+        "space_id": { "type": "string", "description": "Target collaboration space ID." },
+        "limit": { "type": "integer", "minimum": 1, "maximum": 200 }
+      }
+    }
+  },
+  {
+    "name": "add_to_space_collection",
+    "description": "Add a new independent record (text, image, or file) to the collaboration space's shared Collection (群收藏). The space collection stores only address indices and metadata in the database while writing or copying the actual content to ~/.vibex/{projectId}/TeamSpaces/{spaceId}/Collection/{name} outside any project worktree so all space members across different workspaces can access it. Agents MUST NOT pass raw binary blobs: pass either `content` (text/markdown string) OR `source_path` (path to an existing image or file up to 200MB on disk), plus an optional `note` (remark) and `file_name`.",
+    "inputSchema": {
+      "type": "object",
+      "required": ["space_id"],
+      "properties": {
+        "operation_id": { "type": "string", "format": "uuid", "description": "Optional UUID for idempotent retry." },
+        "space_id": { "type": "string", "description": "Target collaboration space ID." },
+        "content": { "type": "string", "description": "Text or Markdown content to save as a text record in the collection. Mutually exclusive with source_path." },
+        "source_path": { "type": "string", "description": "Local file or image path (absolute or workspace-relative, max 200MB) to copy into the shared collection directory. Mutually exclusive with content." },
+        "file_name": { "type": "string", "description": "Optional display/storage file name in the collection directory." },
+        "note": { "type": "string", "description": "Optional remark/note describing the purpose or context of this collection item." }
+      }
+    }
+  },
+  {
+    "name": "read_space_collection_item",
+    "description": "Register a read receipt on a specific item in the collaboration space Collection (群收藏) and return its metadata and `file_path` address on disk. After calling this tool, read the file at the returned `file_path` using your file-reading tools.",
+    "inputSchema": {
+      "type": "object",
+      "required": ["space_id", "item_id"],
+      "properties": {
+        "space_id": { "type": "string", "description": "Target collaboration space ID." },
+        "item_id": { "type": "string", "description": "ID of the collection item to read." }
       }
     }
   }

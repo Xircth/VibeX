@@ -50,10 +50,15 @@ pub use cli::{
 pub use companion_session::CompanionSessionAdapter;
 pub use composition::{HeadlessServer, ServerBootstrapConfig, ServerBootstrapError};
 pub use config::{ListenPolicyError, ServerConfig};
+pub use delegation_runtime::VibexDelegationInjector;
 pub use domains::{ServerApplicationDomains, ServerDomainDependencies};
 pub use host::{
     HostEvent, HostEventBus, account_flow,
-    events::{HOST_EVENT_CHANNELS, TerminalBridgeRegistry, current_host_events},
+    collaboration::HostCollaborationHost,
+    events::{
+        COLLABORATION_SPACE_CHANGED_EVENT, HOST_EVENT_CHANNELS, TerminalBridgeRegistry,
+        current_host_events,
+    },
     local_history::assemble_local_history_scan_page,
     native, patch_stream_channel, patch_stream_subscribe_command,
     plugin_conversation::HostPluginConversationHost,
@@ -73,6 +78,22 @@ pub use preview_proxy::{
     PreviewProxyRegistry, PreviewRegistrationError, start_loopback_preview_proxy,
 };
 pub use product_mcp::{ProductMcpSessionLookup, start_product_mcp_gateway};
+
+pub async fn refresh_official_product_runtime(
+    plane: &plugins::PluginControlPlane,
+    broker: &delegation::DelegationBroker,
+    config: &services::services::config::Config,
+) -> Result<(), application::ApplicationError> {
+    host::plugin_projections::refresh_official_product_runtime_with(plane, broker, config).await
+}
+
+pub fn apply_host_multi_agent_setting(
+    gate: &plugins::OfficialMcpRuntime,
+    broker: Option<&delegation::DelegationBroker>,
+    config: &services::services::config::Config,
+) {
+    host::plugin_projections::apply_host_multi_agent(gate, broker, config);
+}
 pub use runtime::{ServerRuntime, set_extra_browser_origins, set_published_reachability};
 pub use token_store::{ProvisionedToken, SqliteTokenHashStore};
 pub use update::{HostUpgradeError, HostUpgradePlan, apply_host_upgrade, plan_host_upgrade};

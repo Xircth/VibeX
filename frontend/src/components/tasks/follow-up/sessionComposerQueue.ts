@@ -14,7 +14,8 @@ export type QueuedMessage = {
   operationId: string;
   revision: bigint;
   sortKey: bigint;
-  status: 'queued' | 'claimed';
+  status: 'queued' | 'claimed' | 'scheduled';
+  deliverAt?: string | null;
   created_at: string;
   updated_at: string;
   executorProfileId: ExecutorProfileId;
@@ -49,7 +50,13 @@ export function inputViewToQueuedMessage(
     operationId: input.operationId,
     revision: BigInt(input.revision),
     sortKey: BigInt(input.sortKey),
-    status: input.status === 'claimed' ? 'claimed' : 'queued',
+    status:
+      input.status === 'claimed'
+        ? 'claimed'
+        : input.status === 'scheduled'
+          ? 'scheduled'
+          : 'queued',
+    deliverAt: input.deliverAt ?? null,
     created_at: input.createdAt,
     updated_at: input.updatedAt,
     executorProfileId,
@@ -72,7 +79,9 @@ export function waitingQueueMessages(
 ): QueuedMessage[] {
   const excludeOperationId = options.excludeOperationId ?? null;
   return inputs
-    .filter((input) => input.status === 'queued')
+    .filter(
+      (input) => input.status === 'queued' || input.status === 'scheduled'
+    )
     .filter(
       (input) =>
         excludeOperationId == null || input.operationId !== excludeOperationId
@@ -86,15 +95,26 @@ export function getQueueIndicatorState(
 ): {
   isQueued: boolean;
   queuedMessages: QueuedMessage[];
+  isDelayedQueued: boolean;
+  delayedMessages: QueuedMessage[];
 } {
   const excludeOperationId = options.excludeOperationId ?? null;
-  const queuedMessages = (status?.status === 'queued' ? status.messages : [])
-    .filter((message) => message.status === 'queued')
-    .filter(
-      (message) =>
-        excludeOperationId == null || message.operationId !== excludeOperationId
-    );
-  return { isQueued: queuedMessages.length > 0, queuedMessages };
+  const allMessages = (status?.status === 'queued' ? status.messages : []).filter(
+    (message) =>
+      excludeOperationId == null || message.operationId !== excludeOperationId
+  );
+  const queuedMessages = allMessages.filter(
+    (message) => message.status === 'queued'
+  );
+  const delayedMessages = allMessages.filter(
+    (message) => message.status === 'scheduled'
+  );
+  return {
+    isQueued: queuedMessages.length > 0,
+    queuedMessages,
+    isDelayedQueued: delayedMessages.length > 0,
+    delayedMessages,
+  };
 }
 
 export function getQueueSnapshot(status: QueueStatus | undefined): {

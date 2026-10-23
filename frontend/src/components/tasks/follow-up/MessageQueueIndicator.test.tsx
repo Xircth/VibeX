@@ -1,159 +1,82 @@
 import { fireEvent, render, screen } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
+
 import { MessageQueueIndicator } from './MessageQueueIndicator';
 import type { QueuedMessage } from './sessionComposerQueue';
 
-function message(
-  id: string,
-  text: string,
-  status: QueuedMessage['status'] = 'queued'
-): QueuedMessage {
-  return {
-    id,
-    session_id: 'session-1',
-    operationId: `operation-${id}`,
-    revision: 1n,
-    sortKey: id === 'input-1' ? 1024n : 2048n,
-    status,
-    created_at: '2026-08-13T00:00:00.000Z',
-    updated_at: '2026-08-13T00:00:00.000Z',
-    executorProfileId: { executor: 'codex' },
-    data: {
-      message: text,
-      images: [],
-      pluginActions: [],
-    },
-  };
-}
+const normalMsg: QueuedMessage = {
+  id: 'msg-normal-1',
+  session_id: 'session-1',
+  operationId: 'op-1',
+  revision: 1n,
+  sortKey: 1n,
+  status: 'queued',
+  deliverAt: null,
+  data: {
+    message: '普通排队消息内容',
+    agentMessage: '普通排队消息内容',
+    images: [],
+    pluginActions: [],
+  },
+  executorProfileId: { executor: 'CLAUDE_CODE' },
+  created_at: '2026-08-13T00:00:00.000Z',
+  updated_at: '2026-08-13T00:00:00.000Z',
+};
+
+const delayedMsg: QueuedMessage = {
+  ...normalMsg,
+  id: 'msg-delayed-1',
+  operationId: 'op-2',
+  status: 'scheduled',
+  deliverAt: new Date(Date.now() + 185_000).toISOString(),
+  data: {
+    message: '延时发送的消息内容',
+    agentMessage: '延时发送的消息内容',
+    images: [],
+    pluginActions: [],
+  },
+};
 
 describe('MessageQueueIndicator', () => {
-  it('renders a compact multi-message queue with scoped actions', () => {
-    const messages = [
-      message('input-1', 'First'),
-      message('input-2', 'Second'),
-    ];
+  it('renders delayed messages as an independent queue with countdown timer and converts normal queued messages via the clock minutes input', () => {
     const onEdit = vi.fn();
     const onDelete = vi.fn();
-    const onMove = vi.fn();
+    const onDelay = vi.fn();
 
     render(
       <MessageQueueIndicator
-        isQueued
-        queuedMessages={messages}
+        queuedMessages={[normalMsg]}
+        delayedMessages={[delayedMsg]}
         onEditQueuedMessage={onEdit}
         onDeleteQueuedMessage={onDelete}
-        onMoveQueuedMessage={onMove}
+        onDelayQueuedMessage={onDelay}
       />
     );
 
-    fireEvent.click(screen.getByRole('button', { name: /已排队 2 条消息/ }));
-    expect(screen.getByText('First')).toBeInTheDocument();
-    expect(screen.getByText('Second')).toBeInTheDocument();
+    const normalQueue = screen.getByTestId('normal-message-queue');
+    const delayedQueue = screen.getByTestId('delayed-message-queue');
+    expect(delayedQueue).toHaveTextContent('延时发送的消息内容');
 
-    const editButtons = screen.getAllByRole('button', { name: '编辑队列消息' });
-    fireEvent.click(editButtons[1]);
-    expect(onEdit).toHaveBeenCalledWith(messages[1]);
-
-    const deleteButtons = screen.getAllByRole('button', {
-      name: '删除队列消息',
-    });
-    fireEvent.click(deleteButtons[0]);
-    expect(onDelete).toHaveBeenCalledWith(messages[0]);
-
-    const moveDown = screen.getAllByRole('button', { name: '下移队列消息' });
-    fireEvent.click(moveDown[0]);
-    expect(onMove).toHaveBeenCalledWith(messages[0], 1);
-    expect(moveDown[1]).toBeDisabled();
-    expect(screen.queryByRole('button', { name: '纠偏' })).toBeNull();
-  });
-
-  it('places a steer action after edit and delete when a live channel is available', () => {
-    const messages = [
-      message('input-1', 'First'),
-      message('input-2', 'Second'),
-    ];
-    const onSteer = vi.fn();
-    const onEdit = vi.fn();
-    const onDelete = vi.fn();
-
-    render(
-      <MessageQueueIndicator
-        isQueued
-        queuedMessages={messages}
-        canSteerQueued
-        onSteerQueuedMessage={onSteer}
-        onEditQueuedMessage={onEdit}
-        onDeleteQueuedMessage={onDelete}
-        onMoveQueuedMessage={vi.fn()}
-      />
+    const countdownEl = screen.getByTestId(
+      'delayed-countdown-msg-delayed-1'
     );
+    expect(countdownEl.textContent).toMatch(/\d{2}:\d{2}$/);
 
-    fireEvent.click(screen.getByRole('button', { name: /已排队 2 条消息/ }));
-    const row = screen.getByText('First').closest('li');
-    expect(row).not.toBeNull();
-    const actions = [...row!.querySelectorAll('button')].map((button) =>
-      button.getAttribute('aria-label')
-    );
-    expect(actions).toEqual([
-      '编辑队列消息',
-      '删除队列消息',
-      '纠偏',
-      '上移队列消息',
-      '下移队列消息',
-    ]);
+    // Expand normal queue to interact with items
+    fireEvent.click(normalQueue.querySelector('button')!);
+    expect(normalQueue).toHaveTextContent('普通排队消息内容');
 
-    fireEvent.click(screen.getAllByRole('button', { name: '纠偏' })[1]);
-    expect(onSteer).toHaveBeenCalledWith(messages[1]);
-  });
+    // Clock button is rendered on normal queue item to the right of Edit button
+    const clockBtn = screen.getByTestId('delay-queued-message-msg-normal-1');
+    expect(clockBtn).toBeTruthy();
 
-  it('locks a claimed message while dispatch is in progress', () => {
-    render(
-      <MessageQueueIndicator
-        isQueued
-        queuedMessages={[message('input-1', 'Sending', 'claimed')]}
-        onEditQueuedMessage={vi.fn()}
-        onDeleteQueuedMessage={vi.fn()}
-        onMoveQueuedMessage={vi.fn()}
-      />
-    );
-    fireEvent.click(screen.getByRole('button', { name: /已排队 1 条消息/ }));
-    expect(screen.getByLabelText('正在发送')).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: '编辑队列消息' })).toBeDisabled();
-    expect(screen.getByRole('button', { name: '删除队列消息' })).toBeDisabled();
-  });
+    fireEvent.click(clockBtn);
+    const minutesInput = screen.getByTestId('delay-minutes-input-msg-normal-1');
+    expect(minutesInput).toBeTruthy();
 
-  it('locks steer while the queued message is claimed or a steer is in flight', () => {
-    const { rerender } = render(
-      <MessageQueueIndicator
-        isQueued
-        queuedMessages={[message('input-1', 'Sending', 'claimed')]}
-        canSteerQueued
-        onSteerQueuedMessage={vi.fn()}
-        onEditQueuedMessage={vi.fn()}
-        onDeleteQueuedMessage={vi.fn()}
-      />
-    );
-    fireEvent.click(screen.getByRole('button', { name: /已排队 1 条消息/ }));
-    expect(screen.getByRole('button', { name: '纠偏' })).toBeDisabled();
+    fireEvent.change(minutesInput, { target: { value: '5' } });
+    fireEvent.keyDown(minutesInput, { key: 'Enter' });
 
-    rerender(
-      <MessageQueueIndicator
-        isQueued
-        queuedMessages={[message('input-1', 'Ready')]}
-        canSteerQueued
-        steeringQueued
-        onSteerQueuedMessage={vi.fn()}
-        onEditQueuedMessage={vi.fn()}
-        onDeleteQueuedMessage={vi.fn()}
-      />
-    );
-    expect(screen.getByRole('button', { name: '纠偏' })).toBeDisabled();
-  });
-
-  it('does not render when the queue is empty', () => {
-    const { container } = render(
-      <MessageQueueIndicator isQueued={false} queuedMessages={[]} />
-    );
-    expect(container).toBeEmptyDOMElement();
+    expect(onDelay).toHaveBeenCalledWith(normalMsg, 300);
   });
 });

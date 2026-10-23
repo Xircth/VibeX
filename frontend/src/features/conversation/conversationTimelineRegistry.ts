@@ -200,6 +200,28 @@ export function subscribeConversationTimeline(
   };
 }
 
+export type StoredConversationPersona = {
+  name: string;
+  team_name?: string | null;
+  summary?: string | null;
+  agent_name: string;
+};
+
+export function getConversationPersona(
+  conversationId: string | null
+): StoredConversationPersona | null {
+  if (!conversationId) return null;
+  const detail = state.byConversationId[conversationId]?.detail;
+  if (!detail) return null;
+  const persona = (
+    detail as { persona?: StoredConversationPersona | null }
+  ).persona;
+  if (!persona || typeof persona.name !== 'string' || !persona.name.trim()) {
+    return null;
+  }
+  return persona;
+}
+
 function timelineTurnInFlight(rows: TimelineRow[] | undefined): boolean {
   return (rows ?? []).some(
     (row) =>

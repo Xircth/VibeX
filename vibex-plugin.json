@@ -27,13 +27,6 @@
       "summary": "在会话里向智能体提供提问、纠偏、会话查询和控制。"
     },
     {
-      "id": "vibex.multi-agent",
-      "publisher": "vibex",
-      "repository": "https://github.com/Xircth/vibex-plugin-multi-agent",
-      "category": "agent",
-      "summary": "让父 Agent 把子任务委托给其它 Agent。"
-    },
-    {
       "id": "vibex.workflow-creator",
       "publisher": "vibex",
       "repository": "https://github.com/Xircth/vibex-plugin-workflow-creator",

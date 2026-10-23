@@ -239,6 +239,58 @@ function describeTauriDevExit(code, signal, ports) {
   console.error(`Generated config: ${GENERATED_TAURI_DEV_CONFIG}.`);
 }
 
+function resolveRustHostTriple(env) {
+  const result = spawnSync('rustc', ['-vV'], {
+    env,
+    encoding: 'utf8',
+    windowsHide: true,
+  });
+  const match = String(result.stdout || '').match(/^host:\s*(\S+)/m);
+  if (match && match[1]) {
+    return match[1].trim();
+  }
+  if (process.platform === 'win32') return 'x86_64-pc-windows-msvc';
+  if (process.platform === 'darwin') {
+    return process.arch === 'arm64'
+      ? 'aarch64-apple-darwin'
+      : 'x86_64-apple-darwin';
+  }
+  return 'x86_64-unknown-linux-gnu';
+}
+
+function prepareHostSidecars(env) {
+  const ext = process.platform === 'win32' ? '.exe' : '';
+  if (process.platform === 'win32') {
+    for (const name of ['vibex-mcp', 'vibex-workflow-mcp']) {
+      const binPath = path.join(WORKSPACE_ROOT, "target", "debug", name + ext); if (fs.existsSync(binPath)) { try { fs.unlinkSync(binPath); } catch { try { fs.renameSync(binPath, binPath + ".old-" + Date.now()); } catch {} } }
+    }
+  }
+  const build = spawnSync(
+    'cargo',
+    ['build', '-p', 'vibex-mcp', '-p', 'vibex-workflow-mcp'],
+    {
+      cwd: WORKSPACE_ROOT,
+      env,
+      stdio: 'inherit',
+      windowsHide: true,
+    }
+  );
+  if (build.status !== 0) {
+    console.warn('Warning: cargo build -p vibex-mcp returned non-zero status.');
+    return;
+  }
+  const triple = resolveRustHostTriple(env);
+  const binariesDir = path.join(WORKSPACE_ROOT, 'src-tauri', 'binaries');
+  fs.mkdirSync(binariesDir, { recursive: true });
+  for (const name of ['vibex-mcp', 'vibex-workflow-mcp']) {
+    const src = path.join(WORKSPACE_ROOT, 'target', 'debug', `${name}${ext}`);
+    const dst = path.join(binariesDir, `${name}-${triple}${ext}`);
+    if (fs.existsSync(src) && fs.statSync(src).size > 0) {
+      fs.copyFileSync(src, dst);
+    }
+  }
+}
+
 async function runTauriDesktopDev() {
   const ports = await getPorts();
   writeGeneratedTauriDevConfig(ports);
@@ -247,6 +299,7 @@ async function runTauriDesktopDev() {
   clearRelocatedCargoBuildCache();
   clearIncrementalCacheIfDisabled(env);
   terminateStaleDesktopProcess();
+  prepareHostSidecars(env);
 
   const userArgs = process.argv.slice(2);
 

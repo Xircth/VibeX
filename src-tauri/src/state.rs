@@ -104,6 +104,10 @@ impl AppState {
             .with_events(events.clone()),
         );
         let browser_service = crate::browser_native::desktop_browser_service(app_handle.clone());
+        let collaboration_host = std::sync::Arc::new(
+            server::HostCollaborationHost::new(pool.clone(), events.clone())
+                .with_agent_runtime(agent_runtime.clone()),
+        );
         let plugin_capability_broker = std::sync::Arc::new(
             plugins::HostCapabilityBroker::with_hosts_and_prompts(
                 plugin_control_plane.clone(),
@@ -113,6 +117,7 @@ impl AppState {
                 bind_prompts,
             )
             .with_conversation_host(plugin_conversation_host.clone())
+            .with_collaboration_host(collaboration_host.clone())
             .with_browser_host(browser_service),
         );
         let plugin_host_call = plugins::PluginHostCall::new(
@@ -164,11 +169,16 @@ impl AppState {
             .map_err(|error| deployment::DeploymentError::Other(anyhow::anyhow!(error)))?;
         // Build the delegation broker over the same ConversationContext used by
         // desktop commands, so companion send/wait cannot grow a second runtime.
+        collaboration_host.install_delivery(
+            conversations::ScopedConversationControl::new(conversation_context.clone())
+                .delivery_context(),
+        );
         let delegation = crate::delegation::build_delegation(
             agent_runtime.clone(),
             pool,
             conversation_context,
             plugin_control_plane.official_product_mcp_gate(),
+            events.clone(),
         );
         if let Err(error) = server::start_product_mcp_gateway(
             delegation.listener.clone(),
@@ -185,12 +195,31 @@ impl AppState {
         if let Err(error) = services::services::mcp::patch_grok_product_mcp_startup_timeout() {
             tracing::warn!(%error, "Grok product MCP startup timeout patch failed");
         }
+        let host_config = deployment.config().read().await.clone();
         crate::commands::plugin_control::refresh_official_product_runtime(
             &plugin_control_plane,
             &delegation.broker,
+            &host_config,
         )
         .await
         .map_err(|error| deployment::DeploymentError::Other(anyhow::anyhow!(error.to_string())))?;
+        {
+            let plane = plugin_control_plane.clone();
+            let broker = delegation.broker.clone();
+            let deployment = deployment.clone();
+            plugin_capability_broker.set_settings_saved_hook(move || {
+                let plane = plane.clone();
+                let broker = broker.clone();
+                let deployment = deployment.clone();
+                tauri::async_runtime::spawn(async move {
+                    let config = deployment.config().read().await.clone();
+                    let _ = crate::commands::plugin_control::refresh_official_product_runtime(
+                        &plane, &broker, &config,
+                    )
+                    .await;
+                });
+            });
+        }
         let preview_proxy = server::PreviewProxyRegistry::default();
         let agent_management_runtime = Arc::new(AgentManagementRuntimeState::default());
         let host_conversations = conversations::ConversationContext {

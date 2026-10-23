@@ -9,7 +9,10 @@ import { ActionBarImageButton } from './ActionBarImageButton';
 import { ActionBarIdleControls } from './ActionBarIdleControls';
 import { ActionBarUtilityButtons } from './ActionBarUtilityButtons';
 import { ActionBarRunningControls } from './ActionBarRunningControls';
-import { SessionSettingsSummary } from './SessionSettingsSummary';
+import {
+  SessionSettingsSummary,
+  type SessionPersona,
+} from './SessionSettingsSummary';
 
 interface ActionBarProps {
   profiles: Record<string, ExecutorConfig> | null;
@@ -26,6 +29,7 @@ interface ActionBarProps {
   /** Pending per-option config selections for the next turn (key → value). */
   selectedConfigValues?: Record<string, string>;
   onSelectConfigOption?: (key: string, value: string) => void;
+  persona?: SessionPersona | null;
   isAwaitingNewSessionConfirmation?: boolean;
   isEditable: boolean;
   isAttemptRunning: boolean;
@@ -59,6 +63,7 @@ export function ActionBar({
   sessionConfigOptions = [],
   selectedConfigValues = {},
   onSelectConfigOption,
+  persona = null,
   isAwaitingNewSessionConfirmation = false,
   isEditable,
   isAttemptRunning,
@@ -106,6 +111,7 @@ export function ActionBar({
         options={sessionConfigOptions}
         pending={selectedConfigValues}
         onSelectConfigOption={onSelectConfigOption}
+        persona={persona}
         disabled={!isEditable}
       />
 

@@ -26,6 +26,7 @@ import { ConfirmDialog } from '@/components/dialogs/shared/ConfirmDialog';
 import {
   agentManagementApi,
   agentManagementErrorMessage as errorMessage,
+  type AgentOperationState,
   useAgentManagement,
 } from '@/features/agent-management';
 import { recordAgentAcpUpdateCheck } from '@/features/agent-management/agentAcpUpdates';
@@ -106,6 +107,9 @@ export function AgentSettings() {
     null
   );
   const [checkingUpdate, setCheckingUpdate] = useState(false);
+  const [enablingOperation, setEnablingOperation] = useState<
+    (AgentOperationState & { agentId: AgentId }) | null
+  >(null);
   const [userDefinition, setUserDefinition] =
     useState<UserAgentDefinitionView | null>(null);
   const [savingUserDefinition, setSavingUserDefinition] = useState(false);
@@ -867,6 +871,34 @@ export function AgentSettings() {
     [userConfig?.executor_profile.executor, management, t, updateAndSaveConfig]
   );
 
+  const showKiroWebInstallFallbackToast = useCallback(
+    (error?: unknown) => {
+      const detail = error
+        ? errorMessage(error, t('settings:agents.installStartFailed'))
+        : null;
+      const guideDescription = t(
+        'settings:agents.kiroSilentInstallFailedDescription'
+      );
+      toast.error(t('settings:agents.kiroSilentInstallFailedTitle'), {
+        description: detail
+          ? `${guideDescription} (${detail})`
+          : guideDescription,
+        duration: 12_000,
+        action: {
+          label: t('settings:agents.officialInstallGuide'),
+          onClick: () => {
+            window.open(
+              'https://kiro.dev/docs/getting-started/installation/',
+              '_blank',
+              'noopener,noreferrer'
+            );
+          },
+        },
+      });
+    },
+    [t]
+  );
+
   const queueRepair = useCallback(async () => {
     if (!selectedAgentId) return;
     try {
@@ -874,11 +906,15 @@ export function AgentSettings() {
       management.beginOperation(receipt);
       toast.success(t('settings:agents.repairStarted'));
     } catch (error) {
+      if (selectedAgentId === 'kiro') {
+        showKiroWebInstallFallbackToast(error);
+        return;
+      }
       toast.error(
         errorMessage(error, t('settings:agents.operationStartFailed'))
       );
     }
-  }, [management, selectedAgentId, t]);
+  }, [management, selectedAgentId, showKiroWebInstallFallbackToast, t]);
 
   const queueInstall = useCallback(async () => {
     if (!selectedAgentId) return;
@@ -887,9 +923,13 @@ export function AgentSettings() {
       management.beginOperation(receipt);
       toast.success(t('settings:agents.installStarted'));
     } catch (error) {
+      if (selectedAgentId === 'kiro') {
+        showKiroWebInstallFallbackToast(error);
+        return;
+      }
       toast.error(errorMessage(error, t('settings:agents.installStartFailed')));
     }
-  }, [management, selectedAgentId, t]);
+  }, [management, selectedAgentId, showKiroWebInstallFallbackToast, t]);
 
   const queueVersionInstall = useCallback(
     async (input: {
@@ -971,16 +1011,32 @@ export function AgentSettings() {
   const applyUpdate = useCallback(async () => {
     if (!selectedAgentId) return;
     try {
-      await agentManagementApi.applyUpdate(selectedAgentId);
+      const receipt = await agentManagementApi.applyUpdate(selectedAgentId);
+      if (receipt) {
+        management.beginOperation(receipt);
+      }
       toast.success(t('settings:agents.updateStarted'));
     } catch (error) {
       toast.error(errorMessage(error, t('settings:agents.updateStartFailed')));
     }
-  }, [selectedAgentId, t]);
+  }, [management, selectedAgentId, t]);
 
   const setEnabled = useCallback(
     async (enabled: boolean) => {
       if (!selectedAgentId) return;
+      if (enabled) {
+        const envCheckMsg = t('settings:agents.stageEnvCheck');
+        setEnablingOperation({
+          agentId: selectedAgentId,
+          operationId: `enable-${selectedAgentId}`,
+          kind: 'install',
+          status: 'running',
+          progressPercent: 10,
+          message: envCheckMsg,
+          logs: [envCheckMsg],
+          sequence: 0,
+        });
+      }
       let updatedAgent;
       try {
         updatedAgent = await agentManagementApi.setEnabled(
@@ -989,40 +1045,100 @@ export function AgentSettings() {
         );
         management.mergeAgent(updatedAgent);
       } catch (error) {
+        if (enabled) setEnablingOperation(null);
         toast.error(
           errorMessage(error, t('settings:agents.enableUpdateFailed'))
         );
         return;
       }
       if (!enabled) return;
-      const inspected = await inspectAgent({
-        notify: false,
-        skipUpdateCheck: true,
-      });
-      const agent = inspected?.agent ?? updatedAgent;
-      if (agent.active_operation) return;
-      const report = inspected?.report ?? null;
-      const action = report
-        ? agentProvisioningAction(
-            agent,
-            presentPreflightItems(report.items).filter(
-              (item) => !isAuthPreflightItem(item)
+      try {
+        const acpCheckMsg = t('settings:agents.stageAcpCheck');
+        setEnablingOperation((current) =>
+          current?.agentId === selectedAgentId
+            ? {
+                ...current,
+                progressPercent: 22,
+                message: acpCheckMsg,
+                logs: [...(current.logs ?? []), acpCheckMsg],
+              }
+            : current
+        );
+        const inspected = await inspectAgent({
+          notify: false,
+          skipUpdateCheck: true,
+        });
+        const agent = inspected?.agent ?? updatedAgent;
+        if (agent.active_operation) return;
+        const report = inspected?.report ?? null;
+        const action = report
+          ? agentProvisioningAction(
+              agent,
+              presentPreflightItems(report.items).filter(
+                (item) => !isAuthPreflightItem(item)
+              )
             )
-          )
-        : agent.lifecycle === 'uninstalled'
-          ? 'install'
-          : agent.lifecycle === 'needs_repair'
-            ? 'repair'
-            : null;
-      if (action === 'install') return queueInstall();
-      if (action === 'repair') return queueRepair();
-      const comparison = await applyBackgroundUpdateCheck(selectedAgentId);
-      const acpItem = report?.items.find((item) => item.id === 'acp');
-      if (
-        comparison?.update_available ||
-        (comparison && agentHasAcpUpdate(comparison, acpItem?.version))
-      ) {
-        await applyUpdate();
+          : agent.lifecycle === 'uninstalled'
+            ? 'install'
+            : agent.lifecycle === 'needs_repair'
+              ? 'repair'
+              : null;
+        if (action === 'install') {
+          const prepareMsg = t('settings:agents.stagePrepare');
+          setEnablingOperation((current) =>
+            current?.agentId === selectedAgentId
+              ? {
+                  ...current,
+                  kind: 'install',
+                  progressPercent: 35,
+                  message: prepareMsg,
+                  logs: [...(current.logs ?? []), prepareMsg],
+                }
+              : current
+          );
+          await queueInstall();
+          return;
+        }
+        if (action === 'repair') {
+          const prepareMsg = t('settings:agents.stagePrepare');
+          setEnablingOperation((current) =>
+            current?.agentId === selectedAgentId
+              ? {
+                  ...current,
+                  kind: 'repair',
+                  progressPercent: 35,
+                  message: prepareMsg,
+                  logs: [...(current.logs ?? []), prepareMsg],
+                }
+              : current
+          );
+          await queueRepair();
+          return;
+        }
+        const comparison = await applyBackgroundUpdateCheck(selectedAgentId);
+        const acpItem = report?.items.find((item) => item.id === 'acp');
+        if (
+          comparison?.update_available ||
+          (comparison && agentHasAcpUpdate(comparison, acpItem?.version))
+        ) {
+          const prepareMsg = t('settings:agents.stagePrepare');
+          setEnablingOperation((current) =>
+            current?.agentId === selectedAgentId
+              ? {
+                  ...current,
+                  kind: 'update',
+                  progressPercent: 35,
+                  message: prepareMsg,
+                  logs: [...(current.logs ?? []), prepareMsg],
+                }
+              : current
+          );
+          await applyUpdate();
+        }
+      } finally {
+        setEnablingOperation((current) =>
+          current?.agentId === selectedAgentId ? null : current
+        );
       }
     },
     [
@@ -1444,7 +1560,10 @@ export function AgentSettings() {
             <AgentDetail
               agent={selectedAgent}
               operation={
-                management.state.operations[selectedAgent.agent_id] ?? null
+                management.state.operations[selectedAgent.agent_id] ??
+                (enablingOperation?.agentId === selectedAgent.agent_id
+                  ? enablingOperation
+                  : null)
               }
               preflight={preflight}
               authentication={authenticationPanel}

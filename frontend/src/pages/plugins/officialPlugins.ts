@@ -11,7 +11,6 @@ export const OFFICIAL_PLUGIN_I18N_KEY = {
   'vibex.office': 'office',
   'vibex.workflow-creator': 'workflowCreator',
   'vibex.session-enhance': 'sessionEnhance',
-  'vibex.multi-agent': 'multiAgent',
   'vibex.plugin-development': 'pluginDevelopment',
   'vibex.host-chrome': 'hostChrome',
   'vibex.host-surface': 'hostSurface',

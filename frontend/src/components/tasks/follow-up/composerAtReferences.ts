@@ -13,7 +13,15 @@ export const AT_REFERENCE_TAB_ORDER = [
   'action',
 ] as const;
 
-export type AtReferenceTab = (typeof AT_REFERENCE_TAB_ORDER)[number];
+export type AtReferenceTab = 'member' | (typeof AT_REFERENCE_TAB_ORDER)[number];
+
+export function atReferenceTabOrder(
+  groups?: ReadonlyArray<{ tab: AtReferenceTab }>
+): readonly AtReferenceTab[] {
+  return groups?.some((group) => group.tab === 'member')
+    ? (['member', ...AT_REFERENCE_TAB_ORDER] as const)
+    : AT_REFERENCE_TAB_ORDER;
+}
 
 export const MAX_AT_REFERENCES_PER_TAB = 50;
 
@@ -53,6 +61,12 @@ export type AtReferenceProject = {
   path: string;
 };
 
+export type AtReferenceMember = {
+  id: string;
+  nickname: string;
+  detail?: string;
+};
+
 export type AtReferenceSources = {
   files: Array<{ path: string; name: string }>;
   conversations: DbConversationSummary[];
@@ -63,6 +77,7 @@ export type AtReferenceSources = {
   actions?: AtReferenceAction[];
   hosts?: AtReferenceHost[];
   projects?: AtReferenceProject[];
+  members?: AtReferenceMember[];
 };
 
 const CONVERSATION_URI_PREFIX = 'vibex://conversation/';
@@ -234,6 +249,19 @@ export function hostToAtReference(host: AtReferenceHost): AtReferenceItem {
   };
 }
 
+export function memberToAtReference(
+  member: AtReferenceMember
+): AtReferenceItem {
+  const nickname = member.nickname.trim();
+  return {
+    id: `member:${member.id || nickname}`,
+    tab: 'member',
+    label: nickname,
+    detail: member.detail,
+    insertText: `@${nickname}`,
+  };
+}
+
 export function buildAtReferenceGroups(
   query: string,
   sources: AtReferenceSources
@@ -295,7 +323,7 @@ export function buildAtReferenceGroups(
     .filter((host) => matchesQuery(q, host.label, host.detail))
     .map(hostToAtReference);
 
-  return [
+  const baseGroups: AtReferenceGroup[] = [
     { tab: 'file', ...capItems(files) },
     { tab: 'project', ...capItems(projects) },
     { tab: 'conversation', ...capItems(conversations) },
@@ -304,31 +332,41 @@ export function buildAtReferenceGroups(
     { tab: 'host', ...capItems(hosts) },
     { tab: 'action', ...capItems(actions) },
   ];
+
+  if (sources.members === undefined) {
+    return baseGroups;
+  }
+
+  const members = sources.members
+    .filter((member) => matchesQuery(q, member.nickname, member.detail))
+    .map(memberToAtReference);
+
+  return [{ tab: 'member', ...capItems(members) }, ...baseGroups];
 }
 
 export function firstNonEmptyTab(
   groups: AtReferenceGroup[],
   pinned?: AtReferenceTab | null
 ): AtReferenceTab {
-  if (pinned && AT_REFERENCE_TAB_ORDER.includes(pinned)) return pinned;
+  const order = atReferenceTabOrder(groups);
+  if (pinned && order.includes(pinned)) return pinned;
   return (
-    AT_REFERENCE_TAB_ORDER.find(
+    order.find(
       (tab) =>
         (groups.find((group) => group.tab === tab)?.items.length ?? 0) > 0
-    ) ?? AT_REFERENCE_TAB_ORDER[0]
+    ) ?? order[0]
   );
 }
 
 export function cycleAtReferenceTab(
   current: AtReferenceTab,
-  direction: 1 | -1
+  direction: 1 | -1,
+  groups?: ReadonlyArray<{ tab: AtReferenceTab }>
 ): AtReferenceTab {
-  const at = AT_REFERENCE_TAB_ORDER.indexOf(current);
+  const order = atReferenceTabOrder(groups);
+  const at = order.indexOf(current);
   const index = at < 0 ? 0 : at;
-  return AT_REFERENCE_TAB_ORDER[
-    (index + direction + AT_REFERENCE_TAB_ORDER.length) %
-      AT_REFERENCE_TAB_ORDER.length
-  ];
+  return order[(index + direction + order.length) % order.length];
 }
 
 export function isAtReferenceNavigationKey(key: string): boolean {

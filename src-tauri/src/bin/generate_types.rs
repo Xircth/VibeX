@@ -87,6 +87,7 @@ use conversations::{
     ConversationChildSummaryView, ConversationInputStatus, ConversationInputSubmission,
     ConversationInputView, ConversationRelationView, ConversationSearchHit,
     ConversationSteeringReceipt, ConversationSteeringStatus,
+    collaboration::{CollaborationSpaceChangedEvent, ConversationPersonaView},
 };
 use db::models::{
     chat_channel_message_log::ChatChannelMessageLog,
@@ -114,7 +115,10 @@ use remote_protocol::{
     SubscriptionRequest, SubscriptionResource, SubscriptionSnapshot,
 };
 use services::services::{
-    config::{CommitReminderMode, Config, LinkOpenBehavior, NotificationConfig, NotificationWhen},
+    config::{
+        CommitReminderMode, Config, LinkOpenBehavior, MultiAgentAgentDefault, NotificationConfig,
+        NotificationWhen,
+    },
     usage::{
         ProjectUsageAgentUsage, ProjectUsageDailyUsage, ProjectUsageFolderUsage,
         ProjectUsageModelUsage, ProjectUsageProviderStatus, ProjectUsageSessionSummary,
@@ -537,6 +541,7 @@ fn replacement_declarations() -> BTreeMap<String, String> {
     insert_declaration::<SessionContinuityMode>(&mut decls);
     insert_declaration::<SessionSummary>(&mut decls);
     insert_declaration::<Config>(&mut decls);
+    insert_declaration::<MultiAgentAgentDefault>(&mut decls);
     insert_declaration::<NotificationConfig>(&mut decls);
     insert_declaration::<NotificationWhen>(&mut decls);
     insert_declaration::<LinkOpenBehavior>(&mut decls);
@@ -868,6 +873,8 @@ fn replacement_declarations() -> BTreeMap<String, String> {
     insert_declaration::<DbConversationSummary>(&mut decls);
     insert_declaration::<ConversationActiveBinding>(&mut decls);
     insert_declaration::<ConversationCurrentTurn>(&mut decls);
+    insert_declaration::<ConversationPersonaView>(&mut decls);
+    insert_declaration::<CollaborationSpaceChangedEvent>(&mut decls);
     insert_declaration::<DbConversationDetail>(&mut decls);
     insert_declaration::<ConversationTurnSnapshot>(&mut decls);
     insert_declaration::<ConversationOutputView>(&mut decls);

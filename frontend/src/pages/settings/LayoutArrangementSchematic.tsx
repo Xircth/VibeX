@@ -12,9 +12,12 @@ import {
 import { CSS } from '@dnd-kit/utilities';
 import { cn } from '@/lib/utils';
 import {
+  COLLABORATION_ZONE_LETTERS,
   KANBAN_ZONE_LETTERS,
   ZONE_LETTERS,
   swapArrangementSlots,
+  type CollaborationArrangement,
+  type CollaborationSlot,
   type KanbanArrangement,
   type KanbanSlot,
   type LayoutArrangement,
@@ -227,6 +230,45 @@ export function KanbanLayoutSchematic({
       slot={slot}
       letter={KANBAN_ZONE_LETTERS[value[slot]]}
       label={t(`appearance.layout.kanbanZones.${value[slot]}`)}
+      className={className}
+    />
+  );
+
+  return (
+    <ThreeColumnFrame onDragEnd={handleDragEnd}>
+      {cell('left', 'w-[26%]')}
+      {cell('center', 'min-w-0 flex-1')}
+      {cell('right', 'w-[24%]')}
+    </ThreeColumnFrame>
+  );
+}
+
+interface CollaborationLayoutSchematicProps {
+  value: CollaborationArrangement;
+  onChange: (next: CollaborationArrangement) => void;
+}
+
+export function CollaborationLayoutSchematic({
+  value,
+  onChange,
+}: CollaborationLayoutSchematicProps) {
+  const { t } = useTranslation('settings');
+
+  const handleDragEnd = (event: DragEndEvent) => {
+    const source = event.active.data.current?.slot as
+      | CollaborationSlot
+      | undefined;
+    const target = event.over?.id as CollaborationSlot | undefined;
+    if (!source || !target || source === target) return;
+
+    onChange(swapArrangementSlots(value, source, target));
+  };
+
+  const cell = (slot: CollaborationSlot, className: string) => (
+    <SlotCell
+      slot={slot}
+      letter={COLLABORATION_ZONE_LETTERS[value[slot]]}
+      label={t(`appearance.layout.collaborationZones.${value[slot]}`)}
       className={className}
     />
   );

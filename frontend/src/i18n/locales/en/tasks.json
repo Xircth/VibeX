@@ -34,6 +34,7 @@
       "localHost": "This computer",
       "materializeFailed": "Could not copy Host connection files",
       "tabs": {
+        "member": "Members",
         "file": "Files",
         "project": "Projects",
         "conversation": "Sessions",
@@ -406,7 +407,12 @@
   "sessionSettings": {
     "title": "This session",
     "on": "On",
-    "off": "Off"
+    "off": "Off",
+    "personaName": "Name",
+    "personaTeam": "Team",
+    "personaSummary": "Summary",
+    "personaAgent": "Agent",
+    "sessionConfig": "Session"
   },
   "readyContent": {
     "back": "Back",

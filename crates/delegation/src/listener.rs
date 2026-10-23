@@ -150,7 +150,10 @@ impl DelegationListener {
             ),
             BrokerMessage::SessionInfo(req) => BrokerResponse::Payload(
                 match self
-                    .authorized_entry(&req.token, TokenFeature::SessionInfo)
+                    .authorized_any(
+                        &req.token,
+                        &[TokenFeature::SessionInfo, TokenFeature::Collaboration],
+                    )
                     .await
                 {
                     Some(entry) => {
@@ -170,16 +173,28 @@ impl DelegationListener {
             ),
             BrokerMessage::SessionSend(req) => BrokerResponse::Payload(
                 match self
-                    .authorized_entry(&req.token, TokenFeature::SessionControl)
+                    .authorized_any(
+                        &req.token,
+                        &[TokenFeature::SessionControl, TokenFeature::WorkspaceWrite],
+                    )
                     .await
                 {
                     Some(entry) => {
+                        let workspace_write = self
+                            .tokens
+                            .permissions(&req.token)
+                            .is_some_and(|permissions| permissions.workspace_write);
                         self.features
-                            .session_send(
+                            .session_send_ex(
                                 &scope_for(&entry),
                                 &req.conversation_id,
                                 &req.operation_id,
                                 &req.text,
+                                req.steer,
+                                req.expected_turn_id.as_deref(),
+                                req.delay_seconds,
+                                req.deliver_at.as_deref(),
+                                workspace_write,
                             )
                             .await
                     }
@@ -187,6 +202,22 @@ impl DelegationListener {
                         "accepted": false,
                         "conversation_id": req.conversation_id,
                         "error_code": "invalid_token",
+                    }),
+                },
+            ),
+            BrokerMessage::Collaborate(req) => BrokerResponse::Payload(
+                match self
+                    .authorized_entry(&req.token, TokenFeature::Collaboration)
+                    .await
+                {
+                    Some(entry) => {
+                        self.features
+                            .collaborate(&scope_for(&entry), &req.name, req.arguments)
+                            .await
+                    }
+                    None => json!({
+                        "error_code": "invalid_token",
+                        "message": "collaboration is not enabled for this token",
                     }),
                 },
             ),
@@ -246,6 +277,19 @@ impl DelegationListener {
             .contains_session(&entry.parent_connection_id, entry.parent_conversation_id)
             .await
             .then_some(entry)
+    }
+
+    async fn authorized_any(
+        &self,
+        token: &str,
+        features: &[TokenFeature],
+    ) -> Option<crate::token_registry::TokenEntry> {
+        for feature in features {
+            if let Some(entry) = self.authorized_entry(token, *feature).await {
+                return Some(entry);
+            }
+        }
+        None
     }
 
     async fn process_call(&self, req: BrokerRequest) -> DelegationTaskReport {
@@ -958,6 +1002,8 @@ mod tests {
                 ask: false,
                 session_info: false,
                 session_control: false,
+                workspace_write: false,
+                collaboration: false,
             },
         );
         let scope = DelegationScope {

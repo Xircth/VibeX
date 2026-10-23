@@ -165,3 +165,17 @@ UI 不得因出现 Mention 就显示子任务已启动。
 - **只投影原生文件或只写 session/new。** 否决。会让一半 Agent 看不到工具。
 - **打开插件强制当前会话 rebind。** 否决。会打断在途 Turn。
 - **移植 CodeG 的自动化 / 待办 / 任务汇报工具。** 否决。VibeX 已有独立领域。
+
+## Amendment（2026-10-19）
+
+协同的领域记录（角色、团队、协作空间）走公开 `host.call collaboration.*`，不进 `config.json`。标量仍在 `config.json`：深度、缓存、委派默认、查询窗口（默认 7 天，1–90）、延时上限（默认 24 小时，硬顶 168）。
+
+编辑入口是 `app.settings.page`。插件详情配置只保留只读摘要和「在设置中打开」，不再是唯一编辑器。
+
+协同 MCP 在一次性委派之外提供列表、`get_session_info`、角色、团队、`create_conversation`、同工作区 `send_session_input` 和空间工具。`get_session_info` 与会话增强是同一个读实现。协同 token 不获得 `session_control`。会话增强 token 仍只写祖先树。停用插件后新的写调用 fail-closed；已经排队的输入仍会被调度。
+
+## Amendment（2026-10-20）
+
+MultiAgent协同不再是官方插件，也不再由 `app.settings.page` 或 `app.tab` 承载。页面、MCP 激活、Skill 和标量都在宿主。「设置 → 常规 → MultiAgent协同」是开关，默认关闭，只影响新会话。深度、完成缓存、查询窗口、延时上限和委派默认跟这个开关放在一起。角色、团队和协作空间仍是宿主领域记录。
+
+关掉之后，新会话不注入工具，新的写操作失败；已经排队的输入仍会被送达。会话增强与工作流仍是各自的官方插件。

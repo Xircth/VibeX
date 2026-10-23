@@ -437,7 +437,7 @@ export function DshAuthPanel({
           {view ? (
             <div className="agent-auth-mode-heading-tools">
               <div
-                className="agent-auth-mode-tabs"
+                className="agent-auth-mode-tabs astryx-segmented-control"
                 role="tablist"
                 aria-label={t('settings:agents.authModeAria', {
                   agent: 'DeepSeek Harness',
@@ -458,6 +458,7 @@ export function DshAuthPanel({
                       aria-controls="deepseek_harness-auth-mode-panel"
                       tabIndex={selected ? 0 : -1}
                       className={cn(
+                        'astryx-segmented-control-item',
                         selected && 'is-active',
                         unsaved && 'is-draft'
                       )}

@@ -42,8 +42,10 @@ import { backendEmit } from '@/lib/backendTransport';
 import { toPrettyCase } from '@/utils/string';
 
 import {
+  setCollaborationArrangement,
   setKanbanArrangement,
   setLayoutArrangement,
+  useCollaborationArrangement,
   useKanbanArrangement,
   useLayoutArrangement,
 } from '@/lib/layoutArrangement';
@@ -70,6 +72,7 @@ import { AccentColorField } from './AccentColorField';
 import { SettingsSection } from './SettingsUi';
 import { useLiveSettingsCommit } from './useLiveSettingsCommit';
 import {
+  CollaborationLayoutSchematic,
   KanbanLayoutSchematic,
   WorkspaceLayoutSchematic,
 } from './LayoutArrangementSchematic';
@@ -213,9 +216,10 @@ export function AppearanceSettings() {
   );
   const workspaceArrangement = useLayoutArrangement();
   const kanbanArrangement = useKanbanArrangement();
-  const [layoutPage, setLayoutPage] = useState<'workspace' | 'kanban'>(
-    'workspace'
-  );
+  const collaborationArrangement = useCollaborationArrangement();
+  const [layoutPage, setLayoutPage] = useState<
+    'workspace' | 'kanban' | 'collaboration'
+  >('workspace');
   const previewFontSize = useEditorSettingsStore(
     (state) => state.previewFontSize
   );
@@ -624,7 +628,13 @@ export function AppearanceSettings() {
               className="shrink-0"
               value={layoutPage}
               onChange={(value) =>
-                setLayoutPage(value === 'kanban' ? 'kanban' : 'workspace')
+                setLayoutPage(
+                  value === 'kanban'
+                    ? 'kanban'
+                    : value === 'collaboration'
+                      ? 'collaboration'
+                      : 'workspace'
+                )
               }
               label={t('appearance.layout.title')}
               size="sm"
@@ -638,6 +648,10 @@ export function AppearanceSettings() {
                 value="kanban"
                 label={t('appearance.layout.kanbanLabel')}
               />
+              <SegmentedControlItem
+                value="collaboration"
+                label={t('appearance.layout.collaborationLabel')}
+              />
             </SegmentedControl>
           }
         >
@@ -647,16 +661,23 @@ export function AppearanceSettings() {
                 value={workspaceArrangement}
                 onChange={setLayoutArrangement}
               />
-            ) : (
+            ) : layoutPage === 'kanban' ? (
               <KanbanLayoutSchematic
                 value={kanbanArrangement}
                 onChange={setKanbanArrangement}
+              />
+            ) : (
+              <CollaborationLayoutSchematic
+                value={collaborationArrangement}
+                onChange={setCollaborationArrangement}
               />
             )}
             <p className="settings-row__description">
               {layoutPage === 'workspace'
                 ? t('appearance.layout.dragHint')
-                : t('appearance.layout.kanbanHint')}
+                : layoutPage === 'kanban'
+                  ? t('appearance.layout.kanbanHint')
+                  : t('appearance.layout.collaborationHint')}
             </p>
             <p className="settings-row__description">
               {t('appearance.layout.hint')}
@@ -664,7 +685,6 @@ export function AppearanceSettings() {
           </div>
         </SettingsSection>
       </div>
-
     </div>
   );
 }

@@ -1,6 +1,6 @@
 /**
  * User-configurable layout arrangements, persisted in localStorage and shared
- * across every project. Two independent arrangements exist:
+ * across every project. Three independent arrangements exist:
  *
  * - Workspace page: three visible columns (A dock / B workspace / C session)
  *   mapped onto left / center / right. Stored arrangements still pin
@@ -8,6 +8,8 @@
  *   not expose a D terminal strip.
  * - Kanban page: three zones (A session list / B session monitor / C session
  *   execution) mapped onto three column slots.
+ * - Collaboration page: three zones (A collaboration spaces / B message area /
+ *   C preview area) mapped onto three column slots.
  *
  * The settings window is a separate webview, so cross-window sync relies on
  * the `storage` event (same pattern as the i18n language preference).
@@ -23,6 +25,13 @@ export type LayoutArrangement = Record<LayoutSlot, LayoutZone>;
 export type KanbanZone = 'list' | 'monitor' | 'session';
 export type KanbanSlot = 'left' | 'center' | 'right';
 export type KanbanArrangement = Record<KanbanSlot, KanbanZone>;
+
+export type CollaborationZone = 'spaces' | 'thread' | 'preview';
+export type CollaborationSlot = 'left' | 'center' | 'right';
+export type CollaborationArrangement = Record<
+  CollaborationSlot,
+  CollaborationZone
+>;
 
 export const LAYOUT_SLOTS: readonly LayoutSlot[] = [
   'left',
@@ -46,6 +55,18 @@ export const KANBAN_ZONES: readonly KanbanZone[] = [
   'session',
 ];
 
+export const COLLABORATION_SLOTS: readonly CollaborationSlot[] = [
+  'left',
+  'center',
+  'right',
+];
+
+export const COLLABORATION_ZONES: readonly CollaborationZone[] = [
+  'spaces',
+  'thread',
+  'preview',
+];
+
 /** Stable schematic letters: they follow the zone, not the slot. */
 export const ZONE_LETTERS: Record<LayoutZone, string> = {
   dock: 'A',
@@ -60,6 +81,12 @@ export const KANBAN_ZONE_LETTERS: Record<KanbanZone, string> = {
   session: 'C',
 };
 
+export const COLLABORATION_ZONE_LETTERS: Record<CollaborationZone, string> = {
+  spaces: 'A',
+  thread: 'B',
+  preview: 'C',
+};
+
 export const DEFAULT_LAYOUT_ARRANGEMENT: LayoutArrangement = {
   left: 'dock',
   center: 'workspace',
@@ -71,6 +98,12 @@ export const DEFAULT_KANBAN_ARRANGEMENT: KanbanArrangement = {
   left: 'list',
   center: 'monitor',
   right: 'session',
+};
+
+export const DEFAULT_COLLABORATION_ARRANGEMENT: CollaborationArrangement = {
+  left: 'spaces',
+  center: 'thread',
+  right: 'preview',
 };
 
 export function arrangementsEqual<A extends Record<string, string>>(
@@ -98,7 +131,8 @@ interface ArrangementPreference<S extends string, Z extends string> {
 
 type ArrangementStorageKey =
   | 'vibex:layout-arrangement'
-  | 'vibex:kanban-layout-arrangement';
+  | 'vibex:kanban-layout-arrangement'
+  | 'vibex:collaboration-layout-arrangement';
 
 function createArrangementPreference<S extends string, Z extends string>(
   storageKey: ArrangementStorageKey,
@@ -217,6 +251,13 @@ const kanbanPreference = createArrangementPreference(
   DEFAULT_KANBAN_ARRANGEMENT
 );
 
+const collaborationPreference = createArrangementPreference(
+  'vibex:collaboration-layout-arrangement',
+  COLLABORATION_SLOTS,
+  COLLABORATION_ZONES,
+  DEFAULT_COLLABORATION_ARRANGEMENT
+);
+
 // --- Workspace page arrangement ---
 
 export function isDefaultArrangement(arrangement: LayoutArrangement): boolean {
@@ -306,5 +347,50 @@ export function useKanbanArrangement(): KanbanArrangement {
     kanbanPreference.subscribe,
     kanbanPreference.get,
     () => DEFAULT_KANBAN_ARRANGEMENT
+  );
+}
+
+// --- Collaboration page arrangement ---
+
+export function isDefaultCollaborationArrangement(
+  arrangement: CollaborationArrangement
+): boolean {
+  return arrangementsEqual(arrangement, DEFAULT_COLLABORATION_ARRANGEMENT);
+}
+
+export function collaborationSlotOfZone(
+  arrangement: CollaborationArrangement,
+  zone: CollaborationZone
+): CollaborationSlot {
+  return (
+    COLLABORATION_SLOTS.find((slot) => arrangement[slot] === zone) ?? 'center'
+  );
+}
+
+export function getCollaborationArrangement(): CollaborationArrangement {
+  return collaborationPreference.get();
+}
+
+export function setCollaborationArrangement(
+  arrangement: CollaborationArrangement
+): void {
+  collaborationPreference.set(arrangement);
+}
+
+export function resetCollaborationArrangement(): void {
+  collaborationPreference.reset();
+}
+
+export function subscribeCollaborationArrangement(
+  listener: () => void
+): () => void {
+  return collaborationPreference.subscribe(listener);
+}
+
+export function useCollaborationArrangement(): CollaborationArrangement {
+  return useSyncExternalStore(
+    collaborationPreference.subscribe,
+    collaborationPreference.get,
+    () => DEFAULT_COLLABORATION_ARRANGEMENT
   );
 }

@@ -1,4 +1,7 @@
-use std::time::{Duration, Instant};
+use std::{
+    sync::Arc,
+    time::{Duration, Instant},
+};
 
 use agents::{AgentId, ConversationInputPayload};
 use db::models::{conversation::DbConversationSummary, conversation_turn::ConversationTurnRecord};
@@ -47,6 +50,16 @@ pub struct ScopedConversationControl {
 impl ScopedConversationControl {
     pub fn new(context: ConversationContext) -> Self {
         Self { context }
+    }
+
+    pub fn delivery_context(&self) -> crate::collaboration::DeliveryContext {
+        crate::collaboration::DeliveryContext {
+            publisher: Some(self.context.event_publisher.clone()),
+            dispatcher: Some(Arc::new(ServiceIdleDispatcher {
+                context: self.context.clone(),
+            })),
+            space_changed: None,
+        }
     }
 
     pub async fn submit_text(
@@ -140,6 +153,28 @@ impl ScopedConversationControl {
         }
     }
 
+    /// Steer a turn that collaboration policy has already authorized.
+    /// This never submits a queued input.
+    pub async fn steer_authorized(
+        &self,
+        conversation_id: Uuid,
+        operation_id: Uuid,
+        expected_turn_id: Uuid,
+        text: &str,
+        principal: serde_json::Value,
+    ) -> Result<crate::ConversationSteeringReceipt, crate::ConversationServiceError> {
+        ConversationSessionService::new(self.context.clone())
+            .steer(crate::ConversationSteerInput {
+                conversation_id,
+                operation_id,
+                expected_turn_id,
+                text: text.to_string(),
+                images: Vec::new(),
+                principal,
+            })
+            .await
+    }
+
     pub async fn cancel_turn(
         &self,
         parent_conversation_id: Uuid,
@@ -202,5 +237,23 @@ impl ScopedConversationControl {
             .await
             .map_err(|error| ScopedConversationControlError::Internal(error.to_string()))?
             .ok_or(ScopedConversationControlError::OutOfScope)
+    }
+}
+
+struct ServiceIdleDispatcher {
+    context: ConversationContext,
+}
+
+#[async_trait::async_trait]
+impl crate::collaboration::IdleTurnDispatcher for ServiceIdleDispatcher {
+    async fn start_if_idle(&self, conversation_id: Uuid) -> Result<Option<Uuid>, String> {
+        match ConversationSessionService::new(self.context.clone())
+            .dispatch_next_queued_input(conversation_id)
+            .await
+        {
+            Ok(Some(turn)) => Ok(Some(turn.turn_id)),
+            Ok(None) => Ok(None),
+            Err(error) => Err(error.to_string()),
+        }
     }
 }

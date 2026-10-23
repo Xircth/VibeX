@@ -18,8 +18,8 @@ pub use question::{
 };
 pub use report::{DelegationTaskReport, TaskStatus};
 pub use transport::{
-    BrokerAskRequest, BrokerCancelRequest, BrokerCancelTaskRequest, BrokerCommitFeedbackRequest,
-    BrokerFeedbackRequest, BrokerMessage, BrokerRequest, BrokerResponse,
-    BrokerSessionCancelRequest, BrokerSessionRequest, BrokerSessionSendRequest,
+    BrokerAskRequest, BrokerCancelRequest, BrokerCancelTaskRequest, BrokerCollaborateRequest,
+    BrokerCommitFeedbackRequest, BrokerFeedbackRequest, BrokerMessage, BrokerRequest,
+    BrokerResponse, BrokerSessionCancelRequest, BrokerSessionRequest, BrokerSessionSendRequest,
     BrokerSessionWaitRequest, BrokerStatusRequest, MAX_FRAME_BYTES, read_frame, write_frame,
 };

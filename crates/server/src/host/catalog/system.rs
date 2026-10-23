@@ -759,6 +759,14 @@ pub(super) async fn clear_local_app_data(
         .await
         .map_err(internal_error)?;
     publish_config_runtime(&default_config).await;
+    crate::apply_host_multi_agent_setting(
+        domains
+            .plugin_control_plane
+            .official_product_mcp_gate()
+            .as_ref(),
+        domains.delegation_broker.as_deref(),
+        &default_config,
+    );
     {
         let mut config = domains.deployment.config().write().await;
         *config = default_config;

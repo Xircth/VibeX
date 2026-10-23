@@ -24,12 +24,13 @@ use agent_client_protocol::{
             ElicitationCapabilities, ElicitationContentValue, ElicitationFormCapabilities,
             ElicitationMode, ElicitationScope, ExtRequest, ExtResponse, ImageContent,
             Implementation, InitializeRequest, KillTerminalRequest, KillTerminalResponse,
-            ListSessionsRequest, LoadSessionRequest, NewSessionRequest, PermissionOptionKind,
-            PromptRequest, ReleaseTerminalResponse, RequestPermissionOutcome,
-            RequestPermissionRequest, RequestPermissionResponse, ResourceLink,
-            ResumeSessionRequest, SelectedPermissionOutcome, SessionConfigKind,
-            SessionConfigOption as AcpSessionConfigOption, SessionConfigOptionCategory,
-            SessionConfigOptionValue, SessionConfigOptionsCapabilities, SessionConfigSelectOption,
+            ListSessionsRequest, LoadSessionRequest, LoadSessionResponse, NewSessionRequest,
+            NewSessionResponse, PermissionOptionKind, PromptRequest, ReleaseTerminalResponse,
+            RequestPermissionOutcome, RequestPermissionRequest, RequestPermissionResponse,
+            ResourceLink, ResumeSessionRequest, ResumeSessionResponse, SelectedPermissionOutcome,
+            SessionConfigKind, SessionConfigOption as AcpSessionConfigOption,
+            SessionConfigOptionCategory, SessionConfigOptionValue,
+            SessionConfigOptionsCapabilities, SessionConfigSelectOption,
             SessionConfigSelectOptions, SessionConfigValueId, SessionId, SessionModeState,
             SessionNotification, SessionUpdate, SetSessionConfigOptionRequest,
             SetSessionModeRequest, TerminalId, TerminalOutputResponse, TextContent,
@@ -117,6 +118,73 @@ impl SetSessionModelRequest {
 struct SetSessionModelResponse {
     #[serde(default)]
     _meta: Option<serde_json::Value>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, acp::JsonRpcRequest)]
+#[request(method = "session/new", response = serde_json::Value, crate = acp)]
+#[serde(transparent)]
+struct RawNewSessionRequest(NewSessionRequest);
+
+#[derive(Debug, Clone, Serialize, Deserialize, acp::JsonRpcRequest)]
+#[request(method = "session/load", response = serde_json::Value, crate = acp)]
+#[serde(transparent)]
+struct RawLoadSessionRequest(LoadSessionRequest);
+
+#[derive(Debug, Clone, Serialize, Deserialize, acp::JsonRpcRequest)]
+#[request(method = "session/resume", response = serde_json::Value, crate = acp)]
+#[serde(transparent)]
+struct RawResumeSessionRequest(ResumeSessionRequest);
+
+fn deserialize_raw_session_response<T: serde::de::DeserializeOwned>(
+    raw: serde_json::Value,
+) -> Result<(T, Option<serde_json::Value>), acp::Error> {
+    let raw_models = raw.get("models").cloned();
+    let response = serde_json::from_value(raw).map_err(acp::Error::into_internal_error)?;
+    Ok((response, raw_models))
+}
+
+const KIRO_METADATA_METHOD: &str = "_kiro.dev/metadata";
+const KIRO_COMMANDS_AVAILABLE_METHOD: &str = "_kiro.dev/commands/available";
+const KIRO_AGENT_SWITCHED_METHOD: &str = "_kiro.dev/agent/switched";
+const KIRO_MODEL_OPTION_ID: &str = "model";
+const KIRO_EFFORT_OPTION_ID: &str = "effort";
+const KIRO_THINKING_OPTION_ID: &str = "thinking";
+const KIRO_DEFAULT_VALUE: &str = "default";
+
+/// Kiro CLI applies reasoning effort and thinking toggle through the
+/// `_kiro.dev/commands/execute` extension method.
+#[derive(Debug, Clone, Serialize, Deserialize, acp::JsonRpcRequest)]
+#[request(
+    method = "_kiro.dev/commands/execute",
+    response = serde_json::Value,
+    crate = acp
+)]
+#[serde(rename_all = "camelCase")]
+struct KiroExecuteCommandRequest {
+    session_id: SessionId,
+    command: serde_json::Value,
+}
+
+impl KiroExecuteCommandRequest {
+    fn effort(session_id: SessionId, level: &str) -> Self {
+        Self {
+            session_id,
+            command: serde_json::json!({
+                "command": "effort",
+                "args": { "level": level }
+            }),
+        }
+    }
+
+    fn thinking(session_id: SessionId, enabled: bool) -> Self {
+        Self {
+            session_id,
+            command: serde_json::json!({
+                "command": "reasoning",
+                "args": { "thinkingEnabled": enabled }
+            }),
+        }
+    }
 }
 
 const MAX_TOOL_PREVIEW_BYTES: usize = 16 * 1024;
@@ -1554,6 +1622,18 @@ enum VendorConfigWire {
     /// `_meta["x.ai/sessionConfig"]` and applies model changes via the
     /// non-standard `session/set_model` method (`{sessionId, modelId}`).
     XaiSessionConfig,
+    /// Kiro (`kiro-cli acp`) advertises models via top-level `models` on
+    /// `session/new` / `session/load`, reasoning via `_kiro.dev/metadata`,
+    /// and applies changes via `session/set_model` and `_kiro.dev/commands/execute`.
+    KiroSessionConfig,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+struct KiroReasoning {
+    levels: Vec<String>,
+    current: Option<String>,
+    thinking_toggleable: bool,
+    thinking: Option<bool>,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -1566,6 +1646,8 @@ struct SessionControlState {
     /// and must be written back with `session/set_mode`.
     mode_uses_set_mode: bool,
     available_commands: Option<Vec<AgentAvailableCommand>>,
+    /// Reasoning metadata reported by Kiro via `_kiro.dev/metadata`.
+    kiro_reasoning: Option<KiroReasoning>,
     /// `availableModels[]._meta.totalContextTokens` from session establishment.
     grok_model_windows: HashMap<String, u64>,
     /// Last occupancy pair emitted as `AgentEvent::Usage` for this session.
@@ -3119,9 +3201,13 @@ impl AgentConnectionRunner {
             );
             *self.pending_session_id.lock().await = Some(session_id);
             self.emit_connection_status(AgentConnectionStatus::Recovering, None, Some(session_id));
-            let resume_result = conn.send_request(request).block_task().await;
+            let resume_result = conn
+                .send_request(RawResumeSessionRequest(request))
+                .block_task()
+                .await
+                .and_then(deserialize_raw_session_response::<ResumeSessionResponse>);
             match resume_result {
-                Ok(response) => {
+                Ok((response, raw_models)) => {
                     self.record_session_header(session_id, &external_session_id);
                     self.session_map
                         .write()
@@ -3130,10 +3216,12 @@ impl AgentConnectionRunner {
                     self.emit_session_linked(session_id, external_session_id.clone())
                         .await;
                     let (modes, config_options, vendor_config) =
-                        session_controls_with_vendor_fallback(
+                        session_controls_with_models_and_vendor_fallback(
                             response.modes,
                             response.config_options,
                             response.meta.as_ref(),
+                            raw_models.as_ref(),
+                            self.snapshot.agent_id.as_str(),
                         );
                     self.emit_session_controls(
                         conn,
@@ -3191,7 +3279,11 @@ impl AgentConnectionRunner {
             *self.pending_session_id.lock().await = Some(session_id);
             self.begin_load_replay(&external_session_id).await;
             self.emit_connection_status(AgentConnectionStatus::Recovering, None, Some(session_id));
-            let result = conn.send_request(request).block_task().await;
+            let result = conn
+                .send_request(RawLoadSessionRequest(request))
+                .block_task()
+                .await
+                .and_then(deserialize_raw_session_response::<LoadSessionResponse>);
             self.end_load_replay().await;
             *self.pending_session_id.lock().await = None;
             result
@@ -3202,7 +3294,7 @@ impl AgentConnectionRunner {
         };
 
         match load_result {
-            Ok(response) => {
+            Ok((response, raw_models)) => {
                 self.record_session_header(session_id, &external_session_id);
                 self.session_map
                     .write()
@@ -3210,11 +3302,14 @@ impl AgentConnectionRunner {
                     .insert(session_id, external_session_id.clone());
                 self.emit_session_linked(session_id, external_session_id.clone())
                     .await;
-                let (modes, config_options, vendor_config) = session_controls_with_vendor_fallback(
-                    response.modes,
-                    response.config_options,
-                    response.meta.as_ref(),
-                );
+                let (modes, config_options, vendor_config) =
+                    session_controls_with_models_and_vendor_fallback(
+                        response.modes,
+                        response.config_options,
+                        response.meta.as_ref(),
+                        raw_models.as_ref(),
+                        self.snapshot.agent_id.as_str(),
+                    );
                 self.emit_session_controls(
                     conn,
                     &external_session_id,
@@ -3380,8 +3475,12 @@ impl AgentConnectionRunner {
             .await;
         *self.pending_session_id.lock().await = Some(session_id);
         self.emit_connection_status(AgentConnectionStatus::Connecting, None, Some(session_id));
-        let response = conn.send_request(request).block_task().await;
-        let response = match response {
+        let response = conn
+            .send_request(RawNewSessionRequest(request))
+            .block_task()
+            .await
+            .and_then(deserialize_raw_session_response::<NewSessionResponse>);
+        let (response, raw_models) = match response {
             Ok(response) => response,
             Err(error) => {
                 *self.pending_session_id.lock().await = None;
@@ -3395,11 +3494,14 @@ impl AgentConnectionRunner {
             .insert(session_id, acp_session_id.clone());
         self.emit_session_linked(session_id, acp_session_id.clone())
             .await;
-        let (modes, config_options, vendor_config) = session_controls_with_vendor_fallback(
-            response.modes,
-            response.config_options,
-            response.meta.as_ref(),
-        );
+        let (modes, config_options, vendor_config) =
+            session_controls_with_models_and_vendor_fallback(
+                response.modes,
+                response.config_options,
+                response.meta.as_ref(),
+                raw_models.as_ref(),
+                self.snapshot.agent_id.as_str(),
+            );
         // `emit_session_controls` consumes the saved preferences. Snapshot them
         // first so ZCode can still confirm the mode that creates its backend.
         let zcode_preferences = if self.snapshot.agent_id.as_str() == "zcode" {
@@ -3800,6 +3902,18 @@ impl AgentConnectionRunner {
                     );
                 }
             }
+            for (server, env) in injector.forwarded_stdio_servers(&self.snapshot.agent_id) {
+                let mut stdio = acp::schema::v1::McpServerStdio::new(server.name, server.command)
+                    .args(server.args);
+                if !env.is_empty() {
+                    let env_vars = env
+                        .into_iter()
+                        .map(|(k, v)| acp::schema::v1::EnvVariable::new(k, v))
+                        .collect();
+                    stdio = stdio.env(env_vars);
+                }
+                servers.push(acp::schema::v1::McpServer::Stdio(stdio));
+            }
         }
         servers
     }
@@ -3808,7 +3922,7 @@ impl AgentConnectionRunner {
         let offer = wire_mcp_offer(&*self.capabilities.read().await);
         let mut servers = Vec::new();
         if let Some(injector) = &self.delegation_injector {
-            for server in injector.remote_servers() {
+            for server in injector.remote_servers_for_agent(&self.snapshot.agent_id) {
                 let headers = server
                     .headers
                     .into_iter()
@@ -3866,6 +3980,9 @@ impl AgentConnectionRunner {
             let mut controls = self.session_controls.write().await;
             let entry = controls.entry(session_id).or_default();
             entry.config_options = config_options.clone();
+            if let Some(reasoning) = entry.kiro_reasoning.as_ref() {
+                place_kiro_reasoning_selectors(&mut entry.config_options, reasoning);
+            }
             entry.mode_uses_set_mode = mode_uses_set_mode;
             if let Some(model) = current_grok_model_id(&entry.config_options) {
                 entry.last_model_id = Some(model);
@@ -4108,6 +4225,47 @@ impl AgentConnectionRunner {
         }
 
         let Some(selection) = find_config_override_selection(&config_options, key, value) else {
+            if vendor_config == Some(VendorConfigWire::KiroSessionConfig) {
+                if key == KIRO_THINKING_OPTION_ID
+                    && let Some(enabled) = value.as_str().and_then(kiro_thinking_value)
+                {
+                    self.execute_kiro_command(
+                        conn,
+                        KiroExecuteCommandRequest::thinking(
+                            SessionId::new(acp_session_id.to_string()),
+                            enabled,
+                        ),
+                    )
+                    .await?;
+                    if let Some(stored) = self.session_controls.write().await.get_mut(&session_id)
+                        && let Some(reasoning) = stored.kiro_reasoning.as_mut()
+                    {
+                        reasoning.thinking = Some(enabled);
+                    }
+                    return Ok(());
+                }
+                if key == KIRO_EFFORT_OPTION_ID
+                    && let Some(level) = value
+                        .as_str()
+                        .map(str::trim)
+                        .filter(|level| !level.is_empty() && *level != KIRO_DEFAULT_VALUE)
+                {
+                    self.execute_kiro_command(
+                        conn,
+                        KiroExecuteCommandRequest::effort(
+                            SessionId::new(acp_session_id.to_string()),
+                            level,
+                        ),
+                    )
+                    .await?;
+                    if let Some(stored) = self.session_controls.write().await.get_mut(&session_id)
+                        && let Some(reasoning) = stored.kiro_reasoning.as_mut()
+                    {
+                        reasoning.current = Some(level.to_string());
+                    }
+                    return Ok(());
+                }
+            }
             // Preferred / last-used values the Agent no longer advertises fall
             // back to the Agent default (ADR-0023). Emitting a conversation
             // Warning for `reasoning_effort=low` on Grok is not actionable:
@@ -4124,12 +4282,14 @@ impl AgentConnectionRunner {
             return Ok(());
         }
 
-        // Grok applies its vendor-advertised model option via the non-standard
-        // `session/set_model` method; the standard `session/set_config_option`
-        // rejects it. The model value rides `selection.event_value` so the
-        // exact advertised choice id is sent.
-        if vendor_config == Some(VendorConfigWire::XaiSessionConfig)
-            && selection.config_id == "model"
+        // Grok and Kiro apply their vendor-advertised model option via the
+        // non-standard `session/set_model` method; the standard
+        // `session/set_config_option` rejects it. The model value rides
+        // `selection.event_value` so the exact advertised choice id is sent.
+        if matches!(
+            vendor_config,
+            Some(VendorConfigWire::XaiSessionConfig | VendorConfigWire::KiroSessionConfig)
+        ) && selection.config_id == "model"
         {
             let Some(model_id) = selection.event_value.as_str() else {
                 return Ok(());
@@ -4141,6 +4301,57 @@ impl AgentConnectionRunner {
                 ))
                 .block_task()
                 .await?;
+            self.store_vendor_config_selection(session_id, &selection)
+                .await;
+            self.publish_applied_config(session_id, &selection).await;
+            return Ok(());
+        }
+        if vendor_config == Some(VendorConfigWire::KiroSessionConfig)
+            && selection.config_id == KIRO_EFFORT_OPTION_ID
+        {
+            let Some(level) = selection.event_value.as_str() else {
+                return Ok(());
+            };
+            if level == KIRO_DEFAULT_VALUE {
+                return Ok(());
+            }
+            self.execute_kiro_command(
+                conn,
+                KiroExecuteCommandRequest::effort(
+                    SessionId::new(acp_session_id.to_string()),
+                    level,
+                ),
+            )
+            .await?;
+            if let Some(stored) = self.session_controls.write().await.get_mut(&session_id)
+                && let Some(reasoning) = stored.kiro_reasoning.as_mut()
+            {
+                reasoning.current = Some(level.to_string());
+            }
+            self.store_vendor_config_selection(session_id, &selection)
+                .await;
+            self.publish_applied_config(session_id, &selection).await;
+            return Ok(());
+        }
+        if vendor_config == Some(VendorConfigWire::KiroSessionConfig)
+            && selection.config_id == KIRO_THINKING_OPTION_ID
+        {
+            let Some(enabled) = selection.event_value.as_str().and_then(kiro_thinking_value) else {
+                return Ok(());
+            };
+            self.execute_kiro_command(
+                conn,
+                KiroExecuteCommandRequest::thinking(
+                    SessionId::new(acp_session_id.to_string()),
+                    enabled,
+                ),
+            )
+            .await?;
+            if let Some(stored) = self.session_controls.write().await.get_mut(&session_id)
+                && let Some(reasoning) = stored.kiro_reasoning.as_mut()
+            {
+                reasoning.thinking = Some(enabled);
+            }
             self.store_vendor_config_selection(session_id, &selection)
                 .await;
             self.publish_applied_config(session_id, &selection).await;
@@ -4228,6 +4439,24 @@ impl AgentConnectionRunner {
         // republishes `SessionConfigOptions` leaves the summary on the old
         // mode. Republish both control surfaces from the stored snapshot.
         self.publish_applied_config(session_id, &selection).await;
+        Ok(())
+    }
+
+    async fn execute_kiro_command(
+        &self,
+        conn: &ConnectionTo<Agent>,
+        request: KiroExecuteCommandRequest,
+    ) -> Result<(), acp::Error> {
+        let reply = conn.send_request(request).block_task().await?;
+        if reply.get("success").and_then(serde_json::Value::as_bool) == Some(false) {
+            let message = reply
+                .get("message")
+                .and_then(serde_json::Value::as_str)
+                .unwrap_or("Kiro rejected the command");
+            return Err(acp::Error::into_internal_error(std::io::Error::other(
+                message.to_string(),
+            )));
+        }
         Ok(())
     }
 
@@ -5763,7 +5992,7 @@ impl AcpClientBridge {
             .lock()
             .await
             .handle_ext(ext.method.as_ref(), &params);
-        let session_id = match params
+        let bound_session_id = match params
             .get("sessionId")
             .or_else(|| params.get("session_id"))
             .and_then(|value| value.as_str())
@@ -5778,6 +6007,119 @@ impl AcpClientBridge {
                 }
             }
         };
+        let pending_session_id = *self.pending_session_id.lock().await;
+        let session_id = resolve_agent_session_id(bound_session_id, pending_session_id);
+        let establishing = pending_session_id.is_some();
+
+        match ext.method.as_ref() {
+            KIRO_METADATA_METHOD => {
+                if let Some(session_id) = session_id
+                    && let Some(reasoning_value) = params.get("reasoning")
+                {
+                    let reasoning = parse_kiro_reasoning(reasoning_value);
+                    let updated_options = {
+                        let mut controls = self.session_controls.write().await;
+                        let entry = controls.entry(session_id).or_default();
+                        if entry.kiro_reasoning.as_ref() == Some(&reasoning) {
+                            None
+                        } else {
+                            entry.kiro_reasoning = Some(reasoning.clone());
+                            if entry
+                                .config_options
+                                .iter()
+                                .any(|option| option.id.0.as_ref() == KIRO_MODEL_OPTION_ID)
+                            {
+                                place_kiro_reasoning_selectors(
+                                    &mut entry.config_options,
+                                    &reasoning,
+                                );
+                                Some(entry.config_options.clone())
+                            } else {
+                                None
+                            }
+                        }
+                    };
+                    if !establishing && let Some(options) = updated_options {
+                        send_manager_event(
+                            &self.event_tx,
+                            AgentConnectionManagerEvent {
+                                connection_id: self.connection_id,
+                                session_id: Some(session_id),
+                                prompt_id: None,
+                                event: AgentEvent::SessionConfigOptions {
+                                    options: agent_session_config_options_from_acp(options),
+                                },
+                            },
+                        );
+                    }
+                }
+                return Ok(());
+            }
+            KIRO_COMMANDS_AVAILABLE_METHOD => {
+                if let Some(session_id) = session_id {
+                    let commands = kiro_available_commands(&params);
+                    {
+                        let mut controls = self.session_controls.write().await;
+                        let entry = controls.entry(session_id).or_default();
+                        entry.available_commands = Some(commands.clone());
+                    }
+                    if !establishing {
+                        send_manager_event(
+                            &self.event_tx,
+                            AgentConnectionManagerEvent {
+                                connection_id: self.connection_id,
+                                session_id: Some(session_id),
+                                prompt_id: None,
+                                event: AgentEvent::AvailableCommands { commands },
+                            },
+                        );
+                    }
+                }
+                return Ok(());
+            }
+            KIRO_AGENT_SWITCHED_METHOD => {
+                if let Some(session_id) = session_id
+                    && let Some(agent_name) = params
+                        .get("agentName")
+                        .and_then(serde_json::Value::as_str)
+                        .map(str::trim)
+                        .filter(|name| !name.is_empty())
+                {
+                    let updated_options = {
+                        let mut controls = self.session_controls.write().await;
+                        let entry = controls.entry(session_id).or_default();
+                        apply_current_mode_to_config_options(&mut entry.config_options, agent_name);
+                        entry.config_options.clone()
+                    };
+                    if !establishing {
+                        send_manager_event(
+                            &self.event_tx,
+                            AgentConnectionManagerEvent {
+                                connection_id: self.connection_id,
+                                session_id: Some(session_id),
+                                prompt_id: None,
+                                event: AgentEvent::ModeChanged {
+                                    mode_id: agent_name.to_string(),
+                                },
+                            },
+                        );
+                        send_manager_event(
+                            &self.event_tx,
+                            AgentConnectionManagerEvent {
+                                connection_id: self.connection_id,
+                                session_id: Some(session_id),
+                                prompt_id: None,
+                                event: AgentEvent::SessionConfigOptions {
+                                    options: agent_session_config_options_from_acp(updated_options),
+                                },
+                            },
+                        );
+                    }
+                }
+                return Ok(());
+            }
+            _ => {}
+        }
         if crate::grok_announcements::is_announcements_method(ext.method.as_ref()) {
             if let Some(update) = crate::grok_announcements::parse_update(&params) {
                 let notices =
@@ -7254,6 +7596,315 @@ fn session_controls_with_vendor_fallback(
             Some(VendorConfigWire::XaiSessionConfig),
         ),
         None => (modes, config_options, None),
+    }
+}
+
+fn session_controls_with_models_and_vendor_fallback(
+    modes: Option<SessionModeState>,
+    config_options: Option<Vec<AcpSessionConfigOption>>,
+    meta: Option<&serde_json::Map<String, serde_json::Value>>,
+    raw_models: Option<&serde_json::Value>,
+    agent_id: &str,
+) -> (
+    Option<SessionModeState>,
+    Option<Vec<AcpSessionConfigOption>>,
+    Option<VendorConfigWire>,
+) {
+    let (modes, mut config_options, mut vendor_config) =
+        session_controls_with_vendor_fallback(modes, config_options, meta);
+    if let Some(kiro_model) = synthesize_kiro_model_option(raw_models) {
+        let mut options = config_options.unwrap_or_default();
+        if !options.iter().any(|opt| {
+            opt.id.0.as_ref() == KIRO_MODEL_OPTION_ID
+                || opt.category.as_ref() == Some(&SessionConfigOptionCategory::Model)
+        }) {
+            options.push(kiro_model);
+        }
+        config_options = Some(options);
+        if vendor_config.is_none() {
+            vendor_config = Some(VendorConfigWire::KiroSessionConfig);
+        }
+    } else if agent_id == "kiro" && vendor_config.is_none() {
+        vendor_config = Some(VendorConfigWire::KiroSessionConfig);
+    }
+    (modes, config_options, vendor_config)
+}
+
+/// Kiro CLI publishes its models in the session reply's top-level `models`
+/// (`{"currentModelId": "auto", "availableModels": [{"modelId", "name", "description"}]}`).
+fn synthesize_kiro_model_option(
+    models: Option<&serde_json::Value>,
+) -> Option<AcpSessionConfigOption> {
+    let models = models?;
+    let mut seen = std::collections::HashSet::new();
+    let options: Vec<SessionConfigSelectOption> = models
+        .get("availableModels")?
+        .as_array()?
+        .iter()
+        .filter_map(|model| {
+            let id = model.get("modelId")?.as_str()?.trim();
+            if id.is_empty() || !seen.insert(id.to_string()) {
+                return None;
+            }
+            let name = model
+                .get("name")
+                .and_then(serde_json::Value::as_str)
+                .map(str::trim)
+                .filter(|name| !name.is_empty())
+                .unwrap_or(id);
+            let description = model
+                .get("description")
+                .and_then(serde_json::Value::as_str)
+                .map(str::to_string);
+            Some(vendor_select_choice(
+                id.to_string(),
+                name.to_string(),
+                description,
+            ))
+        })
+        .collect();
+    let first = options.first()?.value.0.to_string();
+    let current_value = models
+        .get("currentModelId")
+        .and_then(serde_json::Value::as_str)
+        .filter(|current| options.iter().any(|opt| opt.value.0.as_ref() == *current))
+        .map(str::to_string)
+        .unwrap_or(first);
+    Some(
+        AcpSessionConfigOption::select(
+            KIRO_MODEL_OPTION_ID,
+            "Model",
+            current_value,
+            SessionConfigSelectOptions::Ungrouped(options),
+        )
+        .category(SessionConfigOptionCategory::Model),
+    )
+}
+
+fn parse_kiro_reasoning(reasoning: &serde_json::Value) -> KiroReasoning {
+    let levels: Vec<String> = reasoning
+        .get("effortLevels")
+        .and_then(serde_json::Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter_map(serde_json::Value::as_str)
+        .map(str::trim)
+        .filter(|level| !level.is_empty())
+        .map(str::to_string)
+        .collect();
+    let current = reasoning
+        .get("effort")
+        .and_then(serde_json::Value::as_str)
+        .map(str::trim)
+        .filter(|effort| !effort.is_empty())
+        .map(str::to_string);
+    KiroReasoning {
+        levels,
+        current,
+        thinking_toggleable: reasoning.get("support").and_then(serde_json::Value::as_str)
+            == Some("toggleable"),
+        thinking: reasoning
+            .get("thinkingEnabled")
+            .and_then(serde_json::Value::as_bool),
+    }
+}
+
+fn kiro_thinking_option(reasoning: &KiroReasoning) -> Option<AcpSessionConfigOption> {
+    if !reasoning.thinking_toggleable {
+        return None;
+    }
+    let current_value = match reasoning.thinking {
+        Some(true) => "on",
+        Some(false) => "off",
+        None => KIRO_DEFAULT_VALUE,
+    };
+    let choices = vec![
+        SessionConfigSelectOption::new("on", "on"),
+        SessionConfigSelectOption::new("off", "off"),
+    ];
+    Some(
+        AcpSessionConfigOption::select(
+            KIRO_THINKING_OPTION_ID,
+            "Thinking",
+            current_value,
+            SessionConfigSelectOptions::Ungrouped(choices),
+        )
+        .description(Some("Shows reasoning before answering".to_string()))
+        .category(SessionConfigOptionCategory::ThoughtLevel),
+    )
+}
+
+fn kiro_effort_option(reasoning: &KiroReasoning) -> Option<AcpSessionConfigOption> {
+    if reasoning.levels.is_empty() {
+        return None;
+    }
+    let current_value = reasoning
+        .current
+        .clone()
+        .filter(|current| reasoning.levels.contains(current))
+        .unwrap_or_else(|| KIRO_DEFAULT_VALUE.to_string());
+    let choices = reasoning
+        .levels
+        .iter()
+        .map(|level| SessionConfigSelectOption::new(level.clone(), level.clone()))
+        .collect();
+    Some(
+        AcpSessionConfigOption::select(
+            KIRO_EFFORT_OPTION_ID,
+            "Reasoning effort",
+            current_value,
+            SessionConfigSelectOptions::Ungrouped(choices),
+        )
+        .category(SessionConfigOptionCategory::ThoughtLevel),
+    )
+}
+
+fn kiro_thinking_value(value: &str) -> Option<bool> {
+    match value {
+        "on" => Some(true),
+        "off" => Some(false),
+        _ => None,
+    }
+}
+
+fn place_kiro_reasoning_selectors(
+    options: &mut Vec<AcpSessionConfigOption>,
+    reasoning: &KiroReasoning,
+) {
+    options.retain(|opt| {
+        opt.id.0.as_ref() != KIRO_THINKING_OPTION_ID && opt.id.0.as_ref() != KIRO_EFFORT_OPTION_ID
+    });
+    let at = options
+        .iter()
+        .position(|opt| opt.id.0.as_ref() == KIRO_MODEL_OPTION_ID)
+        .map_or(options.len(), |pos| pos + 1);
+    options.splice(
+        at..at,
+        [
+            kiro_thinking_option(reasoning),
+            kiro_effort_option(reasoning),
+        ]
+        .into_iter()
+        .flatten(),
+    );
+}
+
+fn kiro_available_commands(params: &serde_json::Value) -> Vec<AgentAvailableCommand> {
+    const TUI_ONLY: &[&str] = &["reply", "paste", "voice", "quit", "prompts", "rewind"];
+    let mut seen = std::collections::HashSet::new();
+    let mut available = Vec::new();
+    if let Some(commands) = params.get("commands").and_then(serde_json::Value::as_array) {
+        for command in commands {
+            let Some(raw) = command
+                .get("name")
+                .and_then(serde_json::Value::as_str)
+                .map(str::trim)
+            else {
+                continue;
+            };
+            let name = raw.strip_prefix('/').unwrap_or(raw).trim();
+            let meta = command.get("meta");
+            let local = meta
+                .and_then(|m| m.get("local"))
+                .and_then(serde_json::Value::as_bool)
+                .unwrap_or(false);
+            if name.is_empty()
+                || !seen.insert(name.to_string())
+                || local
+                || TUI_ONLY.contains(&name)
+                || name.starts_with('$')
+            {
+                continue;
+            }
+            let input_hint = meta
+                .and_then(|m| m.get("hint"))
+                .and_then(serde_json::Value::as_str)
+                .map(str::trim)
+                .filter(|hint| !hint.is_empty())
+                .map(str::to_string)
+                .or_else(|| {
+                    let subcommands: Vec<&str> = meta?
+                        .get("subcommands")?
+                        .as_array()?
+                        .iter()
+                        .filter_map(serde_json::Value::as_str)
+                        .collect();
+                    (!subcommands.is_empty()).then(|| subcommands.join(" | "))
+                });
+            let description = command
+                .get("description")
+                .and_then(serde_json::Value::as_str)
+                .map(str::trim)
+                .filter(|desc| !desc.is_empty())
+                .map(str::to_string);
+            available.push(AgentAvailableCommand {
+                name: name.to_string(),
+                description,
+                input_schema: input_hint.map(|hint| serde_json::json!({ "hint": hint })),
+            });
+        }
+    }
+    if let Some(prompts) = params.get("prompts").and_then(serde_json::Value::as_array) {
+        for prompt in prompts {
+            let Some(raw) = prompt
+                .get("name")
+                .and_then(serde_json::Value::as_str)
+                .map(str::trim)
+            else {
+                continue;
+            };
+            let name = raw.strip_prefix('/').unwrap_or(raw).trim();
+            if name.is_empty() || !seen.insert(name.to_string()) || name.starts_with('$') {
+                continue;
+            }
+            let description = prompt
+                .get("description")
+                .and_then(serde_json::Value::as_str)
+                .map(str::trim)
+                .filter(|desc| !desc.is_empty())
+                .map(str::to_string)
+                .unwrap_or_else(|| kiro_prompt_source_label(prompt));
+            let input_hint = kiro_prompt_input_hint(prompt);
+            available.push(AgentAvailableCommand {
+                name: name.to_string(),
+                description: Some(description),
+                input_schema: input_hint.map(|hint| serde_json::json!({ "hint": hint })),
+            });
+        }
+    }
+    available
+}
+
+fn kiro_prompt_source_label(prompt: &serde_json::Value) -> String {
+    match prompt.get("serverName").and_then(serde_json::Value::as_str) {
+        Some(server) if server.starts_with("skill:") => "Skill".to_string(),
+        Some("local") | None => "Prompt".to_string(),
+        Some(server) => format!("MCP prompt ({server})"),
+    }
+}
+
+fn kiro_prompt_input_hint(prompt: &serde_json::Value) -> Option<String> {
+    let names: Vec<String> = prompt
+        .get("arguments")?
+        .as_array()?
+        .iter()
+        .filter_map(|arg| {
+            let name = arg.get("name")?.as_str()?.trim();
+            if name.is_empty() {
+                return None;
+            }
+            let required = arg.get("required").and_then(serde_json::Value::as_bool) == Some(true);
+            Some(if required {
+                format!("<{name}>")
+            } else {
+                format!("[{name}]")
+            })
+        })
+        .collect();
+    match names.as_slice() {
+        [] => None,
+        [only] if only == "[args]" => None,
+        _ => Some(names.join(" ")),
     }
 }
 
@@ -9796,6 +10447,121 @@ mod tests {
                 reason: None,
             })
             .is_err()
+        );
+    }
+
+    #[test]
+    fn kiro_models_and_reasoning_synthesize_session_controls() {
+        let raw_reply = serde_json::json!({
+            "sessionId": "kiro-sess-1",
+            "modes": {
+                "currentModeId": "kiro_default",
+                "availableModes": [
+                    { "id": "kiro_default", "name": "Default", "description": "Standard Kiro agent" },
+                    { "id": "kiro_planner", "name": "Planner", "description": "Plan before coding" }
+                ]
+            },
+            "models": {
+                "currentModelId": "claude-sonnet-4.5",
+                "availableModels": [
+                    { "modelId": "auto", "name": "Auto", "description": "Automatic model selection" },
+                    { "modelId": "claude-sonnet-4.5", "name": "Claude Sonnet 4.5", "description": "Balanced" }
+                ]
+            }
+        });
+        let (response, raw_models) =
+            deserialize_raw_session_response::<NewSessionResponse>(raw_reply)
+                .expect("deserialize raw session/new reply");
+        let (modes, config_options, vendor_config) =
+            session_controls_with_models_and_vendor_fallback(
+                response.modes,
+                response.config_options,
+                response.meta.as_ref(),
+                raw_models.as_ref(),
+                "kiro",
+            );
+        assert_eq!(vendor_config, Some(VendorConfigWire::KiroSessionConfig));
+        let (mut unified, mode_uses_set_mode) = unify_session_config_options(
+            modes,
+            config_options.unwrap_or_default(),
+            vendor_config.is_some(),
+        );
+        assert!(mode_uses_set_mode);
+        assert_eq!(unified.len(), 2);
+        assert_eq!(unified[0].id.0.as_ref(), "mode");
+        assert_eq!(unified[1].id.0.as_ref(), "model");
+
+        let reasoning = parse_kiro_reasoning(&serde_json::json!({
+            "support": "toggleable",
+            "thinkingEnabled": true,
+            "effortLevels": ["low", "medium", "high", "max"],
+            "effort": "high"
+        }));
+        place_kiro_reasoning_selectors(&mut unified, &reasoning);
+        let mapped = agent_session_config_options_from_acp(unified);
+        let keys: Vec<&str> = mapped.iter().map(|opt| opt.key.as_str()).collect();
+        assert_eq!(keys, ["mode", "model", "thinking", "effort"]);
+        assert_eq!(
+            mapped[1].value,
+            Some(serde_json::json!("claude-sonnet-4.5"))
+        );
+        assert_eq!(mapped[2].value, Some(serde_json::json!("on")));
+        assert_eq!(mapped[3].value, Some(serde_json::json!("high")));
+
+        let effort_req = KiroExecuteCommandRequest::effort(SessionId::new("kiro-sess-1"), "max");
+        assert_eq!(
+            serde_json::to_value(&effort_req).unwrap(),
+            serde_json::json!({
+                "sessionId": "kiro-sess-1",
+                "command": {
+                    "command": "effort",
+                    "args": { "level": "max" }
+                }
+            })
+        );
+        let thinking_req =
+            KiroExecuteCommandRequest::thinking(SessionId::new("kiro-sess-1"), false);
+        assert_eq!(
+            serde_json::to_value(&thinking_req).unwrap(),
+            serde_json::json!({
+                "sessionId": "kiro-sess-1",
+                "command": {
+                    "command": "reasoning",
+                    "args": { "thinkingEnabled": false }
+                }
+            })
+        );
+    }
+
+    #[test]
+    fn kiro_available_commands_filters_tui_only_and_includes_prompts() {
+        let params = serde_json::json!({
+            "sessionId": "kiro-sess-1",
+            "commands": [
+                { "name": "/compact", "description": "Compact context", "meta": { "local": false } },
+                { "name": "/quit", "description": "Exit TUI", "meta": { "local": true } },
+                { "name": "/rewind", "description": "Rewind", "meta": { "local": false } },
+                { "name": "/knowledge", "description": "Knowledge base", "meta": { "subcommands": ["add", "search"] } }
+            ],
+            "prompts": [
+                { "name": "review-pr", "serverName": "skill:review", "arguments": [{ "name": "args", "required": false }] },
+                { "name": "deploy", "serverName": "ops-mcp", "description": "Deploy service", "arguments": [{ "name": "env", "required": true }] },
+                { "name": "$ignored", "serverName": "local" }
+            ]
+        });
+        let commands = kiro_available_commands(&params);
+        let names: Vec<&str> = commands.iter().map(|c| c.name.as_str()).collect();
+        assert_eq!(names, ["compact", "knowledge", "review-pr", "deploy"]);
+        assert_eq!(
+            commands[1].input_schema,
+            Some(serde_json::json!({ "hint": "add | search" }))
+        );
+        assert_eq!(commands[2].description.as_deref(), Some("Skill"));
+        assert_eq!(commands[2].input_schema, None);
+        assert_eq!(commands[3].description.as_deref(), Some("Deploy service"));
+        assert_eq!(
+            commands[3].input_schema,
+            Some(serde_json::json!({ "hint": "<env>" }))
         );
     }
 }

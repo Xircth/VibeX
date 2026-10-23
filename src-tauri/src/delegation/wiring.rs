@@ -44,6 +44,7 @@ pub(crate) fn build_delegation(
     pool: SqlitePool,
     conversation_context: conversations::ConversationContext,
     official_mcp: Arc<plugins::OfficialMcpRuntime>,
+    events: Arc<server::HostEventBus>,
 ) -> DelegationState {
     let map = Arc::new(Mutex::new(HashMap::new()));
     let spawner = Arc::new(RuntimeSpawner {
@@ -64,6 +65,15 @@ pub(crate) fn build_delegation(
         DelegationConfig::default(),
     ));
     let tokens = Arc::new(TokenRegistry::new());
+    {
+        let official_mcp = official_mcp.clone();
+        tokens.set_product_gate(move |product| match product {
+            "delegation" => official_mcp.allow_delegation_mcp(),
+            "session" => official_mcp.allow_session_mcp(),
+            "workflow" => official_mcp.allow_workflow_mcp(),
+            _ => false,
+        });
+    }
     let features = Arc::new(InMemoryCompanionFeatures::new());
     let runtime_features = Arc::new(delegation::HostCompanionFeatures::new(
         features.clone(),
@@ -71,6 +81,21 @@ pub(crate) fn build_delegation(
         runtime.clone(),
         conversations::ScopedConversationControl::new(conversation_context),
     ));
+    runtime_features.set_collaboration_limits({
+        let broker = broker.clone();
+        move || {
+            let config = broker.config_snapshot();
+            delegation::CollaborationLimits {
+                since_days: config.conversation_list_default_days as i64,
+                delay_cap_hours: config.delay_max_hours as i64,
+                depth_limit: config.depth_limit,
+                max_active_children: config.max_active_children,
+            }
+        }
+    });
+    runtime_features.set_space_changed_listener(move |event| {
+        events.emit(server::COLLABORATION_SPACE_CHANGED_EVENT, event);
+    });
     let socket_path = default_socket_path(&std::env::temp_dir());
 
     spawn_resolver(broker.clone(), runtime.clone(), map);

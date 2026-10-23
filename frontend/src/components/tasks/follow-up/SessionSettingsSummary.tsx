@@ -1,7 +1,8 @@
 import { Check, ChevronDown } from 'lucide-react';
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 import type { AgentSessionConfigOption, AgentSessionMode } from 'shared/types';
+import { AgentIcon, getAgentName } from '@/components/agents/AgentIcon';
 import type { ConversationSessionModesState } from '@/features/conversation/conversationStore';
 import {
   DropdownMenu,
@@ -39,6 +40,13 @@ type SummaryItem = {
   label: string;
   isFast: boolean;
   isModel: boolean;
+};
+
+export type SessionPersona = {
+  name: string;
+  teamName?: string;
+  summary?: string;
+  agentName: string;
 };
 
 function normalizedOption(option: AgentSessionConfigOption) {
@@ -133,6 +141,7 @@ export function SessionSettingsSummary({
   options,
   pending,
   onSelectConfigOption,
+  persona = null,
   disabled = false,
   dropdownSide = 'top',
 }: {
@@ -142,6 +151,7 @@ export function SessionSettingsSummary({
   options: AgentSessionConfigOption[];
   pending: Record<string, string>;
   onSelectConfigOption?: (key: string, value: string) => void;
+  persona?: SessionPersona | null;
   disabled?: boolean;
   dropdownSide?: 'top' | 'bottom';
 }) {
@@ -267,7 +277,7 @@ export function SessionSettingsSummary({
     }),
   ];
 
-  if (summary.length === 0) return null;
+  if (!persona && summary.length === 0) return null;
 
   const fastEnabled = summary.some((item) => item.isFast);
   const modelCarriesFastState =
@@ -275,9 +285,48 @@ export function SessionSettingsSummary({
   const visibleSummary = modelCarriesFastState
     ? summary.filter((item) => !item.isFast)
     : summary;
-  const triggerLabel = `${t('sessionSettings.title')}: ${summary
-    .map((item) => item.label)
-    .join(' · ')}`;
+  const triggerLabel = persona
+    ? persona.name
+    : `${t('sessionSettings.title')}: ${summary.map((item) => item.label).join(' · ')}`;
+  const hasSessionControls =
+    (Boolean(onSelectMode) && presentableModes.length > 0) ||
+    configRows.length > 0;
+  const sessionControlRows = (
+    <>
+      {onSelectMode && presentableModes.length > 0 ? (
+        <ModeRow
+          modes={presentableModes}
+          activeModeId={activeModeId}
+          onSelect={onSelectMode}
+          disabled={disabled}
+          hasDangerousMode={(sessionModes?.modes ?? []).some((mode) =>
+            isDangerousPermissionsMode(mode.id)
+          )}
+          dangerousOperationsAllowed={dangerousOperationsAllowed}
+          setDangerousOperationsAllowed={setDangerousOperationsAllowed}
+        />
+      ) : null}
+      {configRows.map((row) =>
+        row.toggleValues ? (
+          <ToggleRow
+            key={row.option.key}
+            row={row}
+            disabled={disabled}
+            onSelect={onSelectConfigOption!}
+          />
+        ) : (
+          <ChoiceRow
+            key={row.option.key}
+            row={row}
+            options={visibleOptions}
+            pending={pending}
+            disabled={disabled}
+            onSelect={onSelectConfigOption!}
+          />
+        )
+      )}
+    </>
+  );
 
   return (
     <DropdownMenu modal={false}>
@@ -296,20 +345,22 @@ export function SessionSettingsSummary({
           )}
         >
           <span className="truncate">
-            {visibleSummary.map((item, index) => (
-              <span key={item.key}>
-                {index > 0 ? <span aria-hidden="true"> · </span> : null}
-                <span
-                  className={cn(
-                    modelCarriesFastState &&
-                      item.isModel &&
-                      'composer-fast-model-flow'
-                  )}
-                >
-                  {item.label}
-                </span>
-              </span>
-            ))}
+            {persona
+              ? persona.name
+              : visibleSummary.map((item, index) => (
+                  <span key={item.key}>
+                    {index > 0 ? <span aria-hidden="true"> · </span> : null}
+                    <span
+                      className={cn(
+                        modelCarriesFastState &&
+                          item.isModel &&
+                          'composer-fast-model-flow'
+                      )}
+                    >
+                      {item.label}
+                    </span>
+                  </span>
+                ))}
           </span>
           <ChevronDown className="h-3.5 w-3.5 shrink-0 text-muted-foreground transition-transform duration-150 group-data-[state=open]:rotate-180" />
         </button>
@@ -320,49 +371,64 @@ export function SessionSettingsSummary({
         sideOffset={8}
         className="w-[min(22rem,calc(100vw-2rem))]"
       >
-        <DropdownMenuLabel className="px-2.5 py-1.5 text-[11px] font-semibold uppercase tracking-[0.08em] text-muted-foreground">
-          {t('sessionSettings.title')}
-        </DropdownMenuLabel>
-        {onSelectMode && presentableModes.length > 0 ? (
-          <ModeRow
-            modes={presentableModes}
-            activeModeId={activeModeId}
-            onSelect={onSelectMode}
-            disabled={disabled}
-            hasDangerousMode={(sessionModes?.modes ?? []).some((mode) =>
-              isDangerousPermissionsMode(mode.id)
-            )}
-            dangerousOperationsAllowed={dangerousOperationsAllowed}
-            setDangerousOperationsAllowed={setDangerousOperationsAllowed}
-          />
-        ) : null}
-        {configRows.map((row) =>
-          row.toggleValues ? (
-            <ToggleRow
-              key={row.option.key}
-              row={row}
-              disabled={disabled}
-              onSelect={onSelectConfigOption!}
+        {persona ? (
+          <>
+            <PersonaFact
+              label={t('sessionSettings.personaName')}
+              value={persona.name}
             />
-          ) : (
-            <ChoiceRow
-              key={row.option.key}
-              row={row}
-              options={visibleOptions}
-              pending={pending}
-              disabled={disabled}
-              onSelect={onSelectConfigOption!}
+            <PersonaFact
+              label={t('sessionSettings.personaAgent')}
+              value={
+                <>
+                  <AgentIcon
+                    agent={persona.agentName}
+                    className="h-3.5 w-3.5 shrink-0"
+                  />
+                  <span className="truncate">
+                    {getAgentName(persona.agentName)}
+                  </span>
+                </>
+              }
             />
-          )
+            {hasSessionControls ? (
+              <DropdownMenuSub>
+                <DropdownMenuSubTrigger className="px-2.5 py-1.5">
+                  <span className="min-w-0 flex-1 text-sm font-semibold">
+                    {t('sessionSettings.sessionConfig')}
+                  </span>
+                </DropdownMenuSubTrigger>
+                <DropdownMenuSubContent className="min-w-[16rem]">
+                  {sessionControlRows}
+                </DropdownMenuSubContent>
+              </DropdownMenuSub>
+            ) : null}
+          </>
+        ) : (
+          <>
+            <DropdownMenuLabel className="px-2.5 py-1.5 text-[11px] font-semibold uppercase tracking-[0.08em] text-muted-foreground">
+              {t('sessionSettings.title')}
+            </DropdownMenuLabel>
+            {sessionControlRows}
+          </>
         )}
       </DropdownMenuContent>
     </DropdownMenu>
   );
 }
 
-function RowValue({ children }: { children: string }) {
+function PersonaFact({ label, value }: { label: string; value: ReactNode }) {
   return (
-    <span className="max-w-[11rem] truncate text-sm text-muted-foreground">
+    <div className="flex items-center gap-3 px-2.5 py-1.5">
+      <span className="min-w-0 flex-1 text-sm font-semibold">{label}</span>
+      <RowValue>{value}</RowValue>
+    </div>
+  );
+}
+
+function RowValue({ children }: { children: ReactNode }) {
+  return (
+    <span className="inline-flex max-w-[11rem] items-center gap-1.5 truncate text-sm text-muted-foreground">
       {children}
     </span>
   );

@@ -194,6 +194,9 @@ pub enum ConversationRelationKind {
     Delegation,
     Fork,
     WorkflowStep,
+    /// A durable conversation created from a role or directly. Navigation only:
+    /// parent exit does not cancel it, and it has no delegation call id.
+    Spawned,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]

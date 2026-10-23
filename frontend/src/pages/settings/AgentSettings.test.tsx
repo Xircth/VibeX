@@ -1250,6 +1250,50 @@ describe('AgentSettings', () => {
       expect(api.preflight).toHaveBeenCalledWith('kimi');
     });
 
+    it('immediately displays the 6-stage ACP progress bar when enabling an Agent', async () => {
+      const user = userEvent.setup();
+      arrange(
+        { ...kimi, lifecycle: 'uninstalled', acp_version: null },
+        { status: 'fail', repairable: true, version: null }
+      );
+      let resolveSetEnabled!: (value: unknown) => void;
+      api.setEnabled.mockReturnValue(
+        new Promise((resolve) => {
+          resolveSetEnabled = resolve;
+        })
+      );
+      render(<AgentSettings />);
+      await screen.findByRole('button', { name: 'Kimi CLI' });
+      await waitFor(() => expect(api.preflight).toHaveBeenCalled());
+      api.preflight.mockClear();
+
+      await user.click(screen.getByRole('switch', { name: '启用 Agent' }));
+
+      const stagesList = await screen.findByRole('list', {
+        name: '操作阶段',
+      });
+      expect(stagesList).toBeVisible();
+      expect(stagesList).toHaveTextContent('基础环境检查');
+      expect(stagesList).toHaveTextContent('ACP检查');
+      expect(stagesList).toHaveTextContent('安装准备');
+      expect(stagesList).toHaveTextContent('安装');
+      expect(stagesList).toHaveTextContent('验证');
+      expect(stagesList).toHaveTextContent('完成');
+
+      await act(async () => {
+        resolveSetEnabled({
+          ...kimi,
+          enabled: true,
+          lifecycle: 'uninstalled',
+          acp_version: null,
+        });
+      });
+
+      await waitFor(() =>
+        expect(api.addAndInstall).toHaveBeenCalledWith('kimi')
+      );
+    });
+
     it('repairs an installation the preflight finds broken', async () => {
       arrange(
         { ...kimi, lifecycle: 'needs_repair' },

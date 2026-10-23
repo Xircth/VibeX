@@ -24,13 +24,19 @@ import {
 import { WorkspaceActivityRail } from '@/components/layout/WorkspaceActivityRail';
 import { WorkspaceTabAddMenu } from '@/components/layout/panels/WorkspaceTabAddMenu';
 import { useViews } from '@vibex/plugin-sdk';
+import { useUserSystem } from '@/components/ConfigProvider';
 import { PluginOverlays } from '@/components/plugins/PluginOverlays';
 import { PluginRemoteView } from '@/components/plugins/PluginRemoteView';
+import { CollaborationSpacePage } from '@/features/collaboration/CollaborationSpacePage';
 import { useActiveSurfaceHidesBottomDock } from '@/hooks/useActiveSurfaceDockPolicy';
 import { useAutoOpenCreatedFilePreviews } from '@/hooks/useAutoOpenCreatedFilePreviews';
 import { useAutoOpenCreatedPreviews } from '@/lib/autoOpenCreatedPreviews';
 import { usePluginHostContributions } from '@/hooks/usePluginHostContributions';
-import { parsePluginSurfaceId } from '@/lib/hostSurfaceIds';
+import {
+  COLLABORATION_WORKSPACE_TAB,
+  effectiveWorkspaceTab,
+  parsePluginSurfaceId,
+} from '@/lib/hostSurfaceIds';
 import { RightPanelSidebar } from '@/components/layout/RightPanelSidebar';
 import { StatusBar } from '@/components/layout/StatusBar';
 import { ProjectLayoutScope, useProject } from '@/contexts/ProjectContext';
@@ -350,14 +356,16 @@ export function IDELayout({
   toolbarContent,
 }: IDELayoutProps) {
   useAgentLongRunningTerminals();
-  const { workspaceId, sessionId } = useParams<{
+  const { projectId: routeProjectId, workspaceId, sessionId } = useParams<{
+    projectId?: string;
     workspaceId?: string;
     sessionId?: string;
   }>();
   const apiRef = useRef<DockviewApi | null>(null);
   const dockviewRootRef = useRef<HTMLDivElement>(null);
   const { activeWorktreeId } = useWorktree();
-  const { projectId } = useProject();
+  const { projectId: contextProjectId } = useProject();
+  const projectId = contextProjectId ?? routeProjectId;
   const projectKey = getProjectScopeKey(projectId);
   const rememberedWorkspaceId = useProjectViewStateStore(
     (state) => state.kanbanByProject[projectKey]?.lastActiveWorkspaceId ?? null
@@ -384,8 +392,11 @@ export function IDELayout({
       }),
     [activeWorktreeId, rememberedWorkspaceId, workspaceId, worktrees]
   );
+  const { config } = useUserSystem();
   const routeTab = workspaceId || sessionId ? 'workspace' : null;
-  const effectiveActiveTab = routeTab ?? activeTab;
+  const effectiveActiveTab = effectiveWorkspaceTab(routeTab, activeTab, {
+    collaborationEnabled: Boolean(config?.multi_agent_enabled),
+  });
   const [isDockviewMounted, setIsDockviewMounted] = useState(
     () => effectiveActiveTab === 'workspace'
   );
@@ -1248,6 +1259,12 @@ export function IDELayout({
                   <LazyKanbanBoard />
                 </Suspense>
               </KeepAliveSurface>
+
+              {effectiveActiveTab === COLLABORATION_WORKSPACE_TAB ? (
+                <div className="kanban-overlay absolute inset-0 z-10">
+                  <CollaborationSpacePage workspaceId={surfaceWorkspaceId} />
+                </div>
+              ) : null}
 
               {activePluginTab ? (
                 <div className="kanban-overlay absolute inset-0 z-10">

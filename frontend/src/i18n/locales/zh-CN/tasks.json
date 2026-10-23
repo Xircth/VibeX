@@ -34,6 +34,7 @@
       "localHost": "本机",
       "materializeFailed": "无法写入 Host 连接文件",
       "tabs": {
+        "member": "成员",
         "file": "文件",
         "project": "项目",
         "conversation": "会话",
@@ -406,7 +407,12 @@
   "sessionSettings": {
     "title": "本次会话",
     "on": "开启",
-    "off": "关闭"
+    "off": "关闭",
+    "personaName": "名称",
+    "personaTeam": "团队",
+    "personaSummary": "简介",
+    "personaAgent": "Agent",
+    "sessionConfig": "会话配置"
   },
   "readyContent": {
     "back": "后退",

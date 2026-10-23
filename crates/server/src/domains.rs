@@ -21,6 +21,7 @@ use db::models::{
 };
 use deployment::Deployment;
 use local_deployment::LocalDeployment;
+use plugins::CapabilityBroker;
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use serde_json::{Value, json};
 use sqlx::SqlitePool;
@@ -143,6 +144,7 @@ impl ServerApplicationDomains {
             DomainCommand::PluginActionCatalog => self.plugin_catalog().await,
             DomainCommand::PluginControlCatalog => self.plugin_control_catalog().await,
             DomainCommand::OfficialProductMcpState => self.official_product_mcp_state().await,
+            DomainCommand::CollaborationCall => self.collaboration_call(args).await,
             DomainCommand::PluginMcpStatus => self.plugin_mcp_status().await,
             DomainCommand::PluginMcpEnsureRunning => self.plugin_mcp_ensure_running().await,
             DomainCommand::PluginProductDetail => self.plugin_product_detail(args).await,
@@ -516,6 +518,27 @@ impl ServerApplicationDomains {
             })
             .collect::<Vec<_>>();
         Ok(json!({ "actions": actions }))
+    }
+
+    async fn collaboration_call(&self, args: Value) -> Result<Value, ApplicationError> {
+        #[derive(Deserialize)]
+        struct CollaborationCallArgs {
+            capability: String,
+            operation: String,
+            #[serde(default)]
+            input: Value,
+        }
+        let args: CollaborationCallArgs = parse(args)?;
+        let enabled = self.deployment.config().read().await.multi_agent_enabled;
+        if !enabled || !matches!(args.capability.as_str(), "collaboration" | "workspace") {
+            return Err(ApplicationError::capability_unavailable(
+                "capability_unimplemented",
+            ));
+        }
+        self.capability_broker
+            .call("host", 0, &args.capability, &args.operation, args.input)
+            .await
+            .map_err(|error| ApplicationError::bad_request(error.code()))
     }
 
     async fn official_product_mcp_state(&self) -> Result<Value, ApplicationError> {

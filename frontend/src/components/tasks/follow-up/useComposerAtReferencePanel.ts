@@ -27,6 +27,7 @@ import {
   AT_REFERENCE_TAB_ORDER,
   buildAtReferenceGroups,
   cycleAtReferenceTab,
+  firstNonEmptyTab,
   isAtReferenceNavigationKey,
   matchAtReferenceTrigger,
   mergeAtReferenceSearch,
@@ -34,6 +35,7 @@ import {
   type AtReferenceGroup,
   type AtReferenceHost,
   type AtReferenceItem,
+  type AtReferenceMember,
   type AtReferenceProject,
   type AtReferenceTab,
 } from './composerAtReferences';
@@ -41,6 +43,7 @@ import {
   isComposerEnterKey,
   isComposerImeComposing,
 } from './sessionComposerSubmitHotkey';
+import { insertComposerTextWithUndo } from './replaceComposerValueWithUndo';
 import {
   atReferenceChipLabel,
   getSessionComposerStructuredTokenSegments,
@@ -58,6 +61,7 @@ export type ComposerAtReferenceContext = {
   projectId?: string;
   transport?: BackendTransport;
   actions?: AtReferenceAction[];
+  spaceMembers?: AtReferenceMember[];
 };
 
 type PanelState = {
@@ -367,6 +371,7 @@ export function useComposerAtReferencePanel({
         actions: ctx.actions ?? [],
         hosts,
         projects,
+        members: ctx.spaceMembers,
       });
       searchedQueryRef.current = query;
       setPanel((current) => {
@@ -418,17 +423,37 @@ export function useComposerAtReferencePanel({
       }
       searchedQueryRef.current = query;
       const rect = editable.getBoundingClientRect();
-      setPanel((current) => ({
-        query,
-        groups: current?.groups ?? EMPTY_GROUPS,
-        activeTab: current?.activeTab ?? 'file',
-        selectedIndex: current?.query === query ? current.selectedIndex : 0,
-        loading: true,
-        pinnedTab: pinnedTabRef.current,
-        left: anchor?.left ?? rect.left,
-        top: anchor?.top ?? rect.top,
-        width: anchor?.width ?? rect.width,
-      }));
+      setPanel((current) => {
+        const initialGroups =
+          current?.groups ??
+          (context?.spaceMembers !== undefined
+            ? buildAtReferenceGroups(query, {
+                files: [],
+                conversations: [],
+                commits: [],
+                repoId: null,
+                instructions: [],
+                actions: context.actions ?? [],
+                members: context.spaceMembers,
+              })
+            : EMPTY_GROUPS);
+        const initialActiveTab =
+          current?.activeTab ??
+          (context?.spaceMembers !== undefined
+            ? firstNonEmptyTab(initialGroups, pinnedTabRef.current)
+            : 'file');
+        return {
+          query,
+          groups: initialGroups,
+          activeTab: initialActiveTab,
+          selectedIndex: current?.query === query ? current.selectedIndex : 0,
+          loading: true,
+          pinnedTab: pinnedTabRef.current,
+          left: anchor?.left ?? rect.left,
+          top: anchor?.top ?? rect.top,
+          width: anchor?.width ?? rect.width,
+        };
+      });
       clearDebounceTimer();
       if (query.trim() === '') {
         void search(query);
@@ -439,7 +464,7 @@ export function useComposerAtReferencePanel({
         }, AT_REFERENCE_SEARCH_DEBOUNCE_MS);
       }
     },
-    [clearDebounceTimer, composerRootRef, search]
+    [clearDebounceTimer, composerRootRef, context, search]
   );
 
   const isOpen = panel != null;
@@ -524,7 +549,13 @@ export function useComposerAtReferencePanel({
       if (item.onActivate) {
         void Promise.resolve(item.onActivate()).catch(() => undefined);
       }
-      if (item.insertText) {
+      if (item.tab === 'member') {
+        const mention = `${item.insertText} `;
+        if (!insertComposerTextWithUndo(editor, mention)) {
+          handle.insertText(mention);
+        }
+        onChange(handle.getValue());
+      } else if (item.insertText) {
         handle.insertToken(atReferenceItemToToken(item));
         onChange(handle.getValue());
       }
@@ -587,7 +618,11 @@ export function useComposerAtReferencePanel({
             event.key === 'ArrowLeft' || (event.key === 'Tab' && event.shiftKey)
               ? -1
               : 1;
-          const next = cycleAtReferenceTab(current.activeTab, dir);
+          const next = cycleAtReferenceTab(
+            current.activeTab,
+            dir,
+            current.groups
+          );
           pinnedTabRef.current = next;
           setPanel((panel) =>
             panel ? { ...panel, activeTab: next, selectedIndex: 0 } : panel

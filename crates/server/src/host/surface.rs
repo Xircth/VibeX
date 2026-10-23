@@ -48,7 +48,7 @@ use uuid::Uuid;
 
 use crate::{
     domains::{ServerApplicationDomains, conversation_error, internal_error, parse, serialize},
-    install_resolved_plan, plan_host_agent_install, weixin_check_qrcode, weixin_get_qrcode,
+    plan_host_agent_install, weixin_check_qrcode, weixin_get_qrcode,
 };
 
 #[derive(Deserialize)]
@@ -1578,9 +1578,19 @@ impl ServerApplicationDomains {
         kind: AgentOperationKind,
     ) -> Result<Value, ApplicationError> {
         let agent_id = args.agent_id;
-        let mut plan = plan_host_agent_install(&self.pool, agent_id.as_str())
-            .await
-            .map_err(|error| ApplicationError::bad_request(error.to_string()))?;
+        let mut plan = match plan_host_agent_install(&self.pool, agent_id.as_str()).await {
+            Ok(plan) => plan,
+            Err(error) => {
+                if agent_id.as_str() == "kiro"
+                    && error.to_string().contains("does not support platform")
+                {
+                    return Err(ApplicationError::bad_request(
+                        "Kiro CLI 在当前系统通过官方安装器分发（https://kiro.dev/docs/getting-started/installation/），请先安装 kiro-cli 后点击立即检查。",
+                    ));
+                }
+                return Err(ApplicationError::bad_request(error.to_string()));
+            }
+        };
         let runtime = args
             .runtime_version
             .as_deref()
@@ -1628,8 +1638,8 @@ impl ServerApplicationDomains {
             &operation_id,
             kind,
             AgentOperationStatus::Queued,
-            Some(0),
-            None,
+            Some(5),
+            Some("正在进行基础环境检查".to_string()),
         );
         let pool = self.pool.clone();
         let data_dir = utils::assets::host_data_dir();
@@ -1640,16 +1650,26 @@ impl ServerApplicationDomains {
                 let _ = InstallationOperationRepository::new(pool.clone())
                     .mark_running(operation.id, "host")
                     .await;
-                emit_host_agent_operation(
-                    &events,
-                    &agent_id,
-                    &operation_id,
-                    kind,
-                    AgentOperationStatus::Running,
-                    Some(10),
-                    Some("正在安装 ACP".to_string()),
-                );
-                let result = install_resolved_plan(&pool, &data_dir, &plan_for_install).await;
+                let progress_events = events.clone();
+                let progress_agent_id = agent_id.clone();
+                let progress_operation_id = operation_id.clone();
+                let result = crate::agent_install::install_resolved_plan_with_progress(
+                    &pool,
+                    &data_dir,
+                    &plan_for_install,
+                    |percent, message| {
+                        emit_host_agent_operation(
+                            &progress_events,
+                            &progress_agent_id,
+                            &progress_operation_id,
+                            kind,
+                            AgentOperationStatus::Running,
+                            Some(percent),
+                            Some(message.to_string()),
+                        );
+                    },
+                )
+                .await;
                 let repository = InstallationOperationRepository::new(pool.clone());
                 match result {
                     Ok(()) => {
@@ -1661,7 +1681,7 @@ impl ServerApplicationDomains {
                             kind,
                             AgentOperationStatus::Succeeded,
                             Some(100),
-                            None,
+                            Some("ACP 安装完成".to_string()),
                         );
                     }
                     Err(error) => {

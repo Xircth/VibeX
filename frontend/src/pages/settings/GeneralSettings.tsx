@@ -5,6 +5,7 @@ import {
   Lightbulb,
   Loader2,
   Terminal,
+  Users,
   Volume2,
 } from 'lucide-react';
 import { toast } from '@/components/ui/toast';
@@ -40,6 +41,7 @@ import { toPrettyCase } from '@/utils/string';
 import { useOptionalBasicGuide } from '@/features/basic-guide';
 import { restartBasicGuide } from '@/features/basic-guide/basicGuideState';
 import { writeBasicGuide } from '@/features/basic-guide/basicGuideStorage';
+import { MultiAgentSettings } from '@/features/collaboration/MultiAgentSettings';
 import { SettingsSection } from './SettingsUi';
 import { useLiveSettingsCommit } from './useLiveSettingsCommit';
 
@@ -79,7 +81,14 @@ export function GeneralSettings() {
   draftRef.current = draft;
 
   const [importOpen, setImportOpen] = useState(false);
+  const [multiAgentRangeError, setMultiAgentRangeError] = useState<
+    string | null
+  >(null);
+  const [multiAgentRevision, setMultiAgentRevision] = useState(0);
   const importJob = useLocalHistoryImportJob();
+  const reportMultiAgentRange = useCallback((message: string | null) => {
+    setMultiAgentRangeError(message);
+  }, []);
 
   const { writeNow, writeSettled, flush, holding } = useLiveSettingsCommit(
     async (next: Config) => {
@@ -122,6 +131,9 @@ export function GeneralSettings() {
       console.error('Failed to play notification sound:', error);
     }
   };
+
+  void multiAgentRangeError;
+  void setMultiAgentRevision;
 
   if (loading) {
     return (
@@ -176,6 +188,55 @@ export function GeneralSettings() {
               <ExternalEditorPicker
                 value={draft.editor}
                 onChange={(editor) => updateDraft({ editor })}
+              />
+            ) : null}
+          </div>
+        </SettingsSection>
+
+        <SettingsSection icon={Users} title={t('general.multiAgentTitle')}>
+          <div className="space-y-4">
+            <div className="settings-row">
+              <div>
+                <Label htmlFor="multi-agent-enabled" className="cursor-pointer">
+                  {t('general.multiAgentEnabled')}
+                </Label>
+                <p className="settings-row__description">
+                  {t('general.multiAgentEnabledHint')}
+                </p>
+              </div>
+              <Switch
+                id="multi-agent-enabled"
+                className="settings-switch"
+                checked={Boolean(draft.multi_agent_enabled)}
+                onCheckedChange={(checked: boolean) => {
+                  const previous = draft.multi_agent_enabled;
+                  setDraft((current) =>
+                    current
+                      ? { ...current, multi_agent_enabled: checked }
+                      : current
+                  );
+                  if (!checked) setMultiAgentRangeError(null);
+                  void updateAndSaveConfig({
+                    multi_agent_enabled: checked,
+                  }).then((saved) => {
+                    if (saved) return;
+                    setDraft((current) =>
+                      current
+                        ? { ...current, multi_agent_enabled: previous }
+                        : current
+                    );
+                    toast.error(t('general.saveFailed'));
+                  });
+                }}
+              />
+            </div>
+            {draft.multi_agent_enabled ? (
+              <MultiAgentSettings
+                draft={draft}
+                hostReady={Boolean(config?.multi_agent_enabled)}
+                revision={multiAgentRevision}
+                updateDraft={updateDraft}
+                onRangeError={reportMultiAgentRange}
               />
             ) : null}
           </div>

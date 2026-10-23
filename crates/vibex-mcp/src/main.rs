@@ -24,9 +24,10 @@ use std::{
 };
 
 use delegation_proto::{
-    BrokerAskRequest, BrokerCancelRequest, BrokerCancelTaskRequest, BrokerCommitFeedbackRequest,
-    BrokerFeedbackRequest, BrokerMessage, BrokerRequest, BrokerSessionCancelRequest,
-    BrokerSessionRequest, BrokerSessionSendRequest, BrokerSessionWaitRequest, BrokerStatusRequest,
+    BrokerAskRequest, BrokerCancelRequest, BrokerCancelTaskRequest, BrokerCollaborateRequest,
+    BrokerCommitFeedbackRequest, BrokerFeedbackRequest, BrokerMessage, BrokerRequest,
+    BrokerSessionCancelRequest, BrokerSessionRequest, BrokerSessionSendRequest,
+    BrokerSessionWaitRequest, BrokerStatusRequest,
 };
 use serde_json::{Value, json};
 use tokio::{
@@ -57,6 +58,7 @@ struct CompanionFeatures {
     ask: bool,
     session_info: bool,
     session_control: bool,
+    collaboration: bool,
 }
 
 impl CompanionFeatures {
@@ -70,6 +72,7 @@ impl CompanionFeatures {
                 ask: false,
                 session_info: false,
                 session_control: false,
+                collaboration: false,
             },
             Some(value) => {
                 let has = |name: &str| value.split(',').any(|f| f.trim() == name);
@@ -79,6 +82,7 @@ impl CompanionFeatures {
                     ask: has("ask"),
                     session_info: has("sessions"),
                     session_control: has("session-control"),
+                    collaboration: has("collaboration"),
                 }
             }
         }
@@ -89,10 +93,29 @@ impl CompanionFeatures {
             "delegate_to_agent" | "get_delegation_status" | "cancel_delegation" => self.delegation,
             "check_user_feedback" => self.feedback,
             "ask_user_question" => self.ask,
-            "get_session_info" => self.session_info,
-            "send_session_input" | "cancel_session_turn" | "wait_for_session" => {
-                self.session_control
-            }
+            "get_session_info" => self.session_info || self.collaboration,
+            "send_session_input" => self.session_control || self.collaboration,
+            "cancel_session_turn" | "wait_for_session" => self.session_control,
+            "list_conversations"
+            | "create_conversation"
+            | "create_role"
+            | "update_role"
+            | "delete_role"
+            | "list_roles"
+            | "create_team"
+            | "update_team"
+            | "delete_team"
+            | "list_teams"
+            | "list_collaboration_spaces"
+            | "list_space_members"
+            | "create_collaboration_space"
+            | "add_space_member"
+            | "set_space_identity"
+            | "post_to_space"
+            | "list_space_messages"
+            | "list_space_collection"
+            | "add_to_space_collection"
+            | "read_space_collection_item" => self.collaboration,
             _ => false,
         }
     }
@@ -497,11 +520,60 @@ impl Companion {
                 if text.trim().is_empty() {
                     return Err("text must not be empty".to_string());
                 }
+                let steer = arguments
+                    .get("steer")
+                    .and_then(Value::as_bool)
+                    .unwrap_or(false);
+                let expected_turn_id = arguments
+                    .get("expected_turn_id")
+                    .and_then(Value::as_str)
+                    .map(str::to_string);
+                if steer && expected_turn_id.as_deref().unwrap_or("").trim().is_empty() {
+                    return Err("expected_turn_id is required when steer is true".to_string());
+                }
+                let delay_seconds = arguments.get("delay_seconds").and_then(Value::as_i64);
+                let deliver_at = arguments
+                    .get("deliver_at")
+                    .and_then(Value::as_str)
+                    .map(str::to_string);
+                if delay_seconds.is_some() && deliver_at.is_some() {
+                    return Err("pass delay_seconds or deliver_at, not both".to_string());
+                }
                 Ok(BrokerMessage::SessionSend(BrokerSessionSendRequest {
                     token,
                     conversation_id,
                     operation_id,
                     text,
+                    steer,
+                    expected_turn_id,
+                    delay_seconds,
+                    deliver_at,
+                }))
+            }
+            "list_conversations"
+            | "create_conversation"
+            | "create_role"
+            | "update_role"
+            | "delete_role"
+            | "list_roles"
+            | "create_team"
+            | "update_team"
+            | "delete_team"
+            | "list_teams"
+            | "list_collaboration_spaces"
+            | "list_space_members"
+            | "create_collaboration_space"
+            | "add_space_member"
+            | "set_space_identity"
+            | "post_to_space"
+            | "list_space_messages"
+            | "list_space_collection"
+            | "add_to_space_collection"
+            | "read_space_collection_item" => {
+                Ok(BrokerMessage::Collaborate(BrokerCollaborateRequest {
+                    token,
+                    name: name.to_string(),
+                    arguments: arguments.clone(),
                 }))
             }
             "cancel_session_turn" => {
@@ -1011,6 +1083,50 @@ mod tests {
                 "wait_for_session"
             ]
         );
+    }
+
+    #[test]
+    fn collaboration_opens_same_workspace_tools_without_session_control() {
+        let value = respond_text(classify(
+            "collaboration",
+            r#"{"jsonrpc":"2.0","id":33,"method":"tools/list"}"#,
+        ));
+        let names = value["result"]["tools"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter_map(|tool| tool["name"].as_str())
+            .collect::<Vec<_>>();
+
+        assert_eq!(
+            names,
+            vec![
+                "get_session_info",
+                "send_session_input",
+                "list_conversations",
+                "create_conversation",
+                "list_roles",
+                "create_role",
+                "update_role",
+                "delete_role",
+                "list_teams",
+                "create_team",
+                "update_team",
+                "delete_team",
+                "list_collaboration_spaces",
+                "list_space_members",
+                "create_collaboration_space",
+                "add_space_member",
+                "set_space_identity",
+                "post_to_space",
+                "list_space_messages",
+            ]
+        );
+        assert!(!names.contains(&"cancel_session_turn"));
+        assert!(!names.contains(&"wait_for_session"));
+        assert!(!names.contains(&"delegate_to_agent"));
+        assert!(names.contains(&"list_collaboration_spaces"));
+        assert!(names.contains(&"list_space_members"));
     }
 
     #[test]

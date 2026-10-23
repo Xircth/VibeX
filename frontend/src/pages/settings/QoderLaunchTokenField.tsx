@@ -16,17 +16,21 @@ export const QODER_PERSONAL_ACCESS_TOKEN = 'QODER_PERSONAL_ACCESS_TOKEN';
 type Props = {
   agentId: AgentId;
   envName: string;
+  hidden?: boolean;
   locked?: boolean;
   onChanged?: () => void | Promise<void>;
   onDirtyChange?: (dirty: boolean) => void;
+  onPresentChange?: (present: boolean) => void;
 };
 
 export function HeadlessAccountTokenField({
   agentId,
   envName,
+  hidden = false,
   locked = false,
   onChanged,
   onDirtyChange,
+  onPresentChange,
 }: Props) {
   const { t } = useTranslation('settings');
   const [revision, setRevision] = useState<string | null>(null);
@@ -41,8 +45,10 @@ export function HeadlessAccountTokenField({
     try {
       const view = await agentManagementApi.environment(agentId);
       const entry = view.entries.find((item) => item.name === envName);
+      const nextPresent = Boolean(entry?.present);
       setRevision(view.revision);
-      setPresent(Boolean(entry?.present));
+      setPresent(nextPresent);
+      onPresentChange?.(nextPresent);
       setToken('');
     } catch (cause) {
       toast.error(
@@ -51,7 +57,7 @@ export function HeadlessAccountTokenField({
     } finally {
       setLoading(false);
     }
-  }, [agentId, envName, t]);
+  }, [agentId, envName, onPresentChange, t]);
 
   useEffect(() => {
     void load();
@@ -73,10 +79,12 @@ export function HeadlessAccountTokenField({
           [envName]: nextToken,
         },
       });
-      setRevision(next.revision);
-      setPresent(
-        next.entries.some((entry) => entry.name === envName && entry.present)
+      const nextPresent = next.entries.some(
+        (entry) => entry.name === envName && entry.present
       );
+      setRevision(next.revision);
+      setPresent(nextPresent);
+      onPresentChange?.(nextPresent);
       setToken('');
       toast.success(t('agents.headlessAccountTokenSaved'));
       await onChanged?.();
@@ -90,7 +98,10 @@ export function HeadlessAccountTokenField({
   };
 
   return (
-    <label className="agent-auth-mode-field agent-auth-mode-credential">
+    <label
+      className="agent-auth-mode-field agent-auth-mode-credential"
+      hidden={hidden}
+    >
       <span>{envName}</span>
       <div className="agent-auth-mode-secret-row">
         <div className="agent-auth-mode-secret">

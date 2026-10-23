@@ -15,6 +15,8 @@ decision-makers:
 > [ADR-0057](0057-session-enhance-and-multi-agent-plugins.md)。
 > 本决定中「官方 MCP 由官方插件激活、默认禁用、只影响新 session」仍然有效。
 
+> 2026-10-20：多智能体协同不再是官方插件。vibex-mcp 的 delegation 产品由设置 → 常规里的 MultiAgent协同开关激活，默认关闭，只影响新会话。会话增强与工作流仍由各自官方插件激活。
+
 `vibex-mcp` 与 `vibex-workflow-mcp` 是 VibeX 官方产品 MCP。它们作为 Host 家族
 的原生文件随桌面和 Server 发行，但只有对应官方插件启用后才注入 Agent session。
 
@@ -81,3 +83,9 @@ Plugin control plane 在导入、启用、禁用和启动恢复时更新。
 - **把两个 MCP 合成一个二进制。** 否决。产品生命周期与工具目录会绑死。
 - **让用户单独安装 MCP 服务。** 否决。没有 Host socket 与短期 token，进程
   没有产品语义。
+
+## Amendment（2026-10-20）
+
+第 2 节里「多智能体协同由官方插件激活」不再成立。`vibex-mcp` 的 delegation 产品由「设置 → 常规 → MultiAgent协同」激活，默认关闭，只影响之后新开或重新绑定的会话。关掉之后，新会话不再注入工具，新的写操作失败；已经排队的输入仍会被送达。会话增强与工作流仍由各自官方插件激活。
+
+协作投递和会话、工作区表面必须与宿主锁版本，独立插件缝是假想的。因此放弃把 MultiAgent协同做成可独立发布、可从市场安装、或由第三方用同一 SDK 再做一份的插件。不要恢复「平台总是注入 `vibex-mcp`」。

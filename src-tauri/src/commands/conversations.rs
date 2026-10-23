@@ -96,6 +96,10 @@ pub struct DbConversationDetail {
     /// publishes `available_commands_update`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub available_commands: Option<Vec<AgentAvailableCommand>>,
+    /// Snapshot of the role used to create this conversation. Absent when the
+    /// conversation was not created from a role.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub persona: Option<conversations::collaboration::ConversationPersonaView>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
@@ -108,7 +112,7 @@ pub struct ConversationActiveBinding {
     pub acp_session_id: Option<String>,
     pub status: String,
     pub capabilities: AcpCapabilitySnapshot,
-    /// True when this binding was created while the multi-agent plugin was on,
+    /// True when this binding was created while MultiAgent collaboration was on,
     /// so Host delivered `vibex-delegation-mcp` on that session new/resume/rebind.
     #[serde(default)]
     pub delegation_mcp_delivered: bool,
@@ -289,6 +293,9 @@ pub async fn conversation_detail_core(
     let Some(summary) = summary else {
         return Ok(None);
     };
+    let persona = conversations::collaboration::conversation_persona(pool, id)
+        .await
+        .map_err(|error| AppError::Internal(error.to_string()))?;
     let history = open.unwrap_or_else(jsonl_history::WindowedHistory::empty);
     let timeline = jsonl_history::timeline_from_window(id, &history);
     let usage_snapshot = ConversationUsageSnapshotRecord::find(pool, id).await?;
@@ -317,6 +324,7 @@ pub async fn conversation_detail_core(
         session_modes,
         session_config_options,
         available_commands,
+        persona,
     }))
 }
 

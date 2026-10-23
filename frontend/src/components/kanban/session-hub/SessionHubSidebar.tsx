@@ -10,8 +10,6 @@ import { useTranslation } from 'react-i18next';
 import {
   DndContext,
   PointerSensor,
-  closestCenter,
-  pointerWithin,
   type CollisionDetection,
   type DragEndEvent,
   type DragStartEvent,
@@ -68,6 +66,7 @@ import {
   sessionListTitle,
   sessionMatchesNameQuery,
 } from '@/components/workspace-session-list/workspaceSessionListModel';
+import { sessionHubDropCollision } from './sessionHubCollision';
 import { SessionHubListItem } from './SessionHubListItem';
 import {
   SESSION_LIST_DRAG_OVERLAY_CLASS,
@@ -747,9 +746,8 @@ export function SessionHubSidebar({
     }
   };
 
-  const collisionDetection: CollisionDetection = canDropOnCanvas
-    ? pointerWithin
-    : closestCenter;
+  const collisionDetection: CollisionDetection = (args) =>
+    sessionHubDropCollision(args, { canvasDrop: canDropOnCanvas });
 
   const showArchiveDrop = Boolean(activeDragSessionId) && canDragToArchive;
   const insetExpanded = showArchiveDrop || Boolean(visibleNotice);

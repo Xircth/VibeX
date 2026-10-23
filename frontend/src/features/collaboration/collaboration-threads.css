@@ -745,6 +745,11 @@
 .collab-group-picker .workspace-session-row-main:focus-visible {
   border-radius: var(--radius);
 }
+/* Unified composer sits on the box surface: no nested inner panel. */
+.collab-composer-box .session-composer-file-drop-zone > div {
+  background: transparent;
+  border-radius: 14px;
+}
 /* Unified composer: the contenteditable sits inside the box, so ring the box. */
 .collab-composer-box:has(
   [data-testid='session-composer-editor'] :focus-visible

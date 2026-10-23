@@ -1,0 +1,92 @@
+{
+  "$schema": "https://schemas.vibex.dev/plugin/v4/plugin.schema.json",
+  "manifestVersion": 4,
+  "apiVersion": "2.0",
+  "id": "vibex.tauri-ui-debugger",
+  "publisher": "vibex",
+  "version": "0.1.0",
+  "name": "TauriUI调试器",
+  "description": "开发模式下点选界面元素，把源码位置、组件链和关键样式作为 token 插入会话输入框。",
+  "readme": "README.md",
+  "engines": {
+    "vibex": ">=0.1.3 <1.0.0",
+    "pluginSdk": "^2.0.0"
+  },
+  "config": {
+    "schema": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "showBall": {
+          "type": "boolean",
+          "title": "显示悬浮球",
+          "description": "关闭后仍可用快捷键进入选择模式。仅在带源码标注的开发构建中出现。",
+          "default": true
+        },
+        "ballPosition": {
+          "type": "string",
+          "title": "悬浮球位置",
+          "description": "拖动悬浮球后会记住最近一次吸附的位置。",
+          "enum": [
+            "左下角",
+            "右下角"
+          ],
+          "default": "左下角"
+        },
+        "shortcut": {
+          "type": "string",
+          "title": "快捷键",
+          "description": "进入/退出选择模式。macOS 上 Alt 为 ⌥、Ctrl 为 ⌘。",
+          "enum": [
+            "Alt+Shift+C",
+            "Ctrl+Shift+X",
+            "关闭"
+          ],
+          "default": "Alt+Shift+C"
+        },
+        "insertContent": {
+          "type": "string",
+          "title": "插入内容",
+          "description": "写入输入框 token 的信息量；源码位置始终包含。",
+          "enum": [
+            "源码位置",
+            "源码位置 + 组件链",
+            "源码位置 + 组件链 + 关键样式"
+          ],
+          "default": "源码位置 + 组件链"
+        },
+        "keepSelecting": {
+          "type": "boolean",
+          "title": "选中后保持选择模式",
+          "description": "开启后插入一个元素仍停留在选择模式，按 Esc 退出。",
+          "default": false
+        }
+      }
+    }
+  },
+  "entrypoints": {
+    "app": {
+      "entry": "app/main.js",
+      "protocol": "2.0"
+    }
+  },
+  "integrations": [
+    {
+      "id": "ui-element-tokens",
+      "kind": "content.skill",
+      "resource": "contents/skills/ui-element-tokens"
+    },
+    {
+      "id": "select-element",
+      "kind": "app.command",
+      "label": "TauriUI调试器：选择界面元素"
+    }
+  ],
+  "interface": {
+    "icon": "assets/icon.svg"
+  },
+  "content": {
+    "root": "contents",
+    "index": ".vibex-plugin/content.index.json"
+  }
+}

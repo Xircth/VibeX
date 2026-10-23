@@ -154,10 +154,10 @@
       "description": "在示意图中拖动区域重新排列，保存后生效。",
       "workspaceLabel": "工作区",
       "kanbanLabel": "看板",
-      "collaborationLabel": "协作空间",
+      "collaborationLabel": "协作",
       "dragHint": "拖动一个区域到另一个位置即可互换；区域大小跟随区域移动，不随位置改变。",
       "kanbanHint": "会话列表（A）、会话监控（B）与会话执行区（C）的排列。",
-      "collaborationHint": "协作空间（A）、消息区（B）与预览区（C）的排列。",
+      "collaborationHint": "成员与群聊（A）、消息区（B）与预览区（C）的排列。",
       "hint": "仍可在页面中拖动分隔线调整各区域大小。",
       "zones": {
         "dock": "侧栏面板",
@@ -171,7 +171,7 @@
         "session": "会话执行"
       },
       "collaborationZones": {
-        "spaces": "协作空间",
+        "spaces": "成员与群聊",
         "thread": "消息区",
         "preview": "预览区"
       }
@@ -1653,7 +1653,7 @@
     "basicFeaturesTitle": "基础功能",
     "multiAgentTitle": "MultiAgent协同",
     "multiAgentEnabled": "MultiAgent协同",
-    "multiAgentEnabledHint": "新会话可以使用委派、角色和协作空间。",
+    "multiAgentEnabledHint": "新会话可以使用委派、角色和群聊协作。",
     "multiAgentDepth": "委派深度",
     "multiAgentCache": "完成缓存 (MB)",
     "multiAgentDays": "查询窗口（天）",

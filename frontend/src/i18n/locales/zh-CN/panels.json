@@ -333,8 +333,19 @@
     "searchEmpty": "没有匹配的会话"
   },
   "worktreeSelector": {
-    "currentProjectBranch": "当前项目目录分支",
-    "nonWorktreeCheckout": "非 Worktree，选择后将先 checkout",
+    "modeLabel": "工作区列表",
+    "modeWorkspace": "工作区",
+    "modeBranch": "分支",
+    "mainDirectory": "主目录",
+    "worktree": "Worktree",
+    "branchSwitchTitle": "切换分支",
+    "branchSwitchMessage": "切换当前目录所在分支可能导致 Agent 工作异常，是否切换？",
+    "branchSwitchConfirm": "切换",
+    "branchSwitchCancel": "取消",
+    "branchSwitchFailed": "无法切换分支",
+    "emptyWorkspaces": "没有工作区",
+    "emptyBranches": "没有可切换的分支",
+    "triggerLabel": "选择工作区",
     "copiedWorkspacePath": "已复制工作区路径",
     "copyWorkspacePath": "复制工作区路径",
     "noCopyablePath": "当前分支暂无可复制的工作区路径"

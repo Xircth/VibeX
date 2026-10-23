@@ -11,6 +11,7 @@ import {
   removeMonitorSession,
   replaceRightSession,
   resolveCurrentExecutionPlacement,
+  sessionLayoutForWorkspaceChange,
   shouldPruneKanbanSessionPlacements,
   type KanbanSessionPlacement,
 } from './kanbanSessionLayout';
@@ -184,6 +185,35 @@ describe('kanban session layout', () => {
         availableSessionCount: 2,
       })
     ).toBe(true);
+  });
+
+  it('drops a session from another workspace and keeps one in the current workspace', () => {
+    const state = {
+      rightSession: session('old', 'workspace-a'),
+      monitorSessions: [session('monitor', 'workspace-a')],
+    };
+
+    expect(
+      sessionLayoutForWorkspaceChange(state, 'workspace-b', null, {
+        sessionKnown: false,
+      }).rightSession
+    ).toBeNull();
+
+    const followed = sessionLayoutForWorkspaceChange(
+      state,
+      'workspace-b',
+      session('next', 'workspace-b'),
+      { sessionKnown: true }
+    );
+    expect(followed.rightSession).toEqual(session('next', 'workspace-b'));
+
+    const kept = sessionLayoutForWorkspaceChange(
+      followed,
+      'workspace-b',
+      session('latest', 'workspace-b'),
+      { sessionKnown: true }
+    );
+    expect(kept.rightSession).toEqual(session('next', 'workspace-b'));
   });
 
   it('replaces the right panel session without queueing the previous one', () => {

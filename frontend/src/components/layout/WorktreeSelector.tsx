@@ -1,52 +1,70 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import type { TFunction } from 'i18next';
 import { useTranslation } from 'react-i18next';
-import { useMutation, useQueryClient } from '@tanstack/react-query';
+import { useQueryClient, type QueryClient } from '@tanstack/react-query';
 import { useNavigate, useParams } from 'react-router-dom';
 import { Check, ChevronDown, Copy, GitBranch } from 'lucide-react';
+import {
+  SegmentedControl,
+  SegmentedControlItem,
+} from '@astryxdesign/core/SegmentedControl';
+import type { Workspace } from 'shared/types';
 import { Button } from '@/components/ui/button';
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
-  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { useProject } from '@/contexts/ProjectContext';
 import { useWorktree } from '@/contexts/WorktreeContext';
+import { useKanbanSessionContext } from '@/contexts/KanbanSessionContext';
 import { useProjectRepos } from '@/hooks';
 import { useRepoBranches } from '@/hooks/useRepoBranches';
 import { useProjectWorktrees } from '@/hooks/useProjectWorktrees';
 import { useTaskAttempt } from '@/hooks/useTaskAttempt';
 import { paths } from '@/lib/paths';
 import { useLayoutStore } from '@/stores/useLayoutStore';
+import { useFileTreeStore } from '@/stores/useFileTreeStore';
 import { deriveWorkspaceRootPath } from '@/components/panels/workspaceRootPath';
-import { sessionsApi } from '@/lib/api';
+import { attemptsApi } from '@/lib/api';
+import { ConfirmDialog } from '@/components/dialogs/shared/ConfirmDialog';
+import { toast } from '@/components/ui/toast';
+import type { WorkspaceWithSession } from '@/types/attempt';
 import {
-  buildWorkspaceBranchOptions,
-  findWorkspaceBranchOptionByWorkspaceId,
-  matchesWorkspaceBranch,
-  type WorkspaceBranchOption,
-} from '@/lib/workspaceBranchOptions';
+  buildBranchSegment,
+  orderWorkspacesForSelector,
+  type BranchSegmentEntry,
+} from '@/lib/workspaceBranchSegment';
 
-function getBranchOptionDescription(
-  option: WorkspaceBranchOption,
-  t: TFunction<['panels', 'common']>
-) {
-  if (option.useWorktree) {
-    return option.workspace?.name?.trim()
-      ? `${option.workspace.name} · Git Worktree`
-      : 'Git Worktree';
+type SwitcherMode = 'workspace' | 'branch';
+
+const SESSION_STALE_MS = 30_000;
+
+/**
+ * The file tree reads `attempt`. Session follow reads `taskAttempt`.
+ * Both have to be warm before the route changes, or the old directory stays.
+ */
+function rememberWorkspace(queryClient: QueryClient, workspace: Workspace) {
+  queryClient.setQueryData(['attempt', workspace.id], workspace);
+  queryClient.setQueryData(['taskAttempt', workspace.id], workspace);
+}
+
+function checkoutErrorMessage(error: unknown, fallback: string): string {
+  if (error instanceof Error && error.message.trim()) {
+    return error.message;
   }
-
-  return option.isCurrentProjectBranch
-    ? t('worktreeSelector.currentProjectBranch')
-    : t('worktreeSelector.nonWorktreeCheckout');
+  if (typeof error === 'string' && error.trim()) {
+    return error;
+  }
+  return fallback;
 }
 
 export function WorktreeSelector() {
-  const { t } = useTranslation(['panels', 'common']);
+  const { t } = useTranslation('panels');
   const [open, setOpen] = useState(false);
+  const [mode, setMode] = useState<SwitcherMode>('workspace');
+  const [switchingBranch, setSwitchingBranch] = useState(false);
+  const branchSwitchLockRef = useRef(false);
   const [copiedWorkspaceId, setCopiedWorkspaceId] = useState<string | null>(
     null
   );
@@ -56,11 +74,12 @@ export function WorktreeSelector() {
   const { workspaceId } = useParams<{ workspaceId?: string }>();
 
   const { projectId, project } = useProject();
-  const { activeWorktreeId } = useWorktree();
+  const { activeWorktreeId, setActiveWorktree } = useWorktree();
+  const { activateExecutionSession } = useKanbanSessionContext();
   const { worktrees } = useProjectWorktrees(projectId);
   const { data: repos } = useProjectRepos(projectId);
   const workspaceRepoNames = useMemo(
-    () => repos?.map((repo) => ({ name: repo.name })) ?? [],
+    () => repos?.map((repo) => ({ name: repo.name, path: repo.path })) ?? [],
     [repos]
   );
   const primaryRepo = repos?.[0];
@@ -68,116 +87,64 @@ export function WorktreeSelector() {
     enabled: Boolean(primaryRepo?.id),
   });
   const { data: routeWorkspace } = useTaskAttempt(workspaceId);
-
   const setActiveTab = useLayoutStore((state) => state.setActiveTab);
+  const setRootPath = useFileTreeStore((state) => state.setRootPath);
+  const setSelectedFilePath = useFileTreeStore(
+    (state) => state.setSelectedFilePath
+  );
+  const setDiffFilePath = useFileTreeStore((state) => state.setDiffFilePath);
 
   const effectiveWorktreeId = activeWorktreeId ?? workspaceId ?? null;
-  const visibleWorkspaces = useMemo(() => {
+  const selectorWorkspaces = useMemo(() => {
     const nextWorkspaces = worktrees.map((item) => item.workspace);
-
     if (
       routeWorkspace &&
-      effectiveWorktreeId &&
       !nextWorkspaces.some((workspace) => workspace.id === routeWorkspace.id)
     ) {
       nextWorkspaces.unshift(routeWorkspace);
     }
-
-    return nextWorkspaces;
-  }, [effectiveWorktreeId, routeWorkspace, worktrees]);
-  const branchOptions = useMemo(
+    return orderWorkspacesForSelector(nextWorkspaces);
+  }, [routeWorkspace, worktrees]);
+  const activeWorkspace = useMemo(
     () =>
-      buildWorkspaceBranchOptions({
-        workspaces: visibleWorkspaces,
-        repoBranches: primaryRepoBranches,
-      }),
-    [primaryRepoBranches, visibleWorkspaces]
+      selectorWorkspaces.find(
+        (workspace) => workspace.id === effectiveWorktreeId
+      ) ?? (routeWorkspace?.id === effectiveWorktreeId ? routeWorkspace : null),
+    [effectiveWorktreeId, routeWorkspace, selectorWorkspaces]
   );
-  const activeBranchOption = useMemo(
-    () =>
-      findWorkspaceBranchOptionByWorkspaceId(
-        branchOptions,
-        effectiveWorktreeId
-      ),
-    [branchOptions, effectiveWorktreeId]
-  );
-  const projectRootBranchLabel =
+  const inWorktree = Boolean(activeWorkspace?.use_worktree);
+  const mainDirectoryBranch =
     primaryRepoBranches.find((branch) => branch.is_current)?.name ??
     primaryRepo?.default_target_branch ??
-    project?.default_main_branch ??
     null;
-
-  const switchBranchMutation = useMutation({
-    mutationFn: async (branch: string) => {
-      if (!projectId) {
-        throw new Error('Project is required');
-      }
-
-      return sessionsApi.ensureProjectWorkspace({
-        project_id: projectId,
-        branch,
-      });
-    },
-    onSuccess: async (workspace) => {
-      if (!projectId) {
-        return;
-      }
-
-      if (primaryRepo?.id) {
-        await queryClient.invalidateQueries({
-          queryKey: ['repoBranches', primaryRepo.id],
-        });
-      }
-      await queryClient.invalidateQueries({
-        queryKey: ['projectWorktrees', projectId],
-      });
-
-      setActiveTab('workspace');
-      navigate(paths.projectWorkspace(projectId, workspace.id));
-    },
-  });
-
-  const handleSelect = useCallback(
-    (option: WorkspaceBranchOption) => {
-      setOpen(false);
-      if (!projectId) {
-        return;
-      }
-
-      if (
-        effectiveWorktreeId &&
-        activeBranchOption &&
-        matchesWorkspaceBranch(activeBranchOption.branch, option.branch) &&
-        activeBranchOption.existingWorkspaceId === effectiveWorktreeId
-      ) {
-        return;
-      }
-
-      if (option.useWorktree && option.directWorkspaceId) {
-        setActiveTab('workspace');
-        navigate(paths.projectWorkspace(projectId, option.directWorkspaceId));
-        return;
-      }
-
-      switchBranchMutation.mutate(option.branch);
-    },
+  const projectRootWorkspace =
+    selectorWorkspaces.find((workspace) => !workspace.use_worktree) ?? null;
+  const currentDirectoryBranch = inWorktree
+    ? (activeWorkspace?.branch ?? null)
+    : (mainDirectoryBranch ?? activeWorkspace?.branch ?? null);
+  const branchEntries = useMemo(
+    () =>
+      buildBranchSegment({
+        branches: primaryRepoBranches,
+        inWorktree,
+        currentDirectoryBranch,
+        mainDirectoryBranch,
+        projectRootWorkspaceId: projectRootWorkspace?.id ?? null,
+      }),
     [
-      activeBranchOption,
-      effectiveWorktreeId,
-      navigate,
-      projectId,
-      setActiveTab,
-      switchBranchMutation,
+      currentDirectoryBranch,
+      inWorktree,
+      mainDirectoryBranch,
+      primaryRepoBranches,
+      projectRootWorkspace?.id,
     ]
   );
 
-  const handleGoToKanban = useCallback(() => {
-    setOpen(false);
-    if (!projectId) return;
-
-    setActiveTab('kanban');
-    navigate(paths.projectSessions(projectId));
-  }, [navigate, projectId, setActiveTab]);
+  const displayLabel =
+    activeWorkspace?.branch?.trim() ||
+    mainDirectoryBranch ||
+    project?.name ||
+    t('worktreeSelector.triggerLabel');
 
   useEffect(() => {
     return () => {
@@ -187,33 +154,195 @@ export function WorktreeSelector() {
     };
   }, []);
 
-  const handleCopyWorkspacePath = useCallback(
-    async (
-      event: React.MouseEvent<HTMLButtonElement>,
-      option: WorkspaceBranchOption
-    ) => {
-      event.preventDefault();
-      event.stopPropagation();
+  const prefetchWorkspaceSession = useCallback(
+    (workspace: Workspace) => {
+      rememberWorkspace(queryClient, workspace);
+      void queryClient.prefetchQuery({
+        queryKey: ['taskAttemptWithSession', workspace.id],
+        queryFn: () => attemptsApi.getWithSession(workspace.id),
+        staleTime: SESSION_STALE_MS,
+      });
+    },
+    [queryClient]
+  );
 
-      if (!option.workspace) {
+  const activateWorkspace = useCallback(
+    (workspace: Workspace) => {
+      setOpen(false);
+      if (!projectId || workspace.id === effectiveWorktreeId) {
         return;
       }
 
+      rememberWorkspace(queryClient, workspace);
+      const cached = queryClient.getQueryData<WorkspaceWithSession>([
+        'taskAttemptWithSession',
+        workspace.id,
+      ]);
+      const sessionId = cached?.session?.id;
+      if (sessionId) {
+        activateExecutionSession({
+          sessionId,
+          workspaceId: workspace.id,
+        });
+      }
+
+      setRootPath(deriveWorkspaceRootPath(workspace, workspaceRepoNames));
+      setSelectedFilePath(null);
+      setDiffFilePath(null);
+      setActiveWorktree(workspace.id, workspace.task_id);
+      setActiveTab('workspace');
+      navigate(
+        sessionId
+          ? paths.projectSession(projectId, workspace.id, sessionId)
+          : paths.projectWorkspace(projectId, workspace.id)
+      );
+    },
+    [
+      activateExecutionSession,
+      effectiveWorktreeId,
+      navigate,
+      projectId,
+      queryClient,
+      setActiveTab,
+      setActiveWorktree,
+      setDiffFilePath,
+      setRootPath,
+      setSelectedFilePath,
+      workspaceRepoNames,
+    ]
+  );
+
+  const checkoutDirectoryBranch = useCallback(
+    async (branchName: string) => {
+      if (
+        !effectiveWorktreeId ||
+        !primaryRepo?.id ||
+        branchSwitchLockRef.current
+      ) {
+        return;
+      }
+
+      branchSwitchLockRef.current = true;
+      setSwitchingBranch(true);
+      try {
+        const result = await ConfirmDialog.show({
+          title: t('worktreeSelector.branchSwitchTitle'),
+          message: t('worktreeSelector.branchSwitchMessage'),
+          confirmText: t('worktreeSelector.branchSwitchConfirm'),
+          cancelText: t('worktreeSelector.branchSwitchCancel'),
+          variant: 'info',
+        });
+        if (result !== 'confirmed') {
+          return;
+        }
+
+        await attemptsApi.checkoutBranch(
+          effectiveWorktreeId,
+          primaryRepo.id,
+          branchName
+        );
+        const withBranch = (workspace: Workspace) =>
+          workspace.id === effectiveWorktreeId
+            ? { ...workspace, branch: branchName }
+            : workspace;
+        queryClient.setQueryData<Workspace[]>(
+          ['projectWorktrees', projectId],
+          (current) => current?.map(withBranch)
+        );
+        queryClient.setQueryData<Workspace>(
+          ['taskAttempt', effectiveWorktreeId],
+          (current) => (current ? withBranch(current) : current)
+        );
+        queryClient.setQueryData<Workspace>(
+          ['attempt', effectiveWorktreeId],
+          (current) => (current ? withBranch(current) : current)
+        );
+        queryClient.setQueryData<WorkspaceWithSession>(
+          ['taskAttemptWithSession', effectiveWorktreeId],
+          (current) =>
+            current
+              ? { ...withBranch(current), session: current.session }
+              : current
+        );
+        if (primaryRepo.id) {
+          void queryClient.invalidateQueries({
+            queryKey: ['repoBranches', primaryRepo.id],
+          });
+        }
+        void queryClient.invalidateQueries({
+          queryKey: ['taskAttempt', effectiveWorktreeId],
+        });
+        void queryClient.invalidateQueries({
+          queryKey: ['taskAttemptWithSession', effectiveWorktreeId],
+        });
+        void queryClient.invalidateQueries({
+          queryKey: ['attempt', effectiveWorktreeId],
+        });
+      } catch (error) {
+        toast.error(
+          checkoutErrorMessage(error, t('worktreeSelector.branchSwitchFailed'))
+        );
+      } finally {
+        branchSwitchLockRef.current = false;
+        setSwitchingBranch(false);
+      }
+    },
+    [effectiveWorktreeId, primaryRepo?.id, projectId, queryClient, t]
+  );
+
+  const handleBranchSelect = useCallback(
+    (entry: BranchSegmentEntry) => {
+      setOpen(false);
+      if (entry.role === 'current') {
+        return;
+      }
+      if (entry.role === 'main-directory') {
+        const target =
+          selectorWorkspaces.find(
+            (workspace) => workspace.id === entry.workspaceId
+          ) ?? projectRootWorkspace;
+        if (!target) {
+          toast.error(t('worktreeSelector.branchSwitchFailed'));
+          return;
+        }
+        activateWorkspace(target);
+        return;
+      }
+      void checkoutDirectoryBranch(entry.name);
+    },
+    [
+      activateWorkspace,
+      checkoutDirectoryBranch,
+      projectRootWorkspace,
+      selectorWorkspaces,
+      t,
+    ]
+  );
+
+  const handleCopyWorkspacePath = useCallback(
+    async (
+      event: React.MouseEvent<HTMLButtonElement>,
+      workspace: Workspace
+    ) => {
+      event.preventDefault();
+      event.stopPropagation();
       const workspacePath = deriveWorkspaceRootPath(
-        option.workspace,
+        workspace,
         workspaceRepoNames
       );
-      if (!workspacePath) return;
+      if (!workspacePath) {
+        return;
+      }
 
       try {
         await navigator.clipboard.writeText(workspacePath);
-        setCopiedWorkspaceId(option.workspace.id);
+        setCopiedWorkspaceId(workspace.id);
         if (copiedResetTimerRef.current) {
           window.clearTimeout(copiedResetTimerRef.current);
         }
         copiedResetTimerRef.current = window.setTimeout(() => {
           setCopiedWorkspaceId((current) =>
-            current === option.workspace?.id ? null : current
+            current === workspace.id ? null : current
           );
         }, 1800);
       } catch (error) {
@@ -223,20 +352,22 @@ export function WorktreeSelector() {
     [workspaceRepoNames]
   );
 
-  const displayLabel = activeBranchOption?.branch
-    ? activeBranchOption.branch
-    : effectiveWorktreeId
-      ? (routeWorkspace?.branch ?? 'Workspace')
-      : (projectRootBranchLabel ?? project?.name ?? 'Select workspace');
+  const handleOpenChange = useCallback((next: boolean) => {
+    setOpen(next);
+    if (next) {
+      setMode('workspace');
+    }
+  }, []);
 
   return (
-    <DropdownMenu open={open} onOpenChange={setOpen}>
+    <DropdownMenu open={open} onOpenChange={handleOpenChange}>
       <DropdownMenuTrigger asChild>
         <Button
           variant="outline"
           className="h-7 w-36 justify-between gap-1 px-2 text-xs sm:w-48"
-          aria-label="Select workspace"
-          disabled={switchBranchMutation.isPending}
+          aria-label={t('worktreeSelector.triggerLabel')}
+          data-testid="workspace-switcher"
+          disabled={switchingBranch}
         >
           <GitBranch className="h-3 w-3 shrink-0 text-muted-foreground" />
           <span className="truncate font-medium">{displayLabel}</span>
@@ -244,103 +375,141 @@ export function WorktreeSelector() {
         </Button>
       </DropdownMenuTrigger>
 
-      <DropdownMenuContent align="start" className="w-80">
-        <DropdownMenuItem
-          onSelect={(event) => {
-            event.preventDefault();
-            handleGoToKanban();
-          }}
-          className="justify-between"
+      <DropdownMenuContent align="start" className="w-80 overflow-hidden p-0">
+        <div
+          className="border-b border-border/60 p-2"
+          onPointerDown={(event) => event.stopPropagation()}
+          onKeyDown={(event) => event.stopPropagation()}
         >
-          <span className="text-xs">Kanban overview</span>
-          {!effectiveWorktreeId ? (
-            <Check aria-hidden="true" className="h-3.5 w-3.5 shrink-0" />
-          ) : null}
-        </DropdownMenuItem>
+          <SegmentedControl
+            className="w-full"
+            layout="fill"
+            size="sm"
+            value={mode}
+            onChange={(value) => {
+              if (value === 'workspace' || value === 'branch') {
+                setMode(value);
+              }
+            }}
+            label={t('worktreeSelector.modeLabel')}
+            data-testid="workspace-switcher-mode"
+          >
+            <SegmentedControlItem
+              value="workspace"
+              label={t('worktreeSelector.modeWorkspace')}
+            />
+            <SegmentedControlItem
+              value="branch"
+              label={t('worktreeSelector.modeBranch')}
+            />
+          </SegmentedControl>
+        </div>
 
-        <DropdownMenuSeparator />
+        <div
+          className="max-h-72 overflow-y-auto overscroll-contain p-1"
+          data-testid="workspace-switcher-list"
+        >
+          {mode === 'workspace' ? (
+            selectorWorkspaces.length > 0 ? (
+              selectorWorkspaces.map((workspace) => {
+                const copyPath = deriveWorkspaceRootPath(
+                  workspace,
+                  workspaceRepoNames
+                );
+                const copyLabel = copyPath
+                  ? copiedWorkspaceId === workspace.id
+                    ? t('worktreeSelector.copiedWorkspacePath')
+                    : t('worktreeSelector.copyWorkspacePath')
+                  : t('worktreeSelector.noCopyablePath');
+                const selected = workspace.id === effectiveWorktreeId;
 
-        {branchOptions.length > 0 ? (
-          branchOptions.map((option) => {
-            const copyPath = option.workspace
-              ? deriveWorkspaceRootPath(option.workspace, workspaceRepoNames)
-              : null;
-
-            return (
-              <DropdownMenuItem
-                key={option.value}
-                onSelect={(event) => {
-                  event.preventDefault();
-                  handleSelect(option);
-                }}
-                className="flex items-center justify-between gap-2"
-              >
-                <div className="min-w-0 flex-1">
-                  <div className="flex items-center gap-2">
-                    <span className="block truncate text-xs font-mono">
-                      {option.branch}
-                    </span>
-                    <span
-                      className={
-                        option.useWorktree
-                          ? 'rounded-full bg-primary/10 px-1.5 py-0.5 text-[10px] text-primary'
-                          : 'rounded-full bg-[hsl(var(--warning)/0.12)] px-1.5 py-0.5 text-[10px] text-[hsl(var(--warning))]'
+                return (
+                  <div key={workspace.id} className="flex items-center gap-1">
+                    <DropdownMenuItem
+                      className="min-w-0 flex-1 gap-2"
+                      onSelect={(event) => {
+                        event.preventDefault();
+                        activateWorkspace(workspace);
+                      }}
+                      onMouseEnter={() => prefetchWorkspaceSession(workspace)}
+                      onFocus={() => prefetchWorkspaceSession(workspace)}
+                    >
+                      <span className="min-w-0 flex-1 truncate font-mono text-xs">
+                        {workspace.branch}
+                      </span>
+                      <span
+                        className={
+                          workspace.use_worktree
+                            ? 'shrink-0 rounded-full bg-primary/10 px-1.5 py-0.5 text-[10px] text-primary'
+                            : 'shrink-0 rounded-full bg-[hsl(var(--warning)/0.12)] px-1.5 py-0.5 text-[10px] text-[hsl(var(--warning))]'
+                        }
+                      >
+                        {workspace.use_worktree
+                          ? t('worktreeSelector.worktree')
+                          : t('worktreeSelector.mainDirectory')}
+                      </span>
+                      <span className="flex h-3.5 w-3.5 shrink-0 items-center justify-center">
+                        {selected ? (
+                          <Check aria-hidden="true" className="h-3.5 w-3.5" />
+                        ) : null}
+                      </span>
+                    </DropdownMenuItem>
+                    <button
+                      type="button"
+                      className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-sm text-muted-foreground hover:bg-muted hover:text-foreground disabled:cursor-not-allowed disabled:opacity-40"
+                      aria-label={copyLabel}
+                      title={copyLabel}
+                      disabled={!copyPath}
+                      onMouseDown={(event) => event.preventDefault()}
+                      onClick={(event) =>
+                        void handleCopyWorkspacePath(event, workspace)
                       }
                     >
-                      {option.useWorktree ? 'Worktree' : 'Project'}
-                    </span>
+                      {copiedWorkspaceId === workspace.id ? (
+                        <Check className="h-3.5 w-3.5 text-[hsl(var(--success))]" />
+                      ) : (
+                        <Copy className="h-3.5 w-3.5" />
+                      )}
+                    </button>
                   </div>
-                  <span className="mt-0.5 block truncate text-[10px] text-muted-foreground">
-                    {getBranchOptionDescription(option, t)}
+                );
+              })
+            ) : (
+              <p className="px-2 py-1.5 text-xs text-muted-foreground">
+                {t('worktreeSelector.emptyWorkspaces')}
+              </p>
+            )
+          ) : branchEntries.length > 0 ? (
+            branchEntries.map((entry) => (
+              <DropdownMenuItem
+                key={`${entry.role}:${entry.name}`}
+                className="gap-2"
+                onSelect={(event) => {
+                  event.preventDefault();
+                  handleBranchSelect(entry);
+                }}
+              >
+                <span className="min-w-0 flex-1 truncate font-mono text-xs">
+                  {entry.name}
+                </span>
+                {entry.role === 'main-directory' ? (
+                  <span className="shrink-0 rounded-full bg-[hsl(var(--warning)/0.12)] px-1.5 py-0.5 text-[10px] text-[hsl(var(--warning))]">
+                    {t('worktreeSelector.mainDirectory')}
                   </span>
-                </div>
-                {option.existingWorkspaceId === effectiveWorktreeId ? (
-                  <Check
-                    aria-hidden="true"
-                    className="h-3.5 w-3.5 shrink-0 text-foreground"
-                  />
                 ) : null}
-                <button
-                  type="button"
-                  className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-sm text-muted-foreground hover:bg-muted hover:text-foreground disabled:cursor-not-allowed disabled:opacity-40"
-                  title={
-                    copyPath
-                      ? copiedWorkspaceId === option.existingWorkspaceId
-                        ? t('worktreeSelector.copiedWorkspacePath')
-                        : t('worktreeSelector.copyWorkspacePath')
-                      : t('worktreeSelector.noCopyablePath')
-                  }
-                  disabled={!copyPath}
-                  onMouseDown={(event) => event.preventDefault()}
-                  onClick={(event) =>
-                    void handleCopyWorkspacePath(event, option)
-                  }
-                >
-                  {copiedWorkspaceId === option.existingWorkspaceId ? (
-                    <Check className="h-3.5 w-3.5 text-[hsl(var(--success))]" />
-                  ) : (
-                    <Copy className="h-3.5 w-3.5" />
-                  )}
-                </button>
-              </DropdownMenuItem>
-            );
-          })
-        ) : (
-          <>
-            {projectRootBranchLabel ? (
-              <DropdownMenuItem disabled>
-                <span className="text-xs text-muted-foreground">
-                  Current project branch: {projectRootBranchLabel}
+                <span className="flex h-3.5 w-3.5 shrink-0 items-center justify-center">
+                  {entry.role === 'current' ? (
+                    <Check aria-hidden="true" className="h-3.5 w-3.5" />
+                  ) : null}
                 </span>
               </DropdownMenuItem>
-            ) : null}
-            <DropdownMenuItem disabled>
-              <span className="text-xs text-muted-foreground">
-                No active workspaces
-              </span>
-            </DropdownMenuItem>
-          </>
-        )}
+            ))
+          ) : (
+            <p className="px-2 py-1.5 text-xs text-muted-foreground">
+              {t('worktreeSelector.emptyBranches')}
+            </p>
+          )}
+        </div>
       </DropdownMenuContent>
     </DropdownMenu>
   );

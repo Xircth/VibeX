@@ -362,10 +362,17 @@ pub async fn checkout_workspace_branch(
     repo_id: Uuid,
     branch_name: String,
 ) -> Result<(), AppError> {
-    let (worktree_path, _workspace) = resolve_worktree_path(&state, workspace_id, repo_id).await?;
+    let (worktree_path, workspace) = resolve_worktree_path(&state, workspace_id, repo_id).await?;
     let git = state.deployment.git().clone();
-    crate::error::spawn_blocking_result(move || git.checkout_branch(&worktree_path, &branch_name))
-        .await
+    let branch_for_git = branch_name.clone();
+    crate::error::spawn_blocking_result(move || {
+        git.checkout_branch(&worktree_path, &branch_for_git)
+    })
+    .await?;
+    // The directory's branch is the workspace's branch. Leaving the record
+    // unchanged makes the selector keep offering the branch the user just left.
+    Workspace::update_branch_name(&state.deployment.db().pool, workspace.id, &branch_name).await?;
+    Ok(())
 }
 
 #[tauri::command]

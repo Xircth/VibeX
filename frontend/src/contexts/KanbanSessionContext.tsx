@@ -4,7 +4,6 @@ import {
   useContext,
   useEffect,
   useMemo,
-  useRef,
   useState,
   type ReactNode,
 } from 'react';
@@ -23,6 +22,7 @@ import {
   pruneUnavailableSessions,
   removeMonitorSession,
   replaceRightSession,
+  sessionLayoutForWorkspaceChange,
   type KanbanSessionLayoutState,
   type KanbanSessionPlacement,
 } from '@/lib/kanbanSessionLayout';
@@ -108,7 +108,6 @@ export function KanbanSessionProvider({ children }: { children: ReactNode }) {
   const [hydratedProjectKey, setHydratedProjectKey] = useState<string | null>(
     null
   );
-  const lastSyncedWorkspaceIdRef = useRef<string | null>(null);
 
   // Derived state for backward compatibility
   const isSessionHubVisible = panelView === 'sessionHub';
@@ -125,7 +124,6 @@ export function KanbanSessionProvider({ children }: { children: ReactNode }) {
     setActiveViewIdState(viewId);
     setLayoutState(stored.layoutState);
     setLastActiveWorkspaceId(stored.lastActiveWorkspaceId);
-    lastSyncedWorkspaceIdRef.current = null;
     setHydratedProjectKey(projectKey);
   }, [projectKey]);
 
@@ -177,63 +175,40 @@ export function KanbanSessionProvider({ children }: { children: ReactNode }) {
       setPanelView(DEFAULT_KANBAN_VIEW);
       setLayoutState(createEmptyKanbanSessionLayoutState());
       setLastActiveWorkspaceId(null);
-      lastSyncedWorkspaceIdRef.current = null;
       useProjectViewStateStore
         .getState()
         .resetKanbanState(getProjectScopeKey(projectId));
     }
   }, [projectId, setPanelView]);
 
-  // Seed the right panel from the active workspace when nothing is selected yet.
-  // Once the user has chosen a session for the right panel, keep that selection
-  // stable across kanban/workspace switches until they explicitly change it.
+  // A session already open in this workspace stays. A session that belongs
+  // to another workspace leaves as soon as the workspace identity changes.
   useEffect(() => {
-    if (!activeWorktreeId) {
+    if (!projectId || hydratedProjectKey !== projectKey || !activeWorktreeId) {
       return;
     }
 
-    // When right panel is empty, always try to re-seed from the current workspace
-    // (even if we previously synced this workspace).
-    if (
-      lastSyncedWorkspaceIdRef.current === activeWorktreeId &&
-      layoutState.rightSession
-    ) {
-      return;
-    }
-
-    if (isActiveWorkspaceLoading || !activeWorkspaceWithSession) {
-      return;
-    }
-
-    const nextSession = activeWorkspaceWithSession.session?.id
+    const sessionId = activeWorkspaceWithSession?.session?.id;
+    const nextSession = sessionId
       ? {
-          sessionId: activeWorkspaceWithSession.session.id,
+          sessionId,
           workspaceId: activeWorktreeId,
         }
       : null;
 
-    if (nextSession) {
-      lastSyncedWorkspaceIdRef.current = activeWorktreeId;
-    }
-
-    setLayoutState((current) => {
-      if (current.rightSession) {
-        return current;
-      }
-
-      if (!nextSession) {
-        return current;
-      }
-
-      return replaceRightSession(current, nextSession, {
-        canUseRightPanel: true,
-      });
-    });
+    setLayoutState((current) =>
+      sessionLayoutForWorkspaceChange(current, activeWorktreeId, nextSession, {
+        sessionKnown:
+          !isActiveWorkspaceLoading && activeWorkspaceWithSession != null,
+      })
+    );
   }, [
     activeWorkspaceWithSession,
     activeWorktreeId,
+    hydratedProjectKey,
     isActiveWorkspaceLoading,
-    layoutState.rightSession,
+    projectId,
+    projectKey,
   ]);
 
   const canUseRightPanelForSessions = isKanbanSessionVisible;

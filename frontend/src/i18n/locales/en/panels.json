@@ -333,8 +333,19 @@
     "searchEmpty": "No matching sessions"
   },
   "worktreeSelector": {
-    "currentProjectBranch": "Current project directory branch",
-    "nonWorktreeCheckout": "Not a Worktree; will checkout first when selected",
+    "modeLabel": "Workspace list",
+    "modeWorkspace": "Workspace",
+    "modeBranch": "Branch",
+    "mainDirectory": "Main directory",
+    "worktree": "Worktree",
+    "branchSwitchTitle": "Switch branch",
+    "branchSwitchMessage": "Switching the current directory's branch may disrupt Agent work. Switch anyway?",
+    "branchSwitchConfirm": "Switch",
+    "branchSwitchCancel": "Cancel",
+    "branchSwitchFailed": "Could not switch branch",
+    "emptyWorkspaces": "No workspaces",
+    "emptyBranches": "No branches to switch",
+    "triggerLabel": "Select workspace",
     "copiedWorkspacePath": "Workspace path copied",
     "copyWorkspacePath": "Copy workspace path",
     "noCopyablePath": "No copyable workspace path for the current branch"

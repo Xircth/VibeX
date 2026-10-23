@@ -225,6 +225,35 @@ export function removeMonitorSession(
   };
 }
 
+/**
+ * The open session follows the workspace the user just entered.
+ * A session already chosen inside that workspace stays, so moving between
+ * the kanban and the workspace tab does not replace it. A session that
+ * belongs to another workspace cannot stay on screen.
+ */
+export function sessionLayoutForWorkspaceChange(
+  state: KanbanSessionLayoutState,
+  workspaceId: string,
+  nextSession: KanbanSessionPlacement | null,
+  options: { sessionKnown: boolean }
+): KanbanSessionLayoutState {
+  if (state.rightSession?.workspaceId === workspaceId) {
+    return state;
+  }
+
+  if (!options.sessionKnown || !nextSession) {
+    if (!state.rightSession) {
+      return state;
+    }
+    return {
+      ...state,
+      rightSession: null,
+    };
+  }
+
+  return replaceRightSession(state, nextSession, { canUseRightPanel: true });
+}
+
 export function replaceRightSession(
   state: KanbanSessionLayoutState,
   nextSession: KanbanSessionPlacement,

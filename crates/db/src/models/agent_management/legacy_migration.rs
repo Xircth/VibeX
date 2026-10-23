@@ -12,13 +12,8 @@ const DISABLE_NEW_BUILT_INS_MIGRATION_KEY: &str = "built-in-new-agents-disabled-
 
 /// Newly added built-in Agents default to disabled until the user explicitly
 /// enables and provisions them.
-const NEW_BUILT_IN_DISABLED_BY_DEFAULT: [&str; 5] = [
-    "kiro",
-    "auggie",
-    "trae",
-    "command_code",
-    "zcode",
-];
+const NEW_BUILT_IN_DISABLED_BY_DEFAULT: [&str; 5] =
+    ["kiro", "auggie", "trae", "command_code", "zcode"];
 
 /// Previous Agent Bar seed order. Used to detect installs that still have the
 /// factory layout so a one-time rewrite can apply the current default.

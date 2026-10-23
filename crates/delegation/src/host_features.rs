@@ -9,8 +9,8 @@ use agents::{
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use conversations::{
-    ScopedConversationControl, ScopedConversationControlError, collaboration, resolve_referenced_session,
-    session_info_value,
+    ScopedConversationControl, ScopedConversationControlError, collaboration,
+    resolve_referenced_session, session_info_value,
 };
 use serde_json::{Value, json};
 use sqlx::SqlitePool;
@@ -43,9 +43,8 @@ pub struct HostCompanionFeatures {
     pub runtime: Arc<AgentRuntime>,
     pub conversations: ScopedConversationControl,
     limits: Mutex<Arc<dyn Fn() -> CollaborationLimits + Send + Sync>>,
-    space_changed: Mutex<
-        Option<Arc<dyn Fn(collaboration::CollaborationSpaceChangedEvent) + Send + Sync>>,
-    >,
+    space_changed:
+        Mutex<Option<Arc<dyn Fn(collaboration::CollaborationSpaceChangedEvent) + Send + Sync>>>,
 }
 
 impl std::fmt::Debug for HostCompanionFeatures {
@@ -346,24 +345,13 @@ impl CompanionFeaturePort for HostCompanionFeatures {
         }
         let mut delivery = self.conversations.delivery_context();
         delivery.space_changed = self.space_changed_listener();
-        match collaboration::send_session_input_with(
-            &self.pool,
-            request,
-            &delivery,
-        )
-        .await
-        {
+        match collaboration::send_session_input_with(&self.pool, request, &delivery).await {
             Ok(receipt) => serde_json::to_value(receipt).unwrap_or_else(|_| json!({})),
             Err(error) => error.to_json(),
         }
     }
 
-    async fn collaborate(
-        &self,
-        scope: &DelegationScope,
-        name: &str,
-        arguments: Value,
-    ) -> Value {
+    async fn collaborate(&self, scope: &DelegationScope, name: &str, arguments: Value) -> Value {
         let limits = self.limits();
         match collaboration_tool(
             &self.pool,
@@ -502,7 +490,9 @@ async fn collaboration_tool(
         arguments
             .get(key)
             .and_then(Value::as_str)
-            .and_then(|value| Uuid::parse_str(value.trim().trim_start_matches("vibex://conversation/")).ok())
+            .and_then(|value| {
+                Uuid::parse_str(value.trim().trim_start_matches("vibex://conversation/")).ok()
+            })
     };
     match name {
         "list_conversations" => {

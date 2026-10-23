@@ -299,12 +299,29 @@ pub async fn preflight(
             "agent_runtime" | "combined_runtime"
         )
     });
-    let mut acp_ok =
-        view.lifecycle != AgentLifecycleState::Uninstalled && acp.is_some_and(|component| component.exists);
+    let catalog = BuiltInProfileCatalog::management();
+    let has_managed_installer = catalog.profile(&agent_id).is_none_or(|_| {
+        agents::InstallPlanner::bundled()
+            .plan(agents::InstallPlanningInput {
+                agent_id: agent_id.clone(),
+                platform: agents::current_platform(),
+                source: agents::InstallCandidateSource::BuiltInProfile,
+                environment: agents::InstallEnvironment {
+                    node_verified: true,
+                    uv_verified: true,
+                    python_verified: true,
+                },
+            })
+            .is_ok()
+    });
+    let mut acp_ok = view.lifecycle != AgentLifecycleState::Uninstalled
+        && acp.is_some_and(|component| component.exists);
     let mut acp_error = None;
     let mut discovered_acp_path = None;
     if !acp_ok {
-        if view.lifecycle != AgentLifecycleState::Uninstalled
+        if (view.lifecycle != AgentLifecycleState::Uninstalled
+            || !has_managed_installer
+            || agent_id.as_str() == "kiro")
             && let Some(path) = discover_profile_acp(&agent_id).await
         {
             acp_ok = true;
@@ -313,10 +330,13 @@ pub async fn preflight(
             acp_error = Some("ACP executable is missing on disk".to_string());
         }
     }
+    let discovered_acp_version = match (acp, discovered_acp_path.as_ref()) {
+        (None, Some(path)) => probe_first_output_line(path, &["--version"]).await,
+        _ => None,
+    };
     let runtime_ok =
         runtime.is_some_and(|component| component.exists) || view.local_runtime.is_some() || acp_ok;
 
-    let catalog = BuiltInProfileCatalog::management();
     let dependency_items = if let Some(profile) = catalog.profile(&agent_id) {
         probe_profile_dependencies(profile).await
     } else {
@@ -327,26 +347,20 @@ pub async fn preflight(
     let authentication_required = catalog
         .profile(&agent_id)
         .is_some_and(|profile| profile.authentication_required_by_default);
-    let (auth_mode_item, auth_mode_ready, auth_satisfies) =
+    let (auth_mode_item, auth_mode_ready) =
         match auth_mode_preflight_item(pool, &agent_id, &env, authentication).await? {
             Some(item) => {
                 let ready = item.status == "pass";
-                let satisfies = ready
-                    || !matches!(
-                        authentication,
-                        AgentAuthenticationStatus::NotLoggedIn
-                            | AgentAuthenticationStatus::MultipleUnknown
-                    );
-                (Some(item), ready, satisfies)
+                (Some(item), ready)
             }
-            None => (None, true, true),
+            None => (None, true),
         };
 
     let lifecycle = if !acp_ok {
         AgentLifecycleState::NeedsRepair
     } else if !auth_mode_ready
         || (authentication_required
-            && !auth_satisfies
+            && auth_mode_item.is_none()
             && matches!(
                 authentication,
                 AgentAuthenticationStatus::NotLoggedIn | AgentAuthenticationStatus::MultipleUnknown
@@ -371,6 +385,7 @@ pub async fn preflight(
     let status = |pass: bool| if pass { "pass" } else { "fail" }.to_string();
     let acp_version = acp
         .map(|component| component.version.clone())
+        .or_else(|| discovered_acp_version.clone())
         .or_else(|| view.acp_version.clone());
     let acp_path = acp
         .map(|component| component.path.display().to_string())
@@ -379,6 +394,8 @@ pub async fn preflight(
                 .as_ref()
                 .map(|path| path.display().to_string())
         });
+    let external_installer_url = (!has_managed_installer && agent_id.as_str() == "kiro")
+        .then_some("https://kiro.dev/docs/getting-started/installation/");
     let mut items = vec![
         launch_entry_preflight_item(view.retired, acp_version, acp_path),
         AgentPreflightItemView {
@@ -389,17 +406,22 @@ pub async fn preflight(
                 String::new()
             } else if let Some(error) = acp_error.as_ref() {
                 error.clone()
+            } else if external_installer_url.is_some() {
+                "Kiro CLI 在当前系统通过官方安装器分发，请先安装 kiro-cli 后点击立即检查。"
+                    .to_string()
             } else if acp.is_none() {
                 "未发现 ACP 安装组件。".to_string()
             } else {
                 "已记录安装路径，但找不到 ACP 可执行文件。".to_string()
             },
-            version: acp.map(|component| component.version.clone()),
+            version: acp
+                .map(|component| component.version.clone())
+                .or(discovered_acp_version),
             path: acp
                 .map(|component| component.path.display().to_string())
                 .or_else(|| discovered_acp_path.map(|path| path.display().to_string())),
             source: None,
-            repairable: true,
+            repairable: has_managed_installer,
             update_available: false,
             available_version: None,
             update_group: None,
@@ -1232,6 +1254,15 @@ fn credential_present_for_mode(
                 || (snapshot.field_text("antigravity_cloud_project").is_some()
                     && snapshot.field_text("antigravity_cloud_location").is_some())
         }),
+        (_, "official_subscription" | "subscription") => {
+            headless_account_env(agent_id)
+                .and_then(|key| env.get(key))
+                .is_some_and(|value| !value.trim().is_empty())
+                || env
+                    .get(credential_env)
+                    .is_some_and(|value| !value.trim().is_empty())
+                || native_secret_present(snapshot)
+        }
         _ => {
             env.get(credential_env)
                 .is_some_and(|value| !value.trim().is_empty())
@@ -1584,10 +1615,23 @@ fn auth_mode_translation_keys(agent_id: &AgentId, mode: &str) -> (&'static str, 
             "agents.authModeOfficialSubscription",
             "agents.authDescCodebuddySubscription",
         ),
+        ("codebuddy", "official_api") => (
+            "agents.authModeOfficialApi",
+            "agents.authDescCodebuddyOfficialApi",
+        ),
+        ("codebuddy", "model_provider") => (
+            "agents.authModeProvider",
+            "agents.authDescCodebuddyProvider",
+        ),
         ("qoder", "official_subscription") => (
             "agents.authModeOfficialSubscription",
             "agents.authDescQoderSubscription",
         ),
+        ("qoder", "official_api") => (
+            "agents.authModeOfficialApi",
+            "agents.authDescQoderOfficialApi",
+        ),
+        ("qoder", "model_provider") => ("agents.authModeProvider", "agents.authDescQoderProvider"),
         ("kiro", "official_subscription") => (
             "agents.authModeOfficialSubscription",
             "agents.authDescKiroSubscription",
@@ -1600,18 +1644,43 @@ fn auth_mode_translation_keys(agent_id: &AgentId, mode: &str) -> (&'static str, 
             "agents.authModeOfficialSubscription",
             "agents.authDescAuggieSubscription",
         ),
+        ("auggie", "official_api") => (
+            "agents.authModeOfficialApi",
+            "agents.authDescAuggieOfficialApi",
+        ),
+        ("auggie", "model_provider") => {
+            ("agents.authModeProvider", "agents.authDescAuggieProvider")
+        }
         ("trae", "official_subscription") => (
             "agents.authModeOfficialSubscription",
             "agents.authDescTraeSubscription",
         ),
+        ("trae", "official_api") => (
+            "agents.authModeOfficialApi",
+            "agents.authDescTraeOfficialApi",
+        ),
+        ("trae", "model_provider") => ("agents.authModeProvider", "agents.authDescTraeProvider"),
         ("command_code", "official_subscription") => (
             "agents.authModeOfficialSubscription",
             "agents.authDescCommandCodeSubscription",
+        ),
+        ("command_code", "official_api") => (
+            "agents.authModeOfficialApi",
+            "agents.authDescCommandCodeOfficialApi",
+        ),
+        ("command_code", "model_provider") => (
+            "agents.authModeProvider",
+            "agents.authDescCommandCodeProvider",
         ),
         ("zcode", "official_subscription") => (
             "agents.authModeOfficialSubscription",
             "agents.authDescZcodeSubscription",
         ),
+        ("zcode", "official_api") => (
+            "agents.authModeOfficialApi",
+            "agents.authDescZcodeOfficialApi",
+        ),
+        ("zcode", "model_provider") => ("agents.authModeProvider", "agents.authDescZcodeProvider"),
         ("mimo_code", "official_subscription") => (
             "agents.authModeOfficialSubscription",
             "agents.authDescMimoSubscription",
@@ -1649,18 +1718,24 @@ async fn auth_mode_preflight_item(
             )));
         }
     };
+    let headless_token_present = view
+        .headless_account_env
+        .as_deref()
+        .and_then(|key| env.get(key))
+        .is_some_and(|value| !value.trim().is_empty());
+    let auth_required = BuiltInProfileCatalog::management()
+        .profile(agent_id)
+        .is_some_and(|profile| profile.authentication_required_by_default);
     let ready = match auth_mode_kind(agent_id, &view.mode) {
         AgentAuthModeKind::OfficialApi | AgentAuthModeKind::Provider => view.credential_present,
-        AgentAuthModeKind::Subscription => !matches!(
-            authentication,
-            AgentAuthenticationStatus::NotLoggedIn | AgentAuthenticationStatus::MultipleUnknown
-        ),
+        AgentAuthModeKind::Subscription => {
+            matches!(authentication, AgentAuthenticationStatus::Account)
+                || headless_token_present
+                || (agent_id.as_str() == "opencode" && view.credential_present)
+                || (!auth_required
+                    && matches!(authentication, AgentAuthenticationStatus::NotRequired))
+        }
     };
-    let ready = ready
-        || matches!(
-            authentication,
-            AgentAuthenticationStatus::Account | AgentAuthenticationStatus::ApiKey
-        );
     Ok(Some(preflight_auth_item(
         ready,
         if ready {
@@ -1726,19 +1801,53 @@ async fn observed_authentication(
         .account_signed_out(agent_id)
         .await
         .unwrap_or(false);
+    let headless_present = headless_account_env(agent_id)
+        .and_then(|key| env.get(key))
+        .is_some_and(|value| !value.trim().is_empty());
+    let env_api_key_present = built_in_auth_mode_policy(agent_id)
+        .map(|policy| policy.credential_env)
+        .filter(|key| !key.is_empty())
+        .and_then(|key| env.get(key))
+        .is_some_and(|value| !value.trim().is_empty());
     let home = match dirs::home_dir() {
         Some(home) => home,
         None => return recorded,
     };
-    let account_logged_in = official_account_present(&home, agent_id, env).await;
+    let account_logged_in =
+        official_account_present(&home, agent_id, env).await || headless_present;
     let provider = NativeConfigProvider::with_environment(
         Arc::new(TokioNativeFileSystem),
         home,
         env.clone().into_iter().collect::<BTreeMap<_, _>>(),
     );
+    let auth_required_by_default = BuiltInProfileCatalog::management()
+        .profile(agent_id)
+        .is_some_and(|profile| profile.authentication_required_by_default);
     let native = match provider.read(agent_id, account_logged_in).await {
-        Ok(snapshot) => snapshot.authentication,
-        Err(agents::NativeConfigError::Unsupported(_)) => AgentAuthenticationStatus::NotRequired,
+        Ok(snapshot) => {
+            if snapshot.authentication == AgentAuthenticationStatus::NotLoggedIn {
+                if account_logged_in {
+                    AgentAuthenticationStatus::Account
+                } else if env_api_key_present {
+                    AgentAuthenticationStatus::ApiKey
+                } else {
+                    AgentAuthenticationStatus::NotLoggedIn
+                }
+            } else {
+                snapshot.authentication
+            }
+        }
+        Err(agents::NativeConfigError::Unsupported(_)) => {
+            if !auth_required_by_default {
+                AgentAuthenticationStatus::NotRequired
+            } else if account_logged_in {
+                AgentAuthenticationStatus::Account
+            } else if env_api_key_present {
+                AgentAuthenticationStatus::ApiKey
+            } else {
+                AgentAuthenticationStatus::NotLoggedIn
+            }
+        }
         Err(_) => recorded,
     };
     resolve_observed_authentication(
@@ -1850,7 +1959,7 @@ async fn probe_profile_dependencies(profile: &BuiltInProfile) -> Vec<AgentPrefli
     items
 }
 
-async fn discover_profile_acp(agent_id: &AgentId) -> Option<PathBuf> {
+pub(crate) async fn discover_profile_acp(agent_id: &AgentId) -> Option<PathBuf> {
     let catalog = BuiltInProfileCatalog::management();
     let profile = catalog.profile(agent_id)?;
     for candidate in profile.external_candidates {
@@ -1862,6 +1971,45 @@ async fn discover_profile_acp(agent_id: &AgentId) -> Option<PathBuf> {
         }
         if let Some(path) = resolve_on_path(candidate.executable).await {
             return Some(path);
+        }
+        if let Some(path) = discover_executable_in_common_locations(candidate.executable) {
+            return Some(path);
+        }
+    }
+    None
+}
+
+fn discover_executable_in_common_locations(executable: &str) -> Option<PathBuf> {
+    let mut dirs = Vec::new();
+    if let Some(home) = dirs::home_dir() {
+        dirs.push(home.join(".local/bin"));
+        dirs.push(home.join(".cargo/bin"));
+    }
+    #[cfg(windows)]
+    {
+        if let Some(local_app_data) = std::env::var_os("LOCALAPPDATA").map(PathBuf::from) {
+            dirs.push(local_app_data.join("Programs").join("Kiro CLI").join("bin"));
+            dirs.push(local_app_data.join("Programs").join("Kiro CLI"));
+            dirs.push(local_app_data.join("Programs").join("Kiro").join("bin"));
+            dirs.push(local_app_data.join("Programs").join("TraeCLI").join("bin"));
+        }
+        for env_key in ["ProgramFiles", "ProgramW6432", "ProgramFiles(x86)"] {
+            if let Some(program_files) = std::env::var_os(env_key).map(PathBuf::from) {
+                dirs.push(program_files.join("Kiro-Cli"));
+                dirs.push(program_files.join("Kiro CLI"));
+                dirs.push(program_files.join("Kiro CLI").join("bin"));
+            }
+        }
+    }
+    for dir in dirs {
+        for candidate in [
+            dir.join(executable),
+            dir.join(format!("{executable}.exe")),
+            dir.join(format!("{executable}.cmd")),
+        ] {
+            if candidate.is_file() {
+                return Some(candidate);
+            }
         }
     }
     None
@@ -1997,7 +2145,10 @@ pub(crate) async fn resolve_management_program(
             }
         }
     }
-    utils::shell::resolve_executable_path(program).await
+    if let Some(path) = utils::shell::resolve_executable_path(program).await {
+        return Some(path);
+    }
+    discover_executable_in_common_locations(program)
 }
 
 /// Environment statements that put an agent's account-relevant variables in
@@ -2746,14 +2897,19 @@ mod tests {
     }
 
     #[test]
-    fn qoder_auth_options_are_subscription_only() {
+    fn qoder_auth_options_cover_subscription_api_and_provider() {
         let agent_id = AgentId::parse("qoder").unwrap();
         let policy = built_in_auth_mode_policy(&agent_id).unwrap();
         let options = project_auth_mode_options(&agent_id, policy.modes);
-        assert_eq!(options.len(), 1);
+        assert_eq!(options.len(), 3);
         assert_eq!(options[0].value, "official_subscription");
         assert_eq!(options[0].kind, AgentAuthModeKind::Subscription);
         assert!(!options[0].credential_required);
+        assert_eq!(options[1].value, "official_api");
+        assert_eq!(options[1].kind, AgentAuthModeKind::OfficialApi);
+        assert!(options[1].credential_required);
+        assert_eq!(options[2].value, "model_provider");
+        assert_eq!(options[2].kind, AgentAuthModeKind::Provider);
     }
 
     #[test]

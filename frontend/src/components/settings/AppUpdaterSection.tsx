@@ -13,6 +13,9 @@ import {
   readCachedAppUpdate,
   relaunchApp,
   subscribeAppUpdate,
+  getAppUpdateState,
+  subscribeAppUpdateState,
+  type AppUpdateLifecycleState,
   type AppUpdateSnapshot,
 } from '@/lib/appUpdate';
 import { openInSystemBrowser } from '@/hooks/useOpenLink';
@@ -64,6 +67,43 @@ export function AppUpdaterSection({
   }, []);
 
   useEffect(() => subscribeAppUpdate(applySnapshot), [applySnapshot]);
+
+  useEffect(() => {
+    const syncLifecycle = (lifecycle: AppUpdateLifecycleState) => {
+      if (
+        lifecycle.status === 'downloading' ||
+        lifecycle.status === 'installing'
+      ) {
+        setState('downloading');
+        if (lifecycle.total && lifecycle.total > 0) {
+          setProgress(
+            Math.min(
+              100,
+              Math.round((lifecycle.downloaded / lifecycle.total) * 100)
+            )
+          );
+        } else if (lifecycle.status === 'installing') {
+          setProgress(100);
+        }
+      } else if (
+        lifecycle.status === 'ready_to_restart' ||
+        lifecycle.status === 'restarting'
+      ) {
+        setState('ready');
+        setProgress(100);
+      } else if (lifecycle.status === 'error') {
+        setState('error');
+        setMessage(lifecycle.error ?? '');
+      }
+    };
+
+    const currentLifecycle = getAppUpdateState?.();
+    if (currentLifecycle && currentLifecycle.status !== 'idle') {
+      syncLifecycle(currentLifecycle);
+    }
+
+    return subscribeAppUpdateState?.(syncLifecycle);
+  }, []);
 
   const checkForUpdate = useCallback(
     async (force: boolean) => {

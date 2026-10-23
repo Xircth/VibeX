@@ -84,7 +84,18 @@ pub trait DelegationInjector: std::fmt::Debug + Send + Sync {
         }
     }
 
+    fn forwarded_stdio_servers(
+        &self,
+        _agent_id: &AgentId,
+    ) -> Vec<(InjectedMcpServer, Vec<(String, String)>)> {
+        Vec::new()
+    }
+
     fn remote_servers(&self) -> Vec<InjectedRemoteMcpServer> {
         Vec::new()
+    }
+
+    fn remote_servers_for_agent(&self, _agent_id: &AgentId) -> Vec<InjectedRemoteMcpServer> {
+        self.remote_servers()
     }
 }

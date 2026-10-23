@@ -569,11 +569,13 @@ impl Companion {
             | "list_space_messages"
             | "list_space_collection"
             | "add_to_space_collection"
-            | "read_space_collection_item" => Ok(BrokerMessage::Collaborate(BrokerCollaborateRequest {
-                token,
-                name: name.to_string(),
-                arguments: arguments.clone(),
-            })),
+            | "read_space_collection_item" => {
+                Ok(BrokerMessage::Collaborate(BrokerCollaborateRequest {
+                    token,
+                    name: name.to_string(),
+                    arguments: arguments.clone(),
+                }))
+            }
             "cancel_session_turn" => {
                 let conversation_id = required_string(arguments, "conversation_id")?;
                 let reason = arguments

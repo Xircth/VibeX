@@ -1091,7 +1091,10 @@ html.dark {
     .astryx-textarea,
     .astryx-selector[data-variant='input']
   ):focus-within {
-  border-color: var(--color-accent, hsl(var(--primary, 0 0% 10.59%))) !important;
+  border-color: var(
+    --color-accent,
+    hsl(var(--primary, 0 0% 10.59%))
+  ) !important;
   box-shadow: inset 0 0 0 2px
     var(--color-accent-muted, hsl(var(--primary, 0 0% 10.59%) / 0.12)) !important;
 }
@@ -1172,6 +1175,12 @@ html.dark {
 
 .legacy-design .astryx-segmented-control-item[aria-checked='true'] {
   background-color: light-dark(#ffffff, #404040) !important;
+  box-shadow: var(--shadow-low);
+}
+
+.legacy-design .astryx-segmented-control-item:is([aria-selected='true'], [aria-pressed='true'], .is-active) {
+  background-color: light-dark(#ffffff, #404040) !important;
+  color: var(--text-strong);
   box-shadow: var(--shadow-low);
 }
 
@@ -2129,6 +2138,36 @@ html.dark {
     max-width: 100%;
     overflow-x: auto;
     border-collapse: collapse;
+  }
+
+  .status-bar-release-notes .settings-release-notes__body,
+  .status-bar-release-notes .conv-markdown {
+    color: var(--text-secondary);
+    font-size: 0.75rem;
+    line-height: 1.55;
+  }
+
+  .status-bar-release-notes :where(h1, h2, h3, h4, h5, h6) {
+    margin: 0 0 0.4rem;
+    color: var(--text-strong);
+    font-size: 0.8125rem;
+    font-weight: 600;
+  }
+
+  .status-bar-release-notes :where(p, ul, ol, table) {
+    margin: 0 0 0.55rem;
+  }
+
+  .status-bar-release-notes :where(p, ul, ol, table):last-child {
+    margin-bottom: 0;
+  }
+
+  .status-bar-release-notes :where(ul, ol) {
+    padding-inline-start: 1.15rem;
+  }
+
+  .status-bar-release-notes :where(p, li) {
+    color: var(--text-secondary);
   }
 
   .settings-page .settings-release-notes :where(th, td) {
@@ -6817,7 +6856,6 @@ html.dark {
     background: hsl(var(--muted-foreground) / 0.45);
   }
 
-
   .settings-search {
     display: flex;
     flex-direction: column;
@@ -8782,8 +8820,6 @@ html.host-windows :where(.legacy-design) .vu-toast-surface {
   background: var(--surface-dialog) !important;
 }
 
-
-
 .branch-info-header-host
   + .right-panel-conversation-region
   [data-panel='conversation-logs'] {
@@ -8844,7 +8880,8 @@ html.host-windows :where(.legacy-design) .vu-toast-surface {
   background: var(--surface-content);
 }
 
-:is(.settings-page, .plan-usage-page) .agent-management-bar.settings-top-tab-bar {
+:is(.settings-page, .plan-usage-page)
+  .agent-management-bar.settings-top-tab-bar {
   gap: 4px;
 }
 
@@ -9884,10 +9921,16 @@ html.host-windows :where(.legacy-design) .vu-toast-surface {
 }
 
 .settings-page .agent-auth-mode-submodes {
-  display: flex;
+  display: inline-flex;
+  width: fit-content;
+  max-width: 100%;
   flex-wrap: wrap;
-  gap: 6px;
+  align-items: center;
+  gap: 2px;
+  padding: 2px;
   margin: 0 16px 10px;
+  border-radius: 999px;
+  background-color: light-dark(#e5e5e5, #262626);
 }
 
 .settings-page .agent-account-session-actions .agent-auth-mode-submodes {
@@ -9896,46 +9939,64 @@ html.host-windows :where(.legacy-design) .vu-toast-surface {
 }
 
 .settings-page .agent-auth-mode-submode {
-  height: 28px;
-  padding: 0 10px;
-  border: 1px solid var(--border-subtle);
-  border-radius: var(--radius);
+  display: inline-flex;
+  height: 20px;
+  min-height: 20px;
+  align-items: center;
+  justify-content: center;
+  padding: 0 12px;
+  border: 0;
+  border-radius: 999px;
   background: transparent;
   color: var(--text-muted);
   font-size: 0.75rem;
+  font-weight: 500;
+  line-height: 1;
+  cursor: pointer;
+  transition:
+    background-color 160ms cubic-bezier(0.22, 1, 0.36, 1),
+    color 160ms cubic-bezier(0.22, 1, 0.36, 1),
+    box-shadow 160ms cubic-bezier(0.22, 1, 0.36, 1);
 }
 
-.settings-page .agent-auth-mode-submode.is-active {
-  border-color: hsl(var(--primary) / 0.45);
-  background: hsl(var(--primary) / 0.08);
+.settings-page .agent-auth-mode-submode:hover:not(:disabled) {
   color: var(--text-strong);
 }
 
+.settings-page .agent-auth-mode-submode.is-active {
+  background-color: light-dark(#ffffff, #404040);
+  color: var(--text-strong);
+  box-shadow: var(--shadow-low);
+}
+
 .settings-page .agent-auth-mode-tabs {
-  display: flex;
+  display: inline-flex;
   width: fit-content;
   max-width: 100%;
   flex-wrap: wrap;
   align-items: center;
-  gap: 3px;
-  padding: 3px;
-  border-radius: var(--radius);
-  background: var(--surface-hover);
+  gap: 2px;
+  padding: 2px;
+  border-radius: 999px;
+  background-color: light-dark(#e5e5e5, #262626);
 }
 
 .settings-page .agent-auth-mode-tabs > button {
   display: inline-flex;
-  min-height: 26px;
+  height: 20px;
+  min-height: 20px;
   align-items: center;
+  justify-content: center;
   gap: 6px;
-  padding: 0 10px;
+  padding: 0 12px;
   border: 0;
-  border-radius: var(--radius);
+  border-radius: 999px;
   outline: 0;
   background: transparent;
   color: var(--text-muted);
   font-size: 0.75rem;
-  font-weight: 600;
+  font-weight: 500;
+  line-height: 1;
   cursor: pointer;
   transition:
     background-color 160ms cubic-bezier(0.22, 1, 0.36, 1),
@@ -9945,13 +10006,12 @@ html.host-windows :where(.legacy-design) .vu-toast-surface {
 
 .settings-page .agent-auth-mode-tabs > button:hover:not(:disabled) {
   color: var(--text-strong);
-  background: var(--surface-hover);
 }
 
 .settings-page .agent-auth-mode-tabs > button.is-active {
-  background: var(--surface-control);
+  background-color: light-dark(#ffffff, #404040);
   color: var(--text-strong);
-  box-shadow: var(--shadow-control);
+  box-shadow: var(--shadow-low);
 }
 
 .settings-page .agent-auth-mode-tabs > button:disabled {
@@ -11110,12 +11170,22 @@ html.host-windows :where(.legacy-design) .vu-toast-surface {
 }
 
 .settings-page .agent-operation-stages {
-  display: grid;
-  width: min(420px, 100%);
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  display: flex;
+  flex-wrap: wrap;
+  flex: 1 1 auto;
+  align-items: center;
+  gap: 8px 16px;
   margin: 0;
   padding: 0;
   list-style: none;
+}
+
+.settings-page .agent-auth-login-methods {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
 }
 
 .settings-page .agent-operation-stages li {

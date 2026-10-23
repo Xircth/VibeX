@@ -8,11 +8,32 @@ import type { AgentOperationState } from '@/features/agent-management';
 
 const operationStages: Record<
   AgentOperationState['kind'],
-  readonly [string, string, string, string]
+  readonly string[]
 > = {
-  install: ['stagePrepare', 'stageInstall', 'stageVerify', 'stageComplete'],
-  update: ['stagePrepare', 'stageUpdate', 'stageVerify', 'stageComplete'],
-  repair: ['stagePrepare', 'stageRepair', 'stageVerify', 'stageComplete'],
+  install: [
+    'stageEnvCheck',
+    'stageAcpCheck',
+    'stagePrepare',
+    'stageInstall',
+    'stageVerify',
+    'stageComplete',
+  ],
+  update: [
+    'stageEnvCheck',
+    'stageAcpCheck',
+    'stagePrepare',
+    'stageUpdate',
+    'stageVerify',
+    'stageComplete',
+  ],
+  repair: [
+    'stageEnvCheck',
+    'stageAcpCheck',
+    'stagePrepare',
+    'stageRepair',
+    'stageVerify',
+    'stageComplete',
+  ],
   rollback: ['stagePrepare', 'stageRollback', 'stageVerify', 'stageComplete'],
   uninstall: [
     'stagePrepare',
@@ -24,7 +45,15 @@ const operationStages: Record<
   check: ['stagePrepare', 'stageCheck', 'stageSummary', 'stageComplete'],
 };
 
-function stageIndexForProgress(progress: number) {
+function stageIndexForProgress(progress: number, stageCount: number) {
+  if (stageCount === 6) {
+    if (progress >= 100) return 5;
+    if (progress >= 80) return 4;
+    if (progress >= 45) return 3;
+    if (progress >= 30) return 2;
+    if (progress >= 15) return 1;
+    return 0;
+  }
   if (progress >= 100) return 3;
   if (progress >= 75) return 2;
   if (progress >= 20) return 1;
@@ -56,6 +85,9 @@ function localizedOperationLogLine(
 ): string {
   if (!language?.startsWith('en')) return line;
   const key = {
+    正在进行基础环境检查: 'envCheck',
+    '正在进行 ACP 检查': 'acpCheck',
+    正在进行安装准备: 'prepare',
     正在解析已锁定的安装方案: 'resolvePlan',
     '正在安装 ACP': 'installAcp',
     '正在验证 ACP 握手': 'verifyAcp',
@@ -66,6 +98,9 @@ function localizedOperationLogLine(
     操作已取消: 'canceled',
     正在取消操作: 'canceling',
   }[line] as
+    | 'envCheck'
+    | 'acpCheck'
+    | 'prepare'
     | 'resolvePlan'
     | 'installRuntime'
     | 'installAcp'
@@ -90,7 +125,7 @@ export function AgentOperationProgress({
   const stages = operationStages[operation.kind].map((stage) =>
     t(`agents.${stage}`)
   );
-  const currentStageIndex = stageIndexForProgress(progress);
+  const currentStageIndex = stageIndexForProgress(progress, stages.length);
   const localizedOperationMessage = operationMessage(
     t,
     i18n.resolvedLanguage,

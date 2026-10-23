@@ -103,7 +103,10 @@ impl HeadlessDelegationRuntime {
         runtime_features.set_space_changed_listener({
             let events = events.clone();
             move |event| {
-                events.emit(crate::host::events::COLLABORATION_SPACE_CHANGED_EVENT, event);
+                events.emit(
+                    crate::host::events::COLLABORATION_SPACE_CHANGED_EVENT,
+                    event,
+                );
             }
         });
         let listener = Arc::new(DelegationListener::new_with_features(
@@ -598,6 +601,57 @@ impl DelegationInjector for VibexDelegationInjector {
                     url: url.to_string(),
                     headers,
                 })
+            })
+            .collect()
+    }
+
+    fn forwarded_stdio_servers(
+        &self,
+        agent_id: &AgentId,
+    ) -> Vec<(InjectedMcpServer, Vec<(String, String)>)> {
+        services::services::mcp::read_session_forwarded_servers_sync(agent_id.as_str())
+            .into_iter()
+            .filter(|(id, _)| {
+                !matches!(
+                    id.as_str(),
+                    "vibex-delegation-mcp" | "vibex-session-mcp" | "vibex-workflow-mcp"
+                )
+            })
+            .filter_map(|(id, spec)| {
+                let object = spec.as_object()?;
+                if object.get("type").and_then(serde_json::Value::as_str) != Some("stdio") {
+                    return None;
+                }
+                let command = object
+                    .get("command")
+                    .and_then(serde_json::Value::as_str)?
+                    .trim();
+                if command.is_empty() {
+                    return None;
+                }
+                let args = object
+                    .get("args")
+                    .and_then(serde_json::Value::as_array)
+                    .into_iter()
+                    .flatten()
+                    .filter_map(serde_json::Value::as_str)
+                    .map(str::to_string)
+                    .collect();
+                let env = object
+                    .get("env")
+                    .and_then(serde_json::Value::as_object)
+                    .into_iter()
+                    .flatten()
+                    .filter_map(|(k, v)| v.as_str().map(|s| (k.clone(), s.to_string())))
+                    .collect();
+                Some((
+                    InjectedMcpServer {
+                        name: id,
+                        command: PathBuf::from(command),
+                        args,
+                    },
+                    env,
+                ))
             })
             .collect()
     }

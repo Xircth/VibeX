@@ -363,10 +363,7 @@ pub fn run() {
         // Setup itself is synchronous. The promoter parks a Tokio task, so it
         // has to start on the desktop runtime.
         tauri::async_runtime::spawn(async move {
-            conversations::spawn_delayed_input_promoter(
-                delayed_input_pool,
-                delayed_input_delivery,
-            );
+            conversations::spawn_delayed_input_promoter(delayed_input_pool, delayed_input_delivery);
         });
         settings_watcher::start(app.handle().clone());
 

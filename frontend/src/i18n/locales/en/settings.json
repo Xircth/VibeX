@@ -1928,13 +1928,29 @@
     "authDescClineOfficialApi": "Use an official Cline API key.",
     "authDescClineProvider": "Configure a BYOK provider for Cline.",
     "authDescCodebuddySubscription": "Sign in to the Tencent Cloud CodeBuddy account.",
+    "authDescCodebuddyOfficialApi": "Use an official CodeBuddy API key.",
+    "authDescCodebuddyProvider": "Use the Model Provider bound below.",
     "authDescQoderSubscription": "Sign in with a Qoder account.",
+    "authDescQoderOfficialApi": "Use an official Qoder API key.",
+    "authDescQoderProvider": "Use the Model Provider bound below.",
     "authDescKiroSubscription": "Sign in with a Kiro account.",
     "authDescKiroOfficialApi": "Use KIRO_API_KEY.",
     "authDescAuggieSubscription": "Sign in with an Augment account.",
+    "authDescAuggieOfficialApi": "Use an official Augment API token.",
+    "authDescAuggieProvider": "Use the Model Provider bound below.",
     "authDescTraeSubscription": "Sign in with a TRAE account.",
+    "authDescTraeOfficialApi": "Use an official TRAE API key.",
+    "authDescTraeProvider": "Use the Model Provider bound below.",
     "authDescCommandCodeSubscription": "Sign in with a Command Code account.",
+    "authDescCommandCodeOfficialApi": "Use an official Command Code API key.",
+    "authDescCommandCodeProvider": "Use the Model Provider bound below.",
     "authDescZcodeSubscription": "Sign in inside official ZCode. Start Plan needs a desktop captcha and cannot be used here.",
+    "authDescZcodeOfficialApi": "Use an official Zhipu API key (ZHIPU_API_KEY).",
+    "authDescZcodeProvider": "Use the Model Provider bound below.",
+    "loginMethodOptions": "Sign-in methods",
+    "loginWithToken": "Enter Token",
+    "loginWithBrowser": "Browser Login",
+    "officialInstallGuide": "Official Install Guide",
     "headlessAccountTokenHint": "Same-account token for a machine without a browser.",
     "headlessAccountTokenClear": "Clear",
     "headlessAccountTokenSaved": "Saved",
@@ -2255,6 +2271,8 @@
     "loadingAgent": "Loading Agent",
     "refreshStatusAria": "Refresh Agent status",
     "emptyList": "No Agents yet. Use the plus button at the end of the list to add one from the ACP registry.",
+    "stageEnvCheck": "Environment Check",
+    "stageAcpCheck": "ACP Check",
     "stagePrepare": "Prepare",
     "stageInstall": "Install",
     "stageVerify": "Verify",
@@ -2403,6 +2421,12 @@
           "description": "Remove the local Command Code account."
         }
       },
+      "zcode": {
+        "login": {
+          "label": "Sign in to ZCode",
+          "description": "Open the official ZCode sign-in flow."
+        }
+      },
       "kimi_code": {
         "login": {
           "label": "Sign in to Kimi Code",
@@ -2469,6 +2493,9 @@
     "customVersionTrustHint": "Empty fields install npm latest. Only the ACP launch package is written.",
 
     "repairInstallation": "Repair installation",
+    "officialInstallGuide": "Official install guide",
+    "kiroSilentInstallFailedTitle": "Kiro silent installation could not complete. Please install from the official website.",
+    "kiroSilentInstallFailedDescription": "Open the official Kiro installation page to download the installer, then click \"Check now\" in VibeX.",
     "operationComplete": "Operation complete",
     "operationFailed": "The Agent operation failed. Review diagnostics and try again.",
     "operationCanceled": "The Agent operation was canceled.",
@@ -2484,6 +2511,9 @@
       "check": "Checking the Agent environment…"
     },
     "operationLog": {
+      "envCheck": "Checking base environment",
+      "acpCheck": "Checking ACP",
+      "prepare": "Preparing installation",
       "resolvePlan": "Resolving the locked installation plan",
       "installRuntime": "Installing ACP",
       "installAcp": "Installing ACP",

@@ -133,12 +133,7 @@ pub trait CompanionFeaturePort: std::fmt::Debug + Send + Sync {
             .await
     }
 
-    async fn collaborate(
-        &self,
-        _scope: &DelegationScope,
-        _name: &str,
-        _arguments: Value,
-    ) -> Value {
+    async fn collaborate(&self, _scope: &DelegationScope, _name: &str, _arguments: Value) -> Value {
         json!({
             "error_code": "collaboration_unavailable",
             "message": "collaboration is not available on this companion",

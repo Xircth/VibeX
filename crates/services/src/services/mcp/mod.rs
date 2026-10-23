@@ -86,12 +86,25 @@ pub enum McpAppType {
     #[serde(rename = "codebuddy", alias = "code_buddy")]
     CodeBuddy,
     KimiCode,
+    Pi,
     Grok,
     Cursor,
+    #[serde(rename = "deepseek_harness", alias = "deepseek")]
+    DeepseekHarness,
     Qoder,
+    #[serde(rename = "kiro", alias = "kiro_cli")]
+    Kiro,
+    #[serde(rename = "auggie", alias = "augment")]
+    Auggie,
+    #[serde(rename = "trae", alias = "trae_cli")]
+    Trae,
+    #[serde(rename = "command_code", alias = "commandcode")]
+    CommandCode,
+    #[serde(rename = "zcode", alias = "z_code")]
+    ZCode,
 }
 
-const ALL_APPS: [McpAppType; 12] = [
+const ALL_APPS: [McpAppType; 19] = [
     McpAppType::ClaudeCode,
     McpAppType::Codex,
     McpAppType::Antigravity,
@@ -103,13 +116,20 @@ const ALL_APPS: [McpAppType; 12] = [
     McpAppType::KimiCode,
     McpAppType::Grok,
     McpAppType::Cursor,
+    McpAppType::DeepseekHarness,
     McpAppType::Qoder,
+    McpAppType::Kiro,
+    McpAppType::Auggie,
+    McpAppType::Trae,
+    McpAppType::CommandCode,
+    McpAppType::ZCode,
+    McpAppType::Pi,
 ];
 
-/// Targets that Codeg exposes for new MCP assignments. OpenClaw remains in
-/// `ALL_APPS` so legacy entries can be scanned and removed, but is not offered
-/// for new assignments because its ACP implementation rejects MCP entries.
-const ASSIGNABLE_APPS: [McpAppType; 11] = [
+/// Targets that VibeX exposes for new MCP assignments. OpenClaw and Pi remain
+/// in `ALL_APPS` so legacy/extension entries can be scanned and removed, but
+/// are not offered for new global assignments.
+const ASSIGNABLE_APPS: [McpAppType; 17] = [
     McpAppType::ClaudeCode,
     McpAppType::Codex,
     McpAppType::Antigravity,
@@ -120,7 +140,13 @@ const ASSIGNABLE_APPS: [McpAppType; 11] = [
     McpAppType::KimiCode,
     McpAppType::Grok,
     McpAppType::Cursor,
+    McpAppType::DeepseekHarness,
     McpAppType::Qoder,
+    McpAppType::Kiro,
+    McpAppType::Auggie,
+    McpAppType::Trae,
+    McpAppType::CommandCode,
+    McpAppType::ZCode,
 ];
 
 #[derive(Debug, Clone, Serialize)]
@@ -693,6 +719,44 @@ fn cursor_mcp_json_path() -> PathBuf {
 
 fn qoder_settings_path() -> PathBuf {
     configured_dir("QODER_CONFIG_DIR", home_dir_or_default().join(".qoder")).join("settings.json")
+}
+
+fn deepseek_mcp_json_path() -> PathBuf {
+    configured_dir("DSH_HOME", home_dir_or_default().join(".dsh")).join("mcp.json")
+}
+
+fn pi_mcp_json_path() -> PathBuf {
+    configured_dir(
+        "PI_CODING_AGENT_DIR",
+        home_dir_or_default().join(".pi").join("agent"),
+    )
+    .join("mcp.json")
+}
+
+fn kiro_mcp_json_path() -> PathBuf {
+    configured_dir("KIRO_HOME", home_dir_or_default().join(".kiro"))
+        .join("settings")
+        .join("mcp.json")
+}
+
+fn auggie_settings_path() -> PathBuf {
+    configured_dir("AUGMENT_HOME", home_dir_or_default().join(".augment")).join("settings.json")
+}
+
+fn trae_config_toml_path() -> PathBuf {
+    configured_dir("TRAE_HOME", home_dir_or_default().join(".trae")).join("traecli.toml")
+}
+
+fn command_code_mcp_json_path() -> PathBuf {
+    configured_dir(
+        "COMMAND_CODE_HOME",
+        home_dir_or_default().join(".commandcode"),
+    )
+    .join("mcp.json")
+}
+
+fn zcode_mcp_json_path() -> PathBuf {
+    configured_dir("ZCODE_HOME", home_dir_or_default().join(".zcode")).join("mcp.json")
 }
 
 // ---------------------------------------------------------------------------
@@ -3094,6 +3158,365 @@ fn remove_hermes_server(id: &str) -> Result<bool, McpError> {
     Ok(removed)
 }
 
+fn read_deepseek_servers_at(path: &Path) -> Result<BTreeMap<String, Value>, McpError> {
+    read_qoder_servers_at(path)
+}
+
+fn read_deepseek_servers() -> Result<BTreeMap<String, Value>, McpError> {
+    read_deepseek_servers_at(&deepseek_mcp_json_path())
+}
+
+fn upsert_deepseek_server_at(path: &Path, id: &str, spec: &Value) -> Result<(), McpError> {
+    upsert_qoder_server_at(path, id, spec)
+}
+
+fn upsert_deepseek_server(id: &str, spec: &Value) -> Result<(), McpError> {
+    upsert_deepseek_server_at(&deepseek_mcp_json_path(), id, spec)
+}
+
+fn remove_deepseek_server(id: &str) -> Result<bool, McpError> {
+    remove_json_mcp_server_at(&deepseek_mcp_json_path(), id)
+}
+
+fn read_pi_servers_at(path: &Path) -> Result<BTreeMap<String, Value>, McpError> {
+    read_qoder_servers_at(path)
+}
+
+fn read_pi_servers() -> Result<BTreeMap<String, Value>, McpError> {
+    read_pi_servers_at(&pi_mcp_json_path())
+}
+
+fn upsert_pi_server_at(path: &Path, id: &str, spec: &Value) -> Result<(), McpError> {
+    upsert_qoder_server_at(path, id, spec)
+}
+
+fn upsert_pi_server(id: &str, spec: &Value) -> Result<(), McpError> {
+    upsert_pi_server_at(&pi_mcp_json_path(), id, spec)
+}
+
+fn remove_pi_server(id: &str) -> Result<bool, McpError> {
+    remove_json_mcp_server_at(&pi_mcp_json_path(), id)
+}
+
+fn read_auggie_servers_at(path: &Path) -> Result<BTreeMap<String, Value>, McpError> {
+    read_qoder_servers_at(path)
+}
+
+fn read_auggie_servers() -> Result<BTreeMap<String, Value>, McpError> {
+    read_auggie_servers_at(&auggie_settings_path())
+}
+
+fn upsert_auggie_server_at(path: &Path, id: &str, spec: &Value) -> Result<(), McpError> {
+    upsert_qoder_server_at(path, id, spec)
+}
+
+fn upsert_auggie_server(id: &str, spec: &Value) -> Result<(), McpError> {
+    upsert_auggie_server_at(&auggie_settings_path(), id, spec)
+}
+
+fn remove_auggie_server(id: &str) -> Result<bool, McpError> {
+    remove_json_mcp_server_at(&auggie_settings_path(), id)
+}
+
+fn read_zcode_servers_at(path: &Path) -> Result<BTreeMap<String, Value>, McpError> {
+    read_qoder_servers_at(path)
+}
+
+fn read_zcode_servers() -> Result<BTreeMap<String, Value>, McpError> {
+    read_zcode_servers_at(&zcode_mcp_json_path())
+}
+
+fn upsert_zcode_server_at(path: &Path, id: &str, spec: &Value) -> Result<(), McpError> {
+    upsert_qoder_server_at(path, id, spec)
+}
+
+fn upsert_zcode_server(id: &str, spec: &Value) -> Result<(), McpError> {
+    upsert_zcode_server_at(&zcode_mcp_json_path(), id, spec)
+}
+
+fn remove_zcode_server(id: &str) -> Result<bool, McpError> {
+    remove_json_mcp_server_at(&zcode_mcp_json_path(), id)
+}
+
+fn is_kiro_extension_field(key: &str, value: &Value, stdio: bool) -> bool {
+    let is_string_array = |v: &Value| {
+        v.as_array()
+            .is_some_and(|items| items.iter().all(Value::is_string))
+    };
+    match key {
+        "disabled" => value.is_boolean(),
+        "autoApprove" | "disabledTools" => is_string_array(value),
+        "timeout" => value.as_u64().is_some(),
+        "oauth" => !stdio && value.is_object(),
+        "oauthScopes" => !stdio && is_string_array(value),
+        _ => false,
+    }
+}
+
+fn canonical_to_kiro_entry(spec: &Value) -> Result<Value, McpError> {
+    let canonical = canonicalize_spec(spec, "Kiro write")?;
+    let Some(obj) = canonical.as_object() else {
+        return Ok(canonical);
+    };
+    let stdio = obj.get("type").and_then(Value::as_str) == Some("stdio");
+    let mut out = Map::new();
+    for (key, value) in obj {
+        let base = if stdio {
+            matches!(key.as_str(), "command" | "args" | "env")
+        } else {
+            matches!(key.as_str(), "url" | "headers")
+        };
+        if base || is_kiro_extension_field(key, value, stdio) {
+            out.insert(key.clone(), value.clone());
+        }
+    }
+    Ok(Value::Object(out))
+}
+
+fn read_kiro_servers_at(path: &Path) -> Result<BTreeMap<String, Value>, McpError> {
+    let root = read_json_file(path)?;
+    let mut out = BTreeMap::new();
+    let Some(servers) = root.get("mcpServers").and_then(Value::as_object) else {
+        return Ok(out);
+    };
+    for (id, spec) in servers {
+        if let Ok(normalized) = canonicalize_spec(spec, &format!("Kiro config '{id}'")) {
+            out.insert(id.clone(), normalized);
+        }
+    }
+    Ok(out)
+}
+
+fn read_kiro_servers() -> Result<BTreeMap<String, Value>, McpError> {
+    read_kiro_servers_at(&kiro_mcp_json_path())
+}
+
+fn upsert_kiro_server_at(path: &Path, id: &str, spec: &Value) -> Result<(), McpError> {
+    let mut root = read_json_file(path)?;
+    if !root.is_object() {
+        root = json!({});
+    }
+    let entry = canonical_to_kiro_entry(spec)?;
+    let obj = root
+        .as_object_mut()
+        .ok_or_else(|| bad(format!("invalid JSON root in {}", path.display())))?;
+    if !obj.get("mcpServers").map(Value::is_object).unwrap_or(false) {
+        obj.insert("mcpServers".to_string(), Value::Object(Map::new()));
+    }
+    obj.get_mut("mcpServers")
+        .and_then(Value::as_object_mut)
+        .ok_or_else(|| bad(format!("invalid mcpServers in {}", path.display())))?
+        .insert(id.to_string(), entry);
+    write_json_file(path, &root)
+}
+
+fn upsert_kiro_server(id: &str, spec: &Value) -> Result<(), McpError> {
+    upsert_kiro_server_at(&kiro_mcp_json_path(), id, spec)
+}
+
+fn remove_kiro_server_at(path: &Path, id: &str) -> Result<bool, McpError> {
+    if !path.exists() {
+        return Ok(false);
+    }
+    let mut root = read_json_file(path)?;
+    let Some(obj) = root.as_object_mut() else {
+        return Ok(false);
+    };
+    let Some(servers) = obj.get_mut("mcpServers").and_then(Value::as_object_mut) else {
+        return Ok(false);
+    };
+    let representable = servers
+        .get(id)
+        .is_some_and(|spec| canonicalize_spec(spec, "Kiro config").is_ok());
+    if !representable {
+        return Ok(false);
+    }
+    let removed = servers.remove(id).is_some();
+    if removed {
+        write_json_file(path, &root)?;
+    }
+    Ok(removed)
+}
+
+fn remove_kiro_server(id: &str) -> Result<bool, McpError> {
+    remove_kiro_server_at(&kiro_mcp_json_path(), id)
+}
+
+fn read_trae_servers_at(path: &Path) -> Result<BTreeMap<String, Value>, McpError> {
+    let root = read_grok_root_toml_at(path)?;
+    let mut out = BTreeMap::new();
+    let Some(servers) = root
+        .as_table()
+        .and_then(|table| table.get("mcp_servers"))
+        .and_then(toml::Value::as_table)
+    else {
+        return Ok(out);
+    };
+    for (id, spec) in servers {
+        if let Ok(normalized) = codex_entry_to_canonical(id, spec) {
+            out.insert(id.clone(), normalized);
+        }
+    }
+    Ok(out)
+}
+
+fn read_trae_servers() -> Result<BTreeMap<String, Value>, McpError> {
+    read_trae_servers_at(&trae_config_toml_path())
+}
+
+fn upsert_trae_server_at(path: &Path, id: &str, spec: &Value) -> Result<(), McpError> {
+    let mut root = read_grok_root_toml_at(path)?;
+    let table = root
+        .as_table_mut()
+        .ok_or_else(|| bad("TRAE CLI root TOML must be a table"))?;
+    let entry = canonical_to_codex_entry(spec)?;
+    if !table
+        .get("mcp_servers")
+        .map(toml::Value::is_table)
+        .unwrap_or(false)
+    {
+        table.insert(
+            "mcp_servers".to_string(),
+            toml::Value::Table(toml::map::Map::new()),
+        );
+    }
+    table
+        .get_mut("mcp_servers")
+        .and_then(toml::Value::as_table_mut)
+        .ok_or_else(|| bad("TRAE CLI mcp_servers must be a TOML table"))?
+        .insert(id.to_string(), entry);
+    write_grok_root_toml_at(path, &root)
+}
+
+fn upsert_trae_server(id: &str, spec: &Value) -> Result<(), McpError> {
+    upsert_trae_server_at(&trae_config_toml_path(), id, spec)
+}
+
+fn remove_trae_server(id: &str) -> Result<bool, McpError> {
+    remove_grok_server_at(&trae_config_toml_path(), id)
+}
+
+fn command_code_entry_to_canonical(spec: &Value, id: &str) -> Result<Value, McpError> {
+    let source = format!("Command Code config '{id}'");
+    let Some(obj) = spec.as_object() else {
+        return canonicalize_spec(spec, &source);
+    };
+    let mut obj = obj.clone();
+    let transport = obj.remove("transport");
+    let alias = obj.remove("type");
+    if let Some(declared) = transport.or(alias) {
+        match declared.as_str() {
+            Some(kind @ ("stdio" | "http")) => {
+                obj.insert("type".to_string(), Value::String(kind.to_string()));
+            }
+            other => {
+                return Err(bad(format!(
+                    "{source}: unsupported transport '{}' (Command Code accepts only \"stdio\" or \"http\")",
+                    other.unwrap_or("<non-string>")
+                )));
+            }
+        }
+    }
+    if obj
+        .get("enabled")
+        .is_some_and(|enabled| !enabled.is_boolean())
+    {
+        return Err(bad(format!("{source}: `enabled` must be a boolean")));
+    }
+    obj.remove("cwd");
+    canonicalize_spec(&Value::Object(obj), &source)
+}
+
+fn canonical_to_command_code_entry(spec: &Value) -> Result<Value, McpError> {
+    let canonical = canonicalize_spec(spec, "Command Code write")?;
+    let obj = canonical
+        .as_object()
+        .ok_or_else(|| bad("Command Code write: canonical spec must be an object"))?;
+    let transport = match obj.get("type").and_then(Value::as_str) {
+        Some(kind @ ("stdio" | "http")) => kind,
+        other => {
+            return Err(bad(format!(
+                "Command Code write: unsupported MCP type '{}'; Command Code accepts only stdio and http",
+                other.unwrap_or("<missing>")
+            )));
+        }
+    };
+    let stdio = transport == "stdio";
+    let mut out = Map::new();
+    out.insert(
+        "transport".to_string(),
+        Value::String(transport.to_string()),
+    );
+    for (key, value) in obj {
+        let keep = match key.as_str() {
+            "command" | "args" | "env" => stdio,
+            "url" | "headers" => !stdio,
+            "enabled" => value.is_boolean(),
+            "oauth" => !stdio && value.is_object(),
+            _ => false,
+        };
+        if keep {
+            out.insert(key.clone(), value.clone());
+        }
+    }
+    Ok(Value::Object(out))
+}
+
+fn read_command_code_servers_at(path: &Path) -> Result<BTreeMap<String, Value>, McpError> {
+    let root = read_json_file(path)?;
+    let mut out = BTreeMap::new();
+    let Some(servers) = root.get("mcpServers").and_then(Value::as_object) else {
+        return Ok(out);
+    };
+    for (id, spec) in servers {
+        if let Ok(normalized) = command_code_entry_to_canonical(spec, id) {
+            out.insert(id.clone(), normalized);
+        }
+    }
+    Ok(out)
+}
+
+fn read_command_code_servers() -> Result<BTreeMap<String, Value>, McpError> {
+    read_command_code_servers_at(&command_code_mcp_json_path())
+}
+
+fn upsert_command_code_server_at(path: &Path, id: &str, spec: &Value) -> Result<(), McpError> {
+    let mut root = read_json_file(path)?;
+    if !root.is_object() {
+        root = json!({});
+    }
+    let entry = canonical_to_command_code_entry(spec)?;
+    let obj = root
+        .as_object_mut()
+        .ok_or_else(|| bad(format!("invalid JSON root in {}", path.display())))?;
+    if !obj.get("mcpServers").map(Value::is_object).unwrap_or(false) {
+        obj.insert("mcpServers".to_string(), Value::Object(Map::new()));
+    }
+    obj.get_mut("mcpServers")
+        .and_then(Value::as_object_mut)
+        .ok_or_else(|| bad(format!("invalid mcpServers in {}", path.display())))?
+        .insert(id.to_string(), entry);
+    write_json_file(path, &root)
+}
+
+fn upsert_command_code_server(id: &str, spec: &Value) -> Result<(), McpError> {
+    upsert_command_code_server_at(&command_code_mcp_json_path(), id, spec)
+}
+
+fn remove_command_code_server(id: &str) -> Result<bool, McpError> {
+    remove_json_mcp_server_at(&command_code_mcp_json_path(), id)
+}
+
+/// Read stored MCP servers for agents whose ACP bridge mounts servers exclusively
+/// from `session/new.mcpServers` rather than reading the config file on disk.
+pub fn read_session_forwarded_servers_sync(agent_id: &str) -> BTreeMap<String, Value> {
+    match agent_id {
+        "deepseek_harness" | "deepseek" => read_deepseek_servers().unwrap_or_default(),
+        "zcode" | "z_code" => read_zcode_servers().unwrap_or_default(),
+        _ => BTreeMap::new(),
+    }
+}
+
 fn upsert_server_for_app(app: McpAppType, id: &str, spec: &Value) -> Result<(), McpError> {
     match app {
         McpAppType::ClaudeCode => upsert_claude_server(id, spec),
@@ -3105,9 +3528,16 @@ fn upsert_server_for_app(app: McpAppType, id: &str, spec: &Value) -> Result<(), 
         McpAppType::Hermes => upsert_hermes_server(id, spec),
         McpAppType::CodeBuddy => upsert_codebuddy_server(id, spec),
         McpAppType::KimiCode => upsert_kimi_code_server(id, spec),
+        McpAppType::Pi => upsert_pi_server(id, spec),
         McpAppType::Grok => upsert_grok_server(id, spec),
         McpAppType::Cursor => upsert_cursor_server(id, spec),
+        McpAppType::DeepseekHarness => upsert_deepseek_server(id, spec),
         McpAppType::Qoder => upsert_qoder_server(id, spec),
+        McpAppType::Kiro => upsert_kiro_server(id, spec),
+        McpAppType::Auggie => upsert_auggie_server(id, spec),
+        McpAppType::Trae => upsert_trae_server(id, spec),
+        McpAppType::CommandCode => upsert_command_code_server(id, spec),
+        McpAppType::ZCode => upsert_zcode_server(id, spec),
     }
 }
 
@@ -3122,9 +3552,16 @@ fn remove_server_for_app(app: McpAppType, id: &str) -> Result<bool, McpError> {
         McpAppType::Hermes => remove_hermes_server(id),
         McpAppType::CodeBuddy => remove_codebuddy_server(id),
         McpAppType::KimiCode => remove_kimi_code_server(id),
+        McpAppType::Pi => remove_pi_server(id),
         McpAppType::Grok => remove_grok_server(id),
         McpAppType::Cursor => remove_cursor_server(id),
+        McpAppType::DeepseekHarness => remove_deepseek_server(id),
         McpAppType::Qoder => remove_qoder_server(id),
+        McpAppType::Kiro => remove_kiro_server(id),
+        McpAppType::Auggie => remove_auggie_server(id),
+        McpAppType::Trae => remove_trae_server(id),
+        McpAppType::CommandCode => remove_command_code_server(id),
+        McpAppType::ZCode => remove_zcode_server(id),
     }
 }
 
@@ -3139,9 +3576,16 @@ fn read_servers_for_app(app: McpAppType) -> Result<BTreeMap<String, Value>, McpE
         McpAppType::Hermes => read_hermes_servers(),
         McpAppType::CodeBuddy => read_codebuddy_servers(),
         McpAppType::KimiCode => read_kimi_code_servers(),
+        McpAppType::Pi => read_pi_servers(),
         McpAppType::Grok => read_grok_servers(),
         McpAppType::Cursor => read_cursor_servers(),
+        McpAppType::DeepseekHarness => read_deepseek_servers(),
         McpAppType::Qoder => read_qoder_servers(),
+        McpAppType::Kiro => read_kiro_servers(),
+        McpAppType::Auggie => read_auggie_servers(),
+        McpAppType::Trae => read_trae_servers(),
+        McpAppType::CommandCode => read_command_code_servers(),
+        McpAppType::ZCode => read_zcode_servers(),
     }
 }
 
@@ -3260,7 +3704,18 @@ fn uninstall_everywhere(id: &str) -> Result<(), McpError> {
 }
 
 fn app_can_host_spec(app: McpAppType, spec: &Value) -> bool {
-    !(app == McpAppType::Codex && spec.get("type").and_then(Value::as_str) == Some("sse"))
+    if app == McpAppType::ZCode {
+        return spec.get("type").and_then(Value::as_str) == Some("stdio");
+    }
+    let is_sse = spec.get("type").and_then(Value::as_str) == Some("sse");
+    !(matches!(
+        app,
+        McpAppType::Codex
+            | McpAppType::DeepseekHarness
+            | McpAppType::Kiro
+            | McpAppType::Trae
+            | McpAppType::CommandCode
+    ) && is_sse)
 }
 
 fn targets_are_global(spec: &Value, apps: &BTreeSet<McpAppType>) -> bool {
@@ -4364,7 +4819,7 @@ mod tests {
             .into_iter()
             .map(|app| serde_json::to_value(app).expect("serialize app"))
             .collect::<Vec<_>>();
-        assert_eq!(targets.len(), 12);
+        assert_eq!(targets.len(), 19);
         for expected in [
             "claude_code",
             "codex",
@@ -4375,15 +4830,22 @@ mod tests {
             "hermes",
             "codebuddy",
             "kimi_code",
+            "pi",
             "grok",
             "cursor",
+            "deepseek_harness",
             "qoder",
+            "kiro",
+            "auggie",
+            "trae",
+            "command_code",
+            "zcode",
         ] {
             assert!(targets.contains(&Value::String(expected.to_string())));
         }
-        assert!(!targets.contains(&Value::String("pi".to_string())));
-        assert_eq!(ASSIGNABLE_APPS.len(), 11);
+        assert_eq!(ASSIGNABLE_APPS.len(), 17);
         assert!(!ASSIGNABLE_APPS.contains(&McpAppType::OpenClaw));
+        assert!(!ASSIGNABLE_APPS.contains(&McpAppType::Pi));
     }
 
     #[test]
@@ -4397,11 +4859,11 @@ mod tests {
         assert!(!targets_are_global(&stdio, &missing));
 
         let sse = json!({ "type": "sse", "url": "https://example.com/sse" });
-        let without_codex = ASSIGNABLE_APPS
+        let hostable_sse = ASSIGNABLE_APPS
             .into_iter()
-            .filter(|app| *app != McpAppType::Codex)
+            .filter(|app| app_can_host_spec(*app, &sse))
             .collect();
-        assert!(targets_are_global(&sse, &without_codex));
+        assert!(targets_are_global(&sse, &hostable_sse));
     }
 
     #[test]
@@ -4661,10 +5123,83 @@ command = "other"
     #[test]
     fn codex_rejects_sse_without_blocking_other_targets() {
         let sse = json!({ "type": "sse", "url": "https://x/sse" });
+        let http = json!({ "type": "http", "url": "https://x/mcp" });
+        let stdio = json!({ "type": "stdio", "command": "npx" });
         assert!(canonical_to_codex_entry(&sse).is_err());
         assert!(!app_can_host_spec(McpAppType::Codex, &sse));
+        assert!(!app_can_host_spec(McpAppType::DeepseekHarness, &sse));
+        assert!(!app_can_host_spec(McpAppType::Kiro, &sse));
+        assert!(!app_can_host_spec(McpAppType::Trae, &sse));
+        assert!(!app_can_host_spec(McpAppType::CommandCode, &sse));
+        assert!(!app_can_host_spec(McpAppType::ZCode, &sse));
+        assert!(!app_can_host_spec(McpAppType::ZCode, &http));
+        assert!(app_can_host_spec(McpAppType::ZCode, &stdio));
         assert!(app_can_host_spec(McpAppType::KimiCode, &sse));
         assert!(app_can_host_spec(McpAppType::Qoder, &sse));
+        assert!(app_can_host_spec(McpAppType::Auggie, &sse));
+    }
+
+    #[test]
+    fn kiro_auggie_trae_command_code_deepseek_zcode_roundtrip() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let kiro_path = temp.path().join("kiro_mcp.json");
+        let auggie_path = temp.path().join("auggie_settings.json");
+        let trae_path = temp.path().join("traecli.toml");
+        let cc_path = temp.path().join("commandcode_mcp.json");
+        let dsh_path = temp.path().join("dsh_mcp.json");
+        let zcode_path = temp.path().join("zcode_mcp.json");
+
+        let stdio_spec = json!({
+            "type": "stdio",
+            "command": "npx",
+            "args": ["-y", "ctx7-mcp"],
+            "env": { "API_KEY": "secret" },
+            "disabled": false,
+            "autoApprove": ["search"]
+        });
+
+        upsert_kiro_server_at(&kiro_path, "ctx7", &stdio_spec).expect("upsert kiro");
+        let kiro_servers = read_kiro_servers_at(&kiro_path).expect("read kiro");
+        assert_eq!(kiro_servers["ctx7"]["command"], "npx");
+        assert_eq!(kiro_servers["ctx7"]["autoApprove"], json!(["search"]));
+        let raw_kiro = read_json_file(&kiro_path).expect("raw kiro");
+        assert!(raw_kiro.pointer("/mcpServers/ctx7/type").is_none());
+        assert!(remove_kiro_server_at(&kiro_path, "ctx7").expect("remove kiro"));
+
+        upsert_auggie_server_at(&auggie_path, "ctx7", &stdio_spec).expect("upsert auggie");
+        assert_eq!(
+            read_auggie_servers_at(&auggie_path).expect("read auggie")["ctx7"]["command"],
+            "npx"
+        );
+
+        upsert_trae_server_at(&trae_path, "ctx7", &stdio_spec).expect("upsert trae");
+        assert_eq!(
+            read_trae_servers_at(&trae_path).expect("read trae")["ctx7"]["command"],
+            "npx"
+        );
+
+        upsert_command_code_server_at(&cc_path, "ctx7", &stdio_spec).expect("upsert command_code");
+        let raw_cc = read_json_file(&cc_path).expect("raw command_code");
+        assert_eq!(
+            raw_cc.pointer("/mcpServers/ctx7/transport"),
+            Some(&json!("stdio"))
+        );
+        assert_eq!(
+            read_command_code_servers_at(&cc_path).expect("read command_code")["ctx7"]["command"],
+            "npx"
+        );
+
+        upsert_deepseek_server_at(&dsh_path, "ctx7", &stdio_spec).expect("upsert dsh");
+        assert_eq!(
+            read_deepseek_servers_at(&dsh_path).expect("read dsh")["ctx7"]["command"],
+            "npx"
+        );
+
+        upsert_zcode_server_at(&zcode_path, "ctx7", &stdio_spec).expect("upsert zcode");
+        assert_eq!(
+            read_zcode_servers_at(&zcode_path).expect("read zcode")["ctx7"]["command"],
+            "npx"
+        );
     }
 
     #[test]

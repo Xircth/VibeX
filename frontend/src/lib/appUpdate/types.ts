@@ -20,6 +20,22 @@ export interface AppUpdateSnapshot {
   error: string | null;
 }
 
+export type AppUpdateLifecycleStatus =
+  | 'idle'
+  | 'downloading'
+  | 'installing'
+  | 'ready_to_restart'
+  | 'restarting'
+  | 'error';
+
+export interface AppUpdateLifecycleState {
+  status: AppUpdateLifecycleStatus;
+  version: string | null;
+  downloaded: number;
+  total: number | null;
+  error: string | null;
+}
+
 export interface SignedFeedUpdate {
   version: string;
   body: string;

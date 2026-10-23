@@ -1,10 +1,23 @@
 import { afterEach, describe, expect, it } from 'vitest';
 
-import { clearLastCheck, readLastCheck, writeLastCheck } from './storage';
+import {
+  clearLastCheck,
+  consumePostUpdateRestoreRoute,
+  readDismissedVersion,
+  readLastCheck,
+  readLastMainWindowRoute,
+  recordMainWindowRoute,
+  writeDismissedVersion,
+  writeLastCheck,
+  writePostUpdateRestoreRoute,
+} from './storage';
 
 describe('app update check storage', () => {
   afterEach(() => {
     clearLastCheck();
+    writeDismissedVersion(null);
+    window.localStorage.removeItem('vibex.appUpdate.lastMainRoute');
+    window.localStorage.removeItem('vibex.appUpdate.postUpdateRestore');
   });
 
   it('round-trips a completed check including changelog', () => {
@@ -61,5 +74,44 @@ describe('app update check storage', () => {
 
     clearLastCheck();
     expect(readLastCheck()).toBeNull();
+  });
+
+  it('persists and clears dismissed update versions', () => {
+    expect(readDismissedVersion()).toBeNull();
+
+    writeDismissedVersion('0.39.0');
+    expect(readDismissedVersion()).toBe('0.39.0');
+
+    writeDismissedVersion(null);
+    expect(readDismissedVersion()).toBeNull();
+  });
+
+  it('records the active main window route and restores it once after restart', () => {
+    recordMainWindowRoute(
+      '/local-projects/project-1/workspaces/workspace-1/sessions/session-1?tab=chat'
+    );
+    recordMainWindowRoute('/settings/system');
+
+    expect(readLastMainWindowRoute()).toBe(
+      '/local-projects/project-1/workspaces/workspace-1/sessions/session-1?tab=chat'
+    );
+
+    writePostUpdateRestoreRoute('/settings/system', 1_700_000_000_000);
+
+    expect(consumePostUpdateRestoreRoute(1_700_000_010_000)).toBe(
+      '/local-projects/project-1/workspaces/workspace-1/sessions/session-1?tab=chat'
+    );
+    expect(consumePostUpdateRestoreRoute(1_700_000_010_000)).toBeNull();
+  });
+
+  it('expires stale post-update restore routes beyond the TTL window', () => {
+    writePostUpdateRestoreRoute(
+      '/local-projects/project-1/sessions',
+      1_700_000_000_000
+    );
+
+    expect(
+      consumePostUpdateRestoreRoute(1_700_000_000_000 + 31 * 60 * 1000)
+    ).toBeNull();
   });
 });

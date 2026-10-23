@@ -423,15 +423,15 @@ mod tests {
             "file_change_summary_updated",
             &ConversationEvent::FileChangeSummaryUpdated {
                 summary: ConversationFileChangeSummary {
+                    source: "git".to_string(),
                     files: vec![ConversationFileChange {
                         path: "src/lib.rs".to_string(),
                         change_kind: "modified".to_string(),
                         additions: Some(4),
                         deletions: Some(1),
                         old_path: None,
-                        status: "completed".to_string(),
                     }],
-                    updated_at: chrono::Utc::now(),
+                    summary: None,
                 },
             },
         )

@@ -7,9 +7,9 @@ mod artifact_http;
 mod artifact_preview;
 mod blob_store;
 mod catalog;
+mod collaboration_host;
 mod contribution;
 mod control_plane;
-mod collaboration_host;
 mod conversation_host;
 mod error;
 mod host_call;
@@ -59,6 +59,9 @@ pub use catalog::{
     origin_kind, origin_owner_name, package_matches_marketplace, prepare_marketplace_page,
     source_allows_remote_update, successor_plugin_id,
 };
+pub use collaboration_host::{
+    CollaborationHost, CollaborationHostError, UnavailableCollaborationHost,
+};
 pub use contribution::{
     ContributionCatalog, ContributionDescriptor, ContributionKind, ResolvedFileOpener,
 };
@@ -67,9 +70,6 @@ pub use control_plane::{
     ImportDisposition, ImportResult, InMemoryPluginRegistry, InstalledPlugin, PluginAuditEvent,
     PluginControlPlane, PluginRegistry, RuntimeInstallation, SqlitePluginRegistry,
     candidate_capability_grants,
-};
-pub use collaboration_host::{
-    CollaborationHost, CollaborationHostError, UnavailableCollaborationHost,
 };
 pub use conversation_host::{
     PluginConversationCancelInput, PluginConversationCreate, PluginConversationDraftInsert,
@@ -111,13 +111,13 @@ pub use official_catalog::{
 pub use official_mcp::{
     DELEGATION_MCP_NAME, HOST_FAMILY_MCP_STARTUP_TIMEOUT_SEC, HOST_MULTI_AGENT_ID,
     HostDelegationLimits, OfficialMcpBinding, OfficialMcpRuntime, OfficialProductMcpState,
-    PLUGIN_DEV_MCP_NAME, PluginMcpHeadline,
-    PluginMcpPluginStatus, PluginMcpServerStatus, PluginMcpStatusReport, PluginMcpToolStatus,
-    SESSION_FEAT_ALL, SESSION_FEAT_ASK, SESSION_FEAT_FEEDBACK, SESSION_FEAT_SESSION_CONTROL,
-    SESSION_FEAT_SESSIONS, SESSION_MCP_NAME, WORKFLOW_MCP_NAME, advertised_mcp_tools,
-    binding_has_delegation_mcp, host_family_product, host_family_stdio_spec,
-    legacy_projected_mcp_server_id, official_product_mcp_name, plugin_mcp_status_report,
-    projected_mcp_server_id, session_feature_arg, session_features_from_config,
+    PLUGIN_DEV_MCP_NAME, PluginMcpHeadline, PluginMcpPluginStatus, PluginMcpServerStatus,
+    PluginMcpStatusReport, PluginMcpToolStatus, SESSION_FEAT_ALL, SESSION_FEAT_ASK,
+    SESSION_FEAT_FEEDBACK, SESSION_FEAT_SESSION_CONTROL, SESSION_FEAT_SESSIONS, SESSION_MCP_NAME,
+    WORKFLOW_MCP_NAME, advertised_mcp_tools, binding_has_delegation_mcp, host_family_product,
+    host_family_stdio_spec, legacy_projected_mcp_server_id, official_product_mcp_name,
+    plugin_mcp_status_report, projected_mcp_server_id, session_feature_arg,
+    session_features_from_config,
 };
 pub use package::{
     APP_PANEL_SLOT, APP_TAB_SLOT, AppCommandContribution, AppComposerActionContribution,

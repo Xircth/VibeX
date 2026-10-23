@@ -99,7 +99,10 @@ pub async fn get_user_system_info(
     let config = load_config_from_file(&utils::assets::settings_path()).await;
     publish_config_runtime(&config).await;
     server::apply_host_multi_agent_setting(
-        state.plugin_control_plane.official_product_mcp_gate().as_ref(),
+        state
+            .plugin_control_plane
+            .official_product_mcp_gate()
+            .as_ref(),
         Some(state.delegation.broker.as_ref()),
         &config,
     );
@@ -153,7 +156,10 @@ pub async fn update_config(
     save_config_to_file(&new_config, &config_path).await?;
     publish_config_runtime(&new_config).await;
     server::apply_host_multi_agent_setting(
-        state.plugin_control_plane.official_product_mcp_gate().as_ref(),
+        state
+            .plugin_control_plane
+            .official_product_mcp_gate()
+            .as_ref(),
         Some(state.delegation.broker.as_ref()),
         &new_config,
     );
@@ -235,7 +241,10 @@ pub async fn clear_local_app_data(
     save_config_to_file(&default_config, &utils::assets::settings_path()).await?;
     publish_config_runtime(&default_config).await;
     server::apply_host_multi_agent_setting(
-        state.plugin_control_plane.official_product_mcp_gate().as_ref(),
+        state
+            .plugin_control_plane
+            .official_product_mcp_gate()
+            .as_ref(),
         Some(state.delegation.broker.as_ref()),
         &default_config,
     );

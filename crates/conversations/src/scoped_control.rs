@@ -1,5 +1,7 @@
-use std::sync::Arc;
-use std::time::{Duration, Instant};
+use std::{
+    sync::Arc,
+    time::{Duration, Instant},
+};
 
 use agents::{AgentId, ConversationInputPayload};
 use db::models::{conversation::DbConversationSummary, conversation_turn::ConversationTurnRecord};

@@ -1928,13 +1928,29 @@
     "authDescClineOfficialApi": "使用 Cline 官方 API Key。",
     "authDescClineProvider": "为 Cline 配置 BYOK Provider。",
     "authDescCodebuddySubscription": "登录腾讯云 CodeBuddy 账号。",
+    "authDescCodebuddyOfficialApi": "使用 CodeBuddy 官方 API Key。",
+    "authDescCodebuddyProvider": "使用下方已绑定的 Model Provider。",
     "authDescQoderSubscription": "登录 Qoder 账号。",
+    "authDescQoderOfficialApi": "使用 Qoder 官方 API Key。",
+    "authDescQoderProvider": "使用下方已绑定的 Model Provider。",
     "authDescKiroSubscription": "登录 Kiro 账号。",
     "authDescKiroOfficialApi": "使用 KIRO_API_KEY。",
     "authDescAuggieSubscription": "登录 Augment 账号。",
+    "authDescAuggieOfficialApi": "使用 Augment 官方 API Token。",
+    "authDescAuggieProvider": "使用下方已绑定的 Model Provider。",
     "authDescTraeSubscription": "登录 TRAE 账号。",
+    "authDescTraeOfficialApi": "使用 TRAE 官方 API Key。",
+    "authDescTraeProvider": "使用下方已绑定的 Model Provider。",
     "authDescCommandCodeSubscription": "登录 Command Code 账号。",
+    "authDescCommandCodeOfficialApi": "使用 Command Code 官方 API Key。",
+    "authDescCommandCodeProvider": "使用下方已绑定的 Model Provider。",
     "authDescZcodeSubscription": "在官方 ZCode 中登录。Start Plan 需要桌面验证码，无法在这里使用。",
+    "authDescZcodeOfficialApi": "使用智谱官方 API Key（ZHIPU_API_KEY）。",
+    "authDescZcodeProvider": "使用下方已绑定的 Model Provider。",
+    "loginMethodOptions": "登录方式",
+    "loginWithToken": "输入 Token",
+    "loginWithBrowser": "浏览器登录",
+    "officialInstallGuide": "官方安装指南",
     "headlessAccountTokenHint": "无浏览器环境使用同一账号的令牌。",
     "headlessAccountTokenClear": "清除",
     "headlessAccountTokenSaved": "已保存",
@@ -2252,7 +2268,9 @@
     "loadingAgent": "正在读取 Agent",
     "refreshStatusAria": "刷新 Agent 状态",
     "emptyList": "暂无 Agent。点击列表末尾的“+”从 ACP 注册表添加。",
-    "stagePrepare": "准备",
+    "stageEnvCheck": "基础环境检查",
+    "stageAcpCheck": "ACP检查",
+    "stagePrepare": "安装准备",
     "stageInstall": "安装",
     "stageVerify": "验证",
     "stageComplete": "完成",
@@ -2400,6 +2418,12 @@
           "description": "注销 Command Code 本地账号。"
         }
       },
+      "zcode": {
+        "login": {
+          "label": "登录 ZCode",
+          "description": "打开官方 ZCode 登录流程。"
+        }
+      },
       "kimi_code": {
         "login": {
           "label": "登录 Kimi Code",
@@ -2466,6 +2490,9 @@
     "customVersionTrustHint": "空字段会安装 npm latest。只写入 ACP 启动包。",
 
     "repairInstallation": "修复安装",
+    "officialInstallGuide": "官方安装指南",
+    "kiroSilentInstallFailedTitle": "Kiro 静默安装未能完成，请通过官方网页下载安装",
+    "kiroSilentInstallFailedDescription": "可打开 Kiro 官方安装页面下载安装器，安装完成后回到 VibeX 点击“立即检查”。",
     "operationComplete": "操作已完成",
     "operationFailed": "Agent 操作失败，请查看诊断后重试。",
     "operationCanceled": "Agent 操作已取消。",
@@ -2481,6 +2508,9 @@
       "check": "正在检查 Agent 环境…"
     },
     "operationLog": {
+      "envCheck": "正在进行基础环境检查",
+      "acpCheck": "正在进行 ACP 检查",
+      "prepare": "正在进行安装准备",
       "resolvePlan": "正在解析已锁定的安装方案",
       "installRuntime": "正在安装 ACP",
       "installAcp": "正在安装 ACP",

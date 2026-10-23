@@ -89,4 +89,43 @@ describe('Astryx SegmentedControl chrome', () => {
       'light-dark(#ffffff,#404040)'
     );
   });
+
+  it('styles Agent auth mode tabs and submodes as capsule segmented controls', () => {
+    const tabTrack: Record<string, string> = {};
+    const tabButton: Record<string, string> = {};
+    const submodeTrack: Record<string, string> = {};
+    const submodeButton: Record<string, string> = {};
+
+    parse(stylesheet).walkRules((rule) => {
+      const selector = selectorOf(rule);
+      if (selector === '.settings-page .agent-auth-mode-tabs') {
+        rule.walkDecls((declaration) => {
+          tabTrack[declaration.prop] = declaration.value;
+        });
+      } else if (selector === '.settings-page .agent-auth-mode-tabs > button') {
+        rule.walkDecls((declaration) => {
+          tabButton[declaration.prop] = declaration.value;
+        });
+      } else if (selector === '.settings-page .agent-auth-mode-submodes') {
+        rule.walkDecls((declaration) => {
+          submodeTrack[declaration.prop] = declaration.value;
+        });
+      } else if (selector === '.settings-page .agent-auth-mode-submode') {
+        rule.walkDecls((declaration) => {
+          submodeButton[declaration.prop] = declaration.value;
+        });
+      }
+    });
+
+    expect(tabTrack['border-radius']).toBe('999px');
+    expect(tabTrack['background-color']?.replace(/\s+/g, '')).toBe(
+      'light-dark(#e5e5e5,#262626)'
+    );
+    expect(tabButton['border-radius']).toBe('999px');
+    expect(submodeTrack['border-radius']).toBe('999px');
+    expect(submodeTrack['background-color']?.replace(/\s+/g, '')).toBe(
+      'light-dark(#e5e5e5,#262626)'
+    );
+    expect(submodeButton['border-radius']).toBe('999px');
+  });
 });

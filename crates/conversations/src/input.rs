@@ -297,8 +297,7 @@ impl ConversationInputControl {
             let now = Utc::now();
             let delayed_id = Uuid::new_v4();
             let delayed_op_id = Uuid::new_v4();
-            let deliver_at_stamp =
-                deliver_at.to_rfc3339_opts(chrono::SecondsFormat::Millis, true);
+            let deliver_at_stamp = deliver_at.to_rfc3339_opts(chrono::SecondsFormat::Millis, true);
             let now_stamp = now.to_rfc3339_opts(chrono::SecondsFormat::Millis, true);
             sqlx::query(
                 r#"INSERT INTO conversation_delayed_inputs
@@ -383,12 +382,9 @@ impl ConversationInputControl {
         &self,
         input: CancelConversationInput,
     ) -> Result<ConversationInputView, ConversationInputControlError> {
-        if let Some(cancelled_delayed) = cancel_delayed_input_if_exists(
-            &self.pool,
-            input.conversation_id,
-            input.input_id,
-        )
-        .await?
+        if let Some(cancelled_delayed) =
+            cancel_delayed_input_if_exists(&self.pool, input.conversation_id, input.input_id)
+                .await?
         {
             return Ok(cancelled_delayed);
         }
@@ -487,9 +483,12 @@ impl ConversationInputControl {
         conversation_id: Uuid,
         input_id: Uuid,
     ) -> Result<ConversationInputView, ConversationInputControlError> {
-        if let Some(record) =
-            ConversationInputRecord::find_by_id_for_conversation(&self.pool, conversation_id, input_id)
-                .await?
+        if let Some(record) = ConversationInputRecord::find_by_id_for_conversation(
+            &self.pool,
+            conversation_id,
+            input_id,
+        )
+        .await?
         {
             return record.try_into();
         }
@@ -825,7 +824,9 @@ async fn list_delayed_input_views(
     .await?;
     Ok(rows
         .into_iter()
-        .filter_map(|row| delayed_row_to_view(row, conversation_id, ConversationInputStatus::Scheduled))
+        .filter_map(|row| {
+            delayed_row_to_view(row, conversation_id, ConversationInputStatus::Scheduled)
+        })
         .collect())
 }
 
@@ -848,7 +849,8 @@ async fn find_delayed_input_view(
     .bind(&conv_str)
     .fetch_optional(pool)
     .await?;
-    Ok(row.and_then(|r| delayed_row_to_view(r, conversation_id, ConversationInputStatus::Scheduled)))
+    Ok(row
+        .and_then(|r| delayed_row_to_view(r, conversation_id, ConversationInputStatus::Scheduled)))
 }
 
 async fn update_delayed_input_if_exists(
@@ -877,10 +879,8 @@ async fn update_delayed_input_if_exists(
         return Ok(None);
     };
     let next_deliver_at = match delay_seconds.filter(|seconds| *seconds > 0) {
-        Some(seconds) => {
-            (Utc::now() + Duration::seconds(seconds))
-                .to_rfc3339_opts(chrono::SecondsFormat::Millis, true)
-        }
+        Some(seconds) => (Utc::now() + Duration::seconds(seconds))
+            .to_rfc3339_opts(chrono::SecondsFormat::Millis, true),
         None => row.deliver_at.clone(),
     };
     sqlx::query(

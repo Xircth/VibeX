@@ -66,15 +66,20 @@ describe('settingsWindowApi', () => {
     });
   });
 
-  it('keeps the app-update toast from replacing the current desktop window', () => {
-    const source = readFileSync(
+  it('keeps app-update notifications from replacing the current desktop window', () => {
+    const appSource = readFileSync(
       resolve(dirname(fileURLToPath(import.meta.url)), '../../App.tsx'),
       'utf8'
     );
-    expect(source).toContain(
-      "openSettingsSurface(navigate, '/settings/system')"
+    const badgeSource = readFileSync(
+      resolve(
+        dirname(fileURLToPath(import.meta.url)),
+        '../../components/layout/UpdateAvailableBadge.tsx'
+      ),
+      'utf8'
     );
-    expect(source).not.toContain("navigate('/settings/system')");
+    expect(appSource).not.toContain("navigate('/settings/system')");
+    expect(badgeSource).not.toContain("navigate('/settings/system')");
   });
 
   it('keeps the MCP status bar from replacing the main window with plugins', () => {

@@ -190,8 +190,7 @@ pub struct Config {
     #[serde(default = "default_multi_agent_delay_max_hours")]
     pub multi_agent_delay_max_hours: u32,
     #[serde(default)]
-    pub multi_agent_agent_defaults:
-        std::collections::BTreeMap<String, MultiAgentAgentDefault>,
+    pub multi_agent_agent_defaults: std::collections::BTreeMap<String, MultiAgentAgentDefault>,
 }
 
 impl Config {

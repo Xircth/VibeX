@@ -142,8 +142,8 @@ pub fn built_in_auth_mode_policy(agent_id: &AgentId) -> Option<BuiltInAuthModePo
             mode_env: "CODEBUDDY_AUTH_MODE",
             credential_env: "CODEBUDDY_API_KEY",
             modes: CODEBUDDY_MODES,
-            credential_modes: &[],
-            subscription_scrub_env: &[],
+            credential_modes: CODEBUDDY_CREDENTIAL_MODES,
+            subscription_scrub_env: CODEBUDDY_SCRUB_ENV,
             default_mode: "official_subscription",
         }),
         "pi" => Some(BuiltInAuthModePolicy {
@@ -164,10 +164,10 @@ pub fn built_in_auth_mode_policy(agent_id: &AgentId) -> Option<BuiltInAuthModePo
         }),
         "qoder" => Some(BuiltInAuthModePolicy {
             mode_env: "QODER_AUTH_MODE",
-            credential_env: "QODER_PERSONAL_ACCESS_TOKEN",
+            credential_env: "QODER_API_KEY",
             modes: QODER_MODES,
-            credential_modes: &[],
-            subscription_scrub_env: &[],
+            credential_modes: QODER_CREDENTIAL_MODES,
+            subscription_scrub_env: QODER_SCRUB_ENV,
             default_mode: "official_subscription",
         }),
         "kiro" => Some(BuiltInAuthModePolicy {
@@ -180,34 +180,34 @@ pub fn built_in_auth_mode_policy(agent_id: &AgentId) -> Option<BuiltInAuthModePo
         }),
         "auggie" => Some(BuiltInAuthModePolicy {
             mode_env: "AUGGIE_AUTH_MODE",
-            credential_env: "AUGMENT_SESSION_AUTH",
-            modes: SUBSCRIPTION_ONLY_MODES,
-            credential_modes: &[],
-            subscription_scrub_env: &[],
+            credential_env: "AUGMENT_API_TOKEN",
+            modes: STANDARD_THREE_MODES,
+            credential_modes: STANDARD_CREDENTIAL_MODES,
+            subscription_scrub_env: AUGGIE_SCRUB_ENV,
             default_mode: "official_subscription",
         }),
         "trae" => Some(BuiltInAuthModePolicy {
             mode_env: "TRAE_AUTH_MODE",
-            credential_env: "TRAECLI_PERSONAL_ACCESS_TOKEN",
-            modes: SUBSCRIPTION_ONLY_MODES,
-            credential_modes: &[],
-            subscription_scrub_env: &[],
+            credential_env: "TRAE_API_KEY",
+            modes: STANDARD_THREE_MODES,
+            credential_modes: STANDARD_CREDENTIAL_MODES,
+            subscription_scrub_env: TRAE_SCRUB_ENV,
             default_mode: "official_subscription",
         }),
         "command_code" => Some(BuiltInAuthModePolicy {
             mode_env: "COMMAND_CODE_AUTH_MODE",
-            credential_env: "",
-            modes: SUBSCRIPTION_ONLY_MODES,
-            credential_modes: &[],
-            subscription_scrub_env: &[],
+            credential_env: "COMMAND_CODE_API_KEY",
+            modes: STANDARD_THREE_MODES,
+            credential_modes: STANDARD_CREDENTIAL_MODES,
+            subscription_scrub_env: COMMAND_CODE_SCRUB_ENV,
             default_mode: "official_subscription",
         }),
         "zcode" => Some(BuiltInAuthModePolicy {
             mode_env: "ZCODE_AUTH_MODE",
-            credential_env: "",
-            modes: SUBSCRIPTION_ONLY_MODES,
-            credential_modes: &[],
-            subscription_scrub_env: &[],
+            credential_env: "ZHIPU_API_KEY",
+            modes: STANDARD_THREE_MODES,
+            credential_modes: STANDARD_CREDENTIAL_MODES,
+            subscription_scrub_env: ZCODE_SCRUB_ENV,
             default_mode: "official_subscription",
         }),
         "mimo_code" => Some(BuiltInAuthModePolicy {
@@ -230,9 +230,18 @@ const KIMI_MODES: &[&str] = &["official_subscription", "official_api", "model_pr
 const KIMI_CREDENTIAL_MODES: &[&str] = &["official_api"];
 const CLINE_MODES: &[&str] = &["official_subscription", "official_api", "model_provider"];
 const CLINE_CREDENTIAL_MODES: &[&str] = &["official_api"];
-const CODEBUDDY_MODES: &[&str] = &["official_subscription"];
-const QODER_MODES: &[&str] = &["official_subscription"];
-const SUBSCRIPTION_ONLY_MODES: &[&str] = &["official_subscription"];
+const CODEBUDDY_MODES: &[&str] = &["official_subscription", "official_api", "model_provider"];
+const CODEBUDDY_CREDENTIAL_MODES: &[&str] = &["official_api"];
+const CODEBUDDY_SCRUB_ENV: &[&str] = &["CODEBUDDY_API_KEY", "CODEBUDDY_BASE_URL"];
+const QODER_MODES: &[&str] = &["official_subscription", "official_api", "model_provider"];
+const QODER_CREDENTIAL_MODES: &[&str] = &["official_api"];
+const QODER_SCRUB_ENV: &[&str] = &["QODER_API_KEY"];
+const STANDARD_THREE_MODES: &[&str] = &["official_subscription", "official_api", "model_provider"];
+const STANDARD_CREDENTIAL_MODES: &[&str] = &["official_api"];
+const AUGGIE_SCRUB_ENV: &[&str] = &["AUGMENT_API_TOKEN", "AUGMENT_API_URL"];
+const TRAE_SCRUB_ENV: &[&str] = &["TRAE_API_KEY"];
+const COMMAND_CODE_SCRUB_ENV: &[&str] = &["COMMAND_CODE_API_KEY"];
+const ZCODE_SCRUB_ENV: &[&str] = &["ZHIPU_API_KEY"];
 const KIRO_MODES: &[&str] = &["official_subscription", "official_api"];
 const KIRO_CREDENTIAL_MODES: &[&str] = &["official_api"];
 const KIRO_SCRUB_ENV: &[&str] = &["KIRO_API_KEY"];
@@ -333,6 +342,7 @@ pub fn native_uses_custom_endpoint(agent_id: &AgentId, snapshot: &NativeConfigSn
         "cline" => snapshot.field_text("cline_base_url"),
         "hermes" => snapshot.field_text("hermes_base_url"),
         "codex" => snapshot.field_text("codex_openai_base_url"),
+        "codebuddy" => snapshot.field_text("codebuddy_base_url"),
         _ => None,
     }) else {
         return false;
@@ -376,6 +386,12 @@ pub fn official_api_url(agent_id: &AgentId, mode: &str) -> Option<&'static str> 
         ("kimi_code", "official_api") => Some("https://api.moonshot.ai/v1"),
         ("cline", "official_api") => Some("https://api.cline.bot"),
         ("hermes", "official_api") => Some("https://inference-api.nousresearch.com/v1"),
+        ("codebuddy", "official_api") => Some("https://www.codebuddy.ai"),
+        ("qoder", "official_api") => Some("https://openapi.qoder.com"),
+        ("auggie", "official_api") => Some("https://api.augmentcode.com"),
+        ("trae", "official_api") => Some("https://api.trae.ai"),
+        ("command_code", "official_api") => Some("https://api.commandcode.ai"),
+        ("zcode", "official_api") => Some("https://open.bigmodel.cn/api/paas/v4"),
         _ => None,
     }
 }
@@ -406,12 +422,35 @@ pub fn apply_built_in_auth_mode_policy(agent_id: &AgentId, env: &mut HashMap<Str
         return;
     };
     migrate_legacy_antigravity_auth_mode(agent_id, env);
-    let mode = resolved_auth_mode(agent_id, policy, env);
-    for key in auth_mode_scrubbed_env_keys(agent_id, mode) {
+    let mode = resolved_auth_mode(agent_id, policy, env).to_string();
+    for key in auth_mode_scrubbed_env_keys(agent_id, &mode) {
         env.remove(*key);
     }
     if agent_id.as_str() == "cursor" {
         env.remove("CURSOR_API_BASE_URL");
+    }
+    if mode == "official_api" {
+        match agent_id.as_str() {
+            "qoder" => {
+                if let Some(key) = env
+                    .get("QODER_API_KEY")
+                    .map(|value| value.trim().to_string())
+                    .filter(|value| !value.is_empty())
+                {
+                    env.insert("QODER_PERSONAL_ACCESS_TOKEN".to_string(), key);
+                }
+            }
+            "trae" => {
+                if let Some(key) = env
+                    .get("TRAE_API_KEY")
+                    .map(|value| value.trim().to_string())
+                    .filter(|value| !value.is_empty())
+                {
+                    env.insert("TRAECLI_PERSONAL_ACCESS_TOKEN".to_string(), key);
+                }
+            }
+            _ => {}
+        }
     }
 }
 
@@ -457,7 +496,13 @@ pub fn auth_mode_credential_env(agent_id: &AgentId, mode: &str) -> Option<&'stat
         ("hermes", "official_api") => Some("NOUS_API_KEY"),
         ("kimi_code", "official_api") => Some("KIMI_API_KEY"),
         ("cline", "official_api") => Some("CLINE_API_KEY"),
+        ("codebuddy", "official_api") => Some("CODEBUDDY_API_KEY"),
+        ("qoder", "official_api") => Some("QODER_API_KEY"),
         ("kiro", "official_api") => Some("KIRO_API_KEY"),
+        ("auggie", "official_api") => Some("AUGMENT_API_TOKEN"),
+        ("trae", "official_api") => Some("TRAE_API_KEY"),
+        ("command_code", "official_api") => Some("COMMAND_CODE_API_KEY"),
+        ("zcode", "official_api") => Some("ZHIPU_API_KEY"),
         _ => None,
     }
 }
@@ -467,9 +512,12 @@ pub fn auth_mode_credential_env(agent_id: &AgentId, mode: &str) -> Option<&'stat
 /// the value.
 pub fn headless_account_env(agent_id: &AgentId) -> Option<&'static str> {
     match agent_id.as_str() {
+        "codebuddy" => Some("CODEBUDDY_AUTH_TOKEN"),
         "qoder" => Some("QODER_PERSONAL_ACCESS_TOKEN"),
         "auggie" => Some("AUGMENT_SESSION_AUTH"),
         "trae" => Some("TRAECLI_PERSONAL_ACCESS_TOKEN"),
+        "command_code" => Some("COMMAND_CODE_AUTH_TOKEN"),
+        "zcode" => Some("ZCODE_AUTH_TOKEN"),
         _ => None,
     }
 }
@@ -491,7 +539,13 @@ fn auth_mode_scrubbed_env_keys(agent_id: &AgentId, mode: &str) -> &'static [&'st
             .map(|policy| policy.subscription_scrub_env)
             .unwrap_or_default(),
         ("deepseek_harness", "deepseek") => DSH_OFFICIAL_SCRUB_ENV,
+        ("codebuddy", "official_subscription") => CODEBUDDY_SCRUB_ENV,
+        ("qoder", "official_subscription") => QODER_SCRUB_ENV,
         ("kiro", "official_subscription") => KIRO_SCRUB_ENV,
+        ("auggie", "official_subscription") => AUGGIE_SCRUB_ENV,
+        ("trae", "official_subscription") => TRAE_SCRUB_ENV,
+        ("command_code", "official_subscription") => COMMAND_CODE_SCRUB_ENV,
+        ("zcode", "official_subscription") => ZCODE_SCRUB_ENV,
         _ => &[],
     }
 }

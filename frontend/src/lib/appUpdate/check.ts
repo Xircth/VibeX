@@ -1,8 +1,17 @@
 import { configApi, type AppReleaseStatus } from '@/lib/api';
 
 import { resolveAppUpdate } from './resolve';
-import { clearLastCheck, readLastCheck, writeLastCheck } from './storage';
+import {
+  clearLastCheck,
+  DISMISSED_VERSION_KEY,
+  readDismissedVersion,
+  readLastCheck,
+  writeDismissedVersion,
+  writeLastCheck,
+  writePostUpdateRestoreRoute,
+} from './storage';
 import type {
+  AppUpdateLifecycleState,
   AppUpdateSnapshot,
   GitHubReleaseCheck,
   SignedFeedUpdate,
@@ -11,8 +20,100 @@ import type {
 export const CHECK_TTL_MS = 6 * 60 * 60 * 1000;
 const MANIFEST_TIMEOUT_MS = 15_000;
 const APP_UPDATE_EVENT = 'vibex:app-update-checked';
+const APP_UPDATE_STATE_EVENT = 'vibex:app-update-state';
+const APP_UPDATE_DISMISSED_EVENT = 'vibex:app-update-dismissed';
+
+const INITIAL_LIFECYCLE_STATE: AppUpdateLifecycleState = {
+  status: 'idle',
+  version: null,
+  downloaded: 0,
+  total: null,
+  error: null,
+};
 
 let inFlight: Promise<AppUpdateSnapshot> | null = null;
+let updateInFlight: Promise<void> | null = null;
+let lifecycleState: AppUpdateLifecycleState = { ...INITIAL_LIFECYCLE_STATE };
+let stagedUpdate: {
+  install: () => Promise<void>;
+  close?: () => Promise<void>;
+} | null = null;
+
+function isWindowsPlatform(): boolean {
+  if (typeof navigator === 'undefined') return false;
+  return /windows|win32|win64/i.test(navigator.userAgent);
+}
+
+function setLifecycleState(next: AppUpdateLifecycleState): void {
+  lifecycleState = next;
+  if (typeof window !== 'undefined') {
+    window.dispatchEvent(
+      new CustomEvent(APP_UPDATE_STATE_EVENT, { detail: next })
+    );
+  }
+}
+
+export function getAppUpdateState(): AppUpdateLifecycleState {
+  return lifecycleState;
+}
+
+export function subscribeAppUpdateState(
+  listener: (state: AppUpdateLifecycleState) => void
+): () => void {
+  if (typeof window === 'undefined') return () => undefined;
+
+  const onState = (event: Event) => {
+    listener((event as CustomEvent<AppUpdateLifecycleState>).detail);
+  };
+  window.addEventListener(APP_UPDATE_STATE_EVENT, onState);
+  return () => {
+    window.removeEventListener(APP_UPDATE_STATE_EVENT, onState);
+  };
+}
+
+export function getDismissedAppUpdateVersion(): string | null {
+  return readDismissedVersion();
+}
+
+export function dismissAppUpdateVersion(version: string | null): void {
+  writeDismissedVersion(version);
+  if (typeof window !== 'undefined') {
+    window.dispatchEvent(
+      new CustomEvent(APP_UPDATE_DISMISSED_EVENT, { detail: version })
+    );
+  }
+}
+
+export function subscribeDismissedAppUpdateVersion(
+  listener: (version: string | null) => void
+): () => void {
+  if (typeof window === 'undefined') return () => undefined;
+
+  const onCustom = (event: Event) => {
+    listener((event as CustomEvent<string | null>).detail);
+  };
+  const onStorage = (event: StorageEvent) => {
+    if (event.key !== null && event.key !== DISMISSED_VERSION_KEY) return;
+    listener(readDismissedVersion());
+  };
+
+  window.addEventListener(APP_UPDATE_DISMISSED_EVENT, onCustom);
+  window.addEventListener('storage', onStorage);
+  return () => {
+    window.removeEventListener(APP_UPDATE_DISMISSED_EVENT, onCustom);
+    window.removeEventListener('storage', onStorage);
+  };
+}
+
+export function resetAppUpdateStateForTests(): void {
+  if (stagedUpdate?.close) {
+    void stagedUpdate.close().catch(() => undefined);
+  }
+  stagedUpdate = null;
+  updateInFlight = null;
+  inFlight = null;
+  lifecycleState = { ...INITIAL_LIFECYCLE_STATE };
+}
 
 function toGitHubCheck(status: AppReleaseStatus): GitHubReleaseCheck {
   return {
@@ -163,37 +264,184 @@ export async function checkAppUpdate(options?: {
 export async function installSignedUpdate(
   onProgress?: (percent: number) => void
 ): Promise<void> {
-  const { check } = await import('@tauri-apps/plugin-updater');
-  const update = await check({ timeout: MANIFEST_TIMEOUT_MS });
-  if (!update) {
-    throw new Error('No signed update is available to install');
-  }
+  if (updateInFlight) return updateInFlight;
 
-  try {
-    let total = 0;
+  updateInFlight = (async () => {
+    writePostUpdateRestoreRoute();
+
+    if (stagedUpdate?.close) {
+      await stagedUpdate.close().catch(() => undefined);
+      stagedUpdate = null;
+    }
+
+    const cachedVersion = readLastCheck()?.update?.version ?? null;
+    const { check } = await import('@tauri-apps/plugin-updater');
+    const update = await check({ timeout: MANIFEST_TIMEOUT_MS });
+    if (!update) {
+      const message = 'No signed update is available to install';
+      setLifecycleState({
+        status: 'error',
+        version: cachedVersion,
+        downloaded: 0,
+        total: null,
+        error: message,
+      });
+      throw new Error(message);
+    }
+
+    const targetVersion = update.version || cachedVersion;
+    let total: number | null = null;
     let downloaded = 0;
-    await update.downloadAndInstall((event) => {
+    let closeOnExit = true;
+
+    setLifecycleState({
+      status: 'downloading',
+      version: targetVersion,
+      downloaded: 0,
+      total: null,
+      error: null,
+    });
+
+    const handleDownloadEvent = (event: {
+      event: 'Started' | 'Progress' | 'Finished';
+      data?: { contentLength?: number; chunkLength?: number };
+    }) => {
       if (event.event === 'Started') {
-        total = event.data.contentLength ?? 0;
+        total =
+          typeof event.data?.contentLength === 'number' &&
+          event.data.contentLength > 0
+            ? event.data.contentLength
+            : null;
+        setLifecycleState({
+          status: 'downloading',
+          version: targetVersion,
+          downloaded: 0,
+          total,
+          error: null,
+        });
         onProgress?.(0);
       } else if (event.event === 'Progress') {
-        downloaded += event.data.chunkLength;
-        onProgress?.(total > 0 ? Math.round((downloaded / total) * 100) : 0);
+        downloaded += event.data?.chunkLength ?? 0;
+        setLifecycleState({
+          status: 'downloading',
+          version: targetVersion,
+          downloaded,
+          total,
+          error: null,
+        });
+        onProgress?.(
+          total && total > 0
+            ? Math.min(100, Math.round((downloaded / total) * 100))
+            : 0
+        );
       } else if (event.event === 'Finished') {
         onProgress?.(100);
       }
-    });
-    clearLastCheck();
-  } finally {
+    };
+
     try {
-      await update.close();
-    } catch {
-      // ignore
+      const canSplitDownloadAndInstall =
+        typeof update.download === 'function' &&
+        typeof update.install === 'function';
+
+      if (canSplitDownloadAndInstall) {
+        await update.download(handleDownloadEvent);
+        if (isWindowsPlatform()) {
+          stagedUpdate = update;
+          closeOnExit = false;
+        } else {
+          setLifecycleState({
+            status: 'installing',
+            version: targetVersion,
+            downloaded,
+            total,
+            error: null,
+          });
+          await update.install();
+        }
+      } else {
+        await update.downloadAndInstall((event) => {
+          handleDownloadEvent(event);
+          if (event.event === 'Finished') {
+            setLifecycleState({
+              status: 'installing',
+              version: targetVersion,
+              downloaded,
+              total,
+              error: null,
+            });
+          }
+        });
+      }
+
+      clearLastCheck();
+      setLifecycleState({
+        status: 'ready_to_restart',
+        version: targetVersion,
+        downloaded,
+        total,
+        error: null,
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      setLifecycleState({
+        status: 'error',
+        version: targetVersion,
+        downloaded: 0,
+        total: null,
+        error: message,
+      });
+      throw error;
+    } finally {
+      if (closeOnExit && typeof update.close === 'function') {
+        try {
+          await update.close();
+        } catch {
+          // ignore
+        }
+      }
     }
-  }
+  })().finally(() => {
+    updateInFlight = null;
+  });
+
+  return updateInFlight;
 }
 
+export const startAppUpdate = installSignedUpdate;
+
 export async function relaunchApp(): Promise<void> {
-  const { relaunch } = await import('@tauri-apps/plugin-process');
-  await relaunch();
+  writePostUpdateRestoreRoute();
+  clearLastCheck();
+  setLifecycleState({
+    ...lifecycleState,
+    status: 'restarting',
+    error: null,
+  });
+
+  const pendingUpdate = stagedUpdate;
+  stagedUpdate = null;
+
+  try {
+    if (pendingUpdate) {
+      try {
+        await pendingUpdate.install();
+      } finally {
+        if (typeof pendingUpdate.close === 'function') {
+          await pendingUpdate.close().catch(() => undefined);
+        }
+      }
+    }
+
+    const { relaunch } = await import('@tauri-apps/plugin-process');
+    await relaunch();
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    setLifecycleState({
+      ...lifecycleState,
+      status: 'error',
+      error: message,
+    });
+    throw error;
+  }
 }

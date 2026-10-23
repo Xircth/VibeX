@@ -3,7 +3,11 @@
 //! injected with it), looked up on every framed message, and revoked when the
 //! parent disconnects.
 
-use std::{collections::HashMap, path::PathBuf, sync::{Arc, RwLock}};
+use std::{
+    collections::HashMap,
+    path::PathBuf,
+    sync::{Arc, RwLock},
+};
 
 use uuid::Uuid;
 
@@ -225,16 +229,23 @@ mod tests {
             delegation: true,
             ..TokenPermissions::default()
         };
-        registry.register_product_token(
-            "pipe".to_string(),
-            entry(),
-            permissions,
-            "delegation",
-        );
+        registry.register_product_token("pipe".to_string(), entry(), permissions, "delegation");
         registry.register_with_permissions("http".to_string(), entry(), permissions);
-        assert!(registry.authorize("pipe", TokenFeature::Delegation).is_none());
-        assert!(registry.authorize("http", TokenFeature::Delegation).is_some());
+        assert!(
+            registry
+                .authorize("pipe", TokenFeature::Delegation)
+                .is_none()
+        );
+        assert!(
+            registry
+                .authorize("http", TokenFeature::Delegation)
+                .is_some()
+        );
         registry.set_product_gate(|product| product == "delegation");
-        assert!(registry.authorize("pipe", TokenFeature::Delegation).is_some());
+        assert!(
+            registry
+                .authorize("pipe", TokenFeature::Delegation)
+                .is_some()
+        );
     }
 }

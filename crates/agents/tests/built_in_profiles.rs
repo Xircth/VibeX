@@ -323,7 +323,6 @@ fn qoder_launches_as_an_acp_server_under_both_bin_names() {
 }
 
 #[test]
-#[test]
 fn native_acp_cli_agents_launch_with_the_documented_server_args() {
     let catalog = BuiltInProfileCatalog::bundled();
 
@@ -413,14 +412,15 @@ fn native_acp_cli_agents_launch_with_the_documented_server_args() {
             .contains(&AgentSettingsFeature::NativeSkills)
     );
     assert!(
-        !command_code
+        command_code
             .settings_features
             .contains(&AgentSettingsFeature::NativeMcp)
     );
 
     let zcode = catalog.profile(&AgentId::parse("zcode").unwrap()).unwrap();
     assert!(zcode.registry_binding.is_none());
-    assert!(zcode.management_actions.is_empty());
+    assert_eq!(zcode.management_actions.len(), 1);
+    assert_eq!(zcode.management_actions[0].id, "login");
     assert_eq!(
         zcode
             .external_candidates
@@ -453,7 +453,7 @@ fn native_acp_cli_agents_launch_with_the_documented_server_args() {
             .contains(&AgentSettingsFeature::NativeSkills)
     );
     assert!(
-        !zcode
+        zcode
             .settings_features
             .contains(&AgentSettingsFeature::NativeMcp)
     );
@@ -944,23 +944,19 @@ fn codeg_directory_semantics_and_settings_capabilities_are_profile_declared() {
         "hermes",
         "openclaw",
         "cline",
+        "codebuddy",
+        "qoder",
+        "auggie",
+        "trae",
+        "command_code",
+        "zcode",
     ] {
         assert!(
             catalog.supports_reusable_model_providers(&AgentId::parse(id).unwrap()),
             "{id} exposes reusable Model Providers and must be able to probe them"
         );
     }
-    for id in [
-        "cursor",
-        "opencode",
-        "deepseek_harness",
-        "qoder",
-        "kiro",
-        "auggie",
-        "trae",
-        "command_code",
-        "zcode",
-    ] {
+    for id in ["cursor", "opencode", "deepseek_harness", "kiro"] {
         assert!(
             !catalog.supports_reusable_model_providers(&AgentId::parse(id).unwrap()),
             "{id} does not expose reusable Model Providers"
@@ -978,7 +974,13 @@ fn codeg_directory_semantics_and_settings_capabilities_are_profile_declared() {
         "kimi_code",
         "grok",
         "cursor",
+        "deepseek_harness",
         "qoder",
+        "kiro",
+        "auggie",
+        "trae",
+        "command_code",
+        "zcode",
     ] {
         assert!(
             profile(id)
@@ -987,16 +989,7 @@ fn codeg_directory_semantics_and_settings_capabilities_are_profile_declared() {
             "{id} must declare native MCP support"
         );
     }
-    for id in [
-        "openclaw",
-        "pi",
-        "deepseek_harness",
-        "kiro",
-        "auggie",
-        "trae",
-        "command_code",
-        "zcode",
-    ] {
+    for id in ["openclaw", "pi"] {
         assert!(
             !profile(id)
                 .settings_features
@@ -1019,6 +1012,9 @@ fn codeg_directory_semantics_and_settings_capabilities_are_profile_declared() {
         "cursor",
         "deepseek_harness",
         "qoder",
+        "kiro",
+        "auggie",
+        "trae",
         "command_code",
         "zcode",
     ] {
@@ -1027,14 +1023,6 @@ fn codeg_directory_semantics_and_settings_capabilities_are_profile_declared() {
                 .settings_features
                 .contains(&AgentSettingsFeature::NativeSkills),
             "{id} must declare native Skills support"
-        );
-    }
-    for id in ["kiro", "auggie", "trae"] {
-        assert!(
-            !profile(id)
-                .settings_features
-                .contains(&AgentSettingsFeature::NativeSkills),
-            "{id} has no verified skill directories"
         );
     }
 }

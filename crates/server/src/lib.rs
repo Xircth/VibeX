@@ -54,13 +54,13 @@ pub use delegation_runtime::VibexDelegationInjector;
 pub use domains::{ServerApplicationDomains, ServerDomainDependencies};
 pub use host::{
     HostEvent, HostEventBus, account_flow,
+    collaboration::HostCollaborationHost,
     events::{
         COLLABORATION_SPACE_CHANGED_EVENT, HOST_EVENT_CHANNELS, TerminalBridgeRegistry,
         current_host_events,
     },
     local_history::assemble_local_history_scan_page,
     native, patch_stream_channel, patch_stream_subscribe_command,
-    collaboration::HostCollaborationHost,
     plugin_conversation::HostPluginConversationHost,
     provider_bind::HostProviderPresetHost,
     remote_profiles::FileRemoteProfileHost,

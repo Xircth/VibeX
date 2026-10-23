@@ -135,7 +135,7 @@ describe('AgentDetail', () => {
         '160px minmax(0, 1fr) auto'
       );
       expect(
-        getComputedStyle(screen.getByRole('button', { name: '检查更新' }))
+        getComputedStyle(screen.getByRole('button', { name: '立即检查' }))
           .minHeight
       ).toBe('2rem');
       expect(
@@ -446,7 +446,7 @@ describe('AgentDetail', () => {
           operationId: 'operation-1',
           kind: 'install',
           status: 'running',
-          progressPercent: 25,
+          progressPercent: 55,
           message: '正在安装 ACP',
           logs: [
             '正在解析已锁定的安装方案',
@@ -473,9 +473,20 @@ describe('AgentDetail', () => {
     const progress = screen.getByRole('progressbar', {
       name: '正在安装 ACP',
     });
-    expect(progress).toHaveAttribute('aria-valuenow', '25');
-    expect(progress).toHaveAttribute('aria-valuetext', '安装 · 25%');
-    expect(screen.getByText('准备')).toHaveAttribute('data-state', 'complete');
+    expect(progress).toHaveAttribute('aria-valuenow', '55');
+    expect(progress).toHaveAttribute('aria-valuetext', '安装 · 55%');
+    expect(screen.getByText('基础环境检查')).toHaveAttribute(
+      'data-state',
+      'complete'
+    );
+    expect(screen.getByText('ACP检查')).toHaveAttribute(
+      'data-state',
+      'complete'
+    );
+    expect(screen.getByText('安装准备')).toHaveAttribute(
+      'data-state',
+      'complete'
+    );
     expect(screen.getByText('安装')).toHaveAttribute('data-state', 'current');
     expect(screen.getByText('验证')).toHaveAttribute('data-state', 'upcoming');
     expect(screen.getByText('完成')).toHaveAttribute('data-state', 'upcoming');
@@ -636,7 +647,7 @@ describe('AgentDetail', () => {
     }
   });
 
-  it('keeps update, uninstall, and remove together beside the enable control', async () => {
+  it('keeps remove beside the enable control and opens the disable modal with uninstall options', async () => {
     const onExportDiagnostics = vi.fn();
     const onCheckUpdate = vi.fn();
     const onUninstall = vi.fn();
@@ -669,36 +680,26 @@ describe('AgentDetail', () => {
     const header = screen.getByRole('banner');
     const preflightRegion = screen.getByRole('region', { name: '预检查' });
     const enable = within(header).getByRole('switch', { name: '启用 Agent' });
-    const update = within(header).getByRole('button', { name: '检查更新' });
-    const uninstall = within(header).getByRole('button', { name: '卸载' });
     const remove = within(header).getByRole('button', { name: '移除' });
     expect(
-      enable.compareDocumentPosition(update) & Node.DOCUMENT_POSITION_FOLLOWING
+      enable.compareDocumentPosition(remove) & Node.DOCUMENT_POSITION_FOLLOWING
     ).toBeTruthy();
     expect(
-      update.compareDocumentPosition(uninstall) &
-        Node.DOCUMENT_POSITION_FOLLOWING
-    ).toBeTruthy();
-    expect(
-      uninstall.compareDocumentPosition(remove) &
-        Node.DOCUMENT_POSITION_FOLLOWING
-    ).toBeTruthy();
-    expect(
-      within(preflightRegion).queryByRole('button', { name: '检查更新' })
+      within(header).queryByRole('button', { name: '检查更新' })
     ).not.toBeInTheDocument();
     expect(
-      within(preflightRegion).queryByRole('button', { name: '卸载' })
+      within(header).queryByRole('button', { name: '卸载' })
     ).not.toBeInTheDocument();
     expect(
       within(preflightRegion).queryByRole('button', { name: '移除' })
     ).not.toBeInTheDocument();
 
-    await userEvent.click(update);
-    await userEvent.click(uninstall);
+    await userEvent.click(enable);
+    const dialog = screen.getByRole('dialog');
+    await userEvent.click(within(dialog).getByRole('button', { name: '卸载' }));
     await userEvent.click(remove);
     await userEvent.click(screen.getByRole('button', { name: '导出诊断记录' }));
-    expect(onCheckUpdate).toHaveBeenCalledOnce();
-    expect(onUninstall).toHaveBeenCalledOnce();
+    expect(onUninstall).toHaveBeenCalledWith({ clearData: false });
     expect(onRemove).toHaveBeenCalledOnce();
     expect(onExportDiagnostics).toHaveBeenCalledOnce();
   });
@@ -747,8 +748,6 @@ describe('AgentDetail', () => {
       />
     );
 
-    await userEvent.click(screen.getByRole('button', { name: '检查更新' }));
-    expect(onCheckUpdate).toHaveBeenCalledOnce();
     expect(
       screen.queryByRole('button', { name: '安装更新' })
     ).not.toBeInTheDocument();
@@ -945,5 +944,83 @@ describe('AgentDetail', () => {
     expect(toggle).not.toBeChecked();
     expect(screen.queryByText('启动前完整性验证失败')).not.toBeInTheDocument();
     expect(localStorage.getItem('vibex:operation-diagnostics')).toBe('off');
+  });
+
+  it('shows both silent ACP install and the official install guide button when Kiro ACP preflight fails', async () => {
+    const openSpy = vi.spyOn(window, 'open').mockImplementation(() => null);
+    const onInstall = vi.fn();
+    try {
+      render(
+        <AgentDetail
+          agent={{
+            ...agent,
+            agent_id: 'kiro',
+            display_name: 'Kiro',
+            lifecycle: 'uninstalled',
+            acp_version: null,
+          }}
+          operation={null}
+          preflight={{
+            agent_id: 'kiro',
+            checked_at: '2026-04-12T10:00:00Z',
+            items: [
+              {
+                id: 'membership',
+                label: '运行入口',
+                status: 'pass',
+                detail: '运行入口可用，但未能确认版本。',
+                version: null,
+                path: null,
+                source: null,
+                repairable: false,
+                update_available: false,
+                available_version: null,
+                update_group: null,
+              },
+              {
+                id: 'acp',
+                label: 'ACP 适配器',
+                status: 'fail',
+                detail: '未发现 ACP 安装组件。',
+                version: null,
+                path: null,
+                source: null,
+                repairable: true,
+                update_available: false,
+                available_version: null,
+                update_group: null,
+              },
+            ],
+          }}
+          checking={false}
+          checkingUpdate={false}
+          updateCheck={null}
+          onSetEnabled={vi.fn()}
+          onPreflight={vi.fn()}
+          onInstall={onInstall}
+          onRepair={vi.fn()}
+          onCheckUpdate={vi.fn()}
+          onRollback={vi.fn()}
+          onCancelOperation={vi.fn()}
+          onUninstall={vi.fn()}
+          onRemove={vi.fn()}
+          onExportDiagnostics={vi.fn()}
+        />
+      );
+
+      await userEvent.click(screen.getByRole('button', { name: '安装 ACP' }));
+      expect(onInstall).toHaveBeenCalledOnce();
+
+      await userEvent.click(
+        screen.getByRole('button', { name: '官方安装指南' })
+      );
+      expect(openSpy).toHaveBeenCalledWith(
+        'https://kiro.dev/docs/getting-started/installation/',
+        '_blank',
+        'noopener,noreferrer'
+      );
+    } finally {
+      openSpy.mockRestore();
+    }
   });
 });

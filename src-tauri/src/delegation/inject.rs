@@ -1,12 +1,12 @@
 //! Concrete `DelegationInjector`: re-exports the unified `VibexDelegationInjector`
 //! from `server` so desktop and headless runtimes share a single implementation.
 
-pub(crate) use server::VibexDelegationInjector;
-
 #[cfg(test)]
 use std::{path::PathBuf, sync::Arc};
+
 #[cfg(test)]
 use delegation::TokenRegistry;
+pub(crate) use server::VibexDelegationInjector;
 #[cfg(test)]
 use uuid::Uuid;
 

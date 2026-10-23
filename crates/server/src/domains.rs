@@ -523,9 +523,7 @@ impl ServerApplicationDomains {
         }
         let args: CollaborationCallArgs = parse(args)?;
         let enabled = self.deployment.config().read().await.multi_agent_enabled;
-        if !enabled
-            || !matches!(args.capability.as_str(), "collaboration" | "workspace")
-        {
+        if !enabled || !matches!(args.capability.as_str(), "collaboration" | "workspace") {
             return Err(ApplicationError::capability_unavailable(
                 "capability_unimplemented",
             ));

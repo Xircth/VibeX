@@ -911,11 +911,7 @@ impl HostCapabilityBroker {
                 plugin
                     .write_config(input.clone())
                     .map_err(|error| broker_error("config_schema_invalid", error))?;
-                let hook = self
-                    .settings_saved
-                    .lock()
-                    .expect("settings hook")
-                    .clone();
+                let hook = self.settings_saved.lock().expect("settings hook").clone();
                 if let Some(hook) = hook {
                     hook();
                 }

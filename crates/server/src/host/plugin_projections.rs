@@ -216,7 +216,9 @@ impl ServerApplicationDomains {
                 .await
                 .map_err(internal_error)?;
             apply_host_multi_agent(
-                self.plugin_control_plane.official_product_mcp_gate().as_ref(),
+                self.plugin_control_plane
+                    .official_product_mcp_gate()
+                    .as_ref(),
                 None,
                 &config,
             );
@@ -475,9 +477,8 @@ async fn sync_host_delegation_native_mcp(gate: &plugins::OfficialMcpRuntime, ena
         return;
     };
     if !enabled {
-        let _ =
-            services::services::mcp::uninstall_server(plugins::DELEGATION_MCP_NAME.to_string())
-                .await;
+        let _ = services::services::mcp::uninstall_server(plugins::DELEGATION_MCP_NAME.to_string())
+            .await;
         return;
     }
     let Some(command) = utils::host_bin::locate_runnable_host_family_binary("vibex-mcp") else {
@@ -522,10 +523,7 @@ pub(crate) fn apply_host_multi_agent(
         .map(|(agent_id, defaults)| {
             (
                 agent_id.clone(),
-                (
-                    defaults.mode_id.clone(),
-                    defaults.config_values.clone(),
-                ),
+                (defaults.mode_id.clone(), defaults.config_values.clone()),
             )
         })
         .collect();
@@ -540,10 +538,7 @@ pub(crate) fn apply_host_multi_agent(
         },
     );
     if let Some(broker) = broker {
-        broker.set_config(official_delegation_config(
-            broker.config_snapshot(),
-            gate,
-        ));
+        broker.set_config(official_delegation_config(broker.config_snapshot(), gate));
     }
     if let Err(error) = skills::sync_host_multi_agent_skill(config.multi_agent_enabled) {
         tracing::warn!(%error, "multi-agent skill projection failed");
@@ -557,9 +552,8 @@ pub(crate) fn official_delegation_config(
     config.enabled = gate.allow_delegation_mcp();
     if let Some(limits) = gate.host_delegation_limits() {
         config.depth_limit = limits.depth_limit;
-        config.completed_cache_cap_bytes = limits
-            .completed_cache_max_mb
-            .saturating_mul(1024 * 1024);
+        config.completed_cache_cap_bytes =
+            limits.completed_cache_max_mb.saturating_mul(1024 * 1024);
         config.conversation_list_default_days = limits.conversation_list_default_days;
         config.delay_max_hours = limits.delay_max_hours;
         config.agent_defaults = limits

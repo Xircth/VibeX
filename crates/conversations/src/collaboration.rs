@@ -193,7 +193,10 @@ struct SessionHead {
     deleted_at: Option<String>,
 }
 
-async fn load_session(pool: &SqlitePool, id: Uuid) -> Result<Option<SessionHead>, CollaborationError> {
+async fn load_session(
+    pool: &SqlitePool,
+    id: Uuid,
+) -> Result<Option<SessionHead>, CollaborationError> {
     sqlx::query_as::<_, SessionHead>(
         r#"SELECT workspace_id, agent_id, status, name, deleted_at
            FROM sessions WHERE id = ?"#,
@@ -282,14 +285,13 @@ pub async fn list_conversations(
         ));
     }
     if let Some(project_id) = query.project_id {
-        let owns: Option<i64> = sqlx::query_scalar(
-            "SELECT 1 FROM workspaces WHERE id = ? AND project_id = ? LIMIT 1",
-        )
-        .bind(workspace_id)
-        .bind(project_id)
-        .fetch_optional(pool)
-        .await
-        .map_err(db)?;
+        let owns: Option<i64> =
+            sqlx::query_scalar("SELECT 1 FROM workspaces WHERE id = ? AND project_id = ? LIMIT 1")
+                .bind(workspace_id)
+                .bind(project_id)
+                .fetch_optional(pool)
+                .await
+                .map_err(db)?;
         if owns.is_none() {
             return Ok(Vec::new());
         }
@@ -366,9 +368,7 @@ impl ListRow {
             let value: Value = serde_json::from_str(raw).ok()?;
             (value != Value::Null && value != json!({})).then_some(value)
         });
-        let mode_id = self
-            .mode_id
-            .filter(|mode| !mode.trim().is_empty());
+        let mode_id = self.mode_id.filter(|mode| !mode.trim().is_empty());
         ConversationListItem {
             conversation_id: self.conversation_id,
             title: self.title.filter(|title| !title.trim().is_empty()),
@@ -420,7 +420,10 @@ pub struct SaveTeam {
     pub summary: Option<String>,
 }
 
-pub async fn create_team(pool: &SqlitePool, input: SaveTeam) -> Result<TeamRecord, CollaborationError> {
+pub async fn create_team(
+    pool: &SqlitePool,
+    input: SaveTeam,
+) -> Result<TeamRecord, CollaborationError> {
     let name = require_name(&input.name)?;
     let id = input.id.unwrap_or_else(|| Uuid::new_v4().to_string());
     let stamp = now_stamp();
@@ -459,7 +462,11 @@ pub async fn create_team(pool: &SqlitePool, input: SaveTeam) -> Result<TeamRecor
     finish_tx(&mut conn, outcome).await
 }
 
-pub async fn update_team(pool: &SqlitePool, id: &str, input: SaveTeam) -> Result<TeamRecord, CollaborationError> {
+pub async fn update_team(
+    pool: &SqlitePool,
+    id: &str,
+    input: SaveTeam,
+) -> Result<TeamRecord, CollaborationError> {
     let name = require_name(&input.name)?;
     let changed = sqlx::query(
         "UPDATE collaboration_teams SET name = ?, summary = ?, updated_at = ? WHERE id = ?",
@@ -532,7 +539,10 @@ pub struct SaveRole {
     pub config_values: Value,
 }
 
-pub async fn create_role(pool: &SqlitePool, input: SaveRole) -> Result<RoleRecord, CollaborationError> {
+pub async fn create_role(
+    pool: &SqlitePool,
+    input: SaveRole,
+) -> Result<RoleRecord, CollaborationError> {
     let name = require_name(&input.name)?;
     let agent_id = require_agent(&input.agent_id)?;
     let id = input.id.unwrap_or_else(|| Uuid::new_v4().to_string());
@@ -676,7 +686,8 @@ impl RoleRow {
             persona_prompt: self.persona_prompt,
             agent_id: self.agent_id,
             mode_id: self.mode_id,
-            config_values: serde_json::from_str(&self.config_values_json).unwrap_or_else(|_| json!({})),
+            config_values: serde_json::from_str(&self.config_values_json)
+                .unwrap_or_else(|_| json!({})),
         }
     }
 }
@@ -761,7 +772,8 @@ pub async fn create_spawned_conversation(
     let caller = live_session(load_session(pool, input.caller_id).await?)?;
     let request = spawn_request(&input);
     if let Some(stored) = load_create_operation(pool, input.operation_id).await? {
-        if stored.caller_id != input.caller_id.to_string() || stored.request_json != request.to_string()
+        if stored.caller_id != input.caller_id.to_string()
+            || stored.request_json != request.to_string()
         {
             return Err(operation_conflict());
         }
@@ -780,9 +792,8 @@ pub async fn create_spawned_conversation(
         .map(|role| role.agent_id.clone())
         .or(input.agent_id.clone())
         .ok_or_else(|| CollaborationError::new("not_found", "agent_id is required"))?;
-    let agent_id = AgentId::parse(&agent_raw).map_err(|_| {
-        CollaborationError::new("not_found", "agent_id is required")
-    })?;
+    let agent_id = AgentId::parse(&agent_raw)
+        .map_err(|_| CollaborationError::new("not_found", "agent_id is required"))?;
     let title = input
         .title
         .clone()
@@ -812,12 +823,9 @@ pub async fn create_spawned_conversation(
     } else {
         let depth = collaboration_parent_depth(pool, input.caller_id).await?;
         let active = active_collaboration_children(pool, input.caller_id).await?;
-        if let Err(deny) = admit_collaboration_child(
-            depth,
-            active,
-            input.depth_limit,
-            input.max_active_children,
-        ) {
+        if let Err(deny) =
+            admit_collaboration_child(depth, active, input.depth_limit, input.max_active_children)
+        {
             let message = match deny {
                 AdmissionDeny::Depth { current, limit } => {
                     format!("depth {current} exceeds limit {limit}")
@@ -842,7 +850,9 @@ pub async fn create_spawned_conversation(
             caller.workspace_id,
         )
         .await
-        .map_err(|error| CollaborationError::new("conversation_control_failed", error.to_string()))?;
+        .map_err(|error| {
+            CollaborationError::new("conversation_control_failed", error.to_string())
+        })?;
         false
     };
     let parent_id = sqlx::query_scalar::<_, Option<Uuid>>(
@@ -879,13 +889,13 @@ pub async fn create_spawned_conversation(
         .map_err(db)?;
     if let Some(role) = role.as_ref() {
         let team_name = match role.team_id.as_deref() {
-            Some(team_id) => sqlx::query_scalar::<_, String>(
-                "SELECT name FROM collaboration_teams WHERE id = ?",
-            )
-            .bind(team_id)
-            .fetch_optional(pool)
-            .await
-            .map_err(db)?,
+            Some(team_id) => {
+                sqlx::query_scalar::<_, String>("SELECT name FROM collaboration_teams WHERE id = ?")
+                    .bind(team_id)
+                    .fetch_optional(pool)
+                    .await
+                    .map_err(db)?
+            }
             None => None,
         };
         sqlx::query(
@@ -911,13 +921,8 @@ pub async fn create_spawned_conversation(
         }
     }
     let overrides = config_overrides(&config_values);
-    remember_creation_session_controls(
-        pool,
-        input.operation_id,
-        mode_id.as_deref(),
-        overrides,
-    )
-    .await;
+    remember_creation_session_controls(pool, input.operation_id, mode_id.as_deref(), overrides)
+        .await;
     store_create_operation(pool, &input, &request).await?;
     Ok(CreatedConversation {
         conversation_id: input.operation_id,
@@ -1008,8 +1013,9 @@ async fn append_persona_notice(
             "announcementId": "host-note:persona",
         })),
     };
-    let normalized = serde_json::to_string(&event)
-        .map_err(|error| CollaborationError::new("conversation_control_failed", error.to_string()))?;
+    let normalized = serde_json::to_string(&event).map_err(|error| {
+        CollaborationError::new("conversation_control_failed", error.to_string())
+    })?;
     let key = format!("persona-notice:{conversation_id}");
     ConversationEventAppender::append(
         pool,
@@ -1155,13 +1161,8 @@ pub async fn send_session_input_with(
             "steering is applied by the conversation service, not by queueing",
         ));
     }
-    let target = authorize_write(
-        pool,
-        input.caller_id,
-        input.conversation_id,
-        input.policy,
-    )
-    .await?;
+    let target =
+        authorize_write(pool, input.caller_id, input.conversation_id, input.policy).await?;
     let cap = bounded_delay_cap_hours(input.delay_cap_hours);
     if let Some(when) = scheduled_deadline(&input, cap)? {
         let receipt = schedule_input(pool, &input, &target, when).await?;
@@ -1454,14 +1455,9 @@ async fn reserve_send_claim(
         .execute(&mut *conn)
         .await
         .map_err(db)?;
-    let outcome = reserve_send_claim_locked(
-        &mut conn,
-        conversation_id,
-        operation_id,
-        digest,
-        principal,
-    )
-    .await;
+    let outcome =
+        reserve_send_claim_locked(&mut conn, conversation_id, operation_id, digest, principal)
+            .await;
     finish_immediate(&mut conn, outcome).await
 }
 
@@ -1671,7 +1667,10 @@ async fn finish_unreceipted_claim(
     Ok(Some(receipt))
 }
 
-async fn active_turn_id(pool: &SqlitePool, conversation_id: Uuid) -> Result<Option<Uuid>, CollaborationError> {
+async fn active_turn_id(
+    pool: &SqlitePool,
+    conversation_id: Uuid,
+) -> Result<Option<Uuid>, CollaborationError> {
     sqlx::query_scalar(
         r#"SELECT id FROM conversation_turns
            WHERE conversation_id = ?
@@ -1736,11 +1735,9 @@ async fn promote_one(
     row: &DueDelay,
     delivery: &DeliveryContext,
 ) -> Result<bool, CollaborationError> {
-    let principal: Value =
-        serde_json::from_str(&row.principal_json).unwrap_or_else(|_| json!({}));
+    let principal: Value = serde_json::from_str(&row.principal_json).unwrap_or_else(|_| json!({}));
     if principal.get("kind").and_then(Value::as_str) == Some("collaboration_space_post") {
-        let payload: Value =
-            serde_json::from_str(&row.payload_json).unwrap_or_else(|_| json!({}));
+        let payload: Value = serde_json::from_str(&row.payload_json).unwrap_or_else(|_| json!({}));
         let space_id = payload
             .get("space_id")
             .and_then(Value::as_str)
@@ -1897,7 +1894,11 @@ async fn promote_one(
     Ok(true)
 }
 
-async fn mark_delay_failed(pool: &SqlitePool, id: &str, error: &str) -> Result<(), CollaborationError> {
+async fn mark_delay_failed(
+    pool: &SqlitePool,
+    id: &str,
+    error: &str,
+) -> Result<(), CollaborationError> {
     sqlx::query(
         r#"UPDATE conversation_delayed_inputs
            SET status = 'failed', error = ?
@@ -1944,7 +1945,9 @@ pub async fn create_collaboration_space(
             Some(&operation_id.to_string()),
             &request,
         )?)
-        .map_err(|error| CollaborationError::new("conversation_control_failed", error.to_string()));
+        .map_err(|error| {
+            CollaborationError::new("conversation_control_failed", error.to_string())
+        });
     }
     let space_id = operation_id.to_string();
     sqlx::query(
@@ -1964,15 +1967,7 @@ pub async fn create_collaboration_space(
         .name
         .filter(|name| !name.trim().is_empty())
         .unwrap_or_else(|| "会话".to_string());
-    insert_member(
-        pool,
-        &space_id,
-        Some(caller_id),
-        &nickname,
-        "agent",
-        true,
-    )
-    .await?;
+    insert_member(pool, &space_id, Some(caller_id), &nickname, "agent", true).await?;
     let record = SpaceRecord {
         space_id,
         name,
@@ -2014,7 +2009,9 @@ pub async fn create_workspace_space(
             Some(&operation_id.to_string()),
             &request,
         )?)
-        .map_err(|error| CollaborationError::new("conversation_control_failed", error.to_string()));
+        .map_err(|error| {
+            CollaborationError::new("conversation_control_failed", error.to_string())
+        });
     }
     let space_id = operation_id.to_string();
     sqlx::query(
@@ -2063,10 +2060,7 @@ pub async fn rename_workspace_space(
     .await
     .map_err(db)?;
     if updated.rows_affected() == 0 {
-        return Err(CollaborationError::new(
-            "not_found",
-            "space was not found",
-        ));
+        return Err(CollaborationError::new("not_found", "space was not found"));
     }
     Ok(SpaceRecord {
         space_id: space_id.to_string(),
@@ -2176,8 +2170,7 @@ pub async fn list_workspace_conversations(
     .fetch_all(pool)
     .await
     .map_err(db)?;
-    let mut seen_ids: std::collections::HashSet<Uuid> =
-        rows.iter().map(|(id, ..)| *id).collect();
+    let mut seen_ids: std::collections::HashSet<Uuid> = rows.iter().map(|(id, ..)| *id).collect();
     let unassigned_id = unassigned_space_id(workspace_id);
     let member_conv_ids = sqlx::query_scalar::<_, String>(
         r#"SELECT DISTINCT m.conversation_id
@@ -2280,7 +2273,9 @@ pub async fn list_workspace_conversations(
                 latest_turn_status,
                 has_queued_input,
             )| {
-                let team_name = teams_by_conversation.get(&conversation_id.to_string()).cloned();
+                let team_name = teams_by_conversation
+                    .get(&conversation_id.to_string())
+                    .cloned();
                 let effective_status = if let (Some(turn_id), Some(turn_status)) =
                     (latest_turn_id, latest_turn_status.as_deref())
                 {
@@ -2370,12 +2365,14 @@ pub async fn conversation_persona(
     .fetch_optional(pool)
     .await
     .map_err(db)?;
-    Ok(row.map(|(name, team_name, summary, agent_id)| ConversationPersonaView {
-        name,
-        team_name: team_name.filter(|value| !value.trim().is_empty()),
-        summary: (!summary.trim().is_empty()).then_some(summary),
-        agent_name: agent_id,
-    }))
+    Ok(row.map(
+        |(name, team_name, summary, agent_id)| ConversationPersonaView {
+            name,
+            team_name: team_name.filter(|value| !value.trim().is_empty()),
+            summary: (!summary.trim().is_empty()).then_some(summary),
+            agent_name: agent_id,
+        },
+    ))
 }
 
 pub async fn set_conversation_persona_team(
@@ -2386,13 +2383,13 @@ pub async fn set_conversation_persona_team(
 ) -> Result<Option<String>, CollaborationError> {
     let target = live_session(load_session(pool, conversation_id).await?)?;
     let team_name = match team_id.map(str::trim).filter(|id| !id.is_empty()) {
-        Some(id) => sqlx::query_scalar::<_, String>(
-            "SELECT name FROM collaboration_teams WHERE id = ?",
-        )
-        .bind(id)
-        .fetch_optional(pool)
-        .await
-        .map_err(db)?,
+        Some(id) => {
+            sqlx::query_scalar::<_, String>("SELECT name FROM collaboration_teams WHERE id = ?")
+                .bind(id)
+                .fetch_optional(pool)
+                .await
+                .map_err(db)?
+        }
         None => None,
     };
     let agent_id = target.agent_id.unwrap_or_else(|| "codex".to_string());
@@ -2447,10 +2444,7 @@ pub async fn host_create_space_member(
         .unwrap_or_else(|| unassigned_space_id(input.workspace_id));
     let space = load_space_or_unassigned(pool, &target_space_id).await?;
     if space.workspace_id != input.workspace_id.to_string() {
-        return Err(CollaborationError::new(
-            "not_found",
-            "space was not found",
-        ));
+        return Err(CollaborationError::new("not_found", "space was not found"));
     }
     let nickname = require_name(&input.nickname)?;
     let request = json!({
@@ -2465,9 +2459,16 @@ pub async fn host_create_space_member(
         "config_values": input.config_values,
     });
     if let Some(stored) = load_stored_operation(pool, &input.operation_id.to_string()).await? {
-        return decode_replay(accept_space_replay(&stored, Some(&target_space_id), &request)?);
+        return decode_replay(accept_space_replay(
+            &stored,
+            Some(&target_space_id),
+            &request,
+        )?);
     }
-    if nickname_owner(pool, &target_space_id, &nickname).await?.is_some() {
+    if nickname_owner(pool, &target_space_id, &nickname)
+        .await?
+        .is_some()
+    {
         return Err(CollaborationError::new(
             "nickname_taken",
             "nickname is already used in this space",
@@ -2524,13 +2525,13 @@ pub async fn host_create_space_member(
         .map(str::to_string)
         .or_else(|| role.as_ref().and_then(|r| r.team_id.clone()));
     let team_name = match resolved_team_id.as_deref() {
-        Some(team_id) => sqlx::query_scalar::<_, String>(
-            "SELECT name FROM collaboration_teams WHERE id = ?",
-        )
-        .bind(team_id)
-        .fetch_optional(pool)
-        .await
-        .map_err(db)?,
+        Some(team_id) => {
+            sqlx::query_scalar::<_, String>("SELECT name FROM collaboration_teams WHERE id = ?")
+                .bind(team_id)
+                .fetch_optional(pool)
+                .await
+                .map_err(db)?
+        }
         None => None,
     };
     let session_id = Uuid::new_v5(
@@ -2552,7 +2553,9 @@ pub async fn host_create_space_member(
             input.workspace_id,
         )
         .await
-        .map_err(|error| CollaborationError::new("conversation_control_failed", error.to_string()))?;
+        .map_err(|error| {
+            CollaborationError::new("conversation_control_failed", error.to_string())
+        })?;
     }
     sqlx::query(
         r#"INSERT INTO conversation_personas
@@ -2799,7 +2802,10 @@ pub async fn host_batch_delete_space_items(
                 .iter()
                 .any(|sid| !deleting_space_set.contains(sid));
             if !stays_in_another_space {
-                if ensure_agent_member(pool, &unassigned_id, conv_id).await.is_err() {
+                if ensure_agent_member(pool, &unassigned_id, conv_id)
+                    .await
+                    .is_err()
+                {
                     let safe_nick = if nickname_owner(pool, &unassigned_id, &nickname)
                         .await?
                         .is_some()
@@ -2901,14 +2907,7 @@ pub async fn host_batch_delete_space_items(
         archived_conversation_ids,
         unassigned_conversation_ids,
     };
-    store_operation(
-        pool,
-        &operation_id.to_string(),
-        None,
-        &request,
-        &result,
-    )
-    .await?;
+    store_operation(pool, &operation_id.to_string(), None, &request, &result).await?;
     Ok(result)
 }
 
@@ -2972,7 +2971,14 @@ pub async fn host_add_space_member(
         true,
     )
     .await?;
-    store_operation(pool, &operation_id.to_string(), Some(space_id), &request, &record).await?;
+    store_operation(
+        pool,
+        &operation_id.to_string(),
+        Some(space_id),
+        &request,
+        &record,
+    )
+    .await?;
     Ok(record)
 }
 
@@ -3017,7 +3023,14 @@ pub async fn add_space_member(
         true,
     )
     .await?;
-    store_operation(pool, &operation_id.to_string(), Some(space_id), &request, &record).await?;
+    store_operation(
+        pool,
+        &operation_id.to_string(),
+        Some(space_id),
+        &request,
+        &record,
+    )
+    .await?;
     Ok(record)
 }
 
@@ -3052,16 +3065,25 @@ pub async fn set_space_identity(
             ));
         }
     }
-    sqlx::query("UPDATE collaboration_space_members SET nickname = ? WHERE space_id = ? AND member_id = ?")
-        .bind(&nickname)
-        .bind(space_id)
-        .bind(&member.member_id)
-        .execute(pool)
-        .await
-        .map_err(db)?;
+    sqlx::query(
+        "UPDATE collaboration_space_members SET nickname = ? WHERE space_id = ? AND member_id = ?",
+    )
+    .bind(&nickname)
+    .bind(space_id)
+    .bind(&member.member_id)
+    .execute(pool)
+    .await
+    .map_err(db)?;
     let mut updated = member;
     updated.nickname = nickname;
-    store_operation(pool, &operation_id.to_string(), Some(space_id), &request, &updated).await?;
+    store_operation(
+        pool,
+        &operation_id.to_string(),
+        Some(space_id),
+        &request,
+        &updated,
+    )
+    .await?;
     Ok(updated)
 }
 
@@ -3162,10 +3184,7 @@ pub async fn post_to_space_delayed_with(
         "in_reply_to": input.in_reply_to,
         "operation_id": input.operation_id,
     });
-    let conv_key = input
-        .caller_id
-        .unwrap_or_else(Uuid::nil)
-        .to_string();
+    let conv_key = input.caller_id.unwrap_or_else(Uuid::nil).to_string();
     let op_key = input.operation_id.to_string();
     let existing = sqlx::query_as::<_, (String, String, String)>(
         r#"SELECT id, payload_digest, principal_json FROM conversation_delayed_inputs
@@ -3257,15 +3276,24 @@ pub async fn post_to_space_with(
                 "message was not found",
             ));
         }
-        if !same_post_request(pool, &message_id, &input.space_id, &request, &head.envelope_json)
-            .await?
+        if !same_post_request(
+            pool,
+            &message_id,
+            &input.space_id,
+            &request,
+            &head.envelope_json,
+        )
+        .await?
         {
             return Err(operation_conflict());
         }
         return deliver_pending(pool, &input.space_id, &message_id, turn_delivery).await;
     }
     let targets = resolve_targets(pool, &input.space_id, sender, &input.to, content).await?;
-    if targets.iter().any(|target| target.conversation_id.is_none()) {
+    if targets
+        .iter()
+        .any(|target| target.conversation_id.is_none())
+    {
         let _ = ensure_user_member(pool, &input.space_id).await;
     }
     let summary = input
@@ -3274,9 +3302,7 @@ pub async fn post_to_space_with(
         .map(str::trim)
         .filter(|summary| !summary.is_empty())
         .map(str::to_string)
-        .unwrap_or_else(|| {
-            content.lines().next().unwrap_or(content).trim().to_string()
-        });
+        .unwrap_or_else(|| content.lines().next().unwrap_or(content).trim().to_string());
     let published = now_stamp();
     let envelope = json!({
         "@context": "https://www.w3.org/ns/activitystreams",
@@ -3343,7 +3369,10 @@ pub async fn post_to_space_with(
     .await;
     let seq = match inserted {
         Ok(seq) => {
-            sqlx::query("COMMIT").execute(&mut *conn).await.map_err(db)?;
+            sqlx::query("COMMIT")
+                .execute(&mut *conn)
+                .await
+                .map_err(db)?;
             seq
         }
         Err(error) => {
@@ -3375,13 +3404,11 @@ async fn deliver_pending(
     turn_delivery: &DeliveryContext,
 ) -> Result<SpacePostResult, CollaborationError> {
     let envelope = load_envelope(pool, message_id).await?;
-    let seq: i64 = sqlx::query_scalar(
-        "SELECT seq FROM collaboration_space_messages WHERE id = ?",
-    )
-    .bind(message_id)
-    .fetch_one(pool)
-    .await
-    .map_err(db)?;
+    let seq: i64 = sqlx::query_scalar("SELECT seq FROM collaboration_space_messages WHERE id = ?")
+        .bind(message_id)
+        .fetch_one(pool)
+        .await
+        .map_err(db)?;
     let space_name = sqlx::query_scalar::<_, String>(
         "SELECT name FROM collaboration_spaces WHERE id = ? LIMIT 1",
     )
@@ -3445,7 +3472,10 @@ async fn deliver_pending(
                 conversation_id,
                 nickname,
                 delivered: delivery.status,
-                input_id: delivery.input_id.as_deref().and_then(|id| Uuid::parse_str(id).ok()),
+                input_id: delivery
+                    .input_id
+                    .as_deref()
+                    .and_then(|id| Uuid::parse_str(id).ok()),
                 error_code: None,
             });
             continue;
@@ -3547,7 +3577,9 @@ pub async fn list_space_messages(
     audience: MessageAudience,
 ) -> Result<Vec<SpaceMessage>, CollaborationError> {
     load_space(pool, space_id).await?;
-    let limit = limit.unwrap_or(SPACE_LIST_DEFAULT).clamp(1, SPACE_LIST_HARD_CAP);
+    let limit = limit
+        .unwrap_or(SPACE_LIST_DEFAULT)
+        .clamp(1, SPACE_LIST_HARD_CAP);
     let since = since_seq.unwrap_or(0);
     let rows = sqlx::query_as::<_, (i64, String)>(
         r#"SELECT seq, envelope_json FROM collaboration_space_messages
@@ -3936,8 +3968,7 @@ fn build_space_delivery_prompt(
                 .map(|uri| {
                     if uri == user_uri || uri.ends_with("/user") {
                         "@User".to_string()
-                    } else if let Some(nick) = uri.rsplit("/member/").next().filter(|v| *v != uri)
-                    {
+                    } else if let Some(nick) = uri.rsplit("/member/").next().filter(|v| *v != uri) {
                         format!("@{nick}")
                     } else {
                         uri.to_string()
@@ -4001,7 +4032,10 @@ fn format_collaboration_space_rules(space_id_hint: Option<&str>) -> String {
         Some(space_id) => format!(
             "- 协同交互规则（完整规范见 `vibex-multi-agent` Skill 的 `COLLABORATION-SPACE.md`）：使用 `post_to_space`（传入 `space_id: \"{space_id}\"`）时须遵守："
         ),
-        None => "- 协作空间交互规则（详见 `vibex-multi-agent` Skill 的 `COLLABORATION-SPACE.md`）：".to_string(),
+        None => {
+            "- 协作空间交互规则（详见 `vibex-multi-agent` Skill 的 `COLLABORATION-SPACE.md`）："
+                .to_string()
+        }
     };
     format!(
         "{header}\n\
@@ -4042,16 +4076,13 @@ async fn batch_load_space_members_by_space(
         .await
         .map_err(db)?;
     for (member_id, space_id, kind, nickname, conversation_id, visible_to_agents) in rows {
-        grouped
-            .entry(space_id)
-            .or_default()
-            .push(MemberRecord {
-                member_id,
-                kind,
-                nickname,
-                conversation_id,
-                visible_to_agents,
-            });
+        grouped.entry(space_id).or_default().push(MemberRecord {
+            member_id,
+            kind,
+            nickname,
+            conversation_id,
+            visible_to_agents,
+        });
     }
     Ok(grouped)
 }
@@ -4208,7 +4239,9 @@ pub async fn list_space_members_detailed(
     let members = list_space_members(pool, space_id, MessageAudience::Agent).await?;
     let workspace_uuid = Uuid::parse_str(&space_row.workspace_id).ok();
     let conversations = match workspace_uuid {
-        Some(wid) => list_workspace_conversations(pool, wid).await.unwrap_or_default(),
+        Some(wid) => list_workspace_conversations(pool, wid)
+            .await
+            .unwrap_or_default(),
         None => Vec::new(),
     };
     let caller_str = caller_id.to_string();
@@ -4302,7 +4335,9 @@ async fn resolve_targets(
         return Ok(members
             .into_iter()
             .filter_map(|member| {
-                let conversation_id = member.conversation_id.and_then(|id| Uuid::parse_str(&id).ok());
+                let conversation_id = member
+                    .conversation_id
+                    .and_then(|id| Uuid::parse_str(&id).ok());
                 if conversation_id == sender {
                     return None;
                 }
@@ -4320,7 +4355,11 @@ async fn resolve_targets(
             continue;
         }
         if is_user_target_name(nickname) {
-            if sender.is_some() && !targets.iter().any(|t: &ResolvedTarget| t.conversation_id.is_none()) {
+            if sender.is_some()
+                && !targets
+                    .iter()
+                    .any(|t: &ResolvedTarget| t.conversation_id.is_none())
+            {
                 targets.push(ResolvedTarget {
                     conversation_id: None,
                     nickname: "User".to_string(),
@@ -4329,8 +4368,7 @@ async fn resolve_targets(
             continue;
         }
         let Some(member) = members.iter().find(|member| {
-            member.nickname == nickname
-                || member.conversation_id.as_deref() == Some(nickname)
+            member.nickname == nickname || member.conversation_id.as_deref() == Some(nickname)
         }) else {
             return Err(CollaborationError::new(
                 "not_found",
@@ -4344,7 +4382,10 @@ async fn resolve_targets(
         if conversation_id == sender {
             continue;
         }
-        if targets.iter().any(|t| t.conversation_id == conversation_id && t.nickname == member.nickname) {
+        if targets
+            .iter()
+            .any(|t| t.conversation_id == conversation_id && t.nickname == member.nickname)
+        {
             continue;
         }
         targets.push(ResolvedTarget {
@@ -4476,12 +4517,11 @@ async fn load_space_or_unassigned(
     space_id: &str,
 ) -> Result<SpaceRow, CollaborationError> {
     if let Some(workspace_id) = parse_unassigned_space_id(space_id) {
-        let owns: Option<i64> =
-            sqlx::query_scalar("SELECT 1 FROM workspaces WHERE id = ? LIMIT 1")
-                .bind(workspace_id)
-                .fetch_optional(pool)
-                .await
-                .map_err(db)?;
+        let owns: Option<i64> = sqlx::query_scalar("SELECT 1 FROM workspaces WHERE id = ? LIMIT 1")
+            .bind(workspace_id)
+            .fetch_optional(pool)
+            .await
+            .map_err(db)?;
         if owns.is_none() {
             return Err(CollaborationError::new(
                 "not_found",
@@ -4540,7 +4580,11 @@ async fn same_post_request(
     envelope_json: &str,
 ) -> Result<bool, CollaborationError> {
     if let Some(stored) = load_stored_operation(pool, message_id).await? {
-        if stored.space_id.as_deref().is_some_and(|stored_space| stored_space != space_id) {
+        if stored
+            .space_id
+            .as_deref()
+            .is_some_and(|stored_space| stored_space != space_id)
+        {
             return Ok(false);
         }
         if !stored.request_json.is_empty() {
@@ -4554,11 +4598,13 @@ fn envelope_matches(raw: &str, request: &Value) -> bool {
     let Ok(envelope) = serde_json::from_str::<Value>(raw) else {
         return false;
     };
-    if envelope.get("content").and_then(Value::as_str) != request.get("content").and_then(Value::as_str)
+    if envelope.get("content").and_then(Value::as_str)
+        != request.get("content").and_then(Value::as_str)
     {
         return false;
     }
-    if envelope.get("actor").and_then(Value::as_str) != request.get("actor").and_then(Value::as_str) {
+    if envelope.get("actor").and_then(Value::as_str) != request.get("actor").and_then(Value::as_str)
+    {
         return false;
     }
     let stored_reply = envelope
@@ -4600,14 +4646,13 @@ fn envelope_matches(raw: &str, request: &Value) -> bool {
 }
 
 async fn load_envelope(pool: &SqlitePool, message_id: &str) -> Result<Value, CollaborationError> {
-    let raw: String = sqlx::query_scalar(
-        "SELECT envelope_json FROM collaboration_space_messages WHERE id = ?",
-    )
-    .bind(message_id)
-    .fetch_optional(pool)
-    .await
-    .map_err(db)?
-    .ok_or_else(|| CollaborationError::new("not_found", "message was not found"))?;
+    let raw: String =
+        sqlx::query_scalar("SELECT envelope_json FROM collaboration_space_messages WHERE id = ?")
+            .bind(message_id)
+            .fetch_optional(pool)
+            .await
+            .map_err(db)?
+            .ok_or_else(|| CollaborationError::new("not_found", "message was not found"))?;
     serde_json::from_str(&raw)
         .map_err(|error| CollaborationError::new("conversation_control_failed", error.to_string()))
 }
@@ -4686,9 +4731,8 @@ fn accept_space_replay(
 }
 
 fn decode_replay<T: serde::de::DeserializeOwned>(value: Value) -> Result<T, CollaborationError> {
-    serde_json::from_value(value).map_err(|error| {
-        CollaborationError::new("conversation_control_failed", error.to_string())
-    })
+    serde_json::from_value(value)
+        .map_err(|error| CollaborationError::new("conversation_control_failed", error.to_string()))
 }
 
 async fn store_operation(
@@ -4775,7 +4819,10 @@ async fn finish_tx<T>(
 ) -> Result<T, CollaborationError> {
     match outcome {
         Ok(value) => {
-            sqlx::query("COMMIT").execute(&mut *conn).await.map_err(db)?;
+            sqlx::query("COMMIT")
+                .execute(&mut *conn)
+                .await
+                .map_err(db)?;
             Ok(value)
         }
         Err(error) => {
@@ -4942,10 +4989,9 @@ async fn resolve_collection_source_path(
     if let Ok(wid) = Uuid::parse_str(workspace_id_str)
         && let Ok(Some(workspace)) = db::models::workspace::Workspace::find_by_id(pool, wid).await
     {
-        let repos =
-            db::models::workspace_repo::WorkspaceRepo::find_repos_for_workspace(pool, wid)
-                .await
-                .unwrap_or_default();
+        let repos = db::models::workspace_repo::WorkspaceRepo::find_repos_for_workspace(pool, wid)
+            .await
+            .unwrap_or_default();
         let container_ref = workspace.container_ref.clone().unwrap_or_default();
         let base_dir = crate::host::resolve_absolute_workspace_agent_working_dir(
             &workspace,
@@ -4959,7 +5005,10 @@ async fn resolve_collection_source_path(
     Ok(expanded)
 }
 
-fn collection_mime_and_kind(path: &std::path::Path, explicit_text: bool) -> (&'static str, &'static str) {
+fn collection_mime_and_kind(
+    path: &std::path::Path,
+    explicit_text: bool,
+) -> (&'static str, &'static str) {
     if explicit_text {
         let ext = path
             .extension()
@@ -5078,7 +5127,10 @@ async fn read_bounded_text_preview(path: &str, max_bytes: usize) -> Option<Strin
     use tokio::io::AsyncReadExt;
     let file = tokio::fs::File::open(path).await.ok()?;
     let mut buf = Vec::with_capacity(max_bytes.min(8192));
-    file.take(max_bytes as u64).read_to_end(&mut buf).await.ok()?;
+    file.take(max_bytes as u64)
+        .read_to_end(&mut buf)
+        .await
+        .ok()?;
     Some(String::from_utf8_lossy(&buf).into_owned())
 }
 
@@ -5170,7 +5222,10 @@ async fn hydrate_collection_items(
             .await
         {
             for (cid, agent_id) in session_rows {
-                if let Some(trimmed) = agent_id.map(|v| v.trim().to_string()).filter(|v| !v.is_empty()) {
+                if let Some(trimmed) = agent_id
+                    .map(|v| v.trim().to_string())
+                    .filter(|v| !v.is_empty())
+                {
                     agent_by_cid.insert(cid.to_string(), trimmed);
                 }
             }
@@ -5196,7 +5251,10 @@ async fn hydrate_collection_items(
                 .await
             {
                 for (cid, agent_id) in persona_rows {
-                    if let Some(trimmed) = agent_id.map(|v| v.trim().to_string()).filter(|v| !v.is_empty()) {
+                    if let Some(trimmed) = agent_id
+                        .map(|v| v.trim().to_string())
+                        .filter(|v| !v.is_empty())
+                    {
                         agent_by_cid.entry(cid).or_insert(trimmed);
                     }
                 }
@@ -5307,7 +5365,11 @@ pub async fn add_to_space_collection_with(
     let (creator_kind, creator_conversation_id, creator_nickname) = match input.caller_id {
         Some(caller_id) => {
             let member = ensure_agent_member(pool, space_id, caller_id).await?;
-            ("agent".to_string(), Some(caller_id.to_string()), member.nickname)
+            (
+                "agent".to_string(),
+                Some(caller_id.to_string()),
+                member.nickname,
+            )
         }
         None => {
             let _ = ensure_user_member(pool, space_id).await;
@@ -5346,7 +5408,10 @@ pub async fn add_to_space_collection_with(
         return decode_replay(accept_space_replay(&stored, Some(space_id), &request)?);
     }
 
-    let has_content = input.content.as_deref().is_some_and(|v| !v.trim().is_empty());
+    let has_content = input
+        .content
+        .as_deref()
+        .is_some_and(|v| !v.trim().is_empty());
     let has_source = input
         .source_path
         .as_deref()
@@ -5355,7 +5420,8 @@ pub async fn add_to_space_collection_with(
         .base64_data
         .as_deref()
         .is_some_and(|v| !v.trim().is_empty());
-    let provided_count = usize::from(has_content) + usize::from(has_source) + usize::from(has_base64);
+    let provided_count =
+        usize::from(has_content) + usize::from(has_source) + usize::from(has_base64);
     if provided_count == 0 {
         return Err(CollaborationError::new(
             "invalid_argument",
@@ -5383,7 +5449,8 @@ pub async fn add_to_space_collection_with(
     let item_id = input.operation_id.to_string();
     let (file_name, dest_path, mime_type, item_kind, byte_size) = if has_source {
         let raw_source = input.source_path.as_deref().unwrap_or_default().trim();
-        let src_path = resolve_collection_source_path(pool, &space.workspace_id, raw_source).await?;
+        let src_path =
+            resolve_collection_source_path(pool, &space.workspace_id, raw_source).await?;
         let metadata = tokio::fs::metadata(&src_path).await.map_err(|_| {
             CollaborationError::new(
                 "not_found",
@@ -5420,7 +5487,13 @@ pub async fn add_to_space_collection_with(
             })?;
         }
         let (mime, kind) = collection_mime_and_kind(&dest, false);
-        (final_name, dest, mime.to_string(), kind.to_string(), len as i64)
+        (
+            final_name,
+            dest,
+            mime.to_string(),
+            kind.to_string(),
+            len as i64,
+        )
     } else if has_base64 {
         let raw_b64 = input.base64_data.as_deref().unwrap_or_default().trim();
         let payload_b64 = raw_b64
@@ -5576,7 +5649,15 @@ pub async fn list_space_collection(
     limit: Option<i64>,
     audience: MessageAudience,
 ) -> Result<Vec<SpaceCollectionItemRecord>, CollaborationError> {
-    list_space_collection_with(pool, space_id, caller_id, limit, audience, &DeliveryContext::default()).await
+    list_space_collection_with(
+        pool,
+        space_id,
+        caller_id,
+        limit,
+        audience,
+        &DeliveryContext::default(),
+    )
+    .await
 }
 
 pub async fn list_space_collection_with(
@@ -5596,7 +5677,9 @@ pub async fn list_space_collection_with(
         Some(cid) => Some(ensure_agent_member(pool, space_id, cid).await?),
         None => None,
     };
-    let limit = limit.unwrap_or(SPACE_LIST_DEFAULT).clamp(1, SPACE_LIST_HARD_CAP);
+    let limit = limit
+        .unwrap_or(SPACE_LIST_DEFAULT)
+        .clamp(1, SPACE_LIST_HARD_CAP);
     let rows = sqlx::query_as::<_, SpaceCollectionItemRow>(
         r#"SELECT id, space_id, workspace_id, project_id, creator_kind, creator_conversation_id,
                   creator_nickname, item_kind, file_name, file_path, mime_type, byte_size, note, created_at
@@ -5682,7 +5765,12 @@ pub async fn read_space_collection_item_with(
                 member.nickname,
             )
         }
-        None => ("user".to_string(), "user".to_string(), None, "你".to_string()),
+        None => (
+            "user".to_string(),
+            "user".to_string(),
+            None,
+            "你".to_string(),
+        ),
     };
 
     let row = sqlx::query_as::<_, SpaceCollectionItemRow>(
@@ -6238,13 +6326,12 @@ mod tests {
         )
         .await
         .unwrap();
-        let call_id: Option<String> = sqlx::query_scalar(
-            "SELECT delegation_call_id FROM sessions WHERE id = ?",
-        )
-        .bind(spawned.conversation_id)
-        .fetch_one(&pool)
-        .await
-        .unwrap();
+        let call_id: Option<String> =
+            sqlx::query_scalar("SELECT delegation_call_id FROM sessions WHERE id = ?")
+                .bind(spawned.conversation_id)
+                .fetch_one(&pool)
+                .await
+                .unwrap();
         assert!(!parent_exit_cancels_child(call_id.as_deref()));
         let delegated = Uuid::new_v4();
         Session::create_with_delegation(
@@ -6258,17 +6345,20 @@ mod tests {
         )
         .await
         .unwrap();
-        let delegated_call: Option<String> = sqlx::query_scalar(
-            "SELECT delegation_call_id FROM sessions WHERE id = ?",
-        )
-        .bind(delegated)
-        .fetch_one(&pool)
-        .await
-        .unwrap();
+        let delegated_call: Option<String> =
+            sqlx::query_scalar("SELECT delegation_call_id FROM sessions WHERE id = ?")
+                .bind(delegated)
+                .fetch_one(&pool)
+                .await
+                .unwrap();
         assert!(parent_exit_cancels_child(delegated_call.as_deref()));
     }
 
-    fn spawned_from(caller: Uuid, operation_id: Uuid, role_id: Option<String>) -> CreateSpawnedConversation {
+    fn spawned_from(
+        caller: Uuid,
+        operation_id: Uuid,
+        role_id: Option<String>,
+    ) -> CreateSpawnedConversation {
         CreateSpawnedConversation {
             caller_id: caller,
             operation_id,
@@ -6410,12 +6500,10 @@ mod tests {
         .await
         .unwrap();
         assert_eq!(persona, 1);
-        let again = create_spawned_conversation(
-            &pool,
-            spawned_from(caller, operation_id, Some(role.id)),
-        )
-        .await
-        .unwrap();
+        let again =
+            create_spawned_conversation(&pool, spawned_from(caller, operation_id, Some(role.id)))
+                .await
+                .unwrap();
         assert!(again.idempotent_replay);
         let changed = create_spawned_conversation(
             &pool,
@@ -6475,9 +6563,12 @@ mod tests {
         let sibling = Uuid::new_v4();
         create_session(&pool, caller, workspace, None).await;
         create_session(&pool, sibling, workspace, None).await;
-        let receipt = send_session_input(&pool, send_for(caller, sibling, CompanionWritePolicy::SameWorkspace))
-            .await
-            .unwrap();
+        let receipt = send_session_input(
+            &pool,
+            send_for(caller, sibling, CompanionWritePolicy::SameWorkspace),
+        )
+        .await
+        .unwrap();
         assert_eq!(receipt.delivered, "queued");
         assert_eq!(input_count(&pool, sibling).await, 1);
     }
@@ -6639,13 +6730,12 @@ mod tests {
         .await
         .unwrap();
         assert_eq!(receipt.delivered, "queued");
-        let status: String = sqlx::query_scalar(
-            "SELECT status FROM conversation_turns WHERE conversation_id = ?",
-        )
-        .bind(caller)
-        .fetch_one(&pool)
-        .await
-        .unwrap();
+        let status: String =
+            sqlx::query_scalar("SELECT status FROM conversation_turns WHERE conversation_id = ?")
+                .bind(caller)
+                .fetch_one(&pool)
+                .await
+                .unwrap();
         assert_eq!(status, "running");
         assert_eq!(input_count(&pool, caller).await, 1);
     }
@@ -6675,10 +6765,11 @@ mod tests {
         assert_eq!(receipt.delivered, "scheduled");
         assert!(receipt.delayed_input_id.is_some());
         assert_eq!(input_count(&pool, caller).await, 0);
-        let columns: Vec<String> = sqlx::query_scalar("SELECT name FROM pragma_table_info('conversation_delayed_inputs')")
-            .fetch_all(&pool)
-            .await
-            .unwrap();
+        let columns: Vec<String> =
+            sqlx::query_scalar("SELECT name FROM pragma_table_info('conversation_delayed_inputs')")
+                .fetch_all(&pool)
+                .await
+                .unwrap();
         assert!(!columns.iter().any(|column| column == "sort_key"));
     }
 
@@ -6855,7 +6946,11 @@ mod tests {
         )
         .await
         .unwrap();
-        let recipients: Vec<Uuid> = posted.receipts.iter().map(|receipt| receipt.conversation_id).collect();
+        let recipients: Vec<Uuid> = posted
+            .receipts
+            .iter()
+            .map(|receipt| receipt.conversation_id)
+            .collect();
         assert!(recipients.contains(&b));
         assert!(recipients.contains(&c));
         assert!(!recipients.contains(&a));
@@ -6897,10 +6992,9 @@ mod tests {
         )
         .await
         .unwrap();
-        let agent_messages =
-            list_space_messages(&pool, &space, None, None, MessageAudience::Agent)
-                .await
-                .unwrap();
+        let agent_messages = list_space_messages(&pool, &space, None, None, MessageAudience::Agent)
+            .await
+            .unwrap();
         let agent_json = serde_json::to_string(&agent_messages).unwrap();
         assert!(!agent_json.contains("/user"));
         assert!(agent_json.contains("\"actor\":\"user\""));
@@ -6993,13 +7087,12 @@ mod tests {
         .await
         .unwrap();
         assert_eq!(posted.receipts[0].delivered, "queued");
-        let status: String = sqlx::query_scalar(
-            "SELECT status FROM conversation_turns WHERE conversation_id = ?",
-        )
-        .bind(b)
-        .fetch_one(&pool)
-        .await
-        .unwrap();
+        let status: String =
+            sqlx::query_scalar("SELECT status FROM conversation_turns WHERE conversation_id = ?")
+                .bind(b)
+                .fetch_one(&pool)
+                .await
+                .unwrap();
         assert_eq!(status, "running");
     }
 
@@ -7160,18 +7253,18 @@ mod tests {
         )
         .await
         .unwrap();
-        let later = list_space_messages(
-            &pool,
-            &space,
-            Some(first.seq),
-            None,
-            MessageAudience::User,
-        )
-        .await
-        .unwrap();
+        let later =
+            list_space_messages(&pool, &space, Some(first.seq), None, MessageAudience::User)
+                .await
+                .unwrap();
         assert_eq!(later.len(), 1);
         assert!(later[0].seq > first.seq);
-        assert!(later[0].envelope["content"].as_str().unwrap().contains('二'));
+        assert!(
+            later[0].envelope["content"]
+                .as_str()
+                .unwrap()
+                .contains('二')
+        );
     }
 
     #[tokio::test]
@@ -7288,7 +7381,9 @@ mod tests {
         assert_eq!(reply.seq, 2);
         assert!(reply.receipts.is_empty());
 
-        let spaces_view = list_collaboration_spaces_for_caller(&pool, a).await.unwrap();
+        let spaces_view = list_collaboration_spaces_for_caller(&pool, a)
+            .await
+            .unwrap();
         assert_eq!(spaces_view["spaces"][0]["space_id"], space);
         assert_eq!(spaces_view["spaces"][0]["is_member"], true);
         assert_eq!(spaces_view["spaces"][0]["my_nickname"], "小A");
@@ -7395,13 +7490,19 @@ mod tests {
         let control = crate::ConversationInputControl::new(pool.clone());
         let sender_inputs = control.list(sender).await.unwrap();
         assert_eq!(sender_inputs.len(), 1);
-        assert_eq!(sender_inputs[0].status, crate::ConversationInputStatus::Scheduled);
+        assert_eq!(
+            sender_inputs[0].status,
+            crate::ConversationInputStatus::Scheduled
+        );
         assert!(sender_inputs[0].deliver_at.is_some());
         assert_eq!(sender_inputs[0].payload.text, "延时会话消息");
 
         let recipient_inputs = control.list(recipient).await.unwrap();
         assert_eq!(recipient_inputs.len(), 1);
-        assert_eq!(recipient_inputs[0].status, crate::ConversationInputStatus::Scheduled);
+        assert_eq!(
+            recipient_inputs[0].status,
+            crate::ConversationInputStatus::Scheduled
+        );
         assert!(recipient_inputs[0].deliver_at.is_some());
     }
 
@@ -7461,25 +7562,19 @@ mod tests {
         assert!(is_team_space_collection_file(&saved_path));
 
         // Member B reads the collection item -> records read receipt, returns address only
-        let read_by_b = read_space_collection_item(
-            &pool,
-            &space,
-            &added.id,
-            Some(b),
-            MessageAudience::Agent,
-        )
-        .await
-        .unwrap();
+        let read_by_b =
+            read_space_collection_item(&pool, &space, &added.id, Some(b), MessageAudience::Agent)
+                .await
+                .unwrap();
         assert!(read_by_b.text_content.is_none());
         assert_eq!(read_by_b.read_receipts.len(), 1);
         assert_eq!(read_by_b.read_receipts[0].reader_nickname, "小B");
         assert_eq!(read_by_b.read_receipts[0].read_count, 1);
 
         // User audience sees text_content and read receipts
-        let user_list =
-            list_space_collection(&pool, &space, None, None, MessageAudience::User)
-                .await
-                .unwrap();
+        let user_list = list_space_collection(&pool, &space, None, None, MessageAudience::User)
+            .await
+            .unwrap();
         assert_eq!(user_list.len(), 1);
         assert_eq!(
             user_list[0].text_content.as_deref(),

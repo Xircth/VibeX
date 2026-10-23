@@ -265,6 +265,11 @@ fn user_bin_directories(
             push(home.join(".local/bin"));
             push(home.join(".claude/local"));
             push(local_app_data.join("Programs").join("claude-code"));
+            push(local_app_data.join("Programs").join("TraeCLI").join("bin"));
+            let program_files = read_env("ProgramFiles")
+                .map(PathBuf::from)
+                .unwrap_or_else(|| PathBuf::from(r"C:\Program Files"));
+            push(program_files.join("Kiro-Cli"));
         }
         UserBinPlatform::Unix => {
             push(home.join(".local/bin"));
@@ -741,6 +746,11 @@ mod tests {
                 Path::new(r"C:\Users\developer\AppData\Local")
                     .join("Programs")
                     .join("claude-code"),
+                Path::new(r"C:\Users\developer\AppData\Local")
+                    .join("Programs")
+                    .join("TraeCLI")
+                    .join("bin"),
+                Path::new(r"C:\Program Files").join("Kiro-Cli"),
                 home.join(".bun/bin"),
                 home.join(".cargo/bin"),
                 home.join(".volta/bin"),

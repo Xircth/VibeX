@@ -7,7 +7,6 @@ import {
   type ReactNode,
 } from 'react';
 import { BrowserRouter, useLocation, useNavigate } from 'react-router-dom';
-import { useTranslation } from 'react-i18next';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import { usePreviousPath } from '@/hooks/usePreviousPath';
 import { useUiPreferencesScratch } from '@/hooks/useUiPreferencesScratch';
@@ -15,7 +14,7 @@ import { useUiPreferencesScratch } from '@/hooks/useUiPreferencesScratch';
 import { UserSystemProvider, useUserSystem } from '@/components/ConfigProvider';
 import { ThemeProvider, useTheme } from '@/components/ThemeProvider';
 import { SearchProvider } from '@/contexts/SearchContext';
-import { Toaster, toast } from '@/components/ui/toast';
+import { Toaster } from '@/components/ui/toast';
 import { ProjectWindowManager } from '@/components/layout/ProjectWindowManager';
 import { DesktopWindowControls } from '@/components/settings/DesktopWindowControls';
 import { TrayBadgeSync } from '@/components/layout/TrayBadgeSync';
@@ -29,8 +28,12 @@ import { CrashReportDialog } from '@/components/dialogs/global/CrashReportDialog
 import { crashReportsApi } from '@/lib/api/crashReports';
 import { ClickedElementsProvider } from './contexts/ClickedElementsProvider';
 import { AppErrorBoundary } from '@/components/AppErrorBoundary';
-import { openSettingsSurface, useOpenSettings } from '@/lib/api';
-import { checkAppUpdate } from '@/lib/appUpdate';
+import { useOpenSettings } from '@/lib/api';
+import {
+  checkAppUpdate,
+  consumePostUpdateRestoreRoute,
+  recordMainWindowRoute,
+} from '@/lib/appUpdate';
 import { getStartupPromptStep } from '@/appStartupPrompt';
 import { getAppRouteMode } from '@/appRouteMode';
 import { useLegacyDesignBodyClass } from '@/useLegacyDesignBodyClass';
@@ -88,12 +91,12 @@ function ThemedToaster() {
 }
 
 function MainAppContent({ children }: { children: ReactNode }) {
-  const { t } = useTranslation(['app', 'common']);
   const { config, updateAndSaveConfig } = useUserSystem();
   const navigate = useNavigate();
   const location = useLocation();
   const maintenanceStartedRef = useRef(false);
   const crashPromptShownRef = useRef(false);
+  const postUpdateRestoreHandledRef = useRef(false);
   const isTauri = useTauriClient();
   const isMainDesktopWindow = isTauri && getCurrentWindow().label === 'main';
   const startupPromptStep = getStartupPromptStep({
@@ -152,6 +155,20 @@ function MainAppContent({ children }: { children: ReactNode }) {
 
   // Track previous path for back navigation
   usePreviousPath();
+
+  useEffect(() => {
+    if (isSettingsSurfacePath(location.pathname)) return;
+    const currentRoute = `${location.pathname}${location.search}${location.hash}`;
+    if (!postUpdateRestoreHandledRef.current) {
+      postUpdateRestoreHandledRef.current = true;
+      const restoreRoute = consumePostUpdateRestoreRoute();
+      if (restoreRoute && restoreRoute !== currentRoute) {
+        navigate(restoreRoute, { replace: true });
+        return;
+      }
+    }
+    recordMainWindowRoute(currentRoute);
+  }, [location.hash, location.pathname, location.search, navigate]);
 
   // Scratch streams are desktop-shell; Web keeps UI preferences local.
   useUiPreferencesScratch(isTauri);
@@ -235,20 +252,7 @@ function MainAppContent({ children }: { children: ReactNode }) {
 
     const runMaintenance = async () => {
       try {
-        const snapshot = await checkAppUpdate();
-        if (cancelled || !snapshot.update) return;
-
-        toast.warning(
-          t('shell.appUpdateAvailable', {
-            version: snapshot.update.version,
-          }),
-          {
-            action: {
-              label: t('shell.viewUpdate'),
-              onClick: () => openSettingsSurface(navigate, '/settings/system'),
-            },
-          }
-        );
+        await checkAppUpdate();
       } catch (error) {
         if (!cancelled) {
           console.warn('System maintenance check failed:', error);
@@ -268,7 +272,7 @@ function MainAppContent({ children }: { children: ReactNode }) {
         maintenanceStartedRef.current = false;
       }
     };
-  }, [config, isTauri, navigate, t]);
+  }, [config, isTauri]);
 
   return (
     <ThemeProvider initialTheme={config?.theme || ThemeMode.SYSTEM}>

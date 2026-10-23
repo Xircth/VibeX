@@ -6,8 +6,7 @@
 
 use std::sync::Arc;
 
-use agents::runtime::AgentRuntime;
-use agents::AgentId;
+use agents::{AgentId, runtime::AgentRuntime};
 use async_trait::async_trait;
 use conversations::collaboration::{
     self, CollaborationSpaceChangedEvent, DeliveryContext, MessageAudience, SaveRole, SaveTeam,
@@ -81,9 +80,7 @@ impl CollaborationHost for HostCollaborationHost {
             ("collaboration", "team.delete") => self.delete_team(&input).await,
             ("collaboration", "space.list") => self.list_spaces(&input).await,
             ("collaboration", "space.create") => self.create_space(&input).await,
-            ("collaboration", "space.rename" | "space.update") => {
-                self.rename_space(&input).await
-            }
+            ("collaboration", "space.rename" | "space.update") => self.rename_space(&input).await,
             ("collaboration", "space.addMember" | "space.add_member") => {
                 self.add_member(&input).await
             }
@@ -93,10 +90,9 @@ impl CollaborationHost for HostCollaborationHost {
             ("collaboration", "space.moveMember" | "space.move_member") => {
                 self.move_member(&input).await
             }
-            (
-                "collaboration",
-                "space.batchDelete" | "space.batch_delete" | "space.delete",
-            ) => self.batch_delete(&input).await,
+            ("collaboration", "space.batchDelete" | "space.batch_delete" | "space.delete") => {
+                self.batch_delete(&input).await
+            }
             ("collaboration", "space.setIdentity" | "space.set_identity") => {
                 self.set_identity(&input).await
             }
@@ -106,10 +102,9 @@ impl CollaborationHost for HostCollaborationHost {
             ("collaboration", "space.listMessages" | "space.list_messages") => {
                 self.list_messages(&input).await
             }
-            (
-                "collaboration",
-                "space.listScheduledMessages" | "space.list_scheduled_messages",
-            ) => self.list_scheduled_messages(&input).await,
+            ("collaboration", "space.listScheduledMessages" | "space.list_scheduled_messages") => {
+                self.list_scheduled_messages(&input).await
+            }
             (
                 "collaboration",
                 "space.cancelScheduledMessage" | "space.cancel_scheduled_message",
@@ -119,18 +114,15 @@ impl CollaborationHost for HostCollaborationHost {
                 "space.updateScheduledMessage" | "space.update_scheduled_message",
             ) => self.update_scheduled_message(&input).await,
             ("collaboration", "space.post") => self.post(&input).await,
-            (
-                "collaboration",
-                "space.listCollection" | "space.list_collection",
-            ) => self.list_collection(&input).await,
-            (
-                "collaboration",
-                "space.addCollectionItem" | "space.add_collection_item",
-            ) => self.add_collection_item(&input).await,
-            (
-                "collaboration",
-                "space.readCollectionItem" | "space.read_collection_item",
-            ) => self.read_collection_item(&input).await,
+            ("collaboration", "space.listCollection" | "space.list_collection") => {
+                self.list_collection(&input).await
+            }
+            ("collaboration", "space.addCollectionItem" | "space.add_collection_item") => {
+                self.add_collection_item(&input).await
+            }
+            ("collaboration", "space.readCollectionItem" | "space.read_collection_item") => {
+                self.read_collection_item(&input).await
+            }
             (
                 "collaboration",
                 "space.updateCollectionItem"
@@ -154,7 +146,9 @@ impl CollaborationHost for HostCollaborationHost {
 
 impl HostCollaborationHost {
     async fn list_roles(&self) -> Result<Value, CollaborationHostError> {
-        let roles = collaboration::list_roles(&self.pool).await.map_err(host_error)?;
+        let roles = collaboration::list_roles(&self.pool)
+            .await
+            .map_err(host_error)?;
         Ok(json!({ "roles": roles }))
     }
 
@@ -196,7 +190,9 @@ impl HostCollaborationHost {
     }
 
     async fn list_teams(&self) -> Result<Value, CollaborationHostError> {
-        let teams = collaboration::list_teams(&self.pool).await.map_err(host_error)?;
+        let teams = collaboration::list_teams(&self.pool)
+            .await
+            .map_err(host_error)?;
         Ok(json!({ "teams": teams }))
     }
 
@@ -570,10 +566,9 @@ impl HostCollaborationHost {
     ) -> Result<Value, CollaborationHostError> {
         let space_id = required_text(input, &["spaceId", "space_id"])?;
         let id = required_text(input, &["id", "messageId", "message_id"])?;
-        let cancelled =
-            collaboration::cancel_space_scheduled_message(&self.pool, &space_id, &id)
-                .await
-                .map_err(host_error)?;
+        let cancelled = collaboration::cancel_space_scheduled_message(&self.pool, &space_id, &id)
+            .await
+            .map_err(host_error)?;
         if let Ok(workspace_id) = collaboration::space_workspace_id(&self.pool, &space_id).await {
             self.events.emit(
                 COLLABORATION_SPACE_CHANGED_EVENT,
@@ -855,9 +850,7 @@ impl HostCollaborationHost {
             return Ok(json!({ "available": false }));
         };
         let snapshot = match conversations::load_capability_catalog_for_session_defaults(
-            &self.pool,
-            runtime,
-            &agent_id,
+            &self.pool, runtime, &agent_id,
         )
         .await
         {
@@ -941,9 +934,8 @@ fn required_text(input: &Value, keys: &[&str]) -> Result<String, CollaborationHo
 
 fn required_uuid(input: &Value, keys: &[&str]) -> Result<Uuid, CollaborationHostError> {
     let raw = text(input, keys);
-    Uuid::parse_str(&raw).map_err(|_| {
-        CollaborationHostError::new("not_found", format!("{} is required", keys[0]))
-    })
+    Uuid::parse_str(&raw)
+        .map_err(|_| CollaborationHostError::new("not_found", format!("{} is required", keys[0])))
 }
 
 fn truthy(input: &Value, keys: &[&str]) -> bool {
@@ -1289,10 +1281,8 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(created_member["nickname"], "Alex");
-        let member_conv_id = Uuid::parse_str(
-            created_member["conversation_id"].as_str().unwrap(),
-        )
-        .unwrap();
+        let member_conv_id =
+            Uuid::parse_str(created_member["conversation_id"].as_str().unwrap()).unwrap();
 
         let unassigned_members = host
             .call(
@@ -1380,7 +1370,7 @@ mod tests {
 
     #[tokio::test]
     async fn host_collaboration_batch_delete_moves_unselected_members_to_unassigned_and_archives_selected()
-    {
+     {
         let pool = setup_pool().await;
         let events = Arc::new(HostEventBus::new());
         let host = HostCollaborationHost::new(pool.clone(), events);
@@ -1454,11 +1444,17 @@ mod tests {
             .unwrap();
         assert_eq!(delete_res["deleted_space_ids"].as_array().unwrap().len(), 1);
         assert_eq!(
-            delete_res["archived_conversation_ids"].as_array().unwrap().len(),
+            delete_res["archived_conversation_ids"]
+                .as_array()
+                .unwrap()
+                .len(),
             1
         );
         assert_eq!(
-            delete_res["unassigned_conversation_ids"].as_array().unwrap().len(),
+            delete_res["unassigned_conversation_ids"]
+                .as_array()
+                .unwrap()
+                .len(),
             1
         );
 

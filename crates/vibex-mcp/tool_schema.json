@@ -428,6 +428,35 @@
     }
   },
   {
+    "name": "ask_person",
+    "description": "Ask the user a question inline in a collaboration thread. The user sees a card (with optional quick-reply options) and a 'needs you' badge on your avatar; the answer arrives later as a normal message to you starting with [回复问题 <id>]. Do not block waiting; end your turn after asking. Reuse operation_id only to retry the same question.",
+    "inputSchema": {
+      "type": "object",
+      "required": ["operation_id", "space_id", "question"],
+      "properties": {
+        "operation_id": { "type": "string", "format": "uuid" },
+        "space_id": { "type": "string" },
+        "question": { "type": "string", "minLength": 1 },
+        "options": { "type": "array", "items": { "type": "string" }, "maxItems": 6, "description": "Optional quick replies." }
+      }
+    }
+  },
+  {
+    "name": "request_approval",
+    "description": "Request the user's approval inline in a collaboration thread before a risky action. The user picks allow_once, allow_always (for this group) or deny; the decision arrives as a message starting with [审批 <id>]. Do not perform the action until it is allowed.",
+    "inputSchema": {
+      "type": "object",
+      "required": ["operation_id", "space_id", "action"],
+      "properties": {
+        "operation_id": { "type": "string", "format": "uuid" },
+        "space_id": { "type": "string" },
+        "action": { "type": "string", "minLength": 1, "description": "What you want to do." },
+        "command": { "type": "string", "description": "Exact command or change, shown in monospace." },
+        "reason": { "type": "string" }
+      }
+    }
+  },
+  {
     "name": "memory_search",
     "description": "Search your own long-term memory (facts) and recent activity across your collaboration threads, ranked by BM25. Results are limited to what is visible from the current thread: private-chat memory is never returned in a group thread, and facts scoped to another thread are hidden.",
     "inputSchema": {

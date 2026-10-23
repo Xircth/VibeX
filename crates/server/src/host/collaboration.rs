@@ -118,6 +118,8 @@ impl CollaborationHost for HostCollaborationHost {
             ) => self.update_scheduled_message(&input).await,
             ("collaboration", "space.post") => self.post(&input).await,
             ("collaboration", "space.submit") => self.submit(&input).await,
+            ("collaboration", "card.list" | "card.list_cards") => self.list_cards(&input).await,
+            ("collaboration", "card.resolve") => self.resolve_card(&input).await,
             ("collaboration", "member.memory.list" | "member.memory_list") => {
                 self.memory_list(&input).await
             }
@@ -729,6 +731,46 @@ impl HostCollaborationHost {
         Ok(json!({ "memberId": member_id, "writeAccess": access.as_str() }))
     }
 
+    async fn list_cards(&self, input: &Value) -> Result<Value, CollaborationHostError> {
+        let space_id = optional_text(input, &["threadId", "thread_id", "spaceId", "space_id"]);
+        let pending_only = input
+            .get("pendingOnly")
+            .or_else(|| input.get("pending_only"))
+            .and_then(Value::as_bool)
+            .unwrap_or(false);
+        let cards =
+            conversations::collaboration_cards::list_cards(&self.pool, space_id.as_deref(), pending_only)
+                .await
+                .map_err(host_error)?;
+        Ok(json!({ "cards": cards }))
+    }
+
+    async fn resolve_card(&self, input: &Value) -> Result<Value, CollaborationHostError> {
+        let card_id = required_text(input, &["cardId", "card_id", "id"])?;
+        let delivery = self.delivery.lock().expect("delivery").clone();
+        let card = conversations::collaboration_cards::resolve_card(
+            &self.pool,
+            &card_id,
+            optional_text(input, &["decision"]).as_deref(),
+            optional_text(input, &["answer", "note"]).as_deref(),
+            &delivery,
+        )
+        .await
+        .map_err(host_error)?;
+        if let Ok(workspace_id) = collaboration::space_workspace_id(&self.pool, &card.space_id).await {
+            self.events.emit(
+                COLLABORATION_SPACE_CHANGED_EVENT,
+                CollaborationSpaceChangedEvent {
+                    workspace_id,
+                    space_id: card.space_id.clone(),
+                    seq: None,
+                    member_id: card.member_id.clone(),
+                },
+            );
+        }
+        Ok(json!({ "card": card }))
+    }
+
     /// The user's own view of a member's memory: every scope, private included.
     async fn memory_list(&self, input: &Value) -> Result<Value, CollaborationHostError> {
         let member_id = required_text(input, &["memberId", "member_id"])?;
@@ -1272,6 +1314,65 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(left["facts"].as_array().unwrap().len(), 1);
+    }
+
+    #[tokio::test]
+    async fn host_cards_ask_and_approval_round_trip() {
+        use conversations::collaboration_cards::{self as cards, CardKind, PostCard};
+        let pool = setup_pool().await;
+        let host = HostCollaborationHost::new(pool.clone(), Arc::new(HostEventBus::new()));
+        let workspace = Uuid::new_v4();
+        let a = Uuid::new_v4();
+        create_session(&pool, a, workspace, "小A").await;
+        let space = host
+            .call("host", "collaboration", "space.create",
+                json!({ "workspaceId": workspace, "name": "群1", "operationId": Uuid::new_v4() }))
+            .await
+            .unwrap();
+        let space_id = space["space_id"].as_str().unwrap().to_string();
+        host.call("host", "collaboration", "space.addMember",
+            json!({ "spaceId": space_id, "conversationId": a, "nickname": "小A", "operationId": Uuid::new_v4() }))
+            .await
+            .unwrap();
+        let delivery = DeliveryContext::default();
+        let op = Uuid::new_v4();
+        let ask = cards::post_card(&pool, PostCard { caller_id: a, space_id: space_id.clone(), kind: CardKind::Ask,
+            payload: json!({ "question": "用哪个分支？", "options": ["main", "dev"] }), operation_id: op }, &delivery)
+            .await
+            .unwrap();
+        let again = cards::post_card(&pool, PostCard { caller_id: a, space_id: space_id.clone(), kind: CardKind::Ask,
+            payload: json!({ "question": "用哪个分支？" }), operation_id: op }, &delivery)
+            .await
+            .unwrap();
+        assert_eq!(ask.id, again.id, "idempotent per operation id");
+        let approval = cards::post_card(&pool, PostCard { caller_id: a, space_id: space_id.clone(), kind: CardKind::Approval,
+            payload: json!({ "action": "run", "command": "rm -rf dist", "reason": "clean" }), operation_id: Uuid::new_v4() }, &delivery)
+            .await
+            .unwrap();
+        let pending = host
+            .call("host", "collaboration", "card.list", json!({ "threadId": space_id, "pendingOnly": true }))
+            .await
+            .unwrap();
+        assert_eq!(pending["cards"].as_array().unwrap().len(), 2);
+        assert!(host.call("host", "collaboration", "card.resolve", json!({ "cardId": ask.id })).await.is_err(),
+            "ask needs an answer");
+        let resolved = host
+            .call("host", "collaboration", "card.resolve", json!({ "cardId": ask.id, "answer": "dev" }))
+            .await
+            .unwrap();
+        assert_eq!(resolved["card"]["status"], json!("resolved"));
+        assert!(resolved["card"]["reply_message_id"].is_string() || resolved["card"]["replyMessageId"].is_string());
+        assert!(host.call("host", "collaboration", "card.resolve", json!({ "cardId": ask.id, "answer": "x" })).await.is_err(),
+            "double resolve rejected");
+        assert!(host.call("host", "collaboration", "card.resolve", json!({ "cardId": approval.id, "decision": "maybe" })).await.is_err());
+        host.call("host", "collaboration", "card.resolve", json!({ "cardId": approval.id, "decision": "deny" }))
+            .await
+            .unwrap();
+        let pending = host
+            .call("host", "collaboration", "card.list", json!({ "threadId": space_id, "pendingOnly": true }))
+            .await
+            .unwrap();
+        assert!(pending["cards"].as_array().unwrap().is_empty());
     }
 
     #[tokio::test]

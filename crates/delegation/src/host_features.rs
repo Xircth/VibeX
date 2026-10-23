@@ -700,6 +700,53 @@ async fn collaboration_tool(
             }
             Ok(serde_json::to_value(member).unwrap_or(json!({})))
         }
+        "ask_person" | "request_approval" => {
+            let operation_id = uuid_arg("operation_id").ok_or_else(|| {
+                collaboration::CollaborationError::new("not_found", "operation_id is required")
+            })?;
+            let space_id = text("space_id");
+            let (kind, payload) = if name == "ask_person" {
+                (
+                    conversations::collaboration_cards::CardKind::Ask,
+                    json!({
+                        "question": text("question"),
+                        "options": arguments.get("options").cloned().unwrap_or(json!([])),
+                    }),
+                )
+            } else {
+                (
+                    conversations::collaboration_cards::CardKind::Approval,
+                    json!({
+                        "action": text("action"),
+                        "command": text("command"),
+                        "reason": text("reason"),
+                    }),
+                )
+            };
+            let card = conversations::collaboration_cards::post_card(
+                pool,
+                conversations::collaboration_cards::PostCard {
+                    caller_id,
+                    space_id: space_id.clone(),
+                    kind,
+                    payload,
+                    operation_id,
+                },
+                delivery,
+            )
+            .await?;
+            if let Some(listener) = on_space_changed.as_ref()
+                && let Ok(workspace_id) = collaboration::space_workspace_id(pool, &space_id).await
+            {
+                listener(collaboration::CollaborationSpaceChangedEvent {
+                    workspace_id,
+                    space_id,
+                    seq: None,
+                    member_id: None,
+                });
+            }
+            Ok(serde_json::to_value(card).unwrap_or(json!({})))
+        }
         "memory_search" => {
             let limit = arguments
                 .get("limit")

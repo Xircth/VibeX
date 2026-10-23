@@ -154,7 +154,7 @@ impl std::fmt::Display for CollaborationError {
 
 impl std::error::Error for CollaborationError {}
 
-fn db(error: sqlx::Error) -> CollaborationError {
+pub(crate) fn db(error: sqlx::Error) -> CollaborationError {
     CollaborationError::new("conversation_control_failed", error.to_string())
 }
 
@@ -173,7 +173,7 @@ fn stamp(time: DateTime<Utc>) -> String {
     time.to_rfc3339_opts(SecondsFormat::Secs, true)
 }
 
-fn now_stamp() -> String {
+pub(crate) fn now_stamp() -> String {
     stamp(Utc::now())
 }
 
@@ -6063,7 +6063,7 @@ async fn nickname_owner(
 /// Seat a calling conversation acts through in `space_id`: its own seat, or
 /// the seat its member identity holds there via a per-thread conversation
 /// (for example the creator of a space, whose seat got its own session).
-async fn caller_seat(
+pub(crate) async fn caller_seat(
     pool: &SqlitePool,
     space_id: &str,
     caller_id: Uuid,
@@ -6077,7 +6077,7 @@ async fn caller_seat(
     }
 }
 
-fn seat_conversation(member: &MemberRecord) -> Option<Uuid> {
+pub(crate) fn seat_conversation(member: &MemberRecord) -> Option<Uuid> {
     member
         .conversation_id
         .as_deref()

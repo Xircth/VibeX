@@ -163,3 +163,10 @@ as ordinary conversations (one per extra space) rather than being merged back.
   - `member.memory.update {memberId, factId, content?, scope?}`
   - `member.memory.delete {memberId, factId}`
   - `member.activity.list {memberId, limit?}`
+
+### Known limitations (Phase 4)
+
+- Chinese retrieval ranking is rough: BM25 runs over character unigrams and
+  bigrams, with no word segmentation or embeddings.
+- Long-term facts depend on agents calling `memory_write` (see `MEMORY.md`).
+  Automatic distillation exists only as a hook, so it is future work.

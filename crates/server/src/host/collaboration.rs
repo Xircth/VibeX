@@ -1198,6 +1198,83 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn host_member_memory_view_edit_delete_round_trip() {
+        use conversations::member_memory::{self as memory, FactScope, FirstSentencesSummarizer};
+        let pool = setup_pool().await;
+        let host = HostCollaborationHost::new(pool.clone(), Arc::new(HostEventBus::new()));
+        let workspace = Uuid::new_v4();
+        let a = Uuid::new_v4();
+        create_session(&pool, a, workspace, "小A").await;
+        let space = host
+            .call("host", "collaboration", "space.create",
+                json!({ "workspaceId": workspace, "name": "群1", "operationId": Uuid::new_v4() }))
+            .await
+            .unwrap();
+        let space_id = space["space_id"].as_str().unwrap().to_string();
+        host.call("host", "collaboration", "space.addMember",
+            json!({ "spaceId": space_id, "conversationId": a, "nickname": "小A", "operationId": Uuid::new_v4() }))
+            .await
+            .unwrap();
+        let member = db::models::collaboration_identity::member_id_for_conversation(a);
+        memory::record_activity(&pool, a, Some(Uuid::new_v4()), "修好了分页。", &FirstSentencesSummarizer)
+            .await
+            .unwrap();
+        let global = memory::create_fact(&pool, &member, "统一用 pnpm", &FactScope::Global, None, "agent")
+            .await
+            .unwrap();
+        memory::create_fact(&pool, &member, "用户生日五月一日", &FactScope::Private, None, "agent")
+            .await
+            .unwrap();
+
+        let listed = host
+            .call("host", "collaboration", "member.memory.list", json!({ "memberId": member }))
+            .await
+            .unwrap();
+        assert_eq!(listed["facts"].as_array().unwrap().len(), 2, "user view includes private");
+        let only_private = host
+            .call("host", "collaboration", "member.memory.list",
+                json!({ "memberId": member, "scope": "private" }))
+            .await
+            .unwrap();
+        assert_eq!(only_private["facts"].as_array().unwrap().len(), 1);
+        let activity = host
+            .call("host", "collaboration", "member.activity.list", json!({ "memberId": member }))
+            .await
+            .unwrap();
+        assert_eq!(activity["activity"][0]["summary"], json!("修好了分页。"));
+
+        let updated = host
+            .call("host", "collaboration", "member.memory.update",
+                json!({ "memberId": member, "factId": global.id, "content": "统一用 pnpm 9", "scope": format!("thread:{space_id}") }))
+            .await
+            .unwrap();
+        assert_eq!(updated["fact"]["content"], json!("统一用 pnpm 9"));
+        assert_eq!(updated["fact"]["scope"], json!(format!("thread:{space_id}")));
+        assert!(host
+            .call("host", "collaboration", "member.memory.update",
+                json!({ "memberId": member, "factId": global.id, "scope": "bogus" }))
+            .await
+            .is_err());
+        let deleted = host
+            .call("host", "collaboration", "member.memory.delete",
+                json!({ "memberId": member, "factId": global.id }))
+            .await
+            .unwrap();
+        assert_eq!(deleted["deleted"], json!(true));
+        let again = host
+            .call("host", "collaboration", "member.memory.delete",
+                json!({ "memberId": member, "factId": global.id }))
+            .await
+            .unwrap();
+        assert_eq!(again["deleted"], json!(false));
+        let left = host
+            .call("host", "collaboration", "member.memory.list", json!({ "memberId": member }))
+            .await
+            .unwrap();
+        assert_eq!(left["facts"].as_array().unwrap().len(), 1);
+    }
+
+    #[tokio::test]
     async fn host_collaboration_set_identity_and_space_events_round_trip() {
         let pool = setup_pool().await;
         let events = Arc::new(HostEventBus::new());

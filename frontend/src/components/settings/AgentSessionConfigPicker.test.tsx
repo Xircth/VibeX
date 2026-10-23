@@ -1,5 +1,6 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { render, screen, waitFor } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import type { ReactNode } from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { AgentManagementView } from 'shared/types';
@@ -79,7 +80,8 @@ const GROK_EFFORT = {
 
 function renderPicker(
   pendingConfigValues: Record<string, string> = {},
-  onSelectConfigValue = vi.fn()
+  onSelectConfigValue = vi.fn(),
+  onSave = vi.fn()
 ) {
   const client = new QueryClient({
     defaultOptions: { queries: { retry: false } },
@@ -92,6 +94,7 @@ function renderPicker(
   return {
     client,
     onSelectConfigValue,
+    onSave,
     ...render(
       <AgentSessionConfigPicker
         agentId="grok"
@@ -100,6 +103,7 @@ function renderPicker(
         onAgentChange={vi.fn()}
         onSelectMode={vi.fn()}
         onSelectConfigValue={onSelectConfigValue}
+        onSave={onSave}
         agentLabel="Agent"
       />,
       { wrapper: Wrapper }
@@ -158,5 +162,30 @@ describe('AgentSessionConfigPicker', () => {
       expect(screen.getByTestId('session-control-effort')).toBeInTheDocument();
     });
     expect(screen.getByTestId('session-control-model')).toBeInTheDocument();
+  });
+
+  it('wraps Agent selector and session controls in compact picker container and saves effective config via Save button', async () => {
+    const user = userEvent.setup();
+    capabilityCatalog.mockResolvedValue({
+      modes: [],
+      current_mode: null,
+      config_options: [GROK_MODEL, GROK_EFFORT],
+    });
+    const { onSave } = renderPicker();
+
+    expect(screen.getByTestId('agent-session-config-picker')).toHaveClass(
+      'agent-session-config-picker'
+    );
+    const saveBtn = await screen.findByTestId('agent-session-config-save-btn');
+    expect(saveBtn).toBeInTheDocument();
+
+    await user.click(saveBtn);
+    expect(onSave).toHaveBeenCalledWith({
+      modeId: null,
+      configValues: {
+        model: 'grok-4.6',
+        effort: 'high',
+      },
+    });
   });
 });

@@ -6,7 +6,7 @@ use serde::{Deserialize, Serialize, de::DeserializeOwned};
 
 use crate::{PluginContentDocument, PluginError, PluginPackage, PluginSourceKind};
 
-pub const DEFAULT_MARKETPLACE_ORIGIN: &str = "https://vibex.xforever.xin";
+pub const DEFAULT_MARKETPLACE_ORIGIN: &str = utils::DEFAULT_SITE_ORIGIN;
 pub const COMMUNITY_PAGE_SIZE: u32 = 50;
 
 /// Retired package id → successor. Official marketplace must show one product.
@@ -111,7 +111,10 @@ pub struct InstalledOrigin {
 pub fn marketplace_origin() -> String {
     std::env::var("VIBEX_MARKETPLACE_URL")
         .ok()
-        .map(|value| value.trim_end_matches('/').to_owned())
+        .or_else(|| std::env::var("VIBEX_SITE_URL").ok())
+        .or_else(|| option_env!("VIBEX_MARKETPLACE_URL").map(str::to_owned))
+        .or_else(|| option_env!("VIBEX_SITE_URL").map(str::to_owned))
+        .map(|value| value.trim().trim_end_matches('/').to_owned())
         .filter(|value| !value.is_empty())
         .unwrap_or_else(|| crate::official_catalog::official_marketplace_origin().to_owned())
 }
@@ -663,11 +666,22 @@ pub fn marketplace_archive_suffix(url: &str) -> &'static str {
     }
 }
 
+fn matches_origin_host(candidate: &str, base_url: &str) -> bool {
+    url::Url::parse(base_url)
+        .ok()
+        .and_then(|parsed| parsed.host_str().map(|host| candidate.contains(host)))
+        .unwrap_or(false)
+}
+
 pub fn origin_kind(origin: Option<&str>) -> Option<&'static str> {
     let origin = origin?;
     if origin.contains("github.com") || origin.starts_with("github:") {
         Some("github")
-    } else if origin.contains("marketplace") || origin.contains("xforever.xin") {
+    } else if origin.contains("marketplace")
+        || matches_origin_host(origin, &marketplace_origin())
+        || matches_origin_host(origin, &utils::site_origin())
+        || matches_origin_host(origin, crate::official_catalog::official_marketplace_origin())
+    {
         Some("marketplace")
     } else {
         None
@@ -1122,8 +1136,15 @@ mod tests {
         );
     }
 
+    static ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
     #[test]
     fn origin_lock_distinguishes_github_from_marketplace() {
+        let _lock = ENV_LOCK.lock().expect("env lock");
+        unsafe {
+            std::env::remove_var("VIBEX_MARKETPLACE_URL");
+            std::env::remove_var("VIBEX_SITE_URL");
+        }
         assert_eq!(
             origin_kind(Some("https://github.com/acme/notes")),
             Some("github")
@@ -1140,6 +1161,31 @@ mod tests {
             PluginSourceKind::DeveloperLink,
             Some("https://github.com/acme/notes")
         ));
+    }
+
+    #[test]
+    fn marketplace_origin_and_origin_kind_respect_vibex_site_url_env() {
+        let _lock = ENV_LOCK.lock().expect("env lock");
+        unsafe {
+            std::env::remove_var("VIBEX_MARKETPLACE_URL");
+            std::env::set_var("VIBEX_SITE_URL", "https://site.example.com/");
+        }
+        let site_origin = marketplace_origin();
+        let custom_kind = origin_kind(Some("https://site.example.com/files/office.vxp"));
+
+        unsafe {
+            std::env::set_var("VIBEX_MARKETPLACE_URL", "https://market.example.com/");
+        }
+        let market_override = marketplace_origin();
+
+        unsafe {
+            std::env::remove_var("VIBEX_MARKETPLACE_URL");
+            std::env::remove_var("VIBEX_SITE_URL");
+        }
+
+        assert_eq!(site_origin, "https://site.example.com");
+        assert_eq!(custom_kind, Some("marketplace"));
+        assert_eq!(market_override, "https://market.example.com");
     }
 
     #[test]

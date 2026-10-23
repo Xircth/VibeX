@@ -32,8 +32,12 @@ export function SettingsSearch({
   }, [query, supports, t]);
 
   return (
-    <div className="settings-search">
-      <div className="settings-search-field">
+    <div
+      className={`settings-search ${
+        query.trim() ? 'min-h-0 flex-1' : 'shrink-0'
+      }`}
+    >
+      <div className="settings-search-field shrink-0">
         <Search aria-hidden="true" className="settings-search-icon" />
         <input
           type="search"
@@ -63,7 +67,10 @@ export function SettingsSearch({
         ) : null}
       </div>
       {query.trim() ? (
-        <ul className="settings-search-results" role="listbox">
+        <ul
+          className="settings-search-results min-h-0 flex-1 overflow-y-auto"
+          role="listbox"
+        >
           {results.length === 0 ? (
             <li className="settings-search-empty">{t('search.noResults')}</li>
           ) : (

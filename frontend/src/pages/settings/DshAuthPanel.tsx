@@ -1,10 +1,12 @@
 import {
   ArrowLeft,
   Check,
+  KeyRound,
   Loader2,
   Pencil,
   Plus,
   Search,
+  Server,
   Trash2,
 } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
@@ -34,8 +36,16 @@ import { useProviderCatalogList } from './useProviderCatalogList';
 
 const DRAFT_KEY = 'dsh-auth';
 const AUTH_TABS = [
-  { value: 'deepseek', labelKey: 'settings:agents.authModeTabOfficialApi' },
-  { value: 'custom', labelKey: 'settings:agents.authModeTabProvider' },
+  {
+    value: 'deepseek',
+    labelKey: 'settings:agents.authModeTabOfficialApi',
+    Icon: KeyRound,
+  },
+  {
+    value: 'custom',
+    labelKey: 'settings:agents.authModeTabProvider',
+    Icon: Server,
+  },
 ] as const;
 
 const OFFICIAL_ID = 'deepseek-official';
@@ -304,9 +314,7 @@ export function DshAuthPanel({
   const selectMode = (mode: string) => {
     setCustomSurface('list');
     setEditingId(null);
-    const next = view
-      ? hydrate(view, mode)
-      : { ...draftRef.current, mode };
+    const next = view ? hydrate(view, mode) : { ...draftRef.current, mode };
     draftRef.current = next;
     setDraft(next);
   };
@@ -447,6 +455,7 @@ export function DshAuthPanel({
                   const selected = draft.mode === tab.value;
                   const unsaved = selected && tab.value !== savedMode;
                   const fullLabel = t(tab.labelKey);
+                  const TabIcon = tab.Icon;
                   return (
                     <button
                       key={tab.value}
@@ -477,7 +486,11 @@ export function DshAuthPanel({
                         }
                       }}
                     >
-                      {fullLabel}
+                      <TabIcon
+                        aria-hidden="true"
+                        className="agent-auth-mode-tab-icon"
+                      />
+                      <span>{fullLabel}</span>
                       {unsaved ? (
                         <span
                           className="agent-auth-mode-tab-draft"

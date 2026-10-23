@@ -59,7 +59,7 @@ pub fn official_marketplace_origin() -> &'static str {
 }
 
 pub fn official_marketplace_home() -> String {
-    let origin = official_marketplace_origin();
+    let origin = crate::catalog::marketplace_origin();
     let path = catalog().marketplace.path.trim();
     if path.is_empty() {
         format!("{origin}/marketplace")

@@ -296,7 +296,7 @@ export function SettingsLayout() {
       <div className="flex min-h-0 flex-1">
         <aside
           className={cn(
-            'settings-sidebar min-h-0 w-44 shrink-0 overflow-y-auto p-2.5',
+            'settings-sidebar flex min-h-0 w-44 shrink-0 flex-col overflow-hidden p-2.5',
             settingsNavFloat ? 'm-3' : 'settings-sidebar--flush'
           )}
         >
@@ -308,7 +308,7 @@ export function SettingsLayout() {
           />
           {searching ? null : (
             <nav
-              className="settings-nav-groups"
+              className="settings-nav-groups min-h-0 flex-1 overflow-y-auto"
               aria-busy={capabilities === null}
             >
               {navGroups.map((group) => (

@@ -12,6 +12,7 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import type { CatalogListing } from '@/lib/api/plugins';
+import { getMarketplaceHost, getSiteHost } from '@/lib/branding';
 import { officialListingName } from './officialPlugins';
 
 export function listingSourceLabel(
@@ -33,7 +34,14 @@ export function listingSourceLabel(
       : t('plugins.installPreviewSourceGithub');
   }
   const raw = listing.homepage || listing.downloadUrl || '';
-  if (/marketplace|xforever\.xin/i.test(raw)) {
+  const rawLower = raw.toLowerCase();
+  const marketplaceHost = getMarketplaceHost();
+  const siteHost = getSiteHost();
+  if (
+    rawLower.includes('marketplace') ||
+    (marketplaceHost && rawLower.includes(marketplaceHost)) ||
+    (siteHost && rawLower.includes(siteHost))
+  ) {
     return t('plugins.installPreviewSourceOfficial');
   }
   if (

@@ -1,5 +1,5 @@
 import { fireEvent, render, screen, within } from '@testing-library/react';
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import i18n from '@/i18n';
 import type { CatalogListing } from '@/lib/api/plugins';
@@ -55,6 +55,24 @@ describe('listingSourceLabel', () => {
         zh
       )
     ).toBe('本机文件');
+  });
+
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
+
+  it('recognizes custom VIBEX_SITE_URL host as official marketplace', () => {
+    vi.stubEnv('VIBEX_SITE_URL', 'https://site.example.com/');
+    expect(
+      listingSourceLabel(
+        listing({
+          sourceKind: 'remote',
+          category: 'community',
+          homepage: 'https://site.example.com/plugins/notes',
+        }),
+        zh
+      )
+    ).toBe('官方市场');
   });
 });
 

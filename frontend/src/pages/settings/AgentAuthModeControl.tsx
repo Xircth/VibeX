@@ -1,11 +1,15 @@
 import {
+  Building2,
   CreditCard,
   ExternalLink,
+  Globe,
   KeyRound,
   Loader2,
   LogIn,
   LogOut,
+  Server,
   Settings2,
+  UserRound,
 } from 'lucide-react';
 import {
   type ReactNode,
@@ -386,6 +390,7 @@ export function AgentAuthModeControl({
                 )?.kind;
                 const draft = selected && viewKind !== kind;
                 const fullLabel = t(authKindTabLabelKey(kind));
+                const TabIcon = authKindTabIcon(kind);
                 return (
                   <button
                     key={kind}
@@ -416,7 +421,11 @@ export function AgentAuthModeControl({
                       }
                     }}
                   >
-                    {fullLabel}
+                    <TabIcon
+                      aria-hidden="true"
+                      className="agent-auth-mode-tab-icon"
+                    />
+                    <span>{fullLabel}</span>
                     {draft ? (
                       <span
                         className="agent-auth-mode-tab-draft"
@@ -674,6 +683,7 @@ function SubmodeButton({
   onSelect: () => void;
 }) {
   const { t } = useTranslation('settings');
+  const Icon = authSubmodeIcon(option);
   return (
     <button
       type="button"
@@ -685,7 +695,8 @@ function SubmodeButton({
       disabled={disabled}
       onClick={onSelect}
     >
-      {t(option.label_key)}
+      <Icon aria-hidden="true" className="agent-auth-mode-tab-icon" />
+      <span>{t(option.label_key)}</span>
     </button>
   );
 }
@@ -950,6 +961,31 @@ function authKindTabLabelKey(kind: AgentAuthModeKind): string {
       return 'settings:agents.authModeTabOfficialApi';
     case 'provider':
       return 'settings:agents.authModeTabProvider';
+  }
+}
+
+function authKindTabIcon(kind: AgentAuthModeKind) {
+  switch (kind) {
+    case 'subscription':
+      return CreditCard;
+    case 'official_api':
+      return KeyRound;
+    case 'provider':
+      return Server;
+  }
+}
+
+function authSubmodeIcon(option: AgentAuthModeOptionView) {
+  switch (option.value) {
+    case 'oauth-business':
+      return Building2;
+    case 'oauth-personal':
+    case 'login_google':
+      return UserRound;
+    case 'agent-platform':
+      return Globe;
+    default:
+      return authKindTabIcon(option.kind);
   }
 }
 

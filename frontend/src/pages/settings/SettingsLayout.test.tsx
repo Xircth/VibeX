@@ -607,4 +607,19 @@ describe('SettingsLayout menu float', () => {
     expect(sidebar).toHaveClass('settings-sidebar--flush');
     expect(sidebar).not.toHaveClass('m-3');
   });
+
+  it('keeps the top search bar stationary while the navigation groups scroll', () => {
+    renderSettings();
+    const sidebar = screen
+      .getByText('Appearance content')
+      .closest('.settings-page')
+      ?.querySelector('.settings-sidebar');
+    const search = sidebar?.querySelector('.settings-search');
+    const nav = sidebar?.querySelector('.settings-nav-groups');
+
+    expect(sidebar).toHaveClass('flex', 'flex-col', 'overflow-hidden');
+    expect(sidebar).not.toHaveClass('overflow-y-auto');
+    expect(search).toHaveClass('shrink-0');
+    expect(nav).toHaveClass('min-h-0', 'flex-1', 'overflow-y-auto');
+  });
 });

@@ -18,6 +18,7 @@ import { useState } from 'react';
 
 import { CONTRIBUTION_ICONS } from '@/components/plugins/contributionIcon';
 import type { CatalogListing } from '@/lib/api/plugins';
+import { getMarketplaceHost } from '@/lib/branding';
 
 import {
   listingPackageIds,
@@ -44,7 +45,6 @@ export const OFFICIAL_GLYPHS: Record<OfficialPluginI18nKey, LucideIcon> = {
   computerUse: Monitor,
 };
 
-const MARKETPLACE_ICON_HOST = 'vibex.xforever.xin';
 const INITIALS_PALETTE = [
   'color-mix(in srgb, var(--accent) 18%, var(--surface-raised))',
   'color-mix(in srgb, var(--text-primary) 18%, var(--surface-raised))',
@@ -72,7 +72,7 @@ export function allowedMarketplaceIconUrl(value: string): string | null {
   if (url.protocol !== 'https:') return null;
   if (url.username || url.password) return null;
   if (url.port !== '' && url.port !== '443') return null;
-  if (url.hostname !== MARKETPLACE_ICON_HOST) return null;
+  if (url.hostname.toLowerCase() !== getMarketplaceHost()) return null;
   const path = url.pathname.toLowerCase();
   if (path.endsWith('.svg') || path.endsWith('.svgz')) return null;
   return url.href;

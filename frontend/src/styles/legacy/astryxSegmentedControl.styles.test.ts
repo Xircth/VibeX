@@ -93,6 +93,7 @@ describe('Astryx SegmentedControl chrome', () => {
   it('styles Agent auth mode tabs and submodes as capsule segmented controls', () => {
     const tabTrack: Record<string, string> = {};
     const tabButton: Record<string, string> = {};
+    const tabIcon: Record<string, string> = {};
     const submodeTrack: Record<string, string> = {};
     const submodeButton: Record<string, string> = {};
 
@@ -106,6 +107,10 @@ describe('Astryx SegmentedControl chrome', () => {
         rule.walkDecls((declaration) => {
           tabButton[declaration.prop] = declaration.value;
         });
+      } else if (selector === '.settings-page .agent-auth-mode-tab-icon') {
+        rule.walkDecls((declaration) => {
+          tabIcon[declaration.prop] = declaration.value;
+        });
       } else if (selector === '.settings-page .agent-auth-mode-submodes') {
         rule.walkDecls((declaration) => {
           submodeTrack[declaration.prop] = declaration.value;
@@ -118,14 +123,24 @@ describe('Astryx SegmentedControl chrome', () => {
     });
 
     expect(tabTrack['border-radius']).toBe('999px');
+    expect(tabTrack.padding).toBe('3px');
     expect(tabTrack['background-color']?.replace(/\s+/g, '')).toBe(
       'light-dark(#e5e5e5,#262626)'
     );
     expect(tabButton['border-radius']).toBe('999px');
+    expect(tabButton.height).toBe('26px');
+    expect(tabButton.padding).toBe('0 14px');
+    expect(tabButton['font-size']).toBe('0.75rem');
+    expect(tabIcon.width).toBe('13px');
+    expect(tabIcon.height).toBe('13px');
     expect(submodeTrack['border-radius']).toBe('999px');
+    expect(submodeTrack.padding).toBe('3px');
     expect(submodeTrack['background-color']?.replace(/\s+/g, '')).toBe(
       'light-dark(#e5e5e5,#262626)'
     );
     expect(submodeButton['border-radius']).toBe('999px');
+    expect(submodeButton.height).toBe('26px');
+    expect(submodeButton.padding).toBe('0 14px');
+    expect(submodeButton['font-size']).toBe('0.75rem');
   });
 });

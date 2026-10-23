@@ -21,6 +21,17 @@ pub mod tokio;
 pub mod tunnel;
 pub mod version;
 
+pub const DEFAULT_SITE_ORIGIN: &str = "https://vibex.xforever.xin";
+
+pub fn site_origin() -> String {
+    std::env::var("VIBEX_SITE_URL")
+        .ok()
+        .or_else(|| option_env!("VIBEX_SITE_URL").map(str::to_owned))
+        .map(|value| value.trim().trim_end_matches('/').to_owned())
+        .filter(|value| !value.is_empty())
+        .unwrap_or_else(|| DEFAULT_SITE_ORIGIN.to_owned())
+}
+
 /// Cache for WSL2 detection result
 static WSL2_CACHE: OnceLock<bool> = OnceLock::new();
 

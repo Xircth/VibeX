@@ -6,7 +6,9 @@ TOKEN=""
 PORT=""
 HOST=""
 BIND="0.0.0.0"
-PY_URL="https://vibex.xforever.xin/tunnel.py"
+SITE_URL="${VIBEX_SITE_URL:-https://vibex.xforever.xin}"
+SITE_URL="${SITE_URL%/}"
+PY_URL="${SITE_URL}/tunnel.py"
 MODE="install"
 
 usage() {

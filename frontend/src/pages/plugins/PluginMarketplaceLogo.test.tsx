@@ -1,5 +1,5 @@
 import { fireEvent, render } from '@testing-library/react';
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import type { CatalogListing } from '@/lib/api/plugins';
 
@@ -139,5 +139,19 @@ describe('PluginMarketplaceLogo', () => {
     expect(
       container.querySelector('.product-plugin-card-initials')
     ).toHaveTextContent('NO');
+  });
+
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
+
+  it('respects VIBEX_SITE_URL for allowlisted marketplace icon host', () => {
+    vi.stubEnv('VIBEX_SITE_URL', 'https://site.example.com/');
+    expect(
+      allowedMarketplaceIconUrl('https://site.example.com/foo.png')
+    ).toBe('https://site.example.com/foo.png');
+    expect(
+      allowedMarketplaceIconUrl('https://vibex.xforever.xin/foo.png')
+    ).toBeNull();
   });
 });

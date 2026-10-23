@@ -478,4 +478,41 @@ describe('GeneralSettings Agent model catalogs', () => {
     await user.click(screen.getByRole('button', { name: '导入' }));
     expect(screen.getByText('import-dialog')).toBeInTheDocument();
   });
+
+  it('saves prompt enhancement session config via the trailing Save button', async () => {
+    const user = userEvent.setup();
+    agentsApiMock.capabilityCatalog.mockResolvedValue({
+      modes: [],
+      current_mode: null,
+      config_options: [
+        {
+          key: 'model',
+          label: 'Model',
+          description: null,
+          category: 'model',
+          value: 'grok-4.6',
+          choices: [
+            { value: 'grok-4.6', label: 'Grok 4.6', description: null },
+            { value: 'grok-4.5', label: 'Grok 4.5', description: null },
+          ],
+        },
+      ],
+    });
+    const { updateAndSaveConfig } = renderSettings('unused', {
+      prompt_enhancement_enabled: true,
+      prompt_enhancement_agent_id: 'opencode',
+    });
+
+    const saveBtn = await screen.findByTestId('agent-session-config-save-btn');
+    await user.click(saveBtn);
+
+    await waitFor(() => {
+      expect(updateAndSaveConfig).toHaveBeenCalledWith(
+        expect.objectContaining({
+          prompt_enhancement_agent_id: 'opencode',
+          prompt_enhancement_session_config: { model: 'grok-4.6' },
+        })
+      );
+    });
+  });
 });

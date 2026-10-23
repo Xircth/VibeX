@@ -30,6 +30,7 @@ import {
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
+import { toast } from '@/components/ui/toast';
 import { usePortalContainer } from '@/contexts/PortalContainerContext';
 import { useManagedAgentOptions } from '@/features/agent-management';
 import { agentManagementApi } from '@/features/agent-management/api';
@@ -397,6 +398,14 @@ export function MultiAgentSettings({
               modeId: selectedAgentStoredRow?.mode_id ?? null,
               configValues: nextValues,
             });
+          }}
+          onSave={({ modeId, configValues }) => {
+            if (!selectedDefaultAgentId) return;
+            commitAgentDefault(selectedDefaultAgentId, {
+              modeId,
+              configValues,
+            });
+            toast.success(t('general.settingsSaved'));
           }}
         />
       </div>

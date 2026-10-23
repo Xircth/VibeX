@@ -267,6 +267,22 @@ test("plugin publish parses credentials and marketplace origin", () => {
     marketplaceOrigin("https://example.test/"),
     "https://example.test",
   );
+
+  const prevSiteUrl = process.env.VIBEX_SITE_URL;
+  const prevMarketUrl = process.env.VIBEX_MARKETPLACE_URL;
+  try {
+    delete process.env.VIBEX_MARKETPLACE_URL;
+    process.env.VIBEX_SITE_URL = "https://site.example.com/";
+    assert.equal(marketplaceOrigin(), "https://site.example.com");
+
+    process.env.VIBEX_MARKETPLACE_URL = "https://market.example.com/";
+    assert.equal(marketplaceOrigin(), "https://market.example.com");
+  } finally {
+    if (prevSiteUrl === undefined) delete process.env.VIBEX_SITE_URL;
+    else process.env.VIBEX_SITE_URL = prevSiteUrl;
+    if (prevMarketUrl === undefined) delete process.env.VIBEX_MARKETPLACE_URL;
+    else process.env.VIBEX_MARKETPLACE_URL = prevMarketUrl;
+  }
 });
 
 function writeFixture(root) {

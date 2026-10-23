@@ -408,8 +408,15 @@ async function addDevPlugin(source, flags) {
   }
 }
 
+const DEFAULT_SITE_URL = "https://vibex.xforever.xin";
+
 function marketplaceOrigin(flag) {
-  return String(flag || process.env.VIBEX_MARKETPLACE_URL || "https://vibex.xforever.xin").replace(
+  return String(
+    flag ||
+      process.env.VIBEX_MARKETPLACE_URL ||
+      process.env.VIBEX_SITE_URL ||
+      DEFAULT_SITE_URL,
+  ).replace(
     /\/+$/,
     "",
   );

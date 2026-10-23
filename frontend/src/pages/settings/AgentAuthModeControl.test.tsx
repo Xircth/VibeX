@@ -1735,6 +1735,31 @@ describe('AgentAuthModeControl', () => {
     await user.click(browserChoiceBtn);
     expect(onRunAction).toHaveBeenCalledWith('login');
   });
+
+  it('renders an icon inside every auth mode tab', async () => {
+    vi.spyOn(agentManagementApi, 'authMode').mockResolvedValue({
+      agent_id: 'claude_code',
+      mode: 'official_subscription',
+      credential_env: 'ANTHROPIC_API_KEY',
+      credential_present: false,
+      modes: ['official_subscription', 'official_api', 'model_provider'],
+      options: claudeOptions,
+    });
+
+    render(
+      <AgentAuthModeControl
+        agentId="claude_code"
+        authentication="not_logged_in"
+      />
+    );
+
+    const tablist = await screen.findByRole('tablist');
+    const tabs = within(tablist).getAllByRole('tab');
+    expect(tabs).toHaveLength(3);
+    for (const tab of tabs) {
+      expect(tab.querySelector('svg.agent-auth-mode-tab-icon')).not.toBeNull();
+    }
+  });
 });
 
 function authOption(

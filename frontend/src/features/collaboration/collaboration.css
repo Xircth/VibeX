@@ -2088,16 +2088,22 @@ body.is-dragging-collaboration-member * {
   transition: filter 160ms ease;
 }
 
+.agent-session-config-picker,
 .multi-agent-default-picker {
   display: flex;
   flex-direction: column;
   gap: 0.25rem;
 }
 
+.settings-page .agent-session-config-picker > .settings-row,
 .settings-page .multi-agent-default-picker > .settings-row {
   min-height: 2rem;
 }
 
+.settings-page .agent-session-config-picker [data-testid^='session-control-'],
+.settings-page
+  .agent-session-config-picker
+  .astryx-button[data-testid^='session-control-'],
 .settings-page .multi-agent-default-picker [data-testid^='session-control-'],
 .settings-page
   .multi-agent-default-picker
@@ -2117,6 +2123,9 @@ body.is-dragging-collaboration-member * {
 }
 
 .settings-page
+  .agent-session-config-picker
+  [data-testid^='session-control-']:hover:not(:disabled),
+.settings-page
   .multi-agent-default-picker
   [data-testid^='session-control-']:hover:not(:disabled),
 .collaboration-settings-modal-overlay
@@ -2129,6 +2138,10 @@ body.is-dragging-collaboration-member * {
   background-color: var(--surface-control-solid-hover, #f5f5f5) !important;
 }
 
+.dark
+  .settings-page
+  .agent-session-config-picker
+  [data-testid^='session-control-'],
 .dark
   .settings-page
   .multi-agent-default-picker

@@ -1178,7 +1178,12 @@ html.dark {
   box-shadow: var(--shadow-low);
 }
 
-.legacy-design .astryx-segmented-control-item:is([aria-selected='true'], [aria-pressed='true'], .is-active) {
+.legacy-design
+  .astryx-segmented-control-item:is(
+    [aria-selected='true'],
+    [aria-pressed='true'],
+    .is-active
+  ) {
   background-color: light-dark(#ffffff, #404040) !important;
   color: var(--text-strong);
   box-shadow: var(--shadow-low);
@@ -3165,11 +3170,15 @@ html.dark {
 
   .settings-page
     :is(
-      .astryx-button[data-variant='secondary'],
+      .astryx-button[data-variant='secondary']:not(
+          [data-testid^='session-control-']
+        ):not(.custom-role-agent-trigger),
       .astryx-icon-button[data-variant='secondary'],
       button.raised-control:not(.astryx-button):not([role='combobox']):not(
           [data-raised-selector]
-        ):not([aria-expanded])
+        ):not([aria-expanded]):not([data-testid^='session-control-']):not(
+          .custom-role-agent-trigger
+        )
     ) {
     border-color: var(--border-subtle) !important;
     background: var(--settings-button-secondary-bg) !important;
@@ -3180,15 +3189,50 @@ html.dark {
 
   .settings-page
     :is(
-      .astryx-button[data-variant='secondary'],
+      .astryx-button[data-variant='secondary']:not(
+          [data-testid^='session-control-']
+        ):not(.custom-role-agent-trigger),
       .astryx-icon-button[data-variant='secondary'],
       button.raised-control:not(.astryx-button):not([role='combobox']):not(
           [data-raised-selector]
-        ):not([aria-expanded])
+        ):not([aria-expanded]):not([data-testid^='session-control-']):not(
+          .custom-role-agent-trigger
+        )
     ):hover:not(:disabled):not([aria-disabled='true']) {
     background: var(--settings-button-secondary-hover-bg) !important;
     background-color: var(--settings-button-secondary-hover-bg) !important;
     color: var(--settings-button-secondary-fg) !important;
+  }
+
+  .settings-page [data-testid^='session-control-'],
+  .settings-page .custom-role-agent-trigger {
+    border: 1px solid var(--border-subtle) !important;
+    background: var(--surface-control-solid) !important;
+    background-color: var(--surface-control-solid) !important;
+    color: var(--text-strong) !important;
+    box-shadow: var(--shadow-inset) !important;
+  }
+
+  .settings-page
+    :is(
+      [data-testid^='session-control-'],
+      .custom-role-agent-trigger
+    ):hover:not(:disabled):not([aria-disabled='true']) {
+    background: var(--surface-control-solid-hover) !important;
+    background-color: var(--surface-control-solid-hover) !important;
+    color: var(--text-strong) !important;
+  }
+
+  .settings-page .agent-session-config-picker,
+  .settings-page .multi-agent-default-picker {
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+  }
+
+  .settings-page .agent-session-config-picker > .settings-row,
+  .settings-page .multi-agent-default-picker > .settings-row {
+    min-height: 2rem;
   }
 
   .settings-page button[role='combobox'] {
@@ -6809,11 +6853,10 @@ html.dark {
 
   /* Floating rounded sidebar container (macOS-style inset panel). */
   .settings-sidebar {
+    display: flex;
+    flex-direction: column;
     min-height: 0;
-    overflow-x: hidden;
-    overflow-y: auto;
-    overscroll-behavior: contain;
-    scrollbar-gutter: auto;
+    overflow: hidden;
     border: 1px solid var(--border-subtle);
     border-radius: var(--radius);
     background: var(--surface-wash), var(--surface-sidebar);
@@ -6831,28 +6874,52 @@ html.dark {
     box-shadow: none;
   }
 
-  .settings-sidebar::-webkit-scrollbar {
+  :is(
+      .settings-sidebar,
+      .settings-nav-groups,
+      .settings-search-results
+    )::-webkit-scrollbar {
     width: 3px;
     height: 3px;
     background: transparent;
   }
 
-  .settings-sidebar::-webkit-scrollbar-track,
-  .settings-sidebar::-webkit-scrollbar-track-piece,
-  .settings-sidebar::-webkit-scrollbar-corner {
+  :is(
+      .settings-sidebar,
+      .settings-nav-groups,
+      .settings-search-results
+    )::-webkit-scrollbar-track,
+  :is(
+      .settings-sidebar,
+      .settings-nav-groups,
+      .settings-search-results
+    )::-webkit-scrollbar-track-piece,
+  :is(
+      .settings-sidebar,
+      .settings-nav-groups,
+      .settings-search-results
+    )::-webkit-scrollbar-corner {
     margin-block: 10px;
     border: none;
     background: transparent;
     box-shadow: none;
   }
 
-  .settings-sidebar::-webkit-scrollbar-thumb {
+  :is(
+      .settings-sidebar,
+      .settings-nav-groups,
+      .settings-search-results
+    )::-webkit-scrollbar-thumb {
     border: 0;
     border-radius: 999px;
     background: hsl(var(--muted-foreground) / 0.28);
   }
 
-  .settings-sidebar::-webkit-scrollbar-thumb:hover {
+  :is(
+      .settings-sidebar,
+      .settings-nav-groups,
+      .settings-search-results
+    )::-webkit-scrollbar-thumb:hover {
     background: hsl(var(--muted-foreground) / 0.45);
   }
 
@@ -6966,10 +7033,16 @@ html.dark {
 
   .settings-search-results {
     display: flex;
+    min-height: 0;
+    flex: 1 1 auto;
     flex-direction: column;
     gap: 2px;
     margin: 0;
     padding: 0;
+    overflow-x: hidden;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    scrollbar-gutter: auto;
     list-style: none;
   }
 
@@ -7051,8 +7124,14 @@ html.dark {
 
   .settings-nav-groups {
     display: flex;
+    min-height: 0;
+    flex: 1 1 auto;
     flex-direction: column;
     gap: 0.625rem;
+    overflow-x: hidden;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    scrollbar-gutter: auto;
   }
 
   .settings-nav-section {
@@ -9926,8 +10005,8 @@ html.host-windows :where(.legacy-design) .vu-toast-surface {
   max-width: 100%;
   flex-wrap: wrap;
   align-items: center;
-  gap: 2px;
-  padding: 2px;
+  gap: 3px;
+  padding: 3px;
   margin: 0 16px 10px;
   border-radius: 999px;
   background-color: light-dark(#e5e5e5, #262626);
@@ -9940,11 +10019,12 @@ html.host-windows :where(.legacy-design) .vu-toast-surface {
 
 .settings-page .agent-auth-mode-submode {
   display: inline-flex;
-  height: 20px;
-  min-height: 20px;
+  height: 26px !important;
+  min-height: 26px !important;
   align-items: center;
   justify-content: center;
-  padding: 0 12px;
+  gap: 6px;
+  padding: 0 14px !important;
   border: 0;
   border-radius: 999px;
   background: transparent;
@@ -9975,20 +10055,20 @@ html.host-windows :where(.legacy-design) .vu-toast-surface {
   max-width: 100%;
   flex-wrap: wrap;
   align-items: center;
-  gap: 2px;
-  padding: 2px;
+  gap: 3px;
+  padding: 3px;
   border-radius: 999px;
   background-color: light-dark(#e5e5e5, #262626);
 }
 
 .settings-page .agent-auth-mode-tabs > button {
   display: inline-flex;
-  height: 20px;
-  min-height: 20px;
+  height: 26px !important;
+  min-height: 26px !important;
   align-items: center;
   justify-content: center;
   gap: 6px;
-  padding: 0 12px;
+  padding: 0 14px !important;
   border: 0;
   border-radius: 999px;
   outline: 0;
@@ -10002,6 +10082,12 @@ html.host-windows :where(.legacy-design) .vu-toast-surface {
     background-color 160ms cubic-bezier(0.22, 1, 0.36, 1),
     color 160ms cubic-bezier(0.22, 1, 0.36, 1),
     box-shadow 160ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.settings-page .agent-auth-mode-tab-icon {
+  width: 13px;
+  height: 13px;
+  flex-shrink: 0;
 }
 
 .settings-page .agent-auth-mode-tabs > button:hover:not(:disabled) {

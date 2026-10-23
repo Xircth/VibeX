@@ -12,9 +12,7 @@ import NiceModal, { useModal } from '@ebay/nice-modal-react';
 import { useTheme } from '@/components/ThemeProvider';
 import { getActualTheme } from '@/utils/theme';
 import { defineModal, type NoProps } from '@/lib/modals';
-import { APP_NAME } from '@/lib/branding';
-
-const RELEASE_NOTES_BASE_URL = 'https://vibex.xforever.xin/release-notes';
+import { APP_NAME, getSiteUrl } from '@/lib/branding';
 
 const ReleaseNotesDialogImpl = NiceModal.create<NoProps>(() => {
   const modal = useModal();
@@ -23,7 +21,7 @@ const ReleaseNotesDialogImpl = NiceModal.create<NoProps>(() => {
 
   const releaseNotesUrl = useMemo(() => {
     const actualTheme = getActualTheme(theme);
-    const url = new URL(RELEASE_NOTES_BASE_URL);
+    const url = new URL(getSiteUrl('/release-notes'));
     url.searchParams.set('theme', actualTheme);
     return url.toString();
   }, [theme]);

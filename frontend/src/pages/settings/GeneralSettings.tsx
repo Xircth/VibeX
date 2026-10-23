@@ -299,6 +299,13 @@ export function GeneralSettings() {
                       },
                     })
                   }
+                  onSave={({ modeId, configValues }) => {
+                    updateDraft({
+                      prompt_enhancement_mode: modeId,
+                      prompt_enhancement_session_config: configValues,
+                    });
+                    toast.success(t('general.settingsSaved'));
+                  }}
                 />
 
                 <div className="space-y-2">

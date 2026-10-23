@@ -22,6 +22,7 @@ import {
 import { Logo } from '@/components/Logo';
 import { SearchBar } from '@/components/SearchBar';
 import { useSearch } from '@/contexts/SearchContext';
+import { getSiteUrl } from '@/lib/branding';
 import { resolveCreateSessionHref } from '@/lib/createSessionHref';
 import { paths } from '@/lib/paths';
 import { useProject } from '@/contexts/ProjectContext';
@@ -40,7 +41,7 @@ const EXTERNAL_LINKS = [
   {
     label: 'Docs',
     icon: BookOpen,
-    href: 'https://vibex.xforever.xin/docs',
+    href: getSiteUrl('/docs'),
   },
   {
     label: 'Support',

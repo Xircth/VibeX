@@ -3,6 +3,8 @@ import path from 'path';
 import { astryxRichtextCoreAlias } from './vite.astryx-richtext-core-alias';
 
 export default defineConfig({
+  envDir: path.resolve(__dirname, '..'),
+  envPrefix: ['VITE_', 'VIBEX_'],
   plugins: [astryxRichtextCoreAlias()],
   resolve: {
     alias: {

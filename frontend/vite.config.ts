@@ -33,6 +33,8 @@ function createFilteredLogger() {
 }
 
 export default defineConfig({
+  envDir: path.resolve(__dirname, '..'),
+  envPrefix: ['VITE_', 'VIBEX_'],
   customLogger: createFilteredLogger(),
   define: {
     __APP_VERSION__: JSON.stringify(pkg.version),

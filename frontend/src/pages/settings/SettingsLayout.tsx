@@ -50,9 +50,12 @@ import { SETTINGS_SEARCH_ENTRIES } from './settingsSearchCatalog';
 import { applySettingsSearchHighlight } from './settingsSearchQuery';
 import { syncSettingsWindowTitle } from './syncSettingsWindowTitle';
 import {
+  type Disposer,
+  type SettingsPageContribution,
   settingsPageRegistry,
   useSettingSections,
   useSettingsPages,
+  type VibeXPluginContext,
 } from '@vibex/plugin-sdk';
 import {
   contributionMetadata,
@@ -76,7 +79,7 @@ interface SettingsNavGroup {
   items: SettingsNavItem[];
 }
 
-const SETTINGS_NAV_GROUPS: Omit<SettingsNavGroup, 'id'>[] = [
+export const SETTINGS_NAV_GROUPS: Omit<SettingsNavGroup, 'id'>[] = [
   {
     title: 'For Human',
     items: [
@@ -174,31 +177,83 @@ const SETTINGS_NAV_GROUPS: Omit<SettingsNavGroup, 'id'>[] = [
   },
 ];
 
-export function registerBuiltinSettingsPages(): void {
+export interface RegisterBuiltinSettingsPagesOptions {
+  readonly ctx?: VibeXPluginContext;
+  readonly paths?: readonly string[];
+  readonly extraPages?: ReadonlyArray<
+    Omit<SettingsPageContribution, 'pluginId'>
+  >;
+  readonly pluginId?: string;
+}
+
+export function registerBuiltinSettingsPages(
+  options?: RegisterBuiltinSettingsPagesOptions
+): Disposer {
+  const allowedPaths = options?.paths ? new Set(options.paths) : null;
+  const disposers: Disposer[] = [];
+  const ownerPluginId =
+    options?.ctx?.pluginId ?? options?.pluginId ?? 'builtin';
+
   let order = 10;
   for (const group of SETTINGS_NAV_GROUPS) {
     for (const item of group.items) {
+      const currentOrder = order;
+      order += 10;
+      if (allowedPaths && !allowedPaths.has(item.path)) {
+        continue;
+      }
       const id = `builtin:${item.path}`;
-      if (!settingsPageRegistry.has(id)) {
-        settingsPageRegistry.register(
-          {
-            id,
-            title: item.label ?? item.labelKey ?? item.path,
-            titleKey: item.labelKey,
-            group: group.title,
-            path: item.path,
-            builtin: true,
-            order,
-          },
-          'builtin'
+      const contribution: Omit<SettingsPageContribution, 'pluginId'> = {
+        id,
+        title: item.label ?? item.labelKey ?? item.path,
+        titleKey: item.labelKey,
+        group: group.title,
+        path: item.path,
+        builtin: true,
+        order: currentOrder,
+      };
+      if (options?.ctx) {
+        disposers.push(options.ctx.ui.registerSettingsPage(contribution));
+      } else {
+        disposers.push(
+          settingsPageRegistry.register(
+            { ...contribution, pluginId: ownerPluginId },
+            ownerPluginId
+          )
         );
       }
-      order += 10;
     }
   }
-}
 
-registerBuiltinSettingsPages();
+  for (const extra of options?.extraPages ?? []) {
+    const contribution: Omit<SettingsPageContribution, 'pluginId'> = {
+      ...extra,
+      builtin: extra.builtin ?? true,
+    };
+    if (options?.ctx) {
+      disposers.push(options.ctx.ui.registerSettingsPage(contribution));
+    } else {
+      disposers.push(
+        settingsPageRegistry.register(
+          { ...contribution, pluginId: ownerPluginId },
+          ownerPluginId
+        )
+      );
+    }
+  }
+
+  const cleanup: Disposer = () => {
+    for (let i = disposers.length - 1; i >= 0; i -= 1) {
+      disposers[i]?.();
+    }
+  };
+
+  if (options?.ctx) {
+    options.ctx.effect(() => cleanup);
+  }
+
+  return cleanup;
+}
 
 function SettingsNavSection({
   title,

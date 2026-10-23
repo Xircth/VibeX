@@ -19,7 +19,9 @@ import { usePanelActionsContext } from '@/contexts/PanelActionsContext';
 import {
   commandRegistry,
   type CommandContribution,
+  type Disposer,
   useCommands,
+  type VibeXPluginContext,
 } from '@vibex/plugin-sdk';
 import {
   contributionMetadata,
@@ -49,48 +51,313 @@ interface PaletteResult {
   icon?: LucideIcon;
 }
 
+function dispatchHostEvent(name: string, detail?: Record<string, unknown>) {
+  if (typeof window !== 'undefined') {
+    window.dispatchEvent(
+      new CustomEvent(name, detail ? { detail } : undefined)
+    );
+  }
+}
+
 export const BUILTIN_PALETTE_COMMANDS: readonly CommandContribution[] = [
   {
     id: 'builtin.open-settings',
-    pluginId: 'builtin',
+    pluginId: 'vibex.core.settings',
     title: 'Open Settings',
     category: 'Settings',
     icon: 'settings',
     order: 100,
     handler: () => {
-      if (typeof window !== 'undefined') {
-        window.dispatchEvent(new CustomEvent('vibex:open-settings'));
-      }
+      dispatchHostEvent('vibex:open-settings');
     },
   },
   {
     id: 'builtin.manage-plugins',
-    pluginId: 'builtin',
+    pluginId: 'vibex.core.plugin-manager',
     title: 'Manage Plugins',
     category: 'Plugins',
     icon: 'puzzle',
     order: 110,
     handler: () => {
-      if (typeof window !== 'undefined') {
-        window.dispatchEvent(
-          new CustomEvent('vibex:open-settings', {
-            detail: { section: 'plugins' },
-          })
-        );
-      }
+      dispatchHostEvent('vibex:open-settings', { section: 'plugins' });
+    },
+  },
+  {
+    id: 'builtin.hmr.reset-boundaries',
+    pluginId: 'vibex.core.hmr',
+    title: 'Reset Plugin Crash Boundaries',
+    category: 'System',
+    icon: 'refresh-cw',
+    order: 120,
+    handler: () => {
+      dispatchHostEvent('vibex:hmr-reset-boundaries');
+    },
+  },
+  {
+    id: 'builtin.credentials.probe-usage',
+    pluginId: 'vibex.core.credentials',
+    title: 'Probe Agent Subscription Usage',
+    category: 'Account',
+    icon: 'activity',
+    order: 130,
+    handler: () => {
+      dispatchHostEvent('vibex:probe-usage');
+    },
+  },
+  {
+    id: 'builtin.agent.configure',
+    pluginId: 'vibex.core.agent-runtime',
+    title: 'Configure Coding Agents',
+    category: 'Agent',
+    icon: 'bot',
+    order: 140,
+    handler: () => {
+      dispatchHostEvent('vibex:open-settings', { section: 'agents' });
+    },
+  },
+  {
+    id: 'builtin.session.focus-list',
+    pluginId: 'vibex.core.session',
+    title: 'Focus Session List',
+    category: 'Session',
+    icon: 'list',
+    order: 150,
+    handler: () => {
+      dispatchHostEvent('vibex:focus-panel', { panelId: 'session-list' });
+    },
+  },
+  {
+    id: 'builtin.models.browse-catalog',
+    pluginId: 'vibex.core.llm-providers',
+    title: 'Browse LLM Model Catalog',
+    category: 'Models',
+    icon: 'cpu',
+    order: 160,
+    handler: () => {
+      dispatchHostEvent('vibex:open-settings', { section: 'models' });
+    },
+  },
+  {
+    id: 'builtin.skills.manage',
+    pluginId: 'vibex.core.skills',
+    title: 'Manage Agent Skills',
+    category: 'Skills',
+    icon: 'book-open',
+    order: 170,
+    handler: () => {
+      dispatchHostEvent('vibex:open-settings', { section: 'skills' });
+    },
+  },
+  {
+    id: 'builtin.mcp.manage',
+    pluginId: 'vibex.core.mcp',
+    title: 'Manage MCP Servers',
+    category: 'MCP',
+    icon: 'plug-zap',
+    order: 180,
+    handler: () => {
+      dispatchHostEvent('vibex:open-settings', { section: 'mcp' });
+    },
+  },
+  {
+    id: 'builtin.delegation.subagents',
+    pluginId: 'vibex.core.delegation',
+    title: 'Manage Subagent Delegation',
+    category: 'Agent',
+    icon: 'users',
+    order: 190,
+    handler: () => {
+      dispatchHostEvent('vibex:open-settings', { section: 'subagents' });
+    },
+  },
+  {
+    id: 'builtin.compaction.compact',
+    pluginId: 'vibex.core.compaction',
+    title: 'Compact Session Context',
+    category: 'Session',
+    icon: 'minimize-2',
+    order: 200,
+    handler: () => {
+      dispatchHostEvent('vibex:compact-session');
+    },
+  },
+  {
+    id: 'builtin.approval.policies',
+    pluginId: 'vibex.core.approval',
+    title: 'Configure Tool Approval Gate',
+    category: 'Approval',
+    icon: 'shield-check',
+    order: 210,
+    handler: () => {
+      dispatchHostEvent('vibex:open-settings', { section: 'approval' });
+    },
+  },
+  {
+    id: 'builtin.shell.new-terminal',
+    pluginId: 'vibex.core.shell',
+    title: 'New Terminal',
+    category: 'Terminal',
+    icon: 'terminal',
+    order: 220,
+    handler: () => {
+      dispatchHostEvent('vibex:new-terminal');
+    },
+  },
+  {
+    id: 'builtin.git.status',
+    pluginId: 'vibex.core.workspace-git',
+    title: 'Open Git Changes & Worktrees',
+    category: 'Git',
+    icon: 'git-branch',
+    order: 230,
+    handler: () => {
+      dispatchHostEvent('vibex:focus-panel', { panelId: 'git' });
+    },
+  },
+  {
+    id: 'builtin.filesystem.explorer',
+    pluginId: 'vibex.core.filesystem',
+    title: 'Focus File Explorer',
+    category: 'Files',
+    icon: 'folder-tree',
+    order: 240,
+    handler: () => {
+      dispatchHostEvent('vibex:focus-panel', { panelId: 'file-tree' });
+    },
+  },
+  {
+    id: 'builtin.automation.schedules',
+    pluginId: 'vibex.core.automation',
+    title: 'Manage Scheduled Automations',
+    category: 'Automation',
+    icon: 'clock',
+    order: 250,
+    handler: () => {
+      dispatchHostEvent('vibex:open-settings', { section: 'automations' });
+    },
+  },
+  {
+    id: 'builtin.channels.gateway',
+    pluginId: 'vibex.core.channels',
+    title: 'Configure Chat Channels Gateway',
+    category: 'Channels',
+    icon: 'send',
+    order: 260,
+    handler: () => {
+      dispatchHostEvent('vibex:open-settings', { section: 'chat-channels' });
+    },
+  },
+  {
+    id: 'builtin.layout.reset-workbench',
+    pluginId: 'vibex.webui.layout',
+    title: 'Focus Workbench Welcome',
+    category: 'View',
+    icon: 'house',
+    order: 270,
+    handler: () => {
+      dispatchHostEvent('vibex:focus-panel', { panelId: 'welcome' });
+    },
+  },
+  {
+    id: 'builtin.conversation.new-chat',
+    pluginId: 'vibex.webui.conversation',
+    title: 'Focus AI Conversation',
+    category: 'Conversation',
+    icon: 'message-square',
+    order: 280,
+    handler: () => {
+      dispatchHostEvent('vibex:focus-panel', { panelId: 'ai-chat' });
+    },
+  },
+  {
+    id: 'builtin.kanban.open-board',
+    pluginId: 'vibex.webui.kanban',
+    title: 'Open Kanban Board',
+    category: 'View',
+    icon: 'columns-3',
+    order: 290,
+    handler: () => {
+      dispatchHostEvent('vibex:focus-panel', { panelId: 'kanban' });
+    },
+  },
+  {
+    id: 'builtin.commands.shortcuts',
+    pluginId: 'vibex.webui.commands',
+    title: 'Configure Keyboard Shortcuts',
+    category: 'Shortcuts',
+    icon: 'keyboard',
+    order: 300,
+    handler: () => {
+      dispatchHostEvent('vibex:open-settings', { section: 'shortcuts' });
+    },
+  },
+  {
+    id: 'builtin.theme.switch',
+    pluginId: 'vibex.webui.theme',
+    title: 'Switch Appearance Theme',
+    category: 'Appearance',
+    icon: 'sun',
+    order: 310,
+    handler: () => {
+      dispatchHostEvent('vibex:toggle-theme');
     },
   },
 ];
 
-export function registerBuiltinCommands(): void {
-  for (const command of BUILTIN_PALETTE_COMMANDS) {
-    if (!commandRegistry.has(command.id)) {
-      commandRegistry.register(command, 'builtin');
-    }
-  }
+export interface RegisterBuiltinCommandsOptions {
+  readonly ctx?: VibeXPluginContext;
+  readonly commandIds?: readonly string[];
+  readonly pluginId?: string;
 }
 
-registerBuiltinCommands();
+export function registerBuiltinCommands(
+  options?: RegisterBuiltinCommandsOptions
+): Disposer {
+  const allowedIds = options?.commandIds ? new Set(options.commandIds) : null;
+  const filterPluginId = options?.ctx?.pluginId ?? options?.pluginId;
+  const targetCommands = allowedIds
+    ? BUILTIN_PALETTE_COMMANDS.filter((c) => allowedIds.has(c.id))
+    : filterPluginId
+      ? BUILTIN_PALETTE_COMMANDS.filter((c) => c.pluginId === filterPluginId)
+      : BUILTIN_PALETTE_COMMANDS;
+
+  const disposers: Disposer[] = [];
+  for (const command of targetCommands) {
+    const ownerPluginId = filterPluginId ?? command.pluginId ?? 'builtin';
+    if (options?.ctx) {
+      disposers.push(
+        options.ctx.ui.registerCommand({
+          id: command.id,
+          title: command.title,
+          category: command.category,
+          icon: command.icon,
+          shortcut: command.shortcut,
+          order: command.order,
+          handler: command.handler,
+        })
+      );
+    } else {
+      disposers.push(
+        commandRegistry.register(
+          { ...command, pluginId: ownerPluginId },
+          ownerPluginId
+        )
+      );
+    }
+  }
+
+  const cleanup: Disposer = () => {
+    for (let i = disposers.length - 1; i >= 0; i -= 1) {
+      disposers[i]?.();
+    }
+  };
+
+  if (options?.ctx) {
+    options.ctx.effect(() => cleanup);
+  }
+
+  return cleanup;
+}
 
 export function SearchPalette() {
   const {

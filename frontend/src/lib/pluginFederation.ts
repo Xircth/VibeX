@@ -4,6 +4,12 @@ import * as React from 'react';
 (globalThis as Record<string, unknown>).__VIBEX_REACT__ = React;
 PluginSdk.bindExternalStoreHook(React.useSyncExternalStore);
 
+declare module '@vibex/plugin-sdk' {
+  interface VibeXPluginContext {
+    readonly effects: PluginSdk.EffectScope;
+  }
+}
+
 export type PluginRemoteEnvironment = {
   pluginId: string;
   surfaceId: string;
@@ -19,11 +25,11 @@ export type PluginRemoteEnvironment = {
 
 const activePluginDisposers = new Map<string, () => void>();
 
-export async function activatePluginModule(
+export function activatePluginModuleSync(
   pluginId: string,
   module: unknown,
-  options?: { callHost?: PluginSdk.HostCallTransport }
-): Promise<() => void> {
+  options?: { callHost?: PluginSdk.HostCallTransport; generation?: number }
+): (() => void) | Promise<() => void> {
   deactivatePluginModule(pluginId);
 
   const rec =
@@ -57,8 +63,16 @@ export async function activatePluginModule(
 
   const ctx = PluginSdk.createPluginContext({
     pluginId,
+    generation: options?.generation,
     callHost: options?.callHost,
   });
+  if (!('effects' in ctx)) {
+    Object.defineProperty(ctx, 'effects', {
+      get: () => ctx.scope,
+      enumerable: true,
+      configurable: true,
+    });
+  }
   let returnedDisposer: void | (() => void);
   const dispose = () => {
     activePluginDisposers.delete(pluginId);
@@ -82,10 +96,19 @@ export async function activatePluginModule(
       maybePromise &&
       typeof (maybePromise as Promise<unknown>).then === 'function'
     ) {
-      returnedDisposer = await maybePromise;
-    } else {
-      returnedDisposer = maybePromise as void | (() => void);
+      return (maybePromise as Promise<void | (() => void)>).then(
+        (resolvedDisposer) => {
+          returnedDisposer = resolvedDisposer;
+          return dispose;
+        },
+        (error) => {
+          activePluginDisposers.delete(pluginId);
+          ctx.dispose();
+          throw error;
+        }
+      );
     }
+    returnedDisposer = maybePromise as void | (() => void);
   } catch (error) {
     activePluginDisposers.delete(pluginId);
     ctx.dispose();
@@ -93,6 +116,14 @@ export async function activatePluginModule(
   }
 
   return dispose;
+}
+
+export async function activatePluginModule(
+  pluginId: string,
+  module: unknown,
+  options?: { callHost?: PluginSdk.HostCallTransport; generation?: number }
+): Promise<() => void> {
+  return await activatePluginModuleSync(pluginId, module, options);
 }
 
 export function deactivatePluginModule(pluginId: string): void {

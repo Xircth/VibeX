@@ -1,5 +1,5 @@
 import { useMemo, useRef, useState, type ReactNode } from 'react';
-import { ChevronDown, ChevronRight, Send, Sunrise } from 'lucide-react';
+import { BellRing, ChevronDown, ChevronRight, Send } from 'lucide-react';
 
 import { Button } from '@/components/ui/button';
 import {
@@ -355,7 +355,7 @@ export function GroupChat({
             role="status"
             data-testid="collab-wake-confirm"
           >
-            <Sunrise aria-hidden="true" />
+            <BellRing aria-hidden="true" />
             <span className="collab-wake-hint-text">
               {THREAD_COPY.wakeConfirm(
                 wakePreview.willWake,
@@ -376,6 +376,7 @@ export function GroupChat({
               {THREAD_COPY.wakeConfirmMention}
             </Button>
             <Button
+              variant="primary"
               size="xs"
               onClick={() => void send(true)}
               disabled={sending}

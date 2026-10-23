@@ -191,15 +191,6 @@ export function ThreadList({
                           className="h-7 w-7"
                         />
                       )}
-                      {item.attention > 0 ? (
-                        <span
-                          className="collaboration-attention-badge"
-                          aria-label={THREAD_COPY.needsYou}
-                          data-testid="collab-attention-badge"
-                        >
-                          {item.attention}
-                        </span>
-                      ) : null}
                     </span>
                     <span className="collaboration-member-title-group">
                       <span className="collaboration-member-name">
@@ -224,17 +215,30 @@ export function ThreadList({
                       ) : null}
                     </span>
                     <span className="collab-list-row-meta">
-                      {item.activity.warning ? (
-                        <TriangleAlert
-                          className="h-3.5 w-3.5 collab-card-icon--warning"
-                          aria-label={THREAD_COPY.conflictTitle}
-                        />
-                      ) : null}
-                      {item.pinned ? (
-                        <Pin className="h-3 w-3" aria-label={THREAD_COPY.pin} />
-                      ) : null}
-                      <span>{compactAge(item.activity.at, now)}</span>
-                      {item.activity.unread ? (
+                      <span className="collab-list-row-meta-top">
+                        {item.activity.warning ? (
+                          <TriangleAlert
+                            className="h-3.5 w-3.5 collab-card-icon--warning"
+                            aria-label={THREAD_COPY.conflictTitle}
+                          />
+                        ) : null}
+                        {item.pinned ? (
+                          <Pin
+                            className="h-3 w-3"
+                            aria-label={THREAD_COPY.pin}
+                          />
+                        ) : null}
+                        <span>{compactAge(item.activity.at, now)}</span>
+                      </span>
+                      {item.attention > 0 ? (
+                        <span
+                          className="collaboration-unread-badge collaboration-attention-badge"
+                          aria-label={THREAD_COPY.needsYou}
+                          data-testid="collab-attention-badge"
+                        >
+                          {item.attention}
+                        </span>
+                      ) : item.activity.unread ? (
                         <span className="collaboration-unread-badge">
                           {item.activity.unread}
                         </span>

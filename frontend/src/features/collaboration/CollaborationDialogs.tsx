@@ -3,6 +3,7 @@ import {
   ArrowRight,
   Check,
   MessageSquare,
+  UserPlus,
   UserRound,
   Users,
 } from 'lucide-react';
@@ -121,7 +122,10 @@ export function NewGroupDialog({
           </div>
           <div className="collab-form-field">
             <Label>{DIALOG_COPY.groupMembers}</Label>
-            <div className="collaboration-dialog-member-picker" role="group">
+            <div
+              className="collaboration-dialog-member-picker collab-group-picker"
+              role="group"
+            >
               {members.length === 0 ? (
                 <p className="collab-empty-hint">
                   {DIALOG_COPY.groupNoMembers}
@@ -135,7 +139,7 @@ export function NewGroupDialog({
                       className="collaboration-picker-row flex items-center gap-2"
                     >
                       <Checkbox
-                        className="collaboration-delete-checkbox"
+                        className="collab-picker-checkbox"
                         aria-label={member.nickname}
                         checked={checked}
                         onCheckedChange={() => toggle(member.memberId)}
@@ -189,7 +193,7 @@ export function NewGroupDialog({
               className="self-start"
               onClick={onNewMember}
             >
-              <UserRound className="h-3.5 w-3.5" aria-hidden="true" />
+              <UserPlus className="h-3.5 w-3.5" aria-hidden="true" />
               {DIALOG_COPY.newMemberInline}
             </Button>
           </div>

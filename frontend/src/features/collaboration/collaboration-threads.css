@@ -95,11 +95,19 @@
 .collab-list-row-meta {
   display: inline-flex;
   flex: 0 0 auto;
-  align-items: center;
+  flex-direction: column;
+  align-items: flex-end;
+  justify-content: center;
   gap: 4px;
   font-size: 0.75rem;
   font-weight: 500;
   color: var(--text-muted);
+}
+
+.collab-list-row-meta-top {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
 }
 
 .collab-list-row {
@@ -132,24 +140,8 @@
 }
 
 .collaboration-attention-badge {
-  position: absolute;
-  top: -4px;
-  left: -4px;
-  z-index: 1;
-  display: inline-flex;
-  min-width: 1rem;
-  height: 1rem;
-  align-items: center;
-  justify-content: center;
-  padding: 0 4px;
-  border-radius: 999px;
-  background: hsl(var(--warning));
-  color: hsl(var(--warning-foreground));
-  font-size: 0.625rem;
+  /* Lives in the row meta column under the time; same accent as unread. */
   font-weight: 600;
-  line-height: 1;
-  box-shadow: 0 0 0 1.5px
-    var(--workspace-session-row-bg, var(--surface-sidebar));
 }
 
 .collaboration-unread-badge {
@@ -465,7 +457,8 @@
 .collab-wake-hint svg {
   width: 16px;
   height: 16px;
-  color: hsl(var(--warning));
+  flex: 0 0 auto;
+  color: var(--text-muted);
 }
 .collab-wake-hint-text {
   flex: 1;
@@ -692,6 +685,43 @@
   flex: 1;
 }
 
+/* ---- new-group member picker: white card, 1px border, 48px rows ---- */
+.collaboration-dialog-member-picker.collab-group-picker {
+  gap: 0;
+  padding: 4px;
+  border: 1px solid var(--border-subtle);
+  background: var(--surface-card-strong);
+}
+.collab-group-picker .collaboration-picker-row {
+  min-height: 3rem;
+  padding: 0 8px;
+  border-radius: var(--radius);
+  transition: background-color 140ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+.collab-group-picker .collaboration-picker-row:hover,
+.collab-group-picker
+  .collaboration-picker-row:has([aria-checked='true']):hover {
+  background: var(--surface-control-hover);
+}
+.collab-group-picker .collaboration-picker-row:has([aria-checked='true']) {
+  background: var(--surface-control);
+}
+.collab-group-picker .collaboration-member-row,
+.collab-group-picker .collaboration-member-row.is-selected {
+  background: transparent;
+}
+.collab-picker-checkbox {
+  /* square checkbox (multi-select), never a round radio look */
+  border-radius: calc(var(--radius) * 0.3);
+  border: 1.5px solid var(--border-strong);
+  background: var(--surface-raised-control, var(--surface-card-strong));
+}
+.collab-picker-checkbox[aria-checked='true'] {
+  border-color: hsl(var(--primary));
+  background: hsl(var(--primary));
+  color: var(--primary-control-foreground);
+}
+
 /* ---- focus ring on every interactive collab element ---- */
 .collab-mention-item:focus-visible,
 .collab-picker-checkbox:focus-visible,
@@ -717,7 +747,8 @@
 
 @media (prefers-reduced-motion: reduce) {
   .collab-list-row-pin,
-  .collab-agent-fold {
+  .collab-agent-fold,
+  .collab-group-picker .collaboration-picker-row {
     transition: none;
   }
 }

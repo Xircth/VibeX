@@ -360,6 +360,7 @@ export interface CatalogListing {
   readme?: string | null;
   showTree?: boolean | null;
   icon?: string | null;
+  stars?: number | null;
 }
 
 export interface CatalogPluginDetail {

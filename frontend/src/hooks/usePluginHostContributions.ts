@@ -15,6 +15,7 @@ import {
   type PluginRuntimeSource,
 } from '@/features/plugins/PluginRuntimeLoader';
 import { getMonorepoPluginBundle } from '@/features/plugins/monorepoPluginBootstrap';
+import { ensureCoreFoundationPluginsBootstrapped } from '@/features/plugins/coreFoundationPlugins';
 import { ensureHostProviderServicesRegistered } from '@/features/plugins/providers/hostProviderServices';
 import { backendListen } from '@/lib/backendTransport';
 import {
@@ -50,6 +51,7 @@ export function usePluginContributionCatalogSync() {
 
   useEffect(() => {
     ensureHostProviderServicesRegistered();
+    ensureCoreFoundationPluginsBootstrapped();
   }, []);
 
   useEffect(() => {

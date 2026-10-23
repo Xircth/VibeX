@@ -1,4 +1,10 @@
 import type { CatalogListing, PluginControlItem } from '@/lib/api/plugins';
+import {
+  MARKETPLACE_CATEGORY_TAB_IDS,
+  normalizePluginCategory,
+  resolvePluginCategory,
+  type PluginCategoryKey,
+} from './officialPlugins';
 
 export const OFFICIAL_MARKETPLACE_OWNER = 'vibex';
 
@@ -24,7 +30,19 @@ export function listingTopicCategory(category: string | null | undefined) {
   const value = category?.trim() ?? '';
   if (!value) return null;
   if (CHANNEL_CATEGORIES.has(value.toLowerCase())) return null;
-  return value;
+  return normalizePluginCategory(value) ?? value;
+}
+
+export function resolveMarketplaceListingCategory(
+  listing: Pick<
+    CatalogListing,
+    'owner' | 'pluginName' | 'category' | 'offlinePluginId'
+  >
+): PluginCategoryKey {
+  return resolvePluginCategory(listing.offlinePluginId ?? listing.pluginName, {
+    publisher: listing.owner,
+    rawCategory: listing.category,
+  });
 }
 
 export function flattenMarketplaceListings(
@@ -42,19 +60,8 @@ export function flattenMarketplaceListings(
   return listings;
 }
 
-export function marketplaceCategoryTabIds(listings: CatalogListing[]) {
-  const topics = new Set<string>();
-  for (const listing of listings) {
-    const topic = listingTopicCategory(listing.category);
-    if (topic) topics.add(topic);
-  }
-  return [
-    'all',
-    'official',
-    ...[...topics].sort((left, right) =>
-      left.localeCompare(right, undefined, { sensitivity: 'base' })
-    ),
-  ];
+export function marketplaceCategoryTabIds(_listings?: CatalogListing[]) {
+  return [...MARKETPLACE_CATEGORY_TAB_IDS];
 }
 
 export function listingMatchesSearch(
@@ -90,7 +97,7 @@ export function listingsInMarketplaceTab(
     );
   }
   return listings.filter(
-    (listing) => listingTopicCategory(listing.category) === tab
+    (listing) => resolveMarketplaceListingCategory(listing) === tab
   );
 }
 

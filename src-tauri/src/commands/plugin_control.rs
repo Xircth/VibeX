@@ -733,16 +733,45 @@ pub async fn plugin_marketplace_listing(
 async fn inspect_marketplace_listing(
     listing: &plugins::CatalogListing,
 ) -> Option<plugins::CatalogPluginDetail> {
-    let url = listing.download_url.as_deref()?;
-    if url.starts_with("builtin://") || url.starts_with("offline://") {
-        return None;
+    let package_id = listing
+        .offline_plugin_id
+        .as_deref()
+        .unwrap_or(&listing.plugin_name);
+    if let Some(local_root) = plugins::monorepo_official_plugin_root(package_id)
+        && let Ok(package) =
+            plugins::PluginPackage::inspect(&local_root, plugins::PluginSourceKind::Marketplace)
+    {
+        return Some(plugins::detail_from_package(&package, listing.clone()));
     }
-    let archive = download_marketplace_archive(url).await.ok()?;
-    let extracted = extract_plugin_archive(&archive).ok()?;
-    let package =
-        plugins::PluginPackage::inspect(&extracted.root, plugins::PluginSourceKind::Marketplace)
-            .ok()?;
-    Some(plugins::detail_from_package(&package, listing.clone()))
+    let mut candidate_urls = Vec::new();
+    if let Some(url) = listing
+        .download_url
+        .as_deref()
+        .filter(|url| !url.starts_with("builtin://") && !url.starts_with("offline://"))
+    {
+        candidate_urls.push(url.to_owned());
+    }
+    if let Some(repo) = listing.repo.as_deref() {
+        candidate_urls.extend(plugins::github_archive_urls_for_repository(repo));
+    }
+    candidate_urls.extend(plugins::official_github_archive_urls(
+        &listing.owner,
+        &listing.plugin_name,
+    ));
+    for url in candidate_urls {
+        let Ok(archive) = download_marketplace_archive(&url).await else {
+            continue;
+        };
+        let Ok(extracted) = extract_plugin_archive(&archive) else {
+            continue;
+        };
+        if let Ok(package) =
+            plugins::PluginPackage::inspect(&extracted.root, plugins::PluginSourceKind::Marketplace)
+        {
+            return Some(plugins::detail_from_package(&package, listing.clone()));
+        }
+    }
+    None
 }
 
 #[tauri::command]
@@ -1479,7 +1508,34 @@ pub async fn plugin_control_preview_import(
     } else {
         plugins::PluginSourceKind::Snapshot
     };
-    let input = Path::new(&path);
+    let mut github_origin: Option<String> = None;
+    let effective_path = if !developer_link && path.contains("github.com/") {
+        github_origin = Some(path.clone());
+        let urls = plugins::github_archive_urls_for_repository(&path);
+        if urls.is_empty() {
+            return Err(AppError::BadRequest(format!(
+                "invalid GitHub repository URL: {path}"
+            )));
+        }
+        let mut downloaded: Option<PathBuf> = None;
+        let mut last_error = AppError::NotFound(path.clone());
+        for url in urls {
+            match download_marketplace_archive(&url).await {
+                Ok(archive) => {
+                    downloaded = Some(archive);
+                    break;
+                }
+                Err(error) => last_error = error,
+            }
+        }
+        match downloaded {
+            Some(archive) => archive.to_string_lossy().into_owned(),
+            None => return Err(last_error),
+        }
+    } else {
+        path
+    };
+    let input = Path::new(&effective_path);
     let extracted = if input.is_file() {
         if developer_link {
             return Err(AppError::BadRequest(
@@ -1498,9 +1554,10 @@ pub async fn plugin_control_preview_import(
     if !source.join(".vibex-plugin/plugin.json").is_file() {
         let mut preview = preview_native_import(source, source_kind).await?;
         if extracted.is_some() {
-            preview.plugin.source_path = path.clone();
+            preview.plugin.source_path = effective_path.clone();
+            preview.plugin.source_origin = github_origin;
             if let Some(conflict) = preview.conflict.as_mut() {
-                conflict.incoming_source = path;
+                conflict.incoming_source = effective_path;
             }
         }
         return Ok(preview);
@@ -1559,9 +1616,10 @@ pub async fn plugin_control_preview_import(
     preview.plugin.update_package_digest = update_package_digest;
     preview.plugin.permission_delta = permission_delta;
     if extracted.is_some() {
-        preview.plugin.source_path = path.clone();
+        preview.plugin.source_path = effective_path.clone();
+        preview.plugin.source_origin = github_origin;
         if let Some(conflict) = preview.conflict.as_mut() {
-            conflict.incoming_source = path;
+            conflict.incoming_source = effective_path;
         }
     }
     Ok(preview)

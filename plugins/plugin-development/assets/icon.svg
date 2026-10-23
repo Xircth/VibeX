@@ -1,4 +1,13 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none">
-  <path d="M9 4.5h4.2c.4 0 .8.2 1 .5l1.3 1.8h3A1.5 1.5 0 0 1 20 8.3v10.2A1.5 1.5 0 0 1 18.5 20h-13A1.5 1.5 0 0 1 4 18.5V6A1.5 1.5 0 0 1 5.5 4.5H9Z" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/>
-  <path d="M9.2 13.2 11.4 15l3.6-4.4" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+<svg xmlns="http://www.w3.org/2000/svg" width="36" height="36" viewBox="0 0 36 36" fill="none">
+  <rect x="3" y="3" width="30" height="30" rx="8" fill="url(#pdev_bg)" />
+  <path d="M13.5 13L9 18L13.5 23" stroke="#E0E7FF" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round" />
+  <path d="M22.5 13L27 18L22.5 23" stroke="#E0E7FF" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round" />
+  <path d="M19.5 11.5L16.5 24.5" stroke="#38BDF8" stroke-width="2" stroke-linecap="round" />
+  <circle cx="28" cy="8" r="3.5" fill="#34D399" />
+  <defs>
+    <linearGradient id="pdev_bg" x1="3" y1="3" x2="33" y2="33" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#4F46E5" />
+      <stop offset="1" stop-color="#1E1B4B" />
+    </linearGradient>
+  </defs>
 </svg>

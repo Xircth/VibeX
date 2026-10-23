@@ -1,7 +1,15 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none">
-  <path d="M9.5 3.5v5.2L5.2 16.4A2.2 2.2 0 0 0 7.1 19.8h9.8a2.2 2.2 0 0 0 1.9-3.4L14.5 8.7V3.5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
-  <path d="M8.2 3.5h7.6" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
-  <path d="M8 14.6h8" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
-  <circle cx="10.4" cy="17" r="1" fill="currentColor"/>
-  <circle cx="13.6" cy="17" r="1" fill="currentColor"/>
+<svg xmlns="http://www.w3.org/2000/svg" width="36" height="36" viewBox="0 0 36 36" fill="none">
+  <rect x="2.5" y="2.5" width="31" height="31" rx="8.5" fill="url(#sci_bg)" />
+  <ellipse cx="18" cy="18" rx="11" ry="4.6" transform="rotate(-30 18 18)" stroke="#A5F3FC" stroke-width="1.6" />
+  <ellipse cx="18" cy="18" rx="11" ry="4.6" transform="rotate(30 18 18)" stroke="#DDD6FE" stroke-width="1.6" />
+  <circle cx="18" cy="18" r="3" fill="#FDE047" />
+  <circle cx="26.5" cy="13" r="1.7" fill="#38BDF8" />
+  <circle cx="9.5" cy="23" r="1.7" fill="#C4B5FD" />
+  <defs>
+    <linearGradient id="sci_bg" x1="3" y1="3" x2="33" y2="33" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#0891B2" />
+      <stop offset="0.55" stop-color="#4F46E5" />
+      <stop offset="1" stop-color="#3B0764" />
+    </linearGradient>
+  </defs>
 </svg>

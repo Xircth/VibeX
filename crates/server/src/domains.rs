@@ -1119,13 +1119,36 @@ impl ServerApplicationDomains {
             .ok_or_else(|| {
                 ApplicationError::not_found(format!("{}/{}", args.owner, args.plugin_name))
             })?;
-        serde_json::to_value(plugins::CatalogPluginDetail {
-            summary: listing.summary.clone(),
-            readme: listing.readme.clone().unwrap_or_default(),
-            contents: Vec::new(),
-            listing,
-        })
-        .map_err(|error| ApplicationError::internal(error.to_string()))
+        let detail = if listing.show_tree == Some(false) {
+            plugins::CatalogPluginDetail {
+                summary: listing.summary.clone(),
+                readme: listing.readme.clone().unwrap_or_default(),
+                contents: Vec::new(),
+                listing,
+            }
+        } else {
+            let package_id = listing
+                .offline_plugin_id
+                .as_deref()
+                .unwrap_or(&listing.plugin_name);
+            plugins::monorepo_official_plugin_root(package_id)
+                .and_then(|local_root| {
+                    plugins::PluginPackage::inspect(
+                        &local_root,
+                        plugins::PluginSourceKind::Marketplace,
+                    )
+                    .ok()
+                })
+                .map(|package| plugins::detail_from_package(&package, listing.clone()))
+                .unwrap_or_else(|| plugins::CatalogPluginDetail {
+                    summary: listing.summary.clone(),
+                    readme: listing.readme.clone().unwrap_or_default(),
+                    contents: Vec::new(),
+                    listing,
+                })
+        };
+        serde_json::to_value(detail)
+            .map_err(|error| ApplicationError::internal(error.to_string()))
     }
 
     async fn plugin_marketplace_install(&self, args: Value) -> Result<Value, ApplicationError> {

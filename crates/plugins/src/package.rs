@@ -971,6 +971,14 @@ fn app_content_documents(app: &PackageAppContributions) -> Vec<PluginContentDocu
             &provisioner.label,
         ));
     }
+    for section in &app.rail_sections {
+        documents.push(chrome_document(
+            "rail-sections",
+            "app_rail_section",
+            &section.id,
+            &section.title,
+        ));
+    }
     documents
 }
 

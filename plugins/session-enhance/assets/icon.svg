@@ -1,4 +1,19 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none">
-  <path d="M5 5.5h14A1.5 1.5 0 0 1 20.5 7v8.5A1.5 1.5 0 0 1 19 17H9.2L5 20.2V7A1.5 1.5 0 0 1 6.5 5.5H5Z" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/>
-  <path d="M12 8.2v3.2M12 14.4h.01" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
+<svg xmlns="http://www.w3.org/2000/svg" width="36" height="36" viewBox="0 0 36 36" fill="none">
+  <rect x="3" y="4" width="30" height="24" rx="7.5" fill="url(#sess_bg)" />
+  <path d="M11 28L10 33L16.5 28H11Z" fill="#047857" />
+  <rect x="8" y="10" width="13" height="2.6" rx="1.3" fill="#ECFDF5" />
+  <rect x="8" y="15" width="18" height="2.6" rx="1.3" fill="#A7F3D0" fill-opacity="0.85" />
+  <rect x="8" y="20" width="10" height="2.6" rx="1.3" fill="#A7F3D0" fill-opacity="0.65" />
+  <circle cx="27" cy="24" r="6.5" fill="url(#sess_badge)" />
+  <path d="M27.4 19.8L24.6 24.2H27.1L26.6 28.2L29.4 23.8H26.9L27.4 19.8Z" fill="#0F172A" />
+  <defs>
+    <linearGradient id="sess_bg" x1="4" y1="4" x2="31" y2="28" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#10B981" />
+      <stop offset="1" stop-color="#047857" />
+    </linearGradient>
+    <linearGradient id="sess_badge" x1="21" y1="18" x2="33" y2="30" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#FDE047" />
+      <stop offset="1" stop-color="#F59E0B" />
+    </linearGradient>
+  </defs>
 </svg>

@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="36" height="36" viewBox="0 0 36 36" fill="none">
+  <rect x="2.5" y="2.5" width="31" height="31" rx="8.5" fill="url(#pe_bg)" />
+  <path d="M18 7.5L20.3 13.7L26.5 16L20.3 18.3L18 24.5L15.7 18.3L9.5 16L15.7 13.7L18 7.5Z" fill="#FEF08A" />
+  <path d="M26.5 22L27.5 24.8L30.3 25.8L27.5 26.8L26.5 29.6L25.5 26.8L22.7 25.8L25.5 24.8L26.5 22Z" fill="#FBCFE8" />
+  <path d="M10 22.5L10.8 24.7L13 25.5L10.8 26.3L10 28.5L9.2 26.3L7 25.5L9.2 24.7L10 22.5Z" fill="#E9D5FF" />
+  <defs>
+    <linearGradient id="pe_bg" x1="3" y1="3" x2="33" y2="33" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#9333EA" />
+      <stop offset="0.55" stop-color="#C026D3" />
+      <stop offset="1" stop-color="#DB2777" />
+    </linearGradient>
+  </defs>
+</svg>

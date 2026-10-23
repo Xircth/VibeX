@@ -7,6 +7,9 @@
   "version": "2.0.0",
   "description": "Built-in project scratchpad, session notes, and context-menu selection capture.",
   "readme": "README.md",
+  "interface": {
+    "icon": "assets/icon.svg"
+  },
   "content": {
     "root": "contents",
     "index": ".vibex-plugin/content.index.json"

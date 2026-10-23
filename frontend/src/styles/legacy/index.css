@@ -16049,3 +16049,1734 @@ html.host-windows :where(.legacy-design) .vu-toast-surface {
     transition: none;
   }
 }
+
+
+/* DSH-modeled Plugin Manager & Core Foundation Inventory Styles */
+.settings-page .dsh-plugins-page .product-plugin-list {
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+.settings-page .dsh-market-container.product-plugin-market {
+  overflow-x: hidden;
+  overflow-y: auto;
+  gap: 16px;
+}
+
+.settings-page .dsh-market-container .product-plugin-market-list {
+  flex: 0 0 auto;
+  overflow: visible;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+.settings-page .dsh-plugin-groups {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+  padding: 2px 0;
+}
+
+.settings-page .dsh-plugin-group {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+}
+
+.settings-page .dsh-plugin-group-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 0 12px 4px;
+}
+
+.settings-page .dsh-plugin-group-title {
+  margin: 0;
+  color: var(--text-primary);
+  font-size: 0.875rem;
+  font-weight: 600;
+  line-height: 1.4;
+}
+
+.settings-page .dsh-plugin-group-cards {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.settings-page .dsh-plugin-card.product-plugin-row,
+.settings-page .dsh-market-row.product-plugin-card {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  min-height: 68px;
+  padding: 10px 12px;
+  border: 0;
+  border-radius: 12px;
+  background: transparent;
+  box-shadow: none;
+  transition: background-color 0.14s ease;
+}
+
+.settings-page .dsh-plugin-card.product-plugin-row + .dsh-plugin-card.product-plugin-row,
+.settings-page .dsh-market-row.product-plugin-card + .dsh-market-row.product-plugin-card {
+  border-top: 0;
+}
+
+.settings-page .dsh-plugin-card.product-plugin-row:hover,
+.settings-page .dsh-market-row.product-plugin-card:hover {
+  border-color: transparent;
+  background: var(--surface-hover);
+  box-shadow: none;
+}
+
+.settings-page .dsh-plugin-card .product-plugin-open,
+.settings-page .dsh-market-row.product-plugin-card .product-plugin-open {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: row;
+  align-items: center;
+  gap: 14px;
+  height: auto;
+  min-width: 0;
+  min-height: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+}
+
+.settings-page .dsh-plugin-card .product-plugin-row-copy,
+.settings-page .dsh-market-row.product-plugin-card .product-plugin-row-copy {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+
+.settings-page .dsh-plugin-card .product-plugin-row-title,
+.settings-page .dsh-market-row.product-plugin-card .product-plugin-row-title {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.settings-page .dsh-plugin-card .product-plugin-row-title strong,
+.settings-page .dsh-market-row.product-plugin-card .product-plugin-row-title strong {
+  color: var(--text-primary);
+  font-size: 0.875rem;
+  font-weight: 500;
+}
+
+.settings-page .dsh-plugin-card .product-plugin-row-summary,
+.settings-page .dsh-market-row.product-plugin-card .product-plugin-row-summary {
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: 0.78125rem;
+  line-height: 1.45;
+  white-space: normal;
+  display: -webkit-box;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 1;
+}
+
+.settings-page .dsh-market-row.product-plugin-card .product-plugin-row-actions {
+  margin-top: 0;
+  padding-top: 0;
+  width: auto;
+  flex: 0 0 auto;
+  justify-content: flex-end;
+}
+
+.settings-page .dsh-card-icon.product-plugin-icon,
+.settings-page .dsh-plugins-page .product-plugin-icon,
+.settings-page .dsh-detail-page .product-plugin-icon,
+.settings-page .dsh-plugins-page .product-plugin-card-logo {
+  width: 48px;
+  height: 48px;
+  flex-shrink: 0;
+  border-radius: 12px;
+  border: 1px solid color-mix(in srgb, var(--text-primary) 9%, transparent);
+  background: #ffffff;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.03);
+}
+
+.dark .settings-page .dsh-card-icon.product-plugin-icon,
+.dark .settings-page .dsh-plugins-page .product-plugin-icon,
+.dark .settings-page .dsh-detail-page .product-plugin-icon,
+.dark .settings-page .dsh-plugins-page .product-plugin-card-logo {
+  background: var(--surface-raised);
+  border-color: var(--border-subtle);
+}
+
+.settings-page .product-plugin-icon > svg.product-plugin-artwork-svg,
+.settings-page .product-plugin-card-logo > svg.product-plugin-artwork-svg {
+  width: 34px;
+  height: 34px;
+  border-radius: 8px;
+}
+
+/* Featured Plugins Carousel in Marketplace */
+.settings-page .dsh-market-container {
+  gap: 16px;
+}
+
+.settings-page .dsh-market-carousel {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 18px 22px 14px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 16px;
+  background: linear-gradient(
+    135deg,
+    #ffffff 0%,
+    color-mix(in srgb, hsl(var(--primary)) 5%, #ffffff) 100%
+  );
+  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.04);
+}
+
+.dark .settings-page .dsh-market-carousel {
+  background: linear-gradient(
+    135deg,
+    var(--surface-card-strong) 0%,
+    color-mix(in srgb, hsl(var(--primary)) 10%, var(--surface-card-strong)) 100%
+  );
+  box-shadow: none;
+}
+
+.settings-page .dsh-carousel-slide {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+}
+
+.settings-page .dsh-carousel-main {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  gap: 10px;
+  min-width: 0;
+}
+
+.settings-page .dsh-carousel-badges {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.settings-page .dsh-carousel-kicker {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 20px;
+  padding: 0 8px;
+  border-radius: 999px;
+  background: rgba(59, 130, 246, 0.12);
+  color: #2563eb;
+  font-size: 0.6875rem;
+  font-weight: 600;
+}
+
+.dark .settings-page .dsh-carousel-kicker {
+  background: rgba(96, 165, 250, 0.16);
+  color: #60a5fa;
+}
+
+.settings-page .dsh-carousel-kicker > svg {
+  width: 12px;
+  height: 12px;
+}
+
+.settings-page .dsh-carousel-category-tag {
+  display: inline-flex;
+  align-items: center;
+  height: 20px;
+  padding: 0 8px;
+  border-radius: 999px;
+  border: 1px solid var(--border-subtle);
+  background: var(--surface-raised);
+  color: var(--text-secondary);
+  font-size: 0.6875rem;
+  font-weight: 500;
+}
+
+.settings-page .dsh-carousel-identity {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  min-width: 0;
+}
+
+.settings-page .dsh-carousel-copy {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.settings-page .dsh-carousel-title {
+  margin: 0;
+  color: var(--text-primary);
+  font-size: 1rem;
+  font-weight: 600;
+  line-height: 1.35;
+}
+
+.settings-page .dsh-carousel-version {
+  color: var(--text-muted);
+  font-size: 0.75rem;
+  font-style: normal;
+  font-weight: 500;
+}
+
+.settings-page .dsh-carousel-summary {
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: 0.8125rem;
+  line-height: 1.5;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
+}
+
+.settings-page .dsh-carousel-publisher {
+  color: var(--text-muted);
+  font-size: 0.75rem;
+}
+
+.settings-page .dsh-carousel-side {
+  display: flex;
+  flex: 0 0 auto;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 10px;
+}
+
+.settings-page .dsh-carousel-arrows {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.settings-page .dsh-carousel-arrow {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px !important;
+  min-width: 28px !important;
+  min-height: 28px !important;
+  padding: 0 !important;
+  border: 1px solid var(--border-subtle);
+  border-radius: 999px;
+  background: var(--surface-card-strong);
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition:
+    background-color 0.14s ease,
+    color 0.14s ease;
+}
+
+.settings-page .dsh-carousel-arrow:hover {
+  background: var(--surface-hover);
+  color: var(--text-primary);
+}
+
+.settings-page .dsh-carousel-arrow > svg {
+  width: 14px;
+  height: 14px;
+}
+
+.settings-page .dsh-carousel-dots {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  padding-top: 2px;
+}
+
+.settings-page .dsh-carousel-dot {
+  display: inline-block;
+  width: 6px;
+  height: 6px !important;
+  min-width: 6px !important;
+  min-height: 6px !important;
+  max-height: 6px;
+  flex: 0 0 auto;
+  padding: 0 !important;
+  border: 0 !important;
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--text-primary) 22%, transparent);
+  box-shadow: none !important;
+  font-size: 0;
+  line-height: 0;
+  cursor: pointer;
+  transition:
+    background-color 0.18s ease,
+    transform 0.18s ease;
+}
+
+.settings-page .dsh-carousel-dot.is-active {
+  width: 6px;
+  height: 6px !important;
+  min-width: 6px !important;
+  min-height: 6px !important;
+  border-radius: 50%;
+  background: var(--text-primary);
+  transform: scale(1.2);
+}
+
+/* Tick-Mark / Scale Bar Category Switcher in Marketplace */
+.settings-page .dsh-scale-tabs.product-plugin-underline-tabs {
+  position: relative;
+  gap: 20px;
+  padding: 0 4px;
+}
+
+.settings-page .dsh-scale-tabs.product-plugin-underline-tabs > button {
+  position: relative;
+  display: inline-flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  padding: 8px 4px 10px;
+  cursor: pointer;
+}
+
+.settings-page .dsh-scale-tab-tick {
+  width: 1.5px;
+  height: 6px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--text-primary) 24%, transparent);
+  transition:
+    height 0.14s ease,
+    background-color 0.14s ease;
+}
+
+.settings-page
+  .dsh-scale-tabs.product-plugin-underline-tabs
+  > button.is-active
+  .dsh-scale-tab-tick {
+  height: 9px;
+  background: var(--text-primary);
+}
+
+/* Marketplace Single-Column Row List */
+.settings-page .dsh-market-rows.product-plugin-market-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+/* Core Foundation Inventory List Styles (Grouped without separate plane backgrounds) */
+.settings-page .dsh-core-inventory-body {
+  overflow-x: hidden;
+  overflow-y: auto;
+}
+
+.settings-page .dsh-inventory-plane {
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+}
+
+.settings-page .dsh-inventory-plane-title-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.settings-page .dsh-inventory-count-pill {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 22px;
+  height: 20px;
+  padding: 0 7px;
+  border-radius: 999px;
+  background: var(--surface-raised);
+  border: 1px solid var(--border-subtle);
+  color: var(--text-secondary);
+  font-size: 0.75rem;
+  font-weight: 600;
+}
+
+.settings-page .dsh-core-item-wrap {
+  display: flex;
+  flex-direction: column;
+  border-radius: 12px;
+}
+
+.settings-page .dsh-core-expand-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px !important;
+  min-width: 28px !important;
+  min-height: 28px !important;
+  padding: 0 !important;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+}
+
+.settings-page .dsh-core-expand-btn:hover {
+  background: var(--surface-hover);
+  color: var(--text-primary);
+}
+
+.settings-page .dsh-core-expand-btn > svg {
+  width: 16px;
+  height: 16px;
+}
+
+.settings-page .dsh-core-row-details {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin: 4px 12px 10px 60px;
+  padding: 12px 14px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 10px;
+  background: var(--surface-raised);
+}
+
+.settings-page .dsh-package-chip {
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+  font-size: 0.71875rem;
+}
+
+.settings-page .dsh-status-tag {
+  display: inline-flex;
+  align-items: center;
+  height: 18px;
+  padding: 0 7px;
+  border-radius: 999px;
+  border: 1px solid var(--border-subtle);
+  background: var(--surface-raised);
+  color: var(--text-secondary);
+  font-size: 0.625rem;
+  font-weight: 600;
+  line-height: 1;
+}
+
+.settings-page .dsh-status-tag[data-tone='danger'] {
+  border-color: color-mix(in srgb, hsl(var(--destructive)) 40%, transparent);
+  background: color-mix(in srgb, hsl(var(--destructive)) 12%, transparent);
+  color: hsl(var(--destructive));
+}
+
+.settings-page .dsh-state-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 1px 7px;
+  border-radius: 999px;
+  border: 1px solid var(--border-subtle);
+  background: var(--surface-card-strong);
+  color: var(--text-secondary);
+  font-size: 0.6875rem;
+  font-weight: 500;
+}
+
+.settings-page .dsh-state-dot {
+  display: inline-block;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--text-muted);
+}
+
+.settings-page .dsh-state-dot[data-state='done'] {
+  background: #10b981;
+  box-shadow: 0 0 0 2px rgba(16, 185, 129, 0.18);
+}
+
+.settings-page .dsh-card-facts,
+.settings-page .dsh-detail-facts {
+  display: flex;
+  flex-direction: column;
+  margin: 0;
+}
+
+.settings-page .dsh-card-facts > div,
+.settings-page .dsh-detail-facts > div {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  min-height: 34px;
+  padding: 5px 2px;
+  border-bottom: 1px solid var(--border-subtle);
+  font-size: 0.78125rem;
+}
+
+.settings-page .dsh-card-facts > div:last-child,
+.settings-page .dsh-detail-facts > div:last-child {
+  border-bottom: 0;
+}
+
+.settings-page .dsh-card-facts dt,
+.settings-page .dsh-detail-facts dt {
+  color: var(--text-secondary);
+  font-weight: 500;
+}
+
+.settings-page .dsh-card-facts dd,
+.settings-page .dsh-detail-facts dd {
+  margin: 0;
+  color: var(--text-primary);
+  text-align: right;
+  word-break: break-all;
+}
+
+.settings-page .dsh-inventory-parts h5 {
+  margin: 0 0 6px;
+  color: var(--text-secondary);
+  font-size: 0.75rem;
+  font-weight: 600;
+}
+
+.settings-page .dsh-detail-section {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-top: 20px;
+  padding: 16px;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius);
+  background: var(--surface-card-strong);
+}
+
+.settings-page .dsh-section-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.settings-page .dsh-section-title {
+  margin: 0;
+  color: var(--text-primary);
+  font-size: 0.875rem;
+  font-weight: 600;
+}
+
+.settings-page .dsh-detail-rows {
+  display: flex;
+  flex-direction: column;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.settings-page .dsh-detail-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  padding: 10px 2px;
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.settings-page .dsh-detail-row:last-child {
+  border-bottom: 0;
+}
+
+.settings-page .dsh-row-main {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.settings-page .dsh-row-title-line {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.settings-page .dsh-row-id {
+  color: var(--text-primary);
+  font-size: 0.8125rem;
+  font-weight: 600;
+}
+
+.settings-page .dsh-row-module {
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+  font-size: 0.71875rem;
+}
+
+.settings-page .dsh-row-desc {
+  color: var(--text-secondary);
+  font-size: 0.75rem;
+}
+
+.settings-page .dsh-row-state {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--text-secondary);
+  font-size: 0.75rem;
+  white-space: nowrap;
+}
+
+.settings-page .dsh-detail-package-id {
+  display: inline-block;
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+}
+
+.settings-page .product-plugin-card:hover {
+  border-color: var(--border-strong);
+  background: color-mix(in srgb, var(--text-primary) 8%, var(--surface-card-strong));
+  box-shadow: var(--shadow-card);
+}
+
+.settings-page .product-plugin-config-block > legend .product-plugin-config-copy strong {
+  font-size: 1rem;
+}
+
+/* ============================================================================
+ * DSH v2 Optimization: Attribute Badges, Row Meta Alignment, Telemetry Rail,
+ * Standard Document Markdown, Component Catalog, and Astryx Tree Table
+ * ========================================================================== */
+
+.settings-page .product-plugins-page.dsh-plugins-page {
+  width: min(100%, 1040px);
+}
+
+.settings-page .product-plugin-detail-page.dsh-detail-page {
+  width: min(100%, 1120px);
+}
+
+.settings-page .dsh-detail-header p {
+  max-width: 96ch;
+  margin-top: 6px;
+  color: var(--text-secondary);
+  font-size: 0.8125rem;
+  line-height: 1.55;
+}
+
+.settings-page .dsh-carousel-badges {
+  flex-wrap: wrap;
+}
+
+/* 1. Attribute Badges (Carousel & Telemetry Rail) */
+.settings-page .dsh-attr-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 22px;
+  padding: 0 9px;
+  border-radius: 999px;
+  border: 1px solid var(--border-subtle);
+  background: var(--surface-raised);
+  color: var(--text-secondary);
+  font-size: 0.71875rem;
+  font-weight: 500;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.settings-page .dsh-attr-developer.dsh-attr-badge {
+  padding-left: 4px;
+}
+
+.settings-page .dsh-attr-developer-avatar {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  flex-shrink: 0;
+  overflow: hidden;
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--text-primary) 10%, transparent);
+}
+
+.settings-page .dsh-attr-vibex-logo,
+.settings-page .dsh-attr-owner-img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.settings-page .dsh-attr-owner-initial {
+  color: var(--text-primary);
+  font-size: 0.625rem;
+  font-weight: 700;
+  line-height: 1;
+}
+
+.settings-page .dsh-attr-developer-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.settings-page .dsh-attr-icon {
+  width: 12px;
+  height: 12px;
+  flex-shrink: 0;
+  color: var(--text-muted);
+}
+
+/* 2. Row Aligned Meta Columns (Developer, Version, Installs) */
+.settings-page .dsh-row-meta-columns {
+  display: grid;
+  grid-template-columns: 112px 72px 72px;
+  align-items: center;
+  gap: 12px;
+  flex: 0 0 auto;
+  margin-left: auto;
+}
+
+.settings-page .dsh-attr-column {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--text-secondary);
+  font-size: 0.75rem;
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.settings-page .dsh-attr-developer.dsh-attr-column {
+  justify-self: start;
+}
+
+.settings-page .dsh-attr-version.dsh-attr-column {
+  justify-self: start;
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+}
+
+.settings-page .dsh-attr-installs.dsh-attr-column {
+  justify-self: end;
+  color: var(--text-secondary);
+}
+
+.settings-page .dsh-row-action-slot.product-plugin-row-actions,
+.settings-page
+  :is(.dsh-plugin-card.product-plugin-row, .dsh-market-row.product-plugin-card)
+  .dsh-row-action-slot.product-plugin-row-actions {
+  width: 88px !important;
+  min-width: 88px !important;
+  flex: 0 0 88px !important;
+  justify-content: flex-end;
+  margin-top: 0;
+  padding-top: 0;
+  padding-left: 8px;
+}
+
+.settings-page
+  .dsh-market-row.product-plugin-card
+  .dsh-row-action-slot
+  .product-plugin-installed {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 60px;
+  text-align: center;
+}
+
+@media (max-width: 720px) {
+  .settings-page .dsh-row-meta-columns {
+    grid-template-columns: auto auto;
+    gap: 8px;
+  }
+
+  .settings-page .dsh-attr-installs.dsh-attr-column {
+    display: none;
+  }
+}
+
+/* 3. Plugin Detail Split Layout & Right Telemetry Rail */
+.settings-page .dsh-detail-split-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 268px;
+  align-items: start;
+  gap: 28px;
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
+  padding: 6px 0 36px;
+}
+
+.settings-page .dsh-detail-split-layout[data-has-sidebar='false'] {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.settings-page .dsh-detail-main-col {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+}
+
+.settings-page .dsh-detail-main-col .product-plugin-readme {
+  max-width: 100%;
+  overflow: visible;
+  padding: 16px 0 24px;
+}
+
+.settings-page .dsh-detail-main-col .product-plugin-contents {
+  overflow: visible;
+  padding: 12px 0 28px;
+}
+
+.settings-page .dsh-detail-telemetry-rail {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  padding-left: 24px;
+  border-left: 1px solid var(--border-subtle);
+}
+
+.settings-page .dsh-telemetry-block {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 16px 0;
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.settings-page .dsh-telemetry-block:first-child {
+  padding-top: 10px;
+}
+
+.settings-page .dsh-telemetry-block:last-child {
+  border-bottom: 0;
+  padding-bottom: 8px;
+}
+
+.settings-page .dsh-telemetry-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+  font-size: 0.6875rem;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+.settings-page .dsh-telemetry-verified {
+  width: 13px;
+  height: 13px;
+  flex-shrink: 0;
+  color: #10b981;
+}
+
+.settings-page .dsh-telemetry-hero-value {
+  color: var(--text-primary);
+  font-size: 2rem;
+  font-weight: 650;
+  line-height: 1.08;
+  letter-spacing: -0.03em;
+  font-variant-numeric: tabular-nums;
+}
+
+.settings-page .dsh-telemetry-sparkline {
+  width: 100%;
+  height: 54px;
+  margin-top: 2px;
+  color: #2563eb;
+}
+
+.dark .settings-page .dsh-telemetry-sparkline {
+  color: #60a5fa;
+}
+
+.settings-page .dsh-telemetry-sparkline-svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+}
+
+.settings-page .dsh-telemetry-repo-value {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  min-width: 0;
+  color: var(--text-primary);
+}
+
+.settings-page .dsh-telemetry-repo-value code {
+  color: var(--text-primary);
+  font-family: var(--font-mono);
+  font-size: 0.78125rem;
+  word-break: break-all;
+}
+
+.settings-page .dsh-telemetry-inline-icon {
+  width: 14px;
+  height: 14px;
+  flex-shrink: 0;
+  color: var(--text-muted);
+}
+
+.settings-page .dsh-telemetry-stars-dev {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.settings-page .dsh-telemetry-stars {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  color: var(--text-primary);
+  font-size: 0.875rem;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.settings-page .dsh-telemetry-star-icon {
+  width: 14px;
+  height: 14px;
+  color: #f59e0b;
+  fill: #f59e0b;
+}
+
+.settings-page .dsh-telemetry-dot {
+  color: var(--text-muted);
+}
+
+.settings-page .dsh-telemetry-version-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.settings-page .dsh-telemetry-version-value {
+  color: var(--text-primary);
+  font-family: var(--font-mono);
+  font-size: 0.875rem;
+  font-weight: 600;
+}
+
+.settings-page .dsh-telemetry-channel-pill {
+  display: inline-flex;
+  align-items: center;
+  height: 20px;
+  padding: 0 8px;
+  border-radius: 999px;
+  border: 1px solid var(--border-subtle);
+  background: var(--surface-raised);
+  color: var(--text-secondary);
+  font-size: 0.6875rem;
+  font-weight: 500;
+}
+
+.settings-page .dsh-telemetry-audit-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 2px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.settings-page .dsh-telemetry-audit-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  color: var(--text-primary);
+  font-size: 0.8125rem;
+}
+
+.settings-page .dsh-telemetry-audit-name {
+  color: var(--text-secondary);
+  font-weight: 500;
+}
+
+.settings-page .dsh-telemetry-audit-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 20px;
+  padding: 0 8px;
+  border-radius: 4px;
+  border: 1px solid rgba(16, 185, 129, 0.28);
+  background: rgba(16, 185, 129, 0.12);
+  color: #059669;
+  font-family: var(--font-mono);
+  font-size: 0.6875rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+}
+
+.dark .settings-page .dsh-telemetry-audit-badge {
+  background: rgba(16, 185, 129, 0.18);
+  color: #34d399;
+}
+
+@media (max-width: 860px) {
+  .settings-page .dsh-detail-split-layout {
+    grid-template-columns: 1fr;
+  }
+
+  .settings-page .dsh-detail-telemetry-rail {
+    padding-top: 16px;
+    padding-left: 0;
+    border-top: 1px solid var(--border-subtle);
+    border-left: 0;
+  }
+}
+
+/* 4. Standard Document Markdown Hierarchy (.dsh-standard-markdown) */
+.settings-page
+  .dsh-standard-markdown:not(dialog *):not(#\#):not(#\#):not(#\#):not(#\#):not(
+    #\#
+  ):not(#\#) {
+  font-size: 0.84375rem;
+  line-height: 1.68;
+  color: var(--text-secondary);
+}
+
+.settings-page
+  .dsh-standard-markdown
+  h1:not(dialog *):not(#\#):not(#\#):not(#\#):not(#\#):not(#\#):not(#\#) {
+  margin: 0 0 0.85rem;
+  padding-bottom: 0.55rem;
+  border-bottom: 1px solid var(--border-subtle);
+  color: var(--text-primary);
+  font-size: 1.35rem;
+  font-weight: 650;
+  line-height: 1.3;
+  letter-spacing: -0.015em;
+}
+
+.settings-page
+  .dsh-standard-markdown
+  h2:not(dialog *):not(#\#):not(#\#):not(#\#):not(#\#):not(#\#):not(#\#) {
+  margin: 1.4rem 0 0.55rem;
+  color: var(--text-primary);
+  font-size: 1.05rem;
+  font-weight: 600;
+  line-height: 1.38;
+  letter-spacing: -0.01em;
+}
+
+.settings-page
+  .dsh-standard-markdown
+  h3:not(dialog *):not(#\#):not(#\#):not(#\#):not(#\#):not(#\#):not(#\#) {
+  margin: 1.1rem 0 0.45rem;
+  color: var(--text-primary);
+  font-size: 0.9375rem;
+  font-weight: 600;
+  line-height: 1.4;
+}
+
+.settings-page
+  .dsh-standard-markdown
+  :is(p, li):not(dialog *):not(#\#):not(#\#):not(#\#):not(#\#):not(#\#):not(
+    #\#
+  ) {
+  color: var(--text-secondary);
+  font-size: 0.84375rem;
+  line-height: 1.68;
+}
+
+.settings-page
+  .dsh-standard-markdown
+  :is(ul, ol):not(dialog *):not(#\#):not(#\#):not(#\#):not(#\#):not(#\#):not(
+    #\#
+  ) {
+  margin: 0.5rem 0 0.9rem;
+  padding-inline-start: 1.35rem;
+}
+
+.settings-page
+  .dsh-standard-markdown
+  li
+  + li:not(dialog *):not(#\#):not(#\#):not(#\#):not(#\#):not(#\#):not(#\#) {
+  margin-top: 0.3rem;
+}
+
+.settings-page
+  .dsh-standard-markdown
+  strong:not(dialog *):not(#\#):not(#\#):not(#\#):not(#\#):not(#\#):not(#\#) {
+  color: var(--text-primary);
+  font-weight: 600;
+}
+
+/* 5. Components Tab (组件) Structured List */
+.settings-page .dsh-components-catalog.product-plugin-contents {
+  gap: 14px;
+}
+
+.settings-page .dsh-component-group.product-plugin-contents-group {
+  border: 1px solid var(--border-subtle);
+  border-radius: 12px;
+  background: var(--surface-card-strong);
+  overflow: hidden;
+}
+
+.settings-page .dsh-component-group-toggle.product-plugin-contents-toggle {
+  padding: 12px 14px;
+  gap: 10px;
+  background: var(--surface-raised);
+  transition: background-color 0.14s ease;
+}
+
+.settings-page
+  .dsh-component-group-toggle.product-plugin-contents-toggle:hover {
+  background: var(--surface-hover);
+}
+
+.settings-page .dsh-component-group-icon {
+  width: 15px;
+  height: 15px;
+  color: hsl(var(--primary));
+}
+
+.settings-page .dsh-component-count-pill {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 22px;
+  height: 20px;
+  padding: 0 7px;
+  border-radius: 999px;
+  border: 1px solid var(--border-subtle);
+  background: var(--surface-card-strong);
+  color: var(--text-secondary);
+  font-size: 0.71875rem;
+  font-weight: 600;
+}
+
+.settings-page .dsh-components-catalog ul.dsh-component-list {
+  margin: 0;
+  padding: 4px 12px 8px;
+  list-style: none;
+  border-top: 1px solid var(--border-subtle);
+}
+
+.settings-page .dsh-components-catalog li.dsh-component-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  padding: 10px 6px;
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.settings-page .dsh-components-catalog li.dsh-component-row:last-child {
+  border-bottom: 0;
+}
+
+.settings-page .dsh-component-row-main {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  flex: 1 1 auto;
+}
+
+.settings-page .dsh-component-row-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  flex-shrink: 0;
+  border-radius: 8px;
+  border: 1px solid var(--border-subtle);
+  background: var(--surface-raised);
+  color: var(--text-secondary);
+}
+
+.settings-page .dsh-component-row-icon > svg {
+  width: 14px;
+  height: 14px;
+}
+
+.settings-page .dsh-component-row-copy {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.settings-page .dsh-component-row-title {
+  color: var(--text-primary);
+  font-size: 0.8125rem;
+  font-weight: 600;
+  line-height: 1.35;
+}
+
+.settings-page .dsh-component-row-path {
+  overflow: hidden;
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+  font-size: 0.6875rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.settings-page .dsh-component-row-meta {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.settings-page .dsh-component-kind-tag {
+  display: inline-flex;
+  align-items: center;
+  height: 20px;
+  padding: 0 7px;
+  border-radius: 6px;
+  border: 1px solid var(--border-subtle);
+  background: var(--surface-raised);
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+  font-size: 0.6875rem;
+}
+
+/* 6. Package Structure Tab (Direct Containerless useTableTreeState + useTableTreeData) */
+.settings-page .dsh-package-tree-direct {
+  width: 100%;
+  min-width: 0;
+  padding: 8px 0 28px;
+  border: 0;
+  background: transparent;
+}
+
+.settings-page .dsh-package-tree-direct .astryx-table-scroll-wrapper {
+  width: 100%;
+  margin: 0;
+  border: 0;
+  background: transparent;
+  overflow-x: visible;
+}
+
+.settings-page .dsh-package-tree-table {
+  width: 100%;
+  border-collapse: collapse;
+  background: transparent;
+}
+
+.settings-page .dsh-package-tree-table thead th {
+  padding: 8px 10px !important;
+  border-bottom: 1px solid var(--border-subtle) !important;
+  background: transparent !important;
+  color: var(--text-muted) !important;
+  font-size: 0.75rem !important;
+  font-weight: 600 !important;
+  line-height: 1.4 !important;
+}
+
+.settings-page .dsh-package-tree-table tbody td {
+  padding: 8px 10px !important;
+  border-bottom: 1px solid
+    color-mix(in srgb, var(--border-subtle) 65%, transparent) !important;
+  background: transparent !important;
+  font-size: 0.75rem !important;
+  line-height: 1.4 !important;
+  vertical-align: middle !important;
+}
+
+.settings-page .dsh-package-tree-table tbody tr:hover td {
+  background: var(--surface-hover) !important;
+}
+
+.settings-page .dsh-tree-cell {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  color: var(--text-primary);
+  font-size: 0.75rem;
+  font-weight: 600;
+}
+
+.settings-page .dsh-tree-cell--file {
+  color: var(--text-secondary);
+  font-weight: 500;
+}
+
+.settings-page .dsh-tree-cell-icon {
+  width: 14px;
+  height: 14px;
+  flex-shrink: 0;
+  color: var(--text-muted);
+}
+
+.settings-page .dsh-tree-cell-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.settings-page .dsh-tree-kind-badge {
+  display: inline-flex;
+  align-items: center;
+  height: 18px;
+  padding: 0 6px;
+  border-radius: 4px;
+  background: var(--surface-raised);
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+  font-size: 0.6875rem;
+}
+
+.settings-page .dsh-tree-size-label {
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+  font-size: 0.6875rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.settings-page
+  .dsh-telemetry-block
+  .dsh-telemetry-repo-value
+  + .dsh-telemetry-stars-dev {
+  margin-top: 8px;
+}
+
+/* 7. Scrollbar Right Gutter & Standard SegmentedControl Mode Switcher */
+.settings-page .product-plugins-page.dsh-plugins-page {
+  width: min(100%, 1064px);
+}
+
+.settings-page .product-plugin-detail-page.dsh-detail-page {
+  width: min(100%, 1144px);
+}
+
+.settings-page .dsh-plugins-page .product-plugins-header {
+  padding-inline-end: 20px;
+}
+
+.settings-page
+  .dsh-plugins-page
+  .product-plugins-header
+  > .chat-channel-heading {
+  align-items: center;
+}
+
+.settings-page .dsh-plugins-page .product-plugin-list,
+.settings-page .dsh-market-container.product-plugin-market,
+.settings-page .dsh-core-inventory-body {
+  padding-inline-end: 20px;
+  scrollbar-gutter: stable;
+}
+
+.settings-page
+  .dsh-detail-page
+  :is(.product-plugin-detail-nav, .dsh-detail-header, .product-plugin-underline-tabs) {
+  padding-inline-end: 20px;
+}
+
+.settings-page .dsh-detail-split-layout,
+.settings-page .dsh-detail-page .product-plugin-detail-body,
+.settings-page .dsh-detail-page .product-plugin-config-shell {
+  padding-inline-end: 20px;
+  scrollbar-gutter: stable;
+}
+
+.settings-page .dsh-plugin-mode-segmented.astryx-segmented-control {
+  height: 32px;
+  min-height: 32px;
+  padding: 3px;
+  gap: 2px;
+  border: 1px solid var(--border-subtle);
+}
+
+.settings-page
+  .dsh-plugin-mode-segmented
+  .astryx-segmented-control-item {
+  height: 26px !important;
+  min-height: 26px !important;
+  gap: 6px;
+  padding-inline: 12px !important;
+  font-size: 0.75rem;
+  font-weight: 600;
+}
+
+.settings-page
+  .dsh-plugin-mode-segmented
+  .astryx-segmented-control-item__icon,
+.settings-page
+  .dsh-plugin-mode-segmented
+  .astryx-segmented-control-item__icon
+  > svg {
+  width: 14px;
+  height: 14px;
+  flex-shrink: 0;
+}
+
+/* 8. Add Plugin Dropdown Menu & GitHub Pull Popconfirm */
+.settings-page .dsh-add-plugin-anchor {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+}
+
+.settings-page .dsh-add-plugin-caret {
+  margin-left: 2px;
+  opacity: 0.75;
+}
+
+.settings-page .dsh-add-plugin-menu {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  z-index: 60;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 168px;
+  padding: 5px;
+  border-radius: 10px;
+  border: 1px solid var(--border-subtle);
+  background: var(--surface-dialog);
+  box-shadow: var(--shadow-popover);
+}
+
+.settings-page .dsh-add-plugin-menu-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  height: 32px !important;
+  min-height: 32px !important;
+  padding: 0 10px !important;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--text-primary);
+  font-size: 0.75rem;
+  font-weight: 500;
+  text-align: left;
+  cursor: pointer;
+}
+
+.settings-page .dsh-add-plugin-menu-item:hover {
+  background: var(--surface-hover);
+}
+
+.settings-page .dsh-add-menu-icon {
+  width: 14px;
+  height: 14px;
+  flex-shrink: 0;
+  color: var(--text-muted);
+}
+
+.settings-page .dsh-add-menu-trailing {
+  width: 12px;
+  height: 12px;
+  margin-left: auto;
+  color: var(--text-faint);
+}
+
+.settings-page .dsh-github-popconfirm {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  z-index: 65;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  width: 356px;
+  padding: 14px;
+  border-radius: 12px;
+  border: 1px solid var(--border-subtle);
+  background: var(--surface-dialog);
+  box-shadow: var(--shadow-popover);
+}
+
+.settings-page .dsh-github-popconfirm-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--text-primary);
+  font-size: 0.75rem;
+}
+
+.settings-page .dsh-github-popconfirm-input-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.settings-page .dsh-github-popconfirm-input {
+  flex: 1 1 auto;
+  min-width: 0;
+  height: 30px;
+  padding: 0 10px;
+  border-radius: 7px;
+  border: 1px solid var(--border-strong);
+  background: var(--surface-control-solid);
+  color: var(--text-primary);
+  font-size: 0.75rem;
+  outline: none;
+}
+
+.settings-page .dsh-github-popconfirm-input:focus {
+  border-color: hsl(var(--primary));
+  box-shadow: 0 0 0 2px var(--focus-ring);
+}
+
+.settings-page .dsh-github-pull-status {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  border: 1px solid var(--border-subtle);
+  background: var(--surface-subtle);
+  font-size: 0.75rem;
+}
+
+.settings-page .dsh-github-pull-status[data-status='error'] {
+  border-color: color-mix(in srgb, hsl(var(--destructive)) 35%, transparent);
+  background: color-mix(in srgb, hsl(var(--destructive)) 8%, transparent);
+  color: hsl(var(--destructive));
+}
+
+.settings-page .dsh-github-pull-status[data-status='success'] {
+  border-color: color-mix(in srgb, hsl(var(--success)) 35%, transparent);
+  background: color-mix(in srgb, hsl(var(--success)) 6%, transparent);
+}
+
+.settings-page .dsh-github-pull-status-line {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--text-secondary);
+  font-weight: 500;
+}
+
+.settings-page
+  .dsh-github-pull-status[data-status='error']
+  .dsh-github-pull-status-line {
+  color: hsl(var(--destructive));
+}
+
+.settings-page
+  .dsh-github-pull-status[data-status='success']
+  .dsh-github-pull-status-line {
+  color: hsl(var(--success));
+}
+
+.settings-page .dsh-github-pull-progress {
+  position: relative;
+  width: 100%;
+  height: 4px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: var(--border-subtle);
+}
+
+.settings-page .dsh-github-pull-progress-bar {
+  display: block;
+  width: 45%;
+  height: 100%;
+  border-radius: 999px;
+  background: hsl(var(--primary));
+  animation: dsh-pull-progress 1.1s ease-in-out infinite alternate;
+}
+
+@keyframes dsh-pull-progress {
+  from {
+    transform: translateX(0%);
+  }
+  to {
+    transform: translateX(120%);
+  }
+}
+
+.settings-page .dsh-github-plugin-minicard {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
+  border-radius: 9px;
+  border: 1px solid var(--border-subtle);
+  background: var(--surface-card);
+}
+
+.settings-page .dsh-github-plugin-minicard .product-plugin-icon {
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
+  flex-shrink: 0;
+}
+
+.settings-page .dsh-github-plugin-minicard-copy {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.settings-page .dsh-github-plugin-minicard-name {
+  overflow: hidden;
+  color: var(--text-primary);
+  font-size: 0.8125rem;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.settings-page .dsh-github-plugin-minicard-meta {
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+  font-size: 0.6875rem;
+}
+
+.settings-page .dsh-github-popconfirm-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 6px;
+  margin-top: 2px;
+}
+
+
+

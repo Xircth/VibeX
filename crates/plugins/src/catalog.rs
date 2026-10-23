@@ -60,6 +60,8 @@ pub struct CatalogListing {
     pub show_tree: Option<bool>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub icon: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub stars: Option<u64>,
 }
 
 #[derive(Clone, Debug, Default, Deserialize, Serialize, PartialEq, Eq)]
@@ -190,6 +192,7 @@ pub fn listing_from_package(package: &PluginPackage, offline: bool) -> CatalogLi
         opens,
         show_tree: None,
         icon: None,
+        stars: None,
     }
 }
 
@@ -486,6 +489,7 @@ fn listing_from_index_record(item: crate::MarketplaceListing) -> Option<CatalogL
         readme: None,
         show_tree: None,
         icon: item.icon,
+        stars: None,
     })
 }
 
@@ -903,6 +907,8 @@ struct PublishedRecord {
     show_tree: Option<bool>,
     #[serde(default)]
     icon: Option<String>,
+    #[serde(default)]
+    stars: Option<u64>,
 }
 
 impl PublishedRecord {
@@ -960,6 +966,7 @@ impl PublishedRecord {
                 nonempty(&self.source_kind).map(|kind| kind.eq_ignore_ascii_case("github"))
             }),
             icon: self.icon.and_then(|value| nonempty(&value)),
+            stars: self.stars,
         })
     }
 }
@@ -1217,6 +1224,7 @@ mod tests {
             readme: None,
             show_tree: Some(true),
             icon: None,
+            stars: None,
         };
         let office = CatalogListing {
             display_name: "Office".into(),
@@ -1269,6 +1277,7 @@ mod tests {
             readme: None,
             show_tree: None,
             icon: None,
+            stars: None,
         }
     }
 
@@ -1287,17 +1296,17 @@ mod tests {
         );
         session.category = "official".into();
         normalize_listing_category(&mut session);
-        assert_eq!(session.category, "productivity");
+        assert_eq!(session.category, "ai-enhancement");
         assert_eq!(
             bundled_topic_category("vibex.session-enhance"),
-            Some("productivity")
+            Some("ai-enhancement")
         );
         assert!(bundled_topic_category("vibex.multi-agent").is_none());
         assert_eq!(
             bundled_topic_category("vibex.workflow-creator"),
-            Some("workflow")
+            Some("aigc")
         );
-        assert_eq!(bundled_topic_category("vibex.science"), Some("other"));
+        assert_eq!(bundled_topic_category("vibex.science"), Some("science"));
     }
 
     #[test]

@@ -643,32 +643,55 @@
     "catalogModeAria": "Plugin catalog type",
     "installedTab": "Installed",
     "marketplaceTab": "Marketplace",
+    "coreModulesTab": "Built-in plugins",
+    "officialGroupTitle": "Official plugins",
+    "thirdPartyGroupTitle": "Installed plugins",
+    "morePlugins": "More",
+    "collapsePlugins": "Show less",
+    "componentsTitle": "Components",
+    "componentsSummary": "{{total}} total · {{running}} running · {{off}} off",
+    "sourceSectionTitle": "Source",
+    "codeSourceLabel": "Code source",
+    "currentVersionLabel": "Current version",
+    "packageIdLabel": "Package ID",
+    "publisherLabel": "Publisher",
+    "statusRunning": "Running",
+    "statusOff": "Off",
+    "statusProblem": "Problem",
+    "officialBadge": "Official",
     "allCategory": "All",
     "officialCategory": "Official",
     "communityCategory": "Community",
     "marketplaceCategoriesAria": "Plugin categories",
     "listingCategory": {
       "official": "Official",
-      "productivity": "Productivity",
-      "agent": "Agent",
-      "workflow": "Workflow",
-      "mcp": "MCP",
+      "design": "Design",
+      "development": "Development",
+      "science": "Science",
+      "ai-enhancement": "AI Enhancement",
+      "utilities": "Utilities",
+      "aigc": "AIGC",
+      "productivity": "Utilities",
+      "agent": "AI Enhancement",
+      "workflow": "AIGC",
+      "mcp": "Development",
       "other": "Other",
       "community": "Community"
     },
     "readmeTab": "README",
-    "contentsTab": "Contents",
+    "contentsTab": "Components",
     "packageTab": "Package",
-    "contentsCatalog": "Plugin contents",
+    "contentsCatalog": "Components",
     "contentsEmpty": "No contents to show",
     "contentKind": {
       "package": "Package",
+      "ui": "UI",
       "skill": "Skill",
       "mcp": "MCP",
       "hook": "Hook",
       "workflow": "Workflow",
       "runtime": "Runtime",
-      "viewer": "Viewer",
+      "viewer": "UI",
       "other": "Other"
     },
     "marketplaceLoading": "Loading marketplace",
@@ -902,7 +925,25 @@
       "computerUse": {
         "name": "Computer Use",
         "summary": "See and control shared desktop windows: accessibility trees, screenshots, keyboard and pointer input, per-window grants, and a global emergency stop.",
-        "readme": "# Computer Use\n\nLets an Agent read and act in windows you share. Sharing is per window, per application, or the full screen, and is either view-only or allowed to control.\n\nAfter you enable it, sessions opened or rebound later receive the Computer Use MCP and Skill. The global emergency stop revokes grants and interrupts an action in progress.\n\nThe breathing aura on a shared window is controlled by Show the desktop sharing indicator in settings.",
+        "readme": "# Computer Use\n\nLets an Agent read and act in windows you share. Sharing is per window, per application, or the full screen, and is either view-only or allowed to control.\n\n## Capabilities\n\n- **Window & Screen Perception**: Inspect accessibility trees and capture high-DPI window snapshots.\n- **Pointer & Keyboard Control**: Dispatch click, drag, scroll, and keystroke actions inside granted windows.\n- **Emergency Stop**: After you enable it, sessions opened or rebound later receive the Computer Use `MCP` and `Skill`. The global emergency stop revokes grants and interrupts an action in progress.\n\n## Visual Indicator\n\nThe breathing aura on a shared window is controlled by Show the desktop sharing indicator in settings.",
+        "config": {}
+      },
+      "kanbanViews": {
+        "name": "Kanban Views",
+        "summary": "Built-in Kanban board views, sprint velocity metrics, and task triage workflows.",
+        "readme": "# Kanban Views\n\nExtends the VibeX Kanban board with task grouping presets, velocity metrics, and triage skills.",
+        "config": {}
+      },
+      "notes": {
+        "name": "Workspace Notes",
+        "summary": "Project scratchpad, session notes, and right-click message selection capture.",
+        "readme": "# Workspace Notes\n\nProvides a workspace scratchpad, /note slash command, and message context-menu capture.",
+        "config": {}
+      },
+      "promptEnhancer": {
+        "name": "Prompt Enhancer",
+        "summary": "Built-in prompt refinement, @enhance composer action, and structured context enrichment.",
+        "readme": "# Prompt Enhancer\n\nRefines and enriches user prompts with structured constraints before sending to agents.",
         "config": {}
       }
     },
@@ -1950,7 +1991,7 @@
     "loginMethodOptions": "Sign-in methods",
     "loginWithToken": "Enter Token",
     "loginWithBrowser": "Browser Login",
-    "officialInstallGuide": "Official Install Guide",
+    "officialInstallGuide": "Official install guide",
     "headlessAccountTokenHint": "Same-account token for a machine without a browser.",
     "headlessAccountTokenClear": "Clear",
     "headlessAccountTokenSaved": "Saved",
@@ -1993,9 +2034,18 @@
         "name": "Standard",
         "summary": "Full tools and default permissions"
       },
-      "code": { "name": "Code", "summary": "Lean setup for coding work" },
-      "minimal": { "name": "Minimal", "summary": "Fewest tools, best for Q&A" },
-      "cordis": { "name": "Cordis", "summary": "Full plugin runtime" }
+      "code": {
+        "name": "Code",
+        "summary": "Lean setup for coding work"
+      },
+      "minimal": {
+        "name": "Minimal",
+        "summary": "Fewest tools, best for Q&A"
+      },
+      "cordis": {
+        "name": "Cordis",
+        "summary": "Full plugin runtime"
+      }
     },
     "dshSandbox": {
       "workspace-write": "Workspace write",
@@ -2289,7 +2339,6 @@
     "moveBackward": "Move backward",
     "checking": "Checking…",
     "checkUpdates": "Check for updates",
-
     "actionKind": {
       "login": "Sign in to {{agent}}",
       "logout": "Sign out of {{agent}}",
@@ -2491,9 +2540,7 @@
     "customAcpVersionLabel": "ACP version",
     "customVersionPlaceholder": "For example, 1.2.3",
     "customVersionTrustHint": "Empty fields install npm latest. Only the ACP launch package is written.",
-
     "repairInstallation": "Repair installation",
-    "officialInstallGuide": "Official install guide",
     "kiroSilentInstallFailedTitle": "Kiro silent installation could not complete. Please install from the official website.",
     "kiroSilentInstallFailedDescription": "Open the official Kiro installation page to download the installer, then click \"Check now\" in VibeX.",
     "operationComplete": "Operation complete",
@@ -2592,7 +2639,6 @@
     "noMatchingAgents": "No matching Agents.",
     "noAgentsInCategory": "No Agents in this category.",
     "add": "Add",
-
     "addVariable": "Add variable",
     "aiSdkPackage": "AI SDK package",
     "apiAdapter": "API adapter",

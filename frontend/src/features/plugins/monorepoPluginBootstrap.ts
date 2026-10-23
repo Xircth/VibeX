@@ -35,6 +35,7 @@ import {
   pluginRuntimeLoader,
   type DeclarativePluginSpec,
 } from './PluginRuntimeLoader';
+import { ensureCoreFoundationPluginsBootstrapped } from './coreFoundationPlugins';
 import { ensureHostProviderServicesRegistered } from './providers/hostProviderServices';
 
 function createEnvironmentViewComponent<TEnv>(
@@ -406,6 +407,7 @@ export async function bootstrapMonorepoOfficialPlugins(options?: {
   onlyIds?: string[];
 }): Promise<string[]> {
   ensureHostProviderServicesRegistered();
+  ensureCoreFoundationPluginsBootstrapped();
   const filterSet = options?.onlyIds ? new Set(options.onlyIds) : null;
   const activated: string[] = [];
   for (const bundle of MONOREPO_OFFICIAL_PLUGIN_BUNDLES) {

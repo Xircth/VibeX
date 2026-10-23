@@ -1,4 +1,16 @@
-import { useEffect, useMemo, useState } from 'react';
+import {
+  SegmentedControl,
+  SegmentedControlItem,
+} from '@astryxdesign/core/SegmentedControl';
+import {
+  ChevronLeft,
+  ChevronRight,
+  Cpu,
+  PackageCheck,
+  Sparkles,
+  Store,
+} from 'lucide-react';
+import { type KeyboardEvent, useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useNavigate } from 'react-router-dom';
 
@@ -6,16 +18,29 @@ import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
 import type { CatalogListing } from '@/lib/api/plugins';
 import { PluginMarketplaceLogo } from './OfficialPluginIcon';
-import { officialListingName, officialListingSummary } from './officialPlugins';
+import {
+  PluginCategoryBadge,
+  PluginDeveloperBadge,
+  PluginInstallsBadge,
+  PluginRowMetaColumns,
+  PluginVersionBadge,
+} from './PluginAttributeBadges';
+import {
+  officialListingName,
+  officialListingSummary,
+  pluginCategoryLabel,
+} from './officialPlugins';
 import {
   flattenMarketplaceListings,
   listingMatchesPlugin,
   listingMatchesSearch,
   listingsInMarketplaceTab,
-  listingTopicCategory,
   marketplaceCategoryTabIds,
+  resolveMarketplaceListingCategory,
   type InstalledPluginIdentity,
 } from './marketplaceListing';
+
+export type PluginCatalogMode = 'installed' | 'marketplace' | 'core';
 
 const MARKETPLACE_SKELETON_CARDS = [
   { title: 'w-28', tag: 'w-12', summary: 'w-full' },
@@ -26,64 +51,76 @@ const MARKETPLACE_SKELETON_CARDS = [
   { title: 'w-24', tag: 'w-12', summary: 'w-full' },
 ] as const;
 
-const MODE_TABS = [
-  ['installed', 'plugins.installedTab'],
-  ['marketplace', 'plugins.marketplaceTab'],
+const FEATURED_PRIORITY_IDS = [
+  'vibex.office',
+  'vibex.science',
+  'vibex-plugin-computer-use',
+  'vibex.workflow-creator',
+  'vibex.browser',
+  'vibex.session-enhance',
 ] as const;
 
 function moveTabIndex(
-  event: { key: string; preventDefault: () => void },
+  event: KeyboardEvent<HTMLElement>,
   index: number,
   length: number
 ) {
-  let next = index;
-  if (event.key === 'ArrowRight') next = (index + 1) % length;
-  else if (event.key === 'ArrowLeft') next = (index - 1 + length) % length;
-  else if (event.key === 'Home') next = 0;
-  else if (event.key === 'End') next = length - 1;
-  else return null;
-  event.preventDefault();
-  return next;
+  if (length <= 0) return null;
+  if (event.key === 'ArrowRight') {
+    event.preventDefault();
+    return (index + 1) % length;
+  }
+  if (event.key === 'ArrowLeft') {
+    event.preventDefault();
+    return (index - 1 + length) % length;
+  }
+  if (event.key === 'Home') {
+    event.preventDefault();
+    return 0;
+  }
+  if (event.key === 'End') {
+    event.preventDefault();
+    return length - 1;
+  }
+  return null;
 }
 
 export function PluginCatalogModeTabs({
   value,
   onChange,
 }: {
-  value: 'installed' | 'marketplace';
-  onChange: (value: 'installed' | 'marketplace') => void;
+  value: PluginCatalogMode;
+  onChange: (value: PluginCatalogMode) => void;
 }) {
   const { t } = useTranslation('settings');
   return (
-    <div
-      className="chat-channel-tabs"
-      role="tablist"
-      aria-label={t('plugins.catalogModeAria')}
-      onKeyDown={(event) => {
-        const index = MODE_TABS.findIndex(([id]) => id === value);
-        const next = moveTabIndex(event, index, MODE_TABS.length);
-        if (next == null) return;
-        const tab = MODE_TABS[next];
-        onChange(tab[0]);
-        event.currentTarget
-          .querySelector<HTMLButtonElement>(`[data-plugin-mode="${tab[0]}"]`)
-          ?.focus();
-      }}
+    <SegmentedControl
+      className="dsh-plugin-mode-segmented shrink-0"
+      value={value}
+      onChange={(nextValue) => onChange(nextValue as PluginCatalogMode)}
+      label={t('plugins.catalogModeAria')}
+      size="sm"
+      layout="hug"
     >
-      {MODE_TABS.map(([id, label]) => (
-        <button
-          key={id}
-          type="button"
-          role="tab"
-          data-plugin-mode={id}
-          aria-selected={value === id}
-          className={value === id ? 'is-active' : undefined}
-          onClick={() => onChange(id)}
-        >
-          {t(label)}
-        </button>
-      ))}
-    </div>
+      <SegmentedControlItem
+        value="installed"
+        data-plugin-mode="installed"
+        label={t('plugins.installedTab')}
+        icon={<PackageCheck aria-hidden="true" />}
+      />
+      <SegmentedControlItem
+        value="marketplace"
+        data-plugin-mode="marketplace"
+        label={t('plugins.marketplaceTab')}
+        icon={<Store aria-hidden="true" />}
+      />
+      <SegmentedControlItem
+        value="core"
+        data-plugin-mode="core"
+        label={t('plugins.coreModulesTab')}
+        icon={<Cpu aria-hidden="true" />}
+      />
+    </SegmentedControl>
   );
 }
 
@@ -106,7 +143,8 @@ export function PluginMarketplaceList({
   canInstall: boolean;
   onInstall: (listing: CatalogListing) => void;
 }) {
-  const { t } = useTranslation('settings');
+  const { t, i18n } = useTranslation('settings');
+  const isZh = i18n.language.toLowerCase().startsWith('zh');
   const [category, setCategory] = useState('all');
   const listings = useMemo(
     () => flattenMarketplaceListings(official, community),
@@ -128,20 +166,54 @@ export function PluginMarketplaceList({
   useEffect(() => {
     if (query.trim()) setCategory('all');
   }, [query]);
-  const selected = tabs.includes(category) ? category : 'all';
+  const selected = tabs.includes(category as (typeof tabs)[number])
+    ? category
+    : 'all';
   const visible = useMemo(
     () => listingsInMarketplaceTab(matches, selected),
     [matches, selected]
   );
+
+  const featuredListings = useMemo(() => {
+    if (listings.length === 0) return [];
+    const prioritized: CatalogListing[] = [];
+    const usedKeys = new Set<string>();
+    for (const targetId of FEATURED_PRIORITY_IDS) {
+      const found = listings.find(
+        (item) =>
+          item.offlinePluginId === targetId || item.pluginName === targetId
+      );
+      if (found) {
+        const key = `${found.owner}/${found.pluginName}`;
+        if (!usedKeys.has(key)) {
+          usedKeys.add(key);
+          prioritized.push(found);
+        }
+      }
+    }
+    for (const item of listings) {
+      if (prioritized.length >= 5) break;
+      const key = `${item.owner}/${item.pluginName}`;
+      if (!usedKeys.has(key)) {
+        usedKeys.add(key);
+        prioritized.push(item);
+      }
+    }
+    return prioritized.slice(0, 5);
+  }, [listings]);
 
   if (loading) {
     return <PluginMarketplaceLoading label={t('plugins.marketplaceLoading')} />;
   }
 
   return (
-    <div className="product-plugin-market">
+    <div className="product-plugin-market dsh-market-container">
+      {!query.trim() && featuredListings.length > 0 ? (
+        <PluginMarketplaceCarousel listings={featuredListings} isZh={isZh} />
+      ) : null}
+
       <div
-        className="product-plugin-underline-tabs"
+        className="product-plugin-underline-tabs dsh-scale-tabs"
         role="tablist"
         aria-label={t('plugins.marketplaceCategoriesAria')}
         onKeyDown={(event) => {
@@ -165,19 +237,19 @@ export function PluginMarketplaceList({
             className={selected === id ? 'is-active' : undefined}
             onClick={() => setCategory(id)}
           >
-            {id === 'all'
-              ? t('plugins.allCategory')
-              : id === 'official'
-                ? t('plugins.officialCategory')
-                : t(`plugins.listingCategory.${id}`, { defaultValue: id })}
+            <span className="dsh-scale-tab-tick" aria-hidden="true" />
+            <span className="dsh-scale-tab-label">
+              {pluginCategoryLabel(id, t, isZh)}
+            </span>
           </button>
         ))}
       </div>
+
       <div className="product-plugin-market-list">
         {visible.length ? (
-          <div className="product-plugin-market-grid">
+          <div className="product-plugin-market-grid dsh-market-rows">
             {visible.map((listing) => (
-              <MarketplaceCard
+              <MarketplaceRow
                 key={`${listing.owner}/${listing.pluginName}/${listing.tag}`}
                 listing={listing}
                 installing={
@@ -206,6 +278,156 @@ export function PluginMarketplaceList({
   );
 }
 
+function PluginMarketplaceCarousel({
+  listings,
+  isZh,
+}: {
+  listings: CatalogListing[];
+  isZh: boolean;
+}) {
+  const { t } = useTranslation('settings');
+  const navigate = useNavigate();
+  const [activeIndex, setActiveIndex] = useState(0);
+  const [paused, setPaused] = useState(false);
+
+  const safeIndex =
+    listings.length > 0 ? activeIndex % listings.length : 0;
+  const activeListing = listings[safeIndex];
+
+  useEffect(() => {
+    if (paused || listings.length <= 1) return;
+    const timer = window.setInterval(() => {
+      setActiveIndex((prev) => (prev + 1) % listings.length);
+    }, 5000);
+    return () => window.clearInterval(timer);
+  }, [listings.length, paused]);
+
+  if (!activeListing) return null;
+
+  const activePluginId =
+    activeListing.offlinePluginId ?? activeListing.pluginName;
+  const displayName = officialListingName(activeListing, t);
+  const summary = officialListingSummary(activeListing, t);
+  const resolvedCategory = resolveMarketplaceListingCategory(activeListing);
+  const categoryName = pluginCategoryLabel(resolvedCategory, t, isZh);
+
+  return (
+    <section
+      className="dsh-market-carousel"
+      aria-label={isZh ? '推荐插件轮播' : 'Featured plugins'}
+      onMouseEnter={() => setPaused(true)}
+      onMouseLeave={() => setPaused(false)}
+    >
+      <div className="dsh-carousel-slide">
+        <div className="dsh-carousel-main">
+          <div className="dsh-carousel-badges">
+            <span className="dsh-carousel-kicker">
+              <Sparkles aria-hidden="true" />
+              {isZh ? '推荐插件' : 'Featured Plugin'}
+            </span>
+            <PluginDeveloperBadge
+              pluginId={activePluginId}
+              owner={activeListing.owner}
+              homepage={activeListing.homepage}
+              repo={activeListing.repo}
+              variant="badge"
+            />
+            <PluginCategoryBadge
+              category={resolvedCategory}
+              label={categoryName}
+              variant="badge"
+            />
+            <PluginVersionBadge
+              version={activeListing.version}
+              tag={activeListing.tag}
+              variant="badge"
+            />
+            <PluginInstallsBadge
+              pluginId={activePluginId}
+              owner={activeListing.owner}
+              homepage={activeListing.homepage}
+              repo={activeListing.repo}
+              variant="badge"
+            />
+          </div>
+          <div className="dsh-carousel-identity">
+            <PluginMarketplaceLogo
+              listing={activeListing}
+              displayName={displayName}
+            />
+            <div className="dsh-carousel-copy">
+              <h3 className="dsh-carousel-title">
+                {`${displayName}\u200B`}
+              </h3>
+              <p className="dsh-carousel-summary">
+                {`${summary}\u200B`}
+              </p>
+            </div>
+          </div>
+        </div>
+        <div className="dsh-carousel-side">
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            className="dsh-carousel-detail-btn"
+            onClick={() =>
+              navigate(
+                `/plugins/marketplace/${encodeURIComponent(activeListing.owner)}/${encodeURIComponent(activeListing.pluginName)}`
+              )
+            }
+          >
+            {isZh ? '查看详情' : 'View details'}
+          </Button>
+          {listings.length > 1 ? (
+            <div className="dsh-carousel-arrows">
+              <button
+                type="button"
+                className="dsh-carousel-arrow"
+                aria-label={isZh ? '上一个推荐插件' : 'Previous featured plugin'}
+                onClick={() =>
+                  setActiveIndex(
+                    (prev) => (prev - 1 + listings.length) % listings.length
+                  )
+                }
+              >
+                <ChevronLeft aria-hidden="true" />
+              </button>
+              <button
+                type="button"
+                className="dsh-carousel-arrow"
+                aria-label={isZh ? '下一个推荐插件' : 'Next featured plugin'}
+                onClick={() =>
+                  setActiveIndex((prev) => (prev + 1) % listings.length)
+                }
+              >
+                <ChevronRight aria-hidden="true" />
+              </button>
+            </div>
+          ) : null}
+        </div>
+      </div>
+      {listings.length > 1 ? (
+        <div className="dsh-carousel-dots" role="group">
+          {listings.map((item, idx) => (
+            <button
+              key={`${item.owner}/${item.pluginName}`}
+              type="button"
+              className={
+                idx === safeIndex
+                  ? 'dsh-carousel-dot is-active'
+                  : 'dsh-carousel-dot'
+              }
+              aria-label={`${idx + 1}`}
+              onClick={() => setActiveIndex(idx)}
+            />
+          ))}
+        </div>
+      ) : null}
+    </section>
+  );
+}
+
 function PluginMarketplaceLoading({ label }: { label: string }) {
   return (
     <div className="product-plugin-market" role="status" aria-label={label}>
@@ -215,10 +437,10 @@ function PluginMarketplaceLoading({ label }: { label: string }) {
         <Skeleton className="product-plugin-market-loading-tab w-10" />
       </div>
       <div className="product-plugin-market-list">
-        <div className="product-plugin-market-grid">
+        <div className="product-plugin-market-grid dsh-market-rows">
           {MARKETPLACE_SKELETON_CARDS.map((card, index) => (
             <div
-              className="product-plugin-card product-plugin-card-skeleton"
+              className="product-plugin-card product-plugin-card-skeleton dsh-market-row"
               key={index}
             >
               <div className="product-plugin-card-head">
@@ -232,7 +454,6 @@ function PluginMarketplaceLoading({ label }: { label: string }) {
                 </span>
               </div>
               <Skeleton className={`h-2.5 ${card.summary}`} />
-              <Skeleton className="h-2.5 w-2/3" />
               <span className="product-plugin-row-actions">
                 <Skeleton className="h-7 w-14 rounded-lg" />
               </span>
@@ -244,7 +465,7 @@ function PluginMarketplaceLoading({ label }: { label: string }) {
   );
 }
 
-function MarketplaceCard({
+function MarketplaceRow({
   listing,
   installing,
   installed,
@@ -257,11 +478,18 @@ function MarketplaceCard({
   canInstall: boolean;
   onInstall: (listing: CatalogListing) => void;
 }) {
-  const { t } = useTranslation('settings');
+  const { t, i18n } = useTranslation('settings');
+  const isZh = i18n.language.toLowerCase().startsWith('zh');
   const navigate = useNavigate();
   const displayName = officialListingName(listing, t);
+  const resolvedCategory = resolveMarketplaceListingCategory(listing);
+  const pluginId = listing.offlinePluginId ?? listing.pluginName;
   return (
-    <div className="product-plugin-card">
+    <div
+      className="product-plugin-row product-plugin-card dsh-plugin-card dsh-market-row"
+      data-market-entry
+      data-plugin-category={resolvedCategory}
+    >
       <button
         type="button"
         className="product-plugin-open"
@@ -271,52 +499,46 @@ function MarketplaceCard({
           )
         }
       >
-        <span className="product-plugin-card-head">
-          <PluginMarketplaceLogo listing={listing} displayName={displayName} />
-          <span className="product-plugin-row-copy">
-            <span className="product-plugin-row-title">
-              <strong>{displayName}</strong>
-              <span className="product-plugin-row-tags">
-                <span>{listing.owner}</span>
-                {listingTopicCategory(listing.category) ? (
-                  <span>
-                    {t(`plugins.listingCategory.${listing.category}`, {
-                      defaultValue: listing.category,
-                    })}
-                  </span>
-                ) : null}
-                <span>v{listing.version}</span>
-              </span>
-            </span>
+        <PluginMarketplaceLogo listing={listing} displayName={displayName} />
+        <span className="product-plugin-row-copy">
+          <span className="product-plugin-row-title">
+            <strong>{displayName}</strong>
+          </span>
+          <span className="product-plugin-row-summary">
+            {officialListingSummary(listing, t)}
           </span>
         </span>
-        <span className="product-plugin-row-summary">
-          {officialListingSummary(listing, t)}
-        </span>
       </button>
-      {installed || canInstall ? (
-        <span className="product-plugin-row-actions">
-          {installed ? (
-            <span className="product-plugin-installed">
-              {t('plugins.installedStatus')}
-            </span>
-          ) : (
-            <Button
-              type="button"
-              size="sm"
-              disabled={installing}
-              onClick={(event) => {
-                event.stopPropagation();
-                onInstall(listing);
-              }}
-            >
-              {installing
-                ? t('plugins.installingPlugin')
-                : t('plugins.install')}
-            </Button>
-          )}
-        </span>
-      ) : null}
+      <PluginRowMetaColumns
+        pluginId={pluginId}
+        owner={listing.owner}
+        version={listing.version}
+        tag={listing.tag}
+        homepage={listing.homepage}
+        repo={listing.repo}
+        categoryLabel={pluginCategoryLabel(resolvedCategory, t, isZh)}
+      />
+      <span className="product-plugin-row-actions dsh-row-action-slot">
+        {installed ? (
+          <span className="product-plugin-installed">
+            {t('plugins.installedStatus')}
+          </span>
+        ) : canInstall ? (
+          <Button
+            type="button"
+            size="sm"
+            disabled={installing}
+            onClick={(event) => {
+              event.stopPropagation();
+              onInstall(listing);
+            }}
+          >
+            {installing
+              ? t('plugins.installingPlugin')
+              : t('plugins.install')}
+          </Button>
+        ) : null}
+      </span>
     </div>
   );
 }

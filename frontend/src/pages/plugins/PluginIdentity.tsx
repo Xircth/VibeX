@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next';
 import { Badge } from '@/components/ui/badge';
 import type { PluginControlItem } from '@/lib/api/plugins';
 
+import { formatPluginVersion } from './PluginAttributeBadges';
 import { pluginInstallSource, pluginSourceLabel } from './officialPlugins';
 
 export function PluginIdentityMeta({
@@ -40,7 +41,7 @@ export function PluginIdentityMeta({
         className="product-plugin-version-badge"
         title={t('plugins.versionTitle')}
       >
-        v{plugin.version}
+        {formatPluginVersion(plugin.version)}
       </Badge>
       {plugin.sourceLocked ? (
         <Badge

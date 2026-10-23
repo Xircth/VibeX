@@ -133,9 +133,21 @@ pub fn github_archive_urls_for_repository(repository: &str) -> Vec<String> {
     if path.is_empty() || path.contains("..") {
         return Vec::new();
     }
+    if let Some((repo_slug, branch)) = path.split_once("/tree/") {
+        let repo_slug = repo_slug.trim_matches('/');
+        let branch = branch.trim_matches('/');
+        if !repo_slug.is_empty() && !branch.is_empty() {
+            return vec![
+                format!("https://codeload.github.com/{repo_slug}/tar.gz/refs/heads/{branch}"),
+                format!("https://codeload.github.com/{repo_slug}/tar.gz/{branch}"),
+            ];
+        }
+    }
     vec![
         format!("https://codeload.github.com/{path}/tar.gz/refs/heads/main"),
         format!("https://codeload.github.com/{path}/tar.gz/main"),
+        format!("https://codeload.github.com/{path}/tar.gz/refs/heads/master"),
+        format!("https://codeload.github.com/{path}/tar.gz/master"),
     ]
 }
 
@@ -182,6 +194,7 @@ fn listing_from_official_record(plugin: &OfficialPluginRecord) -> CatalogListing
         readme: None,
         show_tree: None,
         icon: None,
+        stars: None,
     }
 }
 
@@ -275,7 +288,7 @@ mod tests {
         assert!(official_plugin_record("browser").is_some());
         assert_eq!(
             official_plugin_category("vibex.session-enhance"),
-            Some("productivity")
+            Some("ai-enhancement")
         );
         assert!(official_plugin_category("vibex.multi-agent").is_none());
     }

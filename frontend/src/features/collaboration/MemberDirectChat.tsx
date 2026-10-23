@@ -213,19 +213,21 @@ export function MemberDirectChatLog({
       />
     ));
   return (
-    <div
-      className="collab-log collaboration-thread-log"
-      data-testid="collab-direct-log"
-    >
-      {turns.map((entry) => (
-        <Fragment key={entry.key}>
-          {renderNotices(noticesBefore.get(entry.key))}
-          {renderTurn(entry)}
-        </Fragment>
-      ))}
-      {renderNotices(noticesBefore.get(TAIL))}
-      {inlineCards}
-    </div>
+    <MemberMentionProvider candidates={mentionCandidates ?? []}>
+      <div
+        className="collab-log collaboration-thread-log"
+        data-testid="collab-direct-log"
+      >
+        {turns.map((entry) => (
+          <Fragment key={entry.key}>
+            {renderNotices(noticesBefore.get(entry.key))}
+            {renderTurn(entry)}
+          </Fragment>
+        ))}
+        {renderNotices(noticesBefore.get(TAIL))}
+        {inlineCards}
+      </div>
+    </MemberMentionProvider>
   );
 
   function renderTurn(entry: DirectChatTurn) {

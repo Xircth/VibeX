@@ -54,8 +54,10 @@
   align-items: center;
   gap: 0.25rem;
   max-width: 14rem;
-  margin: 0 2px;
-  padding: 2px 6px;
+  /* The pill is transparent until hover, so its horizontal padding IS the
+   * visible gap to neighbouring text: keep it at 2px and drop the margin. */
+  margin: 0;
+  padding: 2px;
   border-radius: 999px;
   vertical-align: middle;
   line-height: 1.5rem;
@@ -85,8 +87,8 @@
 
 /* Inside the composer the chip replaces the generic token badge. */
 .member-mention--composer[data-astryx-token] {
-  margin: 0 2px;
-  padding: 2px 6px !important;
+  margin: 0;
+  padding: 2px !important;
   /* Match the message chip: drop the generic token's 18px/11px box. */
   height: auto !important;
   font-size: inherit !important;
@@ -131,7 +133,7 @@
 .collaboration-cross-chat-notice-text {
   display: inline-flex;
   align-items: center;
-  gap: 0.125rem;
+  gap: 0;
   white-space: nowrap;
 }
 

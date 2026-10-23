@@ -1,6 +1,9 @@
 import { describe, expect, it } from 'vitest';
 
-import { collapseMemberMentionSpacing, memberMentionPattern } from './MemberMention';
+import {
+  collapseMemberMentionSpacing,
+  memberMentionPattern,
+} from './MemberMention';
 import { deriveMemberBotAvatar } from './MemberBotAvatar';
 
 const candidates = ['小A', '小B'].map((nickname) => ({
@@ -29,5 +32,16 @@ describe('member mention spacing', () => {
     // Shared space between chips is cancelled once (by the left chip).
     expect(a.style.marginRight).not.toBe('');
     expect(b.style.marginLeft).toBe('');
+  });
+
+  it('nets the visible gap to the chip padding (no extra margin)', () => {
+    const root = document.createElement('div');
+    root.innerHTML =
+      '交给 <span class="member-mention--composer">x</span> 处理';
+    collapseMemberMentionSpacing(root);
+    const chip = root.querySelector<HTMLElement>('span')!;
+    // jsdom has no canvas: space width 0, so the margin cancels to 0px.
+    expect(chip.style.marginLeft).toBe('0px');
+    expect(chip.style.marginRight).toBe('0px');
   });
 });

@@ -1,10 +1,5 @@
 import type { CSSProperties } from 'react';
-import {
-  createContext,
-  useContext,
-  useMemo,
-  type ReactNode,
-} from 'react';
+import { createContext, useContext, useMemo, type ReactNode } from 'react';
 
 import {
   MemberBotAvatar,
@@ -117,7 +112,7 @@ export function memberMentionPattern(
   if (names.length === 0) return null;
   return new RegExp(
     // Horizontal whitespace around the chip is consumed so the chip's own
-    // 2px margin is the only gap (matches the composer, see
+    // 2px padding is the only gap (matches the composer, see
     // collapseMemberMentionSpacing).
     `[^\\S\\n]*(?<=^|\\s)@(${names.map(escapeRegExp).join('|')})(?=$|\\s)[^\\S\\n]*`,
     'gu'
@@ -165,7 +160,7 @@ function measureSpace(el: HTMLElement): number {
  * Composer counterpart of the message renderer's whitespace collapsing. The
  * composer must keep the literal spaces around `@nick` (they are part of the
  * serialized text the backend parses), so instead of removing them we
- * cancel their width with a negative margin. Net gap = the chip's 2px margin.
+ * cancel their width with a negative margin. Net gap = the chip's 2px padding.
  */
 export function collapseMemberMentionSpacing(root: HTMLElement | null) {
   if (!root) return;
@@ -175,7 +170,8 @@ export function collapseMemberMentionSpacing(root: HTMLElement | null) {
   const edge = (node: ChildNode | null, side: 'end' | 'start') => {
     if (!node || node.nodeType !== Node.TEXT_NODE) return 0;
     const text = node.textContent ?? '';
-    const run = side === 'end' ? /[^\S\n]+$/u.exec(text) : /^[^\S\n]+/u.exec(text);
+    const run =
+      side === 'end' ? /[^\S\n]+$/u.exec(text) : /^[^\S\n]+/u.exec(text);
     if (!run) return 0;
     // A space shared by two chips is cancelled only once (by the left chip).
     return run[0].length;
@@ -183,13 +179,14 @@ export function collapseMemberMentionSpacing(root: HTMLElement | null) {
   chips.forEach((chip) => {
     const prev = chip.previousSibling;
     const before =
-      prev && prev.previousSibling instanceof HTMLElement &&
+      prev &&
+      prev.previousSibling instanceof HTMLElement &&
       prev.previousSibling.classList.contains('member-mention--composer') &&
       SPACE_ONLY.test(prev.textContent ?? '')
         ? 0
         : edge(prev, 'end');
     const after = edge(chip.nextSibling, 'start');
-    chip.style.marginLeft = before ? `${2 - before * space}px` : '';
-    chip.style.marginRight = after ? `${2 - after * space}px` : '';
+    chip.style.marginLeft = before ? `${-before * space}px` : '';
+    chip.style.marginRight = after ? `${-after * space}px` : '';
   });
 }

@@ -150,3 +150,65 @@ describe('MemberDirectChatLog cross-DM lines', () => {
     expect(screen.queryByTestId('collaboration-cross-chat-notice')).toBeNull();
   });
 });
+
+describe('review fixes: DM user chips, group user checks', () => {
+  it('renders MemberMention chips in the user message of a direct chat', () => {
+    render(
+      <MemberDirectChatLog
+        memberName="小A"
+        avatar={null}
+        receipts={{}}
+        turns={[
+          {
+            key: 'u1',
+            turn: turn(
+              'u1',
+              'user',
+              '去问下 @小B 接口好了没',
+              '2026-10-24T01:00:00Z'
+            ),
+          },
+        ]}
+        mentionCandidates={[
+          { nickname: '小B', avatar: deriveMemberBotAvatar('m2') },
+        ]}
+      />
+    );
+    const you = document.querySelector('article[data-from="you"]')!;
+    const chip = within(you as HTMLElement).getByTestId('member-mention');
+    expect(chip.getAttribute('data-member-mention')).toBe('小B');
+    expect(you.textContent?.replace(/\s+/g, '')).toBe('去问下@小B接口好了没');
+  });
+
+  it('shows a receipt check on user bubbles even before any receipt', () => {
+    const userMessage = {
+      id: 'g1',
+      seq: 1,
+      origin: 'user',
+      envelope: {
+        actor: 'vibex://space/g/user',
+        content: '@小A 请看 diff',
+        to: [actor('小A')],
+      },
+    } as GroupMessage;
+    render(
+      <QueryClientProvider client={new QueryClient()}>
+        <HotkeysProvider initiallyActiveScopes={['dialog']}>
+          <GroupChat
+            groupName="g"
+            seats={[]}
+            messages={[userMessage, { ...wire[1], seq: 2 } as GroupMessage]}
+            cardStatus={{}}
+            onSend={vi.fn()}
+            onPreviewWake={vi.fn(async () => ({ willWake: 0, asleep: 0 }))}
+            onResolveCard={vi.fn()}
+          />
+        </HotkeysProvider>
+      </QueryClientProvider>
+    );
+    const checks = screen.getAllByTestId('collaboration-receipt-check');
+    expect(checks).toHaveLength(1);
+    expect(checks[0].getAttribute('data-state')).toBe('sent');
+    expect(checks[0].closest('article[data-from]')?.getAttribute('data-from')).toBe('you');
+  });
+});

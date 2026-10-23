@@ -7,6 +7,9 @@ import { cn } from '@/lib/utils';
 import { SpaceMessageBody, bubbleText } from './SpaceMessageBody';
 import { CollabComposer } from './CollabComposer';
 import { MessageReceiptCheck } from './MessageReceiptCheck';
+import type { DeliveryReceipt } from './spaceModel';
+
+const SENT_RECEIPT: readonly DeliveryReceipt[] = [{ state: 'queued' }];
 import { MemberMentionProvider } from './MemberMention';
 import {
   ApprovalCard,
@@ -256,8 +259,11 @@ export function GroupChat({
           workspacePath={workspacePath}
           workspaceId={workspaceId}
           footer={
-            author.you && receipts.length > 0 ? (
-              <MessageReceiptCheck receipts={receipts} />
+            author.you ? (
+              // No receipt yet still means the message was sent: single check.
+              <MessageReceiptCheck
+                receipts={receipts.length > 0 ? receipts : SENT_RECEIPT}
+              />
             ) : undefined
           }
         />

@@ -4941,6 +4941,305 @@ async fn reserve_wake(
     Ok(true)
 }
 
+/// Structured agent-to-agent handoff envelope.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct HandoffEnvelope {
+    /// What the initiator already finished.
+    pub done: String,
+    /// Inputs, constraints and acceptance criteria the receiver must honour.
+    pub inputs_constraints: String,
+    /// The concrete ask.
+    pub ask: String,
+}
+
+#[derive(Debug, Clone)]
+pub struct Handoff {
+    pub caller_id: Uuid,
+    pub space_id: String,
+    /// Receiver nickname in the space.
+    pub to: String,
+    pub envelope: HandoffEnvelope,
+    pub operation_id: Uuid,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct HandoffResult {
+    pub handoff_id: String,
+    /// `accepted`, `rejected` (limit) or `failed` (delivery error).
+    pub status: String,
+    pub depth: i64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub message_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub reason: Option<String>,
+    /// Message the initiator posted back into the thread on failure.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub report_message_id: Option<String>,
+}
+
+/// Longest handoff chain A -> B -> C ... (the first handoff has depth 1).
+pub const DEFAULT_HANDOFF_MAX_DEPTH: i64 = 3;
+/// Accepted handoffs one conversation may start within one turn.
+pub const DEFAULT_HANDOFF_MAX_PER_TURN: i64 = 2;
+
+pub fn handoff_max_depth() -> i64 {
+    env_i64("VIBEX_HANDOFF_MAX_DEPTH", DEFAULT_HANDOFF_MAX_DEPTH).max(1)
+}
+
+pub fn handoff_max_per_turn() -> i64 {
+    env_i64("VIBEX_HANDOFF_MAX_PER_TURN", DEFAULT_HANDOFF_MAX_PER_TURN).max(1)
+}
+
+fn render_handoff(envelope: &HandoffEnvelope, depth: i64, handoff_id: &str) -> String {
+    format!(
+        "<handoff id=\"{handoff_id}\" depth=\"{depth}\">\n<done>\n{}\n</done>\n<inputs_constraints>\n{}\n</inputs_constraints>\n<ask>\n{}\n</ask>\n</handoff>",
+        envelope.done.trim(),
+        envelope.inputs_constraints.trim(),
+        envelope.ask.trim()
+    )
+}
+
+#[derive(Debug, FromRow)]
+struct HandoffRow {
+    id: String,
+    status: String,
+    depth: i64,
+    message_id: Option<String>,
+    reason: Option<String>,
+    report_message_id: Option<String>,
+    envelope_json: String,
+    to_nickname: String,
+    space_id: String,
+    from_conversation_id: String,
+}
+
+impl HandoffRow {
+    fn result(&self) -> HandoffResult {
+        HandoffResult {
+            handoff_id: self.id.clone(),
+            status: self.status.clone(),
+            depth: self.depth,
+            message_id: self.message_id.clone(),
+            reason: self.reason.clone(),
+            report_message_id: self.report_message_id.clone(),
+        }
+    }
+}
+
+/// Hand work to another member of the thread with a structured envelope.
+///
+/// Limits: the chain depth (an accepted handoff received by the caller's
+/// seat in this thread is the parent) and the number of accepted handoffs the
+/// caller starts in its current turn. Over-limit attempts are recorded as
+/// `rejected` and returned as `limit_exceeded`. If delivery fails, the
+/// attempt is recorded as `failed` and the initiator posts a failure report
+/// back into the originating thread (to the user).
+pub async fn handoff_with(
+    pool: &SqlitePool,
+    input: Handoff,
+    turn_delivery: &DeliveryContext,
+) -> Result<HandoffResult, CollaborationError> {
+    let handoff_id = input.operation_id.to_string();
+    if let Some(existing) = load_handoff(pool, &handoff_id).await? {
+        let same = existing.space_id == input.space_id
+            && existing.to_nickname == input.to.trim().trim_start_matches('@')
+            && existing.from_conversation_id == input.caller_id.to_string()
+            && serde_json::from_str::<HandoffEnvelope>(&existing.envelope_json).ok()
+                == Some(input.envelope.clone());
+        if !same {
+            return Err(operation_conflict());
+        }
+        return Ok(existing.result());
+    }
+    if input.envelope.ask.trim().is_empty() {
+        return Err(CollaborationError::new(
+            "conversation_control_failed",
+            "handoff ask must not be empty",
+        ));
+    }
+    let to = input.to.trim().trim_start_matches('@').trim().to_string();
+    let caller = caller_seat(pool, &input.space_id, input.caller_id).await?;
+    let seat = seat_conversation(&caller).unwrap_or(input.caller_id);
+    let members = list_space_members(pool, &input.space_id, MessageAudience::Agent).await?;
+    let target = members
+        .iter()
+        .find(|member| member.nickname == to)
+        .ok_or_else(|| CollaborationError::new("not_found", "nickname was not found"))?;
+    let target_conversation = seat_conversation(target);
+    if target_conversation == Some(seat) {
+        return Err(CollaborationError::new(
+            "conversation_control_failed",
+            "cannot hand off to yourself",
+        ));
+    }
+    let parent = sqlx::query_as::<_, (String, i64)>(
+        r#"SELECT id, depth FROM collaboration_handoffs
+           WHERE space_id = ? AND to_conversation_id = ? AND status = 'accepted'
+           ORDER BY created_at DESC, rowid DESC LIMIT 1"#,
+    )
+    .bind(&input.space_id)
+    .bind(seat.to_string())
+    .fetch_optional(pool)
+    .await
+    .map_err(db)?;
+    let depth = parent.as_ref().map_or(1, |(_, depth)| depth + 1);
+    let turn: Option<Option<Uuid>> =
+        sqlx::query_scalar("SELECT active_turn_id FROM sessions WHERE id = ?")
+            .bind(input.caller_id)
+            .fetch_optional(pool)
+            .await
+            .map_err(db)?;
+    let turn_key = match turn.flatten() {
+        Some(turn) => format!("turn:{turn}"),
+        None => format!("operation:{handoff_id}"),
+    };
+    let used: i64 = sqlx::query_scalar(
+        r#"SELECT COUNT(*) FROM collaboration_handoffs
+           WHERE turn_key = ? AND from_conversation_id = ? AND status = 'accepted'"#,
+    )
+    .bind(&turn_key)
+    .bind(input.caller_id.to_string())
+    .fetch_one(pool)
+    .await
+    .map_err(db)?;
+    let rejection = if depth > handoff_max_depth() {
+        Some(format!(
+            "handoff depth {depth} exceeds the limit of {}",
+            handoff_max_depth()
+        ))
+    } else if used >= handoff_max_per_turn() {
+        Some(format!(
+            "this turn already started {used} handoffs (limit {})",
+            handoff_max_per_turn()
+        ))
+    } else {
+        None
+    };
+    let envelope_json = serde_json::to_string(&input.envelope).unwrap_or_default();
+    let status = if rejection.is_some() { "rejected" } else { "accepted" };
+    sqlx::query(
+        r#"INSERT INTO collaboration_handoffs
+           (id, space_id, from_conversation_id, to_nickname, to_conversation_id,
+            parent_handoff_id, depth, turn_key, envelope_json, status, reason, created_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"#,
+    )
+    .bind(&handoff_id)
+    .bind(&input.space_id)
+    .bind(input.caller_id.to_string())
+    .bind(&to)
+    .bind(target_conversation.map(|id| id.to_string()))
+    .bind(parent.as_ref().map(|(id, _)| id.clone()))
+    .bind(depth)
+    .bind(&turn_key)
+    .bind(&envelope_json)
+    .bind(status)
+    .bind(rejection.as_deref())
+    .bind(now_stamp())
+    .execute(pool)
+    .await
+    .map_err(db)?;
+    if let Some(reason) = rejection {
+        return Err(CollaborationError::new("limit_exceeded", reason));
+    }
+    let content = format!(
+        "@{to} {}",
+        render_handoff(&input.envelope, depth, &handoff_id)
+    );
+    let posted = post_to_space_with(
+        pool,
+        PostToSpace {
+            caller_id: Some(input.caller_id),
+            space_id: input.space_id.clone(),
+            content,
+            summary: Some(format!("handoff → {to}: {}", input.envelope.ask.trim())),
+            to: vec![to.clone()],
+            in_reply_to: None,
+            operation_id: input.operation_id,
+        },
+        turn_delivery,
+    )
+    .await;
+    let failure = match &posted {
+        Err(error) => Some(format!("{}: {}", error.code, error.message)),
+        Ok(result) => result
+            .receipts
+            .iter()
+            .find(|receipt| Some(receipt.conversation_id) == target_conversation)
+            .and_then(|receipt| receipt.error_code.clone())
+            .filter(|code| code != "wake_limit_exceeded")
+            .map(|code| format!("delivery failed: {code}")),
+    };
+    let message_id = posted.as_ref().ok().map(|result| result.message_id.clone());
+    if let Some(reason) = failure {
+        let report_id = Uuid::new_v5(&Uuid::NAMESPACE_OID, format!("handoff-report:{handoff_id}").as_bytes());
+        let report = post_to_space_with(
+            pool,
+            PostToSpace {
+                caller_id: Some(input.caller_id),
+                space_id: input.space_id.clone(),
+                content: format!(
+                    "@User 交接给 {to} 失败（{reason}）。待办：{}",
+                    input.envelope.ask.trim()
+                ),
+                summary: Some(format!("handoff to {to} failed")),
+                to: vec!["User".to_string()],
+                in_reply_to: message_id.clone(),
+                operation_id: report_id,
+            },
+            turn_delivery,
+        )
+        .await
+        .ok()
+        .map(|result| result.message_id);
+        sqlx::query(
+            r#"UPDATE collaboration_handoffs
+               SET status = 'failed', reason = ?, message_id = ?, report_message_id = ?
+               WHERE id = ?"#,
+        )
+        .bind(&reason)
+        .bind(&message_id)
+        .bind(&report)
+        .bind(&handoff_id)
+        .execute(pool)
+        .await
+        .map_err(db)?;
+    } else {
+        sqlx::query("UPDATE collaboration_handoffs SET message_id = ? WHERE id = ?")
+            .bind(&message_id)
+            .bind(&handoff_id)
+            .execute(pool)
+            .await
+            .map_err(db)?;
+    }
+    Ok(load_handoff(pool, &handoff_id)
+        .await?
+        .map(|row| row.result())
+        .unwrap_or(HandoffResult {
+            handoff_id,
+            status: "failed".to_string(),
+            depth,
+            message_id,
+            reason: None,
+            report_message_id: None,
+        }))
+}
+
+pub async fn handoff(pool: &SqlitePool, input: Handoff) -> Result<HandoffResult, CollaborationError> {
+    handoff_with(pool, input, &DeliveryContext::default()).await
+}
+
+async fn load_handoff(pool: &SqlitePool, id: &str) -> Result<Option<HandoffRow>, CollaborationError> {
+    sqlx::query_as::<_, HandoffRow>(
+        r#"SELECT id, status, depth, message_id, reason, report_message_id, envelope_json,
+                  to_nickname, space_id, from_conversation_id
+           FROM collaboration_handoffs WHERE id = ?"#,
+    )
+    .bind(id)
+    .fetch_optional(pool)
+    .await
+    .map_err(db)
+}
+
 /// How an agent seat obtains its conversation.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum SeatMode {
@@ -8109,6 +8408,134 @@ mod tests {
         // A new message is a new turn and may wake the deferred member.
         let next = post_as(&pool, None, &space, "再叫一次", &[]).await;
         assert!(next.receipts.iter().all(|r| r.error_code.is_none()));
+    }
+
+    fn envelope(ask: &str) -> HandoffEnvelope {
+        HandoffEnvelope {
+            done: "接口草案已完成".to_string(),
+            inputs_constraints: "只改 auth 模块".to_string(),
+            ask: ask.to_string(),
+        }
+    }
+
+    async fn hand(
+        pool: &SqlitePool,
+        from: Uuid,
+        space: &str,
+        to: &str,
+        ask: &str,
+    ) -> Result<HandoffResult, CollaborationError> {
+        handoff(
+            pool,
+            Handoff {
+                caller_id: from,
+                space_id: space.to_string(),
+                to: to.to_string(),
+                envelope: envelope(ask),
+                operation_id: Uuid::new_v4(),
+            },
+        )
+        .await
+    }
+
+    async fn handoff_team(pool: &SqlitePool) -> (String, Vec<Uuid>) {
+        let workspace = Uuid::new_v4();
+        let names = ["小A", "小B", "小C", "小D"];
+        let mut ids = Vec::new();
+        for name in names {
+            let id = Uuid::new_v4();
+            create_session(pool, id, workspace, Some(name)).await;
+            ids.push(id);
+        }
+        let space = space_of(pool, ids[0]).await;
+        for (id, name) in ids.iter().zip(names).skip(1) {
+            add_space_member(pool, ids[0], &space, *id, name, Uuid::new_v4())
+                .await
+                .unwrap();
+        }
+        (space, ids)
+    }
+
+    #[tokio::test]
+    async fn handoff_delivers_envelope_and_enforces_depth() {
+        let pool = setup_pool().await;
+        let (space, ids) = handoff_team(&pool).await;
+        let first = hand(&pool, ids[0], &space, "小B", "实现登录").await.unwrap();
+        assert_eq!((first.status.as_str(), first.depth), ("accepted", 1));
+        let to_b = inputs_of(&pool, ids[1]).await;
+        assert_eq!(to_b.len(), 1);
+        for part in ["<done>", "接口草案已完成", "<inputs_constraints>", "<ask>", "实现登录"] {
+            assert!(to_b[0].contains(part), "missing {part}");
+        }
+        assert_eq!(hand(&pool, ids[1], &space, "小C", "写测试").await.unwrap().depth, 2);
+        assert_eq!(hand(&pool, ids[2], &space, "小D", "跑测试").await.unwrap().depth, 3);
+        let too_deep = hand(&pool, ids[3], &space, "小A", "再转").await.unwrap_err();
+        assert_eq!(too_deep.code, "limit_exceeded");
+        let recorded: (String, i64, Option<String>) = sqlx::query_as(
+            "SELECT status, depth, reason FROM collaboration_handoffs WHERE from_conversation_id = ?",
+        )
+        .bind(ids[3].to_string())
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert_eq!(recorded.0, "rejected");
+        assert_eq!(recorded.1, 4);
+        assert!(recorded.2.unwrap().contains("depth"));
+        // Rejected handoffs deliver nothing.
+        assert!(inputs_of(&pool, ids[0]).await.is_empty());
+    }
+
+    #[tokio::test]
+    async fn handoff_count_is_limited_per_turn() {
+        let pool = setup_pool().await;
+        let (space, ids) = handoff_team(&pool).await;
+        let turn = mark_running(&pool, ids[0]).await;
+        hand(&pool, ids[0], &space, "小B", "一").await.unwrap();
+        hand(&pool, ids[0], &space, "小C", "二").await.unwrap();
+        let third = hand(&pool, ids[0], &space, "小D", "三").await.unwrap_err();
+        assert_eq!(third.code, "limit_exceeded");
+        let rejected: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM collaboration_handoffs WHERE status = 'rejected' AND turn_key = ?",
+        )
+        .bind(format!("turn:{turn}"))
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert_eq!(rejected, 1);
+        assert!(inputs_of(&pool, ids[3]).await.is_empty());
+    }
+
+    #[tokio::test]
+    async fn failed_handoff_is_reported_back_into_the_thread() {
+        let pool = setup_pool().await;
+        let (space, ids) = handoff_team(&pool).await;
+        sqlx::query("UPDATE sessions SET status = 'archived' WHERE id = ?")
+            .bind(ids[1])
+            .execute(&pool)
+            .await
+            .unwrap();
+        let operation = Uuid::new_v4();
+        let request = Handoff {
+            caller_id: ids[0],
+            space_id: space.clone(),
+            to: "小B".to_string(),
+            envelope: envelope("实现登录"),
+            operation_id: operation,
+        };
+        let failed = handoff(&pool, request.clone()).await.unwrap();
+        assert_eq!(failed.status, "failed");
+        let report = failed.report_message_id.clone().expect("report posted");
+        let messages = list_space_messages(&pool, &space, None, None, MessageAudience::User)
+            .await
+            .unwrap();
+        let posted = messages
+            .iter()
+            .find(|m| m.envelope["id"] == json!(format!("vibex://space-message/{report}")))
+            .expect("report in thread");
+        assert_eq!(posted.origin, "agent");
+        assert!(posted.envelope["content"].as_str().unwrap().contains("失败"));
+        // Replaying the same operation returns the recorded outcome.
+        assert_eq!(handoff(&pool, request).await.unwrap(), failed);
     }
 
     #[tokio::test]

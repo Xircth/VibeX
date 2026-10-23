@@ -534,6 +534,7 @@ pub fn advertised_mcp_tools(product: &str, features: u8) -> Vec<PluginMcpToolSta
             tool("add_space_member", "collaboration"),
             tool("set_space_identity", "collaboration"),
             tool("post_to_space", "collaboration"),
+            tool("handoff", "collaboration"),
             tool("list_space_messages", "collaboration"),
         ],
         "session" => {

@@ -700,6 +700,39 @@ async fn collaboration_tool(
             }
             Ok(serde_json::to_value(member).unwrap_or(json!({})))
         }
+        "handoff" => {
+            let operation_id = uuid_arg("operation_id").ok_or_else(|| {
+                collaboration::CollaborationError::new("not_found", "operation_id is required")
+            })?;
+            let space_id = text("space_id");
+            let result = collaboration::handoff_with(
+                pool,
+                collaboration::Handoff {
+                    caller_id,
+                    space_id: space_id.clone(),
+                    to: text("to"),
+                    envelope: collaboration::HandoffEnvelope {
+                        done: text("done"),
+                        inputs_constraints: text("inputs_constraints"),
+                        ask: text("ask"),
+                    },
+                    operation_id,
+                },
+                delivery,
+            )
+            .await?;
+            if let Some(listener) = on_space_changed.as_ref()
+                && let Ok(workspace_id) = collaboration::space_workspace_id(pool, &space_id).await
+            {
+                listener(collaboration::CollaborationSpaceChangedEvent {
+                    workspace_id,
+                    space_id,
+                    seq: None,
+                    member_id: None,
+                });
+            }
+            Ok(serde_json::to_value(result).unwrap_or(json!({})))
+        }
         "post_to_space" => {
             let operation_id = uuid_arg("operation_id").ok_or_else(|| {
                 collaboration::CollaborationError::new("not_found", "operation_id is required")

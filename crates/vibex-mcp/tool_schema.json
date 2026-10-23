@@ -412,6 +412,22 @@
     }
   },
   {
+    "name": "handoff",
+    "description": "Hand work to another member of a collaboration space with a structured envelope {done, inputs_constraints, ask}. The receiver gets it in its own session for this space. Chains are limited in depth and each turn may start only a few handoffs; over-limit calls fail with limit_exceeded and are recorded. If delivery fails you post a failure report back into the space automatically. Reuse operation_id only to retry the exact same handoff.",
+    "inputSchema": {
+      "type": "object",
+      "required": ["operation_id", "space_id", "to", "ask"],
+      "properties": {
+        "operation_id": { "type": "string", "format": "uuid" },
+        "space_id": { "type": "string" },
+        "to": { "type": "string", "description": "Receiver nickname." },
+        "done": { "type": "string", "description": "What you already finished." },
+        "inputs_constraints": { "type": "string", "description": "Inputs, constraints and acceptance criteria." },
+        "ask": { "type": "string", "minLength": 1, "description": "The concrete request." }
+      }
+    }
+  },
+  {
     "name": "list_space_messages",
     "description": "Read the space log since since_seq. This returns immediately. It does not wait for new messages. Agent reads omit how to address the user.",
     "inputSchema": {

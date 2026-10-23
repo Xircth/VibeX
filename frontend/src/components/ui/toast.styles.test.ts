@@ -35,6 +35,27 @@ describe('toast surface contract (glass capsule)', () => {
       ".vu-toast-viewport[data-expanded='false']\n  .vu-toast-host[data-stack-index]:not([data-stack-index='0'])"
     );
     expect(peekHost).toContain('height: var(--vu-toast-peek-height)');
+    expect(peekHost).toContain('var(--vu-toast-peek-inset');
+    expect(peek1).toContain('--vu-toast-peek-inset: 8px;');
+    expect(
+      rule(
+        ".vu-toast-viewport[data-expanded='false'] .vu-toast-host[data-stack-index='2']"
+      )
+    ).toContain('--vu-toast-peek-inset: 16px;');
+  });
+
+  it('does not leave the host as a backdrop root after the entry animation', () => {
+    expect(css).toMatch(/vu-toast-pop[^;]*backwards/);
+    expect(css).not.toMatch(/vu-toast-pop[^;]*\bboth\b/);
+  });
+
+  it('separates detail rows with gaps instead of divider lines', () => {
+    const details = rule('.vu-toast-details');
+    expect(details).toContain('gap: 8px;');
+    expect(css).not.toMatch(/\.vu-toast-detail-row \+ \.vu-toast-detail-row/);
+    const title = rule('.vu-toast-detail-title');
+    expect(title).toContain('color: var(--text-muted);');
+    expect(title).toContain('font-weight: 400;');
   });
 
   it('uses design tokens for the details disclosure and focus ring', () => {
@@ -47,6 +68,9 @@ describe('toast surface contract (glass capsule)', () => {
   it('renders technical details in monospace', () => {
     expect(rule('.vu-toast-detail-copy-mono')).toContain(
       'font-family: var(--font-mono'
+    );
+    expect(rule('.vu-toast-detail-copy-mono')).toContain(
+      'word-break: break-all;'
     );
   });
 });

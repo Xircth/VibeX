@@ -185,6 +185,9 @@
 }
 
 .vu-toast-details {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
   max-height: min(42dvh, 360px);
   margin-top: 8px;
   overflow-y: auto;
@@ -192,6 +195,7 @@
   background: var(--surface-control, hsl(220 20% 20% / 0.06));
   border: 1px solid var(--border-subtle, hsl(220 16% 28% / 0.09));
   border-radius: var(--radius);
+  padding: 8px 10px;
 }
 
 @supports not selector(::-webkit-scrollbar) {
@@ -201,19 +205,11 @@
   }
 }
 
-.vu-toast-detail-row {
-  padding: 9px 10px;
-}
-
-.vu-toast-detail-row + .vu-toast-detail-row {
-  border-top: 1px solid var(--border-subtle, hsl(220 16% 28% / 0.09));
-}
-
 .vu-toast-detail-title {
-  color: var(--text-strong, hsl(222 30% 16%));
-  font-size: 12px;
-  font-weight: 600;
-  line-height: 16px;
+  color: var(--text-muted);
+  font-size: 0.75rem;
+  font-weight: 400;
+  line-height: 1rem;
 }
 
 .vu-toast-detail-copy {
@@ -228,6 +224,10 @@
 .vu-toast-detail-copy-mono {
   font-family: var(--font-mono, 'IBM Plex Mono', ui-monospace, monospace);
   white-space: pre-wrap;
+  /* Break anywhere, but never prefer a break after '-' (keeps feat-xxx). */
+  word-break: break-all;
+  overflow-wrap: anywhere;
+  hyphens: none;
 }
 
 .vu-toast-actions {
@@ -465,8 +465,8 @@
 }
 
 .vu-toast-viewport {
-  --vu-toast-glass: hsl(0 0% 100% / 0.86);
-  --vu-toast-glass-end: hsl(0 0% 98% / 0.8);
+  --vu-toast-glass: hsl(0 0% 100% / 0.88);
+  --vu-toast-glass-end: hsl(0 0% 98% / 0.85);
   --vu-toast-solid: #ffffff;
   --vu-toast-ring: hsl(0 0% 0% / 0.12);
   --vu-toast-shadow:
@@ -474,30 +474,29 @@
     0 8px 20px -6px hsl(220 36% 8% / 0.15),
     0 24px 48px -16px hsl(220 36% 8% / 0.18);
   --vu-toast-inner: inset 0 1px 0 hsl(0 0% 100% / 0.9);
-  --vu-toast-peek-1: #ededf0;
-  --vu-toast-peek-2: #e0e0e4;
   --vu-toast-ease: cubic-bezier(0.22, 1, 0.36, 1);
   --vu-toast-peek-height: 6px;
 }
 
 .dark .vu-toast-viewport {
-  --vu-toast-glass: hsl(240 2% 20% / 0.86);
-  --vu-toast-glass-end: hsl(0 0% 15% / 0.82);
+  --vu-toast-glass: hsl(240 2% 20% / 0.88);
+  --vu-toast-glass-end: hsl(0 0% 15% / 0.85);
   --vu-toast-solid: #262626;
   --vu-toast-ring: hsl(0 0% 100% / 0.14);
   --vu-toast-shadow:
     0 0 0 0.5px hsl(0 0% 100% / 0.14), 0 1px 2px hsl(0 0% 0% / 0.4),
     0 12px 32px -8px hsl(0 0% 0% / 0.7);
   --vu-toast-inner: inset 0 1px 0 hsl(0 0% 100% / 0.12);
-  --vu-toast-peek-1: #3a3a3d;
-  --vu-toast-peek-2: #303033;
 }
 
 .vu-toast-viewport .vu-toast-host {
   position: relative;
   display: flex;
   justify-content: flex-end;
-  animation: vu-toast-pop 260ms var(--vu-toast-ease) both;
+  /* backwards, not both: a persisting opacity/transform animation makes the
+     host a Backdrop Root, so the surface's backdrop-filter would only sample
+     the (empty) host and never blur the page behind the toast. */
+  animation: vu-toast-pop 260ms var(--vu-toast-ease) backwards;
   transition:
     transform 220ms var(--vu-toast-ease),
     opacity 220ms var(--vu-toast-ease);
@@ -715,8 +714,11 @@
 .vu-toast-viewport[data-expanded='false']
   .vu-toast-host[data-stack-index]:not([data-stack-index='0']) {
   position: absolute;
-  right: 16px;
-  width: var(--vu-toast-front-width, 240px);
+  /* Each layer further back is inset 8px more per side. */
+  right: calc(16px + var(--vu-toast-peek-inset, 8px));
+  width: calc(
+    var(--vu-toast-front-width, 240px) - 2 * var(--vu-toast-peek-inset, 8px)
+  );
   height: var(--vu-toast-peek-height);
   transform-origin: bottom center;
   pointer-events: none;
@@ -728,8 +730,15 @@
   width: 100%;
   height: 100%;
   overflow: hidden;
+  background: linear-gradient(
+    180deg,
+    var(--vu-toast-glass),
+    var(--vu-toast-glass-end)
+  );
+  border: 1px solid var(--border-subtle);
+  border-bottom: 0;
   border-radius: var(--radius) var(--radius) 0 0;
-  box-shadow: var(--vu-toast-inner);
+  box-shadow: none;
   backdrop-filter: none;
   -webkit-backdrop-filter: none;
 }
@@ -743,25 +752,15 @@
 
 .vu-toast-viewport[data-expanded='false'] .vu-toast-host[data-stack-index='1'] {
   bottom: calc(16px + var(--vu-toast-front-height, 44px));
+  --vu-toast-peek-inset: 8px;
   z-index: -1;
-  transform: scaleX(0.92);
-}
-.vu-toast-viewport[data-expanded='false']
-  .vu-toast-host[data-stack-index='1']
-  .vu-toast-surface {
-  background: var(--vu-toast-peek-1);
 }
 .vu-toast-viewport[data-expanded='false'] .vu-toast-host[data-stack-index='2'] {
   bottom: calc(
     16px + var(--vu-toast-front-height, 44px) + var(--vu-toast-peek-height)
   );
+  --vu-toast-peek-inset: 16px;
   z-index: -2;
-  transform: scaleX(0.84);
-}
-.vu-toast-viewport[data-expanded='false']
-  .vu-toast-host[data-stack-index='2']
-  .vu-toast-surface {
-  background: var(--vu-toast-peek-2);
 }
 
 /* Reduced transparency / no backdrop-filter support: same shape, opaque. */

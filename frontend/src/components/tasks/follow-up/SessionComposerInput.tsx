@@ -139,6 +139,7 @@ import {
 import { ComposerAtReferencePanel } from './ComposerAtReferenceMenu';
 import { type AtReferenceMember } from './composerAtReferences';
 import { useComposerAtReferencePanel } from './useComposerAtReferencePanel';
+import { collapseMemberMentionSpacing } from '@/features/collaboration/MemberMention';
 import {
   fileFromHostPath,
   hostPathFileName,
@@ -1307,6 +1308,21 @@ export function SessionComposerInput({
         : undefined,
     [spaceMembers]
   );
+
+  useEffect(() => {
+    const root = composerRootRef.current;
+    if (!root || !memberMentionCandidates) return;
+    collapseMemberMentionSpacing(root);
+    const observer = new MutationObserver(() =>
+      collapseMemberMentionSpacing(root)
+    );
+    observer.observe(root, {
+      childList: true,
+      subtree: true,
+      characterData: true,
+    });
+    return () => observer.disconnect();
+  }, [memberMentionCandidates]);
 
   const preSyncCaretOffsetRef = useRef<number | null>(null);
   useLayoutEffect(() => {

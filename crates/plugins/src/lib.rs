@@ -107,8 +107,9 @@ pub use native::{
 };
 pub use official_catalog::{
     OfficialPluginCatalog, OfficialPluginRecord, listings_from_host_official_catalog,
-    merge_host_official_catalog, official_marketplace_home, official_marketplace_origin,
-    official_plugin_catalog, official_plugin_category, official_plugin_record,
+    merge_host_official_catalog, monorepo_official_plugin_root, official_marketplace_home,
+    official_marketplace_origin, official_plugin_catalog, official_plugin_category,
+    official_plugin_record,
 };
 pub use official_mcp::{
     DELEGATION_MCP_NAME, HOST_FAMILY_MCP_STARTUP_TIMEOUT_SEC, HOST_MULTI_AGENT_ID,

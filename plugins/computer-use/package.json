@@ -1,6 +1,6 @@
 {
   "name": "vibex.vibex-plugin-computer-use",
-  "version": "0.34.0",
+  "version": "2.0.0",
   "private": true,
   "type": "module",
   "description": "VibeX Computer Use (电脑控制) plugin",

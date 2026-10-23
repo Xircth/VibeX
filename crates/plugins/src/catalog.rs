@@ -12,6 +12,9 @@ pub const COMMUNITY_PAGE_SIZE: u32 = 50;
 /// Retired package id → successor. Official marketplace must show one product.
 pub const REPLACED_PLUGIN_IDS: &[(&str, &str)] = &[];
 
+/// Retired plugin ids absorbed into the Host (MultiAgent collaboration) with no plugin successor.
+pub const RETIRED_PLUGIN_IDS: &[&str] = &["vibex.collaboration", "vibex.multi-agent"];
+
 /// SDK authoring samples. They stay in-repo for templates and Host tests, but
 /// they are not product marketplace listings and must not ship in a release Host.
 pub const AUTHORING_SAMPLE_PLUGIN_IDS: &[&str] = &[
@@ -245,6 +248,10 @@ pub fn official_github_archive_urls(owner: &str, plugin_name: &str) -> Vec<Strin
     {
         return Vec::new();
     }
+    let owner_trimmed = owner.trim();
+    if !owner_trimmed.is_empty() && !owner_trimmed.eq_ignore_ascii_case("vibex") {
+        return Vec::new();
+    }
     for candidate in marketplace_plugin_ids(owner, plugin_name) {
         if let Some(plugin) = crate::official_catalog::official_plugin_record(&candidate) {
             return crate::official_catalog::github_archive_urls_for_repository(&plugin.repository);
@@ -296,7 +303,11 @@ pub fn listing_is_authoring_sample(listing: &CatalogListing) -> bool {
 
 fn reject_authoring_sample(owner: &str, plugin_name: &str) -> Result<(), PluginError> {
     let qualified = format!("{owner}.{plugin_name}");
-    if is_authoring_sample_plugin_id(plugin_name) || is_authoring_sample_plugin_id(&qualified) {
+    if is_authoring_sample_plugin_id(plugin_name)
+        || is_authoring_sample_plugin_id(&qualified)
+        || is_retired_plugin_id(plugin_name)
+        || is_retired_plugin_id(&qualified)
+    {
         return Err(PluginError::not_found(&format!("{owner}/{plugin_name}")));
     }
     Ok(())
@@ -304,9 +315,9 @@ fn reject_authoring_sample(owner: &str, plugin_name: &str) -> Result<(), PluginE
 
 pub fn prepare_marketplace_page(page: &mut CatalogPage) {
     page.official
-        .retain(|listing| !listing_is_authoring_sample(listing));
+        .retain(|listing| !listing_is_authoring_sample(listing) && !listing_is_retired(listing));
     page.community
-        .retain(|listing| !listing_is_authoring_sample(listing));
+        .retain(|listing| !listing_is_authoring_sample(listing) && !listing_is_retired(listing));
     for listing in page.official.iter_mut().chain(page.community.iter_mut()) {
         normalize_listing_category(listing);
     }
@@ -360,9 +371,16 @@ pub fn listing_package_id(listing: &CatalogListing) -> &str {
         .unwrap_or(listing.plugin_name.as_str())
 }
 
+pub fn is_retired_plugin_id(id: &str) -> bool {
+    RETIRED_PLUGIN_IDS
+        .iter()
+        .any(|retired| plugin_ids_match(id, retired))
+        || successor_plugin_id(id).is_some()
+}
+
 pub fn listing_is_retired(listing: &CatalogListing) -> bool {
-    successor_plugin_id(listing_package_id(listing)).is_some()
-        || successor_plugin_id(&listing.plugin_name).is_some()
+    is_retired_plugin_id(listing_package_id(listing))
+        || is_retired_plugin_id(&listing.plugin_name)
 }
 
 pub fn canonical_listing_id(listing: &CatalogListing) -> String {

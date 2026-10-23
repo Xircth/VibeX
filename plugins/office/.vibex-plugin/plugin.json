@@ -4,7 +4,7 @@
   "apiVersion": "2.0",
   "id": "vibex.office",
   "publisher": "vibex",
-  "version": "3.0.0",
+  "version": "2.0.0",
   "name": "VibeX Office",
   "readme": "README.md",
   "engines": {

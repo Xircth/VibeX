@@ -4,7 +4,7 @@
   "apiVersion": "2.0",
   "id": "vibex-plugin-computer-use",
   "publisher": "vibex",
-  "version": "0.34.0",
+  "version": "2.0.0",
   "name": "电脑控制",
   "readme": "README.md",
   "engines": {

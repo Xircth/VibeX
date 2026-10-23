@@ -1343,6 +1343,11 @@ impl PluginPackage {
             .and_then(Value::as_str)
             .map(str::to_owned)
             .unwrap_or_else(legacy_api_version);
+        if matches!(source_kind, PluginSourceKind::Marketplace) && api_version != "2.0" {
+            return Err(PluginError::invalid_manifest(format!(
+                "unsupported plugin apiVersion `{api_version}`; VibeX v2 plugin architecture requires apiVersion \"2.0\""
+            )));
+        }
         let manifest_version = object
             .get("manifestVersion")
             .and_then(Value::as_u64)
@@ -1544,7 +1549,7 @@ impl PluginPackage {
     ) -> Self {
         Self {
             manifest_version: 4,
-            api_version: "1.0".to_owned(),
+            api_version: "2.0".to_owned(),
             id: PluginId::from_string(id.to_owned()),
             publisher: Some("dev.vibex.test".to_owned()),
             name: name.to_owned(),

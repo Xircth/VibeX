@@ -74,6 +74,27 @@
       "repository": "https://github.com/Xircth/vibex-plugin-computer-use",
       "category": "productivity",
       "summary": "桌面窗口与应用的感知和自动化控制：无障碍树、截图、键鼠输入、窗口级授权和全局紧急停止。"
+    },
+    {
+      "id": "vibex.kanban-views",
+      "publisher": "vibex",
+      "repository": "https://github.com/Xircth/vibex-plugin-kanban-views",
+      "category": "productivity",
+      "summary": "Built-in Kanban board views, sprint velocity metrics, and task grouping presets."
+    },
+    {
+      "id": "vibex.notes",
+      "publisher": "vibex",
+      "repository": "https://github.com/Xircth/vibex-plugin-notes",
+      "category": "productivity",
+      "summary": "Built-in project scratchpad, session notes, and context-menu selection capture."
+    },
+    {
+      "id": "vibex.prompt-enhancer",
+      "publisher": "vibex",
+      "repository": "https://github.com/Xircth/vibex-plugin-prompt-enhancer",
+      "category": "productivity",
+      "summary": "Built-in prompt refinement, @enhance composer action, and structured context enrichment."
     }
   ]
 }

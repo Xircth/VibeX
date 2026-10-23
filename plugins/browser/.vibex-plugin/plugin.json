@@ -4,7 +4,7 @@
   "apiVersion": "2.0",
   "id": "vibex.browser",
   "publisher": "vibex",
-  "version": "1.0.0",
+  "version": "2.0.0",
   "name": "Browser",
   "readme": "README.md",
   "engines": {

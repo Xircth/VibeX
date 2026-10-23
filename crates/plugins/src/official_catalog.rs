@@ -228,6 +228,29 @@ pub fn discover_monorepo_plugin_roots() -> Vec<PathBuf> {
     roots
 }
 
+/// Resolves the local monorepo V2 source package directory for a given official plugin id or slug.
+pub fn monorepo_official_plugin_root(plugin_id: &str) -> Option<PathBuf> {
+    let plugins_root = monorepo_plugins_root()?;
+    let trimmed = plugin_id.trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+    for (dir_name, canonical_id) in MONOREPO_OFFICIAL_PLUGIN_DIRS {
+        if plugin_ids_match(trimmed, canonical_id)
+            || plugin_ids_match(canonical_id, trimmed)
+            || dir_name.eq_ignore_ascii_case(trimmed)
+            || marketplace_plugin_slug("vibex", canonical_id).eq_ignore_ascii_case(trimmed)
+        {
+            let dir = plugins_root.join(dir_name);
+            if dir.join(".vibex-plugin/plugin.json").is_file() || dir.join("plugin.json").is_file()
+            {
+                return Some(dir);
+            }
+        }
+    }
+    None
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

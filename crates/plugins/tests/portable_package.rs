@@ -315,11 +315,11 @@ fn marketplace_install_copies_a_temp_package_into_durable_storage() {
     write(
         &source.path().join(".vibex-plugin/plugin.json"),
         r#"{
-          "manifestVersion":4,"apiVersion":"1.0",
-          "id":"drawio","publisher":"vibex","name":"Drawio","version":"1.0.0",
+          "manifestVersion":4,"apiVersion":"2.0",
+          "id":"drawio","publisher":"vibex","name":"Drawio","version":"2.0.0",
           "readme":"README.md","content":{"root":"contents","index":".vibex-plugin/content.index.json"},
           "config":{"schema":{"type":"object","additionalProperties":false}},
-          "engines":{"vibex":">=0.1.3 <1.0.0","pluginSdk":"^1.0.0"},
+          "engines":{"vibex":">=0.1.3 <1.0.0","pluginSdk":"^2.0.0"},
           "integrations":[{"id":"drawio","kind":"content.skill","resource":"contents/skills/drawio"}]
         }"#,
     );
@@ -348,6 +348,41 @@ fn marketplace_install_copies_a_temp_package_into_durable_storage() {
     installed
         .product_detail()
         .expect("detail still loads after the download temp dir is gone");
+}
+
+#[test]
+fn marketplace_source_rejects_legacy_v1_api_version() {
+    let source = tempfile::tempdir().expect("download source");
+    write(
+        &source.path().join(".vibex-plugin/plugin.json"),
+        r#"{
+          "manifestVersion":4,"apiVersion":"1.0",
+          "id":"legacy.drawio","publisher":"vibex","name":"Legacy Drawio","version":"1.0.0",
+          "readme":"README.md","content":{"root":"contents","index":".vibex-plugin/content.index.json"},
+          "config":{"schema":{"type":"object","additionalProperties":false}},
+          "engines":{"vibex":">=0.1.3 <1.0.0","pluginSdk":"^1.0.0"},
+          "integrations":[{"id":"drawio","kind":"content.skill","resource":"contents/skills/drawio"}]
+        }"#,
+    );
+    write(
+        &source.path().join("README.md"),
+        "---\nsummary: Legacy v1 plugin.\n---\n# Legacy Drawio\n",
+    );
+    write(&source.path().join("config.json"), "{}");
+    write(
+        &source.path().join(".vibex-plugin/content.index.json"),
+        r#"{"schemaVersion":1,"items":[{"path":"contents/skills/drawio/SKILL.md","kind":"skill","title":"Drawio"}]}"#,
+    );
+    write(
+        &source.path().join("contents/skills/drawio/SKILL.md"),
+        "---\nname: drawio\ndescription: Drawio\n---\n",
+    );
+    let err = PluginPackage::inspect(source.path(), PluginSourceKind::Marketplace)
+        .expect_err("marketplace install must reject apiVersion 1.0");
+    assert!(
+        err.to_string().contains("unsupported plugin apiVersion `1.0`"),
+        "unexpected error: {err}"
+    );
 }
 
 #[test]
@@ -1149,7 +1184,6 @@ fn monorepo_official_v2_plugins_in_plugins_dir_are_valid() {
         ("session-enhance", "vibex.session-enhance"),
         ("browser", "vibex.browser"),
         ("office", "vibex.office"),
-        ("multi-agent", "vibex.multi-agent"),
         ("workflow-creator", "vibex.workflow-creator"),
         ("remote-ssh", "vibex.remote-ssh"),
         ("open-connector", "vibex.open-connector"),
@@ -1184,8 +1218,8 @@ async fn monorepo_plugins_bootstrap_offline_in_topological_order_and_cascade_dep
     let installed = control
         .bootstrap_monorepo_plugins(true)
         .await
-        .expect("offline bootstrap of all 14 monorepo plugins");
-    assert_eq!(installed.len(), 14);
+        .expect("offline bootstrap of all 13 monorepo plugins");
+    assert_eq!(installed.len(), 13);
 
     let opencode_catalog = control
         .list_provider_catalog("opencode")
@@ -1197,8 +1231,8 @@ async fn monorepo_plugins_bootstrap_offline_in_topological_order_and_cascade_dep
         .map(|tpl| tpl.id.as_str())
         .collect();
     assert!(
-        template_ids.contains(&"openrouter") && template_ids.contains(&"siliconflow"),
-        "expected openrouter & siliconflow in opencode catalog, got {template_ids:?}"
+        template_ids.contains(&"openrouter") && template_ids.contains(&"deepseek"),
+        "expected openrouter & deepseek in opencode catalog, got {template_ids:?}"
     );
 
     let topo = control

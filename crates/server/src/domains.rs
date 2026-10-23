@@ -930,6 +930,12 @@ impl ServerApplicationDomains {
             plugins::PluginPackage::materialize(&source, &storage, source_kind)
                 .map_err(plugin_error)?
         };
+        if package.api_version != "2.0" {
+            return Err(ApplicationError::bad_request(format!(
+                "unsupported plugin apiVersion `{}`; VibeX v2 plugin architecture requires apiVersion \"2.0\"",
+                package.api_version
+            )));
+        }
         package.source.kind = source_kind;
         package.source.origin = args.origin;
         package.source.git_ref = args.git_ref;
@@ -1143,6 +1149,55 @@ impl ServerApplicationDomains {
                 args.owner, args.plugin_name
             )));
         }
+        let mut last_error =
+            ApplicationError::not_found(format!("{}/{}", args.owner, args.plugin_name));
+        let conflict_decision = args.conflict.clone().unwrap_or_else(|| "reject".into());
+        let origin_url = plugins::marketplace_listing_url(&args.owner, &args.plugin_name);
+        let github_urls = plugins::official_github_archive_urls(&args.owner, &args.plugin_name);
+        for url in &github_urls {
+            match download_marketplace_archive(url).await {
+                Ok(archive) => {
+                    match self
+                        .plugin_control_import(json!({
+                            "path": archive.to_string_lossy(),
+                            "developerLink": false,
+                            "conflictDecision": conflict_decision,
+                            "origin": origin_url,
+                            "gitRef": args.tag.clone().or_else(|| Some("main".to_owned())),
+                            "locked": true,
+                        }))
+                        .await
+                    {
+                        Ok(result) => return Ok(result),
+                        Err(error) => last_error = error,
+                    }
+                }
+                Err(error) => last_error = error,
+            }
+        }
+        if let Some(monorepo_root) = plugins::monorepo_official_plugin_root(&args.plugin_name)
+            .or_else(|| {
+                plugins::monorepo_official_plugin_root(&format!(
+                    "{}.{}",
+                    args.owner, args.plugin_name
+                ))
+            })
+        {
+            match self
+                .plugin_control_import(json!({
+                    "path": monorepo_root.to_string_lossy(),
+                    "developerLink": false,
+                    "conflictDecision": conflict_decision,
+                    "origin": origin_url,
+                    "gitRef": args.tag.clone().or_else(|| Some("2.0.0".to_owned())),
+                    "locked": true,
+                }))
+                .await
+            {
+                Ok(result) => return Ok(result),
+                Err(error) => last_error = error,
+            }
+        }
         if let Ok(listing) =
             plugins::fetch_artifact(&args.owner, &args.plugin_name, args.tag.as_deref()).await
             && let Some(url) = listing.download_url.clone()
@@ -1154,32 +1209,13 @@ impl ServerApplicationDomains {
                 .plugin_control_import(json!({
                     "path": archive.to_string_lossy(),
                     "developerLink": false,
-                    "conflictDecision": args.conflict.unwrap_or_else(|| "reject".into()),
-                    "origin": plugins::marketplace_listing_url(&args.owner, &args.plugin_name),
+                    "conflictDecision": conflict_decision,
+                    "origin": origin_url,
                     "gitRef": listing.tag,
                     "locked": true,
                     "showTree": listing.show_tree,
                 }))
                 .await;
-        }
-        let mut last_error =
-            ApplicationError::not_found(format!("{}/{}", args.owner, args.plugin_name));
-        for url in plugins::official_github_archive_urls(&args.owner, &args.plugin_name) {
-            match download_marketplace_archive(&url).await {
-                Ok(archive) => {
-                    return self
-                        .plugin_control_import(json!({
-                            "path": archive.to_string_lossy(),
-                            "developerLink": false,
-                            "conflictDecision": args.conflict.unwrap_or_else(|| "reject".into()),
-                            "origin": plugins::marketplace_listing_url(&args.owner, &args.plugin_name),
-                            "gitRef": args.tag,
-                            "locked": true,
-                        }))
-                        .await;
-                }
-                Err(error) => last_error = error,
-            }
         }
         Err(last_error)
     }

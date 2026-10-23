@@ -653,9 +653,9 @@
 }
 
 /* The timer restarts from full when hover/focus/expanded ends; so does the ring. */
-.vu-toast-surface:hover .vu-toast-countdown-ring,
-.vu-toast-surface:focus-within .vu-toast-countdown-ring,
-.vu-toast-surface[data-held] .vu-toast-countdown-ring {
+.vu-toast-viewport .vu-toast-surface:hover .vu-toast-countdown-ring,
+.vu-toast-viewport .vu-toast-surface:focus-within .vu-toast-countdown-ring,
+.vu-toast-viewport .vu-toast-surface[data-held] .vu-toast-countdown-ring {
   animation: none;
 }
 
@@ -794,5 +794,258 @@
   }
   to {
     stroke-dashoffset: 75.4;
+  }
+}
+
+/* ------------------------------------------------------------------
+   Desktop (OS-level) notification window: glass capsule language on a
+   92-95% fill. A transparent native window cannot blur the desktop, so
+   no backdrop-filter here (see index.css desktop-toast-shell rules).
+   ------------------------------------------------------------------ */
+.vu-desktop-toast {
+  --vu-dt-fill: linear-gradient(
+    180deg,
+    hsl(0 0% 100% / 0.95),
+    hsl(0 0% 98% / 0.92)
+  );
+  --vu-dt-shadow:
+    0 0 0 0.5px hsl(0 0% 0% / 0.12), inset 0 1px 0 #fff,
+    0 1px 2px hsl(220 36% 8% / 0.06), 0 8px 20px -6px hsl(220 36% 8% / 0.15),
+    0 24px 48px -16px hsl(220 36% 8% / 0.18);
+  --vu-dt-orb: hsl(0 0% 11% / 0.05);
+  --vu-dt-control: hsl(0 0% 0% / 0.04);
+  --vu-dt-control-edge: inset 0 0 0 0.5px hsl(0 0% 0% / 0.14);
+  --vu-dt-ring-track: hsl(0 0% 0% / 0.12);
+  --vu-dt-badge-edge: #fff;
+  --vu-toast-tone: hsl(var(--success));
+  width: 400px;
+  max-width: 100%;
+  overflow: visible;
+  color: var(--text-primary);
+  background: var(--vu-dt-fill);
+  border: 0;
+  border-radius: 24px;
+  box-shadow: var(--vu-dt-shadow);
+  animation: vu-desktop-toast-in 260ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+.dark .vu-desktop-toast {
+  --vu-dt-fill: linear-gradient(
+    180deg,
+    hsl(240 2% 20% / 0.95),
+    hsl(0 0% 15% / 0.92)
+  );
+  --vu-dt-shadow:
+    0 0 0 0.5px hsl(0 0% 100% / 0.14), inset 0 1px 0 hsl(0 0% 100% / 0.12),
+    0 1px 2px hsl(0 0% 0% / 0.4), 0 12px 32px -8px hsl(0 0% 0% / 0.7);
+  --vu-dt-orb: hsl(0 0% 100% / 0.07);
+  --vu-dt-control: hsl(0 0% 100% / 0.06);
+  --vu-dt-control-edge: inset 0 0 0 0.5px hsl(0 0% 100% / 0.14);
+  --vu-dt-ring-track: hsl(0 0% 100% / 0.14);
+  --vu-dt-badge-edge: #2c2c2e;
+}
+
+.vu-desktop-toast[data-kind='error'] {
+  --vu-toast-tone: hsl(var(--destructive));
+}
+
+.reduced-transparency .vu-desktop-toast {
+  --vu-dt-fill: var(--surface-dialog);
+}
+
+@media (prefers-reduced-transparency: reduce) {
+  .vu-desktop-toast {
+    --vu-dt-fill: var(--surface-dialog);
+  }
+}
+
+.vu-desktop-toast .vu-toast-heading {
+  align-items: flex-start;
+  gap: 10px;
+  padding: 10px 10px 0;
+}
+
+.vu-desktop-toast .vu-desktop-toast-app-icon {
+  display: grid;
+  width: 34px;
+  height: 34px;
+  flex: 0 0 34px;
+  place-items: center;
+  background: var(--vu-dt-orb);
+  border-radius: 999px;
+  box-shadow: none;
+}
+
+.vu-desktop-toast .vu-desktop-toast-app-icon .logo img {
+  width: 18px;
+  height: 18px;
+}
+
+.vu-desktop-toast .vu-desktop-toast-status-badge {
+  display: grid;
+  right: -3px;
+  bottom: -3px;
+  width: 16px;
+  height: 16px;
+  padding: 0;
+  place-items: center;
+  color: #fff;
+  background: var(--vu-toast-tone);
+  border-radius: 999px;
+  box-shadow: 0 0 0 2px var(--vu-dt-badge-edge);
+}
+
+.vu-desktop-toast .vu-desktop-toast-status-badge svg {
+  width: 10px;
+  height: 10px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 3.5;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.vu-desktop-toast .vu-desktop-toast-copy {
+  padding-top: 1px;
+}
+
+.vu-desktop-toast .vu-toast-title {
+  color: var(--text-strong);
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 18px;
+}
+
+.vu-desktop-toast .vu-toast-summary {
+  margin-top: 1px;
+  font-size: 12.5px;
+  line-height: 18px;
+}
+
+.vu-desktop-toast .vu-toast-close {
+  position: relative;
+  width: 30px;
+  height: 30px;
+  flex: 0 0 30px;
+  border-radius: 999px;
+}
+
+.vu-desktop-toast .vu-toast-close svg:not(.vu-toast-countdown) {
+  width: 12px;
+  height: 12px;
+}
+
+.vu-desktop-toast .vu-toast-close .vu-toast-countdown {
+  position: absolute;
+  inset: 1px;
+  width: 28px;
+  height: 28px;
+  transform: rotate(-90deg);
+  pointer-events: none;
+}
+
+.vu-desktop-toast .vu-toast-countdown-track {
+  stroke: var(--vu-dt-ring-track);
+}
+
+.vu-desktop-toast .vu-toast-actions {
+  justify-content: flex-end;
+  gap: 8px;
+  margin: 10px 10px 12px 54px;
+}
+
+.vu-desktop-toast .vu-toast-action {
+  min-height: 30px;
+  padding: 0 14px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.vu-desktop-toast .vu-toast-action-secondary {
+  background: var(--vu-dt-control);
+  border: 0;
+  box-shadow: var(--vu-dt-control-edge);
+}
+
+.vu-desktop-toast .vu-toast-action-primary {
+  order: 2;
+}
+
+.vu-desktop-toast .vu-desktop-toast-reply {
+  margin: 10px 10px 12px 54px;
+  padding: 0;
+  background: transparent;
+  border: 0;
+  border-radius: 0;
+}
+
+.vu-desktop-toast .vu-desktop-toast-reply > .flex {
+  height: 36px;
+  gap: 6px;
+  padding: 0 4px 0 14px;
+  background: var(--vu-dt-control);
+  border-radius: 999px;
+  box-shadow: var(--vu-dt-control-edge);
+}
+
+.vu-desktop-toast .vu-desktop-toast-reply input.vu-desktop-toast-input {
+  height: 100%;
+  padding: 0;
+  /* legacy-design paints inputs with --surface-raised-control !important */
+  --surface-raised-control: transparent;
+  --surface-control-solid: transparent;
+  --surface-control-solid-hover: transparent;
+  background: transparent;
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+  font-size: 12.5px;
+}
+
+.vu-desktop-toast .vu-desktop-toast-send {
+  width: 28px;
+  height: 28px;
+  flex: 0 0 28px;
+  border-radius: 999px;
+}
+
+.vu-desktop-toast .vu-desktop-toast-send:disabled {
+  opacity: 0.35;
+}
+
+.vu-desktop-toast[data-reply-status='sending'] .vu-desktop-toast-send:disabled {
+  opacity: 1;
+}
+
+.vu-desktop-toast .vu-desktop-toast-send svg {
+  width: 13px;
+  height: 13px;
+}
+
+.vu-desktop-toast .vu-desktop-toast-hint {
+  margin: 6px 0 0 14px;
+  font-size: 11.5px;
+}
+
+.vu-desktop-toast .vu-desktop-toast-sent {
+  min-height: 36px;
+  padding: 8px 12px;
+  font-size: 12.5px;
+  background: color-mix(in srgb, hsl(var(--success)) 12%, transparent);
+  border-radius: 999px;
+}
+
+@keyframes vu-desktop-toast-in {
+  from {
+    opacity: 0;
+    transform: translate(16px, 10px) scale(0.96);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .vu-desktop-toast,
+  .vu-desktop-toast .vu-toast-countdown-ring {
+    animation: none;
   }
 }

@@ -4,12 +4,13 @@ import {
   useLayoutEffect,
   useRef,
   useState,
+  type CSSProperties,
 } from 'react';
 import { useTranslation } from 'react-i18next';
 import type { TFunction } from 'i18next';
 import {
+  Check,
   CheckCircle2,
-  CircleAlert,
   Loader2,
   MessageSquare,
   Send,
@@ -76,6 +77,10 @@ export function DesktopToastWindow() {
   );
   const [replyError, setReplyError] = useState<Record<string, string>>({});
   const timersRef = useRef(new Map<string, number>());
+  // Mirrors the dismiss timers so the close-button ring restarts / pauses with them.
+  const [countdowns, setCountdowns] = useState<
+    Record<string, { ms: number; epoch: number }>
+  >({});
 
   const removeToast = useCallback((toastId: string) => {
     setToasts((previous) => previous.filter((toast) => toast.id !== toastId));
@@ -104,6 +109,12 @@ export function DesktopToastWindow() {
       return next;
     });
 
+    setCountdowns((previous) => {
+      if (!(toastId in previous)) return previous;
+      const next = { ...previous };
+      delete next[toastId];
+      return next;
+    });
     const timer = timersRef.current.get(toastId);
     if (timer != null) {
       window.clearTimeout(timer);
@@ -131,6 +142,13 @@ export function DesktopToastWindow() {
         removeToast(toastId);
       }, durationMs ?? DEFAULT_DURATION_MS);
       timersRef.current.set(toastId, timeout);
+      setCountdowns((previous) => ({
+        ...previous,
+        [toastId]: {
+          ms: durationMs ?? DEFAULT_DURATION_MS,
+          epoch: (previous[toastId]?.epoch ?? 0) + 1,
+        },
+      }));
     },
     [removeToast]
   );
@@ -142,6 +160,12 @@ export function DesktopToastWindow() {
       window.clearTimeout(timer);
       timersRef.current.delete(toastId);
     }
+    setCountdowns((previous) => {
+      if (!(toastId in previous)) return previous;
+      const next = { ...previous };
+      delete next[toastId];
+      return next;
+    });
   }, []);
 
   useEffect(() => {
@@ -306,34 +330,38 @@ export function DesktopToastWindow() {
   return (
     <div className="h-full bg-transparent p-4">
       <div className="pointer-events-none flex h-full items-end justify-end">
-        <div className="flex w-[424px] max-w-full flex-col gap-3">
+        <div className="vu-desktop-toast-stack flex w-[400px] max-w-full flex-col items-end gap-2.5">
           {toasts.map((toast) => {
             const status = replyStatus[toast.id] ?? 'idle';
             const draft = drafts[toast.id] ?? '';
             const isSending = status === 'sending';
             const replyExpanded = expandedReplies[toast.id] ?? false;
+            const countdown = countdowns[toast.id];
 
             return (
               <article
                 key={toast.id}
-                className="vu-toast-surface pointer-events-auto"
+                className="vu-toast-surface vu-desktop-toast pointer-events-auto"
                 data-kind={toast.kind}
+                data-reply-open={replyExpanded ? 'true' : 'false'}
+                data-reply-status={status}
                 role={toast.kind === 'error' ? 'alert' : 'status'}
               >
                 <div className="vu-toast-heading">
                   <span className="vu-toast-icon-tile vu-desktop-toast-app-icon">
                     <Logo showText={false} />
-                    {toast.kind === 'error' ? (
-                      <CircleAlert
-                        className="vu-desktop-toast-status-badge"
-                        aria-hidden="true"
-                      />
-                    ) : (
-                      <CheckCircle2
-                        className="vu-desktop-toast-status-badge"
-                        aria-hidden="true"
-                      />
-                    )}
+                    <span
+                      className="vu-desktop-toast-status-badge"
+                      aria-hidden="true"
+                    >
+                      {toast.kind === 'error' ? (
+                        <svg viewBox="0 0 24 24">
+                          <path d="M12 6v8M12 18.5v.01" />
+                        </svg>
+                      ) : (
+                        <Check />
+                      )}
+                    </span>
                   </span>
                   <button
                     type="button"
@@ -351,6 +379,32 @@ export function DesktopToastWindow() {
                     aria-label={t('desktopToast.closeAriaLabel')}
                     onClick={() => removeToast(toast.id)}
                   >
+                    {countdown ? (
+                      <svg
+                        key={countdown.epoch}
+                        className="vu-toast-countdown"
+                        viewBox="0 0 28 28"
+                        aria-hidden="true"
+                        style={
+                          {
+                            '--vu-toast-duration': `${countdown.ms}ms`,
+                          } as CSSProperties
+                        }
+                      >
+                        <circle
+                          className="vu-toast-countdown-track"
+                          cx="14"
+                          cy="14"
+                          r="12"
+                        />
+                        <circle
+                          className="vu-toast-countdown-ring"
+                          cx="14"
+                          cy="14"
+                          r="12"
+                        />
+                      </svg>
+                    ) : null}
                     <X aria-hidden="true" />
                   </button>
                 </div>

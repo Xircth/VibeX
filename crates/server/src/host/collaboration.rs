@@ -16,7 +16,9 @@ use serde_json::{Value, json};
 use sqlx::SqlitePool;
 use uuid::Uuid;
 
-use crate::host::events::{COLLABORATION_SPACE_CHANGED_EVENT, HostEventBus};
+use crate::host::events::{
+    COLLABORATION_RECEIPTS_CHANGED_EVENT, COLLABORATION_SPACE_CHANGED_EVENT, HostEventBus,
+};
 
 const SESSION_PANEL_ID: &str = "ai-chat";
 
@@ -114,6 +116,13 @@ impl CollaborationHost for HostCollaborationHost {
                 "space.updateScheduledMessage" | "space.update_scheduled_message",
             ) => self.update_scheduled_message(&input).await,
             ("collaboration", "space.post") => self.post(&input).await,
+            ("collaboration", "space.submit") => self.submit(&input).await,
+            ("collaboration", "space.receipts" | "space.listReceipts" | "space.list_receipts") => {
+                self.receipts(&input).await
+            }
+            ("collaboration", "space.wakePreview" | "space.wake_preview") => {
+                self.wake_preview(&input).await
+            }
             ("collaboration", "space.listCollection" | "space.list_collection") => {
                 self.list_collection(&input).await
             }
@@ -653,6 +662,63 @@ impl HostCollaborationHost {
             },
         );
         serde_json::to_value(posted).map_err(|error| {
+            CollaborationHostError::new("conversation_control_failed", error.to_string())
+        })
+    }
+
+    /// User submit: post into a group thread and return the per-member
+    /// three-state receipts (`queued` / `processing` / `replied`).
+    async fn submit(&self, input: &Value) -> Result<Value, CollaborationHostError> {
+        let space_id = optional_text(input, &["threadId", "thread_id"])
+            .map(Ok)
+            .unwrap_or_else(|| required_text(input, &["spaceId", "space_id"]))?;
+        let mut forwarded = input.clone();
+        if let Some(object) = forwarded.as_object_mut() {
+            object.insert("spaceId".to_string(), json!(space_id));
+        }
+        let posted = self.post(&forwarded).await?;
+        let message_id = posted
+            .get("message_id")
+            .and_then(Value::as_str)
+            .unwrap_or_default()
+            .to_string();
+        let receipts = collaboration::list_message_receipts(&self.pool, &message_id)
+            .await
+            .map_err(host_error)?;
+        self.events.emit(
+            COLLABORATION_RECEIPTS_CHANGED_EVENT,
+            json!({ "spaceId": space_id, "messageId": message_id, "receipts": receipts }),
+        );
+        Ok(json!({
+            "messageId": message_id,
+            "seq": posted.get("seq").cloned().unwrap_or(Value::Null),
+            "receipts": receipts,
+            "deliveries": posted.get("receipts").cloned().unwrap_or(Value::Null),
+        }))
+    }
+
+    async fn receipts(&self, input: &Value) -> Result<Value, CollaborationHostError> {
+        let message_id = required_text(input, &["messageId", "message_id"])?;
+        let receipts = collaboration::list_message_receipts(&self.pool, &message_id)
+            .await
+            .map_err(host_error)?;
+        Ok(json!({ "messageId": message_id, "receipts": receipts }))
+    }
+
+    async fn wake_preview(&self, input: &Value) -> Result<Value, CollaborationHostError> {
+        let space_id = optional_text(input, &["threadId", "thread_id"])
+            .map(Ok)
+            .unwrap_or_else(|| required_text(input, &["spaceId", "space_id"]))?;
+        let preview = collaboration::preview_space_wake(
+            &self.pool,
+            &space_id,
+            None,
+            &text(input, &["content"]),
+            &string_list(input, &["to"]),
+        )
+        .await
+        .map_err(host_error)?;
+        serde_json::to_value(preview).map_err(|error| {
             CollaborationHostError::new("conversation_control_failed", error.to_string())
         })
     }

@@ -43,6 +43,8 @@ pub struct HostEventChannel {
 }
 
 pub const COLLABORATION_SPACE_CHANGED_EVENT: &str = "vibex://collaboration-space-changed";
+/// Three-state delivery receipts of a space message changed.
+pub const COLLABORATION_RECEIPTS_CHANGED_EVENT: &str = "vibex://collaboration-receipts-changed";
 
 /// Catalog of Host push channels. Prefix match is longest-first.
 pub const HOST_EVENT_CHANNELS: &[HostEventChannel] = &[
@@ -138,6 +140,11 @@ pub const HOST_EVENT_CHANNELS: &[HostEventChannel] = &[
     },
     HostEventChannel {
         prefix: COLLABORATION_SPACE_CHANGED_EVENT,
+        durability: EventDurability::Invalidation,
+        required_scope: "application.call",
+    },
+    HostEventChannel {
+        prefix: COLLABORATION_RECEIPTS_CHANGED_EVENT,
         durability: EventDurability::Invalidation,
         required_scope: "application.call",
     },

@@ -1976,7 +1976,7 @@ pub async fn create_collaboration_space(
         &nickname,
         "agent",
         true,
-        SeatMode::Shared,
+        SeatMode::PerThread,
     )
     .await?;
     let record = SpaceRecord {
@@ -2998,7 +2998,7 @@ pub async fn add_space_member(
     nickname: &str,
     operation_id: Uuid,
 ) -> Result<MemberRecord, CollaborationError> {
-    ensure_agent_member(pool, space_id, caller_id).await?;
+    caller_seat(pool, space_id, caller_id).await?;
     let space = load_space(pool, space_id).await?;
     let target = live_session(load_session(pool, conversation_id).await?)?;
     if target.workspace_id.to_string() != space.workspace_id {
@@ -3057,7 +3057,7 @@ pub async fn set_space_identity(
             "conversation was not found",
         ));
     }
-    let member = ensure_agent_member(pool, space_id, caller_id)
+    let member = caller_seat(pool, space_id, caller_id)
         .await
         .map_err(|_| CollaborationError::new("not_found", "conversation was not found"))?;
     let nickname = require_name(nickname)?;
@@ -3111,6 +3111,9 @@ pub struct DeliveryReceipt {
     pub conversation_id: Uuid,
     pub nickname: String,
     pub delivered: String,
+    /// Three-state receipt: `queued`, `processing` or `replied`
+    /// (`failed` deliveries keep `queued` here and report `delivered`).
+    pub state: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub input_id: Option<Uuid>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -3163,8 +3166,9 @@ pub async fn post_to_space_delayed_with(
     }
     let (nickname, sender) = match input.caller_id {
         Some(caller_id) => {
-            let member = ensure_agent_member(pool, &input.space_id, caller_id).await?;
-            (member.nickname, Some(caller_id))
+            let member = caller_seat(pool, &input.space_id, caller_id).await?;
+            let seat = seat_conversation(&member).unwrap_or(caller_id);
+            (member.nickname, Some(seat))
         }
         None => {
             ensure_user_member(pool, &input.space_id).await?;
@@ -3237,6 +3241,7 @@ pub async fn post_to_space_delayed_with(
                 conversation_id,
                 nickname: target.nickname,
                 delivered: "scheduled".to_string(),
+                state: "queued".to_string(),
                 input_id: None,
                 error_code: None,
             })
@@ -3263,11 +3268,12 @@ pub async fn post_to_space_with(
     }
     let (actor, attributed_to, sender) = match input.caller_id {
         Some(caller_id) => {
-            let member = ensure_agent_member(pool, &input.space_id, caller_id).await?;
+            let member = caller_seat(pool, &input.space_id, caller_id).await?;
+            let seat = seat_conversation(&member).unwrap_or(caller_id);
             (
                 member_actor(&input.space_id, &member.nickname),
-                Some(format!("vibex://conversation/{caller_id}")),
-                Some(caller_id),
+                Some(format!("vibex://conversation/{seat}")),
+                Some(seat),
             )
         }
         None => {
@@ -3347,14 +3353,15 @@ pub async fn post_to_space_with(
         .await?;
         sqlx::query(
             r#"INSERT INTO collaboration_space_messages
-               (id, space_id, seq, envelope_json, created_at)
-               VALUES (?, ?, ?, ?, ?)"#,
+               (id, space_id, seq, envelope_json, created_at, origin)
+               VALUES (?, ?, ?, ?, ?, ?)"#,
         )
         .bind(&message_id)
         .bind(&input.space_id)
         .bind(seq)
         .bind(envelope.to_string())
         .bind(&published)
+        .bind(if sender.is_some() { "agent" } else { "user" })
         .execute(&mut *conn)
         .await?;
         for target in &targets {
@@ -3369,6 +3376,24 @@ pub async fn post_to_space_with(
             .bind(&message_id)
             .bind(target_id.to_string())
             .bind(delivery_operation_id(input.operation_id, target_id).to_string())
+            .execute(&mut *conn)
+            .await?;
+        }
+        if let Some(sender) = sender {
+            // The member answered in this thread: everything delivered to it
+            // here before this message is now replied.
+            sqlx::query(
+                r#"UPDATE collaboration_space_deliveries
+                   SET receipt_state = 'replied', receipt_updated_at = ?
+                   WHERE conversation_id = ? AND receipt_state != 'replied'
+                     AND space_message_id IN (
+                       SELECT id FROM collaboration_space_messages
+                       WHERE space_id = ? AND seq < ?)"#,
+            )
+            .bind(&published)
+            .bind(sender.to_string())
+            .bind(&input.space_id)
+            .bind(seq)
             .execute(&mut *conn)
             .await?;
         }
@@ -3459,7 +3484,7 @@ async fn deliver_pending(
         &display_text,
     );
     let pending = sqlx::query_as::<_, PendingDelivery>(
-        r#"SELECT conversation_id, operation_id, input_id, status
+        r#"SELECT conversation_id, operation_id, input_id, status, receipt_state, context_from_seq
            FROM collaboration_space_deliveries
            WHERE space_message_id = ?"#,
     )
@@ -3480,6 +3505,7 @@ async fn deliver_pending(
                 conversation_id,
                 nickname,
                 delivered: delivery.status,
+                state: delivery.receipt_state,
                 input_id: delivery
                     .input_id
                     .as_deref()
@@ -3497,6 +3523,7 @@ async fn deliver_pending(
                 conversation_id,
                 nickname,
                 delivered: "failed".to_string(),
+                state: delivery.receipt_state.clone(),
                 input_id: None,
                 error_code: Some("not_found".to_string()),
             });
@@ -3508,16 +3535,39 @@ async fn deliver_pending(
                 conversation_id,
                 nickname,
                 delivered: "failed".to_string(),
+                state: delivery.receipt_state.clone(),
                 input_id: None,
                 error_code: Some("not_found".to_string()),
             });
             continue;
         }
+        let context_from = match delivery.context_from_seq {
+            Some(from) => from,
+            None => {
+                let from = context_window_start(pool, space_id, conversation_id, seq).await?;
+                sqlx::query(
+                    r#"UPDATE collaboration_space_deliveries SET context_from_seq = ?
+                       WHERE space_message_id = ? AND conversation_id = ?"#,
+                )
+                .bind(from)
+                .bind(message_id)
+                .bind(conversation_id.to_string())
+                .execute(pool)
+                .await
+                .map_err(db)?;
+                from
+            }
+        };
+        let missed = missed_group_context(pool, space_id, conversation_id, context_from, seq).await?;
+        let packed = match missed {
+            Some(missed) => format!("{missed}\n\n{attention}"),
+            None => attention.clone(),
+        };
         match deliver_text(
             pool,
             conversation_id,
             operation_id,
-            &attention,
+            &packed,
             Some(display_text.clone()),
             &target,
             json!({
@@ -3530,22 +3580,45 @@ async fn deliver_pending(
         .await
         {
             Ok(receipt) => {
+                let state = if receipt.delivered == "dispatched" {
+                    "processing"
+                } else {
+                    "queued"
+                };
+                // The queue may already have dispatched the input (trigger),
+                // so never move a receipt backwards.
                 sqlx::query(
                     r#"UPDATE collaboration_space_deliveries
-                       SET input_id = ?, status = ?
+                       SET input_id = ?, status = ?,
+                           receipt_state = CASE
+                             WHEN receipt_state = 'queued' THEN ? ELSE receipt_state END,
+                           receipt_updated_at = ?
                        WHERE space_message_id = ? AND conversation_id = ?"#,
                 )
                 .bind(receipt.input_id.map(|id| id.to_string()))
                 .bind(&receipt.delivered)
+                .bind(state)
+                .bind(now_stamp())
                 .bind(message_id)
                 .bind(conversation_id.to_string())
                 .execute(pool)
+                .await
+                .map_err(db)?;
+                advance_last_seen(pool, space_id, conversation_id, message_id, seq).await?;
+                let state: String = sqlx::query_scalar(
+                    r#"SELECT receipt_state FROM collaboration_space_deliveries
+                       WHERE space_message_id = ? AND conversation_id = ?"#,
+                )
+                .bind(message_id)
+                .bind(conversation_id.to_string())
+                .fetch_one(pool)
                 .await
                 .map_err(db)?;
                 receipts.push(DeliveryReceipt {
                     conversation_id,
                     nickname,
                     delivered: receipt.delivered,
+                    state,
                     input_id: receipt.input_id,
                     error_code: None,
                 });
@@ -3558,6 +3631,7 @@ async fn deliver_pending(
                     conversation_id,
                     nickname,
                     delivered: "failed".to_string(),
+                    state: delivery.receipt_state.clone(),
                     input_id: None,
                     error_code: Some(error.code.to_string()),
                 });
@@ -3571,10 +3645,183 @@ async fn deliver_pending(
     })
 }
 
+/// Most group messages packed into one delivery as missed context.
+const MISSED_CONTEXT_LIMIT: i64 = 30;
+
+/// Thread binding (`collaboration_thread_members`) of a seat conversation.
+async fn seat_binding(
+    pool: &SqlitePool,
+    conversation_id: Uuid,
+) -> Result<Option<identity::ThreadMemberRow>, CollaborationError> {
+    identity::binding_of_conversation(pool, conversation_id)
+        .await
+        .map_err(db)
+}
+
+/// Exclusive lower seq bound of the missed-context window for a delivery of
+/// message `seq`: the member's last seen message in this thread, or (never
+/// seen) the last `MISSED_CONTEXT_LIMIT` messages.
+async fn context_window_start(
+    pool: &SqlitePool,
+    space_id: &str,
+    conversation_id: Uuid,
+    seq: i64,
+) -> Result<i64, CollaborationError> {
+    let last_seen = match seat_binding(pool, conversation_id).await? {
+        Some(binding) => match binding_last_seen_seq(pool, space_id, &binding).await? {
+            Some(seen) => Some(seen),
+            None => None,
+        },
+        None => None,
+    };
+    let floor = (seq - 1 - MISSED_CONTEXT_LIMIT).max(0);
+    Ok(last_seen.map_or(floor, |seen| seen.max(floor)).min(seq - 1).max(0))
+}
+
+async fn binding_last_seen_seq(
+    pool: &SqlitePool,
+    space_id: &str,
+    binding: &identity::ThreadMemberRow,
+) -> Result<Option<i64>, CollaborationError> {
+    sqlx::query_scalar::<_, i64>(
+        r#"SELECT m.seq FROM collaboration_thread_members tm
+           JOIN collaboration_space_messages m
+             ON m.id = tm.last_seen_message_id AND m.space_id = ?
+           WHERE tm.thread_id = ? AND tm.member_id = ?"#,
+    )
+    .bind(space_id)
+    .bind(&binding.thread_id)
+    .bind(&binding.member_id)
+    .fetch_optional(pool)
+    .await
+    .map_err(db)
+}
+
+/// Group messages in `(from_seq, before_seq)` that this conversation did not
+/// author, rendered as a "while you were away" block. `None` when empty.
+async fn missed_group_context(
+    pool: &SqlitePool,
+    space_id: &str,
+    conversation_id: Uuid,
+    from_seq: i64,
+    before_seq: i64,
+) -> Result<Option<String>, CollaborationError> {
+    if before_seq - from_seq <= 1 {
+        return Ok(None);
+    }
+    let rows = sqlx::query_as::<_, (i64, String)>(
+        r#"SELECT seq, envelope_json FROM collaboration_space_messages
+           WHERE space_id = ? AND seq > ? AND seq < ?
+           ORDER BY seq ASC LIMIT ?"#,
+    )
+    .bind(space_id)
+    .bind(from_seq)
+    .bind(before_seq)
+    .bind(MISSED_CONTEXT_LIMIT)
+    .fetch_all(pool)
+    .await
+    .map_err(db)?;
+    let own = format!("vibex://conversation/{conversation_id}");
+    let user_uri = user_actor(space_id);
+    let mut lines = Vec::new();
+    for (seq, raw) in rows {
+        let Ok(envelope) = serde_json::from_str::<Value>(&raw) else {
+            continue;
+        };
+        if envelope.get("attributedTo").and_then(Value::as_str) == Some(own.as_str()) {
+            continue;
+        }
+        let actor = envelope.get("actor").and_then(Value::as_str).unwrap_or_default();
+        let who = if actor == user_uri {
+            "User".to_string()
+        } else {
+            actor.rsplit("/member/").next().unwrap_or(actor).to_string()
+        };
+        let content = envelope.get("content").and_then(Value::as_str).unwrap_or_default();
+        lines.push(format!("[#{seq}] {who}: {content}"));
+    }
+    if lines.is_empty() {
+        return Ok(None);
+    }
+    Ok(Some(format!(
+        "<missed_group_messages count=\"{}\">\n{}\n</missed_group_messages>",
+        lines.len(),
+        lines.join("\n")
+    )))
+}
+
+/// Record that the member behind `conversation_id` has now seen `message_id`
+/// (seq `seq`) in this thread. Never moves backwards.
+async fn advance_last_seen(
+    pool: &SqlitePool,
+    space_id: &str,
+    conversation_id: Uuid,
+    message_id: &str,
+    seq: i64,
+) -> Result<(), CollaborationError> {
+    let Some(binding) = seat_binding(pool, conversation_id).await? else {
+        return Ok(());
+    };
+    let current = binding_last_seen_seq(pool, space_id, &binding).await?;
+    if current.is_some_and(|seen| seen >= seq) {
+        return Ok(());
+    }
+    sqlx::query(
+        r#"UPDATE collaboration_thread_members SET last_seen_message_id = ?
+           WHERE thread_id = ? AND member_id = ?"#,
+    )
+    .bind(message_id)
+    .bind(&binding.thread_id)
+    .bind(&binding.member_id)
+    .execute(pool)
+    .await
+    .map_err(db)?;
+    Ok(())
+}
+
 #[derive(Debug, Clone, Serialize)]
 pub struct SpaceMessage {
     pub seq: i64,
     pub envelope: Value,
+    /// `user` or `agent`.
+    pub origin: String,
+    /// Per-recipient three-state receipts (empty for agent audiences).
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub receipts: Vec<MessageReceipt>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct MessageReceipt {
+    pub conversation_id: String,
+    pub state: String,
+    pub delivered: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub updated_at: Option<String>,
+}
+
+/// Receipts of `message_id`, one per recipient conversation.
+pub async fn list_message_receipts(
+    pool: &SqlitePool,
+    message_id: &str,
+) -> Result<Vec<MessageReceipt>, CollaborationError> {
+    let rows = sqlx::query_as::<_, (String, String, String, Option<String>)>(
+        r#"SELECT conversation_id, receipt_state, status, receipt_updated_at
+           FROM collaboration_space_deliveries WHERE space_message_id = ?
+           ORDER BY conversation_id"#,
+    )
+    .bind(message_id)
+    .fetch_all(pool)
+    .await
+    .map_err(db)?;
+    Ok(rows
+        .into_iter()
+        .map(|(conversation_id, state, delivered, updated_at)| MessageReceipt {
+            conversation_id,
+            state,
+            delivered,
+            updated_at,
+        })
+        .collect())
 }
 
 pub async fn list_space_messages(
@@ -3589,8 +3836,8 @@ pub async fn list_space_messages(
         .unwrap_or(SPACE_LIST_DEFAULT)
         .clamp(1, SPACE_LIST_HARD_CAP);
     let since = since_seq.unwrap_or(0);
-    let rows = sqlx::query_as::<_, (i64, String)>(
-        r#"SELECT seq, envelope_json FROM collaboration_space_messages
+    let rows = sqlx::query_as::<_, (i64, String, String, String)>(
+        r#"SELECT seq, envelope_json, origin, id FROM collaboration_space_messages
            WHERE space_id = ? AND seq > ?
            ORDER BY seq ASC LIMIT ?"#,
     )
@@ -3601,9 +3848,15 @@ pub async fn list_space_messages(
     .await
     .map_err(db)?;
     let user_uri = user_actor(space_id);
+    let mut receipts_by_message = std::collections::HashMap::new();
+    if audience == MessageAudience::User {
+        for (_, _, _, id) in &rows {
+            receipts_by_message.insert(id.clone(), list_message_receipts(pool, id).await?);
+        }
+    }
     Ok(rows
         .into_iter()
-        .filter_map(|(seq, raw)| {
+        .filter_map(|(seq, raw, origin, id)| {
             let mut envelope: Value = serde_json::from_str(&raw).ok()?;
             if audience == MessageAudience::Agent {
                 if let Some(to) = envelope.get_mut("to").and_then(Value::as_array_mut) {
@@ -3613,7 +3866,13 @@ pub async fn list_space_messages(
                     envelope["actor"] = json!("user");
                 }
             }
-            Some(SpaceMessage { seq, envelope })
+            let receipts = receipts_by_message.remove(&id).unwrap_or_default();
+            Some(SpaceMessage {
+                seq,
+                envelope,
+                origin,
+                receipts,
+            })
         })
         .collect())
 }
@@ -4424,6 +4683,69 @@ async fn resolve_seat_targets(
     Ok(targets)
 }
 
+/// Who a draft would wake if posted now. Pure read: resolves recipients the
+/// way `post_to_space` does (explicit `to`, then @-mentions, otherwise every
+/// agent seat except the sender) without creating any session.
+#[derive(Debug, Clone, Serialize)]
+pub struct WakePreview {
+    /// Agent members the post would deliver to.
+    pub will_wake: usize,
+    pub nicknames: Vec<String>,
+    /// True when no explicit recipient or @-mention narrowed the audience.
+    pub broadcast: bool,
+    /// How many of those members' thread sessions are asleep.
+    pub asleep: usize,
+}
+
+pub async fn preview_space_wake(
+    pool: &SqlitePool,
+    space_id: &str,
+    caller_id: Option<Uuid>,
+    content: &str,
+    to: &[String],
+) -> Result<WakePreview, CollaborationError> {
+    load_space_or_unassigned(pool, space_id).await?;
+    let sender = match caller_id {
+        Some(caller_id) => {
+            let member = caller_seat(pool, space_id, caller_id).await?;
+            Some(seat_conversation(&member).unwrap_or(caller_id))
+        }
+        None => None,
+    };
+    let members = list_space_members(pool, space_id, MessageAudience::Agent).await?;
+    let mentioned = to.iter().any(|name| !name.trim().is_empty())
+        || members
+            .iter()
+            .any(|member| contains_mention_token(content, &member.nickname));
+    let targets = resolve_seat_targets(pool, space_id, sender, to, content).await?;
+    let mut nicknames = Vec::new();
+    let mut asleep = 0;
+    for target in targets {
+        let Some(conversation_id) = target.conversation_id else {
+            continue;
+        };
+        if session_is_asleep(pool, conversation_id).await? {
+            asleep += 1;
+        }
+        nicknames.push(target.nickname);
+    }
+    Ok(WakePreview {
+        will_wake: nicknames.len(),
+        nicknames,
+        broadcast: !mentioned,
+        asleep,
+    })
+}
+
+/// Whether the thread session behind `conversation_id` is asleep. Phase 2
+/// sleep tracking lands with the idle sweeper; until then nothing sleeps.
+async fn session_is_asleep(
+    _pool: &SqlitePool,
+    _conversation_id: Uuid,
+) -> Result<bool, CollaborationError> {
+    Ok(false)
+}
+
 /// How an agent seat obtains its conversation.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum SeatMode {
@@ -4433,9 +4755,6 @@ enum SeatMode {
     PerThread,
     /// The conversation moves into this thread (move / undecided fallback).
     Transfer,
-    /// The calling conversation itself joins (agent created the space). If it
-    /// is already bound elsewhere the seat stays a legacy shared seat.
-    Shared,
 }
 
 fn identity_error(error: IdentityError) -> CollaborationError {
@@ -4561,8 +4880,7 @@ async fn attach_seat(
         .map_err(db)?;
         let orphaned = other_seat.is_none();
         match mode {
-            SeatMode::Shared if !orphaned => return Ok(conversation_id),
-            SeatMode::Transfer | SeatMode::Shared => {
+            SeatMode::Transfer => {
                 identity::transfer_conversation(pool, conversation_id, space_id, Some(nickname))
                     .await
                     .map_err(identity_error)?;
@@ -4593,7 +4911,7 @@ async fn resolve_seat_target(
     conversation_id: Uuid,
     nickname: &str,
 ) -> Result<Uuid, CollaborationError> {
-    let resolved = attach_seat(pool, space_id, conversation_id, nickname, SeatMode::Shared).await?;
+    let resolved = attach_seat(pool, space_id, conversation_id, nickname, SeatMode::PerThread).await?;
     if resolved != conversation_id {
         sqlx::query(
             "UPDATE collaboration_space_members SET conversation_id = ? WHERE space_id = ? AND conversation_id = ?",
@@ -4669,7 +4987,6 @@ async fn insert_member_with(
     mode: SeatMode,
 ) -> Result<MemberRecord, CollaborationError> {
     if kind == "agent"
-        && mode != SeatMode::Shared
         && let Some(conversation_id) = conversation_id
         && let Some(existing) = existing_member_seat(pool, space_id, conversation_id).await?
     {
@@ -4752,6 +5069,30 @@ async fn nickname_owner(
     .fetch_optional(pool)
     .await
     .map_err(db)
+}
+
+/// Seat a calling conversation acts through in `space_id`: its own seat, or
+/// the seat its member identity holds there via a per-thread conversation
+/// (for example the creator of a space, whose seat got its own session).
+async fn caller_seat(
+    pool: &SqlitePool,
+    space_id: &str,
+    caller_id: Uuid,
+) -> Result<MemberRecord, CollaborationError> {
+    match ensure_agent_member(pool, space_id, caller_id).await {
+        Ok(member) => Ok(member),
+        Err(error) => match existing_member_seat(pool, space_id, caller_id).await? {
+            Some(member) => Ok(member),
+            None => Err(error),
+        },
+    }
+}
+
+fn seat_conversation(member: &MemberRecord) -> Option<Uuid> {
+    member
+        .conversation_id
+        .as_deref()
+        .and_then(|raw| Uuid::parse_str(raw).ok())
 }
 
 async fn ensure_agent_member(
@@ -4952,6 +5293,8 @@ struct PendingDelivery {
     operation_id: String,
     input_id: Option<String>,
     status: String,
+    receipt_state: String,
+    context_from_seq: Option<i64>,
 }
 
 async fn mark_delivery_failed(
@@ -5653,7 +5996,7 @@ pub async fn add_to_space_collection_with(
     let space = load_space_or_unassigned(pool, space_id).await?;
     let (creator_kind, creator_conversation_id, creator_nickname) = match input.caller_id {
         Some(caller_id) => {
-            let member = ensure_agent_member(pool, space_id, caller_id).await?;
+            let member = caller_seat(pool, space_id, caller_id).await?;
             (
                 "agent".to_string(),
                 Some(caller_id.to_string()),
@@ -5967,7 +6310,7 @@ pub async fn list_space_collection_with(
         load_space_or_unassigned(pool, space_id).await?
     };
     let caller_member = match caller_id {
-        Some(cid) => Some(ensure_agent_member(pool, space_id, cid).await?),
+        Some(cid) => Some(caller_seat(pool, space_id, cid).await?),
         None => None,
     };
     let limit = limit
@@ -6050,7 +6393,7 @@ pub async fn read_space_collection_item_with(
     };
     let (reader_key, reader_kind, reader_cid, reader_nickname) = match caller_id {
         Some(cid) => {
-            let member = ensure_agent_member(pool, space_id, cid).await?;
+            let member = caller_seat(pool, space_id, cid).await?;
             (
                 format!("agent:{cid}"),
                 "agent".to_string(),
@@ -7281,6 +7624,234 @@ mod tests {
         assert!(to_b[0].contains("第一空间"));
         assert_eq!(to_forked.len(), 1);
         assert!(to_forked[0].contains("第二空间"));
+    }
+
+    async fn post_as(
+        pool: &SqlitePool,
+        caller: Option<Uuid>,
+        space: &str,
+        text: &str,
+        to: &[&str],
+    ) -> SpacePostResult {
+        post_to_space(
+            pool,
+            PostToSpace {
+                caller_id: caller,
+                space_id: space.to_string(),
+                content: text.to_string(),
+                summary: None,
+                to: to.iter().map(|name| name.to_string()).collect(),
+                in_reply_to: None,
+                operation_id: Uuid::new_v4(),
+            },
+        )
+        .await
+        .unwrap()
+    }
+
+    async fn inputs_of(pool: &SqlitePool, conversation: Uuid) -> Vec<String> {
+        sqlx::query_scalar::<_, String>(
+            "SELECT payload_json FROM conversation_inputs WHERE conversation_id = ? ORDER BY sort_key",
+        )
+        .bind(conversation)
+        .fetch_all(pool)
+        .await
+        .unwrap()
+    }
+
+    #[tokio::test]
+    async fn agent_created_space_seats_creator_through_member_identity() {
+        let pool = setup_pool().await;
+        let workspace = Uuid::new_v4();
+        let a = Uuid::new_v4();
+        let b = Uuid::new_v4();
+        create_session(&pool, a, workspace, Some("小A")).await;
+        create_session(&pool, b, workspace, Some("小B")).await;
+        let first = space_of(&pool, a).await;
+        // `a` is now bound to `first`; creating a second space must not share
+        // the same conversation across both spaces.
+        let second = space_of(&pool, a).await;
+        let member = identity::member_id_for_conversation(a);
+        assert_eq!(resolve_session(&pool, &member, &first).await.unwrap(), a);
+        let seat_in_second = resolve_session(&pool, &member, &second).await.unwrap();
+        assert_ne!(seat_in_second, a);
+        let seated: Vec<String> = sqlx::query_scalar(
+            "SELECT conversation_id FROM collaboration_space_members WHERE space_id = ? AND kind = 'agent'",
+        )
+        .bind(&second)
+        .fetch_all(&pool)
+        .await
+        .unwrap();
+        assert_eq!(seated, vec![seat_in_second.to_string()]);
+        let shared: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM collaboration_space_members WHERE conversation_id = ? AND kind = 'agent'",
+        )
+        .bind(a.to_string())
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert_eq!(shared, 1, "creator conversation must sit in one space only");
+
+        // The creator can still act in the new space from its original
+        // conversation; it posts as its seat and never receives its own post.
+        add_space_member(&pool, a, &second, b, "小B", Uuid::new_v4())
+            .await
+            .unwrap();
+        let posted = post_as(&pool, Some(a), &second, "大家好", &[]).await;
+        assert_eq!(posted.receipts.len(), 1);
+        assert!(inputs_of(&pool, seat_in_second).await.is_empty());
+        assert!(inputs_of(&pool, a).await.is_empty());
+    }
+
+    #[tokio::test]
+    async fn receipts_move_queued_processing_replied_and_origin_is_kept() {
+        let pool = setup_pool().await;
+        let workspace = Uuid::new_v4();
+        let a = Uuid::new_v4();
+        let b = Uuid::new_v4();
+        create_session(&pool, a, workspace, Some("小A")).await;
+        create_session(&pool, b, workspace, Some("小B")).await;
+        let space = space_of(&pool, a).await;
+        add_space_member(&pool, a, &space, b, "小B", Uuid::new_v4())
+            .await
+            .unwrap();
+        // b is busy, so the input waits in its queue.
+        mark_running(&pool, b).await;
+        let posted = post_as(&pool, None, &space, "@小B 看一下", &[]).await;
+        let to_b = posted
+            .receipts
+            .iter()
+            .find(|receipt| receipt.conversation_id == b)
+            .unwrap();
+        assert_eq!(to_b.state, "queued");
+        let input_id = to_b.input_id.unwrap();
+
+        // The queue dispatches the input: receipt becomes processing.
+        sqlx::query("UPDATE conversation_inputs SET status = 'dispatched' WHERE id = ?")
+            .bind(input_id)
+            .execute(&pool)
+            .await
+            .unwrap();
+        let receipts = list_message_receipts(&pool, &posted.message_id).await.unwrap();
+        let state_of = |receipts: &[MessageReceipt]| {
+            receipts
+                .iter()
+                .find(|r| r.conversation_id == b.to_string())
+                .unwrap()
+                .state
+                .clone()
+        };
+        assert_eq!(state_of(&receipts), "processing");
+
+        // b answers in the thread: replied.
+        let reply = post_as(&pool, Some(b), &space, "看完了", &["User"]).await;
+        let receipts = list_message_receipts(&pool, &posted.message_id).await.unwrap();
+        assert_eq!(state_of(&receipts), "replied");
+
+        let messages = list_space_messages(&pool, &space, None, None, MessageAudience::User)
+            .await
+            .unwrap();
+        let origin_of = |seq: i64| {
+            messages
+                .iter()
+                .find(|m| m.seq == seq)
+                .map(|m| m.origin.clone())
+                .unwrap()
+        };
+        assert_eq!(origin_of(posted.seq), "user");
+        assert_eq!(origin_of(reply.seq), "agent");
+        let user_post = messages.iter().find(|m| m.seq == posted.seq).unwrap();
+        assert_eq!(state_of(&user_post.receipts), "replied");
+    }
+
+    #[tokio::test]
+    async fn mention_packs_missed_group_messages_and_advances_last_seen() {
+        let pool = setup_pool().await;
+        let workspace = Uuid::new_v4();
+        let a = Uuid::new_v4();
+        let b = Uuid::new_v4();
+        let c = Uuid::new_v4();
+        create_session(&pool, a, workspace, Some("小A")).await;
+        create_session(&pool, b, workspace, Some("小B")).await;
+        create_session(&pool, c, workspace, Some("小C")).await;
+        let space = space_of(&pool, a).await;
+        add_space_member(&pool, a, &space, b, "小B", Uuid::new_v4())
+            .await
+            .unwrap();
+        add_space_member(&pool, a, &space, c, "小C", Uuid::new_v4())
+            .await
+            .unwrap();
+        let first = post_as(&pool, None, &space, "@小C 先看接口", &[]).await;
+        post_as(&pool, Some(c), &space, "接口没问题", &["User"]).await;
+        let member_b = identity::member_id_for_conversation(b);
+        let seen = |member: String| {
+            let pool = pool.clone();
+            let space = space.clone();
+            async move {
+                sqlx::query_scalar::<_, Option<String>>(
+                    "SELECT last_seen_message_id FROM collaboration_thread_members WHERE thread_id = ? AND member_id = ?",
+                )
+                .bind(space)
+                .bind(member)
+                .fetch_one(&pool)
+                .await
+                .unwrap()
+            }
+        };
+        assert_eq!(seen(member_b.clone()).await, None);
+        assert_eq!(
+            seen(identity::member_id_for_conversation(c)).await,
+            Some(first.message_id.clone())
+        );
+
+        let mention = post_as(&pool, None, &space, "@小B 你来总结", &[]).await;
+        let to_b = inputs_of(&pool, b).await;
+        assert_eq!(to_b.len(), 1);
+        assert!(to_b[0].contains("missed_group_messages"));
+        assert!(to_b[0].contains("先看接口"));
+        assert!(to_b[0].contains("接口没问题"));
+        assert_eq!(seen(member_b.clone()).await, Some(mention.message_id.clone()));
+
+        // Nothing new since: the next mention packs no backlog.
+        post_as(&pool, None, &space, "@小B 再补一句", &[]).await;
+        let to_b = inputs_of(&pool, b).await;
+        assert_eq!(to_b.len(), 2);
+        assert!(!to_b[1].contains("missed_group_messages"));
+    }
+
+    #[tokio::test]
+    async fn wake_preview_counts_members_for_a_draft_without_mentions() {
+        let pool = setup_pool().await;
+        let workspace = Uuid::new_v4();
+        let a = Uuid::new_v4();
+        let b = Uuid::new_v4();
+        let c = Uuid::new_v4();
+        create_session(&pool, a, workspace, Some("小A")).await;
+        create_session(&pool, b, workspace, Some("小B")).await;
+        create_session(&pool, c, workspace, Some("小C")).await;
+        let space = space_of(&pool, a).await;
+        add_space_member(&pool, a, &space, b, "小B", Uuid::new_v4())
+            .await
+            .unwrap();
+        add_space_member(&pool, a, &space, c, "小C", Uuid::new_v4())
+            .await
+            .unwrap();
+        let broadcast = preview_space_wake(&pool, &space, None, "大家看看", &[])
+            .await
+            .unwrap();
+        assert!(broadcast.broadcast);
+        assert_eq!(broadcast.will_wake, 3);
+        let mentioned = preview_space_wake(&pool, &space, None, "@小B 看看", &[])
+            .await
+            .unwrap();
+        assert!(!mentioned.broadcast);
+        assert_eq!(mentioned.will_wake, 1);
+        let from_agent = preview_space_wake(&pool, &space, Some(a), "大家看看", &[])
+            .await
+            .unwrap();
+        assert_eq!(from_agent.will_wake, 2);
+        // Preview never delivers.
+        assert!(inputs_of(&pool, b).await.is_empty());
     }
 
     #[tokio::test]

@@ -35,7 +35,7 @@ pub use capability_catalog::{
     read_matching_capability_catalog_for_defaults, read_matching_open_capability_catalog,
     record_open_capability_catalog, refresh_open_capability_catalog,
 };
-pub use collaboration::spawn_delayed_input_promoter;
+pub use collaboration::{spawn_delayed_input_promoter, spawn_idle_session_sweeper};
 pub use export::{render_html, render_markdown};
 pub use host::{
     DefaultConversationHost, resolve_absolute_workspace_agent_working_dir,

@@ -3380,6 +3380,15 @@ pub async fn post_to_space_with(
             .await?;
         }
         if let Some(sender) = sender {
+            sqlx::query(
+                r#"UPDATE collaboration_thread_members
+                   SET last_active_at = ?, asleep_since = NULL
+                   WHERE conversation_id = ?"#,
+            )
+            .bind(&published)
+            .bind(sender.to_string())
+            .execute(&mut *conn)
+            .await?;
             // The member answered in this thread: everything delivered to it
             // here before this message is now replied.
             sqlx::query(
@@ -3541,6 +3550,24 @@ async fn deliver_pending(
             });
             continue;
         }
+        if session_is_asleep(pool, conversation_id).await? {
+            let turn_key = wake_turn_key(pool, message_id, &envelope).await?;
+            if !reserve_wake(pool, &turn_key, conversation_id, message_id, wake_cap_per_turn())
+                .await?
+            {
+                // Over the per-turn wake cap: stays queued (no input yet), so a
+                // later replay or an explicit mention after waking delivers it.
+                receipts.push(DeliveryReceipt {
+                    conversation_id,
+                    nickname,
+                    delivered: "deferred".to_string(),
+                    state: delivery.receipt_state.clone(),
+                    input_id: None,
+                    error_code: Some("wake_limit_exceeded".to_string()),
+                });
+                continue;
+            }
+        }
         let context_from = match delivery.context_from_seq {
             Some(from) => from,
             None => {
@@ -3605,6 +3632,7 @@ async fn deliver_pending(
                 .await
                 .map_err(db)?;
                 advance_last_seen(pool, space_id, conversation_id, message_id, seq).await?;
+                touch_session_activity(pool, conversation_id).await?;
                 let state: String = sqlx::query_scalar(
                     r#"SELECT receipt_state FROM collaboration_space_deliveries
                        WHERE space_message_id = ? AND conversation_id = ?"#,
@@ -4737,13 +4765,180 @@ pub async fn preview_space_wake(
     })
 }
 
-/// Whether the thread session behind `conversation_id` is asleep. Phase 2
-/// sleep tracking lands with the idle sweeper; until then nothing sleeps.
+/// Whether the thread session behind `conversation_id` is asleep.
 async fn session_is_asleep(
-    _pool: &SqlitePool,
-    _conversation_id: Uuid,
+    pool: &SqlitePool,
+    conversation_id: Uuid,
 ) -> Result<bool, CollaborationError> {
-    Ok(false)
+    let asleep: Option<Option<String>> = sqlx::query_scalar(
+        "SELECT asleep_since FROM collaboration_thread_members WHERE conversation_id = ?",
+    )
+    .bind(conversation_id.to_string())
+    .fetch_optional(pool)
+    .await
+    .map_err(db)?;
+    Ok(matches!(asleep, Some(Some(_))))
+}
+
+/// Default idle time before a member's thread session sleeps.
+pub const DEFAULT_IDLE_SLEEP_MINUTES: i64 = 30;
+/// Default cap on sleeping sessions one originating turn may wake.
+pub const DEFAULT_WAKE_CAP_PER_TURN: i64 = 3;
+
+fn env_i64(key: &str, default: i64) -> i64 {
+    std::env::var(key)
+        .ok()
+        .and_then(|raw| raw.trim().parse::<i64>().ok())
+        .filter(|value| *value >= 0)
+        .unwrap_or(default)
+}
+
+/// `VIBEX_MEMBER_IDLE_MINUTES` (default 30; 0 disables sleeping).
+pub fn idle_sleep_minutes() -> i64 {
+    env_i64("VIBEX_MEMBER_IDLE_MINUTES", DEFAULT_IDLE_SLEEP_MINUTES)
+}
+
+/// `VIBEX_MEMBER_WAKE_CAP` (default 3) sleeping sessions woken per turn.
+pub fn wake_cap_per_turn() -> i64 {
+    env_i64("VIBEX_MEMBER_WAKE_CAP", DEFAULT_WAKE_CAP_PER_TURN)
+}
+
+/// Mark the thread session behind `conversation_id` active (and awake).
+async fn touch_session_activity(
+    pool: &SqlitePool,
+    conversation_id: Uuid,
+) -> Result<(), CollaborationError> {
+    sqlx::query(
+        r#"UPDATE collaboration_thread_members
+           SET last_active_at = ?, asleep_since = NULL
+           WHERE conversation_id = ?"#,
+    )
+    .bind(now_stamp())
+    .bind(conversation_id.to_string())
+    .execute(pool)
+    .await
+    .map_err(db)?;
+    Ok(())
+}
+
+/// Put thread sessions to sleep that have been idle for `idle_minutes`:
+/// no running turn, no queued input, and no activity since the cutoff.
+/// (`sessions.id` / `conversation_inputs.conversation_id` are UUID blobs;
+/// identity tables store hyphenated text, hence the hex comparison.)
+/// Returns how many fell asleep.
+pub async fn sleep_idle_sessions(
+    pool: &SqlitePool,
+    idle_minutes: i64,
+) -> Result<u64, CollaborationError> {
+    if idle_minutes <= 0 {
+        return Ok(0);
+    }
+    let cutoff = stamp(Utc::now() - Duration::minutes(idle_minutes));
+    let result = sqlx::query(
+        r#"UPDATE collaboration_thread_members
+           SET asleep_since = ?
+           WHERE asleep_since IS NULL
+             AND COALESCE(last_active_at, joined_at) < ?
+             AND NOT EXISTS (
+               SELECT 1 FROM sessions s
+               WHERE lower(hex(s.id)) = replace(collaboration_thread_members.conversation_id, '-', '')
+                 AND s.active_turn_id IS NOT NULL)
+             AND NOT EXISTS (
+               SELECT 1 FROM conversation_inputs i
+               WHERE lower(hex(i.conversation_id))
+                       = replace(collaboration_thread_members.conversation_id, '-', '')
+                 AND i.status IN ('queued', 'claimed'))"#,
+    )
+    .bind(now_stamp())
+    .bind(cutoff)
+    .execute(pool)
+    .await
+    .map_err(db)?;
+    Ok(result.rows_affected())
+}
+
+/// Background sweeper for [`sleep_idle_sessions`], once a minute.
+pub fn spawn_idle_session_sweeper(pool: SqlitePool) {
+    tokio::spawn(async move {
+        loop {
+            let minutes = idle_sleep_minutes();
+            if let Err(error) = sleep_idle_sessions(&pool, minutes).await {
+                tracing::warn!(%error, "idle member session sweep failed");
+            }
+            tokio::time::sleep(std::time::Duration::from_secs(60)).await;
+        }
+    });
+}
+
+/// Ledger key of the turn that produced `message_id`: the sender's active
+/// turn when an agent posted mid-turn, otherwise the message itself.
+async fn wake_turn_key(
+    pool: &SqlitePool,
+    message_id: &str,
+    envelope: &Value,
+) -> Result<String, CollaborationError> {
+    let sender = envelope
+        .get("attributedTo")
+        .and_then(Value::as_str)
+        .and_then(|uri| uri.rsplit('/').next())
+        .and_then(|raw| Uuid::parse_str(raw).ok());
+    if let Some(sender) = sender {
+        let turn: Option<Option<Uuid>> =
+            sqlx::query_scalar("SELECT active_turn_id FROM sessions WHERE id = ?")
+                .bind(sender)
+                .fetch_optional(pool)
+                .await
+                .map_err(db)?;
+        if let Some(Some(turn)) = turn {
+            return Ok(format!("turn:{turn}"));
+        }
+    }
+    Ok(format!("message:{message_id}"))
+}
+
+/// Reserve a wake of sleeping `conversation_id` for `turn_key`. `false` when
+/// the turn already used its cap (nothing recorded). Idempotent per pair.
+async fn reserve_wake(
+    pool: &SqlitePool,
+    turn_key: &str,
+    conversation_id: Uuid,
+    message_id: &str,
+    cap: i64,
+) -> Result<bool, CollaborationError> {
+    let mut tx = pool.begin().await.map_err(db)?;
+    let already: Option<i64> = sqlx::query_scalar(
+        "SELECT 1 FROM collaboration_wake_ledger WHERE turn_key = ? AND conversation_id = ?",
+    )
+    .bind(turn_key)
+    .bind(conversation_id.to_string())
+    .fetch_optional(&mut *tx)
+    .await
+    .map_err(db)?;
+    if already.is_some() {
+        return Ok(true);
+    }
+    let used: i64 =
+        sqlx::query_scalar("SELECT COUNT(*) FROM collaboration_wake_ledger WHERE turn_key = ?")
+            .bind(turn_key)
+            .fetch_one(&mut *tx)
+            .await
+            .map_err(db)?;
+    if used >= cap {
+        return Ok(false);
+    }
+    sqlx::query(
+        r#"INSERT INTO collaboration_wake_ledger
+           (turn_key, conversation_id, space_message_id, created_at) VALUES (?, ?, ?, ?)"#,
+    )
+    .bind(turn_key)
+    .bind(conversation_id.to_string())
+    .bind(message_id)
+    .bind(now_stamp())
+    .execute(&mut *tx)
+    .await
+    .map_err(db)?;
+    tx.commit().await.map_err(db)?;
+    Ok(true)
 }
 
 /// How an agent seat obtains its conversation.
@@ -7852,6 +8047,68 @@ mod tests {
         assert_eq!(from_agent.will_wake, 2);
         // Preview never delivers.
         assert!(inputs_of(&pool, b).await.is_empty());
+    }
+
+    #[tokio::test]
+    async fn idle_sessions_sleep_and_wakes_are_capped_per_turn() {
+        let pool = setup_pool().await;
+        let workspace = Uuid::new_v4();
+        let a = Uuid::new_v4();
+        create_session(&pool, a, workspace, Some("小A")).await;
+        let space = space_of(&pool, a).await;
+        let mut others = Vec::new();
+        for name in ["小B", "小C", "小D", "小E"] {
+            let id = Uuid::new_v4();
+            create_session(&pool, id, workspace, Some(name)).await;
+            add_space_member(&pool, a, &space, id, name, Uuid::new_v4())
+                .await
+                .unwrap();
+            others.push(id);
+        }
+        // Busy sessions never sleep.
+        mark_running(&pool, others[3]).await;
+        sqlx::query("UPDATE collaboration_thread_members SET last_active_at = '2000-01-01T00:00:00Z'")
+            .execute(&pool)
+            .await
+            .unwrap();
+        assert_eq!(sleep_idle_sessions(&pool, 0).await.unwrap(), 0, "0 disables");
+        let slept = sleep_idle_sessions(&pool, 30).await.unwrap();
+        assert_eq!(slept, 4, "a + three idle members");
+        assert!(session_is_asleep(&pool, others[0]).await.unwrap());
+        assert!(!session_is_asleep(&pool, others[3]).await.unwrap());
+        let preview = preview_space_wake(&pool, &space, None, "大家", &[]).await.unwrap();
+        assert_eq!(preview.asleep, 4);
+
+        // One user message is one turn: only DEFAULT_WAKE_CAP_PER_TURN (3)
+        // sleeping sessions wake; the rest are deferred.
+        let posted = post_as(&pool, None, &space, "大家醒醒", &[]).await;
+        let woken = posted
+            .receipts
+            .iter()
+            .filter(|r| r.error_code.is_none() && r.conversation_id != others[3])
+            .count();
+        let deferred: Vec<_> = posted
+            .receipts
+            .iter()
+            .filter(|r| r.error_code.as_deref() == Some("wake_limit_exceeded"))
+            .collect();
+        assert_eq!(woken, 3);
+        assert_eq!(deferred.len(), 1);
+        assert_eq!(deferred[0].delivered, "deferred");
+        assert!(inputs_of(&pool, deferred[0].conversation_id).await.is_empty());
+        // The awake (busy) member was delivered without using the cap.
+        assert_eq!(inputs_of(&pool, others[3]).await.len(), 1);
+        // Woken sessions are awake again.
+        let still_asleep: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM collaboration_thread_members WHERE asleep_since IS NOT NULL",
+        )
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert_eq!(still_asleep, 1);
+        // A new message is a new turn and may wake the deferred member.
+        let next = post_as(&pool, None, &space, "再叫一次", &[]).await;
+        assert!(next.receipts.iter().all(|r| r.error_code.is_none()));
     }
 
     #[tokio::test]

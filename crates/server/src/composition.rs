@@ -218,6 +218,7 @@ impl HeadlessServer {
             .dispatch_queued_inputs()
             .await
             .map_err(|error| ServerBootstrapError::Conversation(error.to_string()))?;
+        conversations::spawn_idle_session_sweeper(pool.clone());
         conversations::spawn_delayed_input_promoter(
             pool.clone(),
             conversations::ScopedConversationControl::new(conversation_context.clone())

@@ -20,7 +20,12 @@
     "showDetails": "Show details",
     "hideDetails": "Hide details",
     "region": "Notifications",
-    "close": "Close notification"
+    "close": "Close notification",
+    "successTitle": "Done",
+    "infoTitle": "Information",
+    "warningTitle": "Attention needed",
+    "errorTitle": "Action failed",
+    "loadingTitle": "Working"
   },
   "diffCard": {
     "loadingContent": "Loading file content…",

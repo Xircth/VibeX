@@ -4,60 +4,49 @@ import { describe, expect, it } from 'vitest';
 
 const css = readFileSync(
   resolve(process.cwd(), 'src/components/ui/toast.css'),
-  {
-    encoding: 'utf8',
-  }
+  { encoding: 'utf8' }
 );
 
-describe('toast surface contract', () => {
-  it('uses an opaque 400px dialog card with overlay shadow', () => {
-    expect(css).toContain('width: min(444px, 100vw);');
-    expect(css).toContain('padding: 36px 12px 12px 32px;');
-    expect(css).toContain('background: var(--surface-dialog);');
-    expect(css).toContain('var(--toast-shadow)');
-    expect(css).not.toContain('backdrop-filter:');
-    expect(css).not.toContain('vu-toast-icon-tile');
-    expect(css).not.toContain('vu-toast-summary');
+function rule(selector: string): string {
+  const index = css.indexOf(`${selector} {`);
+  expect(index, `missing rule ${selector}`).toBeGreaterThanOrEqual(0);
+  return css.slice(index, css.indexOf('}', index));
+}
+
+describe('toast surface contract (glass capsule)', () => {
+  it('keeps the frosted-glass surface for in-app toasts', () => {
+    const surface = rule('.vu-toast-viewport .vu-toast-surface');
+    expect(surface).toContain('backdrop-filter: blur(');
+    expect(surface).toContain('var(--vu-toast-glass)');
   });
 
-  it('keeps the drop shadow outside the rounded card', () => {
-    expect(css).toMatch(/\.vu-toast-surface \{[\s\S]*?overflow: visible;/);
-    expect(css).toMatch(
-      /\.vu-toast-viewport \{[\s\S]*?padding: 36px 12px 12px 32px;/
-    );
-    expect(css).toContain(
-      'animation: vu-toast-enter 180ms ease-out backwards;'
-    );
-    expect(css).not.toContain('ease-out both');
-    expect(css).toContain('html.desktop-toast-shell .vu-toast-surface {');
-    expect(css).toContain('box-shadow: none;');
-    expect(css).toContain('drop-shadow(0 10px 28px hsl(220 36% 8% / 0.16))');
+  it('falls back to an opaque surface for reduced transparency', () => {
+    expect(css).toContain('prefers-reduced-transparency: reduce');
+    expect(css).toContain('background: var(--vu-toast-solid);');
   });
 
-  it('lets the title wrap to three lines at regular weight', () => {
-    expect(css).toMatch(/\.vu-toast-title \{[\s\S]*?font-weight: 400;/);
-    expect(css).toMatch(/\.vu-toast-title \{[\s\S]*?min-width: 0;/);
-    expect(css).toMatch(/\.vu-toast-title \{[\s\S]*?-webkit-line-clamp: 3;/);
-    expect(css).toMatch(/\.vu-toast-title \{[\s\S]*?line-clamp: 3;/);
-    expect(css).not.toContain('white-space: nowrap;');
+  it('peeks stacked toasts above the front toast instead of behind it', () => {
+    const peek1 = rule(
+      ".vu-toast-viewport[data-expanded='false'] .vu-toast-host[data-stack-index='1']"
+    );
+    expect(peek1).toContain('var(--vu-toast-front-height');
+    expect(peek1).not.toContain('translateY');
+    const peekHost = rule(
+      ".vu-toast-viewport[data-expanded='false']\n  .vu-toast-host[data-stack-index]:not([data-stack-index='0'])"
+    );
+    expect(peekHost).toContain('height: var(--vu-toast-peek-height)');
   });
 
-  it('expands details across the icon column and keeps compact compose type', () => {
-    expect(css).toContain('.vu-toast-details {');
-    expect(css).toMatch(/\.vu-toast-details \{[\s\S]*?margin: 0 14px 12px;/);
-    expect(css).toContain(
-      '.vu-desktop-toast-compose .astryx-text-input input {'
-    );
-    expect(css).toContain('font-size: 12px !important;');
-    expect(css).toContain('line-height: 18px !important;');
-    expect(css).toMatch(
-      /\.vu-toast-end \.astryx-button,[\s\S]*?--font-size-base: 12px;/
-    );
-    expect(css).toMatch(
-      /\.vu-toast-end \.astryx-button,[\s\S]*?font-size: 12px;/
-    );
-    expect(css).toMatch(
-      /\.vu-toast-end \.astryx-button,[\s\S]*?line-height: 16px;/
+  it('uses design tokens for the details disclosure and focus ring', () => {
+    const disclosure = rule('.vu-toast-disclosure');
+    expect(disclosure).toContain('color: var(--text-muted);');
+    expect(disclosure).toContain('font-size: 0.75rem;');
+    expect(css).toContain('outline: 2px solid var(--focus-ring);');
+  });
+
+  it('renders technical details in monospace', () => {
+    expect(rule('.vu-toast-detail-copy-mono')).toContain(
+      'font-family: var(--font-mono'
     );
   });
 });

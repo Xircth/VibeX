@@ -160,13 +160,18 @@
   justify-content: space-between;
   gap: 8px;
   padding: 0;
-  color: var(--text-primary, hsl(213 10% 30%));
+  color: var(--text-muted);
   background: transparent;
   border: 0;
-  font-size: 12px;
+  border-radius: var(--radius);
+  font-size: 0.75rem;
   font-weight: 500;
   line-height: 16px;
   cursor: pointer;
+}
+
+.vu-toast-disclosure:hover {
+  color: var(--text-strong);
 }
 
 .vu-toast-disclosure svg {
@@ -221,7 +226,8 @@
 }
 
 .vu-toast-detail-copy-mono {
-  font-family: 'IBM Plex Mono', ui-monospace, monospace;
+  font-family: var(--font-mono, 'IBM Plex Mono', ui-monospace, monospace);
+  white-space: pre-wrap;
 }
 
 .vu-toast-actions {
@@ -389,7 +395,7 @@
 .vu-desktop-toast-copy:focus-visible,
 .vu-desktop-toast-input:focus-visible,
 .vu-desktop-toast-send:focus-visible {
-  outline: 2px solid hsl(var(--primary, 0 0% 9.02%) / 0.48);
+  outline: 2px solid var(--focus-ring);
   outline-offset: 2px;
 }
 
@@ -471,6 +477,7 @@
   --vu-toast-peek-1: #ededf0;
   --vu-toast-peek-2: #e0e0e4;
   --vu-toast-ease: cubic-bezier(0.22, 1, 0.36, 1);
+  --vu-toast-peek-height: 6px;
 }
 
 .dark .vu-toast-viewport {
@@ -686,6 +693,7 @@
 }
 
 .vu-toast-viewport .vu-toast-action {
+  height: 30px;
   min-height: 30px;
   padding: 0 14px;
   border-radius: 999px;
@@ -702,15 +710,15 @@
 }
 
 /* Collapsed stack (state set from React, no :has()/:hover dependency):
-   newest at the bottom, older toasts peek above it. Expanded fans upward. */
+   newest at the bottom; older toasts peek as thin slivers ABOVE the front
+   toast's top edge. They never sit behind the (translucent) front body. */
 .vu-toast-viewport[data-expanded='false']
   .vu-toast-host[data-stack-index]:not([data-stack-index='0']) {
   position: absolute;
   right: 16px;
-  bottom: 16px;
   width: var(--vu-toast-front-width, 240px);
-  height: var(--vu-toast-front-height, 44px);
-  transform-origin: top center;
+  height: var(--vu-toast-peek-height);
+  transform-origin: bottom center;
   pointer-events: none;
 }
 
@@ -719,7 +727,9 @@
   .vu-toast-surface {
   width: 100%;
   height: 100%;
-  border-radius: 999px;
+  overflow: hidden;
+  border-radius: var(--radius) var(--radius) 0 0;
+  box-shadow: var(--vu-toast-inner);
   backdrop-filter: none;
   -webkit-backdrop-filter: none;
 }
@@ -732,8 +742,9 @@
 }
 
 .vu-toast-viewport[data-expanded='false'] .vu-toast-host[data-stack-index='1'] {
+  bottom: calc(16px + var(--vu-toast-front-height, 44px));
   z-index: -1;
-  transform: translateY(-10px) scale(0.94);
+  transform: scaleX(0.92);
 }
 .vu-toast-viewport[data-expanded='false']
   .vu-toast-host[data-stack-index='1']
@@ -741,8 +752,11 @@
   background: var(--vu-toast-peek-1);
 }
 .vu-toast-viewport[data-expanded='false'] .vu-toast-host[data-stack-index='2'] {
+  bottom: calc(
+    16px + var(--vu-toast-front-height, 44px) + var(--vu-toast-peek-height)
+  );
   z-index: -2;
-  transform: translateY(-20px) scale(0.88);
+  transform: scaleX(0.84);
 }
 .vu-toast-viewport[data-expanded='false']
   .vu-toast-host[data-stack-index='2']
@@ -946,6 +960,7 @@
 }
 
 .vu-desktop-toast .vu-toast-action {
+  height: 30px;
   min-height: 30px;
   padding: 0 14px;
   border-radius: 999px;
@@ -988,33 +1003,45 @@
   box-shadow: var(--vu-dt-control-focus);
 }
 
-.vu-desktop-toast .vu-desktop-toast-reply input.vu-desktop-toast-input {
+.vu-desktop-toast .vu-desktop-toast-input-wrap {
+  display: flex;
   height: 100%;
-  padding: 0;
-  /* legacy-design paints inputs with --surface-raised-control !important */
+  min-width: 0;
+  flex: 1;
+  align-items: center;
+}
+
+/* Shared TextInput, flattened into the reply capsule (the capsule owns the
+   fill, edge and focus ring). */
+.vu-desktop-toast .vu-desktop-toast-input-wrap .vu-desktop-toast-input,
+.vu-desktop-toast .vu-desktop-toast-input-wrap .vu-desktop-toast-input * {
   --surface-raised-control: transparent;
   --surface-control-solid: transparent;
   --surface-control-solid-hover: transparent;
-  background: transparent;
-  border: 0;
-  border-radius: 0;
-  font-size: 12.5px;
-}
-
-.vu-desktop-toast .vu-desktop-toast-reply input.vu-desktop-toast-input,
-.vu-desktop-toast .vu-desktop-toast-reply input.vu-desktop-toast-input:focus,
-.vu-desktop-toast
-  .vu-desktop-toast-reply
-  input.vu-desktop-toast-input:focus-visible {
-  /* Beat the legacy *:focus ring and the base focus-visible outline. */
   --tw-ring-shadow: 0 0 #0000;
   --tw-ring-offset-shadow: 0 0 #0000;
+  background: transparent !important;
   border: 0 !important;
+  border-radius: 0;
   outline: none !important;
   box-shadow: none !important;
 }
 
+.vu-desktop-toast .vu-desktop-toast-input-wrap .vu-desktop-toast-input {
+  width: 100%;
+  min-width: 0;
+  padding: 0;
+}
+
+.vu-desktop-toast .vu-desktop-toast-input-wrap input {
+  height: 100%;
+  padding: 0;
+  font-size: 0.78125rem;
+}
+
 .vu-desktop-toast .vu-desktop-toast-send {
+  min-width: 28px;
+  padding: 0;
   width: 28px;
   height: 28px;
   flex: 0 0 28px;
@@ -1036,7 +1063,7 @@
 
 .vu-desktop-toast .vu-desktop-toast-hint {
   margin: 6px 0 0 14px;
-  font-size: 11.5px;
+  font-size: 0.75rem;
 }
 
 .vu-desktop-toast .vu-desktop-toast-sent {

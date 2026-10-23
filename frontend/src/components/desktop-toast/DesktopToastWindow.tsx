@@ -7,6 +7,8 @@ import {
   type CSSProperties,
 } from 'react';
 import { useTranslation } from 'react-i18next';
+import { TextInput } from '@astryxdesign/core/TextInput';
+import { Button } from '@/components/ui/button';
 import type { TFunction } from 'i18next';
 import {
   Check,
@@ -419,39 +421,43 @@ export function DesktopToastWindow() {
                     ) : (
                       <>
                         <div className="flex items-center gap-2">
-                          <input
-                            value={draft}
-                            disabled={isSending}
-                            placeholder={t('desktopToast.replyPlaceholder')}
-                            aria-label={t('desktopToast.replyInputAriaLabel')}
-                            className="vu-desktop-toast-input"
-                            onChange={(event) => {
-                              const value = event.target.value;
-                              setDrafts((previous) => ({
-                                ...previous,
-                                [toast.id]: value,
-                              }));
-                              holdToast(toast.id);
-                            }}
+                          <div
+                            className="vu-desktop-toast-input-wrap"
                             onFocus={() => holdToast(toast.id)}
-                            onBlur={(event) => {
+                            onBlur={() => {
                               // 失焦且无草稿时恢复自动消失；发送中（输入禁用）不重排。
-                              if (
-                                !event.target.value.trim() &&
-                                status !== 'sending'
-                              ) {
+                              if (!draft.trim() && status !== 'sending') {
                                 scheduleRemoval(toast.id, DEFAULT_DURATION_MS);
                               }
                             }}
-                            onKeyDown={(event) => {
-                              if (event.key === 'Enter' && !event.shiftKey) {
-                                event.preventDefault();
-                                void handleReplySubmit(toast);
-                              }
-                            }}
-                          />
-                          <button
+                          >
+                            <TextInput
+                              value={draft}
+                              isDisabled={isSending}
+                              label={t('desktopToast.replyInputAriaLabel')}
+                              isLabelHidden
+                              size="sm"
+                              placeholder={t('desktopToast.replyPlaceholder')}
+                              className="vu-desktop-toast-input"
+                              onChange={(value) => {
+                                setDrafts((previous) => ({
+                                  ...previous,
+                                  [toast.id]: value,
+                                }));
+                                holdToast(toast.id);
+                              }}
+                              onKeyDown={(event) => {
+                                if (event.key === 'Enter' && !event.shiftKey) {
+                                  event.preventDefault();
+                                  void handleReplySubmit(toast);
+                                }
+                              }}
+                            />
+                          </div>
+                          <Button
                             type="button"
+                            variant="primary"
+                            size="icon"
                             aria-label={t('desktopToast.sendReplyAriaLabel')}
                             disabled={isSending || draft.trim().length === 0}
                             className="vu-desktop-toast-send"
@@ -462,7 +468,7 @@ export function DesktopToastWindow() {
                             ) : (
                               <Send />
                             )}
-                          </button>
+                          </Button>
                         </div>
                         {status === 'error' ? (
                           <div className="vu-desktop-toast-hint vu-desktop-toast-error">
@@ -479,8 +485,10 @@ export function DesktopToastWindow() {
                   </div>
                 ) : (
                   <div className="vu-toast-actions">
-                    <button
+                    <Button
                       type="button"
+                      variant="secondary"
+                      size="sm"
                       className="vu-toast-action vu-toast-action-secondary vu-desktop-toast-reply-action"
                       onClick={() => {
                         holdToast(toast.id);
@@ -492,14 +500,16 @@ export function DesktopToastWindow() {
                     >
                       <MessageSquare aria-hidden="true" />
                       {t('desktopToast.quickReply')}
-                    </button>
-                    <button
+                    </Button>
+                    <Button
                       type="button"
+                      variant="primary"
+                      size="sm"
                       className="vu-toast-action vu-toast-action-primary"
                       onClick={() => void handleActivate(toast)}
                     >
                       {t('desktopToast.openConversation')}
-                    </button>
+                    </Button>
                   </div>
                 )}
               </article>

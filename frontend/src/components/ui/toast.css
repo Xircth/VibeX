@@ -798,25 +798,26 @@
 }
 
 /* ------------------------------------------------------------------
-   Desktop (OS-level) notification window: glass capsule language on a
-   92-95% fill. A transparent native window cannot blur the desktop, so
-   no backdrop-filter here (see index.css desktop-toast-shell rules).
+   Desktop (OS-level) notification window: capsule language on an opaque
+   dialog surface. A transparent native window cannot blur the desktop, so
+   the card is fully solid (no translucency, no backdrop-filter; see the
+   index.css desktop-toast-shell rules).
    ------------------------------------------------------------------ */
 .vu-desktop-toast {
-  --vu-dt-fill: linear-gradient(
-    180deg,
-    hsl(0 0% 100% / 0.95),
-    hsl(0 0% 98% / 0.92)
-  );
+  --vu-dt-fill: var(--surface-dialog, #fafafa);
   --vu-dt-shadow:
-    0 0 0 0.5px hsl(0 0% 0% / 0.12), inset 0 1px 0 #fff,
-    0 1px 2px hsl(220 36% 8% / 0.06), 0 8px 20px -6px hsl(220 36% 8% / 0.15),
-    0 24px 48px -16px hsl(220 36% 8% / 0.18);
+    0 0 0 0.5px hsl(220 20% 10% / 0.14), inset 0 1px 0 hsl(0 0% 100% / 0.9),
+    0 1px 1px hsl(220 30% 10% / 0.04), 0 2px 6px -1px hsl(220 30% 10% / 0.06),
+    0 10px 24px -8px hsl(220 30% 10% / 0.16),
+    0 28px 56px -20px hsl(220 30% 10% / 0.22);
   --vu-dt-orb: hsl(0 0% 11% / 0.05);
-  --vu-dt-control: hsl(0 0% 0% / 0.04);
-  --vu-dt-control-edge: inset 0 0 0 0.5px hsl(0 0% 0% / 0.14);
+  --vu-dt-control: hsl(220 14% 20% / 0.045);
+  --vu-dt-control-edge: inset 0 0 0 0.5px hsl(220 14% 10% / 0.14);
+  --vu-dt-control-focus:
+    inset 0 0 0 1px hsl(var(--primary, 0 0% 9.02%) / 0.4),
+    0 0 0 3px hsl(var(--primary, 0 0% 9.02%) / 0.08);
   --vu-dt-ring-track: hsl(0 0% 0% / 0.12);
-  --vu-dt-badge-edge: #fff;
+  --vu-dt-badge-edge: var(--surface-dialog, #fafafa);
   --vu-toast-tone: hsl(var(--success));
   width: 400px;
   max-width: 100%;
@@ -826,37 +827,27 @@
   border: 0;
   border-radius: 24px;
   box-shadow: var(--vu-dt-shadow);
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
   animation: vu-desktop-toast-in 260ms cubic-bezier(0.22, 1, 0.36, 1) both;
 }
 
 .dark .vu-desktop-toast {
-  --vu-dt-fill: linear-gradient(
-    180deg,
-    hsl(240 2% 20% / 0.95),
-    hsl(0 0% 15% / 0.92)
-  );
   --vu-dt-shadow:
-    0 0 0 0.5px hsl(0 0% 100% / 0.14), inset 0 1px 0 hsl(0 0% 100% / 0.12),
-    0 1px 2px hsl(0 0% 0% / 0.4), 0 12px 32px -8px hsl(0 0% 0% / 0.7);
+    0 0 0 0.5px hsl(0 0% 100% / 0.16), inset 0 1px 0 hsl(0 0% 100% / 0.07),
+    0 1px 2px hsl(0 0% 0% / 0.35), 0 10px 28px -8px hsl(0 0% 0% / 0.6),
+    0 28px 56px -20px hsl(0 0% 0% / 0.55);
   --vu-dt-orb: hsl(0 0% 100% / 0.07);
   --vu-dt-control: hsl(0 0% 100% / 0.06);
   --vu-dt-control-edge: inset 0 0 0 0.5px hsl(0 0% 100% / 0.14);
+  --vu-dt-control-focus:
+    inset 0 0 0 1px hsl(var(--primary) / 0.45),
+    0 0 0 3px hsl(var(--primary) / 0.1);
   --vu-dt-ring-track: hsl(0 0% 100% / 0.14);
-  --vu-dt-badge-edge: #2c2c2e;
 }
 
 .vu-desktop-toast[data-kind='error'] {
   --vu-toast-tone: hsl(var(--destructive));
-}
-
-.reduced-transparency .vu-desktop-toast {
-  --vu-dt-fill: var(--surface-dialog);
-}
-
-@media (prefers-reduced-transparency: reduce) {
-  .vu-desktop-toast {
-    --vu-dt-fill: var(--surface-dialog);
-  }
 }
 
 .vu-desktop-toast .vu-toast-heading {
@@ -987,6 +978,14 @@
   background: var(--vu-dt-control);
   border-radius: 999px;
   box-shadow: var(--vu-dt-control-edge);
+  transition:
+    box-shadow 160ms ease,
+    background-color 160ms ease;
+}
+
+/* Focus is shown on the capsule (follows its radius), never on the inner input. */
+.vu-desktop-toast .vu-desktop-toast-reply > .flex:focus-within {
+  box-shadow: var(--vu-dt-control-focus);
 }
 
 .vu-desktop-toast .vu-desktop-toast-reply input.vu-desktop-toast-input {
@@ -999,8 +998,20 @@
   background: transparent;
   border: 0;
   border-radius: 0;
-  box-shadow: none;
   font-size: 12.5px;
+}
+
+.vu-desktop-toast .vu-desktop-toast-reply input.vu-desktop-toast-input,
+.vu-desktop-toast .vu-desktop-toast-reply input.vu-desktop-toast-input:focus,
+.vu-desktop-toast
+  .vu-desktop-toast-reply
+  input.vu-desktop-toast-input:focus-visible {
+  /* Beat the legacy *:focus ring and the base focus-visible outline. */
+  --tw-ring-shadow: 0 0 #0000;
+  --tw-ring-offset-shadow: 0 0 #0000;
+  border: 0 !important;
+  outline: none !important;
+  box-shadow: none !important;
 }
 
 .vu-desktop-toast .vu-desktop-toast-send {
@@ -1047,5 +1058,16 @@
   .vu-desktop-toast,
   .vu-desktop-toast .vu-toast-countdown-ring {
     animation: none;
+  }
+}
+
+/* Desktop toast is always solid; reduced transparency resolves to the same surface. */
+.reduced-transparency .vu-desktop-toast.vu-toast-surface {
+  background: var(--vu-dt-fill);
+}
+
+@media (prefers-reduced-transparency: reduce) {
+  .vu-desktop-toast.vu-toast-surface {
+    background: var(--vu-dt-fill);
   }
 }

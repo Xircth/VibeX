@@ -10,6 +10,7 @@ import {
   parseHandoff,
   parseWorktreeConflict,
   processSummary,
+  replyTargetOf,
   receiptState,
   segmentStream,
   togglePin,
@@ -201,5 +202,38 @@ describe('thread model', () => {
         duration_ms: 1500n,
       })
     ).toEqual({ steps: 2, tools: 1, durationMs: 1500 });
+  });
+});
+
+describe('message origin and reply correlation', () => {
+  it('reads origin, id and in_reply_to off the wire shape', () => {
+    const wire: StreamMessage[] = JSON.parse(
+      JSON.stringify([
+        {
+          id: 'm-1',
+          seq: 1,
+          origin: 'agent',
+          envelope: {
+            actor: 'vibex://space/g1/member/小A',
+            content: '接口好了吗',
+          },
+        },
+        {
+          id: 'm-2',
+          seq: 2,
+          origin: 'agent',
+          in_reply_to: 'm-1',
+          envelope: {
+            actor: 'vibex://space/g1/member/小B',
+            content: '好了',
+            inReplyTo: 'vibex://space-message/m-1',
+          },
+        },
+      ])
+    );
+    expect(wire[1].origin).toBe('agent');
+    expect(replyTargetOf(wire[1], wire)?.id).toBe('m-1');
+    expect(replyTargetOf(wire[0], wire)).toBeNull();
+    expect(replyTargetOf({ ...wire[1], in_reply_to: 'gone' }, wire)).toBeNull();
   });
 });

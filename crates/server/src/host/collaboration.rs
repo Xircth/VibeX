@@ -1591,6 +1591,74 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn host_list_messages_carries_id_origin_and_in_reply_to() {
+        let pool = setup_pool().await;
+        let host = HostCollaborationHost::new(pool.clone(), Arc::new(HostEventBus::new()));
+        let workspace = Uuid::new_v4();
+        let a = Uuid::new_v4();
+        create_session(&pool, a, workspace, "小A").await;
+        let space = host
+            .call(
+                "host",
+                "collaboration",
+                "space.create",
+                json!({ "workspaceId": workspace, "name": "群1", "operationId": Uuid::new_v4() }),
+            )
+            .await
+            .unwrap();
+        let space_id = space["space_id"].as_str().unwrap().to_string();
+        host.call(
+            "host",
+            "collaboration",
+            "space.addMember",
+            json!({ "spaceId": space_id, "conversationId": a, "nickname": "小A", "operationId": Uuid::new_v4() }),
+        )
+        .await
+        .unwrap();
+        let first = host
+            .call(
+                "host",
+                "collaboration",
+                "space.post",
+                json!({ "spaceId": space_id, "content": "@小A 看下", "to": ["小A"], "operationId": Uuid::new_v4() }),
+            )
+            .await
+            .unwrap();
+        let first_id = first["message_id"].as_str().unwrap().to_string();
+        let second = host
+            .call(
+                "host",
+                "collaboration",
+                "space.post",
+                json!({
+                    "spaceId": space_id,
+                    "content": "@小A 补充",
+                    "to": ["小A"],
+                    "inReplyTo": format!("vibex://space-message/{first_id}"),
+                    "operationId": Uuid::new_v4(),
+                }),
+            )
+            .await
+            .unwrap();
+        let listed = host
+            .call(
+                "host",
+                "collaboration",
+                "space.listMessages",
+                json!({ "spaceId": space_id }),
+            )
+            .await
+            .unwrap();
+        let messages = listed["messages"].as_array().unwrap();
+        assert_eq!(messages.len(), 2);
+        assert_eq!(messages[0]["id"], json!(first_id));
+        assert_eq!(messages[0]["origin"], json!("user"));
+        assert!(messages[0].get("in_reply_to").is_none());
+        assert_eq!(messages[1]["id"], second["message_id"]);
+        assert_eq!(messages[1]["in_reply_to"], json!(first_id), "URI reduced to bare id");
+    }
+
+    #[tokio::test]
     async fn host_collaboration_create_member_and_move_between_spaces_and_unassigned() {
         let pool = setup_pool().await;
         let events = Arc::new(HostEventBus::new());

@@ -3890,10 +3890,18 @@ async fn advance_last_seen(
 
 #[derive(Debug, Clone, Serialize)]
 pub struct SpaceMessage {
+    /// Stable message id (the target of a later `in_reply_to`).
+    pub id: String,
     pub seq: i64,
     pub envelope: Value,
     /// `user` or `agent`.
     pub origin: String,
+    /// Id of the message this one replies to (cross-chat member-to-member
+    /// correlation), lifted from the envelope's `inReplyTo`; a
+    /// `vibex://space-message/<id>` URI is reduced to the bare `<id>` so it
+    /// matches `id`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub in_reply_to: Option<String>,
     /// Per-recipient three-state receipts (empty for agent audiences).
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub receipts: Vec<MessageReceipt>,
@@ -3981,10 +3989,19 @@ pub async fn list_space_messages(
                 }
             }
             let receipts = receipts_by_message.remove(&id).unwrap_or_default();
+            let in_reply_to = envelope
+                .get("inReplyTo")
+                .and_then(Value::as_str)
+                .map(|value| value.trim())
+                .map(|value| value.strip_prefix("vibex://space-message/").unwrap_or(value))
+                .filter(|value| !value.is_empty())
+                .map(str::to_string);
             Some(SpaceMessage {
+                id,
                 seq,
                 envelope,
                 origin,
+                in_reply_to,
                 receipts,
             })
         })
@@ -8764,6 +8781,69 @@ mod tests {
         assert_eq!(origin_of(reply.seq), "agent");
         let user_post = messages.iter().find(|m| m.seq == posted.seq).unwrap();
         assert_eq!(state_of(&user_post.receipts), "replied");
+    }
+
+    #[tokio::test]
+    async fn listed_messages_expose_id_origin_and_reply_correlation() {
+        let pool = setup_pool().await;
+        let workspace = Uuid::new_v4();
+        let a = Uuid::new_v4();
+        let b = Uuid::new_v4();
+        create_session(&pool, a, workspace, Some("小A")).await;
+        create_session(&pool, b, workspace, Some("小B")).await;
+        let space = space_of(&pool, a).await;
+        add_space_member(&pool, a, &space, b, "小B", Uuid::new_v4())
+            .await
+            .unwrap();
+        let ask = post_as(&pool, Some(a), &space, "@小B 接口好了吗", &["小B"]).await;
+        let reply = post_to_space(
+            &pool,
+            PostToSpace {
+                caller_id: Some(b),
+                space_id: space.clone(),
+                content: "@小A 好了".to_string(),
+                summary: None,
+                to: vec!["小A".to_string()],
+                in_reply_to: Some(ask.message_id.clone()),
+                operation_id: Uuid::new_v4(),
+            },
+        )
+        .await
+        .unwrap();
+        let user_post = post_as(&pool, None, &space, "收到", &[]).await;
+
+        let messages = list_space_messages(&pool, &space, None, None, MessageAudience::User)
+            .await
+            .unwrap();
+        let by_seq = |seq: i64| messages.iter().find(|m| m.seq == seq).unwrap();
+        assert_eq!(by_seq(ask.seq).id, ask.message_id);
+        assert_eq!(by_seq(ask.seq).origin, "agent");
+        assert_eq!(by_seq(ask.seq).in_reply_to, None);
+        assert_eq!(by_seq(reply.seq).id, reply.message_id);
+        assert_eq!(by_seq(reply.seq).origin, "agent");
+        assert_eq!(
+            by_seq(reply.seq).in_reply_to.as_deref(),
+            Some(ask.message_id.as_str())
+        );
+        assert_eq!(by_seq(user_post.seq).origin, "user");
+
+        // Wire shape the frontend reads.
+        let wire = serde_json::to_value(by_seq(reply.seq)).unwrap();
+        assert_eq!(wire["id"], json!(reply.message_id));
+        assert_eq!(wire["origin"], json!("agent"));
+        assert_eq!(wire["in_reply_to"], json!(ask.message_id));
+        let wire_ask = serde_json::to_value(by_seq(ask.seq)).unwrap();
+        assert!(wire_ask.get("in_reply_to").is_none());
+
+        // Agents see the same correlation.
+        let agent_view = list_space_messages(&pool, &space, None, None, MessageAudience::Agent)
+            .await
+            .unwrap();
+        let agent_reply = agent_view.iter().find(|m| m.seq == reply.seq).unwrap();
+        assert_eq!(
+            agent_reply.in_reply_to.as_deref(),
+            Some(ask.message_id.as_str())
+        );
     }
 
     #[tokio::test]

@@ -488,16 +488,42 @@ export function parseWorktreeConflict(
   };
 }
 
+/** Who wrote a space message (`collaboration_space_messages.origin`). */
+export type MessageOrigin = 'user' | 'agent';
+
 export type StreamMessage = {
+  /** Stable message id; what a later `in_reply_to` points at. */
+  id?: string;
   seq: number;
-  origin?: string;
+  /** Backend sends `user|agent`; other values are client-side markers. */
+  origin?: MessageOrigin | (string & {});
+  /**
+   * Id of the message this one replies to (cross-chat member-to-member
+   * correlation). Always the bare id, comparable with `id`.
+   */
+  in_reply_to?: string | null;
   envelope: {
     actor?: string;
     content?: string;
     summary?: string;
     to?: string[];
+    /** Raw envelope value (may be a `vibex://space-message/<id>` URI). */
+    inReplyTo?: string | null;
   };
 };
+
+/**
+ * The message `message` replies to, looked up by id among `messages`
+ * (null when it is not a reply or the target is not loaded).
+ */
+export function replyTargetOf<T extends StreamMessage>(
+  message: StreamMessage,
+  messages: readonly T[]
+): T | null {
+  const target = message.in_reply_to;
+  if (!target) return null;
+  return messages.find((candidate) => candidate.id === target) ?? null;
+}
 
 export type StreamSegment<T extends StreamMessage> =
   | { kind: 'message'; message: T }

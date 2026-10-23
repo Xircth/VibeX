@@ -47,9 +47,8 @@ idempotent; every insert is `ON CONFLICT DO NOTHING` and ids are derived:
 * the single-space restriction is gone: moving a member into a space no
   longer removes it from the workspace's other spaces. Joining a second space
   creates a new conversation for that thread.
-* an agent creating a space joins with its own conversation; if that
-  conversation is already bound to a live seat elsewhere the new seat is a
-  legacy shared seat (no binding) — see risks.
+* an agent creating a space joins through its member identity (see Phase 1
+  follow-ups); there are no shared seats.
 
 ## Rollback
 
@@ -59,3 +58,77 @@ collaboration_members, member_activity, member_facts`) and delete the
 `_sqlx_migrations` row for `20261024010000`. Repointed seats still reference
 valid sessions, so the old code keeps working; the forked conversations remain
 as ordinary conversations (one per extra space) rather than being merged back.
+
+## Phase 1 follow-ups
+
+* The backfill runs in **one transaction** (`MemberIdentityMigration::run`);
+  a failure rolls back every member, thread and binding it created.
+* `20261024020000_collaboration_identity_foreign_keys.sql` rebuilds
+  `collaboration_thread_members`, `member_activity` and `member_facts` with
+  `REFERENCES collaboration_members / collaboration_threads ON DELETE CASCADE`
+  (orphans are dropped during the copy). Rollback: rebuild without the
+  references.
+* Agent-created spaces seat the creator through member identity like every
+  other seat (no shared seats). A caller acts in a space through its
+  member's seat there (`caller_seat`), so the creator's original
+  conversation can still post; it never receives its own posts.
+* `last_seen_message_id` advances (never backwards) after each successful
+  delivery to the member's thread session.
+
+# Phase 2
+
+| area | migration | entry points |
+| --- | --- | --- |
+| receipts + origin + packing | `20261024030000_collaboration_receipts_origin.sql` | `list_message_receipts`, host `space.submit`, `space.receipts`, event `vibex://collaboration-receipts-changed` |
+| sleep / wake cap | `20261024040000_collaboration_session_sleep.sql` | `sleep_idle_sessions`, `spawn_idle_session_sweeper` |
+| handoffs | `20261024050000_collaboration_handoffs.sql` | `handoff_with`, MCP tool `handoff` |
+| repo write policy | `20261024060000_collaboration_member_write_access.sql` | `plan_member_write`, `try_acquire_member_write`, `application::ensure_member_session_workspace`, host `member.setWriteAccess` |
+
+* **Receipts**: `collaboration_space_deliveries.receipt_state` is `queued` →
+  `processing` (set when the input is dispatched, by the trigger
+  `collaboration_receipt_processing` on `conversation_inputs`, or directly
+  when delivery dispatched immediately) → `replied` (the receiving seat posts
+  in the same thread afterwards). It never moves backwards. Transport
+  `status` (`queued|dispatched|failed`) is unchanged.
+* **Origin**: `collaboration_space_messages.origin` is `user|agent`
+  (backfilled from the envelope actor) and is returned with every message
+  together with its receipts (user audience).
+* **Group delivery**: each delivery prepends a
+  `<missed_group_messages>` block with up to 30 thread messages after the
+  member's `last_seen_message_id` (excluding its own posts). The window's
+  lower bound is fixed per delivery (`context_from_seq`) so a retry sends
+  identical text and dedupe keeps working. `space.wakePreview` /
+  `preview_space_wake` return how many members a draft would wake (all agent
+  seats for a draft without @, minus the sender) and how many are asleep.
+* **Handoffs**: `{done, inputs_constraints, ask}`; depth = parent (latest
+  accepted handoff received by the caller's seat in the thread) + 1, limit
+  `VIBEX_HANDOFF_MAX_DEPTH` (3); accepted handoffs per initiating turn limit
+  `VIBEX_HANDOFF_MAX_PER_TURN` (2). Over-limit → row `rejected` +
+  `limit_exceeded`. Delivery failure → row `failed` and the initiator posts a
+  report to User in the same thread. Replays by `operation_id` return the
+  stored result.
+* **Repo writes**: per member `write_access` (default `write_isolated`). The
+  member's earliest session in a workspace keeps the checkout; any other
+  session needs its own worktree, provisioned with the workflow
+  `write_isolated` code. `write_serialized`: one busy writer per (member,
+  workspace) lease; other sessions' deliveries are deferred
+  (`write_serialized_busy`) and retried by the minute sweeper.
+* **Sleep**: thread sessions idle for `VIBEX_MEMBER_IDLE_MINUTES` (30; 0
+  disables) with no running turn and no queued input get `asleep_since`.
+  Delivering to one is a wake recorded per originating turn (agent sender's
+  active turn, else the message); over `VIBEX_MEMBER_WAKE_CAP` (3) the
+  delivery is deferred (`wake_limit_exceeded`) and retried by the sweeper.
+
+## Pre-existing test failures (identical on origin/master 442c61ab)
+
+1. `agents` lib: `zcode::tests::an_old_path_node_does_not_hide_a_version_manager_node`
+2. `agents` test `auth_mode_policy`: `qoder_has_only_subscription_and_keeps_the_personal_access_token`
+3. `agents` test `auth_mode_policy`: `headless_account_tokens_stay_out_of_the_api_key_field`
+4. `db` lib: `tests::legacy_automation_timezone_is_resolved_exactly_once` (the test's last query lacks `.bind(record.id)`)
+5. `plugins` test `portable_package`: `monorepo_official_v2_plugins_in_plugins_dir_are_valid`
+6. `plugins` test `portable_package`: `monorepo_plugins_bootstrap_offline_in_topological_order_and_cascade_dependents`
+7. `plugins` test `shared_node_worker`: `tier0_and_tier1_plugins_enable_with_zero_worker_processes`
+8. `plugins` test `sqlite_registry`: `runtime_artifacts_are_content_addressed_and_locks_are_package_scoped`
+9. `server` test `headless_bootstrap`: `headless_agent_events_are_persisted_for_websocket_replay`
+10. `server` test `web_domains`: `one_authenticated_application_surface_opens_product_domains_for_the_web_ui`
+11. `vibex-mcp` bin: `tests::collaboration_opens_same_workspace_tools_without_session_control` (expected tool list predates the space-collection tools)

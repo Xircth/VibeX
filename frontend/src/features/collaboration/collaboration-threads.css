@@ -745,6 +745,14 @@
 .collab-group-picker .workspace-session-row-main:focus-visible {
   border-radius: var(--radius);
 }
+/* Unified composer: the contenteditable sits inside the box, so ring the box. */
+.collab-composer-box:has(
+  [data-testid='session-composer-editor'] :focus-visible
+) {
+  box-shadow:
+    0 0 0 2px var(--focus-ring),
+    var(--shadow-composer);
+}
 
 @media (prefers-reduced-motion: reduce) {
   .collab-list-row-pin,

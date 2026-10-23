@@ -678,6 +678,8 @@
     "openWorkspaceFirst": "Open a workspace first",
     "receiptQueued": "Queued",
     "receiptClaimed": "Claimed",
-    "receiptFailed": "Failed"
+    "receiptFailed": "Failed",
+    "approvalAlwaysGroup": "Always allow in this group",
+    "approvalAlwaysDirect": "Always allow in this chat"
   }
 }

@@ -101,6 +101,37 @@ describe('collaboration threads UI', () => {
     expect(screen.getByText('内部讨论一')).toBeTruthy();
   });
 
+  it('scopes the always-allow label to the thread kind', async () => {
+    const user = userEvent.setup();
+    const onResolve = vi.fn();
+    const card = {
+      kind: 'approval' as const,
+      id: 'k2',
+      action: '推送分支',
+      command: 'git push',
+      reason: '',
+    };
+    const { rerender } = render(
+      <ApprovalCard card={card} from="Alex" onResolve={onResolve} />
+    );
+    expect(screen.getByRole('button', { name: '本群始终允许' })).toBeTruthy();
+    rerender(
+      <ApprovalCard card={card} from="Alex" scope="direct" onResolve={onResolve} />
+    );
+    expect(screen.queryByRole('button', { name: '本群始终允许' })).toBeNull();
+    await user.click(screen.getByRole('button', { name: '此私聊始终允许' }));
+    expect(onResolve).toHaveBeenCalledWith('allow_always');
+    rerender(
+      <ApprovalCard
+        card={card}
+        scope="direct"
+        resolution={{ status: 'resolved', decision: 'allow_always' }}
+        onResolve={onResolve}
+      />
+    );
+    expect(screen.getByText('已处理：此私聊始终允许')).toBeTruthy();
+  });
+
   it('resolves approval and ask cards', async () => {
     const user = userEvent.setup();
     const onResolve = vi.fn();

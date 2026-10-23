@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import {
   ArrowRightLeft,
   Check,
@@ -74,7 +75,6 @@ export type CardResolution = {
 
 const DECISION_LABEL: Record<string, string> = {
   allow_once: THREAD_COPY.approvalOnce,
-  allow_always: THREAD_COPY.approvalAlways,
   deny: THREAD_COPY.approvalDeny,
 };
 
@@ -95,19 +95,32 @@ export function ApprovalCard({
   from,
   resolution,
   busy,
+  scope = 'group',
   onResolve,
 }: {
   card: Extract<CardView, { kind: 'approval' }>;
   from?: string;
   resolution?: CardResolution;
   busy?: boolean;
+  /** Where the approval lives; allow_always is granted for this thread. */
+  scope?: 'group' | 'direct';
   onResolve: (decision: 'allow_once' | 'allow_always' | 'deny') => void;
 }) {
+  const { t } = useTranslation('panels');
+  const alwaysLabel = t(
+    scope === 'direct'
+      ? 'collaborationSpace.approvalAlwaysDirect'
+      : 'collaborationSpace.approvalAlwaysGroup'
+  );
   if (resolution?.status === 'resolved') {
+    const label =
+      resolution.decision === 'allow_always'
+        ? alwaysLabel
+        : DECISION_LABEL[resolution.decision ?? ''];
     return (
       <ResolvedCardLine
         text={THREAD_COPY.resolvedDecision(
-          DECISION_LABEL[resolution.decision ?? ''] ?? resolution.decision ?? ''
+          label ?? resolution.decision ?? ''
         )}
       />
     );
@@ -150,7 +163,7 @@ export function ApprovalCard({
           disabled={busy}
           onClick={() => onResolve('allow_always')}
         >
-          {THREAD_COPY.approvalAlways}
+          {alwaysLabel}
         </Button>
         <Button
           variant="destructive"

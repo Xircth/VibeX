@@ -205,6 +205,7 @@ export function CollaborationWorkspaceView(
         from={selectedMember?.nickname}
         resolution={resolveProps.cardStatus[card.id]}
         busy={resolveProps.busyCardIds?.has(card.id)}
+        scope="direct"
         onResolve={(decision) => props.onResolveCard(card.id, decision)}
       />
     );

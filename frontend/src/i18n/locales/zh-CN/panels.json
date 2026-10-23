@@ -678,6 +678,8 @@
     "openWorkspaceFirst": "先打开一个工作区",
     "receiptQueued": "已排队",
     "receiptClaimed": "已认领",
-    "receiptFailed": "失败"
+    "receiptFailed": "失败",
+    "approvalAlwaysGroup": "本群始终允许",
+    "approvalAlwaysDirect": "此私聊始终允许"
   }
 }

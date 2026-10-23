@@ -130,7 +130,6 @@ export const THREAD_COPY = {
   handoffAsk: '需要你做',
   approvalTitle: '请求审批',
   approvalOnce: '允许一次',
-  approvalAlways: '本群始终允许',
   approvalDeny: '拒绝',
   askTitle: '提问',
   askOther: '回复其他…',

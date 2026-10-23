@@ -356,6 +356,9 @@ pub async fn resolve_card(
                 .ok_or_else(|| bad("decision must be allow_once, allow_always or deny"))?;
             let label = match decision {
                 "allow_once" => "允许一次",
+                // The grant is recorded on this card's thread only; there is
+                // no per-member grant, so a direct chat says "this chat".
+                "allow_always" if card.space_id.starts_with("direct:") => "此私聊始终允许",
                 "allow_always" => "本群始终允许",
                 _ => "拒绝",
             };

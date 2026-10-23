@@ -572,6 +572,12 @@ impl ConversationStateApplier {
                         turn_id,
                     )
                     .await?;
+                    crate::workbench_status::release_unreviewed_in_flight_view_on_connection(
+                        conn,
+                        record.conversation_id,
+                        turn_id,
+                    )
+                    .await?;
                 }
             }
             ConversationEvent::TurnFailed { error } => {
@@ -580,6 +586,12 @@ impl ConversationStateApplier {
                     ConversationTurnRecord::mark_failed(&mut *conn, turn_id, &error_json).await?;
                     ConversationRecord::clear_active_turn_if_on_connection(
                         &mut *conn,
+                        record.conversation_id,
+                        turn_id,
+                    )
+                    .await?;
+                    crate::workbench_status::release_unreviewed_in_flight_view_on_connection(
+                        conn,
                         record.conversation_id,
                         turn_id,
                     )
@@ -616,6 +628,12 @@ impl ConversationStateApplier {
                     .await?;
                     ConversationRecord::clear_active_turn_if_on_connection(
                         &mut *conn,
+                        record.conversation_id,
+                        turn_id,
+                    )
+                    .await?;
+                    crate::workbench_status::release_unreviewed_in_flight_view_on_connection(
+                        conn,
                         record.conversation_id,
                         turn_id,
                     )
@@ -6152,6 +6170,100 @@ mod tests {
         crate::workbench_status::mark_latest_turn_viewed(&pool, conversation_id)
             .await
             .expect("mark viewed");
+
+        let session = Session::find_by_id(&pool, conversation_id)
+            .await
+            .expect("load session")
+            .expect("session");
+        assert_eq!(session.status, db::models::session::SessionStatus::Done);
+    }
+
+    #[tokio::test]
+    async fn viewing_an_in_flight_turn_stays_in_review_when_the_turn_completes() {
+        let pool = setup_pool().await;
+        let (conversation_id, turn_id) = seed_turn(&pool).await;
+        crate::workbench_status::mark_latest_turn_viewed(&pool, conversation_id)
+            .await
+            .expect("view while the turn is still in flight");
+        append_event(
+            &pool,
+            conversation_id,
+            Some(turn_id),
+            "runtime",
+            ConversationEvent::TurnCompleted { stop_reason: None },
+            None,
+        )
+        .await;
+
+        let session = Session::find_by_id(&pool, conversation_id)
+            .await
+            .expect("load session")
+            .expect("session");
+        assert_eq!(
+            session.status,
+            db::models::session::SessionStatus::InReview
+        );
+        let viewed: Option<Uuid> =
+            sqlx::query_scalar("SELECT last_viewed_turn_id FROM sessions WHERE id = ?")
+                .bind(conversation_id)
+                .fetch_one(&pool)
+                .await
+                .expect("view cursor");
+        assert_ne!(viewed, Some(turn_id));
+    }
+
+    #[tokio::test]
+    async fn in_flight_view_cursor_is_cleared_when_the_turn_completes() {
+        let pool = setup_pool().await;
+        let (conversation_id, turn_id) = seed_turn(&pool).await;
+        sqlx::query(
+            "UPDATE sessions SET status = 'inprogress', last_viewed_turn_id = ? WHERE id = ?",
+        )
+        .bind(turn_id)
+        .bind(conversation_id)
+        .execute(&pool)
+        .await
+        .expect("record an in-flight view");
+        append_event(
+            &pool,
+            conversation_id,
+            Some(turn_id),
+            "runtime",
+            ConversationEvent::TurnCompleted { stop_reason: None },
+            None,
+        )
+        .await;
+
+        let session = Session::find_by_id(&pool, conversation_id)
+            .await
+            .expect("load session")
+            .expect("session");
+        assert_eq!(
+            session.status,
+            db::models::session::SessionStatus::InReview
+        );
+    }
+
+    #[tokio::test]
+    async fn manual_done_during_an_in_flight_turn_stays_done_after_completion() {
+        let pool = setup_pool().await;
+        let (conversation_id, turn_id) = seed_turn(&pool).await;
+        crate::workbench_status::apply_manual_status(
+            &pool,
+            conversation_id,
+            db::models::session::SessionStatus::Done,
+        )
+        .await
+        .expect("drag to done");
+        append_event(
+            &pool,
+            conversation_id,
+            Some(turn_id),
+            "runtime",
+            ConversationEvent::TurnCompleted { stop_reason: None },
+            None,
+        )
+        .await;
 
         let session = Session::find_by_id(&pool, conversation_id)
             .await

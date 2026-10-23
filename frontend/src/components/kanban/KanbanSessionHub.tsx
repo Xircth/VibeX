@@ -918,8 +918,11 @@ export function KanbanSessionHub({
       return;
     }
 
+    // Both list and canvas opens record a view. The backend ignores an
+    // in-flight turn, so opening a running session does not skip in-review.
+    void markSessionViewedFromList(session);
+
     if (boardStyle === 'canvas') {
-      void markSessionViewedFromList(session);
       canvasApiRef.current?.addOrFocus(session);
       return;
     }

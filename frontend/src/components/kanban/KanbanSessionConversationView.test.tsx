@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { render, screen } from '@testing-library/react';
+import { render, screen, waitFor } from '@testing-library/react';
 import { forwardRef, StrictMode, useState, type ReactNode } from 'react';
 import { MemoryRouter } from 'react-router-dom';
 import { describe, expect, it, vi } from 'vitest';
@@ -667,6 +667,101 @@ describe('KanbanSessionConversationView', () => {
     );
 
     expect(screen.getByTestId('virtualized-list')).toBeInTheDocument();
+    expect(sessionsMarkViewedMock).not.toHaveBeenCalled();
+  });
+
+  it('marks a finished session viewed when the conversation opens', async () => {
+    sessionsMarkViewedMock.mockClear();
+    useWorkspaceSessionsMock.mockReturnValue({
+      sessions: [{ id: 'session-1', isRunning: false }],
+      selectedSession: undefined,
+      selectedSessionId: undefined,
+      selectSession: vi.fn(),
+      selectLatestSession: vi.fn(),
+      isLoading: false,
+      isNewSessionMode: false,
+      isPendingNewSessionMode: false,
+      requestNewSession: vi.fn(),
+      confirmNewSession: vi.fn(),
+      cancelNewSession: vi.fn(),
+      startNewSession: vi.fn(),
+    });
+
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+    const workspace = createWorkspace('workspace-1');
+    const session = createSession('session-1', workspace.id);
+    queryClient.setQueryData(['taskAttempt', workspace.id], workspace);
+    queryClient.setQueryData(['session', session.id], session);
+
+    render(
+      <MemoryRouter>
+        <QueryClientProvider client={queryClient}>
+          <KanbanSessionConversationView
+            workspaceId={workspace.id}
+            sessionId={session.id}
+            interactive
+          />
+        </QueryClientProvider>
+      </MemoryRouter>
+    );
+
+    await waitFor(() => {
+      expect(sessionsMarkViewedMock).toHaveBeenCalledWith(session.id);
+    });
+  });
+
+  it('does not mark a running session viewed, even after the turn later ends', async () => {
+    sessionsMarkViewedMock.mockClear();
+    const workspaceSessions = (isRunning: boolean) => ({
+      sessions: [{ id: 'session-1', isRunning }],
+      selectedSession: undefined,
+      selectedSessionId: undefined,
+      selectSession: vi.fn(),
+      selectLatestSession: vi.fn(),
+      isLoading: false,
+      isNewSessionMode: false,
+      isPendingNewSessionMode: false,
+      requestNewSession: vi.fn(),
+      confirmNewSession: vi.fn(),
+      cancelNewSession: vi.fn(),
+      startNewSession: vi.fn(),
+    });
+    useWorkspaceSessionsMock.mockReturnValue(workspaceSessions(true));
+
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+    const workspace = createWorkspace('workspace-1');
+    const session = createSession('session-1', workspace.id);
+    queryClient.setQueryData(['taskAttempt', workspace.id], workspace);
+    queryClient.setQueryData(['session', session.id], session);
+
+    const view = (
+      <MemoryRouter>
+        <QueryClientProvider client={queryClient}>
+          <KanbanSessionConversationView
+            workspaceId={workspace.id}
+            sessionId={session.id}
+            interactive
+          />
+        </QueryClientProvider>
+      </MemoryRouter>
+    );
+    const { rerender } = render(view);
+
+    await waitFor(() => {
+      expect(screen.getByTestId('virtualized-list')).toBeInTheDocument();
+    });
+    expect(sessionsMarkViewedMock).not.toHaveBeenCalled();
+
+    useWorkspaceSessionsMock.mockReturnValue(workspaceSessions(false));
+    rerender(view);
+
+    await waitFor(() => {
+      expect(screen.getByTestId('virtualized-list')).toBeInTheDocument();
+    });
     expect(sessionsMarkViewedMock).not.toHaveBeenCalled();
   });
 

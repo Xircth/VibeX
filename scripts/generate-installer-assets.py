@@ -1,24 +1,32 @@
 #!/usr/bin/env python3
-"""Generate desktop installer visual assets from assets/app-icon.png.
+"""Generate Windows NSIS installer icon assets from assets/app-icon.png.
 
-Produces:
-- src-tauri/installer/assets/brand-light.bmp      (480x124, 1x Windows Light brand lockup: Logo + VibeX below)
-- src-tauri/installer/assets/brand-light-2x.bmp   (960x248, 2x Windows Light brand lockup: Logo + VibeX below)
-- src-tauri/installer/assets/brand-dark.bmp       (480x124, 1x Windows Dark brand lockup: Logo + VibeX below)
-- src-tauri/installer/assets/brand-dark-2x.bmp    (960x248, 2x Windows Dark brand lockup: Logo + VibeX below)
-- src-tauri/installer/assets/dmg-background.png   (540x360, 1x macOS DMG background with center arrow)
-- src-tauri/installer/assets/dmg-background@2x.png (1080x720, 2x macOS DMG background with center arrow)
+The redesigned installer renders the product name, version and every label as
+live text, so the only raster assets are the app mark itself. Each mark is
+rendered at the exact device-pixel size the installer needs for a given DPI
+bucket (100/125/150/200%), so NSIS never stretches a bitmap by a
+non-integral factor at runtime.
+
+Produces in src-tauri/installer/assets/:
+- icon-light-{48,60,64,72,80,96,128}.bmp  dark mark on the light surface (#FFFFFF)
+- icon-dark-{48,60,64,72,80,96,128}.bmp   light mark variant on the dark surface (#1F1F1F)
+
+Large mark (welcome / finish / uninstall confirm): 64 / 80 / 96 / 128 px.
+Small mark (location / progress / error):         48 / 60 / 72 / 96 px.
+
+BMPs are 24-bit and pre-composited on the page surface colour (the installer
+surfaces are opaque), which keeps LoadImage/STM_SETIMAGE trivial and exact.
 """
 
 from __future__ import annotations
 
+import importlib.util
 import sys
 from pathlib import Path
-from PIL import Image, ImageDraw, ImageFont
+
+from PIL import Image
 
 ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(ROOT / "scripts"))
-import importlib.util
 
 spec = importlib.util.spec_from_file_location(
     "generate_app_icons", ROOT / "scripts" / "generate-app-icons.py"
@@ -30,131 +38,65 @@ spec.loader.exec_module(generate_app_icons)
 SOURCE = ROOT / "assets" / "app-icon.png"
 ASSETS_DIR = ROOT / "src-tauri" / "installer" / "assets"
 
-# Tahoe palette tokens (DESIGN.md)
-LIGHT_BG = (255, 255, 255)
-LIGHT_FG = (23, 23, 23)
-DARK_BG = (27, 27, 27)
-DARK_FG = (250, 250, 250)
-DMG_ARROW_COLOR = (115, 115, 115, 255)
+# Installer surface tokens (must match src-tauri/installer/theme.nsh)
+LIGHT_BG = (0xFF, 0xFF, 0xFF)
+DARK_BG = (0x1F, 0x1F, 0x1F)
+# Dark-mode mark: light squircle with dark glyph so it does not melt into #1F1F1F
+DARK_MARK_LIGHT = (0xED, 0xED, 0xED)
+DARK_MARK_INK = (0x14, 0x14, 0x14)
+
+LARGE_SIZES = (64, 80, 96, 128)
+SMALL_SIZES = (48, 60, 72, 96)
+SIZES = tuple(sorted(set(LARGE_SIZES + SMALL_SIZES)))
 
 
-def load_brand_font(pixel_size: int) -> ImageFont.FreeTypeFont | ImageFont.ImageFont:
-    candidates = [
-        "C:/Windows/Fonts/segoeuib.ttf",
-        "C:/Windows/Fonts/msyhbd.ttc",
-        "C:/Windows/Fonts/arialbd.ttf",
-        "/System/Library/Fonts/SFNS.ttf",
-        "/System/Library/Fonts/Supplemental/Arial Bold.ttf",
-        "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
-    ]
-    for candidate in candidates:
-        path = Path(candidate)
-        if path.exists():
-            try:
-                return ImageFont.truetype(str(path), pixel_size)
-            except OSError:
-                continue
-    return ImageFont.load_default()
-
-
-def render_brand_lockup(
-    source: Image.Image,
-    scale: int,
-    bg_rgb: tuple[int, int, int],
-    fg_rgb: tuple[int, int, int],
-) -> Image.Image:
-    """Render centered VibeX squircle icon with 'VibeX' wordmark underneath."""
-    width = 480 * scale
-    height = 124 * scale
-    icon_size = 68 * scale
-    canvas = Image.new("RGBA", (width, height), (*bg_rgb, 255))
-
-    icon = generate_app_icons.render_desktop_icon(
-        source, icon_size, generate_app_icons.WINDOWS_CONTENT_SCALE
+def render_mark(source: Image.Image, size: int) -> Image.Image:
+    # Render at 4x and downsample once: one integral resample per output size.
+    big = generate_app_icons.render_desktop_icon(
+        source, size * 4, generate_app_icons.WINDOWS_CONTENT_SCALE
     )
-    icon_x = (width - icon_size) // 2
-    icon_y = 4 * scale
-    canvas.alpha_composite(icon, (icon_x, icon_y))
+    return big.resize((size, size), Image.Resampling.LANCZOS)
 
-    # Supersample text at 2x for crisp antialiasing
-    text_scale = 2
-    layer_w = width * text_scale
-    layer_h = height * text_scale
-    text_layer = Image.new("RGBA", (layer_w, layer_h), (0, 0, 0, 0))
-    draw = ImageDraw.Draw(text_layer)
-    font = load_brand_font(22 * scale * text_scale)
-    label = "VibeX"
-    bbox = draw.textbbox((0, 0), label, font=font)
-    text_w = bbox[2] - bbox[0]
-    text_h = bbox[3] - bbox[1]
-    text_x = (layer_w - text_w) // 2 - bbox[0]
-    text_y = (84 * scale * text_scale) - bbox[1]
-    draw.text((text_x, text_y), label, font=font, fill=(*fg_rgb, 255))
 
-    downsampled_text = text_layer.resize(
-        (width, height), Image.Resampling.LANCZOS
-    )
-    canvas.alpha_composite(downsampled_text)
+def light_variant(mark: Image.Image) -> Image.Image:
+    """Swap the mark's dark squircle / white glyph for light squircle / dark glyph."""
+    r, g, b, a = mark.split()
+    lum = Image.merge("RGB", (r, g, b)).convert("L")
+    out = Image.new("RGBA", mark.size)
+    px_l = lum.load()
+    px_a = a.load()
+    px = out.load()
+    for y in range(mark.size[1]):
+        for x in range(mark.size[0]):
+            t = px_l[x, y] / 255.0  # 0 = squircle ink, 1 = glyph
+            px[x, y] = tuple(
+                round(DARK_MARK_LIGHT[i] + (DARK_MARK_INK[i] - DARK_MARK_LIGHT[i]) * t)
+                for i in range(3)
+            ) + (px_a[x, y],)
+    return out
+
+
+def composite(mark: Image.Image, bg: tuple[int, int, int]) -> Image.Image:
+    canvas = Image.new("RGBA", mark.size, (*bg, 255))
+    canvas.alpha_composite(mark)
     return canvas.convert("RGB")
-
-
-def render_dmg_background(scale: int) -> Image.Image:
-    """Render minimal macOS DMG canvas (540x360 @ 1x) with center arrow."""
-    width = 540 * scale
-    height = 360 * scale
-    # Supersample 2x for smooth arrow geometry
-    ss = 2
-    layer = Image.new("RGBA", (width * ss, height * ss), (*LIGHT_BG, 255))
-    draw = ImageDraw.Draw(layer)
-
-    cx = (width * ss) // 2
-    cy = 175 * scale * ss
-    half_len = 14 * scale * ss
-    head = 7 * scale * ss
-    stroke = max(2, round(2 * scale * ss))
-
-    x1 = cx - half_len
-    x2 = cx + half_len
-    draw.line([(x1, cy), (x2, cy)], fill=DMG_ARROW_COLOR, width=stroke)
-    draw.line(
-        [(x2 - head, cy - head), (x2, cy), (x2 - head, cy + head)],
-        fill=DMG_ARROW_COLOR,
-        width=stroke,
-        joint="curve",
-    )
-
-    return layer.resize((width, height), Image.Resampling.LANCZOS)
 
 
 def main() -> int:
     if not SOURCE.exists():
         print(f"missing {SOURCE}", file=sys.stderr)
         return 1
-
     ASSETS_DIR.mkdir(parents=True, exist_ok=True)
+    for stale in ASSETS_DIR.glob("brand-*.bmp"):
+        stale.unlink()
     source = Image.open(SOURCE).convert("RGBA")
-
-    render_brand_lockup(source, 1, LIGHT_BG, LIGHT_FG).save(
-        ASSETS_DIR / "brand-light.bmp", format="BMP"
-    )
-    render_brand_lockup(source, 2, LIGHT_BG, LIGHT_FG).save(
-        ASSETS_DIR / "brand-light-2x.bmp", format="BMP"
-    )
-    render_brand_lockup(source, 1, DARK_BG, DARK_FG).save(
-        ASSETS_DIR / "brand-dark.bmp", format="BMP"
-    )
-    render_brand_lockup(source, 2, DARK_BG, DARK_FG).save(
-        ASSETS_DIR / "brand-dark-2x.bmp", format="BMP"
-    )
-
-    render_dmg_background(1).save(
-        ASSETS_DIR / "dmg-background.png", format="PNG"
-    )
-    render_dmg_background(2).save(
-        ASSETS_DIR / "dmg-background@2x.png", format="PNG"
-    )
-
-    print(f"wrote installer assets to {ASSETS_DIR}")
+    for size in SIZES:
+        mark = render_mark(source, size)
+        composite(mark, LIGHT_BG).save(ASSETS_DIR / f"icon-light-{size}.bmp", format="BMP")
+        composite(light_variant(mark), DARK_BG).save(
+            ASSETS_DIR / f"icon-dark-{size}.bmp", format="BMP"
+        )
+    print(f"wrote installer icon assets ({', '.join(map(str, SIZES))} px) to {ASSETS_DIR}")
     return 0
 
 

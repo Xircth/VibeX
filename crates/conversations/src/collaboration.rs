@@ -3701,8 +3701,13 @@ async fn deliver_pending(
     })
 }
 
-/// Most group messages packed into one delivery as missed context.
-const MISSED_CONTEXT_LIMIT: i64 = 30;
+/// Most recent missed group messages packed verbatim into one delivery;
+/// older missed messages collapse into a one-line summary.
+pub const MISSED_CONTEXT_VERBATIM: usize = 20;
+/// Furthest back (in messages) a missed-context window ever reaches.
+const MISSED_CONTEXT_LIMIT: i64 = 500;
+/// Per-message character cap inside the packed block.
+const MISSED_CONTEXT_MESSAGE_CHARS: usize = 600;
 
 /// Thread binding (`collaboration_thread_members`) of a seat conversation.
 async fn seat_binding(
@@ -3771,7 +3776,7 @@ async fn missed_group_context(
     let rows = sqlx::query_as::<_, (i64, String)>(
         r#"SELECT seq, envelope_json FROM collaboration_space_messages
            WHERE space_id = ? AND seq > ? AND seq < ?
-           ORDER BY seq ASC LIMIT ?"#,
+           ORDER BY seq DESC LIMIT ?"#,
     )
     .bind(space_id)
     .bind(from_seq)
@@ -3803,15 +3808,44 @@ async fn missed_group_context(
             .get("content")
             .and_then(Value::as_str)
             .unwrap_or_default();
-        lines.push(format!("[#{seq}] {who}: {content}"));
+        lines.push((seq, who, content.to_string()));
     }
     if lines.is_empty() {
         return Ok(None);
     }
+    lines.reverse();
+    let older = lines.len().saturating_sub(MISSED_CONTEXT_VERBATIM);
+    let mut out = Vec::new();
+    if older > 0 {
+        let collapsed = &lines[..older];
+        let mut who: Vec<&str> = Vec::new();
+        for (_, name, _) in collapsed {
+            if !who.contains(&name.as_str()) {
+                who.push(name);
+            }
+        }
+        out.push(format!(
+            "[#{}–#{}] {older} earlier messages from {} (collapsed; use space history to read them)",
+            collapsed[0].0,
+            collapsed[older - 1].0,
+            who.join(", ")
+        ));
+    }
+    for (seq, who, content) in &lines[older..] {
+        let mut content = content.clone();
+        if content.chars().count() > MISSED_CONTEXT_MESSAGE_CHARS {
+            content = content
+                .chars()
+                .take(MISSED_CONTEXT_MESSAGE_CHARS)
+                .collect::<String>()
+                + "…";
+        }
+        out.push(format!("[#{seq}] {who}: {content}"));
+    }
     Ok(Some(format!(
         "<missed_group_messages count=\"{}\">\n{}\n</missed_group_messages>",
         lines.len(),
-        lines.join("\n")
+        out.join("\n")
     )))
 }
 
@@ -8684,6 +8718,39 @@ mod tests {
         assert_eq!(origin_of(reply.seq), "agent");
         let user_post = messages.iter().find(|m| m.seq == posted.seq).unwrap();
         assert_eq!(state_of(&user_post.receipts), "replied");
+    }
+
+    #[tokio::test]
+    async fn missed_context_keeps_last_20_and_collapses_older_into_one_line() {
+        let pool = setup_pool().await;
+        let workspace = Uuid::new_v4();
+        let (a, b, c) = (Uuid::new_v4(), Uuid::new_v4(), Uuid::new_v4());
+        create_session(&pool, a, workspace, Some("小A")).await;
+        create_session(&pool, b, workspace, Some("小B")).await;
+        create_session(&pool, c, workspace, Some("小C")).await;
+        let space = space_of(&pool, a).await;
+        add_space_member(&pool, a, &space, b, "小B", Uuid::new_v4())
+            .await
+            .unwrap();
+        add_space_member(&pool, a, &space, c, "小C", Uuid::new_v4())
+            .await
+            .unwrap();
+        for i in 1..=25 {
+            post_as(&pool, None, &space, &format!("@小C 第{i:02}条"), &[]).await;
+        }
+        post_as(&pool, None, &space, "@小B 你来总结", &[]).await;
+        let to_b = inputs_of(&pool, b).await;
+        let packed: Value = serde_json::from_str(to_b.last().unwrap()).unwrap();
+        let packed = packed["text"].as_str().unwrap();
+        assert!(
+            packed.contains("count=\"25\""),
+            "{} inputs; last: {packed}",
+            to_b.len()
+        );
+        assert_eq!(packed.matches("] User: ").count(), MISSED_CONTEXT_VERBATIM);
+        assert!(packed.contains("5 earlier messages from User (collapsed"));
+        assert!(!packed.contains("第05条"), "older ones are collapsed");
+        assert!(packed.contains("第06条") && packed.contains("第25条"));
     }
 
     #[tokio::test]

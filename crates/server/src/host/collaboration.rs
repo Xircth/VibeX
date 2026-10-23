@@ -751,6 +751,8 @@ impl HostCollaborationHost {
         let card = conversations::collaboration_cards::resolve_card(
             &self.pool,
             &card_id,
+            // Host/UI calls are always the user (the human owner).
+            conversations::collaboration_cards::CardActor::User,
             optional_text(input, &["decision"]).as_deref(),
             optional_text(input, &["answer", "note"]).as_deref(),
             &delivery,

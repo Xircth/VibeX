@@ -437,7 +437,8 @@
         "operation_id": { "type": "string", "format": "uuid" },
         "space_id": { "type": "string" },
         "question": { "type": "string", "minLength": 1 },
-        "options": { "type": "array", "items": { "type": "string" }, "maxItems": 6, "description": "Optional quick replies." }
+        "options": { "type": "array", "items": { "type": "string" }, "maxItems": 6, "description": "Optional quick replies." },
+        "to": { "type": "string", "description": "Optional nickname of another member to ask instead of the user. That member (or the user) answers with resolve_card." }
       }
     }
   },
@@ -453,6 +454,18 @@
         "action": { "type": "string", "minLength": 1, "description": "What you want to do." },
         "command": { "type": "string", "description": "Exact command or change, shown in monospace." },
         "reason": { "type": "string" }
+      }
+    }
+  },
+  {
+    "name": "resolve_card",
+    "description": "Answer an ask_person card that another member addressed to you (to=<your nickname>). Only the asked member or the user can answer an ask card; approval cards can only be resolved by the user, so calling this on one is rejected.",
+    "inputSchema": {
+      "type": "object",
+      "required": ["card_id", "answer"],
+      "properties": {
+        "card_id": { "type": "string" },
+        "answer": { "type": "string", "minLength": 1 }
       }
     }
   },

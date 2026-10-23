@@ -37,6 +37,49 @@ impl CardKind {
     }
 }
 
+/// Who is resolving a card. Host/UI calls act as the user (the human
+/// owner); MCP calls act as the calling member's conversation.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CardActor {
+    User,
+    Member(Uuid),
+}
+
+fn denied(message: impl Into<String>) -> CollaborationError {
+    CollaborationError::new("permission_denied", message)
+}
+
+/// `ask` cards: the asked member (payload `target_member_id`) or the user.
+/// `approval` cards: only the user.
+async fn authorize_resolve(
+    pool: &SqlitePool,
+    card: &Card,
+    actor: CardActor,
+) -> Result<Option<Uuid>, CollaborationError> {
+    let CardActor::Member(caller) = actor else {
+        return Ok(None);
+    };
+    match card.kind {
+        CardKind::Approval => Err(denied("only the user can resolve an approval card")),
+        CardKind::Ask => {
+            let Some(target) = card.payload.get("target_member_id").and_then(Value::as_str) else {
+                return Err(denied(
+                    "this question was asked to the user; only the user can answer it",
+                ));
+            };
+            let seat = caller_seat(pool, &card.space_id, caller)
+                .await
+                .map_err(|_| denied("caller is not a member of this thread"))?;
+            if seat.member_id != target {
+                return Err(denied(
+                    "only the asked member or the user can answer this question",
+                ));
+            }
+            Ok(Some(seat_conversation(&seat).unwrap_or(caller)))
+        }
+    }
+}
+
 /// Approval decisions offered on an approval card.
 pub const APPROVAL_DECISIONS: [&str; 3] = ["allow_once", "allow_always", "deny"];
 
@@ -176,6 +219,34 @@ pub async fn post_card(
     }
     let seat = caller_seat(pool, &input.space_id, input.caller_id).await?;
     let from = seat_conversation(&seat).unwrap_or(input.caller_id);
+    let mut payload = input.payload.clone();
+    let mut to = vec!["User".to_string()];
+    let target = payload
+        .get("to")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|nick| !nick.is_empty() && !nick.eq_ignore_ascii_case("user"))
+        .map(str::to_string);
+    if input.kind == CardKind::Ask
+        && let Some(nick) = target
+    {
+        let members = collaboration::list_space_members(
+            pool,
+            &input.space_id,
+            collaboration::MessageAudience::User,
+        )
+        .await?;
+        let member = members
+            .iter()
+            .find(|m| m.nickname == nick && m.member_id != seat.member_id)
+            .ok_or_else(|| {
+                CollaborationError::new("not_a_member", format!("{nick} is not another member of this thread"))
+            })?;
+        payload["to"] = json!(member.nickname);
+        payload["target_member_id"] = json!(member.member_id);
+        to = vec![member.nickname.clone()];
+    }
+    let input = PostCard { payload, ..input };
     let content = render_card(&id, input.kind, &input.payload);
     let summary = match input.kind {
         CardKind::Ask => format!(
@@ -194,7 +265,7 @@ pub async fn post_card(
             space_id: input.space_id.clone(),
             content,
             summary: Some(summary),
-            to: vec!["User".to_string()],
+            to,
             in_reply_to: None,
             operation_id: Uuid::new_v5(&input.operation_id, b"card-message"),
         },
@@ -258,6 +329,7 @@ pub async fn list_cards(
 pub async fn resolve_card(
     pool: &SqlitePool,
     card_id: &str,
+    actor: CardActor,
     decision: Option<&str>,
     answer: Option<&str>,
     delivery: &DeliveryContext,
@@ -265,6 +337,7 @@ pub async fn resolve_card(
     let card = load_card(pool, card_id)
         .await?
         .ok_or_else(|| CollaborationError::new("not_found", "card was not found"))?;
+    let reply_as = authorize_resolve(pool, &card, actor).await?;
     if card.status != "pending" {
         return Err(bad("card was already resolved"));
     }
@@ -323,7 +396,7 @@ pub async fn resolve_card(
         let posted = collaboration::post_to_space_with(
             pool,
             PostToSpace {
-                caller_id: None,
+                caller_id: reply_as,
                 space_id: card.space_id.clone(),
                 content: format!("@{nickname} {reply}"),
                 summary: None,
@@ -509,7 +582,7 @@ mod tests {
                 .unwrap()
                 .is_empty()
         );
-        resolve_card(&pool, &first.id, None, Some("dev"), &d)
+        resolve_card(&pool, &first.id, CardActor::User, None, Some("dev"), &d)
             .await
             .unwrap();
         let pending = list_cards(&pool, Some(&space), true).await.unwrap();
@@ -526,15 +599,18 @@ mod tests {
             .await
             .unwrap();
         assert!(
-            resolve_card(&pool, &card.id, None, None, &d).await.is_err(),
+            resolve_card(&pool, &card.id, CardActor::User, None, None, &d)
+                .await
+                .is_err(),
             "answer required"
         );
         assert!(
-            resolve_card(&pool, &card.id, None, Some("  "), &d)
+            resolve_card(&pool, &card.id, CardActor::User, None, Some("  "), &d)
                 .await
                 .is_err()
         );
-        let resolved = resolve_card(&pool, &card.id, None, Some(" dev "), &d)
+        let resolved =
+            resolve_card(&pool, &card.id, CardActor::User, None, Some(" dev "), &d)
             .await
             .unwrap();
         assert_eq!(resolved.status, "resolved");
@@ -558,7 +634,7 @@ mod tests {
         assert!(text.contains("@小A"), "reply addressed to asker: {text}");
         assert!(!text.contains("@小B"));
         // resolving twice is rejected and leaves the first resolution intact
-        let err = resolve_card(&pool, &card.id, None, Some("main"), &d)
+        let err = resolve_card(&pool, &card.id, CardActor::User, None, Some("main"), &d)
             .await
             .unwrap_err();
         assert!(err.message.contains("already resolved"));
@@ -574,21 +650,32 @@ mod tests {
         let card = post_card(&pool, approval(a, &space), &d).await.unwrap();
         assert_eq!(card.kind, CardKind::Approval);
         assert!(
-            resolve_card(&pool, &card.id, Some("maybe"), None, &d)
+            resolve_card(&pool, &card.id, CardActor::User, Some("maybe"), None, &d)
                 .await
                 .is_err()
         );
-        assert!(resolve_card(&pool, &card.id, None, None, &d).await.is_err());
-        let resolved = resolve_card(&pool, &card.id, Some("allow_once"), Some("ok"), &d)
-            .await
-            .unwrap();
+        assert!(
+            resolve_card(&pool, &card.id, CardActor::User, None, None, &d)
+                .await
+                .is_err()
+        );
+        let resolved = resolve_card(
+            &pool,
+            &card.id,
+            CardActor::User,
+            Some("allow_once"),
+            Some("ok"),
+            &d,
+        )
+        .await
+        .unwrap();
         assert_eq!(
             resolved.resolution,
             Some(json!({ "decision": "allow_once", "note": "ok" }))
         );
         assert!(resolved.reply_message_id.is_some());
         assert!(
-            resolve_card(&pool, &card.id, Some("deny"), None, &d)
+            resolve_card(&pool, &card.id, CardActor::User, Some("deny"), None, &d)
                 .await
                 .is_err()
         );
@@ -609,6 +696,7 @@ mod tests {
         let err = resolve_card(
             &pool,
             "missing",
+            CardActor::User,
             None,
             Some("x"),
             &DeliveryContext::default(),
@@ -616,5 +704,126 @@ mod tests {
         .await
         .unwrap_err();
         assert_eq!(err.code, "not_found");
+    }
+
+    fn ask_to(caller: Uuid, space: &str, target: &str) -> PostCard {
+        let mut input = ask(caller, space, Uuid::new_v4());
+        input.payload["to"] = json!(target);
+        input
+    }
+
+    #[tokio::test]
+    async fn target_member_resolving_ask_succeeds_and_replies_as_that_member() {
+        let (pool, space, a, b, _) = fixture().await;
+        let d = DeliveryContext::default();
+        let card = post_card(&pool, ask_to(a, &space, "小B"), &d).await.unwrap();
+        assert!(card.payload["target_member_id"].is_string());
+        assert_eq!(card.payload["to"], json!("小B"));
+        let resolved =
+            resolve_card(&pool, &card.id, CardActor::Member(b), None, Some("dev"), &d)
+                .await
+                .unwrap();
+        assert_eq!(resolved.status, "resolved");
+        assert_eq!(resolved.resolution, Some(json!({ "answer": "dev" })));
+        let reply = resolved.reply_message_id.expect("reply posted");
+        let messages = collaboration::list_space_messages(
+            &pool,
+            &space,
+            None,
+            None,
+            collaboration::MessageAudience::User,
+        )
+        .await
+        .unwrap();
+        let reply_msg = messages
+            .iter()
+            .find(|m| m.envelope.to_string().contains(&reply))
+            .expect("reply in stream");
+        assert_eq!(reply_msg.origin, "agent", "reply is posted by the member");
+    }
+
+    #[tokio::test]
+    async fn user_can_resolve_ask_to_member_and_ask_to_user() {
+        let (pool, space, a, _, _) = fixture().await;
+        let d = DeliveryContext::default();
+        let to_member = post_card(&pool, ask_to(a, &space, "小B"), &d).await.unwrap();
+        let to_user = post_card(&pool, ask(a, &space, Uuid::new_v4()), &d)
+            .await
+            .unwrap();
+        for id in [&to_member.id, &to_user.id] {
+            let resolved = resolve_card(&pool, id, CardActor::User, None, Some("ok"), &d)
+                .await
+                .unwrap();
+            assert_eq!(resolved.status, "resolved");
+        }
+    }
+
+    #[tokio::test]
+    async fn non_target_member_cannot_resolve_ask() {
+        let (pool, space, a, b, c) = fixture().await;
+        let d = DeliveryContext::default();
+        let card = post_card(&pool, ask_to(a, &space, "小B"), &d).await.unwrap();
+        // the asker itself is not the target
+        let err = resolve_card(&pool, &card.id, CardActor::Member(a), None, Some("x"), &d)
+            .await
+            .unwrap_err();
+        assert_eq!(err.code, "permission_denied");
+        assert!(err.message.contains("asked member or the user"), "{}", err.message);
+        // a non-member is rejected too
+        let err = resolve_card(&pool, &card.id, CardActor::Member(c), None, Some("x"), &d)
+            .await
+            .unwrap_err();
+        assert_eq!(err.code, "permission_denied");
+        // a question asked to the user cannot be answered by a member
+        let to_user = post_card(&pool, ask(a, &space, Uuid::new_v4()), &d)
+            .await
+            .unwrap();
+        let err = resolve_card(&pool, &to_user.id, CardActor::Member(b), None, Some("x"), &d)
+            .await
+            .unwrap_err();
+        assert_eq!(err.code, "permission_denied");
+        assert!(err.message.contains("only the user"), "{}", err.message);
+        for id in [&card.id, &to_user.id] {
+            assert_eq!(load_card(&pool, id).await.unwrap().unwrap().status, "pending");
+        }
+    }
+
+    #[tokio::test]
+    async fn member_cannot_resolve_approval() {
+        let (pool, space, a, b, _) = fixture().await;
+        let d = DeliveryContext::default();
+        let card = post_card(&pool, approval(a, &space), &d).await.unwrap();
+        for member in [a, b] {
+            let err = resolve_card(
+                &pool,
+                &card.id,
+                CardActor::Member(member),
+                Some("allow_once"),
+                None,
+                &d,
+            )
+            .await
+            .unwrap_err();
+            assert_eq!(err.code, "permission_denied");
+            assert!(err.message.contains("only the user"), "{}", err.message);
+        }
+        assert_eq!(load_card(&pool, &card.id).await.unwrap().unwrap().status, "pending");
+        assert!(
+            resolve_card(&pool, &card.id, CardActor::User, Some("deny"), None, &d)
+                .await
+                .is_ok()
+        );
+    }
+
+    #[tokio::test]
+    async fn ask_target_must_be_another_member() {
+        let (pool, space, a, _, _) = fixture().await;
+        let d = DeliveryContext::default();
+        for target in ["nobody", "小A"] {
+            let err = post_card(&pool, ask_to(a, &space, target), &d)
+                .await
+                .unwrap_err();
+            assert_eq!(err.code, "not_a_member");
+        }
     }
 }

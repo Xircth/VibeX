@@ -711,6 +711,7 @@ async fn collaboration_tool(
                     json!({
                         "question": text("question"),
                         "options": arguments.get("options").cloned().unwrap_or(json!([])),
+                        "to": text("to"),
                     }),
                 )
             } else {
@@ -743,6 +744,31 @@ async fn collaboration_tool(
                     space_id,
                     seq: None,
                     member_id: None,
+                });
+            }
+            Ok(serde_json::to_value(card).unwrap_or(json!({})))
+        }
+        "resolve_card" => {
+            let card_id = text("card_id");
+            let card = conversations::collaboration_cards::resolve_card(
+                pool,
+                &card_id,
+                // MCP calls act as the calling member.
+                conversations::collaboration_cards::CardActor::Member(caller_id),
+                arguments.get("decision").and_then(|v| v.as_str()),
+                arguments.get("answer").and_then(|v| v.as_str()),
+                delivery,
+            )
+            .await?;
+            if let Some(listener) = on_space_changed.as_ref()
+                && let Ok(workspace_id) =
+                    collaboration::space_workspace_id(pool, &card.space_id).await
+            {
+                listener(collaboration::CollaborationSpaceChangedEvent {
+                    workspace_id,
+                    space_id: card.space_id.clone(),
+                    seq: None,
+                    member_id: card.member_id.clone(),
                 });
             }
             Ok(serde_json::to_value(card).unwrap_or(json!({})))

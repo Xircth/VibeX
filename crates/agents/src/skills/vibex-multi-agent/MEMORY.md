@@ -59,3 +59,8 @@ the group chat, addressed to the user, and return straight away. Do not wait or
 poll for the answer. The answer comes back to you as an ordinary message
 (`[回复问题 <id>] …` or `[审批 <id>] allow_once|allow_always|deny`). Reuse the
 same `operation_id` on a retry so you don't post duplicate cards.
+
+To ask another member instead of the user, pass `to` (their nickname) to
+`ask_person`. If a member asks you that way, answer with `resolve_card`
+(`card_id`, `answer`). Only the asked member or the user can answer an ask
+card. Only the user can resolve an approval card.

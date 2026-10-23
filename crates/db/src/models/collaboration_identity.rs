@@ -12,7 +12,7 @@
 //! the conversation that [`resolve_session`] returns for that seat.
 
 use chrono::{SecondsFormat, Utc};
-use sqlx::SqlitePool;
+use sqlx::{SqliteConnection, SqlitePool};
 use uuid::Uuid;
 
 /// Prefix of the synthetic per-workspace "undecided" space id.
@@ -95,8 +95,8 @@ pub struct ThreadMemberRow {
     pub status: String,
 }
 
-pub async fn load_member(
-    pool: &SqlitePool,
+pub async fn load_member_in(
+    conn: &mut SqliteConnection,
     member_id: &str,
 ) -> Result<Option<MemberRow>, sqlx::Error> {
     sqlx::query_as::<_, MemberRow>(
@@ -104,25 +104,25 @@ pub async fn load_member(
          FROM collaboration_members WHERE id = ?",
     )
     .bind(member_id)
-    .fetch_optional(pool)
+    .fetch_optional(&mut *conn)
     .await
 }
 
-pub async fn load_thread(
-    pool: &SqlitePool,
+pub async fn load_thread_in(
+    conn: &mut SqliteConnection,
     thread_id: &str,
 ) -> Result<Option<ThreadRow>, sqlx::Error> {
     sqlx::query_as::<_, ThreadRow>(
         "SELECT id, kind, title, workspace_id FROM collaboration_threads WHERE id = ?",
     )
     .bind(thread_id)
-    .fetch_optional(pool)
+    .fetch_optional(&mut *conn)
     .await
 }
 
 /// The `(thread, member)` binding that owns `conversation_id`, if any.
-pub async fn binding_of_conversation(
-    pool: &SqlitePool,
+pub async fn binding_of_conversation_in(
+    conn: &mut SqliteConnection,
     conversation_id: Uuid,
 ) -> Result<Option<ThreadMemberRow>, sqlx::Error> {
     sqlx::query_as::<_, ThreadMemberRow>(
@@ -130,12 +130,12 @@ pub async fn binding_of_conversation(
          FROM collaboration_thread_members WHERE conversation_id = ?",
     )
     .bind(conversation_id.to_string())
-    .fetch_optional(pool)
+    .fetch_optional(&mut *conn)
     .await
 }
 
-pub async fn thread_members(
-    pool: &SqlitePool,
+pub async fn thread_members_in(
+    conn: &mut SqliteConnection,
     thread_id: &str,
 ) -> Result<Vec<ThreadMemberRow>, sqlx::Error> {
     sqlx::query_as::<_, ThreadMemberRow>(
@@ -143,12 +143,12 @@ pub async fn thread_members(
          FROM collaboration_thread_members WHERE thread_id = ? ORDER BY joined_at, member_id",
     )
     .bind(thread_id)
-    .fetch_all(pool)
+    .fetch_all(&mut *conn)
     .await
 }
 
-pub async fn member_bindings(
-    pool: &SqlitePool,
+pub async fn member_bindings_in(
+    conn: &mut SqliteConnection,
     member_id: &str,
 ) -> Result<Vec<ThreadMemberRow>, sqlx::Error> {
     sqlx::query_as::<_, ThreadMemberRow>(
@@ -156,36 +156,36 @@ pub async fn member_bindings(
          FROM collaboration_thread_members WHERE member_id = ? ORDER BY joined_at, thread_id",
     )
     .bind(member_id)
-    .fetch_all(pool)
+    .fetch_all(&mut *conn)
     .await
 }
 
 /// Member identity for a conversation. A conversation that is not bound yet
 /// gets a deterministic member derived from its persona (role_id inherited)
 /// or, failing that, from the session row.
-pub async fn ensure_member_for_conversation(
-    pool: &SqlitePool,
+pub async fn ensure_member_for_conversation_in(
+    conn: &mut SqliteConnection,
     conversation_id: Uuid,
     fallback_name: Option<&str>,
 ) -> Result<String, IdentityError> {
-    if let Some(binding) = binding_of_conversation(pool, conversation_id).await? {
+    if let Some(binding) = binding_of_conversation_in(&mut *conn, conversation_id).await? {
         return Ok(binding.member_id);
     }
     let member_id = member_id_for_conversation(conversation_id);
-    if load_member(pool, &member_id).await?.is_some() {
+    if load_member_in(&mut *conn, &member_id).await?.is_some() {
         return Ok(member_id);
     }
     let persona = sqlx::query_as::<_, (String, Option<String>, String)>(
         "SELECT name, role_id, agent_id FROM conversation_personas WHERE conversation_id = ?",
     )
     .bind(conversation_id.to_string())
-    .fetch_optional(pool)
+    .fetch_optional(&mut *conn)
     .await?;
     let session = sqlx::query_as::<_, (Option<String>, Option<String>)>(
         "SELECT name, agent_id FROM sessions WHERE id = ?",
     )
     .bind(conversation_id)
-    .fetch_optional(pool)
+    .fetch_optional(&mut *conn)
     .await?;
     let non_empty = |value: Option<String>| value.filter(|v| !v.trim().is_empty());
     let name = non_empty(persona.as_ref().map(|p| p.0.clone()))
@@ -205,14 +205,14 @@ pub async fn ensure_member_for_conversation(
     .bind(role_id)
     .bind(agent)
     .bind(now())
-    .execute(pool)
+    .execute(&mut *conn)
     .await?;
     Ok(member_id)
 }
 
 /// Create the thread row backing a seat in `space_id` if it does not exist.
-pub async fn ensure_thread_for_seat(
-    pool: &SqlitePool,
+pub async fn ensure_thread_for_seat_in(
+    conn: &mut SqliteConnection,
     space_id: &str,
     member_id: &str,
 ) -> Result<String, IdentityError> {
@@ -221,7 +221,7 @@ pub async fn ensure_thread_for_seat(
         let title: Option<String> =
             sqlx::query_scalar("SELECT name FROM collaboration_members WHERE id = ?")
                 .bind(member_id)
-                .fetch_optional(pool)
+                .fetch_optional(&mut *conn)
                 .await?;
         sqlx::query(
             "INSERT INTO collaboration_threads (id, kind, title, workspace_id, created_at)
@@ -232,7 +232,7 @@ pub async fn ensure_thread_for_seat(
         .bind(title.unwrap_or_default())
         .bind(workspace_id.to_string())
         .bind(now())
-        .execute(pool)
+        .execute(&mut *conn)
         .await?;
     } else {
         let inserted = sqlx::query(
@@ -242,9 +242,9 @@ pub async fn ensure_thread_for_seat(
              ON CONFLICT(id) DO UPDATE SET title = excluded.title",
         )
         .bind(space_id)
-        .execute(pool)
+        .execute(&mut *conn)
         .await?;
-        if inserted.rows_affected() == 0 && load_thread(pool, &thread_id).await?.is_none() {
+        if inserted.rows_affected() == 0 && load_thread_in(&mut *conn, &thread_id).await?.is_none() {
             return Err(IdentityError::NotFound("space"));
         }
     }
@@ -256,18 +256,18 @@ pub async fn ensure_thread_for_seat(
 /// `resolved.conversation_id` is the one [`resolve_session`] will hand out. A
 /// conversation that already belongs to another thread keeps that binding;
 /// the caller must then use the returned conversation for this seat.
-pub async fn bind_seat(
-    pool: &SqlitePool,
+pub async fn bind_seat_in(
+    conn: &mut SqliteConnection,
     space_id: &str,
     conversation_id: Uuid,
     fallback_name: Option<&str>,
 ) -> Result<(String, String, ResolvedSession), IdentityError> {
-    let member_id = ensure_member_for_conversation(pool, conversation_id, fallback_name).await?;
-    let thread_id = ensure_thread_for_seat(pool, space_id, &member_id).await?;
-    if let Some(binding) = binding_of_conversation(pool, conversation_id).await?
+    let member_id = ensure_member_for_conversation_in(&mut *conn, conversation_id, fallback_name).await?;
+    let thread_id = ensure_thread_for_seat_in(&mut *conn, space_id, &member_id).await?;
+    if let Some(binding) = binding_of_conversation_in(&mut *conn, conversation_id).await?
         && binding.thread_id != thread_id
     {
-        let resolved = resolve_session(pool, &member_id, &thread_id).await?;
+        let resolved = resolve_session_in(&mut *conn, &member_id, &thread_id).await?;
         return Ok((member_id, thread_id, resolved));
     }
     sqlx::query(
@@ -280,30 +280,30 @@ pub async fn bind_seat(
     .bind(&member_id)
     .bind(conversation_id.to_string())
     .bind(now())
-    .execute(pool)
+    .execute(&mut *conn)
     .await?;
-    let resolved = resolve_session(pool, &member_id, &thread_id).await?;
+    let resolved = resolve_session_in(&mut *conn, &member_id, &thread_id).await?;
     Ok((member_id, thread_id, resolved))
 }
 
 /// Move the binding that owns `conversation_id` to the seat in `space_id`.
 /// Used when the product transfers a conversation (e.g. from the undecided
 /// space into a group) instead of opening a second one.
-pub async fn transfer_conversation(
-    pool: &SqlitePool,
+pub async fn transfer_conversation_in(
+    conn: &mut SqliteConnection,
     conversation_id: Uuid,
     space_id: &str,
     fallback_name: Option<&str>,
 ) -> Result<(), IdentityError> {
-    let member_id = ensure_member_for_conversation(pool, conversation_id, fallback_name).await?;
-    let thread_id = ensure_thread_for_seat(pool, space_id, &member_id).await?;
+    let member_id = ensure_member_for_conversation_in(&mut *conn, conversation_id, fallback_name).await?;
+    let thread_id = ensure_thread_for_seat_in(&mut *conn, space_id, &member_id).await?;
     let occupied: Option<String> = sqlx::query_scalar(
         "SELECT conversation_id FROM collaboration_thread_members
          WHERE thread_id = ? AND member_id = ?",
     )
     .bind(&thread_id)
     .bind(&member_id)
-    .fetch_optional(pool)
+    .fetch_optional(&mut *conn)
     .await?;
     if occupied.is_some_and(|existing| existing != conversation_id.to_string()) {
         // The member already has its own conversation in that thread.
@@ -311,7 +311,7 @@ pub async fn transfer_conversation(
     }
     sqlx::query("DELETE FROM collaboration_thread_members WHERE conversation_id = ?")
         .bind(conversation_id.to_string())
-        .execute(pool)
+        .execute(&mut *conn)
         .await?;
     sqlx::query(
         "INSERT INTO collaboration_thread_members
@@ -323,19 +323,19 @@ pub async fn transfer_conversation(
     .bind(&member_id)
     .bind(conversation_id.to_string())
     .bind(now())
-    .execute(pool)
+    .execute(&mut *conn)
     .await?;
     Ok(())
 }
 
 /// Drop the binding of a conversation (seat removed or conversation archived).
-pub async fn unbind_conversation(
-    pool: &SqlitePool,
+pub async fn unbind_conversation_in(
+    conn: &mut SqliteConnection,
     conversation_id: Uuid,
 ) -> Result<(), sqlx::Error> {
     sqlx::query("DELETE FROM collaboration_thread_members WHERE conversation_id = ?")
         .bind(conversation_id.to_string())
-        .execute(pool)
+        .execute(&mut *conn)
         .await?;
     Ok(())
 }
@@ -355,22 +355,22 @@ pub struct ResolvedSession {
 /// bound conversation and its persona snapshot; without one it uses the
 /// member row (and the role persona when `role_id` is set). The new id is
 /// deterministic, so concurrent or repeated calls converge on one row.
-pub async fn resolve_session(
-    pool: &SqlitePool,
+pub async fn resolve_session_in(
+    conn: &mut SqliteConnection,
     member_id: &str,
     thread_id: &str,
 ) -> Result<ResolvedSession, IdentityError> {
-    if let Some(existing) = bound_conversation(pool, thread_id, member_id).await? {
+    if let Some(existing) = bound_conversation_in(&mut *conn, thread_id, member_id).await? {
         return Ok(ResolvedSession {
             conversation_id: existing,
             created: false,
             template_conversation_id: None,
         });
     }
-    let member = load_member(pool, member_id)
+    let member = load_member_in(&mut *conn, member_id)
         .await?
         .ok_or(IdentityError::NotFound("member"))?;
-    let thread = load_thread(pool, thread_id)
+    let thread = load_thread_in(&mut *conn, thread_id)
         .await?
         .ok_or(IdentityError::NotFound("thread"))?;
     let template = sqlx::query_scalar::<_, String>(
@@ -378,7 +378,7 @@ pub async fn resolve_session(
          WHERE member_id = ? ORDER BY joined_at, thread_id LIMIT 1",
     )
     .bind(member_id)
-    .fetch_optional(pool)
+    .fetch_optional(&mut *conn)
     .await?
     .and_then(|raw| Uuid::parse_str(&raw).ok());
     let template_session = match template {
@@ -386,7 +386,7 @@ pub async fn resolve_session(
             "SELECT workspace_id, name, executor, agent_id FROM sessions WHERE id = ?",
         )
         .bind(id)
-        .fetch_optional(pool)
+        .fetch_optional(&mut *conn)
         .await?,
         None => None,
     };
@@ -411,7 +411,7 @@ pub async fn resolve_session(
         .agent
         .clone()
         .or_else(|| template_session.as_ref().and_then(|s| s.3.clone()));
-    let mut tx = pool.begin().await?;
+    let mut tx = sqlx::Connection::begin(&mut *conn).await?;
     sqlx::query(
         "INSERT INTO sessions (id, workspace_id, name, executor, agent_id)
          VALUES (?, ?, ?, ?, ?)
@@ -475,7 +475,7 @@ pub async fn resolve_session(
     .await?
     .rows_affected();
     tx.commit().await?;
-    let conversation_id = bound_conversation(pool, thread_id, member_id)
+    let conversation_id = bound_conversation_in(&mut *conn, thread_id, member_id)
         .await?
         .ok_or(IdentityError::NotFound("conversation"))?;
     Ok(ResolvedSession {
@@ -485,8 +485,8 @@ pub async fn resolve_session(
     })
 }
 
-async fn bound_conversation(
-    pool: &SqlitePool,
+async fn bound_conversation_in(
+    conn: &mut SqliteConnection,
     thread_id: &str,
     member_id: &str,
 ) -> Result<Option<Uuid>, sqlx::Error> {
@@ -496,10 +496,110 @@ async fn bound_conversation(
     )
     .bind(thread_id)
     .bind(member_id)
-    .fetch_optional(pool)
+    .fetch_optional(&mut *conn)
     .await?
     .and_then(|raw| Uuid::parse_str(&raw).ok()))
 }
+
+
+// Pool entry points; each `*_in` variant runs on a caller-provided
+// connection or transaction.
+
+pub async fn load_member(
+    pool: &SqlitePool,
+    member_id: &str,
+) -> Result<Option<MemberRow>, sqlx::Error> {
+    let mut conn = pool.acquire().await?;
+    load_member_in(&mut conn, member_id).await
+}
+
+pub async fn load_thread(
+    pool: &SqlitePool,
+    thread_id: &str,
+) -> Result<Option<ThreadRow>, sqlx::Error> {
+    let mut conn = pool.acquire().await?;
+    load_thread_in(&mut conn, thread_id).await
+}
+
+pub async fn binding_of_conversation(
+    pool: &SqlitePool,
+    conversation_id: Uuid,
+) -> Result<Option<ThreadMemberRow>, sqlx::Error> {
+    let mut conn = pool.acquire().await?;
+    binding_of_conversation_in(&mut conn, conversation_id).await
+}
+
+pub async fn thread_members(
+    pool: &SqlitePool,
+    thread_id: &str,
+) -> Result<Vec<ThreadMemberRow>, sqlx::Error> {
+    let mut conn = pool.acquire().await?;
+    thread_members_in(&mut conn, thread_id).await
+}
+
+pub async fn member_bindings(
+    pool: &SqlitePool,
+    member_id: &str,
+) -> Result<Vec<ThreadMemberRow>, sqlx::Error> {
+    let mut conn = pool.acquire().await?;
+    member_bindings_in(&mut conn, member_id).await
+}
+
+pub async fn ensure_member_for_conversation(
+    pool: &SqlitePool,
+    conversation_id: Uuid,
+    fallback_name: Option<&str>,
+) -> Result<String, IdentityError> {
+    let mut conn = pool.acquire().await?;
+    ensure_member_for_conversation_in(&mut conn, conversation_id, fallback_name).await
+}
+
+pub async fn ensure_thread_for_seat(
+    pool: &SqlitePool,
+    space_id: &str,
+    member_id: &str,
+) -> Result<String, IdentityError> {
+    let mut conn = pool.acquire().await?;
+    ensure_thread_for_seat_in(&mut conn, space_id, member_id).await
+}
+
+pub async fn bind_seat(
+    pool: &SqlitePool,
+    space_id: &str,
+    conversation_id: Uuid,
+    fallback_name: Option<&str>,
+) -> Result<(String, String, ResolvedSession), IdentityError> {
+    let mut conn = pool.acquire().await?;
+    bind_seat_in(&mut conn, space_id, conversation_id, fallback_name).await
+}
+
+pub async fn transfer_conversation(
+    pool: &SqlitePool,
+    conversation_id: Uuid,
+    space_id: &str,
+    fallback_name: Option<&str>,
+) -> Result<(), IdentityError> {
+    let mut conn = pool.acquire().await?;
+    transfer_conversation_in(&mut conn, conversation_id, space_id, fallback_name).await
+}
+
+pub async fn unbind_conversation(
+    pool: &SqlitePool,
+    conversation_id: Uuid,
+) -> Result<(), sqlx::Error> {
+    let mut conn = pool.acquire().await?;
+    unbind_conversation_in(&mut conn, conversation_id).await
+}
+
+pub async fn resolve_session(
+    pool: &SqlitePool,
+    member_id: &str,
+    thread_id: &str,
+) -> Result<ResolvedSession, IdentityError> {
+    let mut conn = pool.acquire().await?;
+    resolve_session_in(&mut conn, member_id, thread_id).await
+}
+
 
 /// Idempotent backfill from the legacy "member == conversation" layout.
 ///
@@ -520,13 +620,16 @@ pub struct MemberIdentityReport {
 
 impl MemberIdentityMigration {
     pub async fn run(pool: &SqlitePool) -> Result<MemberIdentityReport, IdentityError> {
+        // One transaction for the whole backfill: a crash leaves either the
+        // previous layout or the complete one, never half-bound seats.
+        let mut tx = pool.begin().await?;
         let seats = sqlx::query_as::<_, (i64, String, String, String)>(
             "SELECT rowid, space_id, conversation_id, nickname
              FROM collaboration_space_members
              WHERE kind = 'agent' AND conversation_id IS NOT NULL
              ORDER BY rowid",
         )
-        .fetch_all(pool)
+        .fetch_all(&mut *tx)
         .await?;
         let mut report = MemberIdentityReport::default();
         for (rowid, space_id, raw_conversation, nickname) in seats {
@@ -535,7 +638,7 @@ impl MemberIdentityMigration {
             };
             let exists: Option<i64> = sqlx::query_scalar("SELECT 1 FROM sessions WHERE id = ?")
                 .bind(conversation_id)
-                .fetch_optional(pool)
+                .fetch_optional(&mut *tx)
                 .await?;
             if exists.is_none() {
                 continue;
@@ -544,25 +647,26 @@ impl MemberIdentityMigration {
                 let space: Option<i64> =
                     sqlx::query_scalar("SELECT 1 FROM collaboration_spaces WHERE id = ?")
                         .bind(&space_id)
-                        .fetch_optional(pool)
+                        .fetch_optional(&mut *tx)
                         .await?;
                 if space.is_none() {
                     continue;
                 }
             }
             let (_, _, resolved) =
-                bind_seat(pool, &space_id, conversation_id, Some(&nickname)).await?;
+                bind_seat_in(&mut tx, &space_id, conversation_id, Some(&nickname)).await?;
             let resolved = resolved.conversation_id;
             if resolved != conversation_id {
                 sqlx::query("UPDATE collaboration_space_members SET conversation_id = ? WHERE rowid = ?")
                     .bind(resolved.to_string())
                     .bind(rowid)
-                    .execute(pool)
+                    .execute(&mut *tx)
                     .await?;
                 report.conversations_created += 1;
             }
             report.seats_bound += 1;
         }
+        tx.commit().await?;
         Ok(report)
     }
 }
@@ -773,5 +877,72 @@ mod tests {
 
         let missing = resolve_session(&pool, &member, "no-such-thread").await;
         assert!(matches!(missing, Err(IdentityError::NotFound(_))));
+    }
+
+    #[tokio::test]
+    async fn deleting_member_or_thread_leaves_no_orphans() {
+        let pool = setup_pool().await;
+        let workspace = Uuid::new_v4();
+        let conv = Uuid::new_v4();
+        session(&pool, conv, workspace, "小D").await;
+        space(&pool, "space-a", workspace).await;
+        space(&pool, "space-b", workspace).await;
+        seat(&pool, "space-a", conv, "小D").await;
+        seat(&pool, "space-b", conv, "小D").await;
+        MemberIdentityMigration::run(&pool).await.unwrap();
+        // Sessions reference workspaces that this fixture does not create, so
+        // enforce foreign keys only for the identity tables under test.
+        sqlx::query("PRAGMA foreign_keys = ON").execute(&pool).await.unwrap();
+        let member = member_id_for_conversation(conv);
+        for thread in ["space-a", "space-b"] {
+            sqlx::query("INSERT INTO member_activity (member_id, thread_id, summary, created_at) VALUES (?, ?, 's', 'now')")
+                .bind(&member).bind(thread).execute(&pool).await.unwrap();
+        }
+        sqlx::query("INSERT INTO member_facts (member_id, content, scope, source_thread_id, updated_at) VALUES (?, 'f', 'thread:space-a', 'space-a', 'now')")
+            .bind(&member).execute(&pool).await.unwrap();
+        sqlx::query("INSERT INTO member_facts (member_id, content, scope, source_thread_id, updated_at) VALUES (?, 'g', 'global', NULL, 'now')")
+            .bind(&member).execute(&pool).await.unwrap();
+
+        sqlx::query("DELETE FROM collaboration_threads WHERE id = 'space-a'").execute(&pool).await.unwrap();
+        assert_eq!(count(&pool, "collaboration_thread_members").await, 1);
+        assert_eq!(count(&pool, "member_activity").await, 1);
+        assert_eq!(count(&pool, "member_facts").await, 1);
+
+        sqlx::query("DELETE FROM collaboration_members WHERE id = ?").bind(&member).execute(&pool).await.unwrap();
+        assert_eq!(count(&pool, "collaboration_thread_members").await, 0);
+        assert_eq!(count(&pool, "member_activity").await, 0);
+        assert_eq!(count(&pool, "member_facts").await, 0);
+
+        let orphan = sqlx::query("INSERT INTO collaboration_thread_members (thread_id, member_id, conversation_id, joined_at) VALUES ('space-b', 'ghost', 'x', 'now')")
+            .execute(&pool).await;
+        assert!(orphan.is_err(), "binding to a missing member must be rejected");
+    }
+
+    #[tokio::test]
+    async fn failed_backfill_rolls_back_everything() {
+        let pool = setup_pool().await;
+        let workspace = Uuid::new_v4();
+        let good = Uuid::new_v4();
+        let bad = Uuid::new_v4();
+        session(&pool, good, workspace, "好").await;
+        session(&pool, bad, workspace, "坏").await;
+        space(&pool, "space-a", workspace).await;
+        space(&pool, "space-b", workspace).await;
+        seat(&pool, "space-a", good, "好").await;
+        seat(&pool, "space-a", bad, "坏").await;
+        seat(&pool, "space-b", bad, "坏").await;
+        // Make forking the second seat of `bad` fail half-way through.
+        sqlx::query("CREATE TRIGGER boom BEFORE INSERT ON sessions BEGIN SELECT RAISE(ABORT, 'boom'); END")
+            .execute(&pool).await.unwrap();
+        assert!(MemberIdentityMigration::run(&pool).await.is_err());
+        assert_eq!(count(&pool, "collaboration_members").await, 0);
+        assert_eq!(count(&pool, "collaboration_threads").await, 0);
+        assert_eq!(count(&pool, "collaboration_thread_members").await, 0);
+        assert_eq!(seat_conversation(&pool, "space-b", "坏").await, bad);
+
+        sqlx::query("DROP TRIGGER boom").execute(&pool).await.unwrap();
+        let report = MemberIdentityMigration::run(&pool).await.unwrap();
+        assert_eq!(report.seats_bound, 3);
+        assert_eq!(report.conversations_created, 1);
     }
 }

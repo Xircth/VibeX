@@ -268,7 +268,7 @@ export function CollaborationWorkspaceView(
                 selectedMember.nickname
               )}
               animated={false}
-              className="h-5 w-5"
+              className="h-6 w-6"
             />
           }
           workspacePath={props.workspacePath}

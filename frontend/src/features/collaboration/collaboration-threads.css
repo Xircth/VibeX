@@ -513,7 +513,7 @@
   font-weight: 500;
 }
 .collab-mention-item-hint {
-  font-size: 0.625rem;
+  font-size: 0.75rem;
   color: var(--text-muted);
 }
 
@@ -690,6 +690,29 @@
 }
 .collab-banner-text {
   flex: 1;
+}
+
+/* ---- focus ring on every interactive collab element ---- */
+.collab-mention-item:focus-visible,
+.collab-picker-checkbox:focus-visible,
+.collab-group-picker .workspace-session-row-main:focus-visible,
+.collab-main-head button:focus-visible,
+.collab-composer button:focus-visible,
+.collab-composer textarea:focus-visible,
+.collab-card button:focus-visible,
+.collab-card input:focus-visible,
+.collab-process-row button:focus-visible,
+.collab-profile button:focus-visible,
+.collab-profile textarea:focus-visible,
+.collab-banner button:focus-visible,
+.collab-list button:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px var(--focus-ring);
+  --tw-ring-color: var(--focus-ring);
+  --tw-ring-offset-width: 0px;
+}
+.collab-group-picker .workspace-session-row-main:focus-visible {
+  border-radius: var(--radius);
 }
 
 @media (prefers-reduced-motion: reduce) {

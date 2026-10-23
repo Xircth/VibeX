@@ -269,7 +269,7 @@ export function GroupChat({
                 <MemberBotAvatar
                   config={seat.avatar}
                   animated={false}
-                  className="h-5 w-5"
+                  className="h-6 w-6"
                 />
               ) : null}
             </button>

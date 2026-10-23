@@ -575,9 +575,14 @@ function useMarkSessionViewed(
   enabled: boolean
 ) {
   const queryClient = useQueryClient();
+  const isRunningRef = useRef(isRunning);
+  isRunningRef.current = isRunning;
 
   useEffect(() => {
-    if (!sessionId || !enabled) return;
+    // A view of the in-flight turn is not a review of the finished turn.
+    // Do not re-run when isRunning later flips false: watching the turn end
+    // must leave the session in review until the user opens it again.
+    if (!sessionId || !enabled || isRunningRef.current) return;
 
     let cancelled = false;
     void sessionsApi
@@ -593,7 +598,7 @@ function useMarkSessionViewed(
     return () => {
       cancelled = true;
     };
-  }, [enabled, isRunning, queryClient, sessionId]);
+  }, [enabled, queryClient, sessionId]);
 }
 
 function KanbanSessionConversationSurface({

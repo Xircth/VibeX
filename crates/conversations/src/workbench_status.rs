@@ -3,12 +3,13 @@
 //!
 //! - **todo**: created, no turns yet
 //! - **inprogress**: an in-flight turn, or a viewed terminal turn with queued input
-//! - **inreview**: a finished turn that has not been opened in the execution or
-//!   monitor area (including failed / interrupted turns, and unviewed turns that
-//!   still have queued follow-ups)
-//! - **done**: a finished turn that has been viewed, or a user-cancelled turn
-//!   with nothing waiting. This is not a conversation terminal; a new turn can
-//!   start later.
+//! - **inreview**: a finished turn that has not been opened after it finished
+//!   (including failed / interrupted turns, and unviewed turns that still have
+//!   queued follow-ups). A view taken while that turn was still in flight does
+//!   not count.
+//! - **done**: a finished turn that has been viewed after it finished, a session
+//!   dragged to done, or a user-cancelled turn. This is not a conversation
+//!   terminal; a new turn can start later.
 
 use db::models::{
     conversation_turn::ConversationTurnRecord,
@@ -112,7 +113,24 @@ pub async fn mark_latest_turn_viewed_on_connection(
     conn: &mut SqliteConnection,
     conversation_id: Uuid,
 ) -> Result<(), sqlx::Error> {
-    sqlx::query(
+    record_latest_turn_viewed(conn, conversation_id, false).await
+}
+
+/// Records the latest turn as viewed even when it is still in flight.
+/// Manual drag-to-done uses this so a later completion stays done.
+pub async fn mark_latest_turn_viewed_including_in_flight_on_connection(
+    conn: &mut SqliteConnection,
+    conversation_id: Uuid,
+) -> Result<(), sqlx::Error> {
+    record_latest_turn_viewed(conn, conversation_id, true).await
+}
+
+async fn record_latest_turn_viewed(
+    conn: &mut SqliteConnection,
+    conversation_id: Uuid,
+    include_in_flight: bool,
+) -> Result<(), sqlx::Error> {
+    let sql = if include_in_flight {
         r#"UPDATE sessions
            SET last_viewed_turn_id = (
                SELECT id
@@ -123,9 +141,52 @@ pub async fn mark_latest_turn_viewed_on_connection(
            )
            WHERE id = ?
              AND deleted_at IS NULL
-             AND status != 'archived'"#,
+             AND status != 'archived'"#
+    } else {
+        r#"UPDATE sessions
+           SET last_viewed_turn_id = (
+               SELECT id
+               FROM conversation_turns
+               WHERE conversation_id = sessions.id
+               ORDER BY ordinal DESC
+               LIMIT 1
+           )
+           WHERE id = ?
+             AND deleted_at IS NULL
+             AND status != 'archived'
+             AND (
+               SELECT status
+               FROM conversation_turns
+               WHERE conversation_id = sessions.id
+               ORDER BY ordinal DESC
+               LIMIT 1
+             ) NOT IN ('pending', 'queued', 'running', 'blocked')"#
+    };
+    sqlx::query(sql)
+        .bind(conversation_id)
+        .execute(&mut *conn)
+        .await?;
+    Ok(())
+}
+
+/// Drops a view cursor that points at a turn which is only now becoming
+/// terminal. That cursor was recorded while the turn was still in flight.
+/// A session already dragged to done keeps its cursor.
+pub async fn release_unreviewed_in_flight_view_on_connection(
+    conn: &mut SqliteConnection,
+    conversation_id: Uuid,
+    turn_id: Uuid,
+) -> Result<(), sqlx::Error> {
+    sqlx::query(
+        r#"UPDATE sessions
+           SET last_viewed_turn_id = NULL
+           WHERE id = ?
+             AND last_viewed_turn_id = ?
+             AND deleted_at IS NULL
+             AND status NOT IN ('done', 'archived')"#,
     )
     .bind(conversation_id)
+    .bind(turn_id)
     .execute(&mut *conn)
     .await?;
     Ok(())
@@ -139,7 +200,8 @@ pub async fn apply_manual_status(
     let mut conn = pool.acquire().await?;
     match status {
         SessionStatus::Done => {
-            mark_latest_turn_viewed_on_connection(&mut conn, conversation_id).await?;
+            mark_latest_turn_viewed_including_in_flight_on_connection(&mut conn, conversation_id)
+                .await?;
         }
         SessionStatus::InReview => {
             sqlx::query(

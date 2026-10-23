@@ -1043,6 +1043,16 @@ pub async fn persona_prompt_text(
     pool: &SqlitePool,
     conversation_id: Uuid,
 ) -> Result<Option<String>, CollaborationError> {
+    persona_prompt_text_for_turn(pool, conversation_id, None).await
+}
+
+/// Persona + member context for a turn whose prompt is `query` (used to
+/// pick relevant long-term memory).
+pub async fn persona_prompt_text_for_turn(
+    pool: &SqlitePool,
+    conversation_id: Uuid,
+    query: Option<&str>,
+) -> Result<Option<String>, CollaborationError> {
     let prompt: Option<String> = sqlx::query_scalar::<_, String>(
         "SELECT persona_prompt FROM conversation_personas WHERE conversation_id = ?",
     )
@@ -1051,7 +1061,7 @@ pub async fn persona_prompt_text(
     .await
     .map_err(db)?
     .filter(|value: &String| !value.trim().is_empty());
-    let space_context = member_space_context_text(pool, conversation_id).await?;
+    let space_context = member_space_context_text_for(pool, conversation_id, query).await?;
     match (prompt, space_context) {
         (Some(persona), Some(context)) => Ok(Some(format!("{}\n\n{}", persona.trim(), context))),
         (Some(persona), None) => Ok(Some(persona)),
@@ -4459,6 +4469,42 @@ async fn batch_load_space_members_by_space(
 }
 
 pub async fn member_space_context_text(
+    pool: &SqlitePool,
+    conversation_id: Uuid,
+) -> Result<Option<String>, CollaborationError> {
+    member_space_context_text_for(pool, conversation_id, None).await
+}
+
+/// Number of recent activity entries injected at turn start
+/// (`VIBEX_MEMBER_ACTIVITY_LIMIT`, default 8, 0 disables).
+pub fn member_activity_limit() -> usize {
+    env_i64("VIBEX_MEMBER_ACTIVITY_LIMIT", crate::member_memory::DEFAULT_ACTIVITY_LIMIT as i64)
+        .max(0) as usize
+}
+
+/// Member identity block plus the member's memory (recent cross-thread
+/// activity and the facts most relevant to `query`, privacy-filtered).
+pub async fn member_space_context_text_for(
+    pool: &SqlitePool,
+    conversation_id: Uuid,
+    query: Option<&str>,
+) -> Result<Option<String>, CollaborationError> {
+    let identity_block = member_identity_context_text(pool, conversation_id).await?;
+    let limit = member_activity_limit();
+    let memory = if limit == 0 {
+        None
+    } else {
+        crate::member_memory::memory_context_text(pool, conversation_id, query, limit).await?
+    };
+    Ok(match (identity_block, memory) {
+        (Some(block), Some(memory)) => Some(format!("{block}\n\n{memory}")),
+        (Some(block), None) => Some(block),
+        (None, Some(memory)) => Some(format!("[协作空间成员身份]\n{memory}")),
+        (None, None) => None,
+    })
+}
+
+async fn member_identity_context_text(
     pool: &SqlitePool,
     conversation_id: Uuid,
 ) -> Result<Option<String>, CollaborationError> {
@@ -8751,6 +8797,154 @@ mod tests {
         assert!(packed.contains("5 earlier messages from User (collapsed"));
         assert!(!packed.contains("第05条"), "older ones are collapsed");
         assert!(packed.contains("第06条") && packed.contains("第25条"));
+    }
+
+    struct EchoDistiller;
+
+    #[async_trait::async_trait]
+    impl crate::member_memory::FactDistiller for EchoDistiller {
+        async fn distill(
+            &self,
+            _member_id: &str,
+            activity: &[crate::member_memory::ActivityEntry],
+        ) -> Vec<crate::member_memory::DistilledFact> {
+            activity
+                .iter()
+                .map(|entry| crate::member_memory::DistilledFact {
+                    content: format!("distilled: {}", entry.summary),
+                    global: true,
+                    thread_id: Some(entry.thread_id.clone()),
+                })
+                .collect()
+        }
+    }
+
+    #[tokio::test]
+    async fn member_memory_crosses_groups_but_private_chat_never_reaches_a_group() {
+        use crate::member_memory::{self as memory, FactScope, FirstSentencesSummarizer};
+        let pool = setup_pool().await;
+        let workspace = Uuid::new_v4();
+        let (a, b) = (Uuid::new_v4(), Uuid::new_v4());
+        create_session(&pool, a, workspace, Some("小A")).await;
+        create_session(&pool, b, workspace, Some("小B")).await;
+        let group1 = space_of(&pool, a).await;
+        let group2 = space_of(&pool, a).await;
+        add_space_member(&pool, a, &group1, b, "小B", Uuid::new_v4()).await.unwrap();
+        let b_in_group2 = Uuid::parse_str(
+            add_space_member(&pool, a, &group2, b, "小B", Uuid::new_v4())
+                .await
+                .unwrap()
+                .conversation_id
+                .as_deref()
+                .unwrap(),
+        )
+        .unwrap();
+        let member_b = identity::member_id_for_conversation(b);
+        assert_eq!(
+            identity::binding_of_conversation(&pool, b_in_group2).await.unwrap().unwrap().member_id,
+            member_b,
+            "one member, two group threads"
+        );
+        // 小B's private chat with the user.
+        let private_conv = Uuid::new_v4();
+        create_session(&pool, private_conv, workspace, Some("小B")).await;
+        let direct = identity::direct_thread_id(&member_b);
+        sqlx::query(
+            "INSERT INTO collaboration_threads (id, kind, title, created_at) VALUES (?, 'direct', '', '2026-10-24T00:00:00Z')",
+        )
+        .bind(&direct)
+        .execute(&pool)
+        .await
+        .unwrap();
+        sqlx::query(
+            "INSERT INTO collaboration_thread_members (thread_id, member_id, conversation_id, joined_at) VALUES (?, ?, ?, '2026-10-24T00:00:00Z')",
+        )
+        .bind(&direct)
+        .bind(&member_b)
+        .bind(private_conv.to_string())
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        // Short-term: one line per turn, deterministic, idempotent per turn.
+        let turn1 = Uuid::new_v4();
+        let reply = "我在群里把登录接口的分页 bug 修好了。还补了两条回归测试。第三句不该出现。";
+        let summarizer = FirstSentencesSummarizer;
+        assert!(memory::record_activity(&pool, b, Some(turn1), reply, &summarizer).await.unwrap().is_some());
+        assert!(memory::record_activity(&pool, b, Some(turn1), reply, &summarizer).await.unwrap().is_none());
+        memory::record_activity(&pool, private_conv, Some(Uuid::new_v4()), "私聊里帮用户查了工资单密码。", &summarizer)
+            .await
+            .unwrap();
+        // Long-term facts in every scope.
+        memory::tool_write(&pool, b, "群1约定：分页参数叫 page_size", None).await.unwrap();
+        let forced = memory::tool_write(&pool, private_conv, "用户的生日是五月一日", Some("global"))
+            .await
+            .unwrap();
+        assert_eq!(forced.scope, "private", "private chat writes stay private");
+        memory::create_fact(&pool, &member_b, "项目统一使用 pnpm 管理依赖", &FactScope::Global, None, "user")
+            .await
+            .unwrap();
+
+        // Acceptance: asked in group 2 what it did in group 1.
+        let context = persona_prompt_text_for_turn(&pool, b_in_group2, Some("你在群1做了什么？"))
+            .await
+            .unwrap()
+            .unwrap();
+        assert!(context.contains("[成员记忆]"));
+        assert!(context.contains("把登录接口的分页 bug 修好了。还补了两条回归测试。"), "{context}");
+        assert!(!context.contains("第三句"));
+        assert!(!context.contains("工资单"), "private activity leaked: {context}");
+        assert!(!context.contains("私聊"), "not even a placeholder: {context}");
+        assert!(!context.contains("生日"), "private fact leaked: {context}");
+        assert!(!context.contains("page_size"), "group-1 thread fact stays in group 1");
+        let pnpm = persona_prompt_text_for_turn(&pool, b_in_group2, Some("用 pnpm 还是 npm"))
+            .await
+            .unwrap()
+            .unwrap();
+        assert!(pnpm.contains("项目统一使用 pnpm"), "global fact is retrieved by relevance");
+        let in_group1 = persona_prompt_text_for_turn(&pool, b, Some("分页参数 page_size"))
+            .await
+            .unwrap()
+            .unwrap();
+        assert!(in_group1.contains("page_size"));
+        assert!(!in_group1.contains("工资单") && !in_group1.contains("生日"));
+        // Tools are scoped the same way.
+        let found = memory::tool_search(&pool, b_in_group2, "工资单 生日", 10).await.unwrap();
+        assert_eq!(found["facts"].as_array().unwrap().len(), 0);
+        assert_eq!(found["activity"].as_array().unwrap().len(), 0);
+        // In the private chat itself everything is available.
+        let private = persona_prompt_text_for_turn(&pool, private_conv, Some("生日"))
+            .await
+            .unwrap()
+            .unwrap();
+        assert!(private.contains("工资单") && private.contains("生日") && private.contains("分页 bug"));
+        // Host view lists everything; group view filters.
+        assert_eq!(memory::list_activity(&pool, &member_b, true, 50).await.unwrap().len(), 2);
+        assert_eq!(memory::list_activity(&pool, &member_b, false, 50).await.unwrap().len(), 1);
+
+        // Distillation never promotes private activity out of `private`.
+        assert_eq!(memory::distill_member_memory(&pool, &EchoDistiller).await.unwrap(), 2);
+        assert_eq!(memory::distill_member_memory(&pool, &EchoDistiller).await.unwrap(), 0);
+        let distilled: Vec<_> = memory::list_facts(&pool, &member_b, None)
+            .await
+            .unwrap()
+            .into_iter()
+            .filter(|f| f.origin == "distilled")
+            .collect();
+        let scope_of = |needle: &str| {
+            distilled.iter().find(|f| f.content.contains(needle)).unwrap().scope.clone()
+        };
+        assert_eq!(scope_of("工资单"), "private");
+        assert_eq!(scope_of("分页 bug"), "global");
+        // Update / delete are member-scoped.
+        let id = forced.id;
+        assert!(memory::update_fact(&pool, "someone-else", id, Some("x"), None).await.is_err());
+        let updated = memory::update_fact(&pool, &member_b, id, Some("用户生日：5月1日"), None)
+            .await
+            .unwrap();
+        assert_eq!(updated.scope, "private");
+        assert!(!memory::delete_fact(&pool, "someone-else", id).await.unwrap());
+        assert!(memory::delete_fact(&pool, &member_b, id).await.unwrap());
     }
 
     #[tokio::test]

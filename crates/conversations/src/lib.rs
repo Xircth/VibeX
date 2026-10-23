@@ -14,6 +14,7 @@ pub mod host;
 pub mod input;
 pub mod isolated_workspace;
 pub mod jsonl_history;
+pub mod member_memory;
 pub mod projection;
 pub mod relation;
 pub mod runtime_events;

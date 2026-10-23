@@ -351,6 +351,23 @@ impl ConversationAgentEventRecorder {
                             });
                         }
                         let conversation_id = mapped.conversation_id;
+                        let memory_pool = self.pool.clone();
+                        tokio::spawn(async move {
+                            if let Err(error) = crate::member_memory::record_turn_activity(
+                                &memory_pool,
+                                conversation_id,
+                                turn_id,
+                            )
+                            .await
+                            {
+                                tracing::warn!(
+                                    %conversation_id,
+                                    %turn_id,
+                                    %error,
+                                    "failed to record member activity"
+                                );
+                            }
+                        });
                         tokio::spawn(async move {
                             if let Err(error) =
                                 start_commit_reminder_if_needed(context, conversation_id, turn_id)

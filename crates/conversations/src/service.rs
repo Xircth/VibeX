@@ -1123,7 +1123,11 @@ impl ConversationSessionService {
             origin,
         )
         .await?;
-        let persona = crate::collaboration::persona_prompt_text(pool, input.conversation_id)
+        let persona = crate::collaboration::persona_prompt_text_for_turn(
+            pool,
+            input.conversation_id,
+            Some(&display_text),
+        )
             .await
             .map_err(|error| ConversationServiceError::Internal(error.to_string()))?;
         let prompt_text = match persona.as_deref() {

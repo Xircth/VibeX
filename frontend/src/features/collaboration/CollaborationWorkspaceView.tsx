@@ -158,6 +158,15 @@ export function CollaborationWorkspaceView(
   const selectedGroup =
     selectedItem?.kind === 'group' ? selectedItem.group : null;
   const memberItem = selectedItem?.kind === 'member' ? selectedItem : null;
+  const directComposerMembers = useMemo(
+    () =>
+      members.map((member) => ({
+        id: member.memberId,
+        nickname: member.nickname,
+        avatar: avatarFor(member.memberId, member.nickname),
+      })),
+    [avatarFor, members]
+  );
   const directSeat = selectedMember?.seats.find((seat) => seat.direct) ?? null;
   const pickerMembers: PickerMember[] = useMemo(
     () =>
@@ -286,6 +295,9 @@ export function CollaborationWorkspaceView(
           memberName={selectedMember.nickname}
           sending={props.directSending}
           onSend={props.onSendDirect}
+          members={directComposerMembers}
+          workspaceId={props.workspaceId}
+          workspacePath={props.workspacePath}
         />
       </div>
     );

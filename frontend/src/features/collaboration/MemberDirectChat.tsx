@@ -1,11 +1,14 @@
-import { useState, type ComponentProps, type ReactNode } from 'react';
-import { ChevronDown, ChevronRight, ExternalLink, Send } from 'lucide-react';
+import { useRef, useState, type ComponentProps, type ReactNode } from 'react';
+import { ChevronDown, ChevronRight, ExternalLink } from 'lucide-react';
 import type { MessageTurn } from 'shared/types';
 
 import { Button } from '@/components/ui/button';
-import { Textarea } from '@/components/ui/textarea';
+import type { AtReferenceMember } from '@/components/tasks/follow-up/composerAtReferences';
 import { MessageTurnView } from '@/components/NormalizedConversation/MessageTurnView';
 
+import { CollabComposer } from './CollabComposer';
+import { MemberMentionProvider } from './MemberMention';
+import type { MemberBotAvatarConfig } from './MemberBotAvatar';
 import { SpaceMessageBody } from './SpaceMessageBody';
 import { ReceiptRow } from './ThreadCards';
 import {
@@ -252,45 +255,57 @@ export function DirectComposer({
   memberName,
   sending,
   onSend,
+  members = [],
+  workspaceId,
+  workspacePath,
 }: {
   memberName: string;
   sending?: boolean;
   onSend: (content: string) => void;
+  /** Members that `@` can reference (rendered as MemberMention chips). */
+  members?: readonly AtReferenceMember[];
+  workspaceId?: string;
+  workspacePath?: string;
 }) {
   const [draft, setDraft] = useState('');
-  const send = () => {
-    const content = draft.trim();
+  const replaceDraftRef = useRef<((next: string) => void) | null>(null);
+  const send = (value: string = draft) => {
+    const content = value.trim();
     if (!content || sending) return;
     onSend(content);
     setDraft('');
+    replaceDraftRef.current?.('');
   };
   const label = `发消息给 ${memberName}`;
   return (
     <div className="collab-composer">
-      <div className="collab-composer-box">
-        <Textarea
-          rows={1}
+      <MemberMentionProvider candidates={chipCandidates(members)}>
+        <CollabComposer
           value={draft}
-          placeholder={label}
-          aria-label={label}
-          onChange={(event) => setDraft(event.target.value)}
-          onKeyDown={(event) => {
-            if (event.nativeEvent.isComposing) return;
-            if (event.key === 'Enter' && !event.shiftKey) {
-              event.preventDefault();
-              send();
-            }
-          }}
+          label={label}
+          sessionId={`collab-direct-${memberName}`}
+          members={members}
+          disabled={sending}
+          workspaceId={workspaceId}
+          workspacePath={workspacePath}
+          replaceValueRef={replaceDraftRef}
+          onChange={setDraft}
+          onSubmit={send}
         />
-        <Button
-          variant="icon"
-          aria-label={THREAD_COPY.send}
-          disabled={!draft.trim() || sending}
-          onClick={send}
-        >
-          <Send className="h-4 w-4" aria-hidden="true" />
-        </Button>
-      </div>
+      </MemberMentionProvider>
     </div>
+  );
+}
+
+function chipCandidates(members: readonly AtReferenceMember[]) {
+  return members.flatMap((member) =>
+    member.avatar
+      ? [
+          {
+            nickname: member.nickname,
+            avatar: member.avatar as MemberBotAvatarConfig,
+          },
+        ]
+      : []
   );
 }

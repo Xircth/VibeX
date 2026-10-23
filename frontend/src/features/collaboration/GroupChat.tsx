@@ -2,15 +2,10 @@ import { useMemo, useRef, useState, type ReactNode } from 'react';
 import { BellRing, ChevronDown, ChevronRight, Send } from 'lucide-react';
 
 import { Button } from '@/components/ui/button';
-import {
-  Popover,
-  PopoverAnchor,
-  PopoverContent,
-} from '@/components/ui/popover';
-import { Textarea } from '@/components/ui/textarea';
 import { cn } from '@/lib/utils';
 
 import { SpaceMessageBody, bubbleText } from './SpaceMessageBody';
+import { CollabComposer } from './CollabComposer';
 import { MessageReceiptCheck } from './MessageReceiptCheck';
 import { MemberMentionProvider } from './MemberMention';
 import {
@@ -147,7 +142,6 @@ export function GroupChat({
   initialDraft = '',
   initialWakePreview = null,
   initialUnfolded = [],
-  initialMentionOpen = false,
   headerActions,
   onSend,
   onPreviewWake,
@@ -159,10 +153,8 @@ export function GroupChat({
     new Set(initialUnfolded)
   );
   const [wakePreview, setWakePreview] = useState(initialWakePreview);
-  const [mentionOpen, setMentionOpen] = useState(initialMentionOpen);
-  const [mentionIndex, setMentionIndex] = useState(0);
   const [sending, setSending] = useState(false);
-  const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const replaceDraftRef = useRef<((next: string) => void) | null>(null);
   const segments = useMemo(() => segmentStream(messages), [messages]);
   const mentionChipCandidates = useMemo(
     () =>
@@ -175,30 +167,46 @@ export function GroupChat({
   );
   const busyElsewhere = seats.filter((seat) => seat.busyElsewhere);
   const nicknames = seats.map((seat) => seat.nickname);
+  // @ menu + atomic chips; the hint keeps the busy/queue consequence copy.
+  const composerMembers = useMemo(
+    () =>
+      seats.map((seat) => ({
+        id: seat.memberId,
+        nickname: seat.nickname,
+        detail: mentionConsequence(seat.presence),
+        avatar: seat.avatar,
+      })),
+    [seats]
+  );
 
-  const send = async (force: boolean) => {
-    const content = draft.trim();
+  const send = async (force: boolean, value: string = draft) => {
+    const content = value.trim();
     if (!content || sending) return;
     const to = extractMentions(content, nicknames);
+    // The unified composer clears itself on Enter; put the text back whenever
+    // the message is not actually sent (wake confirm or a failed send).
+    const restore = () => {
+      setDraft(value);
+      replaceDraftRef.current?.(value);
+    };
     if (to.length === 0 && !force) {
-      setWakePreview(await onPreviewWake(content));
+      const preview = await onPreviewWake(content);
+      restore();
+      setWakePreview(preview);
       return;
     }
     setSending(true);
     try {
       await onSend(content, to);
       setDraft('');
+      replaceDraftRef.current?.('');
       setWakePreview(null);
+    } catch (error) {
+      restore();
+      throw error;
     } finally {
       setSending(false);
     }
-  };
-
-  const insertMention = (nickname: string) => {
-    setDraft((current) => current.replace(/@\S*$/, '') + `@${nickname} `);
-    setMentionOpen(false);
-    setWakePreview(null);
-    textareaRef.current?.focus();
   };
 
   const renderMessage = (message: GroupMessage) => {
@@ -292,11 +300,6 @@ export function GroupChat({
     );
   };
 
-  const mentionQuery = /@(\S*)$/.exec(draft)?.[1];
-  const mentionCandidates = seats.filter(
-    (seat) => mentionQuery == null || seat.nickname.startsWith(mentionQuery)
-  );
-
   return (
     <MemberMentionProvider candidates={mentionChipCandidates}>
       <div className="collab-main" data-testid="collab-group-chat">
@@ -378,11 +381,11 @@ export function GroupChat({
                 variant="ghost"
                 size="xs"
                 onClick={() => {
-                  setDraft((d) => (!d || d.endsWith(' ') ? `${d}@` : `${d} @`));
+                  const next =
+                    !draft || draft.endsWith(' ') ? `${draft}@` : `${draft} @`;
+                  setDraft(next);
+                  replaceDraftRef.current?.(next);
                   setWakePreview(null);
-                  setMentionOpen(true);
-                  setMentionIndex(0);
-                  textareaRef.current?.focus();
                 }}
               >
                 {THREAD_COPY.wakeConfirmMention}
@@ -397,116 +400,21 @@ export function GroupChat({
               </Button>
             </div>
           ) : null}
-          <Popover
-            open={mentionOpen && mentionCandidates.length > 0}
-            onOpenChange={setMentionOpen}
-          >
-            <PopoverAnchor asChild>
-              <div className="collab-composer-box">
-                <Textarea
-                  ref={textareaRef}
-                  rows={1}
-                  value={draft}
-                  placeholder={THREAD_COPY.composerPlaceholder}
-                  aria-label={THREAD_COPY.composerPlaceholder}
-                  onChange={(event) => {
-                    const value = event.target.value;
-                    setDraft(value);
-                    setWakePreview(null);
-                    const open = /@\S*$/.test(value);
-                    setMentionOpen(open);
-                    if (open) setMentionIndex(0);
-                  }}
-                  onKeyDown={(event) => {
-                    if (event.nativeEvent.isComposing) return;
-                    if (mentionOpen && mentionCandidates.length > 0) {
-                      if (
-                        event.key === 'ArrowDown' ||
-                        event.key === 'ArrowUp'
-                      ) {
-                        event.preventDefault();
-                        const delta = event.key === 'ArrowDown' ? 1 : -1;
-                        setMentionIndex(
-                          (index) =>
-                            (index + delta + mentionCandidates.length) %
-                            mentionCandidates.length
-                        );
-                        return;
-                      }
-                      if (event.key === 'Enter' || event.key === 'Tab') {
-                        event.preventDefault();
-                        insertMention(
-                          mentionCandidates[mentionIndex]?.nickname ?? ''
-                        );
-                        return;
-                      }
-                      if (event.key === 'Escape') {
-                        setMentionOpen(false);
-                        return;
-                      }
-                    }
-                    if (event.key === 'Enter' && !event.shiftKey) {
-                      event.preventDefault();
-                      void send(false);
-                    }
-                  }}
-                />
-                <Button
-                  variant="icon"
-                  aria-label={THREAD_COPY.send}
-                  disabled={!draft.trim() || sending}
-                  onClick={() => void send(false)}
-                >
-                  <Send className="h-4 w-4" aria-hidden="true" />
-                </Button>
-              </div>
-            </PopoverAnchor>
-            <PopoverContent
-              align="start"
-              side="top"
-              className="p-0"
-              onOpenAutoFocus={(event) => event.preventDefault()}
-            >
-              <ul
-                className="collab-mention-list"
-                role="listbox"
-                data-testid="collab-mention-list"
-              >
-                {mentionCandidates.map((seat, index) => (
-                  <li key={seat.memberId}>
-                    <button
-                      type="button"
-                      role="option"
-                      aria-selected={index === mentionIndex}
-                      className="collab-mention-item"
-                      onMouseDown={(event) => event.preventDefault()}
-                      onClick={() => insertMention(seat.nickname)}
-                    >
-                      <span className="collab-chip-dot">
-                        <MemberBotAvatar
-                          config={seat.avatar}
-                          animated={false}
-                          className="h-5 w-5"
-                        />
-                        <span
-                          className={cn(
-                            'workspace-session-status',
-                            `workspace-session-status--${seat.presence.state}`
-                          )}
-                        />
-                      </span>
-                      <span className="collab-mention-item-name">
-                        {seat.nickname}
-                      </span>
-                      <span className="collab-mention-item-hint">
-                        {mentionConsequence(seat.presence)}
-                      </span>
-                    </button>
-                  </li>
-                ))}
-              </ul>
-            </PopoverContent>
-          </Popover>
+          <CollabComposer
+            value={draft}
+            label={THREAD_COPY.composerPlaceholder}
+            sessionId={`collab-group-${groupName}`}
+            members={composerMembers}
+            disabled={sending}
+            workspaceId={workspaceId}
+            workspacePath={workspacePath}
+            replaceValueRef={replaceDraftRef}
+            onChange={(value) => {
+              setDraft(value);
+              setWakePreview(null);
+            }}
+            onSubmit={(value) => void send(false, value)}
+          />
         </div>
       </div>
     </MemberMentionProvider>

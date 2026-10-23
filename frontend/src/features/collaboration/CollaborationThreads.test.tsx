@@ -1,5 +1,7 @@
 import { render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { HotkeysProvider } from 'react-hotkeys-hook';
 import { describe, expect, it, vi } from 'vitest';
 
 import type { MessageTurn } from 'shared/types';
@@ -29,6 +31,14 @@ function seat(
   };
 }
 
+function composerEditor(): HTMLElement {
+  const editable = screen
+    .getByTestId('session-composer-editor')
+    .querySelector<HTMLElement>('[contenteditable="true"]');
+  if (!editable) throw new Error('composer editable not found');
+  return editable;
+}
+
 function groupChat(overrides: Partial<Parameters<typeof GroupChat>[0]> = {}) {
   const props = {
     groupName: '登录重构',
@@ -40,7 +50,13 @@ function groupChat(overrides: Partial<Parameters<typeof GroupChat>[0]> = {}) {
     onResolveCard: vi.fn(),
     ...overrides,
   };
-  render(<GroupChat {...props} />);
+  render(
+    <QueryClientProvider client={new QueryClient()}>
+      <HotkeysProvider initiallyActiveScopes={['dialog']}>
+        <GroupChat {...props} />
+      </HotkeysProvider>
+    </QueryClientProvider>
+  );
   return props;
 }
 
@@ -48,8 +64,7 @@ describe('collaboration threads UI', () => {
   it('asks to confirm a broadcast send and lets the user send anyway', async () => {
     const user = userEvent.setup();
     const props = groupChat();
-    const box = screen.getByRole('textbox', { name: '发消息，@ 指定成员' });
-    await user.type(box, '大家看下');
+    await user.type(composerEditor(), '大家看下');
     await user.click(screen.getByRole('button', { name: '发送' }));
     expect(props.onPreviewWake).toHaveBeenCalledWith('大家看下');
     expect(
@@ -63,10 +78,7 @@ describe('collaboration threads UI', () => {
   it('sends an @-mention directly without a wake confirm', async () => {
     const user = userEvent.setup();
     const props = groupChat();
-    await user.type(
-      screen.getByRole('textbox', { name: '发消息，@ 指定成员' }),
-      '@Alex 看下'
-    );
+    await user.type(composerEditor(), '@Alex 看下');
     await user.click(screen.getByRole('button', { name: '发送' }));
     expect(props.onPreviewWake).not.toHaveBeenCalled();
     expect(props.onSend).toHaveBeenCalledWith('@Alex 看下', ['Alex']);

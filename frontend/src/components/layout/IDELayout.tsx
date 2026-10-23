@@ -27,7 +27,7 @@ import { useViews } from '@vibex/plugin-sdk';
 import { useUserSystem } from '@/components/ConfigProvider';
 import { PluginOverlays } from '@/components/plugins/PluginOverlays';
 import { PluginRemoteView } from '@/components/plugins/PluginRemoteView';
-import { CollaborationSpacePage } from '@/features/collaboration/CollaborationSpacePage';
+import { CollaborationWorkspace } from '@/features/collaboration/CollaborationWorkspace';
 import { useActiveSurfaceHidesBottomDock } from '@/hooks/useActiveSurfaceDockPolicy';
 import { useAutoOpenCreatedFilePreviews } from '@/hooks/useAutoOpenCreatedFilePreviews';
 import { useAutoOpenCreatedPreviews } from '@/lib/autoOpenCreatedPreviews';
@@ -1266,7 +1266,10 @@ export function IDELayout({
 
               {effectiveActiveTab === COLLABORATION_WORKSPACE_TAB ? (
                 <div className="kanban-overlay absolute inset-0 z-10">
-                  <CollaborationSpacePage workspaceId={surfaceWorkspaceId} />
+                  <CollaborationWorkspace
+                    workspaceId={surfaceWorkspaceId}
+                    projectId={projectId ?? null}
+                  />
                 </div>
               ) : null}
 

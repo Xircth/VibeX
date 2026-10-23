@@ -942,7 +942,10 @@ mod working_dir_tests {
                 .as_deref(),
             Some("VibeX")
         );
-        let expected = format!("{container}/VibeX");
+        let expected = std::path::Path::new(container)
+            .join("VibeX")
+            .to_string_lossy()
+            .into_owned();
         assert_eq!(
             resolve_absolute_workspace_agent_working_dir(
                 &workspace,

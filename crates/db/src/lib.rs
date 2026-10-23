@@ -266,6 +266,7 @@ mod tests {
             .await
             .expect("second startup");
         let timezone: String = sqlx::query_scalar("SELECT timezone FROM automations WHERE id = ?")
+            .bind(record.id)
             .fetch_one(&pool)
             .await
             .expect("timezone");

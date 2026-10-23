@@ -363,9 +363,13 @@ impl Drop for HostedChild {
             Self::Command(child_opt) => {
                 if let Some(mut child) = child_opt.take() {
                     let _ = child.start_kill();
-                    if matches!(child.try_wait(), Ok(None))
-                        && let Ok(handle) = tokio::runtime::Handle::try_current()
-                    {
+                    for _ in 0..50 {
+                        if !matches!(child.try_wait(), Ok(None)) {
+                            return;
+                        }
+                        std::thread::sleep(Duration::from_millis(2));
+                    }
+                    if let Ok(handle) = tokio::runtime::Handle::try_current() {
                         handle.spawn(async move {
                             let _ = child.wait().await;
                         });

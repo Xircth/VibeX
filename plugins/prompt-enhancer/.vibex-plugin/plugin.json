@@ -55,32 +55,6 @@
       }
     }
   },
-  "configuration": {
-    "type": "object",
-    "properties": {
-      "mode": {
-        "type": "string",
-        "enum": [
-          "structured",
-          "custom-template",
-          "host-service"
-        ],
-        "default": "structured"
-      },
-      "autoEnhanceBeforeTurn": {
-        "type": "boolean",
-        "default": false
-      },
-      "customConstraintTemplate": {
-        "type": "string",
-        "default": "[Constraints: Complete implementation, verify with tests.]"
-      },
-      "includeAcceptanceCriteria": {
-        "type": "boolean",
-        "default": true
-      }
-    }
-  },
   "entrypoints": {
     "app": {
       "entry": "app/main.js",
@@ -105,7 +79,7 @@
     },
     {
       "id": "enhance",
-      "kind": "app.slash.command",
+      "kind": "app.composer.slash",
       "label": "/enhance"
     }
   ]

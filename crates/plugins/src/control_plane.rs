@@ -1824,14 +1824,27 @@ impl PluginRegistry for SqlitePluginRegistry {
     async fn delete_unreferenced_runtime_artifacts(
         &self,
     ) -> Result<Vec<RuntimeInstallation>, PluginError> {
+        let mut transaction = self.pool.begin().await.map_err(registry_error)?;
+        gc_runtime_locks(&mut transaction).await?;
+        transaction.commit().await.map_err(registry_error)?;
         let inventory = self.list_runtimes().await?;
         let orphans: Vec<RuntimeInstallation> = inventory
             .into_iter()
             .filter(|runtime| runtime.referenced_plugins.is_empty())
             .collect();
-        let mut transaction = self.pool.begin().await.map_err(registry_error)?;
-        gc_runtime_locks(&mut transaction).await?;
-        transaction.commit().await.map_err(registry_error)?;
+        sqlx::query(
+            "DELETE FROM plugin_runtime_artifacts_v4
+             WHERE NOT EXISTS (
+               SELECT 1 FROM plugin_runtime_locks_v4 l
+               WHERE l.runtime_id = plugin_runtime_artifacts_v4.runtime_id
+                 AND l.version = plugin_runtime_artifacts_v4.version
+                 AND l.target = plugin_runtime_artifacts_v4.target
+                 AND l.content_digest = plugin_runtime_artifacts_v4.content_digest
+             )",
+        )
+        .execute(&self.pool)
+        .await
+        .map_err(registry_error)?;
         Ok(orphans)
     }
 
@@ -4657,19 +4670,6 @@ async fn gc_runtime_locks(
            WHERE i.plugin_id = plugin_runtime_locks_v4.plugin_id
              AND (i.current_package_digest = plugin_runtime_locks_v4.package_digest
                OR i.rollback_package_digest = plugin_runtime_locks_v4.package_digest)
-         )",
-    )
-    .execute(&mut **transaction)
-    .await
-    .map_err(registry_error)?;
-    sqlx::query(
-        "DELETE FROM plugin_runtime_artifacts_v4
-         WHERE NOT EXISTS (
-           SELECT 1 FROM plugin_runtime_locks_v4 l
-           WHERE l.runtime_id = plugin_runtime_artifacts_v4.runtime_id
-             AND l.version = plugin_runtime_artifacts_v4.version
-             AND l.target = plugin_runtime_artifacts_v4.target
-             AND l.content_digest = plugin_runtime_artifacts_v4.content_digest
          )",
     )
     .execute(&mut **transaction)

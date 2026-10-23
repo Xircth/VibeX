@@ -244,6 +244,16 @@ impl LocalDeployment {
 
 /// Generates a consistent, anonymous user ID based on machine identity.
 fn generate_user_id() -> String {
+    static USER_ID: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+    if let Some(cached) = USER_ID.get() {
+        return cached.clone();
+    }
+    let id = generate_user_id_uncached();
+    let _ = USER_ID.set(id.clone());
+    id
+}
+
+fn generate_user_id_uncached() -> String {
     let mut hasher = DefaultHasher::new();
 
     #[cfg(target_os = "macos")]

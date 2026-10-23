@@ -34,8 +34,9 @@
       "id": "notes",
       "kind": "app.panel",
       "title": "Workspace Notes",
-      "icon": "sticky-note",
-      "defaultPosition": "right"
+      "icon": "file-text",
+      "handler": "surface.createSession",
+      "defaultPosition": "left"
     },
     {
       "id": "open-notes",

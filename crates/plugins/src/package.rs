@@ -2604,7 +2604,7 @@ fn parse_v4_ui_contributions(
                     contributions.tabs.push(item);
                 })
                 .is_some(),
-            "app.kanban.view" => parse_kanban_view_contribution(integration)
+            "app.kanban.view" => parse_kanban_view_contribution(integration, is_v2)
                 .map(|item| {
                     contributions.surfaces.push(synthesized_surface(
                         &item.id,
@@ -3000,12 +3000,18 @@ fn parse_tab_contribution(integration: &Map<String, Value>) -> Option<AppTabCont
 
 fn parse_kanban_view_contribution(
     integration: &Map<String, Value>,
+    is_v2: bool,
 ) -> Option<AppKanbanViewContribution> {
     Some(AppKanbanViewContribution {
         id: contribution_id(integration)?,
-        title: contribution_text(integration, "title")?,
+        title: contribution_text(integration, "title").or_else(|| {
+            is_v2
+                .then(|| contribution_text(integration, "label"))
+                .flatten()
+        })?,
         icon: contribution_icon(integration).ok()?,
-        handler: surface_handler(integration)?,
+        handler: surface_handler(integration)
+            .or_else(|| is_v2.then(|| "app.activate".to_owned()))?,
         hides_bottom_dock: parse_hides_bottom_dock(integration, true).ok()?,
         remote: parse_remote(integration).ok()?,
     })

@@ -1,4 +1,4 @@
-use std::{collections::BTreeMap, path::PathBuf};
+use std::collections::BTreeMap;
 
 use agents::{
     AgentAuthenticationStatus, AgentId, AgentLifecycleState, AgentManagementSnapshot,

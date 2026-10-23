@@ -73,6 +73,9 @@ pub struct HeadlessServer {
     automation_owner: Option<AutomationEngine<File>>,
     automation_recovery: Option<StartupRecoveryReport>,
     agent_event_task: Option<JoinHandle<()>>,
+    terminal_task: JoinHandle<()>,
+    idle_recycle_task: JoinHandle<()>,
+    local_discovery_task: JoinHandle<()>,
     _delegation_runtime: HeadlessDelegationRuntime,
     workflow_dispatch_task: JoinHandle<()>,
 }
@@ -143,7 +146,7 @@ impl HeadlessServer {
                 },
             )
         };
-        let _terminal_task = {
+        let terminal_task = {
             let pool = pool.clone();
             let events = events.clone();
             tokio::spawn(async move {
@@ -286,44 +289,65 @@ impl HeadlessServer {
             .install_bundled_official_plugins(&config.data_dir, None)
             .await
             .map_err(|error| ServerBootstrapError::Plugin(error.to_string()))?;
-        let enabled_worker_exists = plugin_control_plane
+        if let Err(error) = plugin_control_plane.import_queued_developer_links().await {
+            tracing::warn!(%error, "queued linked Plugin inbox import failed");
+        }
+        let catalog = plugin_control_plane
             .catalog()
             .await
-            .map_err(|error| ServerBootstrapError::Plugin(error.to_string()))?
+            .map_err(|error| ServerBootstrapError::Plugin(error.to_string()))?;
+        let enabled_worker_exists = catalog.iter().any(|plugin| {
+            plugin.activation == plugins::PluginActivation::Enabled
+                && plugin.entrypoints.worker.is_some()
+        });
+        let has_developer_links = catalog
             .iter()
-            .any(|plugin| {
-                plugin.activation == plugins::PluginActivation::Enabled
-                    && plugin.entrypoints.worker.is_some()
-            });
-        let recovery_failures = match worker_runtime.resolve().await {
-            Ok(node) => {
-                let activation = plugins::BundledPluginActivation {
-                    node_executable: node.clone(),
-                    broker: capability_broker.clone(),
-                };
-                if let Err(error) = plugin_control_plane
-                    .refresh_installed_bundled_plugins(&bundled_roots, Some(&activation))
-                    .await
-                {
-                    tracing::warn!(%error, "official plugin packages could not be refreshed");
-                }
-                if enabled_worker_exists {
-                    plugin_control_plane
-                        .recover_enabled_workers(
-                            &node,
-                            &config.data_dir.join("plugins").join("dev-candidates"),
-                            capability_broker.clone(),
-                        )
+            .any(|plugin| plugin.source.kind == plugins::PluginSourceKind::DeveloperLink);
+        let recovery_failures = if enabled_worker_exists || has_developer_links {
+            match worker_runtime.resolve().await {
+                Ok(node) => {
+                    let activation = plugins::BundledPluginActivation {
+                        node_executable: node.clone(),
+                        broker: capability_broker.clone(),
+                    };
+                    if let Err(error) = plugin_control_plane
+                        .refresh_installed_bundled_plugins(&bundled_roots, Some(&activation))
                         .await
-                        .map_err(|error| ServerBootstrapError::Plugin(error.to_string()))?
-                } else {
+                    {
+                        tracing::warn!(%error, "official plugin packages could not be refreshed");
+                    }
+                    drop(plugins::PluginControlPlane::spawn_developer_link_refresh(
+                        plugin_control_plane.clone(),
+                        node.clone(),
+                        config.data_dir.join("plugins").join("dev-candidates"),
+                        capability_broker.clone(),
+                    ));
+                    if enabled_worker_exists {
+                        plugin_control_plane
+                            .recover_enabled_workers(
+                                &node,
+                                &config.data_dir.join("plugins").join("dev-candidates"),
+                                capability_broker.clone(),
+                            )
+                            .await
+                            .map_err(|error| ServerBootstrapError::Plugin(error.to_string()))?
+                    } else {
+                        Vec::new()
+                    }
+                }
+                Err(error) => {
+                    tracing::warn!(%error, "Plugin Worker Runtime could not be provisioned");
                     Vec::new()
                 }
             }
-            Err(error) => {
-                tracing::warn!(%error, "Plugin Worker Runtime could not be provisioned");
-                Vec::new()
+        } else {
+            if let Err(error) = plugin_control_plane
+                .refresh_installed_bundled_plugins(&bundled_roots, None)
+                .await
+            {
+                tracing::warn!(%error, "official plugin packages could not be refreshed");
             }
+            Vec::new()
         };
         for failure in recovery_failures {
             tracing::warn!(
@@ -333,17 +357,6 @@ impl HeadlessServer {
                 "enabled plugin Worker could not be restored"
             );
         }
-        if let Err(error) = plugin_control_plane.import_queued_developer_links().await {
-            tracing::warn!(%error, "queued linked Plugin inbox import failed");
-        }
-        if let Ok(node) = worker_runtime.resolve().await {
-            drop(plugins::PluginControlPlane::spawn_developer_link_refresh(
-                plugin_control_plane.clone(),
-                node,
-                config.data_dir.join("plugins").join("dev-candidates"),
-                capability_broker.clone(),
-            ));
-        }
         plugin_control_plane
             .sync_official_product_mcp_gate()
             .await
@@ -351,7 +364,7 @@ impl HeadlessServer {
         if let Err(error) = services::services::mcp::patch_grok_product_mcp_startup_timeout() {
             tracing::warn!(%error, "Grok product MCP startup timeout patch failed");
         }
-        {
+        let idle_recycle_task = {
             let idle_recycle = plugin_control_plane.clone();
             tokio::spawn(async move {
                 let mut interval = tokio::time::interval(std::time::Duration::from_secs(60));
@@ -362,8 +375,8 @@ impl HeadlessServer {
                         .recycle_idle_workers(std::time::Duration::from_secs(10 * 60))
                         .await;
                 }
-            });
-        }
+            })
+        };
         start_plugin_artifact_http(plugin_control_plane.clone())
             .await
             .map_err(|error| ServerBootstrapError::Plugin(error.to_string()))?;
@@ -453,11 +466,12 @@ impl HeadlessServer {
             conversation_host: Some(conversation_host),
             delegation_broker: Some(delegation_broker),
         });
-        {
+        let local_discovery_task = {
             let runtime = host.agent_management_runtime.clone();
             let events = host.events.clone();
             let pool = pool.clone();
             tokio::spawn(async move {
+                tokio::time::sleep(std::time::Duration::from_millis(50)).await;
                 services::services::local_runtime_discovery::warm_local_runtime_discovery(
                     &pool,
                     &runtime,
@@ -470,8 +484,8 @@ impl HeadlessServer {
                 )
                 .await;
                 events.emit("agent-management-snapshot-invalidated", ());
-            });
-        }
+            })
+        };
         let workflow_dispatcher =
             application::WorkflowAgentDispatcher::new(conversation_context.clone());
         let workflow_dispatch_task = tokio::spawn(async move {
@@ -502,6 +516,9 @@ impl HeadlessServer {
             automation_owner,
             automation_recovery,
             agent_event_task: Some(agent_event_task),
+            terminal_task,
+            idle_recycle_task,
+            local_discovery_task,
             _delegation_runtime: delegation_runtime,
             workflow_dispatch_task,
         })
@@ -567,6 +584,9 @@ impl HeadlessServer {
 impl Drop for HeadlessServer {
     fn drop(&mut self) {
         self.workflow_dispatch_task.abort();
+        self.terminal_task.abort();
+        self.idle_recycle_task.abort();
+        self.local_discovery_task.abort();
         if let Some(task) = self.agent_event_task.take() {
             task.abort();
         }

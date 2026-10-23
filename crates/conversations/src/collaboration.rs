@@ -17,6 +17,7 @@ use agents::{
 use async_trait::async_trait;
 use chrono::{DateTime, Duration, SecondsFormat, Utc};
 use db::models::{
+    collaboration_identity::{self as identity, IdentityError},
     conversation_event::AppendConversationEvent,
     session::{CreateSession, Session},
 };
@@ -1968,7 +1969,16 @@ pub async fn create_collaboration_space(
         .name
         .filter(|name| !name.trim().is_empty())
         .unwrap_or_else(|| "会话".to_string());
-    insert_member(pool, &space_id, Some(caller_id), &nickname, "agent", true).await?;
+    insert_member_with(
+        pool,
+        &space_id,
+        Some(caller_id),
+        &nickname,
+        "agent",
+        true,
+        SeatMode::Shared,
+    )
+    .await?;
     let record = SpaceRecord {
         space_id,
         name,
@@ -2663,6 +2673,9 @@ pub async fn host_move_space_member(
     .execute(pool)
     .await
     .map_err(db)?;
+    // A member may now sit in several spaces (one conversation per thread),
+    // so a move only vacates the source seat. The undecided space is still
+    // exclusive: a member there has no group seat with this conversation.
     if parse_unassigned_space_id(to_space_id).is_none() {
         let unassigned = unassigned_space_id(target.workspace_id);
         sqlx::query(
@@ -2673,29 +2686,19 @@ pub async fn host_move_space_member(
         .execute(pool)
         .await
         .map_err(db)?;
-    } else {
-        sqlx::query(
-            r#"DELETE FROM collaboration_space_members
-               WHERE conversation_id = ?
-                 AND space_id IN (SELECT id FROM collaboration_spaces WHERE workspace_id = ?)"#,
-        )
-        .bind(conversation_id.to_string())
-        .bind(&to_space.workspace_id)
-        .execute(pool)
-        .await
-        .map_err(db)?;
     }
     let record = if let Ok(existing) = ensure_agent_member(pool, to_space_id, conversation_id).await
     {
         existing
     } else {
-        insert_member(
+        insert_member_with(
             pool,
             to_space_id,
             Some(conversation_id),
             &desired_nickname,
             "agent",
             true,
+            SeatMode::Transfer,
         )
         .await?
     };
@@ -2815,13 +2818,14 @@ pub async fn host_batch_delete_space_items(
                     } else {
                         nickname
                     };
-                    let _ = insert_member(
+                    let _ = insert_member_with(
                         pool,
                         &unassigned_id,
                         Some(conv_id),
                         &safe_nick,
                         "agent",
                         true,
+                        SeatMode::Transfer,
                     )
                     .await;
                 }
@@ -2898,6 +2902,9 @@ pub async fn host_batch_delete_space_items(
         .execute(pool)
         .await
         .map_err(db)?;
+        identity::unbind_conversation(pool, target.conversation_id)
+            .await
+            .map_err(db)?;
         if !archived_conversation_ids.contains(&target.conversation_id) {
             archived_conversation_ids.push(target.conversation_id);
         }
@@ -4293,7 +4300,27 @@ pub async fn list_space_members_detailed(
     }))
 }
 
+/// Resolve recipients, then map every agent seat through its member identity
+/// (`resolve_session`) so delivery always lands in the member's conversation
+/// for this space's thread.
 async fn resolve_targets(
+    pool: &SqlitePool,
+    space_id: &str,
+    sender: Option<Uuid>,
+    nicknames: &[String],
+    content: &str,
+) -> Result<Vec<ResolvedTarget>, CollaborationError> {
+    let mut targets = resolve_seat_targets(pool, space_id, sender, nicknames, content).await?;
+    for target in &mut targets {
+        if let Some(conversation_id) = target.conversation_id {
+            target.conversation_id =
+                Some(resolve_seat_target(pool, space_id, conversation_id, &target.nickname).await?);
+        }
+    }
+    Ok(targets)
+}
+
+async fn resolve_seat_targets(
     pool: &SqlitePool,
     space_id: &str,
     sender: Option<Uuid>,
@@ -4397,6 +4424,221 @@ async fn resolve_targets(
     Ok(targets)
 }
 
+/// How an agent seat obtains its conversation.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum SeatMode {
+    /// Default. The seat uses the member's own conversation for this thread,
+    /// creating one when the conversation is already bound to another live
+    /// thread. A binding whose seat was removed is transferred instead.
+    PerThread,
+    /// The conversation moves into this thread (move / undecided fallback).
+    Transfer,
+    /// The calling conversation itself joins (agent created the space). If it
+    /// is already bound elsewhere the seat stays a legacy shared seat.
+    Shared,
+}
+
+fn identity_error(error: IdentityError) -> CollaborationError {
+    match error {
+        IdentityError::Database(error) => db(error),
+        IdentityError::NotFound(what) => {
+            CollaborationError::new("not_found", format!("{what} was not found"))
+        }
+    }
+}
+
+/// Map `(member, thread)` to its conversation, creating it when missing.
+/// A newly created conversation gets the member's persona notice and the
+/// role's mode/config, like a freshly created space member.
+pub async fn resolve_session(
+    pool: &SqlitePool,
+    member_id: &str,
+    thread_id: &str,
+) -> Result<Uuid, CollaborationError> {
+    let resolved = identity::resolve_session(pool, member_id, thread_id)
+        .await
+        .map_err(identity_error)?;
+    if resolved.created {
+        prepare_member_conversation(pool, member_id, resolved.conversation_id).await?;
+    }
+    Ok(resolved.conversation_id)
+}
+
+async fn prepare_member_conversation(
+    pool: &SqlitePool,
+    member_id: &str,
+    conversation_id: Uuid,
+) -> Result<(), CollaborationError> {
+    let persona_prompt: Option<String> = sqlx::query_scalar(
+        "SELECT persona_prompt FROM conversation_personas WHERE conversation_id = ?",
+    )
+    .bind(conversation_id.to_string())
+    .fetch_optional(pool)
+    .await
+    .map_err(db)?;
+    if let Some(prompt) = persona_prompt.filter(|prompt| !prompt.trim().is_empty()) {
+        append_persona_notice(pool, conversation_id, &prompt).await?;
+    }
+    let role_id = identity::load_member(pool, member_id)
+        .await
+        .map_err(db)?
+        .and_then(|member| member.role_id);
+    if let Some(role_id) = role_id
+        && let Ok(role) = load_role(pool, &role_id).await
+    {
+        remember_creation_session_controls(
+            pool,
+            conversation_id,
+            role.mode_id.as_deref(),
+            config_overrides(&role.config_values),
+        )
+        .await;
+    }
+    Ok(())
+}
+
+/// Resolve a target for a caller conversation: `member_id` plus `thread_id`
+/// (a space id, a `direct:` thread id, or the undecided space id). The thread
+/// must live in the caller's workspace, and nothing is created otherwise.
+pub async fn resolve_member_target(
+    pool: &SqlitePool,
+    caller_id: Uuid,
+    member_id: &str,
+    thread_id: &str,
+) -> Result<Uuid, CollaborationError> {
+    let caller = live_session(load_session(pool, caller_id).await?)?;
+    let member_id = member_id.trim();
+    let mut thread_id = thread_id.trim().to_string();
+    if parse_unassigned_space_id(&thread_id).is_some() {
+        thread_id = identity::direct_thread_id(member_id);
+    }
+    if identity::load_member(pool, member_id).await.map_err(db)?.is_none() {
+        return Err(CollaborationError::new("not_found", "member was not found"));
+    }
+    let thread_workspace = match identity::load_thread(pool, &thread_id).await.map_err(db)? {
+        Some(thread) => thread.workspace_id,
+        None if !thread_id.starts_with(identity::DIRECT_PREFIX) => {
+            let space = load_space(pool, &thread_id).await?;
+            identity::ensure_thread_for_seat(pool, &thread_id, member_id)
+                .await
+                .map_err(identity_error)?;
+            Some(space.workspace_id)
+        }
+        None => None,
+    };
+    if thread_workspace.as_deref() != Some(caller.workspace_id.to_string().as_str()) {
+        return Err(CollaborationError::new("not_found", "thread was not found"));
+    }
+    resolve_session(pool, member_id, &thread_id).await
+}
+
+/// Bind an agent seat's conversation to its `(member, thread)` and return the
+/// conversation that seat must use. Keeps legacy seats working: a seat whose
+/// conversation is bound to another live thread is left as is.
+async fn attach_seat(
+    pool: &SqlitePool,
+    space_id: &str,
+    conversation_id: Uuid,
+    nickname: &str,
+    mode: SeatMode,
+) -> Result<Uuid, CollaborationError> {
+    let binding = identity::binding_of_conversation(pool, conversation_id)
+        .await
+        .map_err(db)?;
+    if let Some(binding) = binding.as_ref() {
+        let thread_id = identity::thread_for_seat(space_id, &binding.member_id);
+        if binding.thread_id == thread_id {
+            return resolve_session(pool, &binding.member_id, &thread_id).await;
+        }
+        let other_seat: Option<i64> = sqlx::query_scalar(
+            r#"SELECT 1 FROM collaboration_space_members
+               WHERE conversation_id = ? AND space_id != ? AND kind = 'agent' LIMIT 1"#,
+        )
+        .bind(conversation_id.to_string())
+        .bind(space_id)
+        .fetch_optional(pool)
+        .await
+        .map_err(db)?;
+        let orphaned = other_seat.is_none();
+        match mode {
+            SeatMode::Shared if !orphaned => return Ok(conversation_id),
+            SeatMode::Transfer | SeatMode::Shared => {
+                identity::transfer_conversation(pool, conversation_id, space_id, Some(nickname))
+                    .await
+                    .map_err(identity_error)?;
+            }
+            SeatMode::PerThread if orphaned => {
+                identity::transfer_conversation(pool, conversation_id, space_id, Some(nickname))
+                    .await
+                    .map_err(identity_error)?;
+            }
+            SeatMode::PerThread => {}
+        }
+    }
+    let (member_id, _, resolved) =
+        identity::bind_seat(pool, space_id, conversation_id, Some(nickname))
+            .await
+            .map_err(identity_error)?;
+    if resolved.created {
+        prepare_member_conversation(pool, &member_id, resolved.conversation_id).await?;
+    }
+    Ok(resolved.conversation_id)
+}
+
+/// Conversation that a delivery to this seat goes to. Resolves the seat's
+/// identity first; a seat still pointing at a stale conversation is repointed.
+async fn resolve_seat_target(
+    pool: &SqlitePool,
+    space_id: &str,
+    conversation_id: Uuid,
+    nickname: &str,
+) -> Result<Uuid, CollaborationError> {
+    let resolved = attach_seat(pool, space_id, conversation_id, nickname, SeatMode::Shared).await?;
+    if resolved != conversation_id {
+        sqlx::query(
+            "UPDATE collaboration_space_members SET conversation_id = ? WHERE space_id = ? AND conversation_id = ?",
+        )
+        .bind(resolved.to_string())
+        .bind(space_id)
+        .bind(conversation_id.to_string())
+        .execute(pool)
+        .await
+        .map_err(db)?;
+    }
+    Ok(resolved)
+}
+
+/// Seat the member owning `conversation_id` already has in `space_id`
+/// through another conversation, if any.
+async fn existing_member_seat(
+    pool: &SqlitePool,
+    space_id: &str,
+    conversation_id: Uuid,
+) -> Result<Option<MemberRecord>, CollaborationError> {
+    let Some(binding) = identity::binding_of_conversation(pool, conversation_id)
+        .await
+        .map_err(db)?
+    else {
+        return Ok(None);
+    };
+    let thread_id = identity::thread_for_seat(space_id, &binding.member_id);
+    let bound: Option<String> = sqlx::query_scalar(
+        "SELECT conversation_id FROM collaboration_thread_members WHERE thread_id = ? AND member_id = ?",
+    )
+    .bind(&thread_id)
+    .bind(&binding.member_id)
+    .fetch_optional(pool)
+    .await
+    .map_err(db)?;
+    let Some(bound) = bound.and_then(|raw| Uuid::parse_str(&raw).ok()) else {
+        return Ok(None);
+    };
+    if bound == conversation_id {
+        return Ok(None);
+    }
+    ensure_agent_member(pool, space_id, bound).await.map(Some).or(Ok(None))
+}
+
 async fn insert_member(
     pool: &SqlitePool,
     space_id: &str,
@@ -4405,6 +4647,34 @@ async fn insert_member(
     kind: &str,
     visible: bool,
 ) -> Result<MemberRecord, CollaborationError> {
+    insert_member_with(
+        pool,
+        space_id,
+        conversation_id,
+        nickname,
+        kind,
+        visible,
+        SeatMode::PerThread,
+    )
+    .await
+}
+
+async fn insert_member_with(
+    pool: &SqlitePool,
+    space_id: &str,
+    conversation_id: Option<Uuid>,
+    nickname: &str,
+    kind: &str,
+    visible: bool,
+    mode: SeatMode,
+) -> Result<MemberRecord, CollaborationError> {
+    if kind == "agent"
+        && mode != SeatMode::Shared
+        && let Some(conversation_id) = conversation_id
+        && let Some(existing) = existing_member_seat(pool, space_id, conversation_id).await?
+    {
+        return Ok(existing);
+    }
     let nickname = unique_nickname(pool, space_id, nickname).await?;
     let member_id = Uuid::new_v4().to_string();
     sqlx::query(
@@ -4421,6 +4691,24 @@ async fn insert_member(
     .execute(pool)
     .await
     .map_err(db)?;
+    let conversation_id = match (kind, conversation_id) {
+        ("agent", Some(conversation_id)) => {
+            let resolved = attach_seat(pool, space_id, conversation_id, &nickname, mode).await?;
+            if resolved != conversation_id {
+                sqlx::query(
+                    "UPDATE collaboration_space_members SET conversation_id = ? WHERE space_id = ? AND member_id = ?",
+                )
+                .bind(resolved.to_string())
+                .bind(space_id)
+                .bind(&member_id)
+                .execute(pool)
+                .await
+                .map_err(db)?;
+            }
+            Some(resolved)
+        }
+        (_, conversation_id) => conversation_id,
+    };
     Ok(MemberRecord {
         member_id,
         conversation_id: conversation_id.map(|id| id.to_string()),
@@ -6917,6 +7205,82 @@ mod tests {
         assert!(texts.iter().all(|text| text.contains("请评审当前 diff")));
         assert!(texts.iter().all(|text| text.contains("auth.ts")));
         assert_eq!(texts[0], texts[1]);
+    }
+
+    #[tokio::test]
+    async fn same_member_in_two_spaces_gets_distinct_conversations() {
+        let pool = setup_pool().await;
+        let workspace = Uuid::new_v4();
+        let a = Uuid::new_v4();
+        let b = Uuid::new_v4();
+        create_session(&pool, a, workspace, Some("小A")).await;
+        create_session(&pool, b, workspace, Some("小B")).await;
+        let first = space_of(&pool, a).await;
+        let second = space_of(&pool, a).await;
+        let in_first = add_space_member(&pool, a, &first, b, "小B", Uuid::new_v4())
+            .await
+            .unwrap();
+        assert_eq!(in_first.conversation_id, Some(b.to_string()));
+        let in_second = add_space_member(&pool, a, &second, b, "小B", Uuid::new_v4())
+            .await
+            .unwrap();
+        let forked = Uuid::parse_str(in_second.conversation_id.as_deref().unwrap()).unwrap();
+        assert_ne!(forked, b);
+        let forked_session = load_session(&pool, forked).await.unwrap().expect("forked session");
+        assert_eq!(forked_session.workspace_id, workspace);
+
+        let member = identity::member_id_for_conversation(b);
+        assert_eq!(resolve_session(&pool, &member, &first).await.unwrap(), b);
+        assert_eq!(resolve_session(&pool, &member, &second).await.unwrap(), forked);
+        assert_eq!(
+            resolve_member_target(&pool, a, &member, &second).await.unwrap(),
+            forked
+        );
+        let other_workspace = Uuid::new_v4();
+        let stranger = Uuid::new_v4();
+        create_session(&pool, stranger, other_workspace, Some("外人")).await;
+        assert_eq!(
+            resolve_member_target(&pool, stranger, &member, &second)
+                .await
+                .unwrap_err()
+                .code,
+            "not_found"
+        );
+
+        for (space, text) in [(&second, "第二空间"), (&first, "第一空间")] {
+            post_to_space(
+                &pool,
+                PostToSpace {
+                    caller_id: Some(a),
+                    space_id: space.clone(),
+                    content: text.to_string(),
+                    summary: None,
+                    to: vec!["小B".to_string()],
+                    in_reply_to: None,
+                    operation_id: Uuid::new_v4(),
+                },
+            )
+            .await
+            .unwrap();
+        }
+        let payload = |conversation: Uuid| {
+            let pool = pool.clone();
+            async move {
+                sqlx::query_scalar::<_, String>(
+                    "SELECT payload_json FROM conversation_inputs WHERE conversation_id = ?",
+                )
+                .bind(conversation)
+                .fetch_all(&pool)
+                .await
+                .unwrap()
+            }
+        };
+        let to_b = payload(b).await;
+        let to_forked = payload(forked).await;
+        assert_eq!(to_b.len(), 1);
+        assert!(to_b[0].contains("第一空间"));
+        assert_eq!(to_forked.len(), 1);
+        assert!(to_forked[0].contains("第二空间"));
     }
 
     #[tokio::test]

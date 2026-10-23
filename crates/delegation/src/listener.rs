@@ -179,15 +179,32 @@ impl DelegationListener {
                     )
                     .await
                 {
-                    Some(entry) => {
+                    Some(entry) => 'send: {
                         let workspace_write = self
                             .tokens
                             .permissions(&req.token)
                             .is_some_and(|permissions| permissions.workspace_write);
+                        let scope = scope_for(&entry);
+                        let conversation_id = match (
+                            req.member_id.as_deref().filter(|v| !v.trim().is_empty()),
+                            req.thread_id.as_deref().filter(|v| !v.trim().is_empty()),
+                        ) {
+                            (Some(member_id), Some(thread_id)) => {
+                                match self
+                                    .features
+                                    .resolve_member_session(&scope, member_id, thread_id)
+                                    .await
+                                {
+                                    Ok(conversation_id) => conversation_id,
+                                    Err(payload) => break 'send payload,
+                                }
+                            }
+                            _ => req.conversation_id.clone(),
+                        };
                         self.features
                             .session_send_ex(
-                                &scope_for(&entry),
-                                &req.conversation_id,
+                                &scope,
+                                &conversation_id,
                                 &req.operation_id,
                                 &req.text,
                                 req.steer,

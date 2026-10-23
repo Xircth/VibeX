@@ -133,6 +133,22 @@ pub trait CompanionFeaturePort: std::fmt::Debug + Send + Sync {
             .await
     }
 
+    /// Map a collaboration `(member_id, thread_id)` to the member's
+    /// conversation for that thread, creating it when missing. `Err` carries
+    /// the JSON error payload returned to the caller.
+    async fn resolve_member_session(
+        &self,
+        _scope: &DelegationScope,
+        _member_id: &str,
+        _thread_id: &str,
+    ) -> Result<String, Value> {
+        Err(json!({
+            "accepted": false,
+            "error_code": "collaboration_unavailable",
+            "message": "member addressing is not available on this companion",
+        }))
+    }
+
     async fn collaborate(&self, _scope: &DelegationScope, _name: &str, _arguments: Value) -> Value {
         json!({
             "error_code": "collaboration_unavailable",

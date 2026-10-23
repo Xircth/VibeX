@@ -270,6 +270,29 @@ impl CompanionFeaturePort for HostCompanionFeatures {
         }
     }
 
+    async fn resolve_member_session(
+        &self,
+        scope: &DelegationScope,
+        member_id: &str,
+        thread_id: &str,
+    ) -> Result<String, Value> {
+        collaboration::resolve_member_target(
+            &self.pool,
+            scope.parent_conversation_id,
+            member_id,
+            thread_id,
+        )
+        .await
+        .map(|conversation_id| conversation_id.to_string())
+        .map_err(|error| {
+            let mut payload = error.to_json();
+            if let Some(object) = payload.as_object_mut() {
+                object.insert("accepted".to_string(), json!(false));
+            }
+            payload
+        })
+    }
+
     async fn session_send_ex(
         &self,
         scope: &DelegationScope,

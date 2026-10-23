@@ -117,7 +117,14 @@ pub struct BrokerSessionRequest {
 #[derive(Debug, Clone, Serialize, serde::Deserialize)]
 pub struct BrokerSessionSendRequest {
     pub token: String,
+    /// Target conversation. May be empty when `member_id` + `thread_id`
+    /// address the target instead; the host resolves those first.
+    #[serde(default)]
     pub conversation_id: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub member_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub thread_id: Option<String>,
     pub operation_id: String,
     pub text: String,
     #[serde(default)]
@@ -293,6 +300,8 @@ mod tests {
         let sent = BrokerMessage::SessionSend(BrokerSessionSendRequest {
             token: "tok".to_string(),
             conversation_id: "child".to_string(),
+            member_id: None,
+            thread_id: None,
             operation_id: operation_id.clone(),
             text: "continue".to_string(),
             steer: false,

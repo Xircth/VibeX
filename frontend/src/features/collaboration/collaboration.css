@@ -1,4 +1,5 @@
 .collaboration-shell {
+  --collaboration-contact-avatar: 4.5rem;
   display: grid;
   grid-template-columns:
     var(--collaboration-spaces-width, 18.5rem)
@@ -855,58 +856,40 @@
 }
 
 .collaboration-space-row:hover .collaboration-space-meta--hide-on-hover,
-.collaboration-space-row:focus-within .collaboration-space-meta--hide-on-hover {
-  display: none;
+.collaboration-space-row:focus-within .collaboration-space-meta--hide-on-hover,
+.collaboration-member-row:hover .collaboration-member-meta--hide-on-hover,
+.collaboration-member-row:focus-within
+  .collaboration-member-meta--hide-on-hover {
+  visibility: hidden;
 }
 
-.collaboration-space-hover-actions {
+.collaboration-space-hover-actions,
+.collaboration-member-hover-actions {
+  position: absolute;
+  top: 50%;
+  right: 0.25rem;
+  z-index: 1;
   display: inline-flex;
   flex: 0 0 auto;
   align-items: center;
   gap: 0.125rem;
-  max-width: 0;
+  transform: translateY(-50%);
   opacity: 0;
-  overflow: hidden;
   pointer-events: none;
   transition: opacity 120ms ease;
 }
 
-.collaboration-space-hover-actions .collaboration-expand {
+.collaboration-space-hover-actions .collaboration-expand,
+.collaboration-member-hover-actions .collaboration-expand {
   width: 1.5rem;
   height: 1.5rem;
 }
 
 .collaboration-space-row:hover .collaboration-space-hover-actions,
-.collaboration-space-row:focus-within .collaboration-space-hover-actions {
-  max-width: 7rem;
-  opacity: 1;
-  overflow: visible;
-  pointer-events: auto;
-}
-
-.collaboration-member-row:hover .collaboration-member-meta--hide-on-hover,
-.collaboration-member-row:focus-within
-  .collaboration-member-meta--hide-on-hover {
-  display: none;
-}
-
-.collaboration-member-hover-actions {
-  display: inline-flex;
-  flex: 0 0 auto;
-  align-items: center;
-  gap: 0.125rem;
-  max-width: 0;
-  opacity: 0;
-  overflow: hidden;
-  pointer-events: none;
-  transition: opacity 120ms ease;
-}
-
+.collaboration-space-row:focus-within .collaboration-space-hover-actions,
 .collaboration-member-row:hover .collaboration-member-hover-actions,
 .collaboration-member-row:focus-within .collaboration-member-hover-actions {
-  max-width: 3rem;
   opacity: 1;
-  overflow: visible;
   pointer-events: auto;
 }
 
@@ -991,16 +974,35 @@
 .collaboration-shell .collaboration-member-row,
 .collaboration-dialog-member-picker .collaboration-member-row {
   --workspace-session-row-bg: hsl(var(--background));
-  min-height: 2.375rem;
-  padding-top: 0.25rem;
-  padding-bottom: 0.25rem;
   background: transparent;
   border-color: transparent;
   user-select: none;
   -webkit-user-drag: none;
 }
 
-.collaboration-shell .collaboration-member-row .workspace-session-icon,
+.collaboration-shell .collaboration-member-row,
+.collaboration-shell .collaboration-space-row {
+  min-height: 0;
+  padding-block: 0;
+  overflow: visible;
+  border: 0;
+}
+
+.collaboration-dialog-member-picker .collaboration-member-row {
+  min-height: 2.375rem;
+  padding-top: 0.25rem;
+  padding-bottom: 0.25rem;
+}
+
+.collaboration-shell .collaboration-member-row .workspace-session-icon {
+  position: relative;
+  width: var(--collaboration-contact-avatar, 4.5rem);
+  height: var(--collaboration-contact-avatar, 4.5rem);
+  background: transparent !important;
+  border: 0 !important;
+  box-shadow: none !important;
+}
+
 .collaboration-dialog-member-picker
   .collaboration-member-row
   .workspace-session-icon {
@@ -1143,10 +1145,22 @@ body.is-dragging-collaboration-member * {
 }
 
 .collaboration-shell .collaboration-member-row:hover,
+.collaboration-shell .collaboration-space-row:hover,
 .collaboration-dialog-member-picker .collaboration-member-row:hover {
   --workspace-session-row-bg: var(--surface-control-hover);
   background: var(--surface-control-hover);
   border-color: transparent;
+}
+
+.collaboration-shell .collaboration-member-row:hover .workspace-session-meta-idle,
+.collaboration-shell
+  .collaboration-member-row:focus-within
+  .workspace-session-meta-idle,
+.collaboration-shell
+  .collaboration-member-row.is-hovered
+  .workspace-session-meta-idle {
+  display: inline-flex;
+  visibility: hidden;
 }
 
 .collaboration-shell .collaboration-member-row.is-selected,
@@ -2831,10 +2845,11 @@ body.is-dragging-collaboration-member.is-drag-blocked * {
   cursor: not-allowed !important;
 }
 
-/* Contact list: DM and group-chat avatars share one 36px size (row height). */
-.collaboration-member-row .workspace-session-icon {
-  width: 2.25rem;
-  height: 2.25rem;
+/* Contact list: DM and group-chat avatars share one size (row height). */
+.collaboration-member-row .workspace-session-icon,
+.collaboration-contact-row-main > .collaboration-group-avatar {
+  width: var(--collaboration-contact-avatar, 4.5rem);
+  height: var(--collaboration-contact-avatar, 4.5rem);
 }
 
 .collaboration-member-row .workspace-session-icon > .collaboration-bot-avatar {
@@ -2860,7 +2875,11 @@ body.is-dragging-collaboration-member.is-drag-blocked * {
             [preview…          unread]                                    */
 .collaboration-contact-row-main {
   display: grid;
-  grid-template-columns: 2.25rem minmax(0, 1fr) auto;
+  grid-template-columns: var(--collaboration-contact-avatar, 4.5rem) minmax(
+      0,
+      1fr
+    )
+    auto;
   grid-template-rows: auto auto;
   column-gap: 0.625rem;
   row-gap: 0.125rem;
@@ -2942,8 +2961,10 @@ body.is-dragging-collaboration-member.is-drag-blocked * {
   padding-block: 0;
 }
 
-/* Hover actions take the right edge; hide the unread badge under them. */
+/* Hover actions overlay the right edge; hide unread without changing row height. */
 .collaboration-space-row:hover .collaboration-chat-unread,
-.collaboration-space-row:focus-within .collaboration-chat-unread {
+.collaboration-space-row:focus-within .collaboration-chat-unread,
+.collaboration-member-row:hover .collaboration-chat-unread,
+.collaboration-member-row:focus-within .collaboration-chat-unread {
   visibility: hidden;
 }

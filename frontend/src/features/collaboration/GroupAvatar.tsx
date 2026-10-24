@@ -11,8 +11,8 @@ const BOX = 28;
 /** Thickness (px) of the white silhouette outline at the 24px list size. */
 const OUTLINE_PX = 0.75;
 
-/** Clockwise tilt (deg) of each member body inside the group avatar. */
-export const GROUP_AVATAR_TILT_DEG = 16;
+/** Tilt (deg, negative = counter-clockwise) of each member body inside the group avatar. */
+export const GROUP_AVATAR_TILT_DEG = -12;
 
 type Slot = { x: number; y: number; size: number; z: number };
 

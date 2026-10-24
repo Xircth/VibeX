@@ -58,14 +58,14 @@ describe('GroupAvatar', () => {
 });
 
 describe('GroupAvatar tilt', () => {
-  it('rotates each member body clockwise toward the upper right', () => {
+  it('rotates each upright member body slightly counter-clockwise', () => {
     render(<GroupAvatar avatars={avatars(4)} />);
     for (const slot of screen.getAllByTestId(
       'collaboration-group-avatar-slot'
     )) {
       expect(slot.style.transform).toBe(`rotate(${GROUP_AVATAR_TILT_DEG}deg)`);
     }
-    expect(GROUP_AVATAR_TILT_DEG).toBeGreaterThanOrEqual(15);
-    expect(GROUP_AVATAR_TILT_DEG).toBeLessThanOrEqual(25);
+    expect(GROUP_AVATAR_TILT_DEG).toBeGreaterThanOrEqual(-15);
+    expect(GROUP_AVATAR_TILT_DEG).toBeLessThanOrEqual(-8);
   });
 });

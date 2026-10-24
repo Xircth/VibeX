@@ -4,14 +4,14 @@
 
 ## 术语
 
-| 文档/界面 | 代码标识 |
-| --- | --- |
-| bot | member（`member.*`、`member_id`、`collaboration_members`） |
-| 群组 | space / group thread（`space.*`、`kind: group`） |
-| 私聊（和 bot 一对一聊天） | direct thread（`direct:<member_id>`、`kind: dm`） |
-| 群聊（在群组里聊天） | group thread 内的消息 |
+| 代码标识 | 开发术语 | 界面文案（中文 / English） |
+| --- | --- | --- |
+| `member`（`member.*`、`member_id`、`collaboration_members`） | bot | 助手 / Bot |
+| `space` / group thread（`space.*`、`kind: group`） | 群组 | 群组 / Group |
+| direct thread（`direct:<member_id>`、`kind: dm`） | 私聊（和 bot 一对一聊天的场景） | 私聊 |
+| group thread 内的消息 | 群聊（在群组里聊天的场景） | 群聊 |
 
-代码标识符不改名。
+代码标识符不改名；「bot」只用于开发文档，界面上写「助手」。
 
 ## 模型（当前）
 

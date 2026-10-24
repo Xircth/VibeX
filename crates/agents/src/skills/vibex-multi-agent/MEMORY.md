@@ -1,6 +1,6 @@
 # Member memory
 
-> 术语：界面上「bot」即本文的「成员」（代码 member），「群组」即协作空间/群（代码 space）。私聊指和 bot 一对一聊天，群聊指在群组里聊天。
+> 术语：开发术语「bot」即本文的「成员」（代码 member，界面文案为「助手」），「群组」即协作空间/群（代码 space）。私聊指和 bot 一对一聊天，群聊指在群组里聊天。
 
 Every collaboration member keeps its own memory across all of its threads
 (group spaces and the private chat with the user).

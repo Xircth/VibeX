@@ -79,6 +79,17 @@ Glossary of domain terms. Keep entries implementation-free; link decisions to AD
 - **Delegated conversation（委派会话）** — 父 Conversation 为一项明确任务创建的 child Conversation；其 Conversation 与 Turn 事实独立持久化，父级只持有关系、策略和结果摘要。它是一次性的：子 Turn 到达终态即结束，父退出会取消仍在运行的委派。
 - **Role（角色）** — 设置里可复用的会话模板（名称、可选团队、简介、人设、Agent、会话配置）。可用于一等会话创建，也可在新建 bot 时可选地种子化 bot 配置。它不是协作空间联系人列表里的条目。
 - **Team（团队）** — 角色的可选分组（设置侧）。与联系人列表里的「联系人分组」不是同一概念。
+协作空间术语对照：
+
+| 代码标识 | 开发术语 | 界面文案（中文 / English） |
+| --- | --- | --- |
+| `member`（`member.*`、`member_id`、`collaboration_members`） | bot | 助手 / Bot |
+| `space` / group thread（`space.*`、`kind: group`） | 群组 | 群组 / Group |
+| direct thread（`direct:<member_id>`、`kind: dm`） | 私聊（和 bot 一对一聊天的场景） | 私聊 |
+| group thread 内的消息 | 群聊（在群组里聊天的场景） | 群聊 |
+
+代码标识符不改名；「bot」只用于开发文档，界面上写「助手」。
+
 - **Bot（代码中为 member）** — 协作空间中的长期身份。名下有一族隐藏会话：私聊一条、每个群组各一条。UI 展示 bot 与聊天，不暴露会话。权威定义见 [docs/collaboration-member-identity.md](docs/collaboration-member-identity.md)。
 - **私聊（direct thread）** — 和 bot 一对一聊天的场景，id 为 `direct:<member_id>`。新建 bot 时只创建这一条会话。
 - **群组（代码中为 space / group thread）** — 多个 bot 与用户所在的群；「群聊」指在群组里聊天这一场景，不是对象名。

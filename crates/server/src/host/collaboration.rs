@@ -200,6 +200,31 @@ impl CollaborationHost for HostCollaborationHost {
             ("collaboration", "space.listConversations" | "space.list_conversations") => {
                 self.list_conversations(&input).await
             }
+            // Compat: the pre-redesign frontend (and stale callers) may still ask for
+            // team/member templates, which no longer exist on the backend. Answer with an
+            // empty list / no-op success so those screens stay parseable.
+            (
+                "collaboration",
+                "template.list"
+                | "templates.list"
+                | "team.template.list"
+                | "team.templates"
+                | "team.listTemplates"
+                | "member.template.list"
+                | "member.templates",
+            ) => Ok(json!({ "templates": [], "items": [] })),
+            (
+                "collaboration",
+                "template.create"
+                | "template.update"
+                | "template.delete"
+                | "template.apply"
+                | "team.template.create"
+                | "team.template.update"
+                | "team.template.delete"
+                | "team.template.apply"
+                | "member.template.apply",
+            ) => Ok(json!({ "ok": true, "noop": true })),
             ("workspace", "focusConversation" | "focus_conversation") => {
                 self.focus_conversation(&input).await
             }
@@ -388,8 +413,20 @@ impl HostCollaborationHost {
 
     async fn create_member(&self, input: &Value) -> Result<Value, CollaborationHostError> {
         let workspace_id = required_uuid(input, &["workspaceId", "workspace_id"])?;
-        let operation_id = required_uuid(input, &["operationId", "operation_id"])?;
+        // Compat: older callers may omit operationId; mint one (no replay dedupe then).
+        let operation_id = match optional_text(input, &["operationId", "operation_id"]) {
+            Some(_) => required_uuid(input, &["operationId", "operation_id"])?,
+            None => Uuid::new_v4(),
+        };
         let space_id = optional_text(input, &["spaceId", "space_id"]);
+        let role_id = optional_text(input, &["roleId", "role_id"]);
+        // Compat: without a role or an agent, fall back to the first enabled agent
+        // (then `codex`) so a bare createMember still succeeds with defaults.
+        let agent_id = match optional_text(input, &["agentId", "agent_id"]) {
+            Some(agent) => Some(agent),
+            None if role_id.is_none() => Some(self.default_member_agent().await),
+            None => None,
+        };
         let target_space_id = space_id
             .clone()
             .unwrap_or_else(|| collaboration::unassigned_space_id(workspace_id));
@@ -399,8 +436,8 @@ impl HostCollaborationHost {
                 workspace_id,
                 space_id,
                 nickname: text(input, &["nickname", "name"]),
-                role_id: optional_text(input, &["roleId", "role_id"]),
-                agent_id: optional_text(input, &["agentId", "agent_id"]),
+                role_id,
+                agent_id,
                 team_id: optional_text(input, &["teamId", "team_id"]),
                 persona_prompt: optional_text(input, &["personaPrompt", "persona_prompt"]),
                 mode_id: optional_text(input, &["modeId", "mode_id"]),
@@ -417,14 +454,22 @@ impl HostCollaborationHost {
             COLLABORATION_SPACE_CHANGED_EVENT,
             CollaborationSpaceChangedEvent {
                 workspace_id,
-                space_id: target_space_id,
+                space_id: target_space_id.clone(),
                 seq: None,
                 member_id: Some(member.member_id.clone()),
             },
         );
-        serde_json::to_value(member).map_err(|error| {
+        let mut value = serde_json::to_value(member).map_err(|error| {
             CollaborationHostError::new("conversation_control_failed", error.to_string())
-        })
+        })?;
+        // Compat: the pre-redesign frontend types the result as
+        // `{ space_id, member_id, conversation_id, nickname }`.
+        if let Some(object) = value.as_object_mut() {
+            object
+                .entry("space_id")
+                .or_insert_with(|| json!(target_space_id));
+        }
+        Ok(value)
     }
 
     async fn move_member(&self, input: &Value) -> Result<Value, CollaborationHostError> {
@@ -787,6 +832,16 @@ impl HostCollaborationHost {
 
     async fn resolve_card(&self, input: &Value) -> Result<Value, CollaborationHostError> {
         let card_id = required_text(input, &["cardId", "card_id", "id"])?;
+        // Compat: `actor` is optional and defaults to the user. Host/UI calls can
+        // only ever act as the user, so any other value is rejected explicitly.
+        if let Some(actor) = optional_text(input, &["actor"])
+            && !actor.eq_ignore_ascii_case("user")
+        {
+            return Err(CollaborationHostError::new(
+                "permission_denied",
+                "host card.resolve can only act as the user",
+            ));
+        }
         let delivery = self.delivery.lock().expect("delivery").clone();
         let card = conversations::collaboration_cards::resolve_card(
             &self.pool,
@@ -1054,6 +1109,20 @@ impl HostCollaborationHost {
 }
 
 impl HostCollaborationHost {
+    /// Default agent for a member created without role or agent (compat path).
+    async fn default_member_agent(&self) -> String {
+        sqlx::query_scalar::<_, String>(
+            r#"SELECT agent_id FROM agent_membership
+               WHERE enabled = 1 AND retired = 0
+               ORDER BY position ASC, agent_id ASC LIMIT 1"#,
+        )
+        .fetch_optional(&self.pool)
+        .await
+        .ok()
+        .flatten()
+        .unwrap_or_else(|| "codex".to_string())
+    }
+
     async fn enabled_agents(&self) -> Result<Value, CollaborationHostError> {
         let rows = sqlx::query_as::<_, (String,)>(
             r#"SELECT agent_id FROM agent_membership
@@ -2027,5 +2096,180 @@ mod tests {
                 .await
                 .unwrap();
         assert_eq!(archived_status, "archived");
+    }
+
+    // ---- Compat shims for the pre-redesign frontend --------------------------
+
+    #[tokio::test]
+    async fn compat_template_ops_return_empty_list_and_noop_success() {
+        let pool = setup_pool().await;
+        let host = HostCollaborationHost::new(pool, Arc::new(HostEventBus::new()));
+        for op in ["template.list", "team.template.list", "member.templates"] {
+            let listed = host
+                .call("host", "collaboration", op, json!({}))
+                .await
+                .unwrap();
+            assert_eq!(listed["templates"], json!([]), "{op}");
+            assert_eq!(listed["items"], json!([]), "{op}");
+        }
+        for op in ["template.create", "template.delete", "team.template.apply"] {
+            let done = host
+                .call("host", "collaboration", op, json!({ "id": "x" }))
+                .await
+                .unwrap();
+            assert_eq!(done["ok"], json!(true), "{op}");
+        }
+    }
+
+    #[tokio::test]
+    async fn compat_create_member_without_agent_or_config_uses_defaults() {
+        let pool = setup_pool().await;
+        let host = HostCollaborationHost::new(pool.clone(), Arc::new(HostEventBus::new()));
+        let workspace = Uuid::new_v4();
+        create_session(&pool, Uuid::new_v4(), workspace, "seed").await;
+        // no agentId / modeId / configValues / personaPrompt / operationId
+        let member = host
+            .call(
+                "host",
+                "collaboration",
+                "space.createMember",
+                json!({ "workspaceId": workspace, "nickname": "Bare" }),
+            )
+            .await
+            .unwrap();
+        assert_eq!(member["nickname"], "Bare");
+        assert!(member["member_id"].as_str().is_some());
+        assert!(member["space_id"].as_str().is_some());
+        let conv = Uuid::parse_str(member["conversation_id"].as_str().unwrap()).unwrap();
+        let agent: Option<String> =
+            sqlx::query_scalar("SELECT agent_id FROM sessions WHERE id = ?")
+                .bind(conv)
+                .fetch_one(&pool)
+                .await
+                .unwrap();
+        assert!(agent.is_some_and(|a| !a.is_empty()), "default agent applied");
+
+        // explicit agent with no config still works (old frontend agent source)
+        let explicit = host
+            .call(
+                "host",
+                "collaboration",
+                "space.createMember",
+                json!({
+                    "workspaceId": workspace,
+                    "nickname": "Explicit",
+                    "agentId": "codex",
+                    "operationId": Uuid::new_v4(),
+                }),
+            )
+            .await
+            .unwrap();
+        assert_eq!(explicit["nickname"], "Explicit");
+    }
+
+    async fn card_fixture() -> (SqlitePool, HostCollaborationHost, String, Uuid) {
+        let pool = setup_pool().await;
+        let host = HostCollaborationHost::new(pool.clone(), Arc::new(HostEventBus::new()));
+        let workspace = Uuid::new_v4();
+        let (a, b) = (Uuid::new_v4(), Uuid::new_v4());
+        create_session(&pool, a, workspace, "A").await;
+        create_session(&pool, b, workspace, "B").await;
+        let space = collaboration::create_collaboration_space(&pool, a, "room", Uuid::new_v4())
+            .await
+            .unwrap();
+        collaboration::add_space_member(&pool, a, &space.space_id, b, "MemberB", Uuid::new_v4())
+            .await
+            .unwrap();
+        (pool, host, space.space_id, a)
+    }
+
+    async fn post_ask(pool: &SqlitePool, space: &str, caller: Uuid, payload: Value) -> String {
+        conversations::collaboration_cards::post_card(
+            pool,
+            conversations::collaboration_cards::PostCard {
+                caller_id: caller,
+                space_id: space.to_string(),
+                kind: conversations::collaboration_cards::CardKind::Ask,
+                payload,
+                operation_id: Uuid::new_v4(),
+            },
+            &DeliveryContext::default(),
+        )
+        .await
+        .unwrap()
+        .id
+    }
+
+    #[tokio::test]
+    async fn compat_card_resolve_without_actor_defaults_to_user() {
+        let (pool, host, space, a) = card_fixture().await;
+        let card_id = post_ask(&pool, &space, a, json!({ "question": "branch?" })).await;
+        let resolved = host
+            .call(
+                "host",
+                "collaboration",
+                "card.resolve",
+                json!({ "cardId": card_id, "answer": "dev" }),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resolved["card"]["status"], "resolved");
+
+        let explicit = post_ask(&pool, &space, a, json!({ "question": "again?" })).await;
+        let ok = host
+            .call(
+                "host",
+                "collaboration",
+                "card.resolve",
+                json!({ "cardId": explicit, "actor": "user", "answer": "yes" }),
+            )
+            .await
+            .unwrap();
+        assert_eq!(ok["card"]["status"], "resolved");
+
+        let other = post_ask(&pool, &space, a, json!({ "question": "third?" })).await;
+        let err = host
+            .call(
+                "host",
+                "collaboration",
+                "card.resolve",
+                json!({ "cardId": other, "actor": "member", "answer": "no" }),
+            )
+            .await
+            .unwrap_err();
+        assert_eq!(err.code(), "permission_denied");
+    }
+
+    #[tokio::test]
+    async fn compat_ask_person_without_to_is_addressed_to_user() {
+        let (pool, host, space, a) = card_fixture().await;
+        // no `to` at all, and the empty `to` the MCP bridge sends when omitted
+        for payload in [
+            json!({ "question": "which branch?" }),
+            json!({ "question": "which env?", "to": "" }),
+        ] {
+            let card_id = post_ask(&pool, &space, a, payload).await;
+            let listed = host
+                .call("host", "collaboration", "card.list", json!({ "spaceId": space }))
+                .await
+                .unwrap();
+            let card = listed["cards"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|c| c["id"] == json!(card_id))
+                .cloned()
+                .unwrap();
+            assert!(card["payload"].get("target_member_id").is_none());
+            // and the user can answer it without an actor param
+            host.call(
+                "host",
+                "collaboration",
+                "card.resolve",
+                json!({ "cardId": card_id, "answer": "main" }),
+            )
+            .await
+            .unwrap();
+        }
     }
 }

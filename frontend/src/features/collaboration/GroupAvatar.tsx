@@ -9,7 +9,19 @@ export const GROUP_AVATAR_MAX = 4;
 const BOX = 28;
 
 /** Thickness (px) of the white silhouette outline at the 24px list size. */
-const OUTLINE_PX = 0.75;
+export const BOT_SILHOUETTE_OUTLINE_PX = 0.75;
+
+/** White stroke that follows a bot silhouette, matching stacked group avatars. */
+export function botSilhouetteOutline(
+  slotPx: number,
+  groupSize = 24
+): { color: string; width: number } {
+  const outlinePx = BOT_SILHOUETTE_OUTLINE_PX * (groupSize / 24);
+  return {
+    color: '#ffffff',
+    width: ((outlinePx * 2) / Math.max(slotPx, 1)) * 64,
+  };
+}
 
 /** Tilt (deg, negative = counter-clockwise) of each member body inside the group avatar. */
 export const GROUP_AVATAR_TILT_DEG = -12;
@@ -84,9 +96,8 @@ export function GroupAvatar({
         const slot = slots[index];
         const px = slot.size * k;
         // Stroke is centred on the path and drawn under the fill, so the
-        // visible outer half must equal OUTLINE_PX (scaled to the 64 viewBox).
-        const outlinePx = OUTLINE_PX * (size / 24);
-        const strokeWidth = ((outlinePx * 2) / px) * 64;
+        // visible outer half matches botSilhouetteOutline (scaled to the 64 viewBox).
+        const strokeWidth = botSilhouetteOutline(px, size).width;
         return (
           <span
             key={index}

@@ -88,6 +88,33 @@ vi.mock('@/components/panels/DockviewPreviewPanel', () => ({
   default: () => <div data-testid="file-preview" />,
 }));
 
+vi.mock('@/features/conversation/useConversationTimeline', () => ({
+  useConversationTimeline: () => ({
+    timeline: [],
+    items: [],
+    sideRows: [],
+    sessionConfigOptions: [],
+    currentTurnId: null,
+  }),
+  useConversationSessionFacts: () => ({
+    sessionId: 'conv-1',
+    hasDetail: true,
+    error: null,
+    title: '设计会话',
+    status: null,
+    agentId: 'CLAUDE_CODE',
+    model: 'claude-sonnet-4',
+    acpSessionId: null,
+    externalSessionId: null,
+    turnInFlight: false,
+    sessionStats: {
+      total_usage: { input_tokens: 120, output_tokens: 80 },
+    },
+    truncated: false,
+    loading: false,
+  }),
+}));
+
 function renderPage(workspaceId: string | null = 'workspace-1') {
   return render(
     <HotkeysProvider initiallyActiveScopes={['dialog']}>
@@ -282,6 +309,10 @@ describe('CollaborationSpacePage', () => {
     const filterMemberABtn = screen.getByRole('button', {
       name: '筛选助手 小A',
     });
+    expect(
+      filterMemberABtn.querySelector('.collaboration-top-member-chip-name')
+    ).toHaveTextContent('小A');
+    expect(filterMemberABtn).toHaveClass('collaboration-top-member-chip');
     await user.click(filterMemberABtn);
     expect(filterMemberABtn).toHaveAttribute('aria-pressed', 'true');
     expect(screen.getAllByText('你好').length).toBeGreaterThanOrEqual(1);
@@ -1396,11 +1427,11 @@ describe('CollaborationSpacePage', () => {
     expect(await screen.findByText('请查看附件')).toBeTruthy();
     expect(await screen.findByText('spec.pdf')).toBeTruthy();
 
-    // 2. Leftmost 4-squares Space Collection button is rendered in expanded top member bar
+    // 2. Leftmost 4-squares group-details button is rendered in expanded top member bar
     const openCollectionBtn = await screen.findByTestId(
       'collaboration-open-collection-btn'
     );
-    expect(openCollectionBtn).toBeTruthy();
+    expect(openCollectionBtn).toHaveAttribute('aria-label', '群组详情');
 
     // Collapse top member bar and verify the collection button remains separate from avatar stack on the far left
     await user.click(screen.getByRole('button', { name: '收起助手列表' }));
@@ -1415,19 +1446,57 @@ describe('CollaborationSpacePage', () => {
     );
     expect(avatarStack.contains(collapsedCollectionBtn)).toBe(false);
 
-    // 3. Click the 4-squares button to open the Space Collection tab in Dockview
+    // 3. Click the 4-squares button to open the group-details tab in Dockview
     await user.click(collapsedCollectionBtn);
 
     const collectionPanel = await screen.findByTestId(
       'collaboration-space-collection-panel'
     );
     expect(collectionPanel).toBeTruthy();
-
-    // Collaboration space name is rendered as a badge component in the panel header
-    const spaceChip = within(collectionPanel).getByTestId(
-      'collaboration-collection-space-chip'
+    expect(within(collectionPanel).getByText('设计')).toBeTruthy();
+    expect(
+      within(collectionPanel).getByTestId(
+        'collaboration-group-details-tab-members'
+      )
+    ).toHaveAttribute('aria-selected', 'true');
+    expect(
+      within(collectionPanel).queryByTestId(
+        'collaboration-collection-space-chip'
+      )
+    ).toBeNull();
+    expect(
+      await within(collectionPanel).findByTestId(
+        'collaboration-group-member-小A'
+      )
+    ).toBeTruthy();
+    await user.click(
+      within(collectionPanel).getByRole('button', { name: '移除 小A' })
     );
-    expect(spaceChip).toHaveTextContent('设计');
+    expect(collaborationCall).toHaveBeenCalledWith(
+      'collaboration',
+      'space.moveMember',
+      expect.objectContaining({
+        fromSpaceId: 's1',
+        toSpaceId: 'unassigned:workspace-1',
+        conversationId: 'conv-1',
+      })
+    );
+    await user.click(
+      within(collectionPanel).getByTestId(
+        'collaboration-group-details-tab-details'
+      )
+    );
+    expect(
+      within(collectionPanel).getByTestId('collaboration-group-details-tab')
+    ).toBeTruthy();
+    expect(
+      within(collectionPanel).getByTestId('group-details-usage-conv-1')
+    ).toHaveTextContent('小A');
+    await user.click(
+      within(collectionPanel).getByTestId(
+        'collaboration-group-details-tab-collection'
+      )
+    );
 
     // Dropzone is placed at the bottom (after the list)
     const listEl = within(collectionPanel).getByTestId(
@@ -2320,6 +2389,11 @@ describe('CollaborationSpacePage', () => {
 
     renderPage();
     await user.click(await screen.findByRole('button', { name: '小A' }));
+    expect(
+      await screen.findByTestId('collaboration-top-member-bar')
+    ).toBeTruthy();
+    expect(screen.getByRole('button', { name: '筛选助手 小A' })).toBeTruthy();
+    expect(screen.queryByRole('button', { name: '群组详情' })).toBeNull();
     await waitFor(() => {
       expect(
         Array.from(document.querySelectorAll('.collaboration-message')).some(

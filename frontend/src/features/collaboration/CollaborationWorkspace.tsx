@@ -657,6 +657,7 @@ export function CollaborationWorkspace({
   return (
     <CollaborationWorkspaceView
       items={items}
+      allItems={allItems}
       members={members}
       selectedKey={selectedKey}
       filter={filter}

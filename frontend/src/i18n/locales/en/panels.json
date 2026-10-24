@@ -680,6 +680,10 @@
     "receiptClaimed": "Claimed",
     "receiptFailed": "Failed",
     "approvalAlwaysGroup": "Always allow in this group",
-    "approvalAlwaysDirect": "Always allow in this chat"
+    "approvalAlwaysDirect": "Always allow in this chat",
+    "searchOpen": "Search members or group chats",
+    "searchPlaceholder": "Search members or group chats…",
+    "searchEmpty": "No matching members or group chats",
+    "searchResults": "Search results"
   }
 }

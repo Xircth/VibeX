@@ -1,14 +1,25 @@
 import { useMemo, useState } from 'react';
-import { Pin, PinOff, Plus, TriangleAlert, Users } from 'lucide-react';
+import {
+  LayoutGrid,
+  MessagesSquare,
+  Pin,
+  PinOff,
+  Plus,
+  Search,
+  TriangleAlert,
+  User,
+  Users,
+} from 'lucide-react';
+import { useTranslation } from 'react-i18next';
 import {
   SegmentedControl,
   SegmentedControlItem,
 } from '@astryxdesign/core/SegmentedControl';
 
 import { Button } from '@/components/ui/button';
-import { SessionListSearchControl } from '@/components/workspace-session-list/SessionListSearchControl';
 import { cn } from '@/lib/utils';
 
+import { CollabSearchModal } from './CollabSearchModal';
 import { CollaborationSpaceIcon } from './CollaborationSpaceCollectionPanel';
 import { MemberBotAvatar, type MemberBotAvatarConfig } from './MemberBotAvatar';
 import {
@@ -31,12 +42,12 @@ function compactAge(at: string | null | undefined, now: number): string {
 
 export function ThreadList({
   items,
+  searchItems,
   selectedKey,
   filter,
   query,
   avatarFor,
   onFilterChange,
-  onQueryChange,
   onSelect,
   onTogglePin,
   onNewGroup,
@@ -45,6 +56,8 @@ export function ThreadList({
   now = Date.now(),
 }: {
   items: readonly ThreadListItem[];
+  /** Unfiltered items for the search modal; defaults to `items`. */
+  searchItems?: readonly ThreadListItem[];
   selectedKey: string | null;
   filter: ThreadFilter;
   query: string;
@@ -58,7 +71,8 @@ export function ThreadList({
   banner?: React.ReactNode;
   now?: number;
 }) {
-  const [searchOpen, setSearchOpen] = useState(Boolean(query));
+  const { t } = useTranslation('panels');
+  const [searchOpen, setSearchOpen] = useState(false);
   const nicknameById = useMemo(() => {
     const map = new Map<string, string>();
     for (const item of items) {
@@ -75,7 +89,42 @@ export function ThreadList({
       data-testid="collab-thread-list"
     >
       <div className="collab-list-head">
-        <h2 className="collab-list-title">{THREAD_COPY.title}</h2>
+        <SegmentedControl
+          label={THREAD_COPY.title}
+          size="sm"
+          layout="hug"
+          className="collaboration-compact-segmented collab-list-filter"
+          value={filter}
+          onChange={(value) => onFilterChange(value as ThreadFilter)}
+        >
+          <SegmentedControlItem
+            value="all"
+            label={THREAD_COPY.filterAll}
+            icon={<LayoutGrid className="h-3.5 w-3.5" aria-hidden="true" />}
+          />
+          <SegmentedControlItem
+            value="member"
+            label={THREAD_COPY.filterMembers}
+            icon={<User className="h-3.5 w-3.5" aria-hidden="true" />}
+          />
+          <SegmentedControlItem
+            value="group"
+            label={THREAD_COPY.filterGroups}
+            icon={<MessagesSquare className="h-3.5 w-3.5" aria-hidden="true" />}
+          />
+        </SegmentedControl>
+        <span className="collab-list-head-spacer" />
+        <Button
+          variant="icon"
+          size="sm"
+          aria-label={t('collaborationSpace.searchOpen')}
+          title={t('collaborationSpace.searchOpen')}
+          aria-haspopup="dialog"
+          data-testid="collab-search-button"
+          onClick={() => setSearchOpen(true)}
+        >
+          <Search className="h-4 w-4" aria-hidden="true" />
+        </Button>
         <Button
           variant="icon"
           size="sm"
@@ -96,34 +145,13 @@ export function ThreadList({
         </Button>
       </div>
       {banner}
-      <div className="collab-list-tools">
-        <SegmentedControl
-          label={THREAD_COPY.title}
-          size="sm"
-          layout="hug"
-          className="collaboration-compact-segmented"
-          value={filter}
-          onChange={(value) => onFilterChange(value as ThreadFilter)}
-        >
-          <SegmentedControlItem value="all" label={THREAD_COPY.filterAll} />
-          <SegmentedControlItem
-            value="member"
-            label={THREAD_COPY.filterMembers}
-          />
-          <SegmentedControlItem
-            value="group"
-            label={THREAD_COPY.filterGroups}
-          />
-        </SegmentedControl>
-        <SessionListSearchControl
-          searchQuery={query}
-          isExpanded={searchOpen}
-          searchLabel={THREAD_COPY.searchPlaceholder}
-          placeholder={THREAD_COPY.searchPlaceholder}
-          onSearchQueryChange={onQueryChange}
-          onExpandedChange={setSearchOpen}
-        />
-      </div>
+      <CollabSearchModal
+        open={searchOpen}
+        items={searchItems ?? items}
+        avatarFor={avatarFor}
+        onOpenChange={setSearchOpen}
+        onSelect={onSelect}
+      />
       {items.length === 0 ? (
         <p className="collab-empty-hint">
           {query ? THREAD_COPY.emptySearch : THREAD_COPY.emptyList}

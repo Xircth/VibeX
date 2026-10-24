@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { AgentIcon, getAgentName } from '@/components/agents/AgentIcon';
 import { SessionQuota } from '@/components/panels/session-details/SessionQuota';
 import { buildSessionDetails } from '@/components/panels/session-details/sessionDetailsModel';
@@ -8,8 +8,13 @@ import {
 } from '@/features/conversation/useConversationTimeline';
 import { cn } from '@/lib/utils';
 import { collaborationCall } from './collaborationApi';
+import {
+  aggregateTokenOverview,
+  uniqueAgentIds,
+  type MemberUsageSnapshot,
+} from './groupDetailsUsage';
 import { MemberBotAvatar, type MemberBotAvatarConfig } from './MemberBotAvatar';
-import { agentRoster, displayName, type SpaceMember } from './spaceModel';
+import { COPY, agentRoster, displayName, type SpaceMember } from './spaceModel';
 
 const CARD_CLASS =
   'flex flex-col gap-2 rounded-[var(--radius)] border border-[var(--border-subtle)] bg-[var(--surface-card)] p-3 shadow-none [--workspace-session-row-bg:var(--surface-card)]';
@@ -18,21 +23,45 @@ function formatTokens(value: number): string {
   return new Intl.NumberFormat().format(value);
 }
 
+function formatCacheRate(rate: number): string {
+  return `${Math.round(rate * 100)}%`;
+}
+
+function memberUsageKey(member: SpaceMember): string {
+  return member.member_id ?? member.conversation_id ?? displayName(member);
+}
+
+function GroupAgentQuotaCard({ agentId }: { agentId: string }) {
+  const [quotaActive, setQuotaActive] = useState(false);
+  return (
+    <section
+      className={cn(CARD_CLASS, !quotaActive && 'hidden')}
+      hidden={!quotaActive}
+      data-testid={`group-details-quota-card-${agentId}`}
+    >
+      <SessionQuota agentId={agentId} onActive={setQuotaActive} />
+    </section>
+  );
+}
+
 function GroupMemberUsageCard({
   member,
   getAvatar,
+  onSnapshot,
 }: {
   member: SpaceMember;
   getAvatar: (
     conversationId?: string | null,
     nickname?: string
   ) => MemberBotAvatarConfig;
+  onSnapshot: (snapshot: MemberUsageSnapshot) => void;
 }) {
   const nick = displayName(member);
+  const memberKey = memberUsageKey(member);
   const conversationId = String(member.conversation_id ?? '').trim() || null;
   const conversation = useConversationTimeline(conversationId);
   const facts = useConversationSessionFacts(conversationId);
-  const [quotaActive, setQuotaActive] = useState(false);
+  const [expanded, setExpanded] = useState(true);
   const model = useMemo(
     () =>
       buildSessionDetails({
@@ -52,52 +81,54 @@ function GroupMemberUsageCard({
     ]
   );
   const usage = model.kind === 'ready' ? model.usage : null;
-  const modelLabel =
-    (model.kind === 'ready' ? model.model : null) || facts.model;
   const agentId =
     (model.kind === 'ready' ? model.agentId : null) || facts.agentId;
   const agentName = agentId ? getAgentName(agentId) : null;
+
+  useEffect(() => {
+    onSnapshot({
+      memberKey,
+      agentId,
+      totalTokens: usage?.totalTokens ?? null,
+      byModel:
+        usage?.byModel.map((group) => ({
+          key: group.key,
+          label: group.label,
+          tokens: group.tokens,
+        })) ?? [],
+    });
+  }, [agentId, memberKey, onSnapshot, usage]);
 
   return (
     <section
       className={CARD_CLASS}
       data-testid={`group-details-usage-${conversationId || nick}`}
+      data-collapsed={expanded ? 'false' : 'true'}
     >
-      <div className="flex items-center gap-2">
+      <button
+        type="button"
+        className="flex w-full min-w-0 items-center gap-2 text-left"
+        aria-expanded={expanded}
+        aria-label={nick}
+        onClick={() => setExpanded((open) => !open)}
+      >
         <MemberBotAvatar
           config={getAvatar(conversationId, nick)}
           className="h-6 w-6 shrink-0"
         />
-        <h3 className="min-w-0 flex-1 truncate text-sm font-semibold text-foreground">
+        <h3 className="min-w-0 truncate text-sm font-semibold text-foreground">
           {nick}
         </h3>
-      </div>
-      <dl className="grid grid-cols-[auto_minmax(0,1fr)] gap-x-3 gap-y-1 text-sm">
-        <dt className="text-muted-foreground">模型</dt>
-        <dd className="min-w-0 truncate text-foreground">
-          {modelLabel || '—'}
-        </dd>
         {agentName ? (
-          <>
-            <dt className="text-muted-foreground">Agent</dt>
-            <dd className="flex min-w-0 items-center gap-1.5 text-foreground">
-              {agentId ? (
-                <AgentIcon agent={agentId} className="h-3.5 w-3.5" />
-              ) : null}
-              <span className="truncate">{agentName}</span>
-            </dd>
-          </>
+          <span className="flex min-w-0 items-center gap-1.5 text-sm text-foreground">
+            {agentId ? (
+              <AgentIcon agent={agentId} className="h-3.5 w-3.5" />
+            ) : null}
+            <span className="truncate">{agentName}</span>
+          </span>
         ) : null}
-      </dl>
-      {usage?.totalTokens != null ? (
-        <div data-testid={`group-details-tokens-${conversationId || nick}`}>
-          <strong className="kanban-usage-stat__value block font-semibold tabular-nums text-foreground">
-            {formatTokens(usage.totalTokens)}
-          </strong>
-          <div className="mt-1 text-xs text-muted-foreground">总 Token</div>
-        </div>
-      ) : null}
-      {usage && usage.byModel.length > 0 ? (
+      </button>
+      {expanded && usage && usage.byModel.length > 0 ? (
         <ul className="flex flex-col gap-1 text-sm">
           {usage.byModel.map((group) => (
             <li
@@ -105,16 +136,20 @@ function GroupMemberUsageCard({
               className="flex items-center justify-between gap-3"
             >
               <span className="min-w-0 truncate">
-                {group.label ?? '未标记模型'}
+                {group.label ?? COPY.unlabeledModel}
               </span>
-              <span className="tabular-nums">{formatTokens(group.tokens)}</span>
+              <span className="flex shrink-0 items-center gap-2 tabular-nums">
+                <span>{formatTokens(group.tokens)}</span>
+                {group.cacheRate != null ? (
+                  <span className="text-muted-foreground">
+                    {formatCacheRate(group.cacheRate)}
+                  </span>
+                ) : null}
+              </span>
             </li>
           ))}
         </ul>
       ) : null}
-      <div className={cn(!quotaActive && 'hidden')} hidden={!quotaActive}>
-        <SessionQuota agentId={agentId} onActive={setQuotaActive} />
-      </div>
     </section>
   );
 }
@@ -130,6 +165,9 @@ export function GroupDetailsUsageTab({
   ) => MemberBotAvatarConfig;
 }) {
   const [members, setMembers] = useState<SpaceMember[]>([]);
+  const [snapshots, setSnapshots] = useState<
+    Record<string, MemberUsageSnapshot>
+  >({});
 
   useEffect(() => {
     if (!spaceId) return;
@@ -150,19 +188,94 @@ export function GroupDetailsUsageTab({
     };
   }, [spaceId]);
 
+  const onSnapshot = useCallback((snapshot: MemberUsageSnapshot) => {
+    setSnapshots((prev) => {
+      const current = prev[snapshot.memberKey];
+      if (
+        current &&
+        current.agentId === snapshot.agentId &&
+        current.totalTokens === snapshot.totalTokens &&
+        current.byModel.length === snapshot.byModel.length &&
+        current.byModel.every(
+          (group, index) =>
+            group.key === snapshot.byModel[index]?.key &&
+            group.tokens === snapshot.byModel[index]?.tokens
+        )
+      ) {
+        return prev;
+      }
+      return { ...prev, [snapshot.memberKey]: snapshot };
+    });
+  }, []);
+
+  const liveSnapshots = useMemo(() => {
+    const keys = new Set(members.map(memberUsageKey));
+    return Object.values(snapshots).filter((snapshot) =>
+      keys.has(snapshot.memberKey)
+    );
+  }, [members, snapshots]);
+
+  const overview = useMemo(
+    () => aggregateTokenOverview(liveSnapshots),
+    [liveSnapshots]
+  );
+  const quotaAgentIds = useMemo(
+    () => uniqueAgentIds(liveSnapshots),
+    [liveSnapshots]
+  );
+
   return (
     <div
       className="collaboration-group-details-usage"
       data-testid="collaboration-group-details-tab"
     >
+      {members.length > 0 ? (
+        <section
+          className={CARD_CLASS}
+          data-testid="group-details-token-overview"
+        >
+          <h3 className="text-sm font-semibold text-foreground">
+            {COPY.tokenOverview}
+          </h3>
+          <div>
+            <strong className="kanban-usage-stat__value block font-semibold tabular-nums text-foreground">
+              {overview.totalTokens != null
+                ? formatTokens(overview.totalTokens)
+                : '—'}
+            </strong>
+            <div className="mt-1 text-xs text-muted-foreground">
+              {COPY.totalTokens}
+            </div>
+          </div>
+          {overview.byModel.length > 0 ? (
+            <ul className="flex flex-col gap-1 text-sm">
+              {overview.byModel.map((group) => (
+                <li
+                  key={group.key || 'unlabeled'}
+                  className="flex items-center justify-between gap-3"
+                >
+                  <span className="min-w-0 truncate">
+                    {group.label ?? COPY.unlabeledModel}
+                  </span>
+                  <span className="tabular-nums">
+                    {formatTokens(group.tokens)}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          ) : null}
+        </section>
+      ) : null}
       {members.map((member) => (
         <GroupMemberUsageCard
-          key={
-            member.member_id ?? member.conversation_id ?? displayName(member)
-          }
+          key={memberUsageKey(member)}
           member={member}
           getAvatar={getAvatar}
+          onSnapshot={onSnapshot}
         />
+      ))}
+      {quotaAgentIds.map((agentId) => (
+        <GroupAgentQuotaCard key={agentId} agentId={agentId} />
       ))}
     </div>
   );

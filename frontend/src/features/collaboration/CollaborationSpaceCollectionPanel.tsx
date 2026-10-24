@@ -602,9 +602,7 @@ export function CollaborationSpaceCollectionDockviewPanel(
           className="collaboration-group-details-tabs"
           role="tablist"
           aria-label={
-            isAssistant
-              ? COPY.assistantDetailsButton
-              : COPY.groupDetailsButton
+            isAssistant ? COPY.assistantDetailsButton : COPY.groupDetailsButton
           }
         >
           {(isAssistant
@@ -670,7 +668,12 @@ export function CollaborationSpaceCollectionDockviewPanel(
       ) : null}
 
       {detailsTab === 'collection' ? (
-        <div className="collaboration-group-details-body">
+        <div
+          className={cn(
+            'collaboration-group-details-body',
+            isAssistant && 'collaboration-assistant-details-body'
+          )}
+        >
           <div className="collaboration-collection-header">
             <div className="collaboration-collection-title-group">
               <span className="workspace-session-group-count">

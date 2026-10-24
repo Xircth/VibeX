@@ -5,6 +5,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
+import { cn } from '@/lib/utils';
 
 import { collaborationCall } from './collaborationApi';
 import { MemberSessionConfigControls } from './MemberSessionConfigControls';
@@ -48,10 +49,7 @@ export function AssistantDetailsCustomizeTab({
   conversationId?: string | null;
   initialName: string;
   initialAvatar: MemberBotAvatarConfig;
-  onSaved?: (next: {
-    name: string;
-    avatar: MemberBotAvatarConfig;
-  }) => void;
+  onSaved?: (next: { name: string; avatar: MemberBotAvatarConfig }) => void;
 }) {
   const [name, setName] = useState(initialName);
   const [avatar, setAvatar] = useState(initialAvatar);
@@ -62,6 +60,7 @@ export function AssistantDetailsCustomizeTab({
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
+  const [agentShaking, setAgentShaking] = useState(false);
 
   useEffect(() => {
     setName(initialName);
@@ -84,7 +83,9 @@ export function AssistantDetailsCustomizeTab({
         const config = page.config ?? null;
         setAgentId(configField(config, 'agent_id', 'agentId'));
         setModeId(configField(config, 'mode_id', 'modeId'));
-        setConfigValues(stringRecord(config?.config_values ?? config?.configValues));
+        setConfigValues(
+          stringRecord(config?.config_values ?? config?.configValues)
+        );
         setPersonaPrompt(
           configField(config, 'persona_prompt', 'personaPrompt')
         );
@@ -157,15 +158,21 @@ export function AssistantDetailsCustomizeTab({
       <MemberBotAvatarPicker value={avatar} onChange={setAvatar} />
 
       {agentName ? (
-        <div className="space-y-1.5">
+        <div className="flex items-center gap-2">
           <Label>Agent</Label>
-          <p
-            className="flex items-center gap-1.5 text-sm text-foreground"
+          <button
+            type="button"
+            className={cn(
+              'collaboration-assistant-agent-readonly',
+              agentShaking && 'is-shaking'
+            )}
             data-testid="collaboration-assistant-agent-readonly"
+            onClick={() => setAgentShaking(true)}
+            onAnimationEnd={() => setAgentShaking(false)}
           >
             <AgentIcon agent={agentId} className="h-4 w-4" />
             <span>{agentName}</span>
-          </p>
+          </button>
         </div>
       ) : null}
 

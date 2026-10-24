@@ -79,13 +79,13 @@ describe('collaboration group details chrome', () => {
     expect(selected.background?.value).toBe('var(--surface-control)');
   });
 
-  it('reserves remove-button space so member-row hover does not shift layout', () => {
+  it('keeps the remove control in flow so the row does not shift', () => {
     const remove = declarationsFor('.collaboration-group-member-remove');
-    expect(remove.display?.value).toBe('inline-flex');
-    expect(remove.opacity?.value).toBe('0');
+    expect(remove['flex-shrink']?.value).toBe('0');
+    expect(remove.opacity).toBeUndefined();
     const hover = declarationsFor(
       '.collaboration-group-member-row:hover .collaboration-group-member-remove, .collaboration-group-member-row:focus-within .collaboration-group-member-remove'
     );
-    expect(hover.opacity?.value).toBe('1');
+    expect(hover.opacity).toBeUndefined();
   });
 });

@@ -22,20 +22,22 @@ vi.mock('@/features/agents/sessionControlsQuery', () => ({
 describe('AssistantDetailsCustomizeTab', () => {
   beforeEach(() => {
     collaborationCall.mockReset();
-    collaborationCall.mockImplementation(async (_cap: string, method: string) => {
-      if (method === 'member.config.get') {
-        return {
-          memberId: 'mem-a',
-          config: {
-            agent_id: 'CLAUDE_CODE',
-            mode_id: 'default',
-            config_values: { model: 'grok-4.6' },
-            persona_prompt: '你是小A',
-          },
-        };
+    collaborationCall.mockImplementation(
+      async (_cap: string, method: string) => {
+        if (method === 'member.config.get') {
+          return {
+            memberId: 'mem-a',
+            config: {
+              agent_id: 'CLAUDE_CODE',
+              mode_id: 'default',
+              config_values: { model: 'grok-4.6' },
+              persona_prompt: '你是小A',
+            },
+          };
+        }
+        return {};
       }
-      return {};
-    });
+    );
   });
 
   it('loads the bot config and saves name, session config, and persona without changing Agent', async () => {
@@ -51,13 +53,17 @@ describe('AssistantDetailsCustomizeTab', () => {
       />
     );
 
-    expect(await screen.findByRole('textbox', { name: '助手名称' })).toHaveValue(
-      '小A'
+    expect(
+      await screen.findByRole('textbox', { name: '助手名称' })
+    ).toHaveValue('小A');
+    const agentReadonly = screen.getByTestId(
+      'collaboration-assistant-agent-readonly'
     );
-    expect(screen.getByTestId('collaboration-assistant-agent-readonly')).toHaveTextContent(
-      'Claude Code'
-    );
+    expect(agentReadonly).toHaveTextContent('Claude Code');
+    expect(agentReadonly.parentElement).toHaveTextContent('Agent');
     expect(screen.queryByRole('combobox', { name: '选择 Agent' })).toBeNull();
+    await user.click(agentReadonly);
+    expect(agentReadonly).toHaveClass('is-shaking');
     expect(screen.getByLabelText('人设提示词（可选）')).toHaveValue('你是小A');
 
     await user.clear(screen.getByRole('textbox', { name: '助手名称' }));

@@ -119,7 +119,7 @@ describe('session details usage', () => {
       })
     ).toBe(950);
     expect(usageByModel(turns)).toEqual([
-      { key: 'grok-4.6', label: 'grok-4.6', tokens: 15 },
+      { key: 'grok-4.6', label: 'grok-4.6', tokens: 15, cacheRate: 0 },
     ]);
     expect(usageByMessage(turns).map((item) => item.tokens)).toEqual([
       15,
@@ -152,6 +152,26 @@ describe('session details usage', () => {
         truncated: true,
       })
     ).toBe(950);
+  });
+
+  it('reports cache rate per model from that model’s buckets', () => {
+    const turns = [
+      row('a1', 'assistant', {
+        model: 'grok-4.6',
+        usage: usage(10, 5, { cache_read_input_tokens: 10n }),
+      }),
+      row('a2', 'assistant', {
+        model: 'grok-4.5',
+        usage: usage(20, 0, {
+          cache_creation_input_tokens: 5n,
+          cache_read_input_tokens: 5n,
+        }),
+      }),
+    ];
+    expect(usageByModel(turns)).toEqual([
+      { key: 'grok-4.5', label: 'grok-4.5', tokens: 30, cacheRate: 5 / 30 },
+      { key: 'grok-4.6', label: 'grok-4.6', tokens: 25, cacheRate: 0.5 },
+    ]);
   });
 });
 
@@ -371,7 +391,7 @@ describe('session details changes and identity', () => {
     expect(model.usage.cacheRate).toBeCloseTo(70 / 90);
     expect(model.usage.itemized).toBe(false);
     expect(model.usage.byModel).toEqual([
-      { key: 'grok-4.6', label: 'grok-4.6', tokens: 100 },
+      { key: 'grok-4.6', label: 'grok-4.6', tokens: 100, cacheRate: null },
     ]);
     expect(model.usage.byMessage.map((item) => item.tokens)).toEqual([null]);
   });

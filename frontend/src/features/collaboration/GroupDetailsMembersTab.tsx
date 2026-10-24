@@ -1,5 +1,6 @@
 import { Plus } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import { Button } from '@/components/ui/button';
 import {
   Popover,
   PopoverContent,
@@ -146,16 +147,18 @@ export function GroupDetailsMembersTab({
               className="h-7 w-7 shrink-0"
             />
             <span className="collaboration-group-member-name">{nick}</span>
-            <button
+            <Button
               type="button"
-              className="collaboration-group-member-remove"
+              variant="destructive"
+              size="xs"
+              className="collaboration-group-member-remove border-transparent bg-destructive/10 hover:bg-destructive/15"
               aria-label={`${COPY.removeSpaceMember} ${nick}`}
               onClick={() => {
                 void removeMember(member);
               }}
             >
               {COPY.removeSpaceMember}
-            </button>
+            </Button>
           </div>
         );
       })}
@@ -166,17 +169,21 @@ export function GroupDetailsMembersTab({
           if (open) void loadCandidates();
         }}
       >
-        <PopoverTrigger asChild>
-          <button
-            type="button"
-            className="collaboration-group-add-member"
-            data-testid="collaboration-group-add-member"
-          >
-            <Plus className="h-4 w-4" aria-hidden="true" />
-            {COPY.addSpaceMember}
-          </button>
-        </PopoverTrigger>
-        <PopoverContent align="start" className="w-56 p-1">
+        <div className="collaboration-group-add-member-wrap">
+          <PopoverTrigger asChild>
+            <Button
+              type="button"
+              variant="secondary"
+              size="sm"
+              className="collaboration-group-add-member"
+              data-testid="collaboration-group-add-member"
+              icon={<Plus className="h-4 w-4" aria-hidden="true" />}
+            >
+              {COPY.addSpaceMember}
+            </Button>
+          </PopoverTrigger>
+        </div>
+        <PopoverContent align="center" className="w-56 p-1">
           <div className="collaboration-group-candidate-list">
             {candidates.map((candidate) => (
               <button
@@ -199,7 +206,7 @@ export function GroupDetailsMembersTab({
             ))}
             <button
               type="button"
-              className="collaboration-group-add-member"
+              className="collaboration-group-create-assistant"
               data-testid="collaboration-group-create-assistant"
               onClick={() => {
                 setPickerOpen(false);

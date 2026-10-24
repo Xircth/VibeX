@@ -193,7 +193,11 @@ import {
   writeMemberBotAvatars,
   type MemberBotAvatarConfig,
 } from './MemberBotAvatar';
-import { SpaceMessageBody, bubbleText } from './SpaceMessageBody';
+import {
+  SpaceMessageBody,
+  bubbleText,
+  messagePreviewText,
+} from './SpaceMessageBody';
 import './collaboration.css';
 
 if (
@@ -1136,7 +1140,7 @@ export function CollaborationSpacePage({
           (targetConvId && msgConvId && msgConvId === targetConvId) ||
           (targetName && author === targetName)
         ) {
-          return bubbleText(msg.envelope).replace(/\s+/g, ' ').trim();
+          return messagePreviewText(bubbleText(msg.envelope));
         }
       }
       return '';

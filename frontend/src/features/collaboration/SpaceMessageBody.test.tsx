@@ -4,7 +4,11 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 const collaborationCall = vi.hoisted(() => vi.fn());
 vi.mock('./collaborationApi', () => ({ collaborationCall }));
 
-import { SpaceMessageBody, parseCard } from './SpaceMessageBody';
+import {
+  SpaceMessageBody,
+  messagePreviewText,
+  parseCard,
+} from './SpaceMessageBody';
 
 const approval =
   '请求审批：合并 PR\n\n<card kind="approval" id="card-1">\n<action>\n合并 PR #42\n</action>\n<command>\ngit merge &lt;x&gt;\n</command>\n<reason>\n修复完成\n</reason>\n</card>';
@@ -87,6 +91,17 @@ describe('SpaceMessageBody cards', () => {
         'card.resolve',
         { cardId: 'card-2', answer: 'feature-x' }
       )
+    );
+  });
+});
+
+describe('messagePreviewText', () => {
+  it('shows a label instead of raw card markup', () => {
+    expect(messagePreviewText(approval)).toBe('审批请求');
+    expect(messagePreviewText(ask)).toBe('提问：用哪个分支？');
+    expect(messagePreviewText('hello\n  world')).toBe('hello world');
+    expect(messagePreviewText('<card kind="approval" id="x"><action>')).toBe(
+      '审批请求'
     );
   });
 });

@@ -174,6 +174,8 @@ as ordinary conversations (one per extra space) rather than being merged back.
 
 - `crates/plugins/src/official_mcp.rs`: the official collaboration tool list does not include the three space-collection tools (`list_space_collection`, `add_to_space_collection`, `read_space_collection_item`) added in fba44df4, although vibex-mcp exposes them and `tool_schema.json` declares them. fba44df4 predates this redesign, so it is unclear whether the omission is intentional. Left unchanged pending owner decision.
 
+- 成员加入群聊时目前会立即为其创建群内会话（非懒创建）。完全懒创建需要将 collaboration_thread_members.conversation_id 改为可空（迁移）、首次收发消息时按成员配置 resolve_session、UI 显示"暂无会话"状态；大总管决定暂不做，待终审确认。
+
 ## 成员会话配置（Member session config）
 
 - 成员是长期身份；每个（成员, thread）对应一个底层会话，由 `resolve_session(member_id, thread_id)` 按需创建。UI 只展示成员，不暴露会话 id。

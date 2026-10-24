@@ -35,6 +35,8 @@ export type SessionUsageGroup = {
   key: string;
   label: string | null;
   tokens: number;
+  /** Cache read / (input + cache write + cache read) for this model. */
+  cacheRate: number | null;
 };
 
 export type SessionMessageUsage = {
@@ -332,21 +334,53 @@ export function latestContextOccupancy(turns: ConversationTimelineTurn[]): {
   return { used: null, windowMax: null };
 }
 
+type ModelUsageAccumulator = SessionUsageGroup & {
+  input: number;
+  cacheWrite: number;
+  cacheRead: number;
+};
+
 export function usageByModel(
   turns: ConversationTimelineTurn[]
 ): SessionUsageGroup[] {
-  const groups = new Map<string, SessionUsageGroup>();
+  const groups = new Map<string, ModelUsageAccumulator>();
   for (const row of turns) {
     if (row.turn.role !== 'assistant') continue;
     const spend = protocolSpend(row.turn.usage);
     if (spend == null) continue;
     const model = row.turn.model?.trim() || null;
     const key = model ?? '';
-    const current = groups.get(key) ?? { key, label: model, tokens: 0 };
+    const current = groups.get(key) ?? {
+      key,
+      label: model,
+      tokens: 0,
+      cacheRate: null,
+      input: 0,
+      cacheWrite: 0,
+      cacheRead: 0,
+    };
     current.tokens += spend;
+    const buckets = bucketsFromUsage(row.turn.usage);
+    if (buckets) {
+      current.input += buckets.input;
+      current.cacheWrite += buckets.cacheWrite;
+      current.cacheRead += buckets.cacheRead;
+    }
     groups.set(key, current);
   }
-  return [...groups.values()].sort((left, right) => right.tokens - left.tokens);
+  return [...groups.values()]
+    .map(({ key, label, tokens, input, cacheWrite, cacheRead }) => ({
+      key,
+      label,
+      tokens,
+      cacheRate: cacheRateFromBuckets({
+        input,
+        output: 0,
+        cacheWrite,
+        cacheRead,
+      }),
+    }))
+    .sort((left, right) => right.tokens - left.tokens);
 }
 
 export function usageByMessage(
@@ -437,7 +471,9 @@ function withSessionDistribution(
   if (total == null || total <= 0) return groups;
   if (groups.length === 0) {
     const label = sessionModel?.trim() || null;
-    return [{ key: label ?? 'unattributed', label, tokens: total }];
+    return [
+      { key: label ?? 'unattributed', label, tokens: total, cacheRate: null },
+    ];
   }
   const attributed = groups.reduce((sum, group) => sum + group.tokens, 0);
   if (attributed >= total) return groups;
@@ -448,7 +484,12 @@ function withSessionDistribution(
   }
   return [
     ...groups,
-    { key: 'unattributed', label: null, tokens: total - attributed },
+    {
+      key: 'unattributed',
+      label: null,
+      tokens: total - attributed,
+      cacheRate: null,
+    },
   ];
 }
 

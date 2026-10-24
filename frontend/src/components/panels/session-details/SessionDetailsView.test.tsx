@@ -58,7 +58,9 @@ const ready: SessionDetailsModel = {
     itemized: true,
     contextUsed: 4000,
     contextWindowMax: 128000,
-    byModel: [{ key: 'grok-4.6', label: 'Grok 4.6', tokens: 120 }],
+    byModel: [
+      { key: 'grok-4.6', label: 'Grok 4.6', tokens: 120, cacheRate: 0.5 },
+    ],
     byMessage: [
       { turnId: 'u1', ordinal: 1, preview: '第一条', tokens: 120 },
       { turnId: 'u2', ordinal: 2, preview: '第二条很长的预览', tokens: null },

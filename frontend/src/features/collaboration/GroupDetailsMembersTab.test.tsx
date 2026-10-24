@@ -70,7 +70,15 @@ describe('GroupDetailsMembersTab', () => {
     expect(
       await screen.findByTestId('collaboration-group-member-小A')
     ).toBeTruthy();
-    await user.click(screen.getByRole('button', { name: '移除 小A' }));
+    const remove = screen.getByRole('button', { name: '移除 小A' });
+    expect(remove).toHaveAttribute('data-variant', 'destructive');
+    expect(remove.className).toMatch(/bg-destructive\/10/);
+    const addMember = screen.getByTestId('collaboration-group-add-member');
+    expect(addMember).toHaveAttribute('data-variant', 'secondary');
+    expect(
+      addMember.closest('.collaboration-group-add-member-wrap')
+    ).toBeTruthy();
+    await user.click(remove);
     expect(collaborationCall).toHaveBeenCalledWith(
       'collaboration',
       'space.moveMember',
